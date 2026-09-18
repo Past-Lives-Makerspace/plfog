@@ -37,16 +37,16 @@ def describe_wants_fragment():
             request = _request(HTTP_HX_REQUEST="true", HTTP_HX_HISTORY_RESTORE_REQUEST="true")
             assert wants_fragment(request) is False
 
-        def it_is_false_even_when_boosted_requests_are_counted():
-            request = _request(HTTP_HX_REQUEST="true", HTTP_HX_HISTORY_RESTORE_REQUEST="true")
-            assert wants_fragment(request, boosted_counts=True) is False
+    def describe_a_boosted_post_that_redirects():
+        def it_is_false_so_the_redirect_target_renders_a_whole_page():
+            """The counterexample that removed the "boosted requests count" option.
 
-    def describe_when_boosted_requests_count():
-        def it_is_true_for_a_boosted_request():
-            # For a view no boosted navigation reaches, every htmx request is a fragment
-            # request. The restore case above is still excluded.
+            "Resume payment" is a plain form inside the boosted body, so the redirect it
+            follows reaches the orientation return page carrying both headers. Treating
+            that as a fragment request swapped a bare polling card into the document.
+            """
             request = _request(HTTP_HX_REQUEST="true", HTTP_HX_BOOSTED="true")
-            assert wants_fragment(request, boosted_counts=True) is True
+            assert wants_fragment(request) is False
 
     def it_ignores_a_header_that_is_not_exactly_true():
         assert wants_fragment(_request(HTTP_HX_REQUEST="false")) is False

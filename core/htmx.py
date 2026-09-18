@@ -17,6 +17,12 @@ where their page used to be. Measured on the public class catalog: 341,276 bytes
 document, 339 bytes without.
 
 A restore is a GET, so a view behind ``@require_POST`` cannot be reached this way.
+
+There is deliberately no "treat boosted requests as fragment requests" option. The one
+view that wanted it (``orientation_checkout_return``) turned out to be its own
+counterexample: "Resume payment" is a plain ``<form method="post">`` inside the boosted
+body, and the redirect it follows arrives carrying ``HX-Boosted``, so the option would
+have swapped a bare polling card into the page on exactly that path.
 """
 
 from __future__ import annotations
@@ -24,15 +30,11 @@ from __future__ import annotations
 from django.http import HttpRequest
 
 
-def wants_fragment(request: HttpRequest, *, boosted_counts: bool = False) -> bool:
+def wants_fragment(request: HttpRequest) -> bool:
     """True when this request should be answered with a partial rather than a page.
 
     Args:
         request: The request to inspect.
-        boosted_counts: Leave False when the view renders a whole page for a boosted
-            navigation, which is the normal case under ``hx-boost``. Pass True only for
-            a view that is never reached by a boosted navigation and genuinely wants
-            every htmx request treated as a fragment request.
 
     Returns:
         Whether to render the fragment.
@@ -41,6 +43,6 @@ def wants_fragment(request: HttpRequest, *, boosted_counts: bool = False) -> boo
         return False
     if request.headers.get("HX-History-Restore-Request") == "true":
         return False
-    if not boosted_counts and request.headers.get("HX-Boosted") == "true":
+    if request.headers.get("HX-Boosted") == "true":
         return False
     return True

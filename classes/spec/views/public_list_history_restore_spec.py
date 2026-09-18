@@ -1,8 +1,8 @@
 """A Back onto the public class catalog must return the page, not the results grid.
 
-The catalog is the one GET-reachable view in the codebase that answers some requests
-with a fragment (``classes/views.py``). Every other such branch is ``@require_POST``,
-and a history restore is a GET, so this is the only one a Back can reach.
+The catalog answers some requests with a fragment and is reachable by a GET, which is
+the combination a history restore can reach: a restore is a GET carrying ``HX-Request``
+and no ``HX-Boosted``. A view behind ``@require_POST`` cannot be reached this way.
 
 It matters because the catalog is also the one page that pushes history by design: the
 category filter and the pagination links both carry ``hx-push-url``. Pressing Back after

@@ -265,6 +265,7 @@ def describe_the_history_restore_guards():
         # editor is where we start and /spaces/ (which is public) is where we leave to.
         edit_path = reverse("hub_org_map_edit")
         page.goto(f"{live_server.url}{edit_path}")
+        page.evaluate("() => { window.__plExpiredMarker = true; }")
         _boosted_click(page, reverse("hub_spaces"), selector=DONE_LINK)
 
         # Expire the session the way time would, leaving the tab open.
@@ -276,8 +277,13 @@ def describe_the_history_restore_guards():
             f"Back landed on {page.url} rather than the login page; the login response was "
             "swapped into the hub document instead of being loaded"
         )
-        # A real load, so the login page owns the document rather than sitting inside the hub.
-        assert page.locator("input[name='email']").count() == 1
+        # The login form being present proves nothing: it is present in the broken case
+        # too, sitting inside the hub document. What separates a load from a swap is
+        # whether the document survived, so the marker stamped before the Back is the
+        # witness.
+        survived = page.evaluate("() => Boolean(window.__plExpiredMarker)")
+        assert not survived, "the login page was swapped into the hub document, not loaded"
+        assert "next=" in page.url, f"the return path was dropped from {page.url}"
 
     def it_loads_the_real_error_page_when_the_target_is_gone(live_server, page, login_via_code):
         """Without the guard, htmx swaps nothing and Back is simply dead.
@@ -285,6 +291,11 @@ def describe_the_history_restore_guards():
         The popstate has already moved the address bar, so the member is left looking at
         the previous screen under the gone page's URL, with nothing to say what happened
         and no branded 404 to navigate out of.
+
+        Everything here is waited on with ``wait_for_function`` rather than ``expect``:
+        the guard navigates a beat after ``go_back()`` returns, and an ``expect`` started
+        before that pins itself to the outgoing execution context and polls it until it
+        times out.
         """
         offering = _seed_draft()
         login_via_code(EMAIL)
@@ -293,25 +304,26 @@ def describe_the_history_restore_guards():
         dashboard_path = reverse("classes:teach_dashboard")
         page.goto(f"{live_server.url}{detail_path}")
         expect(page).to_have_url(re.compile(re.escape(detail_path) + "$"))
-        marker = page.evaluate("() => { window.__plGoneMarker = true; return true; }")
-        assert marker
+        page.evaluate("() => { window.__plGoneMarker = true; }")
 
+        # A boosted click, because that is what puts the entry into htmx's history and so
+        # makes Back a restore rather than a plain browser back.
         _boosted_click(page, dashboard_path)
         offering.delete()
 
         page.go_back()
 
-        # A real load replaces the document, so the marker stamped before it goes with it;
-        # a dead Back leaves the same document in place and the marker survives. This has
-        # to be waited on rather than read: go_back triggers an htmx restore, which is not
-        # a document load, so every load-state wait returns immediately and would sample
-        # the old document before the guard's navigation lands.
         try:
-            page.wait_for_function("() => !window.__plGoneMarker", timeout=10000)
+            # The marker is stamped on the document the Back returns to, so losing it
+            # means a real load replaced the document rather than htmx swapping into it.
+            page.wait_for_function("() => !window.__plGoneMarker", timeout=15000)
+            # And the load has to be the branded 404, which is the thing the guard exists
+            # to reach: htmx never swaps a non-2xx, so without it this never arrives.
+            page.wait_for_function("() => document.title.indexOf('Page not found') !== -1", timeout=15000)
         except PlaywrightTimeoutError:  # pragma: no cover - only on a real regression
             raise AssertionError(
-                "Back left the previous document in place under the deleted class's URL, "
-                "which is the dead Back this guard exists to prevent"
+                f"Back left the previous document in place under {detail_path} with title "
+                f"{page.title()!r}, which is the dead Back this guard exists to prevent"
             ) from None
 
         expect(page).to_have_url(re.compile(re.escape(detail_path) + "$"))
