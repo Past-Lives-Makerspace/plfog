@@ -502,13 +502,17 @@ def _tour_slide(config: SiteConfiguration, default: int) -> list[SignageSlideVM]
 # ``(config, default) -> list`` signature is what lets build_deck drive them in one loop.
 #
 # The third element is the core.features key the slide depends on, or None for a slide that
-# depends on no switchable feature. A feature that is not On beats its ``signage_show_*``
-# switch (#405, AC 5): without that, a feature reading "Coming soon" in the hub would still be
-# advertised on the lobby wall, with a QR code onto a 404.
+# depends on no switchable feature. A feature that is not On beats its ``signage_show_*`` switch
+# (#405, AC 5).
+#
+# The reason is consistency, not access: nothing 404s under the cosmetic switch, and a member
+# who scans the QR still reaches the page. What must not happen is the lobby wall advertising a
+# feature the sidebar has just hidden — a "Coming soon" Voting section in the hub with a Voting
+# slide on the wall beside it is the makerspace contradicting itself in public.
 _GENERATED_BLOCKS: tuple[tuple[str, Callable[[SiteConfiguration, int], list[SignageSlideVM]], str | None], ...] = (
     ("signage_show_classes", _class_slides, None),
     ("signage_show_events", _event_slides, None),
-    ("signage_show_guilds", _guild_slides, None),
+    ("signage_show_guilds", _guild_slides, "guilds"),
     ("signage_show_calendar", _calendar_slide, None),
     ("signage_show_voting", _voting_slide, "voting"),
     ("signage_show_directory", _directory_slide, "directory"),

@@ -2252,9 +2252,9 @@ class FeatureSwitch(models.Model):
         max_length=10,
         choices=FeatureState.choices,
         default=FeatureState.ON,
-        help_text="On is normal behaviour. Coming soon leaves the nav entry visible but inert, with the "
-        "message below on hover. Hidden removes the entry. Both off states answer 404 on every page in "
-        "the feature, for everyone including admins.",
+        help_text=(
+            "On is normal behaviour. Coming soon leaves the sidebar entry visible but inert, showing the message below on hover and on keyboard focus. Hidden removes the entry. Both off states change the sidebar only: every page in the feature stays reachable by its own link, for everyone."
+        ),
     )
     message = models.CharField(
         max_length=200,

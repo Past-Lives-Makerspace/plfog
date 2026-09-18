@@ -19,12 +19,13 @@ def set_feature(key: str, state: str) -> FeatureSwitch:
 
 
 def turn_on(key: str) -> FeatureSwitch:
-    """Put a feature fully On — today's behaviour, nav entry and routes alike."""
+    """Put a feature fully On — today's sidebar entry."""
     return set_feature(key, FeatureState.ON)
 
 
 def hide(key: str) -> FeatureSwitch:
-    """Hide a feature: no nav entry anywhere, every route in the family 404s."""
+    """Hide a feature: no sidebar entry anywhere. Its pages stay reachable by URL — the
+    switch is cosmetic (#405), so nothing 404s in any state."""
     return set_feature(key, FeatureState.HIDDEN)
 
 

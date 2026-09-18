@@ -93,9 +93,9 @@ def describe_hub_nav_help_and_wiki_flags():
         body = client.get(reverse("hub_member_directory")).content
         assert b'href="/wiki/" class="hub-sidebar__link' in body
 
-    def it_hides_the_wiki_link_from_a_member_while_the_wiki_is_disabled(client: Client):
-        # A member statement since #405 reversed decision 1: the wiki being off hides it from
-        # members. An admin keeps the entry, which the spec below asserts.
+    def it_hides_the_wiki_link_while_the_wiki_is_disabled(client: Client):
+        # #405: the switch is cosmetic and applies to everyone, with no viewer-role branch.
+        # The entry leaves the sidebar; /wiki/ keeps answering for whoever has the link.
         _login_member(client, "wiki_off_member")
         body = client.get(reverse("hub_member_directory")).content
         assert b'href="/wiki/" class="hub-sidebar__link' not in body

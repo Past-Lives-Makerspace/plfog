@@ -17,7 +17,8 @@ from tests.membership.factories import GuildFactory, MembershipPlanFactory
 
 
 def enable_wiki() -> SiteConfiguration:
-    """Turn the feature flag on. Every wiki route 404s while it is off."""
+    """Put the Wiki feature On, so the sidebar entry renders. Turning it off only removes
+    that entry — every wiki route answers in all three states (#405)."""
     config = SiteConfiguration.load()
     turn_on("wiki")
     return config

@@ -99,10 +99,13 @@ def describe_the_feature_switch():
             assert client.get(url).status_code == 200, url
 
     def it_keeps_the_write_posts_working_too(client: Client, _wiki_on):
+        # The write path is the more interesting half of "the URL still works": a read that
+        # survives a hidden feature is reassuring, a write that survives is the actual claim.
         hide("wiki")
         _login(client, "wiki_off_post")
         page = WikiPageFactory()
         assert client.post(reverse("hub_wiki_confirm", args=[page.slug])).status_code == 200
+        assert client.post(reverse("hub_wiki_quick_tip", args=[page.slug]), {"tip": "x"}).status_code == 200
 
     def it_requires_login(client: Client):
         response = client.get(reverse("hub_wiki_home"))

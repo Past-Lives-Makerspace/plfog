@@ -10,6 +10,8 @@ machine works at all.
 
 from __future__ import annotations
 
+from urllib.parse import quote
+
 import pytest
 from django.contrib.auth.models import User
 from django.test import Client
@@ -108,17 +110,38 @@ def describe_the_sticker_scan_route():
             response = client.get(reverse("hub_wiki_qr", args=["ZZZZZZ"]))
             assert reverse("hub_wiki_search").encode() in response.content
 
-    def describe_the_feature_flag():
-        def it_still_resolves_a_known_code_while_the_wiki_is_hidden(client, db, _wiki_on):
+    def describe_the_feature_switch():
+        def it_still_sends_a_signed_in_scan_to_the_page_while_the_wiki_is_hidden(client, db, _wiki_on):
+            """The sticker on the machine keeps working when the Wiki leaves the sidebar (#405).
+
+            Asserting the redirect TARGET, not just that a 3xx happened: a bare status check
+            would pass if a gate were reintroduced tomorrow and bounced the scan to login or
+            the home page, which is precisely the regression this spec exists to catch.
+            """
             _login(client, "scanner@example.com")
             page = WikiPageFactory(title="Table Saw")
             hide("wiki")
-            assert client.get(reverse("hub_wiki_qr", args=[page.qr_code])).status_code in (200, 302)
+            response = client.get(reverse("hub_wiki_qr", args=[page.qr_code]))
+            assert response.status_code == 302
+            assert response["Location"] == page.get_absolute_url()
 
-        def it_still_resolves_a_signed_out_scan_too(client, db, _wiki_on):
+        def it_sends_a_signed_out_scan_to_login_whatever_the_wiki_state(client, db, _wiki_on):
+            """Deliberately the same answer in both states, which is the point.
+
+            hub_wiki_qr is the one wiki view with no @login_required: a signed-out scan always
+            redirects to login carrying the page as ``next``. So this case can never evidence
+            anything about the switch — it is here to say so out loud, and to pin that hiding
+            the wiki does not change it.
+            """
             page = WikiPageFactory(title="Table Saw")
+            target = page.get_absolute_url()
+            signed_out_while_on = client.get(reverse("hub_wiki_qr", args=[page.qr_code]))
             hide("wiki")
-            assert client.get(reverse("hub_wiki_qr", args=[page.qr_code])).status_code in (200, 302)
+            signed_out_while_hidden = client.get(reverse("hub_wiki_qr", args=[page.qr_code]))
+            for response in (signed_out_while_on, signed_out_while_hidden):
+                assert response.status_code == 302
+                assert "/login" in response["Location"] or "/accounts/" in response["Location"]
+                assert quote(target) in response["Location"]
 
     def describe_the_public_book_surface():
         def it_does_not_resolve_there(client, db, settings):
