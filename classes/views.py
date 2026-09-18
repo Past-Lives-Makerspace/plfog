@@ -1758,10 +1758,13 @@ def _is_composer_post(request: HttpRequest) -> bool:
     """Whether this POST came from the composer rather than one of the smaller class forms.
 
     ``classes/_components/class_composer.html`` posts a hidden ``step``, the phase the page was
-    on; the published light-edit form (``classes/teach/class_form_published.html``) posts no
-    hidden fields at all, and ``step`` is on no other form in the project. Presence is the test,
-    not the value: the input's value is Alpine bound, so a page whose script never ran still
-    posts ``step`` empty, and that is still the composer.
+    on. The published light-edit form (``classes/teach/class_form_published.html``) posts hidden
+    fields of its own, the CSRF token and the FAQ formset's management form, so the test is not
+    that it has none: it is that none of them is named ``step``, and no other form in the
+    project posts that name either.
+
+    Presence is the test, not the value: the input's value is Alpine bound, so a page whose
+    script never ran still posts ``step`` empty, and that is still the composer.
 
     A GET needs no guard of its own: ``request.POST`` is empty on one, so this is already False.
     """
@@ -2009,8 +2012,14 @@ def _render_teach_class_form(
     offering: ClassOffering | None = None,
     faq_formset: Any = None,
     notice: str | None = None,
+    with_hero: bool = True,
 ) -> HttpResponse:
-    """Render the instructor composer. ``notice`` is a page level refusal that is not a form error."""
+    """Render the instructor composer. ``notice`` is a page level refusal that is not a form error.
+
+    ``with_hero=False`` withholds the hero uploader. It is for a render that saves nothing: the
+    uploader writes the instant a file is picked, through its own endpoint, so on a page headed
+    "nothing here was saved" it is the one control that would still change the live class.
+    """
     offering = _saved_row(form, offering)
     saved = offering if offering is not None and offering.pk else None
     return render(
@@ -2027,6 +2036,9 @@ def _render_teach_class_form(
             "mode": mode,
             "faq_formset": faq_formset,
             "composer_notice": notice,
+            # Inverted on purpose: the template guards on the withheld flag, so every caller
+            # that never heard of it (the admin composer among them) keeps its hero uploader.
+            "hero_field_withheld": not with_hero,
             **_composer_context(
                 request,
                 form=form,
@@ -2034,7 +2046,7 @@ def _render_teach_class_form(
                 offering=offering,
                 is_admin=False,
             ),
-            **(_teach_gallery_context(saved) if saved is not None else {}),
+            **(_teach_gallery_context(saved, with_hero=with_hero) if saved is not None else {}),
         },
     )
 
@@ -2114,7 +2126,9 @@ def _instructor_composer(request: HttpRequest, pk: int) -> HttpResponse:
         # always has; a composer POST is a class published while its composer was open, and the
         # light form holds none of the fields it carries, so it comes back unsaved instead.
         if _is_composer_post(request):
-            return _render_unsaved_composer_post(request, offering, teaching_member, notice=_PUBLISHED_WHILE_EDITING)
+            return _render_unsaved_composer_post(
+                request, offering, teaching_member, notice=_PUBLISHED_WHILE_EDITING, with_hero=False
+            )
         # A live class gets the light-edit form on the same URL: content only, no re-review.
         return _teach_published_class_edit(request, offering, teaching_member)
     form = TeachClassOfferingForm(
@@ -2163,11 +2177,17 @@ _CLOSED_WHILE_EDITING = (
 # The published race is the same loss with a different ending: the class is still the
 # instructor's to edit, just through the shorter live-class form, so the notice points there
 # rather than at an admin. The fields that form does not carry are the admin's, as ever.
+#
+# The last sentence names Cancel deliberately, and must not be softened back to "reload this
+# page". This page is the body of a POST, so a reload re-sends that POST, which still carries
+# ``step``, which lands right back here. Every control on the page loops the same way: Save
+# posts ``step`` again under a label that looks like it should work. Cancel is the only exit,
+# because it is a link to the class page, where Edit is a GET.
 _PUBLISHED_WHILE_EDITING = (
     "This class was published after you opened this page, so nothing here was saved. "
     "A live class is edited through a shorter form: the description, the photos, and what to bring. "
     "To change the title, dates, price, or capacity, ask an admin. "
-    "Copy anything you want to keep, then reload this page for the shorter form."
+    "Copy anything you want to keep, then press Cancel and open Edit again for the shorter form."
 )
 
 
@@ -2177,6 +2197,7 @@ def _render_unsaved_composer_post(
     teaching_member: Member,
     *,
     notice: str,
+    with_hero: bool,
 ) -> HttpResponse:
     """A composer POST to a class whose status moved on since the page was rendered.
 
@@ -2188,6 +2209,8 @@ def _render_unsaved_composer_post(
         offering: The class as the database now holds it.
         teaching_member: The instructor or guild staffer the composer renders for.
         notice: The page level explanation of what changed and what to do about it.
+        with_hero: Whether to keep the hero uploader. Spelled at both call sites rather than
+            defaulted, because it is the one control here that still writes to the class.
     """
     form = TeachClassOfferingForm(request.POST, request.FILES, instance=offering, teaching_member=teaching_member)
     formset = ClassSessionFormSet(request.POST, instance=offering, prefix="sessions")
@@ -2201,16 +2224,23 @@ def _render_unsaved_composer_post(
         offering=offering,
         faq_formset=faq_formset,
         notice=notice,
+        with_hero=with_hero,
     )
 
 
 def _render_closed_class_post(request: HttpRequest, offering: ClassOffering, teaching_member: Member) -> HttpResponse:
-    """A composer POST to a class cancelled or archived since the page was rendered."""
+    """A composer POST to a class cancelled or archived since the page was rendered.
+
+    Keeps the hero uploader: a cancelled or archived class is off the catalog, its photo endpoint
+    is closed to this member anyway (``_edit_photos_or_404``), and this render is unchanged from
+    the one issue #385 shipped.
+    """
     return _render_unsaved_composer_post(
         request,
         offering,
         teaching_member,
         notice=_CLOSED_WHILE_EDITING.format(status=offering.get_status_display().lower()),
+        with_hero=True,
     )
 
 

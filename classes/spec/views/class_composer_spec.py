@@ -1506,7 +1506,7 @@ _PUBLISHED_NOTICE = (
     "This class was published after you opened this page, so nothing here was saved. "
     "A live class is edited through a shorter form: the description, the photos, and what to bring. "
     "To change the title, dates, price, or capacity, ask an admin. "
-    "Copy anything you want to keep, then reload this page for the shorter form."
+    "Copy anything you want to keep, then press Cancel and open Edit again for the shorter form."
 )
 
 
@@ -1611,6 +1611,68 @@ def describe_a_composer_post_to_a_class_published_since_the_page_was_rendered():
         assert "This class is live." in html
         assert _PUBLISHED_NOTICE not in html
         assert 'name="step"' not in html
+
+    def it_sends_the_member_to_an_exit_that_is_not_another_post(instructor_fixture, client):
+        """The notice names Cancel, so Cancel has to reach the shorter form. Proved, not assumed.
+
+        The page is a POST response: reloading it re-sends the POST, which still carries ``step``
+        and lands right back on the notice. This walks the route the copy actually promises.
+        """
+        offering = ClassOfferingFactory(instructor=instructor_fixture, status=Status.DRAFT, title="Before")
+        client.force_login(instructor_fixture.user)
+        _publish(offering)
+        url = reverse("classes:teach_class_edit", kwargs={"pk": offering.pk})
+        payload = _full_payload(offering.category, title="Typed after the render", step="5")
+
+        first = client.post(url, payload)
+        assert _PUBLISHED_NOTICE in first.content.decode()
+        # Re-sending the same body is what a reload does, and it loops. This is why the copy
+        # cannot say "reload this page".
+        again = client.post(url, payload)
+        assert again.status_code == 200
+        assert _PUBLISHED_NOTICE in again.content.decode()
+        assert "This class is live." not in again.content.decode()
+
+        cancel_url = first.context["cancel_url"]
+        assert cancel_url == reverse("classes:teach_class_detail", kwargs={"pk": offering.pk})
+        landed = client.get(cancel_url)
+        assert landed.status_code == 200
+        # The class screen offers Edit under that exact label (classes/_components/class_screen_base.html),
+        # which is the word the notice uses.
+        assert landed.context["can_edit_now"] is True
+        assert f'href="{url}">Edit</a>' in landed.content.decode()
+        # And that Edit is a GET, which is the shorter form.
+        assert "This class is live." in client.get(url).content.decode()
+
+    def it_withholds_the_hero_uploader_that_would_still_write_to_the_live_class(instructor_fixture, client):
+        # The hero uploader posts to its own endpoint the instant a file is picked, and
+        # _edit_photos_or_404 closes only cancelled and archived classes, so on a published one
+        # it would change the public banner from a page headed "nothing here was saved".
+        offering = ClassOfferingFactory(instructor=instructor_fixture, status=Status.DRAFT, title="Before")
+        client.force_login(instructor_fixture.user)
+        _publish(offering)
+        html = client.post(
+            reverse("classes:teach_class_edit", kwargs={"pk": offering.pk}),
+            _full_payload(offering.category, title="Typed after the render", step="2"),
+        ).content.decode()
+        hero_upload = reverse("classes:teach_class_hero_upload", kwargs={"pk": offering.pk})
+        assert hero_upload not in html
+        assert "hero-upload-area" not in html
+        assert "The photo cannot be changed from this page." in html
+        # The gallery is untouched: the live-edit form offers it too, so it is not this page's to take.
+        assert reverse("classes:teach_class_image_upload", kwargs={"pk": offering.pk}) in html
+
+    def it_leaves_the_cancelled_render_its_hero_uploader(instructor_fixture, client):
+        # The sibling path from #385 is deliberately unchanged; only the published caller withholds.
+        offering = ClassOfferingFactory(instructor=instructor_fixture, status=Status.CANCELLED, title="Before")
+        client.force_login(instructor_fixture.user)
+        html = client.post(
+            reverse("classes:teach_class_edit", kwargs={"pk": offering.pk}),
+            _full_payload(offering.category, title="Typed after the render", step="2"),
+        ).content.decode()
+        assert reverse("classes:teach_class_hero_upload", kwargs={"pk": offering.pk}) in html
+        assert "hero-upload-area" in html
+        assert "The photo cannot be changed from this page." not in html
 
 
 def describe_the_missing_flag_on_a_class_that_is_no_longer_a_draft():

@@ -185,6 +185,7 @@ Do not merge them.
     {# The submit confirm flips this to "submit" (teach) or "publish" (admin) before requestSubmit(); everything else is a draft save. #}
     <input type="hidden" id="composer-action" name="action" value="save">
     {# Which step the user was looking at, so a save comes back to it (?step=N). #}
+    {# Load bearing beyond that: _is_composer_post (classes/views.py) reads the NAME to tell a composer POST from the published light form's, so removing this input reinstates the data loss of #386. Covered by tests/e2e/class_composer_steps_spec.py. #}
     <input type="hidden" name="step" :value="phase">
 
     {% if composer_notice %}
@@ -238,8 +239,13 @@ Do not merge them.
         <div class="pl-crop-pair">
           <div class="pl-crop-pane">
             <p class="pl-crop-pane__label">Class Page Banner</p>
+            {% if hero_field_withheld %}
+            {# Withheld by _render_unsaved_composer_post (classes/views.py): this render saves nothing, and the uploader below writes the instant a file is picked. #}
+            <p class="pl-crop-pane__hint">The photo cannot be changed from this page. Use the shorter form for a live class.</p>
+            {% else %}
             <p class="pl-crop-pane__hint" id="hero-crop-hint"{% if offering.has_imported_photo_only %} hidden{% endif %}>Drag the box. Everything outside it is cut off.</p>
             {% include "classes/_components/hero_image_field.html" with field=form.image current_image_url=offering.hero_image_url crop_field=form.hero_crop offering=offering %}
+            {% endif %}
           </div>
           <div class="pl-crop-pane">
             <p class="pl-crop-pane__label">Catalog Card</p>
