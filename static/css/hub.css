@@ -9596,6 +9596,14 @@ mark { background: color-mix(in srgb, var(--color-tuscan-yellow) 30%, transparen
     font-weight: 400;
 }
 
+/* The roster's Show cancelled toggle, above the Registrations table. Colour comes
+   from the hub-btn variants, so it follows both themes with nothing to override. */
+.pl-roster-filter {
+    display: flex;
+    justify-content: flex-end;
+    margin-bottom: 0.5rem;
+}
+
 /* Registrant self-serve page after a class cancel. */
 .pl-class-cancelled {
     padding: 0.9rem 1rem;

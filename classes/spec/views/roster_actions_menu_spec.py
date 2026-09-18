@@ -44,8 +44,10 @@ def _unpaid(offering, **kwargs) -> Registration:
     return RegistrationFactory(class_offering=offering, **kwargs)
 
 
-def _admin_reg_url(offering) -> str:
-    return reverse("classes:teach_class_registrations", args=[offering.pk])
+def _admin_reg_url(offering, *, show_cancelled: bool = False) -> str:
+    """The Registrations tab. Cancelled and refunded rows arrive only when asked for."""
+    url = reverse("classes:teach_class_registrations", args=[offering.pk])
+    return f"{url}?show_cancelled=1" if show_cancelled else url
 
 
 def describe_registration_row_menu():
@@ -56,7 +58,7 @@ def describe_registration_row_menu():
         cancelled = RegistrationFactory(
             class_offering=offering, status=Registration.Status.CANCELLED, amount_paid_cents=0, email="cx@example.com"
         )
-        content = client.get(_admin_reg_url(offering)).content.decode()
+        content = client.get(_admin_reg_url(offering, show_cancelled=True)).content.decode()
 
         paid_menu = menu_region(content, f"reg-row-{paid.pk}")
         assert f'href="{reverse("classes:admin_registration_detail", args=[paid.pk])}"' in paid_menu
@@ -121,7 +123,7 @@ def describe_registration_row_menu():
         cancelled = RegistrationFactory(
             class_offering=offering, status=Registration.Status.CANCELLED, amount_paid_cents=0, email="gone@example.com"
         )
-        content = client.get(_admin_reg_url(offering)).content.decode()
+        content = client.get(_admin_reg_url(offering, show_cancelled=True)).content.decode()
 
         confirmed_menu = menu_region(content, f"reg-row-{confirmed.pk}")
         assert ">Remove Student</button>" in confirmed_menu
@@ -186,7 +188,7 @@ def describe_registration_row_menu():
                 amount_paid_cents=0,
                 email="only-two@example.com",
             )
-            content = client.get(_admin_reg_url(offering)).content.decode()
+            content = client.get(_admin_reg_url(offering, show_cancelled=True)).content.decode()
             menu = menu_region(content, f"reg-row-{reg.pk}")
             # View/Email plus the mover's Move Student group — no payment, refund, or remove rules.
             assert menu.count("pl-row-menu__divider") == 1

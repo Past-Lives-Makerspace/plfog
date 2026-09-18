@@ -1794,10 +1794,21 @@ class ClassOffering(HeroCropMixin, models.Model):
             ClassImage.objects.create(class_offering=self, image=img_file, sort_order=current + offset)
 
     @property
+    def seats_taken(self) -> int:
+        """How many of this class's seats are spoken for.
+
+        The one answer to "how full is it", so that every surface rendering
+        ``N/capacity`` renders the same N. Narrower than
+        ``active_registration_count``, deliberately: a waitlisted person is still on
+        the books but holds no seat, so counting them against capacity would make a
+        class with room read as full.
+        """
+        return self.registrations.filter(status__in=CAPACITY_CONSUMING_REGISTRATION_STATUSES).count()
+
+    @property
     def spots_remaining(self) -> int:
         """Capacity minus current confirmed + pending registrations."""
-        used = self.registrations.filter(status__in=CAPACITY_CONSUMING_REGISTRATION_STATUSES).count()
-        return max(0, self.capacity - used)
+        return max(0, self.capacity - self.seats_taken)
 
     @property
     def is_series(self) -> bool:
