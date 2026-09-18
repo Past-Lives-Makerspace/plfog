@@ -765,11 +765,24 @@ def _convert_waitlist_claim(request: HttpRequest, form: RegistrationForm, regist
 
     WAITLISTED to PENDING dispatches nothing (``_dispatch_status_notification`` acts on
     CONFIRMED and REFUNDED only), so the claimant gets the checkout they asked for and
-    no stray "you joined the waitlist" mail.
+    no stray "you joined the waitlist" mail. If Stripe refuses, the row goes back to
+    WAITLISTED and the error propagates: the claim is exactly where it started.
     """
     registration.status = Registration.Status.PENDING
     registration.save(update_fields=["status"])
-    return _start_registration_payment(request, form, registration, rollback_on_failure=False)
+    try:
+        return _start_registration_payment(request, form, registration, rollback_on_failure=False)
+    except Exception:
+        # Stripe refused. Put them back in the queue rather than leaving a PENDING row
+        # holding a seat nobody paid for and nothing reaps yet; the claim link still
+        # works from WAITLISTED, so the next click can try again. Only while the row is
+        # still PENDING: a free class confirms inside that call, and a failure in the
+        # confirmation fan-out must not un-confirm a seat that was granted.
+        registration.refresh_from_db()
+        if registration.status == Registration.Status.PENDING:
+            registration.status = Registration.Status.WAITLISTED
+            registration.save(update_fields=["status"])
+        raise
 
 
 def _joined_waitlist(request: HttpRequest, registration: Registration) -> HttpResponse:
@@ -903,21 +916,34 @@ def register(request: HttpRequest, slug: str) -> HttpResponse:
         )
         return redirect("classes:public_class_detail", slug=offering.slug)
 
+    # Two-pass form: first POST validates email so we can detect a member
+    # before computing price, then re-binds to surface the discounted total.
+    # This runs first because who they are decides which form they get.
+    bound_email, custom_answers_initial, answers_prefilled, initial = _register_prefill(request)
+    member = _member_for_email(bound_email) if bound_email else None
+
     # Waitlist intent: ?waitlist=1 (offered when the class is sold out) routes
     # to the no-charge waitlist branch below. Forced on automatically when the
     # class has no spots left so we never hide the option from a registrant
     # who lands here from a stale link.
-    # A claim link is the opposite of waitlist intent: this person is here to take a
-    # seat that opened. Holding it out of the waitlist branch is what makes the form
-    # price the signup and, if the class has refilled in the meantime, say so plainly
-    # rather than quietly overfilling it or queueing them a second time.
+    #
+    # Two people are the opposite of waitlist intent, and both have to be held out of
+    # that branch. A claim link is here to take a seat that just opened. And a signup
+    # this person ALREADY holds is not a waitlist candidate either: a second click on
+    # the last seat sees `spots_remaining == 0` because of their own pending row, and
+    # the waitlist form drops the discount field (``RegistrationForm.__init__``), so
+    # the resumed price would come back undiscounted, read as a price rise, and
+    # re-charge them at full freight with their code wiped off the row. Asking who
+    # already holds a seat, before deciding, is what stops that.
     claim = _claimed_waitlist_registration(request, offering)
-    is_waitlist = claim is None and (request.GET.get("waitlist") == "1" or offering.spots_remaining <= 0)
-
-    # Two-pass form: first POST validates email so we can detect a member
-    # before computing price, then re-binds to surface the discounted total.
-    bound_email, custom_answers_initial, answers_prefilled, initial = _register_prefill(request)
-    member = _member_for_email(bound_email) if bound_email else None
+    existing = offering.live_registration_for_email(bound_email) if bound_email else None
+    # Their own row only changes the answer when it is one of the rows making the class
+    # full. A WAITLISTED row consumes no seat, so somebody already queued is still told a
+    # sold-out class is sold out, and their re-submit is still a waitlist submit.
+    holds_seat = existing is not None and existing.consumes_seat
+    is_waitlist = (
+        claim is None and not holds_seat and (request.GET.get("waitlist") == "1" or offering.spots_remaining <= 0)
+    )
 
     form = RegistrationForm(
         request.POST or None,
@@ -927,17 +953,20 @@ def register(request: HttpRequest, slug: str) -> HttpResponse:
         client_ip=_client_ip(request),
         initial=initial,
         is_waitlist=is_waitlist,
+        holds_seat=holds_seat,
         user=request.user,
         custom_answers_initial=custom_answers_initial,
     )
 
     if request.method == "POST" and form.is_valid():
         # One signup per person per class. The impatient second click belongs on the
-        # page the first one was already taking them to, not on a second row eating
-        # a second seat. Checked before either branch saves, because a class whose
-        # last seat is held by this registrant's own pending row routes the second
-        # POST down the waitlist branch.
-        existing = offering.live_registration_for_email(form.cleaned_data["email"])
+        # page the first one was already taking them to, not on a second row eating a
+        # second seat. Answered before either branch saves, and for both branches.
+        #
+        # ``existing`` was resolved above, from the same (stripped) address the form
+        # cleans to, because the shape of the form depended on the answer. If the two
+        # ever disagreed, the constraint still catches the duplicate at the insert and
+        # ``_save_registration`` resumes from there.
         if existing is not None:
             if claim is not None and claim.pk == existing.pk:
                 return _convert_waitlist_claim(request, form, existing)

@@ -240,7 +240,7 @@ def _record_orphaned_payment(registration: Registration, session: dict[str, Any]
         payload={
             "payment_intent": payment_intent,
             "amount_cents": amount_total if isinstance(amount_total, int) else 0,
-            "session_id": session.get("id", ""),
+            "session_id": session["id"],
             "reason": "seat already held by another signup for this email",
         },
     )

@@ -91,7 +91,13 @@ def _post_data(**overrides):
     return data
 
 
-def _session(*, session_id: str = "cs_test_first", url: str = CHECKOUT_URL, status: str = "open") -> dict:
+def _session(
+    *,
+    session_id: str = "cs_test_first",
+    url: str = CHECKOUT_URL,
+    status: str = "open",
+    amount_total: int = 10000,
+) -> dict:
     """A ``retrieve_checkout_session`` payload shaped like billing.stripe_utils returns."""
     return {
         "id": session_id,
@@ -99,7 +105,7 @@ def _session(*, session_id: str = "cs_test_first", url: str = CHECKOUT_URL, stat
         "status": status,
         "payment_status": "unpaid",
         "payment_intent": "",
-        "amount_total": 10000,
+        "amount_total": amount_total,
     }
 
 
@@ -340,6 +346,11 @@ def describe_duplicate_registration():
                 stripe_session_id="cs_test_first",
             )
 
+            # Patching a model method, deliberately and narrowly: the standing rule is
+            # that the ORM is never mocked, and it is not mocked here. The database, the
+            # rows and the constraint are all real, and the constraint is what the
+            # assertion rests on. The patch only blinds ONE lookup for one call, which is
+            # the interleaving a single-threaded test cannot otherwise produce.
             with patch.object(ClassOffering, "live_registration_for_email", side_effect=[None, winner]):
                 response = client.post(_register_url(paid_offering), data=_post_data())
 
@@ -432,6 +443,9 @@ def describe_moving_a_registration_to_a_class_the_person_is_already_in():
         )
         RegistrationFactory(class_offering=free_offering, email="sam@example.com", status=Registration.Status.PENDING)
 
+        # Same deliberate, narrow patch as the register race above: real database, real
+        # constraint, and the patch exists only to open the window between the check and
+        # the write that two concurrent movers would open for themselves.
         with patch.object(ClassOffering, "live_registration_for_email", return_value=None):
             with pytest.raises(ValueError, match="already has a signup"):
                 here.move_to(free_offering)
@@ -476,6 +490,89 @@ def describe_the_registration_form_page():
 
         assert "data-submit-guard" in body
         assert body.count("data-submit-guard") >= 2  # the form, and the selector that resets it
+
+
+def describe_resuming_on_a_class_with_no_seats_left():
+    """The single most likely path: an impatient second click on the last seat.
+
+    A pending row consumes a seat, so the registrant's OWN signup takes
+    ``spots_remaining`` to 0. If that is read as waitlist intent, the form drops the
+    discount field, the resumed price comes back undiscounted, and the resume logic
+    reads its own blindness as a price rise: it expires the cheap session and charges
+    full freight with the code wiped off the row. Every other resume spec in this file
+    has spare capacity, so none of them can see it.
+    """
+
+    @pytest.fixture
+    def last_seat_offering(db):
+        offering = ClassOfferingFactory(
+            title="Last Seat",
+            slug="last-seat-dupe",
+            category=CategoryFactory(),
+            instructor=InstructorFactory(),
+            status=ClassOffering.Status.PUBLISHED,
+            price_cents=10000,
+            member_discount_pct=0,
+            capacity=1,
+        )
+        ClassSessionFactory(
+            class_offering=offering,
+            starts_at=timezone.now() + timedelta(days=7),
+            ends_at=timezone.now() + timedelta(days=7, hours=2),
+        )
+        return offering
+
+    @patch("billing.stripe_utils.expire_checkout_session")
+    @patch("billing.stripe_utils.retrieve_checkout_session", return_value=_session(amount_total=5000))
+    @patch("billing.stripe_utils.create_class_checkout_session")
+    def it_keeps_the_discount_and_the_session_on_a_second_click(
+        mock_create, _mock_retrieve, mock_expire, last_seat_offering, client
+    ):
+        DiscountCodeFactory(code="HALF", discount_pct=50)
+        mock_create.side_effect = [
+            {"id": "cs_test_first", "url": CHECKOUT_URL},
+            {"id": "cs_test_second", "url": SECOND_CHECKOUT_URL},
+        ]
+        first = client.post(_register_url(last_seat_offering), data=_post_data(discount_code="HALF"))
+        assert first.url == CHECKOUT_URL
+        assert mock_create.call_args.kwargs["amount_cents"] == 5000
+        last_seat_offering.refresh_from_db()
+        assert last_seat_offering.spots_remaining == 0  # their own pending row filled it
+
+        second = client.post(_register_url(last_seat_offering), data=_post_data(discount_code="HALF"))
+
+        assert second.url == CHECKOUT_URL  # the same $50 page, not a new one
+        assert mock_create.call_count == 1
+        assert mock_expire.call_count == 0  # the good session is left alone
+        row = Registration.objects.get(class_offering=last_seat_offering, email="sam@example.com")
+        assert row.discount_code is not None and row.discount_code.code == "HALF"
+        assert row.amount_paid_cents == 5000
+        assert row.stripe_session_id == "cs_test_first"
+
+    @patch("billing.stripe_utils.retrieve_checkout_session", return_value=_session(amount_total=5000))
+    @patch("billing.stripe_utils.create_class_checkout_session")
+    def it_does_not_tell_them_the_class_is_sold_out_by_their_own_seat(
+        mock_create, _mock_retrieve, last_seat_offering, client
+    ):
+        """``clean`` refuses a sold-out class. It is not sold out to the person in it."""
+        DiscountCodeFactory(code="HALF", discount_pct=50)
+        mock_create.return_value = {"id": "cs_test_first", "url": CHECKOUT_URL}
+        client.post(_register_url(last_seat_offering), data=_post_data(discount_code="HALF"))
+
+        second = client.post(_register_url(last_seat_offering), data=_post_data(discount_code="HALF"))
+
+        assert second.status_code == 302  # resumed, not re-rendered with an error
+        assert b"sold out" not in second.content
+
+    def it_still_offers_the_waitlist_to_somebody_else(last_seat_offering, client):
+        """The seats-full path is unchanged for a registrant who holds nothing."""
+        RegistrationFactory(class_offering=last_seat_offering, status=Registration.Status.CONFIRMED)
+
+        response = client.post(_register_url(last_seat_offering), data=_post_data(email="other@example.com"))
+
+        assert response.status_code == 302
+        row = Registration.objects.get(class_offering=last_seat_offering, email="other@example.com")
+        assert row.status == Registration.Status.WAITLISTED
 
 
 def describe_claiming_a_waitlist_spot():
@@ -574,4 +671,30 @@ def describe_claiming_a_waitlist_spot():
         assert mock_create.call_count == 1  # no second session minted
         live.refresh_from_db()
         assert live.status == Registration.Status.PENDING
+        assert Registration.objects.filter(class_offering=paid_offering, email="sam@example.com").count() == 1
+
+
+def describe_a_waitlist_claim_that_stripe_refuses():
+    def it_puts_the_claim_back_in_the_queue(paid_offering, client):
+        """The row is flipped to PENDING before checkout, so a refusal must undo that.
+
+        Leaving it PENDING would hold a seat nobody paid for, and nothing reaps a pending
+        row yet. Back on the waitlist, the claim link still works and the next click can
+        try again.
+        """
+        waiting = RegistrationFactory(
+            class_offering=paid_offering,
+            first_name="Sam",
+            last_name="Smith",
+            email="sam@example.com",
+            status=Registration.Status.WAITLISTED,
+        )
+        url = f"{_register_url(paid_offering)}?waitlist_token={waiting.self_serve_token}"
+
+        with patch("billing.stripe_utils.create_class_checkout_session", side_effect=RuntimeError("stripe down")):
+            with pytest.raises(RuntimeError):
+                client.post(url, data=_post_data())
+
+        waiting.refresh_from_db()
+        assert waiting.status == Registration.Status.WAITLISTED
         assert Registration.objects.filter(class_offering=paid_offering, email="sam@example.com").count() == 1

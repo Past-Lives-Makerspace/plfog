@@ -487,7 +487,7 @@ class ClassOfferingQuerySet(models.QuerySet["ClassOffering"]):
         rows = self.annotate(
             used=Count(
                 "registrations",
-                filter=Q(registrations__status__in=[Registration.Status.CONFIRMED, Registration.Status.PENDING]),
+                filter=Q(registrations__status__in=CAPACITY_CONSUMING_REGISTRATION_STATUSES),
             )
         ).values("pk", "capacity", "used")
         return {row["pk"]: max(0, row["capacity"] - row["used"]) for row in rows}
@@ -1796,9 +1796,7 @@ class ClassOffering(HeroCropMixin, models.Model):
     @property
     def spots_remaining(self) -> int:
         """Capacity minus current confirmed + pending registrations."""
-        used = self.registrations.filter(
-            status__in=[Registration.Status.CONFIRMED, Registration.Status.PENDING]
-        ).count()
+        used = self.registrations.filter(status__in=CAPACITY_CONSUMING_REGISTRATION_STATUSES).count()
         return max(0, self.capacity - used)
 
     @property
@@ -3102,6 +3100,18 @@ REFUNDED are absent on purpose: someone who cancels is free to sign up again.
 """
 
 
+CAPACITY_CONSUMING_REGISTRATION_STATUSES = (
+    RegistrationStatus.CONFIRMED,
+    RegistrationStatus.PENDING,
+)
+"""Statuses that take a seat out of the room: paid, or part-way through paying.
+
+Narrower than ``SEAT_HOLDING_REGISTRATION_STATUSES`` by exactly one status. A
+WAITLISTED row holds a place in the queue and no seat, which is why it does not count
+against ``capacity`` and why a waitlisted person can still be told a class is sold out.
+"""
+
+
 class RegistrationQuerySet(models.QuerySet["Registration"]):
     def seat_holding(self) -> "RegistrationQuerySet":
         """Rows still occupying a place: confirmed, pending payment, or waitlisted."""
@@ -3237,6 +3247,16 @@ class Registration(models.Model):
                 name="uq_registration_seat_email",
             ),
         ]
+
+    @property
+    def consumes_seat(self) -> bool:
+        """Whether this row is one of the ones taking a seat out of the room right now.
+
+        The register view asks so it can tell a registrant apart from a stranger when a
+        class reads as full: if the row filling the last seat is this person's own, the
+        class is not sold out to them and their signup is not a waitlist signup.
+        """
+        return self.status in CAPACITY_CONSUMING_REGISTRATION_STATUSES
 
     def __str__(self) -> str:
         return f"{self.email} → {self.class_offering.title}"
