@@ -510,7 +510,7 @@ def _tour_slide(config: SiteConfiguration, default: int) -> list[SignageSlideVM]
 # feature the sidebar has just hidden — a "Coming soon" Voting section in the hub with a Voting
 # slide on the wall beside it is the makerspace contradicting itself in public.
 _GENERATED_BLOCKS: tuple[tuple[str, Callable[[SiteConfiguration, int], list[SignageSlideVM]], str | None], ...] = (
-    ("signage_show_classes", _class_slides, None),
+    ("signage_show_classes", _class_slides, "catalog"),
     ("signage_show_events", _event_slides, None),
     ("signage_show_guilds", _guild_slides, "guilds"),
     ("signage_show_calendar", _calendar_slide, None),

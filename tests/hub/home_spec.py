@@ -11,6 +11,7 @@ from django.urls import reverse
 from django.utils import timezone
 
 from membership.models import CalendarEvent, CommunityEvent, Member
+from tests.features import coming_soon, hide, turn_on
 from tests.membership.factories import (
     CommunityEventFactory,
     GuildAnnouncementFactory,
@@ -546,3 +547,63 @@ def describe_upcoming_block_heading():
         html = client.get(reverse("hub_home")).content.decode()
         assert '<h2 class="pl-home-heading">Upcoming at Past Lives</h2>' in html
         assert '<h2 class="pl-home-heading">Your Upcoming</h2>' not in html
+
+
+def describe_the_class_catalog_quick_link():
+    """#405: the home page follows the Class Catalog switch, like the sidebar and the kiosk.
+
+    Quick links is the first thing a member sees. Leaving a Class Catalog tile there while the
+    sidebar entry is gone is the contradiction membership/signage.py names in as many words:
+    the makerspace advertising a feature it has just taken down. The Guild Voting and Member
+    Directory tiles beside it were already gated; this one was not.
+
+    The switch stays cosmetic. ``/classes/`` keeps answering in every state — nothing here is a
+    route gate, and these specs deliberately assert on the TILE rather than on the URL.
+    """
+
+    CATALOG_TILE = b'<span class="pl-quicklink__label">Class Catalog</span>'
+
+    def _home(client: Client) -> bytes:
+        return client.get(reverse("hub_home")).content
+
+    def it_shows_the_tile_while_the_catalog_is_on(client: Client):
+        _member_user("catalog_on")
+        client.login(username="catalog_on", password="pass")
+        turn_on("catalog")
+        assert CATALOG_TILE in _home(client)
+
+    def it_drops_the_tile_when_the_catalog_is_hidden(client: Client):
+        _member_user("catalog_hidden")
+        client.login(username="catalog_hidden", password="pass")
+        hide("catalog")
+        assert CATALOG_TILE not in _home(client)
+
+    def it_drops_the_tile_when_the_catalog_is_coming_soon(client: Client):
+        # Coming soon is an off state here. The sidebar keeps an inert entry because that is
+        # where the admin's message lives; a quick link has nowhere to put one, so it goes.
+        _member_user("catalog_soon")
+        client.login(username="catalog_soon", password="pass")
+        coming_soon("catalog", "The new catalog opens in October")
+        assert CATALOG_TILE not in _home(client)
+
+    def it_follows_the_switch_on_the_unlinked_account_card_too(client: Client):
+        """The other Class Catalog link on this page, for a user with no Member row.
+
+        Decided deliberately rather than left by omission: the switch governs what we
+        advertise, and someone with no membership on file is the likeliest to take an
+        advertisement at face value. Calendar is not switchable, so the card is never empty.
+        """
+        user = User.objects.create_user(username="orphan_catalog", password="pass")
+        Member.objects.filter(user=user).delete()
+        client.login(username="orphan_catalog", password="pass")
+
+        turn_on("catalog")
+        body = _home(client)
+        assert b"isn't linked to a membership" in body
+        assert b">Class Catalog</a>" in body
+
+        hide("catalog")
+        body = _home(client)
+        assert b"isn't linked to a membership" in body
+        assert b">Class Catalog</a>" not in body
+        assert b">Calendar</a>" in body  # the card still offers something

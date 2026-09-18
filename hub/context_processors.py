@@ -40,6 +40,7 @@ def hub_sidebar(request: HttpRequest) -> dict[str, Any]:
             "can_create_classes": False,
             "teach_nav": None,
             "classes_admin_nav_active": False,
+            "classes_catalog_active_class": "",
         }
 
     initials = ""
@@ -50,6 +51,7 @@ def hub_sidebar(request: HttpRequest) -> dict[str, Any]:
         if member.profile_photo:
             photo_url = member.profile_photo.url
     admin_nav_active = _classes_admin_nav_active(request)
+    teach_nav = _teach_nav(request, member, admin_nav_active)
     return {
         # Inactive guilds are hidden everywhere they're listed (directory, voting,
         # My Guilds) — the sidebar follows suit. Their detail pages stay reachable
@@ -61,8 +63,9 @@ def hub_sidebar(request: HttpRequest) -> dict[str, Any]:
         "view_as_capabilities": _admin_capability_rows(request, member),
         "view_as_instructor": _instructor_row(request, member),
         "can_create_classes": member is not None and member.can_create_classes,
-        "teach_nav": _teach_nav(request, member, admin_nav_active),
+        "teach_nav": teach_nav,
         "classes_admin_nav_active": admin_nav_active,
+        "classes_catalog_active_class": _classes_catalog_active_class(request, admin_nav_active, teach_nav),
     }
 
 
@@ -88,6 +91,28 @@ def _classes_admin_nav_active(request: HttpRequest) -> bool:
         return True
     view_as = getattr(request, "view_as", None)
     return view_as is not None and view_as.is_admin and _MERGED_CLASS_PATH.match(path) is not None
+
+
+def _classes_catalog_active_class(
+    request: HttpRequest, admin_nav_active: bool, teach_nav: dict[str, Any] | None
+) -> str:
+    """``"active"`` when the Class Catalog sidebar entry owns the current page, else ``""``.
+
+    Catalog lights on every ``/classes/`` path EXCEPT the two other entries carve out of it:
+    a class-management path, which belongs to Admin Tools (:func:`_classes_admin_nav_active`),
+    and the teaching portal, which belongs to Teaching (:func:`_teach_nav`). Exactly one of the
+    three is ever lit.
+
+    This used to be an inline ``{% if %}`` in base.html, written out twice. #405 routes the entry
+    through ``_sidebar_feature_link.html`` so all three switch states come from one call site,
+    and a ``{% include ... with %}`` argument cannot hold an ``{% if %}`` — so the answer is
+    computed here as a CSS class, the same shape ``teach_nav["active_class"]`` already uses.
+    """
+    if not request.path.startswith("/classes/"):
+        return ""
+    if admin_nav_active or (teach_nav is not None and teach_nav["is_active"]):
+        return ""
+    return "active"
 
 
 def _teach_nav(request: HttpRequest, member: Member | None, admin_nav_active: bool) -> dict[str, Any] | None:

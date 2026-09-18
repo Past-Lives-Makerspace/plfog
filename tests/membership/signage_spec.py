@@ -881,11 +881,34 @@ def describe_a_feature_switch_beats_the_signage_toggle():
         coming_soon("guilds", "Guild pages are on their way")
         assert not any(vm.kind == "guild" for vm in build_deck(zone))
 
+    def it_drops_the_class_slides_when_the_class_catalog_is_hidden():
+        from tests.features import hide
+
+        _config(signage_show_classes=True)
+        zone = SlideshowZoneFactory()
+        offering = ClassOfferingFactory(status="published", is_private=False, title="Intro To Lathe")
+        local_start = (timezone.localtime() + timedelta(days=2)).replace(hour=18, minute=0, second=0, microsecond=0)
+        ClassSessionFactory(class_offering=offering, starts_at=local_start, ends_at=local_start + timedelta(hours=2))
+        assert any(vm.kind == "class" for vm in build_deck(zone))
+        hide("catalog")
+        assert not any(vm.kind == "class" for vm in build_deck(zone))
+
+    def it_drops_the_class_slides_when_the_class_catalog_is_coming_soon():
+        from tests.features import coming_soon
+
+        _config(signage_show_classes=True)
+        zone = SlideshowZoneFactory()
+        offering = ClassOfferingFactory(status="published", is_private=False, title="Intro To Lathe")
+        local_start = (timezone.localtime() + timedelta(days=2)).replace(hour=18, minute=0, second=0, microsecond=0)
+        ClassSessionFactory(class_offering=offering, starts_at=local_start, ends_at=local_start + timedelta(hours=2))
+        coming_soon("catalog", "Back in the spring")
+        assert not any(vm.kind == "class" for vm in build_deck(zone))
+
     def it_leaves_slides_that_belong_to_no_feature_alone():
-        # Classes, events, the calendar and the tour answer to no feature switch, so hiding
-        # every feature there IS must not silently empty the lobby wall. Guilds is deliberately
-        # NOT in that list: it became the eighth feature in amendment 3, and the two specs above
-        # are what stop this one quietly re-permitting a guild slide the sidebar has hidden.
+        # Events, the calendar and the tour answer to no feature switch, so hiding every feature
+        # there IS must not silently empty the lobby wall. Guilds and the class catalog are
+        # deliberately NOT in that list — they joined the registry in amendments 3 and 5 — and
+        # the specs above are what stop this one quietly re-permitting a slide the sidebar hid.
         from core.features import FEATURES
         from tests.features import hide
 

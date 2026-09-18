@@ -646,8 +646,8 @@ class SiteConfiguration(models.Model):
         help_text="When off, the Help link is hidden from the sidebar and the /help/ page redirects to the home page.",
     )
     # wiki_enabled, equipment_page_enabled and host_a_workshop_enabled used to live here. They are
-    # FeatureSwitch rows now (see core/features.py) so that all seven member features answer to one
-    # mechanism with three states instead of two, and so that the eighth needs no migration.
+    # FeatureSwitch rows now (see core/features.py) so that every member feature answers to one
+    # mechanism with three states instead of two, and so that the next one needs no migration.
     guild_welcome_email_enabled = models.BooleanField(
         default=True,
         verbose_name="Send guild welcome emails",
@@ -2222,10 +2222,10 @@ class FeatureSwitchManager(models.Manager["FeatureSwitch"]):
     def as_context(self) -> dict[str, FeatureView]:
         """Every feature's state, keyed by feature key, in ONE query.
 
-        This is what the site-wide context processor delivers, so a page that renders all eight
-        nav entries costs one read rather than eight. Registry order is preserved and a feature
-        with no row still appears, ON — a template never has to test for a missing key, and an
-        eighth feature needs no migration because its absent row simply reads ON.
+        This is what the site-wide context processor delivers, so a page that renders every nav
+        entry costs one read rather than one per feature. Registry order is preserved and a
+        feature with no row still appears, ON — a template never has to test for a missing key,
+        and a new feature needs no migration because its absent row simply reads ON.
         """
         rows = {row.feature_key: row for row in self.all()}
         views: dict[str, FeatureView] = {}

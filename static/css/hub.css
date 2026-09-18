@@ -5620,13 +5620,24 @@ mark { background: color-mix(in srgb, var(--color-tuscan-yellow) 30%, transparen
     .pl-wizard-actions .hub-btn { flex: 1 1 auto; }
 }
 
-/* Brand admin tab (Site Settings). Layout lives in a class, never inline on an
-   x-show element (Rule 12). */
-.pl-brand-tab {
+/* ── Site Settings tab panels ────────────────────────────────────────────────
+   The stacked layout of one x-show tab panel. This MUST be a class and never an
+   inline style="display:flex". Alpine's x-show reveals an element with
+   el.style.removeProperty('display'), which deletes an inline display:flex and
+   drops the panel back to display:block — silently taking `gap` with it, because
+   gap does nothing on a block box. Every section on the panel then sits flush
+   against the next one, which is exactly how the CMS tab shipped. Declared here,
+   the inline display:none that x-show writes still wins while hidden, and removing
+   it falls back to this flex box instead of to nothing.
+   ======================================================================== */
+.pl-settings-tab {
     display: flex;
     flex-direction: column;
     gap: 1.5rem;
 }
+
+/* The General tab's fields are single rows rather than sections, so they sit closer. */
+.pl-settings-tab--tight { gap: 1.25rem; }
 
 /* ── Slideshow admin page (/manage/slideshow/) ───────────────────────────────
    Editor UI for the signage slideshow. Renders under hub/base.html (hub.css +

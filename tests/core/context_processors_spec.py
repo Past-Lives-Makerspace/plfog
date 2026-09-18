@@ -111,17 +111,18 @@ def describe_feature_flags():
             "instructor_discount_codes_enabled": True,
             "guild_welcome_email_enabled": False,
         }
-        # The eight three-state features travel in their own key, all present and On.
-        assert sorted(features) == [
-            "directory",
-            "equipment",
-            "guilds",
-            "meetings",
-            "spaces",
-            "teach",
-            "voting",
-            "wiki",
-        ]
+        # The three-state features travel in their own key, every one of them present. Compared
+        # against the registry rather than a hand-written list: the point of core.features is
+        # that adding a feature is one entry and nothing else, and a literal here made that
+        # false — it went stale the first time the list grew, which is how it was found.
+        #
+        # Keys and shape only. NOT state: on a fresh database wiki migrates to hidden, because
+        # the wiki_enabled boolean it inherits shipped default=False. Production reads on. The
+        # per-feature states are specced in tests/hub/nav_feature_flags_spec.py.
+        from core.features import FEATURES, FeatureView
+
+        assert sorted(features) == sorted(f.key for f in FEATURES)
+        assert all(isinstance(features[f.key], FeatureView) for f in FEATURES)
 
 
 def describe_brand():
