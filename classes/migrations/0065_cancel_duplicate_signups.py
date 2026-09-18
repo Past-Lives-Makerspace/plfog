@@ -42,10 +42,20 @@ def reason_for(status: str) -> str:
 
 
 def cancel_duplicate_signups(apps: Any, schema_editor: Any) -> None:
-    """Cancel every seat-holding row beyond the first for each (class, email)."""
+    """Cancel every seat-holding row beyond the first for each (class, email).
+
+    Raises:
+        RuntimeError: When a row that would be cancelled carries money. Two paid rows
+            for one person in one class is what the worst version of the double-click
+            produced: two sessions, both charged. Cancelling one of those silently
+            would strand a real payment with no refund and no email, so the migration
+            stops and names the rows for a human. Production carried no such rows when
+            this was written (both violating groups were unpaid and pending), so the
+            loud path costs nothing there and protects QA and any restore.
+    """
     Registration = apps.get_model("classes", "Registration")
     rows = Registration.objects.filter(status__in=SEAT_HOLDING).values(
-        "pk", "class_offering_id", "email", "status", "registered_at"
+        "pk", "class_offering_id", "email", "status", "registered_at", "amount_paid_cents", "stripe_payment_id"
     )
 
     groups: dict[tuple[int, str], list[dict[str, Any]]] = defaultdict(list)
@@ -53,12 +63,28 @@ def cancel_duplicate_signups(apps: Any, schema_editor: Any) -> None:
         groups[(row["class_offering_id"], row["email"])].append(row)
 
     losers: dict[str, list[int]] = defaultdict(list)
+    paid_losers: list[dict[str, Any]] = []
     for group in groups.values():
         if len(group) < 2:
             continue
         group.sort(key=lambda row: (STATUS_RANK[row["status"]], row["registered_at"], row["pk"]))
         for row in group[1:]:
+            if row["amount_paid_cents"] or row["stripe_payment_id"]:
+                paid_losers.append(row)
+                continue
             losers[row["status"]].append(row["pk"])
+
+    if paid_losers:
+        detail = "; ".join(
+            f"pk={row['pk']} class={row['class_offering_id']} email={row['email']} "
+            f"paid={row['amount_paid_cents']} payment={row['stripe_payment_id'] or 'none'}"
+            for row in sorted(paid_losers, key=lambda row: row["pk"])
+        )
+        raise RuntimeError(
+            "Refusing to cancel a paid duplicate registration. These rows are duplicates that hold "
+            f"money, so a person paid twice for one seat and is owed a refund: {detail}. Resolve each "
+            "one by hand (refund it, then cancel it) and run this migration again."
+        )
 
     now = timezone.now()
     for status, pks in losers.items():

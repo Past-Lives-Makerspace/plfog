@@ -3691,13 +3691,23 @@ class Registration(models.Model):
         """
         if target.pk == self.class_offering_id:
             raise ValueError("Cannot move a registration to its current class.")
+        already_there = f"{self.first_name} {self.last_name} already has a signup for {target.title}."
         if self.status in SEAT_HOLDING_REGISTRATION_STATUSES and target.live_registration_for_email(self.email):
-            raise ValueError(f"{self.first_name} {self.last_name} already has a signup for {target.title}.")
+            raise ValueError(already_there)
         source = self.class_offering
         held_spot = self.status in (self.Status.CONFIRMED, self.Status.PENDING)
         should_notify = self.status in (self.Status.CONFIRMED, self.Status.PENDING, self.Status.WAITLISTED)
         self.class_offering = target
-        self.save(update_fields=["class_offering"])
+        try:
+            # Savepointed: the check above is a read, so two staff moving at once (or a
+            # move racing a public signup into the target) can both pass it. The
+            # constraint is what actually decides, and the loser gets the same sentence
+            # as the reader who lost, never a 500.
+            with transaction.atomic():
+                self.save(update_fields=["class_offering"])
+        except IntegrityError:
+            self.class_offering = source
+            raise ValueError(already_there) from None
         from classes import activity
 
         activity.log(

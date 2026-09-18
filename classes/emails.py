@@ -874,6 +874,43 @@ def send_duplicate_payment_alert(
     )
 
 
+def send_orphaned_payment_alert(
+    registration: "Registration", *, amount_cents: int, payment_intent: str, session_id: str
+) -> None:
+    """Alert the admins that a payment landed on a registration that can no longer take the seat.
+
+    The registrant cancelled (or was refunded) and the class seat has since gone to a
+    live signup for the same person, so confirming this row back in is not possible.
+    The card has been charged and nothing else in the app points at that charge, so a
+    human has to decide between a refund and a manual re-seat. Flat-text body wrapped in
+    the branded shell, addressed to the admin rails.
+    """
+    admin_emails = _admin_recipients()
+    if not admin_emails:
+        return
+    offering = registration.class_offering
+    detail_url = _absolute_url(reverse("classes:admin_registration_detail", kwargs={"pk": registration.pk}))
+    stripe_url = f"https://dashboard.stripe.com/payments/{payment_intent}"
+    name = f"{registration.first_name} {registration.last_name}".strip() or registration.email
+    body = (
+        f"{name} ({registration.email}) paid ${amount_cents / 100:.2f} online for "
+        f'"{offering.title}" through a checkout page that was left open on a registration '
+        f"which is now {registration.get_status_display().lower()}.\n\n"
+        f"That seat already belongs to another live signup for the same person, so this "
+        f"payment could not be applied. Either refund it or re-seat them by hand.\n\n"
+        f"Registration: {detail_url}\n"
+        f"Stripe payment: {stripe_url}\n"
+        f"Checkout session: {session_id}"
+    )
+    core_email.send(
+        to=admin_emails,
+        subject=f"Payment needs a decision: {name}, {offering.title}",
+        trigger_kind="classes.orphaned_payment_alert",
+        text_body=body,
+        html_body=_flat_text_email_html(body),
+    )
+
+
 def build_class_reminder_occurrence(
     registration: "Registration",
     session: "ClassSession",

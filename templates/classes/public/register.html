@@ -78,7 +78,7 @@
           </div>
         {% endif %}
 
-        <form method="post" class="reg-form" style="margin-top:14px" hx-boost="false">
+        <form method="post" class="reg-form" style="margin-top:14px" hx-boost="false" data-submit-guard>
           {% csrf_token %}
           <div class="reg-row">
             <div class="reg-field">
@@ -205,18 +205,39 @@
 </div>
 <script>
   (function () {
-    {# One document-level listener, however many boosted arrivals run this script. #}
+    // One document-level listener, however many boosted arrivals run this script.
     if (window.__plRegisterSubmitGuard) return;
     window.__plRegisterSubmitGuard = true;
-    {# Delegated: this page arrives as an htmx body swap, so a listener bound to the form itself dies with it. #}
+    var LABEL = 'data-submit-label';
+
+    function guarded() {
+      return document.querySelectorAll('[data-submit-guard] button[type="submit"]');
+    }
+
+    // Delegated: this page arrives as an htmx body swap, so a listener bound to the
+    // form itself would die with it while this script runs again.
     document.addEventListener('submit', function (event) {
       var form = event.target;
-      if (!form || !form.classList || !form.classList.contains('reg-form')) return;
+      if (!form || !form.matches || !form.matches('[data-submit-guard]')) return;
       var btn = form.querySelector('button[type="submit"]');
       if (!btn || btn.disabled) return;
+      btn.setAttribute(LABEL, btn.textContent);
       btn.textContent = 'Working…';
       // Defer disabling so the button's name=value is still serialized into this submission.
       setTimeout(function () { btn.disabled = true; }, 0);
+    });
+
+    // Back from Stripe is a bfcache restore: the page comes back exactly as it left,
+    // button still disabled and still reading "Working…", with nothing to re-enable it.
+    // Put every guarded button back the way it was found.
+    window.addEventListener('pageshow', function () {
+      guarded().forEach(function (btn) {
+        btn.disabled = false;
+        if (btn.hasAttribute(LABEL)) {
+          btn.textContent = btn.getAttribute(LABEL);
+          btn.removeAttribute(LABEL);
+        }
+      });
     });
   })();
 </script>

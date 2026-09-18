@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import logging
 from collections.abc import Iterable
 from datetime import timedelta
 from functools import wraps
@@ -16,6 +17,7 @@ from django.contrib.contenttypes.models import ContentType
 from django.core.exceptions import ValidationError
 from django.core.files.uploadedfile import UploadedFile
 from django.core.paginator import Paginator
+from django.db import IntegrityError, transaction
 from django.db.models import (
     Count,
     F,
@@ -116,6 +118,8 @@ from classes.models import (
 )
 from core.models import SiteConfiguration
 from core.urls_util import book_absolute_url
+
+logger = logging.getLogger(__name__)
 
 _ViewFunc = Callable[..., HttpResponse]
 
@@ -625,33 +629,83 @@ def _already_signed_up_message(registration: Registration) -> str:
     return f"You already started signing up for {title}. Here's where you left off."
 
 
-def _resume_existing_registration(request: HttpRequest, registration: Registration) -> HttpResponse:
-    """Send a repeat registrant to the signup they already have instead of making another.
+def _self_serve_redirect(request: HttpRequest, registration: Registration) -> HttpResponse:
+    """The self-serve page plus a note saying where this signup stands.
 
-    A PENDING row whose Checkout Session is still open is the double-click case:
-    the second POST lands on the same hosted payment page the first one opened,
-    which is where the registrant was going anyway. Everything else (already
-    confirmed, already waitlisted, a session Stripe has since closed, or a Stripe
-    we cannot reach) goes to the self-serve page, which states where the signup
-    stands and carries its own pay link.
+    It is a status page, not a payment page: ``my_registration_pay`` only serves a
+    CONFIRMED row that still owes a balance, so a PENDING row cannot pay from there.
+    That is why this is the landing for signups with nothing to pay right now, and
+    never the answer to an unusable Checkout Session.
     """
-    if registration.status == Registration.Status.PENDING and registration.stripe_session_id:
-        import logging
+    messages.info(request, _already_signed_up_message(registration))
+    return redirect("classes:my_registration", token=registration.self_serve_token)
 
-        from billing import stripe_utils
 
+def _resume_existing_registration(
+    request: HttpRequest, registration: Registration, form: RegistrationForm
+) -> HttpResponse:
+    """Send a repeat registrant back into the signup they already have, never into a second one.
+
+    A PENDING row is unfinished business and goes to :func:`_resume_pending_checkout`.
+    A CONFIRMED or WAITLISTED row has nothing to pay this minute, so it goes to the
+    self-serve page with a note.
+    """
+    if registration.status == Registration.Status.PENDING:
+        return _resume_pending_checkout(request, registration, form)
+    return _self_serve_redirect(request, registration)
+
+
+def _resume_pending_checkout(request: HttpRequest, registration: Registration, form: RegistrationForm) -> HttpResponse:
+    """Take an unfinished signup back to checkout, reusing its Stripe session only when that is honest.
+
+    The stored session is reused only when Stripe still calls it ``open`` **and** its
+    ``amount_total`` equals what this submission computes. The price is re-derived
+    every time because it is not stable between visits: a discount code typed on the
+    second attempt, a sale an admin flipped on, an auto-apply code that has since
+    expired, or a membership that started all move it. Redirecting to the stored page
+    regardless would charge the first visit's number without saying so.
+
+    Anything else mints a fresh session **on the same row**. A second row is no longer
+    available as a fallback, and nothing reaps a PENDING row yet, so an expired session
+    would otherwise leave someone holding a seat they can neither pay for nor re-book.
+    The stale session is expired first so an old tab cannot pay the old price.
+
+    Two cases never mint. A session Stripe reports as already paid means the webhook is
+    behind, and a second session would take the money twice. A Stripe we cannot reach
+    is unknown, not permission to charge again; both land on the self-serve page.
+    """
+    from billing import stripe_utils
+
+    session = None
+    if registration.stripe_session_id:
         try:
             session = stripe_utils.retrieve_checkout_session(session_id=registration.stripe_session_id)
         except Exception:
-            logging.getLogger(__name__).exception(
-                "Could not retrieve Checkout session for registration %s; sending them to self-serve.",
+            logger.exception(
+                "Could not retrieve Checkout session for registration %s; leaving the signup as it stands.",
                 registration.pk,
             )
-        else:
-            if session["status"] == "open" and session["url"]:
-                return redirect(session["url"])
-    messages.info(request, _already_signed_up_message(registration))
-    return redirect("classes:my_registration", token=registration.self_serve_token)
+            return _self_serve_redirect(request, registration)
+
+    if session is not None and session["payment_status"] == "paid":
+        messages.info(request, "We're finishing up your payment. Your confirmation email is on its way.")
+        return redirect(
+            reverse("classes:register_success", kwargs={"slug": registration.class_offering.slug})
+            + f"?reg={registration.self_serve_token}"
+        )
+
+    final_price = form.compute_final_price_cents()
+    if session is not None and session["status"] == "open":
+        if session["amount_total"] == final_price and session["url"]:
+            return redirect(session["url"])
+        try:
+            stripe_utils.expire_checkout_session(session_id=registration.stripe_session_id)
+        except Exception:
+            # Best effort, exactly as the orientation hold release treats it: the
+            # session's own expiry is the backstop, and the new session is what the
+            # registrant is being sent to.
+            logger.exception("Could not expire the stale Checkout session for registration %s.", registration.pk)
+    return _start_registration_payment(request, form, registration, rollback_on_failure=False)
 
 
 def _save_registration(form: RegistrationForm, offering: ClassOffering, email: str) -> tuple[Registration, bool]:
@@ -675,8 +729,6 @@ def _save_registration(form: RegistrationForm, offering: ClassOffering, email: s
         IntegrityError: When the collision was not the seat constraint. Nothing
             else is swallowed.
     """
-    from django.db import IntegrityError, transaction
-
     try:
         with transaction.atomic():
             return form.save(), True
@@ -685,6 +737,39 @@ def _save_registration(form: RegistrationForm, offering: ClassOffering, email: s
         if winner is None:
             raise
         return winner, False
+
+
+def _claimed_waitlist_registration(request: HttpRequest, offering: ClassOffering) -> Registration | None:
+    """The WAITLISTED row this request is claiming a spot for, or ``None``.
+
+    ``send_waitlist_spot_available`` mails a link to the register form carrying
+    ``?waitlist_token=<self_serve_token>``, and the form posts back to that same URL
+    (no ``action``), so the token is on the POST as well as the GET. A claim is what
+    tells the signup guard that this person's existing waitlist row is the thing being
+    converted rather than a duplicate to bounce.
+    """
+    token = request.GET.get("waitlist_token", "").strip()
+    if not token:
+        return None
+    return offering.registrations.filter(self_serve_token=token, status=Registration.Status.WAITLISTED).first()
+
+
+def _convert_waitlist_claim(request: HttpRequest, form: RegistrationForm, registration: Registration) -> HttpResponse:
+    """Turn a claimed waitlist place into a real seat, on the row that was waiting.
+
+    The claimant was told a spot opened and sent a link with a deadline. Their row moves
+    WAITLISTED to PENDING before checkout so it holds the seat for the length of the
+    payment, the way any other in-progress signup does; a free class confirms outright.
+    No new row is written, which is what the seat constraint requires and what the old
+    flow got wrong (it wrote a second row and left the waitlist row standing).
+
+    WAITLISTED to PENDING dispatches nothing (``_dispatch_status_notification`` acts on
+    CONFIRMED and REFUNDED only), so the claimant gets the checkout they asked for and
+    no stray "you joined the waitlist" mail.
+    """
+    registration.status = Registration.Status.PENDING
+    registration.save(update_fields=["status"])
+    return _start_registration_payment(request, form, registration, rollback_on_failure=False)
 
 
 def _joined_waitlist(request: HttpRequest, registration: Registration) -> HttpResponse:
@@ -698,14 +783,19 @@ def _joined_waitlist(request: HttpRequest, registration: Registration) -> HttpRe
 
 
 def _start_registration_payment(
-    request: HttpRequest, form: RegistrationForm, registration: Registration
+    request: HttpRequest, form: RegistrationForm, registration: Registration, *, rollback_on_failure: bool = True
 ) -> HttpResponse:
     """Take a saved registration to payment, or straight to confirmed when it costs nothing.
 
     Args:
         request: The registration POST, used for the absolute return URLs.
         form: The validated form, which owns the discount arithmetic.
-        registration: The row just written for this signup.
+        registration: The row this signup is being paid for.
+        rollback_on_failure: Delete the row when Stripe refuses. True for a row this
+            request just created, where the row is half-built and nobody has seen it.
+            False when minting a replacement session for a row that existed before this
+            request: deleting that would throw away waivers, answers and the audit
+            trail, so the error propagates and the row is left exactly as it was.
 
     Returns:
         A redirect to Stripe's hosted Checkout page, or to the confirmation page
@@ -713,6 +803,8 @@ def _start_registration_payment(
     """
     offering = registration.class_offering
     final_price = form.compute_final_price_cents()
+    # Captured before the new id overwrites it: it is part of the idempotency key.
+    previous_session_id = registration.stripe_session_id
 
     if final_price == 0:
         return _confirm_free_registration(request, registration)
@@ -753,15 +845,24 @@ def _start_registration_payment(
                 "class_slug": offering.slug,
                 "kind": "class_registration",
             },
-            idempotency_key=f"class-checkout-reg-{registration.pk}",
+            # The key has to change when the session being replaced changes, or Stripe
+            # answers a re-mint with the very session we just expired. Keyed on the row,
+            # the price and the session it supersedes: two concurrent POSTs replacing the
+            # same stale session still share a key, so they share one new session rather
+            # than leaving a second payable page open.
+            idempotency_key=f"class-checkout-reg-{registration.pk}-{final_price}-{previous_session_id or 'first'}",
         )
     except Exception:
-        registration.delete()  # roll back the half-created registration
+        if rollback_on_failure:
+            registration.delete()  # roll back the half-created registration
         raise
 
     registration.stripe_session_id = checkout["id"]
     registration.amount_paid_cents = final_price  # provisional; webhook is canonical
-    registration.save(update_fields=["stripe_session_id", "amount_paid_cents"])
+    # Re-stamped, not assumed: a resumed signup can carry a code the first attempt
+    # did not, and the row must name the code whose price it is about to charge.
+    registration.discount_code = form.validated_discount
+    registration.save(update_fields=["stripe_session_id", "amount_paid_cents", "discount_code"])
     return redirect(checkout["url"])
 
 
@@ -806,7 +907,12 @@ def register(request: HttpRequest, slug: str) -> HttpResponse:
     # to the no-charge waitlist branch below. Forced on automatically when the
     # class has no spots left so we never hide the option from a registrant
     # who lands here from a stale link.
-    is_waitlist = request.GET.get("waitlist") == "1" or offering.spots_remaining <= 0
+    # A claim link is the opposite of waitlist intent: this person is here to take a
+    # seat that opened. Holding it out of the waitlist branch is what makes the form
+    # price the signup and, if the class has refilled in the meantime, say so plainly
+    # rather than quietly overfilling it or queueing them a second time.
+    claim = _claimed_waitlist_registration(request, offering)
+    is_waitlist = claim is None and (request.GET.get("waitlist") == "1" or offering.spots_remaining <= 0)
 
     # Two-pass form: first POST validates email so we can detect a member
     # before computing price, then re-binds to surface the discounted total.
@@ -833,11 +939,13 @@ def register(request: HttpRequest, slug: str) -> HttpResponse:
         # POST down the waitlist branch.
         existing = offering.live_registration_for_email(form.cleaned_data["email"])
         if existing is not None:
-            return _resume_existing_registration(request, existing)
+            if claim is not None and claim.pk == existing.pk:
+                return _convert_waitlist_claim(request, form, existing)
+            return _resume_existing_registration(request, existing, form)
 
         registration, created = _save_registration(form, offering, form.cleaned_data["email"])
         if not created:
-            return _resume_existing_registration(request, registration)
+            return _resume_existing_registration(request, registration, form)
         _cache_registration_to_profile(request, registration)
         if is_waitlist:
             # The form set status=WAITLISTED on save (see RegistrationForm.save), so the

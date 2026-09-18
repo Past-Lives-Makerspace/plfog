@@ -583,10 +583,16 @@ class Command(BaseCommand):
         confirmed_at=None,
         amount_paid_cents: int = 0,
     ) -> Registration:
+        # Keyed on the seat first, not on the order number. ``uq_registration_seat_email``
+        # allows one live row per (class, email), so a seeded row whose order number
+        # changed between runs has to be UPDATED, never joined by a second row.
+        existing = Registration.objects.seat_holding().filter(class_offering=offering, email=email).first()
+        lookup = {"pk": existing.pk} if existing is not None else {"order_number": order_number}
         registration, created = Registration.objects.update_or_create(
-            order_number=order_number,
+            **lookup,
             defaults={
                 "class_offering": offering,
+                "order_number": order_number,
                 "email": email,
                 "first_name": first_name,
                 "last_name": last_name,

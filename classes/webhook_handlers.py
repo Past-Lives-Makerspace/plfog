@@ -10,7 +10,7 @@ from __future__ import annotations
 import logging
 from typing import Any
 
-from django.db import transaction
+from django.db import IntegrityError, transaction
 from django.db.models import F
 from django.utils import timezone
 
@@ -18,6 +18,7 @@ from classes.emails import (
     emit_instructor_new_registration,
     send_admin_registration_notification,
     send_class_welcome_email,
+    send_orphaned_payment_alert,
     send_registration_confirmation,
 )
 from classes.models import DiscountCode, Registration
@@ -53,6 +54,7 @@ def handle_checkout_session_completed(event: dict[str, Any]) -> None:
         )
         return
 
+    orphaned = False
     with transaction.atomic():
         try:
             registration = Registration.objects.select_for_update().get(pk=registration_id)
@@ -63,35 +65,25 @@ def handle_checkout_session_completed(event: dict[str, Any]) -> None:
         if registration.status == Registration.Status.CONFIRMED:
             return  # already handled
 
-        # Intentionally leave ``_acting_user`` unset: this is an automated Stripe
-        # event with no human actor, so the audit feed correctly records "System".
-        registration.status = Registration.Status.CONFIRMED
-        registration.confirmed_at = timezone.now()
-        registration.stripe_session_id = session.get("id", registration.stripe_session_id)
-        registration.stripe_payment_id = session.get("payment_intent", "") or ""
-        amount_total = session.get("amount_total")
-        if isinstance(amount_total, int):
-            registration.amount_paid_cents = amount_total
-        registration.save(
-            update_fields=[
-                "status",
-                "confirmed_at",
-                "stripe_session_id",
-                "stripe_payment_id",
-                "amount_paid_cents",
-            ]
-        )
-        if registration.discount_code_id:
-            DiscountCode.objects.filter(pk=registration.discount_code_id).update(use_count=F("use_count") + 1)
-            from classes import activity
-            from classes.models import CmsActivity
+        payment_intent = session.get("payment_intent", "") or ""
+        if payment_intent and registration.stripe_payment_id == payment_intent:
+            # Re-delivery of a payment already recorded against this row. Only an
+            # orphaned payment can reach here (a confirmed one returned above), and
+            # re-recording it would log the money twice and re-alert the admins.
+            return
 
-            activity.log(
-                CmsActivity.Kind.DISCOUNT_CODE_REDEEMED,
-                class_offering=registration.class_offering,
-                registration=registration,
-                payload={"code": registration.discount_code.code},  # type: ignore[union-attr]  # discount_code_id guard ensures non-None
-            )
+        if not _confirm_paid_registration(registration, session, payment_intent):
+            orphaned = _record_orphaned_payment(registration, session)
+
+    if orphaned:
+        amount_total = session.get("amount_total")
+        send_orphaned_payment_alert(
+            registration,
+            amount_cents=amount_total if isinstance(amount_total, int) else 0,
+            payment_intent=session.get("payment_intent", "") or "",
+            session_id=session.get("id", ""),
+        )
+        return
 
     send_registration_confirmation(registration)
     send_class_welcome_email(registration)
@@ -107,6 +99,97 @@ def handle_checkout_session_completed(event: dict[str, Any]) -> None:
     from core.services.guest_account import ensure_account_for_registration
 
     ensure_account_for_registration(registration)
+
+
+def _confirm_paid_registration(registration: Registration, session: dict[str, Any], payment_intent: str) -> bool:
+    """Write the CONFIRMED transition for a paid Checkout Session.
+
+    Savepointed, because this write can be refused. A cancelled row whose seat has since
+    gone to a fresh signup for the same person cannot be confirmed back in:
+    ``uq_registration_seat_email`` rejects it. Raised out of a webhook that would be a
+    500, which Stripe retries forever, on a card that has already been charged, with
+    nothing in the app pointing at the payment. Returning instead lets the caller take
+    the money seriously and answer 2xx.
+
+    ``_acting_user`` is intentionally left unset: an automated Stripe event has no human
+    actor, so the audit feed correctly records "System".
+
+    Returns:
+        ``True`` when the seat was confirmed, ``False`` when the constraint refused it
+        and the in-memory row has been reloaded to the state still on disk.
+    """
+    registration.status = Registration.Status.CONFIRMED
+    registration.confirmed_at = timezone.now()
+    registration.stripe_session_id = session.get("id", registration.stripe_session_id)
+    registration.stripe_payment_id = payment_intent
+    amount_total = session.get("amount_total")
+    if isinstance(amount_total, int):
+        registration.amount_paid_cents = amount_total
+    try:
+        with transaction.atomic():
+            registration.save(
+                update_fields=[
+                    "status",
+                    "confirmed_at",
+                    "stripe_session_id",
+                    "stripe_payment_id",
+                    "amount_paid_cents",
+                ]
+            )
+    except IntegrityError:
+        registration.refresh_from_db()  # drop the CONFIRMED we could not write
+        return False
+
+    if registration.discount_code_id:
+        DiscountCode.objects.filter(pk=registration.discount_code_id).update(use_count=F("use_count") + 1)
+        from classes import activity
+        from classes.models import CmsActivity
+
+        activity.log(
+            CmsActivity.Kind.DISCOUNT_CODE_REDEEMED,
+            class_offering=registration.class_offering,
+            registration=registration,
+            payload={"code": registration.discount_code.code},  # type: ignore[union-attr]  # discount_code_id guard ensures non-None
+        )
+    return True
+
+
+def _record_orphaned_payment(registration: Registration, session: dict[str, Any]) -> bool:
+    """Pin a payment to the row it was made against when that row can no longer take the seat.
+
+    Stamps ``stripe_payment_id`` so a re-delivery recognises this payment as already
+    recorded, and logs DUPLICATE_PAYMENT so the money shows up in the class's activity
+    feed instead of living only in the Stripe dashboard. Nothing about the seat changes:
+    the live signup that owns it keeps it.
+
+    Returns:
+        ``True``, so the caller sends the admin alert once the transaction commits.
+    """
+    from classes import activity
+    from classes.models import CmsActivity
+
+    payment_intent = session.get("payment_intent", "") or ""
+    amount_total = session.get("amount_total")
+    registration.stripe_payment_id = payment_intent
+    registration.save(update_fields=["stripe_payment_id"])
+    activity.log(
+        CmsActivity.Kind.DUPLICATE_PAYMENT,
+        class_offering=registration.class_offering,
+        registration=registration,
+        payload={
+            "payment_intent": payment_intent,
+            "amount_cents": amount_total if isinstance(amount_total, int) else 0,
+            "session_id": session.get("id", ""),
+            "reason": "seat already held by another signup for this email",
+        },
+    )
+    logger.warning(
+        "checkout.session.completed: registration %s is %s and its seat is taken; payment %s needs a human.",
+        registration.pk,
+        registration.status,
+        payment_intent,
+    )
+    return True
 
 
 def _handle_class_payment_link(session: dict[str, Any]) -> None:

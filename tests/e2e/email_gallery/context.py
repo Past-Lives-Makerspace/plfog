@@ -441,6 +441,30 @@ def duplicate_payment_alert_context(data: SampleData) -> dict[str, Any]:
     }
 
 
+def orphaned_class_payment_alert_context(data: SampleData) -> dict[str, Any]:
+    """Reproduces ``classes.emails.send_orphaned_payment_alert`` exactly."""
+    from classes.emails import _absolute_url
+
+    registration = data.registration
+    offering = data.offering
+    detail_url = _absolute_url(reverse("classes:admin_registration_detail", kwargs={"pk": registration.pk}))
+    stripe_url = "https://dashboard.stripe.com/payments/pi_sample_orphaned"
+    name = f"{registration.first_name} {registration.last_name}".strip() or registration.email
+    return {
+        "subject": f"Payment needs a decision: {name}, {offering.title}",
+        "text_body": (
+            f"{name} ({registration.email}) paid $45.00 online for "
+            f'"{offering.title}" through a checkout page that was left open on a registration '
+            f"which is now cancelled.\n\n"
+            f"That seat already belongs to another live signup for the same person, so this "
+            f"payment could not be applied. Either refund it or re-seat them by hand.\n\n"
+            f"Registration: {detail_url}\n"
+            f"Stripe payment: {stripe_url}\n"
+            f"Checkout session: cs_sample_orphaned"
+        ),
+    }
+
+
 def orientation_orphan_payment_alert_context(data: SampleData) -> dict[str, Any]:
     """Reproduces ``membership.webhook_handlers._send_orphan_payment_alert`` exactly."""
     booking = data.booking

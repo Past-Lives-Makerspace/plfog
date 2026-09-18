@@ -1,0 +1,11 @@
+bump = "patch"
+date = "2026-09-18"
+title = "Signing up for a class twice by accident"
+changes = [
+  "Pressing the sign up button more than once used to create a second signup, and every extra one quietly took a seat. A class could show as full while it still had room. A second press now picks up the checkout you already started instead of starting another one.",
+  "If the price moved between your two attempts, because you added a discount code or a sale started, you are now charged the new price. Before, you would have been sent back to the first page and charged the old one.",
+  "If you left checkout open overnight and came back, you used to be stuck: you could not pay and could not sign up again. You can now pay.",
+  "If a spot opened on a waitlist and you clicked the link in that email, you were being told you were already on the waitlist instead of being let in. You now get the spot.",
+  "Joining a waitlist twice is fixed the same way.",
+  "Studio staff moving someone into a class they are already signed up for now get told about the clash instead of hitting an error.",
+]

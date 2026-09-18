@@ -20,6 +20,7 @@ from django.utils import timezone
 from classes.factories import (
     CategoryFactory,
     ClassOfferingFactory,
+    DiscountCodeFactory,
     ClassSessionFactory,
     InstructorFactory,
     RegistrationFactory,
@@ -145,20 +146,110 @@ def describe_duplicate_registration():
             assert mock_create.call_count == 1
             assert mock_retrieve.call_args.kwargs["session_id"] == "cs_test_first"
 
+        @patch("billing.stripe_utils.expire_checkout_session")
         @patch("billing.stripe_utils.retrieve_checkout_session", return_value=_session(status="expired"))
         @patch("billing.stripe_utils.create_class_checkout_session")
-        def it_sends_them_to_their_registration_when_the_session_is_no_longer_open(
-            mock_create, _mock_retrieve, paid_offering, client
+        def it_mints_a_fresh_session_when_the_stored_one_expired(
+            mock_create, _mock_retrieve, mock_expire, paid_offering, client
         ):
+            """Coming back the next day must not be a dead end.
+
+            Nothing reaps a PENDING row yet and the seat constraint forbids a second
+            one, so reusing an expired session (or parking them on a self-serve page
+            with no pay link) would leave a seat that can never be paid for or rebooked.
+            """
+            mock_create.side_effect = [
+                {"id": "cs_test_first", "url": CHECKOUT_URL},
+                {"id": "cs_test_second", "url": SECOND_CHECKOUT_URL},
+            ]
+            client.post(_register_url(paid_offering), data=_post_data())
+
+            response = client.post(_register_url(paid_offering), data=_post_data())
+
+            assert response.status_code == 302
+            assert response.url == SECOND_CHECKOUT_URL
+            assert mock_create.call_count == 2
+            assert mock_expire.call_count == 0  # nothing to expire; Stripe already closed it
+            rows = Registration.objects.filter(class_offering=paid_offering, email="sam@example.com")
+            assert rows.count() == 1
+            assert rows.get().stripe_session_id == "cs_test_second"
+            assert rows.get().status == Registration.Status.PENDING
+
+        @patch("billing.stripe_utils.expire_checkout_session")
+        @patch("billing.stripe_utils.retrieve_checkout_session", return_value=_session())
+        @patch("billing.stripe_utils.create_class_checkout_session")
+        def it_reprices_the_session_when_a_discount_code_arrives_on_the_second_try(
+            mock_create, _mock_retrieve, mock_expire, paid_offering, client
+        ):
+            """A code typed on the second attempt must not be charged at the first attempt's price.
+
+            The stored session is a $100 page. Reusing it because it happens to be open
+            would take $100 from someone who just typed a valid half-price code and saw
+            no error.
+            """
+            DiscountCodeFactory(code="HALF", discount_pct=50)
+            mock_create.side_effect = [
+                {"id": "cs_test_first", "url": CHECKOUT_URL},
+                {"id": "cs_test_second", "url": SECOND_CHECKOUT_URL},
+            ]
+            client.post(_register_url(paid_offering), data=_post_data())
+
+            response = client.post(_register_url(paid_offering), data=_post_data(discount_code="HALF"))
+
+            assert response.url == SECOND_CHECKOUT_URL
+            assert mock_create.call_count == 2
+            assert mock_create.call_args.kwargs["amount_cents"] == 5000
+            assert mock_expire.call_args.kwargs["session_id"] == "cs_test_first"  # old page killed first
+            row = Registration.objects.get(class_offering=paid_offering, email="sam@example.com")
+            assert row.discount_code is not None and row.discount_code.code == "HALF"
+            assert row.amount_paid_cents == 5000
+
+        @patch("billing.stripe_utils.expire_checkout_session")
+        @patch("billing.stripe_utils.retrieve_checkout_session", return_value=_session())
+        @patch("billing.stripe_utils.create_class_checkout_session")
+        def it_reprices_the_session_when_a_sale_starts_between_visits(
+            mock_create, _mock_retrieve, mock_expire, paid_offering, client
+        ):
+            """``sale_enabled`` is an instant admin toggle and a session lives a day."""
+            mock_create.side_effect = [
+                {"id": "cs_test_first", "url": CHECKOUT_URL},
+                {"id": "cs_test_second", "url": SECOND_CHECKOUT_URL},
+            ]
+            client.post(_register_url(paid_offering), data=_post_data())
+            paid_offering.sale_enabled = True
+            paid_offering.sale_kind = ClassOffering.SaleKind.PERCENT
+            paid_offering.sale_percent = 60
+            paid_offering.save(update_fields=["sale_enabled", "sale_kind", "sale_percent"])
+
+            response = client.post(_register_url(paid_offering), data=_post_data())
+
+            assert response.url == SECOND_CHECKOUT_URL
+            assert mock_create.call_args.kwargs["amount_cents"] == 4000
+            assert mock_expire.call_count == 1
+
+        @patch("billing.stripe_utils.expire_checkout_session")
+        @patch(
+            "billing.stripe_utils.retrieve_checkout_session",
+            return_value=_session(status="complete") | {"payment_status": "paid"},
+        )
+        @patch("billing.stripe_utils.create_class_checkout_session")
+        def it_never_mints_a_second_session_over_a_payment_stripe_already_took(
+            mock_create, _mock_retrieve, mock_expire, paid_offering, client
+        ):
+            """Paid but not yet confirmed means the webhook is behind, not that nothing happened."""
             mock_create.return_value = {"id": "cs_test_first", "url": CHECKOUT_URL}
             client.post(_register_url(paid_offering), data=_post_data())
 
             response = client.post(_register_url(paid_offering), data=_post_data())
 
-            existing = Registration.objects.get(class_offering=paid_offering, email="sam@example.com")
+            row = Registration.objects.get(class_offering=paid_offering, email="sam@example.com")
             assert response.status_code == 302
-            assert response.url == reverse("classes:my_registration", kwargs={"token": existing.self_serve_token})
+            assert response.url == (
+                reverse("classes:register_success", kwargs={"slug": paid_offering.slug})
+                + f"?reg={row.self_serve_token}"
+            )
             assert mock_create.call_count == 1
+            assert mock_expire.call_count == 0
 
         @patch("billing.stripe_utils.retrieve_checkout_session", side_effect=RuntimeError("stripe down"))
         @patch("billing.stripe_utils.create_class_checkout_session")
@@ -330,6 +421,24 @@ def describe_moving_a_registration_to_a_class_the_person_is_already_in():
         cancelled.refresh_from_db()
         assert cancelled.class_offering_id == free_offering.pk
 
+    def it_turns_a_losing_race_into_the_same_sentence(paid_offering, free_offering):
+        """Two staff moving at once, or a move racing a public signup into the target.
+
+        The pre-check is a read, so both can pass it; the constraint is what actually
+        decides. The loser must get the sentence the reader got, never a raw 500.
+        """
+        here = RegistrationFactory(
+            class_offering=paid_offering, email="sam@example.com", status=Registration.Status.CONFIRMED
+        )
+        RegistrationFactory(class_offering=free_offering, email="sam@example.com", status=Registration.Status.PENDING)
+
+        with patch.object(ClassOffering, "live_registration_for_email", return_value=None):
+            with pytest.raises(ValueError, match="already has a signup"):
+                here.move_to(free_offering)
+
+        here.refresh_from_db()
+        assert here.class_offering_id == paid_offering.pk  # rolled back to where it was
+
     def it_tells_the_instructor_why_rather_than_erroring(db, client):
         user = UserFactory(username="mover@example.com")
         instructor = InstructorFactory(user=user, instructor_slug="mover")
@@ -355,9 +464,114 @@ def describe_moving_a_registration_to_a_class_the_person_is_already_in():
 
 
 def describe_the_registration_form_page():
-    def it_carries_the_submit_guard_that_swallows_the_second_click(paid_offering, client):
+    def it_marks_the_form_for_the_submit_guard(paid_offering, client):
+        """``data-submit-guard`` is the contract between the form and the script.
+
+        Asserted on the attribute rather than on the script's source, so reformatting
+        the script does not fail a test about behaviour. The script keys off the same
+        attribute for both halves of the guard: disabling on submit, and re-enabling
+        on the bfcache restore that browser Back from Stripe produces.
+        """
         body = client.get(_register_url(paid_offering)).content.decode()
 
-        assert "__plRegisterSubmitGuard" in body  # installed once per document
-        assert "document.addEventListener('submit'" in body  # delegated, survives a boosted arrival
-        assert "btn.disabled = true" in body
+        assert "data-submit-guard" in body
+        assert body.count("data-submit-guard") >= 2  # the form, and the selector that resets it
+
+
+def describe_claiming_a_waitlist_spot():
+    """The claim link is how a promoted waitlister takes the seat that opened.
+
+    ``send_waitlist_spot_available`` mails ``/register/?waitlist_token=<token>`` and the
+    form posts back to that URL. The signup guard must read that as "convert the row
+    that was waiting", not as "this person already has a signup, bounce them" — they
+    were just told a spot is theirs and the claim window runs out.
+    """
+
+    @pytest.fixture
+    def waiting(paid_offering):
+        return RegistrationFactory(
+            class_offering=paid_offering,
+            first_name="Sam",
+            last_name="Smith",
+            email="sam@example.com",
+            status=Registration.Status.WAITLISTED,
+        )
+
+    def _claim_url(offering, registration) -> str:
+        return f"{_register_url(offering)}?waitlist_token={registration.self_serve_token}"
+
+    @patch("billing.stripe_utils.create_class_checkout_session")
+    def it_converts_the_waiting_row_into_a_checkout(mock_create, paid_offering, waiting, client):
+        mock_create.return_value = {"id": "cs_test_first", "url": CHECKOUT_URL}
+
+        response = client.post(_claim_url(paid_offering, waiting), data=_post_data())
+
+        assert response.status_code == 302
+        assert response.url == CHECKOUT_URL
+        assert mock_create.call_count == 1
+        waiting.refresh_from_db()
+        assert waiting.status == Registration.Status.PENDING  # holds the seat through checkout
+        assert waiting.stripe_session_id == "cs_test_first"
+        assert Registration.objects.filter(class_offering=paid_offering, email="sam@example.com").count() == 1
+
+    @patch("billing.stripe_utils.create_class_checkout_session")
+    def it_does_not_bounce_the_claimant_with_the_already_waitlisted_note(mock_create, paid_offering, waiting, client):
+        mock_create.return_value = {"id": "cs_test_first", "url": CHECKOUT_URL}
+
+        response = client.post(_claim_url(paid_offering, waiting), data=_post_data())
+
+        assert [m.message for m in get_messages(response.wsgi_request)] == []
+
+    def it_confirms_a_claim_on_a_free_class_outright(free_offering, client):
+        waiting = RegistrationFactory(
+            class_offering=free_offering,
+            first_name="Sam",
+            last_name="Smith",
+            email="sam@example.com",
+            status=Registration.Status.WAITLISTED,
+        )
+
+        response = client.post(_claim_url(free_offering, waiting), data=_post_data())
+
+        assert response.url == reverse("classes:register_success", kwargs={"slug": free_offering.slug})
+        waiting.refresh_from_db()
+        assert waiting.status == Registration.Status.CONFIRMED
+        assert Registration.objects.filter(class_offering=free_offering, email="sam@example.com").count() == 1
+
+    def it_says_the_class_refilled_rather_than_overfilling_it(paid_offering, waiting, client):
+        """Too late is an honest answer. Converting anyway would seat one person over capacity."""
+        for _ in range(paid_offering.capacity):
+            RegistrationFactory(class_offering=paid_offering, status=Registration.Status.CONFIRMED)
+
+        response = client.post(_claim_url(paid_offering, waiting), data=_post_data())
+
+        assert response.status_code == 200
+        assert b"sold out" in response.content
+        waiting.refresh_from_db()
+        assert waiting.status == Registration.Status.WAITLISTED
+
+    @patch("billing.stripe_utils.retrieve_checkout_session", return_value=_session())
+    @patch("billing.stripe_utils.create_class_checkout_session")
+    def it_ignores_a_token_that_belongs_to_a_row_which_is_not_waiting(
+        mock_create, _mock_retrieve, paid_offering, client
+    ):
+        """A stale claim link on a live signup converts nothing.
+
+        ``_stale_claim_link_redirect`` already owns this case and answers it before the
+        signup guard is reached: a claim token on a CONFIRMED or PENDING row means the
+        person is in the class, so they go to their self-serve page. Pinned here because
+        the claim conversion must not start reaching past it.
+        """
+        mock_create.return_value = {"id": "cs_test_first", "url": CHECKOUT_URL}
+        client.post(_register_url(paid_offering), data=_post_data())
+        live = Registration.objects.get(class_offering=paid_offering, email="sam@example.com")
+
+        response = client.post(
+            f"{_register_url(paid_offering)}?waitlist_token={live.self_serve_token}", data=_post_data()
+        )
+
+        assert response.url == reverse("classes:my_registration", kwargs={"token": live.self_serve_token})
+        assert mock_create.call_count == 1  # no second session minted
+        live.refresh_from_db()
+        assert live.status == Registration.Status.PENDING
+        assert Registration.objects.filter(class_offering=paid_offering, email="sam@example.com").count() == 1

@@ -277,6 +277,20 @@ STRUCTURAL_EMAILS: list[GalleryEmail] = [
         context_builder="duplicate_payment_alert_context",
     ),
     GalleryEmail(
+        key="orphaned_class_payment_alert",
+        name="Class payment needs a decision (admin)",
+        section="Classes",
+        renderer=Renderer.INLINE_STRING,
+        trigger_note=(
+            "Sent when a class Checkout page left open on a cancelled registration is finally paid, "
+            "and the seat has since gone to a newer signup for the same person — the payment cannot be "
+            "applied, so somebody has to refund it or re-seat them. Goes to the admin notification addresses."
+        ),
+        edit_pointer="Text authored in code (classes/emails.py::send_orphaned_payment_alert)",
+        audience="The admin notification addresses.",
+        context_builder="orphaned_class_payment_alert_context",
+    ),
+    GalleryEmail(
         key="reminder",
         name="Class reminder",
         section="Classes",
@@ -919,6 +933,7 @@ _REGISTERED_INLINE_KINDS: dict[str, str] = {
     "core.find_account": "the find_account INLINE_STRING card",
     "classes.welcome_email": "the welcome WELCOME card (this is the real send)",
     "classes.duplicate_payment_alert": "the duplicate_payment_alert INLINE_STRING card",
+    "classes.orphaned_payment_alert": "the orphaned_class_payment_alert INLINE_STRING card",
     "membership.orientation_orphan_payment": "the orientation_orphan_payment_alert INLINE_STRING card",
     "wiki.page_archived": "the wiki_page_archived card",
     "wiki.proposal_declined": "the wiki_proposal_declined card",

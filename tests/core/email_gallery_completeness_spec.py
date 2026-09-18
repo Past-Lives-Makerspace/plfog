@@ -97,6 +97,7 @@ def describe_email_gallery_completeness():
             "core.find_account",
             "classes.welcome_email",
             "classes.duplicate_payment_alert",
+            "classes.orphaned_payment_alert",
             "classes.welcome_email_test",
             "classes.instructor_message",
             "classes.admin_message",

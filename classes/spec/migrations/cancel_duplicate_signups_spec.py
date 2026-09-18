@@ -42,7 +42,16 @@ def _migrate(target: str):
     return executor.loader.project_state([(_APP, target)]).apps
 
 
-def _make_registration(apps: Any, *, offering_id: int, status: str, minutes_ago: int, email: str = EMAIL) -> int:
+def _make_registration(
+    apps: Any,
+    *,
+    offering_id: int,
+    status: str,
+    minutes_ago: int,
+    email: str = EMAIL,
+    amount_paid_cents: int = 0,
+    stripe_payment_id: str = "",
+) -> int:
     """Write one registration against the historical model and return its pk.
 
     ``registered_at`` is ``auto_now_add``, so the age that decides which row keeps
@@ -55,6 +64,8 @@ def _make_registration(apps: Any, *, offering_id: int, status: str, minutes_ago:
         last_name="Smith",
         email=email,
         status=status,
+        amount_paid_cents=amount_paid_cents,
+        stripe_payment_id=stripe_payment_id,
         self_serve_token=f"token-{status}-{minutes_ago}-{email}",
         order_number=f"PL-{minutes_ago:04d}-{status[:2].upper()}",
     )
@@ -196,5 +207,73 @@ def describe_migration_0065_cancel_duplicate_signups():
                 assert row.status == "cancelled"
                 assert row.cancellation_reason == "Registrant emailed us to drop."
                 assert MARKER not in row.cancellation_reason
+            finally:
+                _migrate(_HEAD)
+
+    def describe_a_duplicate_that_carries_money():
+        """Two paid rows is what the worst double-click produced: two sessions, both charged.
+
+        Cancelling one of those silently would strand a real payment with no refund and
+        no email, because the raw ``.update()`` is chosen precisely so nothing fires.
+        """
+
+        def it_refuses_to_run_and_names_the_rows():
+            try:
+                offering = ClassOfferingFactory()
+                apps = _migrate(_BEFORE)
+                kept = _make_registration(
+                    apps, offering_id=offering.pk, status="confirmed", minutes_ago=30, amount_paid_cents=10000
+                )
+                paid = _make_registration(
+                    apps,
+                    offering_id=offering.pk,
+                    status="confirmed",
+                    minutes_ago=20,
+                    amount_paid_cents=10000,
+                    stripe_payment_id="pi_BBB",
+                )
+
+                with pytest.raises(RuntimeError, match="Refusing to cancel a paid duplicate"):
+                    _migrate(_AFTER)
+
+                assert _row(apps, paid).status == "confirmed"  # untouched, still refundable
+                assert _row(apps, kept).status == "confirmed"
+            finally:
+                _row(apps, paid).delete()
+                _migrate(_HEAD)
+
+        def it_names_the_offending_row_in_the_message():
+            try:
+                offering = ClassOfferingFactory()
+                apps = _migrate(_BEFORE)
+                _make_registration(apps, offering_id=offering.pk, status="pending", minutes_ago=30)
+                paid = _make_registration(
+                    apps, offering_id=offering.pk, status="pending", minutes_ago=20, amount_paid_cents=4500
+                )
+
+                with pytest.raises(RuntimeError) as caught:
+                    _migrate(_AFTER)
+
+                assert f"pk={paid}" in str(caught.value)
+                assert "paid=4500" in str(caught.value)
+                assert "Resolve each one by hand" in str(caught.value)
+            finally:
+                _row(apps, paid).delete()
+                _migrate(_HEAD)
+
+        def it_still_cancels_an_unpaid_duplicate_alongside_a_paid_keeper():
+            """Only a row that would LOSE its seat and holds money stops the migration."""
+            try:
+                offering = ClassOfferingFactory()
+                apps = _migrate(_BEFORE)
+                keeper = _make_registration(
+                    apps, offering_id=offering.pk, status="confirmed", minutes_ago=30, amount_paid_cents=10000
+                )
+                unpaid = _make_registration(apps, offering_id=offering.pk, status="pending", minutes_ago=20)
+
+                apps = _migrate(_AFTER)
+
+                assert _row(apps, keeper).status == "confirmed"
+                assert _row(apps, unpaid).status == "cancelled"
             finally:
                 _migrate(_HEAD)

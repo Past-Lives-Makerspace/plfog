@@ -1076,6 +1076,15 @@ class RegistrationForm(forms.ModelForm):
         return data
 
     @property
+    def validated_discount(self) -> DiscountCode | None:
+        """The code this submission validated, if any.
+
+        Public because the row is not always written by :meth:`save`: a signup resumed
+        onto an existing registration re-stamps the code whose price it is charging.
+        """
+        return self._validated_discount
+
+    @property
     def member_discount_pct(self) -> int:
         """Member discount applies only when the registrant matches a verified member."""
         if self.member is None:
@@ -1094,7 +1103,7 @@ class RegistrationForm(forms.ModelForm):
     def save(self, commit: bool = True) -> Registration:
         registration: Registration = super().save(commit=False)
         registration.class_offering = self.offering
-        registration.discount_code = self._validated_discount
+        registration.discount_code = self.validated_discount
         if self._newsletter_opt_in_suppressed:
             # We hid the checkbox because this person already opted in, so the
             # unbound field left the flag False. Record the opt-in they actually

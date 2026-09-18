@@ -38,3 +38,51 @@ def describe_stage_demo_meeting():
                 CategoryFactory(slug=CATEGORY_SLUG, name=CATEGORY_NAME)
                 call_command("stage_demo_meeting", "--remove", "--dry-run")
                 assert Category.objects.filter(slug=CATEGORY_SLUG).exists()
+
+
+def describe_upserting_a_persona_registration():
+    """``_upsert_registration`` has to survive the rows migration 0065 leaves behind.
+
+    That migration cancels a duplicate signup and keeps the earlier one. Default
+    ordering is newest-first, so the cancelled row is the one a naive ``.first()``
+    hands back, and confirming it would collide with the row that kept the seat.
+    This command is run against production, so it must not crash mid-run.
+    """
+
+    def _command():
+        from core.management.commands.stage_demo_meeting import Command
+
+        return Command()
+
+    def it_updates_the_live_row_not_the_cancelled_duplicate(db):
+        from classes.factories import RegistrationFactory
+        from classes.models import Registration
+
+        offering = ClassOfferingFactory(slug="persona-upsert")
+        email = "counciltreasurer+member@pastlives.space"
+        kept = RegistrationFactory(
+            class_offering=offering, email=email, status=Registration.Status.PENDING, first_name="Old"
+        )
+        cancelled = RegistrationFactory(
+            class_offering=offering,
+            email=email,
+            status=Registration.Status.CANCELLED,
+            cancellation_reason="Duplicate signup for this class, cancelled automatically by migration classes.0065.",
+        )
+
+        row = _command()._upsert_registration(
+            offering,
+            local="member",
+            first="New",
+            last="Persona",
+            status=Registration.Status.CONFIRMED,
+            amount_paid_cents=0,
+        )
+
+        assert row.pk == kept.pk
+        kept.refresh_from_db()
+        cancelled.refresh_from_db()
+        assert kept.status == Registration.Status.CONFIRMED
+        assert kept.first_name == "New"
+        assert cancelled.status == Registration.Status.CANCELLED  # left where the migration put it
+        assert Registration.objects.filter(class_offering=offering, email=email).count() == 2
