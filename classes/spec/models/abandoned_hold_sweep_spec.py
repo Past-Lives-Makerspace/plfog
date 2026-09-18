@@ -32,6 +32,7 @@ from classes.models import (
 pytestmark = pytest.mark.django_db
 
 RETRIEVE = "billing.stripe_utils.retrieve_checkout_session"
+EXPIRE = "billing.stripe_utils.expire_checkout_session"
 
 
 def _offering(capacity: int, **overrides) -> ClassOffering:
@@ -388,7 +389,8 @@ def describe_confirm_pending_payment():
         stuck = _hold(offering, age=timedelta(hours=3), amount_paid_cents=7500)
         actor = UserFactory(username="desk-staff")
 
-        stuck.confirm_pending_payment(actor=actor)
+        with patch(EXPIRE):
+            stuck.confirm_pending_payment(actor=actor)
 
         stuck.refresh_from_db()
         assert stuck.status == Registration.Status.CONFIRMED
@@ -406,7 +408,8 @@ def describe_confirm_pending_payment():
         stuck = _hold(offering, age=timedelta(hours=3))
         actor = UserFactory(username="named-staff")
 
-        stuck.confirm_pending_payment(actor=actor)
+        with patch(EXPIRE):
+            stuck.confirm_pending_payment(actor=actor)
 
         row = CmsActivity.objects.filter(registration=stuck, kind=CmsActivity.Kind.REGISTRATION_CONFIRMED).first()
         assert row is not None
@@ -416,7 +419,8 @@ def describe_confirm_pending_payment():
         offering = _offering(4)
         stuck = _hold(offering, age=timedelta(hours=3), payment_due_cents=5000, amount_paid_cents=9000)
 
-        stuck.confirm_pending_payment(actor=None)
+        with patch(EXPIRE):
+            stuck.confirm_pending_payment(actor=None)
 
         stuck.refresh_from_db()
         assert stuck.payment_due_cents == 5000
@@ -426,12 +430,62 @@ def describe_confirm_pending_payment():
         offering = _offering(4)
         stuck = _hold(offering, age=timedelta(hours=3), amount_paid_cents=0)
 
-        stuck.confirm_pending_payment(actor=None)
+        with patch(EXPIRE):
+            stuck.confirm_pending_payment(actor=None)
 
         stuck.refresh_from_db()
         assert stuck.status == Registration.Status.CONFIRMED
         assert stuck.balance_due_cents == 0
         assert stuck.is_unpaid is False
+
+    def describe_the_still_payable_checkout_page():
+        def it_closes_the_hosted_page_so_the_member_cannot_pay_a_balance_they_still_owe():
+            # The seat survives at most an hour before the expiry releases it, so by
+            # construction nearly every PENDING row staff can still act on has a live tab.
+            offering = _offering(4)
+            stuck = _hold(offering, age=timedelta(hours=3), stripe_session_id="cs_live", amount_paid_cents=5000)
+
+            with patch(EXPIRE) as expire:
+                stuck.confirm_pending_payment(actor=None)
+
+            expire.assert_called_once_with(session_id="cs_live")
+            stuck.refresh_from_db()
+            assert stuck.balance_due_cents == 5000
+
+        def it_confirms_anyway_when_stripe_refuses():
+            # Stripe refuses to expire anything that is not open, and may be down outright.
+            # Neither is a reason to block a staff member standing at the desk.
+            offering = _offering(4)
+            stuck = _hold(offering, age=timedelta(hours=3), amount_paid_cents=5000)
+
+            with patch(EXPIRE, side_effect=RuntimeError("session already expired")):
+                stuck.confirm_pending_payment(actor=None)
+
+            stuck.refresh_from_db()
+            assert stuck.status == Registration.Status.CONFIRMED
+            assert stuck.balance_due_cents == 5000
+
+        def it_asks_stripe_nothing_when_no_session_was_ever_stored():
+            offering = _offering(4)
+            stuck = _hold(offering, age=timedelta(hours=3), stripe_session_id="")
+
+            with patch(EXPIRE) as expire:
+                stuck.confirm_pending_payment(actor=None)
+
+            expire.assert_not_called()
+            stuck.refresh_from_db()
+            assert stuck.status == Registration.Status.CONFIRMED
+
+        def it_leaves_a_live_session_alone_when_the_confirm_is_refused():
+            # Expiring before the guard would kill a checkout the winning path still needs.
+            offering = _offering(4)
+            already = _hold(offering, age=timedelta(hours=3), status=Registration.Status.CONFIRMED)
+
+            with patch(EXPIRE) as expire:
+                with pytest.raises(RegistrationStateError):
+                    already.confirm_pending_payment(actor=None)
+
+            expire.assert_not_called()
 
     def describe_when_the_row_is_not_pending():
         def it_refuses_a_confirmed_row():

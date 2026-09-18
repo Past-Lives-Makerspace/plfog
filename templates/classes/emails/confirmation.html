@@ -50,6 +50,13 @@
                 <span style="font-size: 14px; color: #0d4876; font-weight: 700;">${{ amount_paid_dollars }}</span>
             </td>
             </tr>{% endif %}
+            {% if balance_due_cents %}<tr>
+            <td style="padding: 12px 0; border-top: 1px solid rgba(13, 72, 118, 0.12);">
+                <span style="font-size: 12px; color: #55697a; text-transform: uppercase; letter-spacing: 0.08em;">Balance Due</span><br>
+                <span style="font-size: 14px; color: #0d4876; font-weight: 700;">${{ balance_due_dollars }}</span><br>
+                <span style="font-size: 13px; color: #33424f;">You can pay it online from your registration page.</span>
+            </td>
+            </tr>{% endif %}
         </table>
 
         <!-- CTA -->

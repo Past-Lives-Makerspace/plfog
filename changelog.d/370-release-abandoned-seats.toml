@@ -6,4 +6,5 @@ changes = [
   "Checkout pages for a class now expire after an hour instead of a day.",
   "If your bank uses a payment method that settles slowly, your signup now confirms when the money arrives. Before, it could sit unconfirmed and you would never get the confirmation email.",
   "Studio staff can now confirm a signup that got stuck part way through paying, and then record the payment or send a payment link as usual.",
+  "If your seat is confirmed with money still owed, the confirmation email now tells you what is left to pay and where to pay it.",
 ]

@@ -3166,6 +3166,17 @@ class RegistrationQuerySet(models.QuerySet["Registration"]):
         * **Stripe unreachable** → skipped and logged. The next tick retries; an
           unanswerable question is not permission to take somebody's seat.
 
+        Known and deliberately not closed here: ``registered_at`` is the wrong clock for a row
+        whose hold started later than its creation. ``_claim_waitlist_spot`` flips a waitlister
+        to PENDING and saves before minting the session, so for the length of that Stripe call
+        a month-old row is a candidate with no session id, and the session-less branch above
+        would cancel the seat the member was just told had opened. The window is one network
+        call against a fifteen-minute tick. It is not closed by rewriting ``registered_at`` on
+        claim, because that field is ``auto_now_add`` creation time that the roster displays
+        and ``waitlist_position`` compares against; and not by a dedicated hold timestamp,
+        because that is a schema change and its own ticket. The webhook half of the same race
+        **is** closed, in ``_release_seat_for_session``.
+
         Returns:
             ``(released, recovered)`` — seats cancelled, and lost-webhook payments confirmed.
         """
@@ -3590,6 +3601,18 @@ class Registration(models.Model):
         paid for and settle a balance nobody collected. ``stripe_payment_id`` is what a
         real charge looks like, and a PENDING row has none.
 
+        **Expires the row's Checkout Session first.** The hosted page is still payable, and
+        this reaper is what makes that the normal case rather than a curiosity: before it, a
+        stuck PENDING row sat behind a session that had been dead for days, so by the time a
+        staffer saw it there was nothing left to pay. Now a PENDING row survives about an hour
+        before the expiry releases it, so nearly every one a staffer can still act on has a
+        live tab attached. Leaving it open means the member pays the $50 in that tab, the
+        webhook finds a CONFIRMED row and orphans the payment, the balance stays owed, and the
+        roster goes on offering Mark as Paid and Send Payment Link until somebody collects the
+        same $50 twice. Best-effort, in the same shape as the resume path and the orientation
+        hold release: Stripe refusing (the session is already expired or complete, or Stripe is
+        down) must not block a confirm a staff member is standing there waiting on.
+
         Sends no email itself — the caller sends the confirmation, exactly as
         ``promote_from_waitlist`` leaves that choice to its caller.
 
@@ -3607,6 +3630,9 @@ class Registration(models.Model):
             current = type(self)._default_manager.select_for_update().get(pk=self.pk)
             if current.status != self.Status.PENDING:
                 raise RegistrationStateError("Only a signup still waiting on payment can be confirmed by hand.")
+            # After the guard, so a confirm that is about to be refused never kills a live
+            # checkout the winning path still needs.
+            current.expire_checkout_session_best_effort()
             self.payment_due_cents = current.payment_due_cents or current.amount_paid_cents
             self.amount_paid_cents = 0
             self.status = self.Status.CONFIRMED
@@ -3615,6 +3641,24 @@ class Registration(models.Model):
             self.save(
                 update_fields=["payment_due_cents", "amount_paid_cents", "status", "confirmed_at"],
             )
+
+    def expire_checkout_session_best_effort(self) -> None:
+        """Close this row's hosted Checkout page so an open tab cannot still pay for it.
+
+        Best-effort by design, the same shape as the orientation hold release and the resume
+        path: Stripe may refuse (the session is already expired, or already complete, and only
+        an ``open`` one can be expired) or be unreachable, and neither is a reason to fail the
+        state change the caller has already decided on. A row with no session has nothing to
+        close. The session's own ``expires_at`` is the backstop either way.
+        """
+        from billing import stripe_utils
+
+        if not self.stripe_session_id:
+            return
+        try:
+            stripe_utils.expire_checkout_session(session_id=self.stripe_session_id)
+        except Exception:
+            logger.info("Could not expire the Checkout session for registration %s (best effort).", self.pk)
 
     def release_hold(self, *, reason: str) -> bool:
         """Free the seat an unfinished checkout is holding — by cancelling, never deleting.

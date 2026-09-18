@@ -7,6 +7,8 @@ with a balance. So these specs check the follow-through, not just the status fli
 
 from __future__ import annotations
 
+from unittest.mock import patch
+
 import pytest
 from django.core import mail
 from django.urls import reverse
@@ -17,6 +19,7 @@ from classes.models import ClassOffering, CmsActivity, Registration
 pytestmark = pytest.mark.django_db
 
 HTMX = {"HX-Request": "true"}
+EXPIRE = "billing.stripe_utils.expire_checkout_session"
 
 
 def _offering(capacity: int = 6, **overrides) -> ClassOffering:
@@ -185,6 +188,71 @@ def describe_registration_confirm_pending():
             client.force_login(admin_user)
             stuck = _stuck(_offering())
             assert client.get(_confirm_url(stuck)).status_code == 405
+
+
+def describe_the_members_still_open_checkout_page():
+    def it_closes_the_hosted_page_so_the_studio_cannot_collect_twice(admin_user, client):
+        # The member phones the studio with the Stripe tab still open. Staff confirms with
+        # the balance owed. If that tab stays payable, they pay $50 there, the webhook
+        # orphans it, the balance stays owed, and the roster still offers Mark as Paid.
+        client.force_login(admin_user)
+        offering = _offering(4)
+        stuck = _stuck(offering, stripe_session_id="cs_live", amount_paid_cents=5000)
+
+        with patch(EXPIRE) as expire:
+            client.post(_confirm_url(stuck), headers=HTMX)
+
+        expire.assert_called_once_with(session_id="cs_live")
+        stuck.refresh_from_db()
+        assert stuck.status == Registration.Status.CONFIRMED
+        assert stuck.balance_due_cents == 5000
+
+    def it_confirms_even_when_stripe_will_not_expire_the_session(admin_user, client):
+        client.force_login(admin_user)
+        stuck = _stuck(_offering())
+
+        with patch(EXPIRE, side_effect=RuntimeError("stripe down")):
+            response = client.post(_confirm_url(stuck), headers=HTMX)
+
+        assert response.status_code == 200
+        stuck.refresh_from_db()
+        assert stuck.status == Registration.Status.CONFIRMED
+
+    def it_tells_the_member_what_they_still_owe(admin_user, client):
+        # Both confirmation templates hide the "you paid" block at zero, so without a
+        # balance line the email would confirm the seat and mention no money at all.
+        client.force_login(admin_user)
+        stuck = _stuck(_offering(), email="owes.fifty@example.com", amount_paid_cents=5000)
+        mail.outbox.clear()
+
+        with patch(EXPIRE):
+            client.post(_confirm_url(stuck), headers=HTMX)
+
+        message = next(m for m in mail.outbox if "owes.fifty@example.com" in m.to and "confirmed" in m.subject)
+        html = message.alternatives[0][0]
+        assert "Balance due: $50.00" in message.body
+        assert "You paid" not in message.body
+        assert "$50.00" in html
+        assert "Balance Due" in html
+
+    def it_says_nothing_about_a_balance_on_a_fully_paid_confirmation(admin_user, client):
+        from classes.emails import send_registration_confirmation
+
+        offering = _offering()
+        paid = RegistrationFactory(
+            class_offering=offering,
+            status=Registration.Status.CONFIRMED,
+            amount_paid_cents=5000,
+            payment_due_cents=5000,
+            email="paid.up@example.com",
+        )
+        mail.outbox.clear()
+
+        send_registration_confirmation(paid)
+
+        message = next(m for m in mail.outbox if "paid.up@example.com" in m.to)
+        assert "You paid: $50.00" in message.body
+        assert "Balance due" not in message.body
 
 
 def describe_what_confirming_unlocks():

@@ -33,6 +33,13 @@ logger = logging.getLogger(__name__)
 # What a paid session did to the registration it names.
 _Outcome = Literal["confirmed", "orphaned", "ignored"]
 
+# Why a payment could not be given the seat it was made for. These land in the class's
+# activity feed and in the admin alert, so each one has to be true of the row it is stamped
+# on: an admin reading "another signup holds the seat" goes looking for a second row, and
+# finding none is how a real alert gets dismissed as a glitch.
+_ORPHAN_SEAT_ALREADY_CONFIRMED = "this signup was already confirmed, so the payment bought nothing"
+_ORPHAN_SEAT_TAKEN_BY_ANOTHER_SIGNUP = "seat already held by another signup for this email"
+
 
 def handle_checkout_session_completed(event: dict[str, Any]) -> None:
     """Confirm a class registration whose Stripe Checkout Session completed.
@@ -164,18 +171,35 @@ def _release_seat_for_session(registration_id: str, session: dict[str, Any], *, 
     fire ``checkout.session.expired`` for it. Releasing on the stale event would cancel the
     signup of somebody who is on Stripe's payment page at that moment. The row names the
     session that still matters; anything else is a ghost of a superseded one.
+
+    The match is **required**, not merely checked when both sides are non-empty. A webhook
+    always names a concrete session, so a row storing no session id is definitionally not the
+    row that session was holding — and treating empty as "matches anything" hands every
+    class-registration expiry event the power to cancel it. That is not hypothetical: a
+    claimed waitlist seat is PENDING with no session id for the length of the Stripe create
+    call, and a seat the member was just told had opened would be cancelled out from under
+    them, promoting the next person in the queue into it.
+
+    One race is known and deliberately left alone: between the resume path's
+    ``expire_checkout_session`` call and its save of the replacement id, the row still points
+    at the session that is expiring, so this guard matches and the seat is released. It
+    self-heals — the registrant is on the new session's page, and paying it runs the normal
+    confirm path, which takes a cancelled row back to CONFIRMED (or, if somebody else took
+    the seat meanwhile, through ``_record_orphaned_payment`` and an admin alert rather than a
+    raise). Closing it properly would mean holding a DB transaction open across a Stripe
+    network call, which is a worse trade than a window measured in milliseconds.
     """
     registration = Registration.objects.select_related("class_offering").filter(pk=registration_id).first()
     if registration is None:
         return  # already gone — nothing holds a seat
     session_id = session.get("id", "") or ""
-    if registration.stripe_session_id and registration.stripe_session_id != session_id:
+    if registration.stripe_session_id != session_id:
         logger.info(
-            "%s: session %s is superseded on registration %s (now %s) — leaving the seat alone.",
+            "%s: session %s is not the one registration %s is holding (%s) — leaving the seat alone.",
             event_name,
             session_id or "<missing>",
             registration.pk,
-            registration.stripe_session_id,
+            registration.stripe_session_id or "<none>",
         )
         return
     if registration.release_hold(reason=reason):
@@ -269,11 +293,11 @@ def _apply_paid_session(registration: Registration, session: dict[str, Any], pay
                 registration.pk,
             )
             return "ignored"
-        _record_orphaned_payment(registration, session)
+        _record_orphaned_payment(registration, session, reason=_ORPHAN_SEAT_ALREADY_CONFIRMED)
         return "orphaned"
     if _confirm_paid_registration(registration, session, payment_intent):
         return "confirmed"
-    _record_orphaned_payment(registration, session)
+    _record_orphaned_payment(registration, session, reason=_ORPHAN_SEAT_TAKEN_BY_ANOTHER_SIGNUP)
     return "orphaned"
 
 
@@ -330,7 +354,7 @@ def _confirm_paid_registration(registration: Registration, session: dict[str, An
     return True
 
 
-def _record_orphaned_payment(registration: Registration, session: dict[str, Any]) -> None:
+def _record_orphaned_payment(registration: Registration, session: dict[str, Any], *, reason: str) -> None:
     """Pin a payment to the row it was made against when that row can no longer take the seat.
 
     Stamps ``stripe_payment_id`` so a re-delivery recognises this payment as already
@@ -359,7 +383,7 @@ def _record_orphaned_payment(registration: Registration, session: dict[str, Any]
             "payment_intent": payment_intent,
             "amount_cents": amount_total if isinstance(amount_total, int) else 0,
             "session_id": session["id"],
-            "reason": "seat already held by another signup for this email",
+            "reason": reason,
         },
     )
     logger.warning(

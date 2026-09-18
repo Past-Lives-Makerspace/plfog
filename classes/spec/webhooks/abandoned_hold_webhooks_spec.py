@@ -130,15 +130,42 @@ def describe_handle_checkout_session_expired():
             assert resumed.status == Registration.Status.PENDING
             assert offering.spots_remaining == 1
 
-        def it_still_acts_when_the_row_never_stored_a_session():
+        def it_leaves_a_row_that_stores_no_session_alone():
+            # An empty stored id must not read as "matches anything". A webhook always names
+            # a concrete session, so a row pointing at none is not the row it was holding.
             offering = _offering(2)
             hold = _hold(offering, stripe_session_id="")
 
-            classes_handlers.handle_checkout_session_expired(_event(registration_id=hold.pk))
+            classes_handlers.handle_checkout_session_expired(
+                _event(registration_id=hold.pk, session_id="cs_totally_unrelated")
+            )
 
             hold.refresh_from_db()
-            assert hold.status == Registration.Status.CANCELLED
-            assert offering.spots_remaining == 2
+            assert hold.status == Registration.Status.PENDING
+            assert offering.spots_remaining == 1
+
+        def it_does_not_eat_a_waitlist_seat_claimed_seconds_ago():
+            # _claim_waitlist_spot flips WAITLISTED to PENDING and saves BEFORE minting the
+            # session, so a freshly claimed seat is briefly PENDING with no session id. An
+            # expiry event landing in that window used to cancel it and promote the next
+            # person into the seat its owner had just been told was theirs.
+            offering = _offering(1)
+            claimed = _hold(offering, stripe_session_id="", email="claimed@example.com")
+            next_up = RegistrationFactory(
+                class_offering=offering,
+                status=Registration.Status.WAITLISTED,
+                email="next.in.line@example.com",
+            )
+
+            classes_handlers.handle_checkout_session_expired(
+                _event(registration_id=claimed.pk, session_id="cs_some_other_session")
+            )
+
+            claimed.refresh_from_db()
+            next_up.refresh_from_db()
+            assert claimed.status == Registration.Status.PENDING
+            assert next_up.waitlist_notified_at is None
+            assert offering.spots_remaining == 0
 
     def describe_when_the_event_is_not_ours():
         def it_ignores_an_orientation_session():
@@ -287,6 +314,35 @@ def describe_a_paid_webhook_landing_on_an_expiry_cancelled_row():
         assert abandoned.status == Registration.Status.CONFIRMED
         assert abandoned.stripe_payment_id == "pi_late_1"
         assert offering.spots_remaining == 1
+
+
+def describe_the_orphaned_payment_reason():
+    def it_does_not_blame_a_second_signup_that_does_not_exist():
+        # An admin reading "another signup holds the seat" goes looking for a second row.
+        # Finding none is how a real money alert gets dismissed as a glitch.
+        offering = _offering(3)
+        confirmed = _hold(offering, status=Registration.Status.CONFIRMED, stripe_payment_id="pi_first")
+
+        classes_handlers.handle_checkout_session_completed(
+            _event(registration_id=confirmed.pk, payment_status="paid", payment_intent="pi_second", amount_total=9000)
+        )
+
+        orphan = CmsActivity.objects.filter(registration=confirmed, kind=CmsActivity.Kind.DUPLICATE_PAYMENT).get()
+        assert orphan.payload["reason"] == "this signup was already confirmed, so the payment bought nothing"
+        assert Registration.objects.filter(class_offering=offering).count() == 1
+
+    def it_still_names_the_other_signup_when_there_really_is_one():
+        offering = _offering(1)
+        abandoned = _hold(offering, email="two.rows@example.com")
+        classes_handlers.handle_checkout_session_expired(_event(registration_id=abandoned.pk))
+        _hold(offering, email="two.rows@example.com", stripe_session_id="cs_hook_2")
+
+        classes_handlers.handle_checkout_session_completed(
+            _event(registration_id=abandoned.pk, payment_status="paid", payment_intent="pi_orphan", amount_total=9000)
+        )
+
+        orphan = CmsActivity.objects.filter(registration=abandoned, kind=CmsActivity.Kind.DUPLICATE_PAYMENT).get()
+        assert orphan.payload["reason"] == "seat already held by another signup for this email"
 
 
 def describe_the_billing_fan_in():
