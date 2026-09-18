@@ -20,6 +20,13 @@ arrival left the editor inert — no drag, no add marker — while a hard load l
 Its second scenario guards the other side of the fix: the listeners bound to ``document``
 and ``document.body`` survive a boosted swap, so re-running the boot block would stack one
 more of each per visit.
+
+Browser Back is the third theme (issue #383), and it is the same defect read from the other
+end: htmx builds its history snapshot by serializing the body's innerHTML, so everything
+Alpine and Quill rendered into that body is captured as inert markup and replayed with no
+handlers behind it. The scenarios at the foot of this file cover the three shapes that
+took: duplicated ``x-for`` output in the class composer, a rich-text mount restored already
+claimed and silently dead, and a settle listener that stacks one per arrival.
 """
 
 from __future__ import annotations
@@ -28,17 +35,22 @@ import json
 import re
 import time
 from decimal import Decimal
+from io import StringIO
 from typing import cast
 
 from django.contrib.auth.models import User
+from django.core.management import call_command
 from django.urls import reverse
 from playwright.sync_api import ConsoleMessage, Error, expect
 
 from classes.factories import ClassOfferingFactory, InstructorFactory, UserFactory
 from classes.models import ClassOffering
-from membership.models import MapHotspot, Member
+from membership.models import MapHotspot, Member, WikiPage
+from tests.features import turn_on
 from tests.membership.factories import (
+    EquipmentFactory,
     FloorplanFactory,
+    GuildFactory,
     MapHotspotFactory,
     MembershipPlanFactory,
     SpaceFactory,
@@ -362,3 +374,207 @@ def describe_boosted_arrival_at_the_org_map_editor():
         _drag(page, marker, 40, 30)
         expect(page.locator(EDITOR_STATUS)).to_have_text("Position saved.")
         assert errors == [], "\n".join(errors)
+
+
+# --- Browser Back (issue #383) ---------------------------------------------------------
+#
+# Back is an htmx history restore, and htmx builds its snapshot by serializing the body's
+# innerHTML. The hub's body is not the markup the server sent: Alpine and Quill render into
+# it, so the snapshot captures their OUTPUT and the restore replays it as inert markup with
+# every live handler gone. The three scenarios below are the three shapes that took:
+# duplicated Alpine output, a rich-text mount that came back claimed and dead, and the
+# listener that stacks once per arrival. hub_boot.js answers the first by keeping no
+# history cache at all; rich-editor-init.js answers the other two.
+
+WIKI_EMAIL = "boosted-wiki@example.com"
+RTE_MOUNT = ".pl-rte[data-rte-for]"
+SESSION_TIMES = "#session-add-time option"
+SESSION_DURATIONS = "#session-add-duration option"
+SESSION_ROWS = ".session-cal__list-item"
+# Alpine sets _x_dataStack on an x-data element when it initialises it. It is a property,
+# so it is absent from the restored snapshot: waiting on it is the exact moment the
+# restored tree became live, and counting before it would count the snapshot alone and pass
+# on a page that is about to double.
+COMPOSER_ALPINE_READY = """() => {
+    const el = document.querySelector('.session-cal');
+    return Boolean(el && el._x_dataStack);
+}"""
+# The mount has been claimed by THIS document's init. Quill's own marks (ql-container on
+# the mount, a toolbar beside it) cannot be used after Back, because the snapshot carries
+# them: they say an editor was mounted once, not that this one is live. plRteReady is a
+# property, so it is absent from the snapshot and present only where the init has run.
+RTE_MOUNT_CLAIMED = """() => {
+    const mount = document.querySelector('.pl-rte[data-rte-for]');
+    return Boolean(mount && mount.plRteReady);
+}"""
+
+
+def _seed_admin_with_a_wiki_page() -> WikiPage:
+    """An admin who may edit the wiki, and one machine page carrying a rich-text editor."""
+    MembershipPlanFactory()  # so the user signal can provision the member this then promotes
+    turn_on("wiki")
+    user = User.objects.create_user(username=WIKI_EMAIL, email=WIKI_EMAIL)
+    member = user.member
+    member.fog_role = Member.FogRole.ADMIN
+    member.status = Member.Status.ACTIVE
+    member.save(update_fields=["fog_role", "status"])
+    member.sync_user_permissions()
+    EquipmentFactory(name="Table Saw", guild=GuildFactory(name="Woodworking"))
+    call_command("seed_wiki_machine_pages", stdout=StringIO())
+    return cast(WikiPage, WikiPage.objects.get(title="Table Saw"))
+
+
+def describe_browser_back_into_the_class_composer():
+    def it_restores_the_composer_without_duplicating_what_alpine_rendered(
+        live_server, page, login_via_code, serve_media
+    ):
+        """Back must not double the scheduler, and the sidebar click after it must not throw.
+
+        The issue read this as the sidebar's own ``@click`` evaluating against a data stack
+        the restore never rebuilt. It is not: measured here, the sidebar click contributes
+        nothing at all, and every error arrives at the restore itself. The composer's
+        session scheduler is an ``x-for`` over times, durations and booked sessions; the
+        snapshot captures that expansion as plain elements, and on the restore Alpine both
+        initialises those orphans outside the loop that made them AND renders the template
+        again from data on top of them. One Back took the start-time menu from 32 options to
+        64, the duration menu from 8 to 16, listed the one scheduled session twice, and
+        threw 180 uncaught errors.
+
+        The sidebar click stays in the scenario because it is the sequence the issue
+        reported and because it is a full page load (the nav carries ``hx-boost="false"``),
+        which is the moment a restored page's errors would surface if any were owed.
+        """
+        offering = _seed_draft()
+        errors = _watch_for_errors(page)
+        login_via_code(EMAIL)
+
+        edit_path = reverse("classes:teach_class_edit", kwargs={"pk": offering.pk})
+        page.goto(f"{live_server.url}{reverse('classes:teach_dashboard')}")
+        page.locator(f'a[href="{edit_path}"]').first.click()
+        page.wait_for_url(re.compile(re.escape(edit_path)))
+        page.wait_for_function(COMPOSER_ALPINE_READY)
+        before = {
+            "times": page.locator(SESSION_TIMES).count(),
+            "durations": page.locator(SESSION_DURATIONS).count(),
+            "rows": page.locator(SESSION_ROWS).count(),
+        }
+        assert before["times"] and before["durations"] and before["rows"], before
+
+        # Leave through the composer's own Cancel link, then come back.
+        page.locator("#composer-form").get_by_role("link", name="Cancel").click()
+        page.wait_for_url(lambda url: edit_path not in url)
+        page.wait_for_load_state("networkidle")
+        page.go_back()
+        page.wait_for_url(re.compile(re.escape(edit_path)))
+        page.wait_for_function(COMPOSER_ALPINE_READY)
+
+        after = {
+            "times": page.locator(SESSION_TIMES).count(),
+            "durations": page.locator(SESSION_DURATIONS).count(),
+            "rows": page.locator(SESSION_ROWS).count(),
+        }
+        assert after == before, f"Back duplicated what Alpine rendered: {before} became {after}"
+        assert errors == [], "\n".join(errors[:5])
+
+        # The reported sequence, finished: a sidebar link after the restore.
+        home_path = reverse("hub_home")
+        page.locator(f'.hub-sidebar__nav a[href="{home_path}"]').first.click()
+        page.wait_for_url(re.compile(re.escape(home_path) + "$"))
+        assert errors == [], "\n".join(errors[:5])
+
+
+def describe_browser_back_onto_a_rich_text_editor():
+    def it_leaves_the_editor_able_to_type_through_to_the_field(live_server, page, login_via_code):
+        """The restored editor has to be a live Quill, not a screenshot of one.
+
+        ``plRteInitAll`` used to claim a mount with ``mount.dataset.rteReady``, and dataset
+        writes a real attribute. Attributes round-trip through the history snapshot, so on
+        Back every restored mount arrived already claimed and the init no-opped. Nothing
+        looked wrong: the snapshot carries the toolbar, the container and a contenteditable
+        body, so a member types happily into markup nothing is listening to and loses every
+        word at save. Asserting the editor is *visible* passes against exactly that, which
+        is why the assertion here is that typing reaches the hidden field the form posts.
+        """
+        wiki_page = _seed_admin_with_a_wiki_page()
+        errors = _watch_for_errors(page)
+        login_via_code(WIKI_EMAIL)
+
+        page_path = wiki_page.get_absolute_url()
+        edit_path = reverse("hub_wiki_edit", args=[wiki_page.slug])
+        page.goto(f"{live_server.url}{page_path}")
+        _boosted_click(page, edit_path)
+        # A Quill mark, not ours, so this waits the same on a tree with the old attribute
+        # key and the check below reports the revert instead of timing out on the property.
+        expect(page.locator(".ql-editor").first).to_be_visible()
+
+        # setAttribute lowercases, so compare case insensitively or a revert to dataset
+        # would slip straight past this.
+        assert "rte-ready" not in page.content().lower(), "the ready key is markup again, so Back will serialize it"
+
+        _boosted_click(page, page_path, selector=f'.pl-wp-breadcrumbs a[href="{page_path}"]')
+        page.wait_for_load_state("networkidle")
+        page.go_back()
+        page.wait_for_url(re.compile(re.escape(edit_path) + "$"))
+        page.wait_for_function(RTE_MOUNT_CLAIMED)
+
+        field_id = page.locator(RTE_MOUNT).first.get_attribute("data-rte-for")
+        typed = "Keep the blade guard on."
+        page.locator(".ql-editor").first.click()
+        page.keyboard.type(typed)
+        expect(page.locator(f"#{field_id}")).to_have_value(re.compile(re.escape(typed)))
+        assert errors == [], "\n".join(errors[:5])
+
+    def it_binds_one_settle_listener_across_repeat_arrivals(live_server, page, login_via_code):
+        """Criterion 2 and 3: one listener per document, and it still serves a fresh swap.
+
+        ``rich-editor-init.js`` is loaded from the body on six hub pages, and document
+        outlives a boosted swap, so an unguarded registration leaves one more
+        ``htmx:afterSettle`` listener behind per arrival. Two arrivals is the smallest case
+        that can tell a real guard from a scope-local boolean, which htmx rebuilds as
+        ``false`` every time it re-runs the file — and both arrivals have to land in the
+        *same* document, or the scope-local version looks correct too.
+
+        Counted by tallying calls rather than by enumerating bindings, because page
+        JavaScript cannot list an element's listeners and the call count is the thing the
+        defect actually multiplies. The tally works by swapping ``window.plRteInitAll``,
+        which only sees the call because the listener is a wrapper that dispatches through
+        the current definition; a direct reference would pin the first arrival's closure for
+        the life of the document, and would report zero here.
+
+        The same dispatch proves the guard did not disable the path it guards: a mount that
+        an htmx swap brings into an already loaded page still gets an editor. That is one
+        ``if`` away from being lost, and no boosted scenario would notice.
+        """
+        wiki_page = _seed_admin_with_a_wiki_page()
+        errors = _watch_for_errors(page)
+        login_via_code(WIKI_EMAIL)
+
+        page_path = wiki_page.get_absolute_url()
+        edit_path = reverse("hub_wiki_edit", args=[wiki_page.slug])
+        page.goto(f"{live_server.url}{page_path}")
+        _boosted_click(page, edit_path)
+        page.wait_for_function(RTE_MOUNT_CLAIMED)
+        _boosted_click(page, page_path, selector=f'.pl-wp-breadcrumbs a[href="{page_path}"]')
+        _boosted_click(page, edit_path)
+        page.wait_for_function(RTE_MOUNT_CLAIMED)
+
+        outcome = page.evaluate(
+            """() => {
+                const holder = document.createElement('div');
+                holder.innerHTML =
+                    '<textarea id="pl-rte-settle-probe" hidden>Swapped in.</textarea>'
+                    + '<div class="pl-rte" data-rte-for="pl-rte-settle-probe"></div>';
+                document.body.appendChild(holder);
+                const real = window.plRteInitAll;
+                let calls = 0;
+                window.plRteInitAll = function () { calls += 1; return real.apply(this, arguments); };
+                document.dispatchEvent(new CustomEvent('htmx:afterSettle'));
+                window.plRteInitAll = real;
+                const mounted = holder.querySelectorAll('.ql-editor').length;
+                holder.remove();
+                return { calls: calls, mounted: mounted };
+            }"""
+        )
+        assert outcome["calls"] == 1, f"one settle ran the rich-editor init {outcome['calls']} times after two arrivals"
+        assert outcome["mounted"] == 1, "the guard stopped a swapped-in editor from initialising"
+        assert errors == [], "\n".join(errors[:5])
