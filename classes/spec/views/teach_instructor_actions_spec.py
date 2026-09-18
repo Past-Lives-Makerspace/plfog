@@ -310,6 +310,70 @@ def describe_published_light_edit():
         assert client.get(reverse("classes:teach_class_edit", kwargs={"pk": offering.pk})).status_code == 200
 
 
+def describe_the_live_class_forms_exits():
+    """Both ways off this page have to resolve for everyone the page admits.
+
+    The page has two exits, Cancel and the redirect a finished save issues, and both used to
+    point at the class screen unconditionally. Guild staff on a class they do not teach have no
+    Overview under Ruling 12, so both landed them on a 404. That was survivable while nothing
+    sent anyone here on purpose; the published-race notice now does, so it is fixed.
+
+    Only two populations reach this form at all: an admin is routed to the composer by
+    ``can_administer`` before the light form is ever considered, which the last test pins.
+    """
+
+    def _guild_staffer(member):
+        guild = GuildFactory(name="Exits Guild")
+        GuildStaffMembershipFactory(guild=guild, member=member)
+        return _live(InstructorFactory(instructor_slug="exits-owner"), category=CategoryFactory(guild=guild))
+
+    def it_sends_the_instructor_out_through_the_class_screen(instructor_fixture, client):
+        offering = _live(instructor_fixture)
+        client.force_login(instructor_fixture.user)
+        detail = reverse("classes:teach_class_detail", kwargs={"pk": offering.pk})
+        html = client.get(reverse("classes:teach_class_edit", kwargs={"pk": offering.pk})).content.decode()
+        assert f'href="{detail}">Cancel</a>' in html
+        resp = client.post(reverse("classes:teach_class_edit", kwargs={"pk": offering.pk}), _light_payload())
+        assert resp.url == detail
+        assert client.get(resp.url).status_code == 200
+
+    def it_sends_guild_staff_out_through_the_dashboard(instructor_fixture, client):
+        offering = _guild_staffer(instructor_fixture)
+        client.force_login(instructor_fixture.user)
+        dashboard = reverse("classes:teach_dashboard")
+        html = client.get(reverse("classes:teach_class_edit", kwargs={"pk": offering.pk})).content.decode()
+        assert f'href="{dashboard}">Cancel</a>' in html
+        # Matched as an href, not as a bare path: the class screen's URL is a prefix of the
+        # gallery endpoints this page legitimately ships (/classes/<pk>/images/upload/).
+        assert f'href="{reverse("classes:teach_class_detail", kwargs={"pk": offering.pk})}"' not in html
+        assert client.get(dashboard).status_code == 200
+
+    def it_returns_guild_staff_somewhere_real_after_a_save_that_landed(instructor_fixture, client):
+        # The worst of the two: the edit is written, then the member is shown a 404, which
+        # reads as the save having failed.
+        offering = _guild_staffer(instructor_fixture)
+        client.force_login(instructor_fixture.user)
+        resp = client.post(
+            reverse("classes:teach_class_edit", kwargs={"pk": offering.pk}),
+            _light_payload(materials_to_bring="A dust mask"),
+        )
+        assert resp.status_code == 302
+        assert resp.url == reverse("classes:teach_dashboard")
+        assert client.get(resp.url).status_code == 200
+        assert "Class updated." in _messages(resp)
+        offering.refresh_from_db()
+        assert offering.materials_to_bring == "A dust mask"
+        # The screen it used to return them to is genuinely closed to them.
+        assert client.get(reverse("classes:teach_class_detail", kwargs={"pk": offering.pk})).status_code == 404
+
+    def it_never_shows_an_admin_this_form_at_all(admin_user, client, db):
+        offering = _live(InstructorFactory(instructor_slug="admin-sees-composer"))
+        client.force_login(admin_user)
+        html = client.get(reverse("classes:teach_class_edit", kwargs={"pk": offering.pk})).content.decode()
+        assert "Locked Details" not in html
+        assert 'name="step"' in html
+
+
 def describe_run_it_again():
     def it_creates_the_undated_draft_copy_from_the_workspace(instructor_fixture, client):
         offering = _live(instructor_fixture, title="Again Anvil")

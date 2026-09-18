@@ -66,7 +66,8 @@
 
     <div style="display:flex; gap:0.5rem; margin-top:1.5rem; flex-wrap:wrap;">
         <button class="hub-btn hub-btn--sm hub-btn--primary" type="submit">Save</button>
-        <a class="hub-btn hub-btn--sm hub-btn--ghost" href="{% url 'classes:teach_class_detail' pk=offering.pk %}">Cancel</a>
+        {# cancel_url, not a hardcoded class screen: guild staff on someone else's class have no Overview and would land on a 404. Resolved in _teach_published_class_edit (classes/views.py). #}
+        <a class="hub-btn hub-btn--sm hub-btn--ghost" href="{{ cancel_url }}">Cancel</a>
     </div>
 </form>
 {% if is_own_class %}{% include "components/modal.html" with modal_id="request-change" modal_title="Request a Change" modal_size="sm" modal_body_include="classes/teach/partials/request_change_form.html" %}{% endif %}

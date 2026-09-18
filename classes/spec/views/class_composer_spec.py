@@ -27,6 +27,7 @@ from classes.factories import (
 from classes.forms import ClassOfferingForm, TeachClassOfferingForm
 from classes.models import ClassApproval, ClassOffering, CmsActivity
 from classes.views import COMPOSER_SAVED_LIMIT, COMPOSER_SAVED_SESSION_KEY, _mark_composer_saved
+from tests.membership.factories import GuildFactory, GuildStaffMembershipFactory
 
 Status = ClassOffering.Status
 
@@ -1662,6 +1663,29 @@ def describe_a_composer_post_to_a_class_published_since_the_page_was_rendered():
         # The gallery is untouched: the live-edit form offers it too, so it is not this page's to take.
         assert reverse("classes:teach_class_image_upload", kwargs={"pk": offering.pk}) in html
 
+    def it_gives_guild_staff_a_cancel_that_is_not_a_dead_end(instructor_fixture, client):
+        # Guild staff are the other population that lands here, and the notice tells them to
+        # press Cancel, so Cancel has to resolve for them too. It did not: `_guild_access`
+        # withholds the Overview on someone else's class, and teach_class_detail 404s without it.
+        guild = GuildFactory(name="Race Guild")
+        GuildStaffMembershipFactory(guild=guild, member=instructor_fixture)
+        offering = ClassOfferingFactory(
+            instructor=InstructorFactory(instructor_slug="not-the-staffer"),
+            category=CategoryFactory(guild=guild),
+            status=Status.DRAFT,
+            title="Before",
+        )
+        client.force_login(instructor_fixture.user)
+        _publish(offering)
+        resp = client.post(
+            reverse("classes:teach_class_edit", kwargs={"pk": offering.pk}),
+            _full_payload(offering.category, title="Typed after the render", step="5"),
+        )
+        assert _PUBLISHED_NOTICE in resp.content.decode()
+        cancel_url = resp.context["cancel_url"]
+        assert cancel_url == reverse("classes:teach_dashboard")
+        assert client.get(cancel_url).status_code == 200
+
     def it_leaves_the_cancelled_render_its_hero_uploader(instructor_fixture, client):
         # The sibling path from #385 is deliberately unchanged; only the published caller withholds.
         offering = ClassOfferingFactory(instructor=instructor_fixture, status=Status.CANCELLED, title="Before")
@@ -1673,6 +1697,49 @@ def describe_a_composer_post_to_a_class_published_since_the_page_was_rendered():
         assert reverse("classes:teach_class_hero_upload", kwargs={"pk": offering.pk}) in html
         assert "hero-upload-area" in html
         assert "The photo cannot be changed from this page." not in html
+
+
+def describe_the_composers_cancel_link():
+    """Cancel has to resolve for every population the composer admits, not just the instructor.
+
+    It is one line in ``_composer_context``, but two different screens behind it: the class
+    screen for anyone who has an Overview, the dashboard for guild staff on someone else's
+    class, who under Ruling 12 do not. Pinned on the ordinary draft composer, because that is
+    where the route has always been reachable, not only on the published race page.
+    """
+
+    def it_sends_the_instructor_to_the_class_screen(instructor_fixture, client):
+        offering = ClassOfferingFactory(instructor=instructor_fixture, status=Status.DRAFT)
+        client.force_login(instructor_fixture.user)
+        resp = client.get(reverse("classes:teach_class_edit", kwargs={"pk": offering.pk}))
+        cancel_url = resp.context["cancel_url"]
+        assert cancel_url == reverse("classes:teach_class_detail", kwargs={"pk": offering.pk})
+        assert client.get(cancel_url).status_code == 200
+
+    def it_sends_guild_staff_to_the_dashboard_instead_of_an_overview_they_cannot_open(instructor_fixture, client):
+        guild = GuildFactory(name="Cancel Guild")
+        GuildStaffMembershipFactory(guild=guild, member=instructor_fixture)
+        offering = ClassOfferingFactory(
+            instructor=InstructorFactory(instructor_slug="someone-else"),
+            category=CategoryFactory(guild=guild),
+            status=Status.DRAFT,
+        )
+        client.force_login(instructor_fixture.user)
+        resp = client.get(reverse("classes:teach_class_edit", kwargs={"pk": offering.pk}))
+        assert resp.status_code == 200
+        cancel_url = resp.context["cancel_url"]
+        assert cancel_url == reverse("classes:teach_dashboard")
+        assert client.get(cancel_url).status_code == 200
+        # The screen it used to point at is genuinely closed to them; this is not a preference.
+        assert client.get(reverse("classes:teach_class_detail", kwargs={"pk": offering.pk})).status_code == 404
+
+    def it_sends_the_admin_to_the_class_screen(admin_user, client, db):
+        offering = ClassOfferingFactory(status=Status.DRAFT)
+        client.force_login(admin_user)
+        resp = client.get(reverse("classes:teach_class_edit", kwargs={"pk": offering.pk}))
+        cancel_url = resp.context["cancel_url"]
+        assert cancel_url == reverse("classes:teach_class_detail", kwargs={"pk": offering.pk})
+        assert client.get(cancel_url).status_code == 200
 
 
 def describe_the_missing_flag_on_a_class_that_is_no_longer_a_draft():

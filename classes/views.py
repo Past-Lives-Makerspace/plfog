@@ -1925,6 +1925,25 @@ def _saved_row(form: Any, offering: ClassOffering | None) -> ClassOffering | Non
     return ClassOffering.objects.prefetch_related("gallery_images").get(pk=offering.pk)
 
 
+def _leave_class_url(request: HttpRequest, offering: ClassOffering) -> str:
+    """Where a class editing screen sends someone who is leaving it: Cancel, and a finished save.
+
+    The class screen for anyone who has an Overview. The dashboard for guild staff on a class
+    they do not teach, who under Ruling 12 have none (``_guild_access``, ``classes/access.py``)
+    and whose ``teach_class_detail`` raises ``Http404``. Sending them there was a dead control on
+    the way out and, after a save, a 404 on top of a write that had already landed.
+
+    One helper for all three exits (the composer's Cancel, the live-class form's Cancel, and the
+    redirect after a live-class save) so they cannot drift apart on a capability question.
+
+    Requires ``request.class_access``, so it is for views behind ``@class_screen_required``.
+    """
+    access: ClassAccess = request.class_access  # type: ignore[attr-defined]
+    if access.can_view_overview:
+        return reverse("classes:teach_class_detail", kwargs={"pk": offering.pk})
+    return reverse("classes:teach_dashboard")
+
+
 def _composer_context(
     request: HttpRequest,
     *,
@@ -1954,8 +1973,7 @@ def _composer_context(
     is_draft = saved is not None and saved.status == ClassOffering.Status.DRAFT
     missing = readiness if is_draft and readiness is not None and request.GET.get("missing") else []
     if saved is not None:
-        # One screen now, so Cancel goes to the same place for every role.
-        cancel_url = reverse("classes:teach_class_detail", kwargs={"pk": saved.pk})
+        cancel_url = _leave_class_url(request, saved)
     else:
         cancel_url = reverse("classes:admin_classes" if is_admin else "classes:teach_dashboard")
     from membership.permissions import can_print_class_marketing
@@ -2254,11 +2272,14 @@ def _teach_published_class_edit(request: HttpRequest, offering: ClassOffering, t
 
     form = TeachPublishedClassForm(request.POST or None, instance=offering)
     faq_formset = build_class_faq_formset(request.POST or None, offering)
+    # Both exits, resolved once: the template has no ClassAccess of its own, and a save that
+    # landed must not return the saver to a 404 that reads as the save having failed.
+    leave_url = _leave_class_url(request, offering)
     if request.method == "POST" and form.is_valid() and faq_formset.is_valid():
         form.save()
         faq_formset.save()
         messages.success(request, "Class updated.")
-        return redirect("classes:teach_class_detail", pk=offering.pk)
+        return redirect(leave_url)
     return render(
         request,
         "classes/teach/class_form_published.html",
@@ -2268,6 +2289,9 @@ def _teach_published_class_edit(request: HttpRequest, offering: ClassOffering, t
             "form": form,
             "faq_formset": faq_formset,
             "offering": offering,
+            # Named as the composer names it, because it is the same control answering the
+            # same question on the sibling screen.
+            "cancel_url": leave_url,
             # A live class is where the flyer and QR unlock, and this is the only teach
             # page a live class lands on, so the Share & Print card renders here.
             "can_print_marketing": can_print_class_marketing(request, offering),
