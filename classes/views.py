@@ -117,6 +117,7 @@ from classes.models import (
     RegistrationQuestion,
     readiness_items,
 )
+from core.htmx import wants_fragment
 from core.models import SiteConfiguration
 from core.urls_util import book_absolute_url
 
@@ -315,7 +316,7 @@ def public_list(request: HttpRequest) -> HttpResponse:
     # in place without rerendering hero + filter chrome. Computed once so the
     # OOB hero-count block renders only on HTMX responses (never as a stray
     # duplicate inside the embedded include on a full page load).
-    is_htmx = bool(request.headers.get("HX-Request") and not request.headers.get("HX-Boosted"))
+    is_htmx = wants_fragment(request)
 
     context = {
         "settings_obj": settings_obj,

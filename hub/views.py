@@ -32,6 +32,7 @@ from billing.exceptions import NoPaymentMethodError, TabLimitExceededError, TabL
 from billing.models import BillingSettings, Tab, TabCharge
 from classes.access import class_access
 from classes.models import Category, ClassOffering
+from core.htmx import wants_fragment
 from core.features import is_on
 from core.models import BiometricCredential, HeroCropMixin, SiteConfiguration
 from hub.view_as import ALL_ROLES, ROLE_ADMIN, ROLE_GUEST, ROLE_MEMBER, SESSION_ROLE_KEY, fog_admin_required
@@ -1941,9 +1942,7 @@ def orientation_checkout_return(request: HttpRequest, token: str) -> HttpRespons
     # swap a fragment into the body in place of the whole page. Every other HX-Request
     # branch in the codebase is @require_POST and so cannot be reached by a restore, which
     # is a GET; this one is reachable because it is where Stripe lands the member.
-    is_fragment = (
-        request.headers.get("HX-Request") == "true" and request.headers.get("HX-History-Restore-Request") != "true"
-    )
+    is_fragment = wants_fragment(request, boosted_counts=True)
     try:
         poll_count = int(request.GET.get("n", "0"))
     except ValueError:
