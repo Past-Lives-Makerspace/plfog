@@ -1502,6 +1502,117 @@ def describe_a_composer_post_to_a_class_cancelled_since_the_page_was_rendered():
         assert offering.title == "Before"
 
 
+_PUBLISHED_NOTICE = (
+    "This class was published after you opened this page, so nothing here was saved. "
+    "A live class is edited through a shorter form: the description, the photos, and what to bring. "
+    "To change the title, dates, price, or capacity, ask an admin. "
+    "Copy anything you want to keep, then reload this page for the shorter form."
+)
+
+
+def _light_payload(**extra) -> dict:
+    """What ``classes/teach/class_form_published.html`` actually posts: light fields, no hidden inputs.
+
+    The absence of ``step`` is the point of this helper, so it carries no ``action`` and no
+    ``step``; it is what the published branch must keep saving.
+    """
+    payload = {
+        "description": READY_DESCRIPTION,
+        "prerequisites": "Bring patience.",
+        "materials_included": "All the wood.",
+        "materials_to_bring": "Gloves.",
+        "safety_requirements": "Eye protection.",
+        "age_guardian_note": "Guardians welcome.",
+        "flexible_note": "",
+        "video_url": "",
+        "faq-TOTAL_FORMS": "0",
+        "faq-INITIAL_FORMS": "0",
+        "faq-MIN_NUM_FORMS": "0",
+        "faq-MAX_NUM_FORMS": "1000",
+    }
+    payload.update(extra)
+    return payload
+
+
+def describe_a_composer_post_to_a_class_published_since_the_page_was_rendered():
+    """Issue #386: the cancelled race again, landing on the branch that serves the live class.
+
+    That branch takes two kinds of POST and the hidden ``step`` is what tells them apart, so
+    both rows are pinned here: the composer's POST saves nothing and comes back on screen, and
+    the published light-edit form's own POST saves and redirects exactly as it always has.
+    """
+
+    def _publish(offering) -> None:
+        offering.status = Status.PUBLISHED
+        offering.published_at = timezone.now()
+        offering.save(update_fields=["status", "published_at"])
+
+    def it_keeps_the_typed_work_on_screen_and_saves_nothing(instructor_fixture, client):
+        offering = ClassOfferingFactory(instructor=instructor_fixture, status=Status.DRAFT, title="Before")
+        description_before = offering.description
+        client.force_login(instructor_fixture.user)
+        _publish(offering)
+        resp = client.post(
+            reverse("classes:teach_class_edit", kwargs={"pk": offering.pk}),
+            _full_payload(offering.category, title="Typed after the render", action="submit", step="5"),
+        )
+        assert resp.status_code == 200
+        html = resp.content.decode()
+        assert 'value="Typed after the render"' in html
+        assert "Bring patience." in html
+        assert _PUBLISHED_NOTICE in html
+        assert "Edit Class: Before" in html
+        assert "phase: 5," in html
+        assert "Some Things Need Fixing" not in html
+        assert "Class updated." not in _messages(resp)
+        offering.refresh_from_db()
+        assert offering.title == "Before"
+        # The description is on BOTH forms, so it is the field that proves the light form did
+        # not quietly save a composer POST behind the notice.
+        assert offering.description == description_before
+        assert offering.status == Status.PUBLISHED
+
+    def it_treats_a_step_that_never_got_its_value_as_a_composer_post(instructor_fixture, client):
+        # The hidden step is Alpine bound, so a page whose script never ran posts it empty.
+        # An empty step is still the composer, and still must not fall through to the light form.
+        offering = ClassOfferingFactory(instructor=instructor_fixture, status=Status.DRAFT, title="Before")
+        client.force_login(instructor_fixture.user)
+        _publish(offering)
+        resp = client.post(
+            reverse("classes:teach_class_edit", kwargs={"pk": offering.pk}),
+            _full_payload(offering.category, title="Typed after the render", step=""),
+        )
+        assert resp.status_code == 200
+        assert _PUBLISHED_NOTICE in resp.content.decode()
+        offering.refresh_from_db()
+        assert offering.title == "Before"
+
+    def it_still_saves_the_published_light_edit_form(instructor_fixture, client):
+        offering = ClassOfferingFactory(instructor=instructor_fixture, status=Status.DRAFT, title="Before")
+        client.force_login(instructor_fixture.user)
+        _publish(offering)
+        resp = client.post(
+            reverse("classes:teach_class_edit", kwargs={"pk": offering.pk}),
+            _light_payload(materials_to_bring="An apron"),
+        )
+        assert resp.status_code == 302
+        assert resp.url == reverse("classes:teach_class_detail", kwargs={"pk": offering.pk})
+        assert "Class updated." in _messages(resp)
+        offering.refresh_from_db()
+        assert offering.materials_to_bring == "An apron"
+        assert offering.description == READY_DESCRIPTION
+        assert offering.title == "Before"
+
+    def it_still_renders_the_light_form_on_a_get(instructor_fixture, client):
+        offering = ClassOfferingFactory(instructor=instructor_fixture, status=Status.DRAFT, title="Before")
+        client.force_login(instructor_fixture.user)
+        _publish(offering)
+        html = client.get(reverse("classes:teach_class_edit", kwargs={"pk": offering.pk})).content.decode()
+        assert "This class is live." in html
+        assert _PUBLISHED_NOTICE not in html
+        assert 'name="step"' not in html
+
+
 def describe_the_missing_flag_on_a_class_that_is_no_longer_a_draft():
     # Only a draft can be refused, so only a draft shows the Still Missing notice: a bookmarked or
     # Back navigated landing URL on a class since submitted or published says nothing.

@@ -1754,6 +1754,20 @@ def _composer_step(request: HttpRequest) -> int:
     return clamp_step(source.get("step"))
 
 
+def _is_composer_post(request: HttpRequest) -> bool:
+    """Whether this POST came from the composer rather than one of the smaller class forms.
+
+    ``classes/_components/class_composer.html`` posts a hidden ``step``, the phase the page was
+    on; the published light-edit form (``classes/teach/class_form_published.html``) posts no
+    hidden fields at all, and ``step`` is on no other form in the project. Presence is the test,
+    not the value: the input's value is Alpine bound, so a page whose script never ran still
+    posts ``step`` empty, and that is still the composer.
+
+    A GET needs no guard of its own: ``request.POST`` is empty on one, so this is already False.
+    """
+    return "step" in request.POST
+
+
 # A successful composer save leaves the class it saved on this session list. The next composer
 # GET for that class takes it back off and stamps data-composer-draft-saved on the page, which is
 # how static/js/composer_draft.js learns the browser held copy of what was typed is now redundant
@@ -2096,6 +2110,11 @@ def _instructor_composer(request: HttpRequest, pk: int) -> HttpResponse:
         messages.info(request, "Cancelled and archived classes can only be edited by an admin.")
         return redirect("classes:teach_dashboard")
     if offering.status == ClassOffering.Status.PUBLISHED:
+        # Two kinds of POST arrive here. The light form below is one of them and saves as it
+        # always has; a composer POST is a class published while its composer was open, and the
+        # light form holds none of the fields it carries, so it comes back unsaved instead.
+        if _is_composer_post(request):
+            return _render_unsaved_composer_post(request, offering, teaching_member, notice=_PUBLISHED_WHILE_EDITING)
         # A live class gets the light-edit form on the same URL: content only, no re-review.
         return _teach_published_class_edit(request, offering, teaching_member)
     form = TeachClassOfferingForm(
@@ -2141,12 +2160,34 @@ _CLOSED_WHILE_EDITING = (
     "Copy anything you want to keep before you leave."
 )
 
+# The published race is the same loss with a different ending: the class is still the
+# instructor's to edit, just through the shorter live-class form, so the notice points there
+# rather than at an admin. The fields that form does not carry are the admin's, as ever.
+_PUBLISHED_WHILE_EDITING = (
+    "This class was published after you opened this page, so nothing here was saved. "
+    "A live class is edited through a shorter form: the description, the photos, and what to bring. "
+    "To change the title, dates, price, or capacity, ask an admin. "
+    "Copy anything you want to keep, then reload this page for the shorter form."
+)
 
-def _render_closed_class_post(request: HttpRequest, offering: ClassOffering, teaching_member: Member) -> HttpResponse:
-    """A composer POST to a class cancelled or archived since the page was rendered.
+
+def _render_unsaved_composer_post(
+    request: HttpRequest,
+    offering: ClassOffering,
+    teaching_member: Member,
+    *,
+    notice: str,
+) -> HttpResponse:
+    """A composer POST to a class whose status moved on since the page was rendered.
 
     Nothing is saved. The page comes back with every typed value still in its field and a
     notice at the top, so the work can be copied out instead of vanishing on a redirect.
+
+    Args:
+        request: The POST that lost the race; its data is rebound, never saved.
+        offering: The class as the database now holds it.
+        teaching_member: The instructor or guild staffer the composer renders for.
+        notice: The page level explanation of what changed and what to do about it.
     """
     form = TeachClassOfferingForm(request.POST, request.FILES, instance=offering, teaching_member=teaching_member)
     formset = ClassSessionFormSet(request.POST, instance=offering, prefix="sessions")
@@ -2159,6 +2200,16 @@ def _render_closed_class_post(request: HttpRequest, offering: ClassOffering, tea
         mode="edit",
         offering=offering,
         faq_formset=faq_formset,
+        notice=notice,
+    )
+
+
+def _render_closed_class_post(request: HttpRequest, offering: ClassOffering, teaching_member: Member) -> HttpResponse:
+    """A composer POST to a class cancelled or archived since the page was rendered."""
+    return _render_unsaved_composer_post(
+        request,
+        offering,
+        teaching_member,
         notice=_CLOSED_WHILE_EDITING.format(status=offering.get_status_display().lower()),
     )
 
