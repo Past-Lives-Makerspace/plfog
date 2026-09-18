@@ -36,6 +36,28 @@ STATUS_RANK = {"confirmed": 0, "pending": 1, "waitlisted": 2}
 MARKER = "Duplicate signup for this class, cancelled automatically by migration classes.0065."
 
 
+def carries_real_money(row: dict[str, Any]) -> bool:
+    """Whether cancelling this row would strand a payment nobody is told about.
+
+    ``stripe_payment_id`` is the signal. It is written only by the webhook, on a charge
+    Stripe actually took.
+
+    ``amount_paid_cents`` is **not** a payment signal by itself. The register view
+    stamps it at session-mint time, before anyone has paid ("provisional; webhook is
+    canonical"), so every PENDING duplicate on a paid class carries a non-zero amount
+    while being entirely unpaid — which is precisely the shape this migration exists to
+    clean up. Reading it as money would stop the migration on rows that owe nothing, and
+    a migration that raises is a failed deploy.
+
+    It does mean something once a row is CONFIRMED: that is the only state in which
+    ``Registration.mark_paid`` can settle a seat in cash, leaving real money behind with
+    no Stripe id to show for it.
+    """
+    if row["stripe_payment_id"]:
+        return True
+    return row["status"] == "confirmed" and bool(row["amount_paid_cents"])
+
+
 def reason_for(status: str) -> str:
     """The exact ``cancellation_reason`` stamped on a row cancelled from ``status``."""
     return f"{MARKER} Prior status: {status}."
@@ -69,7 +91,7 @@ def cancel_duplicate_signups(apps: Any, schema_editor: Any) -> None:
             continue
         group.sort(key=lambda row: (STATUS_RANK[row["status"]], row["registered_at"], row["pk"]))
         for row in group[1:]:
-            if row["amount_paid_cents"] or row["stripe_payment_id"]:
+            if carries_real_money(row):
                 paid_losers.append(row)
                 continue
             losers[row["status"]].append(row["pk"])
@@ -77,13 +99,16 @@ def cancel_duplicate_signups(apps: Any, schema_editor: Any) -> None:
     if paid_losers:
         detail = "; ".join(
             f"pk={row['pk']} class={row['class_offering_id']} email={row['email']} "
-            f"paid={row['amount_paid_cents']} payment={row['stripe_payment_id'] or 'none'}"
+            f"status={row['status']} paid={row['amount_paid_cents']} "
+            f"payment={row['stripe_payment_id'] or 'none'}"
             for row in sorted(paid_losers, key=lambda row: row["pk"])
         )
         raise RuntimeError(
-            "Refusing to cancel a paid duplicate registration. These rows are duplicates that hold "
-            f"money, so a person paid twice for one seat and is owed a refund: {detail}. Resolve each "
-            "one by hand (refund it, then cancel it) and run this migration again."
+            "Refusing to cancel a duplicate registration that carries a recorded payment. Cancelling "
+            "one of these would strand money: the row is a duplicate, so it loses its seat, and this "
+            "migration writes with a raw update() that sends no email and logs no activity. Rows: "
+            f"{detail}. Decide each one by hand (refund it and cancel it, or keep it and cancel its "
+            "twin) and run this migration again."
         )
 
     now = timezone.now()

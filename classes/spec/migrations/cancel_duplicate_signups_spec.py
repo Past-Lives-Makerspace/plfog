@@ -233,7 +233,7 @@ def describe_migration_0065_cancel_duplicate_signups():
                     stripe_payment_id="pi_BBB",
                 )
 
-                with pytest.raises(RuntimeError, match="Refusing to cancel a paid duplicate"):
+                with pytest.raises(RuntimeError, match="carries a recorded payment"):
                     _migrate(_AFTER)
 
                 assert _row(apps, paid).status == "confirmed"  # untouched, still refundable
@@ -243,20 +243,26 @@ def describe_migration_0065_cancel_duplicate_signups():
                 _migrate(_HEAD)
 
         def it_names_the_offending_row_in_the_message():
+            """A Stripe payment id on the losing row is the signal, whatever its status."""
             try:
                 offering = ClassOfferingFactory()
                 apps = _migrate(_BEFORE)
                 _make_registration(apps, offering_id=offering.pk, status="pending", minutes_ago=30)
                 paid = _make_registration(
-                    apps, offering_id=offering.pk, status="pending", minutes_ago=20, amount_paid_cents=4500
+                    apps,
+                    offering_id=offering.pk,
+                    status="pending",
+                    minutes_ago=20,
+                    amount_paid_cents=4500,
+                    stripe_payment_id="pi_CCC",
                 )
 
                 with pytest.raises(RuntimeError) as caught:
                     _migrate(_AFTER)
 
                 assert f"pk={paid}" in str(caught.value)
-                assert "paid=4500" in str(caught.value)
-                assert "Resolve each one by hand" in str(caught.value)
+                assert "payment=pi_CCC" in str(caught.value)
+                assert "Decide each one by hand" in str(caught.value)
             finally:
                 _row(apps, paid).delete()
                 _migrate(_HEAD)
@@ -276,4 +282,53 @@ def describe_migration_0065_cancel_duplicate_signups():
                 assert _row(apps, keeper).status == "confirmed"
                 assert _row(apps, unpaid).status == "cancelled"
             finally:
+                _migrate(_HEAD)
+
+    def describe_the_provisional_amount_on_an_unpaid_row():
+        """The exact shape production carries, and the reason this migration nearly failed a deploy.
+
+        ``classes/views.py`` stamps ``amount_paid_cents = final_price`` when it mints the
+        Checkout Session, before anybody has paid. So an unpaid double-click on a paid
+        class looks like two rows holding money. Reading that as a payment stops the
+        migration on every deploy, on rows that owe nothing.
+        """
+
+        def it_cancels_an_unpaid_duplicate_that_carries_the_provisional_amount():
+            try:
+                offering = ClassOfferingFactory()
+                apps = _migrate(_BEFORE)
+                # pk 16 / 17 and 59 / 60 on production: pending, non-zero amount, no payment.
+                kept = _make_registration(
+                    apps, offering_id=offering.pk, status="pending", minutes_ago=30, amount_paid_cents=7200
+                )
+                dupe = _make_registration(
+                    apps, offering_id=offering.pk, status="pending", minutes_ago=20, amount_paid_cents=7200
+                )
+
+                apps = _migrate(_AFTER)  # must not raise
+
+                assert _row(apps, kept).status == "pending"
+                assert _row(apps, dupe).status == "cancelled"
+                assert _row(apps, dupe).cancellation_reason == reason_for("pending")
+            finally:
+                _migrate(_HEAD)
+
+        def it_still_refuses_when_a_confirmed_duplicate_was_settled_in_cash():
+            """``mark_paid`` records real money and leaves no Stripe id, only ever on a CONFIRMED row."""
+            try:
+                offering = ClassOfferingFactory()
+                apps = _migrate(_BEFORE)
+                _make_registration(
+                    apps, offering_id=offering.pk, status="confirmed", minutes_ago=30, amount_paid_cents=7200
+                )
+                cash = _make_registration(
+                    apps, offering_id=offering.pk, status="confirmed", minutes_ago=20, amount_paid_cents=7200
+                )
+
+                with pytest.raises(RuntimeError, match="carries a recorded payment"):
+                    _migrate(_AFTER)
+
+                assert _row(apps, cash).status == "confirmed"
+            finally:
+                _row(apps, cash).delete()
                 _migrate(_HEAD)
