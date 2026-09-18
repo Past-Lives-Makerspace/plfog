@@ -4825,6 +4825,45 @@ def registration_mark_paid(request: HttpRequest, pk: int) -> HttpResponse:
 
 @login_required
 @require_POST
+def registration_confirm_pending(request: HttpRequest, pk: int) -> HttpResponse:
+    """Confirm a signup that stalled at PENDING, with what it owes still owed.
+
+    The way out of the dead end: a signup whose checkout never completed cannot be marked
+    paid, sent a payment link or promoted, because all three need a CONFIRMED row. This
+    makes the seat real and the balance visible, and every one of those tools then applies.
+
+    The confirmation email goes out here rather than from the model, matching the promote
+    flow. Its ``reg:{pk}:confirmation`` emit period is shared with the payment webhook, so
+    a payment that lands afterwards cannot send the registrant a second one.
+    """
+    from classes.exceptions import RegistrationStateError
+    from hub.toast import trigger_toast
+
+    registration = _registration_manageable_or_403(request, pk)
+    is_htmx = request.headers.get("HX-Request") == "true"
+    try:
+        registration.confirm_pending_payment(actor=request.user)
+    except RegistrationStateError as exc:
+        if not is_htmx:
+            messages.error(request, str(exc))
+            return redirect("classes:admin_registration_detail", pk=pk)
+        response = _row_response(request, registration)
+        trigger_toast(response, str(exc), "error")
+        return response
+    send_registration_confirmation(registration)
+    note = f"{registration.first_name} is confirmed."
+    if registration.balance_due_cents:
+        note = f"{note} They still owe ${registration.balance_due_cents / 100:.2f}."
+    if not is_htmx:
+        messages.success(request, note)
+        return redirect("classes:admin_registration_detail", pk=pk)
+    response = _row_response(request, registration)
+    trigger_toast(response, note, "success")
+    return response
+
+
+@login_required
+@require_POST
 def registration_remove(request: HttpRequest, pk: int) -> HttpResponse:
     """Staff-remove a registrant (seat-holder or waitlister) behind the confirm modal."""
     from classes.exceptions import RegistrationStateError

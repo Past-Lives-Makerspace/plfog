@@ -245,6 +245,14 @@ SCHEDULED_JOBS: list[ScheduledJob] = [
         cadence=Cadence.ALWAYS,
     ),
     ScheduledJob(
+        key="release_abandoned_class_holds",
+        name="Release abandoned class checkouts",
+        description="Releases class seats held by signups whose Stripe checkout was never completed.",
+        command="release_abandoned_class_holds",
+        schedule_label="Every 15 min",
+        cadence=Cadence.ALWAYS,
+    ),
+    ScheduledJob(
         key="airtable_pull",
         name="Airtable member pull",
         description="Imports member and space updates from Airtable.",

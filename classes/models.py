@@ -7,7 +7,7 @@ import re
 import secrets
 from collections.abc import Callable, Iterable, Sequence
 from dataclasses import dataclass
-from datetime import date as date_type, datetime
+from datetime import date as date_type, datetime, timedelta
 from html import unescape
 from typing import TYPE_CHECKING, Any, NamedTuple, cast
 
@@ -3112,10 +3112,101 @@ against ``capacity`` and why a waitlisted person can still be told a class is so
 """
 
 
+ABANDONED_HOLD_SWEEP_AGE = timedelta(hours=2)
+"""How old a PENDING signup must be before the sweep will look at its checkout at all.
+
+Strictly longer than ``billing.stripe_utils.CLASS_CHECKOUT_SESSION_LIFETIME`` (1 h), which
+is the whole point: inside that hour the registrant may still be paying, and a resumed
+signup mints a fresh session on the same row without touching ``registered_at``, so age
+alone is never permission to cancel. Past the threshold the sweep still asks Stripe and
+still leaves a live session alone — the age only decides who gets asked about.
+"""
+
+# Stamped on a signup whose checkout ran out before it was paid. Read by staff in the
+# activity feed, so it says what happened rather than naming a webhook.
+EXPIRED_HOLD_CANCEL_REASON = "The checkout for this signup expired before it was paid."
+# Same event, reached through Stripe's delayed-notification failure rather than a timeout.
+FAILED_PAYMENT_CANCEL_REASON = "The delayed payment for this signup did not go through."
+
+
 class RegistrationQuerySet(models.QuerySet["Registration"]):
     def seat_holding(self) -> "RegistrationQuerySet":
         """Rows still occupying a place: confirmed, pending payment, or waitlisted."""
         return self.filter(status__in=SEAT_HOLDING_REGISTRATION_STATUSES)
+
+    def abandoned_holds(self, *, now: datetime | None = None) -> "RegistrationQuerySet":
+        """PENDING rows older than :data:`ABANDONED_HOLD_SWEEP_AGE` — candidates, not verdicts.
+
+        Age is the cheap filter that decides which rows are worth a Stripe round trip.
+        Whether a candidate actually loses its seat is decided by what Stripe says about
+        its session, in :meth:`release_abandoned_holds`.
+        """
+        cutoff = (now or timezone.now()) - ABANDONED_HOLD_SWEEP_AGE
+        return self.filter(status=RegistrationStatus.PENDING, registered_at__lt=cutoff)
+
+    def release_abandoned_holds(self, *, now: datetime | None = None) -> tuple[int, int]:
+        """Sweep abandoned class checkouts — Stripe-verified, never on age alone.
+
+        The backstop behind ``checkout.session.expired``: a webhook that never arrived,
+        an endpoint that was down, or a row that predates the expiry being set at all
+        (production is carrying 14 of those). For each candidate, Stripe's answer decides:
+
+        * **paid** → the webhook was lost. Confirm the row through the same code path the
+          webhook uses, so the fan-out, the idempotency and the orphan handling are
+          identical. This is the recovery half, and it is why the sweep asks before it acts.
+        * **open** → somebody is mid-checkout on a session #419 re-minted on this row.
+          Left alone. ``registered_at`` says the row is old; the session says the person
+          is not.
+        * **complete but unpaid** → a delayed-notification payment (ACH and friends) that
+          Stripe has not settled yet. Left alone; ``async_payment_succeeded`` /
+          ``async_payment_failed`` own that row's ending.
+        * **expired**, or no session id ever stored → the seat is released by cancelling
+          the row. Never deleted: it carries the signed waiver, the custom answers and its
+          audit trail.
+        * **Stripe unreachable** → skipped and logged. The next tick retries; an
+          unanswerable question is not permission to take somebody's seat.
+
+        Known and deliberately not closed here: ``registered_at`` is the wrong clock for a row
+        whose hold started later than its creation. ``_claim_waitlist_spot`` flips a waitlister
+        to PENDING and saves before minting the session, so for the length of that Stripe call
+        a month-old row is a candidate with no session id, and the session-less branch above
+        would cancel the seat the member was just told had opened. The window is one network
+        call against a fifteen-minute tick. It is not closed by rewriting ``registered_at`` on
+        claim, because that field is ``auto_now_add`` creation time that the roster displays
+        and ``waitlist_position`` compares against; and not by a dedicated hold timestamp,
+        because that is a schema change and its own ticket. The webhook half of the same race
+        **is** closed, in ``_release_seat_for_session``.
+
+        Returns:
+            ``(released, recovered)`` — seats cancelled, and lost-webhook payments confirmed.
+        """
+        from billing import stripe_utils
+
+        released = 0
+        recovered = 0
+        for registration in self.abandoned_holds(now=now).select_related("class_offering"):
+            # No stored session means none was ever attached (a crash between minting and
+            # saving): nothing to verify, and nothing that could still be paid.
+            if registration.stripe_session_id:
+                try:
+                    session = stripe_utils.retrieve_checkout_session(session_id=registration.stripe_session_id)
+                except Exception:
+                    logger.exception(
+                        "Class hold sweep: could not verify session for registration %s; retrying next tick.",
+                        registration.pk,
+                    )
+                    continue
+                if session["payment_status"] == "paid":
+                    from classes.webhook_handlers import apply_paid_class_session
+
+                    if apply_paid_class_session(registration.pk, session) == "confirmed":
+                        recovered += 1
+                    continue
+                if session["status"] in ("open", "complete"):
+                    continue
+            if registration.release_hold(reason=EXPIRED_HOLD_CANCEL_REASON):
+                released += 1
+        return released, recovered
 
 
 class Registration(models.Model):
@@ -3492,6 +3583,110 @@ class Registration(models.Model):
                 self.save(update_fields=["payment_due_cents", "status", "confirmed_at"])
             finally:
                 self._promoting = False
+
+    def confirm_pending_payment(self, actor: "User | None") -> None:
+        """Staff-confirm a signup stuck at PENDING, with what it owes still owed.
+
+        The exit from a dead end. A signup that started a checkout and never finished it
+        cannot be marked paid, cannot be sent a payment link and cannot be promoted,
+        because every one of those tools guards on ``is_unpaid``, which needs CONFIRMED.
+        The only staff move used to be cancel, which is the wrong answer for somebody
+        standing at the front desk with cash.
+
+        Confirms with the balance intact rather than as paid, so the ledger stays honest:
+        no money has moved. ``amount_paid_cents`` is **zeroed** on the way through, because
+        on a PENDING row it is not a payment at all — ``classes/views.py`` stamps it with
+        the session's price when the Checkout Session is minted. Read as the quote it is,
+        it becomes ``payment_due_cents``; read as money, it would silently mark the seat
+        paid for and settle a balance nobody collected. ``stripe_payment_id`` is what a
+        real charge looks like, and a PENDING row has none.
+
+        **Expires the row's Checkout Session first.** The hosted page is still payable, and
+        this reaper is what makes that the normal case rather than a curiosity: before it, a
+        stuck PENDING row sat behind a session that had been dead for days, so by the time a
+        staffer saw it there was nothing left to pay. Now a PENDING row survives about an hour
+        before the expiry releases it, so nearly every one a staffer can still act on has a
+        live tab attached. Leaving it open means the member pays the $50 in that tab, the
+        webhook finds a CONFIRMED row and orphans the payment, the balance stays owed, and the
+        roster goes on offering Mark as Paid and Send Payment Link until somebody collects the
+        same $50 twice. Best-effort, in the same shape as the resume path and the orientation
+        hold release: Stripe refusing (the session is already expired or complete, or Stripe is
+        down) must not block a confirm a staff member is standing there waiting on.
+
+        Sends no email itself — the caller sends the confirmation, exactly as
+        ``promote_from_waitlist`` leaves that choice to its caller.
+
+        Raises:
+            RegistrationStateError: If this registration is not PENDING (already
+                confirmed by a webhook that landed first, already cancelled by the
+                expiry sweep, or a double-clicked button).
+        """
+        from classes.exceptions import RegistrationStateError
+
+        with transaction.atomic():
+            # Guard on a locked refetch, not the in-memory copy: the payment webhook and
+            # the expiry release take the same lock, so a staff confirm racing either of
+            # them loses cleanly instead of overwriting the result.
+            current = type(self)._default_manager.select_for_update().get(pk=self.pk)
+            if current.status != self.Status.PENDING:
+                raise RegistrationStateError("Only a signup still waiting on payment can be confirmed by hand.")
+            # After the guard, so a confirm that is about to be refused never kills a live
+            # checkout the winning path still needs.
+            current.expire_checkout_session_best_effort()
+            self.payment_due_cents = current.payment_due_cents or current.amount_paid_cents
+            self.amount_paid_cents = 0
+            self.status = self.Status.CONFIRMED
+            self.confirmed_at = timezone.now()
+            self._acting_user = actor
+            self.save(
+                update_fields=["payment_due_cents", "amount_paid_cents", "status", "confirmed_at"],
+            )
+
+    def expire_checkout_session_best_effort(self) -> None:
+        """Close this row's hosted Checkout page so an open tab cannot still pay for it.
+
+        Best-effort by design, the same shape as the orientation hold release and the resume
+        path: Stripe may refuse (the session is already expired, or already complete, and only
+        an ``open`` one can be expired) or be unreachable, and neither is a reason to fail the
+        state change the caller has already decided on. A row with no session has nothing to
+        close. The session's own ``expires_at`` is the backstop either way.
+        """
+        from billing import stripe_utils
+
+        if not self.stripe_session_id:
+            return
+        try:
+            stripe_utils.expire_checkout_session(session_id=self.stripe_session_id)
+        except Exception:
+            logger.info("Could not expire the Checkout session for registration %s (best effort).", self.pk)
+
+    def release_hold(self, *, reason: str) -> bool:
+        """Free the seat an unfinished checkout is holding — by cancelling, never deleting.
+
+        The orientation flow deletes its abandoned holds, and that is right there: an
+        orientation hold is a row with nothing on it but a timestamp. A registration is
+        not. It carries a signed waiver, the answers to the class's custom questions and
+        its own audit trail, and #419 settled that throwing those away is not an
+        acceptable way to free a seat. Cancelling frees exactly the same seat —
+        ``uq_registration_seat_email`` stops counting a CANCELLED row, so the registrant
+        whose checkout ran out is free to sign up again — and keeps the record of what
+        happened.
+
+        Returns:
+            ``True`` when this call is what released the seat. ``False`` when the row had
+            already left PENDING — a payment webhook that landed first, a staff confirm, a
+            second delivery of the same Stripe event, or the sweep and the webhook arriving
+            together. Every release path is idempotent on that answer.
+        """
+        with transaction.atomic():
+            locked = (
+                type(self)._default_manager.select_for_update().filter(pk=self.pk, status=self.Status.PENDING).first()
+            )
+            if locked is None:
+                return False
+            self.status = self.Status.PENDING  # the locked row says so, whatever this copy held
+            self.cancel(reason=reason)
+        return True
 
     def mark_paid(self, actor: "User | None", note: str = "") -> None:
         """Settle an unpaid promoted registration by hand (cash, comped, check).

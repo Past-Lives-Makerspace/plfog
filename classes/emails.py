@@ -118,6 +118,12 @@ def send_registration_confirmation(registration: "Registration") -> None:
         "class_url": class_url,
         "amount_paid_cents": registration.amount_paid_cents,
         "amount_paid_dollars": f"{registration.amount_paid_cents / 100:.2f}",
+        # A seat can be confirmed with money still owed: staff rescuing a signup whose
+        # checkout never finished, or a waitlister promoted at a price. Both templates
+        # already hide the "paid" block at zero, so without this the email would confirm
+        # the seat and say nothing at all about the balance the studio expects.
+        "balance_due_cents": registration.balance_due_cents,
+        "balance_due_dollars": f"{registration.balance_due_cents / 100:.2f}",
         "footer": settings_obj.confirmation_email_footer,
     }
 

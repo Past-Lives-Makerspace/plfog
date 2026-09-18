@@ -13,15 +13,29 @@ page (Payments → Reports) and paid out manually.
 
 from __future__ import annotations
 
+from datetime import timedelta
 from typing import TYPE_CHECKING, Any
 
 import stripe
 from django.core.exceptions import ImproperlyConfigured
+from django.utils import timezone
 from stripe.params import RefundCreateParams
 from stripe.params.checkout import SessionCreateParams
 
 if TYPE_CHECKING:
     from billing.models import BillingSettings
+
+CLASS_CHECKOUT_SESSION_LIFETIME = timedelta(hours=1)
+"""How long a class Checkout Session stays payable before Stripe expires it server-side.
+
+Mirrors the orientation flow's ``_CHECKOUT_SESSION_LIFETIME``, for the same reason: a
+registrant reads the waiver before checkout, not during it, so an hour is generous for
+the card step and short enough that an abandoned signup stops holding a seat the same
+morning. Stripe's default is 24 hours, which is what let 14 production rows sit on seats
+for up to 115 days. The classes hold sweep's age threshold is deliberately longer than
+this (``classes.models.ABANDONED_HOLD_SWEEP_AGE``), so the backstop never races a
+checkout Stripe still considers live.
+"""
 
 
 def _billing_settings() -> BillingSettings:
@@ -223,7 +237,13 @@ def create_class_checkout_session(
     metadata: dict[str, str],
     idempotency_key: str,
 ) -> dict[str, str]:
-    """Create a Checkout Session for a class registration — delegates to :func:`create_checkout_session`."""
+    """Create a Checkout Session for a class registration — delegates to :func:`create_checkout_session`.
+
+    Stamps ``expires_at`` one hour out (:data:`CLASS_CHECKOUT_SESSION_LIFETIME`) so an
+    abandoned checkout dies on Stripe's side and fires ``checkout.session.expired``, which
+    is what releases the seat it was holding. Applied here rather than at the call site so
+    every class session gets it, including the replacement one a resumed signup mints.
+    """
     return create_checkout_session(
         amount_cents=amount_cents,
         product_name=product_name,
@@ -232,6 +252,7 @@ def create_class_checkout_session(
         cancel_url=cancel_url,
         metadata=metadata,
         idempotency_key=idempotency_key,
+        expires_at=int((timezone.now() + CLASS_CHECKOUT_SESSION_LIFETIME).timestamp()),
     )
 
 

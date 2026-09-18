@@ -1,0 +1,10 @@
+bump = "minor"
+date = "2026-09-18"
+title = "A class stops being held full by signups nobody finished"
+changes = [
+  "If someone starts signing up and never pays, their seat used to be held forever and the class could look full when it was not. The seat now comes back about two hours later, and they are free to sign up again.",
+  "Checkout pages for a class now expire after an hour instead of a day.",
+  "If your bank uses a payment method that settles slowly, your signup now confirms when the money arrives. Before, it could sit unconfirmed and you would never get the confirmation email.",
+  "Studio staff can now confirm a signup that got stuck part way through paying, and then record the payment or send a payment link as usual.",
+  "If your seat is confirmed with money still owed, the confirmation email now tells you what is left to pay and where to pay it.",
+]
