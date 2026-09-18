@@ -2375,10 +2375,16 @@ def _already_submitted_message(offering: ClassOffering) -> str:
 def teach_registrations(request: HttpRequest) -> HttpResponse:
     """Every sign-up across the classes this member teaches, grouped by class.
 
-    The group header used to carry a ``Count("registrations")`` annotation over every row
-    ever written, which counted the cancelled ones as sign-ups. The header now counts the
-    rows the group actually lists, so the two can never drift apart; the same Show
-    cancelled toggle as the per-class roster widens both at once.
+    This page lists waitlisted people on purpose: its checkboxes hand a selection to the
+    announcement composer, and ``can_receive_class_announcement`` reaches a waitlisted
+    registrant. So the rows here are a wider set than the per-class roster's, and the
+    header cannot be one number without lying about one of them.
+
+    It used to be a ``Count("registrations")`` over every row ever written (cancelled ones
+    included), and then briefly ``len(rows)``, which rolled seat-holders and the queue into
+    a single "13 registrations" on the very class every other surface reads as 10. The
+    header now names its two numbers separately, off the model's own properties, so it has
+    nothing left to disagree with.
     """
     teaching_member: Member = request.teaching_member  # type: ignore[attr-defined]
     show_cancelled = _roster_shows_cancelled(request)
@@ -2404,7 +2410,9 @@ def teach_registrations(request: HttpRequest) -> HttpResponse:
             {
                 "offering": offering,
                 "registrations": rows,
-                "registration_count": len(rows),
+                # Two counts that each say what they count, never a total of the two.
+                "seats_taken": offering.seats_taken,
+                "waitlist_count": offering.waitlisted_count,
                 # No emailable row means no tick boxes, so the email footer would be a button
                 # that can only ever answer "tick someone first" with nobody to tick.
                 "can_email_any": any(row.can_receive_class_announcement for row in rows),
@@ -2928,6 +2936,9 @@ def _teach_registrations_context(request: HttpRequest, offering: ClassOffering) 
         "registrations": _roster_registrations(offering, include_cancelled=show_cancelled),
         "show_cancelled": show_cancelled,
         "cancelled_registration_count": _roster_cancelled_count(offering),
+        # The table partial's empty state reads this, and teach_class_registrations_table
+        # serves that partial on its own, so it cannot come from the page context alone.
+        "waitlist_count": offering.waitlisted_count,
         "viewer_has_refund_authority": has_refund_authority(request),
         "can_manage": True,
         "can_move": move_form is not None,
@@ -3857,7 +3868,7 @@ def _class_workspace_counts(offering: ClassOffering) -> dict[str, int]:
     """
     return {
         "seat_taken_count": offering.seats_taken,
-        "waitlist_count": offering.registrations.filter(status=Registration.Status.WAITLISTED).count(),
+        "waitlist_count": offering.waitlisted_count,
     }
 
 

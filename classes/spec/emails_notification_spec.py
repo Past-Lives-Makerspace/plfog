@@ -74,6 +74,62 @@ def describe_send_admin_registration_notification():
         assert "Pottery Basics" in msg.subject
         assert "$80.00" in msg.body
         assert offering.instructor.display_name in msg.body
+        assert "Capacity: 1/6" in msg.body
+
+    def it_counts_capacity_the_way_every_other_surface_does(db, settings):
+        """The admin email goes out one line after the instructor's, about the same signup.
+
+        Counting every row ever written had the two disagree by four in the same instant.
+        """
+        settings.CLASS_ADMIN_NOTIFY_EMAILS = "admin@example.com"
+        offering = ClassOfferingFactory(capacity=6, status=ClassOffering.Status.PUBLISHED)
+        for _ in range(4):
+            RegistrationFactory(class_offering=offering, status="cancelled")
+        newest = RegistrationFactory(class_offering=offering, status="confirmed")
+
+        send_admin_registration_notification(newest)
+
+        body = "\n".join(m.body for m in mail.outbox)
+        assert "Capacity: 1/6" in body
+        assert "5/6" not in body
+
+    def it_agrees_with_the_instructor_email_about_the_same_signup(db, settings):
+        """Both go out from the same two lines (classes/views.py and webhook_handlers.py).
+
+        The admin half counted every row ever written, so on a class with four cancelled
+        signups the instructor was told 1/6 and the admins 5/6 about one registration.
+        """
+        settings.CLASS_ADMIN_NOTIFY_EMAILS = "admin@example.com"
+        user = UserFactory(email="teach@example.com")
+        instructor = InstructorFactory(user=user)
+        offering = ClassOfferingFactory(instructor=instructor, capacity=6, status=ClassOffering.Status.PUBLISHED)
+        for _ in range(4):
+            RegistrationFactory(class_offering=offering, status="cancelled")
+        for _ in range(2):
+            RegistrationFactory(class_offering=offering, status="waitlisted")
+        newest = RegistrationFactory(class_offering=offering, status="confirmed")
+
+        emit_instructor_new_registration(newest)
+        send_admin_registration_notification(newest)
+
+        bodies = [m.body for m in mail.outbox]
+        assert len(bodies) == 2
+        assert all("1/6" in body for body in bodies)
+
+    def it_does_not_count_the_waitlist_against_capacity(db, settings):
+        settings.CLASS_ADMIN_NOTIFY_EMAILS = "admin@example.com"
+        offering = ClassOfferingFactory(capacity=9, status=ClassOffering.Status.PUBLISHED)
+        for _ in range(2):
+            RegistrationFactory(class_offering=offering, status="confirmed")
+        for _ in range(5):
+            RegistrationFactory(class_offering=offering, status="waitlisted")
+        newest = RegistrationFactory(class_offering=offering, status="pending")
+
+        send_admin_registration_notification(newest)
+
+        body = "\n".join(m.body for m in mail.outbox)
+        assert "Capacity: 3/9" in body
+        assert "8/9" not in body
 
     def it_skips_when_no_admin_emails_configured(db, settings):
         settings.CLASS_ADMIN_NOTIFY_EMAILS = ""

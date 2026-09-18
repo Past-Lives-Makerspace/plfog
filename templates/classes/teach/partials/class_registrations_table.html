@@ -36,5 +36,8 @@ cancelled/refunded rows arrive only when the Show cancelled toggle asks for them
 </table>
 </div>
 {% else %}
-<div style="padding:1.5rem 0; text-align:center; color:var(--hub-text-muted);">{% if cancelled_registration_count and not show_cancelled %}Nobody is holding a seat right now.{% else %}No registrations yet.{% endif %}</div>
+{% comment %}An empty seat list is not an empty class. People waiting for a seat are
+the most common reason this table has no rows, and "No registrations yet" on a class with
+six of them sends the instructor looking for a bug.{% endcomment %}
+<div style="padding:1.5rem 0; text-align:center; color:var(--hub-text-muted);">{% if waitlist_count %}Nobody has a seat yet. {{ waitlist_count }} on the waitlist.{% elif cancelled_registration_count and not show_cancelled %}Nobody is holding a seat right now.{% else %}No registrations yet.{% endif %}</div>
 {% endif %}

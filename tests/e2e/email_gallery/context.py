@@ -239,7 +239,7 @@ def instructor_new_registration_context(data: SampleData) -> dict[str, Any]:
             "class_url": _class_urls(data, registration)["class_url"],
             "manage_url": _absolute_url(reverse("classes:teach_class_detail", kwargs={"pk": offering.pk})),
             "amount_paid": f"{registration.amount_paid_cents / 100:.2f}",
-            "spots_filled": offering.registrations.count(),
+            "spots_filled": offering.seats_taken,
             "capacity": offering.capacity,
         },
     }

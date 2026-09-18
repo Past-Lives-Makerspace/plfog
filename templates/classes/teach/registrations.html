@@ -16,7 +16,10 @@
         <div style="display:flex;align-items:center;gap:0.5rem;">
             <span x-text="open ? '▾' : '▸'" style="font-size:0.8rem;width:1rem;text-align:center;"></span>
             <strong>{{ group.offering.title }}</strong>
-            <span style="color:var(--hub-text-muted);font-size:0.85rem;">— {{ group.registration_count }} registration{{ group.registration_count|pluralize }}</span>
+            {% comment %}Two numbers, never their sum: a waitlisted person is listed below (the
+            composer can email them) but holds no seat, so rolling them together here would
+            contradict every per-class count of the same class.{% endcomment %}
+            <span style="color:var(--hub-text-muted);font-size:0.85rem;">— {{ group.seats_taken }} registered{% if group.waitlist_count %}, {{ group.waitlist_count }} waitlisted{% endif %}</span>
         </div>
         <span style="color:var(--hub-text-muted);font-size:0.8rem;">{{ group.offering.get_status_display }}</span>
     </div>
