@@ -681,6 +681,7 @@ class TeachPublishedClassForm(forms.ModelForm):
             "flexible_note",
             "video_url",
         ]
+        widgets = {"video_url": _video_url_widget()}
 
     def clean_video_url(self) -> str:
         return validate_video_url(self.cleaned_data.get("video_url", ""))

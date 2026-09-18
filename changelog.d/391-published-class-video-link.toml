@@ -1,0 +1,6 @@
+bump = "patch"
+date = "2026-09-17"
+title = "The video link on a live class takes a plain address"
+changes = [
+  "Editing a live class, the video link box no longer insists on the full web address. Type it the short way and it saves.",
+]
