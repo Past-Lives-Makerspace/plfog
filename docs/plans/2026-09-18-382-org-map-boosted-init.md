@@ -61,8 +61,9 @@ Split the two concerns:
 - **Per-arrival, idempotent:** everything that queries the swapped markup and binds to the
   elements it finds — `initStage`, `initAddMarker`, `initAddButtons`. Those elements are replaced
   by the swap, so these must re-run; guard them so a double run against the *same* markup cannot
-  double-wire a node. `rich-editor-init.js` keys off a `data-rte-ready` attribute; a `data-*`
-  ready key is the same idea and the house pattern.
+  double-wire a node. `rich-editor-init.js` keys off a `data-rte-ready` attribute, and **do not
+  copy that part** — see "the per-node key must not be an attribute" below. The idea is right; the
+  storage is not.
 - **Once per document:** the `close-marker-edit` listener on `document.body`, **and
   `initDropZones`**. See the guard note below: the obvious mechanism does not work here.
 
@@ -82,9 +83,31 @@ The flag has to live somewhere that outlives a script re-execution:
 - **A `data-*` key on a persistent element** — `document.documentElement` or `document.body`.
   `hx-boost` replaces the body's contents, not the `<body>` element itself.
 
-The per-arrival bucket is unaffected. `initStage`, `initAddMarker` and `initAddButtons` bind to
-elements the swap replaces, so a `data-*` ready key **on those elements** is correct and does not
-need to survive anything. That is the `data-rte-ready` pattern and it still stands.
+### The per-node key must not be an attribute either
+
+**This section replaces an earlier claim in this document that a `data-*` ready key on the swapped
+elements "is correct and does not need to survive anything", and that the `data-rte-ready` pattern
+"still stands". That was measurably false and it shipped as a review blocker on PR #437.**
+
+htmx builds its history snapshot by serializing the body's innerHTML, and it re-executes the
+scripts it restores. An attribute is markup, so it is captured in that snapshot: press Back and the
+restored nodes arrive **already claimed**, `boot()` runs, finds every node taken, and binds
+nothing. The editor comes back dead, which is this issue's own bug one navigation later.
+
+Use a property on the element instead — `element[key] = true`. A property is not markup, so it
+never serializes, and it dies with the node it belongs to. Restored nodes come back unclaimed and
+wire up normally. Measured on the real page: after Back the restored nodes are claimed fresh and a
+dragged marker moves in the database.
+
+A property is also strictly safer under cloning, which the attribute version was not:
+`cloneNode()` copies attributes but not properties, so an attribute key could hand a clone a false
+"already wired" stamp.
+
+The trap this document originally fell into is worth naming, because it is the one `CLAUDE.md`
+warns about. The pre-fix editor was dead after Back too, for a different reason
+(`DOMContentLoaded`). Seeing the same symptom on both sides looked like proof the cause lay
+elsewhere. Two causes can each be sufficient for one symptom; identical symptoms prove nothing
+about cause. Measure the mechanism, not the outcome.
 
 `initDropZones` is the one to look at twice. Its name reads like the others, but it binds nothing
 to the swapped markup: it is three delegated listeners on `document`

@@ -137,6 +137,31 @@ restore path, so do not start from it. The sidebar `_x_dataStack` error is still
 still needs its own repro before any fix. If you find yourself concluding "the cause must be the
 restore path because X is also broken there", stop and measure X.
 
+## Likely: `rich-editor-init.js` has the same Back trap. Test it, do not inherit it.
+
+**This is inference, not a measurement.** It is recorded because the mechanism was just paid for
+in PR #437, and because inheriting an unmeasured conclusion is exactly what went wrong above.
+
+`plRteInitAll` keys idempotency on `data-rte-ready`, written as `mount.dataset.rteReady = "1"`
+and read back at `static/js/rich-editor-init.js:104-107`. `dataset` writes a real attribute. Attributes round-trip through htmx's history snapshot, and htmx re-executes the scripts
+it restores. Both of those facts were measured during #437. The file's only re-entry points are
+its own re-execution and `document.addEventListener("htmx:afterSettle", window.plRteInitAll)`
+(`:134`), and `htmx:afterSettle` is reportedly not fired by the restore path: `restoreHistory` runs
+the `hx-preserve` restore, not a settle.
+
+If all of that holds, pressing Back onto a page with a rich text editor re-executes the file,
+`plRteInitAll` runs, finds every mount carrying a restored `data-rte-ready`, and no-ops. The editor
+would be dead after Back for precisely the reason the map editor was.
+
+**Drive it before believing it.** Nobody has actually pressed Back on a rich editor page and tried
+to type. If it reproduces, the fix is the #382 shape: a property on the element rather than an
+attribute. If it does not reproduce, find out why, because that answer constrains item 1 as well.
+
+Note this is a *third* defect in the same file as item 2, not a variant of it. Item 2 is a listener
+that accumulates; this would be a mount that never initialises. Keep them as separate commits, and
+if this one turns out to be real, say so in the PR body rather than folding it silently into the
+listener fix.
+
 ## Out of scope
 
 - `space_map_editor.js`. Its sibling bug is #382 and ships earlier in this round; rebase onto it

@@ -26,6 +26,7 @@ from __future__ import annotations
 
 import json
 import re
+import time
 from decimal import Decimal
 from typing import cast
 
@@ -211,6 +212,23 @@ def _drag(page, locator, dx: float, dy: float) -> None:
     page.mouse.up()
 
 
+def _wait_for_move(page, hotspot, before, timeout_ms: int = 8000) -> bool:
+    """Poll the row until the editor's position POST lands, or give up.
+
+    A fixed sleep here is a flake vector under CI load. The database is the witness on
+    purpose: the restored history snapshot still carries the previous drag's "Position saved."
+    and its already-moved coordinate, so every assertion available in the page passes whether
+    or not anything is actually wired.
+    """
+    deadline = time.monotonic() + timeout_ms / 1000
+    while time.monotonic() < deadline:
+        hotspot.refresh_from_db()
+        if (hotspot.x, hotspot.y) != before:
+            return True
+        page.wait_for_timeout(100)
+    return False
+
+
 def describe_boosted_arrival_at_the_org_map_editor():
     def it_leaves_the_map_editor_draggable_with_no_alpine_errors(live_server, page, login_via_code):
         hotspot = _seed_admin_with_a_marked_floor()
@@ -291,10 +309,9 @@ def describe_boosted_arrival_at_the_org_map_editor():
         assert not leaked, f"ready keys reached the history snapshot as markup: {leaked}"
 
         _drag(page, page.locator(EDITOR_MARKER).first, 50, 35)
-        expect(page.locator(EDITOR_MARKER).first).not_to_have_attribute("style", re.compile("left: 10%"))
-        page.wait_for_timeout(2000)
-        hotspot.refresh_from_db()
-        assert (hotspot.x, hotspot.y) != before, "the marker did not move after Back, so the restored editor is inert"
+        assert _wait_for_move(page, hotspot, before), (
+            "the marker did not move after Back, so the restored editor is inert"
+        )
         assert errors == [], "\n".join(errors)
 
     def it_binds_the_modal_close_listener_once_across_repeat_arrivals(live_server, page, login_via_code):
