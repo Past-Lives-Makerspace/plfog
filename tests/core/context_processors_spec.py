@@ -95,7 +95,6 @@ def describe_feature_flags():
         config.class_registration_enabled = False
         config.class_registration_disabled_note = "Call the studio."
         config.help_page_enabled = False
-        config.wiki_link_enabled = False
         config.instructor_discount_codes_enabled = True
         config.guild_welcome_email_enabled = False
         config.save()
@@ -109,12 +108,20 @@ def describe_feature_flags():
             "class_registration_enabled": False,
             "class_registration_disabled_note": "Call the studio.",
             "help_page_enabled": False,
-            "wiki_link_enabled": False,
             "instructor_discount_codes_enabled": True,
             "guild_welcome_email_enabled": False,
         }
-        # The seven three-state features travel in their own key, all seven present and On.
-        assert sorted(features) == ["directory", "equipment", "meetings", "spaces", "teach", "voting", "wiki"]
+        # The eight three-state features travel in their own key, all present and On.
+        assert sorted(features) == [
+            "directory",
+            "equipment",
+            "guilds",
+            "meetings",
+            "spaces",
+            "teach",
+            "voting",
+            "wiki",
+        ]
 
 
 def describe_brand():

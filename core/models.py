@@ -645,12 +645,6 @@ class SiteConfiguration(models.Model):
         verbose_name="Show Help in the sidebar",
         help_text="When off, the Help link is hidden from the sidebar and the /help/ page redirects to the home page.",
     )
-    wiki_link_enabled = models.BooleanField(
-        default=True,
-        verbose_name="Show old wiki link",
-        help_text="Show a link to the old MediaWiki at the bottom of the Wiki home. Turn this off "
-        "once the old wiki is retired.",
-    )
     # wiki_enabled, equipment_page_enabled and host_a_workshop_enabled used to live here. They are
     # FeatureSwitch rows now (see core/features.py) so that all seven member features answer to one
     # mechanism with three states instead of two, and so that the eighth needs no migration.
@@ -2226,11 +2220,12 @@ class FeatureSwitchManager(models.Manager["FeatureSwitch"]):
             self.get_or_create(feature_key=feature.key, defaults={"state": FeatureState.ON})
 
     def as_context(self) -> dict[str, FeatureView]:
-        """Every feature's live state, keyed by feature key, in ONE query.
+        """Every feature's state, keyed by feature key, in ONE query.
 
-        This is what the site-wide context processor delivers, so a page that renders all seven
-        nav entries costs one read rather than seven. Registry order is preserved and a feature
-        with no row still appears, ON — a template never has to test for a missing key.
+        This is what the site-wide context processor delivers, so a page that renders all eight
+        nav entries costs one read rather than eight. Registry order is preserved and a feature
+        with no row still appears, ON — a template never has to test for a missing key, and an
+        eighth feature needs no migration because its absent row simply reads ON.
         """
         rows = {row.feature_key: row for row in self.all()}
         views: dict[str, FeatureView] = {}

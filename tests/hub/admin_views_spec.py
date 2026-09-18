@@ -926,7 +926,6 @@ def describe_admin_site_settings_features():
         assert response.status_code == 200
         panel = _features_panel(response)
         assert b"Show Help in the sidebar" in panel
-        assert b"Show old wiki link" in panel
 
     def it_renders_a_card_for_every_registry_feature(client):
         # The seven three-state features are a registry list now, not seven booleans (#405).
@@ -960,7 +959,6 @@ def describe_admin_site_settings_features():
         assert response.content.count(b'id="id_class_registration_enabled"') == 1
         assert response.content.count(b'id="id_class_registration_disabled_note"') == 1
         assert response.content.count(b'id="id_help_page_enabled"') == 1
-        assert response.content.count(b'id="id_wiki_link_enabled"') == 1
         assert response.content.count(b'id="id_instructor_discount_codes_enabled"') == 1
         assert response.content.count(b'id="id_guild_welcome_email_enabled"') == 1
 

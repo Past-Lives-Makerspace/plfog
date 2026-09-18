@@ -448,6 +448,32 @@ a:hover { color: var(--hub-link-hover); }
     color: var(--hub-sidebar-text);
 }
 
+/* "Coming soon" section heading (#405, the Guilds block). Same de-emphasis as
+   .hub-sidebar__link--soon and the SAME --hub-sidebar-soon token, deliberately — a second
+   muted colour would mean two answers to one question. Qualified with .pl-help for the same
+   reason the link variant is: .pl-help is defined later in this file and would otherwise win
+   on display and justify-content and centre the heading. */
+.hub-sidebar__section-toggle--soon.pl-help {
+    color: var(--hub-sidebar-soon);
+    cursor: default;
+    display: flex;
+    justify-content: flex-start;
+    align-items: center;
+}
+
+.hub-sidebar__section-toggle--soon.pl-help:hover {
+    color: var(--hub-sidebar-soon);
+}
+
+.hub-sidebar__section-toggle--soon .pl-help__bubble {
+    /* Anchored under the heading rather than centred on it, matching the link variant. */
+    left: 0.75rem;
+    max-width: 240px;
+    /* The heading is uppercased and letter-spaced; .pl-help__bubble already resets both, but
+       it inherits text-align from this flex parent, so pin it back to prose. */
+    text-align: left;
+}
+
 .hub-sidebar__chevron {
     transition: transform 0.25s ease;
 }

@@ -6,7 +6,6 @@ from django.urls import path, reverse
 from django.views.generic.base import RedirectView
 
 from classes import views, views_legacy_image
-from core.features import gate_named
 
 app_name = "classes"
 
@@ -346,13 +345,3 @@ urlpatterns = [
     # Public class detail — keep last so admin/, category/, instructors/, my/ win.
     path("<slug:slug>/", views.public_class_detail, name="public_class_detail"),
 ]
-
-
-# ── Feature gate (#405) ───────────────────────────────────────────────────────────────────
-# Host a Workshop's family is the RECRUITING invitation and its marketing page, never the
-# teaching portal. Exact names, not a "teach_" prefix: that would take the whole portal with it
-# and lock every instructor out of their own classes, which is not what a visibility switch is
-# for. teach_overview is absent on purpose — it is one route with two faces, and the gate goes
-# on its non-instructor branch in classes/views.py so that a locked deep link still redirects
-# somewhere real. tests/classes/teach_feature_spec.py pins the set.
-GATED_ROUTE_NAMES: list[str] = gate_named(urlpatterns, "teach", ["teach_why", "teach_apply", "teach_orientation"])

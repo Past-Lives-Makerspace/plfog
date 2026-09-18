@@ -17,6 +17,7 @@ from pathlib import Path
 import pytest
 from django.urls import reverse
 
+from membership.models import Guild
 from tests.e2e.screenshot_seed import ADMIN_EMAIL, _seed
 from tests.features import coming_soon, hide, turn_on
 
@@ -55,6 +56,7 @@ def describe_feature_switch_screenshots():
         for key in ("meetings", "spaces", "equipment", "directory", "teach", "wiki"):
             turn_on(key)
         coming_soon("voting", "Launching Sept 30th!")
+        hide("guilds")
 
         admin_page.goto(
             f"{live_server.url}{reverse('hub_admin_site_settings')}?tab=features",
@@ -103,6 +105,8 @@ def describe_feature_switch_screenshots():
             turn_on(key)
         hide("meetings")
         coming_soon("voting", "Launching Sept 30th!")
+        coming_soon("guilds", "Guild pages are on their way")
+        Guild.objects.get_or_create(name="Ceramics Guild", defaults={"slug": "ceramics-guild", "is_active": True})
 
         _set_theme(admin_page, live_server, theme)
         admin_page.goto(f"{live_server.url}{reverse('hub_home')}", wait_until="networkidle", timeout=20000)
@@ -118,6 +122,7 @@ def describe_feature_switch_screenshots():
 
         for feature in FEATURES:
             turn_on(feature.key)
+        Guild.objects.get_or_create(name="Ceramics Guild", defaults={"slug": "ceramics-guild", "is_active": True})
         _set_theme(admin_page, live_server, theme)
         admin_page.goto(f"{live_server.url}{reverse('hub_home')}", wait_until="networkidle", timeout=20000)
         admin_page.wait_for_timeout(400)

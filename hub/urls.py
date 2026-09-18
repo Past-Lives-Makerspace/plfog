@@ -1,8 +1,6 @@
 from django.urls import path
 from django.views.generic import RedirectView
 
-from core.features import gate_named
-
 from . import discord_views, equipment_views, meeting_views, notification_views, views, wiki_views
 
 urlpatterns = [
@@ -702,29 +700,3 @@ urlpatterns = [
         name="hub_admin_notification_discord",
     ),
 ]
-
-
-# ── Feature gates (#405) ──────────────────────────────────────────────────────────────────
-# Five families had no route gate at all. A decorator line on each of ~60 view bodies is where
-# a missed one becomes invisible, so each family is fenced here instead, once, by URL name.
-# Both off states (Hidden and Coming soon) answer 404 identically, for everyone including
-# admins — Site Settings is never gated, so a state is always recoverable.
-#
-# Wiki and equipment are deliberately NOT here. They keep their per-view decorators, because
-# wiki's QR sticker route (/m/<code>/) sits outside the wiki/ prefix: for those two the URL
-# block is not the family. Both decorators now call the same core.features gate.
-#
-# tests/hub/feature_gate_spec.py pins the exact set of names each prefix selects. These
-# prefixes are only as safe as that spec, so change them together.
-GATED_ROUTE_NAMES: dict[str, list[str]] = {
-    "meetings": gate_named(urlpatterns, "meetings", ["hub_meeting"]),
-    "voting": gate_named(urlpatterns, "voting", ["hub_guild_voting", "hub_snapshot_", "hub_admin_voting_"]),
-    "directory": gate_named(urlpatterns, "directory", ["hub_member_directory"]),
-    "spaces": gate_named(
-        urlpatterns,
-        "spaces",
-        # hub_org_info_legacy is the permanent /info/ redirect onto hub_spaces. Gated with the
-        # family so a switched-off Spaces answers 404 directly, rather than redirecting into one.
-        ["hub_spaces", "hub_org_map_", "hub_map_hotspot", "hub_space_request_", "hub_org_info_legacy"],
-    ),
-}

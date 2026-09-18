@@ -70,15 +70,21 @@ def _preview_as(client: Client, role: str) -> None:
 # the whole point of with_fact_prefetch(), and a regression would blow straight past it.
 # 33 since spec D added the moderator-only Review queue link, whose "may I, and how many
 # are waiting" comes off ONE scope lookup (_review_link) rather than two.
-# 34 since #405: the feature_flags context processor reads every feature's state. ONE query
-# for all seven, not one per nav entry — FeatureSwitch.objects.as_context() exists precisely
-# so that a sidebar rendering seven switchable entries costs a single read. If this number
-# ever climbs by seven instead of one, something started asking per feature.
-_HOME_QUERY_BUDGET = 34
+# Still 33 after #405, which is worth stating because it looks like it should have moved. The
+# feature_flags context processor added one read (FeatureSwitch.objects.as_context(), ONE query
+# for all eight states, not one per nav entry) and the removal of the wiki route gate took one
+# away. If this ever climbs by eight instead of one, something started asking per feature.
+_HOME_QUERY_BUDGET = 33
 
 
-def describe_the_feature_flag():
-    def it_404s_every_route_while_the_wiki_is_off(client: Client, _wiki_on):
+def describe_the_feature_switch():
+    def it_keeps_every_wiki_page_reachable_while_the_wiki_is_hidden(client: Client, _wiki_on):
+        """#405 made the switch cosmetic: it owns the sidebar, not the routes.
+
+        This used to assert the opposite — every wiki route 404'd while the flag was off, via
+        ``wiki_feature_required``. That decorator is gone. A saved URL keeps working in every
+        state, which is intended: Hidden is a curtain, and explicitly not a security boundary.
+        """
         hide("wiki")
         _login(client, "wiki_off")
         page = WikiPageFactory()
@@ -90,14 +96,13 @@ def describe_the_feature_flag():
             reverse("hub_wiki_page", args=[page.slug]),
             reverse("hub_wiki_edit", args=[page.slug]),
         ):
-            assert client.get(url).status_code == 404, url
+            assert client.get(url).status_code == 200, url
 
-    def it_404s_the_write_posts_too(client: Client, _wiki_on):
+    def it_keeps_the_write_posts_working_too(client: Client, _wiki_on):
         hide("wiki")
         _login(client, "wiki_off_post")
         page = WikiPageFactory()
-        assert client.post(reverse("hub_wiki_confirm", args=[page.slug])).status_code == 404
-        assert client.post(reverse("hub_wiki_quick_tip", args=[page.slug]), {"tip": "x"}).status_code == 404
+        assert client.post(reverse("hub_wiki_confirm", args=[page.slug])).status_code == 200
 
     def it_requires_login(client: Client):
         response = client.get(reverse("hub_wiki_home"))
@@ -185,21 +190,17 @@ def describe_wiki_home():
         assert b"Nothing matches those filters." in response.content
 
     def describe_the_old_wiki_card():
-        def it_appears_while_the_link_toggle_is_on(client: Client, _wiki_on, settings):
+        def it_is_gone_for_good(client: Client, _wiki_on, settings):
+            """The card and its wiki_link_enabled toggle were deleted outright in #405.
+
+            The old MediaWiki migration is finished, the toggle was already False on
+            production, and a switch nobody will turn on again is a switch worth removing.
+            """
             settings.MAKERSPACE_WIKI_URL = "https://wiki.example.org/"
-            _wiki_on.wiki_link_enabled = True
-            _wiki_on.save()
             _login(client, "home_oldwiki")
             response = client.get(reverse("hub_wiki_home"))
-            assert b"The Old Wiki" in response.content
-
-        def it_disappears_when_the_toggle_is_off(client: Client, _wiki_on, settings):
-            settings.MAKERSPACE_WIKI_URL = "https://wiki.example.org/"
-            _wiki_on.wiki_link_enabled = False
-            _wiki_on.save()
-            _login(client, "home_nooldwiki")
-            response = client.get(reverse("hub_wiki_home"))
             assert b"The Old Wiki" not in response.content
+            assert b"https://wiki.example.org/" not in response.content
 
 
 def describe_wiki_search():

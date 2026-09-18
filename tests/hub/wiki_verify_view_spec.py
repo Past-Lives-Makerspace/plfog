@@ -169,12 +169,14 @@ def describe_the_permission_gate():
         _login(client, "verify_view_404")
         assert client.post(reverse("hub_wiki_verify", args=["nope"]), **_HTMX).status_code == 404
 
-    def it_404s_while_the_wiki_is_off(db, client, _wiki_on):
+    def it_still_works_while_the_wiki_is_hidden(db, client, _wiki_on):
+        # #405: the switch is cosmetic. Hiding the wiki takes it out of the sidebar and leaves
+        # the pages reachable, so a lead who kept the link can still verify a page.
         hide("wiki")
         user = _login(client, "verify_view_flagoff")
         guild = GuildFactory(guild_lead=user.member)
         page = WikiPageFactory(guild=guild)
-        assert client.post(reverse("hub_wiki_verify", args=[page.slug]), **_HTMX).status_code == 404
+        assert client.post(reverse("hub_wiki_verify", args=[page.slug]), **_HTMX).status_code == 200
 
 
 def describe_the_control_on_the_reading_page():

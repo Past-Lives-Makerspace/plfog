@@ -53,6 +53,10 @@ def feature_flags(request: HttpRequest) -> dict[str, Any]:
     It costs ONE query for all seven, which is why ``as_context`` exists rather than seven
     lookups — a sidebar renders every key on every page in the app.
 
+    The switch is cosmetic and applies to everyone, with no viewer-role branch: hiding a feature
+    hides it from the sidebar for whoever is looking, and its pages stay reachable by URL. That
+    is the whole mechanism.
+
     The flat booleans below are the switches that stay flat by design (My Tab, class
     registration, Help, the demo toggles). ``wiki_enabled``, ``equipment_page_enabled`` and
     ``host_a_workshop_enabled`` used to be among them and are now ``features.wiki``,
@@ -67,7 +71,6 @@ def feature_flags(request: HttpRequest) -> dict[str, Any]:
         "class_registration_enabled": config.class_registration_enabled,
         "class_registration_disabled_note": config.class_registration_disabled_note,
         "help_page_enabled": config.help_page_enabled,
-        "wiki_link_enabled": config.wiki_link_enabled,
         "instructor_discount_codes_enabled": config.instructor_discount_codes_enabled,
         "guild_welcome_email_enabled": config.guild_welcome_email_enabled,
     }

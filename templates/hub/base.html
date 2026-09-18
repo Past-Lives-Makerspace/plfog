@@ -335,6 +335,15 @@
             {% include "hub/partials/_sidebar_feature_link.html" with feature=features.wiki url=wiki_url label="Wiki" icon="hub/partials/nav_icons/_wiki.html" active=wiki_active help_key="nav.wiki" %}
             {% endif %}
 
+            {% comment %}
+            The Guilds section follows the guilds feature switch (#405). It sits AFTER the
+            admin/member branch closes, so unlike every other entry it is written once and this
+            single gate covers both sidebar variants.
+            Hidden drops the whole block. Coming soon renders the heading inert with its bubble
+            and nothing beneath it — no chevron, no collapsible, no guild links — because a
+            disclosure control that discloses nothing is worse than no control.
+            {% endcomment %}
+            {% if features.guilds.is_on %}
             <div x-data="{ open: localStorage.getItem('hubGuildsOpen') === null ? true : localStorage.getItem('hubGuildsOpen') === '1' }"
                  x-init="$watch('open', v => localStorage.setItem('hubGuildsOpen', v ? '1' : '0'))">
                 <button class="hub-sidebar__section-toggle" data-help-key="nav.guilds" @click="open = !open" :aria-expanded="open">
@@ -360,6 +369,13 @@
                     </div>
                 </div>
             </div>
+            {% elif features.guilds.is_soon %}
+            {# A span, never a disabled <button>: it must stay in the tab order for the bubble to be keyboard reachable. #}
+            <span class="hub-sidebar__section-toggle hub-sidebar__section-toggle--soon pl-help" tabindex="0" aria-disabled="true" data-help-key="nav.guilds">
+                <span>Guilds</span>
+                <span class="pl-help__bubble" role="tooltip">{{ features.guilds.message }}</span>
+            </span>
+            {% endif %}
 
         </nav>
 

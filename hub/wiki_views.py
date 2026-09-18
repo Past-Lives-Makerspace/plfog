@@ -34,7 +34,6 @@ from django.utils.http import urlencode
 from django.utils.timesince import timesince
 from django.views.decorators.http import require_POST
 
-from core.features import feature_required
 from core.models import SiteConfiguration
 from hub.forms import (
     WikiArchiveForm,
@@ -100,22 +99,6 @@ _HOME_GUILD_LIMIT = 8
 _HOME_RECENT_LIMIT = 10
 _HOME_MACHINE_LIMIT = 8
 _HOME_DRAFT_LIMIT = 3
-
-
-def wiki_feature_required(view_func: Any) -> Any:
-    """404 every wiki route while the Wiki feature is not On.
-
-    A disabled feature is fully dark — reading pages, write POSTs and sticker links alike — so a
-    crafted request learns nothing about a half-built wiki. Coming soon is dark in exactly the
-    same way as Hidden; the difference between them is a nav affordance, not an access level.
-
-    The name stays because 37 views carry it, but the check is now the shared
-    ``core.features.feature_required`` — there is one gate in the app, not one per feature. The
-    decorator survives as its own alias rather than folding into ``gated()`` in ``urls.py``
-    because the QR sticker route (``/m/<code>/``) lives outside the ``wiki/`` prefix, so for the
-    wiki the URL block is not the family.
-    """
-    return feature_required("wiki")(view_func)
 
 
 # --- Small shared helpers ------------------------------------------------------------
@@ -237,7 +220,6 @@ def _carry_params(request: HttpRequest) -> str:
 
 
 @login_required
-@wiki_feature_required
 def hub_wiki_home(request: HttpRequest) -> HttpResponse:
     """``/wiki/`` — search first, then the three lists a member actually browses.
 
@@ -317,7 +299,6 @@ def _search_result_rows(pages: Any, q: str) -> list[dict[str, Any]]:
 
 
 @login_required
-@wiki_feature_required
 def hub_wiki_search(request: HttpRequest) -> HttpResponse:
     """``/wiki/search/`` — one box across every store, and a browse when the box is empty.
 
@@ -481,7 +462,6 @@ def _result_count_line(q: str, total: int, guild: Guild | None, stale: bool) -> 
 
 
 @login_required
-@wiki_feature_required
 def hub_wiki_page(request: HttpRequest, slug: str) -> HttpResponse:
     """``/wiki/p/<slug>/`` — the reading page, in the brief's fixed top-to-bottom order.
 
@@ -614,7 +594,6 @@ def _archive_confirm_message(page: WikiPage) -> str:
 
 
 @login_required
-@wiki_feature_required
 def hub_wiki_new(request: HttpRequest) -> HttpResponse:
     """``/wiki/new/`` — the starter chooser.
 
@@ -810,7 +789,6 @@ def _create_page_from_form(
 
 
 @login_required
-@wiki_feature_required
 def hub_wiki_create(request: HttpRequest, kind: str) -> HttpResponse:
     """``/wiki/new/<kind>/`` — write a page, live, with no approval queue.
 
@@ -1068,7 +1046,6 @@ def _saved_message(request: HttpRequest, page: WikiPage, can_moderate: bool) -> 
 
 
 @login_required
-@wiki_feature_required
 def hub_wiki_edit(request: HttpRequest, slug: str) -> HttpResponse:
     """``/wiki/p/<slug>/edit/`` — the same template as create, in edit mode.
 
@@ -1176,7 +1153,6 @@ def _autosave_invalid(message: str) -> HttpResponse:
 
 
 @login_required
-@wiki_feature_required
 @require_POST
 def hub_wiki_autosave(request: HttpRequest, slug: str) -> HttpResponse:
     """``/wiki/p/<slug>/autosave/`` — one field at a time into this member's draft.
@@ -1211,7 +1187,6 @@ def hub_wiki_autosave(request: HttpRequest, slug: str) -> HttpResponse:
 
 
 @login_required
-@wiki_feature_required
 @require_POST
 def hub_wiki_new_autosave(request: HttpRequest, kind: str) -> HttpResponse:
     """``/wiki/new/<kind>/autosave/`` — the same crash net for a page that does not exist yet.
@@ -1239,7 +1214,6 @@ def hub_wiki_new_autosave(request: HttpRequest, kind: str) -> HttpResponse:
 
 
 @login_required
-@wiki_feature_required
 @require_POST
 def hub_wiki_confirm(request: HttpRequest, slug: str) -> HttpResponse:
     """``/wiki/p/<slug>/confirm/`` — one tap saying the page still matches the space.
@@ -1268,7 +1242,6 @@ def hub_wiki_confirm(request: HttpRequest, slug: str) -> HttpResponse:
 
 
 @login_required
-@wiki_feature_required
 @require_POST
 def hub_wiki_quick_photo(request: HttpRequest, slug: str) -> HttpResponse:
     """``/wiki/p/<slug>/photo/`` — thirty seconds and a camera, the phone-first contribution.
@@ -1316,7 +1289,6 @@ def hub_wiki_quick_photo(request: HttpRequest, slug: str) -> HttpResponse:
 
 
 @login_required
-@wiki_feature_required
 @require_POST
 def hub_wiki_quick_tip(request: HttpRequest, slug: str) -> HttpResponse:
     """``/wiki/p/<slug>/tip/`` — one or two sentences under "Tips From Members".
@@ -1356,7 +1328,6 @@ def hub_wiki_quick_tip(request: HttpRequest, slug: str) -> HttpResponse:
 
 
 @login_required
-@wiki_feature_required
 @require_POST
 def hub_wiki_image_upload(request: HttpRequest, slug: str) -> HttpResponse:
     """``/wiki/p/<slug>/image/`` — the editor's image button, in the AJAX upload contract.
@@ -1393,7 +1364,6 @@ def hub_wiki_image_upload(request: HttpRequest, slug: str) -> HttpResponse:
 
 
 @login_required
-@wiki_feature_required
 def hub_wiki_drafts(request: HttpRequest) -> HttpResponse:
     """``/wiki/drafts/`` — the member's own unfinished writing, and nobody else's.
 
@@ -1421,7 +1391,6 @@ def hub_wiki_drafts(request: HttpRequest) -> HttpResponse:
 
 
 @login_required
-@wiki_feature_required
 @require_POST
 def hub_wiki_draft_discard(request: HttpRequest, pk: int) -> HttpResponse:
     """``/wiki/drafts/<pk>/discard/`` — throw away one of my own drafts, and only mine."""
@@ -1439,7 +1408,6 @@ def hub_wiki_draft_discard(request: HttpRequest, pk: int) -> HttpResponse:
 # --- Stickers: the /m/ short link, the QR download, and the print sheet (PR A4) --------
 
 
-@wiki_feature_required
 def hub_wiki_qr(request: HttpRequest, code: str) -> HttpResponse:
     """``/m/<code>/`` — the sticker route. A scan must never dead-end.
 
@@ -1471,7 +1439,6 @@ def hub_wiki_qr(request: HttpRequest, code: str) -> HttpResponse:
 
 
 @login_required
-@wiki_feature_required
 def hub_wiki_qr_download(request: HttpRequest, slug: str) -> HttpResponse:
     """``/wiki/p/<slug>/qr/?fmt=svg|png`` — the sticker QR as a file, in the guild shape.
 
@@ -1495,7 +1462,6 @@ def hub_wiki_qr_download(request: HttpRequest, slug: str) -> HttpResponse:
 
 
 @login_required
-@wiki_feature_required
 def hub_wiki_stickers(request: HttpRequest) -> HttpResponse:
     """``/wiki/stickers/`` — a printable sheet of QR stickers, one shop at a time.
 
@@ -1662,7 +1628,6 @@ def _wanted_row_context(
 
 
 @login_required
-@wiki_feature_required
 @require_POST
 def hub_wiki_report(request: HttpRequest, slug: str) -> HttpResponse:
     """``/wiki/p/<slug>/report/`` — say this page is wrong, in two taps.
@@ -1700,7 +1665,6 @@ def hub_wiki_report(request: HttpRequest, slug: str) -> HttpResponse:
 
 
 @login_required
-@wiki_feature_required
 @require_POST
 def hub_wiki_report_withdraw(request: HttpRequest, slug: str) -> HttpResponse:
     """``/wiki/p/<slug>/report/withdraw/`` — take back my own misfire.
@@ -1724,7 +1688,6 @@ def hub_wiki_report_withdraw(request: HttpRequest, slug: str) -> HttpResponse:
 
 
 @login_required
-@wiki_feature_required
 @require_POST
 def hub_wiki_report_resolve(request: HttpRequest, pk: int) -> HttpResponse:
     """``/wiki/report/<pk>/resolve/`` — one view for both places a lead can close a report.
@@ -1805,7 +1768,6 @@ _REVIEW_PAGE_SIZE = 25
 
 
 @login_required
-@wiki_feature_required
 @require_POST
 def hub_wiki_verify(request: HttpRequest, slug: str) -> HttpResponse:
     """``/wiki/p/<slug>/verify/`` — one tap that says "I read this and I stand behind it".
@@ -1887,7 +1849,6 @@ def _verify_fragment(request: HttpRequest, page: WikiPage) -> tuple[str, dict[st
 
 
 @login_required
-@wiki_feature_required
 def hub_wiki_review(request: HttpRequest) -> HttpResponse:
     """``/wiki/review/`` — what is waiting on this moderator, oldest first.
 
@@ -1975,7 +1936,6 @@ def _note_response(request: HttpRequest, page: WikiPage) -> HttpResponse:
 
 
 @login_required
-@wiki_feature_required
 def hub_wiki_wanted(request: HttpRequest) -> HttpResponse:
     """``/wiki/wanted/`` — the list every member can work, and the editor leads curate.
 
@@ -2041,7 +2001,6 @@ def hub_wiki_wanted(request: HttpRequest) -> HttpResponse:
 
 
 @login_required
-@wiki_feature_required
 @require_POST
 def hub_wiki_official_note(request: HttpRequest, slug: str) -> HttpResponse:
     """``/wiki/p/<slug>/note/`` — write the locked staff callout above the member content."""
@@ -2064,7 +2023,6 @@ def hub_wiki_official_note(request: HttpRequest, slug: str) -> HttpResponse:
 
 
 @login_required
-@wiki_feature_required
 @require_POST
 def hub_wiki_official_note_remove(request: HttpRequest, slug: str) -> HttpResponse:
     """``/wiki/p/<slug>/note/remove/`` — take the note off. The page's text is untouched."""
@@ -2091,7 +2049,6 @@ def hub_wiki_official_note_remove(request: HttpRequest, slug: str) -> HttpRespon
 
 
 @login_required
-@wiki_feature_required
 @require_POST
 def hub_wiki_archive(request: HttpRequest, slug: str) -> HttpResponse:
     """``/wiki/p/<slug>/archive/`` — remove the page, keep the URL, tell the author why."""
@@ -2121,7 +2078,6 @@ def hub_wiki_archive(request: HttpRequest, slug: str) -> HttpResponse:
 
 
 @login_required
-@wiki_feature_required
 @require_POST
 def hub_wiki_wanted_claim(request: HttpRequest, pk: int) -> HttpResponse:
     """``/wiki/wanted/<pk>/claim/`` — put your name on a row, or take it back off.
@@ -2160,7 +2116,6 @@ def hub_wiki_wanted_claim(request: HttpRequest, pk: int) -> HttpResponse:
 
 
 @login_required
-@wiki_feature_required
 @require_POST
 def hub_wiki_wanted_fulfil(request: HttpRequest, pk: int) -> HttpResponse:
     """``/wiki/wanted/<pk>/fulfil/`` — Mark As Written, the caller ``fulfil()`` never had.
@@ -2223,7 +2178,6 @@ def hub_wiki_wanted_fulfil(request: HttpRequest, pk: int) -> HttpResponse:
 
 
 @login_required
-@wiki_feature_required
 @require_POST
 def hub_wiki_restore(request: HttpRequest, slug: str) -> HttpResponse:
     """``/wiki/p/<slug>/restore/`` — put an archived page back for every member."""
@@ -2243,7 +2197,6 @@ def hub_wiki_restore(request: HttpRequest, slug: str) -> HttpResponse:
 
 
 @login_required
-@wiki_feature_required
 @require_POST
 def hub_wiki_set_redirect(request: HttpRequest, slug: str) -> HttpResponse:
     """``/wiki/p/<slug>/redirect/`` — point a tombstone's readers at a live replacement."""
@@ -2272,7 +2225,6 @@ _HISTORY_PAGE_SIZE = 50
 
 
 @login_required
-@wiki_feature_required
 def hub_wiki_history(request: HttpRequest, slug: str) -> HttpResponse:
     """``/wiki/p/<slug>/history/`` — every saved version, and a staff-only Revert.
 
@@ -2317,7 +2269,6 @@ def hub_wiki_history(request: HttpRequest, slug: str) -> HttpResponse:
 
 
 @login_required
-@wiki_feature_required
 @require_POST
 def hub_wiki_revert(request: HttpRequest, slug: str, pk: int) -> HttpResponse:
     """``/wiki/p/<slug>/revert/<pk>/`` — put an older version back, on top, staff only.
@@ -2358,7 +2309,6 @@ def _conflict_or_none(page: WikiPage, pk: int) -> WikiRevision | None:
 
 
 @login_required
-@wiki_feature_required
 def hub_wiki_conflict(request: HttpRequest, slug: str, pk: int) -> HttpResponse:
     """``/wiki/p/<slug>/conflict/<pk>/`` — pick what should be on the page. Nothing is lost.
 
@@ -2392,7 +2342,6 @@ def hub_wiki_conflict(request: HttpRequest, slug: str, pk: int) -> HttpResponse:
 
 
 @login_required
-@wiki_feature_required
 @require_POST
 def hub_wiki_conflict_keep(request: HttpRequest, slug: str, pk: int) -> HttpResponse:
     """``/wiki/p/<slug>/conflict/<pk>/keep/`` — apply a parked draft as an ordinary edit.
@@ -2443,7 +2392,6 @@ def hub_wiki_conflict_keep(request: HttpRequest, slug: str, pk: int) -> HttpResp
 
 
 @login_required
-@wiki_feature_required
 @require_POST
 def hub_wiki_publish_proposal(request: HttpRequest, slug: str) -> HttpResponse:
     """``/wiki/p/<slug>/publish/`` — publish a held safety page at YOUR OWN authority.
@@ -2471,7 +2419,6 @@ def hub_wiki_publish_proposal(request: HttpRequest, slug: str) -> HttpResponse:
 
 
 @login_required
-@wiki_feature_required
 @require_POST
 def hub_wiki_decline_proposal(request: HttpRequest, slug: str) -> HttpResponse:
     """``/wiki/p/<slug>/decline/`` — send a safety proposal back with something to act on.
@@ -2508,7 +2455,6 @@ def hub_wiki_decline_proposal(request: HttpRequest, slug: str) -> HttpResponse:
 
 
 @login_required
-@wiki_feature_required
 @require_POST
 def hub_wiki_wanted_request(request: HttpRequest) -> HttpResponse:
     """``/wiki/wanted/request/`` — "Request this page" and a lead's "Add To Wanted".

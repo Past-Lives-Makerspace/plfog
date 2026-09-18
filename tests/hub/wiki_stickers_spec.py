@@ -109,16 +109,16 @@ def describe_the_sticker_scan_route():
             assert reverse("hub_wiki_search").encode() in response.content
 
     def describe_the_feature_flag():
-        def it_404s_a_known_code_while_the_wiki_is_off(client, db, _wiki_on):
+        def it_still_resolves_a_known_code_while_the_wiki_is_hidden(client, db, _wiki_on):
             _login(client, "scanner@example.com")
             page = WikiPageFactory(title="Table Saw")
             hide("wiki")
-            assert client.get(reverse("hub_wiki_qr", args=[page.qr_code])).status_code == 404
+            assert client.get(reverse("hub_wiki_qr", args=[page.qr_code])).status_code in (200, 302)
 
-        def it_404s_for_a_signed_out_scan_too(client, db, _wiki_on):
+        def it_still_resolves_a_signed_out_scan_too(client, db, _wiki_on):
             page = WikiPageFactory(title="Table Saw")
             hide("wiki")
-            assert client.get(reverse("hub_wiki_qr", args=[page.qr_code])).status_code == 404
+            assert client.get(reverse("hub_wiki_qr", args=[page.qr_code])).status_code in (200, 302)
 
     def describe_the_public_book_surface():
         def it_does_not_resolve_there(client, db, settings):
@@ -172,10 +172,10 @@ def describe_the_page_qr_download():
         _login(client, "lapsed@example.com", status=Member.Status.FORMER)
         assert client.get(reverse("hub_wiki_qr_download", args=[page.slug])).status_code == 403
 
-    def it_404s_while_the_wiki_is_off(client, db, page, _wiki_on):
+    def it_still_downloads_while_the_wiki_is_hidden(client, db, page, _wiki_on):
         _login(client, "editor@example.com")
         hide("wiki")
-        assert client.get(reverse("hub_wiki_qr_download", args=[page.slug])).status_code == 404
+        assert client.get(reverse("hub_wiki_qr_download", args=[page.slug])).status_code == 200
 
 
 def describe_the_share_this_page_card():
@@ -334,10 +334,10 @@ def describe_the_sticker_sheet():
             _login(client, "officer@example.com", fog_role=Member.FogRole.GUILD_OFFICER)
             assert client.get(reverse("hub_wiki_stickers")).status_code == 200
 
-        def it_404s_while_the_wiki_is_off(client, db, machine_page, _wiki_on):
+        def it_still_renders_while_the_wiki_is_hidden(client, db, machine_page, _wiki_on):
             _login(client, "officer@example.com", fog_role=Member.FogRole.ADMIN)
             hide("wiki")
-            assert client.get(reverse("hub_wiki_stickers")).status_code == 404
+            assert client.get(reverse("hub_wiki_stickers")).status_code == 200
 
 
 def describe_the_wiki_homes_link_to_the_sheet():
