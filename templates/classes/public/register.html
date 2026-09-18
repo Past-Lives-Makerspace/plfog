@@ -203,4 +203,21 @@
     </div>
   </div>
 </div>
+<script>
+  (function () {
+    {# One document-level listener, however many boosted arrivals run this script. #}
+    if (window.__plRegisterSubmitGuard) return;
+    window.__plRegisterSubmitGuard = true;
+    {# Delegated: this page arrives as an htmx body swap, so a listener bound to the form itself dies with it. #}
+    document.addEventListener('submit', function (event) {
+      var form = event.target;
+      if (!form || !form.classList || !form.classList.contains('reg-form')) return;
+      var btn = form.querySelector('button[type="submit"]');
+      if (!btn || btn.disabled) return;
+      btn.textContent = 'Working…';
+      // Defer disabling so the button's name=value is still serialized into this submission.
+      setTimeout(function () { btn.disabled = true; }, 0);
+    });
+  })();
+</script>
 {% endblock %}

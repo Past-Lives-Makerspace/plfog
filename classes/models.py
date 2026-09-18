@@ -1585,13 +1585,23 @@ class ClassOffering(HeroCropMixin, models.Model):
     @property
     def active_registration_count(self) -> int:
         """Registrations still on the books: confirmed, pending payment, or waitlisted."""
-        return self.registrations.filter(
-            status__in=[
-                Registration.Status.CONFIRMED,
-                Registration.Status.PENDING,
-                Registration.Status.WAITLISTED,
-            ]
-        ).count()
+        return self.registrations.seat_holding().count()
+
+    def live_registration_for_email(self, email: str) -> "Registration | None":
+        """The seat-holding registration this email already holds for this class, if any.
+
+        One row at most: ``uq_registration_seat_email`` makes a second one
+        impossible. The ordering still matters for the moment between a race's two
+        inserts, when the loser has not yet been rejected — the earliest row is the
+        one that keeps the seat.
+
+        Args:
+            email: The address as the registrant typed it on the form.
+
+        Returns:
+            The existing registration, or ``None`` when this email is free to sign up.
+        """
+        return self.registrations.seat_holding().filter(email=email).order_by("registered_at").first()
 
     @property
     def paid_registration_count(self) -> int:
@@ -3063,6 +3073,41 @@ class Waiver(models.Model):
         return f"{self.get_kind_display()} for registration {self.registration_id}"
 
 
+class RegistrationStatus(models.TextChoices):
+    """Registration lifecycle. Lives at module level so ``Registration.Meta`` can read it.
+
+    A nested class body cannot see the names of the class body enclosing it, so a
+    ``Status`` defined inside ``Registration`` is invisible to ``Registration.Meta``
+    — and the seat-uniqueness constraint has to name its statuses there. Exposed as
+    ``Registration.Status`` below, which is how the rest of the app spells it.
+    """
+
+    PENDING = "pending", "Pending payment"
+    CONFIRMED = "confirmed", "Confirmed"
+    WAITLISTED = "waitlisted", "Waitlisted"
+    CANCELLED = "cancelled", "Cancelled"
+    REFUNDED = "refunded", "Refunded"
+
+
+SEAT_HOLDING_REGISTRATION_STATUSES = (
+    RegistrationStatus.CONFIRMED,
+    RegistrationStatus.PENDING,
+    RegistrationStatus.WAITLISTED,
+)
+"""Statuses that still occupy a place in a class: paid, part-way through paying, or queued.
+
+The one definition behind ``RegistrationQuerySet.seat_holding``, ``ClassOffering``'s
+seat math, and the ``uq_registration_seat_email`` constraint. CANCELLED and
+REFUNDED are absent on purpose: someone who cancels is free to sign up again.
+"""
+
+
+class RegistrationQuerySet(models.QuerySet["Registration"]):
+    def seat_holding(self) -> "RegistrationQuerySet":
+        """Rows still occupying a place: confirmed, pending payment, or waitlisted."""
+        return self.filter(status__in=SEAT_HOLDING_REGISTRATION_STATUSES)
+
+
 class Registration(models.Model):
     # Transient (non-persisted) attribute a view sets before a status-changing
     # save() to attribute a confirm/refund action in the audit feed. Unset on a
@@ -3073,12 +3118,7 @@ class Registration(models.Model):
     # payment-flavored REGISTRATION_CONFIRMED. Unset elsewhere — read via getattr.
     _promoting: bool
 
-    class Status(models.TextChoices):
-        PENDING = "pending", "Pending payment"
-        CONFIRMED = "confirmed", "Confirmed"
-        WAITLISTED = "waitlisted", "Waitlisted"
-        CANCELLED = "cancelled", "Cancelled"
-        REFUNDED = "refunded", "Refunded"
+    Status = RegistrationStatus
 
     class_offering = models.ForeignKey(
         ClassOffering,
@@ -3179,11 +3219,23 @@ class Registration(models.Model):
     confirmed_at = models.DateTimeField(null=True, blank=True, help_text="When payment confirmed, if any.")
     cancelled_at = models.DateTimeField(null=True, blank=True, help_text="When this registration was cancelled.")
 
+    objects = RegistrationQuerySet.as_manager()
+
     class Meta:
         ordering = ["-registered_at"]
         indexes = [
             models.Index(fields=["email"]),
             models.Index(fields=["class_offering", "status"]),
+        ]
+        constraints = [
+            # One seat per person per class. The double-click that used to create a
+            # second row (and eat a second seat) now cannot reach the table at all.
+            # Conditional so a cancelled or refunded registrant can sign up again.
+            models.UniqueConstraint(
+                fields=["class_offering", "email"],
+                condition=models.Q(status__in=SEAT_HOLDING_REGISTRATION_STATUSES),
+                name="uq_registration_seat_email",
+            ),
         ]
 
     def __str__(self) -> str:
@@ -3625,7 +3677,11 @@ class Registration(models.Model):
 
         No price reconciliation: ``amount_paid_cents`` is unchanged. The source
         class's waitlist is promoted if this registration was holding a spot
-        there. Raises ``ValueError`` if ``target`` is the current class.
+        there. Raises ``ValueError`` if ``target`` is the current class, or if
+        moving a seat-holding row there would give this person two seats in the
+        same class — ``uq_registration_seat_email`` would reject that write, and a
+        staff action deserves a sentence rather than a 500. A cancelled row moves
+        freely: it holds no seat, so it collides with nothing.
 
         The registrant is emailed the move notice from here rather than from the two
         calling views (the teaching portal roster and the admin registrations tab), so
@@ -3635,6 +3691,8 @@ class Registration(models.Model):
         """
         if target.pk == self.class_offering_id:
             raise ValueError("Cannot move a registration to its current class.")
+        if self.status in SEAT_HOLDING_REGISTRATION_STATUSES and target.live_registration_for_email(self.email):
+            raise ValueError(f"{self.first_name} {self.last_name} already has a signup for {target.title}.")
         source = self.class_offering
         held_spot = self.status in (self.Status.CONFIRMED, self.Status.PENDING)
         should_notify = self.status in (self.Status.CONFIRMED, self.Status.PENDING, self.Status.WAITLISTED)

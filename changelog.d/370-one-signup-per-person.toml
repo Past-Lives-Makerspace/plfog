@@ -1,0 +1,9 @@
+bump = "patch"
+date = "2026-09-17"
+title = "Signing up for a class twice by accident"
+changes = [
+  "Pressing the sign up button more than once used to create a second signup, and every extra one quietly took a seat. A class could show as full while it still had room. A second press now takes you back to the checkout you already started, instead of starting another one.",
+  "The button now shows that it is working and stops accepting presses once you have used it.",
+  "Joining a waitlist twice is fixed the same way.",
+  "Studio staff moving someone into a class they are already signed up for now get told about the clash instead of hitting an error.",
+]

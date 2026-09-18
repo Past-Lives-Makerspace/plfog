@@ -615,6 +615,156 @@ def _confirm_free_registration(request: HttpRequest, registration: Registration)
     return redirect("classes:register_success", slug=registration.class_offering.slug)
 
 
+def _already_signed_up_message(registration: Registration) -> str:
+    """What to tell someone whose second signup we just turned into their first one."""
+    title = registration.class_offering.title
+    if registration.status == Registration.Status.WAITLISTED:
+        return f"You're already on the waitlist for {title}. We'll email you if a spot opens."
+    if registration.status == Registration.Status.CONFIRMED:
+        return f"You're already registered for {title}."
+    return f"You already started signing up for {title}. Here's where you left off."
+
+
+def _resume_existing_registration(request: HttpRequest, registration: Registration) -> HttpResponse:
+    """Send a repeat registrant to the signup they already have instead of making another.
+
+    A PENDING row whose Checkout Session is still open is the double-click case:
+    the second POST lands on the same hosted payment page the first one opened,
+    which is where the registrant was going anyway. Everything else (already
+    confirmed, already waitlisted, a session Stripe has since closed, or a Stripe
+    we cannot reach) goes to the self-serve page, which states where the signup
+    stands and carries its own pay link.
+    """
+    if registration.status == Registration.Status.PENDING and registration.stripe_session_id:
+        import logging
+
+        from billing import stripe_utils
+
+        try:
+            session = stripe_utils.retrieve_checkout_session(session_id=registration.stripe_session_id)
+        except Exception:
+            logging.getLogger(__name__).exception(
+                "Could not retrieve Checkout session for registration %s; sending them to self-serve.",
+                registration.pk,
+            )
+        else:
+            if session["status"] == "open" and session["url"]:
+                return redirect(session["url"])
+    messages.info(request, _already_signed_up_message(registration))
+    return redirect("classes:my_registration", token=registration.self_serve_token)
+
+
+def _save_registration(form: RegistrationForm, offering: ClassOffering, email: str) -> tuple[Registration, bool]:
+    """Create the registration, or hand back the one a concurrent POST already wrote.
+
+    ``uq_registration_seat_email`` is the backstop for the race the pre-save lookup
+    cannot see: two POSTs that both read "no signup yet" before either has written.
+    The loser gets an IntegrityError, which is an outcome to handle, not a 500. The
+    savepoint keeps the rest of the request usable afterwards.
+
+    Args:
+        form: A validated ``RegistrationForm`` ready to save.
+        offering: The class being signed up for.
+        email: The address the form validated, used to find the race winner.
+
+    Returns:
+        ``(registration, created)`` — ``created`` is False when the row came back
+        from the race rather than from this request's insert.
+
+    Raises:
+        IntegrityError: When the collision was not the seat constraint. Nothing
+            else is swallowed.
+    """
+    from django.db import IntegrityError, transaction
+
+    try:
+        with transaction.atomic():
+            return form.save(), True
+    except IntegrityError:
+        winner = offering.live_registration_for_email(email)
+        if winner is None:
+            raise
+        return winner, False
+
+
+def _joined_waitlist(request: HttpRequest, registration: Registration) -> HttpResponse:
+    """Finish a waitlist signup: the confirmation email, the note, the self-serve page."""
+    send_waitlist_joined_confirmation(registration)
+    messages.success(
+        request,
+        f"You're on the waitlist for {registration.class_offering.title}. We'll email you if a spot opens.",
+    )
+    return redirect("classes:my_registration", token=registration.self_serve_token)
+
+
+def _start_registration_payment(
+    request: HttpRequest, form: RegistrationForm, registration: Registration
+) -> HttpResponse:
+    """Take a saved registration to payment, or straight to confirmed when it costs nothing.
+
+    Args:
+        request: The registration POST, used for the absolute return URLs.
+        form: The validated form, which owns the discount arithmetic.
+        registration: The row just written for this signup.
+
+    Returns:
+        A redirect to Stripe's hosted Checkout page, or to the confirmation page
+        for a total of $0.
+    """
+    offering = registration.class_offering
+    final_price = form.compute_final_price_cents()
+
+    if final_price == 0:
+        return _confirm_free_registration(request, registration)
+
+    # Paid class — kick off Stripe Checkout.
+    from billing import stripe_utils
+
+    success_url = (
+        request.build_absolute_uri(reverse("classes:register_success", kwargs={"slug": offering.slug}))
+        + f"?reg={registration.self_serve_token}"
+    )
+    cancel_url = (
+        request.build_absolute_uri(reverse("classes:register_cancelled", kwargs={"slug": offering.slug}))
+        + f"?reg={registration.self_serve_token}"
+    )
+
+    # A series is still ONE line item at the series price — only the Stripe
+    # line-item name gains a "(N-session series)" suffix so the buyer's
+    # receipt reads clearly. No loop, no fan-out: one Registration, one
+    # Checkout Session, one charge, one seat (Option A).
+    product_name = offering.title
+    if offering.is_series and offering.series_session_count > 1:
+        product_name = f"{offering.title} ({offering.series_session_count}-session series)"
+    # Label-only marker so the Stripe receipt reflects the sale (precedent:
+    # the series suffix above). The amount already carries the sale price.
+    if offering.sale_is_active:
+        product_name = f"{product_name} (Sale)"
+
+    try:
+        checkout = stripe_utils.create_class_checkout_session(
+            amount_cents=final_price,
+            product_name=product_name,
+            customer_email=registration.email,
+            success_url=success_url,
+            cancel_url=cancel_url,
+            metadata={
+                "registration_id": str(registration.pk),
+                "class_slug": offering.slug,
+                "kind": "class_registration",
+            },
+            idempotency_key=f"class-checkout-reg-{registration.pk}",
+        )
+    except Exception:
+        registration.delete()  # roll back the half-created registration
+        raise
+
+    registration.stripe_session_id = checkout["id"]
+    registration.amount_paid_cents = final_price  # provisional; webhook is canonical
+    registration.save(update_fields=["stripe_session_id", "amount_paid_cents"])
+    return redirect(checkout["url"])
+
+
 def register(request: HttpRequest, slug: str) -> HttpResponse:
     """Public registration form — collects info, signs waivers, kicks off Stripe Checkout.
 
@@ -675,72 +825,25 @@ def register(request: HttpRequest, slug: str) -> HttpResponse:
         custom_answers_initial=custom_answers_initial,
     )
 
-    if request.method == "POST" and form.is_valid() and is_waitlist:
-        # The form sets status=WAITLISTED on save (see RegistrationForm.save), so the
-        # WAITLIST_JOINED activity is logged at creation time.
-        registration = form.save()
-        _cache_registration_to_profile(request, registration)
-        send_waitlist_joined_confirmation(registration)
-        messages.success(
-            request,
-            f"You're on the waitlist for {offering.title}. We'll email you if a spot opens.",
-        )
-        return redirect("classes:my_registration", token=registration.self_serve_token)
-
     if request.method == "POST" and form.is_valid():
-        registration = form.save()
+        # One signup per person per class. The impatient second click belongs on the
+        # page the first one was already taking them to, not on a second row eating
+        # a second seat. Checked before either branch saves, because a class whose
+        # last seat is held by this registrant's own pending row routes the second
+        # POST down the waitlist branch.
+        existing = offering.live_registration_for_email(form.cleaned_data["email"])
+        if existing is not None:
+            return _resume_existing_registration(request, existing)
+
+        registration, created = _save_registration(form, offering, form.cleaned_data["email"])
+        if not created:
+            return _resume_existing_registration(request, registration)
         _cache_registration_to_profile(request, registration)
-        final_price = form.compute_final_price_cents()
-
-        if final_price == 0:
-            return _confirm_free_registration(request, registration)
-
-        # Paid class — kick off Stripe Checkout.
-        from billing import stripe_utils
-
-        success_url = (
-            request.build_absolute_uri(reverse("classes:register_success", kwargs={"slug": offering.slug}))
-            + f"?reg={registration.self_serve_token}"
-        )
-        cancel_url = (
-            request.build_absolute_uri(reverse("classes:register_cancelled", kwargs={"slug": offering.slug}))
-            + f"?reg={registration.self_serve_token}"
-        )
-
-        # A series is still ONE line item at the series price — only the Stripe
-        # line-item name gains a "(N-session series)" suffix so the buyer's
-        # receipt reads clearly. No loop, no fan-out: one Registration, one
-        # Checkout Session, one charge, one seat (Option A).
-        product_name = offering.title
-        if offering.is_series and offering.series_session_count > 1:
-            product_name = f"{offering.title} ({offering.series_session_count}-session series)"
-        # Label-only marker so the Stripe receipt reflects the sale (precedent:
-        # the series suffix above). The amount already carries the sale price.
-        if offering.sale_is_active:
-            product_name = f"{product_name} (Sale)"
-
-        try:
-            checkout = stripe_utils.create_class_checkout_session(
-                amount_cents=final_price,
-                product_name=product_name,
-                customer_email=registration.email,
-                success_url=success_url,
-                cancel_url=cancel_url,
-                metadata={
-                    "registration_id": str(registration.pk),
-                    "class_slug": offering.slug,
-                    "kind": "class_registration",
-                },
-                idempotency_key=f"class-checkout-reg-{registration.pk}",
-            )
-        except Exception:
-            registration.delete()  # roll back the half-created registration
-            raise
-
-        registration.stripe_session_id = checkout["id"]
-        registration.amount_paid_cents = final_price  # provisional; webhook is canonical
-        registration.save(update_fields=["stripe_session_id", "amount_paid_cents"])
-        return redirect(checkout["url"])
+        if is_waitlist:
+            # The form set status=WAITLISTED on save (see RegistrationForm.save), so the
+            # WAITLIST_JOINED activity was logged at creation time.
+            return _joined_waitlist(request, registration)
+        return _start_registration_payment(request, form, registration)
 
     # Member price reads off the SALE base so every quoted member number
     # matches what compute_final_price_cents will actually charge.
@@ -4176,8 +4279,13 @@ def admin_registration_move(request: HttpRequest, pk: int) -> HttpResponse:
     form = RegistrationMoveForm(request.POST, current=registration.class_offering)
     if form.is_valid():
         actor = request.user if request.user.is_authenticated else None
-        registration.move_to(form.cleaned_data["target"], actor=actor)
-        messages.success(request, "Registration moved.")
+        try:
+            registration.move_to(form.cleaned_data["target"], actor=actor)
+        except ValueError as exc:
+            # One signup per person per class: the destination already holds one.
+            messages.error(request, str(exc))
+        else:
+            messages.success(request, "Registration moved.")
     else:
         messages.error(request, "Could not move registration — pick a valid class.")
     return redirect("classes:admin_registration_detail", pk=pk)
@@ -4534,8 +4642,13 @@ def registration_move(request: HttpRequest, pk: int) -> HttpResponse:
         form = RegistrationMoveForm(request.POST, current=source, instructor=member)
     if form.is_valid():
         actor = request.user if request.user.is_authenticated else None
-        registration.move_to(form.cleaned_data["target"], actor=actor)
-        messages.success(request, f"{registration.first_name} moved to {form.cleaned_data['target'].title}.")
+        try:
+            registration.move_to(form.cleaned_data["target"], actor=actor)
+        except ValueError as exc:
+            # One signup per person per class: the destination already holds one.
+            messages.error(request, str(exc))
+        else:
+            messages.success(request, f"{registration.first_name} moved to {form.cleaned_data['target'].title}.")
     else:
         # Surface the form's own message ("That class is full.", invalid choice) — a
         # generic line would hide why the move bounced.
