@@ -72,11 +72,28 @@ def _post_data(**overrides):
         "prior_experience": "",
         "looking_for": "",
         "discount_code": "",
+        # The member discount toggle, checked as the page renders it. A non-member's form has
+        # no such box and the key is ignored; a member who declines sends "" (see the specs).
+        "apply_member_discount": "on",
         "liability_signature": "Sam Smith",
         "accepts_liability": "on",
     }
     data.update(overrides)
     return data
+
+
+def _verify(member_user) -> None:
+    """Make the fixture member findable by email: the register view matches VERIFIED addresses only."""
+    from allauth.account.models import EmailAddress
+
+    EmailAddress.objects.update_or_create(
+        user=member_user, email="member@example.com", defaults={"verified": True, "primary": True}
+    )
+
+
+def _price_summary(body: str) -> str:
+    """The #reg-price-summary block and nothing after the form opens, so the changelog modal can't leak in."""
+    return body[body.index('id="reg-price-summary"') : body.index('id="reg-form"')]
 
 
 def describe_register_view():
@@ -406,7 +423,7 @@ def describe_register_with_a_sale():
 
     def it_shows_the_sale_price_on_the_submit_button(sale_offering, client):
         body = client.get(reverse("classes:register", kwargs={"slug": sale_offering.slug})).content.decode()
-        assert "Next — $80" in body
+        assert 'Next: <span id="reg-submit-label">$80</span>' in body
 
     def it_hides_the_code_box_and_explains_when_codes_are_blocked(sale_offering, client):
         body = client.get(reverse("classes:register", kwargs={"slug": sale_offering.slug})).content.decode()
@@ -472,11 +489,7 @@ def describe_a_total_that_reaches_zero_through_discounts():
 
     @patch("billing.stripe_utils.create_class_checkout_session")
     def it_confirms_without_stripe_on_a_full_member_discount(mock_checkout, paid_offering, client, member_user):
-        from allauth.account.models import EmailAddress
-
-        EmailAddress.objects.update_or_create(
-            user=member_user, email="member@example.com", defaults={"verified": True, "primary": True}
-        )
+        _verify(member_user)
         paid_offering.member_discount_pct = 100
         paid_offering.save(update_fields=["member_discount_pct"])
         response = client.post(
@@ -529,3 +542,123 @@ def describe_client_ip():
         # Registration succeeds — form received the proxied IP without error.
         assert response.status_code == 302
         assert Registration.objects.filter(class_offering=offering).exists()
+
+
+def describe_the_member_discount_at_checkout():
+    """#369 items 2 and 3: the page quotes the price it will charge, and a member may decline the discount."""
+
+    @pytest.fixture
+    def verified_member(member_user):
+        _verify(member_user)
+        return member_user
+
+    def it_quotes_the_member_price_to_a_logged_in_member_on_first_render(paid_offering, client, verified_member):
+        client.force_login(verified_member)
+        body = client.get(reverse("classes:register", kwargs={"slug": paid_offering.slug})).content.decode()
+        summary = _price_summary(body)
+        assert '<div class="total">$90</div>' in summary
+        assert "Member discount applied." in summary
+        assert 'name="apply_member_discount"' in summary and "checked" in summary
+        assert 'Next: <span id="reg-submit-label">$90</span>' in body
+
+    def it_quotes_the_full_price_for_a_non_member_email(paid_offering, client):
+        url = reverse("classes:register", kwargs={"slug": paid_offering.slug})
+        body = client.get(url, {"email": "sam@example.com"}).content.decode()
+        summary = _price_summary(body)
+        assert '<div class="total">$100</div>' in summary
+        assert "Member discount applied." not in summary
+        assert 'name="apply_member_discount"' not in summary
+        assert "Past Lives Members:" not in summary  # the old footnote is gone
+        assert 'Next: <span id="reg-submit-label">$100</span>' in body
+
+    def it_quotes_the_full_price_when_the_refresh_says_the_box_is_off(paid_offering, client, verified_member):
+        # The hidden twin sends "" for an unchecked box.
+        url = reverse("classes:register", kwargs={"slug": paid_offering.slug})
+        body = client.get(url + "?email=member@example.com&apply_member_discount=").content.decode()
+        summary = _price_summary(body)
+        assert '<div class="total">$100</div>' in summary
+        assert "Member discount applied." not in summary
+        assert 'name="apply_member_discount"' in summary and "checked" not in summary
+        assert 'Next: <span id="reg-submit-label">$100</span>' in body
+
+    def it_quotes_the_member_price_when_the_refresh_says_the_box_is_on(paid_offering, client, verified_member):
+        # A checked box sends its twin's "" and then "on"; the last value is the state.
+        url = reverse("classes:register", kwargs={"slug": paid_offering.slug})
+        query = "?email=member@example.com&apply_member_discount=&apply_member_discount=on"
+        summary = _price_summary(client.get(url + query).content.decode())
+        assert '<div class="total">$90</div>' in summary
+        assert "checked" in summary
+
+    def it_defaults_the_discount_on_when_the_page_had_no_box_yet(paid_offering, client, verified_member):
+        # A guest typed a member's email into a page rendered for a non-member: no box was on
+        # that page, so the refresh carries no key, and the member gets the default.
+        url = reverse("classes:register", kwargs={"slug": paid_offering.slug})
+        summary = _price_summary(client.get(url, {"email": "member@example.com"}).content.decode())
+        assert '<div class="total">$90</div>' in summary
+        assert "Member discount applied." in summary
+        assert "checked" in summary
+
+    def it_wires_every_input_the_quote_depends_on_to_refresh_the_summary(paid_offering, client, verified_member):
+        client.force_login(verified_member)
+        body = client.get(reverse("classes:register", kwargs={"slug": paid_offering.slug})).content.decode()
+        for name in ("email", "apply_member_discount", "discount_code"):
+            tag = next(t for t in body.split("<input")[1:] if f'name="{name}"' in t and 'type="hidden"' not in t)
+            assert f'hx-get="{reverse("classes:register", kwargs={"slug": paid_offering.slug})}"' in tag, name
+            assert 'hx-target="#reg-price-summary"' in tag and 'hx-select="#reg-price-summary"' in tag, name
+            assert 'hx-select-oob="#reg-submit-label"' in tag, name
+            assert 'hx-include="[name=email],[name=apply_member_discount],[name=discount_code]"' in tag, name
+
+    def it_keeps_the_waitlist_flag_on_the_refresh_url(paid_offering, client, verified_member):
+        # A voluntary waitlist page refreshes as a waitlist page, never as a paid form's summary.
+        url = reverse("classes:register", kwargs={"slug": paid_offering.slug})
+        body = client.get(url + "?waitlist=1").content.decode()
+        email = next(t for t in body.split("<input")[1:] if 'name="email"' in t)
+        assert f'hx-get="{url}?waitlist=1"' in email
+
+    def it_keeps_the_claim_token_on_the_refresh_url(paid_offering, client, verified_member):
+        # A claim link's refresh stays a claim: without the token, taking the last seat would
+        # re-render the sold-out waitlist form, with no toggle and the wrong quote.
+        for _ in range(paid_offering.capacity):
+            RegistrationFactory(class_offering=paid_offering, status=Registration.Status.CONFIRMED)
+        claim = RegistrationFactory(
+            class_offering=paid_offering, status=Registration.Status.WAITLISTED, email="member@example.com"
+        )
+        client.force_login(verified_member)  # the member clicks the link from their own inbox
+        url = reverse("classes:register", kwargs={"slug": paid_offering.slug})
+        body = client.get(url + f"?waitlist_token={claim.self_serve_token}").content.decode()
+        email = next(t for t in body.split("<input")[1:] if 'name="email"' in t)
+        assert f'hx-get="{url}?waitlist_token={claim.self_serve_token}"' in email
+        assert 'name="apply_member_discount"' in body  # the claim is a paid signup: the toggle is there
+
+    @patch("billing.stripe_utils.create_class_checkout_session")
+    def it_charges_the_full_price_when_the_member_declines(mock_checkout, paid_offering, client, verified_member):
+        from classes.factories import DiscountCodeFactory
+
+        DiscountCodeFactory(code="SAVE20", discount_pct=20)
+        mock_checkout.return_value = {"id": "cs_test_full", "url": "https://checkout.stripe.com/c/pay/cs_test_full"}
+        response = client.post(
+            reverse("classes:register", kwargs={"slug": paid_offering.slug}),
+            data=_post_data(email="member@example.com", discount_code="SAVE20", apply_member_discount=""),
+        )
+        assert response.status_code == 302
+        # 10000, no member step, then 20% off: 8000. With the discount it would have been 7200.
+        assert mock_checkout.call_args.kwargs["amount_cents"] == 8000
+        assert Registration.objects.get(class_offering=paid_offering).amount_paid_cents == 8000
+
+    @patch("billing.stripe_utils.create_class_checkout_session")
+    def it_charges_the_member_price_when_the_box_stays_checked(mock_checkout, paid_offering, client, verified_member):
+        mock_checkout.return_value = {"id": "cs_test_mem", "url": "https://checkout.stripe.com/c/pay/cs_test_mem"}
+        response = client.post(
+            reverse("classes:register", kwargs={"slug": paid_offering.slug}),
+            data=_post_data(email="member@example.com"),
+        )
+        assert response.status_code == 302
+        assert mock_checkout.call_args.kwargs["amount_cents"] == 9000
+
+    def it_hides_the_toggle_on_the_waitlist_form(paid_offering, client, verified_member):
+        for _ in range(paid_offering.capacity):
+            RegistrationFactory(class_offering=paid_offering, status=Registration.Status.CONFIRMED)
+        client.force_login(verified_member)
+        body = client.get(reverse("classes:register", kwargs={"slug": paid_offering.slug})).content.decode()
+        assert 'name="apply_member_discount"' not in body
+        assert 'name="discount_code"' not in body

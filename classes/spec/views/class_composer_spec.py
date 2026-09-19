@@ -25,7 +25,7 @@ from classes.factories import (
     UserFactory,
 )
 from classes.forms import ClassOfferingForm, TeachClassOfferingForm
-from classes.models import ClassApproval, ClassOffering, CmsActivity
+from classes.models import ClassApproval, ClassOffering, ClassSettings, CmsActivity
 from classes.views import COMPOSER_SAVED_LIMIT, COMPOSER_SAVED_SESSION_KEY, _mark_composer_saved
 from tests.membership.factories import GuildFactory, GuildStaffMembershipFactory
 
@@ -281,7 +281,6 @@ def _assert_round_trip(offering: ClassOffering, category) -> None:
     assert offering.age_minimum == 16
     assert offering.age_guardian_note == "Guardians welcome."
     assert offering.price_cents == 8000
-    assert offering.member_discount_pct == 15
     assert offering.capacity == 8
     assert offering.scheduling_model == "flexible"
     assert offering.scheduling_type == "series_package"
@@ -369,7 +368,9 @@ def describe_teach_composer_get():
         assert 'name="price_cents"' in step_one and 'name="is_free"' not in step_one
         assert 'data-help-key="teach.class-pricing"' in step_one
         step_three = html[html.index('data-composer-step="3"') : html.index('data-composer-step="4"')]
-        assert 'name="member_discount_pct"' in step_three and 'name="capacity"' in step_three
+        assert 'name="capacity"' in step_three
+        assert 'name="member_discount_pct"' not in step_three  # the admin's to set (#369)
+        assert 'id="member-discount-note"' in step_three
         assert 'name="price_cents"' not in step_three
 
     def it_leaves_validation_to_the_server(instructor_fixture, client):
@@ -585,6 +586,7 @@ def describe_teach_composer_post():
         assert created.status == Status.DRAFT
         assert created.instructor_id == instructor_fixture.pk
         _assert_round_trip(created, cat)
+        assert created.member_discount_pct == 10  # the studio default, not the payload's 15 (#369)
         assert "Draft saved." in _messages(resp)
 
     def it_round_trips_every_field_on_edit_and_returns_to_the_step(instructor_fixture, client):
@@ -596,6 +598,7 @@ def describe_teach_composer_post():
         assert resp["Location"] == reverse("classes:teach_class_edit", kwargs={"pk": offering.pk}) + "?step=4"
         offering.refresh_from_db()
         _assert_round_trip(offering, cat)
+        assert offering.member_discount_pct == 10  # untouched by the payload's 15 (#369)
         assert (offering.hero_crop_x, offering.hero_crop_y, offering.hero_crop_w, offering.hero_crop_h) == (
             10,
             20,
@@ -714,17 +717,16 @@ def describe_teach_composer_post():
     def it_saves_a_draft_from_step_one_alone(instructor_fixture, client):
         # Title, guild type, description, and the price are the whole of step 1. Steps 2 to 4 are
         # untouched: the POST is exactly what a browser submits from the rendered page (every
-        # field with its default, parsed from the GET), plus step 1. capacity, scheduling_model,
-        # scheduling_type, and member_discount_pct are required form fields with model defaults,
-        # so they ride along as the composer renders them; a literal four field POST is not what
-        # a browser sends.
+        # field with its default, parsed from the GET), plus step 1. capacity, scheduling_model
+        # and scheduling_type are required form fields with model defaults, so they ride along
+        # as the composer renders them; a literal four field POST is not what a browser sends.
         cat = CategoryFactory()
         client.force_login(instructor_fixture.user)
         untouched = _untouched_form_values(client.get(reverse("classes:teach_class_create")).content.decode())
         assert untouched["capacity"] == "6"
         assert untouched["scheduling_model"] == "fixed"
         assert untouched["scheduling_type"] == "single_session"
-        assert untouched["member_discount_pct"] == "10"
+        assert "member_discount_pct" not in untouched  # the admin's to set (#369)
         assert untouched["price_cents"] == ""
         resp = client.post(
             reverse("classes:teach_class_create"),
@@ -850,6 +852,7 @@ def describe_admin_composer():
         assert created.is_private is True
         assert created.private_for_name == "The Guild"
         _assert_round_trip(created, cat)
+        assert created.member_discount_pct == 15
         assert "Draft saved." in _messages(resp)
 
     def it_shrinks_a_create_mode_crop_with_the_downsized_upload(admin_user, client, db, settings):
@@ -873,6 +876,7 @@ def describe_admin_composer():
         assert resp["Location"] == reverse("classes:teach_class_edit", kwargs={"pk": offering.pk}) + "?step=4"
         offering.refresh_from_db()
         _assert_round_trip(offering, cat)
+        assert offering.member_discount_pct == 15
         assert offering.instructor_id == inst.pk
         assert offering.is_private is True
 
@@ -982,6 +986,77 @@ def describe_admin_composer():
         assert offering.published_at is None
         assert row.decision == ""
         assert not CmsActivity.objects.filter(class_offering=offering, kind=CmsActivity.Kind.CLASS_PUBLISHED).exists()
+
+
+def describe_the_member_discount_is_the_admins_to_set():
+    """#369 item 1: instructors read the discount, admins set it, and a new class starts at the studio default."""
+
+    @pytest.fixture
+    def studio_default_fifteen(db):
+        settings_obj = ClassSettings.load()
+        settings_obj.default_member_discount_pct = 15
+        settings_obj.save(update_fields=["default_member_discount_pct"])
+        return settings_obj
+
+    def it_shows_the_instructor_a_note_instead_of_an_input(instructor_fixture, client):
+        offering = ClassOfferingFactory(
+            instructor=instructor_fixture, status=Status.DRAFT, price_cents=5000, member_discount_pct=10
+        )
+        client.force_login(instructor_fixture.user)
+        html = client.get(reverse("classes:teach_class_edit", kwargs={"pk": offering.pk})).content.decode()
+        assert 'name="member_discount_pct"' not in html
+        assert "Members get 10% off. That makes the member price $45." in html
+
+    def it_names_only_the_percentage_before_a_price_is_saved(instructor_fixture, client):
+        client.force_login(instructor_fixture.user)
+        html = client.get(reverse("classes:teach_class_create")).content.decode()
+        assert "Members get 10% off.</p>" in html
+
+    def it_creates_at_the_studio_default_whatever_the_instructor_posts(
+        instructor_fixture, client, studio_default_fifteen
+    ):
+        cat = CategoryFactory()
+        client.force_login(instructor_fixture.user)
+        resp = client.post(reverse("classes:teach_class_create"), _full_payload(cat, member_discount_pct="0"))
+        assert resp.status_code == 302
+        assert ClassOffering.objects.get(title="Round Trip").member_discount_pct == 15
+
+    def it_leaves_an_existing_class_alone_whatever_the_instructor_posts(instructor_fixture, client):
+        offering = ClassOfferingFactory(instructor=instructor_fixture, status=Status.DRAFT, member_discount_pct=25)
+        client.force_login(instructor_fixture.user)
+        resp = client.post(
+            reverse("classes:teach_class_edit", kwargs={"pk": offering.pk}),
+            _full_payload(offering.category, member_discount_pct="0"),
+        )
+        assert resp.status_code == 302
+        offering.refresh_from_db()
+        assert offering.member_discount_pct == 25
+
+    def it_offers_the_admin_the_studio_default_on_a_new_class(admin_user, client, studio_default_fifteen):
+        client.force_login(admin_user)
+        html = client.get(reverse("classes:admin_class_create")).content.decode()
+        assert re.search(r'<input[^>]*name="member_discount_pct"[^>]*value="15"', html)
+
+    def it_creates_at_the_studio_default_from_the_admin_composer_too(admin_user, client, studio_default_fifteen):
+        cat, inst = CategoryFactory(), InstructorFactory()
+        client.force_login(admin_user)
+        resp = client.post(reverse("classes:admin_class_create"), _admin_payload(cat, inst, member_discount_pct="15"))
+        assert resp.status_code == 302
+        assert ClassOffering.objects.get(title="Round Trip").member_discount_pct == 15
+
+    def it_lists_an_admin_discount_error_on_step_three(admin_user, client, db):
+        offering = ClassOfferingFactory(status=Status.DRAFT, member_discount_pct=10)
+        client.force_login(admin_user)
+        resp = client.post(
+            reverse("classes:teach_class_edit", kwargs={"pk": offering.pk}),
+            _admin_payload(offering.category, offering.instructor, member_discount_pct="101"),
+        )
+        assert resp.status_code == 200
+        html = resp.content.decode()
+        assert "Dates, Seats And Price: Member discount (%)" in html
+        assert "Member discount must be between 0 and 100." in html
+        offering.refresh_from_db()
+        assert offering.member_discount_pct == 10
 
 
 def describe_live_sale_guard_through_the_composers():
@@ -1292,7 +1367,9 @@ def describe_a_failed_save_with_a_blank_price_on_a_saved_draft():
         assert "($45 for Past Lives Members)" in html
         # The fields keep what was typed.
         assert _price_input_value(html) == ""
-        assert 'name="member_discount_pct"' in html and 'value="50"' in html
+        # The crafted discount never lands: the note reads the saved row (#369).
+        assert 'name="member_discount_pct"' not in html
+        assert "Members get 10% off. That makes the member price $45." in html
 
 
 # ── Issue #368 item 2: a refused submit lands where the gap is, with the reason visible ──
@@ -1986,7 +2063,7 @@ def describe_the_composer_draft_notice():
 
         assert refused.status_code == 200
         # Not vacuous: the fields most likely to convert badly are all in here.
-        assert {"title", "description", "category", "price_cents", "member_discount_pct", "capacity"} <= set(baseline)
+        assert {"title", "description", "category", "price_cents", "capacity"} <= set(baseline)
         assert baseline["price_cents"] == rendered["price_cents"]
         assert {name: value for name, value in baseline.items() if name in rendered} == {
             name: value for name, value in rendered.items() if name in baseline
