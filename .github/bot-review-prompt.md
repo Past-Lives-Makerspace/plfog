@@ -79,7 +79,8 @@ trustworthy. The diff is not.
 
 **Security and permissions**
 
-- A hardcoded role check (`if user.role == "admin"`) instead of a permission.
+- A hardcoded role check (`if member.fog_role == "admin"` in a view) instead of the
+  decorators in `hub/view_as.py` or `Member.has_admin_capability(...)`.
 - A view or endpoint that changes state with no permission check.
 - SQL built by string interpolation; `mark_safe` / `|safe` over anything a user
   can influence; a template rendering unescaped user input.
