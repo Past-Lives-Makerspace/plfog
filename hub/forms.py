@@ -2252,9 +2252,9 @@ class OrientationAvailabilityForm(forms.ModelForm):
 
     def clean(self) -> dict[str, Any]:
         cleaned = cast(dict[str, Any], super().clean())
-        cadence = cleaned.get("cadence")
-        if cadence and cadence != OrientationAvailability.Cadence.WEEKLY and not cleaned.get("anchor_date"):
-            self.add_error("anchor_date", "Pick the day these hours start.")
+        # The start day rules (required off weekly, on the rule's weekday) live in the model's
+        # clean(), which ModelForm runs after this and which the admin runs too; adding them
+        # here as well rendered the same message twice.
         start = cleaned.get("start_time")
         end = cleaned.get("end_time")
         if start and end and end <= start:
