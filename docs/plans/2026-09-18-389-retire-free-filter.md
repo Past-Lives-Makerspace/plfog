@@ -35,7 +35,8 @@ plus an em dash in member copy.
 - No "Free classes" control; `active_filter_count` no longer counts it.
 - A $0 legacy class's CTA says "Register now".
 - The Register and Pay guide no longer mentions free classes.
-- `grep -rn "free_only\|Register — Free" classes/ templates/ membership/help_content.py` is empty.
+- `grep -rn --exclude-dir=spec "free_only\|Register — Free" classes/ templates/ membership/help_content.py`
+  is empty (the PR's own negative assertions are the only permitted hits).
 
 ## Test plan
 `.venv/bin/pytest classes/spec/views/public_spec.py tests/template_comment_lint_spec.py -q`

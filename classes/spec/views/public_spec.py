@@ -485,9 +485,10 @@ def describe_public_list():
         response = client.get(reverse("classes:public_list") + "?free=1")
         assert b"Free Workshop" in response.content
         assert b"Paid Workshop" in response.content
-        # The changelog (rendered on every page) mentions "Free classes" historically, so
-        # the control's input name is the assertion, not the label text.
+        # The changelog modal (rendered on every page) mentions "Free classes" in old
+        # entries, so the assertions target the control's markup, not the bare phrase.
         assert b'name="free"' not in response.content
+        assert b"<span>Free classes</span>" not in response.content
 
     def it_filters_upcoming_classes(db, client):
         cat = CategoryFactory()

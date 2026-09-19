@@ -11,7 +11,7 @@
 
 {% block account_body %}
   {% if not receipts %}
-    {% include "classes/account/_components/empty_state.html" with glyph="$" title="No receipts yet." body="When you register for a paid class, your receipt will show up here. Free classes don't generate one." cta="Browse classes" cta_url="/classes/" %}
+    {% include "classes/account/_components/empty_state.html" with glyph="$" title="No receipts yet." body="When you pay for a class, your receipt will show up here." cta="Browse classes" cta_url="/classes/" %}
   {% else %}
     <div class="bk-receipts">
       <div class="bk-rec-row is-head">
