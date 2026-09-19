@@ -200,8 +200,6 @@ def _apply_browse_filters(qs: Any, request: HttpRequest) -> Any:
 
     if request.GET.get("members_only") == "1":
         qs = qs.filter(member_discount_pct__gt=0)
-    if request.GET.get("free") == "1":
-        qs = qs.filter(price_cents=0)
     if request.GET.get("upcoming") == "1":
         qs = qs.exclude(first_session_at__isnull=True)
 
@@ -237,7 +235,6 @@ def public_list(request: HttpRequest) -> HttpResponse:
     selected_guild = Guild.objects.filter(slug=selected_guild_slug).first() if selected_guild_slug else None
     selected_instructor_slugs = [s for s in request.GET.getlist("instructor") if s]
     members_only = request.GET.get("members_only") == "1"
-    free_only = request.GET.get("free") == "1"
     upcoming_only = request.GET.get("upcoming") == "1"
     selected_within = request.GET.get("within", "all")
     selected_within_days = WITHIN_DAYS.get(selected_within)
@@ -306,7 +303,6 @@ def public_list(request: HttpRequest) -> HttpResponse:
             request.GET.get("min_price"),
             request.GET.get("max_price"),
             members_only,
-            free_only,
             upcoming_only,
         )
         if v
@@ -330,7 +326,6 @@ def public_list(request: HttpRequest) -> HttpResponse:
         "min_price": request.GET.get("min_price", ""),
         "max_price": request.GET.get("max_price", ""),
         "members_only": members_only,
-        "free_only": free_only,
         "upcoming_only": upcoming_only,
         "selected_within": selected_within,
         "selected_within_days": selected_within_days,

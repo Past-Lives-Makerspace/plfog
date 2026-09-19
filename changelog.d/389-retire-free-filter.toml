@@ -1,0 +1,7 @@
+bump = "patch"
+date = "2026-09-18"
+title = "The class catalog no longer offers a Free classes filter"
+changes = [
+  "Every class has a price now, so the Free classes filter in the catalog and the Register Free button on a class page are gone. The filter had nothing left to show.",
+  "A discount code can still bring a total to $0 at checkout. That has not changed.",
+]

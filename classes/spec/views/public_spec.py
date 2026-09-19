@@ -451,10 +451,12 @@ def describe_public_list():
         assert b"Members Class" in response.content
         assert b"Open Class" not in response.content
 
-    def it_filters_free_classes(db, client):
+    def it_ignores_the_retired_free_filter(db, client):
+        # #389: every class has a price now, so ``?free=1`` filters nothing and the
+        # "Free classes" control is gone. A legacy $0 row still lists like any other.
         cat = CategoryFactory()
         inst = InstructorFactory()
-        free = ClassOfferingFactory(
+        legacy_free = ClassOfferingFactory(
             title="Free Workshop",
             slug="free-workshop",
             category=cat,
@@ -471,7 +473,7 @@ def describe_public_list():
             price_cents=2000,
         )
         ClassSessionFactory(
-            class_offering=free,
+            class_offering=legacy_free,
             starts_at=timezone.now() + timedelta(days=1),
             ends_at=timezone.now() + timedelta(days=1, hours=2),
         )
@@ -482,7 +484,11 @@ def describe_public_list():
         )
         response = client.get(reverse("classes:public_list") + "?free=1")
         assert b"Free Workshop" in response.content
-        assert b"Paid Workshop" not in response.content
+        assert b"Paid Workshop" in response.content
+        # The changelog modal (rendered on every page) mentions "Free classes" in old
+        # entries, so the assertions target the control's markup, not the bare phrase.
+        assert b'name="free"' not in response.content
+        assert b"<span>Free classes</span>" not in response.content
 
     def it_filters_upcoming_classes(db, client):
         cat = CategoryFactory()
@@ -568,6 +574,20 @@ def describe_public_class_detail():
         )
         response = client.get(reverse("classes:public_class_detail", kwargs={"slug": offering.slug}))
         assert response.status_code == 404
+
+    def it_offers_register_now_even_for_a_legacy_free_row(db, client):
+        # #389: the "Register — Free" label is retired with the free option; a $0 row
+        # left over from before the $1.00 floor gets the same button as every class.
+        offering = ClassOfferingFactory(status=ClassOffering.Status.PUBLISHED, slug="legacy-free", price_cents=0)
+        ClassSessionFactory(
+            class_offering=offering,
+            starts_at=timezone.now() + timedelta(days=1),
+            ends_at=timezone.now() + timedelta(days=1, hours=2),
+        )
+        response = client.get(reverse("classes:public_class_detail", kwargs={"slug": offering.slug}))
+        assert response.status_code == 200
+        assert b"Register now" in response.content
+        assert "Register — Free".encode() not in response.content
 
     def it_shows_sold_out_when_no_spots_remain(published_class, client):
         from classes.factories import RegistrationFactory
