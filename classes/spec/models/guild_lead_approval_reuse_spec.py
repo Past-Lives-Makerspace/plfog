@@ -224,32 +224,148 @@ def describe_opening_a_guild_lead_gate():
         assert row.opened_for_guild_id is None
 
     def describe_when_the_instructor_refiles_the_class_while_the_gate_is_open():
-        def it_asks_the_new_guild_on_the_next_round(db, settings, admin_user):
-            """The regression this guards: a PENDING class is still editable on the
-            instructor's own composer, and the review link authorizes by token alone, so
-            reading the guild back when the decision lands let an instructor point guild 1's
-            open gate at guild 2 and collect guild 1's approval on guild 2's behalf. Guild 2
-            was then skipped on the resubmission and never saw the class at all.
+        def it_closes_the_old_gate_and_opens_one_for_the_new_guild(db, settings, admin_user):
+            """The invitation must not outlive the question.
+
+            ``awaiting_guild_lead`` scopes by the class's current guild, so leaving the old
+            gate standing hands guild 2's staff a token minted for guild 1. Whichever guild
+            the row names, one of the two is then misrepresented: name guild 1 and guild 1
+            is later skipped on a decision its own lead never made; name guild 2 and guild 2
+            is skipped on a decision made by a stranger.
             """
+            from membership.models import Member
+
             offering, lead_user = _guilded_draft(settings)
-            other_guild, _other_lead_user = _second_guild_with_lead()
-            (lead_row,) = offering.submit_for_review()
+            other_guild, other_lead_user = _second_guild_with_lead()
+            (old_gate,) = offering.submit_for_review()
+            mail.outbox.clear()
 
             offering.category = CategoryFactory(guild=other_guild)
             offering.save(update_fields=["category"])
             offering.refresh_from_db()
-            lead_row.class_offering = offering
-            lead_row.decide(ClassApproval.Decision.APPROVED, user=lead_user)
+
+            assert not ClassApproval.objects.filter(pk=old_gate.pk).exists()
+            gate = offering.approvals.get(role=ClassApproval.Role.GUILD_LEAD, decision="")
+            assert gate.opened_for_guild_id == other_guild.pk
+            assert _addressed(OTHER_LEAD_EMAIL)
+            new_lead = Member.objects.get(user=other_lead_user)
+            assert list(ClassOffering.objects.awaiting_guild_lead(new_lead)) == [offering]
+            old_lead = Member.objects.get(user=lead_user)
+            assert list(ClassOffering.objects.awaiting_guild_lead(old_lead)) == []
+
+        def it_never_lets_the_new_guilds_lead_spend_the_old_guilds_gate(db, settings, admin_user):
+            """The decision the reopen exists to prevent, driven end to end.
+
+            Guild 2's staff approve, the admin bounces, the instructor moves the class back
+            to guild 1 and resubmits. Guild 1's own lead must still be asked: they never saw
+            this class, and a decision made in another guild cannot answer for them.
+            """
+            offering, lead_user = _guilded_draft(settings)
+            other_guild, other_lead_user = _second_guild_with_lead()
+            home_category = offering.category
+            offering.submit_for_review()
+
+            offering.category = CategoryFactory(guild=other_guild)
+            offering.save(update_fields=["category"])
+            offering.refresh_from_db()
+            gate = offering.approvals.get(role=ClassApproval.Role.GUILD_LEAD, decision="")
+            gate.class_offering = offering
+            gate.decide(ClassApproval.Decision.APPROVED, user=other_lead_user)
             offering.refresh_from_db()
             admin_row = offering.approvals.get(role=ClassApproval.Role.ADMIN, decision="")
             admin_row.class_offering = offering
-            admin_row.decide(ClassApproval.Decision.CHANGES_REQUESTED, user=admin_user, notes="Trim the blurb.")
+            admin_row.decide(ClassApproval.Decision.CHANGES_REQUESTED, user=admin_user, notes="Trim it.")
             offering.refresh_from_db()
+
+            offering.category = home_category
+            offering.save(update_fields=["category"])
+            offering.refresh_from_db()
+            mail.outbox.clear()
 
             (row,) = offering.submit_for_review()
 
             assert row.role == ClassApproval.Role.GUILD_LEAD
-            assert row.opened_for_guild_id == other_guild.pk
+            assert row.opened_for_guild_id == home_category.guild_id
+            assert _addressed(LEAD_EMAIL)
+
+        def it_leaves_a_move_inside_one_guild_alone(db, settings):
+            """Forge Basics to Forge Advanced asks nobody anything new."""
+            offering, lead_user = _guilded_draft(settings)
+            (gate,) = offering.submit_for_review()
+
+            offering.category = CategoryFactory(guild=offering.category.guild)
+            offering.save(update_fields=["category"])
+            offering.refresh_from_db()
+
+            assert list(offering.approvals.all()) == [gate]
+
+        def it_leaves_a_decided_gate_alone(db, settings, admin_user):
+            """An approval already given is history, not an invitation to withdraw."""
+            offering, lead_user = _guilded_draft(settings)
+            other_guild, _other_lead_user = _second_guild_with_lead()
+            lead_row = _lead_approves_then_admin_bounces(offering, lead_user, admin_user)
+
+            offering.category = CategoryFactory(guild=other_guild)
+            offering.save(update_fields=["category"])
+            offering.refresh_from_db()
+
+            lead_row.refresh_from_db()
+            assert lead_row.decision == ClassApproval.Decision.APPROVED
+
+        def it_falls_back_to_the_admin_gate_when_the_new_category_has_no_guild(db, settings):
+            """Reopening reruns the first-stage choice rather than assuming a lead exists."""
+            offering, lead_user = _guilded_draft(settings)
+            offering.submit_for_review()
+
+            offering.category = CategoryFactory(guild=None)
+            offering.save(update_fields=["category"])
+            offering.refresh_from_db()
+
+            assert not offering.approvals.filter(role=ClassApproval.Role.GUILD_LEAD).exists()
+            assert offering.approvals.filter(role=ClassApproval.Role.ADMIN, decision="").count() == 1
+
+        def it_kills_the_emailed_link_the_old_lead_was_sent(db, settings):
+            """The old lead's token dies with the gate, which is the point.
+
+            Deleting the row rather than reassigning it is what makes the link safe: guild
+            1's lead cannot spend an invitation to a question that is no longer theirs, and
+            guild 2's staff are never handed a token minted for someone else.
+            """
+            offering, lead_user = _guilded_draft(settings)
+            other_guild, _other_lead_user = _second_guild_with_lead()
+            (old_gate,) = offering.submit_for_review()
+            old_token = old_gate.token
+
+            offering.category = CategoryFactory(guild=other_guild)
+            offering.save(update_fields=["category"])
+            offering.refresh_from_db()
+
+            assert not ClassApproval.objects.filter(token=old_token).exists()
+            fresh = offering.approvals.get(role=ClassApproval.Role.GUILD_LEAD, decision="")
+            assert fresh.token != old_token
+
+        def it_refuses_to_credit_a_gate_whose_guild_no_longer_matches(db, settings):
+            """Defence in depth, for a stale gate the reopen never saw.
+
+            ``_repoint_open_guild_lead_gate`` runs on ``save``, so a bulk ``update`` that
+            moves a class between categories bypasses it. A gate left stranded that way can
+            still be decided, and the class still moves on, but it must not leave a stamp
+            behind that lets a later submission skip the guild that never answered.
+            """
+            offering, lead_user = _guilded_draft(settings)
+            other_guild, _other_lead_user = _second_guild_with_lead()
+            (gate,) = offering.submit_for_review()
+            ClassOffering.objects.filter(pk=offering.pk).update(category=CategoryFactory(guild=other_guild))
+            offering.refresh_from_db()
+
+            gate.refresh_from_db()
+            gate.class_offering = offering
+            gate.decide(ClassApproval.Decision.APPROVED, user=lead_user)
+            gate.refresh_from_db()
+
+            assert gate.decision == ClassApproval.Decision.APPROVED
+            assert gate.approved_schedule_fingerprint == ""
+            assert not offering._guild_already_approved_this_schedule
 
 
 def describe_decide():
@@ -583,6 +699,52 @@ def describe_resubmitting_after_a_lead_approved():
 
             assert offering.guild_lead_approved_at is None
             assert [step.key for step in offering.review_pipeline().steps] == ["submitted", "admin", "live"]
+
+        def it_keeps_the_dashboard_and_the_pipeline_telling_one_story(db, settings):
+            """Three surfaces, one class, and they must not disagree.
+
+            A class whose guild-lead gate was approved elsewhere used to sit on the new
+            guild's dashboard under "waiting on an admin", implying their guild had signed
+            it off, directly above a pipeline correctly showing that they had not.
+            """
+            from membership.models import Member
+
+            offering, lead_user = _guilded_draft(settings)
+            other_guild, other_lead_user = _second_guild_with_lead()
+            (gate,) = offering.submit_for_review()
+            gate.decide(ClassApproval.Decision.APPROVED, user=lead_user)
+            offering.refresh_from_db()
+            assert offering.approvals.filter(role=ClassApproval.Role.ADMIN, decision="").exists()
+
+            offering.category = CategoryFactory(guild=other_guild)
+            offering.save(update_fields=["category"])
+            offering.refresh_from_db()
+
+            new_lead = Member.objects.get(user=other_lead_user)
+            assert list(ClassOffering.objects.awaiting_admin_validation(new_lead)) == []
+            assert offering.guild_lead_approved_at is None
+
+        def it_credits_nobody_once_the_approving_guild_is_deleted(db, settings, admin_user):
+            """``opened_for_guild`` is SET_NULL, so a deleted guild blanks a decided stamp.
+
+            A blank stamp therefore cannot be read as "predates the field, credit it": the
+            same value now also means "the guild that approved this no longer exists". Of
+            the two readings only one is safe, so a decided row with no guild speaks for
+            nobody.
+            """
+            offering, lead_user = _guilded_draft(settings)
+            other_guild, _other_lead_user = _second_guild_with_lead()
+            lead_row = _lead_approves_then_admin_bounces(offering, lead_user, admin_user)
+            offering.category.guild.delete()
+            offering.category = CategoryFactory(guild=other_guild)
+            offering.save(update_fields=["category"])
+            offering.refresh_from_db()
+            lead_row.refresh_from_db()
+            assert lead_row.opened_for_guild_id is None
+
+            assert offering.guild_lead_approved_at is None
+            (row,) = offering.submit_for_review()
+            assert row.role == ClassApproval.Role.GUILD_LEAD
 
     def describe_when_the_category_changes_inside_the_same_guild():
         def it_still_skips_the_lead(db, settings, admin_user):

@@ -441,10 +441,20 @@ class ClassOfferingQuerySet(models.QuerySet["ClassOffering"]):
         until an admin publishes or bounces it, instead of silently vanishing.
         Each ``.filter()`` call joins ``approvals`` separately on purpose: one
         approved ``guild_lead`` row AND one undecided ``admin`` row must exist.
+
+        The approved row must also have been opened for the guild the class is filed under
+        now, matching :meth:`ClassOffering._guild_lead_row_speaks_here`. A class that
+        collected its sign-off in another guild would otherwise sit on this dashboard under
+        the heading "your guild approved this", above a pipeline correctly showing that it
+        had not.
         """
         return (
             self.filter(status="pending", category__guild__in=member.staffed_guilds)
-            .filter(approvals__role="guild_lead", approvals__decision="approved")
+            .filter(
+                approvals__role="guild_lead",
+                approvals__decision="approved",
+                approvals__opened_for_guild=F("category__guild"),
+            )
             .filter(approvals__role="admin", approvals__decision="")
             .distinct()
         )
@@ -1152,6 +1162,9 @@ class ClassOffering(HeroCropMixin, models.Model):
 
         super().save(*args, **kwargs)
 
+        if old is not None and old.category_id != self.category_id:
+            self._repoint_open_guild_lead_gate()
+
         # When a grouped class moves to a new category, sync siblings so the
         # group stays coherent (same grouping_key across all dates).
         if old is not None and old.category_id != self.category_id and old.grouping_key:
@@ -1303,6 +1316,38 @@ class ClassOffering(HeroCropMixin, models.Model):
         )
         self._notify_first_stage_reviewer(row)
         return [row]
+
+    def _repoint_open_guild_lead_gate(self) -> None:
+        """Re-ask the right guild when a class under review is re-filed under another one.
+
+        A gate is an invitation to one guild's lead, and the emailed link is how they
+        accept it. Re-filing a PENDING class hands that invitation to a guild that was
+        never sent it: :meth:`ClassOfferingQuerySet.awaiting_guild_lead` scopes by the
+        class's *current* guild, so the new guild's staff pick the class up and are handed
+        the old guild's token. Whichever way the guild is stamped, one of the two parties
+        ends up misrepresented, so the fix is not to stamp it more cleverly but to stop the
+        invitation outliving the question. The stale gate is closed and a fresh one opened
+        for the guild the class now sits in, whose lead is told.
+
+        Deliberately silent in three cases. A class that is not PENDING has no gate anyone
+        is waiting on. A move inside one guild (Forge Basics to Forge Advanced) does not
+        change who was asked. And a gate already decided is history, not an invitation: the
+        approval a guild gave stands on its own row and is read back through
+        :meth:`_guild_lead_row_speaks_here`.
+
+        Reopening runs the first-stage choice again rather than assuming a guild lead is
+        wanted, so a class re-filed under a guildless category, or under a guild that has
+        already approved these dates, resumes at the Admin gate exactly as a fresh
+        submission would.
+        """
+        if self.status != self.Status.PENDING:
+            return
+        open_gates = list(self.approvals.filter(role=ClassApproval.Role.GUILD_LEAD, decision=""))
+        guild_id = self.category.guild_id
+        if not open_gates or all(gate.opened_for_guild_id == guild_id for gate in open_gates):
+            return
+        self.approvals.filter(role=ClassApproval.Role.GUILD_LEAD, decision="").delete()
+        self._notify_first_stage_reviewer(self._create_first_stage_approval())
 
     def _create_first_stage_approval(self) -> "ClassApproval":
         """Create the single approval row that opens stage one of review.
@@ -2155,12 +2200,15 @@ class ClassOffering(HeroCropMixin, models.Model):
         the class currently sits. Filtering it the same way would leave a moved class with
         no open step on any pipeline while its gate is demonstrably open.
 
-        A row from before the field existed carries no guild and is read as speaking here,
-        which is what it did when there was nothing to check. That is display only: the
-        skip in :attr:`_guild_already_approved_this_schedule` demands an exact match, so an
-        unstamped row still re-asks.
+        A decided row carrying no guild speaks for nobody. Reading it as "speaks here"
+        would be kinder to rows that predate the field, but ``opened_for_guild`` is
+        ``SET_NULL``, so deleting a guild blanks the stamp on rows that were decided years
+        after it shipped. Null cannot mean "from before we checked" while it also means
+        "the guild that approved this is gone", and of the two readings only one is safe.
+        The cost is that pre-migration rows lose their pipeline credit, which is a label on
+        a strip, not a gate.
         """
-        return not row.decision or row.opened_for_guild_id in (None, self.category.guild_id)
+        return not row.decision or row.opened_for_guild_id == self.category.guild_id
 
     @property
     def guild_lead_approved_at(self) -> datetime | None:
@@ -2732,9 +2780,10 @@ class ClassApproval(models.Model):
         collect a stranger's approval on its behalf. Stamped here, a re-filed class simply
         stops matching, and the new guild's lead is asked.
 
-        Two call sites mint a guild-lead row (``_create_first_stage_approval`` and the review
-        page, which mints one when a reviewer arrives and finds none open), so the invariant
-        lives here rather than in either of them.
+        ``_create_first_stage_approval`` is the only site that mints one of these today, and
+        ``_repoint_open_guild_lead_gate`` reaches it by a second route. It lives here rather
+        than there so that a third route cannot forget it. A caller that passes an explicit
+        guild is honoured rather than corrected; this fills a blank, it does not police one.
         """
         if not self.token:
             self.token = secrets.token_urlsafe(32)
@@ -2759,11 +2808,25 @@ class ClassApproval(models.Model):
         are). No other role or decision stamps it: only a guild lead's approval is a
         statement about the dates.
 
-        The schedule is stamped here and the guild in ``save``, and the split is deliberate.
-        The schedule is *what was approved*, so the right moment to record it is the moment
-        of approval: the review page shows the lead the class as it stands, so the schedule
-        they saw is the one they are deciding on. The guild is *who had the authority to
-        approve*, which was settled earlier, when the gate was opened and the link was sent.
+        The schedule is stamped here and the guild in ``save``, and the asymmetry is worth
+        stating plainly rather than dressing up. The guild is *who had the authority to be
+        asked*, settled when the gate opened and the link was sent, and nothing after that
+        may move it. The schedule is *what was approved*, and this is the closest the code
+        currently gets to that: it is the schedule at the moment of the POST, which is not
+        the same thing as the schedule the reviewer read.
+
+        Two gaps, both #446:
+
+        * The page renders at one moment and the decision posts at another, and a PENDING
+          class stays editable in between, so an instructor can retime between the two.
+        * ``class_review`` renders ``upcoming_sessions`` only, while
+          :attr:`ClassOffering.schedule_fingerprint` digests every session, so a past
+          session is stamped and never shown.
+
+        Recording what the reviewer actually saw means carrying the rendered fingerprint
+        through the form and refusing a decision that no longer matches it. That is a real
+        fix and it belongs with #446, not smuggled in here. The stamp is only ever read to
+        decide whether to *re-ask*, and both gaps err toward re-asking.
         """
         if decision not in {
             self.Decision.APPROVED,
@@ -2785,7 +2848,11 @@ class ClassApproval(models.Model):
         self.notes = notes
         self.decided_at = timezone.now()
         update_fields = ["decision", "decided_by", "notes", "decided_at"]
-        if decision == self.Decision.APPROVED and self.role == self.Role.GUILD_LEAD:
+        if (
+            decision == self.Decision.APPROVED
+            and self.role == self.Role.GUILD_LEAD
+            and self.opened_for_guild_id == self.class_offering.category.guild_id
+        ):
             self.approved_schedule_fingerprint = self.class_offering.schedule_fingerprint
             update_fields.append("approved_schedule_fingerprint")
         self.save(update_fields=update_fields)
