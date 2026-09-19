@@ -228,6 +228,13 @@ def describe_main():
             script.main()
             assert "PR description OK" in capsys.readouterr().out
 
+    def it_skips_every_rule_with_the_exemption_label(script, env, capsys):
+        env.setenv("PR_BODY", "Fixed it.")
+        env.setenv("PR_LABELS", json.dumps(["No-Description-Check"]))
+        env.setattr(script, "_git", _fake_git(changed="templates/classes/detail.html"))
+        script.main()
+        assert "not checking the description" in capsys.readouterr().out
+
     def it_warns_above_400_lines_without_failing(script, env, capsys):
         env.setattr(script, "_git", _fake_git(changed="classes/models.py", numstat="300\t101\tclasses/models.py"))
         script.main()
