@@ -451,7 +451,7 @@ Classes at Past Lives are open to everyone — you don't need to be a member or 
 ### Find a Class {#class-find}
 
 1. Open **Class Catalog** in the left menu, or go straight to [/classes/](/classes/).
-2. Narrow things down with the **Guild Type** and **When** dropdowns, or open **Filters** for price range, instructor, member discounts, and free classes.
+2. Narrow things down with the **Guild Type** and **When** dropdowns, or open **Filters** for price range, instructor, and member discounts.
 3. Click a class to see its description, dates, price, and how many spots are left.
 
 ![The class catalog — every upcoming class, with filters across the top.](/static/help/taking-a-class/01-class-catalog.png)
