@@ -1,6 +1,6 @@
 # plfog Standards
 
-How code in this repo is built and tested, and the traps that have cost real time, for every contributor, human or agent. Templates and CSS: `FRONTEND.md`. Domain language: `CONTEXT.md`. Help Center guides: `docs/HELP_AUTHORING.md`. Tool settings live in `pyproject.toml` and the pre-push hook enforces ruff and mypy; this file carries what no config says.
+How code in this repo is built and tested, and the traps that have cost real time, for every contributor, human or agent. Templates and CSS: `FRONTEND.md`. Domain language: `CONTEXT.md`. Help Center guides: `docs/HELP_AUTHORING.md`. Issues and pull requests: `CONTRIBUTING.md`. Tool settings live in `pyproject.toml` and the pre-push hook enforces ruff and mypy; this file carries what no config says.
 
 ## 1. Principles
 
@@ -60,7 +60,7 @@ Annotation-only imports go under `if TYPE_CHECKING:`; a runtime import that woul
 
 ## 9. Pull Requests
 
-- Every PR adds one `changelog.d/` fragment or carries the `no-changelog` label (`changelog.d/README.md`).
+- Issues and PRs follow `CONTRIBUTING.md`: a 160-character summary, the four-part description, at most 300 words, pictures for visible changes. Every PR adds one `changelog.d/` fragment or carries the `no-changelog` label (`changelog.d/README.md`).
 - A PR in a conflicting state gets no CI runs for new pushes, and nothing says so. Resolve the conflict and the next push runs CI.
 - After rebasing onto `main`, check migration numbering (`python manage.py makemigrations --check`); renumber past new arrivals and repoint `dependencies`.
 

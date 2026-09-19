@@ -4,6 +4,7 @@ Django app for membership, guilds, classes and studio rental at Past Lives Maker
 
 Read before changing code:
 - [STANDARDS.md](STANDARDS.md): how code is built and tested here, and the traps that have cost real time. The review bot holds every PR to it.
+- [CONTRIBUTING.md](CONTRIBUTING.md): before writing an issue or a PR description; CI checks PR descriptions against it.
 - [CODEBASE_INDEX.md](CODEBASE_INDEX.md): the app map. Each app's own `AGENTS.md` carries its detail.
 - [FRONTEND.md](FRONTEND.md): before touching a template, CSS or a page.
 
