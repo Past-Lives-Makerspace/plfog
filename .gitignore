@@ -45,7 +45,10 @@ membership/fixtures/*.json
 django.log
 .superpowers/
 .ruff_cache/
-.claude/
+# Local Claude Code state stays out; the shared commands and skills travel with the repo.
+.claude/*
+!.claude/commands/
+!.claude/skills/
 db.sqlite3.bak*
 docker-compose.override.yml
 

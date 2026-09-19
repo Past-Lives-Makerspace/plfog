@@ -982,6 +982,12 @@
     border-radius: 4px;
 }
 
+/* Clears the field or toggle above a button, so a formset's Delete button never sits
+   flush against the last input. Use this, never an inline margin-top. */
+.pl-btn--spaced {
+    margin-top: 0.75rem;
+}
+
 .pl-btn--icon {
     width: 36px;
     height: 36px;

@@ -96,8 +96,8 @@ def describe_GuildAnnouncement():
         a2 = GuildAnnouncement.objects.create(guild=guild, title="New", body="b")
         assert list(guild.announcements.all()) == [a2, a1]
 
-    # NOTE: the publish()-notifies-members test is deferred until Plan 2's
-    # core.notifications / core.models.Notification land (see DEFERRED.md).
+    # NOTE: the publish()-notifies-members test was deferred until Plan 2's
+    # core.notifications / core.models.Notification landed (DEFERRED.md, now in git history).
 
 
 def describe_guild_new_fields():

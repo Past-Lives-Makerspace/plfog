@@ -110,13 +110,13 @@
           {% if window.initial %}
             {# Real delete button: flips the hidden DELETE field and saves the whole form so no work is lost. #}
             <div style="display:none;">{{ window.DELETE }}</div>
-            <button type="button" class="pl-btn pl-btn--danger pl-btn--sm" style="margin-top:0.75rem;"
+            <button type="button" class="pl-btn pl-btn--danger pl-btn--sm pl-btn--spaced"
                     onclick="document.getElementById('{{ window.DELETE.id_for_label }}').checked = true; this.form.requestSubmit();">
               Delete
             </button>
           {% else %}
             <div style="display:none;">{{ window.DELETE }}</div>
-            <button type="button" class="pl-btn pl-btn--danger pl-btn--sm" style="margin-top:0.75rem;" onclick="this.closest('.hub-card').remove();">Remove</button>
+            <button type="button" class="pl-btn pl-btn--danger pl-btn--sm pl-btn--spaced" onclick="this.closest('.hub-card').remove();">Remove</button>
           {% endif %}
         </div>
         {% empty %}
@@ -138,7 +138,7 @@
             </div>
             {% include "components/form_field.html" with field=empty_window.is_active %}
             <div style="display:none;">{{ empty_window.DELETE }}</div>
-            <button type="button" class="pl-btn pl-btn--danger pl-btn--sm" style="margin-top:0.75rem;" onclick="this.closest('.hub-card').remove();">Remove</button>
+            <button type="button" class="pl-btn pl-btn--danger pl-btn--sm pl-btn--spaced" onclick="this.closest('.hub-card').remove();">Remove</button>
           {% endwith %}
         </div>
       </template>
@@ -226,13 +226,13 @@
           {% if row.instance.pk %}
             {# Real delete button: flips the hidden DELETE field and saves the whole form so no work is lost. #}
             <div style="display:none;">{{ row.DELETE }}</div>
-            <button type="button" class="pl-btn pl-btn--danger pl-btn--sm" style="margin-top:0.75rem;"
+            <button type="button" class="pl-btn pl-btn--danger pl-btn--sm pl-btn--spaced"
                     onclick="document.getElementById('{{ row.DELETE.id_for_label }}').checked = true; this.form.requestSubmit();">
               Delete
             </button>
           {% else %}
             <div style="display:none;">{{ row.DELETE }}</div>
-            <button type="button" class="pl-btn pl-btn--danger pl-btn--sm" style="margin-top:0.75rem;" onclick="this.closest('.hub-card').remove();">Remove</button>
+            <button type="button" class="pl-btn pl-btn--danger pl-btn--sm pl-btn--spaced" onclick="this.closest('.hub-card').remove();">Remove</button>
           {% endif %}
         </div>
         {% empty %}
@@ -257,7 +257,7 @@
             {% include "components/form_field.html" with field=empty_row.external_signup_url %}
             {% include "components/form_field.html" with field=empty_row.is_active %}
             <div style="display:none;">{{ empty_row.DELETE }}</div>
-            <button type="button" class="pl-btn pl-btn--danger pl-btn--sm" style="margin-top:0.75rem;" onclick="this.closest('.hub-card').remove();">Remove</button>
+            <button type="button" class="pl-btn pl-btn--danger pl-btn--sm pl-btn--spaced" onclick="this.closest('.hub-card').remove();">Remove</button>
           {% endwith %}
         </div>
       </template>
