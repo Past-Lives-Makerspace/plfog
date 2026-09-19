@@ -182,7 +182,7 @@ def describe_slideshow_page_render():
         html = client.get(_PAGE).content.decode()
         assert "Delete this screen" in html
         assert "pl-btn--danger" in html
-        assert "margin-top:0.75rem" in html
+        assert "pl-btn--spaced" in html
         # The modal names the cascade, and it is a SIBLING of the zones form.
         assert f"$dispatch('open-confirm', 'delete-zone-{zone.pk}')" in html
         assert "Every slide pinned to this screen is deleted too." in html

@@ -117,7 +117,7 @@ def describe_the_editor():
         html = client.get(_wanted_url(guild)).content.decode()
         row = html.split("Edit The List", 1)[1]
         assert "pl-btn--danger" in row
-        assert "margin-top:0.75rem;" in row
+        assert "pl-btn--spaced" in row
         assert 'style="display:none;">' in row
         # Never a toggle: the DELETE field must not go through form_field.html.
         assert "pl-toggle" not in row.split("Delete this request", 1)[0][-2000:]
