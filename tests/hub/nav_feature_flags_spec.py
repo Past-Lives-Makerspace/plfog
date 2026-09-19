@@ -277,6 +277,10 @@ def describe_the_registry():
         """Every registry feature is asserted somewhere here, so a new one cannot ship untested.
 
         ``teach`` has no simple href marker (one route, two labels) and lives in
-        tests/hub/teach_sidebar_spec.py; ``guilds`` is a heading plus a list, just above.
+        tests/hub/teach_sidebar_spec.py; ``guilds`` is a heading plus a list, just above;
+        ``knowledge_base`` points at an external host through ``KNOWLEDGE_BASE_URL`` and renders
+        nothing at all when that is unset, so a fixed href marker cannot describe it — it is
+        covered in tests/core/kb_sidebar_spec.py, which renders the sidebar with the setting on
+        and off, as an admin and as a member.
         """
-        assert {f.key for f in FEATURES} == set(_NAV_MARKERS) | {"teach", "guilds"}
+        assert {f.key for f in FEATURES} == set(_NAV_MARKERS) | {"teach", "guilds", "knowledge_base"}

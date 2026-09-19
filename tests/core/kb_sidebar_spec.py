@@ -42,7 +42,7 @@ def _login_member(client: Client, username: str = "kbmember"):
 
 # The sidebar entry, identified by the attribute only it carries. Asserting on the words
 # "Knowledge Base" matches the changelog modal too — this PR's own fragment says them.
-ENTRY = 'data-help-key="nav.knowledge_base"'
+ENTRY = 'data-help-key="nav.knowledge-base"'
 
 
 def _sidebar(client: Client) -> str:
@@ -116,4 +116,4 @@ def describe_the_help_key():
         lint cannot see one that arrives as an include parameter."""
         from core.help_registry import HELP_KEYS
 
-        assert "nav.knowledge_base" in HELP_KEYS
+        assert "nav.knowledge-base" in HELP_KEYS

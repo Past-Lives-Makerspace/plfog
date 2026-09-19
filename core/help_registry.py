@@ -613,7 +613,7 @@ HELP_KEYS: dict[str, HelpKeyEntry] = {
         "article_slug": None,
         "anchor": None,
     },
-    "nav.knowledge_base": {
+    "nav.knowledge-base": {
         "title": "The Knowledge Base",
         "short_text": (
             "Past Lives' policies, handbooks and governance documents, kept by the board. "
