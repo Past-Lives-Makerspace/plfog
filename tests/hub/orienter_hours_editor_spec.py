@@ -627,8 +627,8 @@ def describe_guild_hours_legacy_card():
         assert rule.start_time.hour == 18  # nothing saved
 
 
-def describe_every_other_week_hours():
-    """Issue 373: personal hours can recur every other week from the week of an anchor date."""
+def describe_hours_cadence():
+    """Issue 373: personal hours recur on a cadence (weekly to yearly) from the day they start."""
 
     def _lead(client: Client, username: str):
         user = _member_user(username, name="Lead Person")
@@ -640,12 +640,38 @@ def describe_every_other_week_hours():
     def it_renders_both_fields_in_the_modal(client: Client):
         user, guild = _lead(client, "fn_show")
         content = client.get(_form_url(guild, user.member.pk)).content.decode()
-        assert 'name="modal_rules-__prefix__-interval_weeks"' in content
+        assert 'name="modal_rules-__prefix__-cadence"' in content
         assert "Every other week" in content
-        assert "Starting the week of" in content
+        assert "Starting on" in content
         assert 'name="modal_rules-__prefix__-anchor_date"' in content
         assert 'type="date"' in content
         assert "pl-slot-date" in content  # the hub's dark-theme date picker treatment
+
+    def it_offers_all_seven_cadences(client: Client):
+        user, guild = _lead(client, "fn_seven")
+        content = client.get(_form_url(guild, user.member.pk)).content.decode()
+        for value, label in OrientationAvailability.Cadence.choices:
+            assert f'value="{value}"' in content
+            assert f">{label}</option>" in content
+        assert '<option value="weekly" selected>Every week</option>' in content
+
+    def it_saves_a_monthly_rule_and_names_it_in_the_overview(client: Client):
+        user, guild = _lead(client, "fn_monthly")
+        response = client.post(
+            _hours_url(guild),
+            _modal_rule_payload(
+                str(user.member.pk),
+                guild=guild,
+                **{"modal_rules-0-cadence": "monthly", "modal_rules-0-anchor_date": "2026-09-08"},
+            ),
+            HTTP_HX_REQUEST="true",
+        )
+        assert response.status_code == 204
+        rule = OrientationAvailability.objects.get(orienter=user.member)
+        assert rule.cadence == OrientationAvailability.Cadence.MONTHLY
+        assert rule.anchor_date == date(2026, 9, 8)
+        content = client.get(_tab_url(guild)).content.decode()
+        assert "· Every month on the 2nd Tuesday ·" in content
 
     def it_saves_an_every_other_week_rule_with_its_anchor(client: Client):
         user, guild = _lead(client, "fn_save")
@@ -654,24 +680,24 @@ def describe_every_other_week_hours():
             _modal_rule_payload(
                 str(user.member.pk),
                 guild=guild,
-                **{"modal_rules-0-interval_weeks": "2", "modal_rules-0-anchor_date": "2026-09-22"},
+                **{"modal_rules-0-cadence": "fortnightly", "modal_rules-0-anchor_date": "2026-09-22"},
             ),
             HTTP_HX_REQUEST="true",
         )
         assert response.status_code == 204
         rule = OrientationAvailability.objects.get(orienter=user.member)
-        assert rule.interval_weeks == OrientationAvailability.Interval.FORTNIGHTLY
+        assert rule.cadence == OrientationAvailability.Cadence.FORTNIGHTLY
         assert rule.anchor_date == date(2026, 9, 22)
 
     def it_errors_on_the_anchor_when_every_other_week_has_no_date(client: Client):
         user, guild = _lead(client, "fn_noanchor")
         response = client.post(
             _hours_url(guild),
-            _modal_rule_payload(str(user.member.pk), guild=guild, **{"modal_rules-0-interval_weeks": "2"}),
+            _modal_rule_payload(str(user.member.pk), guild=guild, **{"modal_rules-0-cadence": "fortnightly"}),
             HTTP_HX_REQUEST="true",
         )
         assert response.status_code == 200
-        assert "Pick the week these hours start." in response.content.decode()
+        assert "Pick the day these hours start." in response.content.decode()
         assert not OrientationAvailability.objects.filter(orienter=user.member).exists()
 
     def it_keeps_a_modal_post_without_the_field_weekly(client: Client):
@@ -681,7 +707,7 @@ def describe_every_other_week_hours():
         )
         assert response.status_code == 204
         rule = OrientationAvailability.objects.get(orienter=user.member)
-        assert rule.interval_weeks == OrientationAvailability.Interval.WEEKLY
+        assert rule.cadence == OrientationAvailability.Cadence.WEEKLY
         assert rule.anchor_date is None
 
     def it_keeps_a_legacy_shared_row_weekly_when_its_form_never_posts_the_field(client: Client):
@@ -689,7 +715,7 @@ def describe_every_other_week_hours():
         user, guild = _lead(client, "fn_legacy")
         rule = OrientationAvailabilityFactory(guild=guild)
         content = client.get(_tab_url(guild)).content.decode()
-        assert "guild_rules-0-interval_weeks" not in content
+        assert "guild_rules-0-cadence" not in content
         response = client.post(
             _hours_url(guild),
             {
@@ -710,14 +736,14 @@ def describe_every_other_week_hours():
         assert response.status_code == 302
         rule.refresh_from_db()
         assert rule.seats == 6
-        assert rule.interval_weeks == OrientationAvailability.Interval.WEEKLY
+        assert rule.cadence == OrientationAvailability.Cadence.WEEKLY
         assert rule.anchor_date is None
 
     def it_round_trips_an_existing_weekly_row(client: Client):
         user, guild = _lead(client, "fn_rt_weekly")
         rule = OrientationAvailabilityFactory(guild=guild, orienter=user.member)
         content = client.get(_form_url(guild, user.member.pk)).content.decode()
-        assert '<option value="1" selected>Every week</option>' in content
+        assert '<option value="weekly" selected>Every week</option>' in content
         assert 'name="modal_rules-0-anchor_date"' in content
         response = client.post(
             _hours_url(guild),
@@ -727,7 +753,7 @@ def describe_every_other_week_hours():
                     "modal_rules-INITIAL_FORMS": "1",
                     "modal_rules-0-id": str(rule.pk),
                     "modal_rules-0-orientation_type": str(rule.orientation_type_id),
-                    "modal_rules-0-interval_weeks": "1",
+                    "modal_rules-0-cadence": "weekly",
                     "modal_rules-0-anchor_date": "",
                     "modal_rules-0-seats": "6",
                 },
@@ -737,7 +763,7 @@ def describe_every_other_week_hours():
         assert response.status_code == 204
         rule.refresh_from_db()
         assert rule.seats == 6
-        assert rule.interval_weeks == OrientationAvailability.Interval.WEEKLY
+        assert rule.cadence == OrientationAvailability.Cadence.WEEKLY
         assert rule.anchor_date is None
 
     def it_round_trips_an_existing_every_other_week_row(client: Client):
@@ -745,11 +771,11 @@ def describe_every_other_week_hours():
         OrientationAvailabilityFactory(
             guild=guild,
             orienter=user.member,
-            interval_weeks=OrientationAvailability.Interval.FORTNIGHTLY,
+            cadence=OrientationAvailability.Cadence.FORTNIGHTLY,
             anchor_date=date(2026, 9, 22),
         )
         content = client.get(_form_url(guild, user.member.pk)).content.decode()
-        assert '<option value="2" selected>Every other week</option>' in content
+        assert '<option value="fortnightly" selected>Every other week</option>' in content
         assert 'value="2026-09-22"' in content
 
     def it_reads_every_other_tuesday_in_the_overview(client: Client):
@@ -757,7 +783,7 @@ def describe_every_other_week_hours():
         OrientationAvailabilityFactory(
             guild=guild,
             orienter=user.member,
-            interval_weeks=OrientationAvailability.Interval.FORTNIGHTLY,
+            cadence=OrientationAvailability.Cadence.FORTNIGHTLY,
             anchor_date=date(2026, 9, 22),
         )
         content = client.get(_tab_url(guild)).content.decode()

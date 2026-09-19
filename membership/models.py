@@ -11,7 +11,7 @@ from datetime import time as time_type
 from datetime import timedelta
 from decimal import Decimal
 from html import unescape
-from typing import TYPE_CHECKING, Any, NamedTuple, Self, cast
+from typing import Any, ClassVar, NamedTuple, Self, TYPE_CHECKING, cast
 
 from django.conf import settings
 from django.contrib.contenttypes.fields import GenericForeignKey, GenericRelation
@@ -9270,9 +9270,10 @@ class OrientationAvailability(models.Model):
     ("any orienter"). The owner of record is ``orientation_type`` (guild XOR
     equipment); ``guild`` is denormalized and empty for an equipment rule.
 
-    ``interval_weeks`` sets the cadence: 1 recurs every week; 2 recurs every other
-    week counted in Monday-based weeks from the week of ``anchor_date`` (see
-    :meth:`occurs_on`). A weekly rule ignores ``anchor_date``.
+    ``cadence`` sets how often the window recurs. Weekly needs nothing more. Every
+    other cadence counts from ``anchor_date``, the first day the rule runs: every
+    other week in Monday-based weeks, and the month-based cadences on the anchor's
+    weekday ordinal of its month (the 2nd Tuesday). See :meth:`occurs_on`.
 
     ``slot_minutes`` decides the window's shape: empty keeps the legacy one slot
     spanning the whole window; set, each occurrence is carved into slots that long,
@@ -9288,9 +9289,23 @@ class OrientationAvailability(models.Model):
         SATURDAY = 5, "Saturday"
         SUNDAY = 6, "Sunday"
 
-    class Interval(models.IntegerChoices):
-        WEEKLY = 1, "Every week"
-        FORTNIGHTLY = 2, "Every other week"
+    class Cadence(models.TextChoices):
+        WEEKLY = "weekly", "Every week"
+        FORTNIGHTLY = "fortnightly", "Every other week"
+        MONTHLY = "monthly", "Every month"
+        EVERY_2_MONTHS = "every_2_months", "Every 2 months"
+        EVERY_3_MONTHS = "every_3_months", "Every 3 months"
+        EVERY_6_MONTHS = "every_6_months", "Every 6 months"
+        YEARLY = "yearly", "Every year"
+
+    # Whole months between occurrences, for the month-based cadences only.
+    MONTHS_BY_CADENCE: ClassVar[dict[str, int]] = {
+        Cadence.MONTHLY: 1,
+        Cadence.EVERY_2_MONTHS: 2,
+        Cadence.EVERY_3_MONTHS: 3,
+        Cadence.EVERY_6_MONTHS: 6,
+        Cadence.YEARLY: 12,
+    }
 
     guild = models.ForeignKey(
         Guild,
@@ -9320,15 +9335,16 @@ class OrientationAvailability(models.Model):
     weekday = models.PositiveSmallIntegerField(
         choices=Weekday.choices, help_text="Day of week this rule recurs on (0=Mon … 6=Sun)."
     )
-    interval_weeks = models.PositiveSmallIntegerField(
-        choices=Interval.choices,
-        default=Interval.WEEKLY,
-        help_text="How often this window recurs: every week, or every other week from the week of anchor_date.",
+    cadence = models.CharField(
+        max_length=16,
+        choices=Cadence.choices,
+        default=Cadence.WEEKLY,
+        help_text="How often this window recurs. Every cadence but weekly counts from anchor_date.",
     )
     anchor_date = models.DateField(
         null=True,
         blank=True,
-        help_text="Any day in the first week an every other week rule runs. Ignored by a weekly rule.",
+        help_text="The first day this rule runs. Required for every cadence but weekly, which ignores it.",
     )
     start_time = models.TimeField(help_text="When the orientation window starts.")
     end_time = models.TimeField(help_text="When the orientation window ends.")
@@ -9372,34 +9388,55 @@ class OrientationAvailability(models.Model):
 
     @property
     def cadence_display(self) -> str:
-        """The rule's cadence in plain words: "Every Tuesday" or "Every other Tuesday"."""
-        if self.interval_weeks == self.Interval.FORTNIGHTLY:
-            return f"Every other {self.get_weekday_display()}"
-        return f"Every {self.get_weekday_display()}"
+        """The rule's cadence in plain words.
+
+        "Every Tuesday", "Every other Tuesday", "Every month on the 2nd Tuesday",
+        "Every 3 months on the 2nd Tuesday", "Every year on the 2nd Tuesday of September".
+        A month-based rule with no anchor (which ``clean`` refuses) falls back to its
+        bare cadence label rather than failing a page render.
+        """
+        weekday = self.get_weekday_display()
+        if self.cadence == self.Cadence.WEEKLY:
+            return f"Every {weekday}"
+        if self.cadence == self.Cadence.FORTNIGHTLY:
+            return f"Every other {weekday}"
+        if self.anchor_date is None:
+            return str(self.get_cadence_display())
+        ordinal = ("1st", "2nd", "3rd", "4th", "5th")[(self.anchor_date.day - 1) // 7]
+        if self.cadence == self.Cadence.YEARLY:
+            return f"Every year on the {ordinal} {weekday} of {self.anchor_date:%B}"
+        return f"{self.get_cadence_display()} on the {ordinal} {weekday}"
 
     def occurs_on(self, day: date_type) -> bool:
         """Whether this rule yields a window on ``day``.
 
-        The weekday must match. A weekly rule then always occurs. An every other
-        week rule occurs from its anchor week on, in alternate Monday-based weeks;
-        the anchor's own weekday does not matter, because "the week of" is what the
-        editor promises.
+        The weekday must match. A weekly rule then always occurs. Every other cadence
+        starts at ``anchor_date``: every other week runs in alternate Monday-based weeks
+        from the anchor's week (the anchor's own weekday does not matter); the
+        month-based cadences run on the anchor's weekday ordinal of the month (the 2nd
+        Tuesday) whenever the whole months since the anchor's month divide by the
+        cadence's month count. A month with no 5th such weekday gets nothing.
 
         Raises:
-            ValueError: An every other week rule with no ``anchor_date``. The hours
-                form refuses to save one, so this is a data error, not a state.
+            ValueError: A rule on any cadence but weekly with no ``anchor_date``. The
+                hours form and ``clean`` refuse to save one, so this is a data error.
         """
         if day.weekday() != self.weekday:
             return False
-        if self.interval_weeks == self.Interval.WEEKLY:
+        if self.cadence == self.Cadence.WEEKLY:
             return True
         if self.anchor_date is None:
-            raise ValueError(f"OrientationAvailability {self.pk} recurs every other week but has no anchor_date.")
+            raise ValueError(f"OrientationAvailability {self.pk} recurs {self.cadence} but has no anchor_date.")
         if day < self.anchor_date:
             return False
-        monday = day - timedelta(days=day.weekday())
-        anchor_monday = self.anchor_date - timedelta(days=self.anchor_date.weekday())
-        return ((monday - anchor_monday).days // 7) % self.interval_weeks == 0
+        if self.cadence == self.Cadence.FORTNIGHTLY:
+            monday = day - timedelta(days=day.weekday())
+            anchor_monday = self.anchor_date - timedelta(days=self.anchor_date.weekday())
+            return ((monday - anchor_monday).days // 7) % 2 == 0
+        if (day.day - 1) // 7 != (self.anchor_date.day - 1) // 7:
+            return False
+        months_apart = (day.year - self.anchor_date.year) * 12 + (day.month - self.anchor_date.month)
+        return months_apart % self.MONTHS_BY_CADENCE[self.cadence] == 0
 
     def clean(self) -> None:
         """Half hour grid guard for a carved window (the auto-registered Django admin runs this too).
@@ -9412,13 +9449,17 @@ class OrientationAvailability(models.Model):
         from django.core.exceptions import ValidationError
 
         super().clean()
-        if self.slot_minutes is None:
-            return
         errors: dict[str, str] = {}
-        for field in ("start_time", "end_time"):
-            value = getattr(self, field)
-            if value is not None and (value.minute % 30 != 0 or value.second or value.microsecond):
-                errors[field] = "Orientation hours line up on half hour marks, e.g. 9:00 or 9:30."
+        # A rule on any cadence but weekly with no anchor cannot say which days are its
+        # own, and occurs_on raises on it, which would abort slot generation for every
+        # owner in the run. The hub form refuses it; this is the same refusal for the admin.
+        if self.cadence != self.Cadence.WEEKLY and self.anchor_date is None:
+            errors["anchor_date"] = "Pick the day these hours start."
+        if self.slot_minutes is not None:
+            for field in ("start_time", "end_time"):
+                value = getattr(self, field)
+                if value is not None and (value.minute % 30 != 0 or value.second or value.microsecond):
+                    errors[field] = "Orientation hours line up on half hour marks, e.g. 9:00 or 9:30."
         if errors:
             raise ValidationError(errors)
 

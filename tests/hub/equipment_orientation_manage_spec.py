@@ -577,11 +577,26 @@ def describe_orientation_schedule_card():
             orientation_type,
             dana.member,
             weekday=1,
-            interval_weeks=OrientationAvailability.Interval.FORTNIGHTLY,
+            cadence=OrientationAvailability.Cadence.FORTNIGHTLY,
             anchor_date=date(2026, 9, 22),
         )
         content = _tab(client, equipment).content.decode()
         assert "Operator Basics · Every other Tuesday · 6:00 p.m. to 8:00 p.m. · 1 seat" in content
+
+    def it_reads_every_month_on_the_2nd_tuesday_for_a_monthly_rule(client: Client):
+        equipment = EquipmentFactory()
+        orientation_type = _owned_type(equipment)
+        dana = _named_manager(client, "sc_monthly_dana", equipment, "Dana Reyes")
+        _login(client, "sc_monthly", fog_role=Member.FogRole.ADMIN)
+        _personal_rule(
+            orientation_type,
+            dana.member,
+            weekday=1,
+            cadence=OrientationAvailability.Cadence.MONTHLY,
+            anchor_date=date(2026, 9, 8),
+        )
+        content = _tab(client, equipment).content.decode()
+        assert "Operator Basics · Every month on the 2nd Tuesday · 6:00 p.m. to 8:00 p.m. · 1 seat" in content
 
     def it_shows_a_plain_manager_only_their_own_group(client: Client):
         equipment = EquipmentFactory()
@@ -705,9 +720,10 @@ def describe_orientation_hours_form_view():
         _owned_type(equipment)
         me = _named_manager(client, "hf_fortnight", equipment, "Dana Reyes")
         content = client.get(_hours_form_url(equipment, me.member)).content.decode()
-        assert 'name="modal_rules-__prefix__-interval_weeks"' in content
+        assert 'name="modal_rules-__prefix__-cadence"' in content
         assert "Every other week" in content
-        assert "Starting the week of" in content
+        assert "Every month" in content
+        assert "Starting on" in content
         assert 'name="modal_rules-__prefix__-anchor_date"' in content
         assert "pl-slot-date" in content
 
@@ -715,13 +731,13 @@ def describe_orientation_hours_form_view():
         equipment = EquipmentFactory()
         orientation_type = _owned_type(equipment)
         me = _named_manager(client, "hf_fortnight_save", equipment, "Dana Reyes")
-        row = _rule_row(orientation_type, weekday=1, interval_weeks="2", anchor_date="2026-09-22")
+        row = _rule_row(orientation_type, weekday=1, cadence="fortnightly", anchor_date="2026-09-22")
         response = client.post(
             _hours_save_url(equipment), _modal_rules([row], scope=str(me.member.pk)), HTTP_HX_REQUEST="true"
         )
         assert response.status_code == 204
         rule = OrientationAvailability.objects.get(orienter=me.member)
-        assert rule.interval_weeks == OrientationAvailability.Interval.FORTNIGHTLY
+        assert rule.cadence == OrientationAvailability.Cadence.FORTNIGHTLY
         assert rule.anchor_date == date(2026, 9, 22)
 
     def it_403s_a_plain_manager_opening_someone_elses_or_the_shared_scope(client: Client):

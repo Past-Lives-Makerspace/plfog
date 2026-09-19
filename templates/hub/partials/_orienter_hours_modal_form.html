@@ -16,7 +16,7 @@ one slot for the whole window.
 {% endcomment %}
 {% if target %}
 <h2 class="hub-detail-label" style="margin-top:0; margin-bottom:0.25rem;">Editing {{ target.display_name }}'s Hours</h2>
-<p class="hub-text-muted" style="font-size:0.8125rem; margin-bottom:1rem;">Recurring windows when {{ target.display_name }} can give orientations, every week or every other week. We turn them into bookable slots automatically. Members book them by name.</p>
+<p class="hub-text-muted" style="font-size:0.8125rem; margin-bottom:1rem;">Recurring windows when {{ target.display_name }} can give orientations, weekly, every other week, or monthly and beyond. We turn them into bookable slots automatically. Members book them by name.</p>
 {% else %}
 <h2 class="hub-detail-label" style="margin-top:0; margin-bottom:0.25rem;">Editing Shared Hours</h2>
 <p class="hub-text-muted" style="font-size:0.8125rem; margin-bottom:1rem;">Shared weekly windows any manager can run. Keep, edit, or retire them; new recurring hours belong to a person.</p>
@@ -41,7 +41,7 @@ one slot for the whole window.
         <div style="flex:1; min-width:70px;">{% include "components/form_field.html" with field=rule.seats %}</div>
       </div>
       <div style="display:flex; gap:0.75rem; flex-wrap:wrap;">
-        <div style="flex:1; min-width:140px;">{% include "components/form_field.html" with field=rule.interval_weeks %}</div>
+        <div style="flex:1; min-width:140px;">{% include "components/form_field.html" with field=rule.cadence %}</div>
         <div style="flex:1; min-width:160px;">{% include "components/form_field.html" with field=rule.anchor_date %}</div>
       </div>
       <div style="display:flex; gap:0.75rem; flex-wrap:wrap;">
@@ -85,7 +85,7 @@ one slot for the whole window.
           <div style="flex:1; min-width:70px;">{% include "components/form_field.html" with field=er.seats %}</div>
         </div>
         <div style="display:flex; gap:0.75rem; flex-wrap:wrap;">
-          <div style="flex:1; min-width:140px;">{% include "components/form_field.html" with field=er.interval_weeks %}</div>
+          <div style="flex:1; min-width:140px;">{% include "components/form_field.html" with field=er.cadence %}</div>
           <div style="flex:1; min-width:160px;">{% include "components/form_field.html" with field=er.anchor_date %}</div>
         </div>
         <div style="display:flex; gap:0.75rem; flex-wrap:wrap;">

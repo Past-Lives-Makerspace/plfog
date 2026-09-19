@@ -2148,25 +2148,27 @@ class OrientationAvailabilityForm(forms.ModelForm):
     still validates); it defaults to the owner's first active type. Slot length and break
     are optional: blank keeps one slot for the whole window (the row stays NULL); a length
     carves the window, and a saved off-list length round-trips as its own choice. The cadence
-    is optional too: a POST without ``interval_weeks`` stays weekly (the legacy shared-rows
-    form never renders it), and every other week needs its anchor date.
+    is optional too: a POST without ``cadence`` stays weekly (the legacy shared-rows form
+    never renders it), and every cadence but weekly needs its anchor date.
     """
 
     start_time = forms.ChoiceField(choices=half_hour_time_choices(required=True), label="Start time")
     end_time = forms.ChoiceField(choices=half_hour_time_choices(required=True), label="End time")
-    # Optional with a weekly empty value so a POST without the field (the legacy shared-rows
-    # form in guild_edit.html never renders it) stays weekly. Stubs type empty_value as str.
-    interval_weeks = forms.TypedChoiceField(
-        coerce=int,
+    # Optional so a POST without the field (the legacy shared-rows form in guild_edit.html
+    # never renders it) stays weekly: clean_cadence turns the blank into weekly.
+    cadence = forms.ChoiceField(
         required=False,
-        empty_value=OrientationAvailability.Interval.WEEKLY,  # type: ignore[arg-type]
-        choices=OrientationAvailability.Interval.choices,
+        choices=OrientationAvailability.Cadence.choices,
+        initial=OrientationAvailability.Cadence.WEEKLY,
         label="Repeats",
     )
     anchor_date = forms.DateField(
         required=False,
-        label="Starting the week of",
-        help_text="For every other week: any day in the first week these hours run.",
+        label="Starting on",
+        help_text=(
+            "The first day these hours run. A monthly rule keeps this day's weekday of the month, "
+            "for example the 2nd Tuesday."
+        ),
         widget=forms.DateInput(
             # Same treatment as the one-off slot date: the whole field opens the picker, and
             # .pl-slot-date inverts the black picker icon on the dark theme.
@@ -2195,7 +2197,7 @@ class OrientationAvailabilityForm(forms.ModelForm):
         fields = [
             "orientation_type",
             "weekday",
-            "interval_weeks",
+            "cadence",
             "anchor_date",
             "start_time",
             "end_time",
@@ -2245,12 +2247,14 @@ class OrientationAvailabilityForm(forms.ModelForm):
     def clean_buffer_minutes(self) -> int:
         return cast("int | None", self.cleaned_data.get("buffer_minutes")) or 0
 
+    def clean_cadence(self) -> str:
+        return cast(str, self.cleaned_data["cadence"]) or str(OrientationAvailability.Cadence.WEEKLY)
+
     def clean(self) -> dict[str, Any]:
         cleaned = cast(dict[str, Any], super().clean())
-        if cleaned.get("interval_weeks") == OrientationAvailability.Interval.FORTNIGHTLY and not cleaned.get(
-            "anchor_date"
-        ):
-            self.add_error("anchor_date", "Pick the week these hours start.")
+        cadence = cleaned.get("cadence")
+        if cadence and cadence != OrientationAvailability.Cadence.WEEKLY and not cleaned.get("anchor_date"):
+            self.add_error("anchor_date", "Pick the day these hours start.")
         start = cleaned.get("start_time")
         end = cleaned.get("end_time")
         if start and end and end <= start:
