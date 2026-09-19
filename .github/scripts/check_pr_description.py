@@ -23,6 +23,8 @@ MAX_WORDS = 300
 TARGET_LINES = 400
 SECTIONS = ("Problem", "Solution", "Impact / Risks", "Verification")
 SKIP_PICTURES_LABEL = "no-screenshots"
+#: A maintainer's exemption for a PR that cannot follow the format, such as one opened before it existed.
+EXEMPT_LABEL = "no-description-check"
 
 _UI_PREFIXES = ("templates/", "static/css/", "static/js/")
 _PICTURE_SUFFIXES = (".png", ".jpg", ".jpeg", ".gif", ".webp", ".svg")
@@ -119,6 +121,9 @@ def _git(*args: str) -> str:
 def main() -> None:
     body = os.environ.get("PR_BODY") or ""
     labels = {str(label).strip().lower() for label in json.loads(os.environ.get("PR_LABELS") or "[]")}
+    if EXEMPT_LABEL in labels:
+        print(f"'{EXEMPT_LABEL}' label present; not checking the description.")
+        return
     span = f"{os.environ['BASE_SHA']}...{os.environ['HEAD_SHA']}"
 
     errors = description_errors(body)

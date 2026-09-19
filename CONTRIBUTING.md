@@ -27,4 +27,4 @@ Rules marked ✓ are checked by `.github/workflows/pr-description.yml`, which re
 - ✓ (warning) About 400 changed lines of code or fewer. Docs, migrations, lock files, images and changelog fragments do not count.
 - Every PR also adds a changelog fragment (`changelog.d/README.md`).
 
-Bots' PRs are exempt.
+Bots' PRs are exempt. A maintainer can exempt any other PR with the `no-description-check` label, for one opened before these rules or one that cannot follow them.
