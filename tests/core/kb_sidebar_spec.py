@@ -117,3 +117,20 @@ def describe_the_help_key():
         from core.help_registry import HELP_KEYS
 
         assert "nav.knowledge-base" in HELP_KEYS
+
+
+def describe_the_shipped_default():
+    """Every spec above sets ``KNOWLEDGE_BASE_URL`` before asserting on it, which is why a blank
+    default shipped and the entry was invisible in production while the suite stayed green. These
+    two assert the value the app carries when nobody configures anything."""
+
+    def it_is_a_real_address():
+        from plfog.settings import DEFAULT_KNOWLEDGE_BASE_URL
+
+        assert DEFAULT_KNOWLEDGE_BASE_URL.startswith("https://")
+
+    def it_renders_the_entry_with_nothing_configured(client: Client):
+        """No ``settings.KNOWLEDGE_BASE_URL =`` line on purpose: this is the deployed behaviour,
+        and it fails if the default goes back to blank."""
+        _login_member(client)
+        assert ENTRY in _sidebar(client)

@@ -13,13 +13,16 @@ services:
     envVars:
       - key: PYTHON_VERSION
         value: "3.13.0"
-      # Where the Knowledge Base lives. Not a secret — it is a public URL a member's browser is
-      # sent to — so it is declared here and deploys with the service rather than being set by
-      # hand. Blank would hide the sidebar entry entirely (templates/hub/base.html gates on it),
-      # which is why it has a real value and not `sync: false`.
+      # Where the Knowledge Base lives — an override, NOT what makes the sidebar entry appear.
+      # This file only reaches a service whose blueprint is applied, and on 2026-09-19 this entry
+      # did not: the code deployed, the variable never arrived, and the sidebar entry was missing
+      # in production with nothing in the logs to say so. The address now ships in the repository
+      # as DEFAULT_KNOWLEDGE_BASE_URL in plfog/settings.py, so deploying the code deploys the
+      # link. Kept here because a value set here still wins, and because it documents the address.
       #
-      # TODO: change to https://kb.pastlives.space once that A record exists. The KB answers on
-      # both; the sslip.io hostname is the one that resolves today and it carries a valid cert.
+      # TODO: change to https://kb.pastlives.space once that A record exists — in settings.py
+      # first, which is the one that takes effect. The KB answers on both; the sslip.io hostname
+      # is the one that resolves today and it carries a valid cert.
       - key: KNOWLEDGE_BASE_URL
         value: "https://179.237.83.7.sslip.io"
       # The OIDC signing key is deliberately NOT here: this repository is public, and a private
