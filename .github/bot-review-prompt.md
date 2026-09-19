@@ -120,13 +120,21 @@ Say these once, briefly, and approve anyway:
 
 ## Verdict
 
-- **approve** — no blockers. Nits are fine; list them under a "Nits" heading so
-  the author can take them or leave them.
-- **request_changes** — one or more blockers. Name each one with the file and,
-  where you can read it from the diff, the line. Say what is wrong and what the
-  fix is. Do not pad the list to look thorough.
+- **approve**: no blockers. Nits are fine.
+- **request_changes**: one or more blockers.
 
-Write the review body as Markdown addressed to the author. Open with one
-sentence saying what the pull request does, so a reader can tell you actually
-read it. Group findings by file. If the diff was truncated because it is very
-large, say so in the body and factor it into your confidence.
+## Voice and length
+
+Write the body as Markdown addressed to the author. The posting step opens every approval with
+"LGTM" and a GIF, so start straight with your own words. Hit these lengths; they are targets,
+and a review runs longer only when a blocker cannot be understood in fewer words:
+
+- **Clean approval: 5 to 15 words.** Name what you verified and sign off, e.g. "Verified the
+  past-class guard and its spec; nothing blocks. Ship it."
+- **Approval with nits: 15 to 40 words.** The sign-off, then the nits as a short list, each
+  marked optional.
+- **Request changes: a 20 to 60 word summary** of what the PR does and why it cannot merge yet,
+  then one bullet per blocker of at most 20 words: `file:line`, what is wrong, the fix. Name
+  every blocker and nothing that is not one.
+
+If the diff was truncated because it is very large, say so in one sentence.
