@@ -16,7 +16,7 @@ Django 5 app for Past Lives Makerspace (Portland, OR). Repo: github.com/Past-Liv
 
 ## Key reference files
 
-- `CLAUDE.md` — coding standards (fat models, skinny views, type hints, 100% coverage)
+- `STANDARDS.md` — coding standards (fat models, skinny views, type hints, coverage) and known traps
 - `FRONTEND.md` — component library and design system rules
 - `CODEBASE_INDEX.md` — full app/model/URL map
 
@@ -28,5 +28,5 @@ Django 5 app for Past Lives Makerspace (Portland, OR). Repo: github.com/Past-Liv
 
 ## Related memories
 
-Conventions, commands, tooling and the definition of done all live in `CLAUDE.md`, which is the
+Conventions, commands, tooling and the definition of done all live in `AGENTS.md` and `STANDARDS.md`, which are the
 single source of truth. Do not duplicate them here.

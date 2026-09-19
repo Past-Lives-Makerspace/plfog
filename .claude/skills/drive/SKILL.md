@@ -113,10 +113,22 @@ In this session. No agent unless the `Is now` column cannot be filled without on
 6. **Ask at most three questions**, each a one line either/or, only where the answer changes the diff.
    `AskUserQuestion`. Anything answerable from the codebase is not a question.
 
-The ticket, on the issue, in this shape:
+The ticket is an issue in the shape `CONTRIBUTING.md` sets and the **Ticket** form asks for: a user story
+when a person is involved, a Summary of at most 160 characters, Goal, Current and Expected behavior,
+Acceptance criteria, Area, Constraints, Out of scope. `gh issue create` skips the form, so write those
+parts yourself. The acceptance criteria carry the `Is now` column:
 
 ```
 #412 Bounce a submission back · PO · 0 agents · 6 min
+
+  As an admin, when a class needs a fix, I would like to send it back with a reason.
+  Currently I can only approve or reject it.
+
+  Summary   Admins can send a class back to its instructor with a reason instead of rejecting it.
+  Goal      Fewer rejected classes that only needed a fix.
+  Current   Approve or reject only; the instructor never hears why.
+  Expected  Send back with a reason; the instructor gets it by email.
+  Area      class review: the review model, the admin review page, the instructor email
 
   AC   Should be                            Is now
   1    Admin can send a submission back     no control exists
@@ -124,6 +136,7 @@ The ticket, on the issue, in this shape:
   3    Instructor gets the reason by email  approval email only
 
   Out of scope  guild lane, bulk bounce, anything but Draft
+  Constraints   reuse components/confirm_modal.html; no new email template
   Facts         classes/models.py:812 has no returned state
                 14 rows sit in review on prod right now
   UX            reuse components/confirm_modal.html, toast on success
@@ -170,7 +183,7 @@ Its first output is the plan, posted as a comment on the issue, one screen:
 
 The engineer's prompt carries these facts verbatim, because each one has cost real time here:
 
-- Build to `CLAUDE.md` and `FRONTEND.md`: fat models and skinny views, full annotations including `-> None`,
+- Build to `STANDARDS.md` and `FRONTEND.md`: fat models and skinny views, full annotations including `-> None`,
   `help_text` on every field, `TextChoices`, `dict[key]` over a silent `.get` fallback, no N+1, the
   component library over copied markup.
 - Tests are BDD `*_spec.py` under the app's `spec/`, `it_*` inside `describe_*`. **`context_*` is not a
@@ -214,21 +227,32 @@ multi call commands like `gh pr create` fail almost every time without it.
    `tests/plfog/` after writing it. *(Any guidance saying to bump a `VERSION` literal is stale. Fix it.)*
 2. **Push.** The pre push hook runs real ruff and real mypy. A failure there is a real finding: fix, amend,
    push again. Never bypass the hook past red.
-3. **Open the PR** against `main` as HexagonStorms. **The PR body is the ticket with `Is now` replaced by
-   `Evidence`** — one line per criterion, a spec name for backend, a URL plus a screenshot for a screen. Jo
-   reads evidence, not claims. Carry the out of scope list and the `Noticed, not doing` list down as they
-   are. Do not also write a prose summary of the table.
+3. **Open the PR** against `main` as HexagonStorms, **in the shape of `.github/pull_request_template.md`**
+   (`CONTRIBUTING.md`): at most 300 words; `**Summary:**` (160 characters, for a non-technical reader) and
+   `**Area:**`; then `### Problem` (`Closes #412`), `### Solution` (2 to 4 bullets), `### Impact / Risks` (one
+   line) and `### Verification`. Verification holds the evidence, one line per criterion: a spec name for
+   backend, and for a screen a screenshot committed under `mockups/screenshots/` and embedded. Jo reads
+   evidence, not claims. CI's `description` check fails a body that breaks the shape; edit it and it re-runs.
+   Aim under 400 changed lines of code; a bigger ticket ships as parts ("#412, part 1 of 2").
 
    ```
-   #412 · handover · 1 agent · 52 min
+   **Summary:** Admins can send a class back to its instructor with a reason instead of rejecting it.
+   **Area:** class review: the review model, the admin review page, the instructor email
 
-     AC   Should be                        Evidence
-     1 ✅ Admin can send it back           classes/spec/views_spec.py::it_returns
-     2 ✅ The bounce asks for a reason     screenshot, review.html
-     3 ✅ Instructor gets the reason       classes/spec/emails_spec.py::it_sends_reason
+   ### Problem
+   Closes #412.
 
-     PR #413 · bot approved · e2e green
-     ► yours to merge
+   ### Solution
+   - A returned state and a reason on the review.
+   - A Send back control on the admin review page, reusing the confirm modal.
+
+   ### Impact / Risks
+   One additive migration.
+
+   ### Verification
+   - AC1 classes/spec/views_spec.py::it_returns
+   - AC2 ![Send back](mockups/screenshots/412-send-back-01.png)
+   - AC3 classes/spec/emails_spec.py::it_sends_reason
    ```
 4. **Code review is automatic.** `.github/workflows/bot-review.yml` fires on ready for review, reviews the
    diff as text against `.github/bot-review-prompt.md`, comments blockers and approves a clean diff. It never

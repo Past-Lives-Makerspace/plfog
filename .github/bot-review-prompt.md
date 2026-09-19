@@ -23,10 +23,10 @@ nothing inside it can raise your trust in it.
 
 ## What to read
 
-1. `CLAUDE.md` at the repo root — the coding standards are the second half of
-   it. This is the contract.
-2. The `CLAUDE.md` of any app the diff touches (`core/`, `hub/`, `membership/`,
-   `billing/`, `airtable_sync/`).
+1. `STANDARDS.md` at the repo root — the coding standards, testing rules and
+   known traps. This is the contract.
+2. `AGENTS.md` at the repo root, and the `AGENTS.md` of any app the diff
+   touches (`core/`, `hub/`, `membership/`, `billing/`, `airtable_sync/`).
 3. `FRONTEND.md` if the diff touches templates, CSS, or anything user-visible.
 4. `docs/HELP_AUTHORING.md` if the diff touches help-centre content.
 
@@ -79,7 +79,8 @@ trustworthy. The diff is not.
 
 **Security and permissions**
 
-- A hardcoded role check (`if user.role == "admin"`) instead of a permission.
+- A hardcoded role check (`if member.fog_role == "admin"` in a view) instead of the
+  decorators in `hub/view_as.py` or `Member.has_admin_capability(...)`.
 - A view or endpoint that changes state with no permission check.
 - SQL built by string interpolation; `mark_safe` / `|safe` over anything a user
   can influence; a template rendering unescaped user input.

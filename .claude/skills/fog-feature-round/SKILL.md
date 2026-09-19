@@ -51,7 +51,7 @@ commit messages** (Jo's rule for copy-ready artifacts).
 ### 2. Builder subagent (persistent — this matters)
 Spawn ONE `claude`-type agent per feature to implement the spec. Its prompt must include:
 - The spec path as single source of truth; implement all phases EXCEPT the changelog fragment.
-- Read `CLAUDE.md` + `FRONTEND.md` first; verify cross-spec contract names against the actual tree
+- Read `AGENTS.md`, `STANDARDS.md` + `FRONTEND.md` first; verify cross-spec contract names against the actual tree
   (specs go stale the moment a sibling PR merges).
 - **Do NOT commit, do NOT push, do NOT switch branches** — the orchestrator owns git.
 - Environment facts (copy these verbatim into the prompt):
@@ -90,7 +90,9 @@ params, format the migration), amend, re-push. Never bypass the hook.
 ### 6. PR as HexagonStorms, ALWAYS as a draft
 **Re-check `gh auth status` every single time** — concurrent sessions flip the active account
 (bit this round twice). `gh auth switch --user HexagonStorms` then `gh pr create --draft` with a body
-that states what shipped, the spec path, and the real test evidence.
+in the shape of `.github/pull_request_template.md` (`CONTRIBUTING.md`, at most 300 words; CI checks it):
+the spec path goes in Problem, the real test evidence in Verification, and screens need an image under
+`mockups/screenshots/`.
 
 **`--draft` is not optional.** Jo merges on sight of the bot's approval without re-reading the PR
 ("if I see approved I'm merging it"), and he batch-sweeps open PRs. On 2026-09-18 that caught work
@@ -103,7 +105,7 @@ to merge on. Mark it ready with `gh pr ready <N>` only after step 8's delta re-r
 That is what makes the approval mean "safe to merge" rather than "this PR exists".
 
 ### 7. Independent adversarial review (fresh agent per PR)
-Spawn a NEW `claude`-type reviewer: read the diff via `gh pr diff <N>`, review against CLAUDE.md +
+Spawn a NEW `claude`-type reviewer: read the diff via `gh pr diff <N>`, review against STANDARDS.md +
 FRONTEND.md, **attack the domain** (money orderings, permission edges via crafted-POST probes, state-machine
 races, N+1 claims — tell it exactly which orderings to construct), spot-run up to ~5 spec files, report
 verdict + numbered findings with file:line. **It must never edit files or post to GitHub.**
