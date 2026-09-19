@@ -1,0 +1,6 @@
+bump = "patch"
+date = "2026-09-18"
+title = "The Knowledge Base entry actually appears"
+changes = [
+  "The Knowledge Base entry announced in the last release was missing from the sidebar. It is there now.",
+]
