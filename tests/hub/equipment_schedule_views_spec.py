@@ -1112,6 +1112,27 @@ def describe_equipment_late_cancel_fee_copy():
         assert PLAIN_CANCEL in content
         assert WARNING not in content
 
+    def it_keeps_the_plain_cancel_message_for_a_row_that_already_started(client: Client):
+        # A started row still shows Cancel (the guard refuses the POST); with the fee on its
+        # modal must not promise a fee that can never be charged.
+        user = _login(client, "fee_warn_started")
+        equipment = _open_tool()
+        _set_late_fee()
+        now = timezone.now()
+        row = EquipmentReservationFactory(
+            equipment=equipment,
+            member=user.member,
+            starts_at=now - timedelta(minutes=30),
+            ends_at=now + timedelta(minutes=30),
+        )
+        content = _schedule(client, equipment)
+        assert PLAIN_CANCEL in content
+        assert WARNING not in content
+        response = client.post(reverse("hub_equipment_reservation_cancel", args=[equipment.slug, row.pk]))
+        assert response.status_code == 200
+        assert "already started" in _toast(response)
+        assert not TabEntry.objects.exists()
+
     def it_puts_the_fee_on_the_tab_when_the_member_cancels_late_from_the_schedule(client: Client):
         user = _login(client, "fee_view_cancel")
         equipment = _open_tool(name="CNC Router")

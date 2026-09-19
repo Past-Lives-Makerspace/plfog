@@ -12,6 +12,7 @@ from typing import TYPE_CHECKING, Any
 from django.conf import settings
 from django.contrib.contenttypes.fields import GenericForeignKey
 from django.contrib.contenttypes.models import ContentType
+from django.core.validators import MinValueValidator
 from django.db import models, transaction
 from django.db.models.functions import Coalesce
 from django.utils import timezone
@@ -597,6 +598,7 @@ class SiteConfiguration(models.Model):
         max_digits=6,
         decimal_places=2,
         default=Decimal("0.00"),
+        validators=[MinValueValidator(Decimal("0"))],
         verbose_name="Equipment late cancellation fee",
         help_text=(
             "Dollars added to a member's tab when they cancel an equipment reservation with less "
@@ -605,6 +607,7 @@ class SiteConfiguration(models.Model):
     )
     equipment_late_cancel_notice_hours = models.PositiveIntegerField(
         default=48,
+        validators=[MinValueValidator(1)],
         verbose_name="Equipment cancellation notice (hours)",
         help_text=(
             "How many hours before a reservation starts a member can still cancel for free. "

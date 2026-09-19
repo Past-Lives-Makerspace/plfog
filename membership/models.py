@@ -11962,8 +11962,9 @@ class EquipmentReservation(models.Model):
 
         The site's ``equipment_late_cancel_fee`` when one is set (> 0) and the start is
         less than ``equipment_late_cancel_notice_hours`` away; ``Decimal("0")`` otherwise.
-        Exactly on the boundary is NOT late (strict ``<``). Measured against now, so read
-        it before anything that takes time.
+        Exactly on the boundary is NOT late (strict ``<``), and a row that already started
+        carries none, because the self cancel guard refuses it before any fee is read.
+        Measured against now, so read it before anything that takes time.
         """
         from core.models import SiteConfiguration
 
@@ -11971,7 +11972,10 @@ class EquipmentReservation(models.Model):
         fee: Decimal = config.equipment_late_cancel_fee
         if fee <= 0:
             return Decimal("0")
-        if self.starts_at - timezone.now() < timedelta(hours=config.equipment_late_cancel_notice_hours):
+        now = timezone.now()
+        if self.starts_at <= now:
+            return Decimal("0")
+        if self.starts_at - now < timedelta(hours=config.equipment_late_cancel_notice_hours):
             return fee
         return Decimal("0")
 
@@ -12012,11 +12016,22 @@ class EquipmentReservation(models.Model):
             if self.starts_at <= now:
                 raise EquipmentError("This reservation already started. Ask a manager if it needs cancelling.")
             fee = self.late_cancel_fee
+        # A conditional update keyed on status, not a save: two requests that both loaded
+        # this row as CONFIRMED (two tabs, a double POST, a network retry) both pass the
+        # guard above, and a plain save would let both of them charge the fee. Only the
+        # request that flips the row owns the cancel; the other is told it was already done.
+        flipped = EquipmentReservation.objects.filter(pk=self.pk, status=self.Status.CONFIRMED).update(
+            status=self.Status.CANCELLED,
+            cancelled_by=actor,
+            cancelled_reason=cleaned_reason,
+            cancelled_at=now,
+        )
+        if not flipped:
+            raise EquipmentError("This reservation was already cancelled.")
         self.status = self.Status.CANCELLED
         self.cancelled_by = actor
         self.cancelled_reason = cleaned_reason
         self.cancelled_at = now
-        self.save(update_fields=["status", "cancelled_by", "cancelled_reason", "cancelled_at"])
         if acting_as_manager and not is_own_row:
             from membership import equipment as equipment_service
 

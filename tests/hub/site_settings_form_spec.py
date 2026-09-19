@@ -59,6 +59,34 @@ def describe_SiteSettingsForm_equipment():
         assert config.equipment_late_cancel_fee == Decimal("0.00")
         assert config.equipment_late_cancel_notice_hours == 48
 
+    def _bound(**overrides: str) -> SiteSettingsForm:
+        # The three required fields plus the one under test; everything else is optional.
+        data = {
+            "org_name": "Past Lives Makerspace",
+            "registration_mode": SiteConfiguration.RegistrationMode.INVITE_ONLY,
+            "member_event_policy": SiteConfiguration.MemberEventPolicy.APPROVAL,
+            "equipment_late_cancel_fee": "35.00",
+            "equipment_late_cancel_notice_hours": "48",
+        }
+        data.update(overrides)
+        return SiteSettingsForm(data, instance=SiteConfiguration.load())
+
+    def it_accepts_a_fee_and_a_window():
+        form = _bound()
+        assert form.is_valid(), form.errors
+
+    def it_rejects_a_negative_fee():
+        # A negative fee is not "off"; it is a typo, and it must not reach the tab rail.
+        form = _bound(equipment_late_cancel_fee="-5.00")
+        assert not form.is_valid()
+        assert "equipment_late_cancel_fee" in form.errors
+
+    def it_rejects_a_zero_hour_window():
+        # Hours 0 would render "Cancel at least 0 hours ahead" while no row could ever be late.
+        form = _bound(equipment_late_cancel_notice_hours="0")
+        assert not form.is_valid()
+        assert "equipment_late_cancel_notice_hours" in form.errors
+
 
 def describe_SiteSettingsForm_signage():
     def it_no_longer_carries_any_signage_field():

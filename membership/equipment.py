@@ -89,10 +89,9 @@ def late_cancel_policy() -> str:
     fee = config.equipment_late_cancel_fee
     if fee <= 0:
         return ""
-    return (
-        f"Cancel at least {config.equipment_late_cancel_notice_hours} hours ahead. "
-        f"Cancelling later adds a ${fee:.2f} late fee to your tab."
-    )
+    hours = config.equipment_late_cancel_notice_hours
+    unit = "hour" if hours == 1 else "hours"
+    return f"Cancel at least {hours} {unit} ahead. Cancelling later adds a ${fee:.2f} late fee to your tab."
 
 
 def late_cancel_warning() -> str:

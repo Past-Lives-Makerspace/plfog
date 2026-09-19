@@ -660,6 +660,16 @@ def describe_late_cancel_fee():
         with patch("django.utils.timezone.now", return_value=now):
             assert reservation.late_cancel_fee == Decimal("35.00")
 
+    def it_is_zero_for_a_row_that_already_started():
+        # The schedule still lists a started row with a Cancel button; its modal must not
+        # threaten a fee the "already started" guard will never let cancel() charge.
+        _set_late_fee()
+        now = timezone.now()
+        reservation = EquipmentReservationFactory(
+            member=MemberFactory(), starts_at=now - timedelta(minutes=30), ends_at=now + timedelta(minutes=30)
+        )
+        assert reservation.late_cancel_fee == Decimal("0")
+
 
 def describe_cancel_late_fee():
     """#408: a self cancel inside the notice window puts the fee on the member's tab; nothing else can."""
@@ -754,6 +764,25 @@ def describe_cancel_late_fee():
         assert f"Late cancellation fee not added for reservation {reservation.pk}: " in caplog.text
         assert "would exceed tab limit" in caplog.text
 
+    def it_charges_once_when_two_stale_copies_cancel_the_same_row():
+        # Two requests that both loaded the row as CONFIRMED (two tabs, a double POST, a
+        # network retry): the conditional update lets exactly one of them own the cancel.
+        _set_late_fee()
+        member = _linked_member("fee_double")
+        row = _hours_ahead(member, 24)
+        first = EquipmentReservation.objects.get(pk=row.pk)
+        second = EquipmentReservation.objects.get(pk=row.pk)
+        first.cancel(member)
+        with pytest.raises(EquipmentError, match="already cancelled"):
+            second.cancel(member)
+        assert TabEntry.objects.count() == 1
+        row.refresh_from_db()
+        assert row.status == EquipmentReservation.Status.CANCELLED
+        assert row.cancelled_at == first.cancelled_at
+        # The loser keeps the row as it loaded it; nothing on it claims a cancel it did not make.
+        assert second.status == EquipmentReservation.Status.CONFIRMED
+        assert second.cancelled_at is None
+
 
 def describe_late_cancel_copy():
     """#408: the two member facing sentences, built once from Site Settings."""
@@ -779,6 +808,15 @@ def describe_late_cancel_copy():
         )
         assert equipment_service.late_cancel_warning().startswith(
             "This is inside the 6 hour notice window, so a $12.50 "
+        )
+
+    def it_says_hour_not_hours_for_a_one_hour_window():
+        _set_late_fee("35.00", 1)
+        assert equipment_service.late_cancel_policy() == (
+            "Cancel at least 1 hour ahead. Cancelling later adds a $35.00 late fee to your tab."
+        )
+        assert equipment_service.late_cancel_warning().startswith(
+            "This is inside the 1 hour notice window, so a $35.00 "
         )
 
 
