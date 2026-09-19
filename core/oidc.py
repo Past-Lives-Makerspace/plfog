@@ -26,19 +26,25 @@ from typing import TYPE_CHECKING
 
 from oauth2_provider.oauth2_validators import OAuth2Validator
 
-from membership.models import Member
-
 if TYPE_CHECKING:
     from django.contrib.auth.models import AbstractBaseUser
+    from oauthlib.common import Request
+
+    from membership.models import Member
 
 
 # Role → the KB's access tier. The KB's ladder is PUBLIC 0, MEMBER 10, OFFICER 20, ADMIN1 30,
 # ADMIN2 40; it applies what arrives here rather than deciding for itself, so this table is the
 # single place a role becomes access across both applications.
+#
+# Keys are the `Member.FogRole` values spelled out, so that `membership.models` is not imported at
+# module scope — the rest of `core` deliberately avoids that (see `core.help_registry.url_for`).
+# `oidc_claims_spec` asserts this table's keys equal `Member.FogRole.values`, so a role renamed or
+# added fails there rather than drifting.
 KB_LEVELS: dict[str, int] = {
-    Member.FogRole.MEMBER: 10,
-    Member.FogRole.GUILD_OFFICER: 20,
-    Member.FogRole.ADMIN: 40,
+    "member": 10,
+    "guild_officer": 20,
+    "admin": 40,
 }
 
 # A signed-in user with no membership record — a bare staff login, say. Zero is the KB's PUBLIC
@@ -46,14 +52,20 @@ KB_LEVELS: dict[str, int] = {
 NO_MEMBERSHIP_LEVEL = 0
 
 
-def kb_level_for(member) -> int:
-    """The KB tier this member holds. An unmapped role gets PUBLIC, never a guess upward."""
+def kb_level_for(member: Member | None) -> int:
+    """The KB tier this member holds.
+
+    Indexed, not `.get()`: `KB_LEVELS` covers every `FogRole` and a spec holds it to that, so a
+    missing key is a bug and this project fails loudly. The quiet alternative is worse than a
+    traceback — an unmapped role would drop the member to PUBLIC in a *different* application,
+    where nobody would connect the two.
+    """
     if member is None:
         return NO_MEMBERSHIP_LEVEL
-    return KB_LEVELS.get(member.fog_role, NO_MEMBERSHIP_LEVEL)
+    return KB_LEVELS[member.fog_role]
 
 
-def _member_of(user: AbstractBaseUser):
+def _member_of(user: AbstractBaseUser) -> Member | None:
     """The Member behind a User, or None. A staff login may have no membership record."""
     return getattr(user, "member", None)
 
@@ -69,7 +81,7 @@ class FogOAuth2Validator(OAuth2Validator):
         "email": "email",
     }
 
-    def get_additional_claims(self, request):
+    def get_additional_claims(self, request: Request) -> dict[str, object]:
         user = request.user
         member = _member_of(user)
 

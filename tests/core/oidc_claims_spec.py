@@ -98,3 +98,52 @@ def describe_the_kb_level_claim():
         from core.oidc import KB_LEVELS
 
         assert set(KB_LEVELS) == set(Member.FogRole.values)
+
+
+def describe_a_signed_in_user_with_no_membership():
+    """A bare staff login. This is the branch `NO_MEMBERSHIP_LEVEL` exists for, and the one most
+    likely to be wrong, because every other spec here goes through a Member."""
+
+    def _bare_user(db):
+        """A User whose auto-provisioned Member has been removed, leaving `user.member` absent."""
+        user = UserFactory()
+        user.member.delete()
+        user.refresh_from_db()
+        return user
+
+    def it_grants_the_public_tier(db):
+        assert _claims(_bare_user(db))["kb_level"] == 0
+
+    def it_sends_an_empty_role(db):
+        """An empty role is not a role the KB knows, and it is not asked to guess one."""
+        assert _claims(_bare_user(db))["fog_role"] == ""
+
+    def it_falls_back_to_the_django_name_and_email(db):
+        user = _bare_user(db)
+        user.first_name, user.last_name = "Bare", "Login"
+        user.email = "bare@example.test"
+        user.save()
+        claims = _claims(user)
+        assert claims["name"] == "Bare Login"
+        assert claims["email"] == "bare@example.test"
+
+    def it_falls_back_to_the_username_when_there_is_no_full_name(db):
+        user = _bare_user(db)
+        user.first_name = user.last_name = ""
+        user.save()
+        assert _claims(user)["name"] == user.get_username()
+
+    def it_is_not_guild_leadership(db):
+        assert _claims(_bare_user(db))["is_guild_leadership"] is False
+
+
+def describe_guild_leadership_is_reported_when_true():
+    """Asserting only the False case would pass against a claim that is always False."""
+
+    def it_is_true_for_a_guild_lead(db):
+        from tests.membership.factories import GuildFactory
+
+        user = _member_user(fog_role=Member.FogRole.MEMBER)
+        GuildFactory(guild_lead=user.member)
+        user.refresh_from_db()
+        assert _claims(user)["is_guild_leadership"] is True

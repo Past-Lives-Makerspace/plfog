@@ -772,8 +772,8 @@ OAUTH2_PROVIDER = {
     },
     "OAUTH2_VALIDATOR_CLASS": "core.oidc.FogOAuth2Validator",
     # Short-lived, because the KB re-reads the member's role on every login and a stale token is a
-    # stale role. Refresh tokens are not issued: the KB has no background work to do on a member's
-    # behalf, so a credential that outlives the browser session would be a liability with no use.
+    # stale role. The authorization-code grant does issue a refresh token, so it is rotated on use:
+    # a replayed one is then a used one, and the window for a leaked token is a single exchange.
     "ACCESS_TOKEN_EXPIRE_SECONDS": 3600,
     "ROTATE_REFRESH_TOKEN": True,
     "PKCE_REQUIRED": True,
