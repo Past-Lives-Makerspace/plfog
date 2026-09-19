@@ -1236,7 +1236,7 @@ class ClassOffering(HeroCropMixin, models.Model):
         between rounds:
 
         * the dates, via ``approved_schedule_fingerprint``; and
-        * the guild, via ``approved_for_guild``. ``category`` is an instructor-editable
+        * the guild, via ``opened_for_guild``. ``category`` is an instructor-editable
           field on the composer (labelled "Guild Type") and a draft is editable, so "wrong
           guild, re-file this under Woodshop" is an ordinary reason to bounce a class. A
           row approved by guild 1 says nothing about guild 2, whose lead has never seen the
@@ -1248,18 +1248,18 @@ class ClassOffering(HeroCropMixin, models.Model):
         schedule", and a change of officer does not retract it.
 
         A row stamped before either field existed carries the empty string and a null
-        guild, and neither can match (:attr:`schedule_fingerprint` is never empty, and a
-        class with no guild never reaches this question with a guild to match), so such a
-        row re-asks — the safe direction.
+        guild, and neither can match (:attr:`schedule_fingerprint` is never empty, and
+        ``opened_for_guild_id=None`` is never asked for here because a null ``guild_id``
+        short-circuits first), so such a row re-asks — the safe direction.
         """
-        guild_id = self.category.guild_id if self.category_id else None
+        guild_id = self.category.guild_id
         return (
             guild_id is not None
             and self.approvals.filter(
                 role=ClassApproval.Role.GUILD_LEAD,
                 decision=ClassApproval.Decision.APPROVED,
                 approved_schedule_fingerprint=self.schedule_fingerprint,
-                approved_for_guild_id=guild_id,
+                opened_for_guild_id=guild_id,
             ).exists()
         )
 
@@ -2142,18 +2142,42 @@ class ClassOffering(HeroCropMixin, models.Model):
             None,
         )
 
+    def _guild_lead_row_speaks_here(self, row: "ClassApproval") -> bool:
+        """Does this guild-lead row say anything about the guild the class is filed under now?
+
+        A **decided** row is a statement by one guild, so it counts only for the guild it
+        was opened for. Move a class to a second guild and back and there are two approved
+        rows standing; reading the newest would credit the second guild's lead on the first
+        guild's pipeline, naming a person that guild's staff have never met. Stamping the
+        guild is what makes that answerable, and this is where the answer is read.
+
+        An **undecided** row is not a statement, it is the live gate, so it counts wherever
+        the class currently sits. Filtering it the same way would leave a moved class with
+        no open step on any pipeline while its gate is demonstrably open.
+
+        A row from before the field existed carries no guild and is read as speaking here,
+        which is what it did when there was nothing to check. That is display only: the
+        skip in :attr:`_guild_already_approved_this_schedule` demands an exact match, so an
+        unstamped row still re-asks.
+        """
+        return not row.decision or row.opened_for_guild_id in (None, self.category.guild_id)
+
     @property
     def guild_lead_approved_at(self) -> datetime | None:
         """When this class's guild-lead gate was approved, or None if it has not been.
 
         The other half of :attr:`open_guild_lead_approval`: once the lead has decided, the
-        guild page shows when, on the row that is now waiting on an admin.
+        guild page shows when, on the row that is now waiting on an admin. Scoped to the
+        guild the class is filed under now, so a guild reads its own sign-off and not one
+        the class collected elsewhere.
         """
         row = next(
             (
                 a
                 for a in self.approvals.all()
-                if a.role == ClassApproval.Role.GUILD_LEAD and a.decision == ClassApproval.Decision.APPROVED
+                if a.role == ClassApproval.Role.GUILD_LEAD
+                and a.decision == ClassApproval.Decision.APPROVED
+                and self._guild_lead_row_speaks_here(a)
             ),
             None,
         )
@@ -2341,7 +2365,11 @@ class ClassOffering(HeroCropMixin, models.Model):
         muted = status in (self.Status.CANCELLED, self.Status.ARCHIVED)
         was_live = status == self.Status.PUBLISHED or (muted and self.published_at is not None)
         rows = sorted(self.approvals.all(), key=lambda row: row.created_at)
-        latest_by_role: dict[str, ClassApproval] = {row.role: row for row in rows}
+        latest_by_role: dict[str, ClassApproval] = {
+            row.role: row
+            for row in rows
+            if row.role != ClassApproval.Role.GUILD_LEAD or self._guild_lead_row_speaks_here(row)
+        }
         bounce = self.latest_bounce_row
         bounced = is_draft and bounce is not None
         guild_row = latest_by_role.get(ClassApproval.Role.GUILD_LEAD)
@@ -2665,15 +2693,17 @@ class ClassApproval(models.Model):
             "the dates changed since. Stamped only when a guild lead approves; empty means never stamped."
         ),
     )
-    approved_for_guild = models.ForeignKey(
+    opened_for_guild = models.ForeignKey(
         "membership.Guild",
         null=True,
         blank=True,
         on_delete=models.SET_NULL,
-        related_name="+",
+        related_name="approvals_granted",
         help_text=(
-            "The guild this row approved the class for; lets a later submission tell whether the class "
-            "moved to another guild since. Stamped only when a guild lead approves; empty means never stamped."
+            "The guild whose lead this gate was opened for, stamped when the row is created. A guild "
+            "lead's authority comes from the guild that was asked, so this is fixed at the moment of "
+            "asking and never moves; a class re-filed under another guild stops matching and that "
+            "guild's lead is asked. Null on admin rows and on rows predating the field."
         ),
     )
     created_at = models.DateTimeField(auto_now_add=True, help_text="When the review was requested.")
@@ -2692,8 +2722,24 @@ class ClassApproval(models.Model):
         return f"{self.get_role_display()} review of {self.class_offering_id}: {state}"
 
     def save(self, *args, **kwargs) -> None:
+        """Mint the token, and stamp a guild-lead gate with the guild it is being opened for.
+
+        The guild is recorded at creation rather than at decision, because it records
+        *whose* gate this is, and that is settled the moment the class is asked: the row is
+        minted against a guild, and the review link goes to that guild's lead. The class's
+        category is editable while the class sits PENDING, so reading the guild back at
+        decision time would let an instructor re-point an open gate at another guild and
+        collect a stranger's approval on its behalf. Stamped here, a re-filed class simply
+        stops matching, and the new guild's lead is asked.
+
+        Two call sites mint a guild-lead row (``_create_first_stage_approval`` and the review
+        page, which mints one when a reviewer arrives and finds none open), so the invariant
+        lives here rather than in either of them.
+        """
         if not self.token:
             self.token = secrets.token_urlsafe(32)
+        if self._state.adding and self.role == self.Role.GUILD_LEAD and self.opened_for_guild_id is None:
+            self.opened_for_guild_id = self.class_offering.category.guild_id
         super().save(*args, **kwargs)
 
     def decide(self, decision: str, user=None, notes: str = "") -> None:
@@ -2707,12 +2753,17 @@ class ClassApproval(models.Model):
         quick-approve); the review view renders a friendly not-awaiting-review
         state before a user can ever reach this error.
 
-        A guild lead's APPROVAL also stamps ``approved_schedule_fingerprint`` and
-        ``approved_for_guild`` with the schedule and the guild they just signed off on.
-        Those two stamps are what let the instructor's next submission tell a copy edit
-        (the lead is not asked again) from a date change or a move to another guild (they
-        are). No other role or decision stamps them: only a guild lead's approval is a
-        statement about the dates and the space.
+        A guild lead's APPROVAL also stamps ``approved_schedule_fingerprint`` with the
+        schedule they just signed off on, which is what lets the instructor's next
+        submission tell a copy edit (the lead is not asked again) from a date change (they
+        are). No other role or decision stamps it: only a guild lead's approval is a
+        statement about the dates.
+
+        The schedule is stamped here and the guild in ``save``, and the split is deliberate.
+        The schedule is *what was approved*, so the right moment to record it is the moment
+        of approval: the review page shows the lead the class as it stands, so the schedule
+        they saw is the one they are deciding on. The guild is *who had the authority to
+        approve*, which was settled earlier, when the gate was opened and the link was sent.
         """
         if decision not in {
             self.Decision.APPROVED,
@@ -2735,10 +2786,8 @@ class ClassApproval(models.Model):
         self.decided_at = timezone.now()
         update_fields = ["decision", "decided_by", "notes", "decided_at"]
         if decision == self.Decision.APPROVED and self.role == self.Role.GUILD_LEAD:
-            offering = self.class_offering
-            self.approved_schedule_fingerprint = offering.schedule_fingerprint
-            self.approved_for_guild = offering.category.guild if offering.category_id else None
-            update_fields += ["approved_schedule_fingerprint", "approved_for_guild"]
+            self.approved_schedule_fingerprint = self.class_offering.schedule_fingerprint
+            update_fields.append("approved_schedule_fingerprint")
         self.save(update_fields=update_fields)
         self.class_offering.on_review_decision_recorded(self)
 

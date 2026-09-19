@@ -193,6 +193,65 @@ def describe_schedule_fingerprint():
         assert first.schedule_fingerprint == second.schedule_fingerprint
 
 
+def describe_opening_a_guild_lead_gate():
+    """The guild is stamped when the row is minted, and that is what makes it trustworthy.
+
+    Stamping it at decision time instead reads a field the instructor can still edit, which
+    is the hole these specs hold shut.
+    """
+
+    def it_stamps_the_guild_being_asked(db, settings):
+        offering, lead_user = _guilded_draft(settings)
+        (lead_row,) = offering.submit_for_review()
+        assert lead_row.role == ClassApproval.Role.GUILD_LEAD
+        assert lead_row.opened_for_guild_id == offering.category.guild_id
+
+    def it_stamps_no_guild_on_an_admin_gate(db, settings):
+        """An admin answers for the makerspace, not for a guild."""
+        settings.CLASS_ADMIN_NOTIFY_EMAILS = "admin@example.com"
+        instructor = InstructorFactory(full_legal_name="Iris Smith", instructor_slug="iris")
+        offering = cast(
+            ClassOffering,
+            ClassOfferingFactory(
+                ready=True,
+                category=CategoryFactory(guild=None),
+                instructor=instructor,
+                status=ClassOffering.Status.DRAFT,
+            ),
+        )
+        (row,) = offering.submit_for_review()
+        assert row.role == ClassApproval.Role.ADMIN
+        assert row.opened_for_guild_id is None
+
+    def describe_when_the_instructor_refiles_the_class_while_the_gate_is_open():
+        def it_asks_the_new_guild_on_the_next_round(db, settings, admin_user):
+            """The regression this guards: a PENDING class is still editable on the
+            instructor's own composer, and the review link authorizes by token alone, so
+            reading the guild back when the decision lands let an instructor point guild 1's
+            open gate at guild 2 and collect guild 1's approval on guild 2's behalf. Guild 2
+            was then skipped on the resubmission and never saw the class at all.
+            """
+            offering, lead_user = _guilded_draft(settings)
+            other_guild, _other_lead_user = _second_guild_with_lead()
+            (lead_row,) = offering.submit_for_review()
+
+            offering.category = CategoryFactory(guild=other_guild)
+            offering.save(update_fields=["category"])
+            offering.refresh_from_db()
+            lead_row.class_offering = offering
+            lead_row.decide(ClassApproval.Decision.APPROVED, user=lead_user)
+            offering.refresh_from_db()
+            admin_row = offering.approvals.get(role=ClassApproval.Role.ADMIN, decision="")
+            admin_row.class_offering = offering
+            admin_row.decide(ClassApproval.Decision.CHANGES_REQUESTED, user=admin_user, notes="Trim the blurb.")
+            offering.refresh_from_db()
+
+            (row,) = offering.submit_for_review()
+
+            assert row.role == ClassApproval.Role.GUILD_LEAD
+            assert row.opened_for_guild_id == other_guild.pk
+
+
 def describe_decide():
     def describe_when_a_guild_lead_approves():
         def it_stamps_the_schedule_they_approved(db, settings):
@@ -202,21 +261,26 @@ def describe_decide():
             lead_row.refresh_from_db()
             assert lead_row.approved_schedule_fingerprint == offering.schedule_fingerprint
 
-        def it_stamps_the_guild_they_approved_for(db, settings):
+        def it_leaves_the_guild_stamp_where_the_gate_put_it(db, settings):
+            """The decision records the schedule. It must not re-read the guild."""
             offering, lead_user = _guilded_draft(settings)
             (lead_row,) = offering.submit_for_review()
+            opened_for = lead_row.opened_for_guild_id
             lead_row.decide(ClassApproval.Decision.APPROVED, user=lead_user)
             lead_row.refresh_from_db()
-            assert lead_row.approved_for_guild_id == offering.category.guild_id
+            assert lead_row.opened_for_guild_id == opened_for
 
     def describe_when_a_guild_lead_asks_for_changes():
-        def it_stamps_nothing(db, settings):
+        def it_stamps_no_schedule(db, settings):
+            """A bounce approved nothing, so it carries no schedule. The guild the gate was
+            opened for is a fact about the asking and stands either way.
+            """
             offering, lead_user = _guilded_draft(settings)
             (lead_row,) = offering.submit_for_review()
             lead_row.decide(ClassApproval.Decision.CHANGES_REQUESTED, user=lead_user, notes="Add prerequisites.")
             lead_row.refresh_from_db()
             assert lead_row.approved_schedule_fingerprint == ""
-            assert lead_row.approved_for_guild_id is None
+            assert lead_row.opened_for_guild_id == offering.category.guild_id
 
     def describe_when_an_admin_approves():
         def it_stamps_nothing(db, settings, admin_user):
@@ -230,7 +294,7 @@ def describe_decide():
             admin_row.decide(ClassApproval.Decision.APPROVED, user=admin_user)
             admin_row.refresh_from_db()
             assert admin_row.approved_schedule_fingerprint == ""
-            assert admin_row.approved_for_guild_id is None
+            assert admin_row.opened_for_guild_id is None
 
 
 def describe_resubmitting_after_a_lead_approved():
@@ -434,12 +498,12 @@ def describe_resubmitting_after_a_lead_approved():
             assert row.role == ClassApproval.Role.GUILD_LEAD
 
         def it_asks_the_lead_again_when_only_the_guild_stamp_is_missing(db, settings, admin_user):
-            """A row from before ``approved_for_guild`` existed carries a null guild. Null is
+            """A row from before ``opened_for_guild`` existed carries a null guild. Null is
             not "any guild", it is "unknown", and unknown re-asks.
             """
             offering, lead_user = _guilded_draft(settings)
             lead_row = _lead_approves_then_admin_bounces(offering, lead_user, admin_user)
-            ClassApproval.objects.filter(pk=lead_row.pk).update(approved_for_guild=None)
+            ClassApproval.objects.filter(pk=lead_row.pk).update(opened_for_guild=None)
 
             (row,) = offering.submit_for_review()
 
@@ -484,6 +548,41 @@ def describe_resubmitting_after_a_lead_approved():
             guild_step = next(step for step in offering.review_pipeline().steps if step.key == "guild_lead")
             assert guild_step.state == "current"
             assert "Approved" not in guild_step.detail
+
+        def it_does_not_credit_the_other_guilds_lead_after_the_class_moves_back(db, settings, admin_user):
+            """Two approved rows now stand, one per guild, and the newest is the wrong one.
+
+            Reading the newest row per role put guild 2's lead on guild 1's pipeline by name.
+            Guild 1's staff would be told a person they have never met signed their class off.
+            """
+            offering, lead_user = _guilded_draft(settings)
+            other_guild, other_lead_user = _second_guild_with_lead()
+            home_category = offering.category
+
+            _lead_approves_then_admin_bounces(offering, lead_user, admin_user)
+            offering.category = CategoryFactory(guild=other_guild)
+            offering.save(update_fields=["category"])
+            offering.refresh_from_db()
+            _lead_approves_then_admin_bounces(offering, other_lead_user, admin_user)
+            offering.category = home_category
+            offering.save(update_fields=["category"])
+            offering.refresh_from_db()
+
+            guild_step = next(step for step in offering.review_pipeline().steps if step.key == "guild_lead")
+            assert OTHER_LEAD_EMAIL not in guild_step.detail
+            home_row = offering.approvals.get(role=ClassApproval.Role.GUILD_LEAD, opened_for_guild=home_category.guild)
+            assert offering.guild_lead_approved_at == home_row.decided_at
+
+        def it_shows_a_guild_less_category_no_guild_lead_credit(db, settings, admin_user):
+            """Moved somewhere with no guild at all, there is no one the sign-off speaks for."""
+            offering, lead_user = _guilded_draft(settings)
+            _lead_approves_then_admin_bounces(offering, lead_user, admin_user)
+            offering.category = CategoryFactory(guild=None)
+            offering.save(update_fields=["category"])
+            offering.refresh_from_db()
+
+            assert offering.guild_lead_approved_at is None
+            assert [step.key for step in offering.review_pipeline().steps] == ["submitted", "admin", "live"]
 
     def describe_when_the_category_changes_inside_the_same_guild():
         def it_still_skips_the_lead(db, settings, admin_user):
