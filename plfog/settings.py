@@ -96,6 +96,13 @@ MAKERSPACE_WIKI_URL = os.environ.get("MAKERSPACE_WIKI_URL", "https://wiki.pastli
 #
 # Named rather than inlined so a spec can assert it is a real address: the bug this fixes was
 # invisible to every existing test, because each one sets the value it is about to assert on.
+#
+# This is the ONLY place the address is written. render.yaml deliberately does not carry a copy,
+# because a copy there wins on production the moment a blueprint is applied and a drift between
+# the two would take effect in the order nobody expects.
+#
+# TODO: change to https://kb.pastlives.space once that A record exists. The KB answers on both;
+# the sslip.io hostname is the one that resolves today and it carries a valid cert.
 DEFAULT_KNOWLEDGE_BASE_URL = "https://179.237.83.7.sslip.io"
 KNOWLEDGE_BASE_URL = os.environ.get("KNOWLEDGE_BASE_URL", DEFAULT_KNOWLEDGE_BASE_URL).rstrip("/")
 MEMBER_ONLY_PATH_PREFIXES: tuple[str, ...] = (

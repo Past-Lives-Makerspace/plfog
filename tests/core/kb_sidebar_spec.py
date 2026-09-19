@@ -125,9 +125,15 @@ def describe_the_shipped_default():
     two assert the value the app carries when nobody configures anything."""
 
     def it_is_a_real_address():
+        """A host, not just a scheme: ``startswith("https://")`` alone passes for ``"https://"``,
+        which would render an entry pointing at nothing."""
+        from urllib.parse import urlparse
+
         from plfog.settings import DEFAULT_KNOWLEDGE_BASE_URL
 
-        assert DEFAULT_KNOWLEDGE_BASE_URL.startswith("https://")
+        parsed = urlparse(DEFAULT_KNOWLEDGE_BASE_URL)
+        assert parsed.scheme == "https"
+        assert parsed.netloc
 
     def it_renders_the_entry_with_nothing_configured(client: Client):
         """No ``settings.KNOWLEDGE_BASE_URL =`` line on purpose: this is the deployed behaviour,

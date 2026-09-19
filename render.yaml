@@ -13,18 +13,13 @@ services:
     envVars:
       - key: PYTHON_VERSION
         value: "3.13.0"
-      # Where the Knowledge Base lives — an override, NOT what makes the sidebar entry appear.
-      # This file only reaches a service whose blueprint is applied, and on 2026-09-19 this entry
-      # did not: the code deployed, the variable never arrived, and the sidebar entry was missing
-      # in production with nothing in the logs to say so. The address now ships in the repository
-      # as DEFAULT_KNOWLEDGE_BASE_URL in plfog/settings.py, so deploying the code deploys the
-      # link. Kept here because a value set here still wins, and because it documents the address.
-      #
-      # TODO: change to https://kb.pastlives.space once that A record exists — in settings.py
-      # first, which is the one that takes effect. The KB answers on both; the sslip.io hostname
-      # is the one that resolves today and it carries a valid cert.
-      - key: KNOWLEDGE_BASE_URL
-        value: "https://179.237.83.7.sslip.io"
+      # KNOWLEDGE_BASE_URL is deliberately NOT here. It lived here once and never arrived: this
+      # file only reaches a service whose blueprint is applied, so on 2026-09-19 the code
+      # deployed, the variable did not, and the sidebar entry was absent in production with
+      # nothing in the logs to say why. The address now ships as DEFAULT_KNOWLEDGE_BASE_URL in
+      # plfog/settings.py, which is the single place it is written: a copy here would silently
+      # win on production whenever the blueprint IS applied, so two values that drift would take
+      # effect in the order nobody expects. Set it in the dashboard to override one service.
       # The OIDC signing key is deliberately NOT here: this repository is public, and a private
       # key in it would be a private key on the internet. It is set in the Render dashboard, and
       # until it is, the OIDC endpoints issue nothing (see OAUTH2_PROVIDER in plfog/settings.py).
