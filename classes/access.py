@@ -307,8 +307,8 @@ def leads_or_staffs(member: Member, offering: ClassOffering) -> bool:
 # is broader than "guild lead or staff of this class": it short-circuits on
 # ``is_effective_staff``, so every site-wide guild officer would reach EVERY class, and its
 # last clause is the instructor check, so anyone merely *named* instructor of a class would
-# reach it without ever being granted teaching. PLAN.md §2 named the first of those as the
-# reason the precondition existed, and ruling 6 — do not widen anyone's access in this
+# reach it without ever being granted teaching. The CMS round 2 plan (PLAN.md §2, now in git
+# history) named the first of those as the reason the precondition existed, and ruling 6 — do not widen anyone's access in this
 # ticket — still governs everyone ruling 23 does not name.
 #
 # What the precondition actually denies is the second of those two: a named-but-ungranted

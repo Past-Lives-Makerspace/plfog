@@ -220,7 +220,7 @@ two empty lists, and "all clear" would be a lie about a guild that does have wor
           {% if sh.instance.pk %}
             {# Real delete button: flips the hidden DELETE field and saves the form so no work is lost. #}
             <div style="display:none;">{{ sh.DELETE }}</div>
-            <button type="button" class="pl-btn pl-btn--danger pl-btn--sm" style="margin-top:0.75rem;"
+            <button type="button" class="pl-btn pl-btn--danger pl-btn--sm pl-btn--spaced"
                     onclick="document.getElementById('{{ sh.DELETE.id_for_label }}').checked = true; this.form.requestSubmit();">
               Delete
             </button>
@@ -243,7 +243,7 @@ two empty lists, and "all clear" would be a lie about a guild that does have wor
               <div style="flex:1; min-width:140px;">{% include "components/form_field.html" with field=esh.location %}</div>
             </div>
             {% include "components/form_field.html" with field=esh.note %}
-            <button type="button" class="pl-btn pl-btn--danger pl-btn--sm" style="margin-top:0.75rem;" onclick="this.closest('.hub-card').remove();">Remove</button>
+            <button type="button" class="pl-btn pl-btn--danger pl-btn--sm pl-btn--spaced" onclick="this.closest('.hub-card').remove();">Remove</button>
           {% endwith %}
         </div>
       </template>
@@ -482,7 +482,7 @@ confirm modal carries its own POST form, and template content can't nest a form.
             {% include "components/form_field.html" with field=t.is_active %}
             {% if t.instance.pk %}
               <div style="display:none;">{{ t.DELETE }}</div>
-              <button type="button" class="pl-btn pl-btn--danger pl-btn--sm" style="margin-top:0.75rem;"
+              <button type="button" class="pl-btn pl-btn--danger pl-btn--sm pl-btn--spaced"
                       onclick="document.getElementById('{{ t.DELETE.id_for_label }}').checked = true; this.form.requestSubmit();">
                 Delete
               </button>
@@ -512,7 +512,7 @@ confirm modal carries its own POST form, and template content can't nest a form.
             {% include "components/form_field.html" with field=ef.external_signup_url %}
             {% include "components/form_field.html" with field=ef.is_active %}
             {{ ef.id }}
-            <button type="button" class="pl-btn pl-btn--danger pl-btn--sm" style="margin-top:0.75rem;" onclick="this.closest('.hub-card').remove();">Remove</button>
+            <button type="button" class="pl-btn pl-btn--danger pl-btn--sm pl-btn--spaced" onclick="this.closest('.hub-card').remove();">Remove</button>
           {% endwith %}
         </div>
       </template>
@@ -655,7 +655,7 @@ confirm modal carries its own POST form, and template content can't nest a form.
           {% include "components/form_field.html" with field=rule.is_active %}
           {% if rule.instance.pk %}
             <div style="display:none;">{{ rule.DELETE }}</div>
-            <button type="button" class="pl-btn pl-btn--danger pl-btn--sm" style="margin-top:0.75rem;"
+            <button type="button" class="pl-btn pl-btn--danger pl-btn--sm pl-btn--spaced"
                     @click="$dispatch('open-confirm', 'guild-rule-del-{{ rule.instance.pk }}')">
               Delete
             </button>
@@ -810,7 +810,7 @@ confirm modal carries its own POST form, and template content can't nest a form.
             {% endif %}
             {% if f.instance.pk %}
               <div style="display:none;">{{ f.DELETE }}</div>
-              <button type="button" class="pl-btn pl-btn--danger pl-btn--sm" style="margin-top:0.75rem;"
+              <button type="button" class="pl-btn pl-btn--danger pl-btn--sm pl-btn--spaced"
                       onclick="document.getElementById('{{ f.DELETE.id_for_label }}').checked = true; this.form.requestSubmit();">
                 Delete this question
               </button>
@@ -834,7 +834,7 @@ confirm modal carries its own POST form, and template content can't nest a form.
             {% include "components/form_field.html" with field=ef.document_url %}
             {{ ef.id }}
             {{ ef.sort_order }}
-            <button type="button" class="pl-btn pl-btn--danger pl-btn--sm" style="margin-top:0.75rem;" onclick="this.closest('.hub-card').remove();">Remove</button>
+            <button type="button" class="pl-btn pl-btn--danger pl-btn--sm pl-btn--spaced" onclick="this.closest('.hub-card').remove();">Remove</button>
           {% endwith %}
         </div>
       </template>
@@ -875,7 +875,7 @@ confirm modal carries its own POST form, and template content can't nest a form.
             </div>
             {% if f.instance.pk %}
               <div style="display:none;">{{ f.DELETE }}</div>
-              <button type="button" class="pl-btn pl-btn--danger pl-btn--sm" style="margin-top:0.75rem;"
+              <button type="button" class="pl-btn pl-btn--danger pl-btn--sm pl-btn--spaced"
                       onclick="document.getElementById('{{ f.DELETE.id_for_label }}').checked = true; this.form.requestSubmit();">
                 Delete this link
               </button>
@@ -898,7 +898,7 @@ confirm modal carries its own POST form, and template content can't nest a form.
             </div>
             {{ ef.id }}
             {{ ef.sort_order }}
-            <button type="button" class="pl-btn pl-btn--danger pl-btn--sm" style="margin-top:0.75rem;" onclick="this.closest('.hub-card').remove();">Remove</button>
+            <button type="button" class="pl-btn pl-btn--danger pl-btn--sm pl-btn--spaced" onclick="this.closest('.hub-card').remove();">Remove</button>
           {% endwith %}
         </div>
       </template>
@@ -974,7 +974,7 @@ confirm modal carries its own POST form, and template content can't nest a form.
             </div>
             {% if f.instance.pk %}
               <div style="display:none;">{{ f.DELETE }}</div>
-              <button type="button" class="pl-btn pl-btn--danger pl-btn--sm" style="margin-top:0.75rem;"
+              <button type="button" class="pl-btn pl-btn--danger pl-btn--sm pl-btn--spaced"
                       onclick="document.getElementById('{{ f.DELETE.id_for_label }}').checked = true; this.form.requestSubmit();">
                 Delete this address
               </button>
@@ -997,7 +997,7 @@ confirm modal carries its own POST form, and template content can't nest a form.
             </div>
             {{ ef.id }}
             {{ ef.sort_order }}
-            <button type="button" class="pl-btn pl-btn--danger pl-btn--sm" style="margin-top:0.75rem;" onclick="this.closest('.hub-card').remove();">Remove</button>
+            <button type="button" class="pl-btn pl-btn--danger pl-btn--sm pl-btn--spaced" onclick="this.closest('.hub-card').remove();">Remove</button>
           {% endwith %}
         </div>
       </template>

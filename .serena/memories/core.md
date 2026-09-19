@@ -28,7 +28,5 @@ Django 5 app for Past Lives Makerspace (Portland, OR). Repo: github.com/Past-Liv
 
 ## Related memories
 
-- `mem:tech_stack` — language, framework, tooling versions
-- `mem:conventions` — code style, patterns, test rules
-- `mem:suggested_commands` — dev/test/lint commands
-- `mem:task_completion` — definition of done
+Conventions, commands, tooling and the definition of done all live in `CLAUDE.md`, which is the
+single source of truth. Do not duplicate them here.

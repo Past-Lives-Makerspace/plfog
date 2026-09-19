@@ -11,9 +11,16 @@
 | `hub/` | Member-facing views (guild voting, directory, tab, profile, guild pages) |
 | `airtable_sync/` | Airtable bidirectional sync for members, spaces, leases, votes |
 | `plfog/` | Django project: settings, urls, wsgi, auto_admin, adapters |
-| `education/` | Placeholder (empty — migrations only) |
-| `outreach/` | Placeholder (empty — migrations only) |
-| `tools/` | Placeholder (empty — migrations only) |
+
+Those six plus `plfog/` are the whole of `INSTALLED_APPS` for this project. Other top-level directories are not Django apps:
+
+| Directory | What it is |
+|-----------|-----------|
+| `api/` | DRF permission classes (`IsFogAdmin`, `IsFogAdminOrReadOnly`) used by `membership/api_views.py`. Not an installed app. |
+| `mobile/` | The Capacitor shell that wraps the live site for the App Store and Google Play. Nothing in it renders UI; see `mobile/README.md`. |
+| `assets/` | One showcase hero image that `demo_data` seeds. Not served as static. |
+| `scripts/` | Developer and CI helpers: the pre-push hook source, screenshot capture, the email gallery build, demo seeding. |
+| `changelog/`, `changelog.d/` | The folded version and its unreleased fragments; see `CLAUDE.md` § Versioning. |
 
 ## Key Models
 
@@ -144,7 +151,8 @@ Root `conftest.py` provides:
 | Airtable | `airtable_sync/` | `AIRTABLE_API_KEY`, `AIRTABLE_BASE_ID`, `AIRTABLE_SYNC_ENABLED` |
 | allauth (email auth) | `plfog/` | `ACCOUNT_*` settings in `plfog/settings.py` |
 | Web Push | `core/` | `VAPID_PRIVATE_KEY`, `VAPID_PUBLIC_KEY`, `VAPID_ADMIN_EMAIL` |
-| Discord webhook | GitHub Actions only | `DISCORD_WEBHOOK_URL` secret in repo |
+| Discord (bot, slash commands, event mirroring, notification webhooks) | `core/events/discord.py`, `core/integrations/discord_events.py`, `hub/discord_commands.py` | `DISCORD_BOT_TOKEN`, `DISCORD_CLIENT_ID`, `DISCORD_CLIENT_SECRET`, `DISCORD_INTERACTIONS_PUBLIC_KEY`, `DISCORD_NOTIFY_WEBHOOK_URL` |
+| Release announcements to Discord | `.github/workflows/release.yml` | `DISCORD_WEBHOOK_URL` repo secret |
 
 ## Important Patterns
 
@@ -167,5 +175,4 @@ Every PR adds one fragment to `changelog.d/` declaring `bump = "patch" | "minor"
 
 - **Production**: Render.com (`DATABASE_URL` points to PostgreSQL)
 - **QA/Staging**: Hetzner VPS at `pastlives.plaza.codes`
-- **Local**: SQLite (default when `DATABASE_URL` unset)
-- See memory file `deployment.md` for Hetzner deploy commands
+- **Local**: SQLite (default when `DATABASE_URL` unset); the canonical dev stack is `docker compose up -d` from the primary checkout (see `/spin-up`)

@@ -364,7 +364,8 @@ def describe_guild_authority_without_teaching_access():
         def it_denies_a_site_wide_guild_officer_on_a_class_outside_their_guilds(db):
             # can_edit_class short-circuits on is_effective_staff, so it says yes here —
             # but a fog guild officer with no teaching grant is not ruling 23's population,
-            # and PLAN.md §2 named exactly them as the reason the precondition exists.
+            # and the CMS round 2 plan (PLAN.md §2, now in git history) named exactly them
+            # as the reason the precondition exists.
             user, member = _user_with_member(fog_role=Member.FogRole.GUILD_OFFICER)
             assert member.can_create_classes is False
             offering = ClassOfferingFactory(category=CategoryFactory(guild=GuildFactory()))
