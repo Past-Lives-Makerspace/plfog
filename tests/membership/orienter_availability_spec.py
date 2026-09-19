@@ -461,6 +461,259 @@ def describe_carve_starts():
         assert _local_times(rule.carve_starts(date(2026, 3, 8))) == ordinary  # spring forward
 
 
+Cadence = OrientationAvailability.Cadence
+
+
+def _rule_on(cadence: str, anchor: date | None, **overrides):
+    """The factory's Tuesday 18:00 to 19:00 guild rule on ``cadence``, starting on ``anchor``."""
+    return OrientationAvailabilityFactory(cadence=cadence, anchor_date=anchor, **overrides)
+
+
+def _fortnightly_rule(anchor: date | None, **overrides):
+    return _rule_on(Cadence.FORTNIGHTLY, anchor, **overrides)
+
+
+def describe_cadence_display():
+    def it_says_every_weekday_for_a_weekly_rule():
+        rule = OrientationAvailabilityFactory()
+        assert rule.cadence_display == "Every Tuesday"
+        assert "orientation: Every Tuesday 18:00 (" in str(rule)
+
+    def it_says_every_other_weekday_for_a_fortnightly_rule():
+        rule = _fortnightly_rule(date(2026, 9, 26), weekday=OrientationAvailability.Weekday.SATURDAY)
+        assert rule.cadence_display == "Every other Saturday"
+        assert "orientation: Every other Saturday 18:00 (" in str(rule)
+
+    def it_names_each_of_the_seven_cadences_in_plain_words():
+        anchor = date(2026, 9, 8)  # the 2nd Tuesday of September
+        assert {cadence: _rule_on(cadence, anchor).cadence_display for cadence in Cadence} == {
+            Cadence.WEEKLY: "Every Tuesday",
+            Cadence.FORTNIGHTLY: "Every other Tuesday",
+            Cadence.MONTHLY: "Every month on the 2nd Tuesday",
+            Cadence.EVERY_2_MONTHS: "Every 2 months on the 2nd Tuesday",
+            Cadence.EVERY_3_MONTHS: "Every 3 months on the 2nd Tuesday",
+            Cadence.EVERY_6_MONTHS: "Every 6 months on the 2nd Tuesday",
+            Cadence.YEARLY: "Every year on the 2nd Tuesday of September",
+        }
+
+    def it_uses_the_ordinals_1st_to_5th():
+        tuesdays = [date(2026, 9, 1), date(2026, 9, 8), date(2026, 9, 15), date(2026, 9, 22), date(2026, 9, 29)]
+        assert [_rule_on(Cadence.MONTHLY, day).cadence_display for day in tuesdays] == [
+            "Every month on the 1st Tuesday",
+            "Every month on the 2nd Tuesday",
+            "Every month on the 3rd Tuesday",
+            "Every month on the 4th Tuesday",
+            "Every month on the 5th Tuesday",
+        ]
+
+    def it_falls_back_to_the_bare_label_for_a_month_based_rule_with_no_anchor():
+        assert _rule_on(Cadence.MONTHLY, None).cadence_display == "Every month"
+
+
+def describe_occurs_on():
+    def it_is_false_on_another_weekday():
+        assert OrientationAvailabilityFactory().occurs_on(date(2026, 9, 23)) is False  # a Wednesday
+
+    def it_is_true_on_every_matching_weekday_for_a_weekly_rule_whatever_the_anchor():
+        rule = OrientationAvailabilityFactory(anchor_date=date(2026, 12, 1))
+        assert rule.occurs_on(date(2026, 9, 22)) is True
+        assert rule.occurs_on(date(2026, 9, 29)) is True
+
+    def it_alternates_weeks_from_the_anchor_week():
+        rule = _fortnightly_rule(date(2026, 9, 22))
+        assert rule.occurs_on(date(2026, 9, 22)) is True
+        assert rule.occurs_on(date(2026, 9, 29)) is False
+        assert rule.occurs_on(date(2026, 10, 6)) is True
+
+    def it_counts_weeks_from_the_anchors_monday_so_a_friday_anchor_keeps_its_own_weeks_tuesdays():
+        # Anchored Friday Sep 25: the week of Sep 21 is week zero, so the Tuesdays that count
+        # are Oct 6, Oct 20, ... (not Sep 29 or Oct 13, which counting fourteen days from the
+        # first Tuesday after the anchor would give).
+        rule = _fortnightly_rule(date(2026, 9, 25))
+        assert rule.occurs_on(date(2026, 9, 29)) is False
+        assert rule.occurs_on(date(2026, 10, 6)) is True
+        assert rule.occurs_on(date(2026, 10, 13)) is False
+
+    def it_is_false_before_the_anchor():
+        rule = _fortnightly_rule(date(2026, 10, 6))
+        assert rule.occurs_on(date(2026, 9, 22)) is False  # the right parity, but before the anchor
+        assert rule.occurs_on(date(2026, 10, 6)) is True
+
+    def it_checks_the_weekday_before_it_needs_the_anchor():
+        assert _fortnightly_rule(None).occurs_on(date(2026, 9, 23)) is False
+
+    def it_refuses_an_every_other_week_rule_with_no_anchor():
+        rule = _fortnightly_rule(None)
+        with pytest.raises(ValueError, match="no anchor_date"):
+            rule.occurs_on(date(2026, 9, 22))
+
+    def describe_month_based_cadences():
+        def it_keeps_the_anchors_weekday_ordinal_every_month():
+            rule = _rule_on(Cadence.MONTHLY, date(2026, 9, 8))  # the 2nd Tuesday
+            assert rule.occurs_on(date(2026, 10, 13)) is True
+            assert rule.occurs_on(date(2026, 10, 6)) is False  # the 1st Tuesday
+            assert rule.occurs_on(date(2026, 11, 10)) is True
+
+        def it_gives_nothing_in_a_month_with_no_5th_such_weekday():
+            rule = _rule_on(Cadence.MONTHLY, date(2026, 9, 29))  # the 5th Tuesday
+            october_tuesdays = [date(2026, 10, 6), date(2026, 10, 13), date(2026, 10, 20), date(2026, 10, 27)]
+            assert [day for day in october_tuesdays if rule.occurs_on(day)] == []
+            assert rule.occurs_on(date(2026, 12, 29)) is True
+
+        def it_counts_whole_months_for_every_3_months():
+            rule = _rule_on(Cadence.EVERY_3_MONTHS, date(2026, 9, 8))
+            assert rule.occurs_on(date(2026, 12, 8)) is True
+            assert rule.occurs_on(date(2026, 11, 10)) is False
+            assert rule.occurs_on(date(2027, 3, 9)) is True
+
+        def it_counts_whole_months_for_every_2_months():
+            rule = _rule_on(Cadence.EVERY_2_MONTHS, date(2026, 9, 8))
+            assert rule.occurs_on(date(2026, 11, 10)) is True
+            assert rule.occurs_on(date(2026, 10, 13)) is False
+
+        def it_counts_whole_months_for_every_6_months():
+            rule = _rule_on(Cadence.EVERY_6_MONTHS, date(2026, 9, 8))
+            assert rule.occurs_on(date(2027, 3, 9)) is True
+            assert rule.occurs_on(date(2026, 12, 8)) is False
+
+        def it_keeps_the_month_and_weekday_ordinal_every_year():
+            rule = _rule_on(Cadence.YEARLY, date(2026, 9, 8))
+            assert rule.occurs_on(date(2027, 9, 14)) is True
+            assert rule.occurs_on(date(2027, 3, 9)) is False
+
+        def it_refuses_a_monthly_rule_with_no_anchor():
+            with pytest.raises(ValueError, match="recurs monthly but has no anchor_date"):
+                _rule_on(Cadence.MONTHLY, None).occurs_on(date(2026, 9, 8))
+
+
+def describe_anchor_guard():
+    """The model refuses a fortnightly rule with no anchor, so the admin cannot create a row that aborts generation."""
+
+    def it_refuses_a_fortnightly_rule_with_no_anchor_in_full_clean():
+        rule = _fortnightly_rule(None)  # the factory bypasses clean; the admin's form does not
+        with pytest.raises(ValidationError, match="Pick the day these hours start."):
+            rule.full_clean()
+
+    def it_accepts_a_fortnightly_rule_with_an_anchor():
+        _fortnightly_rule(date(2026, 9, 22)).full_clean()  # must not raise
+
+    def it_leaves_a_weekly_rule_alone_without_an_anchor():
+        OrientationAvailabilityFactory().full_clean()  # must not raise
+
+    def it_refuses_a_start_day_on_another_weekday():
+        # A Tuesday rule started on a Wednesday would silently mean a different Tuesday.
+        rule = _rule_on(Cadence.MONTHLY, date(2026, 9, 9))
+        with pytest.raises(ValidationError, match="The start day must be a Tuesday, the day these hours run."):
+            rule.full_clean()
+
+    def it_lets_a_weekly_rule_keep_a_stray_anchor_on_any_weekday():
+        OrientationAvailabilityFactory(anchor_date=date(2026, 9, 9)).full_clean()  # must not raise
+
+    def it_still_guards_the_half_hour_grid_alongside():
+        rule = _fortnightly_rule(None, slot_minutes=30, start_time=time(9, 15), end_time=time(11, 15))
+        with pytest.raises(ValidationError) as caught:
+            rule.full_clean()
+        assert set(caught.value.message_dict) >= {"anchor_date", "start_time", "end_time"}
+
+
+def describe_editing_a_guild_rule_to_every_other_week():
+    """A weekly guild rule already generated its slots; switching it retires the off-week open ones."""
+
+    def it_retires_the_off_week_open_slots_and_keeps_a_booked_one():
+        guild, (bob,) = _staffed_guild("Bob Placeholder")
+        rule = OrientationAvailabilityFactory(guild=guild, orienter=bob)
+        orientations.generate_slots(guild=guild)
+        weekly = list(rule.slots.filter(is_cancelled=False).order_by("starts_at"))
+        assert len(weekly) >= 4
+        booking = OrientationBookingFactory(slot=weekly[1])  # an off week once the rule alternates
+
+        rule.cadence = Cadence.FORTNIGHTLY
+        rule.anchor_date = timezone.localtime(weekly[0].starts_at).date()
+        rule.save()
+        created = orientations.generate_slots(guild=guild)
+
+        assert created == 0  # every on-week slot already existed
+        live = [slot.starts_at for slot in rule.slots.filter(is_cancelled=False).order_by("starts_at")]
+        assert live == [slot.starts_at for i, slot in enumerate(weekly) if i % 2 == 0 or i == 1]
+        booking.refresh_from_db()
+        assert booking.slot_id == weekly[1].pk
+
+
+def describe_horizon_spans_every_other_week():
+    """Issue 373 acceptance: a 14 week window from Monday 2026-09-21 (through Dec 27)."""
+
+    def _start_days(rule) -> list[date]:
+        spans = orientations._horizon_spans(rule, today=date(2026, 9, 21), window_weeks=14)
+        return [timezone.localtime(start).date() for start, _end in spans]
+
+    def it_yields_alternate_tuesdays_from_the_anchor_week():
+        assert _start_days(_fortnightly_rule(date(2026, 9, 22))) == [
+            date(2026, 9, 22),
+            date(2026, 10, 6),
+            date(2026, 10, 20),
+            date(2026, 11, 3),
+            date(2026, 11, 17),
+            date(2026, 12, 1),
+            date(2026, 12, 15),
+        ]
+
+    def it_yields_the_other_weeks_when_anchored_a_week_later():
+        assert _start_days(_fortnightly_rule(date(2026, 9, 29))) == [
+            date(2026, 9, 29),
+            date(2026, 10, 13),
+            date(2026, 10, 27),
+            date(2026, 11, 10),
+            date(2026, 11, 24),
+            date(2026, 12, 8),
+            date(2026, 12, 22),
+        ]
+
+    def it_yields_all_fourteen_tuesdays_for_a_weekly_rule():
+        days = _start_days(OrientationAvailabilityFactory())
+        assert len(days) == 14
+        assert days[0] == date(2026, 9, 22)
+        assert days[-1] == date(2026, 12, 22)
+        assert {day.weekday() for day in days} == {OrientationAvailability.Weekday.TUESDAY}
+
+    def it_yields_nothing_before_an_anchor_after_today():
+        assert _start_days(_fortnightly_rule(date(2026, 10, 20))) == [
+            date(2026, 10, 20),
+            date(2026, 11, 3),
+            date(2026, 11, 17),
+            date(2026, 12, 1),
+            date(2026, 12, 15),
+        ]
+
+    def it_keeps_every_start_at_the_same_local_time_across_the_dst_fall_back():
+        spans = orientations._horizon_spans(
+            _fortnightly_rule(date(2026, 9, 22)), today=date(2026, 9, 21), window_weeks=14
+        )
+        starts = [start for start, _end in spans]
+        # Oct 20 is still daylight time; Nov 3 is after the Nov 1 fall back.
+        assert timezone.localtime(starts[2]).utcoffset() != timezone.localtime(starts[3]).utcoffset()
+        assert _local_times(starts) == ["18:00"] * 7
+
+
+def describe_horizon_spans_monthly():
+    def _start_days(rule, *, window_weeks: int) -> list[date]:
+        spans = orientations._horizon_spans(rule, today=date(2026, 9, 7), window_weeks=window_weeks)
+        return [timezone.localtime(start).date() for start, _end in spans]
+
+    def it_walks_the_2nd_tuesday_of_each_month():
+        rule = _rule_on(Cadence.MONTHLY, date(2026, 9, 8))
+        through_february = [
+            date(2026, 9, 8),
+            date(2026, 10, 13),
+            date(2026, 11, 10),
+            date(2026, 12, 8),
+            date(2027, 1, 12),
+            date(2027, 2, 9),
+        ]
+        # 26 weeks from Monday Sep 7 ends Sunday Mar 7, two days short of March's 2nd Tuesday.
+        assert _start_days(rule, window_weeks=26) == through_february
+        assert _start_days(rule, window_weeks=27) == [*through_february, date(2027, 3, 9)]
+
+
 def describe_generate_slots_for_equipment():
     def it_carves_guildless_orienterless_slots_from_the_rule():
         rule = _equipment_rule()
