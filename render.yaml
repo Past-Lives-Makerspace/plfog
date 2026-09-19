@@ -13,6 +13,20 @@ services:
     envVars:
       - key: PYTHON_VERSION
         value: "3.13.0"
+      # Where the Knowledge Base lives. Not a secret — it is a public URL a member's browser is
+      # sent to — so it is declared here and deploys with the service rather than being set by
+      # hand. Blank would hide the sidebar entry entirely (templates/hub/base.html gates on it),
+      # which is why it has a real value and not `sync: false`.
+      #
+      # TODO: change to https://kb.pastlives.space once that A record exists. The KB answers on
+      # both; the sslip.io hostname is the one that resolves today and it carries a valid cert.
+      - key: KNOWLEDGE_BASE_URL
+        value: "https://179.237.83.7.sslip.io"
+      # The OIDC signing key is deliberately NOT here: this repository is public, and a private
+      # key in it would be a private key on the internet. It is set in the Render dashboard, and
+      # until it is, the OIDC endpoints issue nothing (see OAUTH2_PROVIDER in plfog/settings.py).
+      - key: OIDC_RSA_PRIVATE_KEY
+        sync: false
       - key: DJANGO_SECRET_KEY
         generateValue: true
       - key: DJANGO_DEBUG
