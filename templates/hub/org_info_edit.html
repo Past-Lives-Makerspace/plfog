@@ -88,7 +88,7 @@ rich_editor_assets.html.{% endcomment %}
             {% endif %}
             {% if f.instance.pk %}
               <div style="display:none;">{{ f.DELETE }}</div>
-              <button type="button" class="pl-btn pl-btn--danger pl-btn--sm" style="margin-top:0.75rem;"
+              <button type="button" class="pl-btn pl-btn--danger pl-btn--sm pl-btn--spaced"
                       onclick="document.getElementById('{{ f.DELETE.id_for_label }}').checked = true; this.form.requestSubmit();">
                 Delete this question
               </button>
@@ -112,7 +112,7 @@ rich_editor_assets.html.{% endcomment %}
             {% include "components/form_field.html" with field=ef.document_url %}
             {{ ef.id }}
             {{ ef.sort_order }}
-            <button type="button" class="pl-btn pl-btn--danger pl-btn--sm" style="margin-top:0.75rem;" onclick="this.closest('.hub-card').remove();">Remove</button>
+            <button type="button" class="pl-btn pl-btn--danger pl-btn--sm pl-btn--spaced" onclick="this.closest('.hub-card').remove();">Remove</button>
           {% endwith %}
         </div>
       </template>
@@ -151,7 +151,7 @@ rich_editor_assets.html.{% endcomment %}
             </div>
             {% if f.instance.pk %}
               <div style="display:none;">{{ f.DELETE }}</div>
-              <button type="button" class="pl-btn pl-btn--danger pl-btn--sm" style="margin-top:0.75rem;"
+              <button type="button" class="pl-btn pl-btn--danger pl-btn--sm pl-btn--spaced"
                       onclick="document.getElementById('{{ f.DELETE.id_for_label }}').checked = true; this.form.requestSubmit();">
                 Delete this link
               </button>
@@ -174,7 +174,7 @@ rich_editor_assets.html.{% endcomment %}
             </div>
             {{ ef.id }}
             {{ ef.sort_order }}
-            <button type="button" class="pl-btn pl-btn--danger pl-btn--sm" style="margin-top:0.75rem;" onclick="this.closest('.hub-card').remove();">Remove</button>
+            <button type="button" class="pl-btn pl-btn--danger pl-btn--sm pl-btn--spaced" onclick="this.closest('.hub-card').remove();">Remove</button>
           {% endwith %}
         </div>
       </template>
@@ -217,7 +217,7 @@ rich_editor_assets.html.{% endcomment %}
             {% include "components/form_field.html" with field=f.description %}
             {% if f.instance.pk %}
               <div style="display:none;">{{ f.DELETE }}</div>
-              <button type="button" class="pl-btn pl-btn--danger pl-btn--sm" style="margin-top:0.75rem;"
+              <button type="button" class="pl-btn pl-btn--danger pl-btn--sm pl-btn--spaced"
                       onclick="document.getElementById('{{ f.DELETE.id_for_label }}').checked = true; this.form.requestSubmit();">
                 Delete this category
               </button>
@@ -240,7 +240,7 @@ rich_editor_assets.html.{% endcomment %}
             {% include "components/form_field.html" with field=ef.description %}
             {{ ef.id }}
             {{ ef.sort_order }}
-            <button type="button" class="pl-btn pl-btn--danger pl-btn--sm" style="margin-top:0.75rem;" onclick="this.closest('.hub-card').remove();">Remove</button>
+            <button type="button" class="pl-btn pl-btn--danger pl-btn--sm pl-btn--spaced" onclick="this.closest('.hub-card').remove();">Remove</button>
           {% endwith %}
         </div>
       </template>
@@ -288,7 +288,7 @@ rich_editor_assets.html.{% endcomment %}
             {% include "components/form_field.html" with field=f.is_published %}
             {% if f.instance.pk %}
               <div style="display:none;">{{ f.DELETE }}</div>
-              <button type="button" class="pl-btn pl-btn--danger pl-btn--sm" style="margin-top:0.75rem;"
+              <button type="button" class="pl-btn pl-btn--danger pl-btn--sm pl-btn--spaced"
                       onclick="document.getElementById('{{ f.DELETE.id_for_label }}').checked = true; this.form.requestSubmit();">
                 Delete this article
               </button>
@@ -313,7 +313,7 @@ rich_editor_assets.html.{% endcomment %}
             {% include "components/form_field.html" with field=ef.is_published %}
             {{ ef.id }}
             {{ ef.sort_order }}
-            <button type="button" class="pl-btn pl-btn--danger pl-btn--sm" style="margin-top:0.75rem;" onclick="this.closest('.hub-card').remove();">Remove</button>
+            <button type="button" class="pl-btn pl-btn--danger pl-btn--sm pl-btn--spaced" onclick="this.closest('.hub-card').remove();">Remove</button>
           {% endwith %}
         </div>
       </template>

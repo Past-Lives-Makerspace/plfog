@@ -58,7 +58,7 @@ supplies the inter-card spacing, since .hub-card carries no margin of its own.
               pinned to it. The confirm modal is a SIBLING of this form (rendered after </form>);
               its confirm_js runs the same two statements this button used to run inline.
               {% endcomment %}
-              <button type="button" class="pl-btn pl-btn--danger pl-btn--sm" style="margin-top:0.75rem;"
+              <button type="button" class="pl-btn pl-btn--danger pl-btn--sm pl-btn--spaced"
                       @click="$dispatch('open-confirm', 'delete-zone-{{ f.instance.pk }}')">
                 Delete this screen
               </button>
@@ -78,7 +78,7 @@ supplies the inter-card spacing, since .hub-card carries no margin of its own.
             {% include "components/form_field.html" with field=ef.is_enabled %}
             {% include "components/form_field.html" with field=ef.sort_order %}
             {{ ef.id }}
-            <button type="button" class="pl-btn pl-btn--danger pl-btn--sm" style="margin-top:0.75rem;" onclick="this.closest('.pl-slideshow-row').remove();">Remove</button>
+            <button type="button" class="pl-btn pl-btn--danger pl-btn--sm pl-btn--spaced" onclick="this.closest('.pl-slideshow-row').remove();">Remove</button>
           {% endwith %}
         </div>
       </template>
@@ -190,7 +190,7 @@ supplies the inter-card spacing, since .hub-card carries no margin of its own.
                   {{ f.remove_image }}
                   <p class="pl-field-hint">Choosing a new file replaces the current image. If the form bounces on a validation error, re-attach the file — it isn't kept across a failed submit.</p>
                   {% if f.instance.pk and f.instance.image %}
-                    <button type="button" class="pl-btn pl-btn--danger pl-btn--sm" style="margin-top:0.75rem;"
+                    <button type="button" class="pl-btn pl-btn--danger pl-btn--sm pl-btn--spaced"
                             onclick="document.getElementById('{{ f.remove_image.id_for_label }}').value = '1'; this.form.requestSubmit();">
                       Remove image
                     </button>

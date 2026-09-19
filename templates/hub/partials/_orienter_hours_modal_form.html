@@ -53,7 +53,7 @@ one slot for the whole window.
       {% if rule.instance.pk %}
         {# Delete confirms first (it retires future open slots), then flips DELETE and submits the modal form. #}
         <div style="display:none;">{{ rule.DELETE }}</div>
-        <button type="button" class="pl-btn pl-btn--danger pl-btn--sm" style="margin-top:0.75rem;"
+        <button type="button" class="pl-btn pl-btn--danger pl-btn--sm pl-btn--spaced"
                 @click="$dispatch('open-confirm', 'modal-rule-del-{{ rule.instance.pk }}')">
           Delete
         </button>
@@ -94,7 +94,7 @@ one slot for the whole window.
         </div>
         <p class="hub-text-muted" style="font-size:0.8125rem; margin:0 0 0.5rem;">Leave slot length blank to offer the whole window as one slot.</p>
         {% include "components/form_field.html" with field=er.is_active %}
-        <button type="button" class="pl-btn pl-btn--danger pl-btn--sm" style="margin-top:0.75rem;" onclick="this.closest('.hub-card').remove();">Remove</button>
+        <button type="button" class="pl-btn pl-btn--danger pl-btn--sm pl-btn--spaced" onclick="this.closest('.hub-card').remove();">Remove</button>
       {% endwith %}
     </div>
   </template>
