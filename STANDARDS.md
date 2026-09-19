@@ -1,14 +1,13 @@
 # plfog Standards
 
-How code in this repo is built and tested, and the traps that have cost real time. Written for every contributor, human or agent. `FRONTEND.md` covers templates and CSS, `CONTEXT.md` the domain language, and `docs/HELP_AUTHORING.md` Help Center guides. Tool settings (ruff, pytest, coverage) live in `pyproject.toml`; this file says why, not what the config already says.
+How code in this repo is built and tested, and the traps that have cost real time, for every contributor, human or agent. Templates and CSS: `FRONTEND.md`. Domain language: `CONTEXT.md`. Help Center guides: `docs/HELP_AUTHORING.md`. Tool settings live in `pyproject.toml` and the pre-push hook enforces ruff and mypy; this file carries what no config says.
 
 ## 1. Principles
 
-- **Fat models, skinny views.** Business logic lives in models and managers, never in views.
+- **Fat models, skinny views.** Business logic lives in models and managers; views only parse the request, call a model method and respond.
 - **Fail loudly.** Raise on unexpected values: `dict[key]`, not `dict.get(key, default)`. Silent fallbacks hide bugs for weeks.
 - **Explicit over implicit.** Configuration comes from clearly named environment variables (`plfog/settings.py`), with no magic defaults.
 - **Type everything.** Every function is fully annotated, including `-> None`.
-- **Test everything.** BDD specs, 100% coverage on new code, mutation testing.
 
 ## 2. Where Logic Lives
 
@@ -29,7 +28,7 @@ A view that reads `request.data`, checks dates, sets fields and sends mail is wr
 - `@property` for cheap derived data; a method for anything expensive or with side effects.
 - Avoid N+1 queries: `select_related` / `prefetch_related` wherever a loop touches a relation.
 - Soft delete, where a model has it, is a `deleted_at` field with an `objects` manager that filters it out and an `all_objects` manager that does not.
-- **Migrations:** one per logical change; never hand-edit one without understanding the dependency graph. A data migration must include a real reverse function; `RunPython.noop` as the reverse needs explicit approval.
+- **Migrations:** one per logical change; hand-edit one only with its dependency graph in view. A data migration must include a real reverse function; `RunPython.noop` as the reverse needs explicit approval.
 
 ## 4. Errors
 
@@ -37,7 +36,7 @@ Re-raise `DoesNotExist` as a domain error in model and service code (`raise Valu
 
 ## 5. Permissions
 
-Access is decided by `Member.fog_role` (the tier, a `FogRole` choice) and `Member.has_admin_capability(...)` (scoped admin grants such as approving classes or issuing refunds, backed by `AdminCapability`). Views enforce them with the decorators in `hub/view_as.py` (`fog_admin_required`, `classes_review_access_required`, `refund_authority_required` and siblings). Use those; never compare role strings inline in a view, and never ship a state-changing view without one.
+Access is decided by `Member.fog_role` (the tier, a `FogRole` choice) and `Member.has_admin_capability(...)` (scoped admin grants such as approving classes or issuing refunds, backed by `AdminCapability`). Views enforce them with the decorators in `hub/view_as.py` (`fog_admin_required`, `classes_review_access_required`, `refund_authority_required` and siblings). Every state-changing view carries one, and every access check goes through a decorator or `has_admin_capability`.
 
 ## 6. Types and Docstrings
 
@@ -47,13 +46,12 @@ Annotation-only imports go under `if TYPE_CHECKING:`; a runtime import that woul
 
 - Specs use pytest-describe: `describe_*` blocks nesting `it_*` functions, in `*_spec.py` files under `tests/<app>/` (older ones sit in an app's `spec/` folder).
 - **Only `describe_*` nests.** `context_*` is not a collected prefix, so an `it_*` inside a `context_*` block silently never runs. Use `describe_when_...` for conditions.
-- factory-boy for all test data, `respx` for HTTP mocking. Mock external services, never models or the database. Shared fixtures go in `conftest.py`, scoped ones in the describe block.
-- 100% branch coverage and a 100% mutation kill rate (pytest-leela) on new code. No `@pytest.mark.skip`, `# pragma: no cover` or `# pragma: no mutate` without explicit approval.
-- Before committing: `ruff format . && ruff check --fix .` (line length 120, complexity 10).
+- factory-boy for all test data, `respx` for HTTP mocking. Mock only external services; specs run against real models and the database. Shared fixtures go in `conftest.py`, scoped ones in the describe block.
+- 100% branch coverage and a 100% mutation kill rate (pytest-leela) on new code. A skip or a `pragma: no cover` / `no mutate` needs a maintainer's explicit approval.
 
 ## 8. Testing Traps
 
-- **Judge a run by pytest's own result.** `pytest ... | tail` returns `tail`'s exit code, so a failing run reads as success. Redirect to a file and check `$?`, or read the `N passed, M failed` line. Never chain a commit onto a piped test command.
+- **Judge a run by pytest's own result.** `pytest ... | tail` returns `tail`'s exit code, so a failing run reads as success. Redirect to a file and check `$?`, or read the `N passed, M failed` line, and commit only after that.
 - **The changelog renders on every page.** `core/context_processors.py` puts the whole changelog into every template, hub and public classes pages alike. A negative assertion on UI copy fails the day a changelog entry uses that phrase, and a positive one can pass before the feature renders. Anchor assertions on markup (a class, an id, a URL) or on factory strings no changelog could contain.
 - **Coverage.** The CI gate is `fail_under = 98`. A full local run can pass every test and still exit 1 on the total (about 93%) because some markers are deselected locally; CI's `test` job is the authority, so locally read the table for the files you changed.
 - **The mutation gate can be silently off.** pytest-leela skips mutation when the session exits non-zero, with no message, and CI runs that step with `continue-on-error: true`. No mutation report is not zero survivors. On a local subset, pass `--cov-fail-under=0` and make every selected spec pass.
@@ -81,7 +79,7 @@ Annotation-only imports go under `if TYPE_CHECKING:`; a runtime import that woul
   - A Label (type 18) description is capped at 100 characters, not 200; over it the whole modal is rejected (`modal_label()`, `core/events/discord_interactions.py`).
   - Poll messages can never be edited (520003), and a type 6 ack on a poll makes follow-ups fail silently; ack poll-adjacent clicks with an ephemeral type 5.
   - Server admins bypass command-permission denials; test as a non-admin.
-- **Demo and example content.** `display_demo_classes` hides `demo-` slugs through two gates, `ClassOfferingQuerySet.public()` and `ClassSessionQuerySet.upcoming_public()` (the Discord digest reads the second); new public surfaces must use one. Demo categories are prefixed `[DEMO]` because `Category.name` is unique. The example guild must never get `CommunityEvent` rows, which reach the public calendar and Discord regardless of `is_active` (`membership/example_guild.py`).
+- **Demo and example content.** `display_demo_classes` hides `demo-` slugs through two gates, `ClassOfferingQuerySet.public()` and `ClassSessionQuerySet.upcoming_public()` (the Discord digest reads the second); new public surfaces must use one. Demo categories are prefixed `[DEMO]` because `Category.name` is unique. The example guild stays free of `CommunityEvent` rows, because those reach the public calendar and Discord regardless of `is_active` (`membership/example_guild.py`).
 
 ## 12. Building Features
 
