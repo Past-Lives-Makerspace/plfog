@@ -137,7 +137,7 @@ tests/
 
 Factories: `classes/factories.py`, `tests/membership/factories.py`, `tests/billing/factories.py`.
 
-> `context_*` blocks are **not** collected — use `describe_*` for every nested block (see CLAUDE.md §7).
+> `context_*` blocks are **not** collected — use `describe_*` for every nested block (see STANDARDS.md §7).
 
 Root `conftest.py` provides:
 - `_disable_airtable_sync` (autouse) — sets `AIRTABLE_SYNC_ENABLED=False`

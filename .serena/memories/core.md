@@ -16,7 +16,7 @@ Django 5 app for Past Lives Makerspace (Portland, OR). Repo: github.com/Past-Liv
 
 ## Key reference files
 
-- `CLAUDE.md` — coding standards (fat models, skinny views, type hints, 100% coverage)
+- `STANDARDS.md` — coding standards (fat models, skinny views, type hints, coverage) and known traps
 - `FRONTEND.md` — component library and design system rules
 - `CODEBASE_INDEX.md` — full app/model/URL map
 

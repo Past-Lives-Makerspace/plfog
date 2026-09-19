@@ -215,7 +215,8 @@ Not sure where something lives? Start with the map below.
 
 - **[CODEBASE_INDEX.md](CODEBASE_INDEX.md)** — full app map: models, URLs, integrations.
 - **[FRONTEND.md](FRONTEND.md)** — component library, design system, page-building rules.
-- **[CLAUDE.md](CLAUDE.md)** — coding standards (also guides AI assistants on the project).
+- **[STANDARDS.md](STANDARDS.md)** — coding standards, testing rules and known traps, for every contributor.
+- **[CLAUDE.md](CLAUDE.md)** — project operations for AI assistants: releases, changelog, automated review.
 - Each Django app (`core/`, `membership/`, `hub/`, …) has its own `CLAUDE.md` with per-app detail.
 
 ---
