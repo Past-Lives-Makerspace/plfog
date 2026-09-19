@@ -4,6 +4,7 @@ Django app for membership, guilds, classes and studio rental at Past Lives Maker
 
 Read first:
 - [STANDARDS.md](STANDARDS.md): coding standards, testing rules and known traps. The automated reviewer holds PRs to it.
+- [CONTRIBUTING.md](CONTRIBUTING.md): how issues and pull requests are written; CI checks PR descriptions.
 - [CODEBASE_INDEX.md](CODEBASE_INDEX.md): app map, models, URLs, integrations. Each app also has its own `AGENTS.md`.
 - [FRONTEND.md](FRONTEND.md): component library, design system, page-building rules.
 

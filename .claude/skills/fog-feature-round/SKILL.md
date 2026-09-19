@@ -90,7 +90,9 @@ params, format the migration), amend, re-push. Never bypass the hook.
 ### 6. PR as HexagonStorms, ALWAYS as a draft
 **Re-check `gh auth status` every single time** — concurrent sessions flip the active account
 (bit this round twice). `gh auth switch --user HexagonStorms` then `gh pr create --draft` with a body
-that states what shipped, the spec path, and the real test evidence.
+in the shape of `.github/pull_request_template.md` (`CONTRIBUTING.md`, at most 300 words; CI checks it):
+the spec path goes in Problem, the real test evidence in Verification, and screens need an image under
+`mockups/screenshots/`.
 
 **`--draft` is not optional.** Jo merges on sight of the bot's approval without re-reading the PR
 ("if I see approved I'm merging it"), and he batch-sweeps open PRs. On 2026-09-18 that caught work

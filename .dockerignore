@@ -14,3 +14,6 @@ htmlcov/
 *.egg-info
 db.sqlite3
 staticfiles/
+
+# PR screenshots and mockups (CONTRIBUTING.md); never shipped
+mockups/
