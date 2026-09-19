@@ -1138,7 +1138,7 @@ def _horizon_spans(rule: OrientationAvailability, *, today: date, window_weeks: 
     spans: list[tuple[datetime, datetime]] = []
     for offset in range(window_weeks * 7):
         day = today + timedelta(days=offset)
-        if day.weekday() != rule.weekday:
+        if not rule.occurs_on(day):
             continue
         spans.extend(rule.carve_spans(day))
     return spans

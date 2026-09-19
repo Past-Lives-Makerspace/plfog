@@ -305,7 +305,7 @@
       {% if manager_rules %}
       <ul class="pl-orient-overview__rules">
         {% for r in manager_rules %}
-        <li>{{ r.orientation_type.name }} · {{ r.get_weekday_display }} · {{ r.start_time|time:"g:i a" }} to {{ r.end_time|time:"g:i a" }} · {{ r.seats }} seat{{ r.seats|pluralize }}{% if r.slot_minutes %} · {{ r.slot_minutes }} min slots{% endif %}{% if not r.is_active %} <span class="hub-text-muted">paused</span>{% endif %}</li>
+        <li>{{ r.orientation_type.name }} · {{ r.cadence_display }} · {{ r.start_time|time:"g:i a" }} to {{ r.end_time|time:"g:i a" }} · {{ r.seats }} seat{{ r.seats|pluralize }}{% if r.slot_minutes %} · {{ r.slot_minutes }} min slots{% endif %}{% if not r.is_active %} <span class="hub-text-muted">paused</span>{% endif %}</li>
         {% endfor %}
       </ul>
       {% else %}
@@ -337,7 +337,7 @@
       </div>
       <ul class="pl-orient-overview__rules">
         {% for r in manager_rules %}
-        <li>{{ r.orientation_type.name }} · {{ r.get_weekday_display }} · {{ r.start_time|time:"g:i a" }} to {{ r.end_time|time:"g:i a" }} · {{ r.seats }} seat{{ r.seats|pluralize }}{% if r.slot_minutes %} · {{ r.slot_minutes }} min slots{% endif %}{% if not r.is_active %} <span class="hub-text-muted">paused</span>{% endif %}</li>
+        <li>{{ r.orientation_type.name }} · {{ r.cadence_display }} · {{ r.start_time|time:"g:i a" }} to {{ r.end_time|time:"g:i a" }} · {{ r.seats }} seat{{ r.seats|pluralize }}{% if r.slot_minutes %} · {{ r.slot_minutes }} min slots{% endif %}{% if not r.is_active %} <span class="hub-text-muted">paused</span>{% endif %}</li>
         {% endfor %}
       </ul>
     </div>
@@ -357,7 +357,7 @@
     <p class="hub-text-muted" style="font-size:0.8125rem; margin-bottom:0.5rem;">These shared hours predate personal hours and cannot be recreated once deleted. New recurring hours always belong to a person. For occasional shared coverage, add an Any manager time in Upcoming Slots.</p>
     <ul class="pl-orient-overview__rules">
       {% for r in shared_rules %}
-      <li>{{ r.orientation_type.name }} · {{ r.get_weekday_display }} · {{ r.start_time|time:"g:i a" }} to {{ r.end_time|time:"g:i a" }} · {{ r.seats }} seat{{ r.seats|pluralize }}{% if r.slot_minutes %} · {{ r.slot_minutes }} min slots{% endif %}{% if not r.is_active %} <span class="hub-text-muted">paused</span>{% endif %}</li>
+      <li>{{ r.orientation_type.name }} · {{ r.cadence_display }} · {{ r.start_time|time:"g:i a" }} to {{ r.end_time|time:"g:i a" }} · {{ r.seats }} seat{{ r.seats|pluralize }}{% if r.slot_minutes %} · {{ r.slot_minutes }} min slots{% endif %}{% if not r.is_active %} <span class="hub-text-muted">paused</span>{% endif %}</li>
       {% endfor %}
     </ul>
     {% if can_edit_others_hours %}

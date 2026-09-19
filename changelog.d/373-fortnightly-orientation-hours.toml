@@ -1,0 +1,8 @@
+bump = "minor"
+date = "2026-09-18"
+title = "Orientation hours can run every other week"
+changes = [
+  "When you publish your orientation hours, you can now choose Every week or Every other week, and pick the week the every other week hours start.",
+  "The Orientation Schedule names each rule in plain words, such as Every other Tuesday.",
+  "Hours you already published keep running every week. Nothing changes unless you edit them.",
+]

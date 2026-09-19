@@ -2147,11 +2147,32 @@ class OrientationAvailabilityForm(forms.ModelForm):
     owner's active types (plus the row's own type, so an existing row under a retired type
     still validates); it defaults to the owner's first active type. Slot length and break
     are optional: blank keeps one slot for the whole window (the row stays NULL); a length
-    carves the window, and a saved off-list length round-trips as its own choice.
+    carves the window, and a saved off-list length round-trips as its own choice. The cadence
+    is optional too: a POST without ``interval_weeks`` stays weekly (the legacy shared-rows
+    form never renders it), and every other week needs its anchor date.
     """
 
     start_time = forms.ChoiceField(choices=half_hour_time_choices(required=True), label="Start time")
     end_time = forms.ChoiceField(choices=half_hour_time_choices(required=True), label="End time")
+    # Optional with a weekly empty value so a POST without the field (the legacy shared-rows
+    # form in guild_edit.html never renders it) stays weekly. Stubs type empty_value as str.
+    interval_weeks = forms.TypedChoiceField(
+        coerce=int,
+        required=False,
+        empty_value=OrientationAvailability.Interval.WEEKLY,  # type: ignore[arg-type]
+        choices=OrientationAvailability.Interval.choices,
+        label="Repeats",
+    )
+    anchor_date = forms.DateField(
+        required=False,
+        label="Starting the week of",
+        help_text="For every other week: any day in the first week these hours run.",
+        widget=forms.DateInput(
+            # Same treatment as the one-off slot date: the whole field opens the picker, and
+            # .pl-slot-date inverts the black picker icon on the dark theme.
+            attrs={"type": "date", "class": "pl-slot-date", "onclick": "try { this.showPicker() } catch (e) {}"}
+        ),
+    )
     slot_minutes = forms.TypedChoiceField(
         coerce=int,
         empty_value=None,
@@ -2174,6 +2195,8 @@ class OrientationAvailabilityForm(forms.ModelForm):
         fields = [
             "orientation_type",
             "weekday",
+            "interval_weeks",
+            "anchor_date",
             "start_time",
             "end_time",
             "seats",
@@ -2224,6 +2247,10 @@ class OrientationAvailabilityForm(forms.ModelForm):
 
     def clean(self) -> dict[str, Any]:
         cleaned = cast(dict[str, Any], super().clean())
+        if cleaned.get("interval_weeks") == OrientationAvailability.Interval.FORTNIGHTLY and not cleaned.get(
+            "anchor_date"
+        ):
+            self.add_error("anchor_date", "Pick the week these hours start.")
         start = cleaned.get("start_time")
         end = cleaned.get("end_time")
         if start and end and end <= start:

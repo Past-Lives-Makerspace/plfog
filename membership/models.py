@@ -9262,13 +9262,17 @@ class OrientationAvailabilityQuerySet(models.QuerySet):
 
 
 class OrientationAvailability(models.Model):
-    """A weekly recurring window during which a guild or a piece of equipment offers orientations.
+    """A recurring window (weekly or every other week) in which a guild or a piece of equipment offers orientations.
 
     The slot-generation job materializes concrete ``OrientationSlot`` rows from
     each active rule across a rolling window. A rule with an ``orienter`` is one
     staff member's personal hours; ``orienter=NULL`` is a legacy guild-level rule
     ("any orienter"). The owner of record is ``orientation_type`` (guild XOR
     equipment); ``guild`` is denormalized and empty for an equipment rule.
+
+    ``interval_weeks`` sets the cadence: 1 recurs every week; 2 recurs every other
+    week counted in Monday-based weeks from the week of ``anchor_date`` (see
+    :meth:`occurs_on`). A weekly rule ignores ``anchor_date``.
 
     ``slot_minutes`` decides the window's shape: empty keeps the legacy one slot
     spanning the whole window; set, each occurrence is carved into slots that long,
@@ -9283,6 +9287,10 @@ class OrientationAvailability(models.Model):
         FRIDAY = 4, "Friday"
         SATURDAY = 5, "Saturday"
         SUNDAY = 6, "Sunday"
+
+    class Interval(models.IntegerChoices):
+        WEEKLY = 1, "Every week"
+        FORTNIGHTLY = 2, "Every other week"
 
     guild = models.ForeignKey(
         Guild,
@@ -9311,6 +9319,16 @@ class OrientationAvailability(models.Model):
     )
     weekday = models.PositiveSmallIntegerField(
         choices=Weekday.choices, help_text="Day of week this rule recurs on (0=Mon … 6=Sun)."
+    )
+    interval_weeks = models.PositiveSmallIntegerField(
+        choices=Interval.choices,
+        default=Interval.WEEKLY,
+        help_text="How often this window recurs: every week, or every other week from the week of anchor_date.",
+    )
+    anchor_date = models.DateField(
+        null=True,
+        blank=True,
+        help_text="Any day in the first week an every other week rule runs. Ignored by a weekly rule.",
     )
     start_time = models.TimeField(help_text="When the orientation window starts.")
     end_time = models.TimeField(help_text="When the orientation window ends.")
@@ -9350,7 +9368,38 @@ class OrientationAvailability(models.Model):
     def __str__(self) -> str:
         who = self.orienter.display_name if self.orienter is not None else "any orienter"
         owner_name = self.orientation_type.owner_name
-        return f"{owner_name} orientation: {self.get_weekday_display()} {self.start_time:%H:%M} ({who})"
+        return f"{owner_name} orientation: {self.cadence_display} {self.start_time:%H:%M} ({who})"
+
+    @property
+    def cadence_display(self) -> str:
+        """The rule's cadence in plain words: "Every Tuesday" or "Every other Tuesday"."""
+        if self.interval_weeks == self.Interval.FORTNIGHTLY:
+            return f"Every other {self.get_weekday_display()}"
+        return f"Every {self.get_weekday_display()}"
+
+    def occurs_on(self, day: date_type) -> bool:
+        """Whether this rule yields a window on ``day``.
+
+        The weekday must match. A weekly rule then always occurs. An every other
+        week rule occurs from its anchor week on, in alternate Monday-based weeks;
+        the anchor's own weekday does not matter, because "the week of" is what the
+        editor promises.
+
+        Raises:
+            ValueError: An every other week rule with no ``anchor_date``. The hours
+                form refuses to save one, so this is a data error, not a state.
+        """
+        if day.weekday() != self.weekday:
+            return False
+        if self.interval_weeks == self.Interval.WEEKLY:
+            return True
+        if self.anchor_date is None:
+            raise ValueError(f"OrientationAvailability {self.pk} recurs every other week but has no anchor_date.")
+        if day < self.anchor_date:
+            return False
+        monday = day - timedelta(days=day.weekday())
+        anchor_monday = self.anchor_date - timedelta(days=self.anchor_date.weekday())
+        return ((monday - anchor_monday).days // 7) % self.interval_weeks == 0
 
     def clean(self) -> None:
         """Half hour grid guard for a carved window (the auto-registered Django admin runs this too).
