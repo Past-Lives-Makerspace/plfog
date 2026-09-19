@@ -1,0 +1,10 @@
+# Internal because no member met this one. The bug shipped at 23:16 UTC and was fixed the
+# same evening, on a CMS that is not yet in active use, against demo data. Announcing a
+# defect nobody experienced is noise, and the member facing story is already told by
+# 371-guild-lead-approval-reuse.toml, which is still accurate.
+#
+# It is not "no-changelog" either: that moves no version, which would leave the build
+# carrying the bug and the build carrying the fix reporting the same number. This moves the
+# version and announces nothing, which is exactly the shape of what happened.
+bump = "patch"
+audience = "internal"
