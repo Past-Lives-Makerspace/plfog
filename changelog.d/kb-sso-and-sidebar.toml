@@ -1,0 +1,8 @@
+bump = "minor"
+date = "2026-09-18"
+title = "The Knowledge Base opens from the sidebar, already signed in"
+changes = [
+  "A Knowledge Base entry sits under Wiki in the sidebar, for every member.",
+  "Clicking it opens the Knowledge Base already signed in as you — it takes your identity from the portal, so there is no second account and no second password.",
+  "Your role here decides what you can read there. Change a member's role and their access follows on their next visit.",
+]

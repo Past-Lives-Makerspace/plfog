@@ -33,6 +33,16 @@ def makerspace_wiki(request: HttpRequest) -> dict[str, str]:
     return {"makerspace_wiki_url": settings.MAKERSPACE_WIKI_URL}
 
 
+def knowledge_base(request: HttpRequest) -> dict[str, str]:
+    """Expose the Knowledge Base URL to the sidebar.
+
+    The KB is a separate application on a separate host, so there is no ``{% url %}`` for it and
+    the sidebar needs the absolute address. A blank setting leaves the entry pointing nowhere,
+    which is why the ``knowledge_base`` feature switch is what decides whether it is shown.
+    """
+    return {"knowledge_base_url": settings.KNOWLEDGE_BASE_URL}
+
+
 def theme(request: HttpRequest) -> dict[str, str]:
     """Expose the theme cookie's domain scope to base.html's early inline script.
 
