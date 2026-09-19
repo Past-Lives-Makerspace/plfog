@@ -32,13 +32,25 @@
         {% endif %}
         <div class="reg-summary">
           <div>{{ offering.title|strip_date_suffix }}</div>
-          {% if offering.sale_is_active %}
-            <div class="total"><span class="reg-was">{{ offering.price_cents|cents_as_price }}</span> {{ offering.sale_price_cents|cents_as_price }}</div>
-            <div class="reg-sale-badge">{{ offering.sale_savings_display }}</div>
-          {% else %}
-            <div class="total">{{ offering.price_cents|cents_as_price }}</div>
-          {% endif %}
-          {% if member_price_cents %}<div style="font-size:11px;color:var(--steel-dim);margin-top:2px">Past Lives Members: {{ member_price_cents|cents_as_price }} (auto-applied if your email matches a verified member)</div>{% endif %}
+          {# The quote for the email, toggle and code as they stand; swapped whole by the HTMX refresh those inputs carry. #}
+          <div id="reg-price-summary">
+            {% if offering.sale_is_active %}
+              <div class="total"><span class="reg-was">{{ offering.price_cents|cents_as_price }}</span> {{ quoted_price_cents|cents_as_price }}</div>
+              <div class="reg-sale-badge">{{ offering.sale_savings_display }}</div>
+            {% else %}
+              <div class="total">{{ quoted_price_cents|cents_as_price }}</div>
+            {% endif %}
+            {% if form.quotes_member_discount %}<div style="font-size:11px;color:var(--steel-dim);margin-top:2px">Member discount applied.</div>{% endif %}
+            {% if form.apply_member_discount %}
+            <label class="reg-check" style="margin-top:8px">
+              {# The hidden twin sends "" for an unchecked box, so a refresh can tell "turned off" from "no box on the page". #}
+              <input type="hidden" name="apply_member_discount" value="" form="reg-form">
+              {{ form.apply_member_discount }}
+              <span>{{ form.apply_member_discount.label }}</span>
+            </label>
+            <div class="reg-help">{{ form.apply_member_discount.help_text }}</div>
+            {% endif %}
+          </div>
           {% if spots_remaining <= 3 %}<div style="font-size:11px;color:var(--red);margin-top:6px">Only {{ spots_remaining }} spot{{ spots_remaining|pluralize }} left</div>{% endif %}
         </div>
 
@@ -78,7 +90,7 @@
           </div>
         {% endif %}
 
-        <form method="post" class="reg-form" style="margin-top:14px" hx-boost="false" data-submit-guard>
+        <form method="post" id="reg-form" class="reg-form" style="margin-top:14px" hx-boost="false" data-submit-guard>
           {% csrf_token %}
           <div class="reg-row">
             <div class="reg-field">
@@ -195,7 +207,7 @@
           <button type="submit" class="btn-reg" style="margin-top:8px">
             {% comment %}Free-vs-paid stays keyed on price_cents — a paid class on sale is
             still a paid class (validation guarantees sale_price_cents > 0 here).{% endcomment %}
-            {% if offering.price_cents == 0 %}Confirm Registration{% else %}Next — {{ offering.sale_price_cents|cents_as_price }}{% endif %}
+            {% if offering.price_cents == 0 %}Confirm Registration{% else %}Next: <span id="reg-submit-label">{{ quoted_price_cents|cents_as_price }}</span>{% endif %}
           </button>
           <div class="reg-help" style="text-align:center">Payment is processed securely by Stripe. We never see your card details.</div>
         </form>

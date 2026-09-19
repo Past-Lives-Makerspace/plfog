@@ -1,8 +1,10 @@
 """BDD specs for the composer forms (ClassOfferingForm, TeachClassOfferingForm).
 
-The price floor (#368 item 5): there is no free option. Both forms require a price and a
-member discount, and refuse any price under $1.00 with one plain message. The hero crop
-mixin, the session form, and the slug collision handling share the POST helpers below.
+The price floor (#368 item 5): there is no free option. Both forms require a price and
+refuse any price under $1.00 with one plain message. The member discount (#369 item 1) is
+the admin's: only ClassOfferingForm carries it, and a new class starts at the studio
+default. The hero crop mixin, the session form, and the slug collision handling share the
+POST helpers below.
 """
 
 from __future__ import annotations
@@ -15,7 +17,7 @@ from django.utils import timezone
 
 from classes.factories import CategoryFactory, ClassOfferingFactory, InstructorFactory
 from classes.forms import ClassOfferingForm, ClassSessionForm, TeachClassOfferingForm
-from classes.models import ClassOffering
+from classes.models import ClassOffering, ClassSettings
 
 pytestmark = pytest.mark.django_db
 
@@ -117,12 +119,10 @@ def describe_the_price_floor():
         assert form.is_valid(), form.errors
         assert form.save().price_cents == 100
 
-    def it_keeps_pricing_as_typed(form_class):
-        form = _form(form_class, price_cents="25.00", member_discount_pct="15")
+    def it_keeps_the_price_as_typed(form_class):
+        form = _form(form_class, price_cents="25.00")
         assert form.is_valid(), form.errors
-        offering = form.save()
-        assert offering.price_cents == 2500
-        assert offering.member_discount_pct == 15
+        assert form.save().price_cents == 2500
 
     def describe_on_an_existing_class():
         def it_refuses_an_edit_under_the_floor(form_class):
@@ -152,35 +152,72 @@ def describe_the_price_floor():
             assert accepted.save().price_cents == 100
 
 
+def _studio_default(pct: int) -> ClassSettings:
+    settings_obj = ClassSettings.load()
+    settings_obj.default_member_discount_pct = pct
+    settings_obj.save(update_fields=["default_member_discount_pct"])
+    return settings_obj
+
+
 def describe_the_member_discount():
-    def it_is_required(form_class):
-        form = _form(form_class, member_discount_pct="")
-        assert not form.is_valid()
-        assert form.errors["member_discount_pct"] == [REQUIRED]
+    def describe_on_the_admin_form():
+        def it_is_required():
+            form = _form(ClassOfferingForm, member_discount_pct="")
+            assert not form.is_valid()
+            assert form.errors["member_discount_pct"] == [REQUIRED]
 
-    def it_starts_at_the_model_default_on_a_new_class(form_class):
-        assert form_class().fields["member_discount_pct"].initial == 10
+        def it_starts_at_the_studio_default_on_a_new_class():
+            _studio_default(15)
+            assert ClassOfferingForm()["member_discount_pct"].value() == 15
 
-    def it_accepts_zero(form_class):
-        form = _form(form_class, member_discount_pct="0")
-        assert form.is_valid(), form.errors
-        assert form.save().member_discount_pct == 0
+        def it_shows_the_saved_value_on_an_existing_class():
+            _studio_default(15)
+            offering = ClassOfferingFactory(member_discount_pct=25)
+            assert ClassOfferingForm(instance=offering)["member_discount_pct"].value() == 25
 
-    def it_accepts_one_hundred(form_class):
-        form = _form(form_class, member_discount_pct="100")
-        assert form.is_valid(), form.errors
-        assert form.save().member_discount_pct == 100
+        def it_keeps_the_discount_as_typed():
+            form = _form(ClassOfferingForm, member_discount_pct="15")
+            assert form.is_valid(), form.errors
+            assert form.save().member_discount_pct == 15
 
-    def it_refuses_more_than_one_hundred(form_class):
-        # A percentage: the model field only bounds it below, so the form caps it above.
-        form = _form(form_class, member_discount_pct="101")
-        assert not form.is_valid()
-        assert form.errors["member_discount_pct"] == ["Member discount must be between 0 and 100."]
+        def it_accepts_zero():
+            form = _form(ClassOfferingForm, member_discount_pct="0")
+            assert form.is_valid(), form.errors
+            assert form.save().member_discount_pct == 0
 
-    def it_refuses_a_negative_number(form_class):
-        form = _form(form_class, member_discount_pct="-1")
-        assert not form.is_valid()
-        assert "member_discount_pct" in form.errors
+        def it_accepts_one_hundred():
+            form = _form(ClassOfferingForm, member_discount_pct="100")
+            assert form.is_valid(), form.errors
+            assert form.save().member_discount_pct == 100
+
+        def it_refuses_more_than_one_hundred():
+            # A percentage: the model field only bounds it below, so the form caps it above.
+            form = _form(ClassOfferingForm, member_discount_pct="101")
+            assert not form.is_valid()
+            assert form.errors["member_discount_pct"] == ["Member discount must be between 0 and 100."]
+
+        def it_refuses_a_negative_number():
+            form = _form(ClassOfferingForm, member_discount_pct="-1")
+            assert not form.is_valid()
+            assert "member_discount_pct" in form.errors
+
+    def describe_on_the_instructor_form():
+        # The instructor payload still carries member_discount_pct: that is the crafted POST,
+        # and the form has no such field to bind it to.
+        def it_has_no_field():
+            assert "member_discount_pct" not in TeachClassOfferingForm().fields
+
+        def it_starts_a_new_class_at_the_studio_default_whatever_was_posted():
+            _studio_default(15)
+            form = _form(TeachClassOfferingForm, member_discount_pct="0")
+            assert form.is_valid(), form.errors
+            assert form.save().member_discount_pct == 15
+
+        def it_leaves_an_existing_class_alone_whatever_was_posted():
+            offering = ClassOfferingFactory(member_discount_pct=25)
+            form = _form(TeachClassOfferingForm, instance=offering, member_discount_pct="0")
+            assert form.is_valid(), form.errors
+            assert form.save().member_discount_pct == 25
 
 
 def describe_HeroCropMixin():

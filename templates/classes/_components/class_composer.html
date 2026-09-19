@@ -1,4 +1,5 @@
 {% load static %}
+{% load classes_tags %}
 {% comment %}
 The five step class composer, shared by templates/classes/class_form.html (the one per-class
 composer) and templates/classes/admin/class_form.html (design spec §C). Built exactly like the
@@ -281,13 +282,17 @@ Do not merge them.
         <h3 class="pl-compose-section__title">Seats And Member Discount</h3>
         <p class="pl-compose-section__note">How many can attend, and the discount members get on top of the price from step 1.</p>
         {% include "components/form_field.html" with field=form.capacity %}
-        {% include "components/form_field.html" with field=form.member_discount_pct %}
         {% if is_admin %}
+          {% include "components/form_field.html" with field=form.member_discount_pct %}
           {% include "components/form_field.html" with field=form.is_private %}
           {% include "components/form_field.html" with field=form.private_for_name %}
           {% include "classes/_components/class_discount_codes_section.html" with offering=offering create_url='classes:admin_discount_code_create' edit_url='classes:admin_discount_code_edit' %}
-        {% elif instructor_discount_codes_enabled %}
-          {% include "classes/_components/class_discount_codes_section.html" with offering=offering create_url='classes:teach_discount_code_create' edit_url='classes:teach_discount_code_edit' %}
+        {% else %}
+          {# The discount is the admin's to set; the instructor reads it off the saved row (the studio default on a new class). #}
+          <p class="pl-compose-section__note" id="member-discount-note">Members get {{ form.instance.member_discount_pct }}% off.{% if form.instance.price_cents %}{% member_price_cents form.instance.price_cents form.instance.member_discount_pct as mp %}{% if mp %} That makes the member price {{ mp|cents_as_price }}.{% endif %}{% endif %}</p>
+          {% if instructor_discount_codes_enabled %}
+            {% include "classes/_components/class_discount_codes_section.html" with offering=offering create_url='classes:teach_discount_code_create' edit_url='classes:teach_discount_code_edit' %}
+          {% endif %}
         {% endif %}
       </div>
     </div>
