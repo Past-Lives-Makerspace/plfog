@@ -670,6 +670,17 @@ def describe_late_cancel_fee():
         )
         assert reservation.late_cancel_fee == Decimal("0")
 
+    def it_is_zero_exactly_at_the_start_instant():
+        # The started guard is <=, so a start at this very instant is already "started"
+        # and carries no fee. Pinned clock, same reason as the boundary spec above.
+        _set_late_fee()
+        now = timezone.now()
+        reservation = EquipmentReservationFactory(
+            member=MemberFactory(), starts_at=now, ends_at=now + timedelta(hours=1)
+        )
+        with patch("django.utils.timezone.now", return_value=now):
+            assert reservation.late_cancel_fee == Decimal("0")
+
 
 def describe_cancel_late_fee():
     """#408: a self cancel inside the notice window puts the fee on the member's tab; nothing else can."""
