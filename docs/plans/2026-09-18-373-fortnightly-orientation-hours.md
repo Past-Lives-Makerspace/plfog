@@ -13,7 +13,8 @@ Brief for this round: surgical, pragmatic, YAGNI.
   `fortnightly`, `monthly`, `every_2_months`, `every_3_months`, `every_6_months`, `yearly`,
   default `weekly`) and `anchor_date` (DateField, null/blank, label "Starting on", the first
   day the rule runs). Weekly rows ignore the anchor; every other cadence requires it (form AND
-  model `clean()`). No data migration; every existing row is weekly. The unshipped migration
+  model `clean()`), and the start day must fall on the rule's weekday, refused otherwise, so
+  "the 2nd Tuesday" is the Tuesday the lead picked and not a shifted one. No data migration; every existing row is weekly. The unshipped migration
   0174 is regenerated for this shape while the PR is a draft.
 - D3. Week arithmetic on Mondays for fortnightly: a rule occurs on `day` when
   `day.weekday() == weekday`, `day >= anchor_date`, and

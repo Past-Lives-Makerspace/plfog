@@ -700,6 +700,22 @@ def describe_hours_cadence():
         assert "Pick the day these hours start." in response.content.decode()
         assert not OrientationAvailability.objects.filter(orienter=user.member).exists()
 
+    def it_errors_when_the_start_day_is_not_the_rules_weekday(client: Client):
+        # A Tuesday rule started on Wednesday 2026-09-09 would silently mean a different Tuesday.
+        user, guild = _lead(client, "fn_wrongday")
+        response = client.post(
+            _hours_url(guild),
+            _modal_rule_payload(
+                str(user.member.pk),
+                guild=guild,
+                **{"modal_rules-0-cadence": "monthly", "modal_rules-0-anchor_date": "2026-09-09"},
+            ),
+            HTTP_HX_REQUEST="true",
+        )
+        assert response.status_code == 200
+        assert "The start day must be a Tuesday, the day these hours run." in response.content.decode()
+        assert not OrientationAvailability.objects.filter(orienter=user.member).exists()
+
     def it_keeps_a_modal_post_without_the_field_weekly(client: Client):
         user, guild = _lead(client, "fn_absent")
         response = client.post(

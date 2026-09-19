@@ -600,6 +600,15 @@ def describe_anchor_guard():
     def it_leaves_a_weekly_rule_alone_without_an_anchor():
         OrientationAvailabilityFactory().full_clean()  # must not raise
 
+    def it_refuses_a_start_day_on_another_weekday():
+        # A Tuesday rule started on a Wednesday would silently mean a different Tuesday.
+        rule = _rule_on(Cadence.MONTHLY, date(2026, 9, 9))
+        with pytest.raises(ValidationError, match="The start day must be a Tuesday, the day these hours run."):
+            rule.full_clean()
+
+    def it_lets_a_weekly_rule_keep_a_stray_anchor_on_any_weekday():
+        OrientationAvailabilityFactory(anchor_date=date(2026, 9, 9)).full_clean()  # must not raise
+
     def it_still_guards_the_half_hour_grid_alongside():
         rule = _fortnightly_rule(None, slot_minutes=30, start_time=time(9, 15), end_time=time(11, 15))
         with pytest.raises(ValidationError) as caught:

@@ -9453,8 +9453,16 @@ class OrientationAvailability(models.Model):
         # A rule on any cadence but weekly with no anchor cannot say which days are its
         # own, and occurs_on raises on it, which would abort slot generation for every
         # owner in the run. The hub form refuses it; this is the same refusal for the admin.
-        if self.cadence != self.Cadence.WEEKLY and self.anchor_date is None:
-            errors["anchor_date"] = "Pick the day these hours start."
+        if self.cadence != self.Cadence.WEEKLY:
+            if self.anchor_date is None:
+                errors["anchor_date"] = "Pick the day these hours start."
+            elif self.anchor_date.weekday() != self.weekday:
+                # The start day is "the first day these hours run", and for a month based rule
+                # its place in the month is the rule. A start day on another weekday would
+                # silently mean a different Tuesday than the one the lead picked.
+                errors["anchor_date"] = (
+                    f"The start day must be a {self.get_weekday_display()}, the day these hours run."
+                )
         if self.slot_minutes is not None:
             for field in ("start_time", "end_time"):
                 value = getattr(self, field)
