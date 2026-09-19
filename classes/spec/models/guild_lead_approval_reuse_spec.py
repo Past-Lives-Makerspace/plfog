@@ -358,6 +358,34 @@ def describe_opening_a_guild_lead_gate():
             assert list(offering.approvals.all()) == [gate]
             assert not _addressed(OTHER_LEAD_EMAIL)
 
+        def it_does_not_carry_the_group_off_without_the_class(db, settings):
+            """The sibling sync one line below reads the same dirty field.
+
+            A save that leaves the class where it is would otherwise re-file every other
+            run of the same class into a category the class itself never moved to, which
+            splits the group the block exists to keep together.
+            """
+            offering, lead_user = _guilded_draft(settings)
+            other_guild, _other_lead_user = _second_guild_with_lead()
+            sibling = cast(
+                ClassOffering,
+                ClassOfferingFactory(
+                    ready=True,
+                    title=offering.title,
+                    slug=f"{offering.slug}-second-run",
+                    category=offering.category,
+                    instructor=offering.instructor,
+                ),
+            )
+            assert sibling.grouping_key == offering.grouping_key
+
+            offering.category = CategoryFactory(guild=other_guild)
+            offering.save(update_fields=["title"])
+
+            offering.refresh_from_db()
+            sibling.refresh_from_db()
+            assert sibling.category_id == offering.category_id
+
         def it_leaves_a_move_inside_one_guild_alone(db, settings):
             """Forge Basics to Forge Advanced asks nobody anything new."""
             offering, lead_user = _guilded_draft(settings)

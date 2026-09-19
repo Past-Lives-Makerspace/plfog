@@ -1170,8 +1170,12 @@ class ClassOffering(HeroCropMixin, models.Model):
             self._repoint_open_guild_lead_gate()
 
         # When a grouped class moves to a new category, sync siblings so the
-        # group stays coherent (same grouping_key across all dates).
-        if old is not None and old.category_id != self.category_id and old.grouping_key:
+        # group stays coherent (same grouping_key across all dates). Guarded by
+        # ``category_written`` for the same reason as the reopen above, and the cost of
+        # missing it is higher here: on a save that leaves the category where it was, this
+        # would carry every sibling off to a category the class itself never moved to,
+        # splitting the group it exists to keep together.
+        if old is not None and old.category_id != self.category_id and category_written and old.grouping_key:
             type(self)._default_manager.filter(
                 grouping_key=old.grouping_key,
             ).exclude(pk=self.pk).update(
