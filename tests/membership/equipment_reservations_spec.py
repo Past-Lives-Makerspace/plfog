@@ -10,7 +10,10 @@ All window math asserted in local time at ``now + 2 days``.
 from __future__ import annotations
 
 import json
+import logging
 from datetime import datetime, time, timedelta
+from decimal import Decimal
+from unittest.mock import patch
 
 import httpx
 import pytest
@@ -19,11 +22,12 @@ from django.contrib.auth.models import User
 from django.core import mail
 from django.utils import timezone
 
+from billing.models import TabEntry
 from core.events import resolvers
 from core.events.copy import COPY_CHANNELS, default_copy_for, placeholders_for
 from core.events.registry import Channel, ChannelDefault, Recipients, get_event
 from core.events.rendering import render_text
-from core.models import Notification
+from core.models import Notification, SiteConfiguration
 from membership import equipment as equipment_service
 from membership import orientations
 from membership.models import (
@@ -35,6 +39,7 @@ from membership.models import (
     OrientationBooking,
     OrientationError,
 )
+from tests.billing.factories import TabFactory
 from tests.membership.factories import (
     EquipmentFactory,
     EquipmentHoursFactory,
@@ -591,6 +596,220 @@ def describe_cancel():
         reservation.cancel(member)
         with pytest.raises(EquipmentError, match="already cancelled"):
             reservation.cancel(member)
+
+
+def _set_late_fee(fee: str = "35.00", hours: int = 48) -> None:
+    """Turn the #408 late cancellation fee on in Site Settings (default: $35 inside 48 hours)."""
+    config = SiteConfiguration.load()
+    config.equipment_late_cancel_fee = Decimal(fee)
+    config.equipment_late_cancel_notice_hours = hours
+    config.save(update_fields=["equipment_late_cancel_fee", "equipment_late_cancel_notice_hours"])
+
+
+def _hours_ahead(member: Member, hours: int, *, equipment: Equipment | None = None) -> EquipmentReservation:
+    """A confirmed one hour reservation for ``member`` starting ``hours`` from now."""
+    now = timezone.now()
+    return EquipmentReservationFactory(
+        equipment=equipment if equipment is not None else EquipmentFactory(name="CNC Router"),
+        member=member,
+        starts_at=now + timedelta(hours=hours),
+        ends_at=now + timedelta(hours=hours + 1),
+    )
+
+
+def describe_late_cancel_fee():
+    """#408: the fee a self cancel made right now would carry, measured against now."""
+
+    def it_is_the_site_fee_inside_the_notice_window():
+        _set_late_fee()
+        assert _hours_ahead(MemberFactory(), 24).late_cancel_fee == Decimal("35.00")
+
+    def it_is_zero_with_enough_notice():
+        _set_late_fee()
+        assert _hours_ahead(MemberFactory(), 72).late_cancel_fee == Decimal("0")
+
+    def it_is_zero_when_no_fee_is_configured():
+        # The shipped default: nobody is charged until an admin sets an amount.
+        assert SiteConfiguration.load().equipment_late_cancel_fee == Decimal("0.00")
+        assert _hours_ahead(MemberFactory(), 24).late_cancel_fee == Decimal("0")
+
+    def it_follows_the_configured_notice_hours():
+        _set_late_fee("12.50", 6)
+        assert _hours_ahead(MemberFactory(), 5).late_cancel_fee == Decimal("12.50")
+        assert _hours_ahead(MemberFactory(), 7).late_cancel_fee == Decimal("0")
+
+    def it_is_not_late_exactly_on_the_boundary():
+        # Strict <: a start exactly 48 hours away is NOT inside the window. The clock is
+        # pinned because the property reads now itself, and a real clock always moves.
+        _set_late_fee()
+        now = timezone.now()
+        reservation = EquipmentReservationFactory(
+            member=MemberFactory(), starts_at=now + timedelta(hours=48), ends_at=now + timedelta(hours=49)
+        )
+        with patch("django.utils.timezone.now", return_value=now):
+            assert reservation.late_cancel_fee == Decimal("0")
+
+    def it_is_late_one_second_inside_the_boundary():
+        _set_late_fee()
+        now = timezone.now()
+        reservation = EquipmentReservationFactory(
+            member=MemberFactory(),
+            starts_at=now + timedelta(hours=48) - timedelta(seconds=1),
+            ends_at=now + timedelta(hours=49),
+        )
+        with patch("django.utils.timezone.now", return_value=now):
+            assert reservation.late_cancel_fee == Decimal("35.00")
+
+
+def describe_cancel_late_fee():
+    """#408: a self cancel inside the notice window puts the fee on the member's tab; nothing else can."""
+
+    def it_adds_the_fee_to_the_members_tab_on_a_late_self_cancel():
+        _set_late_fee()
+        member = _linked_member("fee_late")
+        reservation = _hours_ahead(member, 24)
+        mail.outbox.clear()
+        reservation.cancel(member)
+        reservation.refresh_from_db()
+        assert reservation.status == EquipmentReservation.Status.CANCELLED
+        entry = TabEntry.objects.get()
+        assert entry.tab.member == member
+        assert entry.amount == Decimal("35.00")
+        local_start = timezone.localtime(reservation.starts_at)
+        assert entry.description == f"Late cancellation fee: CNC Router, {local_start:%b} {local_start.day}"
+        assert entry.added_by == member.user
+        assert entry.is_self_service is False
+        split = entry.splits.get()
+        assert (split.recipient_type, split.guild, split.percent) == ("admin", None, Decimal("100"))
+        assert entry.tab.current_balance == Decimal("35.00")
+        # add_entry already tells the member (the forced tab email); the cancel adds no second one.
+        assert [m.subject for m in mail.outbox] == ["$35.00 added to your tab"]
+
+    def it_adds_nothing_with_enough_notice():
+        _set_late_fee()
+        member = _linked_member("fee_early")
+        reservation = _hours_ahead(member, 72)
+        mail.outbox.clear()
+        reservation.cancel(member)
+        reservation.refresh_from_db()
+        assert reservation.status == EquipmentReservation.Status.CANCELLED
+        assert not TabEntry.objects.exists()
+        assert mail.outbox == []
+
+    def it_adds_nothing_when_no_fee_is_configured():
+        member = _linked_member("fee_off")
+        reservation = _hours_ahead(member, 24)
+        mail.outbox.clear()
+        reservation.cancel(member)
+        assert not TabEntry.objects.exists()
+        assert mail.outbox == []
+
+    def it_never_charges_a_manager_cancel():
+        _set_late_fee()
+        equipment = EquipmentFactory(name="CNC Router")
+        member = _linked_member("fee_mgr_target")
+        manager = _linked_member("fee_mgr")
+        EquipmentStaffMembershipFactory(equipment=equipment, member=manager)
+        reservation = _hours_ahead(member, 24, equipment=equipment)
+        reservation.cancel(manager, reason="Down for repair.")
+        reservation.refresh_from_db()
+        assert reservation.status == EquipmentReservation.Status.CANCELLED
+        assert not TabEntry.objects.exists()
+
+    def it_never_charges_a_managers_own_row_cancelled_as_manager():
+        _set_late_fee()
+        equipment = EquipmentFactory(name="CNC Router")
+        manager = _linked_member("fee_own_mgr")
+        EquipmentStaffMembershipFactory(equipment=equipment, member=manager)
+        reservation = _hours_ahead(manager, 24, equipment=equipment)
+        reservation.cancel(manager, reason="Freeing my own slot.", as_manager=True)
+        reservation.refresh_from_db()
+        assert reservation.status == EquipmentReservation.Status.CANCELLED
+        assert not TabEntry.objects.exists()
+
+    def it_lets_the_cancel_stand_when_the_tab_is_locked(caplog):
+        _set_late_fee()
+        member = _linked_member("fee_locked")
+        TabFactory(member=member, is_locked=True, locked_reason="Card declined")
+        reservation = _hours_ahead(member, 24)
+        with caplog.at_level(logging.WARNING, logger="membership.models"):
+            reservation.cancel(member)
+        reservation.refresh_from_db()
+        assert reservation.status == EquipmentReservation.Status.CANCELLED
+        assert not TabEntry.objects.exists()
+        assert f"Late cancellation fee not added for reservation {reservation.pk}: Tab is locked: Card declined" in (
+            caplog.text
+        )
+
+    def it_lets_the_cancel_stand_when_the_fee_would_exceed_the_tab_limit(caplog):
+        _set_late_fee()
+        member = _linked_member("fee_limit")
+        TabFactory(member=member, tab_limit=Decimal("10.00"))
+        reservation = _hours_ahead(member, 24)
+        with caplog.at_level(logging.WARNING, logger="membership.models"):
+            reservation.cancel(member)
+        reservation.refresh_from_db()
+        assert reservation.status == EquipmentReservation.Status.CANCELLED
+        assert not TabEntry.objects.exists()
+        assert f"Late cancellation fee not added for reservation {reservation.pk}: " in caplog.text
+        assert "would exceed tab limit" in caplog.text
+
+
+def describe_late_cancel_copy():
+    """#408: the two member facing sentences, built once from Site Settings."""
+
+    def it_is_blank_without_a_fee():
+        assert equipment_service.late_cancel_policy() == ""
+        assert equipment_service.late_cancel_warning() == ""
+
+    def it_names_the_notice_hours_and_the_fee():
+        _set_late_fee()
+        assert equipment_service.late_cancel_policy() == (
+            "Cancel at least 48 hours ahead. Cancelling later adds a $35.00 late fee to your tab."
+        )
+        assert equipment_service.late_cancel_warning() == (
+            "This is inside the 48 hour notice window, so a $35.00 late cancellation fee will be added to "
+            "your tab. The time opens up for someone else."
+        )
+
+    def it_renders_the_fee_with_two_places():
+        _set_late_fee("12.5", 6)
+        assert equipment_service.late_cancel_policy() == (
+            "Cancel at least 6 hours ahead. Cancelling later adds a $12.50 late fee to your tab."
+        )
+        assert equipment_service.late_cancel_warning().startswith(
+            "This is inside the 6 hour notice window, so a $12.50 "
+        )
+
+
+def describe_confirmation_email_cancellation_policy():
+    """#408: the booking receipt carries the policy sentence when a fee is on, and nothing otherwise."""
+
+    def it_documents_the_merge_field():
+        assert "cancellation_policy" in placeholders_for("equipment.reservation_confirmed")
+
+    def it_carries_the_policy_sentence_when_a_fee_is_configured():
+        _set_late_fee()
+        equipment = _open_tool(name="CNC Router")
+        member = _linked_member("ev_policy_on")
+        mail.outbox.clear()
+        reservation = equipment_service.reserve(equipment, member, _at(_day(), 10), 60)
+        policy = "Cancel at least 48 hours ahead. Cancelling later adds a $35.00 late fee to your tab."
+        assert equipment_service._placeholder_context(reservation)["cancellation_policy"] == policy
+        confirmation = next(m for m in mail.outbox if "Reserved" in m.subject)
+        assert f"the time opens up for someone else. {policy}" in confirmation.body
+        html = next(content for content, mimetype in confirmation.alternatives if mimetype == "text/html")
+        assert f"the time opens up for someone else. {policy}</p>" in html
+
+    def it_carries_no_sentence_and_no_hole_without_a_fee():
+        equipment = _open_tool(name="CNC Router")
+        member = _linked_member("ev_policy_off")
+        mail.outbox.clear()
+        reservation = equipment_service.reserve(equipment, member, _at(_day(), 10), 60)
+        assert equipment_service._placeholder_context(reservation)["cancellation_policy"] == ""
+        confirmation = next(m for m in mail.outbox if "Reserved" in m.subject)
+        assert "late fee" not in confirmation.body
+        assert "[missing:" not in confirmation.body
 
 
 def describe_equipment_events():

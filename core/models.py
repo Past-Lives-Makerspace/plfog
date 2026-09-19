@@ -6,6 +6,7 @@ import hashlib
 import logging
 import secrets
 from datetime import datetime, timedelta
+from decimal import Decimal
 from typing import TYPE_CHECKING, Any
 
 from django.conf import settings
@@ -589,6 +590,26 @@ class SiteConfiguration(models.Model):
         verbose_name="#reservations Discord webhook",
         help_text="Discord webhook for #reservations. New equipment reservations post here "
         "automatically. Blank = reservations are not posted to Discord.",
+    )
+    # Equipment late cancellation fee (#408). Decimal dollars because the tab rail is Decimal
+    # dollars; 0 keeps the whole fee path dark. Read by EquipmentReservation.late_cancel_fee.
+    equipment_late_cancel_fee = models.DecimalField(
+        max_digits=6,
+        decimal_places=2,
+        default=Decimal("0.00"),
+        verbose_name="Equipment late cancellation fee",
+        help_text=(
+            "Dollars added to a member's tab when they cancel an equipment reservation with less "
+            "notice than the hours below. 0 means no fee: nobody is ever charged."
+        ),
+    )
+    equipment_late_cancel_notice_hours = models.PositiveIntegerField(
+        default=48,
+        verbose_name="Equipment cancellation notice (hours)",
+        help_text=(
+            "How many hours before a reservation starts a member can still cancel for free. "
+            "Cancelling with less notice than this adds the fee above to their tab."
+        ),
     )
     discord_server_id = models.CharField(
         max_length=32,

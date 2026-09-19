@@ -694,6 +694,9 @@ def describe_admin_site_settings():
                 "org_name": "Past Lives Makerspace",
                 "registration_mode": SiteConfiguration.RegistrationMode.OPEN,
                 "member_event_policy": SiteConfiguration.MemberEventPolicy.APPROVAL,
+                # Two more required fields (#408), same reason as member_event_policy above.
+                "equipment_late_cancel_fee": "0.00",
+                "equipment_late_cancel_notice_hours": "48",
                 "sync_classes_enabled": "",
                 "classes_calendar_color": "#abcdef",
                 "mailchimp_api_key": "",
@@ -749,6 +752,9 @@ def describe_admin_site_settings():
                 "org_name": "Past Lives Makerspace",
                 "registration_mode": SiteConfiguration.RegistrationMode.OPEN,
                 "member_event_policy": SiteConfiguration.MemberEventPolicy.APPROVAL,
+                # Two more required fields (#408), same reason as member_event_policy above.
+                "equipment_late_cancel_fee": "0.00",
+                "equipment_late_cancel_notice_hours": "48",
                 "sync_classes_enabled": "",
                 "classes_calendar_color": "#abcdef",
                 "mailchimp_api_key": "",
@@ -776,6 +782,9 @@ def describe_admin_site_settings():
                 "org_name": "Past Lives Makerspace",
                 "registration_mode": SiteConfiguration.RegistrationMode.OPEN,
                 "member_event_policy": SiteConfiguration.MemberEventPolicy.APPROVAL,
+                # Two more required fields (#408), same reason as member_event_policy above.
+                "equipment_late_cancel_fee": "0.00",
+                "equipment_late_cancel_notice_hours": "48",
                 "sync_classes_enabled": "",
                 "classes_calendar_color": "#abcdef",
                 "mailchimp_api_key": "",
@@ -804,6 +813,9 @@ def describe_admin_site_settings():
                 "org_name": "Past Lives Makerspace",
                 "registration_mode": SiteConfiguration.RegistrationMode.OPEN,
                 "member_event_policy": SiteConfiguration.MemberEventPolicy.APPROVAL,
+                # Two more required fields (#408), same reason as member_event_policy above.
+                "equipment_late_cancel_fee": "0.00",
+                "equipment_late_cancel_notice_hours": "48",
                 "sync_classes_enabled": "",
                 "classes_calendar_color": "#abcdef",
                 "mailchimp_api_key": "",
@@ -970,6 +982,9 @@ def describe_admin_site_settings_features():
                 "org_name": "Past Lives Makerspace",
                 "registration_mode": SiteConfiguration.RegistrationMode.OPEN,
                 "member_event_policy": SiteConfiguration.MemberEventPolicy.APPROVAL,
+                # Two more required fields (#408), same reason as member_event_policy above.
+                "equipment_late_cancel_fee": "0.00",
+                "equipment_late_cancel_notice_hours": "48",
                 "sync_classes_enabled": "",
                 "classes_calendar_color": "#abcdef",
                 "mailchimp_api_key": "",
@@ -999,6 +1014,9 @@ def describe_admin_site_settings_features():
                 "org_name": "Past Lives Makerspace",
                 "registration_mode": SiteConfiguration.RegistrationMode.OPEN,
                 "member_event_policy": SiteConfiguration.MemberEventPolicy.APPROVAL,
+                # Two more required fields (#408), same reason as member_event_policy above.
+                "equipment_late_cancel_fee": "0.00",
+                "equipment_late_cancel_notice_hours": "48",
                 "sync_classes_enabled": "",
                 "classes_calendar_color": "#abcdef",
                 "mailchimp_api_key": "",
@@ -1024,6 +1042,9 @@ def describe_admin_site_settings_features():
             "org_name": "Past Lives Makerspace",
             "registration_mode": SiteConfiguration.RegistrationMode.OPEN,
             "member_event_policy": SiteConfiguration.MemberEventPolicy.APPROVAL,
+            # Two more required fields (#408), same reason as member_event_policy above.
+            "equipment_late_cancel_fee": "0.00",
+            "equipment_late_cancel_notice_hours": "48",
             "sync_classes_enabled": "",
             "classes_calendar_color": "#abcdef",
             "mailchimp_api_key": "",

@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import json
 from datetime import datetime, time, timedelta
+from decimal import Decimal
 
 import pytest
 from django.contrib.auth.models import User
@@ -17,6 +18,8 @@ from django.test import Client
 from django.urls import reverse
 from django.utils import timezone
 
+from billing.models import TabEntry
+from core.models import SiteConfiguration
 from membership.models import Equipment, EquipmentReservation, Member
 from tests.membership.factories import (
     EquipmentFactory,
@@ -1033,3 +1036,92 @@ def describe_orientation_spans_on_the_timeline():
         equipment = _open_tool()
         response = client.get(reverse("hub_equipment_schedule", args=[equipment.slug]), {"day": _day().isoformat()})
         assert "Orientations booked on this tool show here too." not in response.content.decode()
+
+
+def describe_equipment_late_cancel_fee_copy():
+    """#408: the policy line, the Reserve modal, and the cancel modal each speak only when the fee applies."""
+
+    POLICY = b"Cancel at least 48 hours ahead. Cancelling later adds a $35.00 late fee to your tab."
+    PLAIN_RESERVE = b"If plans change, you can cancel and the time opens up for someone else."
+    WARNING = (
+        b"This is inside the 48 hour notice window, so a $35.00 late cancellation fee will be added to your tab. "
+        b"The time opens up for someone else."
+    )
+    PLAIN_CANCEL = b"The time opens up for someone else. You can book again any time."
+
+    def _set_late_fee() -> None:
+        config = SiteConfiguration.load()
+        config.equipment_late_cancel_fee = Decimal("35.00")
+        config.equipment_late_cancel_notice_hours = 48
+        config.save(update_fields=["equipment_late_cancel_fee", "equipment_late_cancel_notice_hours"])
+
+    def _own_row(user: User, equipment: Equipment, hours_ahead: int) -> EquipmentReservation:
+        now = timezone.now()
+        return EquipmentReservationFactory(
+            equipment=equipment,
+            member=user.member,
+            starts_at=now + timedelta(hours=hours_ahead),
+            ends_at=now + timedelta(hours=hours_ahead + 1),
+        )
+
+    def _schedule(client: Client, equipment: Equipment) -> bytes:
+        response = client.get(reverse("hub_equipment_schedule", args=[equipment.slug]))
+        assert response.status_code == 200
+        return response.content
+
+    def it_shows_the_policy_under_the_form_and_appends_it_to_the_reserve_modal(client: Client):
+        _login(client, "fee_policy_on")
+        equipment = _open_tool()
+        _set_late_fee()
+        content = _schedule(client, equipment)
+        # Once as the muted line under Book a Time, once inside the Reserve confirm message.
+        assert content.count(POLICY) == 2
+        assert PLAIN_RESERVE + b" " + POLICY in content
+
+    def it_shows_no_policy_without_a_fee(client: Client):
+        _login(client, "fee_policy_off")
+        equipment = _open_tool()
+        content = _schedule(client, equipment)
+        assert POLICY not in content
+        assert b"late fee" not in content
+        assert PLAIN_RESERVE + b"</p>" in content
+
+    def it_warns_in_the_cancel_modal_for_a_row_inside_the_window(client: Client):
+        user = _login(client, "fee_warn_late")
+        equipment = _open_tool()
+        _set_late_fee()
+        _own_row(user, equipment, 24)
+        content = _schedule(client, equipment)
+        assert WARNING in content
+        assert PLAIN_CANCEL not in content
+
+    def it_keeps_the_plain_cancel_message_for_a_row_with_enough_notice(client: Client):
+        user = _login(client, "fee_warn_early")
+        equipment = _open_tool()
+        _set_late_fee()
+        _own_row(user, equipment, 72)
+        content = _schedule(client, equipment)
+        assert PLAIN_CANCEL in content
+        assert WARNING not in content
+
+    def it_keeps_the_plain_cancel_message_without_a_fee(client: Client):
+        user = _login(client, "fee_warn_off")
+        equipment = _open_tool()
+        _own_row(user, equipment, 24)
+        content = _schedule(client, equipment)
+        assert PLAIN_CANCEL in content
+        assert WARNING not in content
+
+    def it_puts_the_fee_on_the_tab_when_the_member_cancels_late_from_the_schedule(client: Client):
+        user = _login(client, "fee_view_cancel")
+        equipment = _open_tool(name="CNC Router")
+        _set_late_fee()
+        reservation = _own_row(user, equipment, 24)
+        response = client.post(reverse("hub_equipment_reservation_cancel", args=[equipment.slug, reservation.pk]))
+        assert response.status_code == 200
+        assert _toast(response) == "Reservation cancelled."
+        reservation.refresh_from_db()
+        assert reservation.status == EquipmentReservation.Status.CANCELLED
+        entry = TabEntry.objects.get(tab__member=user.member)
+        assert entry.amount == Decimal("35.00")
+        assert entry.description.startswith("Late cancellation fee: CNC Router, ")

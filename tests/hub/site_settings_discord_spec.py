@@ -7,6 +7,8 @@ General loop) and live INSIDE ``#site-settings-form`` so the shared Save persist
 
 from __future__ import annotations
 
+from decimal import Decimal
+
 import pytest
 from django.test import Client
 from django.urls import reverse
@@ -35,6 +37,9 @@ def _settings_post(**overrides: str) -> dict[str, str]:
         # The site-settings page is one <form> spanning all tabs, so every save
         # carries member_event_policy (a required Calendar-tab field) — mirror that.
         "member_event_policy": SiteConfiguration.MemberEventPolicy.APPROVAL,
+        # Two more required fields (#408), same reason as member_event_policy above.
+        "equipment_late_cancel_fee": "0.00",
+        "equipment_late_cancel_notice_hours": "48",
         "feeds-TOTAL_FORMS": "0",
         "feeds-INITIAL_FORMS": "0",
         "feeds-MIN_NUM_FORMS": "0",
@@ -250,3 +255,33 @@ def describe_guild_role_editor():
         # The field must appear before the first </form> — i.e. inside #site-settings-form,
         # not in the separate announcements composer that follows it.
         assert content.index('name="discord_general_webhook_url"') < content.index("</form>")
+
+
+def describe_equipment_late_cancel_fee_settings():
+    """#408: the fee and its notice window ride the Discord tab's shared Save, beside the reservations webhook."""
+
+    def it_renders_both_fields_in_the_equipment_reservations_card(client: Client):
+        _superuser(client)
+        content = client.get(reverse("hub_admin_site_settings") + "?tab=discord").content.decode()
+        assert "Equipment Reservations" in content
+        assert 'name="equipment_late_cancel_fee"' in content
+        assert 'name="equipment_late_cancel_notice_hours"' in content
+        # Inside #site-settings-form, so the shared Save carries them.
+        assert content.index('name="equipment_late_cancel_fee"') < content.index("</form>")
+
+    def it_persists_the_fee_and_the_notice_hours(client: Client):
+        _superuser(client)
+        resp = client.post(
+            reverse("hub_admin_site_settings"),
+            _settings_post(equipment_late_cancel_fee="35.00", equipment_late_cancel_notice_hours="24"),
+        )
+        assert resp.status_code == 302
+        config = SiteConfiguration.load()
+        assert config.equipment_late_cancel_fee == Decimal("35.00")
+        assert config.equipment_late_cancel_notice_hours == 24
+
+    def it_rejects_a_blank_fee(client: Client):
+        _superuser(client)
+        resp = client.post(reverse("hub_admin_site_settings"), _settings_post(equipment_late_cancel_fee=""))
+        assert resp.status_code == 200  # re-rendered with the field error, not saved
+        assert SiteConfiguration.load().equipment_late_cancel_fee == Decimal("0.00")

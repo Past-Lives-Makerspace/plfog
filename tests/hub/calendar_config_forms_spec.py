@@ -33,6 +33,9 @@ def _settings_payload(**overrides: str) -> dict:
         "org_name": "Past Lives Makerspace",
         "registration_mode": SiteConfiguration.RegistrationMode.INVITE_ONLY,
         "member_event_policy": SiteConfiguration.MemberEventPolicy.APPROVAL,
+        # Two more required fields (#408), same reason as member_event_policy above.
+        "equipment_late_cancel_fee": "0.00",
+        "equipment_late_cancel_notice_hours": "48",
         "submitted_tab": "calendar",
         "feeds-TOTAL_FORMS": "0",
         "feeds-INITIAL_FORMS": "0",

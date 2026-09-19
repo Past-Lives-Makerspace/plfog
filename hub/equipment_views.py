@@ -287,6 +287,9 @@ def _schedule_context(
         "my_reservations": my_reservations,
         "upcoming_reservations": list(equipment.reservations.upcoming().select_related("member")[:20]),
         "manages": manages,
+        # Late cancellation fee copy (#408): both "" when no fee is configured.
+        "late_cancel_policy": equipment_service.late_cancel_policy(),
+        "late_cancel_warning": equipment_service.late_cancel_warning(),
     }
 
 

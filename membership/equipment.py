@@ -77,6 +77,38 @@ def build_ics(reservation: EquipmentReservation, *, method: str, status: str) ->
     return cal.to_ical()
 
 
+def late_cancel_policy() -> str:
+    """The booking-time late fee sentence, or "" when no fee is configured (#408).
+
+    One sentence, three homes: under the Book a Time form, in the Reserve confirm modal,
+    and the confirmation email's ``cancellation_policy`` merge field.
+    """
+    from core.models import SiteConfiguration
+
+    config = SiteConfiguration.load()
+    fee = config.equipment_late_cancel_fee
+    if fee <= 0:
+        return ""
+    return (
+        f"Cancel at least {config.equipment_late_cancel_notice_hours} hours ahead. "
+        f"Cancelling later adds a ${fee:.2f} late fee to your tab."
+    )
+
+
+def late_cancel_warning() -> str:
+    """The self cancel modal's sentence for a row inside the notice window, or "" with no fee."""
+    from core.models import SiteConfiguration
+
+    config = SiteConfiguration.load()
+    fee = config.equipment_late_cancel_fee
+    if fee <= 0:
+        return ""
+    return (
+        f"This is inside the {config.equipment_late_cancel_notice_hours} hour notice window, so a "
+        f"${fee:.2f} late cancellation fee will be added to your tab. The time opens up for someone else."
+    )
+
+
 def _placeholder_context(reservation: EquipmentReservation) -> dict[str, str]:
     """The merge-field values shared by every equipment reservation event's copy."""
     equipment = reservation.equipment
@@ -85,6 +117,7 @@ def _placeholder_context(reservation: EquipmentReservation) -> dict[str, str]:
         "equipment_name": equipment.name,
         "reservation_when": when_display(reservation),
         "equipment_url": _absolute_url(reverse("hub_equipment_detail", args=[equipment.slug])),
+        "cancellation_policy": late_cancel_policy(),
     }
 
 

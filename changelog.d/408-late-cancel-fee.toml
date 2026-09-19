@@ -1,0 +1,8 @@
+bump = "minor"
+date = "2026-09-18"
+title = "A late cancellation of an equipment reservation can add a fee to your tab"
+changes = [
+  "Admins can set a late cancellation fee and a notice window for equipment reservations in Site Settings. The fee is off until an amount is set.",
+  "When a fee is on, the booking form and the cancel prompt tell you the notice window and the amount before you commit.",
+  "Cancelling your own reservation inside the notice window adds the fee to your tab, and you get the usual tab email. A cancellation by a manager never charges you.",
+]

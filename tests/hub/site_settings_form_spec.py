@@ -7,6 +7,8 @@ and are deliberately not duplicated across the two forms.
 
 from __future__ import annotations
 
+from decimal import Decimal
+
 import pytest
 
 from core.models import SiteConfiguration
@@ -44,6 +46,18 @@ _RETIRED = {"signage_event_qr"}
 def describe_SiteSettingsForm_features():
     def it_declares_the_public_member_directory_toggle():
         assert "member_directory_public" in SiteSettingsForm.Meta.fields
+
+
+def describe_SiteSettingsForm_equipment():
+    def it_declares_the_late_cancellation_fee_fields():
+        for name in ("equipment_late_cancel_fee", "equipment_late_cancel_notice_hours"):
+            assert name in SiteSettingsForm.Meta.fields
+
+    def it_ships_with_the_fee_off_and_a_48_hour_window():
+        # Nobody is charged until an admin sets an amount (#408, P1).
+        config = SiteConfiguration.load()
+        assert config.equipment_late_cancel_fee == Decimal("0.00")
+        assert config.equipment_late_cancel_notice_hours == 48
 
 
 def describe_SiteSettingsForm_signage():

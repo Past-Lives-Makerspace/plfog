@@ -1006,6 +1006,8 @@ class SiteSettingsForm(forms.ModelForm):
             "discord_leadership_webhook_url",
             "discord_officers_webhook_url",
             "discord_reservations_webhook_url",
+            "equipment_late_cancel_fee",
+            "equipment_late_cancel_notice_hours",
             "discord_server_id",
             "discord_role_message_channel_id",
             "discord_role_message_id",

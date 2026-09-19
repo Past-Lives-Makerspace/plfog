@@ -11956,6 +11956,25 @@ class EquipmentReservation(models.Model):
             and self.cancelled_by_id != self.member_id
         )
 
+    @property
+    def late_cancel_fee(self) -> Decimal:
+        """The fee a self cancel made right now would put on the member's tab (#408).
+
+        The site's ``equipment_late_cancel_fee`` when one is set (> 0) and the start is
+        less than ``equipment_late_cancel_notice_hours`` away; ``Decimal("0")`` otherwise.
+        Exactly on the boundary is NOT late (strict ``<``). Measured against now, so read
+        it before anything that takes time.
+        """
+        from core.models import SiteConfiguration
+
+        config = SiteConfiguration.load()
+        fee: Decimal = config.equipment_late_cancel_fee
+        if fee <= 0:
+            return Decimal("0")
+        if self.starts_at - timezone.now() < timedelta(hours=config.equipment_late_cancel_notice_hours):
+            return fee
+        return Decimal("0")
+
     def cancel(self, actor: Member, *, reason: str = "", as_manager: bool = False) -> None:
         """Cancel this reservation as ``actor`` — the member themselves, or a manager.
 
@@ -11978,6 +11997,10 @@ class EquipmentReservation(models.Model):
         is_own_row = actor.pk == self.member_id
         acting_as_manager = as_manager or not is_own_row
         cleaned_reason = reason.strip()
+        # A manager cancel never charges, a manager's own row from the manage tab included
+        # (P2). Only the self path can, and its fee is read BEFORE the save because the
+        # notice window is measured against now.
+        fee = Decimal("0")
         if acting_as_manager:
             if not actor.can_manage_equipment(self.equipment):
                 raise EquipmentError("Only the reserving member or an equipment manager can cancel this.")
@@ -11985,8 +12008,10 @@ class EquipmentReservation(models.Model):
                 raise ValueError("A manager cancel needs a reason the member will see.")
             if self.ends_at <= now:
                 raise EquipmentError("This reservation already ended.")
-        elif self.starts_at <= now:
-            raise EquipmentError("This reservation already started. Ask a manager if it needs cancelling.")
+        else:
+            if self.starts_at <= now:
+                raise EquipmentError("This reservation already started. Ask a manager if it needs cancelling.")
+            fee = self.late_cancel_fee
         self.status = self.Status.CANCELLED
         self.cancelled_by = actor
         self.cancelled_reason = cleaned_reason
@@ -11996,6 +12021,32 @@ class EquipmentReservation(models.Model):
             from membership import equipment as equipment_service
 
             equipment_service.notify_manager_cancelled(self)
+        if fee:
+            self._add_late_cancel_fee(fee, actor)
+
+    def _add_late_cancel_fee(self, fee: Decimal, actor: Member) -> None:
+        """Put the late cancellation fee on the member's tab, after the cancel has landed.
+
+        ``Tab.add_entry`` already emails the member and logs the SiteActivity row, so
+        nothing else is sent. A tab that refuses the entry (locked, or over its limit)
+        is logged at WARNING and the cancel stands (P6): a member backing out is never
+        blocked by their own tab state.
+        """
+        from billing.exceptions import TabLimitExceededError, TabLockedError
+        from billing.models import Tab
+
+        tab, _created = Tab.objects.get_or_create(member=self.member)
+        local_start = timezone.localtime(self.starts_at)
+        description = f"Late cancellation fee: {self.equipment.name}, {local_start:%b} {local_start.day}"
+        try:
+            tab.add_entry(
+                description=description,
+                amount=fee,
+                added_by=actor.user,
+                splits=[{"recipient_type": "admin", "guild": None, "percent": Decimal("100")}],
+            )
+        except (TabLockedError, TabLimitExceededError) as exc:
+            logger.warning("Late cancellation fee not added for reservation %s: %s", self.pk, exc)
 
 
 # ---------------------------------------------------------------------------------------
