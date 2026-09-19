@@ -120,6 +120,14 @@ automatically, and approved if it has no blockers. Nobody has to ask for it.
   review, so the bot's approval is what unblocks the merge, but a human still
   performs it. That gate is deliberate: a push to main deploys to Render and
   fires the Discord announcement.
+- **A failed check blocks the merge, approval or not.** The same ruleset
+  requires three status checks to pass: `lint` and `e2e` from CI, and
+  `fragment` from the changelog workflow. All three finish within about ten
+  minutes of a push. The bot reviews as soon as a PR is marked ready, usually
+  before those checks finish, so its approval can land on a PR whose e2e run
+  then fails; the ruleset is what refuses that merge. The hour-plus `test`
+  job is deliberately **not** required: a PR may merge while it is still
+  running. A `test` failure after the merge is fixed forward on main.
 - Blockers are posted as a **comment**, not a `REQUEST_CHANGES` review, so a PR
   is never stranded behind a blocking review only the bot can dismiss.
   Withholding the approval is already the block.
