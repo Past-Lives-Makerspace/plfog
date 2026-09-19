@@ -1,45 +1,13 @@
-{% load classes_tags %}<!DOCTYPE html>
-<html>
-<head>
-<meta charset="utf-8">
-<meta name="color-scheme" content="light dark">
-<meta name="supported-color-schemes" content="light dark">
-<title>Executive validation needed: {{ offering.title }}</title>
-</head>
-<body style="margin:0;padding:24px;background:#eef0f3;font-family:Helvetica,Arial,sans-serif;color:#33424F;">
-  <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width:560px;margin:0 auto;background:#eef0f3;border-radius:10px;overflow:hidden;">
-    <tr><td style="padding:24px 28px 8px;">
-      <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.18em;color:#0d4876;">Executive validation requested</div>
-      <h1 style="font-family:'Lato',sans-serif;font-size:26px;font-weight:800;margin:8px 0 4px;color:#092E4C;"><a href="{{ review_url }}" style="color:#092E4C;text-decoration:none;">{{ offering.title }}</a></h1>
-      <div style="color:#55697a;font-size:14px;">by {{ offering.instructor.display_name }}{% if offering.category %} · {{ offering.category.name }}{% endif %}</div>
-    </td></tr>
-    <tr><td style="padding:14px 28px;">
-      <p style="margin:0 0 14px;color:#33424f;font-size:15px;line-height:1.55;">
-        <strong>{{ guild_lead_name }}</strong> and {{ instructor_name }} request executive validation to publish this class.
-        The Guild Lead has approved this class. Please review to approve.
-      </p>
-      {% review_pipeline offering %}
-      <p style="margin:18px 0;">
-        <a href="{{ review_url }}"
-           style="display:inline-block;padding:14px 28px;background:#0d4876;color:#FFFFFF;font-weight:800;letter-spacing:0.04em;text-decoration:none;border-radius:6px;font-size:14px;text-transform:uppercase;">
-          Open review page
-        </a>
-      </p>
-      <p style="margin:14px 0 0;font-size:12px;color:#55697a;line-height:1.55;">
-        Or paste this URL into your browser:<br>
-        <span style="color:#33424f;word-break:break-all;">{{ review_url }}</span>
-      </p>
-      <p style="margin:18px 0 0;font-size:13px;color:#55697a;line-height:1.55;">
-        Price {{ offering.price_cents|cents_as_price }} · Capacity {{ offering.capacity }}
-        {% if offering.member_discount_pct %}· {{ offering.member_discount_pct }}% member discount{% endif %}
-      </p>
-    </td></tr>
-    <tr><td style="padding:18px 28px 24px;border-top:1px solid rgba(13, 72, 118, 0.12);font-size:12px;color:#55697a;">
-      You're getting this because your address is configured as a class reviewer at Past Lives Makerspace.
-    </td></tr>
-  </table>
-  <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width:560px;margin:0 auto;">
-    {% include "membership/emails/_footer.html" %}
-  </table>
-</body>
-</html>
+{% extends "membership/emails/_base.html" %}
+{% load classes_tags %}
+{% block content %}
+<p style="margin: 0 0 8px; font-size: 12px; font-weight: 700; color: #0d4876; text-transform: uppercase; letter-spacing: 0.08em;">Executive validation requested</p>
+<p style="margin: 0 0 4px; font-size: 18px; font-weight: 700; color: #33424f;"><a href="{{ review_url }}" style="color: #0d4876; text-decoration: none;">{{ offering.title }}</a></p>
+<p style="margin: 0 0 16px; font-size: 14px; color: #55697a;">by {{ offering.instructor.display_name }}{% if offering.category %} · {{ offering.category.name }}{% endif %}</p>
+<p style="margin: 0 0 16px; font-size: 14px; color: #33424f; line-height: 1.6;"><strong>{{ guild_lead_name }}</strong> and {{ instructor_name }} request executive validation to publish this class. The Guild Lead has approved this class. Please review to approve.</p>
+{% review_pipeline offering %}
+{% include "membership/emails/_button.html" with href=review_url label="Open review page" %}
+<p style="margin: 16px 0 0; font-size: 12px; color: #55697a; line-height: 1.6;">Or paste this URL into your browser:<br><span style="color: #33424f; word-break: break-all;">{{ review_url }}</span></p>
+<p style="margin: 16px 0 0; font-size: 13px; color: #55697a; line-height: 1.6;">Price {{ offering.price_cents|cents_as_price }} · Capacity {{ offering.capacity }}{% if offering.member_discount_pct %} · {{ offering.member_discount_pct }}% member discount{% endif %}</p>
+<p style="margin: 24px 0 0; padding-top: 16px; border-top: 1px solid rgba(13, 72, 118, 0.12); font-size: 12px; color: #55697a; line-height: 1.6;">You're getting this because your address is configured as a class reviewer at Past Lives Makerspace.</p>
+{% endblock %}

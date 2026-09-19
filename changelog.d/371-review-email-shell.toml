@@ -1,0 +1,6 @@
+bump = "patch"
+date = "2026-09-18"
+title = "Class review emails look like the rest of our email"
+changes = [
+  "The emails asking you to review a class now carry the same header, buttons and footer as every other email from Past Lives.",
+]
