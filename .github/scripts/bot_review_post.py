@@ -23,6 +23,7 @@ from __future__ import annotations
 import json
 import os
 import pathlib
+import re
 import sys
 import urllib.error
 import urllib.request
@@ -38,6 +39,19 @@ _UNREADABLE = (
 )
 _NO_BODY = f"PastLivesReviewBot produced a verdict with no review text. **No approval has been given.** {_RETRY}"
 _UNKNOWN = "PastLivesReviewBot returned an unrecognised verdict, so **no approval has been given**. Its review follows."
+
+#: Funny LGTM GIFs, each looked at before it was added (2026-09-19). The pull request number
+#: picks one, so a re-review of the same PR shows the same GIF.
+_LGTM_GIFS = (
+    "https://media.giphy.com/media/111ebonMs90YLu/giphy.gif",
+    "https://media.giphy.com/media/1ZkMDj88mQ1rO/giphy.gif",
+    "https://media.giphy.com/media/QyrysGo7Hz70I/giphy.gif",
+    "https://media.giphy.com/media/RIhNQOjGa39Ze/giphy.gif",
+    "https://media.giphy.com/media/SWeJXPJPvluIZQSk5j/giphy.gif",
+    "https://media.giphy.com/media/iXQ8SgaMQAgtq/giphy.gif",
+    "https://media.giphy.com/media/tIeCLkB8geYtW/giphy.gif",
+)
+_LEADING_LGTM = re.compile(r"\ALGTM\W*\n+", re.IGNORECASE)
 
 
 def read_verdict(path: pathlib.Path) -> str | None:
@@ -93,6 +107,24 @@ def decide(raw: str | None) -> tuple[str, str, bool]:
     return "COMMENT", f"{_UNKNOWN}\n\n{body}", False
 
 
+def with_lgtm(body: str, pull_request: str) -> str:
+    """Open an approval with "LGTM" and a GIF.
+
+    Added here rather than asked of the model, so an approval always starts the same way and
+    the only image URLs ever posted are the ones in ``_LGTM_GIFS``. A leading "LGTM" line the
+    model wrote anyway is dropped so it does not appear twice.
+
+    Args:
+        body: The approval's review text.
+        pull_request: The pull request number, as a string; it picks the GIF.
+
+    Returns:
+        The body to post.
+    """
+    gif = _LGTM_GIFS[int(pull_request) % len(_LGTM_GIFS)]
+    return f"LGTM\n\n![LGTM]({gif})\n\n{_LEADING_LGTM.sub('', body)}"
+
+
 def post_review(repo: str, pull_request: str, token: str, event: str, body: str) -> None:
     """Submit the review to GitHub as whichever account owns the token.
 
@@ -138,6 +170,8 @@ def main() -> None:
     path = pathlib.Path(os.environ["VERDICT_FILE"])
 
     event, body, clean = decide(read_verdict(path))
+    if event == "APPROVE":
+        body = with_lgtm(body, pull_request)
     post_review(repo, pull_request, token, event, body)
     print(f"Posted a {event} review on #{pull_request}.")
 

@@ -22,6 +22,6 @@ Merging to `main` deploys to Render and `release.yml` announces the fragments th
 
 PastLivesReviewBot reviews a PR against `.github/bot-review-prompt.md` (the single source of truth for blockers) when it is opened as ready, reopened or marked ready, and approves it when nothing blocks. It reads the diff only. The `bot-review` label asks for a re-review; `no-bot-review` opts out.
 
-`main` merges on one approval plus the `lint`, `e2e` and `fragment` checks. The hour-long `test` job runs alongside; a failure there is fixed forward on `main`.
+`main` merges on one approval plus the `lint`, `e2e`, `fragment` and `description` checks. The hour-long `test` job runs alongside; a failure there is fixed forward on `main`.
 
 Before editing `.github/workflows/bot-review.yml`, read its header: it runs with secrets on fork PRs and stays safe only by reviewing the diff as text.
