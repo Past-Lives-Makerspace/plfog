@@ -1162,7 +1162,11 @@ class ClassOffering(HeroCropMixin, models.Model):
 
         super().save(*args, **kwargs)
 
-        if old is not None and old.category_id != self.category_id:
+        # ``update_fields`` that omits the category writes no category, however dirty the
+        # in-memory instance is, so acting on the difference would repoint a gate the
+        # database never moved and mail a lead about a class still filed elsewhere.
+        category_written = update_fields is None or bool({"category", "category_id"} & set(update_fields))
+        if old is not None and old.category_id != self.category_id and category_written:
             self._repoint_open_guild_lead_gate()
 
         # When a grouped class moves to a new category, sync siblings so the
@@ -1335,18 +1339,37 @@ class ClassOffering(HeroCropMixin, models.Model):
         approval a guild gave stands on its own row and is read back through
         :meth:`_guild_lead_row_speaks_here`.
 
+        The invariant it restores, in one line: a class under review holds an open guild
+        lead gate for the guild it is filed under exactly when it needs one. Both halves
+        matter. A class carried *out* of a guild leaves a gate behind that the new guild's
+        staff would be handed; a class carried *into* one, by the admin guild tagging
+        screen, arrives needing a gate it has never had, and without this would sit with
+        its guild step permanently unreached while an admin publishes it unasked.
+
         Reopening runs the first-stage choice again rather than assuming a guild lead is
         wanted, so a class re-filed under a guildless category, or under a guild that has
         already approved these dates, resumes at the Admin gate exactly as a fresh
-        submission would.
+        submission would, and does not mint a second admin gate when one is already open.
+
+        The notification is sent inline rather than on commit. No caller wraps a category
+        changing save in ``atomic``, so there is nothing to roll back behind it today; a
+        caller that starts to should move this to ``transaction.on_commit`` rather than
+        leave a live link pointing at a row that never existed.
         """
         if self.status != self.Status.PENDING:
             return
-        open_gates = list(self.approvals.filter(role=ClassApproval.Role.GUILD_LEAD, decision=""))
         guild_id = self.category.guild_id
-        if not open_gates or all(gate.opened_for_guild_id == guild_id for gate in open_gates):
+        open_gates = list(self.approvals.filter(role=ClassApproval.Role.GUILD_LEAD, decision=""))
+        wanted = (
+            ClassApproval.Role.GUILD_LEAD in self.required_review_roles
+            and not self._guild_already_approved_this_schedule
+        )
+        speaks_here = [gate for gate in open_gates if gate.opened_for_guild_id == guild_id]
+        if open_gates == speaks_here and bool(speaks_here) == wanted:
             return
         self.approvals.filter(role=ClassApproval.Role.GUILD_LEAD, decision="").delete()
+        if not wanted and self.approvals.filter(role=ClassApproval.Role.ADMIN, decision="").exists():
+            return
         self._notify_first_stage_reviewer(self._create_first_stage_approval())
 
     def _create_first_stage_approval(self) -> "ClassApproval":
@@ -2208,7 +2231,9 @@ class ClassOffering(HeroCropMixin, models.Model):
         The cost is that pre-migration rows lose their pipeline credit, which is a label on
         a strip, not a gate.
         """
-        return not row.decision or row.opened_for_guild_id == self.category.guild_id
+        return not row.decision or (
+            row.opened_for_guild_id is not None and row.opened_for_guild_id == self.category.guild_id
+        )
 
     @property
     def guild_lead_approved_at(self) -> datetime | None:

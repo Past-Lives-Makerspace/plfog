@@ -288,6 +288,76 @@ def describe_opening_a_guild_lead_gate():
             assert row.opened_for_guild_id == home_category.guild_id
             assert _addressed(LEAD_EMAIL)
 
+        def it_opens_a_gate_for_a_class_carried_into_a_guild(db, settings):
+            """The other half of the same contract, and the one an admin tool reaches.
+
+            ``refile_into_guild_categories`` moves guildless classes into guild categories
+            one save at a time, behind the admin guild tagging screen. A PENDING class
+            moved that way starts requiring guild-lead review and has no gate to satisfy
+            it, so without this its guild step is never reached, the guild's dashboard
+            shows nothing, and an admin can publish it without the guild ever being asked.
+            """
+            from membership.models import Member
+
+            settings.CLASS_ADMIN_NOTIFY_EMAILS = "admin@example.com"
+            lead_user = _make_lead_user(LEAD_EMAIL)
+            guild = GuildFactory(guild_lead=Member.objects.get(user=lead_user))
+            instructor = InstructorFactory(full_legal_name="Iris Smith", instructor_slug="iris")
+            offering = cast(
+                ClassOffering,
+                ClassOfferingFactory(
+                    ready=True,
+                    category=CategoryFactory(guild=None),
+                    instructor=instructor,
+                    status=ClassOffering.Status.DRAFT,
+                ),
+            )
+            (admin_gate,) = offering.submit_for_review()
+            assert admin_gate.role == ClassApproval.Role.ADMIN
+            mail.outbox.clear()
+
+            offering.category = CategoryFactory(guild=guild)
+            offering.save(update_fields=["category"])
+            offering.refresh_from_db()
+
+            gate = offering.approvals.get(role=ClassApproval.Role.GUILD_LEAD, decision="")
+            assert gate.opened_for_guild_id == guild.pk
+            assert _addressed(LEAD_EMAIL)
+            lead = Member.objects.get(user=lead_user)
+            assert list(ClassOffering.objects.awaiting_guild_lead(lead)) == [offering]
+
+        def it_does_not_mint_a_second_admin_gate(db, settings):
+            """An admin who opened the review page already minted one."""
+            offering, lead_user = _guilded_draft(settings)
+            offering.submit_for_review()
+            ClassApproval.objects.create(class_offering=offering, role=ClassApproval.Role.ADMIN)
+
+            offering.category = CategoryFactory(guild=None)
+            offering.save(update_fields=["category"])
+            offering.refresh_from_db()
+
+            assert offering.approvals.filter(role=ClassApproval.Role.ADMIN, decision="").count() == 1
+
+        def it_ignores_a_category_the_save_never_wrote(db, settings):
+            """``update_fields`` without the category writes no category.
+
+            The instance is dirty and the database is not, so acting on the difference
+            would withdraw a live gate and mail a lead about a class still filed elsewhere.
+            """
+            offering, lead_user = _guilded_draft(settings)
+            other_guild, _other_lead_user = _second_guild_with_lead()
+            (gate,) = offering.submit_for_review()
+            mail.outbox.clear()
+
+            offering.category = CategoryFactory(guild=other_guild)
+            offering.title = "Renamed"
+            offering.save(update_fields=["title"])
+            offering.refresh_from_db()
+
+            assert offering.category.guild_id != other_guild.pk
+            assert list(offering.approvals.all()) == [gate]
+            assert not _addressed(OTHER_LEAD_EMAIL)
+
         def it_leaves_a_move_inside_one_guild_alone(db, settings):
             """Forge Basics to Forge Advanced asks nobody anything new."""
             offering, lead_user = _guilded_draft(settings)
@@ -723,6 +793,26 @@ def describe_resubmitting_after_a_lead_approved():
             new_lead = Member.objects.get(user=other_lead_user)
             assert list(ClassOffering.objects.awaiting_admin_validation(new_lead)) == []
             assert offering.guild_lead_approved_at is None
+
+        def it_credits_nobody_when_the_guild_is_deleted_under_the_class(db, settings, admin_user):
+            """Both sides go null at once, and null must not match null.
+
+            ``Category.guild`` and ``ClassApproval.opened_for_guild`` are both SET_NULL, so
+            deleting a guild blanks the class's guild and the stamp together. Comparing the
+            two would then say the row speaks for this class, which is the "null means two
+            things" reading this predicate exists to refuse.
+            """
+            offering, lead_user = _guilded_draft(settings)
+            lead_row = _lead_approves_then_admin_bounces(offering, lead_user, admin_user)
+            offering.category.guild.delete()
+            offering.refresh_from_db()
+            lead_row.refresh_from_db()
+            assert offering.category.guild_id is None
+            assert lead_row.opened_for_guild_id is None
+
+            assert offering.guild_lead_approved_at is None
+            guild_steps = [step for step in offering.review_pipeline().steps if step.key == "guild_lead"]
+            assert guild_steps == []
 
         def it_credits_nobody_once_the_approving_guild_is_deleted(db, settings, admin_user):
             """``opened_for_guild`` is SET_NULL, so a deleted guild blanks a decided stamp.
