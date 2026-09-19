@@ -94,6 +94,10 @@ urlpatterns = admin_custom_urls + [
     path("billing/", include("billing.urls")),
     path("classes/", include("classes.urls")),
     path("account/", include("classes.account.urls", namespace="account")),
+    # OpenID Connect provider — the Knowledge Base sends members here to sign in, and reads the
+    # claims in core/oidc.py. Mounted always; with no OIDC_RSA_PRIVATE_KEY the OIDC endpoints
+    # refuse to issue anything, and with no Application row there is no client to authorise.
+    path("o/", include("oauth2_provider.urls", namespace="oauth2_provider")),
     path("api/v1/", include("plfog.api_urls")),
     # Member hub
     path("", include("hub.urls")),

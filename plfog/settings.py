@@ -82,6 +82,11 @@ MEMBER_BASE_URL = os.environ.get("MEMBER_BASE_URL", f"https://{MEMBER_HOST}").rs
 # External MediaWiki knowledge base. The "Wiki" sidebar link opens this in a new tab;
 # the native how-it-works guides live on the in-app Help page instead. Blank hides the link.
 MAKERSPACE_WIKI_URL = os.environ.get("MAKERSPACE_WIKI_URL", "https://wiki.pastlives.space").rstrip("/")
+# The Knowledge Base — PLM's governance and policy library. It runs as its own Django app on its
+# own server with its own access tiers, so this is only the way in: the sidebar entry links here,
+# and the member arrives already signed in because the KB takes its identity from this app over
+# OpenID Connect (see OAUTH2_PROVIDER below). Blank hides the sidebar entry.
+KNOWLEDGE_BASE_URL = os.environ.get("KNOWLEDGE_BASE_URL", "").rstrip("/")
 MEMBER_ONLY_PATH_PREFIXES: tuple[str, ...] = (
     "/admin/",
     "/billing/",
@@ -198,6 +203,10 @@ INSTALLED_APPS = [
     # REST API
     "rest_framework",
     "rest_framework.authtoken",
+    # OpenID Connect provider — this app is the identity for the Knowledge Base (see
+    # OAUTH2_PROVIDER below). Installing it adds the tables; it grants nothing until a client
+    # application row exists, and the KB is the only one there is.
+    "oauth2_provider",
 ]
 
 REST_FRAMEWORK = {
@@ -244,6 +253,7 @@ TEMPLATES = [
                 "core.context_processors.registration_mode",
                 "core.context_processors.app_version",
                 "core.context_processors.makerspace_wiki",
+                "core.context_processors.knowledge_base",
                 "core.context_processors.theme",
                 "core.context_processors.feature_flags",
                 "core.context_processors.brand",
@@ -732,4 +742,39 @@ UNFOLD = {
             },
         ],
     },
+}
+
+
+# --- OpenID Connect provider ------------------------------------------------------------------
+# This app is the identity for the Knowledge Base: a member clicks Knowledge Base in the sidebar,
+# the KB sends them here, and they arrive there already signed in as whoever they are here. The KB
+# keeps its own accounts but stops authoring them — it reads `fog_role` off the ID token and maps
+# it to one of its access tiers on every login, so a role changed here is a tier changed there on
+# the member's next visit and nobody administers a second account.
+#
+# Nothing is granted by installing this. `oauth2_provider` adds tables; authorisation requires an
+# Application row naming a client id, a secret and an exact redirect URI, and the KB is the only
+# one that exists. Without `OIDC_RSA_PRIVATE_KEY` the OIDC endpoints refuse to issue anything at
+# all, which is the state of every environment that has not deliberately been given a key.
+OIDC_RSA_PRIVATE_KEY = os.environ.get("OIDC_RSA_PRIVATE_KEY", "")
+
+OAUTH2_PROVIDER = {
+    "OIDC_ENABLED": bool(OIDC_RSA_PRIVATE_KEY),
+    "OIDC_RSA_PRIVATE_KEY": OIDC_RSA_PRIVATE_KEY,
+    # `openid` is required by the protocol. `profile` and `email` are the standard claims; `roles`
+    # is ours and is what carries `fog_role`. A scope the client did not ask for is not emitted,
+    # so the KB has to request `roles` deliberately to learn anything about authority.
+    "SCOPES": {
+        "openid": "Confirm who you are",
+        "profile": "Your name",
+        "email": "Your email address",
+        "roles": "Your role at Past Lives Makerspace",
+    },
+    "OAUTH2_VALIDATOR_CLASS": "core.oidc.FogOAuth2Validator",
+    # Short-lived, because the KB re-reads the member's role on every login and a stale token is a
+    # stale role. The authorization-code grant does issue a refresh token, so it is rotated on use:
+    # a replayed one is then a used one, and the window for a leaked token is a single exchange.
+    "ACCESS_TOKEN_EXPIRE_SECONDS": 3600,
+    "ROTATE_REFRESH_TOKEN": True,
+    "PKCE_REQUIRED": True,
 }

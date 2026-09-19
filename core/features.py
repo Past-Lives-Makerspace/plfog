@@ -111,6 +111,15 @@ FEATURES: list[Feature] = [
         off_description="Takes the Wiki out of the sidebar, and the Wiki tab off guild pages.",
     ),
     Feature(
+        key="knowledge_base",
+        name="Knowledge Base",
+        off_description=(
+            "Takes the Knowledge Base out of the sidebar. It does not close the Knowledge Base "
+            "itself, which lives on its own server and has its own access tiers — this switch "
+            "only decides whether the portal shows the way in."
+        ),
+    ),
+    Feature(
         key="guilds",
         name="Guild Pages",
         off_description=(
