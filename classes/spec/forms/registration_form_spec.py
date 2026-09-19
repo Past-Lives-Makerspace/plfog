@@ -472,6 +472,17 @@ def describe_the_member_discount_toggle():
             assert form.is_valid(), form.errors
             assert form.compute_final_price_cents() == 10000
 
+        def it_keeps_the_discount_when_the_post_never_carried_the_toggle(offering, settings_obj):
+            # A member's email typed and submitted before (or without) the refresh: the box was
+            # never on the page, so absence is not a decline. The quote agrees with the charge.
+            data = _post_data()
+            del data["apply_member_discount"]
+            form = RegistrationForm(data=data, offering=offering, settings_obj=settings_obj, member=object())
+            assert form.is_valid(), form.errors
+            assert form.cleaned_data["apply_member_discount"] is True
+            assert form.compute_final_price_cents() == 9000
+            assert form.quoted_price_cents() == 9000
+
     def describe_the_auto_apply_choice():
         @pytest.fixture
         def two_codes(offering):

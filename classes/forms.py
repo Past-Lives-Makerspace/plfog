@@ -1154,6 +1154,18 @@ class RegistrationForm(forms.ModelForm):
             price = code.apply_to(price)
         return max(0, price)
 
+    def clean_apply_member_discount(self) -> bool:
+        """A POST with no toggle key at all keeps the discount: the box was never on the page.
+
+        That happens when a member's email is typed and the form is submitted before (or
+        without) the refresh that puts the box there. A decline is always explicit, because
+        the hidden twin posts "" for an unticked box. Same rule as :meth:`_toggle_as_shown`,
+        so the quote and the charge cannot disagree.
+        """
+        if self._toggle_absent_from_post():
+            return True
+        return bool(self.cleaned_data["apply_member_discount"])
+
     def compute_final_price_cents(self) -> int:
         """What this validated submission is charged."""
         if "apply_member_discount" in self.fields:
@@ -1162,9 +1174,13 @@ class RegistrationForm(forms.ModelForm):
             apply_member = True  # no toggle to turn off: a non-member, or a waitlist signup
         return self._price_cents(apply_member=apply_member, code=self._validated_discount)
 
+    def _toggle_absent_from_post(self) -> bool:
+        """True when this is a POST that never carried the toggle, hidden twin included."""
+        return self.is_bound and "apply_member_discount" not in self.data
+
     def _toggle_as_shown(self) -> bool:
         """The toggle as the page renders it: the POST when bound, else the initial; on when there is none."""
-        if "apply_member_discount" not in self.fields:
+        if "apply_member_discount" not in self.fields or self._toggle_absent_from_post():
             return True
         return bool(self["apply_member_discount"].value())
 
