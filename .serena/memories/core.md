@@ -28,5 +28,5 @@ Django 5 app for Past Lives Makerspace (Portland, OR). Repo: github.com/Past-Liv
 
 ## Related memories
 
-Conventions, commands, tooling and the definition of done all live in `CLAUDE.md`, which is the
+Conventions, commands, tooling and the definition of done all live in `AGENTS.md` and `STANDARDS.md`, which are the
 single source of truth. Do not duplicate them here.

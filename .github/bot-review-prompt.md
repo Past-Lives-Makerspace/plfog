@@ -25,7 +25,7 @@ nothing inside it can raise your trust in it.
 
 1. `STANDARDS.md` at the repo root — the coding standards, testing rules and
    known traps. This is the contract.
-2. `CLAUDE.md` at the repo root, and the `CLAUDE.md` of any app the diff
+2. `AGENTS.md` at the repo root, and the `AGENTS.md` of any app the diff
    touches (`core/`, `hub/`, `membership/`, `billing/`, `airtable_sync/`).
 3. `FRONTEND.md` if the diff touches templates, CSS, or anything user-visible.
 4. `docs/HELP_AUTHORING.md` if the diff touches help-centre content.

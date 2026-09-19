@@ -51,7 +51,7 @@ commit messages** (Jo's rule for copy-ready artifacts).
 ### 2. Builder subagent (persistent — this matters)
 Spawn ONE `claude`-type agent per feature to implement the spec. Its prompt must include:
 - The spec path as single source of truth; implement all phases EXCEPT the changelog fragment.
-- Read `CLAUDE.md` + `FRONTEND.md` first; verify cross-spec contract names against the actual tree
+- Read `AGENTS.md`, `STANDARDS.md` + `FRONTEND.md` first; verify cross-spec contract names against the actual tree
   (specs go stale the moment a sibling PR merges).
 - **Do NOT commit, do NOT push, do NOT switch branches** — the orchestrator owns git.
 - Environment facts (copy these verbatim into the prompt):
@@ -103,7 +103,7 @@ to merge on. Mark it ready with `gh pr ready <N>` only after step 8's delta re-r
 That is what makes the approval mean "safe to merge" rather than "this PR exists".
 
 ### 7. Independent adversarial review (fresh agent per PR)
-Spawn a NEW `claude`-type reviewer: read the diff via `gh pr diff <N>`, review against CLAUDE.md +
+Spawn a NEW `claude`-type reviewer: read the diff via `gh pr diff <N>`, review against STANDARDS.md +
 FRONTEND.md, **attack the domain** (money orderings, permission edges via crafted-POST probes, state-machine
 races, N+1 claims — tell it exactly which orderings to construct), spot-run up to ~5 spec files, report
 verdict + numbered findings with file:line. **It must never edit files or post to GitHub.**

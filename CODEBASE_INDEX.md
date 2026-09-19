@@ -20,7 +20,7 @@ Those six plus `plfog/` are the whole of `INSTALLED_APPS` for this project. Othe
 | `mobile/` | The Capacitor shell that wraps the live site for the App Store and Google Play. Nothing in it renders UI; see `mobile/README.md`. |
 | `assets/` | One showcase hero image that `demo_data` seeds. Not served as static. |
 | `scripts/` | Developer and CI helpers: the pre-push hook source, screenshot capture, the email gallery build, demo seeding. |
-| `changelog/`, `changelog.d/` | The folded version and its unreleased fragments; see `CLAUDE.md` § Versioning. |
+| `changelog/`, `changelog.d/` | The folded version and its unreleased fragments; see `AGENTS.md` § Versioning. |
 
 ## Key Models
 

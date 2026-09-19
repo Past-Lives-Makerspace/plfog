@@ -170,7 +170,7 @@ Its first output is the plan, posted as a comment on the issue, one screen:
 
 The engineer's prompt carries these facts verbatim, because each one has cost real time here:
 
-- Build to `CLAUDE.md` and `FRONTEND.md`: fat models and skinny views, full annotations including `-> None`,
+- Build to `STANDARDS.md` and `FRONTEND.md`: fat models and skinny views, full annotations including `-> None`,
   `help_text` on every field, `TextChoices`, `dict[key]` over a silent `.get` fallback, no N+1, the
   component library over copied markup.
 - Tests are BDD `*_spec.py` under the app's `spec/`, `it_*` inside `describe_*`. **`context_*` is not a
