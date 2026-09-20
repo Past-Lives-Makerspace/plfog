@@ -11,7 +11,6 @@ class DescribeHubMemberAgreement:
     def active_member(self):
         from tests.membership.factories import UserFactory
 
-        
         user = UserFactory()
         member = user.member
         member.status = member.Status.ACTIVE
