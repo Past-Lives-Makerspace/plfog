@@ -1004,7 +1004,30 @@ class LeadershipOrderForm(forms.ModelForm):
         widgets = {"sort_order": forms.HiddenInput(), "is_listed": forms.HiddenInput()}
 
 
-LeadershipRosterFormSet = forms.modelformset_factory(LeadershipListing, form=LeadershipOrderForm, extra=0)
+if TYPE_CHECKING:
+    _RosterFormSetBase = forms.BaseModelFormSet[LeadershipListing, LeadershipOrderForm]
+else:
+    # The stubs' generic exists for the type checker only; Django's class is not subscriptable.
+    _RosterFormSetBase = forms.BaseModelFormSet
+
+
+class LeadershipRosterBaseFormSet(_RosterFormSetBase):
+    """The roster's order forms, refusing a Save whose rows no longer match the page.
+
+    A posted row whose listing left the page meanwhile (another admin's Remove, the Details
+    tab toggle in another window) binds to an unsaved stand-in. Saving around it would drop
+    that admin's edits without a word, so the whole Save is refused with one message.
+    """
+
+    def clean(self) -> None:
+        super().clean()
+        if any(form.instance.pk is None for form in self.forms):
+            raise forms.ValidationError("The team changed while you were editing. Reload the page and try again.")
+
+
+LeadershipRosterFormSet = forms.modelformset_factory(
+    LeadershipListing, form=LeadershipOrderForm, formset=LeadershipRosterBaseFormSet, extra=0
+)
 
 
 @dataclass
@@ -1037,6 +1060,9 @@ class LeadershipRosterEditor:
                 roles=LeadershipRoleFormSet(data, instance=form.instance, prefix=f"roles-{form.instance.pk}"),
             )
             for form in self.formset
+            # A row whose listing left the page binds to an unsaved stand-in; the formset's
+            # clean() refuses the Save, and the template never touches that row's role lines.
+            if form.instance.pk is not None
         ]
 
     def is_valid(self) -> bool:

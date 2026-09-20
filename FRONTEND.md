@@ -375,7 +375,7 @@ All under `static/css/`. The pattern in use: one stylesheet per surface, linked 
 | `class-flyer.css`, `guild-flyer.css` | the two flyer pages | Printable flyers. |
 | `calendar.css`, `session-calendar.css` | community calendar, guild pages, class composer | Calendar grids. |
 | `member-edit.css` | `hub/admin/member_edit.html` | One admin page. |
-| `leadership.css` | `hub/leadership_directory.html` | The Leadership Directory cards. |
+| `leadership.css` | `hub/leadership_directory.html`, `hub/admin/leadership.html` | The Leadership Directory cards and its admin page. |
 | `voting-admin.css` | `hub/admin/voting_*.html` | Voting admin pages. |
 | `notifications-catalogue.css`, `notifications-edit-copy.css`, `notifications-edit-discord.css` | `hub/admin/notifications/*.html` | Notification admin pages. |
 | `signage.css` | `signage/base.html` | The lobby signage display. |

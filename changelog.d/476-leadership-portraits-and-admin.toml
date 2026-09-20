@@ -1,4 +1,4 @@
-bump = "patch"
+bump = "minor"
 date = "2026-09-20"
 title = "Leadership Directory portraits show the whole face"
 changes = [

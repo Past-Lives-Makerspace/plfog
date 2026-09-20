@@ -186,3 +186,10 @@ def describe_LeadershipListing_list_member():
             ("Old Title", "old@x.com", 0),
             ("New Title", "new@x.com", 1),
         ]
+
+    def it_adds_nothing_when_the_member_already_holds_the_title_twice():
+        removed = LeadershipListingFactory(is_listed=False)
+        LeadershipRoleFactory(listing=removed, title="Twice")
+        LeadershipRoleFactory(listing=removed, title="Twice", sort_order=1)
+        LeadershipListing.objects.list_member(removed.member, "Twice", "")
+        assert removed.roles.filter(title="Twice").count() == 2

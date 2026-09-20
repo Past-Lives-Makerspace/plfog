@@ -3391,7 +3391,8 @@ class LeadershipListingQuerySet(models.QuerySet["LeadershipListing"]):
             listing, _created = self.update_or_create(
                 member=member, defaults={"is_listed": True, "sort_order": sort_order}
             )
-            listing.roles.get_or_create(title=title, defaults={"email": email, "sort_order": listing.roles.count()})
+            if not listing.roles.filter(title=title).exists():
+                listing.roles.create(title=title, email=email, sort_order=listing.roles.count())
         return listing
 
 

@@ -144,6 +144,19 @@ def describe_leadership_admin_page():
         assert f'name="roles-{listing.pk}-0-DELETE"' in html
         assert 'x-data="{ expanded: false }"' in html
 
+    def it_shows_the_photo_in_a_row_only_when_the_member_allows_it(client: Client):
+        _admin(client)
+        shown = _listed("Ada Aldous")
+        Member.objects.filter(pk=shown.member.pk).update(profile_photo="members/profile/shown.png")
+        hidden = _listed("Quiet Quill", sort_order=1)
+        Member.objects.filter(pk=hidden.member.pk).update(
+            profile_photo="members/profile/hidden.png", directory_visibility={"profile_photo": False}
+        )
+        html = client.get(_PAGE).content.decode()
+        assert "members/profile/shown.png" in html
+        assert "members/profile/hidden.png" not in html
+        assert "QQ" in html
+
     def it_shows_the_empty_state_when_nobody_is_listed(client: Client):
         _admin(client)
         html = client.get(_PAGE).content.decode()
@@ -345,6 +358,21 @@ def describe_roster_save():
         assert listing.is_listed is False
         assert list(listing.roles.values_list("title", flat=True)) == ["Founder"]
         assert "Ada Aldous" not in client.get(_DIRECTORY).content.decode()
+
+    def it_refuses_a_save_whose_rows_no_longer_match_the_page(client: Client):
+        _admin(client)
+        listing = _listed("Ada Aldous", title="Founder")
+        role = listing.roles.get()
+        payload = _roster_post([(listing, [_role_row(role, title="Renamed")])])
+        # Another admin took Ada off the page after this page was loaded.
+        LeadershipListing.objects.filter(pk=listing.pk).update(is_listed=False)
+        response = client.post(_SAVE, payload)
+        assert response.status_code == 200
+        html = response.content.decode()
+        assert "The team changed while you were editing" in html
+        assert "pl-roster-row" not in html  # the stale row is not drawn, so nothing reads its lines
+        role.refresh_from_db()
+        assert role.title == "Founder"
 
     def it_re_renders_the_row_open_with_the_error_when_a_line_has_no_title(client: Client):
         _admin(client)

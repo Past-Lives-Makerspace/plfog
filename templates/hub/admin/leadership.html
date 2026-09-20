@@ -61,7 +61,7 @@ no editor here: it reads each guild's own settings.
           <div class="pl-slide-summary">
             <span class="pl-slide-grip" draggable="true" title="Drag to reorder" aria-label="Drag to reorder">⠿</span>
             <span class="pl-roster-row__avatar" aria-hidden="true">
-              {% if member.profile_photo %}<img src="{{ member.profile_photo.url }}" alt="">{% else %}{{ member.display_name|initials }}{% endif %}
+              {% if member.profile_photo and member|is_public:"profile_photo" %}<img src="{{ member.profile_photo.url }}" alt="">{% else %}{{ member.display_name|initials }}{% endif %}
             </span>
             <span class="pl-slide-summary__main">
               <span class="pl-slide-summary__title">{{ member.display_name }}</span>
