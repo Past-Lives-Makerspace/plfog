@@ -673,6 +673,14 @@ urlpatterns = [
         views.admin_slideshow_slides_save,
         name="hub_admin_slideshow_slides_save",
     ),
+    # The Leadership Directory admin (#476): the page, and the roster's two sibling forms.
+    path("manage/leadership/", views.hub_admin_leadership, name="hub_admin_leadership"),
+    path("manage/leadership/add/", views.admin_leadership_add, name="hub_admin_leadership_add"),
+    path(
+        "manage/leadership/roster/save/",
+        views.admin_leadership_roster_save,
+        name="hub_admin_leadership_roster_save",
+    ),
     # --- Notification copy catalogue (design §2.3 + §2.4, Decision 6) ---
     path("manage/notifications/", notification_views.catalogue, name="hub_admin_notifications"),
     path(

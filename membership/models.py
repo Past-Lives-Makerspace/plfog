@@ -189,6 +189,14 @@ class MemberQuerySet(models.QuerySet):
     def active(self) -> MemberQuerySet:
         return self.filter(status=Member.Status.ACTIVE)
 
+    def leadership_candidates(self) -> MemberQuerySet:
+        """Members an admin may add to the Leadership Directory: everyone not on it, by name.
+
+        A member taken off the page keeps an unlisted row, so they are offered again and
+        :meth:`LeadershipListingQuerySet.list_member` relists them with the lines they had.
+        """
+        return self.exclude(leadership_listing__is_listed=True).order_by("full_legal_name")
+
     def paying(self) -> MemberQuerySet:
         """Only standard members count as paying."""
         return self.filter(member_type=Member.MemberType.STANDARD)
@@ -3369,6 +3377,22 @@ class LeadershipListingQuerySet(models.QuerySet["LeadershipListing"]):
         a row; nothing is saved until the toggle or a role line changes.
         """
         return self.filter(member=member).first() or LeadershipListing(member=member)
+
+    def list_member(self, member: Member, title: str, email: str) -> LeadershipListing:
+        """Put a member on the page, last, with a role line; a member taken off earlier is relisted.
+
+        One row per member, so this creates or relists in one ``update_or_create``. A relisted
+        member keeps the lines they had, and the typed title is added only when they do not
+        already hold it, so adding someone back never doubles a line.
+        """
+        last = self.listed().aggregate(last=Max("sort_order"))["last"]
+        sort_order = 0 if last is None else last + 1
+        with transaction.atomic():
+            listing, _created = self.update_or_create(
+                member=member, defaults={"is_listed": True, "sort_order": sort_order}
+            )
+            listing.roles.get_or_create(title=title, defaults={"email": email, "sort_order": listing.roles.count()})
+        return listing
 
 
 class LeadershipListing(models.Model):

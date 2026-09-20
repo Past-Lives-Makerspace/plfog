@@ -1,0 +1,7 @@
+bump = "patch"
+date = "2026-09-20"
+title = "Leadership Directory portraits show the whole face"
+changes = [
+  "Photos on the Leadership Directory are round portraits now, the same as on the Member Directory, so nobody's face is cut off.",
+  "Admins add people, fix titles and emails, and set the order of the team from Admin Tools, and an Edit this page button on the directory takes them there.",
+]

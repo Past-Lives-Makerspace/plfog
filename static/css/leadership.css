@@ -1,9 +1,14 @@
 /* Leadership Directory (#464, part 2): the Plate card treatment.
-   A portrait (or initials) fills the top of each card and a brass nameplate sits over its
-   edge; guild cards carry the guild's SVG logo on the navy gradient instead. Loaded by
-   templates/hub/leadership_directory.html only. The hero and the gold section titles come
-   from hub.css (.pl-guild-hero, .pl-teach-hero, .pl-teach-section__title). The phone rules
-   sit at the end so they win over the unconditional ones above them. */
+   A brass nameplate sits over the edge of each card's visual. The team card's visual is a
+   round portrait in a gold ring (#476), cropped to its centre square like the Member
+   Directory circle so a face is never cut off; a member with no visible photo gets their
+   initials in the same ring. Guild cards carry the guild's SVG logo on the navy gradient.
+   Loaded by templates/hub/leadership_directory.html and, for the admin page's own rules at
+   the end, templates/hub/admin/leadership.html. The hero and the gold section titles come
+   from hub.css (.pl-guild-hero, .pl-teach-hero, .pl-teach-section__title); the admin page's
+   roster rows reuse hub.css's Slideshow row classes (.pl-slide-card, .pl-slide-grip,
+   .pl-slide-move__btn). The phone rules sit at the end so they win over the unconditional
+   ones above them. */
 
 .pl-leadership {
     max-width: 980px;
@@ -16,6 +21,14 @@
 .pl-leadership > .hub-card,
 .pl-leadership > .pl-guild-hero {
     margin: 0;
+}
+
+/* The admin's Edit this page button, in the hero's top corner like the Help Center's. */
+.pl-leadership__admin {
+    position: absolute;
+    top: 0.75rem;
+    right: 0.75rem;
+    z-index: 2;
 }
 
 .pl-leadership__updated {
@@ -60,7 +73,7 @@
     display: flex;
     align-items: center;
     justify-content: center;
-    aspect-ratio: 16 / 10;
+    aspect-ratio: 16 / 11;
     overflow: hidden;
     background: linear-gradient(135deg, var(--hub-hero-from), var(--hub-hero-mid) 60%, var(--hub-hero-to));
 }
@@ -68,6 +81,28 @@
 .pl-leader-card__visual--guild {
     aspect-ratio: 16 / 8;
     background: linear-gradient(135deg, var(--hub-blue) -20%, var(--hub-hero-mid) 55%, var(--hub-hero-to));
+}
+
+/* The medallion: a circle in a gold ring, lifted a little above centre so it clears the
+   nameplate that overlaps the visual's foot. The photo fills it and is cropped to its
+   centre square (object-fit: cover on a square box), the Member Directory's own crop. */
+.pl-leader-card__avatar {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 7rem;
+    height: 7rem;
+    margin-bottom: 0.6rem;
+    border-radius: 50%;
+    overflow: hidden;
+    border: 3px solid var(--color-tuscan-yellow);
+    background: rgba(255, 255, 255, 0.06);
+    box-shadow: 0 6px 16px rgba(0, 0, 0, 0.35);
+}
+
+[data-theme="light"] .pl-leader-card__avatar {
+    background: rgba(9, 46, 76, 0.08);
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.18);
 }
 
 .pl-leader-card__photo {
@@ -84,10 +119,21 @@
     opacity: 0.42;
 }
 
+/* Inside the ring the initials are the whole picture, so they read stronger than the
+   guild fallback's watermark. */
+.pl-leader-card__avatar .pl-leader-card__initials {
+    font-size: 2.4rem;
+    opacity: 0.75;
+}
+
 /* The light hero gradient is pale, so cream initials vanish on it; navy reads there. */
 [data-theme="light"] .pl-leader-card__initials {
     color: var(--color-navy);
     opacity: 0.32;
+}
+
+[data-theme="light"] .pl-leader-card__avatar .pl-leader-card__initials {
+    opacity: 0.6;
 }
 
 .pl-leader-card__logo {
@@ -243,6 +289,93 @@ a.pl-leader-card__row:focus-visible {
     margin-top: auto;
 }
 
+/* ---- The admin page (#476): Page Wording, the roster rows and the Add a Person modal.
+   The rows' grip, move buttons, summary and editor panel come from hub.css's Slideshow
+   classes; only what is particular to a person is here. ---- */
+.pl-leadership-admin {
+    display: flex;
+    flex-direction: column;
+    gap: 1.5rem;
+}
+
+.pl-leadership-admin__lead {
+    margin: 0;
+    color: var(--hub-text-muted);
+}
+
+.pl-leadership-admin__card {
+    padding: 1.5rem;
+}
+
+.pl-leadership-admin__title {
+    margin: 0 0 0.25rem;
+}
+
+.pl-leadership-admin__head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.75rem;
+    flex-wrap: wrap;
+}
+
+.pl-leadership-admin__hint {
+    font-size: 0.8125rem;
+    margin: 0 0 1rem;
+}
+
+/* Breathing room before the next card (FRONTEND.md Rule 18). */
+.pl-leadership-admin__actions {
+    margin-top: 1.5rem;
+}
+
+.pl-leadership-admin__empty {
+    margin: 0;
+    padding: 0.75rem 0;
+    color: var(--hub-text-muted);
+    font-style: italic;
+}
+
+.pl-roster-row__avatar {
+    flex: 0 0 auto;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 40px;
+    height: 40px;
+    border-radius: 50%;
+    overflow: hidden;
+    border: 2px solid var(--color-tuscan-yellow);
+    background: var(--hub-surface);
+    color: var(--hub-text);
+    font: 700 0.85rem Lato, sans-serif;
+}
+
+.pl-roster-row__avatar img {
+    display: block;
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+}
+
+.pl-roster-row__none {
+    font-style: italic;
+    color: var(--hub-text-muted);
+}
+
+.pl-leadership-add__hint {
+    margin: 0 0 1rem;
+    font-size: 0.8125rem;
+    color: var(--hub-text-muted);
+}
+
+.pl-leadership-add__actions {
+    display: flex;
+    justify-content: flex-end;
+    gap: 0.5rem;
+    margin-top: 1.5rem;
+}
+
 @media (max-width: 640px) {
     .pl-leader-grid {
         grid-template-columns: 1fr 1fr;
@@ -265,8 +398,19 @@ a.pl-leader-card__row:focus-visible {
         font-size: 0.75rem;
     }
 
+    .pl-leader-card__avatar {
+        width: 4.5rem;
+        height: 4.5rem;
+        margin-bottom: 0.5rem;
+        border-width: 2px;
+    }
+
     .pl-leader-card__initials {
         font-size: 2.4rem;
+    }
+
+    .pl-leader-card__avatar .pl-leader-card__initials {
+        font-size: 1.6rem;
     }
 
     .pl-leader-card__logo {

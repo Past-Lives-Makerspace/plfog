@@ -1698,3 +1698,34 @@
 .pl-app-badges__img--play {
     height: 52px;
 }
+
+/* Leadership Directory role lines (#464, #476): one title and email row in a formset, on the
+   admin member edit Details tab and on the Leadership Directory admin page alike. */
+.pl-leadership-role {
+    padding: 0.75rem;
+    margin-bottom: 0.75rem;
+    background: var(--hub-surface);
+    border: 1px solid var(--hub-border);
+    border-radius: 6px;
+}
+
+.pl-leadership-role__fields {
+    display: flex;
+    gap: 0.75rem;
+    flex-wrap: wrap;
+}
+
+.pl-leadership-role__fields > div {
+    flex: 1 1 220px;
+    min-width: 0;
+}
+
+/* The formset's DELETE checkbox: driven by the real Delete button, never shown. */
+.pl-leadership-role__flag {
+    display: none;
+}
+
+/* Breathing room before the Save button below (FRONTEND.md Rule 18). */
+.pl-leadership__add {
+    margin: 0.25rem 0 1.5rem;
+}

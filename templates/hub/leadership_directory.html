@@ -9,16 +9,24 @@
 {% block content %}
 {% comment %}
 Leadership Directory (#464, part 2). The Plate card treatment Felix picked from the three
-mockups under mockups/screenshots/464-leadership-card-*.png: a portrait (or initials) fills
-the top of each card and a brass nameplate sits over its edge; guild cards carry the guild's
-SVG logo instead. The team section is curated (profiles flagged Show on Leadership Directory,
-in the admin's order); the guild section is derived from each visible guild's own lead, Co-Lead
-staff and contact address. Every word of the hero and the section headings comes from
+mockups under mockups/screenshots/464-leadership-card-*.png: a brass nameplate sits over the
+edge of each card's visual; guild cards carry the guild's SVG logo. The portrait is a round
+medallion in a gold ring (#476), cropped to its centre square like the Member Directory circle
+so a face is never cut off, and a member with no visible photo gets their initials in the same
+ring. The team section is curated (profiles flagged Show on Leadership Directory, in the
+admin's order); the guild section is derived from each visible guild's own lead, Co-Lead staff
+and contact address. Every word of the hero and the section headings comes from
 LeadershipPage, and a blanked intro renders nothing. An empty team section shows its intro
-only; the guild section is never empty because a guild with no lead still gets a card.
+only; the guild section is never empty because a guild with no lead still gets a card. An
+admin gets an Edit this page button in the hero, which opens the admin page.
 {% endcomment %}
 <div class="pl-leadership">
     <div class="pl-guild-hero pl-guild-hero--noimg pl-teach-hero">
+        {% if is_admin %}
+        <div class="pl-leadership__admin">
+            <a href="{% url 'hub_admin_leadership' %}" class="pl-btn pl-btn--secondary pl-btn--sm">Edit this page</a>
+        </div>
+        {% endif %}
         <div class="pl-guild-hero__content">
             {% if leadership_page.hero_title %}
             <h1 class="pl-guild-hero__title">{{ leadership_page.hero_title }}</h1>
@@ -43,11 +51,13 @@ only; the guild section is never empty because a guild with no lead still gets a
             {% with member=listing.member %}
             <article class="pl-leader-card">
                 <div class="pl-leader-card__visual">
-                    {% if member.profile_photo and member|is_public:"profile_photo" %}
-                    <img class="pl-leader-card__photo" src="{{ member.profile_photo.url }}" alt="" loading="lazy">
-                    {% else %}
-                    <span class="pl-leader-card__initials" aria-hidden="true">{{ member.display_name|initials }}</span>
-                    {% endif %}
+                    <span class="pl-leader-card__avatar">
+                        {% if member.profile_photo and member|is_public:"profile_photo" %}
+                        <img class="pl-leader-card__photo" src="{{ member.profile_photo.url }}" alt="" loading="lazy">
+                        {% else %}
+                        <span class="pl-leader-card__initials" aria-hidden="true">{{ member.display_name|initials }}</span>
+                        {% endif %}
+                    </span>
                 </div>
                 <h3 class="pl-leader-card__plate">
                     {{ member.display_name }}

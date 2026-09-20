@@ -278,7 +278,7 @@ So that nobody misses something important, several updates come **switched on by
 
 - The guild cards read each guild's settings. When a guild changes its lead there, the card changes on its own.
 - Your Discord handle comes from your own **Settings**. Guild leads: your guild's email lives in your guild page's settings.
-- Only admins list someone on the team section, from that member's profile in Manage Members.
+- Admins add people to the team section, fix titles and emails, and set the order from **Admin Tools → Leadership Directory**, or with the **Edit this page** button on the directory. The toggle on a member's profile in Manage Members does the same for one person.
 
 !!! tip
     The **Updated** date under the page title is the last change to the team list, so you can tell how fresh it is.
