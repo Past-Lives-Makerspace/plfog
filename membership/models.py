@@ -15165,4 +15165,4 @@ class MemberAgreementAcceptance(models.Model):
         constraints = [models.UniqueConstraint(fields=["member"], name="unique_member_agreement_acceptance")]
 
     def __str__(self) -> str:
-        return f"{self.member.name} accepted at {self.accepted_at.date()}"
+        return f"{self.member.display_name} accepted at {self.accepted_at.date()}"
