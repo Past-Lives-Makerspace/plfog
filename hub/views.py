@@ -6606,9 +6606,9 @@ def admin_member_edit(request: HttpRequest, pk: int) -> HttpResponse:
 
     member = get_object_or_404(Member, pk=pk)
     permissions_url = f"{reverse('hub_admin_member_edit', args=[member.pk])}?tab=permissions"
-    # The Leadership Directory listing saves with the Details form. An unsaved stand-in row
-    # means a member nobody listed gains no row until the toggle or a role line changes.
-    listing = LeadershipListing.objects.filter(member=member).first() or LeadershipListing(member=member)
+    # The Leadership Directory listing saves with the Details form; the queryset hands back
+    # an unsaved stand-in for a member nobody listed, so no row is written until it changes.
+    listing = LeadershipListing.objects.for_member(member)
 
     if request.method == "POST":
         form_id = request.POST.get("form_id")

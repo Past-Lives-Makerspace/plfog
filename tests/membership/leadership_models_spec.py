@@ -83,6 +83,18 @@ def describe_LeadershipListing():
             hidden = LeadershipListingFactory(is_listed=False)
             assert LeadershipListing.objects.last_updated() == hidden.updated_at
 
+    def describe_for_member():
+        def it_returns_the_saved_row():
+            listing = LeadershipListingFactory()
+            assert LeadershipListing.objects.for_member(listing.member) == listing
+
+        def it_returns_an_unsaved_stand_in_without_writing_one():
+            member = MemberFactory()
+            stand_in = LeadershipListing.objects.for_member(member)
+            assert stand_in.pk is None
+            assert stand_in.member == member
+            assert LeadershipListing.objects.count() == 0
+
     def describe___str__():
         def it_names_the_member_and_whether_they_are_listed():
             member = MemberFactory(full_legal_name="Ada Lovelace")

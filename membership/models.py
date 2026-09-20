@@ -3343,7 +3343,7 @@ class LeadershipPage(models.Model):
         return obj
 
 
-class LeadershipListingQuerySet(models.QuerySet):
+class LeadershipListingQuerySet(models.QuerySet["LeadershipListing"]):
     """Queries over the curated Leadership & Admin Team roster."""
 
     def listed(self) -> LeadershipListingQuerySet:
@@ -3361,6 +3361,14 @@ class LeadershipListingQuerySet(models.QuerySet):
         stamps = self.aggregate(listing=Max("updated_at"), role=Max("roles__updated_at"))
         found = [stamp for stamp in stamps.values() if stamp is not None]
         return max(found) if found else None
+
+    def for_member(self, member: Member) -> LeadershipListing:
+        """The member's listing row, or an unsaved stand-in when they have none.
+
+        The stand-in lets the Details tab bind its toggle and role formset without writing
+        a row; nothing is saved until the toggle or a role line changes.
+        """
+        return self.filter(member=member).first() or LeadershipListing(member=member)
 
 
 class LeadershipListing(models.Model):
