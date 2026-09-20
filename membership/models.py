@@ -823,12 +823,14 @@ class Member(models.Model):
     def needs_member_agreement(self) -> bool:
         from core.models import SiteConfiguration
 
-        config = SiteConfiguration.objects.first()
+        config = SiteConfiguration.load()
         if not config or not config.member_agreement_required or not config.member_agreement_url:
             return False
         if self.status != self.Status.ACTIVE:
             return False
         # Avoid a DB query if we already preloaded it, otherwise exists()
+        if "member_agreement_acceptances" in getattr(self, "_prefetched_objects_cache", {}):
+            return len(self.member_agreement_acceptances.all()) == 0
         return not self.member_agreement_acceptances.exists()
 
     @property
@@ -1661,6 +1663,15 @@ class Member(models.Model):
         if self.hide_from_directory:
             return False
         return self.is_fog_admin or self.is_guild_officer or self.is_guild_lead or self.is_instructor
+
+    def accept_member_agreement(self, request: HttpRequest, agreement_url: str) -> None:
+        """Mark this member as having accepted the member agreement."""
+        from core.models import SiteActivity
+
+        x_forwarded_for = request.META.get("HTTP_X_FORWARDED_FOR")
+        ip = x_forwarded_for.split(",")[0] if x_forwarded_for else request.META.get("REMOTE_ADDR", "")
+        MemberAgreementAcceptance.objects.create(member=self, agreement_url=agreement_url, ip_address=ip)
+        SiteActivity.objects.log(request.user, SiteActivity.Kind.MEMBER_AGREEMENT_ACCEPTED)
 
     ADMIN_ROLE_INSTRUCTOR = "instructor"
     ADMIN_ROLE_GUEST = "guest"
@@ -15178,8 +15189,9 @@ class MemberAgreementAcceptance(models.Model):
         "membership.Member",
         on_delete=models.CASCADE,
         related_name="member_agreement_acceptances",
+        help_text="The member who accepted the agreement.",
     )
-    accepted_at = models.DateTimeField(auto_now_add=True)
+    accepted_at = models.DateTimeField(auto_now_add=True, help_text="When the member accepted the agreement.")
     agreement_url = models.URLField(
         blank=True,
         help_text="The URL of the agreement the member read, as configured at the time.",

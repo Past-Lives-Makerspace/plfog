@@ -269,6 +269,7 @@ class MemberAgreementMiddleware:
         if member and member.needs_member_agreement:
             from core.htmx import wants_fragment
             from django.urls import reverse
+            from django.shortcuts import redirect
 
             agreement_url = f"{reverse('hub_member_agreement')}?next={request.get_full_path()}"
             if wants_fragment(request):
@@ -277,7 +278,6 @@ class MemberAgreementMiddleware:
                 res = HttpResponse(status=200)
                 res["HX-Redirect"] = agreement_url
                 return res
-            from django.shortcuts import redirect
 
             return redirect(agreement_url)
 

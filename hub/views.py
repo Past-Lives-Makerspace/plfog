@@ -2760,8 +2760,7 @@ def hub_member_agreement(request: HttpRequest) -> HttpResponse:
     from the URL set in Site Settings. POSTing with the `agree` checkbox saves a
     MemberAgreementAcceptance record, logging the URL they agreed to and their IP.
     """
-    from core.models import SiteConfiguration, SiteActivity
-    from membership.models import MemberAgreementAcceptance
+    from core.models import SiteConfiguration
     from django.utils.http import url_has_allowed_host_and_scheme
 
     member = _get_member(request)
@@ -2780,19 +2779,7 @@ def hub_member_agreement(request: HttpRequest) -> HttpResponse:
 
     if request.method == "POST":
         if "agree" in request.POST:
-            forwarded = request.META.get("HTTP_X_FORWARDED_FOR", "")
-            ip = forwarded.split(",")[0].strip() if forwarded else request.META.get("REMOTE_ADDR", "")
-            MemberAgreementAcceptance.objects.create(
-                member=member,
-                agreement_url=config.member_agreement_url,
-                ip_address=ip,
-            )
-            user = request.user
-            if user.is_authenticated:
-                SiteActivity.objects.create(
-                    kind=SiteActivity.Kind.ACCEPTED_MEMBER_AGREEMENT,
-                    actor=user,
-                )
+            member.accept_member_agreement(request, config.member_agreement_url)
             next_url = request.POST.get("next")
             if next_url and url_has_allowed_host_and_scheme(url=next_url, allowed_hosts={request.get_host()}):
                 return redirect(next_url)

@@ -497,6 +497,7 @@ class SiteConfiguration(models.Model):
     member_agreement_required = models.BooleanField(
         default=False,
         verbose_name="Require members to accept the Member Agreement",
+        help_text="When checked, active members must accept the agreement to access the hub.",
     )
     member_agreement_url = models.URLField(
         blank=True,
@@ -965,6 +966,13 @@ class SiteConfiguration(models.Model):
         self.pk = 1
         delete_orphan_on_replace(self, "org_logo")
         super().save(*args, **kwargs)
+
+    def clean(self) -> None:
+        super().clean()
+        if self.member_agreement_required and not self.member_agreement_url:
+            from django.core.exceptions import ValidationError
+
+            raise ValidationError({"member_agreement_url": "Required when Member Agreement is enforced."})
 
     @classmethod
     def load(cls) -> SiteConfiguration:

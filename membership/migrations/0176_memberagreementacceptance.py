@@ -5,23 +5,37 @@ from django.db import migrations, models
 
 
 class Migration(migrations.Migration):
-
     dependencies = [
-        ('membership', '0175_leadership_directory'),
+        ("membership", "0175_leadership_directory"),
     ]
 
     operations = [
         migrations.CreateModel(
-            name='MemberAgreementAcceptance',
+            name="MemberAgreementAcceptance",
             fields=[
-                ('id', models.BigAutoField(auto_created=True, primary_key=True, serialize=False, verbose_name='ID')),
-                ('accepted_at', models.DateTimeField(auto_now_add=True)),
-                ('agreement_url', models.URLField(blank=True, help_text='The URL of the agreement the member read, as configured at the time.')),
-                ('ip_address', models.GenericIPAddressField(blank=True, help_text='The IP they accepted from.', null=True)),
-                ('member', models.ForeignKey(on_delete=django.db.models.deletion.CASCADE, related_name='member_agreement_acceptances', to='membership.member')),
+                ("id", models.BigAutoField(auto_created=True, primary_key=True, serialize=False, verbose_name="ID")),
+                ("accepted_at", models.DateTimeField(auto_now_add=True)),
+                (
+                    "agreement_url",
+                    models.URLField(
+                        blank=True, help_text="The URL of the agreement the member read, as configured at the time."
+                    ),
+                ),
+                (
+                    "ip_address",
+                    models.GenericIPAddressField(blank=True, help_text="The IP they accepted from.", null=True),
+                ),
+                (
+                    "member",
+                    models.ForeignKey(
+                        on_delete=django.db.models.deletion.CASCADE,
+                        related_name="member_agreement_acceptances",
+                        to="membership.member",
+                    ),
+                ),
             ],
             options={
-                'constraints': [models.UniqueConstraint(fields=('member',), name='unique_member_agreement_acceptance')],
+                "constraints": [models.UniqueConstraint(fields=("member",), name="unique_member_agreement_acceptance")],
             },
         ),
     ]
