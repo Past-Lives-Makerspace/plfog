@@ -4,13 +4,13 @@
 {% block content %}
 <!-- This is a full page, not a dismissible modal, so it does not use components/modal.html -->
 <div class="pl-modal-backdrop">
-  <div class="pl-modal" tabindex="-1">
+  <div class="pl-modal" tabindex="-1" x-init="$el.focus()">
     <div class="pl-modal__header">
       <h2 class="pl-modal__title">One more thing before you head in</h2>
     </div>
     
     <div class="pl-modal__body">
-      <p style="margin-bottom: 1rem;">Please read and accept the Member Agreement to continue.</p>
+      <p class="pl-agreement-intro">Please read and accept the Member Agreement to continue.</p>
       
       <div class="pl-agreement-container">
         <iframe src="{{ agreement_url }}" class="pl-agreement-iframe"></iframe>
@@ -22,12 +22,12 @@
           <input type="hidden" name="next" value="{{ next }}">
         {% endif %}
         
-        <label class="fld fld--checkbox" style="margin-bottom: 1rem;">
+        <label class="fld fld--checkbox pl-agreement-checkbox">
           <input type="checkbox" name="agree" value="1" x-model="agreed">
           <span>I have read and agree to the Member Agreement.</span>
         </label>
         
-        <button type="submit" class="pl-btn pl-btn--primary" style="width: 100%;" x-bind:disabled="!agreed">
+        <button type="submit" class="pl-btn pl-btn--primary pl-btn--block" x-bind:disabled="!agreed">
           Agree
         </button>
       </form>
@@ -42,10 +42,4 @@
   </div>
 </div>
 
-<script>
-  // Ensure focus is placed inside the card on load for accessibility
-  document.addEventListener('DOMContentLoaded', () => {
-    document.querySelector('.pl-modal').focus();
-  });
-</script>
 {% endblock %}

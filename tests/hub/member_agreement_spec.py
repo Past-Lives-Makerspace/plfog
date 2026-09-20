@@ -61,3 +61,19 @@ class DescribeHubMemberAgreement:
         assert SiteActivity.objects.filter(
             kind=SiteActivity.Kind.ACCEPTED_MEMBER_AGREEMENT, actor=active_member.user
         ).exists()
+
+    def test_post_fails_when_unchecked(self, client, active_member: Member) -> None:
+        config = SiteConfiguration.load()
+        config.member_agreement_required = True
+        config.member_agreement_url = "https://example.com"
+        config.save()
+
+        client.force_login(active_member.user)
+        response = client.post(reverse("hub_member_agreement"), {"next": reverse("hub_home")})
+
+        assert response.status_code == 200
+        from django.contrib.messages import get_messages
+
+        messages = list(get_messages(response.wsgi_request))
+        assert any("You must read and agree" in m.message for m in messages)
+        assert not MemberAgreementAcceptance.objects.filter(member=active_member).exists()

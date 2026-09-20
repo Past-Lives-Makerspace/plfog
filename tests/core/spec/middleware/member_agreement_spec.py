@@ -40,6 +40,18 @@ class DescribeMemberAgreementMiddleware:
         assert response.status_code == 302
         assert reverse("hub_member_agreement") in response.url
 
+    def test_hx_redirect_when_wants_fragment(self, client, active_member: Member) -> None:
+        config = SiteConfiguration.load()
+        config.member_agreement_required = True
+        config.member_agreement_url = "https://example.com"
+        config.save()
+
+        client.force_login(active_member.user)
+        response = client.get(reverse("hub_home"), HTTP_HX_REQUEST="true")
+
+        assert response.status_code == 200
+        assert reverse("hub_member_agreement") in response["HX-Redirect"]
+
     def test_bypasses_when_on_and_accepted(self, client, active_member: Member) -> None:
         config = SiteConfiguration.load()
         config.member_agreement_required = True
@@ -65,4 +77,4 @@ class DescribeMemberAgreementMiddleware:
 
         client.force_login(active_member.user)
         response = client.get("/accounts/logout/")
-        assert reverse("hub_member_agreement") not in response.url if response.status_code == 302 else True
+        assert reverse("hub_member_agreement") not in response.get("Location", "")

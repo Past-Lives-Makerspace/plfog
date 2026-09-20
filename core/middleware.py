@@ -270,8 +270,10 @@ class MemberAgreementMiddleware:
             from core.htmx import wants_fragment
             from django.urls import reverse
             from django.shortcuts import redirect
+            import urllib.parse
 
-            agreement_url = f"{reverse('hub_member_agreement')}?next={request.get_full_path()}"
+            next_url = urllib.parse.quote(request.get_full_path())
+            agreement_url = f"{reverse('hub_member_agreement')}?next={next_url}"
             if wants_fragment(request):
                 from django.http import HttpResponse
 

@@ -107,3 +107,33 @@ def describe_SlideshowSettingsForm():
         assert config.signage_show_events is True
         # Unchecked switches post nothing, which a ModelForm reads as False.
         assert config.signage_show_classes is False
+
+
+def describe_SiteSettingsForm_member_agreement():
+    def it_fails_clean_if_required_but_no_url():
+        data = {
+            "member_agreement_required": "on",
+            "member_agreement_url": "",
+        }
+        form = SiteSettingsForm(data)
+        assert not form.is_valid()
+        assert "member_agreement_url" in form.errors
+
+    def it_passes_clean_if_required_and_url_provided():
+        data = {
+            "member_agreement_required": "on",
+            "member_agreement_url": "https://example.com",
+            # Include member_directory_public to make it fully valid
+            "member_directory_public": "on",
+        }
+        form = SiteSettingsForm(data)
+        assert form.is_valid(), form.errors
+
+    def it_passes_clean_if_not_required():
+        data = {
+            "member_agreement_required": "",
+            "member_agreement_url": "",
+            "member_directory_public": "on",
+        }
+        form = SiteSettingsForm(data)
+        assert form.is_valid(), form.errors
