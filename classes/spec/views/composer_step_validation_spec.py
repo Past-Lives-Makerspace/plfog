@@ -31,17 +31,20 @@ REPO_ROOT = Path(__file__).resolve().parents[3]
 JS_PATH = REPO_ROOT / "static" / "js" / "composer_validation.js"
 TEMPLATE_PATH = REPO_ROOT / "templates" / "classes" / "_components" / "class_composer.html"
 FIELD_NAMES = sorted({name for step in COMPOSER_STEPS for name in step.fields})
-# The one rule set both composers render, by step. Steps 2, 4 and 5 require nothing: photos,
-# details and review are readiness or optional, never a Next gate. scheduling_model is a
-# required form field whose <select> has no empty option (a model default, no blank=True), so
+# The rule set the instructor's composer renders, by step. Steps 2, 4 and 5 require nothing:
+# photos, details and review are readiness or optional, never a Next gate. scheduling_model is
+# a required form field whose <select> has no empty option (a model default, no blank=True), so
 # Django omits the attribute: the browser always posts a value and there is nothing to gate.
 REQUIRED_BY_STEP = {
     1: {"title", "category", "price_cents"},
     2: set(),
-    3: {"capacity", "member_discount_pct", "scheduling_type"},
+    3: {"capacity", "scheduling_type"},
     4: set(),
     5: set(),
 }
+# The admin's composer renders one rule more: the member discount is the admin's to set (#369),
+# required on their form and a read-only note on the instructor's.
+ADMIN_REQUIRED_BY_STEP = {**REQUIRED_BY_STEP, 3: REQUIRED_BY_STEP[3] | {"member_discount_pct"}}
 VOID_TAGS = {"input", "img", "br", "hr", "link", "meta", "source", "wbr"}
 CONTROL_TAGS = {"input", "select", "textarea"}
 
@@ -171,6 +174,7 @@ class _Composer:
     form_class: type
     offering: ClassOffering
     pages: dict[str, str]
+    required_by_step: dict[int, set[str]]
 
     def form(self, mode: str):
         return self.form_class(instance=self.offering) if mode == "edit" else self.form_class()
@@ -185,16 +189,18 @@ def composer(request, client, instructor, admin_user) -> _Composer:
         )
         create, edit = "classes:teach_class_create", "classes:teach_class_edit"
         form_class: type = TeachClassOfferingForm
+        required_by_step = REQUIRED_BY_STEP
     else:
         client.force_login(admin_user)
         offering = cast(ClassOffering, ClassOfferingFactory(status=ClassOffering.Status.DRAFT, ready=True))
         create, edit = "classes:admin_class_create", "classes:teach_class_edit"
         form_class = ClassOfferingForm
+        required_by_step = ADMIN_REQUIRED_BY_STEP
     pages = {
         "create": client.get(reverse(create)).content.decode(),
         "edit": client.get(reverse(edit, kwargs={"pk": offering.pk})).content.decode(),
     }
-    return _Composer(form_class=form_class, offering=offering, pages=pages)
+    return _Composer(form_class=form_class, offering=offering, pages=pages, required_by_step=required_by_step)
 
 
 def describe_required_parity_between_the_panes_and_the_form():
@@ -213,13 +219,16 @@ def describe_required_parity_between_the_panes_and_the_form():
                 assert rendered_by_step[step.number] == server & set(step.fields), (mode, step.number)
             # Every required field is rendered somewhere, so the client can see every server rule.
             assert set().union(*rendered_by_step.values()) == server, mode
-            assert rendered_by_step == REQUIRED_BY_STEP, mode
+            assert rendered_by_step == composer.required_by_step, mode
 
-    def it_requires_the_same_things_of_both_composers():
-        # The admin only fields (instructor, is_private, private_for_name) are all optional, so
-        # the client enforces one rule set whichever portal rendered the page.
-        assert _server_required(ClassOfferingForm()) == _server_required(TeachClassOfferingForm())
-        assert _server_required(ClassOfferingForm()) == set().union(*REQUIRED_BY_STEP.values())
+    def it_requires_the_same_things_of_both_composers_but_the_member_discount():
+        # The admin only fields instructor, is_private and private_for_name are all optional;
+        # member_discount_pct is the one the admin's form requires and the instructor's lacks
+        # (#369). Otherwise the client enforces one rule set whichever portal rendered the page.
+        admin, teach = _server_required(ClassOfferingForm()), _server_required(TeachClassOfferingForm())
+        assert admin - teach == {"member_discount_pct"} and teach <= admin
+        assert admin == set().union(*ADMIN_REQUIRED_BY_STEP.values())
+        assert teach == set().union(*REQUIRED_BY_STEP.values())
 
     def it_needs_no_gate_on_a_select_with_no_empty_option(composer):
         # scheduling_model: required on the form, no `required` on the control, and no gap
@@ -276,6 +285,10 @@ def describe_what_next_never_blocks_on():
             controls = _parse(html).controls
             price = _by_name(controls[1], "price_cents")
             assert price.required and price.attrs.get("min") == "0" and price.attrs.get("step") == "0.01", mode
+            if composer.form_class is not ClassOfferingForm:
+                # The instructor's composer has no discount control to gate (#369).
+                assert all(c.name != "member_discount_pct" for c in controls[3]), mode
+                continue
             discount = _by_name(controls[3], "member_discount_pct")
             assert discount.required and discount.attrs.get("min") == "0" and "max" not in discount.attrs, mode
 

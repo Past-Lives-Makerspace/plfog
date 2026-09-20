@@ -1850,9 +1850,10 @@ class ClassOffering(HeroCropMixin, models.Model):
         APPROVED by a guild lead: escalate to the admin gate without
         publishing — publication always waits for the admin.
         CHANGES_REQUESTED / DENIED: bounce back to DRAFT so the instructor
-        can edit and resubmit. Per the locked decision in PLAN.md §14,
-        a guild-lead denial is recoverable (returns to DRAFT) rather than
-        archival; admin-level archival is a separate explicit action.
+        can edit and resubmit. Per the locked decision in the CMS round 2
+        plan (PLAN.md §14, now in git history), a guild-lead denial is
+        recoverable (returns to DRAFT) rather than archival; admin-level
+        archival is a separate explicit action.
         """
         from classes import activity
 

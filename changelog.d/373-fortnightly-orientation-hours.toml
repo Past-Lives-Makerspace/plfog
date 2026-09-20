@@ -1,0 +1,9 @@
+bump = "minor"
+date = "2026-09-18"
+title = "Orientation hours can repeat every other week, monthly, or less often"
+changes = [
+  "When you publish your orientation hours, Repeats now offers every week, every other week, every month, every 2 months, every 3 months, every 6 months, or every year, and you pick the day the hours start.",
+  "A monthly or yearly rule keeps the same weekday of the month as its start day, so the 2nd Tuesday stays the 2nd Tuesday.",
+  "The Orientation Schedule names each rule in plain words, such as Every other Tuesday or Every month on the 2nd Tuesday.",
+  "Hours you already published keep running every week. If you change a rule to repeat less often, the open slots that no longer fit are removed and booked ones stay.",
+]

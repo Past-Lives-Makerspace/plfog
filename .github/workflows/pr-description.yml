@@ -1,0 +1,47 @@
+name: PR description
+
+# Holds every pull request description to CONTRIBUTING.md: a summary of at most 160
+# characters, the Problem / Solution / Impact / Verification skeleton, at most 300 words, and a
+# screenshot or mockup under mockups/ when templates, CSS or front-end JS change. The review bot
+# reads only the diff, so nothing else checks the description.
+#
+# Its own workflow, like changelog.yml, because `edited` and the label events are load-bearing:
+# fixing a description or adding the `no-screenshots` label has to re-run the check without a
+# new commit, and re-running the hour-long test job for that would be absurd.
+#
+# The body reaches the script through an environment variable, never interpolated into the
+# shell, so a description cannot run code. `pull_request` gives a read-only token.
+
+on:
+  pull_request:
+    types: [opened, edited, synchronize, reopened, labeled, unlabeled, ready_for_review]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: pr-description-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  description:
+    # Dependabot and other bots write their own descriptions.
+    if: github.event.pull_request.user.type != 'Bot'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # The merge base has to be reachable to tell which files the PR changes and adds.
+          fetch-depth: 0
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+
+      - name: The description follows CONTRIBUTING.md
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.sha }}
+          PR_BODY: ${{ github.event.pull_request.body }}
+          PR_LABELS: ${{ toJSON(github.event.pull_request.labels.*.name) }}
+        run: python .github/scripts/check_pr_description.py

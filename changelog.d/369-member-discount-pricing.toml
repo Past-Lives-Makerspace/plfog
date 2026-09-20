@@ -1,0 +1,9 @@
+bump = "minor"
+date = "2026-09-18"
+title = "Members see their price up front, and can choose to pay full price"
+changes = [
+  "If you are logged in as a member, the registration page shows your member price in the total and on the Next button from the start. Change the email or the discount code and the price updates before you commit.",
+  "A member can turn off their member discount at checkout to pay full price and give the difference to the space.",
+  "The member discount percentage on a class is set by admins only now. Instructors see the resulting member price on the Dates and Price step.",
+  "A new class starts at the studio's default member discount from Classes settings.",
+]

@@ -1138,7 +1138,7 @@ def _horizon_spans(rule: OrientationAvailability, *, today: date, window_weeks: 
     spans: list[tuple[datetime, datetime]] = []
     for offset in range(window_weeks * 7):
         day = today + timedelta(days=offset)
-        if day.weekday() != rule.weekday:
+        if not rule.occurs_on(day):
             continue
         spans.extend(rule.carve_spans(day))
     return spans
@@ -1272,7 +1272,9 @@ def generate_slots(
     would overlap any other uncancelled slot on the tool (a booked slot kept from an
     old grid, a one time slot, a sibling type's slot) is skipped. The overlap set is
     loaded once per equipment per run. Guild rules keep their one-slot-per-window
-    shape and generate over each other exactly as before.
+    shape and generate over each other as before, and since #373 they retire their
+    own off-grid open slots the same way, so a rule edited to a sparser cadence does
+    not leave its off-grid slots bookable (booked ones stay, capped, as on a delete).
 
     Raises:
         ValueError: If both ``guild`` and ``equipment`` are given.
@@ -1299,8 +1301,7 @@ def generate_slots(
         if _rule_generates(rule, runners_by_equipment=runners_by_equipment)
     ]
     for rule, spans in eligible:
-        if rule.orientation_type.equipment_id is not None:
-            _retire_off_grid(rule, spans)
+        _retire_off_grid(rule, spans)
     occupied_by_equipment: dict[int, list[tuple[int | None, datetime, datetime]]] = {}
     created = 0
     for rule, spans in eligible:

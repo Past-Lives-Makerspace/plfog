@@ -181,8 +181,10 @@ def describe_slideshow_page_render():
         zone = SlideshowZoneFactory(name="Woodshop", slug="woodshop")
         html = client.get(_PAGE).content.decode()
         assert "Delete this screen" in html
-        assert "pl-btn--danger" in html
-        assert "margin-top:0.75rem" in html
+        # Pin the class assertions to this button: the page renders three pl-btn--spaced buttons.
+        button = html.split("Delete this screen", 1)[0].rsplit("<button", 1)[1]
+        assert "pl-btn--danger" in button
+        assert "pl-btn--spaced" in button
         # The modal names the cascade, and it is a SIBLING of the zones form.
         assert f"$dispatch('open-confirm', 'delete-zone-{zone.pk}')" in html
         assert "Every slide pinned to this screen is deleted too." in html

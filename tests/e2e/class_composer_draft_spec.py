@@ -143,6 +143,18 @@ def _wait_for_kept_value(page, key: str, name: str, value: str) -> None:
     )
 
 
+def _wait_until_forgotten(page, key: str) -> None:
+    """Wait for the copy under that key to be gone, rather than read the store the instant the URL moves.
+
+    A save is a boosted submit (hub/base.html boosts the body), so the composer that arrives is a body
+    swap: htmx pushes the new URL during the swap and only then re-runs the composer's script tag, which
+    as an inserted ``<script src>`` executes on a later task. ``wait_for_url`` resolves on the push, so a
+    read of the store straight after it lands inside that gap and finds the copy still there. Measured:
+    on a fast machine the copy is present at the URL change every time and gone a moment later.
+    """
+    page.wait_for_function("(key) => window.localStorage.getItem(key) === null", arg=key)
+
+
 def _expect_the_class_is_back(page) -> None:
     expect(page.locator("#id_title")).to_have_value(TITLE)
     expect(page.locator("#id_description")).to_have_value(DESCRIPTION)
@@ -240,8 +252,8 @@ def describe_a_save():
         page.locator(SAVE_DRAFT).click()
         page.wait_for_url(re.compile(r"/edit/"))
 
+        _wait_until_forgotten(page, create_key)
         expect(page.locator(NOTICE)).to_be_hidden()
-        assert page.evaluate("(key) => window.localStorage.getItem(key)", create_key) is None
         _open_create(page, live_server)
         expect(page.locator(NOTICE)).to_be_hidden()
         expect(page.locator("#id_title")).to_have_value("")
@@ -250,12 +262,16 @@ def describe_a_save():
         offering = _seed_draft(_seed_instructor())
         login_via_code(EMAIL)
         _open_edit(page, live_server, offering)
+        edit_key = page.locator(ROOT).get_attribute("data-composer-draft-key")
         page.locator("#id_title").fill(TITLE)
         _kept(page)
 
         page.locator(SAVE_DRAFT).click()
         page.wait_for_url(re.compile(r"step="))
 
+        # The reload below would pass on a copy that matches the saved page, so the forget
+        # itself is what this scenario has to see.
+        _wait_until_forgotten(page, edit_key)
         expect(page.locator(NOTICE)).to_be_hidden()
         page.reload()
         expect(page.locator(NOTICE)).to_be_hidden()

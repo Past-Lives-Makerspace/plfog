@@ -187,7 +187,7 @@ announces **the fragments that push added** — so editing one that already ship
 nothing. To re-send a post that failed, `gh workflow run release.yml`; check first whether members
 have already seen it, because a Discord post cannot be unsent. `python manage.py announce_release`
 is **not** a companion to it: `release.published` is registered on Discord as well as email, so
-running both announces the same release twice. See [`CLAUDE.md`](CLAUDE.md) under "Versioning &
+running both announces the same release twice. See [`AGENTS.md`](AGENTS.md) under "Versioning &
 Changelog".
 
 ---
@@ -205,7 +205,7 @@ A good PR:
 4. **Bumps `plfog/version.py`** and adds a member-friendly `CHANGELOG` entry (see above), if the
    change is something members would notice.
 5. **Follows the house style** — fat models / skinny views, full type annotations, `help_text` on
-   model fields. The conventions live in [`CLAUDE.md`](CLAUDE.md).
+   model fields. The conventions live in [`STANDARDS.md`](STANDARDS.md).
 
 Not sure where something lives? Start with the map below.
 
@@ -215,8 +215,9 @@ Not sure where something lives? Start with the map below.
 
 - **[CODEBASE_INDEX.md](CODEBASE_INDEX.md)** — full app map: models, URLs, integrations.
 - **[FRONTEND.md](FRONTEND.md)** — component library, design system, page-building rules.
-- **[CLAUDE.md](CLAUDE.md)** — coding standards (also guides AI assistants on the project).
-- Each Django app (`core/`, `membership/`, `hub/`, …) has its own `CLAUDE.md` with per-app detail.
+- **[STANDARDS.md](STANDARDS.md)** — coding standards, testing rules and known traps, for every contributor.
+- **[AGENTS.md](AGENTS.md)** — project operations: releases, changelog, automated review. `CLAUDE.md` and `.cursorrules` link to it.
+- Each Django app (`core/`, `membership/`, `hub/`, …) has its own `AGENTS.md` with per-app detail.
 
 ---
 

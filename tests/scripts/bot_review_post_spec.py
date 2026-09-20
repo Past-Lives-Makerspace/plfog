@@ -144,6 +144,26 @@ def describe_bot_review_post():
                 assert event == "COMMENT"
                 assert clean is False
 
+    def describe_with_lgtm():
+        def it_opens_with_lgtm_and_one_of_the_listed_gifs(module):
+            body = module.with_lgtm("Verified the guard and its spec. Ship it.", "459")
+            first, _, rest = body.partition("\n\n")
+            image, _, text = rest.partition("\n\n")
+            assert first == "LGTM"
+            assert image in {f"![LGTM]({gif})" for gif in module._LGTM_GIFS}
+            assert text == "Verified the guard and its spec. Ship it."
+
+        def it_picks_the_same_gif_for_the_same_pull_request(module):
+            assert module.with_lgtm("a", "12") == module.with_lgtm("a", "12")
+            assert module.with_lgtm("a", "12") != module.with_lgtm("a", "13")
+
+        def it_drops_a_leading_lgtm_the_model_wrote(module):
+            assert module.with_lgtm("LGTM!\n\nFine.", "1").endswith(")\n\nFine.")
+            assert module.with_lgtm("lgtm\nFine.", "1").count("LGTM") == 2
+
+        def it_keeps_lgtm_later_in_the_body(module):
+            assert module.with_lgtm("Fine, LGTM.", "1").endswith("Fine, LGTM.")
+
     def describe_post_review():
         def it_posts_the_event_and_body_to_the_pull_request(module, monkeypatch):
             captured: dict[str, object] = {}
@@ -205,7 +225,19 @@ def describe_bot_review_post():
 
             module.main()
 
-            assert posted == [("APPROVE", "Good.")]
+            gif = module._LGTM_GIFS[354 % len(module._LGTM_GIFS)]
+            assert posted == [("APPROVE", f"LGTM\n\n![LGTM]({gif})\n\nGood.")]
+
+        def it_posts_blockers_without_an_lgtm(module, monkeypatch, env):
+            env.write_text(
+                json.dumps({"verdict": "request_changes", "body": "LGTM aside, one blocker."}), encoding="utf-8"
+            )
+            posted: list[tuple[str, str]] = []
+            monkeypatch.setattr(module, "post_review", lambda *args: posted.append((args[3], args[4])))
+
+            module.main()
+
+            assert posted == [("COMMENT", "LGTM aside, one blocker.")]
 
         def describe_when_the_reviewer_produced_no_verdict():
             def it_posts_a_comment_and_fails_the_job(module, monkeypatch, env):

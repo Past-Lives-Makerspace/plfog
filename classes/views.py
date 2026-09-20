@@ -541,23 +541,36 @@ def _cache_registration_to_profile(request: HttpRequest, registration: Registrat
         profile.set_custom_answers(answers)
 
 
-def _register_prefill(request: HttpRequest) -> tuple[str, dict[int, str], bool, dict[str, str]]:
+def _register_prefill(request: HttpRequest) -> tuple[str, dict[int, str], bool, dict[str, Any]]:
     """Resolve the email + pre-fill inputs for the registration form.
 
-    On POST the email comes from the submitted data; on GET an ``?email=`` query
-    (sent by the email field's HTMX recall) lets a returning guest's saved answers
-    pre-fill. Returns ``(bound_email, custom_answers_initial, answers_prefilled,
-    field_initial)`` — the field initial pre-fills standard fields from the
-    logged-in user's Member record (GET only).
+    The email is who is registering, so it decides the price. On POST it comes from the
+    submitted data. On GET it is ``?email=`` (sent by the price summary's HTMX refresh, which
+    also lets a returning guest's saved answers pre-fill) or, failing that, the logged-in
+    user's own address, so a member's first render already quotes their price. The refresh
+    carries the member-discount toggle and the code box as they stand, and those ride into
+    the initial too. Returns ``(bound_email, custom_answers_initial, answers_prefilled,
+    field_initial)`` — the field initial pre-fills standard fields from the logged-in user's
+    Member record (GET only).
     """
+    field_initial: dict[str, Any] = {}
     if request.method == "POST":
         bound_email = (request.POST.get("email") or "").strip()
     else:
-        bound_email = (request.GET.get("email") or "").strip()
+        field_initial = _registration_initial_for_user(request.user)
+        bound_email = (request.GET["email"] if "email" in request.GET else field_initial.get("email", "")).strip()
+        if bound_email:
+            field_initial["email"] = bound_email
+        if "apply_member_discount" in request.GET:
+            # Sent only when the toggle was on the page: its hidden twin always carries "" and the
+            # box adds "on" when checked. Order is not reliable (htmx serialises the element that
+            # fired before its hx-include siblings), so look for "on" anywhere rather than last.
+            # A page that had no toggle (a non-member's email, until now) sends nothing and keeps
+            # the default: on.
+            field_initial["apply_member_discount"] = "on" in request.GET.getlist("apply_member_discount")
+        if "discount_code" in request.GET:
+            field_initial["discount_code"] = request.GET["discount_code"]
     custom_answers_initial, answers_prefilled = prefill_answers(request.user, bound_email)
-    field_initial = {} if request.method == "POST" else _registration_initial_for_user(request.user)
-    if bound_email and request.method != "POST":
-        field_initial.setdefault("email", bound_email)
     return bound_email, custom_answers_initial, answers_prefilled, field_initial
 
 
@@ -1031,6 +1044,8 @@ def register(request: HttpRequest, slug: str) -> HttpResponse:
         holds_seat=holds_seat,
         user=request.user,
         custom_answers_initial=custom_answers_initial,
+        # The price summary's refresh must land on this same page, claim token and all.
+        refresh_params={name: request.GET[name] for name in ("waitlist", "waitlist_token") if name in request.GET},
     )
 
     if request.method == "POST" and form.is_valid():
@@ -1061,9 +1076,6 @@ def register(request: HttpRequest, slug: str) -> HttpResponse:
             return _joined_waitlist(request, registration)
         return _start_registration_payment(request, form, registration)
 
-    # Member price reads off the SALE base so every quoted member number
-    # matches what compute_final_price_cents will actually charge.
-    member_price_cents = compute_member_price_cents(offering.sale_price_cents, offering.member_discount_pct)
     upcoming_sessions = list(offering.sessions.filter(starts_at__gte=timezone.now()).order_by("starts_at"))
 
     run_options = _bookable_run_options(offering)
@@ -1076,7 +1088,8 @@ def register(request: HttpRequest, slug: str) -> HttpResponse:
             "form": form,
             "settings_obj": settings_obj,
             "site_config": SiteConfiguration.load(),
-            "member_price_cents": member_price_cents,
+            # The one price engine, read for the email, toggle and code as the page has them.
+            "quoted_price_cents": form.quoted_price_cents(),
             "spots_remaining": offering.spots_remaining,
             "is_waitlist": is_waitlist,
             "upcoming_sessions": upcoming_sessions,

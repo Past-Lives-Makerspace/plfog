@@ -561,12 +561,42 @@ def describe_orientation_schedule_card():
         assert "Orientation Schedule" in content
         assert "Everyone who manages this equipment, and when they give orientations." in content
         assert "Dana Reyes" in content
-        assert "Operator Basics · Saturday · 10:00 a.m. to 6:00 p.m. · 1 seat · 60 min slots" in content
+        assert "Operator Basics · Every Saturday · 10:00 a.m. to 6:00 p.m. · 1 seat · 60 min slots" in content
         assert "No hours published" in content  # the quiet manager's group
         assert 'id="edit-hours-modal-body"' in content  # the shared Edit Hours modal shell, loaded per scope
         assert content.count(_hours_form_url(equipment, dana.member)) == 1
         assert response.context["can_edit_others_hours"] is True
         assert "pl-orient-days" not in content
+
+    def it_reads_every_other_tuesday_for_a_fortnightly_rule(client: Client):
+        equipment = EquipmentFactory()
+        orientation_type = _owned_type(equipment)
+        dana = _named_manager(client, "sc_fortnight_dana", equipment, "Dana Reyes")
+        _login(client, "sc_fortnight", fog_role=Member.FogRole.ADMIN)
+        _personal_rule(
+            orientation_type,
+            dana.member,
+            weekday=1,
+            cadence=OrientationAvailability.Cadence.FORTNIGHTLY,
+            anchor_date=date(2026, 9, 22),
+        )
+        content = _tab(client, equipment).content.decode()
+        assert "Operator Basics · Every other Tuesday · 6:00 p.m. to 8:00 p.m. · 1 seat" in content
+
+    def it_reads_every_month_on_the_2nd_tuesday_for_a_monthly_rule(client: Client):
+        equipment = EquipmentFactory()
+        orientation_type = _owned_type(equipment)
+        dana = _named_manager(client, "sc_monthly_dana", equipment, "Dana Reyes")
+        _login(client, "sc_monthly", fog_role=Member.FogRole.ADMIN)
+        _personal_rule(
+            orientation_type,
+            dana.member,
+            weekday=1,
+            cadence=OrientationAvailability.Cadence.MONTHLY,
+            anchor_date=date(2026, 9, 8),
+        )
+        content = _tab(client, equipment).content.decode()
+        assert "Operator Basics · Every month on the 2nd Tuesday · 6:00 p.m. to 8:00 p.m. · 1 seat" in content
 
     def it_shows_a_plain_manager_only_their_own_group(client: Client):
         equipment = EquipmentFactory()
@@ -684,6 +714,31 @@ def describe_orientation_hours_form_view():
         assert "Whole window" in content
         assert "+ Add hours" in content
         assert _hours_save_url(equipment) in content
+
+    def it_renders_the_every_other_week_fields_in_the_modal(client: Client):
+        equipment = EquipmentFactory()
+        _owned_type(equipment)
+        me = _named_manager(client, "hf_fortnight", equipment, "Dana Reyes")
+        content = client.get(_hours_form_url(equipment, me.member)).content.decode()
+        assert 'name="modal_rules-__prefix__-cadence"' in content
+        assert "Every other week" in content
+        assert "Every month" in content
+        assert "Starting on" in content
+        assert 'name="modal_rules-__prefix__-anchor_date"' in content
+        assert "pl-slot-date" in content
+
+    def it_saves_an_every_other_week_rule_for_a_manager(client: Client):
+        equipment = EquipmentFactory()
+        orientation_type = _owned_type(equipment)
+        me = _named_manager(client, "hf_fortnight_save", equipment, "Dana Reyes")
+        row = _rule_row(orientation_type, weekday=1, cadence="fortnightly", anchor_date="2026-09-22")
+        response = client.post(
+            _hours_save_url(equipment), _modal_rules([row], scope=str(me.member.pk)), HTTP_HX_REQUEST="true"
+        )
+        assert response.status_code == 204
+        rule = OrientationAvailability.objects.get(orienter=me.member)
+        assert rule.cadence == OrientationAvailability.Cadence.FORTNIGHTLY
+        assert rule.anchor_date == date(2026, 9, 22)
 
     def it_403s_a_plain_manager_opening_someone_elses_or_the_shared_scope(client: Client):
         equipment = EquipmentFactory()

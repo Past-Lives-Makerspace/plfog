@@ -80,7 +80,7 @@ with nothing under it.
                 {{ f.id }}
                 {% if f.instance.pk %}
                 <div style="display:none;">{{ f.DELETE }}</div>
-                <button type="button" class="pl-btn pl-btn--danger pl-btn--sm" style="margin-top:0.75rem;"
+                <button type="button" class="pl-btn pl-btn--danger pl-btn--sm pl-btn--spaced"
                         onclick="document.getElementById('{{ f.DELETE.id_for_label }}').checked = true; this.form.requestSubmit();">
                     Delete this request
                 </button>
@@ -98,7 +98,7 @@ with nothing under it.
                 {% include "components/form_field.html" with field=ef.title %}
                 {% include "components/form_field.html" with field=ef.note %}
                 {{ ef.id }}
-                <button type="button" class="pl-btn pl-btn--danger pl-btn--sm" style="margin-top:0.75rem;" onclick="this.closest('.hub-card').remove();">Remove</button>
+                <button type="button" class="pl-btn pl-btn--danger pl-btn--sm pl-btn--spaced" onclick="this.closest('.hub-card').remove();">Remove</button>
                 {% endwith %}
             </div>
         </template>
