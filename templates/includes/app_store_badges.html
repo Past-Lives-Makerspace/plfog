@@ -1,0 +1,18 @@
+{% comment %}
+"Get the app" store badges (#467). One partial for every web spot: the members host sign in
+page, the member home card, the hub sidebar tray and the logged out landing page. The store
+URLs come from the brand() context processor; a blank one means that store is not launched, and
+with neither set nothing renders. The block starts hidden and static/js/app-store-badges.js
+reveals it in a browser, leaving it hidden inside the native app. Links open a new tab and never
+boost. Parameters: variant="card" wraps the badges in a home card with a heading, variant="tray"
+drops the caption for the sidebar.
+{% endcomment %}{% load static %}{% if brand_google_play_url or brand_app_store_url %}
+<div class="{% if variant == 'card' %}hub-card pl-home-block {% endif %}pl-app-badges{% if variant == 'tray' %} pl-app-badges--tray{% endif %}" data-pl-app-badges hidden>
+    {% if variant == 'card' %}<h2 class="pl-home-heading">Get The App</h2>{% endif %}
+    {% if variant != 'tray' %}<p class="pl-app-badges__caption">{{ brand_short_name }} on your phone. {% if brand_google_play_url and brand_app_store_url %}Download for iPhone or Android.{% elif brand_google_play_url %}Get it on Google Play; iOS coming soon.{% else %}Download on the App Store.{% endif %}</p>{% endif %}
+    <div class="pl-app-badges__links">
+        {% if brand_google_play_url %}<a href="{{ brand_google_play_url }}" class="pl-app-badges__link" target="_blank" rel="noopener" hx-boost="false"><img src="{% static 'img/google-play-badge.png' %}" alt="Get it on Google Play" class="pl-app-badges__img pl-app-badges__img--play" width="646" height="250"></a>{% endif %}
+        {% if brand_app_store_url %}<a href="{{ brand_app_store_url }}" class="pl-app-badges__link" target="_blank" rel="noopener" hx-boost="false"><img src="{% static 'img/app-store-badge.png' %}" alt="Download on the App Store" class="pl-app-badges__img" width="240" height="80"></a>{% endif %}
+    </div>
+</div>
+{% endif %}

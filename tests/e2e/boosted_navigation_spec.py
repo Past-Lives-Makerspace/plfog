@@ -174,6 +174,33 @@ def describe_boosted_arrival_at_the_composer():
         assert bare_status == 403
 
 
+BADGES_EMAIL = "boosted-badges@example.com"
+TRAY_BADGES = ".pl-app-badges--tray"
+
+
+def describe_boosted_arrival_with_the_app_badges():
+    """#467: the sidebar's "Get the app" badges render hidden and app-store-badges.js reveals
+    them in a browser. hx-boost swaps the body, so every boosted arrival brings the attribute
+    back with the new sidebar; the reveal has to run again on htmx:afterSettle, or the tray is
+    empty after the first in-app link and full again only on a hard load."""
+
+    def it_keeps_the_tray_badges_revealed_after_a_boosted_navigation(live_server, page, login_via_code):
+        MembershipPlanFactory()  # so the signed in account links a Member and the home blocks render
+        login_via_code(BADGES_EMAIL)
+        page.goto(f"{live_server.url}{reverse('hub_home')}")
+        expect(page.locator(TRAY_BADGES)).to_be_visible()
+
+        # The in-content calendar link, never the sidebar's copy: the sidebar nav carries
+        # hx-boost="false", so its link would be a full load and could not see this bug.
+        calendar_path = reverse("hub_community_calendar")
+        _boosted_click(page, calendar_path, selector=f'main a[href="{calendar_path}"]')
+
+        # Wait on the observable the script produces, never a DOM read straight after the URL
+        # change: the swap pushes the URL before the arriving page's scripts have run.
+        expect(page.locator(TRAY_BADGES)).to_be_visible()
+        expect(page.locator(f"{TRAY_BADGES} a[hx-boost='false']")).to_have_count(1)
+
+
 def _seed_admin_with_a_marked_floor() -> MapHotspot:
     """An admin who may edit the map, plus one floor carrying one draggable marker.
 

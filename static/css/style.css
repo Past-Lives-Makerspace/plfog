@@ -1046,3 +1046,52 @@ p:last-child {
     letter-spacing: 0.08em;
     color: var(--color-text-muted);
 }
+
+
+/* "Get the app" store badges (#467): templates/includes/app_store_badges.html, under the sign in
+   card and after the landing hero's actions. The block starts hidden and static/js/app-store-badges.js
+   reveals it in a browser; the native app never sees it. As with the biometric block above, the
+   `hidden` attribute is only a UA-stylesheet display:none, so the explicit rule keeps it from being
+   outranked by the flex rule below. The badge artwork is official and fixed colour: Apple's minimum
+   is 40px tall, and Google's PNG carries its own clear space, so it is 52px tall to show the badge
+   itself at 40px, level with Apple's. */
+.pl-app-badges[hidden] {
+    display: none;
+}
+
+.pl-app-badges {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: var(--spacing-sm);
+    margin-top: var(--spacing-lg);
+    text-align: center;
+}
+
+.pl-app-badges__caption {
+    margin: 0;
+    font-size: 0.9rem;
+    color: var(--color-text-muted);
+}
+
+.pl-app-badges__links {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: center;
+    align-items: center;
+    gap: var(--spacing-sm) var(--spacing-md);
+}
+
+.pl-app-badges__link {
+    display: inline-flex;
+    line-height: 0;
+}
+
+.pl-app-badges__img {
+    height: 40px;
+    width: auto;
+}
+
+.pl-app-badges__img--play {
+    height: 52px;
+}
