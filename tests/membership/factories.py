@@ -98,6 +98,9 @@ class MemberFactory(factory.django.DjangoModelFactory):
     _pre_signup_email = factory.Sequence(lambda n: f"member{n}@example.com")
     status = Member.Status.ACTIVE
     join_date = date(2024, 1, 1)
+    # Directory-facing specs usually need a listed peer. This is a fixture convenience,
+    # not the product default: newly provisioned members start hidden.
+    show_in_directory = True
 
 
 class MemberEmailFactory(factory.django.DjangoModelFactory):

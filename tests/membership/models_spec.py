@@ -83,10 +83,9 @@ def describe_member():
         member = MemberFactory()
         assert member.fog_role == Member.FogRole.MEMBER
 
-    def it_is_listed_in_the_directory_by_default():
-        # New members are opted in to the directory; they can opt out in settings.
-        member = MemberFactory()
-        assert member.show_in_directory is True
+    def it_is_hidden_from_the_directory_by_default():
+        member = Member(membership_plan=MembershipPlanFactory(), full_legal_name="Private by default")
+        assert member.show_in_directory is False
 
     def it_allows_null_user():
         member = MemberFactory(user=None)
@@ -238,7 +237,7 @@ def describe_member_profile_completeness():
     def it_reports_missing_fields_for_a_brand_new_member():
         # A fresh member has no photo/bio/pronouns/Discord and begins hidden from the
         # directory. Listing stays in the checklist to encourage an edited profile.
-        member = MemberFactory()
+        member = MemberFactory(show_in_directory=False)
         result = member.profile_completeness
         assert result.missing == ["Profile photo", "Short bio", "Pronouns", "Discord link", "Directory listing"]
         assert result.complete is False
@@ -252,7 +251,7 @@ def describe_member_profile_completeness():
 
     def it_computes_percent_from_filled_fields():
         # Brand-new member: all five profile-completeness fields are still empty.
-        member = MemberFactory()
+        member = MemberFactory(show_in_directory=False)
         assert member.profile_completeness.percent == 0
 
     def it_counts_a_typed_discord_handle_as_the_discord_field():
