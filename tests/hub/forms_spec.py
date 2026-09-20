@@ -25,6 +25,9 @@ def _real_png_bytes() -> bytes:
 
 @pytest.mark.django_db
 def describe_profile_settings_form():
+    def it_hides_new_members_from_the_directory_by_default():
+        assert MemberFactory().show_in_directory is False
+
     def it_accepts_valid_data():
         member = MemberFactory(full_legal_name="Test User")
         form = ProfileSettingsForm({"preferred_name": "Testy", "phone": "555-1234"}, instance=member)

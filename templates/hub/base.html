@@ -231,7 +231,7 @@
 
             {% active_nav 'hub_wiki_home' as wiki_active %}
             {% url 'hub_wiki_home' as wiki_url %}
-            {% include "hub/partials/_sidebar_feature_link.html" with feature=features.wiki url=wiki_url label="Wiki" icon="hub/partials/nav_icons/_wiki.html" active=wiki_active help_key="nav.wiki" %}
+            {% include "hub/partials/_sidebar_feature_link.html" with feature=features.wiki url=wiki_url label="Member Wiki" icon="hub/partials/nav_icons/_wiki.html" active=wiki_active help_key="nav.wiki" %}
             {% comment %}
             The KB lives on its own host, so there is no named route to fall back on: with no
             KNOWLEDGE_BASE_URL the entry would render an empty href and reload the current page.
@@ -348,7 +348,7 @@
 
             {% active_nav 'hub_wiki_home' as wiki_active %}
             {% url 'hub_wiki_home' as wiki_url %}
-            {% include "hub/partials/_sidebar_feature_link.html" with feature=features.wiki url=wiki_url label="Wiki" icon="hub/partials/nav_icons/_wiki.html" active=wiki_active help_key="nav.wiki" %}
+            {% include "hub/partials/_sidebar_feature_link.html" with feature=features.wiki url=wiki_url label="Member Wiki" icon="hub/partials/nav_icons/_wiki.html" active=wiki_active help_key="nav.wiki" %}
             {% comment %}
             The KB lives on its own host, so there is no named route to fall back on: with no
             KNOWLEDGE_BASE_URL the entry would render an empty href and reload the current page.

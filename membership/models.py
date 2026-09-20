@@ -537,10 +537,10 @@ class Member(models.Model):
     cancellation_date = models.DateField(null=True, blank=True)
     committed_until = models.DateField(null=True, blank=True)
     show_in_directory = models.BooleanField(
-        default=True,
+        default=False,
         help_text=(
-            "Whether this member appears in the public member directory. New members are listed by "
-            "default; they can opt out any time in profile settings."
+            "Whether this member appears in the member directory. New members are hidden by "
+            "default; they can opt in any time in profile settings."
         ),
     )
     hide_from_directory = models.BooleanField(

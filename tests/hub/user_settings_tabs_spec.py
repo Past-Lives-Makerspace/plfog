@@ -10,6 +10,8 @@ import pytest
 from django.contrib.auth.models import User
 from django.test import Client
 
+from tests.features import coming_soon
+
 pytestmark = pytest.mark.django_db
 
 _CONTACTS_MGMT = {"contacts-TOTAL_FORMS": "0", "contacts-INITIAL_FORMS": "0"}
@@ -117,6 +119,20 @@ def describe_notifications_template():
         content = client.get("/settings/?tab=notifications").content.decode()
         assert "Manage which guilds send you updates" in content
         assert "View upcoming meetings" in content
+
+
+def describe_profile_tab_template():
+    def it_labels_directory_visibility_as_members_only(client: Client):
+        _login(client)
+        content = client.get("/settings/?tab=profile").content.decode()
+        assert "Members Only" in content
+
+    def it_shows_the_directory_launch_message_while_the_feature_is_coming_soon(client: Client):
+        _login(client)
+        coming_soon("directory", message="Coming soon!")
+        content = client.get("/settings/?tab=profile").content.decode()
+        assert 'aria-label="Member Directory: Coming soon!"' in content
+        assert '<span class="pl-help__bubble">Coming soon!</span>' in content
 
 
 def describe_dirty_guard_markup():
