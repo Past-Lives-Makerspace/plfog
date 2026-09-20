@@ -3,11 +3,17 @@
 Renders each template with a hand-built context (Django's lenient missing-var handling
 fills the rest), asserting that a heading/list/bold survives and is inline-styled in the
 ``.html`` part and flattened to plain text in the ``.txt`` part.
+
+Every template ends with the shared footer, whose store badge tags read the store URLs
+from Site Settings (#467), so the file takes the database.
 """
 
 from __future__ import annotations
 
+import pytest
 from django.template.loader import render_to_string
+
+pytestmark = pytest.mark.django_db
 
 _RICH = "<h2>Welcome</h2><p>Bring <strong>tools</strong>.</p><ul><li>Pencil</li></ul>"
 
