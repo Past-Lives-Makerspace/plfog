@@ -55,6 +55,62 @@
         {% for field in form %}
           {% include "components/form_field.html" with field=field %}
         {% endfor %}
+
+        {# Leadership Directory: the toggle lists this member on the page; the role lines show while it is on. #}
+        <div class="pl-leadership" x-data="{ listed: {{ listing_form.is_listed.value|yesno:'true,false' }} }">
+          <h2 class="hub-detail-label pl-leadership__heading">Leadership Directory</h2>
+          {% include "components/form_field.html" with field=listing_form.is_listed field_hint="Lists this member on the Leadership Directory page. Their photo, name and pronouns come from their profile; add each role and its contact email below." %}
+          <div class="pl-leadership__roles" x-show="listed" x-cloak>
+            {{ role_formset.management_form }}
+            {% for error in role_formset.non_form_errors %}<p class="pl-field-error">{{ error }}</p>{% endfor %}
+            <div id="leadership-role-rows">
+              {% for role_form in role_formset %}
+                <div class="pl-leadership-role">
+                  {{ role_form.id }}{{ role_form.sort_order }}
+                  <div class="pl-leadership-role__fields">
+                    <div>{% include "components/form_field.html" with field=role_form.title %}</div>
+                    <div>{% include "components/form_field.html" with field=role_form.email %}</div>
+                  </div>
+                  {% if role_form.instance.pk %}
+                    <div class="pl-leadership-role__flag">{{ role_form.DELETE }}</div>
+                    <button type="button" class="pl-btn pl-btn--danger pl-btn--sm pl-btn--spaced"
+                            onclick="document.getElementById('{{ role_form.DELETE.id_for_label }}').checked = true; this.form.requestSubmit();">
+                      Delete
+                    </button>
+                  {% else %}
+                    <button type="button" class="pl-btn pl-btn--danger pl-btn--sm pl-btn--spaced" onclick="this.closest('.pl-leadership-role').remove();">Remove</button>
+                  {% endif %}
+                </div>
+              {% endfor %}
+            </div>
+            {# Hidden empty-form template, cloned by the + Add a role button below. #}
+            <template id="leadership-role-empty-template">
+              {% with role_formset.empty_form as ef %}
+              <div class="pl-leadership-role">
+                {{ ef.id }}{{ ef.sort_order }}
+                <div class="pl-leadership-role__fields">
+                  <div>{% include "components/form_field.html" with field=ef.title %}</div>
+                  <div>{% include "components/form_field.html" with field=ef.email %}</div>
+                </div>
+                <button type="button" class="pl-btn pl-btn--danger pl-btn--sm pl-btn--spaced" onclick="this.closest('.pl-leadership-role').remove();">Remove</button>
+              </div>
+              {% endwith %}
+            </template>
+            <button type="button" class="hub-btn hub-btn--sm pl-leadership__add"
+                    onclick="
+                      const tpl = document.getElementById('leadership-role-empty-template');
+                      const total = document.getElementById('id_roles-TOTAL_FORMS');
+                      const idx = parseInt(total.value, 10);
+                      const wrap = document.createElement('div');
+                      wrap.innerHTML = tpl.innerHTML.replaceAll('__prefix__', idx);
+                      document.getElementById('leadership-role-rows').appendChild(wrap.firstElementChild);
+                      document.getElementById('id_roles-' + idx + '-sort_order').value = idx;
+                      total.value = idx + 1;
+                    ">
+              + Add a role
+            </button>
+          </div>
+        </div>
         <div class="pl-person-actions">
           <button type="submit" class="hub-btn hub-btn--primary">Save</button>
           <a href="{% url 'hub_admin_members' %}" class="hub-btn hub-btn--ghost" hx-boost="false">Cancel</a>

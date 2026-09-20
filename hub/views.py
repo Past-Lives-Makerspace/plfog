@@ -43,6 +43,8 @@ from hub.forms import (
     DiscordGuildEmojiFormSet,
     GuildEditForm,
     GuildRoleFormSet,
+    LeadershipListingForm,
+    LeadershipRoleFormSet,
     MeetingItemProposalForm,
     MemberAdminEditForm,
     MemberCapabilitiesForm,
@@ -73,6 +75,7 @@ from membership.models import (
     FundingSnapshot,
     Guild,
     HelpCategory,
+    LeadershipListing,
     Meeting,
     MeetingItemProposal,
     Member,
@@ -6603,6 +6606,9 @@ def admin_member_edit(request: HttpRequest, pk: int) -> HttpResponse:
 
     member = get_object_or_404(Member, pk=pk)
     permissions_url = f"{reverse('hub_admin_member_edit', args=[member.pk])}?tab=permissions"
+    # The Leadership Directory listing saves with the Details form; the queryset hands back
+    # an unsaved stand-in for a member nobody listed, so no row is written until it changes.
+    listing = LeadershipListing.objects.for_member(member)
 
     if request.method == "POST":
         form_id = request.POST.get("form_id")
@@ -6619,15 +6625,22 @@ def admin_member_edit(request: HttpRequest, pk: int) -> HttpResponse:
                 messages.success(request, "Saved notification settings.")
             return redirect(permissions_url)
         form = MemberAdminEditForm(request.POST, instance=member)
-        if form.is_valid():
+        listing_form = LeadershipListingForm(request.POST, instance=listing, prefix="leadership")
+        role_formset = LeadershipRoleFormSet(request.POST, instance=listing, prefix="roles")
+        listing_ok = listing_form.is_valid()
+        roles_ok = role_formset.is_valid()
+        if form.is_valid() and listing_ok and roles_ok:
             obj = form.save(commit=False)
             obj.save()
             obj.apply_admin_role(form.cleaned_data["role"])
+            listing_form.save_with_roles(role_formset)
             display = obj.full_legal_name or obj.primary_email or f"member #{obj.pk}"
             messages.success(request, f"Saved {display}.")
             return redirect("hub_admin_members")
     else:
         form = MemberAdminEditForm(instance=member)
+        listing_form = LeadershipListingForm(instance=listing, prefix="leadership")
+        role_formset = LeadershipRoleFormSet(instance=listing, prefix="roles")
 
     user = member.user
     has_signed_in = bool(user and user.last_login)
@@ -6660,6 +6673,8 @@ def admin_member_edit(request: HttpRequest, pk: int) -> HttpResponse:
             "is_member": True,
             "member": member,
             "form": form,
+            "listing_form": listing_form,
+            "role_formset": role_formset,
             "capabilities_form": cap_form,
             "instructor_description": Member.INSTRUCTOR_PERMISSION_DESCRIPTION,
             "notif_matrix": notif_matrix,
