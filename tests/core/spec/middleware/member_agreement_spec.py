@@ -9,6 +9,7 @@ pytestmark = pytest.mark.django_db
 class DescribeMemberAgreementMiddleware:
     @pytest.fixture
     def active_member(self):
+        from tests.membership.factories import UserFactory
 
         
         user = UserFactory()
@@ -19,6 +20,7 @@ class DescribeMemberAgreementMiddleware:
 
     @pytest.fixture
     def inactive_member(self):
+        from tests.membership.factories import MemberFactory
 
         return MemberFactory(status="former")
 
