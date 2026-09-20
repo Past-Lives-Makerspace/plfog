@@ -55,5 +55,5 @@ class DescribeHubMemberAgreement:
         assert acceptance.ip_address == "1.2.3.4"
 
         assert SiteActivity.objects.filter(
-            kind=SiteActivity.Kind.MEMBER_AGREEMENT_ACCEPTED, actor=active_member.user
+            kind=SiteActivity.Kind.ACCEPTED_MEMBER_AGREEMENT, actor=active_member.user
         ).exists()
