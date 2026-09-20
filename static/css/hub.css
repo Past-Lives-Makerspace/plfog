@@ -3210,6 +3210,10 @@ a:hover { color: var(--hub-link-hover); }
     margin: 0; font-size: 0.75rem; color: var(--hub-text-muted); line-height: 1.45;
 }
 
+/* The directory and map are two separate choices. Keep the second card clear of the
+   directory card even if an enclosing form's flex gap is overridden elsewhere. */
+.pl-profile-master--map { margin-top: 1rem; }
+
 @media (max-width: 560px) {
     .pl-profile-master { grid-template-columns: 1fr; }
     .pl-profile-master__seg { justify-self: start; }
