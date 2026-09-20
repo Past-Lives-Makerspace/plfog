@@ -759,9 +759,9 @@ class Member(models.Model):
             ("Pronouns", bool(self.pronouns)),
             ("Discord link", bool(self.discord_is_linked or self.discord_handle)),
         ]
-        # The directory-listing preference is an opt-out, not a "content" signal — it's part
+        # The directory-listing preference is an opt-in, not a "content" signal — it's part
         # of the completeness percent/checklist but is EXCLUDED from ``essentials_complete``
-        # (the onboarding gate), so opting out never blocks onboarding.
+        # (the onboarding gate), so staying hidden never blocks onboarding.
         checks: list[tuple[str, bool]] = [*content_checks, ("Directory listing", bool(self.show_in_directory))]
         missing = [label for label, ok in checks if not ok]
         filled = len(checks) - len(missing)

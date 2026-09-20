@@ -125,7 +125,10 @@ def describe_profile_tab_template():
     def it_labels_directory_visibility_as_members_only(client: Client):
         _login(client)
         content = client.get("/settings/?tab=profile").content.decode()
-        assert "Members Only" in content
+        member_directory_button = content.split(':aria-checked="listed">', maxsplit=1)[1].split(
+            "</button>", maxsplit=1
+        )[0]
+        assert "Members Only" in member_directory_button
 
     def it_shows_the_directory_launch_message_while_the_feature_is_coming_soon(client: Client):
         _login(client)
