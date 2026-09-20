@@ -278,9 +278,9 @@ def describe_the_registry():
 
         ``teach`` has no simple href marker (one route, two labels) and lives in
         tests/hub/teach_sidebar_spec.py; ``guilds`` is a heading plus a list, just above;
-        ``knowledge_base`` points at an external host through ``KNOWLEDGE_BASE_URL`` and renders
-        nothing at all when that is unset, so a fixed href marker cannot describe it — it is
-        covered in tests/core/kb_sidebar_spec.py, which renders the sidebar with the setting on
-        and off, as an admin and as a member.
+        ``knowledge_base`` points at an external host through ``KNOWLEDGE_BASE_URL``, which
+        carries a real default and so renders unless someone sets it to blank, so a fixed href
+        marker cannot describe it — it is covered in tests/core/kb_sidebar_spec.py, which renders
+        the sidebar with the setting on, off, and unconfigured, as an admin and as a member.
         """
         assert {f.key for f in FEATURES} == set(_NAV_MARKERS) | {"teach", "guilds", "knowledge_base"}
