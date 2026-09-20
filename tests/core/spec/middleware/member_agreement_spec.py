@@ -1,14 +1,18 @@
 import pytest
+from django.contrib.auth.models import AnonymousUser
+from django.http import HttpRequest, HttpResponse
+from django.test import Client, RequestFactory
 from django.urls import reverse
+from core.middleware import MemberAgreementMiddleware
 from core.models import SiteConfiguration
 from membership.models import Member
 
 pytestmark = pytest.mark.django_db
 
 
-class DescribeMemberAgreementMiddleware:
+def describe_member_agreement_middleware() -> None:
     @pytest.fixture
-    def active_member(self):
+    def active_member() -> Member:
         from tests.membership.factories import UserFactory
 
         user = UserFactory()
@@ -18,17 +22,94 @@ class DescribeMemberAgreementMiddleware:
         return member
 
     @pytest.fixture
-    def inactive_member(self):
-        from tests.membership.factories import MemberFactory
+    def inactive_member(active_member: Member) -> Member:
+        active_member.status = Member.Status.FORMER
+        active_member.save(update_fields=["status"])
+        return active_member
 
-        return MemberFactory(status="former")
+    @pytest.fixture
+    def enabled_agreement() -> None:
+        config = SiteConfiguration.load()
+        config.member_agreement_required = True
+        config.member_agreement_url = "https://example.com"
+        config.save()
 
-    def test_bypasses_when_off(self, client, active_member: Member) -> None:
+    @pytest.fixture
+    def middleware() -> MemberAgreementMiddleware:
+        def downstream(request: HttpRequest) -> HttpResponse:
+            return HttpResponse("Reached the requested page")
+
+        return MemberAgreementMiddleware(downstream)
+
+    def it_allows_anonymous_requests(
+        rf: RequestFactory, middleware: MemberAgreementMiddleware, enabled_agreement: None
+    ) -> None:
+        request = rf.get("/members/")
+        request.user = AnonymousUser()
+        request.surface = "members"
+
+        response = middleware(request)
+
+        assert response.status_code == 200
+        assert response.content == b"Reached the requested page"
+
+    @pytest.mark.parametrize("surface", ["public", None])
+    def it_allows_requests_outside_the_members_surface(
+        rf: RequestFactory,
+        middleware: MemberAgreementMiddleware,
+        enabled_agreement: None,
+        active_member: Member,
+        surface: str | None,
+    ) -> None:
+        request = rf.get("/members/")
+        request.user = active_member.user
+        if surface is not None:
+            request.surface = surface
+
+        response = middleware(request)
+
+        assert response.status_code == 200
+        assert response.content == b"Reached the requested page"
+
+    def it_allows_users_without_a_member(
+        rf: RequestFactory,
+        middleware: MemberAgreementMiddleware,
+        enabled_agreement: None,
+        active_member: Member,
+    ) -> None:
+        user = active_member.user
+        active_member.delete()
+        user.refresh_from_db()
+        request = rf.get("/members/")
+        request.user = user
+        request.surface = "members"
+
+        response = middleware(request)
+
+        assert response.status_code == 200
+        assert response.content == b"Reached the requested page"
+
+    def it_allows_inactive_members(
+        rf: RequestFactory,
+        middleware: MemberAgreementMiddleware,
+        enabled_agreement: None,
+        inactive_member: Member,
+    ) -> None:
+        request = rf.get("/members/")
+        request.user = inactive_member.user
+        request.surface = "members"
+
+        response = middleware(request)
+
+        assert response.status_code == 200
+        assert response.content == b"Reached the requested page"
+
+    def it_bypasses_when_off(client: Client, active_member: Member) -> None:
         client.force_login(active_member.user)
         response = client.get(reverse("hub_home"))
         assert response.status_code == 200
 
-    def test_redirects_when_on_and_unaccepted(self, client, active_member: Member) -> None:
+    def it_redirects_when_on_and_unaccepted(client: Client, active_member: Member) -> None:
         config = SiteConfiguration.load()
         config.member_agreement_required = True
         config.member_agreement_url = "https://example.com"
@@ -40,7 +121,7 @@ class DescribeMemberAgreementMiddleware:
         assert response.status_code == 302
         assert reverse("hub_member_agreement") in response.url
 
-    def test_hx_redirect_when_wants_fragment(self, client, active_member: Member) -> None:
+    def it_hx_redirect_when_wants_fragment(client: Client, active_member: Member) -> None:
         config = SiteConfiguration.load()
         config.member_agreement_required = True
         config.member_agreement_url = "https://example.com"
@@ -52,7 +133,7 @@ class DescribeMemberAgreementMiddleware:
         assert response.status_code == 200
         assert reverse("hub_member_agreement") in response["HX-Redirect"]
 
-    def test_bypasses_when_on_and_accepted(self, client, active_member: Member) -> None:
+    def it_bypasses_when_on_and_accepted(client: Client, active_member: Member) -> None:
         config = SiteConfiguration.load()
         config.member_agreement_required = True
         config.member_agreement_url = "https://example.com"
@@ -69,7 +150,7 @@ class DescribeMemberAgreementMiddleware:
 
         assert response.status_code == 200
 
-    def test_does_not_redirect_on_ignored_paths(self, client, active_member: Member) -> None:
+    def it_does_not_redirect_on_ignored_paths(client: Client, active_member: Member) -> None:
         config = SiteConfiguration.load()
         config.member_agreement_required = True
         config.member_agreement_url = "https://example.com"

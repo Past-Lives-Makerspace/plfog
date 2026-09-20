@@ -5,8 +5,8 @@ from core.models import SiteConfiguration
 pytestmark = pytest.mark.django_db
 
 
-class DescribeSiteConfigurationMemberAgreement:
-    def test_clean_requires_url_when_enforced(self) -> None:
+def describe_site_configuration_member_agreement() -> None:
+    def it_clean_requires_url_when_enforced() -> None:
         config = SiteConfiguration.load()
         config.member_agreement_required = True
         config.member_agreement_url = ""
@@ -20,7 +20,7 @@ class DescribeSiteConfigurationMemberAgreement:
             == "Required when Member Agreement is enforced."
         )
 
-    def test_clean_passes_when_valid(self) -> None:
+    def it_clean_passes_when_valid() -> None:
         config = SiteConfiguration.load()
         config.member_agreement_required = True
         config.member_agreement_url = "https://example.com/agreement"
