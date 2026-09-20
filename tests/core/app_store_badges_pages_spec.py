@@ -28,7 +28,7 @@ from tests.membership.factories import MembershipPlanFactory
 pytestmark = pytest.mark.django_db
 
 PLAY = "https://play.google.com/store/apps/details?id=app.pastlives.hub"  # the model default
-IOS = "https://apps.apple.com/app/id1234567890"
+IOS = "https://apps.apple.com/app/id1234567890"  # an edited listing, distinct from the model default
 
 PLAY_ALT = 'alt="Get it on Google Play"'
 IOS_ALT = 'alt="Download on the App Store"'
@@ -153,7 +153,7 @@ def describe_the_badge_block():
         config.org_short_name = "Fletcher"
         config.save()
         html = client.get(reverse("account_login")).content.decode()
-        assert _captions(html) == ["Fletcher on your phone. Get it on Google Play; iOS coming soon."]
+        assert _captions(html) == ["Fletcher on your phone. Download for iPhone or Android."]
 
 
 def describe_the_login_page():
@@ -194,7 +194,7 @@ def describe_the_member_home():
 
     def it_carries_the_caption_on_the_card():
         html = _member_client().get(reverse("hub_home")).content.decode()
-        assert _captions(html) == ["Past Lives on your phone. Get it on Google Play; iOS coming soon."]
+        assert _captions(html) == ["Past Lives on your phone. Download for iPhone or Android."]
 
 
 def describe_the_hub_sidebar_tray():

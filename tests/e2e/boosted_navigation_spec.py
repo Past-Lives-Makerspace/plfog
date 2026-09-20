@@ -198,7 +198,7 @@ def describe_boosted_arrival_with_the_app_badges():
         # Wait on the observable the script produces, never a DOM read straight after the URL
         # change: the swap pushes the URL before the arriving page's scripts have run.
         expect(page.locator(TRAY_BADGES)).to_be_visible()
-        expect(page.locator(f"{TRAY_BADGES} a[hx-boost='false']")).to_have_count(1)
+        expect(page.locator(f"{TRAY_BADGES} a[hx-boost='false']")).to_have_count(2)  # both stores by default
 
 
 def _seed_admin_with_a_marked_floor() -> MapHotspot:
