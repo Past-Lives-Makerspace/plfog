@@ -93,7 +93,10 @@ def brand(request: HttpRequest) -> dict[str, str]:
     because that is what every config-backed processor in this module already does.
     ``brand_short_name`` / ``brand_legal_name`` fall back to the full name so a template never
     has to write the fallback, and ``brand_logo_url`` is empty when nothing is uploaded so the
-    templates can pick the static mark with ``{% firstof %}``.
+    templates can pick the static mark with ``{% firstof %}``. ``brand_google_play_url`` /
+    ``brand_app_store_url`` (#467) feed the "Get the app" badges on every page; a blank one
+    means that store is not launched yet. Emails read the same two fields through the
+    ``site_urls`` tags, because they render without a request.
     """
     from core.models import SiteConfiguration
 
@@ -108,6 +111,8 @@ def brand(request: HttpRequest) -> dict[str, str]:
         "brand_support_email": config.org_support_email,
         "brand_website_url": website,
         "brand_website_display": urlsplit(website).netloc or website,
+        "brand_google_play_url": config.google_play_url,
+        "brand_app_store_url": config.app_store_url,
     }
 
 

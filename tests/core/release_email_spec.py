@@ -5,8 +5,10 @@ from __future__ import annotations
 import pytest
 from django.contrib.auth.models import User
 
+from django.template.loader import render_to_string
+
 from core import release_email
-from core.models import EventDelivery
+from core.models import EventDelivery, SiteConfiguration
 from core.release_email import (
     Card,
     FeaturePage,
@@ -329,8 +331,7 @@ def describe_render_release_email():
         assert "A home base when you sign in" in html
         assert "See what&#x27;s coming up." in html or "See what's coming up." in html  # bullet
         assert "Visit the Member Portal" in html  # CTA button
-        assert "play.google.com/store/apps/details?id=app.pastlives.hub" in html  # Play Store footer badge
-        assert "officially on the Play Store" in html
+        assert "play.google.com/store/apps/details?id=app.pastlives.hub" in html  # the shared footer's Play badge
         assert "Here&#x27;s what shipped." in html or "Here's what shipped." in html  # intro
 
     def it_renders_an_image_for_a_captured_card_with_alt(db, fixture_changelog, fake_storage):
@@ -361,9 +362,38 @@ def describe_render_release_email():
         assert "• See what's coming up." in text
         assert "## One place for how our space works" in text
         assert "Visit the Member Portal: " in text
-        assert "officially on the Play Store" in text
         assert "play.google.com/store/apps/details?id=app.pastlives.hub" in text
         assert "unsubscribe" in text
+
+    def describe_store_badges():
+        # #467: the release email relies on the shared footer, so the badges show exactly once
+        # in each part and no store URL is hardcoded in the renderer.
+        _PLAY = "https://play.google.com/store/apps/details?id=app.pastlives.hub"
+        _IOS = "https://apps.apple.com/app/id1234567890"
+
+        def it_shows_each_badge_exactly_once_in_html_and_text(db, fixture_changelog, fake_storage):
+            config = SiteConfiguration.load()
+            config.app_store_url = _IOS
+            config.save()
+            html, text = render_release_email("0.20.5", subject="s", preheader="p", intro="", cards=[])
+            assert html.count(_PLAY) == 1
+            assert html.count(_IOS) == 1
+            assert html.count('alt="Get it on Google Play"') == 1
+            assert html.count('alt="Download on the App Store"') == 1
+            assert text.count(_PLAY) == 1
+            assert text.count(_IOS) == 1
+
+        def it_no_longer_carries_its_own_play_store_sentence(db, fixture_changelog, fake_storage):
+            html, text = render_release_email("0.20.5", subject="s", preheader="p", intro="", cards=[])
+            assert "officially on the Play Store" not in html
+            assert "officially on the Play Store" not in text
+
+        def it_ends_the_text_part_with_the_shared_footer(db, fixture_changelog, fake_storage):
+            _html, text = render_release_email("0.20.5", subject="s", preheader="p", intro="", cards=[])
+            footer = render_to_string("membership/emails/_footer.txt")
+            assert text.endswith(footer)
+            # The text part gains the tokenised preferences link the HTML already carried.
+            assert "t=__PL_PREFS_TOKEN__" in text
 
     def it_omits_a_card_that_is_not_included(db, fixture_changelog, fake_storage):
         cards = build_release_cards()

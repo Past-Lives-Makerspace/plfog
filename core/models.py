@@ -927,6 +927,21 @@ class SiteConfiguration(models.Model):
         verbose_name="Public website",
         help_text="Your main marketing website, with no trailing slash. The public topbar's Home, Guilds, Membership, and Contact links and the sidebar globe icon are built from it.",
     )
+    # #467: the two store listings behind every "Get the app" badge (email footers, the sign in
+    # page, the member home, the sidebar and the landing page). Both default to the live Past
+    # Lives listings; blank means not launched, which a fresh deployment or a pulled listing uses.
+    google_play_url = models.URLField(
+        blank=True,
+        default="https://play.google.com/store/apps/details?id=app.pastlives.hub",
+        verbose_name="Google Play URL",
+        help_text="The app's Google Play listing. Blank means not launched: the badge is left out everywhere.",
+    )
+    app_store_url = models.URLField(
+        blank=True,
+        default="https://apps.apple.com/us/app/past-lives-makerspace/id6796557084",
+        verbose_name="App Store URL",
+        help_text="The app's App Store listing. Blank means not launched: the badge is left out everywhere and the copy says iOS is coming soon.",
+    )
 
     class Meta:
         verbose_name = "Site Settings"

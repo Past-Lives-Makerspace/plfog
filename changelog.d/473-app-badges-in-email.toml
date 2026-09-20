@@ -1,0 +1,6 @@
+bump = "minor"
+date = "2026-09-19"
+title = "Get the app from any email"
+changes = [
+  "Every email from Past Lives now ends with Get it on Google Play and Download on the App Store badges, so the Member Portal app is one tap away on either phone.",
+]
