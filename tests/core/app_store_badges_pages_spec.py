@@ -73,11 +73,11 @@ def _card(html: str) -> str:
     return card
 
 
-def _member_client(username: str = "badges-member") -> Client:
+def _member_client() -> Client:
     MembershipPlanFactory()
-    User.objects.create_user(username=username, password="pass")
+    User.objects.create_user(username="badges-member", password="pass")
     client = Client()
-    client.login(username=username, password="pass")
+    client.login(username="badges-member", password="pass")
     return client
 
 

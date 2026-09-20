@@ -3,5 +3,4 @@ date = "2026-09-19"
 title = "Get the app from the portal"
 changes = [
   "The sign in page, your home page, the sidebar and the front door now show a Get it on Google Play badge for the Member Portal app.",
-  "The Download on the App Store badge appears beside it the day the iPhone app is approved.",
 ]

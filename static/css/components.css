@@ -1666,6 +1666,12 @@
     gap: 0.75rem;
 }
 
+/* On the home card the heading keeps the sibling cards' 1rem rhythm: its own margin plus the
+   flex gap above add up to it, instead of stacking on top of it. */
+.pl-app-badges .pl-home-heading {
+    margin-bottom: 0.25rem;
+}
+
 .pl-app-badges__caption {
     margin: 0;
     font-size: 0.9375rem;
