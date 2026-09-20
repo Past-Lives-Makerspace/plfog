@@ -41,6 +41,9 @@ Current behavior is filled by reading, never by reasoning from the prose.
   (`--include='*.py'`); unquoted, the sweep returns nothing and says so quietly.
 - The prose is a report, not a finding. Check who can actually do the thing it describes and on which
   screen; a ticket written against the wrong actor builds the wrong hook.
+- For tooling, the look is at the environment: what the Makefile and the sibling command already do,
+  which binaries exist on the host and in the image (`which`), what `.env.example` documents. A remote
+  host that cannot be inspected gets its facts marked as inference in the ticket.
 - Read the parts of `STANDARDS.md` §5 Permissions and §11 Domain Traps that touch the area (sequential
   class review, two push channels, demo content gates, the access decorators). A trap the ticket names in
   Constraints is one the builder does not fall into.
@@ -77,7 +80,7 @@ ticket is filed.
 
 | Section | What it holds |
 |---|---|
-| User story | When a person is involved: "As a [member / guild lead / instructor / admin], when [situation], I would like [X] to do [Y]. Currently, [X] does [Z]." Tooling and refactors skip it. |
+| User story | When a person is involved: "As a [member / guild lead / instructor / admin], when [situation], I would like [X] to do [Y]. Currently, [X] does [Z]." Tooling and refactors leave the heading out. |
 | Summary | One line, at most 160 characters, for someone who has never seen the code. It also seeds the title. |
 | Goal | Why it matters: who is blocked or hurt today, in a sentence or two. |
 | Current behavior | What the code does, by path and line, and the manual workaround if one exists. |
@@ -172,6 +175,8 @@ One block, so Felix can see every judgment call at a glance and fix a wrong one 
       Why S      one template and its context, one spec; no model change
       Decided    the guild name, not the category name: Category is labelled Guild in the UI
       Board      Backlog
+
+In `preview` the first two lines read `(preview, not filed) <title>` and the URL line is dropped.
 
 ## Stop rather than guess
 
