@@ -1,0 +1,7 @@
+bump = "patch"
+date = "2026-09-20"
+title = "Your profile stays private until you choose to share it"
+changes = [
+  "New member profiles start hidden from the Member Directory.",
+  "Profile settings now make clear that directory details are visible to members only.",
+]

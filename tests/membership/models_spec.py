@@ -236,11 +236,11 @@ def _fully_completed_member() -> Member:
 @pytest.mark.django_db
 def describe_member_profile_completeness():
     def it_reports_missing_fields_for_a_brand_new_member():
-        # A fresh member has no photo/bio/pronouns/Discord, but show_in_directory
-        # defaults True — so the directory listing is the one satisfied field.
+        # A fresh member has no photo/bio/pronouns/Discord and begins hidden from the
+        # directory. Listing stays in the checklist to encourage an edited profile.
         member = MemberFactory()
         result = member.profile_completeness
-        assert result.missing == ["Profile photo", "Short bio", "Pronouns", "Discord link"]
+        assert result.missing == ["Profile photo", "Short bio", "Pronouns", "Discord link", "Directory listing"]
         assert result.complete is False
 
     def it_is_complete_when_all_fields_are_set():
@@ -251,9 +251,9 @@ def describe_member_profile_completeness():
         assert result.percent == 100
 
     def it_computes_percent_from_filled_fields():
-        # Brand-new member: only the directory listing is filled → 1 of 5 → 20%.
+        # Brand-new member: all five profile-completeness fields are still empty.
         member = MemberFactory()
-        assert member.profile_completeness.percent == 20
+        assert member.profile_completeness.percent == 0
 
     def it_counts_a_typed_discord_handle_as_the_discord_field():
         member = MemberFactory(discord_handle="@maker")
