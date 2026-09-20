@@ -91,6 +91,11 @@ FEATURES: list[Feature] = [
         ),
     ),
     Feature(
+        key="leadership",
+        name="Leadership Directory",
+        off_description="Takes Leadership Directory out of the sidebar.",
+    ),
+    Feature(
         key="spaces",
         name="Spaces",
         off_description="Takes Spaces out of the sidebar, and the Spaces card off the Help page.",

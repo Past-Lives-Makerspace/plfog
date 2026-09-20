@@ -1,0 +1,7 @@
+bump = "minor"
+date = "2026-09-19"
+title = "A Leadership Directory shows you who to ask"
+changes = [
+  "Leadership Directory, new in the sidebar, has a card for each person who runs Past Lives: their title, an email for that role, and their Discord handle.",
+  "Below them, one card per guild names the lead and co-leads, their Discord handles, and the guild's email. Those cards come straight from each guild's settings, so a change of lead shows up on its own.",
+]

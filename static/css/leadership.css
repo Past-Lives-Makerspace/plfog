@@ -1,0 +1,276 @@
+/* Leadership Directory (#464, part 2): the Plate card treatment.
+   A portrait (or initials) fills the top of each card and a brass nameplate sits over its
+   edge; guild cards carry the guild's SVG logo on the navy gradient instead. Loaded by
+   templates/hub/leadership_directory.html only. The hero and the gold section titles come
+   from hub.css (.pl-guild-hero, .pl-teach-hero, .pl-teach-section__title). The phone rules
+   sit at the end so they win over the unconditional ones above them. */
+
+.pl-leadership {
+    max-width: 980px;
+    margin: 0 auto;
+    display: flex;
+    flex-direction: column;
+    gap: 1.5rem;
+}
+
+.pl-leadership > .hub-card,
+.pl-leadership > .pl-guild-hero {
+    margin: 0;
+}
+
+.pl-leadership__updated {
+    display: inline-block;
+    margin-top: 1rem;
+    padding: 0.25rem 0.7rem;
+    border: 1px solid rgba(238, 180, 75, 0.45);
+    border-radius: 999px;
+    font-size: 0.75rem;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: var(--color-tuscan-yellow);
+}
+
+[data-theme="light"] .pl-leadership__updated {
+    color: var(--hub-link);
+    border-color: rgba(156, 94, 13, 0.45);
+}
+
+.pl-leadership__intro {
+    margin: 0;
+    color: var(--hub-text-muted);
+}
+
+.pl-leader-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(16rem, 1fr));
+    gap: 1.25rem;
+    margin-top: 1.25rem;
+}
+
+.pl-leader-card {
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    background: var(--hub-surface);
+    border: 1px solid var(--hub-border);
+    border-radius: 12px;
+}
+
+.pl-leader-card__visual {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    aspect-ratio: 16 / 10;
+    overflow: hidden;
+    background: linear-gradient(135deg, var(--hub-hero-from), var(--hub-hero-mid) 60%, var(--hub-hero-to));
+}
+
+.pl-leader-card__visual--guild {
+    aspect-ratio: 16 / 8;
+    background: linear-gradient(135deg, var(--hub-blue) -20%, var(--hub-hero-mid) 55%, var(--hub-hero-to));
+}
+
+.pl-leader-card__photo {
+    display: block;
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+}
+
+.pl-leader-card__initials {
+    font: 900 3.2rem Lato, sans-serif;
+    letter-spacing: 0.04em;
+    color: var(--color-cream);
+    opacity: 0.42;
+}
+
+/* The light hero gradient is pale, so cream initials vanish on it; navy reads there. */
+[data-theme="light"] .pl-leader-card__initials {
+    color: var(--color-navy);
+    opacity: 0.32;
+}
+
+.pl-leader-card__logo {
+    width: 4.5rem;
+    height: 4.5rem;
+    filter: drop-shadow(0 4px 10px rgba(0, 0, 0, 0.35));
+}
+
+/* The nameplate: brass over navy, lifted off the portrait by its shadow and framed by the
+   two inset rings that read as a bevelled edge. */
+.pl-leader-card__plate {
+    position: relative;
+    margin: -1.15rem 1rem 0;
+    padding: 0.55rem 0.8rem;
+    border-radius: 6px;
+    background: var(--color-tuscan-yellow);
+    color: var(--color-navy);
+    font: 900 1.05rem/1.15 Lato, sans-serif;
+    overflow-wrap: anywhere;
+    box-shadow:
+        0 8px 18px rgba(0, 0, 0, 0.4),
+        inset 0 0 0 1px rgba(9, 46, 76, 0.3),
+        inset 0 0 0 4px rgba(255, 255, 255, 0.22);
+}
+
+[data-theme="light"] .pl-leader-card__plate {
+    box-shadow:
+        0 6px 14px rgba(0, 0, 0, 0.18),
+        inset 0 0 0 1px rgba(9, 46, 76, 0.3),
+        inset 0 0 0 4px rgba(255, 255, 255, 0.22);
+}
+
+.pl-leader-card__plate-link {
+    color: inherit;
+    text-decoration: none;
+}
+
+.pl-leader-card__plate-link:hover,
+.pl-leader-card__plate-link:focus-visible {
+    text-decoration: underline;
+}
+
+.pl-leader-card__pronouns {
+    display: block;
+    margin-top: 0.15rem;
+    font: 500 0.72rem/1.2 Inter, sans-serif;
+    letter-spacing: 0.04em;
+    color: rgba(9, 46, 76, 0.8);
+}
+
+.pl-leader-card__body {
+    display: flex;
+    flex: 1;
+    flex-direction: column;
+    gap: 0.5rem;
+    padding: 0.9rem 1rem 1rem;
+}
+
+.pl-leader-card__role {
+    display: flex;
+    flex-direction: column;
+    gap: 0.35rem;
+}
+
+.pl-leader-card__title {
+    font-size: 0.9rem;
+    font-weight: 600;
+    line-height: 1.3;
+    color: var(--hub-text);
+}
+
+.pl-leader-card__title::before {
+    content: "";
+    display: block;
+    width: 1.6rem;
+    height: 2px;
+    margin-bottom: 0.35rem;
+    border-radius: 2px;
+    background: var(--color-tuscan-yellow);
+}
+
+.pl-leader-card__eyebrow {
+    display: block;
+    font-size: 0.7rem;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--hub-text-muted);
+}
+
+.pl-leader-card__person {
+    display: block;
+    font-weight: 600;
+}
+
+.pl-leader-card__person--none {
+    font-style: italic;
+    font-weight: 400;
+    color: var(--hub-text-muted);
+}
+
+/* Contact rows are the tap targets: 44px tall on every viewport, and a long address wraps
+   inside the row instead of widening the card. */
+.pl-leader-card__row {
+    display: flex;
+    align-items: center;
+    gap: 0.55rem;
+    min-height: 44px;
+    padding: 0.45rem 0.7rem;
+    border-radius: 8px;
+    background: rgba(255, 255, 255, 0.045);
+    color: var(--hub-text);
+    font-size: 0.8125rem;
+    line-height: 1.3;
+    text-decoration: none;
+    overflow-wrap: anywhere;
+}
+
+a.pl-leader-card__row:hover {
+    background: rgba(255, 255, 255, 0.09);
+}
+
+a.pl-leader-card__row:focus-visible {
+    outline: 2px solid var(--color-tuscan-yellow);
+    outline-offset: 2px;
+}
+
+[data-theme="light"] .pl-leader-card__row {
+    background: rgba(9, 46, 76, 0.05);
+}
+
+[data-theme="light"] a.pl-leader-card__row:hover {
+    background: rgba(9, 46, 76, 0.1);
+}
+
+.pl-leader-card__row--text {
+    color: var(--hub-text-muted);
+}
+
+.pl-leader-card__icon {
+    flex: 0 0 18px;
+    width: 18px;
+    height: 18px;
+    color: var(--color-tuscan-yellow);
+}
+
+[data-theme="light"] .pl-leader-card__icon {
+    color: var(--hub-link);
+}
+
+/* A row that closes the card (the guild address, a lone Discord handle) sits at the foot,
+   so the cards in a grid row end on the same line. */
+.pl-leader-card__body > .pl-leader-card__row:last-child {
+    margin-top: auto;
+}
+
+@media (max-width: 640px) {
+    .pl-leader-grid {
+        grid-template-columns: 1fr 1fr;
+        gap: 0.7rem;
+    }
+
+    .pl-leader-card__plate {
+        margin: -1rem 0.6rem 0;
+        padding: 0.45rem 0.6rem;
+        font-size: 0.92rem;
+    }
+
+    .pl-leader-card__body {
+        padding: 0.7rem 0.6rem;
+    }
+
+    .pl-leader-card__row {
+        gap: 0.45rem;
+        padding: 0.4rem 0.55rem;
+        font-size: 0.75rem;
+    }
+
+    .pl-leader-card__initials {
+        font-size: 2.4rem;
+    }
+
+    .pl-leader-card__logo {
+        width: 3.25rem;
+        height: 3.25rem;
+    }
+}

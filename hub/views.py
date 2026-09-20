@@ -76,6 +76,7 @@ from membership.models import (
     Guild,
     HelpCategory,
     LeadershipListing,
+    LeadershipPage,
     Meeting,
     MeetingItemProposal,
     Member,
@@ -272,6 +273,35 @@ def guild_voting(request: HttpRequest) -> HttpResponse:
             "new_vote_standings": new_vote_standings,
         },
     )
+
+
+@login_required
+def leadership_directory(request: HttpRequest) -> HttpResponse:
+    """Leadership Directory: who runs Past Lives and who leads each guild (#464).
+
+    Two sections. The team is curated: the profiles an admin flagged ``Show on Leadership
+    Directory``, in the admin's order, each with its role lines. The guild section is derived
+    from each active guild's own lead, Co-Lead staff and contact address, so a change of lead
+    on the guild's settings page changes this page with nothing retyped. Members only: the
+    issue keeps a signed-out view out of the first release.
+    """
+    ctx = _get_hub_context(request)
+    # visible() is the member-facing guild gate (active guilds, plus the example guild only
+    # while display_demo_guild is on), the same set the sidebar and the guild directory show.
+    # Under its own key: "guilds" is the sidebar's list, and overwriting it would change the
+    # sidebar on this one page.
+    ctx.update(
+        {
+            "leadership_page": LeadershipPage.load(),
+            "listings": LeadershipListing.objects.listed(),
+            "guild_cards": Guild.objects.visible()
+            .select_related("guild_lead")
+            .prefetch_related("staff_memberships__member")
+            .order_by("name"),
+            "last_updated": LeadershipListing.objects.last_updated(),
+        }
+    )
+    return render(request, "hub/leadership_directory.html", ctx)
 
 
 def member_directory(request: HttpRequest) -> HttpResponse:

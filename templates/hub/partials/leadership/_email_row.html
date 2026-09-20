@@ -1,0 +1,8 @@
+{% load hub_tags %}
+{% comment %}
+One email row on a leadership card (#464): a mailto link at least 44px tall, so it is a
+comfortable tap target on a phone. ``email`` is the address. The visible text gets a break
+opportunity after its "@" (email_breaks) so it wraps as name@ over domain in a half-width
+phone card, never mid-word; the mailto: target is the address untouched.
+{% endcomment %}
+<a class="pl-leader-card__row" href="mailto:{{ email }}"><svg class="pl-leader-card__icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="m3 7 9 6 9-6"/></svg><span>{{ email|email_breaks }}</span></a>
