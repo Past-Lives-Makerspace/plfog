@@ -494,6 +494,16 @@ class SiteConfiguration(models.Model):
         default=RegistrationMode.INVITE_ONLY,
         help_text="Open — anyone can sign up. Invite Only — only people with an invite can register.",
     )
+    member_agreement_required = models.BooleanField(
+        default=False,
+        verbose_name="Require members to accept the Member Agreement",
+    )
+    member_agreement_url = models.URLField(
+        blank=True,
+        default="",
+        verbose_name="Member Agreement URL",
+        help_text="URL to the Member Agreement (e.g., in the Knowledge Base).",
+    )
     general_calendar_url = models.URLField(
         blank=True,
         default="",
@@ -1413,6 +1423,7 @@ class SiteActivity(models.Model):
     class Kind(models.TextChoices):
         LOGIN = "login", "Logged in"
         LOGOUT = "logout", "Logged out"
+        ACCEPTED_MEMBER_AGREEMENT = "accepted_member_agreement", "Accepted the Member Agreement"
         PROFILE_UPDATED = "profile_updated", "Updated profile"
         VOTE_SUBMITTED = "vote_submitted", "Submitted vote"
         VOTE_CHANGED = "vote_changed", "Changed vote"

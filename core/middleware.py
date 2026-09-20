@@ -238,3 +238,44 @@ class ToastFlashMiddleware:
                     path="/",
                 )
         return response
+
+class MemberAgreementMiddleware:
+    """Redirects active members to the Member Agreement if required and not yet accepted."""
+
+    def __init__(self, get_response: Callable[[HttpRequest], HttpResponse]) -> None:
+        self.get_response = get_response
+
+    def __call__(self, request: HttpRequest) -> HttpResponse:
+        if not request.user.is_authenticated:
+            return self.get_response(request)
+        if getattr(request, "surface", None) != "members":
+            return self.get_response(request)
+
+        path = request.path
+        if (
+            path.startswith("/accounts/")
+            or path.startswith("/admin/")
+            or path.startswith("/api/")
+            or path.startswith("/o/")
+            or path.startswith("/health/")
+            or path.startswith("/sw.js")
+            or path.startswith("/manifest.json")
+            or path == "/agreement/"
+        ):
+            return self.get_response(request)
+
+        member = getattr(request.user, "member", None)
+        if member and member.needs_member_agreement:
+            from core.htmx import wants_fragment
+            from django.urls import reverse
+            
+            agreement_url = f"{reverse('hub_member_agreement')}?next={request.get_full_path()}"
+            if wants_fragment(request):
+                from django.http import HttpResponse
+                res = HttpResponse(status=200)
+                res["HX-Redirect"] = agreement_url
+                return res
+            from django.shortcuts import redirect
+            return redirect(agreement_url)
+
+        return self.get_response(request)

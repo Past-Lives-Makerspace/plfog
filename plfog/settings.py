@@ -252,6 +252,7 @@ MIDDLEWARE = [
     "django.middleware.clickjacking.XFrameOptionsMiddleware",
     "allauth.account.middleware.AccountMiddleware",
     "hub.view_as.ViewAsMiddleware",
+    "core.middleware.MemberAgreementMiddleware",
     "plfog.service_worker_middleware.ServiceWorkerAllowedMiddleware",
 ]
 

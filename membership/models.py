@@ -820,6 +820,18 @@ class Member(models.Model):
         return self.guild_updates_prompt_answered_at is not None or self.joined_guilds.exists()
 
     @property
+    def needs_member_agreement(self) -> bool:
+        from core.models import SiteConfiguration
+
+        config = SiteConfiguration.objects.first()
+        if not config or not config.member_agreement_required or not config.member_agreement_url:
+            return False
+        if self.status != self.Status.ACTIVE:
+            return False
+        # Avoid a DB query if we already preloaded it, otherwise exists()
+        return not self.member_agreement_acceptances.exists()
+
+    @property
     def needs_guild_updates_prompt(self) -> bool:
         """Whether the first-login guild updates prompt should be shown on next login.
 
@@ -15153,3 +15165,33 @@ class WikiSearchMiss(models.Model):
 
     def __str__(self) -> str:
         return f"'{self.query}' found nothing ({self.created_at:%b %d})"
+
+
+class MemberAgreementAcceptance(models.Model):
+    """A record that a member accepted the Member Agreement.
+
+    Rows are never deleted. When the agreement changes, the text-as-shown
+    (or the URL shown) stays intact here so the record remains honest.
+    """
+
+    member = models.ForeignKey(
+        "membership.Member",
+        on_delete=models.CASCADE,
+        related_name="member_agreement_acceptances",
+    )
+    accepted_at = models.DateTimeField(auto_now_add=True)
+    agreement_url = models.URLField(
+        blank=True,
+        help_text="The URL of the agreement the member read, as configured at the time.",
+    )
+    ip_address = models.GenericIPAddressField(
+        null=True, blank=True, help_text="The IP they accepted from."
+    )
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(fields=["member"], name="unique_member_agreement_acceptance")
+        ]
+
+    def __str__(self) -> str:
+        return f"{self.member.name} accepted at {self.accepted_at.date()}"
