@@ -2762,6 +2762,7 @@ def hub_member_agreement(request: HttpRequest) -> HttpResponse:
     """
     from core.models import SiteConfiguration
     from django.utils.http import url_has_allowed_host_and_scheme
+    from hub.forms import MemberAgreementForm
 
     member = _get_member(request)
     if not member or member.status != member.Status.ACTIVE:
@@ -2778,14 +2779,14 @@ def hub_member_agreement(request: HttpRequest) -> HttpResponse:
         return redirect("hub_home")
 
     if request.method == "POST":
-        if "agree" in request.POST:
+        form = MemberAgreementForm(request.POST)
+        if form.is_valid():
             member.accept_member_agreement(request, config.member_agreement_url)
             next_url = request.POST.get("next")
             if next_url and url_has_allowed_host_and_scheme(url=next_url, allowed_hosts={request.get_host()}):
                 return redirect(next_url)
             return redirect("hub_home")
-        else:
-            messages.error(request, "You must check the box to agree.")
+        messages.error(request, str(form.errors["agree"][0]))
 
     return render(
         request,

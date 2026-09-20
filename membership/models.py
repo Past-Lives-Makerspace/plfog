@@ -828,9 +828,6 @@ class Member(models.Model):
             return False
         if self.status != self.Status.ACTIVE:
             return False
-        # Avoid a DB query if we already preloaded it, otherwise exists()
-        if "member_agreement_acceptances" in getattr(self, "_prefetched_objects_cache", {}):
-            return len(self.member_agreement_acceptances.all()) == 0
         return not self.member_agreement_acceptances.exists()
 
     @property

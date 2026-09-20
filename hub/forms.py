@@ -701,6 +701,16 @@ class NotificationEmailForm(forms.Form):
         member.save(update_fields=["notification_email"])
 
 
+class MemberAgreementForm(forms.Form):
+    """Require explicit consent before recording a member's agreement."""
+
+    agree = forms.BooleanField(
+        required=True,
+        label="I have read and agree to the Member Agreement.",
+        error_messages={"required": "You must check the box to agree."},
+    )
+
+
 class GuildUpdatesPromptForm(forms.Form):
     """Validates the first-login guild updates picks (active guild pks only).
 

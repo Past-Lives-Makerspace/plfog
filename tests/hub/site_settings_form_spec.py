@@ -110,30 +110,38 @@ def describe_SlideshowSettingsForm():
 
 
 def describe_SiteSettingsForm_member_agreement():
-    def it_fails_clean_if_required_but_no_url():
+    @pytest.fixture
+    def required_settings() -> dict[str, str]:
+        return {
+            "org_name": "Past Lives Makerspace",
+            "registration_mode": SiteConfiguration.RegistrationMode.OPEN,
+            "member_event_policy": SiteConfiguration.MemberEventPolicy.APPROVAL,
+        }
+
+    def it_fails_clean_if_required_but_no_url(required_settings: dict[str, str]) -> None:
         data = {
+            **required_settings,
             "member_agreement_required": "on",
             "member_agreement_url": "",
         }
         form = SiteSettingsForm(data)
         assert not form.is_valid()
-        assert "member_agreement_url" in form.errors
+        assert set(form.errors) == {"member_agreement_url"}
 
-    def it_passes_clean_if_required_and_url_provided():
+    def it_passes_clean_if_required_and_url_provided(required_settings: dict[str, str]) -> None:
         data = {
+            **required_settings,
             "member_agreement_required": "on",
             "member_agreement_url": "https://example.com",
-            # Include member_directory_public to make it fully valid
-            "member_directory_public": "on",
         }
         form = SiteSettingsForm(data)
         assert form.is_valid(), form.errors
 
-    def it_passes_clean_if_not_required():
+    def it_passes_clean_if_not_required(required_settings: dict[str, str]) -> None:
         data = {
+            **required_settings,
             "member_agreement_required": "",
             "member_agreement_url": "",
-            "member_directory_public": "on",
         }
         form = SiteSettingsForm(data)
         assert form.is_valid(), form.errors
