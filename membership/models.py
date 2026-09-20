@@ -1671,7 +1671,7 @@ class Member(models.Model):
         x_forwarded_for = request.META.get("HTTP_X_FORWARDED_FOR")
         ip = x_forwarded_for.split(",")[0] if x_forwarded_for else request.META.get("REMOTE_ADDR", "")
         MemberAgreementAcceptance.objects.create(member=self, agreement_url=agreement_url, ip_address=ip)
-        SiteActivity.objects.log(request.user, SiteActivity.Kind.ACCEPTED_MEMBER_AGREEMENT)
+        SiteActivity.log(SiteActivity.Kind.ACCEPTED_MEMBER_AGREEMENT, actor=request.user)
 
     ADMIN_ROLE_INSTRUCTOR = "instructor"
     ADMIN_ROLE_GUEST = "guest"
