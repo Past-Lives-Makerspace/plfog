@@ -2747,6 +2747,65 @@ def guild_updates_prompt(request: HttpRequest) -> HttpResponse:
     )
 
 
+@login_required
+def hub_member_agreement(request: HttpRequest) -> HttpResponse:
+    """The one-time Member Agreement prompt.
+
+    Shown if `Member.needs_member_agreement` is true. The text is loaded via an iframe
+    from the URL set in Site Settings. POSTing with the `agree` checkbox saves a
+    MemberAgreementAcceptance record, logging the URL they agreed to and their IP.
+    """
+    from core.models import SiteConfiguration, SiteActivity
+    from membership.models import MemberAgreementAcceptance
+    from core.htmx import get_client_ip
+    from django.utils.http import url_has_allowed_host_and_scheme
+
+    member = _get_member(request)
+    if not member or member.status != member.Status.ACTIVE:
+        return redirect("hub_home")
+
+    config = SiteConfiguration.objects.first()
+    if not config or not config.member_agreement_required or not config.member_agreement_url:
+        return redirect("hub_home")
+
+    if not member.needs_member_agreement:
+        next_url = request.GET.get("next") or request.POST.get("next")
+        if next_url and url_has_allowed_host_and_scheme(url=next_url, allowed_hosts={request.get_host()}):
+            return redirect(next_url)
+        return redirect("hub_home")
+
+    if request.method == "POST":
+        if "agree" in request.POST:
+            ip = get_client_ip(request)
+            MemberAgreementAcceptance.objects.create(
+                member=member,
+                agreement_url=config.member_agreement_url,
+                ip_address=ip,
+            )
+            SiteActivity.objects.create(
+                kind=SiteActivity.Kind.ACCEPTED_MEMBER_AGREEMENT,
+                actor=member,
+                ip_address=ip,
+            )
+            next_url = request.POST.get("next")
+            if next_url and url_has_allowed_host_and_scheme(url=next_url, allowed_hosts={request.get_host()}):
+                return redirect(next_url)
+            return redirect("hub_home")
+        else:
+            messages.error(request, "You must check the box to agree.")
+
+    return render(
+        request,
+        "hub/member_agreement.html",
+        {
+            **_get_hub_context(request),
+            "member": member,
+            "agreement_url": config.member_agreement_url,
+            "next": request.GET.get("next", ""),
+        },
+    )
+
+
 def user_settings(request: HttpRequest) -> HttpResponse:
     """Tabbed user settings page — Guilds, Notifications, Profile, Account.
 
@@ -7512,6 +7571,7 @@ _SITE_SETTINGS_TABS = frozenset(
         "automations",
         "announcements",
         "features",
+        "member-agreement",
         "discord",
         "emails",
     }

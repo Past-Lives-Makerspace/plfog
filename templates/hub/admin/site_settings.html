@@ -124,6 +124,12 @@
       Features
     </button>
     <button type="button"
+            @click="tab = 'member-agreement'"
+            :class="{ 'vote-tab--active': tab === 'member-agreement' }"
+            class="vote-tab">
+      Member Agreement
+    </button>
+    <button type="button"
             @click="tab = 'automations'"
             :class="{ 'vote-tab--active': tab === 'automations' }"
             class="vote-tab">
@@ -177,7 +183,7 @@
     {# -------- General tab -------- #}
     <div x-show="tab === 'general'" x-cloak class="pl-settings-tab pl-settings-tab--tight">
       {% for field in form %}
-        {% if field.name != 'sync_classes_enabled' and field.name != 'classes_calendar_color' and field.name != 'legacy_cms_sync_enabled' and field.name != 'instructor_discount_codes_enabled' and field.name != 'member_directory_public' and field.name != 'my_tab_enabled' and field.name != 'class_registration_enabled' and field.name != 'class_registration_disabled_note' and field.name != 'help_page_enabled' and field.name != 'guild_welcome_email_enabled' and field.name != 'display_demo_classes' and field.name != 'display_demo_guild' and field.name != 'discord_general_webhook_url' and field.name != 'discord_leadership_webhook_url' and field.name != 'discord_officers_webhook_url' and field.name != 'discord_reservations_webhook_url' and field.name != 'discord_server_id' and field.name != 'discord_role_message_channel_id' and field.name != 'discord_role_message_id' and field.name != 'member_event_policy' and field.name != 'member_google_calendar_id' and field.name != 'public_google_calendar_id' and field.name != 'google_calendar_sync_enabled' and field.name != 'discord_events_sync_enabled' and field.name != 'discord_calendar_channel_id' and field.name != 'discord_calendar_posts_enabled' and field.name != 'discord_classes_channel_id' and field.name != 'discord_classes_posts_enabled' and field.name != 'discord_info_channel_id' and field.name != 'discord_info_message_id' and field.name != 'discord_info_links_content' and field.name != 'org_name' and field.name != 'org_short_name' and field.name != 'org_legal_name' and field.name != 'org_logo' and field.name != 'org_primary_color' and field.name != 'org_support_email' and field.name != 'org_website_url' and field.name != 'google_play_url' and field.name != 'app_store_url' %}
+        {% if field.name != 'sync_classes_enabled' and field.name != 'classes_calendar_color' and field.name != 'legacy_cms_sync_enabled' and field.name != 'instructor_discount_codes_enabled' and field.name != 'member_directory_public' and field.name != 'my_tab_enabled' and field.name != 'class_registration_enabled' and field.name != 'class_registration_disabled_note' and field.name != 'help_page_enabled' and field.name != 'guild_welcome_email_enabled' and field.name != 'display_demo_classes' and field.name != 'display_demo_guild' and field.name != 'discord_general_webhook_url' and field.name != 'discord_leadership_webhook_url' and field.name != 'discord_officers_webhook_url' and field.name != 'discord_reservations_webhook_url' and field.name != 'discord_server_id' and field.name != 'discord_role_message_channel_id' and field.name != 'discord_role_message_id' and field.name != 'member_event_policy' and field.name != 'member_google_calendar_id' and field.name != 'public_google_calendar_id' and field.name != 'google_calendar_sync_enabled' and field.name != 'discord_events_sync_enabled' and field.name != 'discord_calendar_channel_id' and field.name != 'discord_calendar_posts_enabled' and field.name != 'discord_classes_channel_id' and field.name != 'discord_classes_posts_enabled' and field.name != 'discord_info_channel_id' and field.name != 'discord_info_message_id' and field.name != 'discord_info_links_content' and field.name != 'member_agreement_required' and field.name != 'member_agreement_url' and field.name != 'org_name' and field.name != 'org_short_name' and field.name != 'org_legal_name' and field.name != 'org_logo' and field.name != 'org_primary_color' and field.name != 'org_support_email' and field.name != 'org_website_url' and field.name != 'google_play_url' and field.name != 'app_store_url' %}
         <div class="field-row{% if field.field.widget.input_type == 'checkbox' %} field-checkbox{% endif %}">
           {% if field.field.widget.input_type == 'checkbox' %}
             {{ field }}
@@ -516,6 +522,32 @@
       bill_tabs Run-now is the one exception — a teleported confirm modal (its own form), which
       carries run_job=bill_tabs as a hidden field.
     {% endcomment %}
+    {# -------- Member Agreement tab -------- #}
+    <div x-show="tab === 'member-agreement'" x-cloak class="pl-settings-tab">
+      <div class="u-margin-bottom" style="background:var(--hub-card-bg); padding:1rem; border:1px solid var(--border-color); border-radius:4px;">
+        <h3 class="u-margin-bottom" style="margin-top:0;">Member Agreement</h3>
+        <p class="u-margin-bottom" style="color:var(--hub-text-muted);">
+          When enabled, active members will be forced to accept this agreement before using the portal.
+        </p>
+        <div class="field-row field-checkbox">
+          {{ form.member_agreement_required }}
+          <label for="{{ form.member_agreement_required.id_for_label }}" style="font-weight:600;color:var(--hub-text);cursor:pointer;">
+            {{ form.member_agreement_required.label }}
+          </label>
+        </div>
+        <div class="field-row u-margin-top">
+          <label for="{{ form.member_agreement_url.id_for_label }}" style="font-weight:600;color:var(--hub-text);">
+            {{ form.member_agreement_url.label }}
+          </label>
+          {{ form.member_agreement_url }}
+          <small style="color:var(--hub-text-muted);">{{ form.member_agreement_url.help_text }}</small>
+          {% if form.member_agreement_url.errors %}
+            <div style="color:var(--error); margin-top:0.25rem;">{{ form.member_agreement_url.errors.0 }}</div>
+          {% endif %}
+        </div>
+      </div>
+    </div>
+    
     <div x-show="tab === 'automations'" x-cloak class="pl-settings-tab">
       <div>
         <h2 style="margin:0 0 0.25rem;font-size:1rem;color:var(--hub-text);">Automations</h2>

@@ -502,6 +502,7 @@ urlpatterns = [
     ),
     path("welcome/dismiss/", views.welcome_dismiss, name="hub_welcome_dismiss"),
     path("welcome/guild-updates/", views.guild_updates_prompt, name="hub_guild_updates_prompt"),
+    path("agreement/", views.hub_member_agreement, name="hub_member_agreement"),
     # Guided tours (Spec C): the one state-recording endpoint — the offer card's
     # "No thanks" and the tour runtime's end-of-tour hook both POST here.
     path("tours/<slug:tour_key>/state/", views.tour_state, name="hub_tour_state"),
