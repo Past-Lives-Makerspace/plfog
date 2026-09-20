@@ -15159,14 +15159,10 @@ class MemberAgreementAcceptance(models.Model):
         blank=True,
         help_text="The URL of the agreement the member read, as configured at the time.",
     )
-    ip_address = models.GenericIPAddressField(
-        null=True, blank=True, help_text="The IP they accepted from."
-    )
+    ip_address = models.GenericIPAddressField(null=True, blank=True, help_text="The IP they accepted from.")
 
     class Meta:
-        constraints = [
-            models.UniqueConstraint(fields=["member"], name="unique_member_agreement_acceptance")
-        ]
+        constraints = [models.UniqueConstraint(fields=["member"], name="unique_member_agreement_acceptance")]
 
     def __str__(self) -> str:
         return f"{self.member.name} accepted at {self.accepted_at.date()}"
