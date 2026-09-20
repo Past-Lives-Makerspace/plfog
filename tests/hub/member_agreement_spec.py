@@ -9,13 +9,18 @@ pytestmark = pytest.mark.django_db
 class DescribeHubMemberAgreement:
     @pytest.fixture
     def active_member(self):
-        from tests.membership.factories import MemberFactory
+        from tests.membership.factories import MemberFactory, UserFactory
 
-        return MemberFactory(status="active")
+        
+    user = UserFactory()
+    member = MemberFactory(status="active")
+    member.user = user
+    member.save()
+    return member
 
     @pytest.fixture
     def inactive_member(self):
-        from tests.membership.factories import MemberFactory
+        from tests.membership.factories import MemberFactory, UserFactory
 
         return MemberFactory(status="former")
 
