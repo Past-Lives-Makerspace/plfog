@@ -256,6 +256,36 @@ Announcements can also be marked **urgent** by whoever sends them. An urgent ann
 So that nobody misses something important, several updates come **switched on by default**. That's on purpose, but it's your call. Take a minute to open **Settings → Notifications** and set each one the way you actually want it: turn off what you don't need, and keep the ones that matter to you.""",
     },
     {
+        "slug": "leadership-directory",
+        "category": "getting-started",
+        "title": "Leadership Directory: Who to Ask",
+        "sort_order": 30,
+        "related": ["welcome-to-fog", "member-directory", "guilds-and-guild-pages"],
+        "body": """Need the person who runs something at Past Lives? Open **Leadership Directory** in the sidebar. It is one page with a card for each person, so you never have to dig through Discord for a name.
+
+## Who Is on the Page {#who-is-listed}
+
+- **Leadership & Admin Team** — the people who keep the makerspace running. Each card shows their title, an email for that role, and their Discord handle.
+- **Guild Leaders** — one card per active guild, with the lead, any co-leads, their Discord handles, and the guild's own email address.
+
+## Getting in Touch {#getting-in-touch}
+
+- Tap an email to start a message.
+- Tap a Discord handle to open that person's Discord profile. A handle shown as plain text belongs to someone who has not linked Discord in the Member Portal yet, so look them up in Discord by that name.
+- Some guilds have no email address yet. Ask in the guild's Discord channel instead.
+
+## Keeping It Current {#keeping-it-current}
+
+- The guild cards read each guild's settings. When a guild changes its lead there, the card changes on its own.
+- Your Discord handle comes from your own **Settings**. Guild leads: your guild's email lives in your guild page's settings.
+- Only admins list someone on the team section, from that member's profile in Manage Members.
+
+!!! tip
+    The **Updated** date under the page title is the last change to the team list, so you can tell how fresh it is.
+""",
+        "screenshots": [],
+    },
+    {
         "slug": "guilds-and-guild-pages",
         "category": "guilds",
         "title": "Guilds and Guild Pages",

@@ -223,3 +223,42 @@
     margin: 1rem 0 0;
     font-size: 0.85rem;
 }
+
+/* ── Details tab: Leadership Directory listing ──────────────────────── */
+.pl-leadership {
+    max-width: 680px;
+    margin: 1.5rem 0 1rem;
+    padding-top: 1.25rem;
+    border-top: 1px solid var(--hub-border);
+}
+.pl-leadership__heading {
+    font-size: 1.1rem;
+    margin: 0 0 0.75rem;
+}
+.pl-leadership__roles {
+    margin-top: 0.75rem;
+}
+.pl-leadership-role {
+    padding: 0.75rem;
+    margin-bottom: 0.75rem;
+    background: var(--hub-surface);
+    border: 1px solid var(--hub-border);
+    border-radius: 6px;
+}
+.pl-leadership-role__fields {
+    display: flex;
+    gap: 0.75rem;
+    flex-wrap: wrap;
+}
+.pl-leadership-role__fields > div {
+    flex: 1 1 220px;
+    min-width: 0;
+}
+/* The formset's DELETE checkbox: driven by the real Delete button, never shown. */
+.pl-leadership-role__flag {
+    display: none;
+}
+/* Breathing room before the Details Save button below (FRONTEND.md Rule 18). */
+.pl-leadership__add {
+    margin: 0.25rem 0 1.5rem;
+}

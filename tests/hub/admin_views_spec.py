@@ -17,6 +17,14 @@ from tests.membership.factories import MemberFactory, MembershipPlanFactory
 
 pytestmark = pytest.mark.django_db
 
+# The Details form now carries the Leadership Directory role formset; a valid POST names it.
+_ROLES_MANAGEMENT = {
+    "roles-TOTAL_FORMS": "0",
+    "roles-INITIAL_FORMS": "0",
+    "roles-MIN_NUM_FORMS": "0",
+    "roles-MAX_NUM_FORMS": "1000",
+}
+
 
 def _create_superuser(client: Client, *, username: str = "admin") -> User:
     user = User.objects.create_superuser(username=username, email=f"{username}@x.com", password="p")
@@ -522,6 +530,7 @@ def describe_admin_member_edit_role_dispatch():
                 "member_type": Member.MemberType.STANDARD,
                 "role": "guest",
                 "show_in_directory": "on",
+                **_ROLES_MANAGEMENT,
             },
         )
         assert response.status_code == 302
@@ -585,6 +594,7 @@ def describe_admin_member_edit():
                 "member_type": Member.MemberType.STANDARD,
                 "role": Member.FogRole.MEMBER,
                 "show_in_directory": "on",
+                **_ROLES_MANAGEMENT,
             },
         )
         assert response.status_code == 302
@@ -624,6 +634,7 @@ def describe_admin_member_edit():
                 "member_type": Member.MemberType.STANDARD,
                 "role": Member.FogRole.MEMBER,
                 "show_in_directory": "on",
+                **_ROLES_MANAGEMENT,
                 "can_self_approve_discounts": "on",
             },
         )
@@ -648,6 +659,7 @@ def describe_admin_member_edit():
                 "member_type": Member.MemberType.STANDARD,
                 "role": Member.FogRole.MEMBER,
                 "show_in_directory": "on",
+                **_ROLES_MANAGEMENT,
             },
         )
         assert response.status_code == 302

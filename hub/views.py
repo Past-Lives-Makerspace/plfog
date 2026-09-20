@@ -43,6 +43,8 @@ from hub.forms import (
     DiscordGuildEmojiFormSet,
     GuildEditForm,
     GuildRoleFormSet,
+    LeadershipListingForm,
+    LeadershipRoleFormSet,
     MeetingItemProposalForm,
     MemberAdminEditForm,
     MemberCapabilitiesForm,
@@ -73,6 +75,8 @@ from membership.models import (
     FundingSnapshot,
     Guild,
     HelpCategory,
+    LeadershipListing,
+    LeadershipPage,
     Meeting,
     MeetingItemProposal,
     Member,
@@ -269,6 +273,36 @@ def guild_voting(request: HttpRequest) -> HttpResponse:
             "new_vote_standings": new_vote_standings,
         },
     )
+
+
+@login_required
+def leadership_directory(request: HttpRequest) -> HttpResponse:
+    """Leadership Directory: who runs Past Lives and who leads each guild (#464).
+
+    Two sections. The team is curated: the profiles an admin flagged ``Show on Leadership
+    Directory``, in the admin's order, each with its role lines. The guild section is derived
+    from each active guild's own lead, Co-Lead staff and contact address, so a change of lead
+    on the guild's settings page changes this page with nothing retyped. Members only: the
+    issue keeps a signed-out view out of the first release.
+    """
+    ctx = _get_hub_context(request)
+    # visible() is the member-facing guild gate (active guilds, plus the example guild only
+    # while display_demo_guild is on), the same set the sidebar and the guild directory show.
+    # Under its own key: "guilds" is the sidebar's list, and overwriting it would change the
+    # sidebar on this one page.
+    ctx.update(
+        {
+            "leadership_page": LeadershipPage.load(),
+            "listings": LeadershipListing.objects.listed(),
+            "guild_cards": Guild.objects.visible()
+            .select_related("guild_lead")
+            .prefetch_related("staff_memberships__member")
+            .order_by("name"),
+            # Over listed rows only: an edit to a profile nobody can see must not move the date.
+            "last_updated": LeadershipListing.objects.listed().last_updated(),
+        }
+    )
+    return render(request, "hub/leadership_directory.html", ctx)
 
 
 def member_directory(request: HttpRequest) -> HttpResponse:
@@ -6603,6 +6637,9 @@ def admin_member_edit(request: HttpRequest, pk: int) -> HttpResponse:
 
     member = get_object_or_404(Member, pk=pk)
     permissions_url = f"{reverse('hub_admin_member_edit', args=[member.pk])}?tab=permissions"
+    # The Leadership Directory listing saves with the Details form; the queryset hands back
+    # an unsaved stand-in for a member nobody listed, so no row is written until it changes.
+    listing = LeadershipListing.objects.for_member(member)
 
     if request.method == "POST":
         form_id = request.POST.get("form_id")
@@ -6619,15 +6656,22 @@ def admin_member_edit(request: HttpRequest, pk: int) -> HttpResponse:
                 messages.success(request, "Saved notification settings.")
             return redirect(permissions_url)
         form = MemberAdminEditForm(request.POST, instance=member)
-        if form.is_valid():
+        listing_form = LeadershipListingForm(request.POST, instance=listing, prefix="leadership")
+        role_formset = LeadershipRoleFormSet(request.POST, instance=listing, prefix="roles")
+        listing_ok = listing_form.is_valid()
+        roles_ok = role_formset.is_valid()
+        if form.is_valid() and listing_ok and roles_ok:
             obj = form.save(commit=False)
             obj.save()
             obj.apply_admin_role(form.cleaned_data["role"])
+            listing_form.save_with_roles(role_formset)
             display = obj.full_legal_name or obj.primary_email or f"member #{obj.pk}"
             messages.success(request, f"Saved {display}.")
             return redirect("hub_admin_members")
     else:
         form = MemberAdminEditForm(instance=member)
+        listing_form = LeadershipListingForm(instance=listing, prefix="leadership")
+        role_formset = LeadershipRoleFormSet(instance=listing, prefix="roles")
 
     user = member.user
     has_signed_in = bool(user and user.last_login)
@@ -6660,6 +6704,8 @@ def admin_member_edit(request: HttpRequest, pk: int) -> HttpResponse:
             "is_member": True,
             "member": member,
             "form": form,
+            "listing_form": listing_form,
+            "role_formset": role_formset,
             "capabilities_form": cap_form,
             "instructor_description": Member.INSTRUCTOR_PERMISSION_DESCRIPTION,
             "notif_matrix": notif_matrix,

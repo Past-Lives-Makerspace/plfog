@@ -25,3 +25,17 @@ PastLivesReviewBot reviews a PR against `.github/bot-review-prompt.md` (the sing
 `main` merges on one approval plus the `lint`, `e2e`, `fragment` and `description` checks. The hour-long `test` job runs alongside; a failure there is fixed forward on `main`.
 
 Before editing `.github/workflows/bot-review.yml`, read its header: it runs with secrets on fork PRs and stays safe only by reviewing the diff as text.
+
+## Agent skills
+
+### Issue tracker
+
+GitHub issues on this repo, written in the Ticket form's shape and placed on the kanban board; `/create-issue` files one. See `docs/agents/issue-tracker.md`.
+
+### Triage labels
+
+The five canonical triage roles use labels of the same name; `bug`, `enhancement` and `wontfix` already exist here. See `docs/agents/triage-labels.md`.
+
+### Domain docs
+
+Single-context: `CONTEXT.md` is the glossary and `docs/adr/` holds the decisions. See `docs/agents/domain.md`.

@@ -3,6 +3,8 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Any
 
 from django import template
+from django.utils.html import conditional_escape
+from django.utils.safestring import SafeString, mark_safe
 
 if TYPE_CHECKING:
     from django.db.models import QuerySet
@@ -81,6 +83,29 @@ def is_public(member: Any, field_name: str) -> bool:
     if member is None:
         return False
     return bool(member.is_public(field_name))
+
+
+@register.filter
+def initials(name: str) -> str:
+    """The first letter of the first two words of ``name``, upper-cased: "Lee Mendelsohn" → "LM".
+
+    ``Member.initials`` reads the linked auth user and is blank for a member with no login,
+    which a leadership card cannot show, so the cards work from the display name instead.
+    A token that is only punctuation ("Sam / Samuel Rook") is skipped, not counted.
+    """
+    words = [word for word in name.split() if word[0].isalnum()]
+    return "".join(word[0].upper() for word in words[:2])
+
+
+@register.filter
+def email_breaks(address: str) -> SafeString:
+    """``address`` with a line-break opportunity after its ``@``.
+
+    A leadership card is half a phone screen wide, and an address has no space to wrap on,
+    so without this the browser breaks it mid-word. With a ``<wbr>`` it wraps as ``name@``
+    over ``domain`` instead. The address is escaped first; only the ``<wbr>`` is trusted.
+    """
+    return mark_safe(conditional_escape(address).replace("@", "@<wbr>"))
 
 
 @register.simple_tag(takes_context=True)
