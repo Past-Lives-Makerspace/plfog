@@ -32,6 +32,8 @@ from membership.models import (
     GuildOrientationSettings,
     GuildStaffMembership,
     HelpCategory,
+    LeadershipListing,
+    LeadershipRole,
     Lease,
     MapHotspot,
     Meeting,
@@ -114,6 +116,23 @@ class MemberContactFactory(factory.django.DjangoModelFactory):
     label = factory.Sequence(lambda n: f"Contact {n}")
     value = "https://example.com"
     kind = MemberContact.Kind.OTHER
+
+
+class LeadershipListingFactory(factory.django.DjangoModelFactory):
+    class Meta:
+        model = LeadershipListing
+
+    member = factory.SubFactory(MemberFactory)
+    is_listed = True
+
+
+class LeadershipRoleFactory(factory.django.DjangoModelFactory):
+    class Meta:
+        model = LeadershipRole
+
+    listing = factory.SubFactory(LeadershipListingFactory)
+    title = factory.Sequence(lambda n: f"Role {n}")
+    email = ""
 
 
 class SpaceFactory(factory.django.DjangoModelFactory):

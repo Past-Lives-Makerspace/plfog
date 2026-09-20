@@ -722,6 +722,15 @@ class Member(models.Model):
         return bool(self.discord_user_id)
 
     @property
+    def discord_profile_url(self) -> str:
+        """Link to this member's Discord profile, or "" until they have linked Discord.
+
+        Built from the verified ``discord_user_id`` only. A typed ``discord_handle`` is free
+        text and cannot become a link, so callers show it as plain text instead.
+        """
+        return f"https://discord.com/users/{self.discord_user_id}" if self.discord_user_id else ""
+
+    @property
     def has_started_profile(self) -> bool:
         """Whether the member has customized any part of their profile yet.
 
@@ -2572,6 +2581,19 @@ class Guild(HeroCropMixin, models.Model):
                 seen.add(staff.member_id)
         return members
 
+    @property
+    def co_leads(self) -> list[Member]:
+        """Members holding the Co-Lead staff role, without repeating the lead.
+
+        Reads ``staff_memberships.all()`` so a view's ``prefetch_related("staff_memberships__member")``
+        is honoured; a lead who also holds a Co-Lead row is not listed twice.
+        """
+        return [
+            staff.member
+            for staff in self.staff_memberships.all()
+            if staff.role == GuildStaffMembership.Role.CO_LEAD and staff.member_id != self.guild_lead_id
+        ]
+
     def first_active_orientation_type(self) -> OrientationType | None:
         """This guild's first active orientation type by sort order, or ``None``.
 
@@ -3265,6 +3287,143 @@ class OrgLink(models.Model):
 
     def __str__(self) -> str:
         return f"{self.label} (Space & Org Info)"
+
+
+class LeadershipPage(models.Model):
+    """Singleton (pk=1) wording for the Leadership Directory page: the hero and both section headers.
+
+    Every word an admin might want to change, with its default here and in the migration so
+    no site renders a blank hero (the Host a Workshop precedent). Load the one row via
+    :meth:`load`, exactly like ``OrgInfoPage``. Who is on the page is not here: the curated
+    team is :class:`LeadershipListing`, and the Guild Leaders section is read from each guild.
+    """
+
+    hero_title = models.CharField(max_length=120, default="Leadership Directory", help_text="The page heading.")
+    hero_lead = models.TextField(
+        blank=True,
+        default="Who runs Past Lives, who leads each guild, and how to reach them.",
+        help_text="A sentence or two under the heading. Blank hides the line.",
+    )
+    team_heading = models.CharField(
+        max_length=120,
+        default="Leadership & Admin Team",
+        help_text="Heading of the curated section, ordered by admins.",
+    )
+    team_intro = models.TextField(
+        blank=True,
+        default="The people who keep the makerspace running, and how to reach each of them.",
+        help_text="Intro line under the team heading. Blank hides the line.",
+    )
+    guilds_heading = models.CharField(
+        max_length=120,
+        default="Guild Leaders",
+        help_text="Heading of the section built from each guild's lead and co-leads.",
+    )
+    guilds_intro = models.TextField(
+        blank=True,
+        default="Every active guild and who leads it, straight from the guild's own settings.",
+        help_text="Intro line under the guilds heading. Blank hides the line.",
+    )
+
+    class Meta:
+        verbose_name = "Leadership Directory page"
+        verbose_name_plural = "Leadership Directory page"
+
+    def __str__(self) -> str:
+        return "Leadership Directory"
+
+    def save(self, *args: Any, **kwargs: Any) -> None:
+        self.pk = 1
+        super().save(*args, **kwargs)
+
+    @classmethod
+    def load(cls) -> LeadershipPage:
+        """Load the singleton row, creating it with the default wording if needed."""
+        obj, _created = cls.objects.get_or_create(pk=1)
+        return obj
+
+
+class LeadershipListingQuerySet(models.QuerySet):
+    """Queries over the curated Leadership & Admin Team roster."""
+
+    def listed(self) -> LeadershipListingQuerySet:
+        """The rows on the page, in admin order, with each member and their role lines loaded."""
+        return (
+            self.filter(is_listed=True).select_related("member").prefetch_related("roles").order_by("sort_order", "id")
+        )
+
+    def last_updated(self) -> datetime_type | None:
+        """When the roster last changed: the newest listing or role save, or None with no rows.
+
+        One aggregate over both tables. Page wording edits do not count; the page's
+        "Updated" line is about who is on it.
+        """
+        stamps = self.aggregate(listing=Max("updated_at"), role=Max("roles__updated_at"))
+        found = [stamp for stamp in stamps.values() if stamp is not None]
+        return max(found) if found else None
+
+
+class LeadershipListing(models.Model):
+    """A member's place on the Leadership & Admin Team section of the Leadership Directory.
+
+    The toggle, the order and the timestamp live here rather than on the Airtable managed
+    :class:`Member`: a person is on the page because their profile is flagged, never because
+    they were typed in. Photo, name and pronouns come from the member; the title and contact
+    lines are :class:`LeadershipRole` rows.
+    """
+
+    member = models.OneToOneField(
+        Member,
+        on_delete=models.CASCADE,
+        related_name="leadership_listing",
+        help_text="The member this card shows. Photo, name and pronouns come from their profile.",
+    )
+    is_listed = models.BooleanField(
+        default=False,
+        help_text="Show this member on the Leadership Directory. Off hides the card and keeps the role lines.",
+    )
+    sort_order = models.PositiveIntegerField(default=0, help_text="Ascending; lower shows first.")
+    updated_at = models.DateTimeField(
+        auto_now=True, help_text="When this listing last changed. The page's Updated line reads the newest."
+    )
+
+    objects = LeadershipListingQuerySet.as_manager()
+
+    class Meta:
+        ordering = ["sort_order", "id"]
+
+    def __str__(self) -> str:
+        state = "listed" if self.is_listed else "unlisted"
+        return f"{self.member.display_name} ({state})"
+
+
+class LeadershipRole(models.Model):
+    """One role line on a leadership card: a title and, when there is one, that role's email.
+
+    A person with two roles has two rows, each with its own address. A per-member child
+    list like ``MemberContact``, edited as a formset beside the listing toggle.
+    """
+
+    listing = models.ForeignKey(
+        LeadershipListing,
+        on_delete=models.CASCADE,
+        related_name="roles",
+        help_text="The listing this role line belongs to.",
+    )
+    title = models.CharField(max_length=120, help_text="The role as shown on the card, e.g. 'Member Liaison'.")
+    email = models.EmailField(
+        blank=True, default="", help_text="Contact address for this role. Blank shows no email line."
+    )
+    sort_order = models.PositiveIntegerField(default=0, help_text="Ascending; lower shows first.")
+    updated_at = models.DateTimeField(
+        auto_now=True, help_text="When this role line last changed. The page's Updated line reads the newest."
+    )
+
+    class Meta:
+        ordering = ["sort_order", "id"]
+
+    def __str__(self) -> str:
+        return f"{self.title} ({self.listing.member.display_name})"
 
 
 class HelpCategoryQuerySet(models.QuerySet):

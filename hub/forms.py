@@ -43,6 +43,8 @@ from membership.models import (
     GuildMeetingNoteAttachment,
     GuildOrientationSettings,
     HelpCategory,
+    LeadershipListing,
+    LeadershipRole,
     MapHotspot,
     MeetingAttachment,
     MeetingItemProposal,
@@ -901,6 +903,63 @@ class MemberAdminEditForm(forms.ModelForm):
         if member.status != Member.Status.ACTIVE:
             return Member.ADMIN_ROLE_GUEST
         return member.fog_role
+
+
+class LeadershipRoleForm(forms.ModelForm):
+    """One role line (a title and that role's contact email) on a Leadership Directory card."""
+
+    class Meta:
+        model = LeadershipRole
+        fields = ["title", "email", "sort_order"]
+        widgets = {
+            "title": forms.TextInput(attrs={"placeholder": "e.g. Member Liaison"}),
+            "email": forms.EmailInput(attrs={"placeholder": "someone@pastlives.space"}),
+            "sort_order": forms.HiddenInput(),
+        }
+        labels = {"title": "Role title", "email": "Contact email"}
+
+    def has_changed(self) -> bool:
+        """Ignore a sort_order-only change so an untouched "+ Add a role" row never blocks the save.
+
+        The add button stamps the cloned row's hidden ``sort_order`` with its position the
+        moment the row is created (mirrors ``MemberContactForm.has_changed``).
+        """
+        return bool(set(self.changed_data) - {"sort_order"})
+
+
+LeadershipRoleFormSet = forms.inlineformset_factory(
+    LeadershipListing, LeadershipRole, form=LeadershipRoleForm, extra=0, can_delete=True
+)
+
+
+class LeadershipListingForm(forms.ModelForm):
+    """The "Show on Leadership Directory" toggle on the admin member edit Details tab.
+
+    Alpine's ``x-model`` on the checkbox reveals the role lines beneath it while it is on.
+    The role lines are the sibling :data:`LeadershipRoleFormSet`; :meth:`save_with_roles`
+    writes both, and only when one of them changed.
+    """
+
+    class Meta:
+        model = LeadershipListing
+        fields = ["is_listed"]
+        widgets = {"is_listed": forms.CheckboxInput(attrs={"x-model": "listed"})}
+        labels = {"is_listed": "Show on Leadership Directory"}
+
+    def save_with_roles(
+        self, role_formset: forms.BaseInlineFormSet[LeadershipRole, LeadershipListing, LeadershipRoleForm]
+    ) -> bool:
+        """Persist the toggle and the role lines when either changed; return whether anything was written.
+
+        An unchanged pair is skipped on purpose: a member nobody ever listed never gains an
+        empty listing row, and ``updated_at`` (the page's Updated date) stays still when an
+        admin saves an unrelated Details field.
+        """
+        if not (self.has_changed() or role_formset.has_changed()):
+            return False
+        self.save()
+        role_formset.save()
+        return True
 
 
 class MemberCapabilitiesForm(forms.Form):
