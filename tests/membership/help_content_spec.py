@@ -99,6 +99,7 @@ def describe_help_content():
             approved = {
                 "welcome-to-fog": "getting-started",
                 "notifications": "getting-started",
+                "leadership-directory": "getting-started",
                 "guilds-and-guild-pages": "guilds",
                 "getting-oriented": "guilds",
                 "guild-voting": "guilds",

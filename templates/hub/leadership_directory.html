@@ -1,0 +1,120 @@
+{% extends "hub/base.html" %}
+{% load hub_tags static %}
+{% block title %}{{ leadership_page.hero_title }}{% endblock %}
+
+{% block extra_head %}
+<link rel="stylesheet" href="{% static 'css/leadership.css' %}">
+{% endblock %}
+
+{% block content %}
+{% comment %}
+Leadership Directory (#464, part 2). The Plate card treatment Felix picked from the three
+mockups under mockups/screenshots/464-leadership-card-*.png: a portrait (or initials) fills
+the top of each card and a brass nameplate sits over its edge; guild cards carry the guild's
+SVG logo instead. The team section is curated (profiles flagged Show on Leadership Directory,
+in the admin's order); the guild section is derived from each visible guild's own lead, Co-Lead
+staff and contact address. Every word of the hero and the section headings comes from
+LeadershipPage, and a blanked intro renders nothing. An empty team section shows its intro
+only; the guild section is never empty because a guild with no lead still gets a card.
+{% endcomment %}
+<div class="pl-leadership">
+    <div class="pl-guild-hero pl-guild-hero--noimg pl-teach-hero">
+        <div class="pl-guild-hero__content">
+            {% if leadership_page.hero_title %}
+            <h1 class="pl-guild-hero__title">{{ leadership_page.hero_title }}</h1>
+            {% endif %}
+            {% if leadership_page.hero_lead %}
+            <p class="pl-guild-hero__lead">{{ leadership_page.hero_lead }}</p>
+            {% endif %}
+            {% if last_updated %}
+            <span class="pl-leadership__updated">Updated {{ last_updated|date }}</span>
+            {% endif %}
+        </div>
+    </div>
+
+    <section class="hub-card" id="leadership-team">
+        <h2 class="pl-teach-section__title">{{ leadership_page.team_heading }}</h2>
+        {% if leadership_page.team_intro %}
+        <p class="pl-leadership__intro">{{ leadership_page.team_intro }}</p>
+        {% endif %}
+        {% if listings %}
+        <div class="pl-leader-grid">
+            {% for listing in listings %}
+            {% with member=listing.member %}
+            <article class="pl-leader-card">
+                <div class="pl-leader-card__visual">
+                    {% if member.profile_photo and member|is_public:"profile_photo" %}
+                    <img class="pl-leader-card__photo" src="{{ member.profile_photo.url }}" alt="" loading="lazy">
+                    {% else %}
+                    <span class="pl-leader-card__initials" aria-hidden="true">{{ member.display_name|initials }}</span>
+                    {% endif %}
+                </div>
+                <h3 class="pl-leader-card__plate">
+                    {{ member.display_name }}
+                    {% if member.pronouns and member|is_public:"pronouns" %}
+                    <span class="pl-leader-card__pronouns">{{ member.pronouns }}</span>
+                    {% endif %}
+                </h3>
+                <div class="pl-leader-card__body">
+                    {% for role in listing.roles.all %}
+                    <div class="pl-leader-card__role">
+                        <span class="pl-leader-card__title">{{ role.title }}</span>
+                        {% if role.email %}
+                        {% include "hub/partials/leadership/_email_row.html" with email=role.email %}
+                        {% endif %}
+                    </div>
+                    {% endfor %}
+                    {% include "hub/partials/leadership/_discord_row.html" with person=member %}
+                </div>
+            </article>
+            {% endwith %}
+            {% endfor %}
+        </div>
+        {% endif %}
+    </section>
+
+    <section class="hub-card" id="leadership-guilds">
+        <h2 class="pl-teach-section__title">{{ leadership_page.guilds_heading }}</h2>
+        {% if leadership_page.guilds_intro %}
+        <p class="pl-leadership__intro">{{ leadership_page.guilds_intro }}</p>
+        {% endif %}
+        <div class="pl-leader-grid">
+            {% for guild in guild_cards %}
+            <article class="pl-leader-card pl-leader-card--guild">
+                <div class="pl-leader-card__visual pl-leader-card__visual--guild">
+                    {% if guild.logo_prefix %}
+                    <img class="pl-leader-card__logo" src="{% static 'img/guild_logos/'|add:guild.logo_prefix|add:'_color.svg' %}" alt="">
+                    {% else %}
+                    <span class="pl-leader-card__initials" aria-hidden="true">{{ guild.name|initials }}</span>
+                    {% endif %}
+                </div>
+                <h3 class="pl-leader-card__plate">
+                    <a class="pl-leader-card__plate-link" href="{% url 'hub_guild_detail' guild.slug %}">{{ guild.name }}</a>
+                </h3>
+                <div class="pl-leader-card__body">
+                    <div class="pl-leader-card__role">
+                        <span class="pl-leader-card__eyebrow">Lead</span>
+                        {% if guild.guild_lead %}
+                        <span class="pl-leader-card__person">{{ guild.guild_lead.display_name }}</span>
+                        {% include "hub/partials/leadership/_discord_row.html" with person=guild.guild_lead %}
+                        {% else %}
+                        <span class="pl-leader-card__person pl-leader-card__person--none">No lead set yet</span>
+                        {% endif %}
+                    </div>
+                    {% for co_lead in guild.co_leads %}
+                    <div class="pl-leader-card__role">
+                        <span class="pl-leader-card__eyebrow">Co-Lead</span>
+                        <span class="pl-leader-card__person">{{ co_lead.display_name }}</span>
+                        {% include "hub/partials/leadership/_discord_row.html" with person=co_lead %}
+                    </div>
+                    {% endfor %}
+                    {% if guild.contact_email %}
+                    {% include "hub/partials/leadership/_email_row.html" with email=guild.contact_email %}
+                    {% endif %}
+                </div>
+            </article>
+            {% endfor %}
+        </div>
+    </section>
+</div>
+{% endblock %}
