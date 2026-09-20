@@ -140,11 +140,11 @@ def describe_brand():
             "brand_website_url": "https://pastlives.space",
             "brand_website_display": "pastlives.space",
             "brand_google_play_url": "https://play.google.com/store/apps/details?id=app.pastlives.hub",
-            "brand_app_store_url": "",
+            "brand_app_store_url": "https://apps.apple.com/us/app/past-lives-makerspace/id6796557084",
         }
 
-    def it_reflects_an_app_store_url_once_it_is_filled_in():
-        # #467: the day Apple approves the app, the setting flips every surface, no deploy.
+    def it_reflects_an_edited_app_store_url():
+        # #467: a listing change is a settings change, no deploy.
         config = SiteConfiguration.load()
         config.app_store_url = "https://apps.apple.com/app/id1234567890"
         config.save()

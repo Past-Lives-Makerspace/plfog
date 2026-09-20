@@ -25,8 +25,8 @@ class Migration(migrations.Migration):
             name="app_store_url",
             field=models.URLField(
                 blank=True,
-                default="",
-                help_text="The app's App Store listing, https://apps.apple.com/app/id<number>. Blank means not launched: the badge is left out everywhere and the copy says iOS is coming soon.",
+                default="https://apps.apple.com/us/app/past-lives-makerspace/id6796557084",
+                help_text="The app's App Store listing. Blank means not launched: the badge is left out everywhere and the copy says iOS is coming soon.",
                 verbose_name="App Store URL",
             ),
         ),

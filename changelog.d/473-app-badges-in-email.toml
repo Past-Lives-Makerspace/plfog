@@ -2,6 +2,5 @@ bump = "minor"
 date = "2026-09-19"
 title = "Get the app from any email"
 changes = [
-  "Every email from Past Lives now ends with a Get it on Google Play badge, so the Member Portal app is one tap away.",
-  "The Download on the App Store badge appears alongside it the day the iPhone app is approved.",
+  "Every email from Past Lives now ends with Get it on Google Play and Download on the App Store badges, so the Member Portal app is one tap away on either phone.",
 ]
