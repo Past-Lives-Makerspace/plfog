@@ -529,6 +529,9 @@
         <p class="u-margin-bottom" style="color:var(--hub-text-muted);">
           When enabled, active members will be forced to accept this agreement before using the portal.
         </p>
+        <p class="u-margin-bottom" style="font-weight:600;color:var(--hub-text);">
+          {{ accepted_members_count }} of {{ active_members_count }} active members have accepted.
+        </p>
         <div class="field-row field-checkbox">
           {{ form.member_agreement_required }}
           <label for="{{ form.member_agreement_required.id_for_label }}" style="font-weight:600;color:var(--hub-text);cursor:pointer;">

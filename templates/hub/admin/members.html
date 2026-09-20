@@ -119,19 +119,26 @@
       {% endfor %}
     </select>
 
+    <span class="filter-label">Agreement</span>
+    <select name="agreement">
+      <option value=""{% if not agreement_filter %} selected{% endif %}>Any</option>
+      <option value="accepted"{% if agreement_filter == 'accepted' %} selected{% endif %}>Accepted</option>
+      <option value="missing"{% if agreement_filter == 'missing' %} selected{% endif %}>Not yet</option>
+    </select>
+
     <button type="submit" class="hub-btn hub-btn--sm hub-btn--primary">Apply</button>
-    {% if search or role_filter or type_filter or status_filter != 'active' or email_filter == 'missing' %}
+    {% if search or role_filter or type_filter or agreement_filter or status_filter != 'active' or email_filter == 'missing' %}
     <a href="{% url 'hub_admin_members' %}" class="hub-btn hub-btn--sm hub-btn--ghost">Reset</a>
     {% endif %}
 
     {% if email_filter == 'missing' %}
     <a class="hub-btn hub-btn--sm hub-btn--primary"
-       href="?q={{ search }}&status={{ status_filter }}&role={{ role_filter }}&type={{ type_filter }}">
+       href="?q={{ search }}&status={{ status_filter }}&role={{ role_filter }}&type={{ type_filter }}&agreement={{ agreement_filter }}">
       Missing email{% if missing_count %} <span class="hub-badge">{{ missing_count }}</span>{% endif %}
     </a>
     {% else %}
     <a class="hub-btn hub-btn--sm hub-btn--ghost"
-       href="?email=missing&q={{ search }}&status={{ status_filter }}&role={{ role_filter }}&type={{ type_filter }}">
+       href="?email=missing&q={{ search }}&status={{ status_filter }}&role={{ role_filter }}&type={{ type_filter }}&agreement={{ agreement_filter }}">
       Missing email{% if missing_count %} <span class="hub-badge">{{ missing_count }}</span>{% endif %}
     </a>
     {% endif %}

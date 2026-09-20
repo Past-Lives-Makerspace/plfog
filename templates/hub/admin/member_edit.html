@@ -128,6 +128,16 @@
           <div><dt>Username</dt><dd>{{ target_user.username }}</dd></div>
           <div><dt>Email</dt><dd>{{ primary_email|default:"—" }}</dd></div>
           <div><dt>Joined</dt><dd>{{ target_user.date_joined|date:"M j, Y" }}</dd></div>
+          <div>
+            <dt>Member Agreement</dt>
+            <dd>
+              {% if agreement %}
+                accepted {{ agreement.accepted_at|date:"M j, Y" }}
+              {% else %}
+                <span class="u-text-muted">Not yet accepted</span>
+              {% endif %}
+            </dd>
+          </div>
           <div><dt>Last signed in</dt><dd>{% if target_user.last_login %}{{ target_user.last_login|date:"M j, Y" }}{% else %}Never{% endif %}</dd></div>
         </dl>
       </div>
