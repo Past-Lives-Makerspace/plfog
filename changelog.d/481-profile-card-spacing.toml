@@ -1,0 +1,6 @@
+bump = "patch"
+date = "2026-09-20"
+title = "Profile settings are easier to scan"
+changes = [
+  "The Member Directory and Spaces Map choices now have clear space between them.",
+]
