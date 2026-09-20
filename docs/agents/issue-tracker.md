@@ -1,14 +1,14 @@
 # Issue tracker: GitHub
 
-Issues and specs for this repo live as GitHub issues on `Past-Lives-Makerspace/plfog`, and every open issue is a card on the kanban board (GitHub project 1 of the org). Use the `gh` CLI for all operations.
+Issues and specs for this repo live as GitHub issues on `Past-Lives-Makerspace/plfog`, and issues are cards on the kanban board (GitHub project 1 of the org). Use the `gh` CLI for all operations.
 
 ## House rules
 
 - Prefix every `gh` call with `GODEBUG=netdns=cgo`; bare `gh` fails DNS through Tailscale MagicDNS on this machine.
 - `HexagonStorms` must be the active `gh` account (`gh auth status`); other accounts are not collaborators and their writes are rejected.
 - An issue's body follows [CONTRIBUTING.md](../../CONTRIBUTING.md) and the Ticket form (`.github/ISSUE_TEMPLATE/ticket.yml`): the form's labels as `### ` headings, in the form's order. Blank issues are disabled, and `gh issue create` bypasses the form, so the shape is the writer's job.
-- Every issue is typed (Bug, Feature, Task) and labelled (`bug`, `enhancement`, or none), and carries Priority, Size and Estimate on the board. `/create-issue` (`.claude/skills/create-issue/SKILL.md`) does all of this from prose and is the way to file one; a hand-run `gh issue create` reproduces its §5 and §6.
-- Where an issue stands in the work is the board's Status column (Backlog, Todo, Research, Plan, Implement, Present, Observe, Done), read visually. Labels never stand in for it.
+- Every new issue is typed (Bug, Feature, Task) and labelled (`bug`, `enhancement`, `documentation`, or none), and carries Priority, Size and Estimate on the board. `/create-issue` (`.claude/skills/create-issue/SKILL.md`) does all of this from prose and is the way to file one; a hand-run `gh issue create` reproduces its §5 and §6.
+- Where an issue stands in the work is the board's Status column (Backlog, Todo, Research / Finding Facts, Plan / Choosing Approach, Implement / Building, Present / In Review, Observe / Checking Production, Done), read visually. Labels never stand in for it.
 
 ## Conventions
 

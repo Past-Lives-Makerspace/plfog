@@ -14,6 +14,6 @@ When a skill mentions a role (e.g. "apply the AFK-ready triage label"), use the 
 
 All five labels exist on the repo. `wontfix` predates this file, as do the category labels `bug` and `enhancement`; the other four were created on 2026-09-19 for `/triage`.
 
-These are a triage vocabulary, not a progress view. Where an issue stands in the work is the board's Status column (Backlog, Todo, Research, Plan, Implement, Present, Observe, Done), and `/triage` never moves that. `ready-for-agent` on an issue means it is specified well enough for `/drive`, not that anyone has started.
+These are a triage vocabulary, not a progress view. Where an issue stands in the work is the board's Status column (Backlog, Todo, Research / Finding Facts, Plan / Choosing Approach, Implement / Building, Present / In Review, Observe / Checking Production, Done), and `/triage` never moves that. `ready-for-agent` on an issue means it is specified well enough for `/drive`, not that anyone has started.
 
 Edit the right-hand column to match whatever vocabulary you actually use.
