@@ -139,7 +139,19 @@ def describe_brand():
             "brand_support_email": "info@pastlives.space",
             "brand_website_url": "https://pastlives.space",
             "brand_website_display": "pastlives.space",
+            "brand_google_play_url": "https://play.google.com/store/apps/details?id=app.pastlives.hub",
+            "brand_app_store_url": "",
         }
+
+    def it_reflects_an_app_store_url_once_it_is_filled_in():
+        # #467: the day Apple approves the app, the setting flips every surface, no deploy.
+        config = SiteConfiguration.load()
+        config.app_store_url = "https://apps.apple.com/app/id1234567890"
+        config.save()
+
+        rf = RequestFactory()
+        request = rf.get("/")
+        assert brand(request)["brand_app_store_url"] == "https://apps.apple.com/app/id1234567890"
 
     def it_reflects_an_edited_org_name():
         config = SiteConfiguration.load()

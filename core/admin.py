@@ -104,6 +104,8 @@ class SiteConfigurationAdmin(ModelAdmin):
                     "org_primary_color",
                     "org_support_email",
                     "org_website_url",
+                    "google_play_url",
+                    "app_store_url",
                 ],
                 "description": "Your organization's identity. These strings and this logo appear across the member hub, the public pages, and the privacy policy.",
             },

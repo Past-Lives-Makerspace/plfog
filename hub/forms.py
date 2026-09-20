@@ -994,6 +994,8 @@ class SiteSettingsForm(forms.ModelForm):
             "org_primary_color",
             "org_support_email",
             "org_website_url",
+            "google_play_url",
+            "app_store_url",
             "registration_mode",
             "sync_classes_enabled",
             "classes_calendar_color",

@@ -71,6 +71,11 @@ def describe_brand_fields_on_the_form():
         assert "org_support_email" in SiteSettingsForm.Meta.fields
         assert "org_website_url" in SiteSettingsForm.Meta.fields
 
+    def it_declares_the_two_store_link_fields():
+        # #467: the store badges are switched on from the Brand tile, not a deploy.
+        assert "google_play_url" in SiteSettingsForm.Meta.fields
+        assert "app_store_url" in SiteSettingsForm.Meta.fields
+
     def it_renders_the_color_field_through_the_color_picker(client: Client):
         _superuser(client)
         content = client.get(reverse("hub_admin_site_settings")).content.decode()
@@ -91,6 +96,8 @@ def describe_brand_fields_on_the_form():
                 org_primary_color="",
                 org_support_email="",
                 org_website_url="",
+                google_play_url="",
+                app_store_url="",
             ),
             instance=config,
         )
@@ -113,6 +120,13 @@ def describe_brand_tab_render():
         assert content.count('name="org_primary_color"') == 1
         assert content.count('name="org_support_email"') == 1
         assert content.count('name="org_website_url"') == 1
+
+    def it_renders_each_store_link_input_exactly_once(client: Client):
+        # A brand field missing from the General tab's exclusion list renders twice.
+        _superuser(client)
+        content = client.get(reverse("hub_admin_site_settings")).content.decode()
+        assert content.count('name="google_play_url"') == 1
+        assert content.count('name="app_store_url"') == 1
 
     def it_makes_the_settings_form_multipart(client: Client):
         _superuser(client)
@@ -154,6 +168,8 @@ def describe_brand_save():
                 org_primary_color="#123456",
                 org_support_email="help@fletcher.test",
                 org_website_url="https://fletcher.test",
+                google_play_url="https://play.google.com/store/apps/details?id=test.fletcher",
+                app_store_url="https://apps.apple.com/app/id1234567890",
             ),
         )
         assert response.status_code == 302
@@ -164,6 +180,8 @@ def describe_brand_save():
         assert config.org_primary_color == "#123456"
         assert config.org_support_email == "help@fletcher.test"
         assert config.org_website_url == "https://fletcher.test"
+        assert config.google_play_url == "https://play.google.com/store/apps/details?id=test.fletcher"
+        assert config.app_store_url == "https://apps.apple.com/app/id1234567890"
 
     def it_redirects_back_to_the_brand_tab(client: Client):
         _superuser(client)

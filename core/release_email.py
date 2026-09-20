@@ -44,10 +44,6 @@ _FEATURE_SHOT_PREFIX = "email/features"
 # The hub home page ("Visit the Member Portal") — the release email's primary CTA target.
 _CTA_LABEL = "Visit the Member Portal"
 
-# The Play Store listing for the Past Lives mobile app — surfaced as a "Get the app"
-# badge in the release email footer (iOS not yet published).
-_PLAY_STORE_URL = "https://play.google.com/store/apps/details?id=app.pastlives.hub"
-
 
 @dataclass(frozen=True)
 class FeaturePage:
@@ -310,7 +306,12 @@ def _release_cta_url() -> str:
 
 
 def _release_text(subject: str, intro: str, cards: list[Card], cta_url: str) -> str:
-    """The plain-text (.txt) part, kept in sync with the HTML: subject, intro, cards, CTA, footer."""
+    """The plain-text (.txt) part, kept in sync with the HTML: subject, intro, cards, CTA, footer.
+
+    The footer is the shared ``_footer.txt`` every text email ends with, so the "Get the app"
+    store links (#467) and the tokenised preferences link come from one place, exactly as the
+    HTML part's ``_footer.html`` include does.
+    """
     lines: list[str] = [subject, ""]
     intro_text = render_rich_email_text(intro) if intro else ""
     if intro_text:
@@ -320,12 +321,7 @@ def _release_text(subject: str, intro: str, cards: list[Card], cta_url: str) -> 
         lines += [f"• {bullet}" for bullet in card.bullets]
         lines.append("")
     lines += [f"{_CTA_LABEL}: {cta_url}", ""]
-    lines.append("The Past Lives Member Portal is officially on the Play Store. iOS coming soon.")
-    lines.append(f"Get it on Google Play: {_PLAY_STORE_URL}")
-    lines.append("")
-    lines.append("You're getting this message because you have a Past Lives Makerspace account.")
-    lines.append(f"Manage your email preferences or unsubscribe: {settings.MEMBER_BASE_URL}/settings/")
-    return "\n".join(lines)
+    return "\n".join(lines) + render_to_string("membership/emails/_footer.txt")
 
 
 def render_release_email(
@@ -366,7 +362,6 @@ def render_release_email(
             "cards": included,
             "cta_url": cta_url,
             "cta_label": _CTA_LABEL,
-            "play_store_url": _PLAY_STORE_URL,
         },
     )
     text = _release_text(subject, intro, included, cta_url)
