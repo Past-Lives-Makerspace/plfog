@@ -37,12 +37,12 @@ def describe_SiteConfiguration_brand_defaults():
         config = SiteConfiguration.load()
         assert bool(config.org_logo) is False
 
-    def it_defaults_the_store_links_to_android_live_and_ios_unlaunched():
-        # #467: the Play listing is live, so it is the default; a blank App Store URL is
-        # the "not launched" state every surface reads as "iOS coming soon".
+    def it_defaults_the_store_links_to_the_live_listings():
+        # #467: both listings are live, so both are defaults; a blank one is the "not launched"
+        # state that leaves that badge out everywhere.
         config = SiteConfiguration.load()
         assert config.google_play_url == "https://play.google.com/store/apps/details?id=app.pastlives.hub"
-        assert config.app_store_url == ""
+        assert config.app_store_url == "https://apps.apple.com/us/app/past-lives-makerspace/id6796557084"
 
     def it_survives_load_on_a_fresh_database():
         # A data migration (0003) already seeds pk=1 on a fresh database, so ``load()``
