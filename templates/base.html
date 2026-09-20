@@ -61,6 +61,8 @@
       }
     </script>
     <script src="{% static 'js/native-push.js' %}" defer></script>
+    {# Reveals the "Get the app" store badges (login page, landing hero) in a browser; hidden in the native app. #}
+    <script src="{% static 'js/app-store-badges.js' %}" defer></script>
     {% comment %}Biometric sign in for the native app. Loaded here for the login page (the
     unlock button lives there) and again from hub/base.html, which is a separate document
     rather than a child of this one. The file no-ops in a browser and in any app build that

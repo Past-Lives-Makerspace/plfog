@@ -1,0 +1,6 @@
+bump = "minor"
+date = "2026-09-19"
+title = "Get the app from the portal"
+changes = [
+  "The sign in page, your home page, the sidebar and the front door now show Get it on Google Play and Download on the App Store badges for the Member Portal app.",
+]

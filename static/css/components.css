@@ -1647,3 +1647,54 @@
     margin: 0;
     font-size: 0.85rem;
 }
+
+
+/* "Get the app" store badges (#467): templates/includes/app_store_badges.html, on the member
+   home as a card and in the sidebar tray (the --tray modifier lives in hub.css). The block starts
+   hidden and static/js/app-store-badges.js reveals it in a browser; the native app never sees it.
+   [hidden] is an explicit rule so the flex rule below cannot outrank the attribute. The badge
+   artwork is official and fixed colour: Apple's minimum is 40px tall, and Google's PNG carries
+   its own clear space, so it is 52px tall to show the badge itself at 40px, level with Apple's. */
+.pl-app-badges[hidden] {
+    display: none;
+}
+
+.pl-app-badges {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 0.75rem;
+}
+
+/* On the home card the heading keeps the sibling cards' 1rem rhythm: its own margin plus the
+   flex gap above add up to it, instead of stacking on top of it. */
+.pl-app-badges .pl-home-heading {
+    margin-bottom: 0.25rem;
+}
+
+.pl-app-badges__caption {
+    margin: 0;
+    font-size: 0.9375rem;
+    color: var(--hub-text-muted, #8b97a8);
+}
+
+.pl-app-badges__links {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.5rem 0.75rem;
+}
+
+.pl-app-badges__link {
+    display: inline-flex;
+    line-height: 0;
+}
+
+.pl-app-badges__img {
+    height: 40px;
+    width: auto;
+}
+
+.pl-app-badges__img--play {
+    height: 52px;
+}

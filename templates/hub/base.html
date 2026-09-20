@@ -96,6 +96,10 @@
     settings card both live on hub pages. The file no-ops in a browser and in an app build
     without the plugin, and guards against running twice.{% endcomment %}
     <script defer src="{% static 'js/biometric-auth.js' %}"></script>
+    {% comment %}Reveals the "Get the app" store badges (the home card and the sidebar tray) in a
+    browser and leaves them hidden in the native app. Head, so it binds its afterSettle listener
+    once; the reveal itself re-runs on every boosted arrival.{% endcomment %}
+    <script defer src="{% static 'js/app-store-badges.js' %}"></script>
     {% block extra_head %}{% endblock %}
 </head>
 <body class="{% block body_class %}{% endblock %}" data-pl-authenticated="1" hx-boost="true" hx-ext="head-support" x-data="{ sidebarOpen: window.innerWidth > 768 ? ((localStorage.getItem('hubSidebarOpen') !== null) ? (localStorage.getItem('hubSidebarOpen') === '1') : true) : false }" x-init="$watch('sidebarOpen', v => { if (window.innerWidth > 768) localStorage.setItem('hubSidebarOpen', v ? '1' : '0') })">
@@ -413,6 +417,7 @@
                     </svg>
                 </a>
             </div>
+            {% include "includes/app_store_badges.html" with variant="tray" %}
             <a href="{% url 'hub_beta_feedback' %}"
                class="hub-sidebar__link hub-sidebar__link--feedback {% active_nav 'hub_beta_feedback' %}"
                hx-boost="false">
