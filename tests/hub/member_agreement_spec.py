@@ -12,11 +12,11 @@ class DescribeHubMemberAgreement:
         from tests.membership.factories import MemberFactory, UserFactory
 
         
-    user = UserFactory()
-    member = MemberFactory(status="active")
-    member.user = user
-    member.save()
-    return member
+        user = UserFactory()
+        member = MemberFactory(status="active")
+        member.user = user
+        member.save()
+        return member
 
     @pytest.fixture
     def inactive_member(self):
