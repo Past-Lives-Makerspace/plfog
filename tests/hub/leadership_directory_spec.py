@@ -54,6 +54,15 @@ def _page(client: Client) -> bytes:
     return response.content
 
 
+def _admin_page(client: Client) -> bytes:
+    member = _login(client)
+    member.fog_role = Member.FogRole.ADMIN
+    member.save(update_fields=["fog_role"])
+    response = client.get(reverse("hub_leadership_directory"))
+    assert response.status_code == 200
+    return response.content
+
+
 def _section(body: bytes, section_id: str) -> bytes:
     """The body from the given section's opening tag onward."""
     return body[body.index(f'id="{section_id}"'.encode()) :]
@@ -123,6 +132,8 @@ def describe_leadership_directory():
         LeadershipListingFactory(member=MemberFactory(pronouns="they/them", profile_photo=_photo()))
         body = _page(client)
         assert b'class="pl-leader-card__photo"' in body
+        # The photo sits inside the round medallion, the Member Directory's centre-square crop.
+        assert body.index(b'class="pl-leader-card__avatar"') < body.index(b'class="pl-leader-card__photo"')
         assert b'<span class="pl-leader-card__pronouns">they/them</span>' in body
         assert b'class="pl-leader-card__initials"' not in body
 
@@ -138,6 +149,22 @@ def describe_leadership_directory():
         assert b'class="pl-leader-card__photo"' not in body
         assert b"they/them" not in body
         assert b'<span class="pl-leader-card__initials" aria-hidden="true">QQ</span>' in body
+        assert body.index(b'class="pl-leader-card__avatar"') < body.index(b'aria-hidden="true">QQ</span>')
+
+    def it_keeps_the_medallion_off_the_guild_cards(client: Client):
+        GuildFactory(name="Unbadged Guild")
+        assert b"pl-leader-card__avatar" not in _section(_page(client), "leadership-guilds")
+
+    def it_shows_an_admin_the_edit_link_in_the_hero(client: Client):
+        body = _admin_page(client)
+        hero = body[: body.index(b'id="leadership-team"')]
+        assert b'class="pl-leadership__admin"' in hero
+        assert reverse("hub_admin_leadership").encode() in hero
+
+    def it_hides_the_edit_link_from_a_member(client: Client):
+        body = _page(client)
+        assert b'class="pl-leadership__admin"' not in body
+        assert reverse("hub_admin_leadership").encode() not in body
 
     def it_links_the_discord_profile_only_when_the_account_is_verified(client: Client):
         LeadershipListingFactory(member=MemberFactory(discord_handle="@linked", discord_user_id="123456"))

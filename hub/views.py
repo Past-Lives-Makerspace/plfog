@@ -43,8 +43,11 @@ from hub.forms import (
     DiscordGuildEmojiFormSet,
     GuildEditForm,
     GuildRoleFormSet,
+    LeadershipAddForm,
     LeadershipListingForm,
+    LeadershipPageForm,
     LeadershipRoleFormSet,
+    LeadershipRosterEditor,
     MeetingItemProposalForm,
     MemberAdminEditForm,
     MemberCapabilitiesForm,
@@ -292,6 +295,8 @@ def leadership_directory(request: HttpRequest) -> HttpResponse:
     # sidebar on this one page.
     ctx.update(
         {
+            # The Edit this page button in the hero; view-as aware, like the Admin Tools tile.
+            "is_admin": _viewing_as_admin(request),
             "leadership_page": LeadershipPage.load(),
             "listings": LeadershipListing.objects.listed(),
             "guild_cards": Guild.objects.visible()
@@ -4145,6 +4150,7 @@ def hub_admin_tools(request: HttpRequest) -> HttpResponse:
             "tool_notifications": is_admin,
             "tool_site_settings": is_admin,
             "tool_slideshow": is_admin,
+            "tool_leadership": is_admin,
             "tool_push_test": is_admin,
         },
     )
@@ -7768,6 +7774,71 @@ def admin_slideshow_slides_save(request: HttpRequest) -> HttpResponse:
         inst.save()
     messages.success(request, "Slides saved.")
     return redirect("hub_admin_slideshow")
+
+
+def _render_leadership_admin(
+    request: HttpRequest,
+    *,
+    page_form: LeadershipPageForm | None = None,
+    editor: LeadershipRosterEditor | None = None,
+    add_form: LeadershipAddForm | None = None,
+) -> HttpResponse:
+    """Render the Leadership Directory admin with whichever bound form is re-rendering its errors."""
+    ctx = _get_hub_context(request)
+    return render(
+        request,
+        "hub/admin/leadership.html",
+        {
+            **ctx,
+            "page_form": page_form or LeadershipPageForm(instance=LeadershipPage.load()),
+            "editor": editor or LeadershipRosterEditor(),
+            "add_form": add_form or LeadershipAddForm(),
+        },
+    )
+
+
+@fog_admin_required
+def hub_admin_leadership(request: HttpRequest) -> HttpResponse:
+    """The Leadership Directory admin: the page wording, and the team's order and role lines (#476).
+
+    Three sibling forms on one page, the Slideshow page's shape. This view renders the page
+    and saves Page Wording; the roster and Add a Person post to their own endpoints below.
+    """
+    if request.method == "POST":
+        form = LeadershipPageForm(request.POST, instance=LeadershipPage.load())
+        if form.is_valid():
+            form.save()
+            messages.success(request, "Page wording saved.")
+            return redirect("hub_admin_leadership")
+        messages.error(request, "Couldn't save the page wording. Check the highlighted fields.")
+        return _render_leadership_admin(request, page_form=form)
+    return _render_leadership_admin(request)
+
+
+@fog_admin_required
+@require_POST
+def admin_leadership_add(request: HttpRequest) -> HttpResponse:
+    """Add a Person: list a member last with their first role line, or relist someone taken off earlier."""
+    form = LeadershipAddForm(request.POST)
+    if not form.is_valid():
+        messages.error(request, "Couldn't add that person. Check the highlighted fields.")
+        return _render_leadership_admin(request, add_form=form)
+    listing = form.save()
+    messages.success(request, f"Added {listing.member.display_name} to the Leadership Directory.")
+    return redirect("hub_admin_leadership")
+
+
+@fog_admin_required
+@require_POST
+def admin_leadership_roster_save(request: HttpRequest) -> HttpResponse:
+    """Save the team: the order, who stays listed, and every person's role lines, in one POST."""
+    editor = LeadershipRosterEditor(request.POST)
+    if not editor.is_valid():
+        messages.error(request, "Couldn't save the team. Check the highlighted fields.")
+        return _render_leadership_admin(request, editor=editor)
+    editor.save()
+    messages.success(request, "Team saved.")
+    return redirect("hub_admin_leadership")
 
 
 # ── Interactive space map ────────────────────────────────────────────────────
