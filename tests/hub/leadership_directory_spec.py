@@ -161,6 +161,15 @@ def describe_leadership_directory():
         expected = f"Updated {date_filter(timezone.localtime(stamp))}".encode()
         assert b'<span class="pl-leadership__updated">' + expected in body
 
+    def it_ignores_changes_to_profiles_nobody_can_see(client: Client):
+        shown = LeadershipListingFactory()
+        old = timezone.now() - timedelta(days=30)
+        LeadershipListing.objects.filter(pk=shown.pk).update(updated_at=old)
+        LeadershipListingFactory(is_listed=False)
+        body = _page(client)
+        expected = f"Updated {date_filter(timezone.localtime(old))}".encode()
+        assert b'<span class="pl-leadership__updated">' + expected in body
+
     def it_shows_no_updated_line_and_no_team_cards_when_nobody_is_listed(client: Client):
         body = _page(client)
         assert b"pl-leadership__updated" not in body

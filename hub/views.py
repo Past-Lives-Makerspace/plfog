@@ -298,7 +298,8 @@ def leadership_directory(request: HttpRequest) -> HttpResponse:
             .select_related("guild_lead")
             .prefetch_related("staff_memberships__member")
             .order_by("name"),
-            "last_updated": LeadershipListing.objects.last_updated(),
+            # Over listed rows only: an edit to a profile nobody can see must not move the date.
+            "last_updated": LeadershipListing.objects.listed().last_updated(),
         }
     )
     return render(request, "hub/leadership_directory.html", ctx)
