@@ -33,7 +33,7 @@ from __future__ import annotations
 
 import json
 from collections.abc import Callable
-from urllib.parse import quote
+from urllib.parse import quote, urlsplit
 
 from django.conf import settings
 from django.http import Http404, HttpRequest, HttpResponse, HttpResponsePermanentRedirect, HttpResponseRedirect
@@ -238,3 +238,67 @@ class ToastFlashMiddleware:
                     path="/",
                 )
         return response
+
+
+class MemberAgreementMiddleware:
+    """Redirects active members to the Member Agreement if required and not yet accepted."""
+
+    def __init__(self, get_response: Callable[[HttpRequest], HttpResponse]) -> None:
+        self.get_response = get_response
+
+    @staticmethod
+    def _is_agreement_document(request: HttpRequest) -> bool:
+        """Allow reading the configured document on this origin, without opening other routes."""
+        from core.models import SiteConfiguration
+
+        agreement = urlsplit(SiteConfiguration.load().member_agreement_url)
+        current = urlsplit(request.build_absolute_uri())
+        return (
+            request.method in ("GET", "HEAD")
+            and agreement.scheme == current.scheme
+            and agreement.netloc == current.netloc
+            and (agreement.path or "/") == current.path
+            and agreement.query == current.query
+        )
+
+    def __call__(self, request: HttpRequest) -> HttpResponse:
+        if not request.user.is_authenticated:
+            return self.get_response(request)
+        if getattr(request, "surface", None) != "members":
+            return self.get_response(request)
+
+        path = request.path
+        if (
+            path.startswith("/accounts/")
+            or path.startswith("/admin/")
+            or path.startswith("/api/")
+            or path.startswith("/o/")
+            or path.startswith("/health/")
+            or path.startswith("/sw.js")
+            or path.startswith("/manifest.json")
+            or path == "/agreement/"
+        ):
+            return self.get_response(request)
+
+        member = getattr(request.user, "member", None)
+        if member and member.needs_member_agreement:
+            if self._is_agreement_document(request):
+                return self.get_response(request)
+
+            from core.htmx import wants_fragment
+            from django.urls import reverse
+            from django.shortcuts import redirect
+            import urllib.parse
+
+            next_url = urllib.parse.quote(request.get_full_path())
+            agreement_url = f"{reverse('hub_member_agreement')}?next={next_url}"
+            if wants_fragment(request):
+                from django.http import HttpResponse
+
+                res = HttpResponse(status=200)
+                res["HX-Redirect"] = agreement_url
+                return res
+
+            return redirect(agreement_url)
+
+        return self.get_response(request)

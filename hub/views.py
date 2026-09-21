@@ -2752,6 +2752,55 @@ def guild_updates_prompt(request: HttpRequest) -> HttpResponse:
     )
 
 
+@login_required
+def hub_member_agreement(request: HttpRequest) -> HttpResponse:
+    """The one-time Member Agreement prompt.
+
+    Shown if `Member.needs_member_agreement` is true, with a link to the document
+    set in Site Settings. POSTing with the `agree` checkbox saves a
+    MemberAgreementAcceptance record, logging the URL they agreed to and their IP.
+    """
+    from core.models import SiteConfiguration
+    from django.utils.http import url_has_allowed_host_and_scheme
+    from hub.forms import MemberAgreementForm
+
+    member = _get_member(request)
+    if not member or member.status != member.Status.ACTIVE:
+        return redirect("hub_home")
+
+    config = SiteConfiguration.objects.first()
+    if not config or not config.member_agreement_required or not config.member_agreement_url:
+        return redirect("hub_home")
+
+    if not member.needs_member_agreement:
+        next_url = request.GET.get("next") or request.POST.get("next")
+        if next_url and url_has_allowed_host_and_scheme(url=next_url, allowed_hosts={request.get_host()}):
+            return redirect(next_url)
+        return redirect("hub_home")
+
+    form = MemberAgreementForm(request.POST if request.method == "POST" else None)
+    if request.method == "POST":
+        if form.is_valid():
+            member.accept_member_agreement(request, config.member_agreement_url)
+            next_url = request.POST.get("next")
+            if next_url and url_has_allowed_host_and_scheme(url=next_url, allowed_hosts={request.get_host()}):
+                return redirect(next_url)
+            return redirect("hub_home")
+        messages.error(request, str(form.errors["agree"][0]))
+
+    return render(
+        request,
+        "hub/member_agreement.html",
+        {
+            **_get_hub_context(request),
+            "member": member,
+            "agreement_url": config.member_agreement_url,
+            "form": form,
+            "next": request.GET.get("next", ""),
+        },
+    )
+
+
 def user_settings(request: HttpRequest) -> HttpResponse:
     """Tabbed user settings page — Guilds, Notifications, Profile, Account.
 
@@ -7518,6 +7567,7 @@ _SITE_SETTINGS_TABS = frozenset(
         "automations",
         "announcements",
         "features",
+        "member-agreement",
         "discord",
         "emails",
     }

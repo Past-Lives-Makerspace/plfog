@@ -74,7 +74,9 @@ def _preview_as(client: Client, role: str) -> None:
 # feature_flags context processor added one read (FeatureSwitch.objects.as_context(), ONE query
 # for every state at once, not one per nav entry) and the removal of the wiki route gate took one
 # away. If this ever climbs by eight instead of one, something started asking per feature.
-_HOME_QUERY_BUDGET = 33
+# 34 since the Member Agreement gate added one SiteConfiguration read per request.
+# That fixed cost must stay the same with one page or a full list of cards.
+_HOME_QUERY_BUDGET = 34
 
 
 def describe_the_feature_switch():
@@ -674,6 +676,9 @@ def describe_the_review_round_fixes():
             WikiPageFactory(title="One", guild=guild, kind=WikiPage.Kind.MACHINE)
             baseline = len(client.get(reverse("hub_wiki_home")).context["recent_pages"])
             assert baseline == 1
+            with django_assert_num_queries(_HOME_QUERY_BUDGET):
+                response = client.get(reverse("hub_wiki_home"))
+            assert len(response.context["recent_pages"]) == 1
             for index in range(12):
                 WikiPageFactory(
                     title=f"Row {index}",
@@ -684,6 +689,7 @@ def describe_the_review_round_fixes():
             with django_assert_num_queries(_HOME_QUERY_BUDGET):
                 response = client.get(reverse("hub_wiki_home"))
             assert response.status_code == 200
+            assert len(response.context["recent_pages"]) > baseline
 
     def describe_the_search_count_line():
         def it_reports_the_real_help_total_past_the_page_cap(client: Client):

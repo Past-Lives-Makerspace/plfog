@@ -494,6 +494,17 @@ class SiteConfiguration(models.Model):
         default=RegistrationMode.INVITE_ONLY,
         help_text="Open — anyone can sign up. Invite Only — only people with an invite can register.",
     )
+    member_agreement_required = models.BooleanField(
+        default=False,
+        verbose_name="Require members to accept the Member Agreement",
+        help_text="When checked, active members must accept the agreement to access the hub.",
+    )
+    member_agreement_url = models.URLField(
+        blank=True,
+        default="",
+        verbose_name="Member Agreement URL",
+        help_text="URL to the Member Agreement (e.g., in the Knowledge Base).",
+    )
     general_calendar_url = models.URLField(
         blank=True,
         default="",
@@ -956,6 +967,13 @@ class SiteConfiguration(models.Model):
         delete_orphan_on_replace(self, "org_logo")
         super().save(*args, **kwargs)
 
+    def clean(self) -> None:
+        super().clean()
+        if self.member_agreement_required and not self.member_agreement_url:
+            from django.core.exceptions import ValidationError
+
+            raise ValidationError({"member_agreement_url": "Required when Member Agreement is enforced."})
+
     @classmethod
     def load(cls) -> SiteConfiguration:
         """Load the singleton instance, creating it with defaults if needed."""
@@ -1413,6 +1431,7 @@ class SiteActivity(models.Model):
     class Kind(models.TextChoices):
         LOGIN = "login", "Logged in"
         LOGOUT = "logout", "Logged out"
+        ACCEPTED_MEMBER_AGREEMENT = "accepted_member_agreement", "Accepted the Member Agreement"
         PROFILE_UPDATED = "profile_updated", "Updated profile"
         VOTE_SUBMITTED = "vote_submitted", "Submitted vote"
         VOTE_CHANGED = "vote_changed", "Changed vote"

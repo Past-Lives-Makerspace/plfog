@@ -701,6 +701,17 @@ class NotificationEmailForm(forms.Form):
         member.save(update_fields=["notification_email"])
 
 
+class MemberAgreementForm(forms.Form):
+    """Require explicit consent before recording a member's agreement."""
+
+    agree = forms.BooleanField(
+        required=True,
+        label="I have read and agree to the Member Agreement.",
+        widget=forms.CheckboxInput(attrs={"x-model": "agreed"}),
+        error_messages={"required": "You must check the box to agree."},
+    )
+
+
 class GuildUpdatesPromptForm(forms.Form):
     """Validates the first-login guild updates picks (active guild pks only).
 
@@ -1200,6 +1211,8 @@ class SiteSettingsForm(forms.ModelForm):
             "google_play_url",
             "app_store_url",
             "registration_mode",
+            "member_agreement_required",
+            "member_agreement_url",
             "sync_classes_enabled",
             "classes_calendar_color",
             "legacy_cms_sync_enabled",
@@ -1243,6 +1256,14 @@ class SiteSettingsForm(forms.ModelForm):
             "public_google_calendar_id": forms.TextInput(attrs={"placeholder": "abc123@group.calendar.google.com"}),
             "discord_info_links_content": forms.Textarea(attrs={"rows": 14}),
         }
+
+    def clean(self) -> dict[str, Any]:
+        cleaned = cast(dict[str, Any], super().clean())
+        required = cleaned.get("member_agreement_required")
+        url = cleaned.get("member_agreement_url")
+        if required and not url:
+            self.add_error("member_agreement_url", "A URL is required if the agreement is enabled.")
+        return cleaned
 
     def clean_discord_info_links_content(self) -> str:
         """Cap the links copy at Discord's embed-description limit before it can 400 a sync."""
