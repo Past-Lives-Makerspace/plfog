@@ -197,9 +197,6 @@ class MemberQuerySet(models.QuerySet):
         """Members who have not accepted the member agreement."""
         return self.filter(member_agreement_acceptances__isnull=True)
 
-    agreement_accepted = accepted_agreement
-    agreement_missing = missing_agreement
-
     def leadership_candidates(self) -> MemberQuerySet:
         """Members an admin may add to the Leadership Directory: everyone not on it, by name.
 
