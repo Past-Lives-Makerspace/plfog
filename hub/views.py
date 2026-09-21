@@ -2756,8 +2756,8 @@ def guild_updates_prompt(request: HttpRequest) -> HttpResponse:
 def hub_member_agreement(request: HttpRequest) -> HttpResponse:
     """The one-time Member Agreement prompt.
 
-    Shown if `Member.needs_member_agreement` is true. The text is loaded via an iframe
-    from the URL set in Site Settings. POSTing with the `agree` checkbox saves a
+    Shown if `Member.needs_member_agreement` is true, with a link to the document
+    set in Site Settings. POSTing with the `agree` checkbox saves a
     MemberAgreementAcceptance record, logging the URL they agreed to and their IP.
     """
     from core.models import SiteConfiguration
@@ -2778,8 +2778,8 @@ def hub_member_agreement(request: HttpRequest) -> HttpResponse:
             return redirect(next_url)
         return redirect("hub_home")
 
+    form = MemberAgreementForm(request.POST if request.method == "POST" else None)
     if request.method == "POST":
-        form = MemberAgreementForm(request.POST)
         if form.is_valid():
             member.accept_member_agreement(request, config.member_agreement_url)
             next_url = request.POST.get("next")
@@ -2795,6 +2795,7 @@ def hub_member_agreement(request: HttpRequest) -> HttpResponse:
             **_get_hub_context(request),
             "member": member,
             "agreement_url": config.member_agreement_url,
+            "form": form,
             "next": request.GET.get("next", ""),
         },
     )

@@ -10536,17 +10536,3 @@ mark { background: color-mix(in srgb, var(--color-tuscan-yellow) 30%, transparen
        message input is squeezed to nothing on a phone. */
     .pl-automation-card--feature { grid-template-columns: minmax(0, 1fr); }
 }
-
-/* ── Member Agreement ────────────────────────────────────────────────────────
-   iframe styling for the member agreement page prompt. */
-.pl-agreement-container {
-    border: 1px solid var(--hub-border);
-    border-radius: 4px;
-    height: 400px;
-    margin-bottom: 1rem;
-}
-.pl-agreement-iframe {
-    width: 100%;
-    height: 100%;
-    border: none;
-}

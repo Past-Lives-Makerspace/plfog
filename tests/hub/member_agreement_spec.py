@@ -1,6 +1,8 @@
 import pytest
 from django.contrib.messages import get_messages
 from django.test import Client
+from django.test import override_settings
+from django.test.html import parse_html
 from django.urls import reverse
 from core.models import SiteConfiguration, SiteActivity
 from membership.models import MemberAgreementAcceptance, Member
@@ -71,7 +73,48 @@ def describe_hub_member_agreement() -> None:
         client.force_login(active_member.user)
         response = client.get(reverse("hub_member_agreement"))
         assert response.status_code == 200
-        assert b"https://example.com" in response.content
+        link = (
+            '<a id="member-agreement-document" href="https://example.com" target="_blank" '
+            'rel="noopener" hx-boost="false">Read the Member Agreement (opens in a new tab)</a>'
+        )
+        assert parse_html(link) in parse_html(response.content.decode())
+        assert b"<iframe" not in response.content
+
+    @override_settings(X_FRAME_OPTIONS="DENY")
+    def it_can_read_the_knowledge_base_agreement_before_accepting(client: Client, active_member: Member) -> None:
+        from tests.membership.factories import WikiPageFactory
+
+        document = WikiPageFactory(
+            title="Member Agreement For Reading Test",
+            body="Keep the shared work areas clear after every project.",
+        )
+        document_url = f"http://testserver{document.get_absolute_url()}"
+        config = SiteConfiguration.load()
+        config.member_agreement_required = True
+        config.member_agreement_url = document_url
+        config.save()
+        client.force_login(active_member.user)
+
+        prompt = client.get(reverse("hub_member_agreement"))
+        link = (
+            f'<a id="member-agreement-document" href="{document_url}" target="_blank" '
+            'rel="noopener" hx-boost="false">Read the Member Agreement (opens in a new tab)</a>'
+        )
+        assert parse_html(link) in parse_html(prompt.content.decode())
+        reading = client.get(document_url)
+        assert reading.status_code == 200
+        assert reading["X-Frame-Options"] == "DENY"
+        assert document.body.encode() in reading.content
+        assert not MemberAgreementAcceptance.objects.filter(member=active_member).exists()
+
+        blocked = client.get(reverse("hub_member_directory"))
+        assert blocked.status_code == 302
+        assert blocked.url.startswith(reverse("hub_member_agreement"))
+
+        accepted = client.post(reverse("hub_member_agreement"), {"agree": "on"})
+        assert accepted.status_code == 302
+        assert MemberAgreementAcceptance.objects.get(member=active_member).agreement_url == document_url
+        assert client.get(reverse("hub_member_directory")).status_code == 200
 
     @pytest.mark.parametrize("next_url", [None, "https://outside.example/", "/members/"])
     @pytest.mark.parametrize(

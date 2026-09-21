@@ -41,6 +41,46 @@ def describe_member_agreement_middleware() -> None:
 
         return MemberAgreementMiddleware(downstream)
 
+    @pytest.mark.parametrize(
+        ("document_url", "request_path", "method", "allowed"),
+        [
+            ("http://testserver/wiki/p/agreement/", "/wiki/p/agreement/", "GET", True),
+            ("http://testserver/wiki/p/agreement/", "/wiki/p/agreement/", "HEAD", True),
+            ("http://testserver/wiki/p/agreement/?edition=1#terms", "/wiki/p/agreement/?edition=1", "GET", True),
+            ("http://testserver", "/", "GET", True),
+            ("http://testserver/wiki/p/agreement/", "/wiki/p/agreement/", "POST", False),
+            ("http://testserver/wiki/p/agreement/", "/wiki/p/agreement/edit/", "GET", False),
+            ("http://elsewhere.example/wiki/p/agreement/", "/wiki/p/agreement/", "GET", False),
+            ("https://testserver/wiki/p/agreement/", "/wiki/p/agreement/", "GET", False),
+            ("http://testserver/wiki/p/agreement/?edition=1", "/wiki/p/agreement/?edition=2", "GET", False),
+        ],
+    )
+    def it_exempts_only_reading_the_configured_document(
+        rf: RequestFactory,
+        middleware: MemberAgreementMiddleware,
+        active_member: Member,
+        document_url: str,
+        request_path: str,
+        method: str,
+        allowed: bool,
+    ) -> None:
+        config = SiteConfiguration.load()
+        config.member_agreement_required = True
+        config.member_agreement_url = document_url
+        config.save()
+        request = rf.generic(method, request_path)
+        request.user = active_member.user
+        request.surface = "members"
+
+        response = middleware(request)
+
+        if allowed:
+            assert response.status_code == 200
+            assert response.content == b"Reached the requested page"
+        else:
+            assert response.status_code == 302
+            assert response["Location"].startswith(reverse("hub_member_agreement"))
+
     def it_allows_anonymous_requests(
         rf: RequestFactory, middleware: MemberAgreementMiddleware, enabled_agreement: None
     ) -> None:

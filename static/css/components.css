@@ -1730,13 +1730,6 @@
     margin: 0.25rem 0 1.5rem;
 }
 
-/* Member Agreement Modal */
-.pl-agreement-intro {
-  margin-bottom: 1rem;
-}
-.pl-agreement-checkbox {
-  margin-bottom: 1rem;
-}
 .pl-btn--block {
   width: 100%;
   display: block;

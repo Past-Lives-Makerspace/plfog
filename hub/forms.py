@@ -707,6 +707,7 @@ class MemberAgreementForm(forms.Form):
     agree = forms.BooleanField(
         required=True,
         label="I have read and agree to the Member Agreement.",
+        widget=forms.CheckboxInput(attrs={"x-model": "agreed"}),
         error_messages={"required": "You must check the box to agree."},
     )
 
