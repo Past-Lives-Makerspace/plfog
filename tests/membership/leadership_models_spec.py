@@ -11,7 +11,7 @@ from datetime import timedelta
 import pytest
 from django.utils import timezone
 
-from membership.models import Guild, GuildStaffMembership, LeadershipListing, LeadershipPage, LeadershipRole
+from membership.models import Guild, GuildStaffMembership, LeadershipListing, LeadershipPage, LeadershipRole, Member
 from tests.membership.factories import (
     GuildFactory,
     GuildStaffMembershipFactory,
@@ -148,3 +148,48 @@ def describe_Guild_co_leads():
         loaded = Guild.objects.prefetch_related("staff_memberships__member").get(pk=guild.pk)
         with django_assert_num_queries(0):
             assert len(loaded.co_leads) == 1
+
+
+def describe_Member_leadership_candidates():
+    def it_offers_everyone_not_on_the_page_by_name():
+        LeadershipListingFactory(member=MemberFactory(full_legal_name="Listed Lou"))
+        LeadershipListingFactory(is_listed=False, member=MemberFactory(full_legal_name="Zed Removed"))
+        MemberFactory(full_legal_name="Ada Never")
+        names = list(Member.objects.leadership_candidates().values_list("full_legal_name", flat=True))
+        assert "Listed Lou" not in names
+        assert names.index("Ada Never") < names.index("Zed Removed")
+
+
+def describe_LeadershipListing_list_member():
+    def it_creates_a_listing_after_the_last_listed_row_with_the_line():
+        LeadershipListingFactory(sort_order=4)
+        LeadershipListingFactory(is_listed=False, sort_order=9)  # an unlisted row never sets the pace
+        listing = LeadershipListing.objects.list_member(MemberFactory(), "Council Secretary", "sec@x.com")
+        assert (listing.is_listed, listing.sort_order) == (True, 5)
+        assert list(listing.roles.values_list("title", "email", "sort_order")) == [
+            ("Council Secretary", "sec@x.com", 0)
+        ]
+
+    def it_starts_at_zero_on_an_empty_page():
+        assert LeadershipListing.objects.list_member(MemberFactory(), "Founder", "").sort_order == 0
+
+    def it_relists_a_removed_member_last_and_adds_only_a_title_they_do_not_hold():
+        LeadershipListingFactory(sort_order=0)
+        removed = LeadershipListingFactory(is_listed=False, sort_order=0)
+        LeadershipRoleFactory(listing=removed, title="Old Title", email="old@x.com")
+        again = LeadershipListing.objects.list_member(removed.member, "Old Title", "")
+        assert again.pk == removed.pk
+        assert (again.is_listed, again.sort_order) == (True, 1)
+        assert list(again.roles.values_list("title", "email")) == [("Old Title", "old@x.com")]
+        LeadershipListing.objects.list_member(removed.member, "New Title", "new@x.com")
+        assert list(again.roles.values_list("title", "email", "sort_order")) == [
+            ("Old Title", "old@x.com", 0),
+            ("New Title", "new@x.com", 1),
+        ]
+
+    def it_adds_nothing_when_the_member_already_holds_the_title_twice():
+        removed = LeadershipListingFactory(is_listed=False)
+        LeadershipRoleFactory(listing=removed, title="Twice")
+        LeadershipRoleFactory(listing=removed, title="Twice", sort_order=1)
+        LeadershipListing.objects.list_member(removed.member, "Twice", "")
+        assert removed.roles.filter(title="Twice").count() == 2

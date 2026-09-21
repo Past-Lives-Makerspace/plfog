@@ -1,0 +1,236 @@
+{% extends "hub/base.html" %}
+{% load hub_tags static %}
+{% block title %}Leadership Directory{% endblock %}
+
+{% block extra_head %}
+<link rel="stylesheet" href="{% static 'css/leadership.css' %}">
+{% endblock %}
+
+{% block content %}
+{% comment %}
+The Leadership Directory admin (#476): three sibling forms, never nested, the Slideshow page's
+shape. Page Wording posts to this page; the team roster posts to its own save endpoint with the
+order, who stays listed and every person's role lines; Add a Person is a modal with a form of
+its own. The roster rows reuse the Slideshow row classes and its delegated reorder script (grip
+drag on desktop, up and down buttons on touch), which rewrites each row's hidden sort_order;
+Remove from page sets the row's hidden is_listed to False and submits, so the person keeps
+their role lines for the Details tab toggle to bring back. The page's Guild Leaders section has
+no editor here: it reads each guild's own settings.
+{% endcomment %}
+<div class="pl-leadership-admin" x-data="{}">
+  <div>
+    <h1 class="hub-page-title">Leadership Directory</h1>
+    <p class="pl-leadership-admin__lead">
+      Who is on the <a href="{% url 'hub_leadership_directory' %}">Leadership Directory</a>, in what order, and the words around them.
+      The guild cards come from each guild's own settings.
+    </p>
+  </div>
+
+  {# ---- Page wording ---- #}
+  <form method="post" action="{% url 'hub_admin_leadership' %}" class="hub-card pl-leadership-admin__card">
+    {% csrf_token %}
+    <h2 class="hub-detail-label pl-leadership-admin__title">Page Wording</h2>
+    <p class="hub-text-muted pl-leadership-admin__hint">The heading and lead at the top of the page, and both section headings. A blank intro hides its line.</p>
+    {% for field in page_form %}
+      {% include "components/form_field.html" with field=field %}
+    {% endfor %}
+    <div class="pl-leadership-admin__actions">
+      <button type="submit" class="pl-btn pl-btn--primary">Save</button>
+    </div>
+  </form>
+
+  {# ---- Team ---- #}
+  <form method="post" action="{% url 'hub_admin_leadership_roster_save' %}" class="hub-card pl-leadership-admin__card" id="leadership-roster-form">
+    {% csrf_token %}
+    <div class="pl-leadership-admin__head">
+      <h2 class="hub-detail-label pl-leadership-admin__title">Leadership &amp; Admin Team</h2>
+      <button type="button" class="hub-btn hub-btn--sm" @click="$dispatch('open-modal', 'leadership-add')">+ Add a person</button>
+    </div>
+    <p class="hub-text-muted pl-leadership-admin__hint">
+      Drag the grip, or use the arrows, to set the order the page shows. Edit opens a person's role lines.
+      Remove from page takes them off the page and keeps their lines for later. Save keeps all of it.
+    </p>
+    {{ editor.formset.management_form }}
+    {% for error in editor.formset.non_form_errors %}<p class="pl-field-error">{{ error }}</p>{% endfor %}
+    <div id="leadership-rows" class="pl-slideshow-rows">
+      {% for row in editor.rows %}
+        {% with form=row.form roles=row.roles member=row.form.instance.member %}
+        <div class="hub-card pl-slideshow-row pl-slide-card pl-roster-row" x-data="{ expanded: {{ row.expanded|yesno:'true,false' }} }">
+          {{ form.id }}{{ form.sort_order }}{{ form.is_listed }}
+          {% for error in form.non_field_errors %}<p class="pl-field-error">{{ error }}</p>{% endfor %}
+          <div class="pl-slide-summary">
+            <span class="pl-slide-grip" draggable="true" title="Drag to reorder" aria-label="Drag to reorder">⠿</span>
+            <span class="pl-roster-row__avatar" aria-hidden="true">
+              {% if member.profile_photo and member|is_public:"profile_photo" %}<img src="{{ member.profile_photo.url }}" alt="">{% else %}{{ member.display_name|initials }}{% endif %}
+            </span>
+            <span class="pl-slide-summary__main">
+              <span class="pl-slide-summary__title">{{ member.display_name }}</span>
+              <span class="pl-slide-summary__meta">
+                {% for role in form.instance.roles.all %}<span class="pl-slide-badge">{{ role.title }}</span>{% empty %}<span class="pl-roster-row__none">No role line yet</span>{% endfor %}
+              </span>
+            </span>
+            <span class="pl-slide-summary__actions">
+              <span class="pl-slide-move" role="group" aria-label="Reorder">
+                <button type="button" class="pl-slide-move__btn" data-move="up" title="Move up" aria-label="Move up">↑</button>
+                <button type="button" class="pl-slide-move__btn" data-move="down" title="Move down" aria-label="Move down">↓</button>
+              </span>
+              <button type="button" class="hub-btn hub-btn--sm" @click="expanded = !expanded" :aria-expanded="expanded" x-text="expanded ? 'Done' : 'Edit'">Edit</button>
+              <button type="button" class="pl-btn pl-btn--danger pl-btn--sm"
+                      onclick="document.getElementById('{{ form.is_listed.id_for_label }}').value = 'False'; this.form.requestSubmit();">
+                Remove from page
+              </button>
+            </span>
+          </div>
+          <div x-show="expanded" class="pl-slide-editor">
+            {{ roles.management_form }}
+            {% for error in roles.non_form_errors %}<p class="pl-field-error">{{ error }}</p>{% endfor %}
+            <div id="leadership-role-rows-{{ form.instance.pk }}">
+              {% for role_form in roles %}
+                <div class="pl-leadership-role">
+                  {{ role_form.id }}{{ role_form.sort_order }}
+                  <div class="pl-leadership-role__fields">
+                    <div>{% include "components/form_field.html" with field=role_form.title %}</div>
+                    <div>{% include "components/form_field.html" with field=role_form.email %}</div>
+                  </div>
+                  {% if role_form.instance.pk %}
+                    <div class="pl-leadership-role__flag">{{ role_form.DELETE }}</div>
+                    <button type="button" class="pl-btn pl-btn--danger pl-btn--sm pl-btn--spaced"
+                            onclick="document.getElementById('{{ role_form.DELETE.id_for_label }}').checked = true; this.form.requestSubmit();">
+                      Delete
+                    </button>
+                  {% else %}
+                    <button type="button" class="pl-btn pl-btn--danger pl-btn--sm pl-btn--spaced" onclick="this.closest('.pl-leadership-role').remove();">Remove</button>
+                  {% endif %}
+                </div>
+              {% endfor %}
+            </div>
+            {# Hidden empty-form template for this person, cloned by their + Add a role button. #}
+            <template id="leadership-role-empty-template-{{ form.instance.pk }}">
+              {% with roles.empty_form as ef %}
+              <div class="pl-leadership-role">
+                {{ ef.id }}{{ ef.sort_order }}
+                <div class="pl-leadership-role__fields">
+                  <div>{% include "components/form_field.html" with field=ef.title %}</div>
+                  <div>{% include "components/form_field.html" with field=ef.email %}</div>
+                </div>
+                <button type="button" class="pl-btn pl-btn--danger pl-btn--sm pl-btn--spaced" onclick="this.closest('.pl-leadership-role').remove();">Remove</button>
+              </div>
+              {% endwith %}
+            </template>
+            <button type="button" class="hub-btn hub-btn--sm pl-leadership__add" data-add-role="{{ form.instance.pk }}">+ Add a role</button>
+          </div>
+        </div>
+        {% endwith %}
+      {% empty %}
+        <p class="pl-leadership-admin__empty">Nobody is listed yet. Add a person to start the team.</p>
+      {% endfor %}
+    </div>
+    <div class="pl-leadership-admin__actions">
+      <button type="submit" class="pl-btn pl-btn--primary">Save</button>
+    </div>
+  </form>
+
+  {# Add a Person: its own form inside the modal, a sibling of the two forms above. #}
+  {% include "components/modal.html" with modal_id="leadership-add" modal_title="Add a Person" modal_size="sm" modal_body_include="hub/admin/_leadership_add_form.html" %}
+  {% if add_form.errors %}
+  <div x-data x-init="$dispatch('open-modal', 'leadership-add')"></div>
+  {% endif %}
+</div>
+<script>
+  // Roster reorder and role lines: ONE delegated set of handlers on #leadership-rows, the
+  // Slideshow slides script with its ids renamed. Desktop: native HTML5 drag from the ⠿ grip.
+  // Touch: the up/down buttons (the grip is hidden there via @media (hover: none)). Either path
+  // rewrites every row's hidden roster-N-sort_order to its visual index (0,1,2…); Save persists
+  // it and Meta.ordering = ["sort_order", "id"] re-renders that order on reload. The "+ Add a
+  // role" button clones that person's empty-form template, the Details tab pattern.
+  (function () {
+    var container = document.getElementById('leadership-rows');
+    if (!container) return;
+
+    function rows() {
+      return Array.prototype.filter.call(container.children, function (el) {
+        return el.classList && el.classList.contains('pl-slide-card');
+      });
+    }
+
+    function reindex() {
+      rows().forEach(function (row, idx) {
+        // The roster's own order input, never one of the role lines' sort_order inputs.
+        var input = row.querySelector('input[name^="roster-"][name$="-sort_order"]');
+        if (input) input.value = idx;
+      });
+    }
+
+    function addRole(pk) {
+      var tpl = document.getElementById('leadership-role-empty-template-' + pk);
+      var total = document.getElementById('id_roles-' + pk + '-TOTAL_FORMS');
+      var idx = parseInt(total.value, 10);
+      var wrap = document.createElement('div');
+      wrap.innerHTML = tpl.innerHTML.replaceAll('__prefix__', idx);
+      document.getElementById('leadership-role-rows-' + pk).appendChild(wrap.firstElementChild);
+      document.getElementById('id_roles-' + pk + '-' + idx + '-sort_order').value = idx;
+      total.value = idx + 1;
+    }
+
+    // Up / down move buttons (the touch-friendly path), and + Add a role.
+    container.addEventListener('click', function (e) {
+      var add = e.target.closest && e.target.closest('[data-add-role]');
+      if (add && container.contains(add)) {
+        addRole(add.getAttribute('data-add-role'));
+        return;
+      }
+      var btn = e.target.closest && e.target.closest('[data-move]');
+      if (!btn || !container.contains(btn)) return;
+      var row = btn.closest('.pl-slide-card');
+      if (!row) return;
+      if (btn.getAttribute('data-move') === 'up') {
+        var prev = row.previousElementSibling;
+        if (prev && prev.classList.contains('pl-slide-card')) container.insertBefore(row, prev);
+      } else {
+        var next = row.nextElementSibling;
+        if (next && next.classList.contains('pl-slide-card')) container.insertBefore(next, row);
+      }
+      reindex();
+    });
+
+    // Native drag-and-drop from the grip handle (desktop).
+    var dragRow = null;
+    container.addEventListener('dragstart', function (e) {
+      var grip = e.target.closest && e.target.closest('.pl-slide-grip');
+      if (!grip) return;
+      dragRow = grip.closest('.pl-slide-card');
+      if (!dragRow) return;
+      dragRow.classList.add('pl-slide-card--dragging');
+      e.dataTransfer.effectAllowed = 'move';
+      try { e.dataTransfer.setData('application/x-roster-reorder', '1'); } catch (err) {}
+    });
+    container.addEventListener('dragend', function () {
+      if (dragRow) dragRow.classList.remove('pl-slide-card--dragging');
+      rows().forEach(function (r) { r.classList.remove('pl-slide-card--drag-over'); });
+      dragRow = null;
+    });
+    container.addEventListener('dragover', function (e) {
+      if (!dragRow) return;
+      var row = e.target.closest && e.target.closest('.pl-slide-card');
+      if (!row || row === dragRow) return;
+      e.preventDefault();
+      rows().forEach(function (r) { if (r !== row) r.classList.remove('pl-slide-card--drag-over'); });
+      row.classList.add('pl-slide-card--drag-over');
+    });
+    container.addEventListener('drop', function (e) {
+      if (!dragRow) return;
+      var row = e.target.closest && e.target.closest('.pl-slide-card');
+      if (!row || row === dragRow) return;
+      e.preventDefault();
+      row.classList.remove('pl-slide-card--drag-over');
+      var list = rows();
+      if (list.indexOf(dragRow) < list.indexOf(row)) {
+        container.insertBefore(dragRow, row.nextElementSibling);
+      } else {
+        container.insertBefore(dragRow, row);
+      }
+      reindex();
+    });
+  })();
+</script>
+{% endblock %}

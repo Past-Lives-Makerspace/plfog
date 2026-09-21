@@ -107,3 +107,41 @@ def describe_SlideshowSettingsForm():
         assert config.signage_show_events is True
         # Unchecked switches post nothing, which a ModelForm reads as False.
         assert config.signage_show_classes is False
+
+
+def describe_SiteSettingsForm_member_agreement():
+    @pytest.fixture
+    def required_settings() -> dict[str, str]:
+        return {
+            "org_name": "Past Lives Makerspace",
+            "registration_mode": SiteConfiguration.RegistrationMode.OPEN,
+            "member_event_policy": SiteConfiguration.MemberEventPolicy.APPROVAL,
+        }
+
+    def it_fails_clean_if_required_but_no_url(required_settings: dict[str, str]) -> None:
+        data = {
+            **required_settings,
+            "member_agreement_required": "on",
+            "member_agreement_url": "",
+        }
+        form = SiteSettingsForm(data)
+        assert not form.is_valid()
+        assert set(form.errors) == {"member_agreement_url"}
+
+    def it_passes_clean_if_required_and_url_provided(required_settings: dict[str, str]) -> None:
+        data = {
+            **required_settings,
+            "member_agreement_required": "on",
+            "member_agreement_url": "https://example.com",
+        }
+        form = SiteSettingsForm(data)
+        assert form.is_valid(), form.errors
+
+    def it_passes_clean_if_not_required(required_settings: dict[str, str]) -> None:
+        data = {
+            **required_settings,
+            "member_agreement_required": "",
+            "member_agreement_url": "",
+        }
+        form = SiteSettingsForm(data)
+        assert form.is_valid(), form.errors

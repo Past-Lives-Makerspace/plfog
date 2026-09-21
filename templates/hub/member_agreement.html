@@ -1,20 +1,26 @@
-{% extends "base.html" %}
+{% extends "hub/base.html" %}
+{% load static %}
 {% block title %}Member Agreement - Past Lives Makerspace{% endblock %}
+{% block extra_head %}
+{{ block.super }}
+<link rel="stylesheet" href="{% static 'css/member-agreement.css' %}">
+{% endblock %}
 
 {% block content %}
 <!-- This is a full page, not a dismissible modal, so it does not use components/modal.html -->
 <div class="pl-modal-backdrop">
-  <div class="pl-modal" tabindex="-1">
+  <div class="pl-modal pl-modal--md" tabindex="-1" x-init="$el.focus()">
     <div class="pl-modal__header">
-      <h2 class="pl-modal__title">One more thing before you head in</h2>
+      <h1 class="pl-modal__title">Member Agreement</h1>
     </div>
     
     <div class="pl-modal__body">
-      <p class="u-margin-bottom">Please read and accept the Member Agreement to continue.</p>
+      <p class="pl-agreement-intro">Please read and accept the Member Agreement to continue.</p>
       
-      <div class="u-margin-bottom" style="border: 1px solid var(--border-color); border-radius: 4px; height: 400px;">
-        <iframe src="{{ agreement_url }}" style="width: 100%; height: 100%; border: none;"></iframe>
-      </div>
+      <p class="pl-agreement-intro">
+        <a id="member-agreement-document" href="{{ agreement_url }}" target="_blank" rel="noopener" hx-boost="false">Read the Member Agreement (opens in a new tab)</a>.
+        Return to this tab to accept it.
+      </p>
       
       <form method="post" action="{% url 'hub_member_agreement' %}" x-data="{ agreed: false }">
         {% csrf_token %}
@@ -22,17 +28,16 @@
           <input type="hidden" name="next" value="{{ next }}">
         {% endif %}
         
-        <label class="fld fld--checkbox u-margin-bottom">
-          <input type="checkbox" name="agree" value="1" x-model="agreed">
-          <span>I have read and agree to the Member Agreement.</span>
-        </label>
+        <div class="pl-agreement-checkbox">
+          {% include "components/form_field.html" with field=form.agree %}
+        </div>
         
-        <button type="submit" class="pl-btn pl-btn--primary" style="width: 100%;" x-bind:disabled="!agreed">
+        <button type="submit" class="pl-btn pl-btn--primary pl-btn--block" x-bind:disabled="!agreed">
           Agree
         </button>
       </form>
       
-      <div class="u-text-center u-margin-top">
+      <div class="u-text-center pl-btn--spaced">
         <form method="post" action="{% url 'account_logout' %}">
           {% csrf_token %}
           <button type="submit" class="pl-btn pl-btn--quiet">Sign out</button>
@@ -42,10 +47,4 @@
   </div>
 </div>
 
-<script>
-  // Ensure focus is placed inside the card on load for accessibility
-  document.addEventListener('DOMContentLoaded', () => {
-    document.querySelector('.pl-modal').focus();
-  });
-</script>
 {% endblock %}

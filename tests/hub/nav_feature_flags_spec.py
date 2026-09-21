@@ -117,7 +117,7 @@ _NAV_MARKERS: dict[str, tuple[bytes, bytes]] = {
     "spaces": (b'href="/spaces/" class="hub-sidebar__link', b"Spaces"),
     "equipment": (b'href="/equipment/" class="hub-sidebar__link', b"Equipment"),
     "voting": (b'href="/manage/voting/" class="hub-sidebar__link', b"Voting"),
-    "wiki": (b'href="/wiki/" class="hub-sidebar__link', b"Wiki"),
+    "wiki": (b'href="/wiki/" class="hub-sidebar__link', b"Member Wiki"),
 }
 
 

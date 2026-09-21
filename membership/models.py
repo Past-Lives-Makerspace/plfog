@@ -189,6 +189,14 @@ class MemberQuerySet(models.QuerySet):
     def active(self) -> MemberQuerySet:
         return self.filter(status=Member.Status.ACTIVE)
 
+    def leadership_candidates(self) -> MemberQuerySet:
+        """Members an admin may add to the Leadership Directory: everyone not on it, by name.
+
+        A member taken off the page keeps an unlisted row, so they are offered again and
+        :meth:`LeadershipListingQuerySet.list_member` relists them with the lines they had.
+        """
+        return self.exclude(leadership_listing__is_listed=True).order_by("full_legal_name")
+
     def paying(self) -> MemberQuerySet:
         """Only standard members count as paying."""
         return self.filter(member_type=Member.MemberType.STANDARD)
@@ -537,10 +545,10 @@ class Member(models.Model):
     cancellation_date = models.DateField(null=True, blank=True)
     committed_until = models.DateField(null=True, blank=True)
     show_in_directory = models.BooleanField(
-        default=True,
+        default=False,
         help_text=(
-            "Whether this member appears in the public member directory. New members are listed by "
-            "default; they can opt out any time in profile settings."
+            "Whether this member appears in the member directory. New members are hidden by "
+            "default; they can opt in any time in profile settings."
         ),
     )
     hide_from_directory = models.BooleanField(
@@ -759,9 +767,9 @@ class Member(models.Model):
             ("Pronouns", bool(self.pronouns)),
             ("Discord link", bool(self.discord_is_linked or self.discord_handle)),
         ]
-        # The directory-listing preference is an opt-out, not a "content" signal — it's part
+        # The directory-listing preference is an opt-in, not a "content" signal — it's part
         # of the completeness percent/checklist but is EXCLUDED from ``essentials_complete``
-        # (the onboarding gate), so opting out never blocks onboarding.
+        # (the onboarding gate), so staying hidden never blocks onboarding.
         checks: list[tuple[str, bool]] = [*content_checks, ("Directory listing", bool(self.show_in_directory))]
         missing = [label for label, ok in checks if not ok]
         filled = len(checks) - len(missing)
@@ -815,12 +823,11 @@ class Member(models.Model):
     def needs_member_agreement(self) -> bool:
         from core.models import SiteConfiguration
 
-        config = SiteConfiguration.objects.first()
+        config = SiteConfiguration.load()
         if not config or not config.member_agreement_required or not config.member_agreement_url:
             return False
         if self.status != self.Status.ACTIVE:
             return False
-        # Avoid a DB query if we already preloaded it, otherwise exists()
         return not self.member_agreement_acceptances.exists()
 
     @property
@@ -1653,6 +1660,15 @@ class Member(models.Model):
         if self.hide_from_directory:
             return False
         return self.is_fog_admin or self.is_guild_officer or self.is_guild_lead or self.is_instructor
+
+    def accept_member_agreement(self, request: HttpRequest, agreement_url: str) -> None:
+        """Mark this member as having accepted the member agreement."""
+        from core.models import SiteActivity
+
+        x_forwarded_for = request.META.get("HTTP_X_FORWARDED_FOR")
+        ip = x_forwarded_for.split(",")[0] if x_forwarded_for else request.META["REMOTE_ADDR"]
+        MemberAgreementAcceptance.objects.create(member=self, agreement_url=agreement_url, ip_address=ip)
+        SiteActivity.log(SiteActivity.Kind.ACCEPTED_MEMBER_AGREEMENT, actor=request.user)
 
     ADMIN_ROLE_INSTRUCTOR = "instructor"
     ADMIN_ROLE_GUEST = "guest"
@@ -3381,6 +3397,23 @@ class LeadershipListingQuerySet(models.QuerySet["LeadershipListing"]):
         a row; nothing is saved until the toggle or a role line changes.
         """
         return self.filter(member=member).first() or LeadershipListing(member=member)
+
+    def list_member(self, member: Member, title: str, email: str) -> LeadershipListing:
+        """Put a member on the page, last, with a role line; a member taken off earlier is relisted.
+
+        One row per member, so this creates or relists in one ``update_or_create``. A relisted
+        member keeps the lines they had, and the typed title is added only when they do not
+        already hold it, so adding someone back never doubles a line.
+        """
+        last = self.listed().aggregate(last=Max("sort_order"))["last"]
+        sort_order = 0 if last is None else last + 1
+        with transaction.atomic():
+            listing, _created = self.update_or_create(
+                member=member, defaults={"is_listed": True, "sort_order": sort_order}
+            )
+            if not listing.roles.filter(title=title).exists():
+                listing.roles.create(title=title, email=email, sort_order=listing.roles.count())
+        return listing
 
 
 class LeadershipListing(models.Model):
@@ -15153,8 +15186,9 @@ class MemberAgreementAcceptance(models.Model):
         "membership.Member",
         on_delete=models.CASCADE,
         related_name="member_agreement_acceptances",
+        help_text="The member who accepted the agreement.",
     )
-    accepted_at = models.DateTimeField(auto_now_add=True)
+    accepted_at = models.DateTimeField(auto_now_add=True, help_text="When the member accepted the agreement.")
     agreement_url = models.URLField(
         blank=True,
         help_text="The URL of the agreement the member read, as configured at the time.",

@@ -1,2 +1,8 @@
 bump = "minor"
-audience = "internal"
+date = "2026-09-20"
+title = "Read and accept the Member Agreement"
+changes = [
+  "When an admin enables the Member Agreement requirement, active members must read and accept it before continuing into the portal.",
+  "Open the agreement in a new tab, then return to accept it. You can read the agreement before accepting even when it lives in the Knowledge Base.",
+  "Your acceptance is saved so you only need to agree once.",
+]

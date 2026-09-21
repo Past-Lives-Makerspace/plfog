@@ -112,8 +112,8 @@ FEATURES: list[Feature] = [
     ),
     Feature(
         key="wiki",
-        name="Wiki",
-        off_description="Takes the Wiki out of the sidebar, and the Wiki tab off guild pages.",
+        name="Member Wiki",
+        off_description="Takes Member Wiki out of the sidebar, and the Wiki tab off guild pages.",
     ),
     Feature(
         key="knowledge_base",

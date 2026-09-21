@@ -4,8 +4,10 @@ from __future__ import annotations
 
 from datetime import datetime, time, timedelta
 from decimal import Decimal
+from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, cast
 
+from django.db import transaction
 from django import forms
 from django.conf import settings
 from django.db.models import Case, Q, Value, When
@@ -17,7 +19,7 @@ from django.utils.text import slugify
 if TYPE_CHECKING:
     from django.contrib.auth.models import User
     from django.core.files.uploadedfile import UploadedFile
-    from django.http import HttpRequest
+    from django.http import HttpRequest, QueryDict
 
     from classes.models import ClassOffering
 
@@ -44,6 +46,7 @@ from membership.models import (
     GuildOrientationSettings,
     HelpCategory,
     LeadershipListing,
+    LeadershipPage,
     LeadershipRole,
     MapHotspot,
     MeetingAttachment,
@@ -698,6 +701,17 @@ class NotificationEmailForm(forms.Form):
         member.save(update_fields=["notification_email"])
 
 
+class MemberAgreementForm(forms.Form):
+    """Require explicit consent before recording a member's agreement."""
+
+    agree = forms.BooleanField(
+        required=True,
+        label="I have read and agree to the Member Agreement.",
+        widget=forms.CheckboxInput(attrs={"x-model": "agreed"}),
+        error_messages={"required": "You must check the box to agree."},
+    )
+
+
 class GuildUpdatesPromptForm(forms.Form):
     """Validates the first-login guild updates picks (active guild pks only).
 
@@ -960,6 +974,147 @@ class LeadershipListingForm(forms.ModelForm):
         self.save()
         role_formset.save()
         return True
+
+
+class LeadershipPageForm(forms.ModelForm):
+    """Page Wording on the Leadership Directory admin page: the hero and both section headers.
+
+    Six plain text fields, declared in page order (the template walks them top to bottom).
+    Their defaults live on :class:`LeadershipPage`; a blanked intro hides its line on the page.
+    """
+
+    class Meta:
+        model = LeadershipPage
+        fields = ["hero_title", "hero_lead", "team_heading", "team_intro", "guilds_heading", "guilds_intro"]
+        widgets = {
+            "hero_lead": forms.Textarea(attrs={"rows": 2}),
+            "team_intro": forms.Textarea(attrs={"rows": 2}),
+            "guilds_intro": forms.Textarea(attrs={"rows": 2}),
+        }
+        labels = {
+            "hero_title": "Page title",
+            "hero_lead": "Lead line",
+            "team_heading": "Team heading",
+            "team_intro": "Team intro",
+            "guilds_heading": "Guilds heading",
+            "guilds_intro": "Guilds intro",
+        }
+
+
+class LeadershipOrderForm(forms.ModelForm):
+    """One roster row on the Leadership Directory admin page: two hidden values and nothing typed.
+
+    The reorder script rewrites ``sort_order`` to the row's visual index (the Slideshow
+    pattern) and the Remove from page button sets ``is_listed`` to False before it submits,
+    so a removed person keeps their role lines for the Details tab toggle to bring back.
+    """
+
+    class Meta:
+        model = LeadershipListing
+        fields = ["sort_order", "is_listed"]
+        widgets = {"sort_order": forms.HiddenInput(), "is_listed": forms.HiddenInput()}
+
+
+if TYPE_CHECKING:
+    _RosterFormSetBase = forms.BaseModelFormSet[LeadershipListing, LeadershipOrderForm]
+else:
+    # The stubs' generic exists for the type checker only; Django's class is not subscriptable.
+    _RosterFormSetBase = forms.BaseModelFormSet
+
+
+class LeadershipRosterBaseFormSet(_RosterFormSetBase):
+    """The roster's order forms, refusing a Save whose rows no longer match the page.
+
+    A posted row whose listing left the page meanwhile (another admin's Remove, the Details
+    tab toggle in another window) binds to an unsaved stand-in. Saving around it would drop
+    that admin's edits without a word, so the whole Save is refused with one message.
+    """
+
+    def clean(self) -> None:
+        super().clean()
+        if any(form.instance.pk is None for form in self.forms):
+            raise forms.ValidationError("The team changed while you were editing. Reload the page and try again.")
+
+
+LeadershipRosterFormSet = forms.modelformset_factory(
+    LeadershipListing, form=LeadershipOrderForm, formset=LeadershipRosterBaseFormSet, extra=0
+)
+
+
+@dataclass
+class LeadershipRosterRow:
+    """One person on the admin roster: their order form and the formset of their role lines."""
+
+    form: LeadershipOrderForm
+    roles: forms.BaseInlineFormSet[LeadershipRole, LeadershipListing, LeadershipRoleForm]
+
+    @property
+    def expanded(self) -> bool:
+        """Whether the row opens with its role lines showing: only when a line failed validation."""
+        return any(self.roles.errors)
+
+
+class LeadershipRosterEditor:
+    """The Leadership & Admin Team editor: one order form per listed member, each with their role lines.
+
+    Two formset layers with distinct prefixes, ``roster`` over the listings and one
+    ``roles-<pk>`` inline formset per listing, so one Save carries the order, the listed
+    flags and every role edit. Every formset is validated before any is saved, so each
+    error renders at once, and the save is one transaction.
+    """
+
+    def __init__(self, data: QueryDict | None = None) -> None:
+        self.formset = LeadershipRosterFormSet(data, queryset=LeadershipListing.objects.listed(), prefix="roster")
+        self.rows = [
+            LeadershipRosterRow(
+                form=form,
+                roles=LeadershipRoleFormSet(data, instance=form.instance, prefix=f"roles-{form.instance.pk}"),
+            )
+            for form in self.formset
+            # A row whose listing left the page binds to an unsaved stand-in; the formset's
+            # clean() refuses the Save, and the template never touches that row's role lines.
+            if form.instance.pk is not None
+        ]
+
+    def is_valid(self) -> bool:
+        """Validate the order forms and every person's role lines, all of them, and report the whole."""
+        results = [self.formset.is_valid(), *(row.roles.is_valid() for row in self.rows)]
+        return all(results)
+
+    def save(self) -> None:
+        """Write the order, the listed flags and the role lines together."""
+        with transaction.atomic():
+            self.formset.save()
+            for row in self.rows:
+                row.roles.save()
+
+
+class LeadershipAddForm(forms.Form):
+    """Add a Person on the Leadership Directory admin page: a member not on it and their first role line.
+
+    The picker offers :meth:`MemberQuerySet.leadership_candidates`, so a member already on
+    the page is refused at the form even from a forged POST; :meth:`save` lists them last.
+    """
+
+    member = forms.ModelChoiceField(queryset=Member.objects.none(), label="Member", empty_label="Choose a member")
+    title = forms.CharField(
+        max_length=120, label="Role title", widget=forms.TextInput(attrs={"placeholder": "e.g. Council Secretary"})
+    )
+    email = forms.EmailField(
+        required=False,
+        label="Contact email",
+        widget=forms.EmailInput(attrs={"placeholder": "someone@pastlives.space"}),
+    )
+
+    def __init__(self, *args: Any, **kwargs: Any) -> None:
+        super().__init__(*args, **kwargs)
+        cast(forms.ModelChoiceField, self.fields["member"]).queryset = Member.objects.leadership_candidates()
+
+    def save(self) -> LeadershipListing:
+        """List the chosen member last with the typed line, or relist them (see ``list_member``)."""
+        return LeadershipListing.objects.list_member(
+            self.cleaned_data["member"], self.cleaned_data["title"], self.cleaned_data["email"]
+        )
 
 
 class MemberCapabilitiesForm(forms.Form):

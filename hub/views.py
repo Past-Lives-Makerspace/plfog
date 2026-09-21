@@ -43,8 +43,11 @@ from hub.forms import (
     DiscordGuildEmojiFormSet,
     GuildEditForm,
     GuildRoleFormSet,
+    LeadershipAddForm,
     LeadershipListingForm,
+    LeadershipPageForm,
     LeadershipRoleFormSet,
+    LeadershipRosterEditor,
     MeetingItemProposalForm,
     MemberAdminEditForm,
     MemberCapabilitiesForm,
@@ -292,6 +295,8 @@ def leadership_directory(request: HttpRequest) -> HttpResponse:
     # sidebar on this one page.
     ctx.update(
         {
+            # The Edit this page button in the hero; view-as aware, like the Admin Tools tile.
+            "is_admin": _viewing_as_admin(request),
             "leadership_page": LeadershipPage.load(),
             "listings": LeadershipListing.objects.listed(),
             "guild_cards": Guild.objects.visible()
@@ -2751,13 +2756,13 @@ def guild_updates_prompt(request: HttpRequest) -> HttpResponse:
 def hub_member_agreement(request: HttpRequest) -> HttpResponse:
     """The one-time Member Agreement prompt.
 
-    Shown if `Member.needs_member_agreement` is true. The text is loaded via an iframe
-    from the URL set in Site Settings. POSTing with the `agree` checkbox saves a
+    Shown if `Member.needs_member_agreement` is true, with a link to the document
+    set in Site Settings. POSTing with the `agree` checkbox saves a
     MemberAgreementAcceptance record, logging the URL they agreed to and their IP.
     """
-    from core.models import SiteConfiguration, SiteActivity
-    from membership.models import MemberAgreementAcceptance
+    from core.models import SiteConfiguration
     from django.utils.http import url_has_allowed_host_and_scheme
+    from hub.forms import MemberAgreementForm
 
     member = _get_member(request)
     if not member or member.status != member.Status.ACTIVE:
@@ -2773,27 +2778,15 @@ def hub_member_agreement(request: HttpRequest) -> HttpResponse:
             return redirect(next_url)
         return redirect("hub_home")
 
+    form = MemberAgreementForm(request.POST if request.method == "POST" else None)
     if request.method == "POST":
-        if "agree" in request.POST:
-            forwarded = request.META.get("HTTP_X_FORWARDED_FOR", "")
-            ip = forwarded.split(",")[0].strip() if forwarded else request.META.get("REMOTE_ADDR", "")
-            MemberAgreementAcceptance.objects.create(
-                member=member,
-                agreement_url=config.member_agreement_url,
-                ip_address=ip,
-            )
-            user = request.user
-            if user.is_authenticated:
-                SiteActivity.objects.create(
-                    kind=SiteActivity.Kind.ACCEPTED_MEMBER_AGREEMENT,
-                    actor=user,
-                )
+        if form.is_valid():
+            member.accept_member_agreement(request, config.member_agreement_url)
             next_url = request.POST.get("next")
             if next_url and url_has_allowed_host_and_scheme(url=next_url, allowed_hosts={request.get_host()}):
                 return redirect(next_url)
             return redirect("hub_home")
-        else:
-            messages.error(request, "You must check the box to agree.")
+        messages.error(request, str(form.errors["agree"][0]))
 
     return render(
         request,
@@ -2802,6 +2795,7 @@ def hub_member_agreement(request: HttpRequest) -> HttpResponse:
             **_get_hub_context(request),
             "member": member,
             "agreement_url": config.member_agreement_url,
+            "form": form,
             "next": request.GET.get("next", ""),
         },
     )
@@ -4205,6 +4199,7 @@ def hub_admin_tools(request: HttpRequest) -> HttpResponse:
             "tool_notifications": is_admin,
             "tool_site_settings": is_admin,
             "tool_slideshow": is_admin,
+            "tool_leadership": is_admin,
             "tool_push_test": is_admin,
         },
     )
@@ -6630,9 +6625,9 @@ def admin_members(request: HttpRequest) -> HttpResponse:
     if type_filter:
         members = members.filter(member_type=type_filter)
     if agreement_filter == "accepted":
-        members = members.filter(memberagreementacceptance__isnull=False)
+        members = members.filter(member_agreement_acceptances__isnull=False)
     elif agreement_filter == "missing":
-        members = members.filter(memberagreementacceptance__isnull=True)
+        members = members.filter(member_agreement_acceptances__isnull=True)
     if search:
         members = members.filter(
             Q(full_legal_name__icontains=search)
@@ -6766,7 +6761,7 @@ def admin_member_edit(request: HttpRequest, pk: int) -> HttpResponse:
         notif_channels = [(c, settings_matrix.CHANNEL_LABELS[c]) for c in settings_matrix.visible_channels(user)]
         notif_channel_labels = {channel.value: label for channel, label in notif_channels}
 
-    agreement = member.memberagreementacceptance_set.first()
+    agreement = member.member_agreement_acceptances.first()
     ctx = _get_hub_context(request)
     return render(
         request,
@@ -7702,7 +7697,7 @@ def admin_site_settings(request: HttpRequest) -> HttpResponse:
 
     active_members_count = Member.objects.filter(status=Member.Status.ACTIVE).count()
     accepted_members_count = Member.objects.filter(
-        status=Member.Status.ACTIVE, memberagreementacceptance__isnull=False
+        status=Member.Status.ACTIVE, member_agreement_acceptances__isnull=False
     ).count()
 
     return render(
@@ -7850,6 +7845,71 @@ def admin_slideshow_slides_save(request: HttpRequest) -> HttpResponse:
         inst.save()
     messages.success(request, "Slides saved.")
     return redirect("hub_admin_slideshow")
+
+
+def _render_leadership_admin(
+    request: HttpRequest,
+    *,
+    page_form: LeadershipPageForm | None = None,
+    editor: LeadershipRosterEditor | None = None,
+    add_form: LeadershipAddForm | None = None,
+) -> HttpResponse:
+    """Render the Leadership Directory admin with whichever bound form is re-rendering its errors."""
+    ctx = _get_hub_context(request)
+    return render(
+        request,
+        "hub/admin/leadership.html",
+        {
+            **ctx,
+            "page_form": page_form or LeadershipPageForm(instance=LeadershipPage.load()),
+            "editor": editor or LeadershipRosterEditor(),
+            "add_form": add_form or LeadershipAddForm(),
+        },
+    )
+
+
+@fog_admin_required
+def hub_admin_leadership(request: HttpRequest) -> HttpResponse:
+    """The Leadership Directory admin: the page wording, and the team's order and role lines (#476).
+
+    Three sibling forms on one page, the Slideshow page's shape. This view renders the page
+    and saves Page Wording; the roster and Add a Person post to their own endpoints below.
+    """
+    if request.method == "POST":
+        form = LeadershipPageForm(request.POST, instance=LeadershipPage.load())
+        if form.is_valid():
+            form.save()
+            messages.success(request, "Page wording saved.")
+            return redirect("hub_admin_leadership")
+        messages.error(request, "Couldn't save the page wording. Check the highlighted fields.")
+        return _render_leadership_admin(request, page_form=form)
+    return _render_leadership_admin(request)
+
+
+@fog_admin_required
+@require_POST
+def admin_leadership_add(request: HttpRequest) -> HttpResponse:
+    """Add a Person: list a member last with their first role line, or relist someone taken off earlier."""
+    form = LeadershipAddForm(request.POST)
+    if not form.is_valid():
+        messages.error(request, "Couldn't add that person. Check the highlighted fields.")
+        return _render_leadership_admin(request, add_form=form)
+    listing = form.save()
+    messages.success(request, f"Added {listing.member.display_name} to the Leadership Directory.")
+    return redirect("hub_admin_leadership")
+
+
+@fog_admin_required
+@require_POST
+def admin_leadership_roster_save(request: HttpRequest) -> HttpResponse:
+    """Save the team: the order, who stays listed, and every person's role lines, in one POST."""
+    editor = LeadershipRosterEditor(request.POST)
+    if not editor.is_valid():
+        messages.error(request, "Couldn't save the team. Check the highlighted fields.")
+        return _render_leadership_admin(request, editor=editor)
+    editor.save()
+    messages.success(request, "Team saved.")
+    return redirect("hub_admin_leadership")
 
 
 # ── Interactive space map ────────────────────────────────────────────────────
