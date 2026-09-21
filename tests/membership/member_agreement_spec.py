@@ -63,3 +63,58 @@ def describe_member_agreement() -> None:
 
         assert not MemberAgreementAcceptance.objects.exists()
         assert not SiteActivity.objects.filter(kind=SiteActivity.Kind.ACCEPTED_MEMBER_AGREEMENT).exists()
+
+    def it_returns_agreement_acceptance_when_accepted(active_member: Member) -> None:
+        acceptance = MemberAgreementAcceptance.objects.create(
+            member=active_member, agreement_url="https://example.com", ip_address="127.0.0.1"
+        )
+        assert active_member.agreement_acceptance == acceptance
+
+    def it_returns_none_for_agreement_acceptance_when_not_accepted(active_member: Member) -> None:
+        assert active_member.agreement_acceptance is None
+
+
+def describe_MemberQuerySet() -> None:
+    def describe_accepted_agreement() -> None:
+        def it_filters_members_who_have_accepted() -> None:
+            from tests.membership.factories import MemberFactory
+
+            accepted_member = MemberFactory(status="active")
+            unaccepted_member = MemberFactory(status="active")
+            MemberAgreementAcceptance.objects.create(
+                member=accepted_member, agreement_url="https://example.com", ip_address="127.0.0.1"
+            )
+
+            results = Member.objects.accepted_agreement()
+            assert accepted_member in results
+            assert unaccepted_member not in results
+
+    def describe_missing_agreement() -> None:
+        def it_filters_members_who_have_not_accepted() -> None:
+            from tests.membership.factories import MemberFactory
+
+            accepted_member = MemberFactory(status="active")
+            unaccepted_member = MemberFactory(status="active")
+            MemberAgreementAcceptance.objects.create(
+                member=accepted_member, agreement_url="https://example.com", ip_address="127.0.0.1"
+            )
+
+            results = Member.objects.missing_agreement()
+            assert unaccepted_member in results
+            assert accepted_member not in results
+
+    def it_chains_with_active() -> None:
+        from tests.membership.factories import MemberFactory
+
+        active_accepted = MemberFactory(status="active")
+        former_accepted = MemberFactory(status="former")
+        MemberAgreementAcceptance.objects.create(
+            member=active_accepted, agreement_url="https://example.com", ip_address="127.0.0.1"
+        )
+        MemberAgreementAcceptance.objects.create(
+            member=former_accepted, agreement_url="https://example.com", ip_address="127.0.0.1"
+        )
+
+        active_results = list(Member.objects.active().accepted_agreement())
+        assert active_accepted in active_results
+        assert former_accepted not in active_results

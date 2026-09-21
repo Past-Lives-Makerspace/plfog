@@ -189,6 +189,17 @@ class MemberQuerySet(models.QuerySet):
     def active(self) -> MemberQuerySet:
         return self.filter(status=Member.Status.ACTIVE)
 
+    def accepted_agreement(self) -> MemberQuerySet:
+        """Members who have accepted the member agreement."""
+        return self.filter(member_agreement_acceptances__isnull=False)
+
+    def missing_agreement(self) -> MemberQuerySet:
+        """Members who have not accepted the member agreement."""
+        return self.filter(member_agreement_acceptances__isnull=True)
+
+    agreement_accepted = accepted_agreement
+    agreement_missing = missing_agreement
+
     def leadership_candidates(self) -> MemberQuerySet:
         """Members an admin may add to the Leadership Directory: everyone not on it, by name.
 
@@ -829,6 +840,11 @@ class Member(models.Model):
         if self.status != self.Status.ACTIVE:
             return False
         return not self.member_agreement_acceptances.exists()
+
+    @property
+    def agreement_acceptance(self) -> MemberAgreementAcceptance | None:
+        """The member's acceptance record for the member agreement, if any."""
+        return self.member_agreement_acceptances.first()
 
     @property
     def needs_guild_updates_prompt(self) -> bool:

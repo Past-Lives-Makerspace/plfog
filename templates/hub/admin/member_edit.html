@@ -35,6 +35,21 @@
   {# ── Details tab ────────────────────────────────────────────────────── #}
   <div x-show="section === 'details'">
     {% if is_member %}
+      <div class="pl-person-identity">
+        <dl class="pl-person-identity__list">
+          <div>
+            <dt>Member Agreement</dt>
+            <dd>
+              {% if agreement %}
+                accepted {{ agreement.accepted_at|date:"M j, Y" }}
+              {% else %}
+                <span class="u-text-muted">Not yet accepted</span>
+              {% endif %}
+            </dd>
+          </div>
+        </dl>
+      </div>
+
       <p class="pl-person-email-line">
         <span class="hub-text-muted">Email:</span> {{ primary_email|default:"—" }}
         — <a href="#" @click.prevent="section = 'emails'">manage in Emails tab →</a>

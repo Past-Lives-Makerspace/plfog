@@ -6625,9 +6625,9 @@ def admin_members(request: HttpRequest) -> HttpResponse:
     if type_filter:
         members = members.filter(member_type=type_filter)
     if agreement_filter == "accepted":
-        members = members.filter(member_agreement_acceptances__isnull=False)
+        members = members.accepted_agreement()
     elif agreement_filter == "missing":
-        members = members.filter(member_agreement_acceptances__isnull=True)
+        members = members.missing_agreement()
     if search:
         members = members.filter(
             Q(full_legal_name__icontains=search)
@@ -6761,7 +6761,7 @@ def admin_member_edit(request: HttpRequest, pk: int) -> HttpResponse:
         notif_channels = [(c, settings_matrix.CHANNEL_LABELS[c]) for c in settings_matrix.visible_channels(user)]
         notif_channel_labels = {channel.value: label for channel, label in notif_channels}
 
-    agreement = member.member_agreement_acceptances.first()
+    agreement = member.agreement_acceptance
     ctx = _get_hub_context(request)
     return render(
         request,
@@ -7695,10 +7695,8 @@ def admin_site_settings(request: HttpRequest) -> HttpResponse:
 
     ctx = _get_hub_context(request)
 
-    active_members_count = Member.objects.filter(status=Member.Status.ACTIVE).count()
-    accepted_members_count = Member.objects.filter(
-        status=Member.Status.ACTIVE, member_agreement_acceptances__isnull=False
-    ).count()
+    active_members_count = Member.objects.active().count()
+    accepted_members_count = Member.objects.active().accepted_agreement().count()
 
     return render(
         request,
