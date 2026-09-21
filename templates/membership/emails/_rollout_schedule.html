@@ -1,0 +1,19 @@
+{% comment %}
+The rollout table for the Member Portal launch email: one row per week, the features that
+unlock listed one per line. Param: weeks, a sequence of core.launch_email.RolloutWeek
+(label, starts, features). Inline styles are intentional: email clients strip <style> blocks.
+{% endcomment %}
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="border: 1px solid #e3e7ec; border-radius: 10px; margin: 0 0 12px;">
+<tr>
+    <th align="left" style="background-color: #092E4C; color: #F4EFDD; font-size: 12px; font-weight: 700; letter-spacing: 0.04em; text-transform: uppercase; padding: 10px 14px; border-radius: 10px 0 0 0;">Week</th>
+    <th align="left" style="background-color: #092E4C; color: #F4EFDD; font-size: 12px; font-weight: 700; letter-spacing: 0.04em; text-transform: uppercase; padding: 10px 14px;">Starting</th>
+    <th align="left" style="background-color: #092E4C; color: #F4EFDD; font-size: 12px; font-weight: 700; letter-spacing: 0.04em; text-transform: uppercase; padding: 10px 14px; border-radius: 0 10px 0 0;">What unlocks</th>
+</tr>
+{% for week in weeks %}
+<tr>
+    <td valign="top" style="padding: 12px 14px; border-top: 1px solid #e3e7ec; font-size: 14px; font-weight: 700; color: #092E4C; white-space: nowrap;{% if forloop.counter|divisibleby:2 %} background-color: #f6f8fa;{% endif %}">{{ week.label }}</td>
+    <td valign="top" style="padding: 12px 14px; border-top: 1px solid #e3e7ec; font-size: 14px; color: #33424f; white-space: nowrap;{% if forloop.counter|divisibleby:2 %} background-color: #f6f8fa;{% endif %}">{{ week.starts }}</td>
+    <td valign="top" style="padding: 12px 14px; border-top: 1px solid #e3e7ec; font-size: 14px; color: #33424f; line-height: 1.5;{% if forloop.counter|divisibleby:2 %} background-color: #f6f8fa;{% endif %}">{% for feature in week.features %}{{ feature }}{% if not forloop.last %}<br>{% endif %}{% endfor %}</td>
+</tr>
+{% endfor %}
+</table>
