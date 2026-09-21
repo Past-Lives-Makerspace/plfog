@@ -50,7 +50,7 @@ def _html_part(message) -> str:
 
 def describe_render_launch_announcement():
     def it_renders_the_hero_the_rollout_table_and_the_sign_in_button():
-        html, text = render_launch_announcement(cta_url="https://members.example/home/")
+        html, text = render_launch_announcement(member_name="Robin Vale", cta_url="https://members.example/home/")
 
         assert "Now live" in html
         assert "The Member Portal is open" in html
@@ -65,16 +65,16 @@ def describe_render_launch_announcement():
         assert f">{ANNOUNCEMENT_CTA}<" in html
         assert "because you have a Past Lives Makerspace account" in html  # the shared footer
 
-    def it_carries_no_greeting_and_no_sign_in_note_because_one_message_reaches_everyone():
-        html, text = render_launch_announcement(cta_url="https://members.example/home/")
+    def it_greets_the_member_and_carries_no_sign_in_note():
+        html, text = render_launch_announcement(member_name="Robin Vale", cta_url="https://members.example/home/")
 
-        assert "Hi " not in html
+        assert "Hi Robin Vale," in html
+        assert "Hi Robin Vale," in text
         assert "This link is for" not in html
         assert "This link is for" not in text
-        assert not text.startswith("Hi ")
 
     def it_mirrors_the_html_in_the_text_part():
-        html, text = render_launch_announcement(cta_url="https://members.example/home/")
+        html, text = render_launch_announcement(member_name="Robin Vale", cta_url="https://members.example/home/")
 
         assert text.startswith(ANNOUNCEMENT_SUBJECT)
         assert "What you can do today" in text
@@ -100,7 +100,7 @@ def describe_body_screenshots():
         urls = {"launch-home": "https://cdn.example/email/features/launch-home.png", "launch-calendar": ""}
         monkeypatch.setattr(launch_email, "resolve_feature_shot_url", lambda slug: urls[slug])
 
-        html, text = render_launch_announcement(cta_url="https://members.example/home/")
+        html, text = render_launch_announcement(member_name="Robin Vale", cta_url="https://members.example/home/")
 
         assert 'src="https://cdn.example/email/features/launch-home.png"' in html
         assert 'alt="Your home page in the Member Portal"' in html
@@ -108,7 +108,7 @@ def describe_body_screenshots():
         assert "cdn.example" not in text
 
     def it_drops_both_shots_when_nothing_has_been_captured():
-        html, _text = render_launch_announcement(cta_url="https://members.example/home/")
+        html, _text = render_launch_announcement(member_name="Robin Vale", cta_url="https://members.example/home/")
 
         assert "Your home page in the Member Portal" not in html
         assert "The community calendar in the Member Portal" not in html
@@ -149,32 +149,71 @@ def describe_portal_home_url():
 
 
 def describe_send_launch_announcement():
-    def it_emails_every_activated_member_the_announcement_and_rings_their_bell():
-        _activated("a@x.com")
-        _activated("b@x.com")
-        never = MemberFactory(_pre_signup_email="never@x.com")  # unlinked: not in the broadcast audience
+    def it_emails_one_signed_in_member_directly_with_no_bell_and_no_opt_out_gate():
+        member = _activated("a@x.com")
+        member.preferred_name = "Ada"
+        member.save(update_fields=["preferred_name"])
+        # Opted out of announcement emails: the launch still reaches them, by design.
+        from core.models import NotificationPreference
+
+        NotificationPreference.objects.create(
+            user=member.user, event_key="site_announcement", channel="email", enabled=False
+        )
         mail.outbox.clear()
 
-        result = send_launch_announcement()
+        outcome = send_launch_announcement(member)
 
-        assert sorted(m.to[0] for m in mail.outbox) == ["a@x.com", "b@x.com"]
+        assert outcome == "sent"
+        assert [m.to for m in mail.outbox] == [["a@x.com"]]
         assert mail.outbox[0].subject == ANNOUNCEMENT_SUBJECT
         html = _html_part(mail.outbox[0])
+        assert "Hi Ada," in html
         assert "Now live" in html
-        assert "&lt;table" not in html  # the pre-rendered HTML rides the EMAIL override unescaped
-        assert Notification.objects.count() == 2  # the in-app row for each activated member
-        assert never.user_id is None
-        assert Channel.DISCORD not in result.broadcast_channels  # off unless asked
+        assert Notification.objects.count() == 0  # email only: no in-app row
+        assert not EventDelivery.objects.exists()  # not the spine
+        log = TransactionalEmailLog.objects.get(trigger_kind="portal_launch.announcement")
+        assert log.to_email == "a@x.com"
 
-    def it_is_idempotent_across_runs_through_the_launch_period():
-        _activated("a@x.com")
+    def it_skips_an_address_already_sent_on_a_re_run():
+        member = _activated("a@x.com")
         mail.outbox.clear()
 
-        send_launch_announcement()
-        send_launch_announcement()
+        first = send_launch_announcement(member)
+        second = send_launch_announcement(member)
 
+        assert (first, second) == ("sent", "already")
         assert len(mail.outbox) == 1
-        assert EventDelivery.objects.filter(event_key="site_announcement", period=LAUNCH_PERIOD).exists()
+
+    def it_reports_a_provider_rejection_and_leaves_the_member_for_a_retry(monkeypatch):
+        from core import email as core_email
+
+        def _boom(*args, **kwargs):
+            raise RuntimeError("provider said no")
+
+        member = _activated("a@x.com")
+        monkeypatch.setattr(core_email, "_deliver", _boom)
+
+        assert send_launch_announcement(member) == "failed"
+        monkeypatch.undo()
+        assert send_launch_announcement(member) == "sent"  # the FAILED row is not a ledger entry
+
+    def it_refuses_a_member_with_no_account():
+        with pytest.raises(ValueError, match="no account"):
+            send_launch_announcement(MemberFactory(_pre_signup_email="unlinked@x.com"))
+
+    def it_prefers_the_member_chosen_notification_address():
+        from allauth.account.models import EmailAddress
+
+        member = _activated("primary@x.com")
+        EmailAddress.objects.create(user=member.user, email="primary@x.com", verified=True, primary=True)
+        EmailAddress.objects.create(user=member.user, email="alias@x.com", verified=True, primary=False)
+        member.notification_email = "alias@x.com"
+        member.save(update_fields=["notification_email"])
+        mail.outbox.clear()
+
+        send_launch_announcement(member)
+
+        assert [m.to for m in mail.outbox] == [["alias@x.com"]]
 
 
 def describe_send_launch_invite():

@@ -1,22 +1,21 @@
 """Email every active member that the Member Portal is live, through one of two doors.
 
-A member who has signed in before gets the announcement with a sign-in button, as a
-``site_announcement`` broadcast (email, in-app bell, Discord only with ``--discord``). A
-member who has never signed in gets the same announcement as an activation invite: the
-forced ``member.login_invite`` email, their address pre-filled on the login-code page. The
-copy and the rollout table live in :mod:`core.launch_email`.
+A member who has signed in before gets the announcement with a sign-in button, one direct
+email each: no in-app bell, no push, no opt-out applies. A member who has never signed in
+gets the same announcement as an activation invite, the forced ``member.login_invite`` email
+with their address pre-filled on the login-code page. Discord is untouched; a person posts
+there. The copy and the rollout table live in :mod:`core.launch_email`.
 
 SAFETY GUARD, as ``send_release_email``: without ``--confirm`` it sends NOTHING. It resolves
-both audiences read-only and prints the counts. Both sends share one delivery-ledger period,
-so a confirmed re-run reaches only whoever was missed and emails nobody twice. An invite
-that lands also stamps the welcome ledger, so the 6 AM welcome automation does not send the
-same person a second sign-in link the next morning.
+both audiences read-only and prints the counts. A confirmed re-run reaches only whoever was
+missed and emails nobody twice: the audit log is the announcement's ledger, the delivery
+ledger the invite's. An invite that lands also stamps the welcome ledger, so the 6 AM
+welcome automation does not send the same person a second sign-in link the next morning.
 
 Usage (Render one-off job):
     python manage.py send_portal_launch_email                      # dry run: counts only
     python manage.py send_portal_launch_email --test you@x.com     # both variants to one inbox
     python manage.py send_portal_launch_email --confirm            # the real send
-    python manage.py send_portal_launch_email --confirm --discord  # and post to Discord
 """
 
 from __future__ import annotations
@@ -55,16 +54,9 @@ class Command(BaseCommand):
             default="",
             help="Send both variants to this one address (skipping the notification spine) and nothing else.",
         )
-        parser.add_argument(
-            "--discord",
-            action="store_true",
-            help="Also post the announcement to Discord (off by default).",
-        )
 
     def handle(self, *args: Any, **options: Any) -> None:
-        from core.events import resolvers
-        from core.events.registry import get_event
-        from core.launch_email import send_launch_announcement, send_launch_previews
+        from core.launch_email import send_launch_previews
         from membership.models import Member
 
         if options["test"]:
@@ -75,27 +67,38 @@ class Command(BaseCommand):
             self.stdout.write(self.style.SUCCESS(f"Both launch email variants sent to {to_addr}."))
             return
 
-        # Read-only audience resolution: the SAME resolver the broadcast uses, so the dry-run
-        # count equals the send's. Resolving recipients sends nothing.
-        announcement_count = len(resolvers.resolve(get_event("site_announcement").recipient, {}))
+        signed_in = list(Member.objects.signed_in())
         invitees = list(Member.objects.awaiting_first_sign_in())
-        discord = "on" if options["discord"] else "off"
 
         if not options["confirm"]:
             self.stdout.write("DRY RUN: no email sent. Re-run with --confirm to send.")
-            self.stdout.write(f"  Announcement (signed in before):     {announcement_count} member(s)")
+            self.stdout.write(f"  Announcement (signed in before):     {len(signed_in)} member(s)")
             self.stdout.write(f"  Activation invite (never signed in): {len(invitees)} member(s)")
-            self.stdout.write(f"  Discord: {discord}")
             return
 
-        result = send_launch_announcement(discord=options["discord"])
-        self.stdout.write(
-            self.style.SUCCESS(
-                f"Announcement: emailed {_email_count(result.delivered)} of {result.recipient_count} "
-                f"signed-in member(s); {_email_count(result.skipped_duplicates)} already sent. Discord: {discord}."
-            )
-        )
+        self._send_announcements(signed_in)
         self._send_invites(invitees)
+
+    def _send_announcements(self, members: list[Member]) -> None:
+        """Email each signed-in member the announcement; a provider rejection is counted, not fatal."""
+        from core.launch_email import send_launch_announcement
+
+        outcomes = {"sent": 0, "already": 0, "failed": 0}
+        for member in members:
+            outcome = send_launch_announcement(member)
+            outcomes[outcome] += 1
+            if outcome == "failed":
+                self.stderr.write(
+                    self.style.WARNING(
+                        f"  ! announce {member.pk} ({member.display_name}): not delivered, re-run to retry"
+                    )
+                )
+        summary = (
+            f"Announcements: sent {outcomes['sent']}; {outcomes['already']} already sent; "
+            f"{outcomes['failed']} not delivered."
+        )
+        style = self.style.SUCCESS if not outcomes["failed"] else self.style.WARNING
+        self.stdout.write(style(summary))
 
     def _send_invites(self, invitees: list[Member]) -> None:
         """Invite each never-signed-in member, one failure never aborting the rest."""

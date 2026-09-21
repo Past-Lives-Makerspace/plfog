@@ -267,6 +267,21 @@ class MemberQuerySet(models.QuerySet):
             .select_related("user")
         )
 
+    def signed_in(self) -> MemberQuerySet:
+        """Active members whose account has signed in at least once: the launch announcement audience.
+
+        The complement of :meth:`awaiting_first_sign_in` inside the active membership, and the
+        same activation gate the ``all_active_members`` broadcast resolver applies
+        (``user.last_login`` set, account active). Every one of them has an address to reach:
+        a linked account always carries one.
+        """
+        return (
+            self.filter(status=Member.Status.ACTIVE, user__isnull=False, user__last_login__isnull=False)
+            .exclude(user__is_active=False)
+            .select_related("user")
+            .order_by("pk")
+        )
+
     def awaiting_first_sign_in(self) -> MemberQuerySet:
         """Active members with an email we can reach whose account has never signed in.
 

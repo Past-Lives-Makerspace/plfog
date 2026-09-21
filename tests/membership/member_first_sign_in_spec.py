@@ -15,8 +15,8 @@ from tests.membership.factories import MemberFactory
 pytestmark = pytest.mark.django_db
 
 
-def _linked(email: str, **user_fields) -> Member:
-    member = MemberFactory(status=Member.Status.ACTIVE)
+def _linked(email: str, status: str = Member.Status.ACTIVE, **user_fields) -> Member:
+    member = MemberFactory(status=status)
     with mute_signals(post_save):
         user = User.objects.create_user(username=f"u{member.pk}", email=email, **user_fields)
     member.user = user
@@ -51,6 +51,17 @@ def describe_awaiting_first_sign_in():
         _linked("gone@example.com", is_active=False)
 
         assert not Member.objects.awaiting_first_sign_in().exists()
+
+
+def describe_signed_in():
+    def it_is_the_active_members_whose_account_has_signed_in():
+        seen = _linked("seen@example.com", last_login=timezone.now())
+        _linked("never@example.com")
+        MemberFactory(_pre_signup_email="unlinked@example.com")
+        _linked("gone@example.com", last_login=timezone.now(), is_active=False)
+        _linked("former@example.com", status=Member.Status.FORMER, last_login=timezone.now())
+
+        assert list(Member.objects.signed_in()) == [seen]
 
 
 def describe_login_code_url():
