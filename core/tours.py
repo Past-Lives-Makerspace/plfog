@@ -38,9 +38,11 @@ logger = logging.getLogger(__name__)
 class TourStep:
     """One spotlight stop, optionally with an action to reach it.
 
-    ``target=None`` renders a centered (element-less) popover. The action fields
-    are all optional; a step with none set is a plain highlight on the current
-    page (backward compatible). At most one *reach* action is meaningful per
+    Every registered step anchors to an element (``tests/core/tours_spec``
+    enforces it): a popover in the middle of the screen is the one shape members
+    dislike. ``target=None`` survives only as the runtime's degrade path when a
+    target is missing on the page. The action fields are all optional; a step
+    with none set is a plain highlight on the current page (backward compatible). At most one *reach* action is meaningful per
     step (``navigate`` for a page hop, ``tab_set``/``click`` for a same-page
     hop); the runtime applies whichever is present before showing the popover.
     """
@@ -170,19 +172,11 @@ TOURS: dict[str, Tour] = {
         opens_sidebar=True,
         steps=(
             TourStep(
-                target=None,
-                title="Welcome to the Member Portal",
-                body=(
-                    "This is your Past Lives member hub. Want a quick lap? I will drive. "
-                    "Use Next to move, or press Esc anytime to stop."
-                ),
-            ),
-            TourStep(
                 target='[data-help-key="nav.sidebar"]',
                 title="Everything in One Place",
                 body=(
                     "The sidebar gets you everywhere: guilds, classes, the calendar, your settings. "
-                    "On a phone, the menu button opens it."
+                    "On a phone, the menu button opens it. Use Next to move, or press Esc anytime to stop."
                 ),
             ),
             TourStep(
@@ -213,14 +207,9 @@ TOURS: dict[str, Tour] = {
             TourStep(
                 target='[data-help-key="calendar.subscribe"]',
                 title="Subscribe to the Calendar",
-                body="Tap Subscribe to add the whole calendar to your own phone or laptop.",
-            ),
-            TourStep(
-                target=None,
-                title="It All Syncs to Discord",
                 body=(
-                    "Classes, events, and guild meetups post to our Discord automatically, so the "
-                    "calendar and Discord always match. Nothing extra for you to do."
+                    "Tap Subscribe to add the whole calendar to your own phone or laptop. Classes, events, "
+                    "and guild meetups also post to our Discord automatically, so the two always match."
                 ),
             ),
             TourStep(
@@ -283,14 +272,12 @@ TOURS: dict[str, Tour] = {
         # very robust: a flip that finds nothing simply skips.
         steps=(
             TourStep(
-                target=None,
-                title="Your Guild's Control Room",
-                body="This page runs your guild. Every tab is one job and each saves on its own. I will flip through them.",
-            ),
-            TourStep(
                 target='[data-help-key="guild.edit-page"]',
                 title="Your Public Page",
-                body="Basic Information is your public page: banner, overview, meeting times.",
+                body=(
+                    "This page runs your guild: every tab is one job and each saves on its own. I will flip "
+                    "through them. Basic Information is your public page: banner, overview, meeting times."
+                ),
                 tab_set=("section", "basic"),
             ),
             TourStep(
@@ -378,12 +365,13 @@ TOURS: dict[str, Tour] = {
                 tab_set=("section", "basic"),
             ),
             TourStep(
-                target=None,
+                target='[data-help-key="guild.edit-tabs"]',
                 title="Your Map, Whenever",
                 body=(
-                    "That is the lap. The Guild Lead Quickstart on the Help page details every tool, "
-                    "and the Cartographers Guild is a full example to borrow from."
+                    "That is the lap, and these tabs are the map. The Guild Lead Quickstart on the Help page "
+                    "details every tool, and the Cartographers Guild is a full example to borrow from."
                 ),
+                tab_set=("section", "basic"),
             ),
         ),
     ),
@@ -394,14 +382,12 @@ TOURS: dict[str, Tour] = {
         audience=_can_create_classes,
         steps=(
             TourStep(
-                target=None,
-                title="The Teaching Portal",
-                body="You are cleared to teach. I will walk you from a blank draft to a published class and its roster.",
-            ),
-            TourStep(
                 target='[data-help-key="teach.create-class"]',
                 title="Start a Class",
-                body="Start here. This opens a private draft that nobody sees until it is reviewed.",
+                body=(
+                    "You are cleared to teach, and this is where a class starts: a private draft that nobody "
+                    "sees until it is reviewed. I will walk you from that draft to a published class and its roster."
+                ),
             ),
             TourStep(
                 target='[data-help-key="teach.class-basics"]',
@@ -474,9 +460,12 @@ TOURS: dict[str, Tour] = {
                 query=_instructor_class_audience,
             ),
             TourStep(
-                target=None,
+                target='[data-help-key="teach.roster"]',
                 title="That Is the Teaching Lap",
-                body="The Instructor Quickstart on the Help page covers welcome emails and more.",
+                body=(
+                    "Your classes and their rosters live here. The Instructor Quickstart on the Help page "
+                    "covers welcome emails and more."
+                ),
                 navigate="classes:teach_overview",
             ),
         ),
@@ -488,9 +477,9 @@ TOURS: dict[str, Tour] = {
         audience=_admin_audience,
         steps=(
             TourStep(
-                target=None,
+                target='[data-help-key="admin.tools-grid"]',
                 title="The Admin Controls",
-                body="These are the admin controls. I will walk you through the tools you will reach for most.",
+                body="Every admin tool is on this grid. I will walk you through the ones you will reach for most.",
             ),
             TourStep(
                 target='[data-help-key="announcements.compose"]',
