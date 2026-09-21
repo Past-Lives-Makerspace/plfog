@@ -1,0 +1,7 @@
+bump = "patch"
+date = "2026-09-21"
+title = "The welcome pop-up no longer blocks the Member Agreement"
+changes = [
+  "Members signing in for the first time saw the welcome pop-up on top of the Member Agreement, and neither of its buttons could get them past it. The agreement now shows on its own.",
+  "The welcome pop-up appears once you have accepted the agreement.",
+]

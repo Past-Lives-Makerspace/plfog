@@ -118,7 +118,15 @@ def _get_hub_context(request: HttpRequest) -> dict[str, Any]:
                 photo_url = member.profile_photo.url
             # First-login nudge: brand-new members who haven't customized anything and
             # haven't dismissed it yet. Established members are never shown it (no backfill).
-            show_welcome_modal = member.welcome_dismissed_at is None and not member.has_started_profile
+            # It waits until the Member Agreement is accepted: the agreement page renders this
+            # chrome, and both modal buttons POST to a path MemberAgreementMiddleware bounces
+            # back to the agreement, so showing both at once walled new members behind a
+            # pop-up they could not close (launch day, 2026-09-21).
+            show_welcome_modal = (
+                member.welcome_dismissed_at is None
+                and not member.has_started_profile
+                and not member.needs_member_agreement
+            )
     return {
         "guilds": guilds,
         "user_initials": initials,
