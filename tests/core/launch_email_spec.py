@@ -93,6 +93,27 @@ def describe_render_launch_announcement():
         assert "July 1" in hero
 
 
+def describe_body_screenshots():
+    def it_shows_the_home_and_calendar_shots_when_they_are_in_storage(monkeypatch):
+        from core import launch_email
+
+        urls = {"launch-home": "https://cdn.example/email/features/launch-home.png", "launch-calendar": ""}
+        monkeypatch.setattr(launch_email, "resolve_feature_shot_url", lambda slug: urls[slug])
+
+        html, text = render_launch_announcement(cta_url="https://members.example/home/")
+
+        assert 'src="https://cdn.example/email/features/launch-home.png"' in html
+        assert 'alt="Your home page in the Member Portal"' in html
+        assert "The community calendar in the Member Portal" not in html  # not captured: dropped, no broken image
+        assert "cdn.example" not in text
+
+    def it_drops_both_shots_when_nothing_has_been_captured():
+        html, _text = render_launch_announcement(cta_url="https://members.example/home/")
+
+        assert "Your home page in the Member Portal" not in html
+        assert "The community calendar in the Member Portal" not in html
+
+
 def describe_render_launch_invite():
     def it_greets_the_member_and_points_the_button_at_their_login_code_page():
         html, text = render_launch_invite(

@@ -3,7 +3,8 @@ The Member Portal launch email, both variants (core.launch_email): the release e
 hybrid layout, brand hero band over a light body, with a rollout table and the shared
 _footer. Standalone document, inline styles throughout: email clients strip <style>.
 Context: preheader, hero_badge, hero_title, hero_subtitle, greeting (may be blank),
-intro_paragraphs, live_today, weeks, schedule_note, cta_url, cta_label, signin_note (may be blank).
+intro_paragraphs, home_shot_url and calendar_shot_url (blank drops the image), live_today, weeks,
+schedule_note, cta_url, cta_label, signin_note (may be blank).
 {% endcomment %}<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -29,10 +30,12 @@ intro_paragraphs, live_today, weeks, schedule_note, cta_url, cta_label, signin_n
         <td style="background-color: #FFFFFF; padding: 28px 28px 8px;">
             {% if greeting %}<p style="margin: 0 0 14px; font-size: 15px; color: #33424f; line-height: 1.6;">{{ greeting }}</p>{% endif %}
             {% for paragraph in intro_paragraphs %}<p style="margin: 0 0 14px; font-size: 15px; color: #33424f; line-height: 1.6;">{{ paragraph }}</p>{% endfor %}
+            {% include "membership/emails/_body_image.html" with url=home_shot_url alt="Your home page in the Member Portal" link=cta_url %}
             <h2 style="margin: 24px 0 8px; font-size: 17px; font-weight: 700; color: #092E4C;">What you can do today</h2>
-            <ul style="margin: 0 0 24px; padding: 0 0 0 22px; color: #33424f; font-size: 14px; line-height: 1.6;">
+            <ul style="margin: 0 0 18px; padding: 0 0 0 22px; color: #33424f; font-size: 14px; line-height: 1.6;">
                 {% for line in live_today %}<li style="margin: 0 0 6px;">{{ line }}</li>{% endfor %}
             </ul>
+            {% include "membership/emails/_body_image.html" with url=calendar_shot_url alt="The community calendar in the Member Portal" link=cta_url %}
             <h2 style="margin: 0 0 8px; font-size: 17px; font-weight: 700; color: #092E4C;">What's coming next</h2>
             {% include "membership/emails/_rollout_schedule.html" with weeks=weeks %}
             <p style="margin: 0 0 24px; font-size: 13px; color: #5B6B77; line-height: 1.5;">{{ schedule_note }}</p>

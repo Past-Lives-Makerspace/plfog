@@ -11,8 +11,11 @@ Which door they get depends on whether their account has ever signed in:
   pre-filled. Nothing in-app, because they have no bell to check yet.
 
 Both variants render from ``membership/emails/launch_announcement.html``, which reuses the
-release email's hero, button and footer partials plus the rollout table. The plain-text part
-is built here so the two never drift, as ``core.release_email`` does.
+release email's hero, button and footer partials plus the rollout table. Two framed member-view
+screenshots (:data:`HOME_SHOT_SLUG`, :data:`CALENDAR_SHOT_SLUG`) sit in the body when they
+exist in object storage and drop out silently when they do not, the same rule the release
+email's cards follow. The plain-text part is built here so the two never drift, as
+``core.release_email`` does.
 
 Sends are idempotent per member through the delivery ledger: both emits share
 :data:`LAUNCH_PERIOD`, so a re-run reaches only whoever was missed.
@@ -28,6 +31,8 @@ from django.conf import settings
 from django.template.loader import render_to_string
 from django.urls import reverse
 from django.utils.dateformat import format as date_format
+
+from core.release_email import resolve_feature_shot_url
 
 if TYPE_CHECKING:
     from core.events.emit import EmitResult
@@ -66,6 +71,12 @@ LIVE_TODAY: tuple[str, ...] = (
 )
 
 SCHEDULE_NOTE = "Dates are tentative. We'll announce each release in the portal and on Discord as it lands."
+
+#: Object-storage slugs of the two body screenshots (``email/features/<slug>.png``), captured as a
+#: plain member so no admin chrome shows. Their own slugs, not the release email's ``home`` and
+#: ``community-calendar``, so a later harness run cannot swap the approved launch images.
+HOME_SHOT_SLUG = "launch-home"
+CALENDAR_SHOT_SLUG = "launch-calendar"
 
 
 @dataclass(frozen=True)
@@ -110,6 +121,8 @@ def _render(
         "hero_subtitle": date_format(LAUNCH_DATE, "F j, Y"),
         "greeting": greeting,
         "intro_paragraphs": intro_paragraphs,
+        "home_shot_url": resolve_feature_shot_url(HOME_SHOT_SLUG),
+        "calendar_shot_url": resolve_feature_shot_url(CALENDAR_SHOT_SLUG),
         "live_today": list(LIVE_TODAY),
         "weeks": ROLLOUT_SCHEDULE,
         "schedule_note": SCHEDULE_NOTE,
