@@ -6609,6 +6609,7 @@ def admin_members(request: HttpRequest) -> HttpResponse:
     role_filter = request.GET.get("role", "")
     type_filter = request.GET.get("type", "")
     email_filter = request.GET.get("email", "")
+    agreement_filter = request.GET.get("agreement", "")
     search = request.GET.get("q", "").strip()
 
     members = (
@@ -6623,6 +6624,10 @@ def admin_members(request: HttpRequest) -> HttpResponse:
         members = members.filter(fog_role=role_filter)
     if type_filter:
         members = members.filter(member_type=type_filter)
+    if agreement_filter == "accepted":
+        members = members.accepted_agreement()
+    elif agreement_filter == "missing":
+        members = members.missing_agreement()
     if search:
         members = members.filter(
             Q(full_legal_name__icontains=search)
@@ -6637,10 +6642,14 @@ def admin_members(request: HttpRequest) -> HttpResponse:
 
     # Non-member users join the list only when no member-only filter is narrowing it.
     # The default status ("active") and "all" are non-narrowing so the default view
-    # shows everyone; any other status, or a role/type/missing-email filter, hides
+    # shows everyone; any other status, or a role/type/missing-email/agreement filter, hides
     # them (they have no such fields). Search still matches their email.
     member_only_filter_active = bool(
-        role_filter or type_filter or email_filter == "missing" or status_filter not in ("", "all", "active")
+        role_filter
+        or type_filter
+        or email_filter == "missing"
+        or agreement_filter
+        or status_filter not in ("", "all", "active")
     )
     nonmembers = User.objects.none()
     if not member_only_filter_active:
@@ -6667,6 +6676,7 @@ def admin_members(request: HttpRequest) -> HttpResponse:
             "role_filter": role_filter,
             "type_filter": type_filter,
             "email_filter": email_filter,
+            "agreement_filter": agreement_filter,
             "missing_count": missing_count,
             "member_only_filter_active": member_only_filter_active,
             "search": search,
@@ -6750,6 +6760,8 @@ def admin_member_edit(request: HttpRequest, pk: int) -> HttpResponse:
         notif_matrix = settings_matrix.build_matrix(user)
         notif_channels = [(c, settings_matrix.CHANNEL_LABELS[c]) for c in settings_matrix.visible_channels(user)]
         notif_channel_labels = {channel.value: label for channel, label in notif_channels}
+
+    agreement = member.agreement_acceptance
     ctx = _get_hub_context(request)
     return render(
         request,
@@ -6758,6 +6770,7 @@ def admin_member_edit(request: HttpRequest, pk: int) -> HttpResponse:
             **ctx,
             "is_member": True,
             "member": member,
+            "agreement": agreement,
             "form": form,
             "listing_form": listing_form,
             "role_formset": role_formset,
@@ -7681,6 +7694,10 @@ def admin_site_settings(request: HttpRequest) -> HttpResponse:
     from core.events.email_catalogue import build_email_catalogue
 
     ctx = _get_hub_context(request)
+
+    active_members_count = Member.objects.active().count()
+    accepted_members_count = Member.objects.active().accepted_agreement().count()
+
     return render(
         request,
         "hub/admin/site_settings.html",
@@ -7697,6 +7714,8 @@ def admin_site_settings(request: HttpRequest) -> HttpResponse:
             "legacy_cms_sync_field": form["legacy_cms_sync_enabled"],
             "instructor_sync_rows": instructor_sync_rows,
             "legacy_cms_unmatched": legacy_cms_unmatched,
+            "active_members_count": active_members_count,
+            "accepted_members_count": accepted_members_count,
             "config": config,
             "release_mode": release_mode,
             "release_form": release_form,

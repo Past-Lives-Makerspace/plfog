@@ -7,12 +7,13 @@ from datetime import timedelta
 import pytest
 from allauth.account.models import EmailAddress
 from django.contrib.auth.models import User
+from django.template.defaultfilters import date as format_date
 from django.test import Client
 from django.urls import reverse
 from django.utils import timezone
 
 from core.models import Invite, SiteConfiguration
-from membership.models import Member
+from membership.models import Member, MemberAgreementAcceptance
 from tests.membership.factories import MemberFactory, MembershipPlanFactory
 
 pytestmark = pytest.mark.django_db
@@ -237,6 +238,40 @@ def describe_admin_members():
         response = client.get(reverse("hub_admin_members") + "?status=all&role=admin")
         assert response.context["member_only_filter_active"] is True
         assert b"reg-hidden@pastlives.demo" not in response.content
+
+    def it_filters_by_accepted_agreement(client):
+        _create_superuser(client)
+        m1 = MemberFactory(user=None, full_legal_name="Agreed Person")
+        MemberFactory(user=None, full_legal_name="Unagreed Person")
+        MemberAgreementAcceptance.objects.create(member=m1, agreement_url="https://example.com", ip_address="127.0.0.1")
+
+        response = client.get(reverse("hub_admin_members") + "?agreement=accepted&status=all")
+        assert response.status_code == 200
+        assert response.context["agreement_filter"] == "accepted"
+        content = response.content.decode()
+        assert "Agreed Person" in content
+        assert "Unagreed Person" not in content
+
+    def it_filters_by_missing_agreement(client):
+        _create_superuser(client)
+        m1 = MemberFactory(user=None, full_legal_name="Agreed Person")
+        MemberFactory(user=None, full_legal_name="Unagreed Person")
+        MemberAgreementAcceptance.objects.create(member=m1, agreement_url="https://example.com", ip_address="127.0.0.1")
+
+        response = client.get(reverse("hub_admin_members") + "?agreement=missing&status=all")
+        assert response.status_code == 200
+        assert response.context["agreement_filter"] == "missing"
+        content = response.content.decode()
+        assert "Unagreed Person" in content
+        assert "Agreed Person" not in content
+
+    def it_hides_non_member_users_when_agreement_filter_is_active(client):
+        _create_superuser(client)
+        MembershipPlanFactory()
+        _create_nonmember_user(username="reg_agreement_hidden", email="reg-agreed@pastlives.demo")
+        response = client.get(reverse("hub_admin_members") + "?status=all&agreement=accepted")
+        assert response.context["member_only_filter_active"] is True
+        assert b"reg-agreed@pastlives.demo" not in response.content
 
     def it_paginates_over_the_member_and_user_union(client):
         admin = _create_superuser(client)
@@ -680,6 +715,26 @@ def describe_admin_member_edit():
         response = client.get(reverse("hub_admin_member_edit", args=[99999]))
         assert response.status_code == 404
 
+    def it_shows_member_agreement_acceptance_date(client):
+        _create_superuser(client)
+        target = _create_member_user(username="agreedmember")
+        acceptance = MemberAgreementAcceptance.objects.create(
+            member=target.member, agreement_url="https://example.com", ip_address="127.0.0.1"
+        )
+        response = client.get(reverse("hub_admin_member_edit", args=[target.member.pk]))
+        assert response.status_code == 200
+        assert response.context["agreement"] == acceptance
+        expected_date = format_date(timezone.localtime(acceptance.accepted_at), "M j, Y")
+        assert f"accepted {expected_date}" in response.content.decode()
+
+    def it_shows_member_agreement_not_yet_accepted(client):
+        _create_superuser(client)
+        target = _create_member_user(username="unagreedmember")
+        response = client.get(reverse("hub_admin_member_edit", args=[target.member.pk]))
+        assert response.status_code == 200
+        assert response.context["agreement"] is None
+        assert "Not yet accepted" in response.content.decode()
+
 
 def describe_admin_site_settings():
     def it_requires_login(client):
@@ -697,6 +752,32 @@ def describe_admin_site_settings():
         response = client.get(reverse("hub_admin_site_settings"))
         assert response.status_code == 200
         assert b"Site Settings" in response.content
+
+    def it_shows_accepted_of_active_members_count(client):
+        _create_superuser(client)
+        m_active1 = MemberFactory(status=Member.Status.ACTIVE)
+        m_active2 = MemberFactory(status=Member.Status.ACTIVE)
+        MemberFactory(status=Member.Status.ACTIVE)
+        m_former = MemberFactory(status=Member.Status.FORMER)
+
+        MemberAgreementAcceptance.objects.create(
+            member=m_active1, agreement_url="https://example.com", ip_address="127.0.0.1"
+        )
+        MemberAgreementAcceptance.objects.create(
+            member=m_active2, agreement_url="https://example.com", ip_address="127.0.0.1"
+        )
+        MemberAgreementAcceptance.objects.create(
+            member=m_former, agreement_url="https://example.com", ip_address="127.0.0.1"
+        )
+
+        response = client.get(reverse("hub_admin_site_settings"))
+        assert response.status_code == 200
+        active_count = Member.objects.active().count()
+        accepted_count = Member.objects.active().accepted_agreement().count()
+        assert response.context["active_members_count"] == active_count
+        assert response.context["accepted_members_count"] == accepted_count
+        expected_text = f"{accepted_count} of {active_count} active members have accepted."
+        assert expected_text in response.content.decode()
 
     def it_saves_changes_and_redirects(client):
         _create_superuser(client)
