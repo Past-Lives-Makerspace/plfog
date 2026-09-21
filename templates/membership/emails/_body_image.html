@@ -1,0 +1,18 @@
+{% comment %}
+A framed screenshot inside the body of an email (the launch email's home and calendar
+shots). Renders nothing when there is no url, so a not-yet-captured shot simply drops
+out. Fully rounded and bordered, unlike _screenshot.html, which sits flush at the top of
+a feature card. Params: url, alt, link (optional absolute URL wrapping the image).
+Inline styles are intentional: email clients strip <style> blocks.
+{% endcomment %}
+{% if url %}
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin: 4px 0 22px;">
+<tr>
+<td>
+    {% if link %}<a href="{{ link }}" style="display: block; text-decoration: none;">{% endif %}
+    <img src="{{ url }}" alt="{{ alt }}" width="544" style="width: 100%; max-width: 100%; height: auto; display: block; border: 1px solid #e3e7ec; border-radius: 10px;">
+    {% if link %}</a>{% endif %}
+</td>
+</tr>
+</table>
+{% endif %}
