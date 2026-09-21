@@ -3,12 +3,14 @@
 Every active member hears that the portal is open and what unlocks in the weeks after.
 Which door they get depends on whether their account has ever signed in:
 
-- A member who has signed in before gets the announcement with a sign-in button. It rides
-  the ``site_announcement`` broadcast, so they also get the in-app notification and their
-  saved preferences apply, exactly like the release email.
+- A member who has signed in before gets the announcement with a sign-in button, as one
+  direct :func:`core.email.send` per member: email only, no bell, no push, and no opt-out
+  applies, because a launch notice is not a notification anyone chose to mute. The audit log
+  is its ledger: an address already logged SENT for the launch is skipped on a re-run.
 - A member who has never signed in gets the same announcement as an activation invite: the
   forced ``member.login_invite`` email with a button to the login-code page and their address
-  pre-filled. Nothing in-app, because they have no bell to check yet.
+  pre-filled. That event is email-only and forced by definition, and the delivery ledger
+  under :data:`LAUNCH_PERIOD` makes a re-run skip whoever it already reached.
 
 Both variants render from ``membership/emails/launch_announcement.html``, which reuses the
 release email's hero, button and footer partials plus the rollout table. Two framed member-view
@@ -17,8 +19,8 @@ exist in object storage and drop out silently when they do not, the same rule th
 email's cards follow. The plain-text part is built here so the two never drift, as
 ``core.release_email`` does.
 
-Sends are idempotent per member through the delivery ledger: both emits share
-:data:`LAUNCH_PERIOD`, so a re-run reaches only whoever was missed.
+Either way a re-run reaches only whoever was missed, and Discord is left alone: the
+launch post there is written by a person.
 """
 
 from __future__ import annotations
@@ -41,8 +43,11 @@ if TYPE_CHECKING:
 #: The day the portal opened to members. Labels the hero band and keys the delivery ledger.
 LAUNCH_DATE = date(2026, 9, 21)
 
-#: The idempotency bucket both emits share: a re-run skips everyone already delivered.
+#: The invite emit's idempotency bucket: a re-run skips everyone already delivered.
 LAUNCH_PERIOD = f"portal_launch:{LAUNCH_DATE.isoformat()}"
+
+#: The audit label of the direct announcement send; a SENT row under it is the send-once ledger.
+ANNOUNCEMENT_TRIGGER_KIND = "portal_launch.announcement"
 
 ANNOUNCEMENT_SUBJECT = "The Past Lives Member Portal is live"
 INVITE_SUBJECT = "Your Past Lives Member Portal account is ready"
@@ -154,9 +159,7 @@ def _text(
     signin_note: str,
 ) -> str:
     """The plain-text part, mirroring the HTML section for section, ending in the shared footer."""
-    lines: list[str] = [subject, ""]
-    if greeting:
-        lines += [greeting, ""]
+    lines: list[str] = [subject, "", greeting, ""]
     for paragraph in intro_paragraphs:
         lines += [paragraph, ""]
     lines += ["What you can do today", *[f"• {line}" for line in LIVE_TODAY], ""]
@@ -170,12 +173,12 @@ def _text(
     return "\n".join(lines) + render_to_string("membership/emails/_footer.txt")
 
 
-def render_launch_announcement(*, cta_url: str) -> tuple[str, str]:
-    """The variant for a member who has signed in before: no greeting (one message reaches everyone)."""
+def render_launch_announcement(*, member_name: str, cta_url: str) -> tuple[str, str]:
+    """The variant for a member who has signed in before: a greeting and the sign-in button."""
     return _render(
         subject=ANNOUNCEMENT_SUBJECT,
         preheader="Sign in for your profile, your guilds and the calendar, plus what's coming over the next five weeks.",
-        greeting="",
+        greeting=f"Hi {member_name},",
         intro_paragraphs=[_INTRO],
         cta_url=cta_url,
         cta_label=ANNOUNCEMENT_CTA,
@@ -196,37 +199,44 @@ def render_launch_invite(*, member_name: str, login_url: str, email: str) -> tup
     )
 
 
-def send_launch_announcement(*, discord: bool = False) -> EmitResult:
-    """Broadcast the announcement to every activated member through ``site_announcement``.
+def announcement_address(member: Member) -> str:
+    """Where the announcement goes: the member's chosen notification address, else their primary."""
+    from core.events.channels import notification_email_for
 
-    The pre-rendered HTML rides as the EMAIL override so the spine does not autoescape it;
-    the in-app row and any Discord post render from the event's copy. Discord stays off
-    unless asked for, like the release email.
+    user = member.user
+    if user is None:
+        raise ValueError(f"Member {member.pk} has no account; the announcement audience is signed-in members only.")
+    return notification_email_for(user) or member.primary_email
+
+
+def send_launch_announcement(member: Member) -> str:
+    """Email one signed-in member the announcement, straight through ``core.email.send``.
+
+    Deliberately not the notification spine: no in-app row, no push, no preference gate.
+    The audit log is the ledger, so the same address is never sent twice.
+
+    Returns:
+        ``"sent"``, ``"already"`` (a SENT row exists for this address) or ``"failed"``
+        (the provider rejected it; logged FAILED and left for a re-run).
     """
-    from core.events.channels import Channel, Message
-    from core.events.emit import emit
+    from core.email import send
+    from core.models import TransactionalEmailLog
 
-    site_url = portal_home_url()
-    html, text = render_launch_announcement(cta_url=site_url)
-    email = Message(
-        title=ANNOUNCEMENT_SUBJECT, body=text, url=site_url, html_body=html, trigger_kind="site_announcement"
+    address = announcement_address(member)
+    if TransactionalEmailLog.objects.filter(
+        trigger_kind=ANNOUNCEMENT_TRIGGER_KIND, to_email=address, status=TransactionalEmailLog.Status.SENT
+    ).exists():
+        return "already"
+    html, text = render_launch_announcement(member_name=member.display_name, cta_url=portal_home_url())
+    log = send(
+        to=address,
+        subject=ANNOUNCEMENT_SUBJECT,
+        trigger_kind="portal_launch.announcement",
+        text_body=text,
+        html_body=html,
+        best_effort=True,
     )
-    return emit(
-        "site_announcement",
-        context={
-            "member_name": "there",
-            "announcement_title": ANNOUNCEMENT_SUBJECT,
-            "announcement_body": (
-                "The Member Portal is open. Sign in for your profile, your guilds, the calendar "
-                "and what's coming over the next five weeks."
-            ),
-            "site_url": site_url,
-        },
-        url=site_url,
-        period=LAUNCH_PERIOD,
-        messages={Channel.EMAIL: email},
-        suppress_broadcast=not discord,
-    )
+    return "sent" if log.status == TransactionalEmailLog.Status.SENT else "failed"
 
 
 def send_launch_invite(member: Member) -> EmitResult:
@@ -273,8 +283,9 @@ def send_launch_previews(to: str) -> None:
     from core.email import send
     from membership.models import login_code_url
 
-    html, text = render_launch_announcement(cta_url=portal_home_url())
+    name = _preview_name(to)
+    html, text = render_launch_announcement(member_name=name, cta_url=portal_home_url())
     # The trigger_kind is a literal on purpose: the email gallery's send-site lint reads it.
     send(to=to, subject=ANNOUNCEMENT_SUBJECT, trigger_kind="portal_launch.test", text_body=text, html_body=html)
-    html, text = render_launch_invite(member_name=_preview_name(to), login_url=login_code_url(to), email=to)
+    html, text = render_launch_invite(member_name=name, login_url=login_code_url(to), email=to)
     send(to=to, subject=INVITE_SUBJECT, trigger_kind="portal_launch.test", text_body=text, html_body=html)

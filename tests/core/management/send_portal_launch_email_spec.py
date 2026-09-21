@@ -20,6 +20,7 @@ from django.utils import timezone
 from factory.django import mute_signals
 
 from core.launch_email import ANNOUNCEMENT_SUBJECT, INVITE_SUBJECT
+from core.models import Notification
 from membership.models import Member
 from membership.services.provisioning import provision_user_for_member
 from tests.membership.factories import MemberFactory
@@ -58,7 +59,6 @@ def describe_send_portal_launch_email():
             assert "DRY RUN" in out
             assert "Announcement (signed in before):     2 member(s)" in out
             assert "Activation invite (never signed in): 1 member(s)" in out
-            assert "Discord: off" in out
 
     def describe_with_confirm():
         def it_sends_each_member_the_variant_for_their_door():
@@ -71,9 +71,10 @@ def describe_send_portal_launch_email():
             by_recipient = {m.to[0]: m for m in mail.outbox}
             assert set(by_recipient) == {"a@x.com", "never@x.com"}
             assert by_recipient["a@x.com"].subject == ANNOUNCEMENT_SUBJECT
+            assert Notification.objects.count() == 0  # email only: no bell for anyone
             assert by_recipient["never@x.com"].subject == INVITE_SUBJECT
             assert "Hi Never," in by_recipient["never@x.com"].alternatives[0][0]
-            assert "Announcement: emailed 1 of 1 signed-in member(s); 0 already sent. Discord: off." in out
+            assert "Announcements: sent 1; 0 already sent; 0 not delivered." in out
             assert "Activation invites: sent 1; 0 already sent; 0 not delivered; skipped 0." in out
             assert err == ""
             never.refresh_from_db()
@@ -89,7 +90,7 @@ def describe_send_portal_launch_email():
             out, _err = _run(confirm=True)
 
             assert len(mail.outbox) == 2
-            assert "Announcement: emailed 0 of 1 signed-in member(s); 1 already sent." in out
+            assert "Announcements: sent 0; 1 already sent; 0 not delivered." in out
             assert "Activation invites: sent 0; 1 already sent; 0 not delivered; skipped 0." in out
 
         def it_skips_a_member_who_cannot_be_provisioned_without_aborting_the_batch():
@@ -107,9 +108,10 @@ def describe_send_portal_launch_email():
             healthy.refresh_from_db()
             assert healthy.welcome_email_sent_at is not None
 
-        def it_reports_an_invite_the_provider_rejected_and_leaves_it_for_a_retry(monkeypatch):
+        def it_reports_sends_the_provider_rejected_and_leaves_them_for_a_retry(monkeypatch):
             from core import email as core_email
 
+            _activated("seen@example.com")
             member = MemberFactory(_pre_signup_email="undelivered@example.com")
             calls: list[str] = []
 
@@ -121,23 +123,13 @@ def describe_send_portal_launch_email():
 
             out, err = _run(confirm=True)
 
-            assert calls == ["undelivered@example.com"]
-            assert "not delivered, re-run to retry" in err
+            assert calls == ["seen@example.com", "undelivered@example.com"]
+            assert "! announce" in err
+            assert "! invite" in err
+            assert "Announcements: sent 0; 0 already sent; 1 not delivered." in out
             assert "Activation invites: sent 0; 0 already sent; 1 not delivered; skipped 0." in out
             member.refresh_from_db()
             assert member.welcome_email_sent_at is None  # not stamped: nothing landed
-
-        def it_posts_to_discord_only_when_asked(monkeypatch):
-            posted: list[str] = []
-            from core.events import discord as discord_module
-
-            monkeypatch.setattr(discord_module, "post_embed", lambda *a, **k: posted.append("posted") or True)
-            _activated("a@x.com")
-            mail.outbox.clear()
-
-            out, _err = _run(confirm=True, discord=True)
-
-            assert "Discord: on." in out
 
     def describe_test_mode():
         def it_sends_both_variants_to_one_address_and_nothing_else():

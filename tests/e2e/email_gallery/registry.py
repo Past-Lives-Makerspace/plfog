@@ -966,6 +966,10 @@ _INLINE_EMAIL_ALLOWLIST: dict[str, str] = {
         "one-inbox preview of the Member Portal launch email, both variants — a one-off send reviewed "
         "from that inbox (core/launch_email.py), not a standing template"
     ),
+    "portal_launch.announcement": (
+        "the Member Portal launch announcement to each signed-in member — the same one-off copy as the "
+        "preview above, sent direct so no bell, push or opt-out applies (core/launch_email.py)"
+    ),
     "hub.beta_feedback": "member-authored free-text feedback forwarded to staff — no app copy to approve",
 }
 
