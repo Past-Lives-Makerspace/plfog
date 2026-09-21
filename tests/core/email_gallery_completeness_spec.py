@@ -105,6 +105,7 @@ def describe_email_gallery_completeness():
             "membership.orientation_orphan_payment",
             "release_email.test",
             "announcement.test",
+            "portal_launch.test",
             "hub.beta_feedback",
             "wiki.page_archived",
             "wiki.proposal_declined",

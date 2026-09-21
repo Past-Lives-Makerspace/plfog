@@ -1,0 +1,4 @@
+# A management command for the launch day send itself; the email it sends is the news, and
+# members get that in their inbox rather than as a changelog line about the tool that sent it.
+bump = "patch"
+audience = "internal"

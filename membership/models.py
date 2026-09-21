@@ -180,6 +180,20 @@ class MembershipPlan(models.Model):
         return self.name
 
 
+def login_code_url(email: str) -> str:
+    """The login-code page with ``email`` pre-filled: the link a first-time sign-in email carries.
+
+    Built on the current ``Site`` domain, like allauth's own account emails, over ``http``
+    only when ``DEBUG`` is on.
+    """
+    from urllib.parse import urlencode
+
+    from django.contrib.sites.models import Site
+
+    protocol = "https" if not settings.DEBUG else "http"
+    return f"{protocol}://{Site.objects.get_current().domain}/accounts/login/code/?{urlencode({'email': email})}"
+
+
 # ---------------------------------------------------------------------------
 # Member
 # ---------------------------------------------------------------------------
@@ -251,6 +265,26 @@ class MemberQuerySet(models.QuerySet):
                 has_email=True,
             )
             .select_related("user")
+        )
+
+    def awaiting_first_sign_in(self) -> MemberQuerySet:
+        """Active members with an email we can reach whose account has never signed in.
+
+        The Member Portal launch's activation audience: inside the active membership, the
+        complement of the ``all_active_members`` broadcast resolver's activation gate
+        (``user.last_login`` set). A member with no linked User yet qualifies too; the send
+        provisions one first, the way :meth:`Member.send_login_invite` does. A deactivated
+        account is left out, because a sign-in link would not work for it. No member-type
+        filter, unlike :meth:`awaiting_welcome_email`: guild leads, staff and work-trade
+        members are active members and hear about the launch like everyone else.
+        """
+        return (
+            self.with_email_status()
+            .filter(status=Member.Status.ACTIVE, has_email=True)
+            .filter(Q(user__isnull=True) | Q(user__last_login__isnull=True))
+            .exclude(user__is_active=False)
+            .select_related("user")
+            .order_by("pk")
         )
 
     def with_lease_totals(self) -> MemberQuerySet:
@@ -1784,6 +1818,22 @@ class Member(models.Model):
         self.user.is_superuser = new_super
         self.user.save(update_fields=["is_staff", "is_superuser"])
 
+    def first_sign_in_url(self) -> str:
+        """Provision this member's account if it is missing, then return their first sign-in link.
+
+        The link is the login-code page with the member's email pre-filled
+        (:func:`login_code_url`). Provisioning is idempotent and silent, so calling this for
+        an already-linked member just builds the URL.
+
+        Raises:
+            ValueError: if the member has no email on file (nothing to send to).
+        """
+        from membership.services.provisioning import provision_user_for_member
+
+        if provision_user_for_member(self) is None:
+            raise ValueError(f"Cannot send a login invite to member {self.pk}: no email on file.")
+        return login_code_url(self.primary_email)
+
     def send_login_invite(self) -> EmitResult:
         """Email this member a first-time sign-in link (one intentional email).
 
@@ -1805,27 +1855,13 @@ class Member(models.Model):
         Raises:
             ValueError: if the member has no email on file (nothing to send to).
         """
-        from urllib.parse import urlencode
-
-        from django.contrib.sites.models import Site
-
         from core.events.emit import emit
-        from membership.services.provisioning import provision_user_for_member
 
-        user = provision_user_for_member(self)
-        if user is None:
-            raise ValueError(f"Cannot send a login invite to member {self.pk}: no email on file.")
-
-        email = self.primary_email
-        current_site = Site.objects.get_current()
-        protocol = "https" if not settings.DEBUG else "http"
-        query = urlencode({"email": email})
-        login_url = f"{protocol}://{current_site.domain}/accounts/login/code/?{query}"
-
+        login_url = self.first_sign_in_url()
         return emit(
             "member.login_invite",
             target=self,
-            context={"user": user, "member_name": self.display_name, "login_url": login_url},
+            context={"user": self.user, "member_name": self.display_name, "login_url": login_url},
             period=f"login_invite:{timezone.now():%Y%m%d%H%M%S%f}",
         )
 

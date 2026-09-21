@@ -962,6 +962,10 @@ _INLINE_EMAIL_ALLOWLIST: dict[str, str] = {
     "classes.admin_message": "admin free-text 'email the class' blast — author-written, no app copy",
     "release_email.test": "test-send of the release email to one admin — same copy as the release_update card",
     "announcement.test": "test-send of the announcement composer — same copy as the announcement card",
+    "portal_launch.test": (
+        "one-inbox preview of the Member Portal launch email, both variants — a one-off send reviewed "
+        "from that inbox (core/launch_email.py), not a standing template"
+    ),
     "hub.beta_feedback": "member-authored free-text feedback forwarded to staff — no app copy to approve",
 }
 
