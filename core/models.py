@@ -656,6 +656,12 @@ class SiteConfiguration(models.Model):
         verbose_name="Show Help in the sidebar",
         help_text="When off, the Help link is hidden from the sidebar and the /help/ page redirects to the home page.",
     )
+    guided_tours_enabled = models.BooleanField(
+        default=True,
+        verbose_name="Offer guided tours",
+        help_text="When off, the guided tour offer never pops up for anyone. Each member's own tour setting is "
+        "kept, and a tour can still be started from its Show me around link.",
+    )
     # wiki_enabled, equipment_page_enabled and host_a_workshop_enabled used to live here. They are
     # FeatureSwitch rows now (see core/features.py) so that every member feature answers to one
     # mechanism with three states instead of two, and so that the next one needs no migration.

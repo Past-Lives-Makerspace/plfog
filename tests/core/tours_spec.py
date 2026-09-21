@@ -330,6 +330,29 @@ def describe_tour_offer_context():
         assert ctx["show_tour_offer"] is False
         assert TourState.objects.count() == 0
 
+    def it_is_suppressed_when_the_site_wide_switch_is_off():
+        from core.models import SiteConfiguration
+
+        config = SiteConfiguration.load()
+        config.guided_tours_enabled = False
+        config.save(update_fields=["guided_tours_enabled"])
+        member = _member("ctx-site-off")
+        ctx = tour_offer_context(_get("/home/", member), "member-welcome")
+        assert ctx["show_tour_offer"] is False
+        assert ctx["tour_json"] is None
+        assert TourState.objects.count() == 0  # not recorded, so switching back on offers afresh
+
+    def it_still_starts_from_a_tour_link_when_the_site_wide_switch_is_off():
+        from core.models import SiteConfiguration
+
+        config = SiteConfiguration.load()
+        config.guided_tours_enabled = False
+        config.save(update_fields=["guided_tours_enabled"])
+        member = _member("ctx-site-off-link")
+        ctx = tour_offer_context(_get("/home/?tour=member-welcome", member), "member-welcome")
+        assert ctx["tour_autostart"] is True
+        assert ctx["show_tour_offer"] is False
+
     def it_is_suppressed_by_a_dismissed_row():
         member = _member("ctx-dis")
         TourState.objects.mark_dismissed(member.user, "member-welcome")

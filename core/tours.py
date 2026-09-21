@@ -682,15 +682,15 @@ def tour_offer_context(request: HttpRequest, tour_key: str) -> dict[str, Any]:
     anonymous/no member → nothing; ``?tour=`` matching this page's tour for an
     eligible member → autostart (no ``offered`` row written, and dismissed/
     completed never block a manual start); otherwise auto-offer only when the
-    toggle is on, the audience passes, the welcome modal isn't showing, and the
-    ``TourState`` row is absent or still ``OFFERED`` (first eligible GET writes
-    the ``offered`` row).
+    member's toggle and the site-wide switch are on, the audience passes, the
+    welcome modal isn't showing, and the ``TourState`` row is absent or still
+    ``OFFERED`` (first eligible GET writes the ``offered`` row).
 
     Raises:
         KeyError: If ``tour_key`` isn't a registered tour (a coding error in the
             caller — fail loudly).
     """
-    from core.models import TourState
+    from core.models import SiteConfiguration, TourState
 
     tour = TOURS[tour_key]
     empty: dict[str, Any] = {"tour": None, "tour_json": None, "show_tour_offer": False, "tour_autostart": False}
@@ -710,6 +710,11 @@ def tour_offer_context(request: HttpRequest, tour_key: str) -> dict[str, Any]:
         }
     show_welcome_modal = member.welcome_dismissed_at is None and not member.has_started_profile
     if not member.guided_tours_enabled or show_welcome_modal:
+        return empty
+    if not SiteConfiguration.load().guided_tours_enabled:
+        # The site-wide switch (Site Settings, Features). Checked after the member guards so
+        # the query only runs for someone who would otherwise be offered a tour, and before
+        # any ``offered`` row is written, so turning it back on offers afresh.
         return empty
     status = TourState.objects.status_for(request.user, tour_key)
     if status is None:
