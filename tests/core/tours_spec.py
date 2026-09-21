@@ -89,13 +89,21 @@ def describe_TOURS():
                 assert step.title
                 assert step.body
 
+    def it_anchors_every_step_to_an_element():
+        # A step with no target renders as a popover in the middle of the screen, the
+        # one shape members asked not to see (launch day, 2026-09-21). Intros and closing
+        # notes anchor to the entry page's own elements instead.
+        centred = [
+            f"{tour.key}: {step.title!r}" for tour in TOURS.values() for step in tour.steps if step.target is None
+        ]
+        assert not centred, "centred tour steps:\n  " + "\n  ".join(centred)
+
     def it_only_targets_registered_help_keys():
         # A tour step naming an unregistered help key would silently vanish from
         # every run (the selector matches nothing) — fail here instead.
         for tour in TOURS.values():
             for step in tour.steps:
-                if step.target is None:
-                    continue
+                assert step.target is not None, f"{tour.key}: centred step {step.title!r}"
                 match = HELP_KEY_TARGET_RE.match(step.target)
                 assert match, f"{tour.key}: non-help-key target {step.target!r}"
                 assert match.group(1) in HELP_KEYS, f"{tour.key}: unregistered key {match.group(1)!r}"
@@ -140,7 +148,7 @@ def describe_TOURS():
         assert "Everything in One Place" in member_step_titles
         assert "Calendar" in member_step_titles
         lead_step_titles = {step.title for step in TOURS["guild-lead"].steps}
-        assert "Your Guild's Control Room" in lead_step_titles
+        assert "Your Public Page" in lead_step_titles
         assert "Your Wishlist" in lead_step_titles
 
     def describe_guild_lead_url_fallback_for_admins_and_officers():

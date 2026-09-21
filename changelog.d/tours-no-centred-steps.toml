@@ -1,0 +1,7 @@
+bump = "patch"
+date = "2026-09-21"
+title = "Guided tours point at the page, not the middle of the screen"
+changes = [
+  "A guided tour now starts on the thing it is describing, instead of opening with a popup in the middle of the screen.",
+  "The notes a tour used to show between stops, and its closing note, now sit beside the stops they belong to.",
+]
