@@ -802,6 +802,31 @@ def describe_admin_site_settings():
         config = SiteConfiguration.load()
         assert config.registration_mode == SiteConfiguration.RegistrationMode.OPEN
 
+    def it_saves_the_guided_tours_switch_from_the_features_tab(client):
+        _create_superuser(client)
+        base = {
+            "org_name": "Past Lives Makerspace",
+            "registration_mode": SiteConfiguration.RegistrationMode.OPEN,
+            "member_event_policy": SiteConfiguration.MemberEventPolicy.APPROVAL,
+            "classes_calendar_color": "#abcdef",
+            "feeds-TOTAL_FORMS": "0",
+            "feeds-INITIAL_FORMS": "0",
+            "feeds-MIN_NUM_FORMS": "0",
+            "feeds-MAX_NUM_FORMS": "1000",
+        }
+        assert SiteConfiguration.load().guided_tours_enabled is True
+
+        html = client.get(reverse("hub_admin_site_settings")).content.decode()
+        assert html.count('name="guided_tours_enabled"') == 1, "rendered once, on the Features tab only"
+
+        off = client.post(reverse("hub_admin_site_settings"), data=base)
+        assert off.status_code == 302
+        assert SiteConfiguration.load().guided_tours_enabled is False
+
+        on = client.post(reverse("hub_admin_site_settings"), data={**base, "guided_tours_enabled": "on"})
+        assert on.status_code == 302
+        assert SiteConfiguration.load().guided_tours_enabled is True
+
     def it_keeps_the_save_button_inside_the_settings_form(client):
         # Regression: the Sync Now control used to be its own nested <form>, which is invalid
         # HTML — the browser closed the main settings form at the nested </form>, orphaning the
