@@ -80,6 +80,32 @@ def describe_hub_member_agreement() -> None:
         assert parse_html(link) in parse_html(response.content.decode())
         assert b"<iframe" not in response.content
 
+    def it_holds_the_welcome_modal_until_the_agreement_is_accepted(client: Client, active_member: Member) -> None:
+        """A brand-new member's welcome pop-up must not cover the agreement page.
+
+        Both of its buttons POST to a path the agreement middleware redirects straight back
+        here, so rendering it on top of the agreement walled new members in on launch day.
+        """
+        config = SiteConfiguration.load()
+        config.member_agreement_required = True
+        config.member_agreement_url = "https://example.com"
+        config.save()
+        assert active_member.welcome_dismissed_at is None
+        assert not active_member.has_started_profile
+        client.force_login(active_member.user)
+
+        prompt = client.get(reverse("hub_member_agreement"))
+
+        assert prompt.status_code == 200
+        assert prompt.context["show_welcome_modal"] is False
+        assert b"Welcome to Past Lives!" not in prompt.content
+
+        client.post(reverse("hub_member_agreement"), {"agree": "on"})
+        after = client.get(reverse("hub_member_directory"))
+
+        assert after.status_code == 200
+        assert after.context["show_welcome_modal"] is True
+
     @override_settings(X_FRAME_OPTIONS="DENY")
     def it_can_read_the_knowledge_base_agreement_before_accepting(client: Client, active_member: Member) -> None:
         from tests.membership.factories import WikiPageFactory
