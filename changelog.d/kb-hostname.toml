@@ -2,5 +2,5 @@ bump = "patch"
 date = "2026-09-22"
 title = "The Knowledge Base has its own address"
 changes = [
-  "The sidebar's Knowledge Base entry now points at https://kb.pastlives.space instead of the IP-derived sslip.io address it was reachable at while it was being set up.",
+  "The Knowledge Base link in the sidebar now goes to kb.pastlives.space. Links and bookmarks you already have still work.",
 ]
