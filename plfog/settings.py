@@ -101,9 +101,10 @@ MAKERSPACE_WIKI_URL = os.environ.get("MAKERSPACE_WIKI_URL", "https://wiki.pastli
 # because a copy there wins on production the moment a blueprint is applied and a drift between
 # the two would take effect in the order nobody expects.
 #
-# TODO: change to https://kb.pastlives.space once that A record exists. The KB answers on both;
-# the sslip.io hostname is the one that resolves today and it carries a valid cert.
-DEFAULT_KNOWLEDGE_BASE_URL = "https://179.237.83.7.sslip.io"
+# The KB's own hostname, live since 2026-09-22. It still answers on the sslip.io address it was
+# built at, and that name stays on the certificate and in the OIDC app's redirect URIs, so a
+# member holding an old link is not turned away — but this is the address the portal hands out.
+DEFAULT_KNOWLEDGE_BASE_URL = "https://kb.pastlives.space"
 KNOWLEDGE_BASE_URL = os.environ.get("KNOWLEDGE_BASE_URL", DEFAULT_KNOWLEDGE_BASE_URL).rstrip("/")
 MEMBER_ONLY_PATH_PREFIXES: tuple[str, ...] = (
     "/admin/",

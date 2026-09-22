@@ -1,0 +1,6 @@
+bump = "patch"
+date = "2026-09-22"
+title = "The Knowledge Base has its own address"
+changes = [
+  "The Knowledge Base link in the sidebar now goes to kb.pastlives.space. Links and bookmarks you already have still work.",
+]
