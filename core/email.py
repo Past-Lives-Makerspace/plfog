@@ -3,6 +3,11 @@
 Every transactional email in the app routes through ``send()`` so a
 ``TransactionalEmailLog`` row is written whether the send succeeds or fails.
 The returned row can be attached to a ``SiteActivity`` via its ``email_log`` FK.
+
+Being the one choke point is also what makes staging containable: ``send()`` applies
+:mod:`core.email_policy` (the ``[STAGING]`` marking and the recipient allowlist) before
+anything reaches the transport, so no caller can slip a real member an email from a
+staging box. Outside staging the policy is a no-op.
 """
 
 from __future__ import annotations
@@ -10,6 +15,7 @@ from __future__ import annotations
 from django.conf import settings
 from django.core.mail import EmailMultiAlternatives, send_mail
 
+from core import email_policy
 from core.models import TransactionalEmailLog
 
 # An attachment as (filename, content, mimetype) — e.g. ("orientation.ics", ics_bytes, "text/calendar").
@@ -94,13 +100,34 @@ def send(
             rules can filter by workflow.
 
     Returns:
-        The TransactionalEmailLog row written for this attempt.
+        The TransactionalEmailLog row written for this attempt. On staging, when the
+        delivery policy suppressed every recipient, no transport call is made and the
+        first suppressed row stands in as the attempt.
 
     Raises:
         Exception: Re-raises the underlying send error unless best_effort=True.
     """
     recipients = [to] if isinstance(to, str) else list(to)
     bcc_list = [bcc] if isinstance(bcc, str) else list(bcc or [])
+    # Staging: mark the message and drop every recipient the delivery policy refuses, one
+    # log row per drop so the Email Log shows what would have gone out. No-ops elsewhere.
+    subject = email_policy.staging_subject(subject)
+    text_body = email_policy.staging_text_body(text_body)
+    html_body = email_policy.staging_html_body(html_body)
+    recipients, suppressed_to = email_policy.partition_recipients(recipients)
+    bcc_list, suppressed_bcc = email_policy.partition_recipients(bcc_list)
+    suppressed_rows = [
+        TransactionalEmailLog.objects.create(
+            to_email=address,
+            subject=subject,
+            trigger_kind=trigger_kind,
+            status=TransactionalEmailLog.Status.SUPPRESSED,
+            error_message=email_policy.SUPPRESSION_REASON,
+        )
+        for address in suppressed_to + suppressed_bcc
+    ]
+    if suppressed_rows and not recipients and not bcc_list:
+        return suppressed_rows[0]
     joined = ", ".join(recipients + bcc_list)
     # Personalize the footer's "manage preferences / unsubscribe" link with this
     # recipient's no-login token (a no-op when the footer placeholder is absent).
