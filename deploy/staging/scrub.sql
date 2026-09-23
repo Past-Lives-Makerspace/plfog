@@ -49,6 +49,12 @@ UPDATE membership_guild
    SET discord_webhook_url = '',
        discord_post_enabled = false;
 
+-- A staging copy must never sit in Stripe live mode: the copied secrets already read back
+-- blank under staging's own Fernet key, and test mode makes any key entered later land in
+-- the test slot.
+UPDATE billing_billingsettings
+   SET test_mode = true;
+
 -- Browser push subscriptions and app device tokens belong to real phones and browsers.
 -- Staging has no VAPID or FCM credentials for them, but a copied token must not sit there
 -- waiting for someone to add some.

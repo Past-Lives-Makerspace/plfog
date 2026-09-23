@@ -56,7 +56,7 @@ off in code, and `scrub.sql` blanks the same rows after every refresh:
 | Mailchimp subscribes | `MailchimpClient.from_site_config` returns a disabled client before reading the database |
 | Push to copied browsers and phones | `scrub.sql` deletes the subscription and device rows; staging's VAPID keys differ from production's; no FCM credential |
 | Calendar, Airtable, the KB single sign-on, R2 | credentials unset |
-| Stripe | production's encrypted secrets are unreadable under staging's key; `BillingSettings.test_mode` and its test slots are the way to try payments |
+| Stripe | production's encrypted secrets are unreadable under staging's key, and `scrub.sql` forces `BillingSettings.test_mode` on so any key entered later lands in the test slot; the test slots are the way to try payments |
 | Invite and login-invite links | `scrub.sql` points the sites framework row at `staging.pastlives.space` |
 | Hand-typed production links in edited notification copy | `scrub.sql` rewrites the two production hosts in `core_notificationtemplate` |
 | Every page | the fixed STAGING ribbon (`components/staging_ribbon.html`) |
