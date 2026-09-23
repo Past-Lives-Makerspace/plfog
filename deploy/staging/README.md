@@ -52,7 +52,7 @@ off in code, and `scrub.sql` blanks the same rows after every refresh:
 | Email to anyone but staff, admins, instructors and the allowlist | `core/email.py` through `core/email_policy.py`; every dropped address is a `TransactionalEmailLog` row with status `suppressed` |
 | The `[STAGING]` subject prefix, the first line of every text body, the banner atop every HTML body | `core/email_policy.py` |
 | Discord webhooks: global, per event routes, Site Settings pins, guild channels, the announcement picker | `core/events/discord.py` resolvers answer blank, `post_embed` refuses a URL it is handed, `membership.models.resolve_channel_webhook` answers blank |
-| Discord bot calls: DMs, roles, reactions, channel posts, Scheduled Events, the guild sync | `core/events/discord_dm.bot_token` answers blank |
+| Discord bot calls: DMs, roles, reactions, channel posts, Scheduled Events, the guild sync, interaction callbacks | `core/events/discord_dm.bot_token` answers blank and every bot module asks `bot_disabled` first, so each entry point is a logged no-op before a request is built |
 | Mailchimp subscribes | `MailchimpClient.from_site_config` returns a disabled client before reading the database |
 | Push to copied browsers and phones | `scrub.sql` deletes the subscription and device rows; staging's VAPID keys differ from production's; no FCM credential |
 | Calendar, Airtable, the KB single sign-on, R2 | credentials unset |
