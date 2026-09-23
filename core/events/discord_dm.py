@@ -38,7 +38,15 @@ _DEFAULT_TIMEOUT_SECONDS = 5.0
 
 
 def bot_token() -> str:
-    """The FOG bot token (blank = the per-member DM channel is disabled)."""
+    """The FOG bot token (blank = the per-member DM channel is disabled).
+
+    Every bot-authenticated call in the app (DMs, roles, reactions, channel posts, the
+    Scheduled Events mirror, the guild sync) takes its credential from here, so answering
+    blank on staging is what keeps a staging box off the real server even though its copied
+    database names the server and its channels.
+    """
+    if settings.IS_STAGING:
+        return ""
     return (getattr(settings, "DISCORD_BOT_TOKEN", "") or "").strip()
 
 
