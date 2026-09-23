@@ -174,5 +174,5 @@ Every PR adds one fragment to `changelog.d/` declaring `bump = "patch" | "minor"
 ## Deployment
 
 - **Production**: Render.com (`DATABASE_URL` points to PostgreSQL)
-- **QA/Staging**: Hetzner VPS at `pastlives.plaza.codes`
+- **Staging**: Hetzner VPS at `staging.pastlives.space` and `book.staging.pastlives.space`, a contained clone of production that tracks `main` (`deploy/staging/README.md`)
 - **Local**: SQLite (default when `DATABASE_URL` unset); the canonical dev stack is `docker compose up -d` from the primary checkout (see `/spin-up`)

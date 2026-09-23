@@ -69,6 +69,7 @@ Annotation-only imports go under `if TYPE_CHECKING:`; a runtime import that woul
 - Production runs on Render from `main`, and the Dockerfile `CMD` is the deploy: `migrate --noinput && seed_notification_templates --quiet && gunicorn`. Migrations apply while the previous release is still serving, so a migration must work with the old code: add before you remove, and prefer repairing data in a code path over a data migration that assumes the new code.
 - `render.yaml` is not linked to the Render service; a variable declared there never reaches production.
 - Deploys do not run `seed_help_center` or `seed_example_guild`. Changes to `membership/help_content.py` or `membership/example_guild.py` reach production only when someone runs those commands against it.
+- Staging (`staging.pastlives.space`, the Hetzner VPS) is a clone of production that tracks `main` through its own deploy timer (`deploy/staging/README.md`). `ENVIRONMENT=staging` is the one switch that contains it: email goes only to staff, admins, instructors and `EMAIL_DELIVERY_ALLOWLIST` and is marked `[STAGING]`, every Discord resolver and the bot token answer blank, Mailchimp is disabled, and a STAGING ribbon sits on every page. A new outbound integration must go dark under that flag too.
 
 ## 11. Domain Traps
 
