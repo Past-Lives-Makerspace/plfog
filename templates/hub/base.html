@@ -11,6 +11,7 @@
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;700&family=Lato:wght@400;700;900&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="{% static 'css/hub.css' %}">
     <link rel="stylesheet" href="{% static 'css/components.css' %}">
+    {% if IS_STAGING %}<link rel="stylesheet" href="{% static 'css/staging-ribbon.css' %}">{% endif %}
     <meta name="default-theme" content="{% block default_theme %}dark{% endblock %}">
     {% include "includes/google_analytics.html" %}
     <script>
@@ -109,6 +110,7 @@
 {% endif %}
 {% include "components/toast.html" %}
 {% include "components/loading_bar.html" %}
+{% include "components/staging_ribbon.html" %}
 {% block extra_body %}{% endblock %}
     {% if user.is_authenticated and not request.GET.public and not is_guest_surface and not is_framed %}
     <div class="hub-sidebar-backdrop" :class="{ 'hub-sidebar-backdrop--visible': sidebarOpen }" @click="sidebarOpen = false"></div>

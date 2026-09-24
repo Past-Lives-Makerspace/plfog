@@ -4432,6 +4432,9 @@ def resolve_channel_webhook(channel: str, guild: "Guild | None" = None) -> str:
     """
     from core.models import SiteConfiguration
 
+    # Staging holds a copy of production's webhooks; the picker must resolve to "no post".
+    if settings.IS_STAGING:
+        return ""
     channels = GuildAnnouncement.DiscordChannel
     if channel == channels.GUILD:
         return (guild.discord_webhook_url or "").strip() if guild is not None else ""

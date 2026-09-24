@@ -151,6 +151,16 @@ def surface(request: HttpRequest) -> dict[str, str | bool]:
     }
 
 
+def environment(request: HttpRequest) -> dict[str, str | bool]:
+    """Expose which deployment is rendering, so a staging page can say so on every screen.
+
+    ``IS_STAGING`` gates the fixed STAGING ribbon (``components/staging_ribbon.html``) and its
+    stylesheet link in the base templates; ``ENVIRONMENT`` is the name itself for anything
+    that wants to print it. Both come straight from settings, so there is nothing to cache.
+    """
+    return {"ENVIRONMENT": settings.ENVIRONMENT, "IS_STAGING": settings.IS_STAGING}
+
+
 def google_analytics(request: HttpRequest) -> dict[str, str]:
     """Expose the GA4 measurement ID on every page, the Django admin included.
 

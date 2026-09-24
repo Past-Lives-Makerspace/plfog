@@ -7,17 +7,37 @@ from pathlib import Path
 import dj_database_url
 import sentry_sdk
 from sentry_sdk.scrubber import EventScrubber
+from django.core.exceptions import ImproperlyConfigured
 from django.templatetags.static import static
 from django.urls import reverse_lazy
 
 BASE_DIR = Path(__file__).resolve().parent.parent
+
+# Which deployment this process is. Staging is a clone of production (same code, a copy of
+# the data, real outbound email) that must never reach a real member, the real Discord
+# server or a third-party list, so the switches that keep it contained key off this one
+# value rather than off DEBUG: staging runs with DEBUG off exactly like production. The
+# default follows DJANGO_DEBUG so local dev and production need no new variable; only the
+# staging box sets ENVIRONMENT=staging. An unknown value refuses to boot, because a typo
+# here ("stagin") would silently be production with every containment switch off.
+_ENVIRONMENT_NAMES = ("development", "staging", "production")
+ENVIRONMENT = (
+    os.environ.get(
+        "ENVIRONMENT", "development" if os.environ.get("DJANGO_DEBUG", "True").lower() == "true" else "production"
+    )
+    .strip()
+    .lower()
+)
+if ENVIRONMENT not in _ENVIRONMENT_NAMES:
+    raise ImproperlyConfigured(f"ENVIRONMENT must be one of {_ENVIRONMENT_NAMES}, not {ENVIRONMENT!r}.")
+IS_STAGING = ENVIRONMENT == "staging"
 
 # Sentry
 SENTRY_DSN = os.environ.get("SENTRY_DSN", "")
 if SENTRY_DSN:
     sentry_sdk.init(
         dsn=SENTRY_DSN,
-        environment="development" if os.environ.get("DJANGO_DEBUG", "True").lower() == "true" else "production",
+        environment=ENVIRONMENT,
         traces_sample_rate=0.1,
         send_default_pii=True,
         # recursive=True because the default scrubber only walks the TOP level of a frame's
@@ -279,6 +299,7 @@ TEMPLATES = [
                 "core.context_processors.brand",
                 "core.context_processors.google_analytics",
                 "core.context_processors.surface",
+                "core.context_processors.environment",
                 "core.context_processors.persona",
                 "billing.context_processors.tab_context",
                 "hub.context_processors.hub_sidebar",
@@ -585,6 +606,17 @@ ANYMAIL = {
 }
 
 DEFAULT_FROM_EMAIL = os.environ.get("DEFAULT_FROM_EMAIL", "noreply@pastlives.space")
+
+# Who staging may really email. Staging carries a copy of production's members, so a class
+# published there would otherwise mail the whole membership. On staging an address is
+# delivered only when it is listed here (a full address, or a bare domain that matches every
+# address at it), or when it belongs to a user who is staff, a FOG admin or an instructor;
+# every other recipient is dropped and logged (core/email_policy.py). Ignored outside
+# staging, so production and local dev never consult it. Blank means "roles only".
+_email_allowlist_raw = os.environ.get("EMAIL_DELIVERY_ALLOWLIST", "")
+EMAIL_DELIVERY_ALLOWLIST: frozenset[str] = frozenset(
+    entry.strip().lower() for entry in _email_allowlist_raw.split(",") if entry.strip()
+)
 
 # Base URL for the public booking site, used to build absolute links in emails.
 BOOK_BASE_URL = os.environ.get("BOOK_BASE_URL", "https://book.pastlives.space")

@@ -36,7 +36,7 @@ from typing import TYPE_CHECKING, Any, cast
 
 import httpx
 
-from core.events.discord_dm import API_BASE, _auth_headers, bot_token
+from core.events.discord_dm import API_BASE, _auth_headers, bot_disabled, bot_token
 
 if TYPE_CHECKING:
     from datetime import datetime
@@ -173,6 +173,10 @@ class DiscordScheduledEventsClient:
         cron, not hang the request sleeping. A 429 without the flag, or with no usable or
         too-long ``Retry-After`` on any attempt, raises immediately.
         """
+        # A blank token (unset, or ENVIRONMENT=staging) never builds a request: callers
+        # already check ``enabled``, and this keeps a client built any other way honest.
+        if bot_disabled("scheduled events call"):
+            raise DiscordEventsError("Discord bot token is blank; nothing was sent.")
         response = DiscordScheduledEventsClient._send(method, path, json=json)
         attempts = 1
         while response.status_code == 429 and retry_on_rate_limit and attempts < _RATE_LIMIT_MAX_ATTEMPTS:

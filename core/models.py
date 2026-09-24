@@ -1405,12 +1405,18 @@ class TransactionalEmailLog(models.Model):
     class Status(models.TextChoices):
         SENT = "sent", "Sent"
         FAILED = "failed", "Failed"
+        # Staging only: the delivery policy refused the recipient, so nothing was sent.
+        SUPPRESSED = "suppressed", "Suppressed"
 
     to_email = models.CharField(max_length=254, help_text="Recipient(s); comma-joined when multiple.")
     subject = models.CharField(max_length=500, help_text="Email subject line.")
     trigger_kind = models.CharField(max_length=100, help_text="Which workflow sent it, e.g. 'billing.receipt'.")
     status = models.CharField(max_length=10, choices=Status.choices, help_text="Send outcome.")
-    error_message = models.TextField(blank=True, default="", help_text="Exception text when status=failed.")
+    error_message = models.TextField(
+        blank=True,
+        default="",
+        help_text="Exception text when status=failed; the policy reason when status=suppressed.",
+    )
     created_at = models.DateTimeField(auto_now_add=True, db_index=True)
 
     class Meta:
