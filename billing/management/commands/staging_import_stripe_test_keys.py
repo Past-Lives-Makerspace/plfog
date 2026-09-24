@@ -8,6 +8,13 @@ key supplied in the environment for this one run, and saves the plaintexts back 
 the model so they are re-encrypted under the staging key. The live-slot secrets are
 blanked (live credentials never exist on staging) and ``test_mode`` is forced on.
 
+Production has no test-mode webhook secret (its slot is blank), while the staging box has
+its own Stripe test endpoint whose signing secret lives in the box's ``.env`` as
+``STAGING_STRIPE_TEST_WEBHOOK_SECRET``. When production's value decrypts to blank and that
+variable is set, the slot is filled from it, so every refresh restores the staging
+endpoint; a non-blank production value still wins, because it means someone pointed one
+shared test endpoint at both.
+
 Fails closed like the rest of staging mode: refuses outside ``ENVIRONMENT=staging``,
 refuses without ``PROD_STRIPE_FIELD_ENCRYPTION_KEY``, and writes nothing when a value does
 not decrypt. Never prints a plaintext; each imported value is shown masked.
@@ -30,6 +37,8 @@ from billing.fields import fernet_from_key
 from billing.models import BillingSettings
 
 ENV_KEY = "PROD_STRIPE_FIELD_ENCRYPTION_KEY"
+FALLBACK_WEBHOOK_ENV = "STAGING_STRIPE_TEST_WEBHOOK_SECRET"
+WEBHOOK_FIELD = "test_connect_platform_webhook_secret"
 ENCRYPTED_TEST_FIELDS: tuple[str, ...] = ("test_connect_platform_secret_key", "test_connect_platform_webhook_secret")
 LIVE_ENCRYPTED_FIELDS: tuple[str, ...] = ("connect_platform_secret_key", "connect_platform_webhook_secret")
 _MASK_VISIBLE_CHARS = 8
@@ -37,7 +46,7 @@ _MASK_VISIBLE_CHARS = 8
 
 def masked(value: str) -> str:
     """The first characters of ``value`` and its length, never the whole secret."""
-    return f"{value[:_MASK_VISIBLE_CHARS]}... ({len(value)} characters)"
+    return f"{value[:_MASK_VISIBLE_CHARS]}... {len(value)} characters"
 
 
 class Command(BaseCommand):
@@ -60,6 +69,12 @@ class Command(BaseCommand):
         plaintexts = {
             field: _decrypt(prod_fernet, field, ciphertext) for field, ciphertext in _raw_ciphertexts().items()
         }
+        lines = {field: _report(field, plaintext) for field, plaintext in plaintexts.items()}
+
+        fallback_webhook = os.environ.get(FALLBACK_WEBHOOK_ENV, "").strip()
+        if not plaintexts[WEBHOOK_FIELD] and fallback_webhook:
+            plaintexts[WEBHOOK_FIELD] = fallback_webhook
+            lines[WEBHOOK_FIELD] = f"{WEBHOOK_FIELD}: restored from {FALLBACK_WEBHOOK_ENV} ({masked(fallback_webhook)})"
 
         billing = BillingSettings.load()
         for field, plaintext in plaintexts.items():
@@ -69,11 +84,15 @@ class Command(BaseCommand):
         billing.test_mode = True
         billing.save()
 
-        for field, plaintext in plaintexts.items():
-            if plaintext:
-                self.stdout.write(f"{field}: imported {masked(plaintext)}")
-            else:
-                self.stdout.write(f"{field}: blank on production")
+        for line in lines.values():
+            self.stdout.write(line)
+
+
+def _report(field: str, plaintext: str) -> str:
+    """The stdout line for a value taken from production: masked, or noted as blank."""
+    if plaintext:
+        return f"{field}: imported ({masked(plaintext)})"
+    return f"{field}: blank on production"
 
 
 def _column(field_name: str) -> str:

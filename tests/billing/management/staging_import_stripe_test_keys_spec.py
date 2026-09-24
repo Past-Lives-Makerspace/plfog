@@ -15,7 +15,7 @@ from django.core.management import call_command
 from django.core.management.base import CommandError
 from django.db import connection
 
-from billing.management.commands.staging_import_stripe_test_keys import ENV_KEY
+from billing.management.commands.staging_import_stripe_test_keys import ENV_KEY, FALLBACK_WEBHOOK_ENV
 from billing.models import BillingSettings
 
 pytestmark = pytest.mark.django_db
@@ -24,12 +24,14 @@ PROD_KEY = Fernet.generate_key().decode()
 OTHER_KEY = Fernet.generate_key().decode()
 SECRET = "sk_test_51ABCDEFimportedfromproduction"
 WEBHOOK = "whsec_testwebhooksigningsecret"
+STAGING_WEBHOOK = "whsec_stagingendpointsigningsecret"
 
 
 @pytest.fixture
 def staging(settings, monkeypatch):
     settings.IS_STAGING = True
     monkeypatch.setenv(ENV_KEY, PROD_KEY)
+    monkeypatch.delenv(FALLBACK_WEBHOOK_ENV, raising=False)
     return settings
 
 
@@ -123,8 +125,8 @@ def describe_staging_import_stripe_test_keys():
         def it_prints_masked_values_and_never_the_plaintext(staging):
             _plant(webhook=WEBHOOK)
             output = _run()
-            assert f"test_connect_platform_secret_key: imported sk_test_... ({len(SECRET)} characters)" in output
-            assert f"test_connect_platform_webhook_secret: imported whsec_te... ({len(WEBHOOK)} characters)" in output
+            assert f"test_connect_platform_secret_key: imported (sk_test_... {len(SECRET)} characters)" in output
+            assert f"test_connect_platform_webhook_secret: imported (whsec_te... {len(WEBHOOK)} characters)" in output
             assert SECRET not in output
             assert WEBHOOK not in output
 
@@ -134,3 +136,29 @@ def describe_staging_import_stripe_test_keys():
             assert "test_connect_platform_webhook_secret: blank on production" in output
             assert BillingSettings.load().test_connect_platform_webhook_secret == ""
             assert BillingSettings.load().test_connect_platform_secret_key == SECRET
+
+    def describe_the_staging_webhook_secret():
+        def it_fills_a_blank_production_slot_from_the_box_environment(staging, monkeypatch):
+            monkeypatch.setenv(FALLBACK_WEBHOOK_ENV, STAGING_WEBHOOK)
+            _plant(webhook="")
+            output = _run()
+            row = BillingSettings.load()
+            assert row.test_connect_platform_webhook_secret == STAGING_WEBHOOK
+            assert row.test_connect_platform_secret_key == SECRET
+            assert row.test_mode is True
+            assert (
+                "test_connect_platform_webhook_secret: restored from STAGING_STRIPE_TEST_WEBHOOK_SECRET "
+                f"(whsec_st... {len(STAGING_WEBHOOK)} characters)"
+            ) in output
+            assert "blank on production" not in output
+            assert STAGING_WEBHOOK not in output
+            assert _raw("test_connect_platform_webhook_secret") != STAGING_WEBHOOK
+
+        def it_lets_a_non_blank_production_value_win(staging, monkeypatch):
+            monkeypatch.setenv(FALLBACK_WEBHOOK_ENV, STAGING_WEBHOOK)
+            _plant(webhook=WEBHOOK)
+            output = _run()
+            assert BillingSettings.load().test_connect_platform_webhook_secret == WEBHOOK
+            assert f"test_connect_platform_webhook_secret: imported (whsec_te... {len(WEBHOOK)} characters)" in output
+            assert "restored from" not in output
+            assert STAGING_WEBHOOK not in output

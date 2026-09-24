@@ -35,7 +35,8 @@ read it. What it sets and why:
 | `EMAIL_BACKEND`, `RESEND_API_KEY`, `DEFAULT_FROM_EMAIL` | Resend, the production key, `Past Lives STAGING <noreply@pastlives.space>` | Real delivery for the people practising; the display name marks it before the subject does. |
 | `EMAIL_DELIVERY_ALLOWLIST` | addresses and domains that may receive mail | Roles cover staff, admins and instructors; this covers everyone else who should, for example a tester without a role. |
 | `WEBPUSH_VAPID_*` | a fresh key pair, not production's | Browser push can be tried on staging without a copied subscription ever being reachable. |
-| `STRIPE_FIELD_ENCRYPTION_KEY` | a fresh key, not production's | Production's stored Stripe secrets then read back blank, so billing is dark until test keys are entered in the admin. |
+| `STRIPE_FIELD_ENCRYPTION_KEY` | a fresh key, not production's | Production's stored Stripe secrets then read back blank; the refresh re-keys the test slot (see Stripe test keys below). |
+| `STAGING_STRIPE_TEST_WEBHOOK_SECRET` | the signing secret of staging's own Stripe test webhook endpoint | Restored into the test slot on every refresh, because production carries no test webhook secret. |
 | unset on purpose | `DISCORD_*`, `FCM_SERVICE_ACCOUNT_JSON`, `GOOGLE_SERVICE_ACCOUNT_JSON`, `GOOGLE_CALENDAR_SYNC_ENABLED`, `AIRTABLE_*`, `R2_*`, `OIDC_RSA_PRIVATE_KEY`, `MAILCHIMP_*` | Each integration is dark when its credential is blank. |
 
 `deploy.env`, one directory above the checkout, is optional and holds one line,
@@ -101,11 +102,14 @@ cd /var/www/staging.pastlives.space/app
 PROD_STRIPE_FIELD_ENCRYPTION_KEY='...' .venv/bin/python manage.py staging_import_stripe_test_keys
 ```
 
-**Webhook caveat.** Production has no test-mode webhook secret, so the import leaves that
-slot blank and payment confirmations on staging will not arrive until a Stripe test-mode
-webhook endpoint exists for `https://staging.pastlives.space/billing/webhooks/stripe/` (route
-`billing_stripe_webhook`) and its signing secret is pasted into staging's Payments settings,
-test slot. Every refresh re-imports production's blank value, so paste it again after each one.
+**Webhook.** Production has no test-mode webhook secret, so on its own the import would leave
+that slot blank and payment confirmations on staging would never arrive. Create a Stripe
+test-mode webhook endpoint once for `https://staging.pastlives.space/billing/webhooks/stripe/`
+(route `billing_stripe_webhook`) and put its signing secret in the box's `.env` as
+`STAGING_STRIPE_TEST_WEBHOOK_SECRET` (a staging-only value, safe to keep there). Every refresh
+then restores it: when production's value decrypts to blank the import fills the slot from that
+variable and reports `restored from STAGING_STRIPE_TEST_WEBHOOK_SECRET`. A non-blank production
+value still wins, since it means one shared test endpoint was pointed at both.
 
 ## Running a PR branch, and going back to main
 
