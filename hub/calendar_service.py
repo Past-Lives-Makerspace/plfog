@@ -168,8 +168,9 @@ def _upsert_events(
     share a UID don't clobber each other. Echoes of our own Google-pushed CommunityEvents
     (see :func:`_pushed_event_uids`) are skipped, not imported.
 
-    When ``window`` (the span this fetch expanded over) is given, stale occurrences left by a
-    reschedule are pruned afterward — see :func:`_prune_stale_occurrences`.
+    When ``window`` (the span this fetch expanded over) is given, in-window rows the fetch no
+    longer returned (a rescheduled occurrence, an event deleted upstream) are pruned
+    afterward — see :func:`_prune_stale_occurrences`.
     """
     now = timezone.now()
     echo_uids = _pushed_event_uids()
@@ -197,31 +198,38 @@ def _upsert_events(
         kept_pks.append(obj.pk)
         fetched_uids.add(evt["uid"])
     if window is not None:
-        _prune_stale_occurrences(guild, feed, fetched_uids, kept_pks, window, now)
+        _prune_stale_occurrences(guild, feed, source, fetched_uids, kept_pks, window, now)
     return len(events)
 
 
 def _prune_stale_occurrences(
     guild: Guild | None,
     feed: CalendarFeed | None,
+    source: str,
     fetched_uids: set[str],
     kept_pks: list[int],
     window: tuple[datetime, datetime],
     now: datetime,
 ) -> None:
-    """Delete stale occurrence rows a reschedule left behind.
+    """Delete the in-window rows of this feed that the fetch did not just write.
 
-    Each occurrence of a recurring series is its own row keyed by ``recurrence_id`` — the
-    occurrence's DTSTART (see :func:`_event_dict`). Move or single-instance-override an
-    occurrence and its DTSTART changes, so the next fetch writes a NEW row and the old one is
-    orphaned: it never updates again, and the calendar, the #calendar announcer, and the
-    Discord Scheduled Events mirror all double-list it. Mirroring :func:`sync_local_class_events`,
-    drop the rows this fetch did not just write.
+    A feed row goes stale two ways. Move or single-instance-override an occurrence of a
+    recurring series and its DTSTART — the ``recurrence_id`` it is keyed by (see
+    :func:`_event_dict`) — changes, so the next fetch writes a NEW row and the old one is
+    orphaned. Delete an event upstream and it simply stops appearing: Google's iCal export
+    drops a deleted event outright (it never sends ``STATUS:CANCELLED``), so an upsert alone
+    never hears of it. Either way the leftover never updates again, and the calendar, the
+    #calendar announcer and the Discord Scheduled Events mirror all keep showing it — "Puppet
+    Panic" sat on its cancelled date for days after the organizer re-created it a month out.
+    Mirroring :func:`sync_local_class_events`, drop the rows this fetch did not just write.
 
-    Scoped deliberately to **UIDs the fetch returned**, inside the expansion ``window`` only: a
-    series that vanished entirely — or a transient empty/partial fetch — leaves its rows
-    untouched, so an upstream blip can never wipe a feed's calendar. Any pruned row's Discord
-    copy is deleted first (best-effort) so the mirror doesn't keep a ghost event.
+    Scoped to this feed's own ``source`` (a guild's feed sync must not sweep that guild's
+    class rows, which share its ``guild``), to the expansion ``window`` (past rows stay as
+    history; a far-future one-off is caught once it enters the window), and skipped when the
+    fetch returned no events, so a momentarily blank feed can never wipe its calendar. A
+    truncated download cannot reach here either: ``icalendar`` refuses an unterminated
+    document. Any pruned row's Discord copy is deleted first (best-effort) so the mirror
+    doesn't keep a ghost event.
     """
     if not fetched_uids:
         return
@@ -230,7 +238,7 @@ def _prune_stale_occurrences(
         CalendarEvent.objects.filter(
             guild=guild,
             feed=feed,
-            uid__in=fetched_uids,
+            source=source,
             start_dt__gte=window_start,
             start_dt__lte=window_end,
         ).exclude(pk__in=kept_pks)
