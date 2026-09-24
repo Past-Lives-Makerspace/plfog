@@ -68,11 +68,11 @@ DELETE FROM django_session;
 -- seeded copy uses merge fields, so this only touches what a person pasted. The book host
 -- is rewritten first so the members rewrite cannot double up on it.
 UPDATE core_notificationtemplate
-   SET subject   = replace(replace(subject,   'book.pastlives.space', 'book.staging.pastlives.space'),
+   SET subject   = replace(replace(subject,   'book.pastlives.space', 'classes.staging.pastlives.space'),
                            'members.pastlives.space', 'staging.pastlives.space'),
-       body_text = replace(replace(body_text, 'book.pastlives.space', 'book.staging.pastlives.space'),
+       body_text = replace(replace(body_text, 'book.pastlives.space', 'classes.staging.pastlives.space'),
                            'members.pastlives.space', 'staging.pastlives.space'),
-       body_html = replace(replace(body_html, 'book.pastlives.space', 'book.staging.pastlives.space'),
+       body_html = replace(replace(body_html, 'book.pastlives.space', 'classes.staging.pastlives.space'),
                            'members.pastlives.space', 'staging.pastlives.space')
  WHERE subject LIKE '%pastlives.space%'
     OR body_text LIKE '%pastlives.space%'

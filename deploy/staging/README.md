@@ -15,7 +15,7 @@ on Render, so Render's crons, previews and release announcement do not apply to 
 | Service | `plfog-staging.service`: gunicorn on a unix socket in the site directory, `EnvironmentFile` = the app `.env` |
 | Deploy timer | `plfog-staging-deploy.timer`, every ten minutes, runs `deploy/staging/deploy.sh` as the site user |
 | Database | PostgreSQL 18 on localhost only (the same major as Render), database and role `plfog`, owner of its schema |
-| Web | nginx vhost for `staging.pastlives.space` and `book.staging.pastlives.space`, Let's Encrypt per host, `/static/` and `/media/` served from the site directory |
+| Web | nginx vhost for `staging.pastlives.space` and `classes.staging.pastlives.space`, Let's Encrypt per host, `/static/` and `/media/` served from the site directory |
 | sudo | one rule: the site user may run `systemctl restart plfog-staging.service` and nothing else |
 
 ## Environment
@@ -30,7 +30,7 @@ read it. What it sets and why:
 | `DATABASE_URL` | `postgres://plfog:...@localhost:5432/plfog` | Local Postgres; `refresh-db.sh` refuses any other host. |
 | `DJANGO_ALLOWED_HOSTS`, `CSRF_TRUSTED_ORIGINS` | both staging hosts | `core.E002` stops a boot whose public host is not allowed. |
 | `MEMBER_HOST`, `MEMBER_BASE_URL` | `staging.pastlives.space` | Every member link in emails and cross-surface buttons. |
-| `PUBLIC_HOSTS`, `BOOK_BASE_URL` | `book.staging.pastlives.space` | The public catalog surface and the links pointing at it. |
+| `PUBLIC_HOSTS`, `BOOK_BASE_URL` | `classes.staging.pastlives.space` | The public catalog surface and the links pointing at it. |
 | `COOKIE_DOMAIN` | `.staging.pastlives.space` | One login across the two staging hosts, like production's `.pastlives.space`. |
 | `EMAIL_BACKEND`, `RESEND_API_KEY`, `DEFAULT_FROM_EMAIL` | Resend, the production key, `Past Lives STAGING <noreply@pastlives.space>` | Real delivery for the people practising; the display name marks it before the subject does. |
 | `EMAIL_DELIVERY_ALLOWLIST` | addresses and domains that may receive mail | Roles cover staff, admins and instructors; this covers everyone else who should, for example a tester without a role. |

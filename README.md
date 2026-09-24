@@ -147,7 +147,7 @@ suite. All of it must be green to merge.
 - On merge to `main`, a GitHub Action reads the latest changelog entry and posts a release
   announcement to the Past Lives **Discord**.
 
-> ⚠️ `staging.pastlives.space` (public catalog at `book.staging.pastlives.space`) is **staging, not
+> ⚠️ `staging.pastlives.space` (public catalog at `classes.staging.pastlives.space`) is **staging, not
 > production**: a clone of production on the Hetzner VPS that tracks `main` and is contained so nothing
 > there reaches a real member or the real Discord. Render is production. See
 > [`deploy/staging/README.md`](deploy/staging/README.md).
