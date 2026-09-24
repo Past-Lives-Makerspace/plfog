@@ -9498,10 +9498,12 @@ class OrientationAvailability(models.Model):
     ("any orienter"). The owner of record is ``orientation_type`` (guild XOR
     equipment); ``guild`` is denormalized and empty for an equipment rule.
 
-    ``cadence`` sets how often the window recurs. Weekly needs nothing more. Every
-    other cadence counts from ``anchor_date``, the first day the rule runs: every
-    other week in Monday-based weeks, and the month-based cadences on the anchor's
-    weekday ordinal of its month (the 2nd Tuesday). See :meth:`occurs_on`.
+    ``cadence`` sets how often the window recurs. ``anchor_date`` is the first day
+    the rule runs, and nothing is generated before it on any cadence. Weekly needs
+    nothing more, and may leave it blank to run from now. Every other cadence also
+    counts its rhythm from ``anchor_date``: every other week in Monday-based weeks,
+    and the month-based cadences on the anchor's weekday ordinal of its month (the
+    2nd Tuesday). See :meth:`occurs_on`.
 
     ``slot_minutes`` decides the window's shape: empty keeps the legacy one slot
     spanning the whole window; set, each occurrence is carved into slots that long,
@@ -9572,7 +9574,10 @@ class OrientationAvailability(models.Model):
     anchor_date = models.DateField(
         null=True,
         blank=True,
-        help_text="The first day this rule runs. Required for every cadence but weekly, which ignores it.",
+        help_text=(
+            "The first day this rule runs, and the floor on every cadence. Required for every cadence "
+            "but weekly, which may leave it blank and then runs from now."
+        ),
     )
     start_time = models.TimeField(help_text="When the orientation window starts.")
     end_time = models.TimeField(help_text="When the orientation window ends.")
@@ -9635,15 +9640,38 @@ class OrientationAvailability(models.Model):
             return f"Every year on the {ordinal} {weekday} of {self.anchor_date:%B}"
         return f"{self.get_cadence_display()} on the {ordinal} {weekday}"
 
+    @property
+    def starts_on_note(self) -> str:
+        """The rule's start date as a phrase, for as long as it is still ahead.
+
+        Sits after :attr:`cadence_display` on a rule line: "Every Sunday from Oct 4".
+        A rule with no start date, or one whose start date is today or past, says
+        nothing, so the date only shows while it still changes what a reader expects.
+
+        Returns:
+            ``"from <Mon> <D>"``, or ``""`` when there is nothing ahead to say.
+        """
+        if self.anchor_date is None or self.anchor_date <= timezone.localdate():
+            return ""
+        return f"from {self.anchor_date:%b} {self.anchor_date.day}"
+
     def occurs_on(self, day: date_type) -> bool:
         """Whether this rule yields a window on ``day``.
 
-        The weekday must match. A weekly rule then always occurs. Every other cadence
-        starts at ``anchor_date``: every other week runs in alternate Monday-based weeks
-        from the anchor's week (the anchor's own weekday does not matter); the
-        month-based cadences run on the anchor's weekday ordinal of the month (the 2nd
-        Tuesday) whenever the whole months since the anchor's month divide by the
-        cadence's month count. A month with no 5th such weekday gets nothing.
+        The weekday must match, and ``anchor_date`` is a floor on every cadence: nothing
+        runs before the day the rule starts, weekly included. A weekly rule then always
+        occurs, and one with no anchor runs from now. Every other cadence also counts its
+        rhythm from ``anchor_date``: every other week runs in alternate Monday-based weeks
+        from the anchor's week (the anchor's own weekday does not matter); the month-based
+        cadences run on the anchor's weekday ordinal of the month (the 2nd Tuesday)
+        whenever the whole months since the anchor's month divide by the cadence's month
+        count. A month with no 5th such weekday gets nothing.
+
+        Args:
+            day: The calendar day to test.
+
+        Returns:
+            Whether the rule yields a window on that day.
 
         Raises:
             ValueError: A rule on any cadence but weekly with no ``anchor_date``. The
@@ -9651,12 +9679,12 @@ class OrientationAvailability(models.Model):
         """
         if day.weekday() != self.weekday:
             return False
+        if self.anchor_date is not None and day < self.anchor_date:
+            return False
         if self.cadence == self.Cadence.WEEKLY:
             return True
         if self.anchor_date is None:
             raise ValueError(f"OrientationAvailability {self.pk} recurs {self.cadence} but has no anchor_date.")
-        if day < self.anchor_date:
-            return False
         if self.cadence == self.Cadence.FORTNIGHTLY:
             monday = day - timedelta(days=day.weekday())
             anchor_monday = self.anchor_date - timedelta(days=self.anchor_date.weekday())

@@ -589,7 +589,7 @@ confirm modal carries its own POST form, and template content can't nest a form.
       {% if staffer_rules %}
       <ul class="pl-orient-overview__rules">
         {% for r in staffer_rules %}
-        <li>{{ r.orientation_type.name }} · {{ r.cadence_display }} · {{ r.start_time|time:"g:i a" }}–{{ r.end_time|time:"g:i a" }} · {{ r.seats }} seat{{ r.seats|pluralize }}{% if not r.is_active %} <span class="hub-text-muted">paused</span>{% endif %}</li>
+        <li>{{ r.orientation_type.name }} · {{ r.cadence_display }}{% if r.starts_on_note %} {{ r.starts_on_note }}{% endif %} · {{ r.start_time|time:"g:i a" }}–{{ r.end_time|time:"g:i a" }} · {{ r.seats }} seat{{ r.seats|pluralize }}{% if not r.is_active %} <span class="hub-text-muted">paused</span>{% endif %}</li>
         {% endfor %}
       </ul>
       {% else %}
@@ -619,7 +619,7 @@ confirm modal carries its own POST form, and template content can't nest a form.
       </div>
       <ul class="pl-orient-overview__rules">
         {% for r in staffer_rules %}
-        <li>{{ r.orientation_type.name }} · {{ r.cadence_display }} · {{ r.start_time|time:"g:i a" }}–{{ r.end_time|time:"g:i a" }} · {{ r.seats }} seat{{ r.seats|pluralize }}{% if not r.is_active %} <span class="hub-text-muted">paused</span>{% endif %}</li>
+        <li>{{ r.orientation_type.name }} · {{ r.cadence_display }}{% if r.starts_on_note %} {{ r.starts_on_note }}{% endif %} · {{ r.start_time|time:"g:i a" }}–{{ r.end_time|time:"g:i a" }} · {{ r.seats }} seat{{ r.seats|pluralize }}{% if not r.is_active %} <span class="hub-text-muted">paused</span>{% endif %}</li>
         {% endfor %}
       </ul>
     </div>
@@ -678,7 +678,7 @@ confirm modal carries its own POST form, and template content can't nest a form.
     <p class="hub-text-muted" style="font-size:0.8125rem; margin-bottom:0.5rem;">These are shared guild hours any orienter can run. Only the guild lead can change them.</p>
     <ul class="pl-orient-overview__rules">
       {% for r in guild_rules_readonly %}
-      <li>{{ r.orientation_type.name }} · {{ r.cadence_display }} · {{ r.start_time|time:"g:i a" }}–{{ r.end_time|time:"g:i a" }} · {{ r.seats }} seat{{ r.seats|pluralize }}{% if not r.is_active %} <span class="hub-text-muted">paused</span>{% endif %}</li>
+      <li>{{ r.orientation_type.name }} · {{ r.cadence_display }}{% if r.starts_on_note %} {{ r.starts_on_note }}{% endif %} · {{ r.start_time|time:"g:i a" }}–{{ r.end_time|time:"g:i a" }} · {{ r.seats }} seat{{ r.seats|pluralize }}{% if not r.is_active %} <span class="hub-text-muted">paused</span>{% endif %}</li>
       {% endfor %}
     </ul>
   </div>

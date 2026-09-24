@@ -510,14 +510,45 @@ def describe_cadence_display():
         assert _rule_on(Cadence.MONTHLY, None).cadence_display == "Every month"
 
 
+def describe_starts_on_note():
+    """The rule line's date fragment: it says something only while the start date is ahead."""
+
+    def _next_october_fourth() -> date:
+        """The next Oct 4 strictly after today, so the phrase is pinned without rotting."""
+        today = timezone.localdate()
+        return date(today.year if date(today.year, 10, 4) > today else today.year + 1, 10, 4)
+
+    def it_reads_as_from_the_month_and_day():
+        rule = OrientationAvailabilityFactory(anchor_date=_next_october_fourth())
+        assert rule.starts_on_note == "from Oct 4"
+
+    def it_says_nothing_on_the_day_the_rule_starts():
+        assert OrientationAvailabilityFactory(anchor_date=timezone.localdate()).starts_on_note == ""
+
+    def it_says_nothing_once_the_start_date_has_passed():
+        yesterday = timezone.localdate() - timedelta(days=1)
+        assert OrientationAvailabilityFactory(anchor_date=yesterday).starts_on_note == ""
+
+    def it_says_nothing_without_a_start_date():
+        assert OrientationAvailabilityFactory().starts_on_note == ""
+
+
 def describe_occurs_on():
     def it_is_false_on_another_weekday():
         assert OrientationAvailabilityFactory().occurs_on(date(2026, 9, 23)) is False  # a Wednesday
 
-    def it_is_true_on_every_matching_weekday_for_a_weekly_rule_whatever_the_anchor():
-        rule = OrientationAvailabilityFactory(anchor_date=date(2026, 12, 1))
+    def it_is_true_on_every_matching_weekday_for_a_weekly_rule_with_no_start_date():
+        rule = OrientationAvailabilityFactory()
         assert rule.occurs_on(date(2026, 9, 22)) is True
         assert rule.occurs_on(date(2026, 9, 29)) is True
+
+    def it_is_false_before_the_anchor_on_a_weekly_rule_too():
+        # The start date is a floor on every cadence: before Dec 1 nothing, from it every week.
+        rule = OrientationAvailabilityFactory(anchor_date=date(2026, 12, 1))
+        assert rule.occurs_on(date(2026, 9, 22)) is False
+        assert rule.occurs_on(date(2026, 11, 24)) is False
+        assert rule.occurs_on(date(2026, 12, 1)) is True
+        assert rule.occurs_on(date(2026, 12, 8)) is True
 
     def it_alternates_weeks_from_the_anchor_week():
         rule = _fortnightly_rule(date(2026, 9, 22))
@@ -638,6 +669,25 @@ def describe_editing_a_guild_rule_to_every_other_week():
         booking.refresh_from_db()
         assert booking.slot_id == weekly[1].pk
 
+    def it_retires_the_open_slots_before_a_new_start_date_and_keeps_a_booked_one():
+        # The same flow for a rule that stays weekly and only gains a start date.
+        guild, (bob,) = _staffed_guild("Bob Placeholder")
+        rule = OrientationAvailabilityFactory(guild=guild, orienter=bob)
+        orientations.generate_slots(guild=guild)
+        weekly = list(rule.slots.filter(is_cancelled=False).order_by("starts_at"))
+        assert len(weekly) >= 4
+        booking = OrientationBookingFactory(slot=weekly[0])  # booked, and before the new start date
+
+        rule.anchor_date = timezone.localtime(weekly[2].starts_at).date()
+        rule.save()
+        created = orientations.generate_slots(guild=guild)
+
+        assert created == 0  # every week from the start date on already existed
+        live = [slot.starts_at for slot in rule.slots.filter(is_cancelled=False).order_by("starts_at")]
+        assert live == [weekly[0].starts_at, *(slot.starts_at for slot in weekly[2:])]
+        booking.refresh_from_db()
+        assert booking.slot_id == weekly[0].pk
+
 
 def describe_horizon_spans_every_other_week():
     """Issue 373 acceptance: a 14 week window from Monday 2026-09-21 (through Dec 27)."""
@@ -674,6 +724,25 @@ def describe_horizon_spans_every_other_week():
         assert days[0] == date(2026, 9, 22)
         assert days[-1] == date(2026, 12, 22)
         assert {day.weekday() for day in days} == {OrientationAvailability.Weekday.TUESDAY}
+
+    def it_starts_a_weekly_rule_on_its_own_start_date():
+        # Sunday rule anchored Sunday Oct 4: Sep 27 is in the window and does not count.
+        days = _start_days(
+            OrientationAvailabilityFactory(
+                weekday=OrientationAvailability.Weekday.SUNDAY, anchor_date=date(2026, 10, 4)
+            )
+        )
+        assert days[:3] == [date(2026, 10, 4), date(2026, 10, 11), date(2026, 10, 18)]
+
+    def it_starts_a_weekly_rule_at_the_first_matching_weekday_after_a_stray_start_date():
+        # A weekly start date need not be the rule's weekday: Thursday Oct 1 means the first
+        # Sunday on or after it, Oct 4.
+        days = _start_days(
+            OrientationAvailabilityFactory(
+                weekday=OrientationAvailability.Weekday.SUNDAY, anchor_date=date(2026, 10, 1)
+            )
+        )
+        assert days[:2] == [date(2026, 10, 4), date(2026, 10, 11)]
 
     def it_yields_nothing_before_an_anchor_after_today():
         assert _start_days(_fortnightly_rule(date(2026, 10, 20))) == [

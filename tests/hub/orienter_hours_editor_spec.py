@@ -637,6 +637,11 @@ def describe_hours_cadence():
         client.login(username=username, password="pass")
         return user, guild
 
+    def _tuesday_ahead() -> date:
+        """A Tuesday two to three weeks out, safely inside the 8 week generation window."""
+        today = timezone.localdate()
+        return today + timedelta(days=(1 - today.weekday()) % 7 + 14)
+
     def it_renders_both_fields_in_the_modal(client: Client):
         user, guild = _lead(client, "fn_show")
         content = client.get(_form_url(guild, user.member.pk)).content.decode()
@@ -688,6 +693,29 @@ def describe_hours_cadence():
         rule = OrientationAvailability.objects.get(orienter=user.member)
         assert rule.cadence == OrientationAvailability.Cadence.FORTNIGHTLY
         assert rule.anchor_date == date(2026, 9, 22)
+
+    def it_saves_a_weekly_rule_with_a_start_date_and_generates_nothing_before_it(client: Client):
+        # Issue 492: a weekly rule's start date is a floor, not decoration.
+        user, guild = _lead(client, "fn_weekly_start")
+        starts = _tuesday_ahead()
+        response = client.post(
+            _hours_url(guild),
+            _modal_rule_payload(
+                str(user.member.pk),
+                guild=guild,
+                **{"modal_rules-0-cadence": "weekly", "modal_rules-0-anchor_date": starts.isoformat()},
+            ),
+            HTTP_HX_REQUEST="true",
+        )
+        assert response.status_code == 204
+        rule = OrientationAvailability.objects.get(orienter=user.member)
+        assert rule.cadence == OrientationAvailability.Cadence.WEEKLY
+        assert rule.anchor_date == starts
+        slot_days = [timezone.localtime(slot.starts_at).date() for slot in rule.slots.order_by("starts_at")]
+        assert slot_days  # the rule does generate, just not yet
+        assert slot_days[0] == starts
+        content = client.get(_tab_url(guild)).content.decode()
+        assert f"· Every Tuesday from {starts:%b} {starts.day} ·" in content
 
     def it_errors_on_the_anchor_when_every_other_week_has_no_date(client: Client):
         user, guild = _lead(client, "fn_noanchor")
