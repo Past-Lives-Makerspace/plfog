@@ -2376,7 +2376,8 @@ class OrientationAvailabilityForm(forms.ModelForm):
     are optional: blank keeps one slot for the whole window (the row stays NULL); a length
     carves the window, and a saved off-list length round-trips as its own choice. The cadence
     is optional too: a POST without ``cadence`` stays weekly (the legacy shared-rows form
-    never renders it), and every cadence but weekly needs its anchor date.
+    never renders it), and every cadence but weekly needs its anchor date. A weekly rule may
+    carry one all the same, and then runs from that day rather than from now.
     """
 
     start_time = forms.ChoiceField(choices=half_hour_time_choices(required=True), label="Start time")
@@ -2393,7 +2394,8 @@ class OrientationAvailabilityForm(forms.ModelForm):
         required=False,
         label="Starting on",
         help_text=(
-            "The first day these hours run. A monthly rule keeps this day's weekday of the month, "
+            "The first day these hours run. Nothing is booked before it. Leave it blank on a weekly "
+            "rule and the hours run from now. A monthly rule keeps this day's weekday of the month, "
             "for example the 2nd Tuesday. A 5th Tuesday only comes some months."
         ),
         widget=forms.DateInput(
