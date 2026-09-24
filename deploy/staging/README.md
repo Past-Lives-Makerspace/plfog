@@ -72,12 +72,40 @@ that one command and nowhere else:
 
 ```
 cd /var/www/staging.pastlives.space/app
-PROD_DATABASE_URL='postgres://...' zsh deploy/staging/refresh-db.sh
+PROD_DATABASE_URL='postgres://...' PROD_STRIPE_FIELD_ENCRYPTION_KEY='...' zsh deploy/staging/refresh-db.sh
 ```
 
 It dumps production, drops and recreates the staging schema, restores, applies `scrub.sql`,
-runs migrations and prints the user and member counts. The scrub is idempotent, so it is safe
-to apply again by hand. Refresh on demand only; nothing schedules it.
+runs migrations, imports the Stripe test keys (below) and prints the user and member counts.
+The scrub is idempotent, so it is safe to apply again by hand. Refresh on demand only;
+nothing schedules it.
+
+### Stripe test keys after a refresh
+
+Production's Payments settings carry Stripe **test-mode** credentials in their test slot. The
+two secret ones are Fernet ciphertext under production's `STRIPE_FIELD_ENCRYPTION_KEY`, so
+after a refresh staging reads them back blank (its own key cannot decrypt them). The
+`staging_import_stripe_test_keys` command fixes that without the production key ever living
+on the box: with `PROD_STRIPE_FIELD_ENCRYPTION_KEY` in the operator's shell for one run, it
+reads the raw ciphertext of `test_connect_platform_secret_key` and
+`test_connect_platform_webhook_secret` through a cursor, decrypts each with production's key,
+writes the plaintexts back through the model (re-encrypted under the staging key), blanks the
+two live-slot secrets (live credentials never exist on staging), forces `test_mode` on and
+prints one masked line per field. It refuses outside `ENVIRONMENT=staging`, refuses without
+the key, and writes nothing when a value does not decrypt.
+
+`refresh-db.sh` runs it when the key is in the shell and says so when it is not. By hand:
+
+```
+cd /var/www/staging.pastlives.space/app
+PROD_STRIPE_FIELD_ENCRYPTION_KEY='...' .venv/bin/python manage.py staging_import_stripe_test_keys
+```
+
+**Webhook caveat.** Production has no test-mode webhook secret, so the import leaves that
+slot blank and payment confirmations on staging will not arrive until a Stripe test-mode
+webhook endpoint exists for `https://staging.pastlives.space/billing/webhooks/stripe/` (route
+`billing_stripe_webhook`) and its signing secret is pasted into staging's Payments settings,
+test slot. Every refresh re-imports production's blank value, so paste it again after each one.
 
 ## Running a PR branch, and going back to main
 

@@ -2,10 +2,11 @@
 # Replace the staging database with a fresh copy of production, then scrub it (scrub.sql) so
 # nothing in the copy can reach a real member, the real Discord server or Mailchimp.
 #
-#   PROD_DATABASE_URL='postgres://...' zsh deploy/staging/refresh-db.sh
+#   PROD_DATABASE_URL='postgres://...' PROD_STRIPE_FIELD_ENCRYPTION_KEY='...' zsh deploy/staging/refresh-db.sh
 #
-# PROD_DATABASE_URL comes from the caller's shell for the one run and is never written to the
-# box. DATABASE_URL (the staging target) is read from the app .env. The script refuses to run
+# PROD_DATABASE_URL (and, optionally, PROD_STRIPE_FIELD_ENCRYPTION_KEY, which lets the
+# Stripe test keys come across) come from the caller's shell for the one run and are never
+# written to the box. DATABASE_URL (the staging target) is read from the app .env. The script refuses to run
 # unless that target is on localhost and the app is configured as staging, so it cannot be
 # pointed at production by accident. It needs pg_dump, pg_restore and psql of the same major
 # version as production (18) on the PATH.
@@ -23,6 +24,9 @@ die() { print -r -- "refresh-db: $*" >&2; exit 1 }
 grep -q '^ENVIRONMENT=staging$' "$ENV_FILE" || die "$ENV_FILE does not set ENVIRONMENT=staging; refusing."
 if grep -q '^PROD_DATABASE_URL=' "$ENV_FILE"; then
   die "$ENV_FILE stores PROD_DATABASE_URL; it must never live on the box."
+fi
+if grep -q '^PROD_STRIPE_FIELD_ENCRYPTION_KEY=' "$ENV_FILE"; then
+  die "$ENV_FILE stores PROD_STRIPE_FIELD_ENCRYPTION_KEY; it must never live on the box."
 fi
 
 set -a
@@ -47,6 +51,15 @@ log "scrubbing"
 psql "$DATABASE_URL" --quiet --set=ON_ERROR_STOP=1 --file="$SCRIPT_DIR/scrub.sql"
 log "migrating"
 (cd "$APP_DIR" && .venv/bin/python manage.py migrate --noinput)
+# Production's Stripe TEST keys are ciphertext this box's key cannot read. With production's
+# Fernet key in the operator's shell for this one run, the command re-encrypts them under the
+# staging key; without it, staging's Payments settings start with blank test slots.
+if [[ -n "${PROD_STRIPE_FIELD_ENCRYPTION_KEY:-}" ]]; then
+  log "importing production's Stripe test keys"
+  (cd "$APP_DIR" && .venv/bin/python manage.py staging_import_stripe_test_keys)
+else
+  log "Stripe test keys not imported: PROD_STRIPE_FIELD_ENCRYPTION_KEY is not set in this shell"
+fi
 log "done"
 psql "$DATABASE_URL" --tuples-only --no-align --set=ON_ERROR_STOP=1 \
   --command="SELECT 'users: ' || count(*) FROM auth_user UNION ALL SELECT 'members: ' || count(*) FROM membership_member;"
