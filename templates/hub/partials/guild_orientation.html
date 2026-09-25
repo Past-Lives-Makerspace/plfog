@@ -29,6 +29,10 @@ Member-facing orientation section on the guild page, grouped by orientation type
       </span>
     </h2>
     {% if orientation.info %}<p class="hub-text-muted" style="margin:0 0 0.75rem; font-size:0.9rem;">{{ orientation.info|truncatewords:40 }}</p>{% endif %}
+    {% if unpaid_late_fee %}
+    {# The block until paid (#456): every booking road below refuses until the fee is paid. #}
+    {% include "hub/partials/late_fee_notice.html" with fee=unpaid_late_fee %}
+    {% endif %}
     {% if orientation_all_done %}
     <p style="margin:0 0 0.75rem; font-size:0.95rem; color:var(--hub-text);">✓ You've completed every orientation this guild offers.</p>
     {% endif %}
@@ -78,11 +82,12 @@ Member-facing orientation section on the guild page, grouped by orientation type
       {% endif %}
       <button type="button" class="hub-btn hub-btn--sm hub-btn--danger" data-help-key="orientation.cancel-booking" @click="$dispatch('open-confirm', 'cancel-my-orientation-{{ sec.booking.pk }}')">Cancel my orientation</button>
       {% url 'hub_orientation_cancel_mine' sec.booking.pk as cancel_mine_url %}
+      {# Always unboosted (#456): a cancel that turns late after page load answers with a redirect to Stripe. #}
       {% with bpks=sec.booking.pk|stringformat:"s" %}
       {% if sec.booking.amount_paid_cents %}
-      {% include "components/confirm_modal.html" with confirm_id="cancel-my-orientation-"|add:bpks confirm_title="Cancel your orientation?" confirm_message="You'll get an automatic full refund. You can request a new orientation any time." confirm_action_url=cancel_mine_url confirm_button_text="Cancel orientation" %}
+      {% include "components/confirm_modal.html" with confirm_id="cancel-my-orientation-"|add:bpks confirm_title="Cancel your orientation?" confirm_message="You'll get an automatic full refund. You can request a new orientation any time. "|add:sec.late_cancel_warning confirm_action_url=cancel_mine_url confirm_button_text="Cancel orientation" confirm_no_boost=True %}
       {% else %}
-      {% include "components/confirm_modal.html" with confirm_id="cancel-my-orientation-"|add:bpks confirm_title="Cancel your orientation?" confirm_message="You can request a new orientation any time." confirm_action_url=cancel_mine_url confirm_button_text="Cancel orientation" %}
+      {% include "components/confirm_modal.html" with confirm_id="cancel-my-orientation-"|add:bpks confirm_title="Cancel your orientation?" confirm_message="You can request a new orientation any time. "|add:sec.late_cancel_warning confirm_action_url=cancel_mine_url confirm_button_text="Cancel orientation" confirm_no_boost=True %}
       {% endif %}
       {% endwith %}
 

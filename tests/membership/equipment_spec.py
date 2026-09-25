@@ -279,6 +279,35 @@ def describe_Equipment():
             GuildMembershipFactory(guild=guild, member=member)
             assert equipment.booking_blockers(member) == []
 
+        def it_reports_an_unpaid_late_cancellation_fee_with_its_amount_after_the_access_blockers():
+            from tests.billing.factories import LateCancellationFeeFactory
+
+            orientation_type = OrientationTypeFactory(name="Lathe")
+            equipment = EquipmentFactory(required_orientation=orientation_type, is_closed=True, closed_message="Down.")
+            member = MemberFactory()
+            LateCancellationFeeFactory(
+                orientation_booking=OrientationBookingFactory(member=member, status="cancelled"), amount_cents=3750
+            )
+            assert equipment.booking_blockers(member) == [
+                "You need the Lathe orientation before you can book time here.",
+                "Pay your $37.50 late cancellation fee to book again.",
+                "Down.",
+            ]
+
+        def it_lifts_the_fee_blocker_once_the_fee_is_paid():
+            from billing.models import LateCancellationFee
+            from tests.billing.factories import LateCancellationFeeFactory
+
+            equipment = EquipmentFactory()
+            member = MemberFactory()
+            fee = LateCancellationFeeFactory(
+                orientation_booking=OrientationBookingFactory(member=member, status="cancelled")
+            )
+            assert equipment.booking_blockers(member) == ["Pay your $15.00 late cancellation fee to book again."]
+            fee.status = LateCancellationFee.Status.PAID
+            fee.save(update_fields=["status"])
+            assert equipment.booking_blockers(member) == []
+
 
 def describe_EquipmentStaffMembership():
     def it_stringifies_as_member_colon_equipment_manager():

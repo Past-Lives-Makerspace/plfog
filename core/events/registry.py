@@ -490,6 +490,8 @@ GUILD_WELCOME = "guild_welcome"  # transactional per-guild join welcome — emai
 EQUIPMENT_RESERVATION_CONFIRMED = "equipment.reservation_confirmed"  # your reservation is set (+ .ics)
 EQUIPMENT_RESERVATION_CANCELLED_BY_MANAGER = "equipment.reservation_cancelled_by_manager"  # with the reason
 EQUIPMENT_RESERVATION_MADE = "equipment.reservation_made"  # awareness ping to the equipment's managers
+EQUIPMENT_RESERVATION_CANCELLED = "equipment.reservation_cancelled"  # the member's own cancel, with any late fee
+BILLING_LATE_FEE_PAID = "billing.late_fee_paid"  # the receipt for a paid late cancellation fee
 
 # event.reminder keeps Discord OFF (the bell is enough; per-offset channel posts would
 # clutter the guild channel) but declares it so a lead can flip it on later; happening-now
@@ -1109,6 +1111,32 @@ _NEW_EVENTS: list[EventType] = [
         category="Spaces & Equipment",
         recipient=Recipients.EQUIPMENT_MANAGERS,
         channels=(_IN_APP_ON, _EMAIL_OFF, _DISCORD_ON),
+        activity_kind=None,
+    ),
+    # equipment.reservation_cancelled — the member's own "you cancelled" confirmation (#456),
+    # the email a self cancel lacked. Forced operational mail like the manager cancel; the
+    # copy's ``late_fee_line`` carries the fee sentence and Pay link when the cancel was
+    # late and is "" otherwise, so a free cancel says nothing about fees. No activity row:
+    # the fee's own LATE_FEE_CHARGED row is written by the service when one is created.
+    EventType(
+        key=EQUIPMENT_RESERVATION_CANCELLED,
+        label="Reservation cancelled",
+        description="You cancelled an equipment reservation. Names the late fee when one applies.",
+        category="Spaces & Equipment",
+        recipient=Recipients.SINGLE_USER,
+        channels=(_IN_APP_ON, _EMAIL_FORCED),
+        activity_kind=None,
+    ),
+    # billing.late_fee_paid — the receipt for a late cancellation fee paid through Stripe
+    # Checkout (#456). Money moved, so the email is forced, like the tab receipt. No
+    # activity row here: ``billing.late_fees.mark_paid`` logs LATE_FEE_PAID with the payload.
+    EventType(
+        key=BILLING_LATE_FEE_PAID,
+        label="Late cancellation fee paid",
+        description="Your receipt for a late cancellation fee you paid.",
+        category="Billing",
+        recipient=Recipients.SINGLE_USER,
+        channels=(_IN_APP_ON, _EMAIL_FORCED),
         activity_kind=None,
     ),
     # class_cancelled_admin_notice — an instructor cancelled their own live class and

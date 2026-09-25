@@ -1,0 +1,35 @@
+{% extends "hub/base.html" %}
+{% block title %}Late Cancellation Fee · Past Lives{% endblock %}
+{% block content %}
+{% comment %}
+The Stripe Checkout landing for a late cancellation fee (#456). States:
+  paid     — Stripe confirmed it (the webhook or the landing's own reconcile)
+  pending  — Stripe has not confirmed yet; refresh reconciles again, the Pay button stays
+  settled  — the fee was waived or refunded meanwhile; nothing to pay
+  invalid  — bad or expired token, or the fee is gone (HTTP 400)
+{% endcomment %}
+{% if state == "invalid" %}
+{% include "components/page_header.html" with title="We Couldn't Find That Fee" description="If you were charged, the payment will appear in your email receipt and we'll sort it out." %}
+<div class="pl-checkout-return">
+  <div class="hub-card pl-checkout-return__card pl-late-fee-card" data-late-fee-state="invalid">
+    <a href="{% url 'hub_home' %}" class="pl-btn pl-btn--primary">Back to the Hub</a>
+  </div>
+</div>
+{% else %}
+{% if state == "paid" %}
+{% include "components/page_header.html" with title="Paid. Thank You." description="Your late cancellation fee is paid and you can book orientations and equipment again. A receipt is on its way to your email." %}
+{% elif state == "pending" %}
+{% include "components/page_header.html" with title="Almost There" description="Stripe has not confirmed it yet; refresh in a moment. If the payment did not go through, the Pay button opens a fresh checkout." %}
+{% else %}
+{% include "components/page_header.html" with title="Nothing More to Pay" description="This fee was settled before the payment landed. If you were charged, the payment will appear in your email receipt and we'll sort it out." %}
+{% endif %}
+<div class="pl-checkout-return">
+  <div class="hub-card pl-checkout-return__card pl-late-fee-card" data-late-fee-state="{{ state }}">
+    {% include "hub/partials/late_fee_card.html" %}
+    <div class="pl-late-fee-card__actions">
+      <a href="{{ fee.owner_page_path }}" class="pl-btn pl-btn--secondary">Back to {% if fee.reservation_id %}the equipment page{% else %}the guild page{% endif %}</a>
+    </div>
+  </div>
+</div>
+{% endif %}
+{% endblock %}

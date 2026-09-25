@@ -201,13 +201,15 @@ def describe_billing_fan_in_router():
         first.assert_called_once_with(event)
         second.assert_called_once_with(event)
 
-    def it_registers_the_classes_and_orientation_handlers_for_completed_sessions():
+    def it_registers_the_classes_orientation_and_late_fee_handlers_for_completed_sessions():
         from billing import views as billing_views
+        from billing import webhook_handlers as billing_handlers
         from classes import webhook_handlers as classes_handlers
 
         assert billing_views._CHECKOUT_COMPLETED_HANDLERS == [
             classes_handlers.handle_checkout_session_completed,
             webhook_handlers.handle_checkout_session_completed,
+            billing_handlers.handle_late_fee_checkout_completed,
         ]
 
     def it_routes_an_orientation_session_through_the_real_fan_in():

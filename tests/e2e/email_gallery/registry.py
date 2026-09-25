@@ -711,6 +711,20 @@ STRUCTURAL_EMAILS: list[GalleryEmail] = [
         context_builder="account_already_exists_context",
     ),
     GalleryEmail(
+        key="late_fee_orphan_payment_alert",
+        name="Orphaned late cancellation fee payment alert (admin)",
+        section="Billing",
+        renderer=Renderer.INLINE_STRING,
+        trigger_note=(
+            "Sent when a paid late cancellation fee Checkout lands with no fee to mark paid (the fee "
+            "row is gone, or was waived or refunded before the money landed) — the refund must "
+            "happen from the Stripe dashboard. Goes to the Billing Administrators."
+        ),
+        edit_pointer="Text authored in code (billing/webhook_handlers.py::_send_orphan_fee_alert)",
+        audience="Holders of the Billing Administrator capability.",
+        context_builder="late_fee_orphan_payment_alert_context",
+    ),
+    GalleryEmail(
         key="find_account",
         name="Find my account (login link)",
         section="System/Auth",
@@ -951,6 +965,7 @@ _REGISTERED_INLINE_KINDS: dict[str, str] = {
     "classes.orphaned_payment_alert": "the orphaned_class_payment_alert INLINE_STRING card",
     "classes.registration_resume_link": "the registration_resume_link INLINE_STRING card",
     "membership.orientation_orphan_payment": "the orientation_orphan_payment_alert INLINE_STRING card",
+    "billing.late_fee_orphan_payment": "the late_fee_orphan_payment_alert INLINE_STRING card",
     "wiki.page_archived": "the wiki_page_archived card",
     "wiki.proposal_declined": "the wiki_proposal_declined card",
 }

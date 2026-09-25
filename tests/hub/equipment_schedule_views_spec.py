@@ -1093,6 +1093,36 @@ def describe_late_cancel_fee_on_the_schedule():
         assert "pl-equip-book-note" not in content
         assert "$37.50" not in content
 
+    def _cancel_modal(content: str, reservation) -> str:
+        start = content.index(f"=== 'cancel-my-res-{reservation.pk}') open = true")
+        return content[start : content.index("</template>", start)]
+
+    def it_appends_the_fee_line_to_the_cancel_modal_only_for_a_late_cancel(client: Client):
+        """The member's cancel modal explains the fee only when a cancel right now would be late (#456, part 2)."""
+        user = _login(client, "lcf_sched_modal")
+        _late_fees(True)
+        equipment = _open_tool(late_cancel_fee_cents=3750)
+        soon = timezone.now() + timedelta(hours=3)
+        late = EquipmentReservationFactory(
+            equipment=equipment, member=user.member, starts_at=soon, ends_at=soon + timedelta(hours=1)
+        )
+        early = EquipmentReservationFactory(
+            equipment=equipment, member=user.member, starts_at=_at(_day(), 10), ends_at=_at(_day(), 11)
+        )
+        content = _schedule(client, equipment)
+        assert "so a $37.50 late cancellation fee applies" in _cancel_modal(content, late)
+        assert "late cancellation fee applies" not in _cancel_modal(content, early)
+
+    def it_leaves_the_cancel_modal_alone_while_the_site_switch_is_off(client: Client):
+        user = _login(client, "lcf_sched_modal_off")
+        _late_fees(False)
+        equipment = _open_tool(late_cancel_fee_cents=3750)
+        soon = timezone.now() + timedelta(hours=3)
+        late = EquipmentReservationFactory(
+            equipment=equipment, member=user.member, starts_at=soon, ends_at=soon + timedelta(hours=1)
+        )
+        assert "late cancellation fee applies" not in _cancel_modal(_schedule(client, equipment), late)
+
 
 def describe_late_cancel_fee_on_the_limits_card():
     """EquipmentSettingsForm's fee in dollars, saved with the Hours & Limits tab (#456, part 1)."""

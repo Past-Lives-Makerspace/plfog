@@ -471,21 +471,26 @@ def describe_reserve():
 
 
 def describe_cancel():
-    def it_lets_the_member_cancel_a_future_reservation_quietly():
-        equipment = _open_tool()
+    def it_lets_the_member_cancel_a_future_reservation_and_confirms_it_by_email():
+        equipment = _open_tool(name="CNC Router")
         member = _linked_member("cx_self")
         reservation = equipment_service.reserve(equipment, member, _at(_day(), 10), 60)
         Notification.objects.all().delete()
         mail.outbox.clear()
-        reservation.cancel(member)
+        fee = reservation.cancel(member)
         reservation.refresh_from_db()
         assert reservation.status == EquipmentReservation.Status.CANCELLED
         assert reservation.cancelled_by == member
         assert reservation.cancelled_at is not None
         assert reservation.is_cancelled_by_manager is False
-        # Self cancel notifies nobody.
-        assert not Notification.objects.exists()
-        assert mail.outbox == []
+        # An early self cancel is free (#456) and the member alone hears about it.
+        assert fee is None
+        assert [m.to for m in mail.outbox] == [[member.primary_email]]
+        assert mail.outbox[0].subject == "You cancelled your CNC Router reservation"
+        assert "late cancellation fee" not in mail.outbox[0].body
+        assert "[missing:" not in mail.outbox[0].body
+        assert "[missing:" not in mail.outbox[0].alternatives[0][0]
+        assert list(Notification.objects.values_list("trigger", flat=True)) == ["equipment.reservation_cancelled"]
 
     def it_blocks_a_self_cancel_once_started():
         member = MemberFactory()
@@ -593,7 +598,133 @@ def describe_cancel():
             reservation.cancel(member)
 
 
+def describe_late_cancel_fee_on_cancel():
+    """A late self cancel creates the fee in the cancel's transaction; staff cancels never do (#456, part 2)."""
+
+    def _late_fees(enabled: bool) -> None:
+        from core.models import SiteConfiguration
+
+        config = SiteConfiguration.load()
+        config.late_cancel_fees_enabled = enabled
+        config.save()
+
+    def _late_reservation(member, *, hours_ahead: int = 3, fee_cents: int = 1500, equipment=None):
+        equipment = equipment or EquipmentFactory(name="CNC Router", late_cancel_fee_cents=fee_cents)
+        starts = timezone.now() + timedelta(hours=hours_ahead)
+        return EquipmentReservationFactory(
+            equipment=equipment, member=member, starts_at=starts, ends_at=starts + timedelta(hours=1)
+        )
+
+    def it_charges_a_late_self_cancel_and_says_so_in_the_email():
+        from billing import late_fees
+        from billing.models import LateCancellationFee
+
+        _late_fees(True)
+        member = _linked_member("lcf_late")
+        reservation = _late_reservation(member)
+        mail.outbox.clear()
+
+        fee = reservation.cancel(member)
+
+        assert fee is not None
+        assert fee == LateCancellationFee.objects.get(reservation=reservation)
+        assert fee.status == LateCancellationFee.Status.UNPAID
+        assert fee.amount_cents == 1500
+        reservation.refresh_from_db()
+        assert reservation.status == EquipmentReservation.Status.CANCELLED
+        message = mail.outbox[0]
+        assert "A $15.00 late cancellation fee applies to this cancellation." in message.body
+        assert late_fees.pay_url(fee) in message.body
+        # The HTML body carries a real link (the shell styles every anchor inline), not the bare URL as text.
+        html = message.alternatives[0][0]
+        assert f'href="{late_fees.pay_url(fee)}"' in html
+        assert "Pay the late fee</a>" in html
+        assert f"Pay it at {late_fees.pay_url(fee)}" not in html
+        assert "[missing:" not in message.body
+        assert "[missing:" not in html
+
+    def it_charges_nothing_for_an_early_self_cancel():
+        from billing.models import LateCancellationFee
+
+        _late_fees(True)
+        member = _linked_member("lcf_early")
+        reservation = _late_reservation(member, hours_ahead=40)
+        mail.outbox.clear()
+        assert reservation.cancel(member) is None
+        assert not LateCancellationFee.objects.exists()
+        assert "late cancellation fee" not in mail.outbox[0].body
+
+    def it_charges_nothing_while_the_site_switch_is_off():
+        from billing.models import LateCancellationFee
+
+        _late_fees(False)
+        member = _linked_member("lcf_off")
+        reservation = _late_reservation(member)
+        mail.outbox.clear()
+        assert reservation.cancel(member) is None
+        assert not LateCancellationFee.objects.exists()
+        assert "late cancellation fee" not in mail.outbox[0].body
+
+    def it_never_charges_a_manager_cancel():
+        from billing.models import LateCancellationFee
+
+        _late_fees(True)
+        equipment = EquipmentFactory(late_cancel_fee_cents=1500)
+        manager = _linked_member("lcf_mgr")
+        EquipmentStaffMembershipFactory(equipment=equipment, member=manager)
+        reservation = _late_reservation(_linked_member("lcf_mgr_member"), equipment=equipment)
+        assert reservation.cancel(manager, reason="Machine down.") is None
+        assert not LateCancellationFee.objects.exists()
+
+    def it_never_charges_a_managers_own_row_from_the_manage_tab():
+        from billing.models import LateCancellationFee
+
+        _late_fees(True)
+        equipment = EquipmentFactory(late_cancel_fee_cents=1500)
+        manager = _linked_member("lcf_own_mgr")
+        EquipmentStaffMembershipFactory(equipment=equipment, member=manager)
+        reservation = _late_reservation(manager, equipment=equipment)
+        assert reservation.cancel(manager, reason="Freeing my own slot.", as_manager=True) is None
+        assert not LateCancellationFee.objects.exists()
+
+    def it_charges_nothing_when_the_guard_refuses_a_started_reservation():
+        from billing.models import LateCancellationFee
+
+        _late_fees(True)
+        member = _linked_member("lcf_started")
+        reservation = EquipmentReservationFactory(
+            equipment=EquipmentFactory(late_cancel_fee_cents=1500),
+            member=member,
+            starts_at=timezone.now() - timedelta(minutes=30),
+            ends_at=timezone.now() + timedelta(minutes=30),
+        )
+        with pytest.raises(EquipmentError, match="already started"):
+            reservation.cancel(member)
+        assert not LateCancellationFee.objects.exists()
+
+    def it_charges_once_when_two_cancels_overlap():
+        from billing.models import LateCancellationFee
+
+        _late_fees(True)
+        member = _linked_member("lcf_race")
+        reservation = _late_reservation(member)
+        # Two requests loaded the same CONFIRMED row; only the one that flips it owns the cancel.
+        stale = EquipmentReservation.objects.get(pk=reservation.pk)
+        reservation.cancel(member)
+        with pytest.raises(EquipmentError, match="already cancelled"):
+            stale.cancel(member)
+        assert LateCancellationFee.objects.filter(reservation=reservation).count() == 1
+
+
 def describe_equipment_events():
+    def it_registers_the_self_cancel_event_as_forced_personal_mail():
+        cancelled = get_event("equipment.reservation_cancelled")
+        assert cancelled.recipient is Recipients.SINGLE_USER
+        assert cancelled.channel(Channel.EMAIL).default is ChannelDefault.FORCED
+        assert not cancelled.has_channel(Channel.DISCORD)
+        assert cancelled.category == "Spaces & Equipment"
+        assert cancelled.activity_kind is None
+
     def it_registers_the_three_events_with_the_specified_channel_defaults():
         confirmed = get_event("equipment.reservation_confirmed")
         assert confirmed.recipient is Recipients.SINGLE_USER
@@ -639,6 +770,7 @@ def describe_equipment_events():
             "equipment.reservation_confirmed": {"user": member.user, **base},
             "equipment.reservation_made": {"equipment": equipment, **base},
             "equipment.reservation_cancelled_by_manager": {"user": member.user, "cancel_reason": "x", **base},
+            "equipment.reservation_cancelled": {"user": member.user, "late_fee_line": "", "late_fee_html": "", **base},
         }
         for event_key, context in contexts.items():
             for name in placeholders_for(event_key):

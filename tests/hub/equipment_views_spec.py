@@ -93,6 +93,48 @@ def describe_equipment_index():
         assert b"Woodshop members only" in response.content
         assert user is not None  # the badge set proves the bulk access sets flowed through
 
+    def it_flags_every_card_with_the_fee_warning_while_a_fee_is_unpaid(client: Client):
+        """The block until paid (#456, part 2): the index card never says all set while the detail page blocks."""
+        from tests.billing.factories import LateCancellationFeeFactory
+        from tests.membership.factories import OrientationBookingFactory
+
+        user = _login(client, "eq_idx_fee")
+        EquipmentFactory(name="Open Bench")
+        EquipmentFactory(name="Gated Lathe", required_orientation=OrientationTypeFactory(name="Lathe"))
+        LateCancellationFeeFactory(
+            orientation_booking=OrientationBookingFactory(member=user.member, status="cancelled")
+        )
+        response = client.get(reverse("hub_equipment_index"))
+        content = response.content.decode()
+        assert content.count("pl-equip-badge--warn") == 2
+        assert "pl-equip-badge--ok" not in content
+        assert "Pay your late cancellation fee to book again" in content
+        assert {card["access_state"] for card in response.context["cards"]} == {"needs_fee"}
+
+    def it_looks_the_fee_up_once_for_the_whole_grid(client: Client):
+        from django.db import connection
+        from django.test.utils import CaptureQueriesContext
+
+        from tests.billing.factories import LateCancellationFeeFactory
+        from tests.membership.factories import OrientationBookingFactory
+
+        user = _login(client, "eq_idx_fee_queries")
+        for name in ("Bench A", "Bench B", "Bench C"):
+            EquipmentFactory(name=name)
+        url = reverse("hub_equipment_index")
+
+        def count_queries() -> int:
+            client.get(url)  # warm the session and per-request caches so both samples are steady state
+            with CaptureQueriesContext(connection) as ctx:
+                assert client.get(url).status_code == 200
+            return len(ctx.captured_queries)
+
+        without_fee = count_queries()
+        LateCancellationFeeFactory(
+            orientation_booking=OrientationBookingFactory(member=user.member, status="cancelled")
+        )
+        assert count_queries() <= without_fee + 1
+
     def it_shows_a_running_orientation_as_reserved_on_the_card(client: Client):
         from datetime import time, timedelta
 
@@ -313,6 +355,38 @@ def describe_equipment_detail():
         )
         assert expected.encode() in response.content
         assert b"You're all set." not in response.content
+
+    def it_shows_the_unpaid_late_fee_with_a_pay_button_instead_of_all_set(client: Client):
+        """The block until paid (#456, part 2): the banner's fee state wins over every other state."""
+        from tests.billing.factories import LateCancellationFeeFactory
+        from tests.membership.factories import OrientationBookingFactory
+
+        user = _login(client, "eq_det_late_fee")
+        equipment = EquipmentFactory(name="Open Bench")
+        fee = LateCancellationFeeFactory(
+            orientation_booking=OrientationBookingFactory(member=user.member, status="cancelled"), amount_cents=3750
+        )
+        response = client.get(reverse("hub_equipment_detail", args=[equipment.slug]))
+        content = response.content.decode()
+        assert f'data-late-fee-notice="{fee.pk}"' in content
+        assert "Pay your $37.50 late cancellation fee to book again." in content
+        assert f'action="{reverse("hub_late_fee_pay", args=[fee.pk])}"' in content
+        assert "You're all set." not in content
+
+    def it_shows_all_set_again_once_the_fee_is_paid(client: Client):
+        from billing.models import LateCancellationFee
+        from tests.billing.factories import LateCancellationFeeFactory
+        from tests.membership.factories import OrientationBookingFactory
+
+        user = _login(client, "eq_det_fee_paid")
+        equipment = EquipmentFactory(name="Open Bench")
+        LateCancellationFeeFactory(
+            orientation_booking=OrientationBookingFactory(member=user.member, status="cancelled"),
+            status=LateCancellationFee.Status.PAID,
+        )
+        content = client.get(reverse("hub_equipment_detail", args=[equipment.slug])).content.decode()
+        assert "data-late-fee-notice" not in content
+        assert "You're all set." in content
 
     def it_shows_the_booked_orientation_instead_of_the_button(client: Client):
         from tests.membership.factories import OrientationBookingFactory, OrientationSlotFactory
