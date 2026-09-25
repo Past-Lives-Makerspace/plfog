@@ -30,6 +30,7 @@ An inactive pinned type renders its state block only — never a slot list.
 
     {% if sec.is_oriented %}
     <p style="margin:0; font-size:0.95rem; color:var(--hub-text);">✓ You've completed this orientation.</p>
+    {% if sec.record %}<p class="hub-text-muted pl-orient-recorded">Recorded on {{ sec.record.completed_on|date:"M j, Y" }}.</p>{% endif %}
 
     {% elif sec.hold %}
     <p style="margin:0 0 0.25rem; font-weight:700; color:var(--hub-text);">Finishing Your Booking</p>

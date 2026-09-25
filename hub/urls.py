@@ -608,6 +608,16 @@ urlpatterns = [
         name="hub_admin_member_teaching",
     ),
     path(
+        "manage/members/<int:pk>/orientations/record/",
+        views.admin_member_orientation_record,
+        name="hub_admin_member_orientation_record",
+    ),
+    path(
+        "manage/members/<int:pk>/orientations/<int:record_pk>/remove/",
+        views.admin_member_orientation_record_remove,
+        name="hub_admin_member_orientation_record_remove",
+    ),
+    path(
         "manage/members/<int:pk>/send-login-invite/",
         views.admin_member_send_login_invite,
         name="hub_admin_member_send_login_invite",

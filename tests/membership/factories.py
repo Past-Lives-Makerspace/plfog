@@ -52,6 +52,7 @@ from membership.models import (
     OrientationAvailability,
     OrientationAvailabilityBlock,
     OrientationBooking,
+    OrientationRecord,
     OrientationSlot,
     OrientationType,
     Skill,
@@ -625,6 +626,21 @@ class OrientationBookingFactory(factory.django.DjangoModelFactory):
     slot = factory.SubFactory(OrientationSlotFactory)
     member = factory.SubFactory(MemberFactory)
     # guild is denormalized from the slot in OrientationBooking.save() (None for equipment-owned).
+
+
+class OrientationRecordFactory(factory.django.DjangoModelFactory):
+    """An orientation an admin recorded by hand (issue #465), on a guild-owned type by default.
+
+    Dated today. Pass ``orientation_type=OrientationTypeFactory(equipment_owned=True)``
+    for an equipment-owned one; nothing else differs between the two.
+    """
+
+    class Meta:
+        model = OrientationRecord
+
+    member = factory.SubFactory(MemberFactory)
+    orientation_type = factory.SubFactory(OrientationTypeFactory)
+    completed_on = factory.LazyFunction(timezone.localdate)
 
 
 class SkillCategoryFactory(factory.django.DjangoModelFactory):

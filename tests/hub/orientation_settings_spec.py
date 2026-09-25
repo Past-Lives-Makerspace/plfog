@@ -16,6 +16,7 @@ from membership.models import (
     OrientationAvailability,
     OrientationSlot,
     OrientationType,
+    OrientationRecord,
 )
 from tests.membership.factories import (
     GuildFactory,
@@ -25,6 +26,7 @@ from tests.membership.factories import (
     OrientationBookingFactory,
     OrientationSlotFactory,
     OrientationTypeFactory,
+    OrientationRecordFactory,
 )
 
 pytestmark = pytest.mark.django_db
@@ -628,6 +630,28 @@ def describe_guild_orientation_types_save():
         assert OrientationType.objects.filter(pk=orientation_type.pk).exists()
         assert OrientationSlot.objects.filter(pk=slot.pk).exists()
         assert booking.pk is not None
+
+    def it_refuses_to_delete_a_type_with_recorded_history(client: Client):
+        user = _user_with_role("ty_rec_hist", fog_role=Member.FogRole.MEMBER)
+        guild = GuildFactory(guild_lead=user.member)
+        orientation_type = OrientationTypeFactory(guild=guild)
+        record = OrientationRecordFactory(orientation_type=orientation_type)
+        client.login(username="ty_rec_hist", password="pass")
+        response = client.post(
+            reverse("hub_guild_orientation_types_save", args=[guild.pk]),
+            _types_payload(
+                **{
+                    "otypes-INITIAL_FORMS": "1",
+                    "otypes-0-id": str(orientation_type.pk),
+                    "otypes-0-name": orientation_type.name,
+                    "otypes-0-DELETE": "on",
+                }
+            ),
+        )
+        assert response.status_code == 200
+        assert b"recorded history" in response.content
+        assert OrientationType.objects.filter(pk=orientation_type.pk).exists()
+        assert OrientationRecord.objects.filter(pk=record.pk).exists()
 
     def it_forbids_a_regular_member(client: Client):
         _user_with_role("ty_reg", fog_role=Member.FogRole.MEMBER)

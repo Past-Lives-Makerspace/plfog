@@ -124,6 +124,43 @@
   </div>
   {% include "components/table_pagination.html" with page=page base_params=base_params %}
 
+  {% if completed_filter == "yes" %}
+  {# Hand-recorded orientations (issue #465): no slot, no status, nothing to mark done. #}
+  <div class="pl-orient-records">
+    <h2 class="hub-detail-label pl-orient-records__heading">Recorded by an Admin</h2>
+    <div class="admin-table-wrap">
+    <table>
+      <thead>
+        <tr>
+          <th>Date</th>
+          <th>Member</th>
+          <th>Owner</th>
+          <th>Type</th>
+          <th>Oriented by</th>
+          <th>Recorded by</th>
+          <th></th>
+        </tr>
+      </thead>
+      <tbody>
+      {% for r in recorded_orientations %}
+        <tr class="pl-orient-records__row">
+          <td>{{ r.completed_on|date:"Y-m-d" }}</td>
+          <td>{% if is_admin %}<a href="{% url 'hub_admin_member_edit' r.member.pk %}?tab=orientations">{{ r.member.display_name }}</a>{% else %}{{ r.member.display_name }}{% endif %}</td>
+          <td>{{ r.orientation_type.owner_name }}</td>
+          <td>{{ r.orientation_type.name }}{% if r.note %}<div class="hub-text-muted pl-orient-records__note">{{ r.note }}</div>{% endif %}</td>
+          <td>{% if r.oriented_by %}{{ r.oriented_by.display_name }}{% else %}Not recorded{% endif %}</td>
+          <td>{{ r.recorded_by_name }}</td>
+          <td><span class="hub-pill hub-pill--neutral">Recorded</span></td>
+        </tr>
+      {% empty %}
+        <tr><td colspan="7" class="pl-orient-records__empty">No orientations recorded by an admin.</td></tr>
+      {% endfor %}
+      </tbody>
+    </table>
+    </div>
+  </div>
+  {% endif %}
+
   <div class="hub-card" style="padding:1.25rem 1.5rem; margin-top:1.5rem;">
     <h2 class="hub-detail-label" style="margin:0 0 0.75rem;">Add a member to a slot</h2>
     <form method="post" action="{% url 'hub_orientation_add_member' %}" class="hub-form"

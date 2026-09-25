@@ -70,15 +70,17 @@ def _require_can_manage(request: HttpRequest, equipment: Equipment) -> HttpRespo
 
 
 def _member_access_sets(member: Member | None) -> tuple[set[int], set[int]]:
-    """The member's completed orientation-type pks and joined-guild pks, in two queries.
+    """The member's completed orientation-type pks and joined-guild pks, in a fixed three queries.
 
     The bulk input to :meth:`Equipment.access_state` so the index page never runs
-    per-card access queries. Empty sets for an unlinked viewer — every card then
-    reads "Membership inactive", which is the honest state.
+    per-card access queries. Completed types come from the one resolver, so a
+    hand-entered record (issue #465) opens a gate here exactly as a completed booking
+    does. Empty sets for an unlinked viewer — every card then reads "Membership
+    inactive", which is the honest state.
     """
     if member is None:
         return set(), set()
-    oriented = set(member.orientation_bookings.filter(is_completed=True).values_list("orientation_type_id", flat=True))
+    oriented = member.completed_orientation_type_ids()
     guilds = set(member.guild_memberships.values_list("guild_id", flat=True))
     return oriented, guilds
 
