@@ -1,12 +1,14 @@
-"""The late cancellation fee after the cancel: charge, Stripe Checkout, paid, block (#456, part 2).
+"""The late cancellation fee after the cancel: charge, Stripe Checkout, paid, block, waive (#456).
 
 Part 1 (:mod:`membership.late_cancel`) decides whether a cancel is late and what it costs.
 This module owns what happens next: :func:`charge_if_late` writes the
 :class:`~billing.models.LateCancellationFee` inside the cancel's own transaction,
 :func:`start_fee_checkout` mints the hosted Stripe Checkout the member pays on,
 :func:`mark_paid` is the single "money is in hand" transition (the webhook, the return page
-and the Pay button all funnel through it, race-safe), and :func:`unpaid_fee_for` is the one
-input to the block until paid. Stripe is reached only through :mod:`billing.stripe_utils`.
+and the Pay button all funnel through it, race-safe), :func:`unpaid_fee_for` is the one
+input to the block until paid, and :func:`waive` forgives an unpaid fee (part 3; a paid fee
+is refunded through :mod:`billing.refunds` instead, never waived). Stripe is reached only
+through :mod:`billing.stripe_utils`.
 
 The shape mirrors the orientation checkout in :mod:`membership.orientations`: a signed
 token authorises the return and cancelled landings, ``metadata["kind"]`` tags the session
@@ -17,7 +19,7 @@ from __future__ import annotations
 
 import logging
 from datetime import datetime
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, cast
 
 from django.conf import settings
 from django.core import signing
@@ -31,7 +33,10 @@ from billing.models import LateCancellationFee
 from core.models import SiteActivity
 
 if TYPE_CHECKING:
-    from membership.models import EquipmentReservation, Member, OrientationBooking
+    from django.contrib.auth.models import User
+    from django.http import HttpRequest
+
+    from membership.models import Equipment, EquipmentReservation, Guild, Member, OrientationBooking
 
 logger = logging.getLogger(__name__)
 
@@ -294,4 +299,99 @@ def unpaid_fee_for(member: Member) -> LateCancellationFee | None:
         LateCancellationFee.objects.filter(member=member, status=LateCancellationFee.Status.UNPAID)
         .order_by("created_at", "pk")
         .first()
+    )
+
+
+def governing_owner(fee: LateCancellationFee) -> Guild | Equipment:
+    """The guild or equipment whose people run what the fee is for, and so may waive it.
+
+    A reservation fee is the equipment's; an orientation fee follows its type's owner
+    (the guild, or the equipment for an equipment owned orientation).
+    """
+    if fee.reservation_id is not None:
+        return cast("EquipmentReservation", fee.reservation).equipment
+    return cast("OrientationBooking", fee.orientation_booking).orientation_type.owner
+
+
+def can_waive(request: HttpRequest, fee: LateCancellationFee) -> bool:
+    """True when this request may waive ``fee``: an admin, or the people who run what it governs.
+
+    The rule is the owner's own management rule, so it never drifts from the pages the
+    Waive control sits on: an equipment fee follows ``can_manage_equipment`` (the manage
+    page's gate), a guild orientation fee follows ``can_manage_orientations`` (the respond
+    page's gate). Both let a site admin through.
+    """
+    from membership.models import Equipment
+    from membership.permissions import can_manage_equipment, can_manage_orientations
+
+    owner = governing_owner(fee)
+    if isinstance(owner, Equipment):
+        return can_manage_equipment(request, owner)
+    return can_manage_orientations(request, owner)
+
+
+def waive_refusal(fee: LateCancellationFee) -> str:
+    """The sentence a viewer who may not waive ``fee`` reads: who can, named after the governing owner."""
+    from membership.models import Equipment
+
+    owner = governing_owner(fee)
+    if isinstance(owner, Equipment):
+        return f"Only the {owner.name} managers or an admin can waive this fee."
+    return f"Only {owner.name} staff or an admin can waive this fee."
+
+
+def waive(fee: LateCancellationFee, *, actor: User, reason: str) -> None:
+    """Forgive an UNPAID fee: WAIVED, stamped with who, why and when; the block lifts at once.
+
+    Race-safe like :func:`mark_paid`: the row is re-fetched under ``select_for_update`` and
+    only a still-UNPAID fee flips, so a payment landing at the same moment wins or loses
+    cleanly (a paid fee is refunded, never waived). The block lifts because
+    :func:`unpaid_fee_for` reads UNPAID only. After the commit the fee's open Checkout
+    Session is expired best effort, so a Stripe tab left open cannot pay a forgiven fee,
+    and the member is told once by the ``billing.late_fee_waived`` event.
+
+    Raises:
+        ValueError: If the fee is not UNPAID, with a sentence the staff page can show.
+    """
+    with transaction.atomic():
+        locked = LateCancellationFee.objects.select_for_update().select_related("member").get(pk=fee.pk)
+        if locked.status != LateCancellationFee.Status.UNPAID:
+            raise ValueError(
+                f"This fee is already {locked.get_status_display().lower()}. "
+                "Only an unpaid fee can be waived; a paid fee is refunded from the Payments dashboard."
+            )
+        locked.status = LateCancellationFee.Status.WAIVED
+        locked.waived_by = actor
+        locked.waived_reason = reason
+        locked.waived_at = timezone.now()
+        locked.save(update_fields=["status", "waived_by", "waived_reason", "waived_at"])
+        SiteActivity.log(
+            SiteActivity.Kind.LATE_FEE_WAIVED,
+            actor=actor,
+            target=locked,
+            payload={"amount_cents": locked.amount_cents, "item": locked.item_label, "reason": reason},
+        )
+    _expire_session_best_effort(locked)
+    _send_waived_email(locked)
+
+
+def _send_waived_email(fee: LateCancellationFee) -> None:
+    """Tell the member once that the fee is forgiven and they can book again: ``billing.late_fee_waived``."""
+    from core.events.emit import emit
+
+    member = fee.member
+    emit(
+        "billing.late_fee_waived",
+        actor=fee.waived_by,
+        target=fee,
+        context={
+            "user": member.user,
+            "member_name": member.display_name,
+            "fee_amount": fee.amount_display,
+            "fee_item": fee.item_label,
+            "fee_url": pay_url(fee),
+            "owner_url": _absolute_url(fee.owner_page_path()),
+        },
+        url=reverse("hub_late_fee_detail", args=[fee.pk]),
+        period=f"late_fee:{fee.pk}:waived",
     )

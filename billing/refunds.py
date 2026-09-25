@@ -5,7 +5,8 @@ issuing, ledger-row (:class:`billing.models.PaymentRefund`) lifecycle, receipt
 emission, failure alerts, and retry — for class registrations now and
 orientation bookings when the paid-orientations spec lands. Source models stay
 thin: each implements the small :class:`RefundableSource` protocol and a
-one-line ``issue_refund`` delegate.
+one-line ``issue_refund`` delegate. Late cancellation fees (#456) are the
+third source.
 
 Race guard (deliberate, documented tradeoff): ``issue_refund`` holds a
 ``select_for_update`` lock on the SOURCE row across one short Stripe call, and
@@ -30,7 +31,7 @@ from billing.exceptions import (
     RefundError,
     RefundNotPossibleError,
 )
-from billing.models import PaymentRefund
+from billing.models import LateCancellationFee, PaymentRefund
 
 if TYPE_CHECKING:
     from django.contrib.auth.models import User
@@ -72,6 +73,8 @@ def source_field_name(source: Any) -> str:
         return "registration"
     if isinstance(source, OrientationBooking):
         return "orientation_booking"
+    if isinstance(source, LateCancellationFee):
+        return "late_fee"
     raise TypeError(f"Not a refundable source: {type(source).__name__}")
 
 
@@ -360,6 +363,26 @@ def _emit_refund_receipt(refund: PaymentRefund, source: RefundableSource) -> Non
     )
 
 
+def _refund_admin_url(refund: PaymentRefund) -> str:
+    """Where the failure alert sends the admin to retry: the page that carries the Retry action.
+
+    A registration has its own admin page; an orientation booking its respond page; a late
+    cancellation fee (#456) has neither, so its Retry lives on the Payments ledger filtered
+    to failed late fee rows.
+    """
+    from django.urls import reverse
+
+    if refund.registration_id is not None:
+        from core.urls_util import book_absolute_url
+
+        return book_absolute_url(reverse("classes:admin_registration_detail", args=[refund.registration_id]))
+    from membership.orientations import _absolute_url
+
+    if refund.orientation_booking_id is not None:
+        return _absolute_url(reverse("hub_orientation_respond", args=[refund.orientation_booking_id]))
+    return _absolute_url(f"{reverse('billing_admin_dashboard')}?tab=payments&source=late_fee&status=failed")
+
+
 def _emit_refund_failed_alert(refund: PaymentRefund) -> None:
     """Alert the Billing Administrators that an async refund failure needs a retry.
 
@@ -371,18 +394,7 @@ def _emit_refund_failed_alert(refund: PaymentRefund) -> None:
 
     source = refund.source_object
     ctx = source.refund_receipt_context()
-    if refund.registration_id is not None:
-        from django.urls import reverse
-
-        from core.urls_util import book_absolute_url
-
-        admin_url = book_absolute_url(reverse("classes:admin_registration_detail", args=[refund.registration_id]))
-    else:
-        from django.urls import reverse
-
-        from membership.orientations import _absolute_url
-
-        admin_url = _absolute_url(reverse("hub_orientation_respond", args=[refund.orientation_booking_id]))
+    admin_url = _refund_admin_url(refund)
     emit(
         "refund_failed",
         actor=None,

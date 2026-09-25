@@ -1,4 +1,4 @@
-"""BDD specs for the Payments tab aggregation (billing/payments_panel.py)."""
+"""BDD specs for the Payments tab aggregation (billing/payments_panel.py), late fee rows included (#456)."""
 
 from __future__ import annotations
 
@@ -8,7 +8,7 @@ from decimal import Decimal
 import pytest
 from django.utils import timezone
 
-from billing.models import PaymentRefund, TabCharge
+from billing.models import LateCancellationFee, PaymentRefund, TabCharge
 from billing.payments_panel import (
     MAX_ROWS,
     PanelWindow,
@@ -276,6 +276,87 @@ def describe_build_payments_ledger():
             ledger = build_payments_ledger(window=_WINDOW)
             assert ledger.capped is False
             assert MAX_ROWS == 500
+
+
+def _paid_fee(**overrides):
+    from tests.billing.factories import LateCancellationFeeFactory
+
+    defaults = {
+        "status": LateCancellationFee.Status.PAID,
+        "stripe_payment_id": "pi_fee_panel",
+        "paid_at": _aware(2026, 8, 14),
+    }
+    defaults.update(overrides)
+    return LateCancellationFeeFactory(**defaults)
+
+
+def describe_late_fee_rows():
+    def it_builds_a_row_for_a_paid_fee():
+        fee = _paid_fee()
+        (row,) = build_payments_ledger(window=_WINDOW, source="late_fee").rows
+        assert row.source_kind == "late_fee"
+        assert row.source_label == "Late fee"
+        assert row.source_pk == fee.pk
+        assert row.item == f"Late fee: {fee.item_label}"
+        assert row.item_url == fee.owner_page_path()
+        assert row.amount_cents == 1500
+        assert (row.status, row.status_label, row.can_refund) == ("paid", "Paid", True)
+        assert row.date == _aware(2026, 8, 14)
+        assert row.payer_name == fee.member.display_name
+        assert row.payer_url is None
+        assert row.booking_url == ""
+
+    def it_links_the_payer_for_admin_viewers_only():
+        fee = _paid_fee()
+        (row,) = build_payments_ledger(window=_WINDOW, source="late_fee", viewer_is_admin=True).rows
+        assert row.payer_url == f"/manage/members/{fee.member_id}/edit/"
+
+    def it_excludes_unpaid_and_waived_fees():
+        _paid_fee(status=LateCancellationFee.Status.UNPAID, stripe_payment_id="", paid_at=None)
+        _paid_fee(status=LateCancellationFee.Status.WAIVED, stripe_payment_id="", paid_at=None)
+        assert build_payments_ledger(window=_WINDOW, source="late_fee").rows == ()
+
+    def it_excludes_a_fee_paid_outside_the_window():
+        _paid_fee(paid_at=_aware(2026, 9, 2))
+        assert build_payments_ledger(window=_WINDOW, source="late_fee").rows == ()
+
+    def it_derives_the_refund_states():
+        refunded = _paid_fee(status=LateCancellationFee.Status.REFUNDED)
+        PaymentRefundFactory(
+            registration=None, late_fee=refunded, amount_cents=1500, status=PaymentRefund.Status.SUCCEEDED
+        )
+        partial = _paid_fee()
+        PaymentRefundFactory(
+            registration=None, late_fee=partial, amount_cents=500, status=PaymentRefund.Status.SUCCEEDED
+        )
+        failed = _paid_fee()
+        PaymentRefundFactory(registration=None, late_fee=failed, amount_cents=1500, status=PaymentRefund.Status.FAILED)
+        pending = _paid_fee()
+        PaymentRefundFactory(
+            registration=None, late_fee=pending, amount_cents=1500, status=PaymentRefund.Status.PENDING
+        )
+        rows = {row.source_pk: row for row in build_payments_ledger(window=_WINDOW, source="late_fee").rows}
+        assert (rows[refunded.pk].status, rows[refunded.pk].can_refund) == ("refunded", False)
+        assert (rows[partial.pk].status, rows[partial.pk].can_refund) == ("partial", True)
+        assert rows[failed.pk].status == "refund_failed"
+        assert rows[pending.pk].status == "refund_pending"
+        assert rows[pending.pk].pending_age != ""
+
+    def it_lands_in_the_merged_ledger_and_the_totals():
+        _paid_fee()
+        _paid_registration()
+        ledger = build_payments_ledger(window=_WINDOW)
+        assert [row.source_kind for row in ledger.rows] == ["late_fee", "class"]
+        assert ledger.collected_cents == 6500
+        assert [row.source_kind for row in build_payments_ledger(window=_WINDOW, source="class").rows] == ["class"]
+
+    def it_streams_to_the_csv_as_a_late_fee():
+        fee = _paid_fee()
+        lines = _csv_lines(build_payments_ledger(window=_WINDOW, source="late_fee"))
+        # The item carries a comma (the date), so the CSV writer quotes it.
+        assert lines[1].startswith(
+            f'2026-08-14,Late fee,{fee.member.display_name},"Late fee: {fee.item_label}",15.00,Paid'
+        )
 
 
 def _csv_lines(ledger) -> list[str]:

@@ -2203,6 +2203,49 @@ _CURATED: dict[str, EventCopy] = {
             ),
         },
     ),
+    # billing.late_fee_waived — an unpaid late cancellation fee was forgiven (#456, part 3).
+    # Who waived it is deliberately not named; the member learns the fee is gone and that
+    # they can book again, with the owner page as the one call to action.
+    "billing.late_fee_waived": EventCopy(
+        placeholders=("member_name", "fee_amount", "fee_item", "fee_url", "owner_url"),
+        sample_context={
+            "member_name": "Robin Vale",
+            "fee_amount": "$15.00",
+            "fee_item": "CNC Router reservation, Sat Sep 12",
+            "fee_url": "https://pastlives.example/late-fees/12/",
+            "owner_url": "https://pastlives.example/equipment/cnc-router/",
+        },
+        channels={
+            Channel.IN_APP: ChannelCopy(
+                subject="Late cancellation fee waived",
+                body_text=(
+                    "Your {{ fee_amount }} late cancellation fee for the {{ fee_item }} was waived. You can book again."
+                ),
+            ),
+            Channel.EMAIL: ChannelCopy(
+                subject="Your late cancellation fee was waived",
+                body_text=(
+                    "Hi {{ member_name }},\n\n"
+                    "Your {{ fee_amount }} late cancellation fee was waived. There is nothing to pay.\n\n"
+                    "For: {{ fee_item }}\n\n"
+                    "You can book orientations and equipment again: {{ owner_url }}\n\n"
+                    "See the fee: {{ fee_url }}\n\nPast Lives Makerspace"
+                ),
+                body_html=(
+                    "<p>Hi {{ member_name }},</p>"
+                    "<p>Your <strong>{{ fee_amount }}</strong> late cancellation fee was waived. "
+                    "There is nothing to pay.</p>"
+                    '<p>For: <a href="{{ fee_url }}">{{ fee_item }}</a></p>'
+                    "<p>You can book orientations and equipment again.</p>"
+                    '<p style="text-align:center;margin:24px 0 8px;"><a href="{{ owner_url }}" '
+                    'style="display:inline-block;padding:12px 28px;background-color:#EEB44B;color:#092E4C;'
+                    'font-size:14px;font-weight:700;text-decoration:none;border-radius:6px;">'
+                    "Book Again</a></p>"
+                    "<p>Past Lives Makerspace</p>"
+                ),
+            ),
+        },
+    ),
 }
 
 

@@ -1506,6 +1506,8 @@ class SiteActivity(models.Model):
         ORIENTATION_RECORD_REMOVED = "orientation_record_removed", "Orientation record removed"
         LATE_FEE_CHARGED = "late_fee_charged", "Late cancellation fee charged"
         LATE_FEE_PAID = "late_fee_paid", "Late cancellation fee paid"
+        LATE_FEE_WAIVED = "late_fee_waived", "Late cancellation fee waived"
+        LATE_FEE_REFUNDED = "late_fee_refunded", "Late cancellation fee refunded"
         INSTRUCTOR_ORIENTED = "instructor_oriented", "Completed instructor orientation"
         TEACHING_APPLIED = "teaching_applied", "Applied to teach"
         TEACHING_APPLICATION_DECLINED = "teaching_application_declined", "Teaching application declined"

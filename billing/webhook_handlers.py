@@ -168,9 +168,9 @@ def _send_orphan_fee_alert(session: dict[str, Any], *, reason: str) -> None:
 
     recipients = [
         member.primary_email
-        for member in Member.objects.filter(
-            admin_capabilities__capability=AdminCapability.Capability.BILLING_APPROVER
-        ).distinct()
+        for member in Member.objects.filter(admin_capabilities__capability=AdminCapability.Capability.BILLING_APPROVER)
+        .select_related("user")
+        .distinct()
         if member.primary_email
     ]
     if not recipients:

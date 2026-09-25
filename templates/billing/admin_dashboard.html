@@ -298,6 +298,7 @@
       <a href="?tab=payments&source=tab&status={{ payments_status }}&start={{ payments_start }}&end={{ payments_end }}" class="pl-filter {% if payments_source == 'tab' %}active{% endif %}">Tabs</a>
       <a href="?tab=payments&source=class&status={{ payments_status }}&start={{ payments_start }}&end={{ payments_end }}" class="pl-filter {% if payments_source == 'class' %}active{% endif %}">Classes</a>
       {# The Orientation chip ships hidden until that payment source exists (companion spec). #}
+      <a href="?tab=payments&source=late_fee&status={{ payments_status }}&start={{ payments_start }}&end={{ payments_end }}" class="pl-filter {% if payments_source == 'late_fee' %}active{% endif %}">Late fees</a>
     </div>
     <div class="pl-filters">
       <a href="?tab=payments&source={{ payments_source }}&status=all&start={{ payments_start }}&end={{ payments_end }}" class="pl-filter {% if payments_status == 'all' %}active{% endif %}">All</a>

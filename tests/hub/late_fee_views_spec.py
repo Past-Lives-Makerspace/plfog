@@ -9,11 +9,13 @@ from __future__ import annotations
 
 import json
 from datetime import timedelta
+from typing import Any
 from unittest.mock import patch
 
 import pytest
 from django.contrib import messages as django_messages
 from django.contrib.auth.models import User
+from django.http import HttpResponse
 from django.test import Client
 from django.urls import reverse
 from django.utils import timezone
@@ -21,7 +23,7 @@ from django.utils import timezone
 from billing import late_fees
 from billing.models import LateCancellationFee
 from core.models import SiteConfiguration
-from membership.models import Member, OrientationBooking
+from membership.models import EquipmentReservation, Guild, Member, OrientationBooking
 from tests.billing.factories import LateCancellationFeeFactory
 from tests.membership.factories import (
     EquipmentFactory,
@@ -48,7 +50,7 @@ def _login(client: Client, username: str) -> User:
     return user
 
 
-def _own_fee(user: User, **overrides) -> LateCancellationFee:
+def _own_fee(user: User, **overrides: Any) -> LateCancellationFee:
     return LateCancellationFeeFactory(orientation_booking=OrientationBookingFactory(member=user.member), **overrides)
 
 
@@ -58,12 +60,12 @@ def _site(*, enabled: bool = True) -> None:
     config.save()
 
 
-def _messages(response) -> list[str]:
+def _messages(response: HttpResponse) -> list[str]:
     return [str(m) for m in django_messages.get_messages(response.wsgi_request)]
 
 
-def _retrieved(**overrides):
-    session = {
+def _retrieved(**overrides: Any) -> dict[str, Any]:
+    session: dict[str, Any] = {
         "id": "cs_fee_view_1",
         "url": "https://checkout.stripe.example/cs_fee_view_1",
         "status": "open",
@@ -295,7 +297,7 @@ def describe_orientation_cancel_mine_when_late():
 
 
 def describe_reservation_self_cancel_when_late():
-    def _late_reservation(user: User):
+    def _late_reservation(user: User) -> EquipmentReservation:
         equipment = EquipmentFactory(late_cancel_fee_cents=1500)
         starts = timezone.now() + timedelta(hours=3)
         return EquipmentReservationFactory(
@@ -333,7 +335,7 @@ def describe_reservation_self_cancel_when_late():
 
 
 def describe_guild_page_block():
-    def _guild_page(client: Client, guild) -> str:
+    def _guild_page(client: Client, guild: Guild) -> str:
         response = client.get(reverse("hub_guild_detail", args=[guild.slug]))
         assert response.status_code == 200
         return response.content.decode()

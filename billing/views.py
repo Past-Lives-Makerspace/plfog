@@ -538,6 +538,91 @@ def payment_orientation_refund(request: HttpRequest, booking_pk: int) -> HttpRes
     return response
 
 
+def _late_fee_for_refund(fee_pk: int) -> Any:
+    """The fee behind a refund modal, with what its label and receipt read, else 404."""
+    from django.shortcuts import get_object_or_404
+
+    from billing.models import LateCancellationFee
+
+    return get_object_or_404(
+        LateCancellationFee.objects.select_related(
+            "member",
+            "reservation__equipment",
+            "orientation_booking__slot",
+            "orientation_booking__orientation_type__guild",
+            "orientation_booking__orientation_type__equipment",
+        ),
+        pk=fee_pk,
+    )
+
+
+def _render_late_fee_refund_form(request: HttpRequest, fee: Any, form: Any) -> HttpResponse:
+    """Render the late fee refund modal body (#456): the retry confirm when the latest attempt failed.
+
+    Mirrors the orientation refund partial: the FAILED state's only action is Retry (the
+    failed row is the anchor); otherwise the editable amount/reason form.
+    """
+    from billing.models import PaymentRefund
+
+    failed_refund = None
+    if fee.refund_state == "failed":
+        failed_refund = fee.refunds.filter(status=PaymentRefund.Status.FAILED).first()
+    return render(
+        request,
+        "billing/partials/late_fee_refund_form.html",
+        {"fee": fee, "form": form, "failed_refund": failed_refund},
+    )
+
+
+@refund_authority_required
+def payment_late_fee_refund_form(request: HttpRequest, fee_pk: int) -> HttpResponse:
+    """GET partial: the late fee refund modal body, loaded via HTMX by the Payments panel."""
+    from billing.forms import LateFeeRefundForm
+
+    fee = _late_fee_for_refund(fee_pk)
+    return _render_late_fee_refund_form(request, fee, LateFeeRefundForm(fee=fee))
+
+
+@refund_authority_required
+@require_POST
+def payment_late_fee_refund(request: HttpRequest, fee_pk: int) -> HttpResponse:
+    """Issue a real Stripe refund for a late cancellation fee: 204 + toast + ``refund-done``.
+
+    Validation errors re-render the form partial in place. A Stripe rejection is loud: an
+    error toast carries Stripe's message and the modal stays open, re-rendered in the
+    failed state whose action is Retry. A full refund marks the fee refunded and lifts
+    nothing: it was paid, so no block existed.
+    """
+    from billing.exceptions import RefundError
+    from billing.forms import LateFeeRefundForm
+    from billing.models import PaymentRefund
+    from hub.toast import trigger_client_event, trigger_toast
+
+    fee = _late_fee_for_refund(fee_pk)
+    form = LateFeeRefundForm(request.POST, fee=fee)
+    if not form.is_valid():
+        return _render_late_fee_refund_form(request, fee, form)
+    try:
+        refund = fee.issue_refund(
+            amount_cents=form.amount_cents,
+            reason=form.cleaned_data["reason"],
+            actor=request.user,
+        )
+    except RefundError as exc:
+        fee.refresh_from_db()
+        response = _render_late_fee_refund_form(request, fee, LateFeeRefundForm(fee=fee))
+        trigger_toast(response, f"Refund failed: {exc}", "error")
+        return response
+    response = HttpResponse(status=204)
+    if refund.status == PaymentRefund.Status.SUCCEEDED:
+        trigger_toast(response, f"Refunded ${form.cleaned_data['amount']:.2f}.", "success")
+    else:
+        # Stripe accepted the refund but hasn't settled it; refund.updated will.
+        trigger_toast(response, "Refund sent. Stripe is processing it.", "success")
+    trigger_client_event(response, "refund-done")
+    return response
+
+
 @refund_authority_required
 @require_POST
 def payment_refund_retry(request: HttpRequest, refund_pk: int) -> HttpResponse:

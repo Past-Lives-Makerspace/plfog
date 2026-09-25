@@ -1,4 +1,4 @@
-"""BDD specs for the Payments tab views — dashboard tab, table partial, CSV, refund retry."""
+"""BDD specs for the Payments tab views: dashboard tab, table partial, CSV, refund retry, late fee rows and refunds."""
 
 from __future__ import annotations
 
@@ -12,11 +12,11 @@ from django.test import Client
 from django.urls import reverse
 from django.utils import timezone
 
-from billing.models import PaymentRefund
+from billing.models import LateCancellationFee, PaymentRefund
 from classes.factories import RegistrationFactory
 from classes.models import Registration
 from membership.models import AdminCapability, Member
-from tests.billing.factories import PaymentRefundFactory
+from tests.billing.factories import LateCancellationFeeFactory, PaymentRefundFactory
 
 pytestmark = pytest.mark.django_db
 
@@ -157,6 +157,140 @@ def describe_payments_csv():
         assert response["Content-Type"] == "text/csv"
         body = b"".join(response.streaming_content).decode()
         assert body.startswith("Date,Source,Payer,Item,Amount,Status")
+
+
+def _paid_fee(**overrides) -> LateCancellationFee:
+    defaults = {
+        "status": LateCancellationFee.Status.PAID,
+        "stripe_payment_id": "pi_fee_views",
+        "paid_at": timezone.now(),
+    }
+    defaults.update(overrides)
+    return LateCancellationFeeFactory(**defaults)
+
+
+def describe_late_fee_rows_on_the_dashboard():
+    def it_shows_the_late_fees_chip_and_the_row_with_a_refund_button_to_a_fog_admin(client: Client):
+        _login_admin(client, "fogadmin-fee")
+        fee = _paid_fee()
+        content = client.get("/billing/admin/dashboard/?tab=payments").content.decode()
+        assert "source=late_fee" in content
+        assert f"Late fee: {fee.item_label}" in content
+        assert reverse("billing_late_fee_refund_form", args=[fee.pk]) in content
+        assert f'href="{fee.owner_page_path()}"' in content
+
+    def it_hides_the_refund_button_from_a_billing_administrator(client: Client):
+        _login_billing_approver(client, "biller-fee")
+        fee = _paid_fee()
+        content = client.get("/billing/admin/dashboard/?tab=payments").content.decode()
+        assert f"Late fee: {fee.item_label}" in content
+        assert reverse("billing_late_fee_refund_form", args=[fee.pk]) not in content
+
+    def it_filters_to_late_fees_through_the_chip(client: Client):
+        _login_admin(client, "fogadmin-feechip")
+        _paid_fee()
+        _paid_registration()
+        response = client.get("/billing/admin/dashboard/?tab=payments&source=late_fee")
+        assert [row.source_kind for row in response.context["ledger"].rows] == ["late_fee"]
+        assert response.context["payments_source"] == "late_fee"
+
+    def it_shows_retry_refund_on_a_failed_late_fee_row(client: Client):
+        _login_admin(client, "fogadmin-feeretry")
+        fee = _paid_fee()
+        PaymentRefundFactory(registration=None, late_fee=fee, amount_cents=1500, status=PaymentRefund.Status.FAILED)
+        content = client.get("/billing/admin/dashboard/?tab=payments").content.decode()
+        assert "Retry Refund" in content
+        assert reverse("billing_late_fee_refund_form", args=[fee.pk]) in content
+
+    def it_exports_the_row_in_the_csv(client: Client):
+        _login_admin(client, "fogadmin-feecsv")
+        fee = _paid_fee()
+        response = client.get(reverse("billing_admin_payments_csv"), {"source": "late_fee"})
+        body = b"".join(response.streaming_content).decode()
+        assert f'Late fee,{fee.member.display_name},"Late fee: {fee.item_label}",15.00,Paid' in body
+
+
+def describe_late_fee_refund_endpoints():
+    def it_serves_the_refund_form_to_refund_authority(client: Client):
+        _login_admin(client, "fogadmin-feeform")
+        fee = _paid_fee()
+        response = client.get(reverse("billing_late_fee_refund_form", args=[fee.pk]))
+        assert response.status_code == 200
+        content = response.content.decode()
+        assert f"Late fee: {fee.item_label}" in content
+        assert "Issue Refund" in content
+        assert reverse("billing_late_fee_refund", args=[fee.pk]) in content
+
+    def it_serves_the_retry_variant_when_the_latest_attempt_failed(client: Client):
+        _login_admin(client, "fogadmin-feeformretry")
+        fee = _paid_fee()
+        refund = PaymentRefundFactory(
+            registration=None, late_fee=fee, amount_cents=1500, status=PaymentRefund.Status.FAILED
+        )
+        content = client.get(reverse("billing_late_fee_refund_form", args=[fee.pk])).content.decode()
+        assert "Retry Refund" in content
+        assert reverse("billing_payment_refund_retry", args=[refund.pk]) in content
+
+    def it_403s_without_refund_authority(client: Client):
+        _login_billing_approver(client, "biller-feeform")
+        fee = _paid_fee()
+        assert client.get(reverse("billing_late_fee_refund_form", args=[fee.pk])).status_code == 403
+        assert client.post(reverse("billing_late_fee_refund", args=[fee.pk]), {"amount": "15.00"}).status_code == 403
+
+    def it_404s_an_unknown_fee(client: Client):
+        _login_admin(client, "fogadmin-fee404")
+        assert client.get(reverse("billing_late_fee_refund_form", args=[999999])).status_code == 404
+
+    @patch(
+        "billing.stripe_utils.create_refund", return_value={"id": "re_fee_v1", "status": "succeeded", "amount": 1500}
+    )
+    def it_issues_a_full_refund_and_marks_the_fee_refunded(mock_create, client: Client):
+        user = _login_admin(client, "fogadmin-feepost")
+        fee = _paid_fee()
+        response = client.post(
+            reverse("billing_late_fee_refund", args=[fee.pk]), {"amount": "15.00", "reason": "goodwill"}
+        )
+        assert response.status_code == 204
+        triggers = json.loads(response["HX-Trigger"])
+        assert triggers["refund-done"] is True
+        assert triggers["showToast"]["message"] == "Refunded $15.00."
+        refund = PaymentRefund.objects.get(late_fee=fee)
+        assert refund.status == PaymentRefund.Status.SUCCEEDED
+        assert refund.initiated_by == user
+        assert refund.reason == "goodwill"
+        fee.refresh_from_db()
+        assert fee.status == LateCancellationFee.Status.REFUNDED
+
+    def it_rerenders_the_form_on_validation_errors(client: Client):
+        _login_admin(client, "fogadmin-feeinvalid")
+        fee = _paid_fee()
+        response = client.post(reverse("billing_late_fee_refund", args=[fee.pk]), {"amount": "99.00", "reason": ""})
+        assert response.status_code == 200
+        assert "between $0.01 and $15.00" in response.content.decode()
+        assert not PaymentRefund.objects.filter(late_fee=fee).exists()
+
+    @patch("billing.stripe_utils.create_refund", return_value={"id": "re_fee_v2", "status": "pending", "amount": 1500})
+    def it_says_processing_when_stripe_answers_pending(mock_create, client: Client):
+        _login_admin(client, "fogadmin-feepending")
+        fee = _paid_fee()
+        response = client.post(reverse("billing_late_fee_refund", args=[fee.pk]), {"amount": "15.00", "reason": ""})
+        assert response.status_code == 204
+        assert json.loads(response["HX-Trigger"])["showToast"]["message"] == "Refund sent. Stripe is processing it."
+        fee.refresh_from_db()
+        assert fee.status == LateCancellationFee.Status.PAID
+
+    def it_surfaces_a_stripe_rejection_loudly_in_the_failed_state(client: Client):
+        _login_admin(client, "fogadmin-feefail")
+        fee = _paid_fee()
+        with patch("billing.stripe_utils.create_refund", side_effect=stripe.StripeError("Disputed.")):
+            response = client.post(reverse("billing_late_fee_refund", args=[fee.pk]), {"amount": "15.00", "reason": ""})
+        assert response.status_code == 200
+        triggers = json.loads(response["HX-Trigger"])
+        assert triggers["showToast"]["type"] == "error"
+        assert "Disputed." in triggers["showToast"]["message"]
+        assert "refund-done" not in triggers
+        assert "Retry Refund" in response.content.decode()
+        assert PaymentRefund.objects.get(late_fee=fee).status == PaymentRefund.Status.FAILED
 
 
 def describe_payment_refund_retry():

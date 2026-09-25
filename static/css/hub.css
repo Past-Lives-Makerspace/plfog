@@ -9403,6 +9403,65 @@ mark { background: color-mix(in srgb, var(--color-tuscan-yellow) 30%, transparen
     gap: 0.75rem;
     flex-wrap: wrap;
 }
+/* Part 3: the staff-facing fee card on the orientation respond page, the fee list on the
+   equipment manage Reservations tab, and the Waive modal body. Theme tokens only. */
+.pl-late-fee-panel {
+    padding: 1.5rem;
+    margin-bottom: 1.5rem;
+}
+.pl-late-fee-panel__title {
+    margin: 0 0 0.75rem;
+}
+.pl-late-fee-panel__line {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    flex-wrap: wrap;
+    margin: 0 0 0.25rem;
+}
+.pl-late-fee-panel__amount {
+    font-size: 1.05rem;
+    font-weight: 700;
+    color: var(--hub-text);
+}
+.pl-late-fee-panel__meta {
+    margin: 0 0 0.75rem;
+}
+.pl-late-fee-panel__empty {
+    margin: 0;
+}
+.pl-late-fee-list {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+}
+.pl-late-fee-row {
+    display: grid;
+    grid-template-columns: minmax(0, 1.2fr) minmax(0, 2fr) auto auto auto;
+    gap: 0.5rem 1rem;
+    align-items: center;
+    padding: 0.5rem 0.75rem;
+    background: var(--hub-surface);
+    border-radius: 6px;
+}
+.pl-late-fee-row__amount {
+    font-weight: 700;
+    white-space: nowrap;
+}
+.pl-late-fee-row__action {
+    justify-self: end;
+}
+@media (max-width: 720px) {
+    .pl-late-fee-row {
+        grid-template-columns: 1fr;
+    }
+    .pl-late-fee-row__action {
+        justify-self: start;
+    }
+}
+.pl-late-fee-waive__lead {
+    margin: 0 0 1rem;
+}
 
 /* ========================================
    Class lifecycle (class-lifecycle spec PR 1)
