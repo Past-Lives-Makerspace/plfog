@@ -1,0 +1,8 @@
+bump = "minor"
+date = "2026-09-25"
+title = "Admins can record an orientation a member already took"
+changes = [
+  "Admins: Manage Members now has an Orientations tab on each member. It lists every orientation they have completed, whether they booked it here or an admin recorded it.",
+  "Record an orientation by typing its name, picking it from the list and setting the date. The member is treated as oriented right away, so a tool that requires it unlocks for them and a guild that requires it lets them join.",
+  "Recording is quiet: no email and no Discord post. A recorded orientation can be removed again if it was a mistake.",
+]
