@@ -26,7 +26,10 @@
  * builds every formset form with use_required_attribute=False, and the
  * scheduler posts its rows as hidden inputs. So an added row left blank never
  * blocks Next, and a half filled one is the server's to refuse at save, on
- * the step that owns it, as it always was.
+ * the step that owns it, as it always was. The one named exception is the
+ * gallery's minimum of one photo (emptyGallery below, issue #424): no attribute
+ * can say "at least one row", so the template marks the container and Next,
+ * only Next, counts the cards inside it.
  *
  * A refusal renders the repo's field error markup (components/form_field.html)
  * right under the control, with aria-invalid and aria-describedby on the
@@ -38,7 +41,7 @@
  * Alpine reveals an x-show pane on the next animation frame.
  *
  * Loads in <body>, so hx-boost re-runs it on every arrival; the guard keeps
- * one copy and one pair of document listeners.
+ * one copy and one set of document listeners.
  */
 (function () {
     "use strict";
@@ -50,6 +53,10 @@
     var LIST_ATTR = "data-live-error";
     var REVEAL_EVENT = "composer-reveal-field";
     var REQUIRED_MESSAGE = "This field is required.";
+    var GALLERY_ATTR = "data-composer-gallery";
+    var GALLERY_MESSAGE_ATTR = "data-composer-gallery-message";
+    var GALLERY_CARD = ".cls-image-cell";
+    var GALLERY_EVENT = "composer-gallery-changed";
     var counter = 0;
 
     // The rule this walk enforces: hold the step only where the value the browser
@@ -75,20 +82,48 @@
         return null;
     }
 
+    function isGallery(el) {
+        return el.hasAttribute(GALLERY_ATTR);
+    }
+
+    // The one rule here that is not an attribute (issue #424): the gallery needs at
+    // least one photo before the Photos step lets Next through. No constraint
+    // attribute on any control can say "at least one row". On a saved class the file
+    // input posts nothing (the upload is a fetch, and the card lands later), on a new
+    // class it carries the picked files until save, and `required` on either would
+    // refuse Save Draft too. So the template stamps the gallery container with
+    // data-composer-gallery, keeps the refusal on the same element (copy stays in the
+    // template, never here), and this counts the cards inside it.
+    //
+    // Next only. firstInvalidStep runs it when `only` is given; Save Draft and the
+    // submit confirm (validateAll, no `only`) never do: a draft may be incomplete, and
+    // Submit already has the server's readiness check plus a disabled button while
+    // the class is unready. The server stays the gate; this is an earlier refusal.
+    function emptyGallery(pane) {
+        var gallery = pane.querySelector("[" + GALLERY_ATTR + "]");
+        return gallery && !gallery.querySelector(GALLERY_CARD) ? gallery : null;
+    }
+
     // The first control, in step order, the server would refuse: every pane
-    // under `root`, or only the pane numbered `only`.
+    // under `root`, or only the pane numbered `only` (where the gallery minimum
+    // is also checked, after the attribute walk).
     function firstInvalidStep(root, only) {
         var panes = root.querySelectorAll(PANE);
         for (var i = 0; i < panes.length; i++) {
             var step = Number(panes[i].getAttribute("data-composer-step"));
             if (only !== undefined && step !== only) continue;
             var control = firstInvalid(panes[i]);
+            if (!control && only !== undefined) control = emptyGallery(panes[i]);
             if (control) return { step: step, control: control };
         }
         return null;
     }
 
+    // A gallery container has no validity of its own; its reason is the attribute the
+    // template put on it. Everything else flag() does (the list, the tokens, the focus)
+    // is the same for it as for a control.
     function message(el) {
+        if (isGallery(el)) return el.getAttribute(GALLERY_MESSAGE_ATTR);
         return el.validity.valueMissing ? REQUIRED_MESSAGE : el.validationMessage;
     }
 
@@ -189,12 +224,23 @@
         var form = event.target && event.target.form;
         if (!form) return;
         Array.prototype.forEach.call(form.querySelectorAll("[" + LIVE_ATTR + "]"), function (el) {
-            if (el.checkValidity()) clear(el);
+            // A flagged gallery container has no validity to re-check; reconcileGallery owns it.
+            if (!isGallery(el) && el.checkValidity()) clear(el);
         });
+    }
+
+    // The gallery clears on its own event, which image_formset.html's updateCount()
+    // dispatches on the container after every add or remove. Not on the file input's
+    // change: on a saved class the upload is a fetch, and the card lands after that
+    // event has come and gone.
+    function reconcileGallery(event) {
+        var gallery = event.target;
+        if (gallery.hasAttribute(LIVE_ATTR) && gallery.querySelector(GALLERY_CARD)) clear(gallery);
     }
 
     document.addEventListener("input", reconcile);
     document.addEventListener("change", reconcile);
+    document.addEventListener(GALLERY_EVENT, reconcileGallery);
 
     window.plComposerValidation = {
         firstInvalid: firstInvalid,

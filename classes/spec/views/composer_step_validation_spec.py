@@ -7,8 +7,10 @@ these specs pin them. The ``required`` attribute a pane renders is exactly what 
 form requires of that step, on both composers in both modes, so a form change cannot drift
 from what Next enforces. Nothing the client blocks is something the server accepts: the
 readiness items are submit gates, not Next gates, and formset rows carry no constraint
-attribute at all, so they stay the server's. And no list of fields per step exists anywhere
-but ``classes/composer.py``: not in the script, not in the Alpine root.
+attribute at all, so they stay the server's. The one named exception is the gallery's
+minimum of one photo (#424), which Next also refuses through a hook on the container rather
+than an attribute; ``describe_the_gallery_minimum`` pins it. And no list of fields per step
+exists anywhere but ``classes/composer.py``: not in the script, not in the Alpine root.
 """
 
 from __future__ import annotations
@@ -32,7 +34,8 @@ JS_PATH = REPO_ROOT / "static" / "js" / "composer_validation.js"
 TEMPLATE_PATH = REPO_ROOT / "templates" / "classes" / "_components" / "class_composer.html"
 FIELD_NAMES = sorted({name for step in COMPOSER_STEPS for name in step.fields})
 # The rule set the instructor's composer renders, by step. Steps 2, 4 and 5 require nothing:
-# photos, details and review are readiness or optional, never a Next gate. scheduling_model is
+# photos, details and review are readiness or optional, never an attribute driven Next gate
+# (the gallery minimum is the one named exception, pinned at the end). scheduling_model is
 # a required form field whose <select> has no empty option (a model default, no blank=True), so
 # Django omits the attribute: the browser always posts a value and there is nothing to gate.
 REQUIRED_BY_STEP = {
@@ -47,6 +50,11 @@ REQUIRED_BY_STEP = {
 ADMIN_REQUIRED_BY_STEP = {**REQUIRED_BY_STEP, 3: REQUIRED_BY_STEP[3] | {"member_discount_pct"}}
 VOID_TAGS = {"input", "img", "br", "hr", "link", "meta", "source", "wbr"}
 CONTROL_TAGS = {"input", "select", "textarea"}
+# The gallery minimum (#424): the hook the client counts cards inside, the refusal it shows
+# (copy lives in the template, never in the script), and the marker the two photo controls carry.
+GALLERY_HOOK_ATTR = "data-composer-gallery"
+GALLERY_MESSAGE = "Add at least one gallery photo."
+REQUIRED_BADGE = '<span class="pl-required">Required</span>'
 
 
 @dataclass
@@ -124,6 +132,29 @@ class _FragmentParser(HTMLParser):
         a = dict(attrs)
         if tag in CONTROL_TAGS:
             self.controls.append(_Control(tag=tag, name=a.get("name"), attrs=a))
+
+
+class _HookParser(HTMLParser):
+    """Every element stamped ``data-composer-gallery``, with all of its attributes."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.hooks: list[dict[str, str | None]] = []
+
+    def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
+        a = dict(attrs)
+        if GALLERY_HOOK_ATTR in a:
+            self.hooks.append(a)
+
+
+def _hooks(html: str) -> list[dict[str, str | None]]:
+    parser = _HookParser()
+    parser.feed(html)
+    return parser.hooks
+
+
+def _step_two(html: str) -> str:
+    return html[html.index('data-composer-step="2"') : html.index('data-composer-step="3"')]
 
 
 def _parse(html: str) -> _PaneParser:
@@ -254,7 +285,9 @@ def describe_what_next_never_blocks_on():
     def it_leaves_every_readiness_item_to_submit(composer):
         # readiness_items (classes/models.py) gates submit on a hero photo, a gallery photo, a
         # description of some length, a date (or a flexible note), and capacity >= 1. None of
-        # those is a form rule, so none is a rendered attribute, so Next lets them all through.
+        # those is a form rule, so none is a rendered attribute, and Next lets them through, with
+        # one exception: the gallery photo, which Next also refuses through the container hook
+        # (describe_the_gallery_minimum below, #424). Submit stays the gate for all five.
         for mode, html in composer.pages.items():
             form = composer.form(mode)
             parsed = _parse(html)
@@ -366,6 +399,49 @@ def describe_formset_rows():
             sessions = [c for c in _parse(html).controls[3] if c.name and c.name.startswith("sessions-")]
             assert sessions, mode
             assert all(c.kind == "hidden" for c in sessions), mode
+
+
+def describe_the_gallery_minimum():
+    def it_stamps_the_gallery_container_with_the_hook_and_its_message_in_both_modes(composer):
+        # "At least one gallery photo" is a rule about how many rows the gallery holds, and no
+        # constraint attribute on any control can say that. So the container itself carries the
+        # hook the client counts cards inside (the saved class manager and the create mode
+        # picker alike), the refusal it shows, and a tabindex so the refusal can focus it the
+        # way it focuses a control. The card class it counts is the one the server renders.
+        for mode, html in composer.pages.items():
+            hooks = _hooks(html)
+            assert len(hooks) == 1, (mode, len(hooks))
+            assert _hooks(_step_two(html)) == hooks, mode
+            hook = hooks[0]
+            assert hook["id"] == ("gallery-create" if mode == "create" else "gallery-manager"), mode
+            assert hook["data-composer-gallery-message"] == GALLERY_MESSAGE, mode
+            assert hook["tabindex"] == "-1", mode
+            assert _step_two(html).count('class="cls-image-cell') == (1 if mode == "edit" else 0), mode
+            # Both inline scripts signal every add and remove, which is what clears the refusal.
+            assert "new CustomEvent('composer-gallery-changed', { bubbles: true })" in _step_two(html), mode
+
+    def it_marks_exactly_the_two_photo_controls_required(composer):
+        # The composer had no required marker before #424 (form_field.html renders none), so
+        # this one is the hero label's and the Gallery title's alone: nothing else gets it.
+        for mode, html in composer.pages.items():
+            assert html.count(REQUIRED_BADGE) == 2, mode
+            two = _step_two(html)
+            assert two.count(REQUIRED_BADGE) == 2, mode
+            hero_label = two[two.index("data-hero-image-field") : two.index('id="hero-upload-zone"')]
+            assert hero_label.count(REQUIRED_BADGE) == 1 and "Upload image" in hero_label, mode
+            gallery_title = re.search(r'<h3 class="pl-compose-section__title">Gallery (.*?)</h3>', two)
+            assert gallery_title and gallery_title.group(1) == REQUIRED_BADGE, mode
+
+    def it_reads_the_refusal_from_the_template_and_runs_it_on_next_only():
+        js = JS_PATH.read_text(encoding="utf-8")
+        # The copy is the template's, so the script carries the attribute names and no message.
+        assert GALLERY_MESSAGE not in js
+        assert f'"{GALLERY_HOOK_ATTR}"' in js and '"data-composer-gallery-message"' in js
+        assert '".cls-image-cell"' in js and '"composer-gallery-changed"' in js
+        # Wired into the `only` leg of the walk alone: validateAll (Save Draft, the submit
+        # confirm) passes no `only`, so a draft may still be saved without a photo.
+        assert "if (!control && only !== undefined) control = emptyGallery(panes[i]);" in js
+        assert js.count("emptyGallery(") == 2
 
 
 def describe_the_step_to_field_map_stays_in_one_place():

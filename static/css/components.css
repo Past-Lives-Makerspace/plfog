@@ -760,6 +760,22 @@
     margin: 0;
 }
 
+/* The class composer's Required marker (issue #424): a small text badge after the hero
+   photo label and the Gallery section title on the Photos step. No other composer field
+   carries one (form_field.html renders no marker), so these two are the marker.
+   Scoped to the composer on purpose: the Django admin skin (unfold-custom.css) already
+   owns a bare .pl-required for its gold asterisk, and templates/admin/base.html loads
+   this file into that same document. */
+.pl-composer .pl-required {
+    display: inline-block;
+    font-size: 0.68rem;
+    font-weight: 600;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    color: var(--hub-text-muted, #8b97a8);
+    vertical-align: middle;
+}
+
 /* ========================================
    Image Upload Zone
    ======================================== */
