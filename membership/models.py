@@ -11740,6 +11740,7 @@ class Equipment(HeroCropMixin, models.Model):
         """
 
         OK = "ok", "You're all set"
+        NEEDS_FEE = "needs_fee", "Pay your late cancellation fee to book again"
         NEEDS_ORIENTATION = "needs_orientation", "Orientation needed"
         NEEDS_GUILD = "needs_guild", "Guild members only"
         INACTIVE_MEMBER = "inactive_member", "Membership inactive"
@@ -11946,17 +11947,25 @@ class Equipment(HeroCropMixin, models.Model):
         *,
         oriented_type_ids: set[int] | None = None,
         member_guild_ids: set[int] | None = None,
+        has_unpaid_fee: bool | None = None,
     ) -> str:
         """The one :class:`AccessState` between ``member`` and this equipment.
 
         Drives both the index card badge and the detail-page requirements banner.
-        The two optional sets are the bulk-caller optimization for the index page —
-        pass the member's completed orientation-type pks and joined-guild pks so a
-        page of cards costs two queries, not two per card. Omit both and the checks
-        query per call.
+        The optional arguments are the bulk-caller optimization for the index page —
+        pass the member's completed orientation-type pks, joined-guild pks and whether
+        they owe a late cancellation fee (#456) so a page of cards costs three queries,
+        not three per card. Omit them and the checks query per call. An unpaid fee wins
+        over every other gap: it blocks booking whatever else is met.
         """
         if member is None or member.status != Member.Status.ACTIVE:
             return self.AccessState.INACTIVE_MEMBER
+        if has_unpaid_fee is None:
+            from billing.late_fees import unpaid_fee_for
+
+            has_unpaid_fee = unpaid_fee_for(member) is not None
+        if has_unpaid_fee:
+            return self.AccessState.NEEDS_FEE
         required_orientation = self.required_orientation
         if required_orientation is not None:
             if oriented_type_ids is not None:
@@ -12418,8 +12427,9 @@ class EquipmentReservation(models.Model):
     """
 
     # View-attached (#456): the cancel modal's fee line, set by the schedule builder on the
-    # member's own rows only while a cancel right now would be late; "" otherwise.
-    late_cancel_warning: str
+    # member's own rows only while a cancel right now would be late. Defaults to "" so a
+    # renderer that never set it cannot raise in the template.
+    late_cancel_warning: str = ""
 
     class Status(models.TextChoices):
         CONFIRMED = "confirmed", "Confirmed"
@@ -14252,6 +14262,7 @@ _WIKI_BODY_MAX_CHARS = 60_000
 # a method so a missing state is a loud KeyError rather than a silently blank line.
 _WIKI_ACCESS_LINES: dict[str, str] = {
     "ok": "You are set up for this tool.",
+    "needs_fee": "Pay your late cancellation fee to book again.",
     "needs_orientation": "Orientation needed before you use this.",
     "needs_guild": "You need to join the guild before you use this.",
     "inactive_member": "Your membership needs to be active to use this.",

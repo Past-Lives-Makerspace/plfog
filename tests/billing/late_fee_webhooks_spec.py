@@ -84,7 +84,39 @@ def describe_handle_late_fee_checkout_completed():
     def it_warns_and_stops_on_a_session_with_no_fee_id(caplog):
         with caplog.at_level(logging.WARNING, logger="billing.webhook_handlers"):
             webhook_handlers.handle_late_fee_checkout_completed(_event())
-        assert "missing fee_id" in caplog.text
+        assert "missing or non-numeric fee_id None" in caplog.text
+
+    def it_warns_and_stops_on_a_non_numeric_fee_id_instead_of_raising(caplog):
+        fee = _unpaid_fee("hook_crafted")
+        with caplog.at_level(logging.WARNING, logger="billing.webhook_handlers"):
+            webhook_handlers.handle_late_fee_checkout_completed(_event(fee_id=f"{fee.pk} OR 1=1"))
+        assert "missing or non-numeric fee_id" in caplog.text
+        fee.refresh_from_db()
+        assert fee.status == LateCancellationFee.Status.UNPAID
+
+    def it_alerts_billing_admins_when_a_second_session_pays_a_fee_already_paid(caplog):
+        _billing_approver()
+        fee = _unpaid_fee("hook_double")
+        webhook_handlers.handle_late_fee_checkout_completed(_event(fee_id=fee.pk, payment_intent="pi_first"))
+        mail.outbox.clear()
+        with caplog.at_level(logging.ERROR, logger="billing.webhook_handlers"):
+            webhook_handlers.handle_late_fee_checkout_completed(
+                _event(fee_id=fee.pk, id="cs_fee_hook_2", payment_intent="pi_second")
+            )
+        errors = [r for r in caplog.records if r.levelno == logging.ERROR]
+        assert len(errors) == 1
+        assert "already paid by payment intent pi_first" in errors[0].getMessage()
+        assert "paid it again with pi_second" in errors[0].getMessage()
+        alert = mail.outbox[0]
+        assert alert.to == ["fee-billing-approver@example.com"]
+        assert alert.subject == "Orphaned late cancellation fee payment needs a manual refund"
+        assert (
+            f"Late cancellation fee {fee.pk} was already paid by pi_first; this session paid it again with pi_second."
+            in alert.body
+        )
+        assert "https://dashboard.stripe.com/payments/pi_second" in alert.body
+        fee.refresh_from_db()
+        assert fee.stripe_payment_id == "pi_first"  # the first payment stays the one on record
 
     def it_is_quiet_on_a_redelivery_for_a_fee_already_paid():
         _billing_approver()

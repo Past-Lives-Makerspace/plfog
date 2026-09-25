@@ -197,10 +197,12 @@ def notify_manager_cancelled(reservation: EquipmentReservation) -> None:
 def notify_self_cancelled(reservation: EquipmentReservation, fee: LateCancellationFee | None) -> None:
     """Confirm to the member that they cancelled, naming the late fee and its Pay link when one applies (#456).
 
-    ``late_fee_line`` is the whole fee sentence, or "" when the cancel was free, so the
-    copy needs no conditional: a free cancel's email says nothing about fees.
+    ``late_fee_line`` is the whole fee sentence for the text body and the bell row, and
+    ``late_fee_html`` the same sentence with a real link for the HTML body; both are ""
+    when the cancel was free, so the copy needs no conditional and a free cancel's email
+    says nothing about fees.
     """
-    from billing.late_fees import pay_line
+    from billing.late_fees import pay_html, pay_line
     from core.events.emit import emit
 
     member = reservation.member
@@ -211,6 +213,7 @@ def notify_self_cancelled(reservation: EquipmentReservation, fee: LateCancellati
         context={
             "user": member.user,
             "late_fee_line": pay_line(fee) if fee is not None else "",
+            "late_fee_html": pay_html(fee) if fee is not None else "",
             **_placeholder_context(reservation),
         },
         url=reverse("hub_equipment_detail", args=[reservation.equipment.slug]),

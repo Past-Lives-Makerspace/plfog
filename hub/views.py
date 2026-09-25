@@ -2269,9 +2269,38 @@ def hub_late_fee_checkout_cancelled(request: HttpRequest, token: str) -> HttpRes
         fee = late_fees.read_checkout_token(token)
     except (BadSignature, LateCancellationFee.DoesNotExist):
         return redirect("hub_home")
+    member = _get_member(request)
+    if member is None or fee.member_id != member.pk:
+        raise Http404("No such late cancellation fee.")
     if fee.status == LateCancellationFee.Status.UNPAID:
         messages.info(request, "Your late cancellation fee is still due. Pay it from the Pay button any time.")
     return redirect(fee.owner_page_path())
+
+
+def _token_cancel_fee_context(booking: Any, action: str, result: str | None) -> dict[str, Any]:
+    """What the no-login cancel page says about the late fee (#456).
+
+    Before the click: the fee sentence when cancelling this CONFIRMED booking right now
+    would be late. After a cancel: the fee it created, with the link to its page (the
+    member pays from there once signed in; this page never redirects to Stripe).
+    """
+    from billing.models import LateCancellationFee
+    from membership.late_cancel import cancel_sentence, policy_for
+    from membership.models import OrientationBooking
+
+    warning = ""
+    if action == "cancel" and booking.status == OrientationBooking.Status.CONFIRMED:
+        policy = policy_for(booking)
+        if policy.is_late(booking.slot.starts_at):
+            warning = cancel_sentence(policy)
+    late_fee = (
+        LateCancellationFee.objects.filter(orientation_booking=booking).first() if result == "cancelled" else None
+    )
+    return {
+        "late_cancel_warning": warning,
+        "late_fee": late_fee,
+        "late_fee_url": reverse("hub_late_fee_detail", args=[late_fee.pk]) if late_fee is not None else "",
+    }
 
 
 def orientation_action(request: HttpRequest, token: str) -> HttpResponse:
@@ -2291,7 +2320,11 @@ def orientation_action(request: HttpRequest, token: str) -> HttpResponse:
     except (BadSignature, OrientationBooking.DoesNotExist):
         return render(request, "hub/orientation_action.html", {"invalid": True}, status=400)
     result = orientations.apply_token_action(booking, action, recipient=recipient) if request.method == "POST" else None
-    return render(request, "hub/orientation_action.html", {"booking": booking, "action": action, "result": result})
+    return render(
+        request,
+        "hub/orientation_action.html",
+        {"booking": booking, "action": action, "result": result, **_token_cancel_fee_context(booking, action, result)},
+    )
 
 
 def _can_access_orientations(request: HttpRequest) -> bool:

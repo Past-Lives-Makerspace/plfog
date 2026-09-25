@@ -7,7 +7,7 @@ from typing import Any
 
 from django.utils import timezone
 
-from billing.models import Tab, TabCharge
+from billing.models import LateCancellationFee, Tab, TabCharge
 from billing.notifications import notify_admin_charge_failed, send_receipt
 
 logger = logging.getLogger(__name__)
@@ -213,15 +213,18 @@ def handle_late_fee_checkout_completed(event: dict[str, Any]) -> None:
     alerted to the Billing Administrators for a Stripe dashboard refund.
     """
     from billing import late_fees
-    from billing.models import LateCancellationFee
 
     session = event["data"]["object"]
     metadata = session.get("metadata") or {}
     if metadata.get("kind") != late_fees.CHECKOUT_KIND:
         return
-    fee_id = metadata.get("fee_id")
-    if not fee_id:
-        logger.warning("checkout.session.completed: missing fee_id in late fee metadata")
+    fee_id = str(metadata.get("fee_id") or "")
+    if not fee_id.isdigit():
+        # A blank or crafted id must never reach the ORM (a non-numeric pk lookup raises).
+        logger.warning(
+            "checkout.session.completed: missing or non-numeric fee_id %r in late fee metadata",
+            metadata.get("fee_id"),
+        )
         return
     if session.get("payment_status") != "paid":
         logger.info(
@@ -249,20 +252,48 @@ def handle_late_fee_checkout_completed(event: dict[str, Any]) -> None:
         amount_total=amount_total if isinstance(amount_total, int) else None,
     )
     if outcome == "already":
-        fresh = LateCancellationFee.objects.filter(pk=fee.pk).first()
-        if fresh is not None and fresh.status == LateCancellationFee.Status.PAID:
-            return  # a re-delivery of a payment already recorded: nothing to do
+        _reconcile_already_settled(session, fee)
+
+
+def _reconcile_already_settled(session: dict[str, Any], fee: LateCancellationFee) -> None:
+    """A paid session landing on a fee ``mark_paid`` would not flip.
+
+    Three shapes: a re-delivery of the payment already recorded (same payment intent:
+    nothing to do); a second payment on a fee already paid by another intent (two live
+    sessions, one fee: the second charge is money with no home); or money landing on a fee
+    that was waived or refunded first. The last two are logged at ERROR and alerted to the
+    Billing Administrators for a Stripe dashboard refund.
+    """
+    fresh = LateCancellationFee.objects.filter(pk=fee.pk).first()
+    incoming = session.get("payment_intent", "") or ""
+    if fresh is not None and fresh.status == LateCancellationFee.Status.PAID:
+        if fresh.stripe_payment_id == incoming:
+            return
         logger.error(
-            "checkout.session.completed: PAID late fee session %s (payment intent %s) landed on fee %s "
-            "which is %s, not paid. Refund from the Stripe dashboard.",
+            "checkout.session.completed: late fee %s was already paid by payment intent %s, and session %s "
+            "paid it again with %s. Refund the second payment from the Stripe dashboard.",
+            fee.pk,
+            fresh.stripe_payment_id,
             session.get("id"),
-            session.get("payment_intent"),
-            fee_id,
-            fresh.status if fresh is not None else "gone",
+            incoming,
         )
         _send_orphan_fee_alert(
-            session, reason=f"Late cancellation fee {fee_id} was resolved before the payment landed."
+            session,
+            reason=(
+                f"Late cancellation fee {fee.pk} was already paid by {fresh.stripe_payment_id}; "
+                f"this session paid it again with {incoming}."
+            ),
         )
+        return
+    logger.error(
+        "checkout.session.completed: PAID late fee session %s (payment intent %s) landed on fee %s "
+        "which is %s, not paid. Refund from the Stripe dashboard.",
+        session.get("id"),
+        incoming,
+        fee.pk,
+        fresh.status if fresh is not None else "gone",
+    )
+    _send_orphan_fee_alert(session, reason=f"Late cancellation fee {fee.pk} was resolved before the payment landed.")
 
 
 def handle_late_fee_checkout_expired(event: dict[str, Any]) -> None:

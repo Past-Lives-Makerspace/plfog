@@ -178,17 +178,33 @@ def describe_start_fee_checkout():
             assert late_fees.read_checkout_token(token).pk == fee.pk
             assert kwargs[key].startswith("http")
 
+    @patch("billing.stripe_utils.expire_checkout_session")
     @patch("billing.stripe_utils.create_checkout_session", return_value=_SESSION)
-    def it_mints_a_fresh_session_on_every_call(mock_create):
+    def it_mints_a_fresh_session_on_every_call_and_expires_the_previous_one(mock_create, mock_expire):
         fee = LateCancellationFeeFactory()
         late_fees.start_fee_checkout(fee)
+        assert not mock_expire.called  # nothing to expire before the first mint
         mock_create.return_value = {"id": "cs_fee_2", "url": "https://checkout.stripe.example/cs_fee_2"}
         url = late_fees.start_fee_checkout(fee)
         assert url.endswith("cs_fee_2")
+        # The first session is closed at the source, so two live pages can never both pay one fee.
+        mock_expire.assert_called_once_with(session_id="cs_fee_1")
         fee.refresh_from_db()
         assert fee.stripe_session_id == "cs_fee_2"
         assert fee.checkout_attempts == 2
         assert mock_create.call_args.kwargs["idempotency_key"] == f"late-fee-{fee.pk}-2"
+
+    @patch("billing.stripe_utils.expire_checkout_session", side_effect=RuntimeError("stripe down"))
+    @patch("billing.stripe_utils.create_checkout_session", return_value=_SESSION)
+    def it_still_mints_when_the_previous_session_cannot_be_expired(mock_create, mock_expire, caplog):
+        fee = LateCancellationFeeFactory(stripe_session_id="cs_old")
+        with caplog.at_level(logging.INFO, logger="billing.late_fees"):
+            url = late_fees.start_fee_checkout(fee)
+        assert url == _SESSION["url"]
+        mock_expire.assert_called_once_with(session_id="cs_old")
+        assert "Could not expire the previous Checkout session" in caplog.text
+        fee.refresh_from_db()
+        assert fee.stripe_session_id == "cs_fee_1"
 
     @patch("billing.stripe_utils.create_checkout_session", return_value=_SESSION)
     def it_refuses_a_fee_that_is_not_unpaid(mock_create):
@@ -354,6 +370,17 @@ def describe_pay_line():
         assert line == (
             f"A $15.00 late cancellation fee applies to this cancellation. "
             f"Pay it at {url} and you'll get a receipt once it's paid."
+        )
+
+    def it_builds_the_html_twin_with_a_real_link_marked_safe():
+        from django.utils.safestring import SafeString
+
+        fee = LateCancellationFeeFactory()
+        html = late_fees.pay_html(fee)
+        assert isinstance(html, SafeString)
+        assert html == (
+            "A $15.00 late cancellation fee applies to this cancellation. "
+            f"<a href=\"{late_fees.pay_url(fee)}\">Pay the late fee</a> and you'll get a receipt once it's paid."
         )
 
 

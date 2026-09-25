@@ -2115,10 +2115,18 @@ _CURATED: dict[str, EventCopy] = {
         },
     ),
     # equipment.reservation_cancelled — the member's own cancel confirmation (#456). late_fee_line
-    # is the whole fee sentence with the Pay link when the cancel was late, and "" otherwise, so
-    # the copy needs no conditional and a free cancel says nothing about fees.
+    # is the whole fee sentence with the Pay link when the cancel was late (the text body and the
+    # bell row) and late_fee_html the same sentence with a real link (the HTML body); both are ""
+    # otherwise, so the copy needs no conditional and a free cancel says nothing about fees.
     "equipment.reservation_cancelled": EventCopy(
-        placeholders=("member_name", "equipment_name", "reservation_when", "equipment_url", "late_fee_line"),
+        placeholders=(
+            "member_name",
+            "equipment_name",
+            "reservation_when",
+            "equipment_url",
+            "late_fee_line",
+            "late_fee_html",
+        ),
         sample_context={
             "member_name": "Robin Vale",
             "equipment_name": "CNC Router",
@@ -2127,6 +2135,12 @@ _CURATED: dict[str, EventCopy] = {
             "late_fee_line": (
                 "A $15.00 late cancellation fee applies to this cancellation. "
                 "Pay it at https://pastlives.example/late-fees/12/ and you'll get a receipt once it's paid."
+            ),
+            # App-built markup, marked safe the way the emit's value is, so the preview shows a link.
+            "late_fee_html": mark_safe(
+                "A $15.00 late cancellation fee applies to this cancellation. "
+                '<a href="https://pastlives.example/late-fees/12/">Pay the late fee</a> '
+                "and you'll get a receipt once it's paid."
             ),
         },
         channels={
@@ -2145,7 +2159,7 @@ _CURATED: dict[str, EventCopy] = {
                 body_html=(
                     "<p>Hi {{ member_name }},</p>"
                     '<p>You cancelled your <strong><a href="{{ equipment_url }}">{{ equipment_name }}</a></strong> '
-                    "reservation for {{ reservation_when }}. The time is open for someone else. {{ late_fee_line }}</p>"
+                    "reservation for {{ reservation_when }}. The time is open for someone else. {{ late_fee_html }}</p>"
                     '<p style="text-align:center;margin:24px 0 8px;"><a href="{{ equipment_url }}" '
                     'style="display:inline-block;padding:12px 28px;background-color:#EEB44B;color:#092E4C;'
                     'font-size:14px;font-weight:700;text-decoration:none;border-radius:6px;">'

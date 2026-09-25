@@ -876,6 +876,26 @@ def describe_late_cancel_fee_on_cancel():
         assert orientations.apply_token_action(booking, "cancel", recipient=booking.member) == "cancelled"
         assert _fees().get().orientation_booking == booking
 
+    @patch("billing.stripe_utils.create_checkout_session", return_value={"id": "cs_blk", "url": "https://x/cs_blk"})
+    def it_refuses_a_block_booking_and_a_block_checkout_before_any_slot_or_stripe_call(mock_create):
+        from tests.billing.factories import LateCancellationFeeFactory
+        from tests.membership.factories import OrientationAvailabilityBlockFactory
+
+        block = OrientationAvailabilityBlockFactory()
+        free_type = OrientationTypeFactory(guild=block.guild, name="Free Basics", duration_minutes=60)
+        paid_type = OrientationTypeFactory(guild=block.guild, name="Paid Basics", duration_minutes=60, price_cents=1500)
+        member = _member_with_user("lcf_block")
+        LateCancellationFeeFactory(orientation_booking=OrientationBookingFactory(member=member, status="cancelled"))
+        start = block.starts_at + timedelta(minutes=60)
+        with pytest.raises(OrientationError, match="Pay your late cancellation fee to book again."):
+            orientations.request_block_orientation(block, member, start, orientation_type=free_type)
+        with pytest.raises(OrientationError, match="Pay your late cancellation fee to book again."):
+            orientations.start_block_orientation_checkout(block, member, start, orientation_type=paid_type)
+        # The carved slots rolled back with their transactions, and Stripe was never asked.
+        assert not OrientationSlot.objects.filter(block=block).exists()
+        assert not mock_create.called
+        assert block.free_intervals() == [(block.starts_at, block.ends_at)]
+
     def it_refuses_a_custom_request_while_a_fee_is_unpaid():
         from tests.billing.factories import LateCancellationFeeFactory
 

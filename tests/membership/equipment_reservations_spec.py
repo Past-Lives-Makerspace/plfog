@@ -635,8 +635,13 @@ def describe_late_cancel_fee_on_cancel():
         message = mail.outbox[0]
         assert "A $15.00 late cancellation fee applies to this cancellation." in message.body
         assert late_fees.pay_url(fee) in message.body
-        assert late_fees.pay_url(fee) in message.alternatives[0][0]
+        # The HTML body carries a real link (the shell styles every anchor inline), not the bare URL as text.
+        html = message.alternatives[0][0]
+        assert f'href="{late_fees.pay_url(fee)}"' in html
+        assert "Pay the late fee</a>" in html
+        assert f"Pay it at {late_fees.pay_url(fee)}" not in html
         assert "[missing:" not in message.body
+        assert "[missing:" not in html
 
     def it_charges_nothing_for_an_early_self_cancel():
         from billing.models import LateCancellationFee
@@ -765,7 +770,7 @@ def describe_equipment_events():
             "equipment.reservation_confirmed": {"user": member.user, **base},
             "equipment.reservation_made": {"equipment": equipment, **base},
             "equipment.reservation_cancelled_by_manager": {"user": member.user, "cancel_reason": "x", **base},
-            "equipment.reservation_cancelled": {"user": member.user, "late_fee_line": "", **base},
+            "equipment.reservation_cancelled": {"user": member.user, "late_fee_line": "", "late_fee_html": "", **base},
         }
         for event_key, context in contexts.items():
             for name in placeholders_for(event_key):

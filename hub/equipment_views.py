@@ -361,10 +361,16 @@ def hub_equipment_index(request: HttpRequest) -> HttpResponse:
     equipment_list = list(filtered)
     _attach_running_orientations(equipment_list, now=now)
     oriented_ids, guild_ids = _member_access_sets(member)
+    # One fee lookup for the whole grid (#456): the block until paid is a per-member state.
+    from billing.late_fees import unpaid_fee_for
+
+    has_unpaid_fee = member is not None and unpaid_fee_for(member) is not None
     cards = [
         {
             "equipment": equipment,
-            "access_state": equipment.access_state(member, oriented_type_ids=oriented_ids, member_guild_ids=guild_ids),
+            "access_state": equipment.access_state(
+                member, oriented_type_ids=oriented_ids, member_guild_ids=guild_ids, has_unpaid_fee=has_unpaid_fee
+            ),
             "availability": equipment.availability_line(),
         }
         for equipment in equipment_list
@@ -452,7 +458,9 @@ def hub_equipment_detail(request: HttpRequest, slug: str) -> HttpResponse:
     if not equipment.is_active and not manages:
         raise Http404("This equipment has been retired.")
     member = _get_member(request)
-    access_state = equipment.access_state(member)
+    schedule = _schedule_context(equipment, member, manages=manages)
+    # The schedule builder already looked the fee up once; the banner state reads the same answer.
+    access_state = equipment.access_state(member, has_unpaid_fee=schedule["unpaid_late_fee"] is not None)
     orientation_type = equipment.required_orientation
     orientation_booking = None
     orientation_url = ""
@@ -470,7 +478,7 @@ def hub_equipment_detail(request: HttpRequest, slug: str) -> HttpResponse:
         "hub/equipment_detail.html",
         {
             **_get_hub_context(request),
-            **_schedule_context(equipment, member, manages=manages),
+            **schedule,
             "equipment": equipment,
             "access_state": access_state,
             "orientation_booking": orientation_booking,

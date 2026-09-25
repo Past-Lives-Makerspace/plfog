@@ -24,6 +24,8 @@ from django.core import signing
 from django.db import transaction
 from django.urls import reverse
 from django.utils import timezone
+from django.utils.html import format_html
+from django.utils.safestring import SafeString
 
 from billing.models import LateCancellationFee
 from core.models import SiteActivity
@@ -79,6 +81,20 @@ def pay_line(fee: LateCancellationFee) -> str:
     )
 
 
+def pay_html(fee: LateCancellationFee) -> SafeString:
+    """The HTML twin of :func:`pay_line`: the same sentence with a real link, for an HTML email body.
+
+    Built with ``format_html`` so the amount and the URL are escaped and the result is a
+    ``SafeString`` the copy renderer inserts unescaped.
+    """
+    return format_html(
+        "A {} late cancellation fee applies to this cancellation. "
+        "<a href=\"{}\">Pay the late fee</a> and you'll get a receipt once it's paid.",
+        fee.amount_display,
+        pay_url(fee),
+    )
+
+
 def _starts_at(target: OrientationBooking | EquipmentReservation) -> datetime:
     from membership.models import EquipmentReservation
 
@@ -123,14 +139,33 @@ def charge_if_late(
     return fee
 
 
+def _expire_session_best_effort(fee: LateCancellationFee) -> None:
+    """Expire the fee's previous Checkout Session so two live pages can never both pay one fee.
+
+    Best-effort by design: the session may already be expired or Stripe may be down, and
+    either way the fresh mint proceeds (the webhook's double-payment alert is the backstop).
+    """
+    from billing import stripe_utils
+
+    if not fee.stripe_session_id:
+        return
+    try:
+        stripe_utils.expire_checkout_session(session_id=fee.stripe_session_id)
+    except Exception:
+        logger.info(
+            "Could not expire the previous Checkout session for late cancellation fee %s (best effort).", fee.pk
+        )
+
+
 def start_fee_checkout(fee: LateCancellationFee) -> str:
     """Mint a fresh Stripe Checkout Session for an UNPAID fee and return its hosted URL.
 
-    Every call mints a new session: the attempt counter moves BEFORE the Stripe call and
-    is part of the idempotency key, so a Pay click after an expired session, or after a
-    failed mint (Stripe replays the first answer for a key, failures included), always
-    gets a live page. Nothing is held while the session lives, so Stripe's default 24
-    hour lifetime, the longest it allows, is left in place.
+    Every call mints a new session, after expiring the previous one best-effort so a Pay
+    click never leaves two live pages for one fee. The attempt counter moves BEFORE the
+    Stripe call and is part of the idempotency key, so a Pay click after an expired
+    session, or after a failed mint (Stripe replays the first answer for a key, failures
+    included), always gets a live page. Nothing is held while the session lives, so
+    Stripe's default 24 hour lifetime, the longest it allows, is left in place.
 
     Raises:
         ValueError: If the fee is not UNPAID; there is nothing to pay.
@@ -139,6 +174,7 @@ def start_fee_checkout(fee: LateCancellationFee) -> str:
 
     if fee.status != LateCancellationFee.Status.UNPAID:
         raise ValueError(f"Late cancellation fee {fee.pk} is {fee.status}, not unpaid; nothing to pay.")
+    _expire_session_best_effort(fee)
     fee.checkout_attempts += 1
     fee.save(update_fields=["checkout_attempts"])
     token = make_checkout_token(fee)

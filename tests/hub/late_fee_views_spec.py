@@ -240,6 +240,15 @@ def describe_hub_late_fee_checkout_cancelled():
         assert response.status_code == 302
         assert response["Location"] == reverse("hub_home")
 
+    def it_404s_another_members_token(client: Client):
+        _login(client, "lfc_stranger")
+        assert client.get(_url(LateCancellationFeeFactory())).status_code == 404
+
+    def it_requires_login(client: Client):
+        response = client.get(_url(LateCancellationFeeFactory()))
+        assert response.status_code == 302
+        assert reverse("account_login") in response["Location"]
+
 
 def _late_confirmed_booking(user: User, *, hours_ahead: int = 3) -> OrientationBooking:
     settings_obj = GuildOrientationSettingsFactory(late_cancel_fee_cents=1500)
@@ -352,7 +361,7 @@ def describe_guild_page_block():
         start = content.index(f"=== 'cancel-my-orientation-{booking.pk}') open = true")
         return content[start : content.index("</template>", start)]
 
-    def it_appends_the_fee_line_to_the_cancel_modal_and_unboosts_it_only_when_late(client: Client):
+    def it_appends_the_fee_line_to_the_cancel_modal_when_late(client: Client):
         _site()
         user = _login(client, "gpb_modal")
         booking = _late_confirmed_booking(user)
@@ -361,13 +370,15 @@ def describe_guild_page_block():
         assert "so a $15.00 late cancellation fee applies" in modal
         assert 'hx-boost="false"' in modal
 
-    def it_leaves_the_cancel_modal_alone_for_an_early_cancel(client: Client):
+    def it_keeps_the_early_cancel_modal_free_of_the_fee_line_but_still_unboosted(client: Client):
+        # A cancel that turns late after page load answers with a redirect to Stripe, which a
+        # boosted form could not follow, so the member self cancel form is never boosted.
         _site()
         user = _login(client, "gpb_early")
         booking = _late_confirmed_booking(user, hours_ahead=40)
         modal = _cancel_modal(_guild_page(client, booking.guild), booking)
         assert "late cancellation fee applies" not in modal
-        assert 'hx-boost="false"' not in modal
+        assert 'hx-boost="false"' in modal
 
     def it_leaves_the_cancel_modal_alone_for_a_requested_booking(client: Client):
         _site()
@@ -380,6 +391,27 @@ def describe_guild_page_block():
 
 
 def describe_equipment_page_block():
+    def it_appends_the_fee_line_to_the_equipment_owned_orientation_cancel_modal_when_late(client: Client):
+        from tests.membership.factories import OrientationTypeFactory
+
+        _site()
+        user = _login(client, "epb_modal")
+        equipment = EquipmentFactory(late_cancel_fee_cents=2500)
+        orientation_type = OrientationTypeFactory(equipment_owned=True, equipment=equipment)
+        starts = timezone.now() + timedelta(hours=3)
+        slot = OrientationSlotFactory(
+            equipment_owned=True,
+            orientation_type=orientation_type,
+            starts_at=starts,
+            ends_at=starts + timedelta(hours=1),
+        )
+        booking = OrientationBookingFactory(slot=slot, member=user.member, status=OrientationBooking.Status.CONFIRMED)
+        content = client.get(reverse("hub_equipment_detail", args=[equipment.slug])).content.decode()
+        start = content.index(f"=== 'cancel-equip-orientation-{booking.pk}') open = true")
+        modal = content[start : content.index("</template>", start)]
+        assert "so a $25.00 late cancellation fee applies" in modal
+        assert 'hx-boost="false"' in modal
+
     def it_hides_the_book_form_and_shows_the_fee_notice_in_the_banner(client: Client):
         user = _login(client, "epb_unpaid")
         equipment = EquipmentFactory(name="Open Bench")
