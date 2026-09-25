@@ -647,8 +647,25 @@ DEFAULT_SALE_BANNER_TEXT = "🔥 Limited-time sale — save on this class while 
 # rows reads "Changes requested" everywhere instead of masquerading as a fresh draft.
 _BOUNCE_DECISIONS: tuple[str, ...] = ("changes_requested", "denied")
 
-# The shortest description that counts as "a real description" for readiness.
+# The shortest description that counts as "a real description" for readiness. Every string that
+# names the number to a member (the checklist hint, the field's help text, the composer's live
+# count) is built from this constant, so none of them can drift from the rule.
 READINESS_MIN_DESCRIPTION_CHARS = 40
+READINESS_DESCRIPTION_HINT = f"Write at least {READINESS_MIN_DESCRIPTION_CHARS} characters about the class."
+
+
+def description_length(text: str) -> int:
+    """How many characters a description counts for: what a member reads on the class page.
+
+    Whitespace runs collapse to one space and the ends are trimmed, because ``linebreaks`` renders
+    a run of blank lines as one break and a browser shows a run of spaces as one. Nothing else is
+    dropped: the field is plain text and the page renders it escaped, so a typed ``<safety glasses>``
+    is on screen in full and counts in full (issue #425: ``strip_tags`` used to read it as markup and
+    refuse a description that was long enough). ``static/js/composer_description_count.js`` mirrors
+    this rule for the live count, and ``classes/spec/models/class_readiness_spec.py`` pins that the
+    two carry the same expression.
+    """
+    return len(" ".join(text.split()))
 
 
 @dataclass(frozen=True)
@@ -681,7 +698,7 @@ def readiness_items(
     without leaving a hero file, gallery files, or activity rows behind. One function, one
     rule set, so the two can never disagree.
     """
-    description_ok = len(" ".join(strip_tags(description or "").split())) >= READINESS_MIN_DESCRIPTION_CHARS
+    description_ok = description_length(description) >= READINESS_MIN_DESCRIPTION_CHARS
     if scheduling_model == "flexible":
         dates_ok = bool(flexible_note.strip())
         dates_hint = "Say how students pick a time."
@@ -691,7 +708,7 @@ def readiness_items(
     return [
         ReadinessItem(has_hero, "Hero photo", "Add a hero photo.", "hero-preview"),
         ReadinessItem(has_gallery, "Gallery photo", "Add one gallery photo.", "gallery-manager"),
-        ReadinessItem(description_ok, "Description", "Write a short description.", "id_description"),
+        ReadinessItem(description_ok, "Description", READINESS_DESCRIPTION_HINT, "id_description"),
         ReadinessItem(dates_ok, "Dates", dates_hint, "class-dates"),
         ReadinessItem(capacity >= 1, "Capacity", "Set how many can attend.", "id_capacity"),
     ]

@@ -2,15 +2,27 @@
 
 from __future__ import annotations
 
+import re
 from datetime import timedelta
+from pathlib import Path
 
 import pytest
 from django.core import mail
 from django.core.exceptions import ValidationError
 from django.utils import timezone
 
-from classes.factories import ClassOfferingFactory, ClassSessionFactory, READY_DESCRIPTION
-from classes.models import ClassNotReadyError, ClassOffering, CmsActivity
+from classes.factories import BRACKETED_DESCRIPTION, READY_DESCRIPTION, ClassOfferingFactory, ClassSessionFactory
+from classes.models import (
+    READINESS_MIN_DESCRIPTION_CHARS,
+    ClassNotReadyError,
+    ClassOffering,
+    CmsActivity,
+    description_length,
+)
+
+# The wording is pinned here, in full and once; every other spec imports READINESS_DESCRIPTION_HINT.
+DESCRIPTION_HINT = f"Write at least {READINESS_MIN_DESCRIPTION_CHARS} characters about the class."
+JS_PATH = Path(__file__).resolve().parents[3] / "static" / "js" / "composer_description_count.js"
 
 
 def _items(offering: ClassOffering) -> dict[str, bool]:
@@ -47,13 +59,32 @@ def describe_readiness():
         offering = ClassOfferingFactory(ready=True, gallery=0)
         assert _items(offering)["Gallery photo"] is False
 
-    def it_fails_the_description_under_forty_characters(db):
-        offering = ClassOfferingFactory(description="<p>Short   words</p>")
+    def it_fails_the_description_one_character_under_the_minimum(db):
+        offering = ClassOfferingFactory(description="x" * (READINESS_MIN_DESCRIPTION_CHARS - 1))
         assert _items(offering)["Description"] is False
 
-    def it_passes_the_description_at_forty_characters_of_plain_text(db):
-        offering = ClassOfferingFactory(description="<p>" + "x" * 40 + "</p>")
+    def it_passes_the_description_at_the_minimum(db):
+        offering = ClassOfferingFactory(description="x" * READINESS_MIN_DESCRIPTION_CHARS)
         assert _items(offering)["Description"] is True
+
+    def it_counts_the_bracketed_words_a_member_reads(db):
+        # Reproduces #425. The class page shows all 63 of these characters (the description renders
+        # escaped), and strip_tags took the two bracketed phrases for markup and counted 27, so a
+        # description that was long enough was refused as too short.
+        assert len(BRACKETED_DESCRIPTION) == 63
+        offering = ClassOfferingFactory(description=BRACKETED_DESCRIPTION)
+        assert _items(offering)["Description"] is True
+
+    def it_still_ignores_padding_the_page_never_shows(db):
+        # Blank lines and runs of spaces render as one break or one space, so they never count:
+        # 22 characters padded to 42 with newlines is still 22, under the old rule and this one.
+        offering = ClassOfferingFactory(description="Learn to forge a hook." + "\n" * 20)
+        assert _items(offering)["Description"] is False
+
+    def it_names_the_minimum_in_the_description_hint(db):
+        hint = {i.label: i for i in ClassOfferingFactory(description="Short").readiness()}["Description"].hint
+        assert hint == DESCRIPTION_HINT
+        assert str(READINESS_MIN_DESCRIPTION_CHARS) in hint
 
     def it_fails_the_dates_when_every_session_is_in_the_past(db):
         offering = ClassOfferingFactory(description=READY_DESCRIPTION)
@@ -85,7 +116,7 @@ def describe_readiness():
         offering = ClassOfferingFactory(description="Short", image="", gallery=0, capacity=0)
         assert offering.readiness_error("submit") == (
             "Not ready to submit: Add a hero photo. Add one gallery photo. "
-            "Write a short description. Add at least one date. Set how many can attend."
+            f"{DESCRIPTION_HINT} Add at least one date. Set how many can attend."
         )
 
 
@@ -94,7 +125,7 @@ def describe_submit_for_review_guard():
         offering = ClassOfferingFactory(status=ClassOffering.Status.DRAFT, description="Short")
         with pytest.raises(ValidationError) as excinfo:
             offering.submit_for_review()
-        assert excinfo.value.messages == ["Not ready to submit: Write a short description. Add at least one date."]
+        assert excinfo.value.messages == [f"Not ready to submit: {DESCRIPTION_HINT} Add at least one date."]
         offering.refresh_from_db()
         assert offering.status == ClassOffering.Status.DRAFT
         assert offering.approvals.count() == 0
@@ -199,3 +230,35 @@ def describe_a_refused_submit_or_publish():
             offering.publish(None)
         assert excinfo.value.messages == ["Not ready to publish: Add a hero photo."]
         assert [item.hint for item in excinfo.value.items if not item.ok] == ["Add a hero photo."]
+
+
+def describe_description_length():
+    def it_counts_the_typed_text_with_whitespace_collapsed():
+        # (what was typed, what counts). Only whitespace runs shrink; brackets, tags and a less than
+        # sign count as typed, because the class page shows them as typed. One emoji is one.
+        table = [
+            ("", 0),
+            ("   ", 0),
+            ("Forge a coat hook.", 18),
+            ("  Forge   a\n\ncoat\thook.  ", 18),
+            (BRACKETED_DESCRIPTION, 63),
+            ("<p>Short   words</p>", 18),
+            ("Kids <16 need a guardian.", 25),
+            ("Forge a hook \U0001f525 and take it home.", 32),
+            ("Learn to forge a hook." + "\n" * 20, 22),
+        ]
+        assert [(text, description_length(text)) for text, _ in table] == table
+
+    def it_is_mirrored_by_the_composer_count_script():
+        # The browser paints the count the rule will apply, so the two must normalise alike: the
+        # script carries the same expression, counts code points the way len() does (.length would
+        # count one emoji as two), and reads the minimum and the box off the markup rather than
+        # naming a number or a field itself.
+        js = JS_PATH.read_text(encoding="utf-8")
+        assert 'Array.from(text.trim().split(/\\s+/).filter(Boolean).join(" ")).length' in js
+        assert '"data-description-min"' in js and '"data-description-for"' in js
+        assert re.search(rf"\b{READINESS_MIN_DESCRIPTION_CHARS}\b", js) is None
+        assert "id_description" not in js
+        # A body script under hx-boost: one document listener, a boot() per arrival (FRONTEND.md).
+        assert "if (window.plDescriptionCount) {" in js and "window.plDescriptionCount.boot();" in js
+        assert "Alpine.data(" not in js

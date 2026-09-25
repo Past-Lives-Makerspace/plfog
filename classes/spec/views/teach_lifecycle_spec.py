@@ -19,7 +19,7 @@ from classes.factories import (
     InstructorFactory,
     UserFactory,
 )
-from classes.models import ClassApproval, ClassOffering
+from classes.models import READINESS_DESCRIPTION_HINT, ClassApproval, ClassOffering
 from tests.membership.factories import GuildFactory, MemberFactory
 
 Status = ClassOffering.Status
@@ -287,7 +287,7 @@ def describe_honest_submit_messages():
         offering = ClassOfferingFactory(instructor=instructor_fixture, status=Status.DRAFT)
         client.force_login(instructor_fixture.user)
         resp = client.post(reverse("classes:teach_class_submit", kwargs={"pk": offering.pk}))
-        assert "Not ready to submit: Write a short description. Add at least one date." in _messages(resp)
+        assert f"Not ready to submit: {READINESS_DESCRIPTION_HINT} Add at least one date." in _messages(resp)
 
     def it_names_the_guild_lead_on_the_edit_page_submit(instructor_fixture, client):
         cat = _guilded_category("Glass")

@@ -18,6 +18,7 @@ from django.utils import timezone
 from PIL import Image
 
 from classes.factories import (
+    BRACKETED_DESCRIPTION,
     READY_DESCRIPTION,
     CategoryFactory,
     ClassOfferingFactory,
@@ -25,7 +26,7 @@ from classes.factories import (
     UserFactory,
 )
 from classes.forms import ClassOfferingForm, TeachClassOfferingForm
-from classes.models import ClassApproval, ClassOffering, ClassSettings, CmsActivity
+from classes.models import READINESS_DESCRIPTION_HINT, ClassApproval, ClassOffering, ClassSettings, CmsActivity
 from classes.views import COMPOSER_SAVED_LIMIT, COMPOSER_SAVED_SESSION_KEY, _mark_composer_saved
 from tests.membership.factories import GuildFactory, GuildStaffMembershipFactory
 
@@ -792,6 +793,64 @@ def describe_teach_composer_post():
         assert offering.status == Status.PENDING
 
 
+def describe_the_submit_check_reads_the_posted_description():
+    """Issue #425 named two candidate causes for a typed description being refused as too short.
+
+    Candidate 2, readiness read off something other than what was posted (the row as it stood, or
+    an editor that never synced), is ruled out here: the composer saves the POST and then checks
+    the saved row, so what was typed is what is measured, in both directions. Candidate 1, the
+    count itself dropping typed characters, is the one that reproduced
+    (classes/spec/models/class_readiness_spec.py) and is pinned at the view in the last spec.
+    """
+
+    def _submit(client, offering: ClassOffering, **extra):
+        return client.post(
+            reverse("classes:teach_class_edit", kwargs={"pk": offering.pk}),
+            _full_payload(
+                offering.category, scheduling_model="fixed", scheduling_type="single_session", action="submit", **extra
+            ),
+        )
+
+    def it_submits_a_ready_description_posted_over_a_short_saved_one(instructor_fixture, client):
+        offering = ClassOfferingFactory(instructor=instructor_fixture, status=Status.DRAFT, ready=True)
+        offering.description = "Short"
+        offering.save(update_fields=["description"])
+        client.force_login(instructor_fixture.user)
+
+        resp = _submit(client, offering)
+
+        assert resp.status_code == 302
+        offering.refresh_from_db()
+        assert offering.status == Status.PENDING
+        assert offering.description == READY_DESCRIPTION
+
+    def it_refuses_a_short_description_posted_over_a_ready_saved_one(instructor_fixture, client):
+        # The row as it stood would have passed; the POST is what is checked, once it is saved.
+        offering = ClassOfferingFactory(instructor=instructor_fixture, status=Status.DRAFT, ready=True)
+        client.force_login(instructor_fixture.user)
+
+        resp = _submit(client, offering, description="Short")
+
+        edit = reverse("classes:teach_class_edit", kwargs={"pk": offering.pk})
+        assert resp["Location"] == f"{edit}?step=1&missing=1"
+        offering.refresh_from_db()
+        assert offering.status == Status.DRAFT
+        assert offering.description == "Short"
+        assert _messages(resp) == [f"Not ready to submit: {READINESS_DESCRIPTION_HINT}"]
+
+    def it_submits_a_description_typed_with_angle_brackets(instructor_fixture, client):
+        # Candidate 1 at the view: 63 typed characters, every one shown on the class page, go to review.
+        offering = ClassOfferingFactory(instructor=instructor_fixture, status=Status.DRAFT, ready=True)
+        client.force_login(instructor_fixture.user)
+
+        resp = _submit(client, offering, description=BRACKETED_DESCRIPTION)
+
+        assert resp.status_code == 302
+        offering.refresh_from_db()
+        assert offering.status == Status.PENDING
+        assert offering.description == BRACKETED_DESCRIPTION
+
+
 def describe_admin_composer():
     def it_switches_on_the_admin_only_fields_and_publish(admin_user, client, db):
         client.force_login(admin_user)
@@ -926,7 +985,7 @@ def describe_admin_composer():
         assert "phase: 2," in html
         notice = _still_missing(html)
         assert "Not ready to publish yet." in notice
-        assert "Add one gallery photo." in notice and "Write a short description." not in notice
+        assert "Add one gallery photo." in notice and READINESS_DESCRIPTION_HINT not in notice
 
     def it_lands_on_the_first_broken_step(admin_user, client, db):
         offering = ClassOfferingFactory(status=Status.DRAFT)
@@ -1502,7 +1561,7 @@ def describe_the_admin_create_readiness_preflight():
         assert "Still Missing" in notice
         assert "Not ready to publish yet." in notice
         assert "Add a hero photo." in notice and "Add one gallery photo." in notice
-        assert "Write a short description." not in notice
+        assert READINESS_DESCRIPTION_HINT not in notice
         assert not ClassOffering.objects.filter(title="Round Trip").exists()
 
     def it_keeps_every_typed_value_in_the_form(admin_user, client, db):

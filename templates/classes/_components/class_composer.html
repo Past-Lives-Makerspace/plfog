@@ -30,6 +30,8 @@ Context (from _composer_context in classes/views.py, plus the form context):
   card_group      — the genuine CatalogGroup for a saved class (None on create); the
                     card preview frames on steps 2 and 5 render the REAL catalog card
                     through it
+  description_min_chars — READINESS_MIN_DESCRIPTION_CHARS, stamped on the description's live
+                    count (#425) so the browser paints the same minimum the readiness rule enforces
   cancel_url, save_label
 
 `liveTitle` on the root x-data mirrors the title field as the host types, so every card
@@ -225,6 +227,8 @@ Do not merge them.
       {% include "components/form_field.html" with field=form.category %}
       {% if is_admin %}{% include "components/form_field.html" with field=form.instructor %}{% endif %}
       {% include "components/form_field.html" with field=form.description %}
+      {# The live count toward the minimum (#425), painted by static/js/composer_description_count.js and empty until it runs. The box's id and the minimum are stamped here, so the script names neither. #}
+      <p class="pl-field-hint pl-composer-count-hint" data-description-count data-description-for="{{ form.description.id_for_label }}" data-description-min="{{ description_min_chars }}" aria-live="polite"></p>
       {% comment %}The price lives here, not on step 3: it is the one field a draft row cannot be saved without, so a Save Draft from step 1 has to carry it.{% endcomment %}
       <div class="pl-compose-section" data-help-key="teach.class-pricing">
         <h3 class="pl-compose-section__title">What It Costs</h3>
@@ -400,9 +404,12 @@ Do not merge them.
 where hx-boost re-runs it on every arrival; composer_validation.js is a guarded IIFE that defines
 window.plComposerValidation once and is safe to re-run the same way, and composer_draft.js hands a
 re-run back to the copy already loaded so its one set of document listeners keeps pointing at the
-page that just arrived. card_focus.js registers an
+page that just arrived. composer_description_count.js (#425) works like composer_draft.js: one
+document listener, and a boot() per arrival that paints the count under the description box.
+card_focus.js registers an
 Alpine.data component and must exist before Alpine initialises the page, so it loads once from
 hub/base.html's head with the other Alpine components (FRONTEND.md, Scripts under hx-boost).{% endcomment %}
 <script src="{% static 'js/hero_cropper.js' %}" defer></script>
 <script src="{% static 'js/composer_validation.js' %}" defer></script>
 <script src="{% static 'js/composer_draft.js' %}" defer></script>
+<script src="{% static 'js/composer_description_count.js' %}" defer></script>

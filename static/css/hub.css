@@ -5332,6 +5332,12 @@ mark { background: color-mix(in srgb, var(--color-tuscan-yellow) 30%, transparen
 @media (max-width: 640px) {
     .pl-composer-count { display: block; }
 }
+/* The description's live count (issue #425): a second hint line under the description box. It is
+   rendered after form_field.html's group, outside it, so the group's 1rem bottom margin is pulled
+   back to the 0.375rem gap the group keeps between its own lines, and the 1rem is kept below. */
+.pl-composer .pl-composer-count-hint {
+    margin: -0.625rem 0 1rem;
+}
 /* Server rendered summary of every broken step, above the tabs; each row jumps to its step. */
 .pl-composer-errors {
     border: 1px solid var(--pl-lifecycle-cancelled);

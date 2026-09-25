@@ -26,7 +26,7 @@ from playwright.sync_api import Page, expect
 
 from classes.factories import CategoryFactory, ClassOfferingFactory, InstructorFactory, UserFactory
 from classes.forms import PRICE_FLOOR_MESSAGE
-from classes.models import ClassOffering
+from classes.models import READINESS_MIN_DESCRIPTION_CHARS, ClassOffering
 from membership.models import Member
 from tests.membership.factories import MembershipPlanFactory
 
@@ -236,6 +236,29 @@ def describe_next():
         _settle(page)
 
         expect(_step(page, 2)).to_be_visible()
+
+
+def describe_the_description_count():
+    def it_counts_what_was_typed_toward_the_minimum_and_says_when_it_is_long_enough(live_server, page, login_via_code):
+        # The counter (#425) is server markup static/js/composer_description_count.js paints into on
+        # boot and on every keystroke, with the readiness rule's own arithmetic: a run of spaces is
+        # one, and a bracketed phrase counts like any other words because the class page shows it.
+        # Thirty typed characters read thirty; crossing the minimum changes the line. Anchored on
+        # the hook, never on copy elsewhere.
+        _seed_instructor()
+        CategoryFactory()
+        login_via_code(EMAIL)
+        _open_create(page, live_server)
+        counter = page.locator("[data-description-count]")
+        expect(counter).to_have_text(f"0 of {READINESS_MIN_DESCRIPTION_CHARS} characters")
+
+        page.locator("#id_description").fill("Make a coat hook from one bar.")
+
+        expect(counter).to_have_text(f"30 of {READINESS_MIN_DESCRIPTION_CHARS} characters")
+
+        page.locator("#id_description").type("   Bring <safety glasses>.")
+
+        expect(counter).to_have_text("54 characters. Long enough.")
 
 
 def describe_back_and_tabs():

@@ -104,6 +104,7 @@ from classes.forms import (
 from classes.models import (
     CAPACITY_CONSUMING_REGISTRATION_STATUSES,
     MAX_GALLERY_IMAGES,
+    READINESS_MIN_DESCRIPTION_CHARS,
     Category,
     ClassApproval,
     ClassImage,
@@ -2021,6 +2022,9 @@ def _composer_context(
         "is_ready": readiness is not None and all(item.ok for item in readiness),
         "cancel_url": cancel_url,
         "save_label": "Save" if is_published else "Save Draft",
+        # Stamped on the description's live count (#425), so the browser paints the same minimum
+        # the readiness rule enforces and no template or script carries the number itself.
+        "description_min_chars": READINESS_MIN_DESCRIPTION_CHARS,
         # Draft persistence (issue #368, item 3c): the key the browser keeps the in flight
         # typing under, and the one shot signal that the database now has it.
         "composer_draft_key": _composer_draft_key(request, saved),
