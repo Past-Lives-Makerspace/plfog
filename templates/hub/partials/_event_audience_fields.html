@@ -1,24 +1,19 @@
 {% comment %}
-The event composer's opening questions, shared by the admin/guild-lead edit page and the
+The event composer's two opening questions, shared by the admin/guild-lead edit page and the
 member Propose an event page so both read identically (#505).
 
-Both questions are a guild-staff and admin permission, so a plain member sees neither and
-their event goes on the public calendar as it always has (the view decides; see
-CommunityEventForm.can_choose_audience). For an author who is asked, audience comes first
-and the kind follows for a member event. The guild picker is shown wherever the guild is not
-already the page's context; it is required for a guild meeting, which
-CommunityEventForm.clean enforces.
+Both are a guild-staff and admin permission, so a plain member sees neither and their event
+goes on the public calendar as it always has (the view decides; see
+CommunityEventForm.can_choose_audience). Audience and kind are INDEPENDENT: a guild meeting
+is usually public, so the kind question is never revealed conditionally on the audience
+answer. That reveal used to discard a submitted kind on the public branch, which re-typed a
+guild meeting to a general event on every edit.
+
+There is deliberately no Alpine here. Both groups are plain radios rendered server-side, so
+there is no JS expression built from a form value to get wrong.
 
 Expects: form
 {% endcomment %}
-{% if form.google_calendar_target %}
-<div x-data="{ audience: '{{ form.google_calendar_target.value|default:"public" }}' }">
-  {% include "components/radio_group.html" with field=form.google_calendar_target %}
-  {% if form.event_type %}
-  <div x-show="audience === 'member'" x-cloak class="pl-reveal">
-    {% include "components/radio_group.html" with field=form.event_type %}
-  </div>
-  {% endif %}
-</div>
-{% endif %}
+{% if form.google_calendar_target %}{% include "components/radio_group.html" with field=form.google_calendar_target %}{% endif %}
+{% if form.event_type %}{% include "components/radio_group.html" with field=form.event_type %}{% endif %}
 {% if form.guild %}{% include "components/form_field.html" with field=form.guild field_hint="Whose event is this? Pick No guild for a makerspace wide one. A guild meeting needs a guild." %}{% endif %}

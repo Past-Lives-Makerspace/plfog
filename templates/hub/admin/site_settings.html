@@ -331,7 +331,7 @@
         {% include "components/form_field.html" with field=form.member_google_calendar_id field_hint="Events set to the 'Member' calendar push here. Find the Calendar ID in Google Calendar → Settings for that calendar → Integrate calendar → Calendar ID (e.g. abc123@group.calendar.google.com). This is NOT the iCal URL." %}
         {% include "components/form_field.html" with field=form.public_google_calendar_id field_hint="Events set to the 'Public' calendar push here. Same place in Google Calendar → Settings → Integrate calendar → Calendar ID. This is NOT the iCal URL." %}
         {% include "components/form_field.html" with field=form.google_calendar_sync_enabled field_hint="Also requires the Google service account to be configured on the server." %}
-        {% include "components/form_field.html" with field=form.discord_events_sync_enabled field_hint="When on, publishing or editing a community event also creates it in the Discord server's Events. Requires the bot's Manage Events permission and a Discord server id set above. Studio hours and classes are never published to Discord." %}
+        {% include "components/form_field.html" with field=form.discord_events_sync_enabled field_hint="When on, publishing or editing a calendar event also creates it in the Discord server's Events. Requires the bot's Manage Events permission and a Discord server id set above. Studio hours and classes are never published to Discord." %}
       </div>
 
       <div style="border-top:1px solid var(--hub-border);padding-top:1.25rem;">

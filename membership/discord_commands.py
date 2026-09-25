@@ -1176,12 +1176,16 @@ def _may_choose_audience(member: Member) -> bool:
     """True when this member may put an event on the members-only calendar.
 
     The same standing the web composer asks for, which it takes from
-    ``editable_meeting_scopes``: an admin, or anyone holding lead or staff authority in ANY
-    guild. Deliberately **not** ``authored``, which is scoped to the guild that was picked —
-    a guild staffer posting a guild-less event holds this permission on the web, and the two
-    doors must not disagree (#505).
+    ``editable_meeting_scopes``: effective staff (an admin **or** a Guild Officer, the
+    cross-guild tier ``is_effective_staff`` admits), or anyone holding lead or staff authority
+    in ANY guild. The officer clause is not decoration: without it an officer who staffs no
+    guild is asked the question on the web and refused it here.
+
+    Deliberately **not** ``authored``, which is scoped to the guild that was picked — a guild
+    staffer posting a guild-less event holds this permission on the web, and the two doors
+    must not disagree (#505).
     """
-    return member.is_fog_admin or member.staffed_guilds.exists()
+    return member.is_fog_admin or member.is_guild_officer or member.staffed_guilds.exists()
 
 
 def _create_card_parts(

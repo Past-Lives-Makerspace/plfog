@@ -49,7 +49,7 @@
 
 <p class="hub-text-muted" style="margin:-0.25rem 0 1.5rem;max-width:65ch;">
     Everything happening at the makerspace in one place — guild meetings, classes, workshops,
-    and community events. Switch to the Events tab for the full list.
+    and everything else on the calendar. Switch to the Events tab for the full list.
 </p>
 
 {% if google_sync_enabled %}
@@ -272,7 +272,7 @@
                         <span class="hub-badge">Scheduled for {{ event.publish_at_display }}</span>
                     </div>
                     <div class="hub-text-muted" style="font-size:0.8125rem; margin-top:0.25rem;">
-                        {{ event.audience_label }} · {{ event.starts_at|date:"D, M j · g:i A" }}{% if event.recurrence != "none" %} · {{ event.get_recurrence_display }}{% endif %}
+                        {{ event.badge_label }} · {{ event.starts_at|date:"D, M j · g:i A" }}{% if event.recurrence != "none" %} · {{ event.get_recurrence_display }}{% endif %}
                     </div>
                 </div>
                 <div style="display:flex; gap:0.5rem; flex-wrap:wrap; align-items:center;">
@@ -305,7 +305,7 @@
         </div>
         {% endif %}
         {% elif events_can_manage %}
-        <p class="hub-text-muted" style="margin:0;">No upcoming events yet — add a community event or a Guild Lead Meeting.</p>
+        <p class="hub-text-muted" style="margin:0;">No upcoming events yet. Add one for the public or just for members.</p>
         {% else %}
         <p class="hub-text-muted" style="margin:0;">No upcoming events yet.</p>
         {% endif %}

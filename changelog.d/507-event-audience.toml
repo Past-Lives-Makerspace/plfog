@@ -3,7 +3,7 @@ date = "2026-09-25"
 title = "Posting an event asks who it is for"
 changes = [
   "Adding something to the calendar now starts with who it is for: members, or the public. Guild staff and admins get that choice; anyone else posts to the public calendar, the way it already worked.",
-  "Choosing members then asks what kind it is, a guild meeting or something else.",
+  "Guild staff and admins also say what kind it is, a guild meeting or something else. A guild meeting can be open to the public or just for members; the two questions are separate.",
   "A guild can now put on something open to the public, so the guild picker has a clear No guild option when an event does not belong to one.",
   "The calendar list and each event's page now say whether it is a member event or a public event.",
   "Neither choice hides anything. Both calendars are open, so anyone can still find a member event and see what the makerspace gets up to.",

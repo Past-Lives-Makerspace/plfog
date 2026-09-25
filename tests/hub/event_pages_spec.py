@@ -121,6 +121,17 @@ def describe_event_detail():
         html = client.get(reverse("hub_event_detail", args=[event.pk])).content.decode()
         assert _BADGE + f"{event.get_event_type_display()}<" not in html
 
+    def it_keeps_the_guild_lead_meetings_own_name_on_the_event_page(client: Client):
+        # A lead meeting is a recognisable thing and keeps its name rather than badging
+        # "Member event" like everything else on the members calendar.
+        event = CommunityEventFactory(
+            lead_meeting=True,
+            title="September Leads",
+            google_calendar_target=CommunityEvent.GoogleCalendarTarget.MEMBER,
+        )
+        html = client.get(reverse("hub_event_detail", args=[event.pk])).content.decode()
+        assert _BADGE + "Guild Lead Meeting<" in html
+
     def it_shows_the_past_note_for_an_ended_non_recurring_event(client: Client):
         start = timezone.now() - timedelta(days=2)
         event = CommunityEventFactory(community=True, starts_at=start, ends_at=start + timedelta(hours=2))

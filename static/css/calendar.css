@@ -538,6 +538,11 @@ a.pl-calendar-list__title--link:hover {
     text-underline-offset: 3px;
 }
 
+/* Who a FOG-native event is for, badged on every row of the Events tab (#505). */
+.pl-calendar-list__audience {
+    margin-top: 0.375rem;
+}
+
 .pl-calendar-list__desc {
     margin-top: 0.25rem;
     font-size: 0.8125rem;

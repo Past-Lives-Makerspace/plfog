@@ -408,6 +408,13 @@ def describe_config_selects():
         result, draft = _preview(lead, title="X", when="tomorrow 6pm")  # All Makerspace → no guild
         assert f"eventcfg:calendar:{draft.pk}" in _custom_ids(result)
 
+    def it_offers_the_calendar_select_to_a_guild_officer_who_staffs_no_guild(linked_member):
+        # is_effective_staff admits the cross-guild Guild Officer tier, so the web composer
+        # asks them. Discord must agree or the same person gets two different answers.
+        officer = linked_member(fog_role=Member.FogRole.GUILD_OFFICER)
+        result, draft = _preview(officer, title="X", when="tomorrow 6pm")
+        assert f"eventcfg:calendar:{draft.pk}" in _custom_ids(result)
+
     def it_omits_the_calendar_select_from_a_plain_members_card(linked_member):
         member = linked_member()
         result, draft = _preview(member, title="X", when="tomorrow 6pm")

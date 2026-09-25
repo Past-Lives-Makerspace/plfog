@@ -14,7 +14,7 @@ rest via templates/404.html). Add-to-calendar works logged-out.
         <a href="{% url 'hub_guild_detail' event.guild.slug %}" class="pl-event-detail__guild">{{ event.guild.name }}</a>
       {% endif %}
       {# Who it is for, never the stored type: members only have two words for an event. #}
-      <span class="pl-event-detail__type">{{ event.audience_label }}</span>
+      <span class="pl-event-detail__type">{{ event.badge_label }}</span>
       {% if is_recurring %}
         <span class="pl-event-detail__badge">{{ event.get_recurrence_display }}</span>
       {% endif %}

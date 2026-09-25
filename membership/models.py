@@ -5901,14 +5901,20 @@ class CommunityEvent(models.Model):
         return self.guild_id is None
 
     @property
-    def audience_label(self) -> str:
-        """Who this event is for, in the only two words members ever see.
+    def badge_label(self) -> str:
+        """The one phrase members read about what this event is.
 
-        The single source of truth for the badge on the Community Calendar's Events tab
-        and on the public event page. ``google_calendar_target`` stores the answer; the
-        stored ``event_type`` is plumbing (it routes the announcement and scopes a guild's
-        own meetings) and is never shown to a member, so no type gets a badge of its own.
+        The single source of truth for the badge on the Community Calendar's Events tab and
+        on the public event page, so neither template branches on the stored type itself.
+
+        The cross-guild Guild Lead Meeting is a recognisable thing in its own right and keeps
+        its name. Everything else badges who it is *for*, because the rest of ``event_type``
+        is plumbing (it routes the announcement and scopes a guild's own meetings) that no
+        member should have to decode. "Member" and "Public" name which of the two open Google
+        calendars it lands on, never who is allowed to look at it.
         """
+        if self.event_type == self.EventType.LEAD_MEETING:
+            return str(self.EventType.LEAD_MEETING.label)
         if self.google_calendar_target == self.GoogleCalendarTarget.MEMBER:
             return "Member event"
         return "Public event"
@@ -6011,9 +6017,15 @@ class CommunityEvent(models.Model):
         Meeting keeps its own leadership key. One place, so the web composer and the
         Discord ``/create`` path can never drift.
 
-        Never called for a STUDIO_HOURS row: ambient standing hours are not announced,
-        and both callers return early on them.
+        Raises:
+            ValueError: For a STUDIO_HOURS row. Ambient standing hours are never announced
+                and both callers return early on them, so reaching here means a new caller
+                skipped that guard. The dict this replaced raised ``KeyError`` on the same
+                input; answering "the guild's members" instead would quietly email people
+                about hours that are not an event.
         """
+        if self.event_type == self.EventType.STUDIO_HOURS:
+            raise ValueError("Studio hours are ambient standing hours and are never announced.")
         if self.event_type == self.EventType.LEAD_MEETING:
             return "event.lead_meeting_published"
         if self.guild_id is not None:

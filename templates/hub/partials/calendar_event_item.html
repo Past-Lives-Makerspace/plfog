@@ -39,6 +39,9 @@ Params:
         {% else %}
         <div class="pl-calendar-list__title">{{ event.title|strip_date_suffix }}</div>
         {% endif %}
+        {% if event.community_event %}
+        <div class="pl-calendar-list__audience"><span class="hub-badge">{{ event.community_event.badge_label }}</span></div>
+        {% endif %}
         {% if event.description %}
         <div class="pl-calendar-list__desc">{{ event.description|truncatechars:120 }}</div>
         {% endif %}

@@ -252,26 +252,40 @@ def describe_CommunityEvent():
                 )
                 assert event.ical_rrule() == "FREQ=MONTHLY;BYDAY=2SA,4SA"
 
-    def describe_audience_label():
+    def describe_badge_label():
         def it_reads_public_event_for_a_public_audience(db):
             event = CommunityEventFactory(google_calendar_target=CommunityEvent.GoogleCalendarTarget.PUBLIC)
-            assert event.audience_label == "Public event"
+            assert event.badge_label == "Public event"
 
         def it_reads_member_event_for_a_member_audience(db):
             event = CommunityEventFactory(google_calendar_target=CommunityEvent.GoogleCalendarTarget.MEMBER)
-            assert event.audience_label == "Member event"
+            assert event.badge_label == "Member event"
 
-        def it_badges_a_lead_meeting_by_its_audience_not_its_type(db):
+        def it_keeps_the_guild_lead_meetings_own_name(db):
+            # The cross-guild leadership meeting is a recognisable thing; badging it "Member
+            # event" would hide what it is.
             event = CommunityEventFactory(
                 lead_meeting=True, google_calendar_target=CommunityEvent.GoogleCalendarTarget.MEMBER
             )
-            assert event.audience_label == "Member event"
+            assert event.badge_label == "Guild Lead Meeting"
+
+        def it_names_a_lead_meeting_the_same_way_whatever_calendar_it_is_on(db):
+            event = CommunityEventFactory(
+                lead_meeting=True, google_calendar_target=CommunityEvent.GoogleCalendarTarget.PUBLIC
+            )
+            assert event.badge_label == "Guild Lead Meeting"
 
         def it_badges_studio_hours_by_its_audience_not_its_type(db):
             event = CommunityEventFactory(
                 studio_hours=True, google_calendar_target=CommunityEvent.GoogleCalendarTarget.PUBLIC
             )
-            assert event.audience_label == "Public event"
+            assert event.badge_label == "Public event"
+
+        def it_badges_a_public_guild_meeting_as_a_public_event(db):
+            event = CommunityEventFactory(
+                guild_meeting=True, google_calendar_target=CommunityEvent.GoogleCalendarTarget.PUBLIC
+            )
+            assert event.badge_label == "Public event"
 
     def describe_for_member():
         def it_includes_a_public_event_a_guild_hosts_for_a_member_outside_that_guild(db):
@@ -353,6 +367,13 @@ def describe_CommunityEvent():
             with patch("core.events.emit.emit") as mock_emit:
                 event.announce()
             assert mock_emit.call_args.args[0] == "event.lead_meeting_published"
+
+        def it_refuses_to_name_a_key_for_studio_hours(db):
+            # The dict this replaced raised KeyError here. Answering "the guild's members"
+            # instead would be a silent wrong answer about who gets emailed.
+            event = CommunityEventFactory(studio_hours=True)
+            with pytest.raises(ValueError, match="never announced"):
+                event.announce_event_key()
 
         def it_picks_guild_published_for_a_public_event_a_guild_hosts(db):
             # The guild decides the audience, not the type: a guild's open house must not

@@ -160,23 +160,98 @@ def describe_the_four_shapes():
         assert event.guild == guild
         assert event.google_calendar_target == _PUBLIC
 
-    def it_ignores_a_kind_answer_when_the_audience_is_the_public():
-        # The kind radios stay in the DOM while hidden, so a stale "Guild meeting" rides along
-        # on the POST. The audience answer settles it: nothing public is a guild meeting.
-        guild = GuildFactory()
-        form = CommunityEventForm(
-            data=_event_payload(google_calendar_target="public", event_type="guild_meeting", guild=str(guild.pk)),
-            can_choose_audience=True,
-        )
-        assert form.is_valid(), form.errors
-        assert form.save().event_type == CommunityEvent.EventType.COMMUNITY
-
     def it_requires_a_guild_for_a_guild_meeting():
         form = CommunityEventForm(
             data=_event_payload(google_calendar_target="member", event_type="guild_meeting"), can_choose_audience=True
         )
         assert not form.is_valid()
         assert "guild" in form.errors
+
+    def it_shows_one_error_when_the_guild_choice_is_not_in_the_list():
+        # "Select a valid choice" and "Pick the guild" together read as contradictory advice.
+        form = CommunityEventForm(
+            data=_event_payload(google_calendar_target="member", event_type="guild_meeting", guild="999999"),
+            can_choose_audience=True,
+        )
+        assert not form.is_valid()
+        assert len(form.errors["guild"]) == 1
+
+
+@pytest.mark.django_db
+def describe_kind_and_audience_are_independent():
+    """A guild meeting is usually public — ``Meeting.add_to_calendar`` has always written
+    ``guild_meeting`` + PUBLIC. Tying the kind to the members answer discarded a submitted
+    kind on the public branch, which silently re-typed a guild meeting on every edit and
+    dropped it off the guild's Next Meeting card."""
+
+    def it_saves_a_public_guild_meeting():
+        guild = GuildFactory()
+        form = CommunityEventForm(
+            data=_event_payload(google_calendar_target="public", event_type="guild_meeting", guild=str(guild.pk)),
+            can_choose_audience=True,
+        )
+        assert form.is_valid(), form.errors
+        event = form.save()
+        assert event.event_type == CommunityEvent.EventType.GUILD_MEETING
+        assert event.google_calendar_target == _PUBLIC
+
+    def it_asks_the_kind_whichever_audience_is_chosen():
+        # No conditional reveal: the field is simply on the form for anyone who may answer it.
+        form = CommunityEventForm(can_choose_audience=True)
+        assert "event_type" in form.fields
+        assert form.fields["event_type"].label == "What kind of event is this?"
+
+    def it_keeps_a_guild_meeting_a_guild_meeting_when_only_the_title_changes():
+        guild = GuildFactory()
+        event = CommunityEventFactory(guild_meeting=True, guild=guild, google_calendar_target=_PUBLIC)
+        form = CommunityEventForm(
+            instance=event,
+            data=_event_payload(title="Renamed", event_type="guild_meeting", guild=str(guild.pk)),
+            can_choose_audience=True,
+        )
+        assert form.is_valid(), form.errors
+        saved = form.save()
+        assert saved.title == "Renamed"
+        assert saved.event_type == CommunityEvent.EventType.GUILD_MEETING
+
+    def it_keeps_an_edited_guild_meeting_on_the_guilds_next_meeting_card():
+        # The consequence the re-typing bug actually had: next_meeting_occurrence filters on
+        # the type, so a silently re-typed row blanked the guild page's Next Meeting card.
+        guild = GuildFactory()
+        start = timezone.now() + timedelta(days=5)
+        event = CommunityEventFactory(
+            guild_meeting=True, guild=guild, starts_at=start, ends_at=start + timedelta(hours=2)
+        )
+        form = CommunityEventForm(
+            instance=event,
+            data=_event_payload(
+                title="Renamed",
+                event_type="guild_meeting",
+                guild=str(guild.pk),
+                starts_at=start.strftime("%Y-%m-%dT%H:%M"),
+                ends_at=(start + timedelta(hours=2)).strftime("%Y-%m-%dT%H:%M"),
+            ),
+            can_choose_audience=True,
+        )
+        assert form.is_valid(), form.errors
+        form.save()
+        assert guild.next_meeting_occurrence() is not None
+
+    def it_leaves_an_owned_proposals_kind_alone_when_the_author_is_never_asked():
+        # A plain member editing their proposal must not undo a kind a staffer set.
+        guild = GuildFactory()
+        event = CommunityEventFactory(guild_meeting=True, guild=guild)
+        form = CommunityEventForm(
+            instance=event, data=_event_payload(title="Edited", guild=str(guild.pk)), can_choose_audience=False
+        )
+        assert form.is_valid(), form.errors
+        assert form.save().event_type == CommunityEvent.EventType.GUILD_MEETING
+
+    def it_still_makes_a_brand_new_unasked_event_a_plain_event():
+        # The model default for a new row is GUILD_MEETING, so this cannot read the instance.
+        form = CommunityEventForm(data=_event_payload(), can_choose_audience=False)
+        assert form.is_valid(), form.errors
+        assert form.save().event_type == CommunityEvent.EventType.COMMUNITY
 
 
 @pytest.mark.django_db
@@ -370,8 +445,23 @@ def describe_lead_create_and_edit():
         guild = GuildFactory(guild_lead=user.member)
         client.login(username="c1c", password="pass")
         html = client.get(reverse("hub_guild_event_add", args=[guild.pk])).content.decode()
-        assert "What kind of member event is this?" in html
+        assert "What kind of event is this?" in html
         assert "Who is the audience?" in html
+
+    def it_creates_a_guild_meeting_from_the_guild_tab_with_the_defaults(client: Client):
+        # A lead adding the monthly meeting and changing nothing gets a guild meeting, which
+        # is what main did. The kind opens on Guild meeting because the guild is the page.
+        user = _user_with_role("c1d")
+        guild = GuildFactory(guild_lead=user.member)
+        client.login(username="c1d", password="pass")
+        add_url = reverse("hub_guild_event_add", args=[guild.pk])
+        assert client.get(add_url).context["form"]["event_type"].value() == "guild_meeting"
+        with patch.object(CommunityEvent, "announce"):
+            client.post(add_url, data=_event_payload(title="Monthly Meeting", event_type="guild_meeting"))
+        event = CommunityEvent.objects.get(title="Monthly Meeting")
+        assert event.event_type == CommunityEvent.EventType.GUILD_MEETING
+        assert event.guild == guild
+        assert event.google_calendar_target == _PUBLIC  # public by default, still a meeting
 
     def it_does_not_re_announce_on_edit(client: Client):
         user = _user_with_role("c2")
@@ -437,7 +527,7 @@ def describe_admin_authoring():
         client.login(username="adq", password="pass")
         html = client.get(reverse("hub_event_add")).content.decode()
         assert "Who is the audience?" in html
-        assert "What kind of member event is this?" in html
+        assert "What kind of event is this?" in html
 
     def it_lists_every_active_guild_for_an_admin(client: Client):
         _user_with_role("adg", fog_role=Member.FogRole.ADMIN)
@@ -446,6 +536,31 @@ def describe_admin_authoring():
         client.login(username="adg", password="pass")
         resp = client.get(reverse("hub_event_add"))
         assert list(resp.context["form"].fields["guild"].queryset) == [live]
+
+    def it_keeps_a_deactivated_guild_in_the_picker_for_its_own_event(client: Client):
+        # Deactivating a guild keeps its rows, so these events exist. Without its own guild in
+        # the queryset every save fails on "Select a valid choice" and a guild meeting cannot
+        # be blanked either, so the event becomes uneditable.
+        _user_with_role("addg", fog_role=Member.FogRole.ADMIN)
+        retired = GuildFactory(name="Retired Guild", is_active=False)
+        event = CommunityEventFactory(guild_meeting=True, guild=retired)
+        client.login(username="addg", password="pass")
+        resp = client.get(reverse("hub_event_edit", args=[event.pk]))
+        assert retired in list(resp.context["form"].fields["guild"].queryset)
+
+    def it_saves_an_event_on_a_deactivated_guild(client: Client):
+        _user_with_role("addg2", fog_role=Member.FogRole.ADMIN)
+        retired = GuildFactory(name="Retired Guild", is_active=False)
+        event = CommunityEventFactory(guild_meeting=True, guild=retired, title="Old Meeting")
+        client.login(username="addg2", password="pass")
+        resp = client.post(
+            reverse("hub_event_edit", args=[event.pk]),
+            data=_event_payload(title="Renamed", event_type="guild_meeting", guild=str(retired.pk)),
+        )
+        assert resp.status_code == 302
+        event.refresh_from_db()
+        assert event.title == "Renamed"
+        assert event.guild == retired
 
     def it_lets_an_admin_attach_a_guild_to_a_public_event(client: Client):
         _user_with_role("adh", fog_role=Member.FogRole.ADMIN)
@@ -456,6 +571,15 @@ def describe_admin_authoring():
         event = CommunityEvent.objects.get(title="Hosted Night")
         assert event.guild == guild
         assert event.event_type == CommunityEvent.EventType.COMMUNITY
+
+    def it_badges_each_event_in_the_events_tab_list(client: Client):
+        # The acceptance criterion asks the Events tab itself to label every event, not just
+        # the admin-only "Scheduled, not yet announced" block.
+        _user_with_role("adbadge", fog_role=Member.FogRole.ADMIN)
+        CommunityEventFactory(community=True, title="Listed Potluck", google_calendar_target=_MEMBER)
+        client.login(username="adbadge", password="pass")
+        html = client.get(reverse("hub_community_calendar")).content.decode()
+        assert '<div class="pl-calendar-list__audience"><span class="hub-badge">Member event</span></div>' in html
 
     def it_badges_a_parked_event_on_the_events_tab_by_its_audience(client: Client):
         # Scoped to the text right after the event's own title, which no changelog entry can
@@ -549,18 +673,41 @@ def describe_a_guilds_own_events_tab():
 
 
 def describe_member_facing_surfaces():
-    def it_renders_the_stored_event_type_in_no_template():
-        """Members read the audience, never the type, so no template may call
-        ``get_event_type_display``. Asserted against the templates themselves rather than a
-        rendered page: the changelog renders into every page, so a copy assertion could pass
-        or fail on a release note instead (STANDARDS §8)."""
-        templates_dir = Path(__file__).resolve().parents[2] / "templates"
+    """Asserted against the template sources rather than a rendered page: the changelog
+    renders into every page, so a copy assertion could pass or fail on a release note
+    instead (STANDARDS §8)."""
+
+    _TEMPLATES = Path(__file__).resolve().parents[2] / "templates"
+    _BADGE_SURFACES = [
+        "hub/event_detail.html",
+        "hub/community_calendar.html",
+        "hub/partials/calendar_event_item.html",
+    ]
+
+    def it_routes_every_badge_through_the_one_property():
+        # The Guild Lead Meeting special case lives in CommunityEvent.badge_label. A template
+        # that branched on the stored type itself would drift from it.
+        missing = [
+            name for name in _BADGE_SURFACES if "badge_label" not in (_TEMPLATES / name).read_text(encoding="utf-8")
+        ]
+        assert missing == []
+
+    def it_reads_the_stored_type_in_no_template():
+        # Not "members never see the stored type" — a lead meeting badges its own type label.
+        # The rule is that no template asks the model for it, so the one property decides.
         offenders = [
-            str(path.relative_to(templates_dir))
-            for path in sorted(templates_dir.rglob("*.html"))
+            str(path.relative_to(_TEMPLATES))
+            for path in sorted(_TEMPLATES.rglob("*.html"))
             if "get_event_type_display" in path.read_text(encoding="utf-8")
         ]
         assert offenders == []
+
+    def it_never_says_community_event_in_member_facing_help():
+        # The retired phrase, swept out of the Help Center copy members actually read.
+        from membership import help_content
+
+        source = Path(help_content.__file__).read_text(encoding="utf-8")
+        assert "community event" not in source.lower()
 
 
 @pytest.mark.django_db

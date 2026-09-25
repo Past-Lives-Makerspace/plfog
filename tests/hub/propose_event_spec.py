@@ -128,7 +128,7 @@ def describe_create():
         client.login(username="g3", password="pass")
         html = client.get(reverse("hub_propose_event")).content.decode()
         assert "Who is the audience?" in html
-        assert "What kind of member event is this?" in html
+        assert "What kind of event is this?" in html
 
     def it_lets_a_guild_lead_propose_their_guilds_meeting(client: Client):
         user = _member("g4")

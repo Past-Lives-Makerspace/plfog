@@ -1053,6 +1053,8 @@ def _guild_edit_context(
         # Everything the guild has on the calendar except its standing studio hours, which
         # have their own editor on this page. Keyed on "not studio hours" rather than "is a
         # meeting" so a public event the guild hosts stays on its own Events tab (#505).
+        # That leaves ``CommunityEventQuerySet.meetings()`` with no production caller; it is
+        # kept for its spec and for anything that genuinely wants only the meetings.
         "events": (
             guild.events.exclude(event_type=CommunityEvent.EventType.STUDIO_HOURS).upcoming().select_related("guild")
         ),
@@ -5246,19 +5248,26 @@ def _event_delete_confirm_message(event: CommunityEvent) -> str:
     return message
 
 
-def _event_guild_choices(request: HttpRequest) -> QuerySet[Guild]:
-    """The active guilds this request may file an event under.
+def _event_guild_choices(request: HttpRequest, event: CommunityEvent) -> QuerySet[Guild]:
+    """The guilds this request may file ``event`` under.
 
     ``editable_meeting_scopes`` is the one answer to "which guilds may this request edit"
     (an admin: all of them; a lead or staffer: their own), so the picker invents no role
     test of its own (#505 constraint). A member holding no such authority may still propose
     an event for any active guild, exactly as today: that is what the review queue is for.
+
+    The event's **own** guild is always in the list, deactivated or not. Deactivating a guild
+    keeps its rows by design, so events on one exist; leaving it out of the queryset makes
+    every save of such an event fail on "Select a valid choice" with no way out, because a
+    guild meeting cannot be blanked either.
     """
     scopes, has_authority = editable_meeting_scopes(request)
-    guilds = Guild.objects.filter(is_active=True)
+    allowed = Q(is_active=True)
     if has_authority:
-        guilds = guilds.filter(pk__in=[scope.pk for scope in scopes])
-    return guilds.order_by("name")
+        allowed &= Q(pk__in=[scope.pk for scope in scopes])
+    if event.guild_id is not None:
+        allowed |= Q(pk=event.guild_id)
+    return Guild.objects.filter(allowed).order_by("name")
 
 
 @login_required
@@ -5356,7 +5365,7 @@ def event_edit(request: HttpRequest, event_pk: int | None = None) -> HttpRespons
     is_new = event.pk is None
     cancel_url = reverse("hub_community_calendar") + "?tab=events"
 
-    guild_choices = _event_guild_choices(request)
+    guild_choices = _event_guild_choices(request, event)
 
     if request.method == "POST":
         form = CommunityEventForm(request.POST, instance=event, can_choose_audience=True, guild_choices=guild_choices)
@@ -5489,7 +5498,7 @@ def propose_event(request: HttpRequest, pk: int | None = None) -> HttpResponse:
     cancel_url = reverse("hub_community_calendar") + "?tab=events"
 
     _, can_choose_audience = editable_meeting_scopes(request)
-    guild_choices = _event_guild_choices(request)
+    guild_choices = _event_guild_choices(request, event)
     form_kwargs: dict[str, Any] = {
         "can_choose_audience": can_choose_audience,
         "guild_choices": guild_choices,

@@ -2726,27 +2726,31 @@ class CommunityEventForm(forms.ModelForm):
             "guild meetings, council meetings, studio hours and the occasional members only "
             "meeting, and everything else belongs on the public one."
         )
-        field.widget = forms.RadioSelect(attrs={"@change": "audience = $event.target.value"})
+        field.widget = forms.RadioSelect()
         field.choices = [  # type: ignore[attr-defined]  # ChoiceField setter propagates to the new widget
             (CommunityEvent.GoogleCalendarTarget.MEMBER, "Members"),
             (CommunityEvent.GoogleCalendarTarget.PUBLIC, "The public"),
         ]
 
     def _setup_kind_field(self, *, can_choose_audience: bool, fixed_guild: Guild | None) -> None:
-        """Show the follow-up question, or remove it.
+        """Show the second question, or remove it.
 
-        Only someone who may choose the audience is asked what kind of member event this is;
-        for everyone else the answer is always "something else" and the question would be
-        noise. A row whose stored type this form never writes keeps that type and is shown no
-        picker either.
+        **Kind and audience are independent axes.** A guild meeting is usually public — that
+        is what ``Meeting.add_to_calendar`` has always written — so the kind is asked of
+        everyone who may answer it, whichever audience they pick. Tying it to the members
+        answer silently re-typed a guild meeting to a general event on every edit.
+
+        Only someone who may choose the audience is asked; for everyone else the answer is
+        settled by :meth:`resolved_event_type` instead. A row whose stored type this form
+        never writes keeps that type and is shown no picker either.
         """
         if not can_choose_audience or self.instance.event_type in self.PRESERVED_TYPES:
             del self.fields["event_type"]
             return
         field = self.fields["event_type"]
         field.required = False
-        field.label = "What kind of member event is this?"
-        field.help_text = "Only asked for a member event. Anything for the public is just an event."
+        field.label = "What kind of event is this?"
+        field.help_text = ""
         field.widget = forms.RadioSelect()
         field.choices = self.KIND_CHOICES  # type: ignore[attr-defined]  # setter propagates to the new widget
         if self.instance.pk is None:
@@ -2776,20 +2780,28 @@ class CommunityEventForm(forms.ModelForm):
         return publish_at
 
     def resolved_event_type(self) -> str:
-        """The stored ``event_type`` the visible answers add up to.
+        """The stored ``event_type`` this submission settles on.
 
-        A row this form never re-types keeps what it holds. Otherwise a public event is
-        always a plain event, and a member event is a guild meeting only when someone with
-        the standing to say so said so; everything else is a plain event. An author who was
-        never asked the audience falls through the same public branch, which is why a plain
-        member's proposal is a plain event. Safe to call only after :meth:`clean`, which is
-        where it is first used.
+        **The audience never enters into it.** A guild meeting is a guild meeting whether it
+        is open to the public or not; consulting the audience here re-typed one to a general
+        event every time a lead edited its title, and took it off the guild's Next Meeting
+        card with it.
+
+        In order: a row this form never re-types keeps what it holds; an author who was asked
+        gets the kind they picked; an author who was never asked leaves an existing row's kind
+        exactly as they found it, so a plain member editing an owned proposal cannot undo what
+        a staffer set. Only a brand-new unasked event is a general event, and that is spelled
+        out rather than read off the instance because the model default for a new row is a
+        guild meeting. Safe to call only after :meth:`clean`, which is where it is first used.
         """
         if self.instance.event_type in self.PRESERVED_TYPES:
             return str(self.instance.event_type)
-        if self.cleaned_data.get("google_calendar_target") != CommunityEvent.GoogleCalendarTarget.MEMBER:
-            return str(CommunityEvent.EventType.COMMUNITY)
-        return str(self.cleaned_data.get("event_type") or CommunityEvent.EventType.COMMUNITY)
+        unasked = (
+            str(self.instance.event_type) if self.instance.pk is not None else str(CommunityEvent.EventType.COMMUNITY)
+        )
+        if "event_type" not in self.fields:
+            return unasked
+        return str(self.cleaned_data.get("event_type") or unasked)
 
     def clean(self) -> dict[str, Any]:
         cleaned = cast(dict[str, Any], super().clean())
@@ -2806,7 +2818,9 @@ class CommunityEventForm(forms.ModelForm):
             cleaned["event_type"] = event_type
         if "guild" in self.fields:
             guild = cleaned.get("guild")
-            if event_type in self._GUILD_REQUIRED_TYPES and guild is None:
+            # ``has_error`` keeps this off a field that already failed its own validation, so
+            # a bad choice shows one message rather than two contradictory ones.
+            if event_type in self._GUILD_REQUIRED_TYPES and guild is None and not self.has_error("guild"):
                 self.add_error("guild", "Pick the guild this meeting belongs to.")
             if event_type == CommunityEvent.EventType.LEAD_MEETING and guild is not None:
                 self.add_error("guild", "A Guild Lead Meeting is makerspace wide. Choose No guild.")
