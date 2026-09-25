@@ -1,0 +1,7 @@
+bump = "minor"
+date = "2026-09-25"
+title = "New equipment can require its own orientation from the start"
+changes = [
+  "Admins and equipment managers: when you add a tool, you can create its orientation and require it in the same save. Pick New orientation for this equipment, give it a name, and the tool goes live already gated.",
+  "The same choice is on the Details tab of an existing tool, so a manager can add a gate without visiting two more tabs.",
+]

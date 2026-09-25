@@ -4,12 +4,14 @@ The EquipmentForm's fields — shared by the add page and the manage panel's Det
   form      — a bound or unbound EquipmentForm
   equipment — the instance being edited, or absent on the add page (drives the
               photo delete button and the "create a new orientation type" link)
-The requires_guild_membership toggle only shows once a guild is chosen; the Alpine
-state lives here so both surfaces behave identically. Layout stays in CSS classes —
-never inline display on an x-show element (FRONTEND rule 12).
+The requires_guild_membership toggle only shows once a guild is chosen, and the new
+orientation type's fields (form.new_type_form, issue #466) only once "New orientation
+for this equipment" is picked; the Alpine state lives here so both surfaces behave
+identically. Layout stays in CSS classes — never inline display on an x-show element
+(FRONTEND rule 12).
 {% endcomment %}
-<div x-data="{ guildChosen: {% if form.guild.value %}true{% else %}false{% endif %} }"
-     @change="if ($event.target.name === 'guild') guildChosen = $event.target.value !== ''">
+<div x-data="{ guildChosen: {% if form.guild.value %}true{% else %}false{% endif %}, newOrientation: {% if form.creates_orientation_type %}true{% else %}false{% endif %} }"
+     @change="if ($event.target.name === 'guild') guildChosen = $event.target.value !== ''; if ($event.target.name === 'required_orientation') newOrientation = $event.target.value === '{{ form.NEW_TYPE_CHOICE }}'">
   {% if form.non_field_errors %}
   <ul class="pl-field-errors">
     {% for error in form.non_field_errors %}<li class="pl-field-error">{{ error }}</li>{% endfor %}
@@ -30,10 +32,23 @@ never inline display on an x-show element (FRONTEND rule 12).
     {% include "components/form_field.html" with field=form.location_note %}
     {% include "components/form_field.html" with field=form.required_orientation %}
     {% if equipment and equipment.guild %}
-    <p class="pl-field-hint" style="margin-top:-0.5rem;">
-      <a href="{% url 'hub_guild_edit' equipment.guild.pk %}?tab=orientations">Create a new orientation type</a>
+    <p class="pl-field-hint pl-equip-guild-type-link">
+      <a href="{% url 'hub_guild_edit' equipment.guild.pk %}?tab=orientations">Create a new {{ equipment.guild.name }} orientation type</a>
     </p>
     {% endif %}
+    {# The new type's own fields: closed until "New orientation for this equipment" is picked, open on a failed Save that picked it. #}
+    <div x-show="newOrientation"{% if not form.creates_orientation_type %} x-cloak{% endif %} class="pl-equip-new-type">
+      <p class="pl-equip-new-type__title">New orientation</p>
+      <p class="pl-equip-new-type__hint">Owned by this equipment. Members book it on the equipment page; you can edit it later on the Orientation tab.</p>
+      {% for error in form.new_type_form.non_field_errors %}<p class="pl-field-error">{{ error }}</p>{% endfor %}
+      {% include "components/form_field.html" with field=form.new_type_form.name field_label="Orientation name" %}
+      <div class="pl-equip-new-type__fields">
+        <div class="pl-equip-new-type__field">{% include "components/form_field.html" with field=form.new_type_form.duration_minutes %}</div>
+        <div class="pl-equip-new-type__field">{% include "components/form_field.html" with field=form.new_type_form.default_seats %}</div>
+        <div class="pl-equip-new-type__field">{% include "components/form_field.html" with field=form.new_type_form.price %}</div>
+        <div class="pl-equip-new-type__field">{% include "components/form_field.html" with field=form.new_type_form.default_location %}</div>
+      </div>
+    </div>
     <div x-show="guildChosen" class="pl-equip-guild-toggle">
       {% include "components/form_field.html" with field=form.requires_guild_membership %}
     </div>
