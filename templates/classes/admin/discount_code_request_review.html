@@ -1,0 +1,39 @@
+{% extends "classes/admin/base.html" %}
+{% load classes_tags %}
+{% block tab_content %}
+{# request_row is the DiscountCodeRequest; request stays the HttpRequest. #}
+<h2>Review Discount Code Request</h2>
+<div class="hub-card">
+    <p><strong>Class:</strong> <a href="{% url 'classes:teach_class_discount_codes' pk=request_row.class_offering_id %}">{{ request_row.class_offering.title }}</a></p>
+    <p><strong>Instructor:</strong> {{ request_row.requested_by.display_name }}</p>
+    <p><strong>Requested:</strong> {{ request_row.code }}, {% if request_row.discount_pct %}{{ request_row.discount_pct }}% off{% else %}{{ request_row.discount_fixed_cents|cents_as_dollars }} off{% endif %}</p>
+    <p><strong>Reason:</strong> {{ request_row.reason }}</p>
+    <p><strong>Requested On:</strong> {{ request_row.created_at|date:"M j, Y" }}</p>
+</div>
+<div class="hub-card">
+    <h3>Approve</h3>
+    <p>Adjust anything before approving. The code is created approved and ready to use.</p>
+    <form method="post">
+        {% csrf_token %}
+        <input type="hidden" name="decision" value="approve">
+        {% if form.non_field_errors %}
+        <div class="pl-field-errors pl-wizard-errors">{% for error in form.non_field_errors %}<p class="pl-field-error">{{ error }}</p>{% endfor %}</div>
+        {% endif %}
+        {% for field in form %}{% include "components/form_field.html" with field=field %}{% endfor %}
+        <div class="pl-form-actions">
+            <button class="hub-btn hub-btn--primary" type="submit">Approve</button>
+            <a class="hub-btn hub-btn--ghost" href="{% url 'classes:admin_discount_codes' %}">Cancel</a>
+        </div>
+    </form>
+</div>
+<div class="hub-card">
+    <h3>Decline</h3>
+    {% if decline_form.errors %}
+    <div class="pl-field-errors pl-wizard-errors">{% for error in decline_form.note.errors %}<p class="pl-field-error">{{ error }}</p>{% endfor %}</div>
+    {% endif %}
+    <p>The instructor is told, with your note.</p>
+    <button type="button" class="hub-btn hub-btn--danger" @click="$dispatch('open-confirm', 'decline-request')">Decline</button>
+    {% url 'classes:admin_discount_code_request_review' pk=request_row.pk as review_url %}
+    {% include "components/confirm_modal.html" with confirm_id="decline-request" confirm_title="Decline This Request?" confirm_message="The instructor is told, with your note." confirm_action_url=review_url confirm_button_text="Decline Request" confirm_field_name="decision" confirm_field_value="decline" confirm_note_name="note" confirm_note_required=True confirm_note_label="Why it was declined" confirm_note_hint="The instructor sees this note." %}
+</div>
+{% endblock %}

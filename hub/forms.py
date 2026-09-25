@@ -1217,6 +1217,7 @@ class SiteSettingsForm(forms.ModelForm):
             "classes_calendar_color",
             "legacy_cms_sync_enabled",
             "instructor_discount_codes_enabled",
+            "instructor_discount_codes_need_approval",
             "mailchimp_api_key",
             "mailchimp_list_id",
             "google_analytics_measurement_id",

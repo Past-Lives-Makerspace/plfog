@@ -975,6 +975,7 @@ def describe_admin_site_settings_legacy_cms():
         assert response.status_code == 200
         assert b"Instructor Discount Codes" in response.content
         assert b'id="id_instructor_discount_codes_enabled"' in response.content
+        assert b'id="id_instructor_discount_codes_need_approval"' in response.content
 
     def it_syncs_now_on_post_with_sync_now_action(client):
         from unittest.mock import patch
@@ -1078,6 +1079,7 @@ def describe_admin_site_settings_features():
         assert response.content.count(b'id="id_class_registration_disabled_note"') == 1
         assert response.content.count(b'id="id_help_page_enabled"') == 1
         assert response.content.count(b'id="id_instructor_discount_codes_enabled"') == 1
+        assert response.content.count(b'id="id_instructor_discount_codes_need_approval"') == 1
         assert response.content.count(b'id="id_guild_welcome_email_enabled"') == 1
 
     def it_saves_the_feature_switches(client):

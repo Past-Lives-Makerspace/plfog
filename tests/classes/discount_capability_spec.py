@@ -36,6 +36,14 @@ def describe_discount_code_requested_notification():
         DiscountCode.objects.create(code="none10", discount_pct=10)
         assert not Notification.objects.filter(user=bystander.user, trigger="discount_code.requested").exists()
 
+    def it_sends_no_approval_ping_for_a_code_born_approved():
+        # DiscountCodeRequest.approve creates the code already approved; a "needs approval" ping
+        # right after the approver approved it would be false.
+        approver = _member("dapprover2")
+        approver.admin_capabilities.create(capability=AdminCapability.Capability.DISCOUNT_APPROVER)
+        DiscountCode.objects.create(code="born20", discount_pct=20, is_approved=True)
+        assert not Notification.objects.filter(user=approver.user, trigger="discount_code.requested").exists()
+
 
 def describe_approver_for_capability():
     def it_lets_a_discount_approver_approve_any_code():

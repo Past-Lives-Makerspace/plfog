@@ -297,7 +297,11 @@ Do not merge them.
           {# The discount is the admin's to set; the instructor reads it off the saved row (the studio default on a new class). #}
           <p class="pl-compose-section__note" id="member-discount-note">Members get {{ form.instance.member_discount_pct }}% off.{% if form.instance.price_cents %}{% member_price_cents form.instance.price_cents form.instance.member_discount_pct as mp %}{% if mp %} That makes the member price {{ mp|cents_as_price }}.{% endif %}{% endif %}</p>
           {% if instructor_discount_codes_enabled %}
-            {% include "classes/_components/class_discount_codes_section.html" with offering=offering create_url='classes:teach_discount_code_create' edit_url='classes:teach_discount_code_edit' %}
+            {% if instructor_discount_codes_need_approval %}
+              {% include "classes/_components/class_discount_codes_section.html" with offering=offering create_url='classes:teach_discount_code_request' edit_url='classes:teach_discount_code_edit' read_only=True button_label="Request a Code" %}
+            {% else %}
+              {% include "classes/_components/class_discount_codes_section.html" with offering=offering create_url='classes:teach_discount_code_create' edit_url='classes:teach_discount_code_edit' %}
+            {% endif %}
           {% endif %}
         {% endif %}
       </div>

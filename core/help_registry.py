@@ -737,7 +737,7 @@ HELP_KEYS: dict[str, HelpKeyEntry] = {
     },
     "admin.discount-codes": {
         "title": "Discount codes",
-        "short_text": "Create discount codes for a class or a promotion, with usage limits and an expiry date.",
+        "short_text": "Create discount codes for a class or a promotion, with usage limits and an expiry date, and review the codes instructors request.",
         "article_slug": None,
         "anchor": None,
     },
