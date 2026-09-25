@@ -1,0 +1,8 @@
+bump = "patch"
+date = "2026-09-24"
+title = "The class composer asks for a gallery photo on the Photos step"
+changes = [
+  "On the Photos step, Next now stops and asks for a gallery photo when your class has none, instead of waiting until you submit.",
+  "The hero photo and the gallery carry a Required tag, so you know before you start.",
+  "Saving a draft still works without a photo.",
+]
