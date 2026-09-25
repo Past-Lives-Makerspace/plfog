@@ -190,11 +190,21 @@ class MemberQuerySet(models.QuerySet):
         return self.filter(status=Member.Status.ACTIVE)
 
     def accepted_agreement(self) -> MemberQuerySet:
-        """Members who have accepted the member agreement."""
-        return self.filter(member_agreement_acceptances__isnull=False)
+        """Members who have accepted the member agreement, at any version.
+
+        ``.distinct()`` is load-bearing. A member may now hold several acceptances, and the join
+        this filter builds returns one row per acceptance — so without it a member who accepted
+        twice is counted twice, and any total drawn from this queryset is silently wrong.
+        """
+        return self.filter(member_agreement_acceptances__isnull=False).distinct()
 
     def missing_agreement(self) -> MemberQuerySet:
-        """Members who have not accepted the member agreement."""
+        """Members who have never accepted the member agreement, at any version.
+
+        Safe without ``.distinct()`` — the isnull=True side of the join yields at most one row
+        per member by construction — but it is not the same question as "needs to accept now",
+        which depends on the released version. Use ``Member.needs_member_agreement`` for that.
+        """
         return self.filter(member_agreement_acceptances__isnull=True)
 
     def leadership_candidates(self) -> MemberQuerySet:
@@ -836,12 +846,21 @@ class Member(models.Model):
             return False
         if self.status != self.Status.ACTIVE:
             return False
-        return not self.member_agreement_acceptances.exists()
+        # No released version configured: the original behaviour, unchanged. Anyone who has ever
+        # accepted is never asked again. Setting a version is what turns re-consent on, so this
+        # ships without re-prompting a single member until someone deliberately decides to.
+        if not config.member_agreement_version:
+            return not self.member_agreement_acceptances.exists()
+        return not self.member_agreement_acceptances.filter(document_version=config.member_agreement_version).exists()
 
     @property
     def agreement_acceptance(self) -> MemberAgreementAcceptance | None:
-        """The member's acceptance record for the member agreement, if any."""
-        return self.member_agreement_acceptances.first()
+        """The member's most recent acceptance record for the member agreement, if any.
+
+        Explicitly ordered. While one acceptance per member was enforced by a unique constraint,
+        an unordered ``.first()`` was unambiguous; with a history it would return an arbitrary row.
+        """
+        return self.member_agreement_acceptances.order_by("-accepted_at").first()
 
     @property
     def needs_guild_updates_prompt(self) -> bool:
@@ -1675,12 +1694,28 @@ class Member(models.Model):
         return self.is_fog_admin or self.is_guild_officer or self.is_guild_lead or self.is_instructor
 
     def accept_member_agreement(self, request: HttpRequest, agreement_url: str) -> None:
-        """Mark this member as having accepted the member agreement."""
-        from core.models import SiteActivity
+        """Mark this member as having accepted the member agreement.
+
+        Captures what the record needs to be worth something later: the version they accepted,
+        a hash of the document as it stood at that moment, the browser they used, and the IP.
+        """
+        from core.models import SiteActivity, SiteConfiguration
+        from membership.services.consent import fingerprint_agreement
 
         x_forwarded_for = request.META.get("HTTP_X_FORWARDED_FOR")
         ip = x_forwarded_for.split(",")[0] if x_forwarded_for else request.META["REMOTE_ADDR"]
-        MemberAgreementAcceptance.objects.create(member=self, agreement_url=agreement_url, ip_address=ip)
+        digest, length = fingerprint_agreement(agreement_url)
+        MemberAgreementAcceptance.objects.create(
+            member=self,
+            agreement_url=agreement_url,
+            document_version=SiteConfiguration.load().member_agreement_version,
+            content_sha256=digest,
+            content_length=length,
+            # Truncated rather than rejected: a nonsense User-Agent is still corroboration, and
+            # nobody should be locked out of the hub because their browser sent a long header.
+            user_agent=request.META.get("HTTP_USER_AGENT", "")[:1000],
+            ip_address=ip,
+        )
         SiteActivity.log(SiteActivity.Kind.ACCEPTED_MEMBER_AGREEMENT, actor=request.user)
 
     ADMIN_ROLE_INSTRUCTOR = "instructor"
@@ -15222,8 +15257,21 @@ class WikiSearchMiss(models.Model):
 class MemberAgreementAcceptance(models.Model):
     """A record that a member accepted the Member Agreement.
 
-    Rows are never deleted. When the agreement changes, the text-as-shown
-    (or the URL shown) stays intact here so the record remains honest.
+    Rows are never deleted, and there is one per acceptance rather than one per member, so the
+    history survives a re-release.
+
+    WHAT THIS IS AND IS NOT. A click-accept here is evidence of consent, not a signature. It is
+    an interim measure: once PLM's self-hosted DocuSeal is built out properly, members should be
+    asked to sign the Member Agreement for real, and this record becomes the lighter-weight thing
+    it is good at — re-consent to a revised Code of Conduct, say, where a full signing ceremony
+    would be overkill.
+
+    WHAT MAKES A RECORD WORTH HAVING. In a dispute the questions are who agreed, when, and to
+    WHAT. The first two were already answered. The third was not: this model used to store only
+    ``agreement_url``, and a URL is not text — when the document behind it changes, the record
+    silently stops describing what the member actually saw. ``document_version`` and
+    ``content_sha256`` answer it, by pinning the version and a fingerprint of the bytes that were
+    at that URL at the moment they clicked.
     """
 
     member = models.ForeignKey(
@@ -15237,10 +15285,41 @@ class MemberAgreementAcceptance(models.Model):
         blank=True,
         help_text="The URL of the agreement the member read, as configured at the time.",
     )
+    document_version = models.CharField(
+        max_length=40,
+        blank=True,
+        default="",
+        help_text=(
+            "The released version accepted, from Site Settings at the time. Blank on rows written "
+            "before versions were recorded — blank means unknown, never 'the current one'."
+        ),
+    )
+    content_sha256 = models.CharField(
+        max_length=64,
+        blank=True,
+        default="",
+        help_text=(
+            "SHA-256 of the document fetched from agreement_url as they accepted. Proves the text "
+            "has not changed since. Blank if the fetch failed — accepting is never blocked on it."
+        ),
+    )
+    content_length = models.PositiveIntegerField(
+        null=True,
+        blank=True,
+        help_text="Size in bytes of the document that was hashed. A cheap second check on the hash.",
+    )
+    user_agent = models.TextField(
+        blank=True,
+        default="",
+        help_text="The browser and device they accepted from, as reported. Corroborates the IP.",
+    )
     ip_address = models.GenericIPAddressField(null=True, blank=True, help_text="The IP they accepted from.")
 
     class Meta:
-        constraints = [models.UniqueConstraint(fields=["member"], name="unique_member_agreement_acceptance")]
+        # Deliberately NOT unique on member. One row per acceptance: a member who accepts v1.0.0
+        # and later v2.0.0 has two, and the older row is what says what they agreed to back then.
+        indexes = [models.Index(fields=["member", "-accepted_at"], name="member_agr_accept_idx")]
 
     def __str__(self) -> str:
-        return f"{self.member.display_name} accepted at {self.accepted_at.date()}"
+        version = f" v{self.document_version}" if self.document_version else ""
+        return f"{self.member.display_name} accepted{version} at {self.accepted_at.date()}"
