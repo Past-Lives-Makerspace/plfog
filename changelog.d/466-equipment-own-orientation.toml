@@ -1,4 +1,4 @@
-bump = "patch"
+bump = "minor"
 date = "2026-09-25"
 title = "New equipment can require its own orientation from the start"
 changes = [

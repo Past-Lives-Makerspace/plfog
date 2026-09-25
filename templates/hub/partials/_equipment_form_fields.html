@@ -38,7 +38,7 @@ identically. Layout stays in CSS classes — never inline display on an x-show e
     {% endif %}
     {# The new type's own fields: closed until "New orientation for this equipment" is picked, open on a failed Save that picked it. #}
     <div x-show="newOrientation"{% if not form.creates_orientation_type %} x-cloak{% endif %} class="pl-equip-new-type">
-      <p class="pl-equip-new-type__title">New Orientation</p>
+      <p class="pl-equip-new-type__title">New orientation</p>
       <p class="pl-equip-new-type__hint">Owned by this equipment. Members book it on the equipment page; you can edit it later on the Orientation tab.</p>
       {% for error in form.new_type_form.non_field_errors %}<p class="pl-field-error">{{ error }}</p>{% endfor %}
       {% include "components/form_field.html" with field=form.new_type_form.name field_label="Orientation name" %}
