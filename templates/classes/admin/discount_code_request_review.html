@@ -22,7 +22,7 @@
         {% for field in form %}{% include "components/form_field.html" with field=field %}{% endfor %}
         <div class="pl-form-actions">
             <button class="hub-btn hub-btn--primary" type="submit">Approve</button>
-            <a class="hub-btn hub-btn--ghost" href="{% url 'classes:admin_discount_codes' %}">Cancel</a>
+            <a class="hub-btn hub-btn--ghost" href="{{ back_url }}">Cancel</a>
         </div>
     </form>
 </div>

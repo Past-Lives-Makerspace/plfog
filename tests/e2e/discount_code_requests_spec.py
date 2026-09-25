@@ -31,24 +31,23 @@ ADMIN_EMAIL = "request-admin@example.com"
 def _settle_before_the_database_is_truncated(page, live_server, transactional_db):
     """Let the browser go quiet before the teardown truncates the tables.
 
-    Step 5 lazy loads a preview iframe and Save Draft posts the form, so a scenario can end
-    with a request still in flight. The live server thread still holds that request's row
-    locks when ``transactional_db`` truncates, and the truncate is the one that loses:
+    Every scenario here ends on a POST the browser made (the request form, Approve, or the
+    Decline confirm) and the redirect it follows, so a scenario can end with a request still
+    in flight. The live server thread still holds that request's row locks when
+    ``transactional_db`` truncates, and the truncate is the one that loses:
     ``psycopg.errors.DeadlockDetected``, surfaced as an ERROR with no assertion failure. It
-    is timing rather than ordering, so it reproduces on some machines and not others, and CI
-    runs this file on every PR.
+    is timing rather than ordering, so it reproduces on some machines and not others.
 
     Depending on ``transactional_db`` is what orders this: pytest finalises a fixture before
     the ones it depends on, so the settle always runs before the truncate. It lives in a
-    teardown rather than at the end of each scenario so a scenario added later cannot bring
-    the flake back by forgetting the line. A Playwright error is swallowed on purpose: this
-    is housekeeping, and a page left broken by a failing assertion must not turn that
-    failure into a confusing teardown error.
+    teardown so a scenario added later cannot bring the flake back by forgetting the line. A
+    Playwright error is swallowed on purpose: this is housekeeping, and a page left broken by
+    a failing assertion must not turn that failure into a confusing teardown error.
 
-    This leans on the hub chrome doing no polling: no ``setInterval``, ``EventSource``,
-    ``WebSocket`` or ``hx-trigger="every"`` on these pages. Add one and ``networkidle``
-    never arrives, every teardown quietly eats the timeout below, and the file goes from
-    about a minute to about four with nothing reported. Wait for a different signal then.
+    This leans on the hub chrome doing no polling (no ``setInterval``, ``EventSource``,
+    ``WebSocket`` or ``hx-trigger="every"`` on these pages). Add one and ``networkidle``
+    never arrives and every teardown quietly eats the timeout below; wait for a different
+    signal then.
     """
     yield
     try:

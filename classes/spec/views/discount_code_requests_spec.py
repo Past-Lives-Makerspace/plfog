@@ -140,7 +140,9 @@ def describe_instructor_surfaces_in_approval_mode():
         resp = client.post(reverse(REQUEST), _request_post(mine, discount_pct=""))
 
         assert resp.status_code == 200
-        assert b"Set a percent off or a fixed amount off." in resp.content
+        assert resp.content.count(b"Set a percent off or a fixed amount off.") == 1
+        # The CheckConstraint's own wording is the one error; Django's raw "is violated" never shows.
+        assert b"is violated" not in resp.content
         assert not DiscountCodeRequest.objects.exists()
 
     def it_refuses_a_code_that_already_exists(client, member_user):
@@ -218,6 +220,23 @@ def describe_instructor_surfaces_in_approval_mode():
         assert b"Too steep for a first class." in resp.content
         assert b"$5.00 off" in resp.content
         assert b"15% off" in resp.content
+
+    def it_marks_an_approved_request_whose_code_was_deleted(client, member_user):
+        _approval_mode(True)
+        mine = _own_offering(member_user)
+        DiscountCodeRequestFactory(
+            class_offering=mine,
+            code="KEPT",
+            status=DiscountCodeRequest.Status.APPROVED,
+            discount_code=DiscountCodeFactory(code="KEPT", class_offering=mine),
+        )
+        DiscountCodeRequestFactory(class_offering=mine, code="GONE", status=DiscountCodeRequest.Status.APPROVED)
+        client.force_login(member_user)
+
+        resp = client.get(reverse(DISCOUNT_CODES))
+
+        assert resp.content.count(b'<span class="hub-pill hub-pill--ok">Approved</span>') == 2
+        assert resp.content.count(b'<span class="hub-pill hub-pill--neutral">Code removed</span>') == 1
 
     def it_shows_the_request_button_and_hides_the_controls_on_the_class_tab(client, member_user):
         _approval_mode(True)

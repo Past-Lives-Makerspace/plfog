@@ -3227,6 +3227,8 @@ class DiscountCode(models.Model):
             )
             # A code born approved (DiscountCodeRequest.approve) needs no approval ping; every other new code still gets one.
             if not self.is_approved:
+                from django.urls import reverse
+
                 from core.events.emit import emit
 
                 emit(
@@ -3236,7 +3238,8 @@ class DiscountCode(models.Model):
                     context={},
                     title="A discount code needs approval",
                     body=f"The discount code {self.code} was created and needs approval before it can be used.",
-                    url="/classes/admin/discount-codes/",
+                    # Absolute: the email channel uses this verbatim, and a bare path is dead in mail.
+                    url=f"{settings.MEMBER_BASE_URL}{reverse('classes:admin_discount_codes')}",
                     period=f"discount:{self.pk}:requested",
                 )
 
@@ -3428,6 +3431,8 @@ class DiscountCodeRequest(models.Model):
             CheckConstraint(
                 condition=(Q(discount_pct__isnull=False) | Q(discount_fixed_cents__isnull=False)),
                 name="discount_request_has_value",
+                # ModelForm validation surfaces this as the request form's one non-field error.
+                violation_error_message="Set a percent off or a fixed amount off.",
             ),
         ]
 
@@ -3443,6 +3448,9 @@ class DiscountCodeRequest(models.Model):
 
             from core.events.emit import emit
 
+            # The link is the review page itself, so a Discount Code Administrator who is not
+            # an admin (and so cannot open the queue) can still act from the notification.
+            review_url = reverse("classes:admin_discount_code_request_review", kwargs={"pk": self.pk})
             emit(
                 "discount_code.requested",
                 actor=self.requested_by.user,
@@ -3453,7 +3461,7 @@ class DiscountCodeRequest(models.Model):
                     f"{self.requested_by.display_name} asked for the code {self.code} on "
                     f"{self.class_offering.title}. Review it in Classes admin."
                 ),
-                url=f"{settings.MEMBER_BASE_URL}{reverse('classes:admin_discount_codes')}",
+                url=f"{settings.MEMBER_BASE_URL}{review_url}",
                 period=f"discount_request:{self.pk}:requested",
             )
 
@@ -3495,21 +3503,19 @@ class DiscountCodeRequest(models.Model):
         Raises:
             DiscountCodeRequestAlreadyDecided: When this request is no longer pending.
         """
-        if self.status != self.Status.PENDING:
-            raise DiscountCodeRequestAlreadyDecided(
-                f"Request {self.pk} was already {self.get_status_display().lower()}."
-            )
-        code = form.save(commit=False)
-        code.class_offering = self.class_offering
-        code.created_by = self.requested_by.user
-        code.is_approved = True
-        code.save()
-        form.save_m2m()
-        self.discount_code = code
-        self.status = self.Status.APPROVED
-        self.decided_by = user
-        self.decided_at = timezone.now()
-        self.save(update_fields=["discount_code", "status", "decided_by", "decided_at"])
+        with transaction.atomic():
+            self._lock_while_pending()
+            code = form.save(commit=False)
+            code.class_offering = self.class_offering
+            code.created_by = self.requested_by.user
+            code.is_approved = True
+            code.save()
+            form.save_m2m()
+            self.discount_code = code
+            self.status = self.Status.APPROVED
+            self.decided_by = user
+            self.decided_at = timezone.now()
+            self.save(update_fields=["discount_code", "status", "decided_by", "decided_at"])
         self._emit_decision(
             "discount_code.request_approved",
             title=f"Your discount code {code.code} was approved",
@@ -3531,22 +3537,38 @@ class DiscountCodeRequest(models.Model):
             DiscountCodeRequestAlreadyDecided: When this request is no longer pending.
             ValueError: When ``note`` is blank.
         """
-        if self.status != self.Status.PENDING:
-            raise DiscountCodeRequestAlreadyDecided(
-                f"Request {self.pk} was already {self.get_status_display().lower()}."
-            )
-        if not note.strip():
-            raise ValueError("A decline needs a note so the instructor knows why.")
-        self.decision_note = note.strip()
-        self.status = self.Status.DECLINED
-        self.decided_by = user
-        self.decided_at = timezone.now()
-        self.save(update_fields=["decision_note", "status", "decided_by", "decided_at"])
+        with transaction.atomic():
+            self._lock_while_pending()
+            if not note.strip():
+                raise ValueError("A decline needs a note so the instructor knows why.")
+            self.decision_note = note.strip()
+            self.status = self.Status.DECLINED
+            self.decided_by = user
+            self.decided_at = timezone.now()
+            self.save(update_fields=["decision_note", "status", "decided_by", "decided_at"])
         self._emit_decision(
             "discount_code.request_declined",
             title=f"Your discount code request {self.code} was declined",
             body=f"An admin declined {self.code} for {self.class_offering.title}: {self.decision_note}",
         )
+
+    def _lock_while_pending(self) -> None:
+        """Re-read this row under a row lock and refuse unless it is still pending.
+
+        Called inside the caller's ``transaction.atomic()``. Two admins deciding at once
+        serialize on the lock: the second re-read sees the first decision and raises, so a
+        request yields one decision and never two codes (the ``Registration`` release paths
+        use the same shape). SQLite has no row locks, so there the re-read alone is what
+        catches a stale in-memory copy.
+
+        Raises:
+            DiscountCodeRequestAlreadyDecided: When the stored row is no longer pending.
+        """
+        current = type(self)._default_manager.select_for_update().get(pk=self.pk)
+        if current.status != self.Status.PENDING:
+            raise DiscountCodeRequestAlreadyDecided(
+                f"Request {self.pk} was already {current.get_status_display().lower()}."
+            )
 
     def _emit_decision(self, event_key: str, *, title: str, body: str) -> None:
         """Tell the requesting instructor about a decision, linking their class's Discount Codes tab.

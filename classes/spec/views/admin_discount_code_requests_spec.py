@@ -2,12 +2,15 @@
 
 from __future__ import annotations
 
+from unittest.mock import patch
+
 from django.contrib.messages import get_messages
 from django.urls import reverse
 
 from classes.factories import ClassOfferingFactory, DiscountCodeFactory, DiscountCodeRequestFactory
-from classes.models import DiscountCode, DiscountCodeRequest
+from classes.models import DiscountCode, DiscountCodeRequest, DiscountCodeRequestAlreadyDecided
 from core.models import SiteConfiguration
+from membership.models import AdminCapability, Member
 
 QUEUE = "classes:admin_discount_codes"
 REVIEW = "classes:admin_discount_code_request_review"
@@ -29,6 +32,13 @@ def _messages(response) -> list[str]:
 
 def _approve_post(**overrides) -> dict[str, object]:
     return {"decision": "approve", "code": "SPRING20", "discount_pct": 20, "is_active": "on", **overrides}
+
+
+def _grant_discount_approver(member_user) -> None:
+    """The capability the "needs approval" ping is addressed to, on a member who is not an admin."""
+    Member.objects.get(user=member_user).admin_capabilities.create(
+        capability=AdminCapability.Capability.DISCOUNT_APPROVER
+    )
 
 
 def describe_the_queue():
@@ -56,6 +66,12 @@ def describe_the_queue():
         assert _review_url(waiting).encode() not in resp.content
 
     def it_gates_behind_the_admin_role(member_user, client, db):
+        client.force_login(member_user)
+        assert client.get(reverse(QUEUE)).status_code == 403
+
+    def it_stays_admin_only_for_a_discount_code_administrator(member_user, client, db):
+        # The holder decides from the review page the ping links to; the queue is the admin's.
+        _grant_discount_approver(member_user)
         client.force_login(member_user)
         assert client.get(reverse(QUEUE)).status_code == 403
 
@@ -176,11 +192,53 @@ def describe_the_review_page():
         assert resp["Location"] == reverse(QUEUE)
         assert "This request has already been decided." in _messages(resp)
 
+    def it_redirects_with_the_info_message_when_another_reviewer_decided_first(admin_user, client, db):
+        # The page was fetched while pending; the model's row lock then found it decided. The
+        # race itself is the model spec's; here only the view's answer to it is exercised.
+        req = DiscountCodeRequestFactory(code="SPRING20")
+        client.force_login(admin_user)
+
+        with patch.object(DiscountCodeRequest, "approve", side_effect=DiscountCodeRequestAlreadyDecided("raced")):
+            resp = client.post(_review_url(req), _approve_post())
+
+        assert resp.status_code == 302
+        assert resp["Location"] == reverse(QUEUE)
+        assert "This request has already been decided." in _messages(resp)
+        assert not DiscountCode.objects.exists()
+
     def it_404s_a_request_that_does_not_exist(admin_user, client, db):
         client.force_login(admin_user)
         assert client.get(reverse(REVIEW, kwargs={"pk": 9999})).status_code == 404
 
-    def it_gates_behind_the_admin_role(member_user, client, db):
+    def it_lets_a_discount_code_administrator_who_is_not_an_admin_decide(member_user, client, db):
+        _grant_discount_approver(member_user)
+        req = DiscountCodeRequestFactory(code="SPRING20", discount_pct=20)
+        client.force_login(member_user)
+
+        assert client.get(_review_url(req)).status_code == 200
+        resp = client.post(_review_url(req), _approve_post())
+
+        # Not the queue: that page is admin only, so a holder lands on the hub instead.
+        assert resp.status_code == 302
+        assert resp["Location"] == reverse("hub_home")
+        code = DiscountCode.objects.get(code="SPRING20")
+        assert code.is_approved is True
+        req.refresh_from_db()
+        assert req.status == DiscountCodeRequest.Status.APPROVED
+        assert req.decided_by == member_user
+        assert "Discount code SPRING20 approved and ready to use." in _messages(resp)
+
+    def it_sends_a_holder_who_is_not_an_admin_home_from_a_decided_request(member_user, client, db):
+        _grant_discount_approver(member_user)
+        req = DiscountCodeRequestFactory(code="SPRING20", status=DiscountCodeRequest.Status.APPROVED)
+        client.force_login(member_user)
+
+        resp = client.get(_review_url(req))
+
+        assert resp.status_code == 302
+        assert resp["Location"] == reverse("hub_home")
+
+    def it_refuses_a_plain_member(member_user, client, db):
         req = DiscountCodeRequestFactory(code="SPRING20")
         client.force_login(member_user)
 
@@ -189,3 +247,19 @@ def describe_the_review_page():
         req.refresh_from_db()
         assert req.status == DiscountCodeRequest.Status.PENDING
         assert not DiscountCode.objects.exists()
+
+    def it_refuses_a_self_approver_without_the_capability(member_user, client, db):
+        # Self-approval covers a member's own codes; a request is decided by admins or holders only.
+        Member.objects.filter(user=member_user).update(can_self_approve_discounts=True)
+        req = DiscountCodeRequestFactory(code="SPRING20")
+        client.force_login(member_user)
+
+        assert client.get(_review_url(req)).status_code == 403
+        assert client.post(_review_url(req), _approve_post()).status_code == 403
+        assert not DiscountCode.objects.exists()
+
+    def it_redirects_anonymous_users_to_login(client, db):
+        req = DiscountCodeRequestFactory(code="SPRING20")
+        resp = client.get(_review_url(req))
+        assert resp.status_code == 302
+        assert "login" in resp["Location"].lower()

@@ -907,11 +907,9 @@ class DiscountCodeRequestForm(forms.ModelForm):
             raise forms.ValidationError("That code is already taken. Pick another.")
         return code
 
-    def clean(self) -> dict[str, Any]:
-        data = super().clean() or {}
-        if not data.get("discount_pct") and not data.get("discount_fixed_cents"):
-            raise forms.ValidationError("Set a percent off or a fixed amount off.")
-        return data
+    # No clean(): the "percent or fixed amount" rule is the model's CheckConstraint, whose
+    # violation_error_message ModelForm validation renders as the one non-field error. A form
+    # check here as well rendered two errors for one gap.
 
     def save(self, commit: bool = True) -> DiscountCodeRequest:
         self.instance.requested_by = self._teaching_member

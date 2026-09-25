@@ -117,6 +117,7 @@ from classes.models import (
     CmsActivity,
     DiscountCode,
     DiscountCodeRequest,
+    DiscountCodeRequestAlreadyDecided,
     ReadinessItem,
     Registration,
     RegistrationQuestion,
@@ -5341,19 +5342,33 @@ def admin_discount_code_approve(request: HttpRequest, pk: int) -> HttpResponse:
     return redirect("classes:admin_discount_codes")
 
 
-@classes_admin_access_required
+@login_required
 def admin_discount_code_request_review(request: HttpRequest, pk: int) -> HttpResponse:
     """Approve or decline one instructor's discount code request (#428).
 
-    The approve form is a ``DiscountCodeForm`` prefilled from the request, so the admin can
+    Open to whoever the "needs approval" ping reaches and to admins: an actual admin, a
+    superuser, or a Discount Code Administrator (``DiscountCode.approver_for(...).approves_any``,
+    the same rule ``admin_discount_code_approve`` applies minus the self-approver leg, since a
+    request is decided by admins or holders only). Anyone else gets a 403.
+
+    The approve form is a ``DiscountCodeForm`` prefilled from the request, so the reviewer can
     adjust anything before the code is made; a decline needs a note. ``request_row`` is the
     context name so the template's ``request`` stays the HttpRequest. Reachable with the
-    master flag off too, for an admin following an email link after the queue was hidden.
+    master flag off too, for a reviewer following an email link after the queue was hidden.
+    An actual admin goes back to the queue afterwards; a holder who is not an admin cannot
+    open that page, so they land on the hub instead.
     """
+    if not DiscountCode.approver_for(request.user).approves_any:
+        return HttpResponseForbidden(
+            "Reviewing discount code requests takes admin or Discount Code Administrator access."
+        )
+    view_as = getattr(request, "view_as", None)
+    is_admin = view_as is not None and view_as.has_actual("admin")
+    back_url = reverse("classes:admin_discount_codes") if is_admin else reverse("hub_home")
     req = get_object_or_404(DiscountCodeRequest.objects.select_related("class_offering", "requested_by__user"), pk=pk)
     if req.status != DiscountCodeRequest.Status.PENDING:
         messages.info(request, "This request has already been decided.")
-        return redirect("classes:admin_discount_codes")
+        return redirect(back_url)
     decision = request.POST.get("decision") if request.method == "POST" else None
     if request.method == "POST" and decision not in ("approve", "decline"):
         return HttpResponseBadRequest("Unknown decision.")
@@ -5364,18 +5379,30 @@ def admin_discount_code_request_review(request: HttpRequest, pk: int) -> HttpRes
         created_by=req.requested_by.user,
     )
     decline_form = DiscountCodeRequestDeclineForm(request.POST if decision == "decline" else None)
-    if decision == "approve" and form.is_valid():
-        code = req.approve(cast("User", request.user), form)
-        messages.success(request, f"Discount code {code.code} approved and ready to use.")
-        return redirect("classes:admin_discount_codes")
-    if decision == "decline" and decline_form.is_valid():
-        req.decline(cast("User", request.user), decline_form.cleaned_data["note"])
-        messages.success(request, "Request declined. The instructor has been told.")
-        return redirect("classes:admin_discount_codes")
+    try:
+        if decision == "approve" and form.is_valid():
+            code = req.approve(cast("User", request.user), form)
+            messages.success(request, f"Discount code {code.code} approved and ready to use.")
+            return redirect(back_url)
+        if decision == "decline" and decline_form.is_valid():
+            req.decline(cast("User", request.user), decline_form.cleaned_data["note"])
+            messages.success(request, "Request declined. The instructor has been told.")
+            return redirect(back_url)
+    except DiscountCodeRequestAlreadyDecided:
+        # Another reviewer decided between this page's fetch and the click; the model's row
+        # lock made that one decision the only one.
+        messages.info(request, "This request has already been decided.")
+        return redirect(back_url)
     return render(
         request,
         "classes/admin/discount_code_request_review.html",
-        {"active_tab": "discount_codes", "request_row": req, "form": form, "decline_form": decline_form},
+        {
+            "active_tab": "discount_codes",
+            "request_row": req,
+            "form": form,
+            "decline_form": decline_form,
+            "back_url": back_url,
+        },
     )
 
 

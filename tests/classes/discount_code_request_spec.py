@@ -135,6 +135,22 @@ def describe_approve():
 
         assert DiscountCode.objects.count() == 1
 
+    def it_makes_one_decision_when_two_admins_approve_the_same_request():
+        # Two page loads, two in-memory copies both still PENDING. The second approve re-reads
+        # the row under the lock and sees the first decision, so one code and one exception.
+        req = _request()
+        twin = DiscountCodeRequest.objects.get(pk=req.pk)
+        admin = _admin()
+
+        req.approve(admin, _valid_form(req))
+        with pytest.raises(DiscountCodeRequestAlreadyDecided):
+            twin.approve(admin, _valid_form(twin, code="OTHER"))
+
+        assert DiscountCode.objects.count() == 1
+        twin.refresh_from_db()
+        assert twin.status == DiscountCodeRequest.Status.APPROVED
+        assert Notification.objects.filter(trigger="discount_code.request_approved").count() == 1
+
 
 def describe_decline():
     def it_records_the_note_and_the_decider():
@@ -188,6 +204,20 @@ def describe_decline():
         req.refresh_from_db()
         assert req.discount_code is None
 
+    def it_keeps_the_first_decision_when_a_stale_copy_declines_an_approved_request():
+        req = _request()
+        twin = DiscountCodeRequest.objects.get(pk=req.pk)
+        admin = _admin()
+
+        req.approve(admin, _valid_form(req))
+        with pytest.raises(DiscountCodeRequestAlreadyDecided):
+            twin.decline(admin, "Too late.")
+
+        twin.refresh_from_db()
+        assert twin.status == DiscountCodeRequest.Status.APPROVED
+        assert twin.decision_note == ""
+        assert DiscountCode.objects.count() == 1
+
 
 def describe_a_new_request():
     def it_uppercases_the_code():
@@ -203,7 +233,9 @@ def describe_a_new_request():
         row = Notification.objects.get(user=approver.user, trigger="discount_code.requested")
         assert "SPRING20" in row.body
         assert req.class_offering.title in row.body
-        assert row.url.endswith(reverse("classes:admin_discount_codes"))
+        # The review page itself, so a holder who cannot open the admin queue can still act.
+        assert row.url.endswith(reverse("classes:admin_discount_code_request_review", kwargs={"pk": req.pk}))
+        assert row.url.startswith("http")
 
     def it_does_not_notify_a_plain_member():
         bystander = _member("bystander")
