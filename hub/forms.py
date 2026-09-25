@@ -5,12 +5,12 @@ from __future__ import annotations
 from datetime import datetime, time, timedelta
 from decimal import Decimal
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Any, cast
+from typing import TYPE_CHECKING, Any, ClassVar, cast
 
 from django.db import transaction
 from django import forms
 from django.conf import settings
-from django.db.models import Case, Q, Value, When
+from django.db.models import Case, Q, QuerySet, Value, When
 from django.urls import reverse
 from django.utils import timezone
 from django.utils.html import escape
@@ -2606,13 +2606,44 @@ class OrientationSlotForm(forms.ModelForm):
 class CommunityEventForm(forms.ModelForm):
     """Add/edit a FOG-native community event.
 
-    One form serves three surfaces: a guild lead (``as_admin=False``) authors their
-    guild's events (``event_type``/``guild`` are implied by context and removed from the
-    form); an admin (``as_admin=True``) authors site-wide events and picks the
-    type/guild; and a member (``as_member=True``) proposes an event with an *optional*
-    guild picker (the type is derived — a guild picked → guild meeting, blank →
-    community). The datetime widgets are copied from :class:`OrientationSlotForm`.
+    Both of the form's opening questions are a **permission**, not a universal prompt
+    (``can_choose_audience``, which the views take from ``editable_meeting_scopes``). Guild
+    staff and admins are asked who the audience is, and picking members reveals a second
+    question: what kind of member event this is. A plain member is asked neither — their
+    event goes on the public calendar as a plain event, exactly as it did before #505.
+
+    The choice is about *placement*, never secrecy: both Google calendars are open
+    subscription feeds, so a member event is still visible to anyone, still posts to Discord
+    and still has an open event page. The stored ``event_type`` is what the two answers add
+    up to; nobody picks it directly.
+
+    One form still serves three surfaces, and what differs between them is only whether the
+    guild is already settled: pass ``guild`` (the guild's own Events tab) and the picker is
+    removed because the page *is* the guild; leave it out (the admin Events tab, Propose an
+    event) and the picker appears, listing ``guild_choices``. The datetime widgets are copied
+    from :class:`OrientationSlotForm`.
     """
+
+    #: The only two kinds anyone picks here. Studio hours keep their own editor on the guild
+    #: page, and the Guild Lead Meeting is written by the Meetings workspace, so neither is
+    #: ever offered — and neither can be created through this form.
+    KIND_CHOICES: ClassVar[list[tuple[str, str]]] = [
+        (CommunityEvent.EventType.GUILD_MEETING, "Guild meeting"),
+        (CommunityEvent.EventType.COMMUNITY, "Something else"),
+    ]
+
+    #: Stored types the composer never re-types: an existing row keeps what it holds and is
+    #: shown no kind picker at all.
+    PRESERVED_TYPES: ClassVar[set[str]] = {
+        CommunityEvent.EventType.LEAD_MEETING,
+        CommunityEvent.EventType.STUDIO_HOURS,
+    }
+
+    #: Types that cannot exist without a guild.
+    _GUILD_REQUIRED_TYPES: ClassVar[set[str]] = {
+        CommunityEvent.EventType.GUILD_MEETING,
+        CommunityEvent.EventType.STUDIO_HOURS,
+    }
 
     class Meta:
         model = CommunityEvent
@@ -2650,8 +2681,8 @@ class CommunityEventForm(forms.ModelForm):
         self,
         *args: Any,
         guild: Guild | None = None,
-        as_admin: bool = False,
-        as_member: bool = False,
+        can_choose_audience: bool = False,
+        guild_choices: QuerySet[Guild] | None = None,
         **kwargs: Any,
     ) -> None:
         super().__init__(*args, **kwargs)
@@ -2659,22 +2690,73 @@ class CommunityEventForm(forms.ModelForm):
             cast(forms.DateTimeField, self.fields[name]).input_formats = ["%Y-%m-%dT%H:%M", "%Y-%m-%dT%H:%M:%S"]
         self.fields["publish_at"].label = "Announce at"
         self.fields["video_url"].label = "Video link"
-        # The picker is a <select> that always submits a value in the UI; keep it forgiving so a
-        # value-less POST falls back to the model default (PUBLIC) rather than erroring.
-        self.fields["google_calendar_target"].required = False
-        self._as_admin = as_admin
-        self._as_member = as_member
-        self._fixed_guild = guild
-        if as_member:
-            # The proposer picks an optional guild; the type is derived on save.
-            del self.fields["event_type"]
-            self.fields["guild"].required = False
-            self.fields["guild"].label = "Guild (optional)"
-        elif as_admin:
-            self.fields["guild"].required = False
+        self._setup_audience_field(can_choose_audience=can_choose_audience)
+        self._setup_kind_field(can_choose_audience=can_choose_audience, fixed_guild=guild)
+        if guild is None:
+            guild_field = cast(forms.ModelChoiceField, self.fields["guild"])
+            guild_field.required = False
+            guild_field.label = "Guild"
+            guild_field.empty_label = "No guild"
+            if guild_choices is not None:
+                guild_field.queryset = guild_choices
         else:
-            del self.fields["event_type"]
+            # The guild is the page this form was opened from, so there is nothing to pick.
             del self.fields["guild"]
+
+    def _setup_audience_field(self, *, can_choose_audience: bool) -> None:
+        """Turn the Google-calendar picker into the form's opening question, or remove it.
+
+        Choosing the members calendar is a guild-staff and admin permission: everyone else's
+        event goes on the public calendar, which is where a member's event has always gone.
+        Removing the field leaves the stored value alone (the model default, PUBLIC, for a
+        new event), so a plain member's save is byte-identical to the old one.
+
+        The stored field keeps its name and its two values (#505 constraint); only the way it
+        is asked changes. It stays forgiving about a missing value so a value-less POST falls
+        back to PUBLIC rather than erroring.
+        """
+        if not can_choose_audience:
+            del self.fields["google_calendar_target"]
+            return
+        field = self.fields["google_calendar_target"]
+        field.required = False
+        field.label = "Who is the audience?"
+        field.help_text = (
+            "This picks which of the two Google calendars it lands on: the members one is for "
+            "guild meetings, council meetings, studio hours and the occasional members only "
+            "meeting, and everything else belongs on the public one."
+        )
+        field.widget = forms.RadioSelect(attrs={"@change": "audience = $event.target.value"})
+        field.choices = [  # type: ignore[attr-defined]  # ChoiceField setter propagates to the new widget
+            (CommunityEvent.GoogleCalendarTarget.MEMBER, "Members"),
+            (CommunityEvent.GoogleCalendarTarget.PUBLIC, "The public"),
+        ]
+
+    def _setup_kind_field(self, *, can_choose_audience: bool, fixed_guild: Guild | None) -> None:
+        """Show the follow-up question, or remove it.
+
+        Only someone who may choose the audience is asked what kind of member event this is;
+        for everyone else the answer is always "something else" and the question would be
+        noise. A row whose stored type this form never writes keeps that type and is shown no
+        picker either.
+        """
+        if not can_choose_audience or self.instance.event_type in self.PRESERVED_TYPES:
+            del self.fields["event_type"]
+            return
+        field = self.fields["event_type"]
+        field.required = False
+        field.label = "What kind of member event is this?"
+        field.help_text = "Only asked for a member event. Anything for the public is just an event."
+        field.widget = forms.RadioSelect()
+        field.choices = self.KIND_CHOICES  # type: ignore[attr-defined]  # setter propagates to the new widget
+        if self.instance.pk is None:
+            # model_to_dict seeds initial from the model default (a guild meeting), which is
+            # only the right opening answer where a guild is already the context.
+            self.initial["event_type"] = (
+                CommunityEvent.EventType.GUILD_MEETING
+                if fixed_guild is not None
+                else CommunityEvent.EventType.COMMUNITY
+            )
 
     def clean_google_calendar_target(self) -> str:
         """Coerce a blank/omitted picker value to the default PUBLIC calendar."""
@@ -2693,20 +2775,41 @@ class CommunityEventForm(forms.ModelForm):
             raise forms.ValidationError("The announcement time must be before the event starts.")
         return publish_at
 
+    def resolved_event_type(self) -> str:
+        """The stored ``event_type`` the visible answers add up to.
+
+        A row this form never re-types keeps what it holds. Otherwise a public event is
+        always a plain event, and a member event is a guild meeting only when someone with
+        the standing to say so said so; everything else is a plain event. An author who was
+        never asked the audience falls through the same public branch, which is why a plain
+        member's proposal is a plain event. Safe to call only after :meth:`clean`, which is
+        where it is first used.
+        """
+        if self.instance.event_type in self.PRESERVED_TYPES:
+            return str(self.instance.event_type)
+        if self.cleaned_data.get("google_calendar_target") != CommunityEvent.GoogleCalendarTarget.MEMBER:
+            return str(CommunityEvent.EventType.COMMUNITY)
+        return str(self.cleaned_data.get("event_type") or CommunityEvent.EventType.COMMUNITY)
+
     def clean(self) -> dict[str, Any]:
         cleaned = cast(dict[str, Any], super().clean())
         starts = cleaned.get("starts_at")
         ends = cleaned.get("ends_at")
         if starts and ends and ends <= starts:
             self.add_error("ends_at", "End time must be after the start.")
-        if self._as_admin:
-            etype = cleaned.get("event_type")
+        event_type = self.resolved_event_type()
+        # Set both: ``construct_instance`` drives the field when it is on the form, and the
+        # instance carries the answer when it is not (it raises on a cleaned_data key whose
+        # field was removed, so writing only cleaned_data would break the guild-lead surface).
+        self.instance.event_type = event_type
+        if "event_type" in self.fields:
+            cleaned["event_type"] = event_type
+        if "guild" in self.fields:
             guild = cleaned.get("guild")
-            if etype == CommunityEvent.EventType.GUILD_MEETING and guild is None:
-                self.add_error("guild", "Pick a guild for a guild event.")
-            site_wide = {CommunityEvent.EventType.LEAD_MEETING, CommunityEvent.EventType.COMMUNITY}
-            if etype in site_wide and guild is not None:
-                self.add_error("guild", "Leave the guild blank for a site-wide event.")
+            if event_type in self._GUILD_REQUIRED_TYPES and guild is None:
+                self.add_error("guild", "Pick the guild this meeting belongs to.")
+            if event_type == CommunityEvent.EventType.LEAD_MEETING and guild is not None:
+                self.add_error("guild", "A Guild Lead Meeting is makerspace wide. Choose No guild.")
         return cleaned
 
 

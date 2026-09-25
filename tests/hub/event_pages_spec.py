@@ -28,6 +28,9 @@ from tests.membership.factories import (
     MembershipPlanFactory,
 )
 
+#: The audience badge's own markup on the event page — assert against this, never bare copy.
+_BADGE = '<span class="pl-event-detail__type">'
+
 pytestmark = pytest.mark.django_db
 
 
@@ -84,11 +87,39 @@ def describe_event_detail():
         assert b"Metal Guild" in resp.content
         assert reverse("hub_guild_detail", args=[guild.slug]).encode() in resp.content
 
-    def it_renders_a_site_wide_event_with_a_type_label(client: Client):
-        event = CommunityEventFactory(community=True, title="Potluck")
+    def it_badges_a_public_event_by_its_audience(client: Client):
+        # Anchored on the badge's own markup: the changelog renders into every page, so a
+        # bare copy assertion could pass (or fail) on a release note instead (STANDARDS §8).
+        event = CommunityEventFactory(
+            community=True, title="Potluck", google_calendar_target=CommunityEvent.GoogleCalendarTarget.PUBLIC
+        )
         resp = client.get(reverse("hub_event_detail", args=[event.pk]))
         assert resp.status_code == 200
-        assert b"Community event" in resp.content  # get_event_type_display, not a guild pill
+        assert _BADGE + "Public event<" in resp.content.decode()
+
+    def it_badges_a_member_event_by_its_audience(client: Client):
+        event = CommunityEventFactory(
+            community=True,
+            title="Members Night",
+            google_calendar_target=CommunityEvent.GoogleCalendarTarget.MEMBER,
+        )
+        resp = client.get(reverse("hub_event_detail", args=[event.pk]))
+        assert _BADGE + "Member event<" in resp.content.decode()
+
+    def it_badges_a_guild_event_alongside_its_guild_pill(client: Client):
+        guild = GuildFactory(name="Metal Guild")
+        event = CommunityEventFactory(
+            guild_hosted=True, guild=guild, google_calendar_target=CommunityEvent.GoogleCalendarTarget.PUBLIC
+        )
+        resp = client.get(reverse("hub_event_detail", args=[event.pk]))
+        html = resp.content.decode()
+        assert b"Metal Guild" in resp.content
+        assert _BADGE + "Public event<" in html
+
+    def it_never_badges_the_stored_type_on_the_event_page(client: Client):
+        event = CommunityEventFactory(community=True, title="Potluck")
+        html = client.get(reverse("hub_event_detail", args=[event.pk])).content.decode()
+        assert _BADGE + f"{event.get_event_type_display()}<" not in html
 
     def it_shows_the_past_note_for_an_ended_non_recurring_event(client: Client):
         start = timezone.now() - timedelta(days=2)

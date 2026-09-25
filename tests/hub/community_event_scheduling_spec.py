@@ -51,22 +51,22 @@ def _user_with_role(username: str, *, fog_role: str = Member.FogRole.MEMBER) -> 
 @pytest.mark.django_db
 def describe_clean_publish_at():
     def it_accepts_a_blank_publish_at():
-        form = CommunityEventForm(data=_payload(), as_admin=False)
+        form = CommunityEventForm(data=_payload())
         assert form.is_valid()
         assert form.cleaned_data["publish_at"] is None
 
     def it_accepts_a_future_time_before_the_start():
-        form = CommunityEventForm(data=_payload(publish_at=_at(20)), as_admin=False)
+        form = CommunityEventForm(data=_payload(publish_at=_at(20)))
         assert form.is_valid()
         assert form.cleaned_data["publish_at"] is not None
 
     def it_rejects_a_time_in_the_past():
-        form = CommunityEventForm(data=_payload(publish_at=_at(-1)), as_admin=False)
+        form = CommunityEventForm(data=_payload(publish_at=_at(-1)))
         assert not form.is_valid()
         assert "publish_at" in form.errors
 
     def it_rejects_a_time_at_or_after_the_start():
-        form = CommunityEventForm(data=_payload(publish_at=_at(30)), as_admin=False)  # == starts_at
+        form = CommunityEventForm(data=_payload(publish_at=_at(30)))  # == starts_at
         assert not form.is_valid()
         assert "publish_at" in form.errors
 
@@ -83,7 +83,7 @@ def describe_reminder_booleans():
                 remind_1d="on",
                 notify_happening_now="on",
             ),
-            as_admin=True,
+            can_choose_audience=True,
         )
         assert form.is_valid(), form.errors
         instance = form.save(commit=False)

@@ -1,0 +1,24 @@
+{% comment %}
+The event composer's opening questions, shared by the admin/guild-lead edit page and the
+member Propose an event page so both read identically (#505).
+
+Both questions are a guild-staff and admin permission, so a plain member sees neither and
+their event goes on the public calendar as it always has (the view decides; see
+CommunityEventForm.can_choose_audience). For an author who is asked, audience comes first
+and the kind follows for a member event. The guild picker is shown wherever the guild is not
+already the page's context; it is required for a guild meeting, which
+CommunityEventForm.clean enforces.
+
+Expects: form
+{% endcomment %}
+{% if form.google_calendar_target %}
+<div x-data="{ audience: '{{ form.google_calendar_target.value|default:"public" }}' }">
+  {% include "components/radio_group.html" with field=form.google_calendar_target %}
+  {% if form.event_type %}
+  <div x-show="audience === 'member'" x-cloak class="pl-reveal">
+    {% include "components/radio_group.html" with field=form.event_type %}
+  </div>
+  {% endif %}
+</div>
+{% endif %}
+{% if form.guild %}{% include "components/form_field.html" with field=form.guild field_hint="Whose event is this? Pick No guild for a makerspace wide one. A guild meeting needs a guild." %}{% endif %}

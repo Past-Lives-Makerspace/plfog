@@ -272,7 +272,7 @@
                         <span class="hub-badge">Scheduled for {{ event.publish_at_display }}</span>
                     </div>
                     <div class="hub-text-muted" style="font-size:0.8125rem; margin-top:0.25rem;">
-                        {{ event.get_event_type_display }} · {{ event.starts_at|date:"D, M j · g:i A" }}{% if event.recurrence != "none" %} · {{ event.get_recurrence_display }}{% endif %}
+                        {{ event.audience_label }} · {{ event.starts_at|date:"D, M j · g:i A" }}{% if event.recurrence != "none" %} · {{ event.get_recurrence_display }}{% endif %}
                     </div>
                 </div>
                 <div style="display:flex; gap:0.5rem; flex-wrap:wrap; align-items:center;">

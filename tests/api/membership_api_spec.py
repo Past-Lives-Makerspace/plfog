@@ -152,6 +152,35 @@ def describe_CommunityEventViewSet():
             assert response.status_code == status.HTTP_400_BAD_REQUEST
             assert "guild" in response.data
 
+        def it_accepts_a_plain_event_hosted_by_a_guild(admin_client):
+            # A guild hosting something for the public is the shape #505 opened up. The API
+            # validation tracks the DB constraint, so this must be accepted here too.
+            guild = GuildFactory()
+            payload = {
+                "title": "Woodshop Open House",
+                "event_type": "community",
+                "guild": guild.pk,
+                "starts_at": "2026-09-01T15:00:00Z",
+                "ends_at": "2026-09-01T16:00:00Z",
+            }
+            with patch.object(CommunityEvent, "schedule_or_go_live"):
+                response = admin_client.post("/api/v1/events/", payload, format="json")
+            assert response.status_code == status.HTTP_201_CREATED
+            assert CommunityEvent.objects.get(title="Woodshop Open House").guild_id == guild.pk
+
+        def it_refuses_a_guild_on_a_lead_meeting(admin_client):
+            guild = GuildFactory()
+            payload = {
+                "title": "Guild Lead Meeting",
+                "event_type": "lead_meeting",
+                "guild": guild.pk,
+                "starts_at": "2026-09-01T15:00:00Z",
+                "ends_at": "2026-09-01T16:00:00Z",
+            }
+            response = admin_client.post("/api/v1/events/", payload, format="json")
+            assert response.status_code == status.HTTP_400_BAD_REQUEST
+            assert "guild" in response.data
+
         def it_validates_ends_after_starts(admin_client):
             payload = {
                 "title": "Bad Event",

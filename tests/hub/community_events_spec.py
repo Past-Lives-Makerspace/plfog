@@ -3,22 +3,27 @@ cross-guild isolation), and the admin authoring endpoints + the Events tab."""
 
 from __future__ import annotations
 
+from datetime import timedelta
+from pathlib import Path
 from unittest.mock import patch
 
 import pytest
 from django.contrib.auth.models import User
 from django.test import Client, override_settings
 from django.urls import reverse
+from django.utils import timezone
 
 from core.models import SiteConfiguration
 from hub.forms import CommunityEventForm
-from membership.models import CommunityEvent, GuildStaffMembership, Member
+from membership.models import CommunityEvent, Guild, GuildStaffMembership, Member
 from tests.membership.factories import CommunityEventFactory, GuildFactory, MembershipPlanFactory
 
 ADD_HREF = b'href="/events/add/"'
 PROPOSE_HREF = b'href="/events/propose/"'
 TAB_SENTINEL = b"tab === 'events'"
 SYNC_COPY = b"synced to the shared Past Lives Google Calendar"
+_MEMBER = CommunityEvent.GoogleCalendarTarget.MEMBER
+_PUBLIC = CommunityEvent.GoogleCalendarTarget.PUBLIC
 
 
 def _set_policy(value: str) -> None:
@@ -51,71 +56,210 @@ def _event_payload(**overrides: str) -> dict:
 
 
 @pytest.mark.django_db
-def describe_form():
-    def it_omits_type_and_guild_for_the_lead_variant():
-        form = CommunityEventForm(as_admin=False)
-        assert "event_type" not in form.fields
-        assert "guild" not in form.fields
-        assert "recurrence" in form.fields
+def describe_audience_and_kind_questions():
+    def it_asks_who_the_audience_is_without_naming_google_or_a_calendar():
+        field = CommunityEventForm(can_choose_audience=True).fields["google_calendar_target"]
+        assert field.label == "Who is the audience?"
+        assert "calendar" not in field.label.lower()
+        assert "google" not in field.label.lower()
+        assert [label for _value, label in field.choices] == ["Members", "The public"]
 
+    def it_moves_the_google_wording_into_the_hint():
+        field = CommunityEventForm(can_choose_audience=True).fields["google_calendar_target"]
+        assert "Google calendar" in field.help_text
+
+    def it_defaults_the_audience_to_the_public():
+        assert CommunityEventForm(can_choose_audience=True)["google_calendar_target"].value() == _PUBLIC
+
+    def it_offers_exactly_guild_meeting_and_something_else_as_the_kind():
+        field = CommunityEventForm(can_choose_audience=True).fields["event_type"]
+        assert [(str(value), label) for value, label in field.choices] == [
+            ("guild_meeting", "Guild meeting"),
+            ("community", "Something else"),
+        ]
+
+    def it_never_offers_studio_hours_or_a_guild_lead_meeting_as_a_kind():
+        offered = dict(CommunityEventForm(can_choose_audience=True).fields["event_type"].choices)
+        assert CommunityEvent.EventType.STUDIO_HOURS not in offered
+        assert CommunityEvent.EventType.LEAD_MEETING not in offered
+
+    def it_asks_a_member_with_no_lead_or_staff_authority_neither_question():
+        # Choosing the members calendar is a guild-staff and admin permission; everyone else
+        # posts to the public calendar exactly as they always have.
+        form = CommunityEventForm(can_choose_audience=False)
+        assert "google_calendar_target" not in form.fields
+        assert "event_type" not in form.fields
+        assert "guild" in form.fields
+
+    def it_omits_the_guild_picker_where_the_guild_is_already_the_page():
+        form = CommunityEventForm(guild=GuildFactory(), can_choose_audience=True)
+        assert "guild" not in form.fields
+        assert "event_type" in form.fields
+
+    def it_offers_a_visible_no_guild_choice_rather_than_a_blank_row():
+        field = CommunityEventForm(can_choose_audience=True).fields["guild"]
+        assert field.empty_label == "No guild"
+        assert not field.required
+
+    def it_lists_only_the_guilds_it_was_handed():
+        mine = GuildFactory(name="Metals")
+        GuildFactory(name="Textiles")
+        form = CommunityEventForm(can_choose_audience=True, guild_choices=Guild.objects.filter(pk=mine.pk))
+        assert list(form.fields["guild"].queryset) == [mine]
+
+    def it_opens_on_guild_meeting_where_a_guild_is_the_page():
+        assert (
+            CommunityEventForm(guild=GuildFactory(), can_choose_audience=True)["event_type"].value() == "guild_meeting"
+        )
+
+    def it_opens_on_something_else_where_no_guild_is_settled():
+        assert CommunityEventForm(can_choose_audience=True)["event_type"].value() == "community"
+
+
+@pytest.mark.django_db
+def describe_the_four_shapes():
+    def it_stores_a_member_guild_meeting_as_a_guild_meeting():
+        guild = GuildFactory()
+        form = CommunityEventForm(
+            data=_event_payload(google_calendar_target="member", event_type="guild_meeting", guild=str(guild.pk)),
+            can_choose_audience=True,
+        )
+        assert form.is_valid(), form.errors
+        event = form.save()
+        assert event.event_type == CommunityEvent.EventType.GUILD_MEETING
+        assert event.guild == guild
+
+    def it_stores_a_member_something_else_as_a_plain_event_with_an_optional_guild():
+        guild = GuildFactory()
+        form = CommunityEventForm(
+            data=_event_payload(google_calendar_target="member", event_type="community", guild=str(guild.pk)),
+            can_choose_audience=True,
+        )
+        assert form.is_valid(), form.errors
+        event = form.save()
+        assert event.event_type == CommunityEvent.EventType.COMMUNITY
+        assert event.guild == guild
+
+    def it_keeps_an_unasked_author_on_the_public_calendar_even_if_they_post_otherwise():
+        # The field is not on their form, so a hand-crafted POST cannot move the event onto
+        # the members calendar.
+        form = CommunityEventForm(data=_event_payload(google_calendar_target="member"), can_choose_audience=False)
+        assert form.is_valid(), form.errors
+        event = form.save()
+        assert event.event_type == CommunityEvent.EventType.COMMUNITY
+        assert event.google_calendar_target == _PUBLIC
+
+    def it_stores_a_public_event_with_a_guild_as_a_plain_event():
+        guild = GuildFactory()
+        form = CommunityEventForm(
+            data=_event_payload(google_calendar_target="public", guild=str(guild.pk)), can_choose_audience=True
+        )
+        assert form.is_valid(), form.errors
+        event = form.save()
+        assert event.event_type == CommunityEvent.EventType.COMMUNITY
+        assert event.guild == guild
+        assert event.google_calendar_target == _PUBLIC
+
+    def it_ignores_a_kind_answer_when_the_audience_is_the_public():
+        # The kind radios stay in the DOM while hidden, so a stale "Guild meeting" rides along
+        # on the POST. The audience answer settles it: nothing public is a guild meeting.
+        guild = GuildFactory()
+        form = CommunityEventForm(
+            data=_event_payload(google_calendar_target="public", event_type="guild_meeting", guild=str(guild.pk)),
+            can_choose_audience=True,
+        )
+        assert form.is_valid(), form.errors
+        assert form.save().event_type == CommunityEvent.EventType.COMMUNITY
+
+    def it_requires_a_guild_for_a_guild_meeting():
+        form = CommunityEventForm(
+            data=_event_payload(google_calendar_target="member", event_type="guild_meeting"), can_choose_audience=True
+        )
+        assert not form.is_valid()
+        assert "guild" in form.errors
+
+
+@pytest.mark.django_db
+def describe_rows_the_composer_never_writes():
+    def it_keeps_the_stored_kind_of_a_guild_lead_meeting_and_asks_no_kind_question():
+        event = CommunityEventFactory(lead_meeting=True)
+        form = CommunityEventForm(
+            instance=event, data=_event_payload(google_calendar_target="member"), can_choose_audience=True
+        )
+        assert "event_type" not in form.fields
+        assert form.is_valid(), form.errors
+        assert form.save().event_type == CommunityEvent.EventType.LEAD_MEETING
+
+    def it_refuses_to_put_a_guild_on_a_guild_lead_meeting():
+        event = CommunityEventFactory(lead_meeting=True)
+        form = CommunityEventForm(
+            instance=event, data=_event_payload(guild=str(GuildFactory().pk)), can_choose_audience=True
+        )
+        assert not form.is_valid()
+        assert "guild" in form.errors
+
+    def it_keeps_the_stored_kind_of_a_studio_hours_row():
+        event = CommunityEventFactory(studio_hours=True)
+        form = CommunityEventForm(
+            instance=event, data=_event_payload(guild=str(event.guild.pk)), can_choose_audience=True
+        )
+        assert "event_type" not in form.fields
+        assert form.is_valid(), form.errors
+        assert form.save().event_type == CommunityEvent.EventType.STUDIO_HOURS
+
+    def it_still_demands_a_guild_for_a_studio_hours_row():
+        event = CommunityEventFactory(studio_hours=True)
+        form = CommunityEventForm(instance=event, data=_event_payload(), can_choose_audience=True)
+        assert not form.is_valid()
+        assert "guild" in form.errors
+
+
+@pytest.mark.django_db
+def describe_form():
     def it_errors_when_end_is_not_after_start():
         form = CommunityEventForm(
             data=_event_payload(event_type="community", ends_at="2026-07-11T18:00", starts_at="2026-07-11T20:00"),
-            as_admin=True,
+            can_choose_audience=True,
         )
         assert not form.is_valid()
         assert "End time must be after the start." in form.errors["ends_at"]
 
-    def it_errors_for_a_guild_meeting_without_a_guild():
-        form = CommunityEventForm(data=_event_payload(event_type="guild_meeting"), as_admin=True)
-        assert not form.is_valid()
-        assert "guild" in form.errors
-
-    def it_errors_for_a_site_wide_type_with_a_guild():
-        guild = GuildFactory()
-        form = CommunityEventForm(data=_event_payload(event_type="community", guild=str(guild.pk)), as_admin=True)
-        assert not form.is_valid()
-        assert "guild" in form.errors
-
-    def it_saves_a_valid_admin_guild_meeting():
-        guild = GuildFactory()
-        form = CommunityEventForm(data=_event_payload(event_type="guild_meeting", guild=str(guild.pk)), as_admin=True)
-        assert form.is_valid(), form.errors
-
     def it_defaults_the_calendar_target_to_public_when_omitted():
         # The payload has no google_calendar_target — the forgiving clean coerces it to PUBLIC.
-        form = CommunityEventForm(data=_event_payload(event_type="community"), as_admin=True)
+        form = CommunityEventForm(data=_event_payload(event_type="community"), can_choose_audience=True)
         assert form.is_valid(), form.errors
         assert form.cleaned_data["google_calendar_target"] == CommunityEvent.GoogleCalendarTarget.PUBLIC
 
     def it_saves_the_chosen_member_calendar_target():
         form = CommunityEventForm(
-            data=_event_payload(event_type="community", google_calendar_target="member"), as_admin=True
+            data=_event_payload(event_type="community", google_calendar_target="member"), can_choose_audience=True
         )
         assert form.is_valid(), form.errors
         assert form.save().google_calendar_target == CommunityEvent.GoogleCalendarTarget.MEMBER
 
     def it_saves_the_chosen_public_calendar_target():
         form = CommunityEventForm(
-            data=_event_payload(event_type="community", google_calendar_target="public"), as_admin=True
+            data=_event_payload(event_type="community", google_calendar_target="public"), can_choose_audience=True
         )
         assert form.is_valid(), form.errors
         assert form.save().google_calendar_target == CommunityEvent.GoogleCalendarTarget.PUBLIC
 
     def it_labels_the_video_url_field_video_link():
-        form = CommunityEventForm(as_admin=True)
+        form = CommunityEventForm(can_choose_audience=True)
         assert form.fields["video_url"].label == "Video link"
 
     def it_saves_a_valid_video_url():
         form = CommunityEventForm(
             data=_event_payload(event_type="community", video_url="https://meet.google.com/abc-defg-hij"),
-            as_admin=True,
+            can_choose_audience=True,
         )
         assert form.is_valid(), form.errors
         assert form.save().video_url == "https://meet.google.com/abc-defg-hij"
 
     def it_errors_on_a_non_url_video_link():
-        form = CommunityEventForm(data=_event_payload(event_type="community", video_url="not a url"), as_admin=True)
+        form = CommunityEventForm(
+            data=_event_payload(event_type="community", video_url="not a url"), can_choose_audience=True
+        )
         assert not form.is_valid()
         assert "video_url" in form.errors
 
@@ -126,19 +270,19 @@ def describe_form():
         # field restricts to http/https via URLValidator(schemes=...), so a scheme-smuggled
         # value fails form validation just like a malformed URL would.
         form = CommunityEventForm(
-            data=_event_payload(event_type="community", video_url="javascript:alert(1)"), as_admin=True
+            data=_event_payload(event_type="community", video_url="javascript:alert(1)"), can_choose_audience=True
         )
         assert not form.is_valid()
         assert "video_url" in form.errors
 
     def it_still_accepts_a_plain_http_video_url():
         form = CommunityEventForm(
-            data=_event_payload(event_type="community", video_url="http://meet.example.com/x"), as_admin=True
+            data=_event_payload(event_type="community", video_url="http://meet.example.com/x"), can_choose_audience=True
         )
         assert form.is_valid(), form.errors
 
     def it_allows_a_blank_video_url():
-        form = CommunityEventForm(data=_event_payload(event_type="community"), as_admin=True)
+        form = CommunityEventForm(data=_event_payload(event_type="community"), can_choose_audience=True)
         assert form.is_valid(), form.errors
         assert form.save().video_url == ""
 
@@ -197,12 +341,37 @@ def describe_lead_create_and_edit():
         guild = GuildFactory(guild_lead=user.member)
         client.login(username="c1", password="pass")
         with patch.object(CommunityEvent, "announce") as mock_announce:
-            resp = client.post(reverse("hub_guild_event_add", args=[guild.pk]), data=_event_payload())
+            resp = client.post(
+                reverse("hub_guild_event_add", args=[guild.pk]),
+                data=_event_payload(google_calendar_target="member", event_type="guild_meeting"),
+            )
         assert resp.status_code == 302
         event = CommunityEvent.objects.get(guild=guild)
         assert event.event_type == CommunityEvent.EventType.GUILD_MEETING
         assert event.created_by == user
         mock_announce.assert_called_once()
+
+    def it_creates_a_public_event_the_guild_hosts(client: Client):
+        # The audience defaults to the public, and a public event is never a guild meeting —
+        # it stays attached to the guild whose page authored it.
+        user = _user_with_role("c1b")
+        guild = GuildFactory(guild_lead=user.member)
+        client.login(username="c1b", password="pass")
+        with patch.object(CommunityEvent, "announce"):
+            resp = client.post(reverse("hub_guild_event_add", args=[guild.pk]), data=_event_payload(title="Open House"))
+        assert resp.status_code == 302
+        event = CommunityEvent.objects.get(title="Open House")
+        assert event.event_type == CommunityEvent.EventType.COMMUNITY
+        assert event.guild == guild
+        assert event.google_calendar_target == _PUBLIC
+
+    def it_asks_a_lead_the_kind_question(client: Client):
+        user = _user_with_role("c1c")
+        guild = GuildFactory(guild_lead=user.member)
+        client.login(username="c1c", password="pass")
+        html = client.get(reverse("hub_guild_event_add", args=[guild.pk])).content.decode()
+        assert "What kind of member event is this?" in html
+        assert "Who is the audience?" in html
 
     def it_does_not_re_announce_on_edit(client: Client):
         user = _user_with_role("c2")
@@ -263,6 +432,46 @@ def describe_admin_authoring():
         client.login(username="ad1", password="pass")
         assert client.get(reverse("hub_event_add")).status_code == 200
 
+    def it_asks_an_admin_both_questions(client: Client):
+        _user_with_role("adq", fog_role=Member.FogRole.ADMIN)
+        client.login(username="adq", password="pass")
+        html = client.get(reverse("hub_event_add")).content.decode()
+        assert "Who is the audience?" in html
+        assert "What kind of member event is this?" in html
+
+    def it_lists_every_active_guild_for_an_admin(client: Client):
+        _user_with_role("adg", fog_role=Member.FogRole.ADMIN)
+        live = GuildFactory(name="Live Guild")
+        GuildFactory(name="Retired Guild", is_active=False)
+        client.login(username="adg", password="pass")
+        resp = client.get(reverse("hub_event_add"))
+        assert list(resp.context["form"].fields["guild"].queryset) == [live]
+
+    def it_lets_an_admin_attach_a_guild_to_a_public_event(client: Client):
+        _user_with_role("adh", fog_role=Member.FogRole.ADMIN)
+        guild = GuildFactory()
+        client.login(username="adh", password="pass")
+        with patch.object(CommunityEvent, "announce"):
+            client.post(reverse("hub_event_add"), data=_event_payload(title="Hosted Night", guild=str(guild.pk)))
+        event = CommunityEvent.objects.get(title="Hosted Night")
+        assert event.guild == guild
+        assert event.event_type == CommunityEvent.EventType.COMMUNITY
+
+    def it_badges_a_parked_event_on_the_events_tab_by_its_audience(client: Client):
+        # Scoped to the text right after the event's own title, which no changelog entry can
+        # contain — a bare copy assertion would read the site-wide changelog too (STANDARDS §8).
+        _user_with_role("adsch", fog_role=Member.FogRole.ADMIN)
+        CommunityEventFactory(
+            community=True,
+            title="Parked Potluck",
+            moderation_state=CommunityEvent.ModerationState.SCHEDULED,
+            publish_at=timezone.now() + timedelta(days=1),
+            google_calendar_target=_MEMBER,
+        )
+        client.login(username="adsch", password="pass")
+        html = client.get(reverse("hub_community_calendar")).content.decode()
+        assert "Member event" in html.split("Parked Potluck", 1)[1][:400]
+
     def it_renders_the_video_link_field_on_the_add_page(client: Client):
         _user_with_role("ad1v", fog_role=Member.FogRole.ADMIN)
         client.login(username="ad1v", password="pass")
@@ -308,6 +517,50 @@ def describe_admin_authoring():
         event = CommunityEventFactory(community=True)
         client.login(username="ad4", password="pass")
         assert client.get(reverse("hub_event_delete", args=[event.pk])).status_code == 405
+
+
+@pytest.mark.django_db
+def describe_a_guilds_own_events_tab():
+    def _open_tab(client: Client, guild: Guild) -> Client:
+        return client.get(f"{reverse('hub_guild_edit', args=[guild.pk])}?tab=events")
+
+    def it_lists_a_public_event_the_guild_hosts(client: Client):
+        # Keyed on "not studio hours" rather than "is a meeting", so the guild's own public
+        # event cannot vanish from its own page (#505).
+        user = _user_with_role("ge1")
+        guild = GuildFactory(guild_lead=user.member)
+        event = CommunityEventFactory(guild_hosted=True, guild=guild, title="Open House")
+        client.login(username="ge1", password="pass")
+        assert list(_open_tab(client, guild).context["events"]) == [event]
+
+    def it_still_lists_the_guilds_meetings(client: Client):
+        user = _user_with_role("ge2")
+        guild = GuildFactory(guild_lead=user.member)
+        event = CommunityEventFactory(guild_meeting=True, guild=guild)
+        client.login(username="ge2", password="pass")
+        assert list(_open_tab(client, guild).context["events"]) == [event]
+
+    def it_leaves_studio_hours_to_their_own_editor(client: Client):
+        user = _user_with_role("ge3")
+        guild = GuildFactory(guild_lead=user.member)
+        CommunityEventFactory(studio_hours=True, guild=guild)
+        client.login(username="ge3", password="pass")
+        assert list(_open_tab(client, guild).context["events"]) == []
+
+
+def describe_member_facing_surfaces():
+    def it_renders_the_stored_event_type_in_no_template():
+        """Members read the audience, never the type, so no template may call
+        ``get_event_type_display``. Asserted against the templates themselves rather than a
+        rendered page: the changelog renders into every page, so a copy assertion could pass
+        or fail on a release note instead (STANDARDS §8)."""
+        templates_dir = Path(__file__).resolve().parents[2] / "templates"
+        offenders = [
+            str(path.relative_to(templates_dir))
+            for path in sorted(templates_dir.rglob("*.html"))
+            if "get_event_type_display" in path.read_text(encoding="utf-8")
+        ]
+        assert offenders == []
 
 
 @pytest.mark.django_db

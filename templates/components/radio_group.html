@@ -1,0 +1,32 @@
+{% comment %}
+A question answered by stacked radio option cards (the profile marketing opt-in's markup,
+lifted into a component so the event composer's two questions read the same on both of its
+pages).
+
+The hint is wired to the group with aria-describedby, so a screen reader hears the sentence
+that explains the choice rather than only the option labels.
+
+Parameters (pass via {% include ... with %}):
+  field       — required, a form field whose widget is a RadioSelect
+  field_hint  — optional, hint text under the group (defaults to field.help_text)
+{% endcomment %}
+{% firstof field_hint field.help_text as hint_text %}
+<div class="pl-form-group">
+    <span class="pl-form-label" id="{{ field.auto_id }}_label">{{ field.label }}</span>
+    <div class="pl-radio-group" role="radiogroup" aria-labelledby="{{ field.auto_id }}_label"{% if hint_text %} aria-describedby="{{ field.auto_id }}_hint"{% endif %}>
+        {% for radio in field %}
+        <label class="pl-radio-option">
+            {{ radio.tag }}
+            <span class="pl-radio-option__label">{{ radio.choice_label }}</span>
+        </label>
+        {% endfor %}
+    </div>
+    {% if field.errors %}
+    <ul class="pl-field-errors">
+        {% for error in field.errors %}<li class="pl-field-error">{{ error }}</li>{% endfor %}
+    </ul>
+    {% endif %}
+    {% if hint_text %}
+    <p class="pl-field-hint" id="{{ field.auto_id }}_hint">{{ hint_text }}</p>
+    {% endif %}
+</div>

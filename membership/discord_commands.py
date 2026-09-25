@@ -1017,12 +1017,14 @@ def _build_event_form(
     video_url: str = "",
     recurrence: str = "none",
 ) -> CommunityEventForm:
-    """Bind the shared :class:`~hub.forms.CommunityEventForm` (member mode) to the command's inputs.
+    """Bind the shared :class:`~hub.forms.CommunityEventForm` to the command's inputs.
 
     Reuses the web "Propose an event" form so date/time coercion (naive → aware), the
     end-after-start rule, and the URL validation are all enforced exactly once, in one
     place. ``details`` binds straight to the form's ``description`` field (a
-    blank-friendly Textarea), so an omitted value is an empty string.
+    blank-friendly Textarea), so an omitted value is an empty string. The event's kind is
+    settled afterwards by the caller (``_finalize_event`` for an authored event,
+    :meth:`CommunityEvent.propose` for a proposal), not by this form.
     """
     from hub.forms import CommunityEventForm
 
@@ -1038,7 +1040,13 @@ def _build_event_form(
     }
     if guild is not None:
         data["guild"] = str(guild.pk)
-    return CommunityEventForm(data=data, as_member=True)
+    # ``can_choose_audience`` here only means "accept the audience this draft already carries".
+    # The permission itself is enforced by the card, which is what collects the value: the 📅
+    # Calendar select is only rendered for an author who passes :func:`_may_choose_audience`,
+    # and ``_event_cfg_component`` refuses a forged calendar click from anyone else, so a
+    # draft can only reach this form on the members calendar if its author may put it there.
+    # Part 2 of #505 reworks the card's wording; the gate lives there either way.
+    return CommunityEventForm(data=data, can_choose_audience=True)
 
 
 def _form_error_message(form: CommunityEventForm) -> str:
@@ -1164,7 +1172,21 @@ def _config_select_row(field: str, pk: int, emoji_label: str, choices: list, cur
     return {"type": 1, "components": [row_select]}
 
 
-def _create_card_parts(draft: CommunityEventDraft, *, authored: bool, policy: str) -> tuple[str, dict, list]:
+def _may_choose_audience(member: Member) -> bool:
+    """True when this member may put an event on the members-only calendar.
+
+    The same standing the web composer asks for, which it takes from
+    ``editable_meeting_scopes``: an admin, or anyone holding lead or staff authority in ANY
+    guild. Deliberately **not** ``authored``, which is scoped to the guild that was picked —
+    a guild staffer posting a guild-less event holds this permission on the web, and the two
+    doors must not disagree (#505).
+    """
+    return member.is_fog_admin or member.staffed_guilds.exists()
+
+
+def _create_card_parts(
+    draft: CommunityEventDraft, *, authored: bool, policy: str, can_choose_audience: bool
+) -> tuple[str, dict, list]:
     """The shared (content, gold embed, component rows) of the upgraded /create preview card."""
     guild = draft.guild
     start_ts, end_ts = int(draft.starts_at.timestamp()), int(draft.ends_at.timestamp())
@@ -1183,11 +1205,18 @@ def _create_card_parts(draft: CommunityEventDraft, *, authored: bool, policy: st
     # guild change recomputes it. The stored email_choice can only be guild_members on a guild
     # draft (the select never offers it otherwise, and the eventcfg handler rejects a forge).
     email_choices = [choice for choice in _CREATE_EMAIL_CHOICES if choice[0] != "guild_members" or guild is not None]
-    rows = [
-        _config_select_row("repeats", draft.pk, "🔁 Repeats", _CREATE_RECURRENCE_CHOICES, draft.recurrence),
-        _config_select_row("calendar", draft.pk, "📅 Calendar", _CREATE_CALENDAR_CHOICES, draft.google_calendar_target),
-        _config_select_row("email", draft.pk, "✉️ Email invite", email_choices, draft.email_choice),
-    ]
+    # Choosing the members-only calendar is a guild-staff and admin permission (#505), so an
+    # author without it is never offered the row — rebuilt from the draft on every re-render,
+    # exactly like the email choices above. A draft can only be on the members calendar when
+    # its author holds it: drafts start PUBLIC and the eventcfg handler rejects a forge.
+    rows = [_config_select_row("repeats", draft.pk, "🔁 Repeats", _CREATE_RECURRENCE_CHOICES, draft.recurrence)]
+    if can_choose_audience:
+        rows.append(
+            _config_select_row(
+                "calendar", draft.pk, "📅 Calendar", _CREATE_CALENDAR_CHOICES, draft.google_calendar_target
+            )
+        )
+    rows.append(_config_select_row("email", draft.pk, "✉️ Email invite", email_choices, draft.email_choice))
     if not draft.when_had_end:
         minutes = int((draft.ends_at - draft.starts_at).total_seconds() // 60)
         rows.append(_config_select_row("duration", draft.pk, "⏱ Duration", _CREATE_DURATION_CHOICES, minutes))
@@ -1210,15 +1239,19 @@ def _create_card_parts(draft: CommunityEventDraft, *, authored: bool, policy: st
     return content, embed, rows
 
 
-def _create_preview_card(draft: CommunityEventDraft, *, authored: bool, policy: str) -> dict:
+def _create_preview_card(draft: CommunityEventDraft, *, authored: bool, policy: str, can_choose_audience: bool) -> dict:
     """The upgraded preview as a fresh type-4 ephemeral (the modal-submit response)."""
-    content, embed, rows = _create_card_parts(draft, authored=authored, policy=policy)
+    content, embed, rows = _create_card_parts(
+        draft, authored=authored, policy=policy, can_choose_audience=can_choose_audience
+    )
     return reply(content, ephemeral=True, embeds=[embed], components=rows)
 
 
-def _create_card_update(draft: CommunityEventDraft, *, authored: bool, policy: str) -> dict:
+def _create_card_update(draft: CommunityEventDraft, *, authored: bool, policy: str, can_choose_audience: bool) -> dict:
     """The upgraded preview as a type-7 in-place update (a config-select click re-renders it)."""
-    content, embed, rows = _create_card_parts(draft, authored=authored, policy=policy)
+    content, embed, rows = _create_card_parts(
+        draft, authored=authored, policy=policy, can_choose_audience=can_choose_audience
+    )
     return update_message(content, embeds=[embed], components=rows)
 
 
@@ -1396,7 +1429,9 @@ def _create_submit(interaction: Interaction, member: Member | None) -> dict:
         email_choice=CommunityEventDraft.EmailChoice.NONE,
         when_had_end=when.had_end,
     )
-    return _create_preview_card(draft, authored=authored, policy=policy)
+    return _create_preview_card(
+        draft, authored=authored, policy=policy, can_choose_audience=_may_choose_audience(member)
+    )
 
 
 def _when_text_from_draft(draft: CommunityEventDraft) -> str:
@@ -1450,7 +1485,15 @@ def _event_cfg_component(interaction: Interaction, member: Member | None) -> dic
         attribute, allowed = _CREATE_CFG_APPLY[field]
         # A site-wide draft never offers "Guild members only", so a guild_members value on one
         # is a forged/tampered click — reject it (guards the v1.8.0 no-guild-email rule).
-        if value not in allowed or (field == "email" and value == "guild_members" and draft.guild is None):
+        # Likewise the Calendar row is absent for an author who may not choose the audience,
+        # so any calendar click from one is forged: hiding the select is not a guard on its
+        # own, and without this a forged click still lands "member" on their draft (#505).
+        forged = (
+            value not in allowed
+            or (field == "email" and value == "guild_members" and draft.guild is None)
+            or (field == "calendar" and not _may_choose_audience(member))
+        )
+        if forged:
             return error_reply()
         setattr(draft, attribute, value)
         draft.save(update_fields=[attribute])
@@ -1461,7 +1504,9 @@ def _event_cfg_component(interaction: Interaction, member: Member | None) -> dic
     guild = draft.guild
     authored = member.is_fog_admin or (guild is not None and member.can_edit_guild(guild))
     policy = _member_event_policy()
-    return _create_card_update(draft, authored=authored, policy=policy)
+    return _create_card_update(
+        draft, authored=authored, policy=policy, can_choose_audience=_may_choose_audience(member)
+    )
 
 
 def _event_edit_component(interaction: Interaction, member: Member | None) -> dict:
