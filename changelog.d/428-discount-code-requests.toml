@@ -1,0 +1,9 @@
+bump = "minor"
+date = "2026-09-24"
+title = "Instructors request discount codes and an admin approves them"
+changes = [
+  "Instructors who teach a class can ask for a discount code from the Discount Codes page instead of making one. The code exists only once an admin approves it.",
+  "Admins see the requests waiting on the Classes admin Discount Codes page, can adjust the values, and approve or decline with a note.",
+  "The instructor is notified either way, with the note when a request is declined.",
+  "A new site setting turns the request step on or off. The existing setting that hides instructor discount codes entirely still works.",
+]
