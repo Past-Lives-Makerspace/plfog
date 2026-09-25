@@ -84,6 +84,13 @@ def describe_instructor_discount_codes_flag_off():
         assert resp.status_code == 302
         assert resp["Location"] == reverse("classes:teach_dashboard")
 
+    def it_redirects_the_request_route(client, member_user):
+        _set_flag(False)
+        client.force_login(member_user)
+        resp = client.get(reverse("classes:teach_discount_code_request"))
+        assert resp.status_code == 302
+        assert resp["Location"] == reverse("classes:teach_dashboard")
+
     def it_redirects_the_per_class_view(client, member_user):
         _set_flag(False)
         offering = _own_offering(member_user)

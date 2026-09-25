@@ -123,6 +123,7 @@ urlpatterns = [
     ),
     path("teach/discount-codes/", views.teach_discount_codes, name="teach_discount_codes"),
     path("teach/discount-codes/new/", views.teach_discount_code_create, name="teach_discount_code_create"),
+    path("teach/discount-codes/request/", views.teach_discount_code_request, name="teach_discount_code_request"),
     path(
         "teach/discount-codes/<int:pk>/edit/",
         views.teach_discount_code_edit,
@@ -315,6 +316,11 @@ urlpatterns = [
         "admin/discount-codes/<int:pk>/approve/",
         views.admin_discount_code_approve,
         name="admin_discount_code_approve",
+    ),
+    path(
+        "admin/discount-codes/requests/<int:pk>/",
+        views.admin_discount_code_request_review,
+        name="admin_discount_code_request_review",
     ),
     path("admin/questions/", views.admin_registration_questions, name="admin_registration_questions"),
     path("admin/questions/new/", views.admin_registration_question_create, name="admin_registration_question_create"),

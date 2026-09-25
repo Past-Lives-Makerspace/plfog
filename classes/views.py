@@ -37,6 +37,7 @@ from django.http import (
     Http404,
     HttpRequest,
     HttpResponse,
+    HttpResponseBadRequest,
     HttpResponseForbidden,
     JsonResponse,
     StreamingHttpResponse,
@@ -92,6 +93,8 @@ from classes.forms import (
     ClassSessionFormSet,
     ClassSettingsForm,
     DiscountCodeForm,
+    DiscountCodeRequestDeclineForm,
+    DiscountCodeRequestForm,
     TeachClassOfferingForm,
     TeachPublishedClassForm,
     TeachWelcomeEmailForm,
@@ -113,6 +116,8 @@ from classes.models import (
     ClassSettings,
     CmsActivity,
     DiscountCode,
+    DiscountCodeRequest,
+    DiscountCodeRequestAlreadyDecided,
     ReadinessItem,
     Registration,
     RegistrationQuestion,
@@ -1373,6 +1378,43 @@ def instructor_discount_codes_required(view_func: _ViewFunc) -> _ViewFunc:
     return wrapper  # type: ignore[return-value]
 
 
+def instructor_direct_discount_codes_required(view_func: _ViewFunc) -> _ViewFunc:
+    """Decorator: the instructor's own create, edit, delete and approve routes belong to the direct flow.
+
+    Layered under ``instructor_discount_codes_required``. With
+    ``instructor_discount_codes_need_approval`` on (approval mode, #428) an instructor asks for
+    a code instead of making one, so these routes send them to the Discount Codes page with an
+    info message. A mode switch is not an authorization failure, so never a 403; a POST is
+    redirected the same way.
+    """
+
+    @wraps(view_func)
+    def wrapper(request: HttpRequest, *args: Any, **kwargs: Any) -> HttpResponse:
+        if SiteConfiguration.load().instructor_discount_codes_need_approval:
+            messages.info(request, "Discount codes are requested here and approved by an admin. Use Request a Code.")
+            return redirect("classes:teach_discount_codes")
+        return view_func(request, *args, **kwargs)
+
+    return wrapper  # type: ignore[return-value]
+
+
+def instructor_request_mode_required(view_func: _ViewFunc) -> _ViewFunc:
+    """Decorator: the mirror image of ``instructor_direct_discount_codes_required``, for the request route.
+
+    With the approval flag off, instructors create codes directly and there is nothing to
+    request, so the route sends them back to the Discount Codes page with an info message.
+    """
+
+    @wraps(view_func)
+    def wrapper(request: HttpRequest, *args: Any, **kwargs: Any) -> HttpResponse:
+        if not SiteConfiguration.load().instructor_discount_codes_need_approval:
+            messages.info(request, "Discount codes do not need approval right now. Use New Code instead.")
+            return redirect("classes:teach_discount_codes")
+        return view_func(request, *args, **kwargs)
+
+    return wrapper  # type: ignore[return-value]
+
+
 def classes_admin_access_required(view_func: _ViewFunc) -> _ViewFunc:
     """Decorator: Classes admin tabs are admin-only.
 
@@ -2498,7 +2540,22 @@ def teach_discount_codes(request: HttpRequest) -> HttpResponse:
     read-only here; admins manage them from the Classes admin.
     """
     teaching_member: Member = request.teaching_member  # type: ignore[attr-defined]
-    own_codes = DiscountCode.objects.filter(created_by=request.user).order_by("code")
+    config = SiteConfiguration.load()
+    approval_mode = config.instructor_discount_codes_approval_mode
+    if approval_mode:
+        # Read only: the codes on the instructor's classes, plus any they made under the direct
+        # flow before the switch, and where each of their requests stands.
+        own_codes = (
+            DiscountCode.objects.filter(Q(created_by=request.user) | Q(class_offering__instructor=teaching_member))
+            .distinct()
+            .order_by("code")
+        )
+        code_requests = DiscountCodeRequest.objects.filter(requested_by=teaching_member).select_related(
+            "class_offering", "discount_code"
+        )
+    else:
+        own_codes = DiscountCode.objects.filter(created_by=request.user).order_by("code")
+        code_requests = DiscountCodeRequest.objects.none()
     sitewide_codes = (
         DiscountCode.objects.filter(class_offering__isnull=True).exclude(created_by=request.user).order_by("code")
     )
@@ -2510,6 +2567,8 @@ def teach_discount_codes(request: HttpRequest) -> HttpResponse:
             "instructor": teaching_member,
             "own_codes": own_codes,
             "sitewide_codes": sitewide_codes,
+            "approval_mode": approval_mode,
+            "requests": code_requests,
             # Resolve the acting user's approval capability once (one Member query),
             # reused per row in the template — avoids an N+1 across the code list.
             "approver": DiscountCode.approver_for(request.user),
@@ -2519,6 +2578,27 @@ def teach_discount_codes(request: HttpRequest) -> HttpResponse:
 
 @teaching_member_required
 @instructor_discount_codes_required
+@instructor_request_mode_required
+def teach_discount_code_request(request: HttpRequest) -> HttpResponse:
+    """An instructor asks for a class code; an admin decides in ``admin_discount_code_request_review``."""
+    teaching_member: Member = request.teaching_member  # type: ignore[attr-defined]
+    form = DiscountCodeRequestForm(
+        request.POST or None, teaching_member=teaching_member, initial_class=request.GET.get("class")
+    )
+    if request.method == "POST" and form.is_valid():
+        req = form.save()
+        messages.success(request, f"Your request for {req.code} is in. An admin will review it.")
+        return redirect("classes:teach_class_discount_codes", pk=req.class_offering_id)
+    return render(
+        request,
+        "classes/teach/discount_code_request_form.html",
+        {"active_tab": "my_discount_codes", "instructor": teaching_member, "form": form},
+    )
+
+
+@teaching_member_required
+@instructor_discount_codes_required
+@instructor_direct_discount_codes_required
 def teach_discount_code_create(request: HttpRequest) -> HttpResponse:
     teaching_member: Member = request.teaching_member  # type: ignore[attr-defined]
     assert request.user.is_authenticated  # @teaching_member_required guarantees a real User
@@ -2559,6 +2639,7 @@ def teach_discount_code_create(request: HttpRequest) -> HttpResponse:
 
 @teaching_member_required
 @instructor_discount_codes_required
+@instructor_direct_discount_codes_required
 def teach_discount_code_edit(request: HttpRequest, pk: int) -> HttpResponse:
     teaching_member: Member = request.teaching_member  # type: ignore[attr-defined]
     # Instructors may only edit codes they created; site-wide / admin codes are
@@ -2578,6 +2659,7 @@ def teach_discount_code_edit(request: HttpRequest, pk: int) -> HttpResponse:
 
 @teaching_member_required
 @instructor_discount_codes_required
+@instructor_direct_discount_codes_required
 def teach_discount_code_delete(request: HttpRequest, pk: int) -> HttpResponse:
     # Only the instructor who created a code may delete it; site-wide / admin codes 404.
     code = get_object_or_404(DiscountCode, pk=pk, created_by=request.user)
@@ -2589,6 +2671,7 @@ def teach_discount_code_delete(request: HttpRequest, pk: int) -> HttpResponse:
 
 @teaching_member_required
 @instructor_discount_codes_required
+@instructor_direct_discount_codes_required
 @require_POST
 def teach_discount_code_approve(request: HttpRequest, pk: int) -> HttpResponse:
     """Approve one of the teaching member's own pending codes from the Teaching portal.
@@ -3107,12 +3190,21 @@ def teach_class_discount_codes(request: HttpRequest, pk: int) -> HttpResponse:
         raise Http404("Discount codes on this class are not open to this viewer.")
     offering: ClassOffering = request.class_offering  # type: ignore[attr-defined]
     codes = DiscountCode.objects.filter(Q(class_offering=offering) | Q(class_offering__isnull=True)).order_by("code")
+    # The instructor under approval mode (#428) reads this tab and asks for codes; admins keep today's page.
+    approval_mode = access.role == ROLE_INSTRUCTOR and SiteConfiguration.load().instructor_discount_codes_approval_mode
+    code_requests = (
+        offering.discount_code_requests.select_related("discount_code")
+        if approval_mode
+        else DiscountCodeRequest.objects.none()
+    )
     return render(
         request,
         "classes/teach/class_discount_codes.html",
         {
             **_class_screen_context(request, offering, "discount_codes"),
             "codes": codes,
+            "approval_mode": approval_mode,
+            "requests": code_requests,
             # Resolve the acting user's approval capability once (one Member query),
             # reused per row in the template — avoids an N+1 across the code list.
             "approver": DiscountCode.approver_for(request.user),
@@ -5172,7 +5264,11 @@ def admin_discount_codes(request: HttpRequest) -> HttpResponse:
     return render(
         request,
         "classes/admin/discount_codes.html",
-        {"active_tab": "discount_codes", **table},
+        {
+            "active_tab": "discount_codes",
+            "pending_requests": DiscountCodeRequest.objects.pending().select_related("class_offering", "requested_by"),
+            **table,
+        },
     )
 
 
@@ -5244,6 +5340,70 @@ def admin_discount_code_approve(request: HttpRequest, pk: int) -> HttpResponse:
         code.approve(request.user)
         messages.success(request, f"Discount code {code.code} approved.")
     return redirect("classes:admin_discount_codes")
+
+
+@login_required
+def admin_discount_code_request_review(request: HttpRequest, pk: int) -> HttpResponse:
+    """Approve or decline one instructor's discount code request (#428).
+
+    Open to whoever the "needs approval" ping reaches and to admins: an actual admin, a
+    superuser, or a Discount Code Administrator (``DiscountCode.approver_for(...).approves_any``,
+    the same rule ``admin_discount_code_approve`` applies minus the self-approver leg, since a
+    request is decided by admins or holders only). Anyone else gets a 403.
+
+    The approve form is a ``DiscountCodeForm`` prefilled from the request, so the reviewer can
+    adjust anything before the code is made; a decline needs a note. ``request_row`` is the
+    context name so the template's ``request`` stays the HttpRequest. Reachable with the
+    master flag off too, for a reviewer following an email link after the queue was hidden.
+    An actual admin goes back to the queue afterwards; a holder who is not an admin cannot
+    open that page, so they land on the hub instead.
+    """
+    if not DiscountCode.approver_for(request.user).approves_any:
+        return HttpResponseForbidden(
+            "Reviewing discount code requests takes admin or Discount Code Administrator access."
+        )
+    view_as = getattr(request, "view_as", None)
+    is_admin = view_as is not None and view_as.has_actual("admin")
+    back_url = reverse("classes:admin_discount_codes") if is_admin else reverse("hub_home")
+    req = get_object_or_404(DiscountCodeRequest.objects.select_related("class_offering", "requested_by__user"), pk=pk)
+    if req.status != DiscountCodeRequest.Status.PENDING:
+        messages.info(request, "This request has already been decided.")
+        return redirect(back_url)
+    decision = request.POST.get("decision") if request.method == "POST" else None
+    if request.method == "POST" and decision not in ("approve", "decline"):
+        return HttpResponseBadRequest("Unknown decision.")
+    form = DiscountCodeForm(
+        request.POST if decision == "approve" else None,
+        initial=req.prefill(),
+        scoped_to=req.class_offering,
+        created_by=req.requested_by.user,
+    )
+    decline_form = DiscountCodeRequestDeclineForm(request.POST if decision == "decline" else None)
+    try:
+        if decision == "approve" and form.is_valid():
+            code = req.approve(cast("User", request.user), form)
+            messages.success(request, f"Discount code {code.code} approved and ready to use.")
+            return redirect(back_url)
+        if decision == "decline" and decline_form.is_valid():
+            req.decline(cast("User", request.user), decline_form.cleaned_data["note"])
+            messages.success(request, "Request declined. The instructor has been told.")
+            return redirect(back_url)
+    except DiscountCodeRequestAlreadyDecided:
+        # Another reviewer decided between this page's fetch and the click; the model's row
+        # lock made that one decision the only one.
+        messages.info(request, "This request has already been decided.")
+        return redirect(back_url)
+    return render(
+        request,
+        "classes/admin/discount_code_request_review.html",
+        {
+            "active_tab": "discount_codes",
+            "request_row": req,
+            "form": form,
+            "decline_form": decline_form,
+            "back_url": back_url,
+        },
+    )
 
 
 @classes_admin_access_required

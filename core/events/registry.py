@@ -225,6 +225,9 @@ _PUSH_ON_BY_DEFAULT: frozenset[str] = frozenset(
         "instructor_changes_requested",
         "instructor_application_approved",
         "instructor_application_declined",
+        # ...and the answer to your ask for a discount code, the same kind of decision.
+        "discount_code.request_approved",
+        "discount_code.request_declined",
         # Equipment — your reservation is set (time-sensitive, carries the invite)
         "equipment.reservation_confirmed",
     }
@@ -476,6 +479,8 @@ MEETING_ITEM_DECIDED = "meeting.item_decided"
 MEETING_MINUTES_APPROVED = "meeting.minutes_approved"
 MEETING_COUNCIL_MINUTES_APPROVED = "meeting.council_minutes_approved"
 DISCOUNT_CODE_REQUESTED = "discount_code.requested"  # a new code awaits approval (Discount Admins)
+DISCOUNT_CODE_REQUEST_APPROVED = "discount_code.request_approved"  # an admin approved an instructor's request
+DISCOUNT_CODE_REQUEST_DECLINED = "discount_code.request_declined"  # an admin declined it, with a note
 BILLING_CHARGE_FAILED_ADMIN = "billing.charge_failed_admin"  # a member's tab charge failed (Billing Admins)
 WAITLIST_PROMOTED = "waitlist_promoted"  # staff hand-picked a waitlister into the class (plain "you're in")
 WAITLIST_PROMOTED_PAY = "waitlist_promoted_pay"  # promoted with a balance due — "you're in" + pay link
@@ -988,6 +993,32 @@ _NEW_EVENTS: list[EventType] = [
         description="A member's monthly tab charge failed — the admin heads-up to follow up.",
         category="Billing",
         recipient=Recipients.BILLING_APPROVERS,
+        channels=(_IN_APP_ON, _EMAIL_ON),
+        activity_kind=None,
+    ),
+    # 34. discount_code.request_approved — an admin approved an instructor's ask for a class code
+    #     (DiscountCodeRequest.approve). Routes to that instructor: in-app + email, push on by
+    #     default (a decision the member is waiting on, like the teaching application answers).
+    #     ``activity_kind`` is None: the approved code's own DiscountCode.save writes the
+    #     DISCOUNT_CODE_CREATED CmsActivity row.
+    EventType(
+        key=DISCOUNT_CODE_REQUEST_APPROVED,
+        label="Discount code request approved",
+        description="An admin approved a discount code you asked for. The code is ready to use.",
+        category="Teaching",
+        recipient=Recipients.INSTRUCTOR,
+        channels=(_IN_APP_ON, _EMAIL_ON),
+        activity_kind=None,
+    ),
+    # 35. discount_code.request_declined — the admin said no, with a note saying why
+    #     (DiscountCodeRequest.decline). Same audience and channels. ``activity_kind`` is None:
+    #     a decline is a decision on a request, not catalog activity.
+    EventType(
+        key=DISCOUNT_CODE_REQUEST_DECLINED,
+        label="Discount code request declined",
+        description="An admin declined a discount code you asked for, with a note saying why.",
+        category="Teaching",
+        recipient=Recipients.INSTRUCTOR,
         channels=(_IN_APP_ON, _EMAIL_ON),
         activity_kind=None,
     ),

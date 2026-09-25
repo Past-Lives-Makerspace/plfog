@@ -30,6 +30,7 @@ from classes.models import (
     ClassSession,
     ClassSettings,
     DiscountCode,
+    DiscountCodeRequest,
     InstructorMessage,
     InstructorMessageRecipient,
     Registration,
@@ -840,6 +841,101 @@ class DiscountCodeForm(forms.ModelForm):
             code.save()
             self.save_m2m()
         return code
+
+
+class DiscountCodeRequestForm(forms.ModelForm):
+    """An instructor's ask for a class code under approval mode.
+
+    One form serves both the global Discount Codes page and the per-class tab:
+    ``class_offering`` is a required choice limited to the instructor's own live classes,
+    preselected from ``?class=<pk>`` when the tab sent them here. The code itself is made by
+    ``DiscountCodeRequest.approve``, never here.
+    """
+
+    discount_fixed_cents = CentsAsDollarsField(
+        required=False,
+        label="Fixed discount ($)",
+        help_text="Flat dollar amount off, for example 20.00 for $20 off.",
+    )
+
+    class Meta:
+        model = DiscountCodeRequest
+        fields = [
+            "class_offering",
+            "code",
+            "discount_pct",
+            "discount_fixed_cents",
+            "valid_from",
+            "valid_until",
+            "max_uses",
+            "reason",
+        ]
+        labels = {"class_offering": "Class"}
+        help_texts = {
+            "code": "Letters and numbers, for example EARLYBIRD. It is uppercased for you.",
+            "max_uses": "Leaving the 'uses' field blank indicates unlimited uses.",
+            "reason": "Why you want this code. The admin who decides reads it.",
+        }
+        widgets = {
+            "code": forms.TextInput(attrs={"oninput": "this.value = this.value.toUpperCase()"}),
+            "reason": forms.Textarea(attrs={"rows": 3}),
+        }
+
+    def __init__(self, *args: Any, teaching_member: Member, initial_class: str | None = None, **kwargs: Any) -> None:
+        super().__init__(*args, **kwargs)
+        self._teaching_member = teaching_member
+        class_field = cast(forms.ModelChoiceField, self.fields["class_offering"])
+        class_field.queryset = (
+            ClassOffering.objects.filter(instructor=teaching_member)
+            .exclude(status__in=[ClassOffering.Status.CANCELLED, ClassOffering.Status.ARCHIVED])
+            .order_by("title")
+        )
+        if initial_class:
+            # An unknown or foreign pk is ignored, as teach_discount_code_create does with ?class=.
+            try:
+                class_field.initial = class_field.queryset.get(pk=int(initial_class)).pk
+            except (ClassOffering.DoesNotExist, ValueError, TypeError):
+                pass
+
+    def clean_code(self) -> str:
+        """Refuse a code that exists or is already asked for; better here than at approval."""
+        code = self.cleaned_data["code"].strip().upper()
+        if (
+            DiscountCode.objects.filter(code=code).exists()
+            or DiscountCodeRequest.objects.pending().filter(code=code).exists()
+        ):
+            raise forms.ValidationError("That code is already taken. Pick another.")
+        return code
+
+    def clean_discount_pct(self) -> int | None:
+        """A zero percent is no discount: the constraint only tests null, so this refuses 0 here."""
+        pct = self.cleaned_data["discount_pct"]
+        if pct is not None and pct < 1:
+            raise forms.ValidationError("Percent off must be at least 1.")
+        return pct
+
+    # No clean(): the "percent or fixed amount" rule is the model's CheckConstraint, whose
+    # violation_error_message ModelForm validation renders as the one non-field error. A form
+    # check here as well rendered two errors for one gap.
+
+    def save(self, commit: bool = True) -> DiscountCodeRequest:
+        self.instance.requested_by = self._teaching_member
+        return super().save(commit=commit)
+
+
+class DiscountCodeRequestDeclineForm(forms.Form):
+    """The one thing a decline needs: a note the instructor will read.
+
+    ``CharField`` strips by default and refuses a whitespace-only value with its required
+    message, so no ``clean_note`` is needed; ``DiscountCodeRequest.decline`` is the last gate.
+    """
+
+    note = forms.CharField(
+        required=True,
+        widget=forms.Textarea(attrs={"rows": 3}),
+        label="Why it was declined",
+        help_text="The instructor sees this note.",
+    )
 
 
 class RegistrationQuestionForm(forms.ModelForm):

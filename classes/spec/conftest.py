@@ -11,12 +11,15 @@ def _instructor_discount_codes_on(db):
     """Every existing spec under classes/spec/ was written when instructors could always
     manage their own discount codes. Keep that the default test posture now that it's a
     flag (default OFF in production) — the OFF/gated behavior gets its own explicit specs
-    in instructor_discount_codes_flag_spec.py."""
+    in instructor_discount_codes_flag_spec.py. Every pre-existing spec was also written for
+    the direct flow, so the approval flag (default ON) is turned off here too; approval mode
+    specs (discount_code_requests_spec.py) turn it on explicitly."""
     from core.models import SiteConfiguration
 
     config = SiteConfiguration.load()
     config.instructor_discount_codes_enabled = True
-    config.save(update_fields=["instructor_discount_codes_enabled"])
+    config.instructor_discount_codes_need_approval = False
+    config.save(update_fields=["instructor_discount_codes_enabled", "instructor_discount_codes_need_approval"])
 
 
 @pytest.fixture

@@ -683,6 +683,16 @@ class SiteConfiguration(models.Model):
             "either way. Default off: only admins create discount codes."
         ),
     )
+    instructor_discount_codes_need_approval = models.BooleanField(
+        default=True,
+        verbose_name="Instructors request discount codes and an admin approves them",
+        help_text=(
+            "When on, instructors ask for a discount code and an admin approves or declines it; the "
+            "code exists only once approved. When off, instructors create, edit and delete their own "
+            "codes directly, and each new code waits for approval as before. This only matters while "
+            "the setting above is on."
+        ),
+    )
     display_demo_classes = models.BooleanField(
         default=False,
         verbose_name="Display demo classes",
@@ -985,6 +995,11 @@ class SiteConfiguration(models.Model):
         """Load the singleton instance, creating it with defaults if needed."""
         obj, _created = cls.objects.get_or_create(pk=1)
         return obj
+
+    @property
+    def instructor_discount_codes_approval_mode(self) -> bool:
+        """Instructors request and an admin decides: both discount code settings on."""
+        return self.instructor_discount_codes_enabled and self.instructor_discount_codes_need_approval
 
 
 class CalendarFeed(models.Model):

@@ -199,6 +199,20 @@ class DiscountCodeFactory(DjangoModelFactory):
     is_approved = True
 
 
+class DiscountCodeRequestFactory(DjangoModelFactory):
+    """A pending ask from the class's own instructor, the shape the admin queue lists."""
+
+    class Meta:
+        model = models.DiscountCodeRequest
+
+    class_offering = factory.SubFactory(ClassOfferingFactory)
+    requested_by = factory.LazyAttribute(lambda o: o.class_offering.instructor)
+    code = factory.Sequence(lambda n: f"REQ{n}")
+    discount_pct = 15
+    reason = "Early bird for returning students."
+    status = models.DiscountCodeRequest.Status.PENDING
+
+
 class RegistrationFactory(DjangoModelFactory):
     class Meta:
         model = models.Registration

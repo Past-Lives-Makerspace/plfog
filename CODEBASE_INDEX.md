@@ -64,6 +64,7 @@ Those six plus `plfog/` are the whole of `INSTALLED_APPS` for this project. Othe
 - `RegistrationQuestion` / `RegistrationAnswer` — custom per-class signup questions
 - `RegistrationReminder` — dedupe audit for scheduled reminder emails
 - `DiscountCode` (+ QuerySet) — per-class discount codes
+- `DiscountCodeRequest` (+ QuerySet) — an instructor's ask for a class code, approved or declined by an admin; approval creates the `DiscountCode`
 - `ClassImage` (gallery) · `Waiver` · `InstructorMessage` / `InstructorMessageRecipient` (instructor→registrant messaging)
 - `CmsActivity` — classes activity feed (mirrors to `core.SiteActivity`)
 - `ClassSettings` — singleton (pk=1); reminder timing, email footers, admin-notify emails

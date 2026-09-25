@@ -32,6 +32,8 @@ if TYPE_CHECKING:
     from django.contrib.auth.models import AbstractBaseUser, AnonymousUser, User
     from django.core.files.uploadedfile import UploadedFile
 
+    from django.forms import ModelForm
+
     from billing.models import PaymentRefund
     from membership.models import Member
 
@@ -3223,18 +3225,23 @@ class DiscountCode(models.Model):
                 actor=self.created_by,
                 payload={"code": self.code, "auto_apply": self.auto_apply},
             )
-            from core.events.emit import emit
+            # A code born approved (DiscountCodeRequest.approve) needs no approval ping; every other new code still gets one.
+            if not self.is_approved:
+                from django.urls import reverse
 
-            emit(
-                "discount_code.requested",
-                actor=self.created_by,
-                target=self,
-                context={},
-                title="A discount code needs approval",
-                body=f"The discount code {self.code} was created and needs approval before it can be used.",
-                url="/classes/admin/discount-codes/",
-                period=f"discount:{self.pk}:requested",
-            )
+                from core.events.emit import emit
+
+                emit(
+                    "discount_code.requested",
+                    actor=self.created_by,
+                    target=self,
+                    context={},
+                    title="A discount code needs approval",
+                    body=f"The discount code {self.code} was created and needs approval before it can be used.",
+                    # Absolute: the email channel uses this verbatim, and a bare path is dead in mail.
+                    url=f"{settings.MEMBER_BASE_URL}{reverse('classes:admin_discount_codes')}",
+                    period=f"discount:{self.pk}:requested",
+                )
 
     def apply_to(self, price_cents: int) -> int:
         if self.discount_pct is not None:
@@ -3335,6 +3342,255 @@ class DiscountCode(models.Model):
         """
         self.is_approved = False
         self.save(update_fields=["is_approved"])
+
+
+class DiscountCodeRequestQuerySet(models.QuerySet["DiscountCodeRequest"]):
+    def pending(self) -> DiscountCodeRequestQuerySet:
+        """Requests still waiting for an admin's decision, newest first."""
+        return self.filter(status=DiscountCodeRequest.Status.PENDING)
+
+
+class DiscountCodeRequestAlreadyDecided(Exception):
+    """Raised when approve() or decline() is called on a request that is no longer pending."""
+
+
+class DiscountCodeRequest(models.Model):
+    """An instructor's ask for a class discount code, decided by an admin.
+
+    Under approval mode (both instructor discount code settings on) an instructor cannot
+    create a :class:`DiscountCode`; they file one of these instead. :meth:`approve` is the
+    only place a code is born from a request, and it is born approved. :meth:`decline`
+    records the admin's note and tells the instructor. A new request pings the Discount Code
+    Administrators the way a new unapproved code does; both decisions notify the requester
+    through the same spine, so the instructor hears back wherever they hear everything else.
+    """
+
+    class Status(models.TextChoices):
+        PENDING = "pending", "Pending"
+        APPROVED = "approved", "Approved"
+        DECLINED = "declined", "Declined"
+
+    class_offering = models.ForeignKey(
+        "ClassOffering",
+        on_delete=models.CASCADE,
+        related_name="discount_code_requests",
+        help_text="The class the code is for. The approved code is scoped to it.",
+    )
+    requested_by = models.ForeignKey(
+        "membership.Member",
+        on_delete=models.PROTECT,
+        related_name="discount_code_requests",
+        help_text="The instructor who asked. Protected: a request is an audit line that means nothing without its requester.",
+    )
+    code = models.CharField(
+        max_length=40,
+        help_text=(
+            "The code the instructor asked for, uppercased on save. Not unique here: uniqueness is "
+            "enforced on the DiscountCode an approval creates."
+        ),
+    )
+    discount_pct = models.PositiveIntegerField(null=True, blank=True, help_text="Percent off (0 to 100).")
+    discount_fixed_cents = models.PositiveIntegerField(null=True, blank=True, help_text="Flat cents off.")
+    valid_from = models.DateField(null=True, blank=True, help_text="First date the code should be valid.")
+    valid_until = models.DateField(null=True, blank=True, help_text="Last date the code should be valid.")
+    max_uses = models.PositiveIntegerField(null=True, blank=True, help_text="Cap total uses. Blank means unlimited.")
+    reason = models.TextField(help_text="Why the instructor wants this code; shown to the admin who decides.")
+    status = models.CharField(
+        max_length=10,
+        choices=Status.choices,
+        default=Status.PENDING,
+        help_text="Pending until an admin approves or declines it.",
+    )
+    decided_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="+",
+        help_text="The admin who approved or declined it. Null while pending.",
+    )
+    decision_note = models.TextField(
+        blank=True, default="", help_text="The admin's note; required on a decline, shown to the instructor."
+    )
+    discount_code = models.OneToOneField(
+        "DiscountCode",
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="request",
+        help_text="The code an approval created. Null until approved, and again if that code is later deleted.",
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+    decided_at = models.DateTimeField(null=True, blank=True, help_text="When the admin decided. Null while pending.")
+
+    objects = DiscountCodeRequestQuerySet.as_manager()
+
+    class Meta:
+        ordering = ["-created_at"]
+        constraints = [
+            CheckConstraint(
+                condition=(Q(discount_pct__isnull=False) | Q(discount_fixed_cents__isnull=False)),
+                name="discount_request_has_value",
+                # ModelForm validation surfaces this as the request form's one non-field error.
+                violation_error_message="Set a percent off or a fixed amount off.",
+            ),
+        ]
+
+    def __str__(self) -> str:
+        return f"{self.code} for {self.class_offering.title} ({self.get_status_display()})"
+
+    def save(self, *args, **kwargs) -> None:
+        creating = self._state.adding
+        self.code = self.code.strip().upper()
+        super().save(*args, **kwargs)
+        if creating:
+            from django.urls import reverse
+
+            from core.events.emit import emit
+
+            # The link is the review page itself, so a Discount Code Administrator who is not
+            # an admin (and so cannot open the queue) can still act from the notification.
+            review_url = reverse("classes:admin_discount_code_request_review", kwargs={"pk": self.pk})
+            emit(
+                "discount_code.requested",
+                actor=self.requested_by.user,
+                target=self,
+                context={},
+                title="A discount code was requested",
+                body=(
+                    f"{self.requested_by.display_name} asked for the code {self.code} on "
+                    f"{self.class_offering.title}. Review it in Classes admin."
+                ),
+                url=f"{settings.MEMBER_BASE_URL}{review_url}",
+                period=f"discount_request:{self.pk}:requested",
+            )
+
+    def prefill(self) -> dict[str, Any]:
+        """The ``initial`` for a ``DiscountCodeForm`` on the review page.
+
+        The request's values are the admin's starting point; ``description`` carries the
+        instructor's reason so the admin's code list still says why the code exists.
+        """
+        return {
+            "code": self.code,
+            "discount_pct": self.discount_pct,
+            "discount_fixed_cents": self.discount_fixed_cents,
+            "valid_from": self.valid_from,
+            "valid_until": self.valid_until,
+            "max_uses": self.max_uses,
+            "is_active": True,
+            "description": self.reason[:255],
+        }
+
+    def approve(self, user: User, form: ModelForm[DiscountCode]) -> DiscountCode:
+        """Create the code from ``form`` and mark this request approved.
+
+        ``form`` is a valid ``classes.forms.DiscountCodeForm`` (the view validated it), so
+        the admin may have adjusted the requested values first. It is typed as the generic
+        ``ModelForm[DiscountCode]`` on purpose: naming ``DiscountCodeForm`` here, even under
+        ``TYPE_CHECKING``, pulls ``classes.forms`` into every mypy build that reaches this
+        module. The code is scoped to the request's class, credited to the requester and born
+        approved; the rule has one home here even though the view also hands ``scoped_to``
+        and ``created_by`` to the form.
+
+        Args:
+            user: The admin deciding.
+            form: The validated code form.
+
+        Returns:
+            The new, approved :class:`DiscountCode`.
+
+        Raises:
+            DiscountCodeRequestAlreadyDecided: When this request is no longer pending.
+        """
+        with transaction.atomic():
+            self._lock_while_pending()
+            code = form.save(commit=False)
+            code.class_offering = self.class_offering
+            code.created_by = self.requested_by.user
+            code.is_approved = True
+            code.save()
+            form.save_m2m()
+            self.discount_code = code
+            self.status = self.Status.APPROVED
+            self.decided_by = user
+            self.decided_at = timezone.now()
+            self.save(update_fields=["discount_code", "status", "decided_by", "decided_at"])
+        self._emit_decision(
+            "discount_code.request_approved",
+            title=f"Your discount code {code.code} was approved",
+            body=f"{code.code} is ready to use on {self.class_offering.title}.",
+        )
+        return code
+
+    def decline(self, user: User, note: str) -> None:
+        """Refuse this request with ``note`` and tell the instructor why.
+
+        The decline form is the first gate on the note and this is the last, as
+        ``GuildAnnouncement.decline`` does.
+
+        Args:
+            user: The admin deciding.
+            note: Why, in the admin's words; the instructor reads it.
+
+        Raises:
+            DiscountCodeRequestAlreadyDecided: When this request is no longer pending.
+            ValueError: When ``note`` is blank.
+        """
+        with transaction.atomic():
+            self._lock_while_pending()
+            if not note.strip():
+                raise ValueError("A decline needs a note so the instructor knows why.")
+            self.decision_note = note.strip()
+            self.status = self.Status.DECLINED
+            self.decided_by = user
+            self.decided_at = timezone.now()
+            self.save(update_fields=["decision_note", "status", "decided_by", "decided_at"])
+        self._emit_decision(
+            "discount_code.request_declined",
+            title=f"Your discount code request {self.code} was declined",
+            body=f"An admin declined {self.code} for {self.class_offering.title}: {self.decision_note}",
+        )
+
+    def _lock_while_pending(self) -> None:
+        """Re-read this row under a row lock and refuse unless it is still pending.
+
+        Called inside the caller's ``transaction.atomic()``. Two admins deciding at once
+        serialize on the lock: the second re-read sees the first decision and raises, so a
+        request yields one decision and never two codes (the ``Registration`` release paths
+        use the same shape). SQLite has no row locks, so there the re-read alone is what
+        catches a stale in-memory copy.
+
+        Raises:
+            DiscountCodeRequestAlreadyDecided: When the stored row is no longer pending.
+        """
+        current = type(self)._default_manager.select_for_update().get(pk=self.pk)
+        if current.status != self.Status.PENDING:
+            raise DiscountCodeRequestAlreadyDecided(
+                f"Request {self.pk} was already {current.get_status_display().lower()}."
+            )
+
+    def _emit_decision(self, event_key: str, *, title: str, body: str) -> None:
+        """Tell the requesting instructor about a decision, linking their class's Discount Codes tab.
+
+        ``resolvers.instructor`` reads ``context["instructor"]`` and drops a Member with no
+        usable User, so a request from a userless member simply notifies nobody.
+        """
+        from django.urls import reverse
+
+        from core.events.emit import emit
+
+        tab_url = reverse("classes:teach_class_discount_codes", kwargs={"pk": self.class_offering_id})
+        emit(
+            event_key,
+            actor=self.decided_by,
+            target=self,
+            context={"instructor": self.requested_by},
+            title=title,
+            body=body,
+            url=f"{settings.MEMBER_BASE_URL}{tab_url}",
+            period=f"discount_request:{self.pk}:{self.status}",
+        )
 
 
 class Waiver(models.Model):
