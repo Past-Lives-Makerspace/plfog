@@ -907,6 +907,13 @@ class DiscountCodeRequestForm(forms.ModelForm):
             raise forms.ValidationError("That code is already taken. Pick another.")
         return code
 
+    def clean_discount_pct(self) -> int | None:
+        """A zero percent is no discount: the constraint only tests null, so this refuses 0 here."""
+        pct = self.cleaned_data["discount_pct"]
+        if pct is not None and pct < 1:
+            raise forms.ValidationError("Percent off must be at least 1.")
+        return pct
+
     # No clean(): the "percent or fixed amount" rule is the model's CheckConstraint, whose
     # violation_error_message ModelForm validation renders as the one non-field error. A form
     # check here as well rendered two errors for one gap.

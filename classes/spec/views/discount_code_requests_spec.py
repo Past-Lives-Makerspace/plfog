@@ -145,6 +145,19 @@ def describe_instructor_surfaces_in_approval_mode():
         assert b"is violated" not in resp.content
         assert not DiscountCodeRequest.objects.exists()
 
+    def it_refuses_a_zero_percent(client, member_user):
+        # The constraint only tests null, so a 0 would otherwise pass the form, ping the
+        # approvers, and list as nothing off until the admin refused it at approval.
+        _approval_mode(True)
+        mine = _own_offering(member_user)
+        client.force_login(member_user)
+
+        resp = client.post(reverse(REQUEST), _request_post(mine, discount_pct="0"))
+
+        assert resp.status_code == 200
+        assert b"Percent off must be at least 1." in resp.content
+        assert not DiscountCodeRequest.objects.exists()
+
     def it_refuses_a_code_that_already_exists(client, member_user):
         _approval_mode(True)
         mine = _own_offering(member_user)
