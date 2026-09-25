@@ -270,6 +270,41 @@ def describe_instructor_surfaces_in_approval_mode():
         assert b'<span class="hub-pill hub-pill--warn">Pending</span>' in resp.content
 
 
+def describe_the_composer_discount_section_in_approval_mode():
+    """The instructor's composer (step 3) reads the codes and asks for new ones; it never edits."""
+
+    def _composer(client, member_user, offering: ClassOffering):
+        client.force_login(member_user)
+        return client.get(reverse("classes:teach_class_edit", kwargs={"pk": offering.pk}))
+
+    def it_offers_request_a_code_and_hides_the_edit_links(client, member_user):
+        _approval_mode(True)
+        mine = _own_offering(member_user, status=ClassOffering.Status.DRAFT)
+        code = DiscountCodeFactory(class_offering=mine, created_by=member_user)
+
+        resp = _composer(client, member_user, mine)
+
+        assert resp.status_code == 200
+        body = resp.content.decode()
+        assert f"{reverse(REQUEST)}?class={mine.pk}" in body
+        assert "Request a Code" in body
+        assert reverse("classes:teach_discount_code_edit", kwargs={"pk": code.pk}) not in body
+        assert reverse("classes:teach_discount_code_create") not in body
+
+    def it_keeps_new_code_and_edit_when_the_approval_flag_is_off(client, member_user):
+        _approval_mode(False)
+        mine = _own_offering(member_user, status=ClassOffering.Status.DRAFT)
+        code = DiscountCodeFactory(class_offering=mine, created_by=member_user)
+
+        resp = _composer(client, member_user, mine)
+
+        assert resp.status_code == 200
+        body = resp.content.decode()
+        assert f"{reverse('classes:teach_discount_code_create')}?class={mine.pk}" in body
+        assert reverse("classes:teach_discount_code_edit", kwargs={"pk": code.pk}) in body
+        assert reverse(REQUEST) not in body
+
+
 def describe_the_direct_flow_when_the_new_flag_is_off():
     def it_still_lets_an_instructor_create_a_code(client, member_user):
         client.force_login(member_user)
