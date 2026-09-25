@@ -201,6 +201,17 @@ def describe_kind_and_audience_are_independent():
         assert "event_type" in form.fields
         assert form.fields["event_type"].label == "What kind of event is this?"
 
+    def it_explains_a_missing_guild_without_naming_a_control_the_author_never_saw():
+        # A plain member editing a staffer-typed guild meeting is shown no kind question, so
+        # "Pick the guild this meeting belongs to" names something they cannot see.
+        guild = GuildFactory()
+        event = CommunityEventFactory(guild_meeting=True, guild=guild)
+        form = CommunityEventForm(instance=event, data=_event_payload(title="Edited"), can_choose_audience=False)
+        assert not form.is_valid()
+        assert form.errors["guild"] == [
+            "This one is a guild meeting, so it needs a guild. Pick one, or ask a lead if that looks wrong."
+        ]
+
     def it_keeps_a_guild_meeting_a_guild_meeting_when_only_the_title_changes():
         guild = GuildFactory()
         event = CommunityEventFactory(guild_meeting=True, guild=guild, google_calendar_target=_PUBLIC)
@@ -708,6 +719,31 @@ def describe_member_facing_surfaces():
 
         source = Path(help_content.__file__).read_text(encoding="utf-8")
         assert "community event" not in source.lower()
+
+    def it_never_says_community_event_in_a_notification_label_or_description():
+        # Every member can open the notification preferences matrix, so a retired phrase in
+        # an event's label or description is a member-reachable surface like any other. Keys
+        # and recipients are untouched; only the words changed.
+        from core.events.registry import EVENTS
+
+        offenders = [event.key for event in EVENTS if "community event" in f"{event.label} {event.description}".lower()]
+        assert offenders == []
+
+    def it_never_says_community_event_in_a_slash_command_description():
+        # A slash command's description is what Discord shows every member in the command
+        # picker, so it is as member-facing as any page. Found there after the registry sweep.
+        from core.events.discord_commands import all_commands, autodiscover
+
+        autodiscover()
+        offenders = [c.name for c in all_commands() if "community event" in c.description.lower()]
+        assert offenders == []
+
+    def it_never_says_community_event_in_a_scheduled_job_description():
+        # Admin-facing (the Automations tab), but the same retired phrase and the same sweep.
+        from core.scheduled_jobs import SCHEDULED_JOBS
+
+        offenders = [j.key for j in SCHEDULED_JOBS if "community event" in j.description.lower()]
+        assert offenders == []
 
 
 @pytest.mark.django_db

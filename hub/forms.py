@@ -2821,7 +2821,16 @@ class CommunityEventForm(forms.ModelForm):
             # ``has_error`` keeps this off a field that already failed its own validation, so
             # a bad choice shows one message rather than two contradictory ones.
             if event_type in self._GUILD_REQUIRED_TYPES and guild is None and not self.has_error("guild"):
-                self.add_error("guild", "Pick the guild this meeting belongs to.")
+                # An author who was never asked the kind cannot be told to pick "the guild
+                # this meeting belongs to" — they were shown no control that says meeting, so
+                # name the thing they can actually see instead.
+                if "event_type" in self.fields:
+                    message = "Pick the guild this meeting belongs to."
+                else:
+                    message = (
+                        "This one is a guild meeting, so it needs a guild. Pick one, or ask a lead if that looks wrong."
+                    )
+                self.add_error("guild", message)
             if event_type == CommunityEvent.EventType.LEAD_MEETING and guild is not None:
                 self.add_error("guild", "A Guild Lead Meeting is makerspace wide. Choose No guild.")
         return cleaned

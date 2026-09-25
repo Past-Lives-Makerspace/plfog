@@ -275,11 +275,22 @@ def describe_CommunityEvent():
             )
             assert event.badge_label == "Guild Lead Meeting"
 
-        def it_badges_studio_hours_by_its_audience_not_its_type(db):
+        def it_keeps_studio_hours_own_name_rather_than_calling_them_an_event(db):
+            # Ambient standing hours are not a happening (CONTEXT.md), so "Public event"
+            # would misdescribe what a member is looking at on the calendar.
             event = CommunityEventFactory(
                 studio_hours=True, google_calendar_target=CommunityEvent.GoogleCalendarTarget.PUBLIC
             )
-            assert event.badge_label == "Public event"
+            assert event.badge_label == "Studio hours"
+
+        def it_never_calls_a_self_naming_type_an_event(db):
+            # The two exceptions live in one list; this is the rule that list exists for.
+            for event_type in CommunityEvent.SELF_NAMING_TYPES:
+                event = CommunityEventFactory(
+                    event_type=event_type,
+                    guild=GuildFactory() if event_type == CommunityEvent.EventType.STUDIO_HOURS else None,
+                )
+                assert "event" not in event.badge_label.lower()
 
         def it_badges_a_public_guild_meeting_as_a_public_event(db):
             event = CommunityEventFactory(

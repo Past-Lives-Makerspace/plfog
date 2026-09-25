@@ -5500,6 +5500,13 @@ class CommunityEvent(models.Model):
         MEMBER = "member", "Member calendar"  # members-only makerspace calendar (the former "General")
         PUBLIC = "public", "Public calendar"  # the outward-facing calendar anyone can see
 
+    # Types that name themselves on the badge instead of being labelled by audience. The
+    # cross-guild Guild Lead Meeting is a recognisable thing in its own right, and studio
+    # hours are ambient standing hours rather than a happening (CONTEXT.md) — badging either
+    # of them "Public event" would misdescribe what a member is looking at. Drives
+    # ``badge_label``, so this list is the only place the exceptions live.
+    SELF_NAMING_TYPES: tuple[str, ...] = (EventType.LEAD_MEETING, EventType.STUDIO_HOURS)
+
     # Months between occurrences for each recurring choice (semi-monthly walks
     # monthly but emits two dates per month — see ``occurrences_in``).
     _MONTH_INTERVALS: dict[str, int] = {
@@ -5902,19 +5909,19 @@ class CommunityEvent(models.Model):
 
     @property
     def badge_label(self) -> str:
-        """The one phrase members read about what this event is.
+        """The one phrase members read about what this row is.
 
         The single source of truth for the badge on the Community Calendar's Events tab and
         on the public event page, so neither template branches on the stored type itself.
 
-        The cross-guild Guild Lead Meeting is a recognisable thing in its own right and keeps
-        its name. Everything else badges who it is *for*, because the rest of ``event_type``
-        is plumbing (it routes the announcement and scopes a guild's own meetings) that no
-        member should have to decode. "Member" and "Public" name which of the two open Google
-        calendars it lands on, never who is allowed to look at it.
+        A type in :attr:`SELF_NAMING_TYPES` says its own name. Everything else badges who it
+        is *for*, because the rest of ``event_type`` is plumbing (it routes the announcement
+        and scopes a guild's own meetings) that no member should have to decode. "Member" and
+        "Public" name which of the two open Google calendars it lands on, never who is
+        allowed to look at it.
         """
-        if self.event_type == self.EventType.LEAD_MEETING:
-            return str(self.EventType.LEAD_MEETING.label)
+        if self.event_type in self.SELF_NAMING_TYPES:
+            return str(self.EventType(self.event_type).label)
         if self.google_calendar_target == self.GoogleCalendarTarget.MEMBER:
             return "Member event"
         return "Public event"

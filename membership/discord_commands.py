@@ -139,7 +139,7 @@ def _whats_on(interaction: Interaction, member: Member | None) -> dict:
 
 WHATS_ON = SlashCommand(
     name="whats-on",
-    description="See community events and classes coming up in the next 7 days.",
+    description="See events and classes coming up in the next 7 days.",
     handler=_whats_on,
     requires_link=False,
     ephemeral=True,
