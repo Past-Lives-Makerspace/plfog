@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from typing import Any
+
 import json
 from unittest.mock import patch
 
@@ -159,7 +161,7 @@ def describe_payments_csv():
         assert body.startswith("Date,Source,Payer,Item,Amount,Status")
 
 
-def _paid_fee(**overrides) -> LateCancellationFee:
+def _paid_fee(**overrides: Any) -> LateCancellationFee:
     defaults = {
         "status": LateCancellationFee.Status.PAID,
         "stripe_payment_id": "pi_fee_views",

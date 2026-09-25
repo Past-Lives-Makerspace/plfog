@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from typing import Any
+
 from datetime import date, datetime, timedelta, timezone as dt_timezone
 from decimal import Decimal
 
@@ -278,7 +280,7 @@ def describe_build_payments_ledger():
             assert MAX_ROWS == 500
 
 
-def _paid_fee(**overrides):
+def _paid_fee(**overrides: Any) -> LateCancellationFee:
     from tests.billing.factories import LateCancellationFeeFactory
 
     defaults = {

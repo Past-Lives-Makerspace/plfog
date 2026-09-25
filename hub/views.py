@@ -2325,7 +2325,7 @@ def hub_late_fee_waive(request: HttpRequest, pk: int) -> HttpResponse:
     )
     if not late_fees.can_waive(request, fee):
         sentence = late_fees.waive_refusal(fee)
-        response = HttpResponse(sentence, status=403)
+        response = HttpResponse(sentence, status=403, content_type="text/plain; charset=utf-8")
         if request.headers.get("HX-Request") == "true":
             trigger_toast(response, sentence, "error")
         return response
