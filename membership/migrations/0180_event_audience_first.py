@@ -6,7 +6,7 @@ from django.db import migrations, models
 
 class Migration(migrations.Migration):
     dependencies = [
-        ("membership", "0178_orientation_anchor_date_help_text"),
+        ("membership", "0179_orientationrecord"),
         migrations.swappable_dependency(settings.AUTH_USER_MODEL),
     ]
 
