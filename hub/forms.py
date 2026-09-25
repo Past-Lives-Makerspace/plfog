@@ -4348,11 +4348,15 @@ class EquipmentForm(forms.ModelForm):
 
         ``uq_orienttype_equip_name`` is conditional, so the nested form's own unique check
         skips it (the gap ``BaseOrientationTypeFormSet.clean`` covers for the formset) and
-        the save would IntegrityError instead. A new equipment owns nothing yet.
+        the save would IntegrityError instead. A new equipment owns nothing yet. Reads the
+        posted name rather than ``cleaned_data`` so the duplicate shows in the same round as
+        any other error on the nested form.
         """
-        if self.instance.pk is None or not self.new_type_form.is_valid():
+        if self.instance.pk is None:
             return
-        name: str = self.new_type_form.cleaned_data["name"]
+        name = (self.new_type_form.data.get(self.new_type_form.add_prefix("name")) or "").strip()
+        if not name:
+            return
         taken = {
             existing.casefold() for existing in self.instance.owned_orientation_types.values_list("name", flat=True)
         }
@@ -4367,6 +4371,8 @@ class EquipmentForm(forms.ModelForm):
         One transaction: the type is created owned by the equipment (``guild`` empty) and
         active, then set as the requirement, so the gate is closed when the redirect lands.
         """
+        if not commit and self.creates_orientation_type:
+            raise ValueError("EquipmentForm.save(commit=False) cannot create the new orientation type; call save().")
         with transaction.atomic():
             equipment = cast(Equipment, super().save(commit=commit))
             if self.creates_orientation_type:

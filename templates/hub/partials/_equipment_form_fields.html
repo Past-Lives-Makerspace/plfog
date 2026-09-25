@@ -32,8 +32,8 @@ identically. Layout stays in CSS classes — never inline display on an x-show e
     {% include "components/form_field.html" with field=form.location_note %}
     {% include "components/form_field.html" with field=form.required_orientation %}
     {% if equipment and equipment.guild %}
-    <p class="pl-field-hint" style="margin-top:-0.5rem;">
-      <a href="{% url 'hub_guild_edit' equipment.guild.pk %}?tab=orientations">Create a new orientation type</a>
+    <p class="pl-field-hint pl-equip-guild-type-link">
+      <a href="{% url 'hub_guild_edit' equipment.guild.pk %}?tab=orientations">Create a new {{ equipment.guild.name }} orientation type</a>
     </p>
     {% endif %}
     {# The new type's own fields: closed until "New orientation for this equipment" is picked, open on a failed Save that picked it. #}

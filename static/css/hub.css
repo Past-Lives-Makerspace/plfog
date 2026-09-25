@@ -8971,6 +8971,10 @@ mark { background: color-mix(in srgb, var(--color-tuscan-yellow) 30%, transparen
 .pl-equip-guild-toggle {
     display: block;
 }
+/* The guild-owned "Create a new ... orientation type" link tucks under the picker's hint. */
+.pl-equip-guild-type-link {
+    margin-top: -0.5rem;
+}
 /* The "New orientation for this equipment" fields under the Required orientation picker
    (#466): an inset panel Alpine reveals with x-show, so display lives here (rule 12). */
 .pl-equip-new-type {

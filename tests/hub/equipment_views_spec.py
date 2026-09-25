@@ -1339,17 +1339,13 @@ def describe_equipment_own_orientation():
             assert OrientationType.objects.count() == 1
 
     def describe_the_form_save():
-        def it_rolls_the_equipment_back_when_the_type_cannot_be_saved(monkeypatch: pytest.MonkeyPatch):
-            # Fault injection on our own model, to prove the transaction boundary: the
-            # equipment row written first must not survive a failure writing the type.
-            def refuse(*_args: object, **_kwargs: object) -> None:
-                raise RuntimeError("no room for a type")
-
+        def it_refuses_commit_false_when_a_type_is_being_made():
+            # The type needs a saved equipment to belong to, so a deferred save has no
+            # honest answer; the views always call save().
             form = EquipmentForm(_post())
             assert form.is_valid() is True
-            monkeypatch.setattr(OrientationType, "save", refuse)
-            with pytest.raises(RuntimeError, match="no room for a type"):
-                form.save()
+            with pytest.raises(ValueError, match="commit=False"):
+                form.save(commit=False)
             assert not Equipment.objects.exists()
             assert not OrientationType.objects.exists()
 
