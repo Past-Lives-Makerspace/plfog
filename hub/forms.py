@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import datetime, time, timedelta
+from datetime import date, datetime, time, timedelta
 from decimal import Decimal
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, ClassVar, cast
@@ -59,6 +59,7 @@ from membership.models import (
     OrgLink,
     OrientationAvailability,
     OrientationAvailabilityBlock,
+    OrientationRecord,
     OrientationSlot,
     OrientationType,
     Skill,
@@ -2180,24 +2181,35 @@ class BaseOrientationTypeFormSet(forms.BaseInlineFormSet):
     type with any booking can only be retired (the Active toggle), never deleted.
     """
 
+    @staticmethod
+    def _deletion_blocker(instance: OrientationType) -> str | None:
+        """Why this saved type cannot be deleted, or ``None`` when it can.
+
+        Booking history cascades away with the type; a hand-entered record (issue #465)
+        and a gating equipment row would 500 on their PROTECT FKs. All three are guarded
+        here for both the guild editor and the equipment tab (shared base).
+        """
+        if instance.bookings.exists():
+            return "This orientation has booking history and can't be deleted. Turn off Active to retire it instead."
+        if instance.records.exists():
+            return "This orientation has recorded history and can't be deleted. Turn off Active to retire it instead."
+        gated = list(instance.gated_equipment.values_list("name", flat=True))
+        if gated:
+            names = ", ".join(gated)
+            return (
+                f"This orientation is required by {names}. Clear that requirement first, "
+                "or turn off Active to retire it instead."
+            )
+        return None
+
     def clean(self) -> None:
         super().clean()
         for form in self.deleted_forms:
             if not form.instance.pk:
                 continue
-            if form.instance.bookings.exists():
-                raise forms.ValidationError(
-                    "This orientation has booking history and can't be deleted. Turn off Active to retire it instead."
-                )
-            # A type some equipment requires would 500 on the FK's PROTECT — guard it
-            # here for both the guild editor and the equipment tab (shared base).
-            gated = list(form.instance.gated_equipment.values_list("name", flat=True))
-            if gated:
-                names = ", ".join(gated)
-                raise forms.ValidationError(
-                    f"This orientation is required by {names}. Clear that requirement first, "
-                    "or turn off Active to retire it instead."
-                )
+            blocker = self._deletion_blocker(form.instance)
+            if blocker is not None:
+                raise forms.ValidationError(blocker)
         if any(self.errors):
             return
         # In-memory duplicate-name guard: uq_orienttype_equip_name is CONDITIONAL, so
@@ -3034,6 +3046,91 @@ class OrientationAddMemberForm(forms.Form):
         super().__init__(*args, **kwargs)
         if slot_queryset is not None:
             cast(forms.ModelChoiceField, self.fields["slot"]).queryset = slot_queryset
+
+
+class OrientationRecordForm(forms.Form):
+    """An admin records an orientation a member completed outside the booking flow (issue #465).
+
+    The picker is a text input over a ``<datalist>`` of every orientation type: active ones
+    first, labelled as the type prints itself ("<owner> — <name>"), retired ones after with a
+    "(retired)" suffix, so two guilds' "Shop Basics" tell apart by owner and last year's
+    retired orientation is still recordable as history. The typed label resolves to a type by
+    exact, case-insensitive match; anything else is refused rather than guessed. A type the
+    member already completed, by booking or by record, is refused with the member's name so
+    the page says it beside the field. Saving is silent: no email, no Discord.
+    """
+
+    RETIRED_SUFFIX = " (retired)"
+
+    orientation = forms.CharField(
+        label="Orientation",
+        max_length=200,
+        widget=forms.TextInput(
+            attrs={"list": "orientation-type-options", "autocomplete": "off", "placeholder": "Start typing a name"}
+        ),
+    )
+    completed_on = forms.DateField(
+        label="Date",
+        widget=forms.DateInput(
+            # Rule 14: the whole field opens the picker; .pl-slot-date inverts the
+            # black picker icon on the dark theme (reset under the light theme).
+            attrs={"type": "date", "class": "pl-slot-date", "onclick": "try { this.showPicker() } catch (e) {}"}
+        ),
+    )
+    oriented_by = forms.ModelChoiceField(
+        queryset=Member.objects.filter(status=Member.Status.ACTIVE).order_by("full_legal_name"),
+        label="Oriented by",
+        required=False,
+        empty_label="Not recorded",
+    )
+    note = forms.CharField(label="Note (optional)", max_length=500, required=False)
+
+    def __init__(self, member: Member, *args: Any, **kwargs: Any) -> None:
+        super().__init__(*args, **kwargs)
+        self.member = member
+        self.fields["completed_on"].initial = timezone.localdate()
+        self.type_options: list[str] = []
+        self._types_by_label: dict[str, OrientationType] = {}
+        types = OrientationType.objects.select_related("guild", "equipment").order_by(
+            "-is_active", "sort_order", "name"
+        )
+        for orientation_type in types:
+            label = str(orientation_type) if orientation_type.is_active else f"{orientation_type}{self.RETIRED_SUFFIX}"
+            self.type_options.append(label)
+            self._types_by_label[label.casefold()] = orientation_type
+
+    def clean_orientation(self) -> OrientationType:
+        orientation_type = self._types_by_label.get(self.cleaned_data["orientation"].strip().casefold())
+        if orientation_type is None:
+            raise forms.ValidationError("Pick an orientation from the list.")
+        return orientation_type
+
+    def clean_completed_on(self) -> date:
+        """History only: an orientation that has not happened yet is a booking, not a record."""
+        completed_on: date = self.cleaned_data["completed_on"]
+        if completed_on > timezone.localdate():
+            raise forms.ValidationError("Pick today or a day in the past.")
+        return completed_on
+
+    def clean(self) -> dict[str, Any]:
+        cleaned: dict[str, Any] = super().clean() or {}
+        orientation_type = cleaned.get("orientation")
+        if orientation_type is not None and orientation_type.pk in self.member.completed_orientation_type_ids(
+            [orientation_type]
+        ):
+            self.add_error("orientation", f"{self.member.display_name} already completed this orientation.")
+        return cleaned
+
+    def save(self, *, recorded_by: User) -> OrientationRecord:
+        """Write the record and its activity row through the model (silent: no email, no Discord)."""
+        return OrientationRecord.record(
+            self.member,
+            self.cleaned_data["orientation"],
+            completed_on=self.cleaned_data["completed_on"],
+            oriented_by=self.cleaned_data["oriented_by"],
+            note=self.cleaned_data["note"],
+            recorded_by=recorded_by,
+        )
 
 
 class OrientationBlockForm(forms.Form):
@@ -4325,7 +4422,18 @@ class EquipmentForm(forms.ModelForm):
     equipment already belongs to a guild; otherwise every guild's active types are
     offered (grouped by guild via the type's ``__str__``) — the house Makerspace guild
     is an operating convention, not a code concept.
+
+    Beside those the picker offers "New orientation for this equipment" (issue #466):
+    ``new_type_form`` (an :class:`OrientationTypeForm`, prefix ``new_type``) rides along,
+    and one Save then creates the equipment, its own type and the requirement in one
+    transaction. The POST name stays ``required_orientation`` and ``cleaned_data`` keeps
+    holding an :class:`OrientationType` or ``None``, so ``clean()``'s guild rule and every
+    caller are untouched.
     """
+
+    NEW_TYPE_CHOICE = "new"
+    # The nested type form's fields the partial renders; the rest keep their model defaults.
+    NEW_TYPE_FIELDS = ("name", "duration_minutes", "default_seats", "price", "default_location")
 
     class Meta:
         model = Equipment
@@ -4359,7 +4467,6 @@ class EquipmentForm(forms.ModelForm):
         space_field.queryset = Space.objects.order_by("space_id")
         space_field.empty_label = "No linked space"
         space_field.required = False
-        orientation_field = cast(forms.ModelChoiceField, self.fields["required_orientation"])
         # The saved selection stays choosable even when since deactivated — otherwise
         # every later Details save fails validation (the inactive-selected bug, both
         # owner kinds). Inactive alternatives stay hidden. This equipment's own types
@@ -4383,9 +4490,37 @@ class EquipmentForm(forms.ModelForm):
                 | Q(equipment_id=self.instance.pk)
                 | Q(pk=self.instance.required_orientation_id)
             )
-        orientation_field.queryset = types
-        orientation_field.empty_label = "No orientation needed"
-        orientation_field.required = False
+        # A plain ChoiceField so "new" can sit beside the types; clean_required_orientation
+        # maps a posted pk back to its instance, so the rest of the form never sees the swap.
+        self._offered_types: dict[str, OrientationType] = {
+            str(orientation_type.pk): orientation_type for orientation_type in types
+        }
+        self.fields["required_orientation"] = forms.ChoiceField(
+            choices=[
+                ("", "No orientation needed"),
+                (self.NEW_TYPE_CHOICE, "New orientation for this equipment"),
+                *((pk, str(orientation_type)) for pk, orientation_type in self._offered_types.items()),
+            ],
+            required=False,
+            label=self.fields["required_orientation"].label,
+        )
+        # The new type's form binds to the same POST only when "new" was chosen, so the
+        # other choices ignore its inputs. Its unrendered fields stop being required and
+        # keep their model defaults (construct_instance leaves a defaulted field alone
+        # when the POST omits it); the browser's required attribute is off because the
+        # inputs sit hidden until the choice is made, and the server reports blanks.
+        self.creates_orientation_type: bool = (
+            self.is_bound and self.data.get(self.add_prefix("required_orientation")) == self.NEW_TYPE_CHOICE
+        )
+        self.new_type_form = OrientationTypeForm(
+            self.data if self.creates_orientation_type else None, prefix="new_type", use_required_attribute=False
+        )
+        for name in self.new_type_form.fields.keys() - set(self.NEW_TYPE_FIELDS):
+            self.new_type_form.fields[name].required = False
+        # The four short fields sit in one row of the panel, where the model hints wrap into
+        # clutter; their labels carry the meaning. The name keeps its example hint.
+        for name in ("duration_minutes", "default_seats", "price", "default_location"):
+            self.new_type_form.fields[name].help_text = ""
         # Member-facing hints — the model help_text is written for admins/migrations and
         # would leak jargon (PROTECT, sync notes) into the form via form_field.html.
         self.fields["name"].help_text = ""
@@ -4398,6 +4533,20 @@ class EquipmentForm(forms.ModelForm):
         self.fields["requires_guild_membership"].help_text = "Only members of the chosen guild can book."
         self.fields["is_active"].help_text = "Members can see and book this equipment. Turn off to retire it."
         self.fields["is_active"].label = "Active"
+
+    def clean_required_orientation(self) -> OrientationType | None:
+        """The posted choice as the instance the model expects; "" and "new" are both ``None`` here."""
+        choice: str = self.cleaned_data["required_orientation"]
+        if not choice or choice == self.NEW_TYPE_CHOICE:
+            return None
+        return self._offered_types[choice]
+
+    def is_valid(self) -> bool:
+        """Validate the equipment and, when a new type is being made, its form too, so every error shows at once."""
+        valid = super().is_valid()
+        if self.creates_orientation_type:
+            valid = self.new_type_form.is_valid() and valid
+        return valid
 
     def clean(self) -> dict[str, Any]:
         cleaned: dict[str, Any] = super().clean() or {}
@@ -4413,7 +4562,52 @@ class EquipmentForm(forms.ModelForm):
                     "required_orientation",
                     "Pick an orientation offered by the chosen guild, or one of this equipment's own orientations.",
                 )
+        if self.creates_orientation_type:
+            self._refuse_duplicate_new_type_name()
         return cleaned
+
+    def _refuse_duplicate_new_type_name(self) -> None:
+        """Error beside the new type's name when this equipment already owns a type with it.
+
+        ``uq_orienttype_equip_name`` is conditional, so the nested form's own unique check
+        skips it (the gap ``BaseOrientationTypeFormSet.clean`` covers for the formset) and
+        the save would IntegrityError instead. A new equipment owns nothing yet. Reads the
+        posted name rather than ``cleaned_data`` so the duplicate shows in the same round as
+        any other error on the nested form.
+        """
+        if self.instance.pk is None:
+            return
+        name = (self.new_type_form.data.get(self.new_type_form.add_prefix("name")) or "").strip()
+        if not name:
+            return
+        taken = {
+            existing.casefold() for existing in self.instance.owned_orientation_types.values_list("name", flat=True)
+        }
+        if name.casefold() in taken:
+            self.new_type_form.add_error(
+                "name", f'This equipment already has an orientation named "{name}". Give the new one its own name.'
+            )
+
+    def save(self, commit: bool = True) -> Equipment:
+        """Save the equipment and, for "New orientation for this equipment", its type and the gate, together.
+
+        One transaction: the type is created owned by the equipment (``guild`` empty) and
+        active, then set as the requirement, so the gate is closed when the redirect lands.
+        """
+        if not commit and self.creates_orientation_type:
+            raise ValueError("EquipmentForm.save(commit=False) cannot create the new orientation type; call save().")
+        with transaction.atomic():
+            equipment = cast(Equipment, super().save(commit=commit))
+            if self.creates_orientation_type:
+                new_type = self.new_type_form.save(commit=False)
+                new_type.equipment = equipment
+                new_type.guild = None
+                # The Active toggle is not rendered here, and an unchecked checkbox posts as False.
+                new_type.is_active = True
+                new_type.save()
+                equipment.required_orientation = new_type
+                equipment.save(update_fields=["required_orientation"])
+        return equipment
 
 
 def equipment_hour_choices() -> list[tuple[str, str]]:

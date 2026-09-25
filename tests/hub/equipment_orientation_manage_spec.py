@@ -24,6 +24,7 @@ from membership.models import (
     OrientationBooking,
     OrientationSlot,
     OrientationType,
+    OrientationRecord,
 )
 from tests.membership.factories import (
     EquipmentFactory,
@@ -37,6 +38,7 @@ from tests.membership.factories import (
     OrientationBookingFactory,
     OrientationSlotFactory,
     OrientationTypeFactory,
+    OrientationRecordFactory,
 )
 
 pytestmark = pytest.mark.django_db
@@ -180,6 +182,20 @@ def describe_orientation_types_save():
         assert response.status_code == 200
         assert b"booking history" in response.content
         assert OrientationType.objects.filter(pk=orientation_type.pk).exists()
+
+    def it_blocks_deleting_a_type_with_recorded_history(client: Client):
+        equipment = EquipmentFactory()
+        _manager_login(client, "ot_del_record", equipment)
+        orientation_type = _owned_type(equipment)
+        record = OrientationRecordFactory(orientation_type=orientation_type)
+        data = _types_data([{"name": orientation_type.name}], initial=1)
+        data["otypes-0-id"] = str(orientation_type.pk)
+        data["otypes-0-DELETE"] = "on"
+        response = client.post(reverse("hub_equipment_orientation_types_save", args=[equipment.slug]), data)
+        assert response.status_code == 200
+        assert b"recorded history" in response.content
+        assert OrientationType.objects.filter(pk=orientation_type.pk).exists()
+        assert OrientationRecord.objects.filter(pk=record.pk).exists()
 
     def it_blocks_deleting_a_type_some_equipment_requires(client: Client):
         equipment = EquipmentFactory(name="CNC Router")
