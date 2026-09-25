@@ -8,7 +8,7 @@ filter, the guild page, the equipment page and index. Recording is silent.
 
 from __future__ import annotations
 
-from datetime import timedelta
+from datetime import date, timedelta
 from unittest import mock
 
 import pytest
@@ -18,7 +18,7 @@ from django.test import Client
 from django.urls import reverse
 from django.utils import timezone
 
-from core.models import SiteActivity
+from core.models import EventDelivery, Notification, SiteActivity
 from hub.forms import OrientationRecordForm
 from membership.models import Member, OrientationRecord
 from tests.membership.factories import (
@@ -161,23 +161,42 @@ def describe_record_orientation():
         assert response.status_code == 302
         assert OrientationRecord.objects.get(member=target).orientation_type == basics
 
-    def it_refuses_an_unknown_label_on_the_orientations_tab(client: Client):
+    def it_refuses_an_unknown_label_with_a_message_on_the_tab(client: Client):
         _login_admin(client)
         target = _target_member()
         _woodshop_basics()
-        response = client.post(_record_url(target), _post_data("Woodshop — Nope"))
-        assert response.status_code == 200
-        assert response.context["open_tab"] == "orientations"
+        response = client.post(_record_url(target), _post_data("Woodshop — Nope"), follow=True)
+        assert response.redirect_chain == [(f"{_edit_url(target)}?tab=orientations", 302)]
         assert "Pick an orientation from the list." in response.content.decode()
         assert not OrientationRecord.objects.exists()
+
+    def it_refuses_a_future_date(client: Client):
+        _login_admin(client)
+        target = _target_member()
+        _guild, basics = _woodshop_basics()
+        tomorrow = (timezone.localdate() + timedelta(days=1)).isoformat()
+        response = client.post(_record_url(target), _post_data(str(basics), completed_on=tomorrow), follow=True)
+        assert "Pick today or a day in the past." in response.content.decode()
+        assert not OrientationRecord.objects.exists()
+
+    def it_leaves_no_notification_or_delivery_behind(client: Client):
+        _login_admin(client)
+        target = _target_member()
+        _guild, basics = _woodshop_basics()
+        client.post(_record_url(target), _post_data(str(basics)))
+        record = OrientationRecord.objects.get(member=target)
+        client.post(_remove_url(record))
+        assert not OrientationRecord.objects.exists()
+        assert not Notification.objects.exists()
+        assert not EventDelivery.objects.exists()
 
     def it_refuses_a_type_completed_by_booking(client: Client):
         _login_admin(client)
         target = _target_member()
         _guild, basics = _woodshop_basics()
         _completed_booking(target, basics)
-        response = client.post(_record_url(target), _post_data(str(basics)))
-        assert response.status_code == 200
+        response = client.post(_record_url(target), _post_data(str(basics)), follow=True)
+        assert response.redirect_chain == [(f"{_edit_url(target)}?tab=orientations", 302)]
         assert "Target Member already completed this orientation." in response.content.decode()
         assert not OrientationRecord.objects.exists()
 
@@ -186,8 +205,8 @@ def describe_record_orientation():
         target = _target_member()
         _guild, basics = _woodshop_basics()
         OrientationRecordFactory(member=target, orientation_type=basics)
-        response = client.post(_record_url(target), _post_data(str(basics)))
-        assert response.status_code == 200
+        response = client.post(_record_url(target), _post_data(str(basics)), follow=True)
+        assert response.redirect_chain == [(f"{_edit_url(target)}?tab=orientations", 302)]
         assert "Target Member already completed this orientation." in response.content.decode()
         assert OrientationRecord.objects.filter(member=target).count() == 1
         assert not SiteActivity.objects.filter(kind=SiteActivity.Kind.ORIENTATION_RECORDED).exists()
@@ -287,7 +306,6 @@ def describe_orientations_tab():
         assert "oriented by Dana Orienter" in content
         assert f"remove-orientation-{record.pk}" in content
         assert 'id="orientation-type-options"' in content
-        assert response.context["open_tab"] == "details"
 
     def it_gives_a_booking_row_no_remove_control(client: Client):
         _login_admin(client)
@@ -298,6 +316,14 @@ def describe_orientations_tab():
         assert "pl-member-orient-row" in content
         assert "pl-member-orient-row__actions" not in content
         assert "remove-orientation-" not in content
+
+    def it_shows_a_record_note_on_its_row(client: Client):
+        _login_admin(client)
+        target = _target_member()
+        _guild, basics = _woodshop_basics()
+        OrientationRecordFactory(member=target, orientation_type=basics, note="Walked through on the shop floor")
+        content = client.get(f"{_edit_url(target)}?tab=orientations").content.decode()
+        assert 'pl-member-orient-row__note">Walked through on the shop floor' in content
 
     def it_shows_the_empty_state(client: Client):
         _login_admin(client)
@@ -369,6 +395,18 @@ def describe_orientations_dashboard_records():
         assert f'href="{_edit_url(target)}?tab=orientations"' in content
         assert 'class="hub-pill hub-pill--neutral">Recorded' in content
 
+    def it_shows_the_note_and_applies_the_date_range(client: Client):
+        _login_admin(client)
+        target = _target_member()
+        _guild, basics = _woodshop_basics()
+        OrientationRecordFactory(
+            member=target, orientation_type=basics, completed_on=date(2026, 9, 1), note="Shop floor walkthrough"
+        )
+        assert 'pl-orient-records__note">Shop floor walkthrough' in _dashboard(client, completed="yes")
+        assert "Shop floor walkthrough" in _dashboard(client, completed="yes", start="2026-09-01", end="2026-09-30")
+        assert "Shop floor walkthrough" not in _dashboard(client, completed="yes", start="2026-09-02")
+        assert "Shop floor walkthrough" not in _dashboard(client, completed="yes", end="2026-08-31")
+
     def it_hides_the_table_without_the_completed_filter(client: Client):
         _login_admin(client)
         OrientationRecordFactory(member=_target_member())
@@ -435,7 +473,7 @@ def describe_member_facing_surfaces():
         equipment.required_orientation = orientation_type
         equipment.save(update_fields=["required_orientation"])
         url = reverse("hub_equipment_detail", args=[equipment.slug])
-        assert b"You're all set." not in client.get(url).content
+        assert b"pl-equip-banner__ok-text" not in client.get(url).content
         OrientationRecordFactory(member=member, orientation_type=orientation_type)
         response = client.get(url)
         assert response.status_code == 200
@@ -450,5 +488,5 @@ def describe_member_facing_surfaces():
         assert b"Orientation needed" in client.get(reverse("hub_equipment_index")).content
         OrientationRecordFactory(member=member, orientation_type=orientation_type)
         content = client.get(reverse("hub_equipment_index")).content
-        assert b"You're all set" in content
-        assert b"Orientation needed" not in content
+        assert b"pl-equip-badge--ok" in content
+        assert b"pl-equip-badge--warn" not in content

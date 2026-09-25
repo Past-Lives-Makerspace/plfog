@@ -287,6 +287,11 @@
 .pl-member-orient-row__meta {
     font-size: 0.8125rem;
 }
+.pl-member-orient-row__note {
+    display: block;
+    width: 100%;
+    font-size: 0.8125rem;
+}
 .pl-member-orient-row__actions {
     display: flex;
     gap: 0.4rem;

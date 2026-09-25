@@ -2234,14 +2234,20 @@ def orientations_dashboard(request: HttpRequest) -> HttpResponse:
         default_dir="desc",
     )
     # Hand-recorded orientations (issue #465) list under the bookings table when the
-    # Completed filter is on, under the same guild filter. They have no slot, status
-    # or Mark done, so none of the other filters mean anything for them.
+    # Completed filter is on, under the same guild filter and date range (the day they
+    # happened). They have no slot, status or Mark done, so those filters skip them.
     recorded_orientations: list[OrientationRecord] = []
     if request.GET.get("completed") == "yes":
         records = OrientationRecord.objects.with_related()
         guild_filter = request.GET.get("guild", "")
         if guild_filter.isdigit():
             records = records.for_guild(int(guild_filter))
+        start = request.GET.get("start", "")
+        if start:
+            records = records.filter(completed_on__gte=start)
+        end = request.GET.get("end", "")
+        if end:
+            records = records.filter(completed_on__lte=end)
         recorded_orientations = list(records)
     upcoming = (
         OrientationBooking.objects.upcoming()
@@ -6775,19 +6781,11 @@ def _render_member_edit(
     form: MemberAdminEditForm,
     listing_form: LeadershipListingForm,
     role_formset: Any,
-    *,
-    orientation_form: OrientationRecordForm | None = None,
 ) -> HttpResponse:
-    """Render the member edit page with every tab's context.
-
-    Shared by :func:`admin_member_edit` and :func:`admin_member_orientation_record`, which
-    re-enters with its bound form so a refused record reads beside the field, on its own
-    tab (``open_tab``); a plain GET opens Details as it always has.
-    """
+    """Render the member edit page with every tab's context (the Details forms bound or not)."""
     from core.events import settings_matrix
 
-    if orientation_form is None:
-        orientation_form = OrientationRecordForm(member)
+    orientation_form = OrientationRecordForm(member)
     user = member.user
     has_signed_in = bool(user and user.last_login)
     status_label, status_modifier = _person_status_badge(is_member=True, has_signed_in=has_signed_in)
@@ -6842,7 +6840,6 @@ def _render_member_edit(
             "orientation_rows": _member_orientation_rows(member),
             "orientation_form": orientation_form,
             "orientation_record_url": reverse("hub_admin_member_orientation_record", args=[member.pk]),
-            "open_tab": "orientations" if orientation_form.is_bound else "details",
         },
     )
 
@@ -6924,17 +6921,21 @@ def admin_member_orientation_record(request: HttpRequest, pk: int) -> HttpRespon
     """Record an orientation the member completed outside the booking flow (issue #465).
 
     Full-page POST + Django message + redirect to the Orientations tab, matching the
-    page's sibling actions. A refused form re-renders the page with that tab open so
-    the reason reads beside the field. Silent by design: no email, no Discord, one
-    activity row with the acting admin as actor.
+    page's sibling actions. A refused form comes back to the tab with the reason as a
+    message: this URL is POST only, so re-rendering the page here would strand its other
+    forms (none carry an explicit action) on a URL that refuses them. Silent by design:
+    no email, no Discord, one activity row with the acting admin as actor.
     """
     member = get_object_or_404(Member, pk=pk)
+    orientations_url = f"{reverse('hub_admin_member_edit', args=[member.pk])}?tab=orientations"
     form = OrientationRecordForm(member, request.POST)
     if not form.is_valid():
-        return _render_member_edit(request, member, *_member_edit_forms(member), orientation_form=form)
+        for error in dict.fromkeys(str(message) for field_errors in form.errors.values() for message in field_errors):
+            messages.error(request, error)
+        return redirect(orientations_url)
     record = form.save(recorded_by=cast(User, request.user))
     messages.success(request, f"Recorded the {record.orientation_type.name} orientation for {member.display_name}.")
-    return redirect(f"{reverse('hub_admin_member_edit', args=[member.pk])}?tab=orientations")
+    return redirect(orientations_url)
 
 
 @fog_admin_required

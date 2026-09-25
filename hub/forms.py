@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import datetime, time, timedelta
+from datetime import date, datetime, time, timedelta
 from decimal import Decimal
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, cast
@@ -2978,6 +2978,13 @@ class OrientationRecordForm(forms.Form):
         if orientation_type is None:
             raise forms.ValidationError("Pick an orientation from the list.")
         return orientation_type
+
+    def clean_completed_on(self) -> date:
+        """History only: an orientation that has not happened yet is a booking, not a record."""
+        completed_on: date = self.cleaned_data["completed_on"]
+        if completed_on > timezone.localdate():
+            raise forms.ValidationError("Pick today or a day in the past.")
+        return completed_on
 
     def clean(self) -> dict[str, Any]:
         cleaned: dict[str, Any] = super().clean() or {}

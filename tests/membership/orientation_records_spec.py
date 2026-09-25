@@ -19,7 +19,7 @@ from django.db import IntegrityError, transaction
 from django.db.models import ProtectedError
 from django.utils import timezone
 
-from core.models import SiteActivity
+from core.models import EventDelivery, Notification, SiteActivity
 from membership import equipment as equipment_service
 from membership.models import Equipment, Member, OrientationError, OrientationRecord
 from tests.membership.factories import (
@@ -117,6 +117,8 @@ def describe_OrientationRecord():
                 OrientationRecord.record(member, OrientationTypeFactory(), completed_on=timezone.localdate())
             emit.assert_not_called()
             assert mail.outbox == []
+            assert not Notification.objects.exists()
+            assert not EventDelivery.objects.exists()
             assert not SiteActivity.objects.filter(kind=SiteActivity.Kind.ORIENTATION_COMPLETED).exists()
 
     def describe_remove():
@@ -151,6 +153,8 @@ def describe_OrientationRecord():
                 record.remove(removed_by=None)
             emit.assert_not_called()
             assert mail.outbox == []
+            assert not Notification.objects.exists()
+            assert not EventDelivery.objects.exists()
 
     def describe_recorded_by_name():
         def it_is_unknown_without_a_recording_user():

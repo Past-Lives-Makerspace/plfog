@@ -8,7 +8,7 @@
 {% endblock %}
 
 {% block content %}
-<div class="hub-card" x-data="{ section: new URLSearchParams(window.location.search).get('tab') || '{{ open_tab|default:'details' }}' }">
+<div class="hub-card" x-data="{ section: new URLSearchParams(window.location.search).get('tab') || 'details' }">
 
   {# ── Header ─────────────────────────────────────────────────────────── #}
   <div class="pl-person-header">
@@ -230,6 +230,7 @@
         <div class="pl-member-orient-row__main">
           <span class="pl-member-orient-row__name">{{ row.orientation_type.name }}</span>
           <span class="hub-text-muted pl-member-orient-row__meta">{{ row.orientation_type.owner_name }} · {{ row.completed_on|date:"M j, Y" }}{% if row.oriented_by %} · oriented by {{ row.oriented_by.display_name }}{% endif %}</span>
+          {% if row.record and row.record.note %}<span class="hub-text-muted pl-member-orient-row__note">{{ row.record.note }}</span>{% endif %}
           {% if row.record %}<span class="hub-pill hub-pill--neutral">Recorded</span>{% else %}<span class="hub-pill hub-pill--ok">Booked</span>{% endif %}
         </div>
         {% if row.record %}

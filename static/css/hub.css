@@ -4121,6 +4121,7 @@ mark { background: color-mix(in srgb, var(--color-tuscan-yellow) 30%, transparen
 .pl-orient-records { margin-top: 1.5rem; }
 .pl-orient-records__heading { margin: 0 0 0.75rem; }
 .pl-orient-records__empty { padding: 1.5rem 0.75rem; color: var(--hub-text-muted); }
+.pl-orient-records__note { font-size: 0.8125rem; }
 
 /* ============================================================
    Skills directory — filter bar, chips, commission badge, editor

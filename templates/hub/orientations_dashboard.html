@@ -147,7 +147,7 @@
           <td>{{ r.completed_on|date:"Y-m-d" }}</td>
           <td>{% if is_admin %}<a href="{% url 'hub_admin_member_edit' r.member.pk %}?tab=orientations">{{ r.member.display_name }}</a>{% else %}{{ r.member.display_name }}{% endif %}</td>
           <td>{{ r.orientation_type.owner_name }}</td>
-          <td>{{ r.orientation_type.name }}</td>
+          <td>{{ r.orientation_type.name }}{% if r.note %}<div class="hub-text-muted pl-orient-records__note">{{ r.note }}</div>{% endif %}</td>
           <td>{% if r.oriented_by %}{{ r.oriented_by.display_name }}{% else %}Not recorded{% endif %}</td>
           <td>{{ r.recorded_by_name }}</td>
           <td><span class="hub-pill hub-pill--neutral">Recorded</span></td>
