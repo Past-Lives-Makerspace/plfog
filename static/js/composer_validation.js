@@ -235,6 +235,9 @@
     // event has come and gone.
     function reconcileGallery(event) {
         var gallery = event.target;
+        // Only the gallery scripts dispatch this, on their container; a dispatcher on
+        // document or a text node would have no attributes to read.
+        if (!(gallery instanceof Element)) return;
         if (gallery.hasAttribute(LIVE_ATTR) && gallery.querySelector(GALLERY_CARD)) clear(gallery);
     }
 
