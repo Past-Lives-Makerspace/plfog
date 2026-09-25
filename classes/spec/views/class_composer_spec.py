@@ -13,6 +13,7 @@ import pytest
 from django.contrib.contenttypes.models import ContentType
 from django.contrib.messages import get_messages
 from django.core.files.uploadedfile import SimpleUploadedFile
+from django.http import HttpResponse
 from django.urls import reverse
 from django.utils import timezone
 from PIL import Image
@@ -803,7 +804,7 @@ def describe_the_submit_check_reads_the_posted_description():
     (classes/spec/models/class_readiness_spec.py) and is pinned at the view in the last spec.
     """
 
-    def _submit(client, offering: ClassOffering, **extra):
+    def _submit(client, offering: ClassOffering, **extra: object) -> HttpResponse:
         return client.post(
             reverse("classes:teach_class_edit", kwargs={"pk": offering.pk}),
             _full_payload(

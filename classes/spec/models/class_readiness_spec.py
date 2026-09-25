@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import inspect
 import re
 from datetime import timedelta
 from pathlib import Path
@@ -256,6 +257,9 @@ def describe_description_length():
         # naming a number or a field itself.
         js = JS_PATH.read_text(encoding="utf-8")
         assert 'Array.from(text.trim().split(/\\s+/).filter(Boolean).join(" ")).length' in js
+        # Both sides, so a change to either rule breaks this: the Python rule is the split and
+        # join the script mirrors, and nothing else.
+        assert 'return len(" ".join(text.split()))' in inspect.getsource(description_length)
         assert '"data-description-min"' in js and '"data-description-for"' in js
         assert re.search(rf"\b{READINESS_MIN_DESCRIPTION_CHARS}\b", js) is None
         assert "id_description" not in js
