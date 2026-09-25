@@ -946,7 +946,8 @@ def describe_equipment_orientation_list():
         assert 'pl-orient-avatar pl-orient-avatar--initials">D<' in content
         assert content.count("Request</button>") == 2
         assert "send your request to Dana to confirm" in content
-        assert "We'll send your request to the equipment managers to confirm." in content
+        # Escaped like the orienter prompt above: the message is composed with |add (#456).
+        assert "We&#x27;ll send your request to the equipment managers to confirm." in content
         assert "{ page: 0, size: 5, total: 2 }" in content
         assert "pl-orient-days" not in content
         assert "aria-pressed" not in content
@@ -1356,3 +1357,40 @@ def describe_equipment_own_orientation():
             assert equipment.pk is not None
             assert equipment.required_orientation is None
             assert not OrientationType.objects.exists()
+
+
+def describe_late_cancel_fee_on_the_orientation_prompt():
+    """The equipment page's Request prompt carries the policy sentence only with a fee (#456, part 1)."""
+
+    def _late_fees(enabled: bool) -> None:
+        from core.models import SiteConfiguration
+
+        config = SiteConfiguration.load()
+        config.late_cancel_fees_enabled = enabled
+        config.save()
+
+    def _page(client: Client, equipment: Equipment) -> str:
+        from tests.membership.factories import OrientationSlotFactory, OrientationTypeFactory
+
+        orientation_type = OrientationTypeFactory(equipment_owned=True, equipment=equipment, name="Operator Basics")
+        OrientationSlotFactory(equipment_owned=True, orientation_type=orientation_type)
+        response = client.get(reverse("hub_equipment_detail", args=[equipment.slug]))
+        assert response.status_code == 200
+        content = response.content.decode()
+        assert "Request</button>" in content
+        return content
+
+    def it_appends_the_sentence_when_the_equipment_charges_a_fee(client: Client):
+        _login(client, "lcf_prompt_on")
+        _late_fees(True)
+        assert "$37.50" in _page(client, EquipmentFactory(late_cancel_fee_cents=3750))
+
+    def it_leaves_the_prompt_clean_with_no_fee(client: Client):
+        _login(client, "lcf_prompt_free")
+        _late_fees(True)
+        assert "$37.50" not in _page(client, EquipmentFactory())
+
+    def it_leaves_the_prompt_clean_while_the_site_switch_is_off(client: Client):
+        _login(client, "lcf_prompt_off")
+        _late_fees(False)
+        assert "$37.50" not in _page(client, EquipmentFactory(late_cancel_fee_cents=3750))

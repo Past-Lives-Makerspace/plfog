@@ -79,12 +79,16 @@ def build_ics(reservation: EquipmentReservation, *, method: str, status: str) ->
 
 def _placeholder_context(reservation: EquipmentReservation) -> dict[str, str]:
     """The merge-field values shared by every equipment reservation event's copy."""
+    from membership.late_cancel import booking_sentence, policy_for
+
     equipment = reservation.equipment
     return {
         "member_name": reservation.member.display_name,
         "equipment_name": equipment.name,
         "reservation_when": when_display(reservation),
         "equipment_url": _absolute_url(reverse("hub_equipment_detail", args=[equipment.slug])),
+        # The late fee sentence while one applies, "" otherwise (#456).
+        "cancellation_policy": booking_sentence(policy_for(reservation)),
     }
 
 

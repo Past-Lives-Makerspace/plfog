@@ -669,3 +669,88 @@ def describe_guild_orientation_types_save():
         response = client.post(reverse("hub_guild_orientation_types_save", args=[guild.pk]), _types_payload())
         assert response.status_code == 200  # re-rendered with the uniqueness error
         assert OrientationType.objects.filter(guild=guild).count() == 1
+
+
+def _late_fees(enabled: bool) -> None:
+    """Flip the site wide late cancellation fee switch (#456)."""
+    from core.models import SiteConfiguration
+
+    config = SiteConfiguration.load()
+    config.late_cancel_fees_enabled = enabled
+    config.save()
+
+
+def describe_guild_late_cancel_fee():
+    """The Booking card's fee in dollars, mapped to cents the way a type's price is (#456, part 1)."""
+
+    def _lead(client: Client, username: str):
+        user = _user_with_role(username)
+        guild = GuildFactory(guild_lead=user.member)
+        client.login(username=username, password="pass")
+        return guild
+
+    def _save_url(guild) -> str:
+        return reverse("hub_guild_orientation_edit", args=[guild.pk])
+
+    def it_saves_the_fee_in_dollars(client: Client):
+        guild = _lead(client, "lcf_save")
+        _late_fees(True)
+        response = client.post(_save_url(guild), _settings_payload(is_enabled="on", late_cancel_fee="15.50"))
+        assert response.status_code == 302
+        assert GuildOrientationSettings.objects.get(guild=guild).late_cancel_fee_cents == 1550
+
+    def it_treats_blank_as_no_fee(client: Client):
+        guild = _lead(client, "lcf_blank")
+        GuildOrientationSettingsFactory(guild=guild, late_cancel_fee_cents=1500)
+        _late_fees(True)
+        response = client.post(_save_url(guild), _settings_payload(is_enabled="on", late_cancel_fee=""))
+        assert response.status_code == 302
+        assert GuildOrientationSettings.objects.get(guild=guild).late_cancel_fee_cents == 0
+
+    def it_leaves_the_fee_alone_when_the_field_is_not_posted(client: Client):
+        # The field renders only while the site charges late fees, so a save from the page
+        # without it must not wipe what the lead set for when the switch comes back on.
+        guild = _lead(client, "lcf_absent")
+        GuildOrientationSettingsFactory(guild=guild, late_cancel_fee_cents=1500)
+        _late_fees(False)
+        response = client.post(_save_url(guild), _settings_payload(is_enabled="on"))
+        assert response.status_code == 302
+        assert GuildOrientationSettings.objects.get(guild=guild).late_cancel_fee_cents == 1500
+
+    def it_refuses_a_fee_over_five_hundred_dollars(client: Client):
+        guild = _lead(client, "lcf_cap")
+        _late_fees(True)
+        response = client.post(_save_url(guild), _settings_payload(is_enabled="on", late_cancel_fee="600"))
+        assert response.status_code == 200
+        assert "between $0 and $500" in response.content.decode()
+        assert GuildOrientationSettings.objects.get(guild=guild).late_cancel_fee_cents == 0
+
+    def it_prefills_a_set_fee_in_dollars_and_leaves_a_free_guild_blank():
+        from decimal import Decimal
+
+        from hub.forms import GuildOrientationSettingsForm
+
+        paid = GuildOrientationSettingsForm(instance=GuildOrientationSettingsFactory(late_cancel_fee_cents=1550))
+        assert paid.fields["late_cancel_fee"].initial == Decimal("15.50")
+        free = GuildOrientationSettingsForm(instance=GuildOrientationSettingsFactory(late_cancel_fee_cents=0))
+        assert free.fields["late_cancel_fee"].initial is None
+        assert GuildOrientationSettingsForm().fields["late_cancel_fee"].initial is None
+
+    def it_maps_the_cents_onto_an_uncommitted_instance_too():
+        from hub.forms import GuildOrientationSettingsForm
+
+        settings_obj = GuildOrientationSettingsFactory(late_cancel_fee_cents=1500)
+        form = GuildOrientationSettingsForm(instance=settings_obj, data={"late_cancel_fee": "12"})
+        assert form.is_valid(), form.errors
+        instance = form.save(commit=False)
+        assert instance.late_cancel_fee_cents == 1200
+        settings_obj.refresh_from_db()
+        assert settings_obj.late_cancel_fee_cents == 1500
+
+    def it_shows_the_field_only_while_the_site_charges_fees(client: Client):
+        guild = _lead(client, "lcf_gate")
+        url = f"{reverse('hub_guild_edit', args=[guild.pk])}?tab=orientations"
+        _late_fees(False)
+        assert 'name="late_cancel_fee"' not in client.get(url).content.decode()
+        _late_fees(True)
+        assert 'name="late_cancel_fee"' in client.get(url).content.decode()

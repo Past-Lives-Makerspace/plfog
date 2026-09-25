@@ -84,6 +84,7 @@ def feature_flags(request: HttpRequest) -> dict[str, Any]:
         "instructor_discount_codes_enabled": config.instructor_discount_codes_enabled,
         "instructor_discount_codes_need_approval": config.instructor_discount_codes_need_approval,
         "guild_welcome_email_enabled": config.guild_welcome_email_enabled,
+        "late_cancel_fees_enabled": config.late_cancel_fees_enabled,
     }
 
 

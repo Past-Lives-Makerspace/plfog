@@ -1033,3 +1033,126 @@ def describe_orientation_spans_on_the_timeline():
         equipment = _open_tool()
         response = client.get(reverse("hub_equipment_schedule", args=[equipment.slug]), {"day": _day().isoformat()})
         assert "Orientations booked on this tool show here too." not in response.content.decode()
+
+
+def _late_fees(enabled: bool) -> None:
+    """Flip the site wide late cancellation fee switch (#456)."""
+    from core.models import SiteConfiguration
+
+    config = SiteConfiguration.load()
+    config.late_cancel_fees_enabled = enabled
+    config.save()
+
+
+def _limits_data(**overrides: str) -> dict[str, str]:
+    """A valid Hours & Limits save with no windows, the shape the tab posts."""
+    data = {
+        "hours-TOTAL_FORMS": "0",
+        "hours-INITIAL_FORMS": "0",
+        "hours-MIN_NUM_FORMS": "0",
+        "hours-MAX_NUM_FORMS": "1000",
+        "closed_message": "",
+        "min_duration_minutes": "30",
+        "max_duration_minutes": "240",
+        "max_advance_days": "30",
+        "max_active_reservations_per_member": "2",
+    }
+    data.update(overrides)
+    return data
+
+
+def describe_late_cancel_fee_on_the_schedule():
+    """The Book a Time form's policy line and the Reserve prompt (#456, part 1)."""
+
+    def _schedule(client: Client, equipment: Equipment) -> str:
+        response = client.get(reverse("hub_equipment_schedule", args=[equipment.slug]), {"day": _day().isoformat()})
+        assert response.status_code == 200
+        return response.content.decode()
+
+    def it_carries_the_sentence_under_the_form_and_in_the_reserve_prompt(client: Client):
+        _login(client, "lcf_sched_on")
+        _late_fees(True)
+        content = _schedule(client, _open_tool(late_cancel_fee_cents=3750))
+        assert "pl-equip-book-note" in content
+        # Once in the line under the form, once in the Reserve confirm prompt.
+        assert content.count("$37.50") == 2
+
+    def it_renders_neither_with_no_fee(client: Client):
+        _login(client, "lcf_sched_free")
+        _late_fees(True)
+        content = _schedule(client, _open_tool())
+        assert "Book a Time" in content
+        assert "pl-equip-book-note" not in content
+        assert "$37.50" not in content
+
+    def it_renders_neither_while_the_site_switch_is_off(client: Client):
+        _login(client, "lcf_sched_off")
+        _late_fees(False)
+        content = _schedule(client, _open_tool(late_cancel_fee_cents=3750))
+        assert "Book a Time" in content
+        assert "pl-equip-book-note" not in content
+        assert "$37.50" not in content
+
+
+def describe_late_cancel_fee_on_the_limits_card():
+    """EquipmentSettingsForm's fee in dollars, saved with the Hours & Limits tab (#456, part 1)."""
+
+    def _managed(client: Client, username: str, **kwargs) -> Equipment:
+        user = _login(client, username)
+        equipment = EquipmentFactory(**kwargs)
+        EquipmentStaffMembershipFactory(equipment=equipment, member=user.member)
+        return equipment
+
+    def _save_url(equipment: Equipment) -> str:
+        return reverse("hub_equipment_hours_save", args=[equipment.slug])
+
+    def it_saves_the_fee_in_dollars(client: Client):
+        equipment = _managed(client, "lcf_lim_save")
+        _late_fees(True)
+        response = client.post(_save_url(equipment), _limits_data(late_cancel_fee="15"))
+        assert response.status_code == 302
+        equipment.refresh_from_db()
+        assert equipment.late_cancel_fee_cents == 1500
+
+    def it_treats_blank_as_no_fee(client: Client):
+        equipment = _managed(client, "lcf_lim_blank", late_cancel_fee_cents=1500)
+        _late_fees(True)
+        response = client.post(_save_url(equipment), _limits_data(late_cancel_fee=""))
+        assert response.status_code == 302
+        equipment.refresh_from_db()
+        assert equipment.late_cancel_fee_cents == 0
+
+    def it_leaves_the_fee_alone_when_the_field_is_not_posted(client: Client):
+        # The Limits card hides the field while the site switch is off; that save must not wipe it.
+        equipment = _managed(client, "lcf_lim_absent", late_cancel_fee_cents=1500)
+        _late_fees(False)
+        response = client.post(_save_url(equipment), _limits_data())
+        assert response.status_code == 302
+        equipment.refresh_from_db()
+        assert equipment.late_cancel_fee_cents == 1500
+
+    def it_refuses_a_fee_over_five_hundred_dollars(client: Client):
+        equipment = _managed(client, "lcf_lim_cap")
+        _late_fees(True)
+        response = client.post(_save_url(equipment), _limits_data(late_cancel_fee="600"))
+        assert response.status_code == 200
+        assert "between $0 and $500" in response.content.decode()
+        equipment.refresh_from_db()
+        assert equipment.late_cancel_fee_cents == 0
+
+    def it_prefills_a_set_fee_in_dollars_and_leaves_free_equipment_blank():
+        from decimal import Decimal
+
+        from hub.forms import EquipmentSettingsForm
+
+        paid = EquipmentSettingsForm(instance=EquipmentFactory(late_cancel_fee_cents=1550))
+        assert paid.fields["late_cancel_fee"].initial == Decimal("15.50")
+        assert EquipmentSettingsForm(instance=EquipmentFactory()).fields["late_cancel_fee"].initial is None
+
+    def it_shows_the_field_only_while_the_site_charges_fees(client: Client):
+        equipment = _managed(client, "lcf_lim_gate")
+        url = f"{reverse('hub_equipment_manage', args=[equipment.slug])}?tab=hours"
+        _late_fees(False)
+        assert 'name="late_cancel_fee"' not in client.get(url).content.decode()
+        _late_fees(True)
+        assert 'name="late_cancel_fee"' in client.get(url).content.decode()

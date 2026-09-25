@@ -158,6 +158,8 @@ def build_ics(booking: OrientationBooking, *, method: str, status: str) -> bytes
 
 
 def _context(booking: OrientationBooking, **extra: Any) -> dict[str, Any]:
+    from membership.late_cancel import booking_sentence, policy_for
+
     member = booking.member
     return {
         "booking": booking,
@@ -169,6 +171,8 @@ def _context(booking: OrientationBooking, **extra: Any) -> dict[str, Any]:
         "owner_url": booking.orientation_type.owner_page_url(),
         "owner_page_label": "equipment page" if booking.orientation_type.is_equipment_owned else "guild page",
         "cancel_url": _action_url(booking, "cancel", recipient=member),
+        # The confirmed email's guarded policy line; "" when no late fee applies (#456).
+        "cancellation_policy": booking_sentence(policy_for(booking)),
         **extra,
     }
 

@@ -718,3 +718,45 @@ def describe_equipment_request_lock():
         booking = orientations.request_orientation(slot, _member_with_user("lock_booked"))
         assert booking.status == OrientationBooking.Status.REQUESTED
         assert slot.bookings.count() == 1
+
+
+def describe_late_cancel_policy_in_the_confirmed_email():
+    """The confirmation carries the policy line only while a fee applies (#456, part 1)."""
+
+    def _late_fees(enabled: bool) -> None:
+        from core.models import SiteConfiguration
+
+        config = SiteConfiguration.load()
+        config.late_cancel_fees_enabled = enabled
+        config.save()
+
+    def _confirmation(username: str, *, fee_cents: int) -> object:
+        guild, _lead = _enabled_guild_with_lead(f"{username}_lead")
+        settings_obj = guild.orientation_settings
+        settings_obj.late_cancel_fee_cents = fee_cents
+        settings_obj.save(update_fields=["late_cancel_fee_cents"])
+        member = _member_with_user(username)
+        booking = OrientationBookingFactory(slot=OrientationSlotFactory(guild=guild), member=member)
+        mail.outbox.clear()
+        orientations.confirm_orientation(booking)
+        message = mail.outbox[0]
+        assert message.to == [member.primary_email]
+        return message
+
+    def it_names_the_fee_in_both_bodies_when_the_guild_charges_one():
+        _late_fees(True)
+        message = _confirmation("lcf_conf_on", fee_cents=3750)
+        assert "$37.50" in message.body
+        assert "$37.50" in message.alternatives[0][0]
+
+    def it_says_nothing_about_fees_with_no_fee():
+        _late_fees(True)
+        message = _confirmation("lcf_conf_free", fee_cents=0)
+        assert "$37.50" not in message.body
+        assert "$37.50" not in message.alternatives[0][0]
+
+    def it_says_nothing_about_fees_while_the_site_switch_is_off():
+        _late_fees(False)
+        message = _confirmation("lcf_conf_off", fee_cents=3750)
+        assert "$37.50" not in message.body
+        assert "$37.50" not in message.alternatives[0][0]

@@ -168,6 +168,9 @@
       {% include "components/form_field.html" with field=settings_form.max_duration_minutes %}
       {% include "components/form_field.html" with field=settings_form.max_advance_days %}
       {% include "components/form_field.html" with field=settings_form.max_active_reservations_per_member %}
+      {% if late_cancel_fees_enabled %}
+      {% include "components/form_field.html" with field=settings_form.late_cancel_fee %}
+      {% endif %}
       <div class="pl-equip-save-row">
         <button type="submit" class="pl-btn pl-btn--primary">Save</button>
       </div>

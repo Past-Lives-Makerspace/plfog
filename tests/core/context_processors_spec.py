@@ -82,6 +82,7 @@ def describe_feature_flags():
         assert result["class_registration_enabled"] is True
         assert result["guild_welcome_email_enabled"] is True
         assert result["instructor_discount_codes_need_approval"] is True
+        assert result["late_cancel_fees_enabled"] is False
         # Ships in today's behaviour: the six features that were live stay live, and the wiki
         # keeps the off state it has always shipped with (see core/migrations/0087).
         assert [key for key, view in result["features"].items() if not view.is_on] == ["wiki"]
@@ -99,6 +100,7 @@ def describe_feature_flags():
         config.instructor_discount_codes_enabled = True
         config.instructor_discount_codes_need_approval = False
         config.guild_welcome_email_enabled = False
+        config.late_cancel_fees_enabled = True
         config.save()
 
         rf = RequestFactory()
@@ -113,6 +115,7 @@ def describe_feature_flags():
             "instructor_discount_codes_enabled": True,
             "instructor_discount_codes_need_approval": False,
             "guild_welcome_email_enabled": False,
+            "late_cancel_fees_enabled": True,
         }
         # The three-state features travel in their own key, every one of them present. Compared
         # against the registry rather than a hand-written list: the point of core.features is

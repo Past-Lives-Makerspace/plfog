@@ -541,6 +541,7 @@ def _orientation_sections(
     view). Guild-only extras (availability blocks, custom requests) are layered on
     by the guild view.
     """
+    from membership.late_cancel import booking_sentence, policy_for_type
     from membership.models import OrientationBooking
 
     member_bookings: list[OrientationBooking] = []
@@ -582,6 +583,8 @@ def _orientation_sections(
                 "booking": live_booking,
                 "hold": hold,
                 "slots": type_slots[:slot_cap] if slot_cap is not None else type_slots,
+                # The booking prompts append this; "" when no late fee applies to the type.
+                "late_cancel_sentence": booking_sentence(policy_for_type(orientation_type)),
             }
         )
     return sections
