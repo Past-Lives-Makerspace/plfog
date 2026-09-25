@@ -2181,29 +2181,35 @@ class BaseOrientationTypeFormSet(forms.BaseInlineFormSet):
     type with any booking can only be retired (the Active toggle), never deleted.
     """
 
+    @staticmethod
+    def _deletion_blocker(instance: OrientationType) -> str | None:
+        """Why this saved type cannot be deleted, or ``None`` when it can.
+
+        Booking history cascades away with the type; a hand-entered record (issue #465)
+        and a gating equipment row would 500 on their PROTECT FKs. All three are guarded
+        here for both the guild editor and the equipment tab (shared base).
+        """
+        if instance.bookings.exists():
+            return "This orientation has booking history and can't be deleted. Turn off Active to retire it instead."
+        if instance.records.exists():
+            return "This orientation has recorded history and can't be deleted. Turn off Active to retire it instead."
+        gated = list(instance.gated_equipment.values_list("name", flat=True))
+        if gated:
+            names = ", ".join(gated)
+            return (
+                f"This orientation is required by {names}. Clear that requirement first, "
+                "or turn off Active to retire it instead."
+            )
+        return None
+
     def clean(self) -> None:
         super().clean()
         for form in self.deleted_forms:
             if not form.instance.pk:
                 continue
-            if form.instance.bookings.exists():
-                raise forms.ValidationError(
-                    "This orientation has booking history and can't be deleted. Turn off Active to retire it instead."
-                )
-            # A hand-entered record (issue #465) is history too, and its FK is PROTECT.
-            if form.instance.records.exists():
-                raise forms.ValidationError(
-                    "This orientation has recorded history and can't be deleted. Turn off Active to retire it instead."
-                )
-            # A type some equipment requires would 500 on the FK's PROTECT — guard it
-            # here for both the guild editor and the equipment tab (shared base).
-            gated = list(form.instance.gated_equipment.values_list("name", flat=True))
-            if gated:
-                names = ", ".join(gated)
-                raise forms.ValidationError(
-                    f"This orientation is required by {names}. Clear that requirement first, "
-                    "or turn off Active to retire it instead."
-                )
+            blocker = self._deletion_blocker(form.instance)
+            if blocker is not None:
+                raise forms.ValidationError(blocker)
         if any(self.errors):
             return
         # In-memory duplicate-name guard: uq_orienttype_equip_name is CONDITIONAL, so
