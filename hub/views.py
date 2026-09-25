@@ -55,6 +55,7 @@ from hub.forms import (
     MemberContactFormSet,
     MemberSkillForm,
     NotificationEmailForm,
+    OrientationRecordForm,
     OrgInfoPageForm,
     ProfileSettingsForm,
     ReleaseAnnouncementForm,
@@ -85,6 +86,7 @@ from membership.models import (
     Member,
     MemberContact,
     OrgInfoPage,
+    OrientationRecord,
     Skill,
     SkillCategory,
     SpaceRequestQuerySet,
@@ -531,25 +533,32 @@ def _orientation_sections(
     """One per-type section dict for an orientation slot-list surface (guild page or equipment page).
 
     The SHARED builder both surfaces render from, so their per-type state logic
-    cannot drift: completed / live booking / pending-payment hold are computed from
-    the member's bookings on exactly these types; the (caller-filtered, ordered)
-    slot lists render only when the type is open for the member. ``slot_cap`` can
-    bound each type's list; both pages pass ``None`` (the five per page pager bounds
-    the view). Guild-only extras (availability blocks, custom requests) are layered
-    on by the guild view.
+    cannot drift: completed comes from the one resolver (a completed booking or a
+    hand-entered record, issue #465), live booking / pending-payment hold from the
+    member's bookings on exactly these types; the (caller-filtered, ordered) slot
+    lists render only when the type is open for the member. ``slot_cap`` can bound
+    each type's list; both pages pass ``None`` (the five per page pager bounds the
+    view). Guild-only extras (availability blocks, custom requests) are layered on
+    by the guild view.
     """
     from membership.models import OrientationBooking
 
-    member_bookings = (
-        list(
+    member_bookings: list[OrientationBooking] = []
+    completed_type_ids: set[int] = set()
+    record_by_type: dict[int, OrientationRecord] = {}
+    if member is not None and orientation_types:
+        member_bookings = list(
             member.orientation_bookings.filter(orientation_type__in=orientation_types).select_related(
                 "slot", "slot__orienter"
             )
         )
-        if member is not None and orientation_types
-        else []
-    )
-    completed_type_ids = {b.orientation_type_id for b in member_bookings if b.is_completed}
+        completed_type_ids = member.completed_orientation_type_ids(orientation_types)
+        # The records themselves are read for their date: the page says "Recorded on"
+        # under the done line only where the completion came from a record, not a booking.
+        record_by_type = {
+            r.orientation_type_id: r for r in member.orientation_records.filter(orientation_type__in=orientation_types)
+        }
+    booked_type_ids = {b.orientation_type_id for b in member_bookings if b.is_completed}
     live_by_type: dict[int, OrientationBooking] = {}
     hold_by_type: dict[int, OrientationBooking] = {}
     for booking in member_bookings:
@@ -562,12 +571,14 @@ def _orientation_sections(
         live_booking = live_by_type.get(orientation_type.pk)
         hold = hold_by_type.get(orientation_type.pk)
         done = orientation_type.pk in completed_type_ids
+        record = None if orientation_type.pk in booked_type_ids else record_by_type.get(orientation_type.pk)
         open_for_type = not (done or live_booking or hold)
         type_slots = slots_by_type.get(orientation_type.pk, []) if open_for_type else []
         sections.append(
             {
                 "type": orientation_type,
                 "is_oriented": done,
+                "record": record,
                 "booking": live_booking,
                 "hold": hold,
                 "slots": type_slots[:slot_cap] if slot_cap is not None else type_slots,
@@ -683,12 +694,13 @@ def guild_detail(request: HttpRequest, slug: str) -> HttpResponse:
     orientation_types = (
         list(guild.orientation_types.active().select_related("guild__orientation_settings")) if show_orientation else []
     )
-    member_bookings = (
-        list(member.orientation_bookings.filter(guild=guild).select_related("slot", "slot__orienter"))
+    # Every type the guild owns, retired ones included: oriented for the guild means ANY
+    # completed type, by booking or by admin record (issue #465), through the one resolver.
+    completed_type_ids = (
+        member.completed_orientation_type_ids(guild.orientation_types.all())
         if member is not None and show_orientation
-        else []
+        else set()
     )
-    completed_type_ids = {b.orientation_type_id for b in member_bookings if b.is_completed}
     is_oriented = bool(completed_type_ids)  # oriented for the guild = ANY completed type
     orientation_all_done = bool(orientation_types) and all(t.pk in completed_type_ids for t in orientation_types)
     # bookable() (not upcoming()) so a departed orienter's surviving personal slot
@@ -2221,6 +2233,16 @@ def orientations_dashboard(request: HttpRequest) -> HttpResponse:
         default_sort="slot__starts_at",
         default_dir="desc",
     )
+    # Hand-recorded orientations (issue #465) list under the bookings table when the
+    # Completed filter is on, under the same guild filter. They have no slot, status
+    # or Mark done, so none of the other filters mean anything for them.
+    recorded_orientations: list[OrientationRecord] = []
+    if request.GET.get("completed") == "yes":
+        records = OrientationRecord.objects.with_related()
+        guild_filter = request.GET.get("guild", "")
+        if guild_filter.isdigit():
+            records = records.for_guild(int(guild_filter))
+        recorded_orientations = list(records)
     upcoming = (
         OrientationBooking.objects.upcoming()
         .select_related(
@@ -2285,6 +2307,7 @@ def orientations_dashboard(request: HttpRequest) -> HttpResponse:
             **_get_hub_context(request),
             **table,
             "upcoming": upcoming,
+            "recorded_orientations": recorded_orientations,
             "hours_nudge_guilds": hours_nudge_guilds,
             "guilds": Guild.objects.filter(is_active=True).order_by("name"),
             "statuses": OrientationBooking.Status.choices,
@@ -6698,54 +6721,73 @@ def admin_members(request: HttpRequest) -> HttpResponse:
     )
 
 
-@fog_admin_required
-def admin_member_edit(request: HttpRequest, pk: int) -> HttpResponse:
-    """Hub-native tabbed edit page for a single Member (Details, Permissions, Notifications, Emails).
+def _member_edit_forms(member: Member, data: Any = None) -> tuple[MemberAdminEditForm, LeadershipListingForm, Any]:
+    """The Details tab's three forms, bound to ``data`` when given and unbound otherwise.
 
-    Three independent save forms, dispatched by a hidden ``form_id``: the Details form
-    (role + profile), the Permissions capability toggles, and the Notifications tab's
-    matrix (so an admin can edit a member's notification preferences for them).
+    The Leadership Directory listing saves with the Details form; the queryset hands back
+    an unsaved stand-in for a member nobody listed, so no row is written until it changes.
+    """
+    listing = LeadershipListing.objects.for_member(member)
+    return (
+        MemberAdminEditForm(data, instance=member),
+        LeadershipListingForm(data, instance=listing, prefix="leadership"),
+        LeadershipRoleFormSet(data, instance=listing, prefix="roles"),
+    )
+
+
+def _member_orientation_rows(member: Member) -> list[dict[str, Any]]:
+    """The Orientations tab's rows: completed bookings and hand-entered records, newest first.
+
+    One shape for both so the template renders one list: the type (its owner reads off
+    it), the day it happened (the slot's day for a booking, ``completed_on`` for a
+    record), who ran it, and ``record`` set only for a record, the one kind the tab can
+    remove (the dashboard's toggle owns a booking's completion).
+    """
+    rows: list[dict[str, Any]] = [
+        {
+            "orientation_type": booking.orientation_type,
+            "completed_on": dj_timezone.localtime(booking.slot.starts_at).date(),
+            "oriented_by": booking.oriented_by,
+            "record": None,
+            "remove_url": "",
+        }
+        for booking in member.orientation_bookings.completed().select_related(
+            "slot", "oriented_by", "orientation_type__guild", "orientation_type__equipment"
+        )
+    ]
+    rows.extend(
+        {
+            "orientation_type": record.orientation_type,
+            "completed_on": record.completed_on,
+            "oriented_by": record.oriented_by,
+            "record": record,
+            "remove_url": reverse("hub_admin_member_orientation_record_remove", args=[member.pk, record.pk]),
+        }
+        for record in member.orientation_records.with_related()
+    )
+    rows.sort(key=lambda row: row["completed_on"], reverse=True)
+    return rows
+
+
+def _render_member_edit(
+    request: HttpRequest,
+    member: Member,
+    form: MemberAdminEditForm,
+    listing_form: LeadershipListingForm,
+    role_formset: Any,
+    *,
+    orientation_form: OrientationRecordForm | None = None,
+) -> HttpResponse:
+    """Render the member edit page with every tab's context.
+
+    Shared by :func:`admin_member_edit` and :func:`admin_member_orientation_record`, which
+    re-enters with its bound form so a refused record reads beside the field, on its own
+    tab (``open_tab``); a plain GET opens Details as it always has.
     """
     from core.events import settings_matrix
 
-    member = get_object_or_404(Member, pk=pk)
-    permissions_url = f"{reverse('hub_admin_member_edit', args=[member.pk])}?tab=permissions"
-    # The Leadership Directory listing saves with the Details form; the queryset hands back
-    # an unsaved stand-in for a member nobody listed, so no row is written until it changes.
-    listing = LeadershipListing.objects.for_member(member)
-
-    if request.method == "POST":
-        form_id = request.POST.get("form_id")
-        if form_id == "capabilities":
-            cap_form = MemberCapabilitiesForm(request.POST)
-            if cap_form.is_valid():
-                member.sync_admin_capabilities(cap_form.selected(), granted_by=cast(User, request.user))
-                messages.success(request, "Saved admin capabilities.")
-            return redirect(permissions_url)
-        if form_id == "notifications":
-            target = member.user
-            if target is not None:
-                settings_matrix.save_matrix(target, request.POST)
-                messages.success(request, "Saved notification settings.")
-            return redirect(permissions_url)
-        form = MemberAdminEditForm(request.POST, instance=member)
-        listing_form = LeadershipListingForm(request.POST, instance=listing, prefix="leadership")
-        role_formset = LeadershipRoleFormSet(request.POST, instance=listing, prefix="roles")
-        listing_ok = listing_form.is_valid()
-        roles_ok = role_formset.is_valid()
-        if form.is_valid() and listing_ok and roles_ok:
-            obj = form.save(commit=False)
-            obj.save()
-            obj.apply_admin_role(form.cleaned_data["role"])
-            listing_form.save_with_roles(role_formset)
-            display = obj.full_legal_name or obj.primary_email or f"member #{obj.pk}"
-            messages.success(request, f"Saved {display}.")
-            return redirect("hub_admin_members")
-    else:
-        form = MemberAdminEditForm(instance=member)
-        listing_form = LeadershipListingForm(instance=listing, prefix="leadership")
-        role_formset = LeadershipRoleFormSet(instance=listing, prefix="roles")
-
+    if orientation_form is None:
+        orientation_form = OrientationRecordForm(member)
     user = member.user
     has_signed_in = bool(user and user.last_login)
     status_label, status_modifier = _person_status_badge(is_member=True, has_signed_in=has_signed_in)
@@ -6797,8 +6839,56 @@ def admin_member_edit(request: HttpRequest, pk: int) -> HttpResponse:
             "email_add_form": _email_add_form(member),
             "email_add_url": reverse("hub_admin_member_email_add", args=[member.pk]),
             "send_login_invite_url": reverse("hub_admin_member_send_login_invite", args=[member.pk]),
+            "orientation_rows": _member_orientation_rows(member),
+            "orientation_form": orientation_form,
+            "orientation_record_url": reverse("hub_admin_member_orientation_record", args=[member.pk]),
+            "open_tab": "orientations" if orientation_form.is_bound else "details",
         },
     )
+
+
+@fog_admin_required
+def admin_member_edit(request: HttpRequest, pk: int) -> HttpResponse:
+    """Hub-native tabbed edit page for a single Member (Details, Permissions, Notifications, Orientations, Emails).
+
+    Three independent save forms, dispatched by a hidden ``form_id``: the Details form
+    (role + profile), the Permissions capability toggles, and the Notifications tab's
+    matrix (so an admin can edit a member's notification preferences for them). The
+    Orientations tab's record and remove actions post to their own views and come back here.
+    """
+    from core.events import settings_matrix
+
+    member = get_object_or_404(Member, pk=pk)
+    permissions_url = f"{reverse('hub_admin_member_edit', args=[member.pk])}?tab=permissions"
+
+    if request.method == "POST":
+        form_id = request.POST.get("form_id")
+        if form_id == "capabilities":
+            cap_form = MemberCapabilitiesForm(request.POST)
+            if cap_form.is_valid():
+                member.sync_admin_capabilities(cap_form.selected(), granted_by=cast(User, request.user))
+                messages.success(request, "Saved admin capabilities.")
+            return redirect(permissions_url)
+        if form_id == "notifications":
+            target = member.user
+            if target is not None:
+                settings_matrix.save_matrix(target, request.POST)
+                messages.success(request, "Saved notification settings.")
+            return redirect(permissions_url)
+        form, listing_form, role_formset = _member_edit_forms(member, request.POST)
+        listing_ok = listing_form.is_valid()
+        roles_ok = role_formset.is_valid()
+        if form.is_valid() and listing_ok and roles_ok:
+            obj = form.save(commit=False)
+            obj.save()
+            obj.apply_admin_role(form.cleaned_data["role"])
+            listing_form.save_with_roles(role_formset)
+            display = obj.full_legal_name or obj.primary_email or f"member #{obj.pk}"
+            messages.success(request, f"Saved {display}.")
+            return redirect("hub_admin_members")
+    else:
+        form, listing_form, role_formset = _member_edit_forms(member)
+    return _render_member_edit(request, member, form, listing_form, role_formset)
 
 
 @fog_admin_required
@@ -6826,6 +6916,41 @@ def admin_member_teaching_set(request: HttpRequest, pk: int) -> HttpResponse:
         member.revoke_instructor(revoked_by=admin_member)
         messages.success(request, f"Removed instructor access for {display}.")
     return redirect(f"{reverse('hub_admin_member_edit', args=[member.pk])}?tab=permissions")
+
+
+@fog_admin_required
+@require_POST
+def admin_member_orientation_record(request: HttpRequest, pk: int) -> HttpResponse:
+    """Record an orientation the member completed outside the booking flow (issue #465).
+
+    Full-page POST + Django message + redirect to the Orientations tab, matching the
+    page's sibling actions. A refused form re-renders the page with that tab open so
+    the reason reads beside the field. Silent by design: no email, no Discord, one
+    activity row with the acting admin as actor.
+    """
+    member = get_object_or_404(Member, pk=pk)
+    form = OrientationRecordForm(member, request.POST)
+    if not form.is_valid():
+        return _render_member_edit(request, member, *_member_edit_forms(member), orientation_form=form)
+    record = form.save(recorded_by=cast(User, request.user))
+    messages.success(request, f"Recorded the {record.orientation_type.name} orientation for {member.display_name}.")
+    return redirect(f"{reverse('hub_admin_member_edit', args=[member.pk])}?tab=orientations")
+
+
+@fog_admin_required
+@require_POST
+def admin_member_orientation_record_remove(request: HttpRequest, pk: int, record_pk: int) -> HttpResponse:
+    """Remove a hand-entered orientation record from the member edit Orientations tab.
+
+    Only a record is removable here; a booking's completion is the dashboard's toggle.
+    The gates close again at once. Silent like recording: one activity row, nothing sent.
+    """
+    member = get_object_or_404(Member, pk=pk)
+    record = get_object_or_404(OrientationRecord.objects.with_related(), pk=record_pk, member=member)
+    name = record.orientation_type.name
+    record.remove(removed_by=cast(User, request.user))
+    messages.success(request, f"Removed the {name} orientation record for {member.display_name}.")
+    return redirect(f"{reverse('hub_admin_member_edit', args=[member.pk])}?tab=orientations")
 
 
 @fog_admin_required

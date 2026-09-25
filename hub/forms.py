@@ -59,6 +59,7 @@ from membership.models import (
     OrgLink,
     OrientationAvailability,
     OrientationAvailabilityBlock,
+    OrientationRecord,
     OrientationSlot,
     OrientationType,
     Skill,
@@ -2189,6 +2190,11 @@ class BaseOrientationTypeFormSet(forms.BaseInlineFormSet):
                 raise forms.ValidationError(
                     "This orientation has booking history and can't be deleted. Turn off Active to retire it instead."
                 )
+            # A hand-entered record (issue #465) is history too, and its FK is PROTECT.
+            if form.instance.records.exists():
+                raise forms.ValidationError(
+                    "This orientation has recorded history and can't be deleted. Turn off Active to retire it instead."
+                )
             # A type some equipment requires would 500 on the FK's PROTECT — guard it
             # here for both the guild editor and the equipment tab (shared base).
             gated = list(form.instance.gated_equipment.values_list("name", flat=True))
@@ -2908,6 +2914,84 @@ class OrientationAddMemberForm(forms.Form):
         super().__init__(*args, **kwargs)
         if slot_queryset is not None:
             cast(forms.ModelChoiceField, self.fields["slot"]).queryset = slot_queryset
+
+
+class OrientationRecordForm(forms.Form):
+    """An admin records an orientation a member completed outside the booking flow (issue #465).
+
+    The picker is a text input over a ``<datalist>`` of every orientation type: active ones
+    first, labelled as the type prints itself ("<owner> — <name>"), retired ones after with a
+    "(retired)" suffix, so two guilds' "Shop Basics" tell apart by owner and last year's
+    retired orientation is still recordable as history. The typed label resolves to a type by
+    exact, case-insensitive match; anything else is refused rather than guessed. A type the
+    member already completed, by booking or by record, is refused with the member's name so
+    the page says it beside the field. Saving is silent: no email, no Discord.
+    """
+
+    RETIRED_SUFFIX = " (retired)"
+
+    orientation = forms.CharField(
+        label="Orientation",
+        max_length=200,
+        widget=forms.TextInput(
+            attrs={"list": "orientation-type-options", "autocomplete": "off", "placeholder": "Start typing a name"}
+        ),
+    )
+    completed_on = forms.DateField(
+        label="Date",
+        widget=forms.DateInput(
+            # Rule 14: the whole field opens the picker; .pl-slot-date inverts the
+            # black picker icon on the dark theme (reset under the light theme).
+            attrs={"type": "date", "class": "pl-slot-date", "onclick": "try { this.showPicker() } catch (e) {}"}
+        ),
+    )
+    oriented_by = forms.ModelChoiceField(
+        queryset=Member.objects.filter(status=Member.Status.ACTIVE).order_by("full_legal_name"),
+        label="Oriented by",
+        required=False,
+        empty_label="Not recorded",
+    )
+    note = forms.CharField(label="Note (optional)", max_length=500, required=False)
+
+    def __init__(self, member: Member, *args: Any, **kwargs: Any) -> None:
+        super().__init__(*args, **kwargs)
+        self.member = member
+        self.fields["completed_on"].initial = timezone.localdate()
+        self.type_options: list[str] = []
+        self._types_by_label: dict[str, OrientationType] = {}
+        types = OrientationType.objects.select_related("guild", "equipment").order_by(
+            "-is_active", "sort_order", "name"
+        )
+        for orientation_type in types:
+            label = str(orientation_type) if orientation_type.is_active else f"{orientation_type}{self.RETIRED_SUFFIX}"
+            self.type_options.append(label)
+            self._types_by_label[label.casefold()] = orientation_type
+
+    def clean_orientation(self) -> OrientationType:
+        orientation_type = self._types_by_label.get(self.cleaned_data["orientation"].strip().casefold())
+        if orientation_type is None:
+            raise forms.ValidationError("Pick an orientation from the list.")
+        return orientation_type
+
+    def clean(self) -> dict[str, Any]:
+        cleaned: dict[str, Any] = super().clean() or {}
+        orientation_type = cleaned.get("orientation")
+        if orientation_type is not None and orientation_type.pk in self.member.completed_orientation_type_ids(
+            [orientation_type]
+        ):
+            self.add_error("orientation", f"{self.member.display_name} already completed this orientation.")
+        return cleaned
+
+    def save(self, *, recorded_by: User) -> OrientationRecord:
+        """Write the record and its activity row through the model (silent: no email, no Discord)."""
+        return OrientationRecord.record(
+            self.member,
+            self.cleaned_data["orientation"],
+            completed_on=self.cleaned_data["completed_on"],
+            oriented_by=self.cleaned_data["oriented_by"],
+            note=self.cleaned_data["note"],
+            recorded_by=recorded_by,
+        )
 
 
 class OrientationBlockForm(forms.Form):

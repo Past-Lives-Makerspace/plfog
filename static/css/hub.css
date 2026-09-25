@@ -4117,6 +4117,10 @@ mark { background: color-mix(in srgb, var(--color-tuscan-yellow) 30%, transparen
 /* "Post your hours" nudge banner on the orientations dashboard */
 .pl-hours-nudge { padding: 0.9rem 1.5rem; margin-bottom: 1.5rem; border-left: 3px solid var(--color-tuscan-yellow); }
 .pl-hours-nudge a { color: var(--color-tuscan-yellow); }
+/* Orientations dashboard: the "Recorded by an Admin" table under the bookings table (issue #465). */
+.pl-orient-records { margin-top: 1.5rem; }
+.pl-orient-records__heading { margin: 0 0 0.75rem; }
+.pl-orient-records__empty { padding: 1.5rem 0.75rem; color: var(--hub-text-muted); }
 
 /* ============================================================
    Skills directory — filter bar, chips, commission badge, editor
@@ -9044,6 +9048,11 @@ mark { background: color-mix(in srgb, var(--color-tuscan-yellow) 30%, transparen
     outline: 2px solid var(--color-tuscan-yellow);
     outline-offset: 6px;
     border-radius: 8px;
+}
+/* "Recorded on <date>." under the done line when an admin recorded the orientation (issue #465). */
+.pl-orient-recorded {
+    margin: 0.25rem 0 0;
+    font-size: 0.85rem;
 }
 
 @media (max-width: 768px) {

@@ -8,7 +8,7 @@
 {% endblock %}
 
 {% block content %}
-<div class="hub-card" x-data="{ section: new URLSearchParams(window.location.search).get('tab') || 'details' }">
+<div class="hub-card" x-data="{ section: new URLSearchParams(window.location.search).get('tab') || '{{ open_tab|default:'details' }}' }">
 
   {# ── Header ─────────────────────────────────────────────────────────── #}
   <div class="pl-person-header">
@@ -28,6 +28,7 @@
     {% if is_member %}
     <button type="button" class="vote-tab" :class="section === 'permissions' ? 'vote-tab--active' : ''" @click="section = 'permissions'">Permissions</button>
     <button type="button" class="vote-tab" :class="section === 'notifications' ? 'vote-tab--active' : ''" @click="section = 'notifications'">Notifications</button>
+    <button type="button" class="vote-tab" :class="section === 'orientations' ? 'vote-tab--active' : ''" @click="section = 'orientations'">Orientations</button>
     {% endif %}
     <button type="button" class="vote-tab" :class="section === 'emails' ? 'vote-tab--active' : ''" @click="section = 'emails'">Emails</button>
   </div>
@@ -214,6 +215,61 @@
   </div>
   {% endif %}
 
+  {# ── Orientations tab ───────────────────────────────────────────────── #}
+  {% if is_member %}
+  <div x-show="section === 'orientations'" x-cloak>
+    <h2 class="hub-detail-label pl-member-orient-heading">Completed Orientations</h2>
+    <p class="hub-text-muted pl-member-orient-hint">
+      Every orientation this member has completed, whether they booked it here or an admin
+      recorded it. A recorded one counts everywhere at once: equipment gates, guild joins, bookings.
+    </p>
+    {% if orientation_rows %}
+    <div class="pl-member-orient-list">
+      {% for row in orientation_rows %}
+      <div class="pl-member-orient-row{% if row.record %} pl-member-orient-row--record{% endif %}">
+        <div class="pl-member-orient-row__main">
+          <span class="pl-member-orient-row__name">{{ row.orientation_type.name }}</span>
+          <span class="hub-text-muted pl-member-orient-row__meta">{{ row.orientation_type.owner_name }} · {{ row.completed_on|date:"M j, Y" }}{% if row.oriented_by %} · oriented by {{ row.oriented_by.display_name }}{% endif %}</span>
+          {% if row.record %}<span class="hub-pill hub-pill--neutral">Recorded</span>{% else %}<span class="hub-pill hub-pill--ok">Booked</span>{% endif %}
+        </div>
+        {% if row.record %}
+        <div class="pl-member-orient-row__actions">
+          <button type="button" class="hub-btn hub-btn--sm hub-btn--danger"
+                  @click="$dispatch('open-confirm', 'remove-orientation-{{ row.record.pk }}')">Remove</button>
+        </div>
+        {% endif %}
+      </div>
+      {% endfor %}
+    </div>
+    {% else %}
+    <p class="hub-text-muted pl-member-orient-empty">No orientations completed yet.</p>
+    {% endif %}
+
+    <form method="post" action="{{ orientation_record_url }}" class="pl-member-orient-form">
+      {% csrf_token %}
+      <h3 class="hub-detail-label pl-member-orient-form__heading">Record an Orientation</h3>
+      <p class="hub-text-muted pl-member-orient-hint">
+        For an orientation that happened outside the booking flow. Nothing is emailed or posted.
+      </p>
+      {% for error in orientation_form.non_field_errors %}<p class="pl-field-error">{{ error }}</p>{% endfor %}
+      <div class="pl-member-orient-form__fields">
+        <div class="pl-member-orient-form__type">
+          {% include "components/form_field.html" with field=orientation_form.orientation field_hint="Start typing and pick from the list. Retired orientations sit at the end." %}
+          <datalist id="orientation-type-options">
+            {% for label in orientation_form.type_options %}<option value="{{ label }}"></option>{% endfor %}
+          </datalist>
+        </div>
+        <div>{% include "components/form_field.html" with field=orientation_form.completed_on %}</div>
+        <div>{% include "components/form_field.html" with field=orientation_form.oriented_by %}</div>
+        <div class="pl-member-orient-form__note">{% include "components/form_field.html" with field=orientation_form.note %}</div>
+      </div>
+      <div class="pl-person-actions">
+        <button type="submit" class="hub-btn hub-btn--primary">Record orientation</button>
+      </div>
+    </form>
+  </div>
+  {% endif %}
+
   {# ── Emails tab ─────────────────────────────────────────────────────── #}
   <div x-show="section === 'emails'" x-cloak>
     <h2 class="hub-detail-label pl-emails-heading">Email addresses</h2>
@@ -268,6 +324,15 @@
     {% with pks=row.obj.pk|stringformat:"s" %}
       {% include "components/confirm_modal.html" with confirm_id="remove-email-"|add:pks confirm_title="Remove this email?" confirm_message="This email will no longer work for signing in. You can add it back later." confirm_action_url=row.remove_url confirm_button_text="Remove email" %}
     {% endwith %}
+  {% endfor %}
+
+  {# Confirm modals for each removable orientation record; a booking row has none. #}
+  {% for row in orientation_rows %}
+    {% if row.record %}
+    {% with rpks=row.record.pk|stringformat:"s" %}
+      {% include "components/confirm_modal.html" with confirm_id="remove-orientation-"|add:rpks confirm_title="Remove this orientation record?" confirm_message="They will need the orientation again before booking anything it gates." confirm_action_url=row.remove_url confirm_button_text="Remove record" %}
+    {% endwith %}
+    {% endif %}
   {% endfor %}
 
 </div>

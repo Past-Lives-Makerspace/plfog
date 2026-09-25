@@ -1619,19 +1619,39 @@ class Member(models.Model):
                 target=self,
             )
 
+    def completed_orientation_type_ids(self, orientation_types: Iterable[OrientationType] | None = None) -> set[int]:
+        """Pks of every orientation type this member has completed, by booking or by admin record.
+
+        The one truth behind :meth:`is_oriented_for`, :meth:`is_oriented_for_type` and the
+        bulk readers (the guild page, the equipment index): a completed booking
+        (``is_completed=True``) and an :class:`OrientationRecord` an admin entered by hand
+        (issue #465) count the same everywhere. ``orientation_types`` narrows both reads
+        to those types (a list, or a queryset used as a subquery). Two queries either
+        way, never one per type.
+        """
+        bookings = self.orientation_bookings.filter(is_completed=True)
+        records = self.orientation_records.all()
+        if orientation_types is not None:
+            bookings = bookings.filter(orientation_type__in=orientation_types)
+            records = records.filter(orientation_type__in=orientation_types)
+        return set(bookings.values_list("orientation_type_id", flat=True)) | set(
+            records.values_list("orientation_type_id", flat=True)
+        )
+
     def is_oriented_for(self, guild: Guild) -> bool:
-        """True when the member has a completed orientation of ANY type for this guild.
+        """True when the member has completed an orientation of ANY type this guild owns.
 
         Deliberately guild-scoped (issue #282): guild join gating and every existing
         call site keep their meaning — completing any one of a guild's orientation
         types makes the member "oriented for the guild". Use
-        :meth:`is_oriented_for_type` for the per-type check.
+        :meth:`is_oriented_for_type` for the per-type check. Reads through
+        :meth:`completed_orientation_type_ids`, so a hand-entered record counts too.
         """
-        return self.orientation_bookings.filter(guild=guild, is_completed=True).exists()
+        return bool(self.completed_orientation_type_ids(guild.orientation_types.all()))
 
     def is_oriented_for_type(self, orientation_type: OrientationType) -> bool:
-        """True when the member has a completed orientation of this specific type."""
-        return self.orientation_bookings.filter(orientation_type=orientation_type, is_completed=True).exists()
+        """True when the member has completed this specific type, by booking or by record."""
+        return orientation_type.pk in self.completed_orientation_type_ids([orientation_type])
 
     def active_orientation_for(self, guild: Guild) -> OrientationBooking | None:
         """The member's live (requested or confirmed) orientation booking for this guild, if any.
@@ -10642,6 +10662,131 @@ class OrientationBooking(models.Model):
         from billing.refunds import issue_refund
 
         return issue_refund(self, amount_cents=amount_cents, reason=reason, actor=actor)
+
+
+class OrientationRecordQuerySet(models.QuerySet):
+    def for_guild(self, guild_id: int) -> OrientationRecordQuerySet:
+        """Records whose orientation type belongs to this guild (the dashboard's guild filter)."""
+        return self.filter(orientation_type__guild_id=guild_id)
+
+    def with_related(self) -> OrientationRecordQuerySet:
+        """Everything a listing row reads (people, owner, the recording admin's member) in one query."""
+        return self.select_related(
+            "member",
+            "oriented_by",
+            "recorded_by",
+            "recorded_by__member",
+            "orientation_type__guild",
+            "orientation_type__equipment",
+        )
+
+
+class OrientationRecord(models.Model):
+    """An orientation an admin recorded by hand, outside the booking flow (issue #465).
+
+    A booking that completes is one road to "oriented"; this is the other, for an
+    orientation that happened off the books (before the app, in person, on another
+    form). :meth:`Member.completed_orientation_type_ids` reads both tables, so every
+    gate in the app treats a record and a completed booking the same. One record per
+    member per type. A record never touches a booking and a booking never touches a
+    record. Recording and removal are silent: no email, no Discord, one
+    :class:`core.models.SiteActivity` row each.
+    """
+
+    member = models.ForeignKey(
+        Member, on_delete=models.CASCADE, related_name="orientation_records", help_text="Who was oriented."
+    )
+    orientation_type = models.ForeignKey(
+        OrientationType,
+        on_delete=models.PROTECT,
+        related_name="records",
+        help_text="The orientation they completed. PROTECT: a type with recorded history cannot be deleted.",
+    )
+    completed_on = models.DateField(help_text="The day the orientation happened.")
+    oriented_by = models.ForeignKey(
+        Member,
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="orientation_records_given",
+        help_text="Who ran the orientation, when known.",
+    )
+    recorded_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="+",
+        help_text="The admin who entered this record.",
+    )
+    note = models.TextField(
+        blank=True, default="", help_text="Optional note from the admin, e.g. where or how the orientation happened."
+    )
+    created_at = models.DateTimeField(auto_now_add=True, help_text="When the record was entered.")
+
+    objects = OrientationRecordQuerySet.as_manager()
+
+    class Meta:
+        ordering = ["-completed_on", "-created_at"]
+        constraints = [
+            models.UniqueConstraint(fields=["member", "orientation_type"], name="uq_orientationrecord_member_type"),
+        ]
+
+    def __str__(self) -> str:
+        return f"{self.member.display_name} — {self.orientation_type} (recorded, {self.completed_on:%Y-%m-%d})"
+
+    @property
+    def recorded_by_name(self) -> str:
+        """Who entered the record, as the app names people: their member name, else their email."""
+        user = self.recorded_by
+        if user is None:
+            return "Unknown"
+        # A superuser acting without a linked Member (emergency access) has no member row;
+        # the reverse one-to-one raises an AttributeError subclass, which getattr absorbs.
+        member = getattr(user, "member", None)
+        if member is None:
+            return user.email
+        return cast(Member, member).display_name
+
+    def activity_payload(self) -> dict[str, str]:
+        """The activity feed's per-kind detail: the type and its owner, by name."""
+        return {"orientation_type": self.orientation_type.name, "owner": self.orientation_type.owner_name}
+
+    @classmethod
+    def record(
+        cls,
+        member: Member,
+        orientation_type: OrientationType,
+        *,
+        completed_on: date_type,
+        oriented_by: Member | None = None,
+        note: str = "",
+        recorded_by: User | None = None,
+    ) -> OrientationRecord:
+        """Enter one hand-recorded orientation and log it. Silent otherwise: no email, no Discord."""
+        from core.models import SiteActivity
+
+        record = cls.objects.create(
+            member=member,
+            orientation_type=orientation_type,
+            completed_on=completed_on,
+            oriented_by=oriented_by,
+            note=note,
+            recorded_by=recorded_by,
+        )
+        SiteActivity.log(
+            SiteActivity.Kind.ORIENTATION_RECORDED, actor=recorded_by, target=member, payload=record.activity_payload()
+        )
+        return record
+
+    def remove(self, *, removed_by: User | None) -> None:
+        """Delete this record and log it. Never touches a booking."""
+        from core.models import SiteActivity
+
+        member = self.member
+        payload = self.activity_payload()
+        self.delete()
+        SiteActivity.log(SiteActivity.Kind.ORIENTATION_RECORD_REMOVED, actor=removed_by, target=member, payload=payload)
 
 
 # ── Signage slideshow ─────────────────────────────────────────────────────────
