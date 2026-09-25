@@ -3,6 +3,6 @@ date = "2026-09-25"
 title = "Late cancellation policies for orientations and reservations"
 changes = [
   "Admins: Site Settings has a Late cancellation fees switch, off by default, with the cancellation notice in hours. Nothing charges yet; this release sets the rules and shows them.",
-  "Guild leads and equipment managers: when the switch is on, set a late cancellation fee for your orientations in the guild's Orientations tab and for a tool in its Hours and Limits tab. No fee is the default.",
+  "Guild leads and equipment managers: when the switch is on, set a late cancellation fee for your orientations in the guild's Orientations tab and for a tool in its Hours & Limits tab. No fee is the default.",
   "Members: where a fee applies, you see the notice and the amount before you book, on the Reserve prompt, and in your confirmation email.",
 ]

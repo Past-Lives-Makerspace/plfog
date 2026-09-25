@@ -1993,8 +1993,10 @@ _CURATED: dict[str, EventCopy] = {
     # calendar invite attached by the emit call). One primary CTA to the equipment page.
     "equipment.reservation_confirmed": EventCopy(
         # cancellation_policy is the late fee sentence while the equipment charges one and ""
-        # otherwise (#456). Seeded copy already on production is a DB row, so this default
-        # reaches fresh copy only; an admin adds the merge field to live copy from the editor.
+        # otherwise (#456). Copy lives in a DB row on production: the deploy's
+        # seed_notification_templates refreshes a row nobody has edited, so this default lands
+        # there on its own; a row an admin edited (is_overridden) keeps its text, and the admin
+        # adds the merge field from the editor.
         placeholders=("member_name", "equipment_name", "reservation_when", "equipment_url", "cancellation_policy"),
         sample_context={
             "member_name": "Robin Vale",

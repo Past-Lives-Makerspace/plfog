@@ -2125,6 +2125,7 @@ class LateCancelFeeFormMixin(forms.ModelForm):
         instance.late_cancel_fee_cents = self.cleaned_data["late_cancel_fee"]
         if commit:
             instance.save()
+            self.save_m2m()
         return instance
 
 

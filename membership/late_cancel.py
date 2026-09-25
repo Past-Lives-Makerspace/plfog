@@ -19,6 +19,7 @@ from typing import TYPE_CHECKING
 from django.utils import timezone
 
 if TYPE_CHECKING:
+    from core.models import SiteConfiguration
     from membership.models import Equipment, EquipmentReservation, Guild, OrientationBooking, OrientationType
 
 
@@ -59,11 +60,16 @@ class LateCancelPolicy:
         return f"${Decimal(self.fee_cents) / 100:.2f}"
 
 
-def _policy(fee_cents: int) -> LateCancelPolicy:
-    """Wrap an owner's fee in the site's window; the switch off zeroes the fee everywhere."""
+def _policy(fee_cents: int, *, site: SiteConfiguration | None = None) -> LateCancelPolicy:
+    """Wrap an owner's fee in the site's window; the switch off zeroes the fee everywhere.
+
+    ``site`` lets a page that resolves many policies load the singleton once (the guild
+    page asks per orientation type); a single call may leave it out.
+    """
     from core.models import SiteConfiguration
 
-    site = SiteConfiguration.load()
+    if site is None:
+        site = SiteConfiguration.load()
     return LateCancelPolicy(
         fee_cents=fee_cents if site.late_cancel_fees_enabled else 0,
         notice_hours=site.late_cancel_notice_hours,
@@ -81,22 +87,24 @@ def _guild_fee_cents(guild: Guild) -> int:
         return 0
 
 
-def policy_for_equipment(equipment: Equipment) -> LateCancelPolicy:
+def policy_for_equipment(equipment: Equipment, *, site: SiteConfiguration | None = None) -> LateCancelPolicy:
     """The policy for reserving ``equipment`` (or booking an orientation it owns)."""
-    return _policy(equipment.late_cancel_fee_cents)
+    return _policy(equipment.late_cancel_fee_cents, site=site)
 
 
-def policy_for_type(orientation_type: OrientationType) -> LateCancelPolicy:
+def policy_for_type(orientation_type: OrientationType, *, site: SiteConfiguration | None = None) -> LateCancelPolicy:
     """The policy for booking ``orientation_type``: its guild's fee, or its equipment's when it owns it."""
     from membership.models import Equipment
 
     owner = orientation_type.owner
     if isinstance(owner, Equipment):
-        return policy_for_equipment(owner)
-    return _policy(_guild_fee_cents(owner))
+        return policy_for_equipment(owner, site=site)
+    return _policy(_guild_fee_cents(owner), site=site)
 
 
-def policy_for(target: OrientationBooking | EquipmentReservation) -> LateCancelPolicy:
+def policy_for(
+    target: OrientationBooking | EquipmentReservation, *, site: SiteConfiguration | None = None
+) -> LateCancelPolicy:
     """The policy governing a booking or a reservation that already exists.
 
     A guild orientation booking follows its guild's fee, an equipment owned booking and an
@@ -105,8 +113,8 @@ def policy_for(target: OrientationBooking | EquipmentReservation) -> LateCancelP
     from membership.models import EquipmentReservation
 
     if isinstance(target, EquipmentReservation):
-        return policy_for_equipment(target.equipment)
-    return policy_for_type(target.orientation_type)
+        return policy_for_equipment(target.equipment, site=site)
+    return policy_for_type(target.orientation_type, site=site)
 
 
 def _hours(count: int) -> str:
