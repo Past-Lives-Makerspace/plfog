@@ -182,6 +182,7 @@ def _emit_member_email(
     ics: tuple[str, bytes, str] | None,
     in_app_title: str = "",
     in_app_body: str = "",
+    extra_context: dict[str, Any] | None = None,
 ) -> None:
     """Emit a member-facing orientation email (structural shell + optional ``.ics``).
 
@@ -198,7 +199,7 @@ def _emit_member_email(
     request / confirm / decline / cancel emails are independent (each one sends once),
     while a re-run of the SAME step is deduped — replacing the old "send every time".
     """
-    ctx = _context(booking)
+    ctx = _context(booking, **(extra_context or {}))
     # Member in-app only fires for confirm/decline/cancel (in_app_title set). For the
     # request-received email, suppress the in-app by giving the resolver no member.
     resolver_context: dict[str, Any] = {"booking": booking} if in_app_title else {"member": None}
@@ -965,6 +966,8 @@ def confirm_orientation(booking: OrientationBooking, *, oriented_by: Member | No
     ``oriented_by`` credits the actual runner (Decision 7). The view passes the acting
     member; when omitted the booking model still defaults to the guild lead.
     """
+    from membership.late_cancel import booking_sentence, policy_for
+
     booking.confirm(oriented_by=oriented_by)
     actor = booking.oriented_by.user if booking.oriented_by is not None else None
     SiteActivity.log(SiteActivity.Kind.ORIENTATION_CONFIRMED, actor=actor, target=booking)
@@ -973,6 +976,8 @@ def confirm_orientation(booking: OrientationBooking, *, oriented_by: Member | No
         action="confirm",
         subject=f"Orientation confirmed — {booking.orientation_type.owner_name}",
         template="orientation_confirmed",
+        # The confirmed email's guarded policy line; "" when no late fee applies (#456).
+        extra_context={"cancellation_policy": booking_sentence(policy_for(booking))},
         ics=_ics(booking, method="REQUEST", status="CONFIRMED"),
         in_app_title="Orientation confirmed",
         in_app_body=f"Your orientation for {booking.orientation_type.owner_name} is confirmed.",

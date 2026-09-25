@@ -354,3 +354,68 @@ def describe_hold_transition_guards_in_views():
         hold.refresh_from_db()
         assert hold.status == OrientationBooking.Status.PENDING_PAYMENT
         assert any("still finishing checkout" in str(m) for m in response.context["messages"])
+
+
+def describe_late_cancel_fee_on_the_guild_page():
+    """The guild page's booking prompts carry the policy sentence only with a fee (#456, part 1)."""
+
+    def _late_fees(enabled: bool) -> None:
+        from core.models import SiteConfiguration
+
+        config = SiteConfiguration.load()
+        config.late_cancel_fees_enabled = enabled
+        config.save()
+
+    def _section(client: Client, username: str, guild) -> str:
+        _user_with_role(username)
+        client.login(username=username, password="pass")
+        content = client.get(reverse("hub_guild_detail", args=[guild.slug])).content.decode()
+        # Scope to the orientation section: the changelog renders into every hub page.
+        return content.split('id="guild-orientation"')[1].split("</section>")[0]
+
+    def it_appends_the_sentence_to_the_request_prompt_when_the_guild_sets_a_fee(client: Client):
+        _late_fees(True)
+        settings_obj = GuildOrientationSettingsFactory(late_cancel_fee_cents=3750)
+        OrientationSlotFactory(guild=settings_obj.guild)
+        section = _section(client, "gp_lcf_on", settings_obj.guild)
+        assert "Send request" in section
+        assert "$37.50" in section
+
+    def it_appends_it_to_an_orienters_prompt(client: Client):
+        from membership.models import GuildStaffMembership
+        from tests.membership.factories import GuildStaffMembershipFactory
+
+        _late_fees(True)
+        settings_obj = GuildOrientationSettingsFactory(late_cancel_fee_cents=3750)
+        # A personal slot is bookable only while its orienter still staffs the guild.
+        orienter = MemberFactory(full_legal_name="Dana Reyes")
+        GuildStaffMembershipFactory(guild=settings_obj.guild, member=orienter, role=GuildStaffMembership.Role.ORIENTER)
+        OrientationSlotFactory(guild=settings_obj.guild, orienter=orienter)
+        section = _section(client, "gp_lcf_orienter", settings_obj.guild)
+        assert "send your request to Dana to confirm" in section
+        assert "$37.50" in section
+
+    def it_appends_it_to_the_paid_prompt_too(client: Client):
+        _late_fees(True)
+        settings_obj = GuildOrientationSettingsFactory(late_cancel_fee_cents=3750)
+        OrientationTypeFactory(guild=settings_obj.guild, price_cents=1500)
+        OrientationSlotFactory(guild=settings_obj.guild)
+        section = _section(client, "gp_lcf_paid", settings_obj.guild)
+        assert "Continue to Payment" in section
+        assert "$37.50" in section
+
+    def it_leaves_the_prompt_clean_with_no_fee(client: Client):
+        _late_fees(True)
+        settings_obj = GuildOrientationSettingsFactory()
+        OrientationSlotFactory(guild=settings_obj.guild)
+        section = _section(client, "gp_lcf_free", settings_obj.guild)
+        assert "Send request" in section
+        assert "$37.50" not in section
+
+    def it_leaves_the_prompt_clean_while_the_site_switch_is_off(client: Client):
+        _late_fees(False)
+        settings_obj = GuildOrientationSettingsFactory(late_cancel_fee_cents=3750)
+        OrientationSlotFactory(guild=settings_obj.guild)
+        section = _section(client, "gp_lcf_off", settings_obj.guild)
+        assert "Send request" in section
+        assert "$37.50" not in section

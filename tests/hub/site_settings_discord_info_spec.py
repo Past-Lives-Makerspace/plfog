@@ -35,6 +35,8 @@ def _settings_post(**overrides: str) -> dict[str, str]:
         "org_name": "Past Lives Makerspace",
         "registration_mode": "invite_only",
         "member_event_policy": SiteConfiguration.MemberEventPolicy.APPROVAL,
+        "late_cancel_notice_hours": "24",
+        "late_cancel_grace_hours": "2",
         "discord_info_links_content": DISCORD_INFO_LINKS_DEFAULT,
         "feeds-TOTAL_FORMS": "0",
         "feeds-INITIAL_FORMS": "0",

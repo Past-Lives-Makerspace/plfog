@@ -1992,12 +1992,18 @@ _CURATED: dict[str, EventCopy] = {
     # equipment.reservation_confirmed — the member's booking receipt (forced email with the
     # calendar invite attached by the emit call). One primary CTA to the equipment page.
     "equipment.reservation_confirmed": EventCopy(
-        placeholders=("member_name", "equipment_name", "reservation_when", "equipment_url"),
+        # cancellation_policy is the late fee sentence while the equipment charges one and ""
+        # otherwise (#456). Copy lives in a DB row on production: the deploy's
+        # seed_notification_templates refreshes a row nobody has edited, so this default lands
+        # there on its own; a row an admin edited (is_overridden) keeps its text, and the admin
+        # adds the merge field from the editor.
+        placeholders=("member_name", "equipment_name", "reservation_when", "equipment_url", "cancellation_policy"),
         sample_context={
             "member_name": "Robin Vale",
             "equipment_name": "CNC Router",
             "reservation_when": "Saturday, September 12, 2:00 PM to 4:00 PM",
             "equipment_url": "https://pastlives.example/equipment/cnc-router/",
+            "cancellation_policy": "Cancel at least 24 hours ahead. Cancelling later costs a $15.00 late fee.",
         },
         channels={
             Channel.IN_APP: ChannelCopy(
@@ -2011,7 +2017,8 @@ _CURATED: dict[str, EventCopy] = {
                     "Your reservation is set.\n\n"
                     "{{ equipment_name }}\n{{ reservation_when }}\n\n"
                     "A calendar invite is attached. If your plans change, you can cancel "
-                    "from the equipment page and the time opens up for someone else.\n\n"
+                    "from the equipment page and the time opens up for someone else. "
+                    "{{ cancellation_policy }}\n\n"
                     "See your reservation: {{ equipment_url }}\n\nPast Lives Makerspace"
                 ),
                 body_html=(
@@ -2020,7 +2027,7 @@ _CURATED: dict[str, EventCopy] = {
                     '<p><strong><a href="{{ equipment_url }}">{{ equipment_name }}</a></strong><br>'
                     "{{ reservation_when }}</p>"
                     "<p>A calendar invite is attached. If your plans change, you can cancel from the "
-                    "equipment page and the time opens up for someone else.</p>"
+                    "equipment page and the time opens up for someone else. {{ cancellation_policy }}</p>"
                     '<p style="text-align:center;margin:24px 0 8px;"><a href="{{ equipment_url }}" '
                     'style="display:inline-block;padding:12px 28px;background-color:#EEB44B;color:#092E4C;'
                     'font-size:14px;font-weight:700;text-decoration:none;border-radius:6px;">'

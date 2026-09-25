@@ -9210,6 +9210,13 @@ class GuildOrientationSettings(models.Model):
             "booking here. An orientation type can set its own link to override this one."
         ),
     )
+    late_cancel_fee_cents = models.PositiveIntegerField(
+        default=0,
+        help_text=(
+            "Fee for cancelling a confirmed orientation inside the site's cancellation notice window, "
+            "in cents. 0 = no fee (the default). Applies only while Site Settings charges late fees."
+        ),
+    )
     thankyou_email_enabled = models.BooleanField(
         default=True,
         help_text=(
@@ -11807,6 +11814,13 @@ class Equipment(HeroCropMixin, models.Model):
     )
     max_active_reservations_per_member = models.PositiveSmallIntegerField(
         default=2, help_text="How many upcoming reservations one member can hold on this equipment at once."
+    )
+    late_cancel_fee_cents = models.PositiveIntegerField(
+        default=0,
+        help_text=(
+            "Fee for cancelling a reservation or an owned orientation inside the site's cancellation notice "
+            "window, in cents. 0 = no fee (the default). Applies only while Site Settings charges late fees."
+        ),
     )
     is_closed = models.BooleanField(
         default=False,

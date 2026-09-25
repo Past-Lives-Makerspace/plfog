@@ -866,3 +866,41 @@ def describe_reservation_vs_orientation_race():
             equipment_service.reserve(equipment, _linked_member("race_res_second"), _at(_day(), 10), 60)
         assert booking.status == OrientationBooking.Status.REQUESTED
         assert not equipment.reservations.exists()
+
+
+def describe_late_cancel_policy_in_the_reservation_confirmation():
+    """The reservation receipt carries the policy line only while a fee applies (#456, part 1)."""
+
+    def _late_fees(enabled: bool) -> None:
+        from core.models import SiteConfiguration
+
+        config = SiteConfiguration.load()
+        config.late_cancel_fees_enabled = enabled
+        config.save()
+
+    def _confirmation(username: str, **equipment_kwargs):
+        equipment = _open_tool(name="CNC Router", **equipment_kwargs)
+        member = _linked_member(username)
+        mail.outbox.clear()
+        equipment_service.reserve(equipment, member, _at(_day(), 10), 60)
+        return next(m for m in mail.outbox if "Reserved" in m.subject)
+
+    def it_names_the_fee_in_both_bodies_when_the_equipment_charges_one():
+        _late_fees(True)
+        message = _confirmation("lcf_res_on", late_cancel_fee_cents=3750)
+        assert "$37.50" in message.body
+        assert "$37.50" in message.alternatives[0][0]
+        assert "[missing:" not in message.body
+
+    def it_says_nothing_about_fees_with_no_fee():
+        _late_fees(True)
+        message = _confirmation("lcf_res_free")
+        assert "$37.50" not in message.body
+        assert "$37.50" not in message.alternatives[0][0]
+        assert "[missing:" not in message.body
+
+    def it_says_nothing_about_fees_while_the_site_switch_is_off():
+        _late_fees(False)
+        message = _confirmation("lcf_res_off", late_cancel_fee_cents=3750)
+        assert "$37.50" not in message.body
+        assert "$37.50" not in message.alternatives[0][0]

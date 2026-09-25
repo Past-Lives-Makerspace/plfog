@@ -430,6 +430,9 @@ confirm modal carries its own POST form, and template content can't nest a form.
       {% include "components/form_field.html" with field=orientation_form.allow_custom_requests %}
       {% include "components/form_field.html" with field=orientation_form.info %}
       {% include "components/form_field.html" with field=orientation_form.external_signup_url %}
+      {% if late_cancel_fees_enabled %}
+      {% include "components/form_field.html" with field=orientation_form.late_cancel_fee %}
+      {% endif %}
       <p class="hub-text-muted" style="font-size:0.8125rem; margin:0.5rem 0 0;">Length, price, seats, and location are set per orientation in the Orientation Types card below.</p>
     </div>
 

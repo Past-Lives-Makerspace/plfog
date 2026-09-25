@@ -64,6 +64,8 @@ def _settings_post(**kwargs) -> dict[str, str]:
         "org_name": "Past Lives Makerspace",
         "registration_mode": SiteConfiguration.RegistrationMode.INVITE_ONLY,
         "member_event_policy": SiteConfiguration.MemberEventPolicy.APPROVAL,
+        "late_cancel_notice_hours": "24",
+        "late_cancel_grace_hours": "2",
         "feeds-TOTAL_FORMS": "0",
         "feeds-INITIAL_FORMS": "0",
         "feeds-MIN_NUM_FORMS": "0",
@@ -201,6 +203,8 @@ def describe_when_the_formset_is_not_posted():
                 "org_name": "Past Lives Makerspace",
                 "registration_mode": SiteConfiguration.RegistrationMode.INVITE_ONLY,
                 "member_event_policy": SiteConfiguration.MemberEventPolicy.APPROVAL,
+                "late_cancel_notice_hours": "24",
+                "late_cancel_grace_hours": "2",
                 "feeds-TOTAL_FORMS": "0",
                 "feeds-INITIAL_FORMS": "0",
                 "feeds-MIN_NUM_FORMS": "0",
@@ -264,3 +268,44 @@ def describe_the_settings_form_renders_each_field_once():
         """
         _superuser(client, "dirswitchadmin")
         assert "member_directory_public" in _rendered_names(client)
+
+
+def describe_saving_the_late_cancel_fee_settings():
+    """The three #456 fields sit in the Features card and save with the page's Save."""
+
+    def it_saves_the_switch_and_the_window_through_the_view(client: Client):
+        _superuser(client, "latefeeadmin")
+        data = _settings_post()
+        data.update(
+            {"late_cancel_fees_enabled": "on", "late_cancel_notice_hours": "48", "late_cancel_grace_hours": "6"}
+        )
+        response = client.post(URL, data)
+        assert response.status_code == 302
+        config = SiteConfiguration.load()
+        assert config.late_cancel_fees_enabled is True
+        assert config.late_cancel_notice_hours == 48
+        assert config.late_cancel_grace_hours == 6
+
+    def it_renders_the_three_right_after_the_my_tab_switch(client: Client):
+        _superuser(client, "latefeerender")
+        html = client.get(f"{URL}?tab=features").content.decode()
+        positions = [
+            html.index(f'name="{name}"')
+            for name in (
+                "my_tab_enabled",
+                "late_cancel_fees_enabled",
+                "late_cancel_notice_hours",
+                "late_cancel_grace_hours",
+                "class_registration_enabled",
+            )
+        ]
+        assert positions == sorted(positions)
+
+    def it_shows_the_window_error_on_the_page(client: Client):
+        _superuser(client, "latefeeerror")
+        data = _settings_post()
+        data.update({"late_cancel_notice_hours": "24", "late_cancel_grace_hours": "24"})
+        response = client.post(URL, data)
+        assert response.status_code == 200
+        assert "The grace period must be shorter than the notice." in response.content.decode()
+        assert SiteConfiguration.load().late_cancel_grace_hours == 2

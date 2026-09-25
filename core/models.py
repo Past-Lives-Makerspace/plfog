@@ -639,6 +639,24 @@ class SiteConfiguration(models.Model):
         "also hides its Overview and Open Tabs tabs and opens straight on the Payments ledger. The "
         "Reports page and payment history are unaffected.",
     )
+    late_cancel_fees_enabled = models.BooleanField(
+        default=False,
+        verbose_name="Charge late cancellation fees",
+        help_text=(
+            "When on, guilds and equipment can set a fee for cancelling an orientation or reservation "
+            "inside the notice window. Off means nothing charges anywhere."
+        ),
+    )
+    late_cancel_notice_hours = models.PositiveSmallIntegerField(
+        default=24,
+        verbose_name="Cancellation notice (hours)",
+        help_text="How far ahead members are told to cancel. Shown wherever a fee applies.",
+    )
+    late_cancel_grace_hours = models.PositiveSmallIntegerField(
+        default=2,
+        verbose_name="Grace period (hours)",
+        help_text="Not shown to members. A cancel this close to the notice line is still free.",
+    )
     class_registration_enabled = models.BooleanField(
         default=True,
         verbose_name="Allow class registration",

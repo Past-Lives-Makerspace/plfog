@@ -259,6 +259,8 @@ def _schedule_context(
             for start in starts
         }
 
+    from membership.late_cancel import booking_sentence, policy_for_equipment
+
     blockers = equipment.booking_blockers(member)
     my_reservations: list[EquipmentReservation] = []
     if member is not None:
@@ -289,6 +291,8 @@ def _schedule_context(
         "my_reservations": my_reservations,
         "upcoming_reservations": list(equipment.reservations.upcoming().select_related("member")[:20]),
         "manages": manages,
+        # Under the Book a Time form and appended to its Reserve prompt; "" when no fee applies.
+        "late_cancel_sentence": booking_sentence(policy_for_equipment(equipment)),
     }
 
 

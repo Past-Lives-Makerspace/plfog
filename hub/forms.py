@@ -1230,6 +1230,9 @@ class SiteSettingsForm(forms.ModelForm):
             "discord_role_message_channel_id",
             "discord_role_message_id",
             "my_tab_enabled",
+            "late_cancel_fees_enabled",
+            "late_cancel_notice_hours",
+            "late_cancel_grace_hours",
             "class_registration_enabled",
             "class_registration_disabled_note",
             "help_page_enabled",
@@ -1266,7 +1269,20 @@ class SiteSettingsForm(forms.ModelForm):
         url = cleaned.get("member_agreement_url")
         if required and not url:
             self.add_error("member_agreement_url", "A URL is required if the agreement is enabled.")
+        self._clean_late_cancel_window(cleaned)
         return cleaned
+
+    def _clean_late_cancel_window(self, cleaned: dict[str, Any]) -> None:
+        """The notice members are told must be at least an hour, and the hidden grace shorter than it.
+
+        A grace equal to the notice would make every cancel free while the copy promises a fee.
+        """
+        notice = cleaned.get("late_cancel_notice_hours")
+        grace = cleaned.get("late_cancel_grace_hours")
+        if notice is not None and notice < 1:
+            self.add_error("late_cancel_notice_hours", "Give members at least 1 hour of notice.")
+        elif notice is not None and grace is not None and grace >= notice:
+            self.add_error("late_cancel_grace_hours", "The grace period must be shorter than the notice.")
 
     def clean_discord_info_links_content(self) -> str:
         """Cap the links copy at Discord's embed-description limit before it can 400 a sync."""
@@ -2066,12 +2082,60 @@ def clean_external_signup_url(url: str) -> str:
     return url
 
 
-class GuildOrientationSettingsForm(forms.ModelForm):
+class LateCancelFeeFormMixin(forms.ModelForm):
+    """A ``late_cancel_fee`` field in dollars, mapped to ``late_cancel_fee_cents`` on save (#456).
+
+    Shared by the guild's orientation settings and the equipment's Hours & Limits form, which
+    both carry the column under the same name. Blank normalizes to 0 (no fee), a fee free
+    owner renders the field empty rather than "0", and a POST that does not carry the field at
+    all (the templates render it only while Site Settings charges late fees) leaves the stored
+    fee alone, so switching the site feature off and on never wipes what a lead set.
+    """
+
+    late_cancel_fee = forms.DecimalField(
+        max_digits=6,
+        decimal_places=2,
+        required=False,
+        label="Late cancellation fee",
+        help_text=(
+            "In dollars. Charged when a member cancels inside the cancellation notice window set in "
+            "Site Settings. Blank means no fee."
+        ),
+        widget=forms.NumberInput(attrs={"placeholder": "No fee", "min": "0", "step": "0.01"}),
+    )
+
+    def __init__(self, *args: Any, **kwargs: Any) -> None:
+        super().__init__(*args, **kwargs)
+        if self.instance.pk and self.instance.late_cancel_fee_cents:
+            self.fields["late_cancel_fee"].initial = Decimal(self.instance.late_cancel_fee_cents) / 100
+
+    def clean_late_cancel_fee(self) -> int:
+        """Normalize the dollar input to cents; blank means no fee, absent means unchanged."""
+        if self.add_prefix("late_cancel_fee") not in self.data:
+            return int(self.instance.late_cancel_fee_cents)
+        fee = self.cleaned_data["late_cancel_fee"]
+        if fee in (None, ""):
+            return 0
+        if not Decimal("0") <= fee <= Decimal("500"):
+            raise forms.ValidationError("Enter a fee between $0 and $500.")
+        return int(fee * 100)
+
+    def save(self, commit: bool = True) -> Any:
+        instance = super().save(commit=False)
+        instance.late_cancel_fee_cents = self.cleaned_data["late_cancel_fee"]
+        if commit:
+            instance.save()
+            self.save_m2m()
+        return instance
+
+
+class GuildOrientationSettingsForm(LateCancelFeeFormMixin):
     """Edit a guild's guild-wide orientation switches.
 
     The lead-authored thank-you email lives on its own :class:`GuildThankyouEmailForm`
     (also on the Orientations tab). Per-orientation config — duration, price, seats,
-    location — is edited per type on :class:`OrientationTypeFormSet`, not here.
+    location — is edited per type on :class:`OrientationTypeFormSet`, not here. The late
+    cancellation fee comes from :class:`LateCancelFeeFormMixin`.
     """
 
     class Meta:
@@ -4590,8 +4654,8 @@ EquipmentHoursWindowFormSet = forms.formset_factory(
 )
 
 
-class EquipmentSettingsForm(forms.ModelForm):
-    """The Hours & Limits tab's closure + booking-limit fields (spec §7.4)."""
+class EquipmentSettingsForm(LateCancelFeeFormMixin):
+    """The Hours & Limits tab's closure + booking-limit fields (spec §7.4) and the late cancellation fee."""
 
     class Meta:
         model = Equipment
