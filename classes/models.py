@@ -3108,6 +3108,15 @@ class ClassSession(models.Model):
 
 
 class DiscountCodeQuerySet(models.QuerySet["DiscountCode"]):
+    def site_wide_live(self) -> "DiscountCodeQuerySet":
+        """The codes anyone can type at checkout on any class: no class scope, active and approved, by code.
+
+        The date window and the use cap stay with :meth:`DiscountCode.is_currently_valid` at
+        redemption; a code outside its window is still worth listing, dates and all, which is
+        what the composer's Discounts step does (#428).
+        """
+        return self.filter(class_offering__isnull=True, is_active=True, is_approved=True).order_by("code")
+
     def best_auto_apply_for(self, offering: "ClassOffering", base_price_cents: int) -> "DiscountCode | None":
         """The class-scoped auto-apply code that drops ``base_price_cents`` furthest.
 

@@ -2014,24 +2014,21 @@ def _leave_class_url(request: HttpRequest, offering: ClassOffering) -> str:
     return reverse("classes:teach_dashboard")
 
 
-def _composer_discounts_context(saved: ClassOffering | None, is_admin: bool) -> dict[str, Any]:
+def _composer_discounts_context(
+    saved: ClassOffering | None, is_admin: bool, can_view_discount_codes: bool
+) -> dict[str, Any]:
     """The Discounts step's rows for an instructor: the site wide codes that already apply, and this class's requests.
 
     Admins get nothing extra: their step is the per class section, which reads
-    ``offering.discount_codes`` itself. The two flags the template branches on come from the
-    ``feature_flags`` context processor; this only fetches rows when someone can see them.
+    ``offering.discount_codes`` itself. ``can_view_discount_codes`` is the viewer's capability
+    on this class (:func:`_composer_context` resolves it), so a guild lead on a class they do
+    not teach, who has it False on purpose, is handed nothing to read.
     """
-    if is_admin or not SiteConfiguration.load().instructor_discount_codes_enabled:
+    if is_admin or not can_view_discount_codes:
         return {}
-    requests = (
-        saved.discount_code_requests.select_related("discount_code")
-        if saved is not None
-        else DiscountCodeRequest.objects.none()
-    )
+    requests = saved.discount_code_requests.all() if saved is not None else DiscountCodeRequest.objects.none()
     return {
-        "composer_global_codes": DiscountCode.objects.filter(
-            class_offering__isnull=True, is_active=True, is_approved=True
-        ).order_by("code"),
+        "composer_global_codes": DiscountCode.objects.site_wide_live(),
         "composer_discount_requests": requests,
     }
 
@@ -2072,6 +2069,18 @@ def _composer_context(
 
     is_published = saved is not None and saved.status == ClassOffering.Status.PUBLISHED
     marks = step_marks(readiness) if readiness is not None else {}
+    # Who may read discount codes on this class. On edit it is the capability
+    # ``class_screen_required`` resolved: an instructor's follows the master setting, and a
+    # guild lead on a class they do not teach has it False on purpose (``_guild_access``), so
+    # the Discounts step must not hand them the codes, the requests or a Request a Code link
+    # that dead ends. On create there is no class yet and the only person here is an
+    # instructor starting their own, so the master setting is the whole answer.
+    access: ClassAccess | None = getattr(request, "class_access", None)
+    can_view_discount_codes = (
+        access.can_view_discount_codes
+        if access is not None
+        else SiteConfiguration.load().instructor_discount_codes_enabled
+    )
     if saved is not None:
         # The card preview frames render the REAL catalog card three times (two widths on
         # the Photos step, the phone on the Review step) and each read offering.sessions.all; one prefetch
@@ -2086,6 +2095,7 @@ def _composer_context(
         "composer_tabs": [{"step": step, "done": marks.get(step.number, False)} for step in COMPOSER_STEPS],
         # The map's own count: every "how many steps" and "the last step" in the template reads it.
         "step_count": STEP_COUNT,
+        "composer_can_view_discount_codes": can_view_discount_codes,
         "initial_phase": min(error_step_numbers) if error_step_numbers else _composer_step(request),
         "error_steps": error_step_numbers,
         "error_steps_json": json.dumps(error_step_numbers),
@@ -2114,7 +2124,7 @@ def _composer_context(
         # request may print them: published, or an admin looking at a draft.
         "can_print_marketing": saved is not None and can_print_class_marketing(request, saved),
         **_missing_context(missing, verb),
-        **_composer_discounts_context(saved, is_admin),
+        **_composer_discounts_context(saved, is_admin, can_view_discount_codes),
     }
 
 

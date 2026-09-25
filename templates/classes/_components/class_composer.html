@@ -18,10 +18,14 @@ Context (from _composer_context in classes/views.py, plus the form context):
                     Submit for Review)
   step_count      — STEP_COUNT from classes/composer.py: every "how many steps" and "the
                     last step" below reads it, so adding a step never edits a number here
+  composer_can_view_discount_codes — the viewer's capability on this class (the master
+                    setting on create): False for a guild lead editing a class they do not
+                    teach, who lands on the "admins manage codes" line like an instructor
+                    with the setting off
   composer_global_codes / composer_discount_requests — the Discounts step's rows for an
-                    instructor with instructor discount codes on: the site wide codes that
-                    already apply, and this class's requests. Absent for admins and with the
-                    setting off; the template branches on the flags, never on these keys
+                    instructor who may view discount codes: the site wide codes that already
+                    apply, and this class's requests. Absent for admins and for anyone who may
+                    not; the template branches on the capability, never on these keys
   composer_tabs   — [{step: ComposerStep, done: bool}], the tab bar with completion marks
   initial_phase   — the step to open on: the first broken step after a failed POST, else ?step=
   error_steps / error_steps_json / error_summary — the broken steps and their failing field labels
@@ -325,24 +329,26 @@ Do not merge them.
     Links and read only tables, never a control (#428): the per step check counts every input,
     select and textarea inside a pane, and the request form stays on its own page because a
     <form> cannot nest inside the composer's. data-composer-discounts names the variant that
-    rendered, so specs anchor on markup: admin (the per class section), off (the master
-    setting is off), request (approval mode) or direct (instructors still make their own codes).
+    rendered, so specs anchor on markup: admin (the per class section), off (this viewer may not
+    view discount codes on this class: the master setting is off, or they are a guild lead on a
+    class they do not teach), request (approval mode) or direct (instructors still make their own
+    codes).
     class_discount_codes_section.html renders nothing for an unsaved class, hence the "save your
     draft once" line beside each include of it.
     {% endcomment %}
     <div class="pl-composer__step" data-composer-step="5" x-show="phase === 5" x-cloak
-         data-composer-discounts="{% if is_admin %}admin{% elif not instructor_discount_codes_enabled %}off{% elif instructor_discount_codes_need_approval %}request{% else %}direct{% endif %}">
+         data-composer-discounts="{% if is_admin %}admin{% elif not composer_can_view_discount_codes %}off{% elif instructor_discount_codes_need_approval %}request{% else %}direct{% endif %}">
       <h2 class="pl-composer__heading">Discounts</h2>
       {% if is_admin %}
-        <p class="pl-compose-section__note">Codes for this class only. Global codes apply to every class and live on the Discount Codes tab.</p>
+        <p class="pl-compose-section__note">Codes for this class only. Global codes apply to every class and live on the Discount Codes page.</p>
         {% include "classes/_components/class_discount_codes_section.html" with offering=offering create_url='classes:admin_discount_code_create' edit_url='classes:admin_discount_code_edit' %}
         {% if not offering or not offering.pk %}<p class="pl-compose-section__note">Save your draft once and the discount codes for this class appear here.</p>{% endif %}
-      {% elif not instructor_discount_codes_enabled %}
+      {% elif not composer_can_view_discount_codes %}
         <p class="pl-compose-section__note">Discount codes are managed by admins. Ask an admin if you need one for your class.</p>
       {% else %}
         <div class="pl-compose-section">
           <h3 class="pl-compose-section__title">Codes That Apply To Every Class</h3>
-          <p class="pl-compose-section__note">These already work on your class. Members get them without you doing anything.</p>
+          <p class="pl-compose-section__note">These already work on your class. Anyone signing up for your class can use them.</p>
           {% include "classes/_components/discount_codes_read_only_table.html" with codes=composer_global_codes empty_text="No site wide codes right now." %}
         </div>
         {% if instructor_discount_codes_need_approval %}

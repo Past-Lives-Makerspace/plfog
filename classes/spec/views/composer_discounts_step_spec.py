@@ -21,6 +21,7 @@ from django.urls import reverse
 
 from classes.composer import STEP_COUNT
 from classes.factories import (
+    CategoryFactory,
     ClassOfferingFactory,
     DiscountCodeFactory,
     DiscountCodeRequestFactory,
@@ -31,6 +32,7 @@ from classes.models import ClassOffering, DiscountCodeRequest
 from classes.spec.views.composer_step_validation_spec import TEMPLATE_PATH, _PaneParser
 from classes.views import _composer_discounts_context
 from core.models import SiteConfiguration
+from tests.membership.factories import GuildFactory
 
 pytestmark = pytest.mark.django_db
 
@@ -131,6 +133,43 @@ def describe_the_admin_variant():
         assert _stamp(pane) == "admin"
         # The section renders nothing for a class with no pk, so the pane says why it is empty.
         assert reverse(ADMIN_CODE_CREATE) not in pane
+        assert "<table" not in pane
+
+
+def describe_a_guild_lead_on_a_class_they_do_not_teach():
+    def it_lands_on_the_admins_manage_codes_line_with_nothing_to_read(client, instructor):
+        # _guild_access sets can_view_discount_codes False on purpose: the lead edits the class but
+        # the codes, the instructor's requests with the admin's notes, and a Request a Code link
+        # that could only dead end (the request form lists the lead's own classes) are not theirs.
+        _flags(master=True, approval=True)
+        guild = GuildFactory(name="Discounts Guild", guild_lead=instructor)
+        theirs = cast(
+            ClassOffering,
+            ClassOfferingFactory(
+                instructor=InstructorFactory(instructor_slug="someone-else"),
+                category=CategoryFactory(guild=guild),
+                status=ClassOffering.Status.DRAFT,
+            ),
+        )
+        DiscountCodeFactory(class_offering=None, code="MEMBER10")
+        DiscountCodeFactory(class_offering=theirs, code="EARLYBIRD")
+        DiscountCodeRequestFactory(
+            class_offering=theirs,
+            code="FRIENDS50",
+            status=DiscountCodeRequest.Status.DECLINED,
+            decision_note="Too steep for a first run.",
+        )
+        client.force_login(instructor.user)
+
+        resp = client.get(reverse(EDIT, kwargs={"pk": theirs.pk}))
+
+        assert resp.status_code == 200
+        html = resp.content.decode()
+        pane = _pane(html, DISCOUNTS)
+        assert _stamp(pane) == "off"
+        assert reverse(REQUEST) not in html
+        for hidden in ("MEMBER10", "EARLYBIRD", "FRIENDS50", "Too steep for a first run."):
+            assert hidden not in html, hidden
         assert "<table" not in pane
 
 
@@ -252,15 +291,12 @@ def describe_no_control_on_the_step():
 
 def describe_composer_discounts_context():
     def it_gives_an_admin_nothing_extra(instructor):
-        _flags(master=True, approval=True)
-        assert _composer_discounts_context(_draft(instructor), True) == {}
+        assert _composer_discounts_context(_draft(instructor), True, True) == {}
 
-    def it_gives_nothing_with_the_master_setting_off(instructor):
-        _flags(master=False, approval=True)
-        assert _composer_discounts_context(_draft(instructor), False) == {}
+    def it_gives_nothing_to_a_viewer_who_may_not_view_discount_codes(instructor):
+        assert _composer_discounts_context(_draft(instructor), False, False) == {}
 
     def it_lists_the_active_approved_site_wide_codes_and_the_class_requests_for_a_saved_class(instructor):
-        _flags(master=True, approval=True)
         mine = _draft(instructor)
         member10 = DiscountCodeFactory(class_offering=None, code="MEMBER10")
         all5 = DiscountCodeFactory(class_offering=None, code="ALL5")
@@ -270,15 +306,14 @@ def describe_composer_discounts_context():
         request = DiscountCodeRequestFactory(class_offering=mine, code="SPRING15")
         DiscountCodeRequestFactory(class_offering=ClassOfferingFactory(), code="ELSEWHERE")
 
-        context = _composer_discounts_context(mine, False)
+        context = _composer_discounts_context(mine, False, True)
 
         assert list(context["composer_global_codes"]) == [all5, member10]
         assert list(context["composer_discount_requests"]) == [request]
 
     def it_lists_no_requests_for_an_unsaved_class():
-        _flags(master=True, approval=True)
         DiscountCodeRequestFactory(code="SPRING15")
-        context = _composer_discounts_context(None, False)
+        context = _composer_discounts_context(None, False, True)
         assert list(context["composer_discount_requests"]) == []
         assert context["composer_discount_requests"].model is DiscountCodeRequest
         assert list(context["composer_global_codes"]) == []
