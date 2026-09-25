@@ -180,6 +180,16 @@ urlpatterns = [
         views.orientation_checkout_resume,
         name="hub_orientation_checkout_resume",
     ),
+    # Late cancellation fees (#456): the fee's own page with its Pay button (what emails
+    # link), the Pay POST that mints a Checkout, and the Stripe return and cancelled landings.
+    path("late-fees/<int:pk>/", views.hub_late_fee_detail, name="hub_late_fee_detail"),
+    path("late-fees/<int:pk>/pay/", views.hub_late_fee_pay, name="hub_late_fee_pay"),
+    path("late-fees/return/<str:token>/", views.hub_late_fee_return, name="hub_late_fee_return"),
+    path(
+        "late-fees/cancelled/<str:token>/",
+        views.hub_late_fee_checkout_cancelled,
+        name="hub_late_fee_checkout_cancelled",
+    ),
     path("orientations/", views.orientations_dashboard, name="hub_orientations_dashboard"),
     path("orientations/export/", views.orientations_export, name="hub_orientations_export"),
     path("orientations/add-member/", views.orientation_add_member, name="hub_orientation_add_member"),

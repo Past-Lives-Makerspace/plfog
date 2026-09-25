@@ -314,6 +314,38 @@ def describe_equipment_detail():
         assert expected.encode() in response.content
         assert b"You're all set." not in response.content
 
+    def it_shows_the_unpaid_late_fee_with_a_pay_button_instead_of_all_set(client: Client):
+        """The block until paid (#456, part 2): the banner's fee state wins over every other state."""
+        from tests.billing.factories import LateCancellationFeeFactory
+        from tests.membership.factories import OrientationBookingFactory
+
+        user = _login(client, "eq_det_late_fee")
+        equipment = EquipmentFactory(name="Open Bench")
+        fee = LateCancellationFeeFactory(
+            orientation_booking=OrientationBookingFactory(member=user.member, status="cancelled"), amount_cents=3750
+        )
+        response = client.get(reverse("hub_equipment_detail", args=[equipment.slug]))
+        content = response.content.decode()
+        assert f'data-late-fee-notice="{fee.pk}"' in content
+        assert "Pay your $37.50 late cancellation fee to book again." in content
+        assert f'action="{reverse("hub_late_fee_pay", args=[fee.pk])}"' in content
+        assert "You're all set." not in content
+
+    def it_shows_all_set_again_once_the_fee_is_paid(client: Client):
+        from billing.models import LateCancellationFee
+        from tests.billing.factories import LateCancellationFeeFactory
+        from tests.membership.factories import OrientationBookingFactory
+
+        user = _login(client, "eq_det_fee_paid")
+        equipment = EquipmentFactory(name="Open Bench")
+        LateCancellationFeeFactory(
+            orientation_booking=OrientationBookingFactory(member=user.member, status="cancelled"),
+            status=LateCancellationFee.Status.PAID,
+        )
+        content = client.get(reverse("hub_equipment_detail", args=[equipment.slug])).content.decode()
+        assert "data-late-fee-notice" not in content
+        assert "You're all set." in content
+
     def it_shows_the_booked_orientation_instead_of_the_button(client: Client):
         from tests.membership.factories import OrientationBookingFactory, OrientationSlotFactory
 

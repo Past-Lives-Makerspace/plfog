@@ -8,6 +8,7 @@ permission guard → form/model/service call → toast, redirect, or render.
 
 from __future__ import annotations
 
+import logging
 from collections.abc import Sequence
 from datetime import date, datetime, time, timedelta
 from typing import Any
@@ -46,6 +47,8 @@ from membership.models import (
     Member,
 )
 from membership.permissions import can_create_equipment, can_manage_equipment
+
+logger = logging.getLogger("hub")
 
 
 def _equipment_queryset() -> EquipmentQuerySet:
@@ -259,10 +262,13 @@ def _schedule_context(
             for start in starts
         }
 
-    from membership.late_cancel import booking_sentence, policy_for_equipment
+    from billing.late_fees import unpaid_fee_for
+    from membership.late_cancel import booking_sentence, cancel_sentence, policy_for_equipment
 
+    policy = policy_for_equipment(equipment)
     blockers = equipment.booking_blockers(member)
     my_reservations: list[EquipmentReservation] = []
+    unpaid_late_fee = None
     if member is not None:
         now = timezone.now()
         my_reservations = list(
@@ -270,6 +276,12 @@ def _schedule_context(
             .exclude(status=EquipmentReservation.Status.CANCELLED, cancelled_by=member)
             .order_by("starts_at")
         )
+        for reservation in my_reservations:
+            # The cancel modal's fee line, only while a cancel right now would be late (#456).
+            reservation.late_cancel_warning = (
+                cancel_sentence(policy) if policy.is_late(reservation.starts_at, now=now) else ""
+            )
+        unpaid_late_fee = unpaid_fee_for(member)
     return {
         "equipment": equipment,
         "week_offset": week_offset,
@@ -292,7 +304,9 @@ def _schedule_context(
         "upcoming_reservations": list(equipment.reservations.upcoming().select_related("member")[:20]),
         "manages": manages,
         # Under the Book a Time form and appended to its Reserve prompt; "" when no fee applies.
-        "late_cancel_sentence": booking_sentence(policy_for_equipment(equipment)),
+        "late_cancel_sentence": booking_sentence(policy),
+        # The block until paid (#456): the requirements banner shows it with a Pay button.
+        "unpaid_late_fee": unpaid_late_fee,
     }
 
 
@@ -590,13 +604,30 @@ def hub_equipment_reservation_cancel(request: HttpRequest, slug: str, pk: int) -
         week_offset = _parse_week_value(request.POST.get("week", "0"))
         selected_day = _parse_day(request.POST.get("day", ""))
         try:
-            reservation.cancel(member)
+            fee = reservation.cancel(member)
         except EquipmentError as exc:
             response = _render_schedule(request, equipment, week_offset=week_offset, selected_day=selected_day)
             trigger_toast(response, str(exc), "error")
             return response
         response = _render_schedule(request, equipment, week_offset=week_offset, selected_day=selected_day)
-        trigger_toast(response, "Reservation cancelled.", "success")
+        if fee is None:
+            trigger_toast(response, "Reservation cancelled.", "success")
+            return response
+        # A late cancel (#456): straight to Stripe Checkout. The modal posts through htmx, and
+        # an XHR cannot follow a cross-origin 302, so the redirect rides the HX-Redirect header.
+        from billing import late_fees
+
+        try:
+            checkout_url = late_fees.start_fee_checkout(fee)
+        except Exception:
+            logger.exception("Late fee checkout failed for reservation %s.", reservation.pk)
+            trigger_toast(
+                response,
+                "Reservation cancelled. A late cancellation fee applies; use the Pay button to pay it.",
+                "info",
+            )
+            return response
+        response["HX-Redirect"] = checkout_url
         return response
     if not can_manage_equipment(request, equipment):
         return HttpResponse("Forbidden", status=403)

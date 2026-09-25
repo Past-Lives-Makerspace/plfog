@@ -9349,6 +9349,61 @@ mark { background: color-mix(in srgb, var(--color-tuscan-yellow) 30%, transparen
     font-size: 0.8125rem;
 }
 
+/* Late cancellation fees (#456): the block-until-paid notice on the guild and equipment
+   pages (sentence + Pay button on one line, wrapping on phones), and the fee's own card on
+   its page and the Stripe landing. Theme tokens only. */
+.pl-late-fee-notice {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.5rem 1rem;
+    flex-wrap: wrap;
+    margin: 0 0 0.75rem;
+}
+.pl-late-fee-notice__text {
+    margin: 0;
+    font-size: 0.95rem;
+    color: var(--hub-text);
+}
+.pl-late-fee-notice__form {
+    margin: 0;
+}
+.pl-equip-banner .pl-late-fee-notice {
+    margin: 0;
+}
+.pl-late-fee-card__facts {
+    display: flex;
+    flex-direction: column;
+    gap: 0.75rem;
+    margin: 0 0 1.5rem;
+}
+.pl-late-fee-card__fact {
+    display: flex;
+    gap: 1rem;
+    align-items: baseline;
+}
+.pl-late-fee-card__label {
+    flex: 0 0 5rem;
+    margin: 0;
+    font-size: 0.75rem;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: var(--hub-text-muted);
+}
+.pl-late-fee-card__value {
+    margin: 0;
+    font-size: 0.95rem;
+    color: var(--hub-text);
+}
+.pl-late-fee-card__pay {
+    margin: 0 0 1.5rem;
+}
+.pl-late-fee-card__actions {
+    display: flex;
+    gap: 0.75rem;
+    flex-wrap: wrap;
+}
+
 /* ========================================
    Class lifecycle (class-lifecycle spec PR 1)
    One badge for every class state, the review pipeline strip, the reviewer

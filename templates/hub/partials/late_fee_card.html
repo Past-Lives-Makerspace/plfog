@@ -1,0 +1,25 @@
+{% comment %}
+One late cancellation fee (#456): what it was for, where it stands, and the Pay button while
+it is unpaid. Context: fee (a LateCancellationFee). Shared by the fee's own page and the
+Stripe return landing; the page around it says what just happened.
+{% endcomment %}
+<dl class="pl-late-fee-card__facts">
+  <div class="pl-late-fee-card__fact">
+    <dt class="pl-late-fee-card__label">For</dt>
+    <dd class="pl-late-fee-card__value"><a href="{{ fee.owner_page_path }}">{{ fee.item_label }}</a></dd>
+  </div>
+  <div class="pl-late-fee-card__fact">
+    <dt class="pl-late-fee-card__label">Amount</dt>
+    <dd class="pl-late-fee-card__value">{{ fee.amount_display }}</dd>
+  </div>
+  <div class="pl-late-fee-card__fact">
+    <dt class="pl-late-fee-card__label">Status</dt>
+    <dd class="pl-late-fee-card__value" data-late-fee-status="{{ fee.status }}">{{ fee.get_status_display }}{% if fee.paid_at %} on {{ fee.paid_at|date:"l, F j" }}{% endif %}</dd>
+  </div>
+</dl>
+{% if fee.is_unpaid %}
+<form method="post" action="{% url 'hub_late_fee_pay' fee.pk %}" hx-boost="false" class="pl-late-fee-card__pay">
+  {% csrf_token %}
+  <button type="submit" class="pl-btn pl-btn--primary">Pay {{ fee.amount_display }}</button>
+</form>
+{% endif %}

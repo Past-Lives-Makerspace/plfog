@@ -1,0 +1,12 @@
+{% comment %}
+The block until paid (#456): the sentence and the Pay button for the member's oldest unpaid
+late cancellation fee. Context: fee (a LateCancellationFee). The form is unboosted because
+the Pay view answers with a redirect to Stripe, which a boosted XHR could not follow.
+{% endcomment %}
+<div class="pl-late-fee-notice" data-late-fee-notice="{{ fee.pk }}">
+  <p class="pl-late-fee-notice__text">Pay your {{ fee.amount_display }} late cancellation fee to book again.</p>
+  <form method="post" action="{% url 'hub_late_fee_pay' fee.pk %}" hx-boost="false" class="pl-late-fee-notice__form">
+    {% csrf_token %}
+    <button type="submit" class="pl-btn pl-btn--primary pl-btn--sm">Pay</button>
+  </form>
+</div>
