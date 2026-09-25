@@ -77,7 +77,15 @@ from classes.emails import (
     send_registration_confirmation,
     send_waitlist_joined_confirmation,
 )
-from classes.composer import COMPOSER_STEPS, anchor_steps, clamp_step, error_summary, first_unready_step, step_marks
+from classes.composer import (
+    COMPOSER_STEPS,
+    STEP_COUNT,
+    anchor_steps,
+    clamp_step,
+    error_summary,
+    first_unready_step,
+    step_marks,
+)
 from classes.grouping import CatalogGroup, grouped_catalog
 from classes.lifecycle import ADMIN_FACETS, INSTRUCTOR_FACETS, facet_rows, resolve_facet
 from classes.questions import prefill_answers
@@ -2006,6 +2014,28 @@ def _leave_class_url(request: HttpRequest, offering: ClassOffering) -> str:
     return reverse("classes:teach_dashboard")
 
 
+def _composer_discounts_context(saved: ClassOffering | None, is_admin: bool) -> dict[str, Any]:
+    """The Discounts step's rows for an instructor: the site wide codes that already apply, and this class's requests.
+
+    Admins get nothing extra: their step is the per class section, which reads
+    ``offering.discount_codes`` itself. The two flags the template branches on come from the
+    ``feature_flags`` context processor; this only fetches rows when someone can see them.
+    """
+    if is_admin or not SiteConfiguration.load().instructor_discount_codes_enabled:
+        return {}
+    requests = (
+        saved.discount_code_requests.select_related("discount_code")
+        if saved is not None
+        else DiscountCodeRequest.objects.none()
+    )
+    return {
+        "composer_global_codes": DiscountCode.objects.filter(
+            class_offering__isnull=True, is_active=True, is_approved=True
+        ).order_by("code"),
+        "composer_discount_requests": requests,
+    }
+
+
 def _composer_context(
     request: HttpRequest,
     *,
@@ -2017,7 +2047,7 @@ def _composer_context(
     """Everything ``classes/_components/class_composer.html`` reads beyond the forms themselves.
 
     ``readiness()`` and ``review_pipeline()`` need a saved row, so the pipeline card, the tab
-    marks, and the step 5 checklist are absent until the class has a pk; the template guards
+    marks, and the Review step's checklist are absent until the class has a pk; the template guards
     on these context keys, never on ``offering``. A failed POST lands on the first step with
     an error; otherwise the step comes from the request.
 
@@ -2044,7 +2074,7 @@ def _composer_context(
     marks = step_marks(readiness) if readiness is not None else {}
     if saved is not None:
         # The card preview frames render the REAL catalog card three times (two widths on
-        # step 2, the phone on step 5) and each read offering.sessions.all; one prefetch
+        # the Photos step, the phone on the Review step) and each read offering.sessions.all; one prefetch
         # keeps that to a single sessions query however many frames there are.
         prefetch_related_objects([saved], "sessions")
     return {
@@ -2054,6 +2084,8 @@ def _composer_context(
         # the card the catalog would build. None until the class has a pk.
         "card_group": CatalogGroup(saved) if saved is not None else None,
         "composer_tabs": [{"step": step, "done": marks.get(step.number, False)} for step in COMPOSER_STEPS],
+        # The map's own count: every "how many steps" and "the last step" in the template reads it.
+        "step_count": STEP_COUNT,
         "initial_phase": min(error_step_numbers) if error_step_numbers else _composer_step(request),
         "error_steps": error_step_numbers,
         "error_steps_json": json.dumps(error_step_numbers),
@@ -2082,6 +2114,7 @@ def _composer_context(
         # request may print them: published, or an admin looking at a draft.
         "can_print_marketing": saved is not None and can_print_class_marketing(request, saved),
         **_missing_context(missing, verb),
+        **_composer_discounts_context(saved, is_admin),
     }
 
 
@@ -3912,7 +3945,7 @@ def _admin_composer(request: HttpRequest, pk: int) -> HttpResponse:
     """The composer as an admin sees it: every fact editable, and Publish on the last step.
 
     ``action=publish`` saves and then publishes a draft straight from the composer (the
-    admin's step 5 action); an unready class stays a draft and lands on the first step
+    admin's Review step action); an unready class stays a draft and lands on the first step
     still owing an item, with the reason shown. Every other POST saves and returns to the
     composer when it said which step it was on, else to the class page, which is where the
     old single page form always landed.

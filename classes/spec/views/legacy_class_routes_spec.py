@@ -117,7 +117,7 @@ def describe_a_get_on_a_legacy_path():
 
     def it_carries_the_composers_step_through(admin_user, offering, client):
         # Lose this and an admin following an old "changes requested" email lands on step 1
-        # of a five step composer with no idea which step the note was about.
+        # of a multi step composer with no idea which step the note was about.
         client.force_login(admin_user)
         url = reverse("classes:admin_class_edit", kwargs={"pk": offering.pk})
         response = client.get(f"{url}?step=3&missing=1")

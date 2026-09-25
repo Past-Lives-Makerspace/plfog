@@ -271,11 +271,15 @@ def describe_instructor_surfaces_in_approval_mode():
 
 
 def describe_the_composer_discount_section_in_approval_mode():
-    """The instructor's composer (step 3) reads the codes and asks for new ones; it never edits."""
+    """The composer's Discounts step (#428, part 2) reads the codes and asks for new ones; it never edits."""
 
     def _composer(client, member_user, offering: ClassOffering):
         client.force_login(member_user)
         return client.get(reverse("classes:teach_class_edit", kwargs={"pk": offering.pk}))
+
+    def _discounts_step(body: str) -> str:
+        # The pane from its own stamp to the Review pane's: the section left step 3 in part 2.
+        return body[body.index('data-composer-step="5"') : body.index('data-composer-step="6"')]
 
     def it_offers_request_a_code_and_hides_the_edit_links(client, member_user):
         _approval_mode(True)
@@ -286,8 +290,9 @@ def describe_the_composer_discount_section_in_approval_mode():
 
         assert resp.status_code == 200
         body = resp.content.decode()
-        assert f"{reverse(REQUEST)}?class={mine.pk}" in body
-        assert "Request a Code" in body
+        pane = _discounts_step(body)
+        assert f"{reverse(REQUEST)}?class={mine.pk}" in pane
+        assert "Request a Code" in pane
         assert reverse("classes:teach_discount_code_edit", kwargs={"pk": code.pk}) not in body
         assert reverse("classes:teach_discount_code_create") not in body
 
@@ -300,8 +305,9 @@ def describe_the_composer_discount_section_in_approval_mode():
 
         assert resp.status_code == 200
         body = resp.content.decode()
-        assert f"{reverse('classes:teach_discount_code_create')}?class={mine.pk}" in body
-        assert reverse("classes:teach_discount_code_edit", kwargs={"pk": code.pk}) in body
+        pane = _discounts_step(body)
+        assert f"{reverse('classes:teach_discount_code_create')}?class={mine.pk}" in pane
+        assert reverse("classes:teach_discount_code_edit", kwargs={"pk": code.pk}) in pane
         assert reverse(REQUEST) not in body
 
 

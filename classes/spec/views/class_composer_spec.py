@@ -1,4 +1,4 @@
-"""BDD specs for the five step class composer (teach and admin twins of one shared template)."""
+"""BDD specs for the multi step class composer (teach and admin twins of one shared template)."""
 
 from __future__ import annotations
 
@@ -18,6 +18,7 @@ from django.urls import reverse
 from django.utils import timezone
 from PIL import Image
 
+from classes.composer import STEP_COUNT
 from classes.factories import (
     BRACKETED_DESCRIPTION,
     READY_DESCRIPTION,
@@ -330,9 +331,9 @@ def describe_teach_composer_get():
         # The guided tour reveals a hidden pane through this contract (static/js/pl_tour.js).
         client.force_login(instructor_fixture.user)
         html = client.get(reverse("classes:teach_class_create")).content.decode()
-        for n in range(1, 6):
+        for n in range(1, STEP_COUNT + 1):
             assert f'data-composer-step="{n}"' in html, n
-        assert html.count("data-composer-step=") == 5
+        assert html.count("data-composer-step=") == STEP_COUNT
         assert '@composer-goto-step.window="goTo($event.detail.step)"' in html
 
     def it_announces_every_step_reveal_for_widgets_that_measure_their_pane(instructor_fixture, client):
@@ -385,11 +386,12 @@ def describe_teach_composer_get():
         html = client.get(reverse("classes:teach_class_create")).content.decode()
         assert re.search(r'<form[^>]*id="composer-form"[^>]*\bnovalidate\b', html)
 
-    def it_renders_the_five_tabs_and_lands_on_step_one(instructor_fixture, client):
+    def it_renders_every_tab_and_lands_on_step_one(instructor_fixture, client):
         client.force_login(instructor_fixture.user)
         html = client.get(reverse("classes:teach_class_create")).content.decode()
-        for label in ["1. Basics", "2. Photos", "3. Dates &amp; Price", "4. Details", "5. Review"]:
+        for label in ["1. Basics", "2. Photos", "3. Dates &amp; Price", "4. Details", "5. Discounts", "6. Review"]:
             assert label in html
+        assert html.count('data-step-tab="') == STEP_COUNT
         assert "phase: 1," in html
         assert "The Basics" in html and "Photos And Video" in html and "Dates, Seats And Price" in html
         assert "What Students Need To Know" in html and "Review And Submit" in html
@@ -546,7 +548,7 @@ def describe_teach_composer_get():
         client.force_login(instructor_fixture.user)
         url = reverse("classes:teach_class_edit", kwargs={"pk": offering.pk})
         assert "phase: 3," in client.get(f"{url}?step=3").content.decode()
-        assert "phase: 5," in client.get(f"{url}?step=9").content.decode()
+        assert f"phase: {STEP_COUNT}," in client.get(f"{url}?step=9").content.decode()
         assert "phase: 1," in client.get(f"{url}?step=x").content.decode()
         assert "phase: 1," in client.get(url).content.decode()
 
@@ -1537,10 +1539,11 @@ def describe_a_composer_submit_refused_for_readiness():
     def it_shows_no_notice_when_the_class_became_ready_before_the_page_loaded(instructor_fixture, client):
         offering = ClassOfferingFactory(instructor=instructor_fixture, status=Status.DRAFT, ready=True)
         client.force_login(instructor_fixture.user)
-        url = reverse("classes:teach_class_edit", kwargs={"pk": offering.pk}) + "?step=5&missing=1"
+        # The URL _unready_redirect builds once every item is ok: the Review step, where the checklist lives.
+        url = reverse("classes:teach_class_edit", kwargs={"pk": offering.pk}) + f"?step={STEP_COUNT}&missing=1"
         html = client.get(url).content.decode()
         assert _still_missing(html) == ""
-        assert "phase: 5," in html
+        assert f"phase: {STEP_COUNT}," in html
 
 
 def describe_the_admin_create_readiness_preflight():

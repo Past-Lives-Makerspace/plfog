@@ -192,18 +192,18 @@ def describe_hero_cropper():
         assert position != "50% 50%"
 
         # Back on the Photos step: the frame restores the saved crop, and every card frame
-        # (two on this step, the phone one on step 5) shows the photo at the crop's centre,
+        # (two on this step, the phone one on the Review step) shows the photo at the crop's centre,
         # exactly what the catalog will render.
         expect(page.locator(FRAME)).to_be_visible()
         assert json.loads(page.locator(CROP_INPUT).input_value()) == crop
         restored = page.evaluate(f"document.querySelector('{PREVIEW}').cropper.getData(true)")
         assert restored["y"] == pytest.approx(crop["y"], abs=2)
         assert restored["height"] == pytest.approx(crop["h"], abs=2)
-        # Step 5 binds the server's string ("50.0% 68.8%"); step 2 binds through
+        # The Review step (6) binds the server's string ("50.0% 68.8%"); step 2 binds through
         # card_focus.js, which reads it back to whole percentages ("50% 69%"). Same focal
         # point within a third of a pixel at card size, so compare the computed position.
         centre = _percentages(position)
-        for step, frames in ((2, 2), (5, 1)):
+        for step, frames in ((2, 2), (6, 1)):
             card_photos = page.locator(f'[data-composer-step="{step}"] {CARD_PHOTOS}')
             expect(card_photos).to_have_count(frames)
             for photo in card_photos.all():

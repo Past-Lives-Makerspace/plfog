@@ -39,17 +39,19 @@ REPO_ROOT = Path(__file__).resolve().parents[3]
 JS_PATH = REPO_ROOT / "static" / "js" / "composer_validation.js"
 TEMPLATE_PATH = REPO_ROOT / "templates" / "classes" / "_components" / "class_composer.html"
 FIELD_NAMES = sorted({name for step in COMPOSER_STEPS for name in step.fields})
-# The rule set the instructor's composer renders, by step. Steps 2, 4 and 5 require nothing:
-# photos, details and review are readiness or optional, never an attribute driven Next gate
-# (the gallery minimum is the one named exception, pinned at the end). scheduling_model is
-# a required form field whose <select> has no empty option (a model default, no blank=True), so
-# Django omits the attribute: the browser always posts a value and there is nothing to gate.
+# The rule set the instructor's composer renders, by step. Steps 2, 4, 5 and 6 require nothing:
+# photos, details, discounts and review are readiness, links or optional, never an attribute
+# driven Next gate (the gallery minimum is the one named exception, pinned at the end).
+# scheduling_model is a required form field whose <select> has no empty option (a model
+# default, no blank=True), so Django omits the attribute: the browser always posts a value and
+# there is nothing to gate.
 REQUIRED_BY_STEP = {
     1: {"title", "category", "price_cents"},
     2: set(),
     3: {"capacity", "scheduling_type"},
     4: set(),
     5: set(),
+    6: set(),
 }
 # The admin's composer renders one rule more: the member discount is the admin's to set (#369),
 # required on their form and a read-only note on the instructor's.
@@ -167,7 +169,7 @@ def _step_two(html: str) -> str:
 def _parse(html: str) -> _PaneParser:
     parser = _PaneParser()
     parser.feed(html)
-    assert sorted(parser.controls) == [1, 2, 3, 4, 5], sorted(parser.controls)
+    assert sorted(parser.controls) == [1, 2, 3, 4, 5, 6], sorted(parser.controls)
     assert parser.x_data is not None, "no .pl-composer root found"
     return parser
 
@@ -533,7 +535,7 @@ def describe_the_wiring():
     def it_leaves_back_the_tabs_and_the_goto_events_free(composer):
         html = composer.pages["edit"]
         assert '@click="goTo(phase - 1)">&larr; Back</button>' in html
-        for n in range(1, 6):
+        for n in range(1, 7):
             assert f'@click="goTo({n})">' in html, n
         assert '@composer-goto-step.window="goTo($event.detail.step)"' in html
         assert "validateStep" not in html.split('@click="goTo(phase - 1)"')[1].split("Back</button>")[0]

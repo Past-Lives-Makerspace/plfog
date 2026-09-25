@@ -63,7 +63,7 @@ def _settle_before_the_database_is_truncated(page, live_server, transactional_db
     """Let the browser go quiet before the teardown truncates the tables.
 
     Same hazard, and the same fix, as ``tests/e2e/class_composer_steps_spec.py``: these
-    scenarios save the form and load step 5's preview iframe, so one can end with a request
+    scenarios save the form and load the Review step's preview iframe, so one can end with a request
     still in flight, and the live server thread still holds that request's row locks when
     ``transactional_db`` truncates. The truncate loses, as a ``DeadlockDetected`` error with
     no assertion failure behind it. Depending on ``transactional_db`` is what orders this:
