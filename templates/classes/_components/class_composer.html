@@ -1,8 +1,9 @@
 {% load static %}
 {% load classes_tags %}
 {% comment %}
-The five step class composer, shared by templates/classes/class_form.html (the one per-class
-composer) and templates/classes/admin/class_form.html (design spec §C). Built exactly like the
+The class composer, one pane per step of classes/composer.py, shared by
+templates/classes/class_form.html (the one per-class composer) and
+templates/classes/admin/class_form.html (design spec §C). Built exactly like the
 announcement composer (templates/hub/announcement_compose.html): one page, one <form>,
 one Alpine x-data holding `phase`, x-show per step, and the .pl-phase-tabs bar. No
 per-step POST: every field of every step is in the DOM on every render, so one Save posts
@@ -12,8 +13,19 @@ Context (from _composer_context in classes/views.py, plus the form context):
   form, formset (sessions), faq_formset, offering (may be None on create), mode
   (anchor_steps_json is rendered autoescaped ON PURPOSE: it sits inside the double quoted
   x-data attribute, so its quotes must reach the browser as &quot; or they end the attribute.)
-  is_admin        — controls instructor / is_private / private_for_name, the discount code
-                    URL names, and the step 5 action (Publish instead of Submit for Review)
+  is_admin        — controls instructor / is_private / private_for_name, which Discounts
+                    step variant renders, and the Review step action (Publish instead of
+                    Submit for Review)
+  step_count      — STEP_COUNT from classes/composer.py: every "how many steps" and "the
+                    last step" below reads it, so adding a step never edits a number here
+  composer_can_view_discount_codes — the viewer's capability on this class (the master
+                    setting on create): False for a guild lead editing a class they do not
+                    teach, who lands on the "admins manage codes" line like an instructor
+                    with the setting off
+  composer_global_codes / composer_discount_requests — the Discounts step's rows for an
+                    instructor who may view discount codes: the site wide codes that already
+                    apply, and this class's requests. Absent for admins and for anyone who may
+                    not; the template branches on the capability, never on these keys
   composer_tabs   — [{step: ComposerStep, done: bool}], the tab bar with completion marks
   initial_phase   — the step to open on: the first broken step after a failed POST, else ?step=
   error_steps / error_steps_json / error_summary — the broken steps and their failing field labels
@@ -28,14 +40,14 @@ Context (from _composer_context in classes/views.py, plus the form context):
                     in flight typing under (per person, per portal, per class), and the one
                     shot signal that a save just landed, so the browser copy can be dropped
   card_group      — the genuine CatalogGroup for a saved class (None on create); the
-                    card preview frames on steps 2 and 5 render the REAL catalog card
+                    card preview frames on the Photos and Review steps render the REAL catalog card
                     through it
   description_min_chars — READINESS_MIN_DESCRIPTION_CHARS, stamped on the description's live
                     count (#425) so the browser paints the same minimum the readiness rule enforces
   cancel_url, save_label
 
 `liveTitle` on the root x-data mirrors the title field as the host types, so every card
-frame (steps 2 and 5, and the create mode skeleton) shows the new title before the save.
+frame (the Photos and Review steps, and the create mode skeleton) shows the new title before the save.
 
 Each step pane carries data-composer-step="N" and the root listens for a window event
 composer-goto-step {step: N}: that is how anything outside Alpine (the guided tour in
@@ -76,9 +88,9 @@ Do not merge them.
 
 <h2 class="pl-composer__title">{% if mode == 'create' %}New Class{% else %}Edit Class: {{ offering.title }}{% endif %}</h2>
 {% if is_admin %}
-<p class="pl-wizard-lead">Five steps. Save a draft any time and come back to it. Publish when it is ready.</p>
+<p class="pl-wizard-lead">{{ step_count }} steps. Save a draft any time and come back to it. Publish when it is ready.</p>
 {% else %}
-<p class="pl-wizard-lead">Five steps. Save a draft any time and come back to it. Nothing goes live until an admin approves it.</p>
+<p class="pl-wizard-lead">{{ step_count }} steps. Save a draft any time and come back to it. Nothing goes live until an admin approves it.</p>
 {% endif %}
 
 {% if pipeline and not pipeline.is_live and not pipeline.muted %}
@@ -155,7 +167,7 @@ Do not merge them.
      @input="if ($event.target.id === 'id_title') liveTitle = $event.target.value"
      @composer-goto-step.window="goTo($event.detail.step)">
 
-  <p class="pl-composer-count">Step <span x-text="phase"></span> of 5</p>
+  <p class="pl-composer-count">Step <span x-text="phase"></span> of {{ step_count }}</p>
   <div class="pl-phase-tabs" role="tablist" aria-label="Class steps">
     {% for tab in composer_tabs %}
     <button type="button" class="pl-phase-tab{% if tab.done %} pl-phase-tab--done{% endif %}" role="tab"
@@ -292,17 +304,9 @@ Do not merge them.
           {% include "components/form_field.html" with field=form.member_discount_pct %}
           {% include "components/form_field.html" with field=form.is_private %}
           {% include "components/form_field.html" with field=form.private_for_name %}
-          {% include "classes/_components/class_discount_codes_section.html" with offering=offering create_url='classes:admin_discount_code_create' edit_url='classes:admin_discount_code_edit' %}
         {% else %}
           {# The discount is the admin's to set; the instructor reads it off the saved row (the studio default on a new class). #}
           <p class="pl-compose-section__note" id="member-discount-note">Members get {{ form.instance.member_discount_pct }}% off.{% if form.instance.price_cents %}{% member_price_cents form.instance.price_cents form.instance.member_discount_pct as mp %}{% if mp %} That makes the member price {{ mp|cents_as_price }}.{% endif %}{% endif %}</p>
-          {% if instructor_discount_codes_enabled %}
-            {% if instructor_discount_codes_need_approval %}
-              {% include "classes/_components/class_discount_codes_section.html" with offering=offering create_url='classes:teach_discount_code_request' edit_url='classes:teach_discount_code_edit' read_only=True button_label="Request a Code" %}
-            {% else %}
-              {% include "classes/_components/class_discount_codes_section.html" with offering=offering create_url='classes:teach_discount_code_create' edit_url='classes:teach_discount_code_edit' %}
-            {% endif %}
-          {% endif %}
         {% endif %}
       </div>
     </div>
@@ -320,8 +324,49 @@ Do not merge them.
       {% include "classes/_components/faq_formset.html" %}
     </div>
 
-    {# ── Step 5 ── #}
-    <div class="pl-composer__step" data-composer-step="5" x-show="phase === 5" x-cloak>
+    {# ── Step 5: Discounts ── #}
+    {% comment %}
+    Links and read only tables, never a control (#428): the per step check counts every input,
+    select and textarea inside a pane, and the request form stays on its own page because a
+    <form> cannot nest inside the composer's. data-composer-discounts names the variant that
+    rendered, so specs anchor on markup: admin (the per class section), off (this viewer may not
+    view discount codes on this class: the master setting is off, or they are a guild lead on a
+    class they do not teach), request (approval mode) or direct (instructors still make their own
+    codes).
+    class_discount_codes_section.html renders nothing for an unsaved class, hence the "save your
+    draft once" line beside each include of it.
+    {% endcomment %}
+    <div class="pl-composer__step" data-composer-step="5" x-show="phase === 5" x-cloak
+         data-composer-discounts="{% if is_admin %}admin{% elif not composer_can_view_discount_codes %}off{% elif instructor_discount_codes_need_approval %}request{% else %}direct{% endif %}">
+      <h2 class="pl-composer__heading">Discounts</h2>
+      {% if is_admin %}
+        <p class="pl-compose-section__note">Codes for this class only. Global codes apply to every class and live on the Discount Codes page.</p>
+        {% include "classes/_components/class_discount_codes_section.html" with offering=offering create_url='classes:admin_discount_code_create' edit_url='classes:admin_discount_code_edit' %}
+        {% if not offering or not offering.pk %}<p class="pl-compose-section__note">Save your draft once and the discount codes for this class appear here.</p>{% endif %}
+      {% elif not composer_can_view_discount_codes %}
+        <p class="pl-compose-section__note">Discount codes are managed by admins. Ask an admin if you need one for your class.</p>
+      {% else %}
+        <div class="pl-compose-section">
+          <h3 class="pl-compose-section__title">Codes That Apply To Every Class</h3>
+          <p class="pl-compose-section__note">These already work on your class. Anyone signing up for your class can use them.</p>
+          {% include "classes/_components/discount_codes_read_only_table.html" with codes=composer_global_codes empty_text="No site wide codes right now." %}
+        </div>
+        {% if instructor_discount_codes_need_approval %}
+          {% if offering and offering.pk %}
+            {% include "classes/_components/class_discount_codes_section.html" with offering=offering create_url='classes:teach_discount_code_request' edit_url='classes:teach_discount_code_edit' read_only=True button_label="Request a Code" %}
+            {% include "classes/_components/discount_code_requests_list.html" with requests=composer_discount_requests %}
+          {% else %}
+            <p class="pl-compose-section__note">Save your draft once and you can request a discount code here.</p>
+          {% endif %}
+        {% else %}
+          {% include "classes/_components/class_discount_codes_section.html" with offering=offering create_url='classes:teach_discount_code_create' edit_url='classes:teach_discount_code_edit' %}
+          {% if not offering or not offering.pk %}<p class="pl-compose-section__note">Save your draft once and you can add a discount code here.</p>{% endif %}
+        {% endif %}
+      {% endif %}
+    </div>
+
+    {# ── Step 6: Review ── #}
+    <div class="pl-composer__step" data-composer-step="{{ step_count }}" x-show="phase === {{ step_count }}" x-cloak>
       <h2 class="pl-composer__heading">Review And Submit</h2>
       {% if readiness and offering.status == 'draft' %}
       {# The five things a class needs before it can be submitted; each hint jumps to its step and field. #}
@@ -366,7 +411,7 @@ Do not merge them.
       {% endif %}
     </div>
 
-    {# ── Action bar: outside every step, present on all five, sticky. ── #}
+    {# ── Action bar: outside every step, present on every step, sticky. ── #}
     <div class="pl-composer-bar">
       <button type="button" class="hub-btn hub-btn--sm hub-btn--ghost" x-show="phase > 1" @click="goTo(phase - 1)">&larr; Back</button>
       {# .prevent: the click (or the Enter key's synthetic click) never submits on its own; saveDraft() checks every step first, then requestSubmit()s. #}
@@ -375,17 +420,17 @@ Do not merge them.
       <a class="hub-btn hub-btn--sm hub-btn--ghost" href="{% url 'classes:class_preview' pk=offering.pk %}" target="_blank" rel="noopener">Preview &#8599;</a>
       {% endif %}
       <span class="pl-composer-bar__spacer"></span>
-      <button type="button" class="hub-btn hub-btn--sm hub-btn--primary pl-composer-bar__primary" x-show="phase < 5" @click="next()">Next &rarr;</button>
+      <button type="button" class="hub-btn hub-btn--sm hub-btn--primary pl-composer-bar__primary" x-show="phase < {{ step_count }}" @click="next()">Next &rarr;</button>
       {% if not offering or offering.status == 'draft' %}
         {% if is_admin %}
-          <button type="button" class="hub-btn hub-btn--sm hub-btn--primary pl-composer-bar__primary" x-show="phase === 5" x-cloak
+          <button type="button" class="hub-btn hub-btn--sm hub-btn--primary pl-composer-bar__primary" x-show="phase === {{ step_count }}" x-cloak
                   @click="confirmSubmit('submit-class')">Publish</button>
         {% elif not offering or is_ready %}
-          <button type="button" class="hub-btn hub-btn--sm hub-btn--primary pl-composer-bar__primary" x-show="phase === 5" x-cloak
+          <button type="button" class="hub-btn hub-btn--sm hub-btn--primary pl-composer-bar__primary" x-show="phase === {{ step_count }}" x-cloak
                   data-help-key="teach.submit-for-review"
                   @click="confirmSubmit('submit-class')">{% if pipeline.is_bounced %}Fix and Resubmit{% else %}Submit for Review{% endif %}</button>
         {% else %}
-          <span class="pl-help pl-help--right pl-composer-bar__primary" x-show="phase === 5" x-cloak>
+          <span class="pl-help pl-help--right pl-composer-bar__primary" x-show="phase === {{ step_count }}" x-cloak>
             <button type="button" class="hub-btn hub-btn--sm hub-btn--primary" disabled aria-label="Submit for Review: finish the checklist above first."
                     data-help-key="teach.submit-for-review">{% if pipeline.is_bounced %}Fix and Resubmit{% else %}Submit for Review{% endif %}</button>
             <span class="pl-help__bubble" role="tooltip">Finish the checklist above first.</span>

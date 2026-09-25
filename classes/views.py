@@ -77,7 +77,15 @@ from classes.emails import (
     send_registration_confirmation,
     send_waitlist_joined_confirmation,
 )
-from classes.composer import COMPOSER_STEPS, anchor_steps, clamp_step, error_summary, first_unready_step, step_marks
+from classes.composer import (
+    COMPOSER_STEPS,
+    STEP_COUNT,
+    anchor_steps,
+    clamp_step,
+    error_summary,
+    first_unready_step,
+    step_marks,
+)
 from classes.grouping import CatalogGroup, grouped_catalog
 from classes.lifecycle import ADMIN_FACETS, INSTRUCTOR_FACETS, facet_rows, resolve_facet
 from classes.questions import prefill_answers
@@ -2006,6 +2014,25 @@ def _leave_class_url(request: HttpRequest, offering: ClassOffering) -> str:
     return reverse("classes:teach_dashboard")
 
 
+def _composer_discounts_context(
+    saved: ClassOffering | None, is_admin: bool, can_view_discount_codes: bool
+) -> dict[str, Any]:
+    """The Discounts step's rows for an instructor: the site wide codes that already apply, and this class's requests.
+
+    Admins get nothing extra: their step is the per class section, which reads
+    ``offering.discount_codes`` itself. ``can_view_discount_codes`` is the viewer's capability
+    on this class (:func:`_composer_context` resolves it), so a guild lead on a class they do
+    not teach, who has it False on purpose, is handed nothing to read.
+    """
+    if is_admin or not can_view_discount_codes:
+        return {}
+    requests = saved.discount_code_requests.all() if saved is not None else DiscountCodeRequest.objects.none()
+    return {
+        "composer_global_codes": DiscountCode.objects.site_wide_live(),
+        "composer_discount_requests": requests,
+    }
+
+
 def _composer_context(
     request: HttpRequest,
     *,
@@ -2017,7 +2044,7 @@ def _composer_context(
     """Everything ``classes/_components/class_composer.html`` reads beyond the forms themselves.
 
     ``readiness()`` and ``review_pipeline()`` need a saved row, so the pipeline card, the tab
-    marks, and the step 5 checklist are absent until the class has a pk; the template guards
+    marks, and the Review step's checklist are absent until the class has a pk; the template guards
     on these context keys, never on ``offering``. A failed POST lands on the first step with
     an error; otherwise the step comes from the request.
 
@@ -2042,9 +2069,21 @@ def _composer_context(
 
     is_published = saved is not None and saved.status == ClassOffering.Status.PUBLISHED
     marks = step_marks(readiness) if readiness is not None else {}
+    # Who may read discount codes on this class. On edit it is the capability
+    # ``class_screen_required`` resolved: an instructor's follows the master setting, and a
+    # guild lead on a class they do not teach has it False on purpose (``_guild_access``), so
+    # the Discounts step must not hand them the codes, the requests or a Request a Code link
+    # that dead ends. On create there is no class yet and the only person here is an
+    # instructor starting their own, so the master setting is the whole answer.
+    access: ClassAccess | None = getattr(request, "class_access", None)
+    can_view_discount_codes = (
+        access.can_view_discount_codes
+        if access is not None
+        else SiteConfiguration.load().instructor_discount_codes_enabled
+    )
     if saved is not None:
         # The card preview frames render the REAL catalog card three times (two widths on
-        # step 2, the phone on step 5) and each read offering.sessions.all; one prefetch
+        # the Photos step, the phone on the Review step) and each read offering.sessions.all; one prefetch
         # keeps that to a single sessions query however many frames there are.
         prefetch_related_objects([saved], "sessions")
     return {
@@ -2054,6 +2093,9 @@ def _composer_context(
         # the card the catalog would build. None until the class has a pk.
         "card_group": CatalogGroup(saved) if saved is not None else None,
         "composer_tabs": [{"step": step, "done": marks.get(step.number, False)} for step in COMPOSER_STEPS],
+        # The map's own count: every "how many steps" and "the last step" in the template reads it.
+        "step_count": STEP_COUNT,
+        "composer_can_view_discount_codes": can_view_discount_codes,
         "initial_phase": min(error_step_numbers) if error_step_numbers else _composer_step(request),
         "error_steps": error_step_numbers,
         "error_steps_json": json.dumps(error_step_numbers),
@@ -2082,6 +2124,7 @@ def _composer_context(
         # request may print them: published, or an admin looking at a draft.
         "can_print_marketing": saved is not None and can_print_class_marketing(request, saved),
         **_missing_context(missing, verb),
+        **_composer_discounts_context(saved, is_admin, can_view_discount_codes),
     }
 
 
@@ -3912,7 +3955,7 @@ def _admin_composer(request: HttpRequest, pk: int) -> HttpResponse:
     """The composer as an admin sees it: every fact editable, and Publish on the last step.
 
     ``action=publish`` saves and then publishes a draft straight from the composer (the
-    admin's step 5 action); an unready class stays a draft and lands on the first step
+    admin's Review step action); an unready class stays a draft and lands on the first step
     still owing an item, with the reason shown. Every other POST saves and returns to the
     composer when it said which step it was on, else to the class page, which is where the
     old single page form always landed.

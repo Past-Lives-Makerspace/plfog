@@ -1,0 +1,33 @@
+{% load classes_tags %}
+{% comment %}
+Discount codes as an instructor reads them on the composer's Discounts step (#428): the site
+wide codes that already apply to every class. A table and nothing else: the per step check
+(static/js/composer_validation.js, pinned by composer_step_validation_spec.py) counts every
+input, select and textarea inside a pane, so a read only table must contribute none. Caller passes:
+  * codes      — the DiscountCode rows to list
+  * empty_text — the one line shown when there are none
+{% endcomment %}
+<div class="admin-table-wrap">
+<table>
+    <thead>
+        <tr>
+            <th>Code</th>
+            <th>Discount</th>
+            <th>Valid</th>
+            <th>Uses</th>
+        </tr>
+    </thead>
+    <tbody>
+    {% for c in codes %}
+        <tr>
+            <td><code>{{ c.code }}</code></td>
+            <td>{% if c.discount_pct %}{{ c.discount_pct }}% off{% else %}{{ c.discount_fixed_cents|cents_as_dollars }} off{% endif %}</td>
+            <td>{% if c.valid_from and c.valid_until %}From {{ c.valid_from|date:"M j, Y" }} until {{ c.valid_until|date:"M j, Y" }}{% elif c.valid_from %}From {{ c.valid_from|date:"M j, Y" }}{% elif c.valid_until %}Until {{ c.valid_until|date:"M j, Y" }}{% else %}No date limit{% endif %}</td>
+            <td>{{ c.use_count }}{% if c.max_uses %} / {{ c.max_uses }}{% endif %}</td>
+        </tr>
+    {% empty %}
+        <tr><td colspan="4" class="pl-table-empty">{{ empty_text }}</td></tr>
+    {% endfor %}
+    </tbody>
+</table>
+</div>

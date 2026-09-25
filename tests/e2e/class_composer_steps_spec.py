@@ -27,6 +27,7 @@ from playwright.sync_api import Page, expect
 from classes.factories import CategoryFactory, ClassOfferingFactory, InstructorFactory, UserFactory
 from classes.forms import PRICE_FLOOR_MESSAGE
 from classes.models import READINESS_MIN_DESCRIPTION_CHARS, ClassOffering
+from core.models import SiteConfiguration
 from membership.models import Member
 from tests.membership.factories import MembershipPlanFactory
 
@@ -64,7 +65,7 @@ def _png(path: Path) -> Path:
 def _settle_before_the_database_is_truncated(page, live_server, transactional_db):
     """Let the browser go quiet before the teardown truncates the tables.
 
-    Step 5 lazy loads a preview iframe and Save Draft posts the form, so a scenario can end
+    The Review step lazy loads a preview iframe and Save Draft posts the form, so a scenario can end
     with a request still in flight. The live server thread still holds that request's row
     locks when ``transactional_db`` truncates, and the truncate is the one that loses:
     ``psycopg.errors.DeadlockDetected``, surfaced as an ERROR with no assertion failure. It
@@ -193,7 +194,7 @@ def describe_next():
         page.locator(GALLERY_FILE_INPUT).set_input_files(str(_png(tmp_path / "gallery.png")))
         expect(page.locator("#gallery-preview-grid .cls-image-cell")).to_have_count(1)
 
-        for n in (3, 4, 5):
+        for n in (3, 4, 5, 6):
             page.locator(NEXT).click()
             _settle(page)
             expect(_step(page, n)).to_be_visible()
@@ -283,10 +284,10 @@ def describe_back_and_tabs():
         login_via_code(EMAIL)
         _open_create(page, live_server)
 
-        _tab(page, 5).click()
+        _tab(page, 6).click()
         _settle(page)
 
-        expect(_step(page, 5)).to_be_visible()
+        expect(_step(page, 6)).to_be_visible()
         expect(_step(page, 1)).to_be_hidden()
         expect(page.locator("[data-live-invalid]")).to_have_count(0)
 
@@ -297,27 +298,27 @@ def describe_the_submit_confirm():
         login_via_code(EMAIL)
         _open_edit(page, live_server, offering)
         page.locator("#id_price_cents").fill("")
-        _tab(page, 5).click()
-        expect(_step(page, 5)).to_be_visible()
+        _tab(page, 6).click()
+        expect(_step(page, 6)).to_be_visible()
 
         page.locator(SUBMIT).click()
         _settle(page)
 
         expect(page.locator(SUBMIT_MODAL)).to_be_hidden()
-        expect(_step(page, 5)).to_be_hidden()
+        expect(_step(page, 6)).to_be_hidden()
         _expect_refused_on(page, 1, "id_price_cents")
 
     def it_opens_the_modal_for_a_valid_class(live_server, page, login_via_code):
         offering = _seed_ready_draft(_seed_instructor())
         login_via_code(EMAIL)
         _open_edit(page, live_server, offering)
-        _tab(page, 5).click()
+        _tab(page, 6).click()
 
         page.locator(SUBMIT).click()
         _settle(page)
 
         expect(page.locator(SUBMIT_MODAL)).to_be_visible()
-        expect(_step(page, 5)).to_be_visible()
+        expect(_step(page, 6)).to_be_visible()
 
 
 def describe_save_draft():
@@ -370,6 +371,7 @@ def describe_formset_rows():
         _settle(page)
 
         expect(_step(page, 5)).to_be_visible()
+        expect(_step(page, 4)).to_be_hidden()
 
     def it_leaves_a_half_filled_row_to_the_server_which_refuses_it_at_save(live_server, page, login_via_code):
         # Django renders formset rows without `required`, so the browser has no rule to read and
@@ -388,6 +390,7 @@ def describe_formset_rows():
         page.locator(NEXT).click()
         _settle(page)
         expect(_step(page, 5)).to_be_visible()
+        expect(_step(page, 4)).to_be_hidden()
 
         page.locator(SAVE_DRAFT).click()
 
@@ -397,6 +400,31 @@ def describe_formset_rows():
         expect(answer).to_have_attribute("aria-invalid", "true")
         expect(answer.locator("xpath=following-sibling::ul[1]/li")).to_have_text(REQUIRED)
         assert offering.faqs.count() == 0
+
+
+def describe_the_discounts_step():
+    def it_shows_the_request_link_on_a_saved_draft_and_next_reaches_review(live_server, page, login_via_code):
+        # Links and read only tables (#428): nothing on the step is a control, so Next never refuses
+        # it. The request form stays on its own page, behind the link the step renders for a saved
+        # class under approval mode (the master setting on; the approval setting is on by default).
+        config = SiteConfiguration.load()
+        config.instructor_discount_codes_enabled = True
+        config.save(update_fields=["instructor_discount_codes_enabled"])
+        offering = _seed_ready_draft(_seed_instructor())
+        login_via_code(EMAIL)
+        _open_edit(page, live_server, offering)
+        _tab(page, 5).click()
+        expect(_step(page, 5)).to_be_visible()
+        request_link = _step(page, 5).locator(f'a[href^="{reverse("classes:teach_discount_code_request")}"]')
+        expect(request_link).to_be_visible()
+        expect(request_link).to_have_attribute("href", re.compile(rf"\?class={offering.pk}$"))
+
+        page.locator(NEXT).click()
+        _settle(page)
+
+        expect(_step(page, 6)).to_be_visible()
+        expect(_step(page, 5)).to_be_hidden()
+        expect(page.locator("[data-live-invalid]")).to_have_count(0)
 
 
 def describe_the_gallery_minimum():

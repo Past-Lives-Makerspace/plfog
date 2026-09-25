@@ -876,10 +876,10 @@ Three ways in:
 ### Create Your Draft {#teach-create-class}
 
 1. In the portal, open the **Classes** tab and click **+ New Class** (your first time, the button says **+ Create your first class**).
-2. The form is five steps. Step 1 is the basics: title, guild type, and description.
+2. The form is six steps. Step 1 is the basics: title, guild type, and description.
 3. Step 2 is photos. Add a hero image and at least one gallery photo; a class needs both before it can be submitted. Pick the important part of the photo for the class page banner and again for the catalog card.
 4. Step 3 is dates, seats, and price. A class can be one session or a series; add every date. You can also pick flexible scheduling if the dates are arranged later.
-5. Step 4 holds the optional details students read to prepare. Step 5 is the review: a checklist, a preview of your page and card, and the **Submit for Review** button.
+5. Step 4 holds the optional details students read to prepare. Step 5 is discounts. If the studio lets instructors have discount codes, you see the site wide codes that already apply, the codes on this class, and a **Request a Code** button (an admin approves the code before it exists). Otherwise the step says admins manage codes. Step 6 is the review: a checklist, a preview of your page and card, and the **Submit for Review** button.
 6. Click **Save Draft** on any step to keep working.
 
 ![The new class form: describe it, price it, and add your session dates.](/static/help/become-an-instructor/02-new-class-form.png)
