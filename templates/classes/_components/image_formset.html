@@ -111,6 +111,10 @@ On create (no pk): multi-file input that submits with the form, with local previ
 {% if offering and offering.pk %}
 <div id="gallery-manager"
      data-help-key="teach.class-gallery"
+     {# The composer's one step check that is not an attribute (static/js/composer_validation.js, #424): Next counts the cards in here and reads its refusal from the message attribute; tabindex lets the refusal focus this like a control. Inert on the published class form, which loads no step check. #}
+     data-composer-gallery
+     data-composer-gallery-message="Add at least one gallery photo."
+     tabindex="-1"
      data-upload-url="{% if gallery_upload_url %}{{ gallery_upload_url }}{% else %}{% url 'classes:teach_class_image_upload' pk=offering.pk %}{% endif %}"
      data-reorder-url="{% if gallery_reorder_url %}{{ gallery_reorder_url }}{% else %}{% url 'classes:teach_class_image_reorder' pk=offering.pk %}{% endif %}"
      {# No fallback: both composers now come through _teach_gallery_context(), which always supplies this. #}
@@ -159,6 +163,9 @@ On create (no pk): multi-file input that submits with the form, with local previ
         const n = grid.children.length;
         countEl.textContent = `${n} / ${MAX_IMAGES} images`;
         zone.classList.toggle('is-full', n >= MAX_IMAGES);
+        // The composer's step check clears its refusal on this, never on the file input's
+        // change: the upload is a fetch, and the card lands after that event has passed.
+        manager.dispatchEvent(new CustomEvent('composer-gallery-changed', { bubbles: true }));
     }
 
     // --- Upload ---
@@ -264,7 +271,8 @@ On create (no pk): multi-file input that submits with the form, with local previ
 </script>
 {% else %}
 {# Create mode — multi-file input, previews shown locally, uploaded with form #}
-<div id="gallery-create" data-help-key="teach.class-gallery">
+{# Same hook as the saved class container above: the step check counts the preview cards here. #}
+<div id="gallery-create" data-help-key="teach.class-gallery" data-composer-gallery data-composer-gallery-message="Add at least one gallery photo." tabindex="-1">
     <div id="gallery-preview-grid" class="cls-image-grid"></div>
     <div class="cls-image-count" id="gallery-count"></div>
     <label class="cls-image-upload-zone" id="gallery-upload-zone">
@@ -275,17 +283,20 @@ On create (no pk): multi-file input that submits with the form, with local previ
 </div>
 <script>
 (function() {
+    const container = document.getElementById('gallery-create');
     const zone = document.getElementById('gallery-upload-zone');
     const fileInput = document.getElementById('gallery-file-input');
     const grid = document.getElementById('gallery-preview-grid');
     const countEl = document.getElementById('gallery-count');
-    if (!zone || !fileInput || !grid) return;
+    if (!container || !zone || !fileInput || !grid) return;
     const MAX_IMAGES = 10;
 
     function updateCount() {
         const n = grid.children.length;
         countEl.textContent = `${n} / ${MAX_IMAGES} images`;
         zone.classList.toggle('is-full', n >= MAX_IMAGES);
+        // Same signal as the saved class manager: the composer's step check clears on it.
+        container.dispatchEvent(new CustomEvent('composer-gallery-changed', { bubbles: true }));
     }
 
     // Accumulate files in a DataTransfer so the input carries all of them on submit

@@ -51,7 +51,9 @@ on the controls inside each pane (required, min, max, step, maxlength, type), re
 browser's constraint validation API, so no list of fields per step exists outside
 classes/composer.py. Formset rows (gallery, sessions, FAQ) carry no constraint attributes
 (Django builds every formset form with use_required_attribute=False), so Next never blocks on
-them and a half filled row stays the server's to refuse at save, on the step that owns it.
+them and a half filled row stays the server's to refuse at save, on the step that owns it. The
+one named exception is the gallery's minimum of one photo (#424): image_formset.html stamps its
+container data-composer-gallery, and Next (only Next) refuses step 2 while it holds no card.
 Back, the tabs, goTo() and goToField() never validate: jumping around to look at things
 stays free. The form keeps novalidate because the browser's own bubble cannot
 point at a control inside a hidden pane; the step check points at the field itself.
@@ -256,7 +258,7 @@ Do not merge them.
         </div>
       </div>
       <div class="pl-compose-section">
-        <h3 class="pl-compose-section__title">Gallery</h3>
+        <h3 class="pl-compose-section__title">Gallery <span class="pl-required">Required</span></h3>
         <p class="pl-compose-section__note">Extra photos shown on your class page. Finished pieces, the studio, tool close ups. Images save the moment you drop them in. You need at least one before you can submit.</p>
         {% include "classes/_components/image_formset.html" with offering=offering %}
       </div>
