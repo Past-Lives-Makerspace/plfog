@@ -407,7 +407,9 @@ class ClassOfferingForm(
             "image",
             "video_url",
         ]
-        widgets = {"video_url": _video_url_widget()}
+        # Four rows, not the widget default of ten: the readiness minimum is 40 characters, so the
+        # box only has to invite a short paragraph, and the live count sits right under it.
+        widgets = {"video_url": _video_url_widget(), "description": forms.Textarea(attrs={"rows": 4})}
         help_texts = {"description": DESCRIPTION_HELP_TEXT}
 
     def __init__(self, *args, **kwargs) -> None:
@@ -473,7 +475,9 @@ class TeachClassOfferingForm(
             "image",
             "video_url",
         ]
-        widgets = {"video_url": _video_url_widget()}
+        # Four rows, not the widget default of ten: the readiness minimum is 40 characters, so the
+        # box only has to invite a short paragraph, and the live count sits right under it.
+        widgets = {"video_url": _video_url_widget(), "description": forms.Textarea(attrs={"rows": 4})}
         help_texts = {"description": DESCRIPTION_HELP_TEXT}
 
     def __init__(self, *args, teaching_member: "Member | None" = None, **kwargs) -> None:
