@@ -492,6 +492,7 @@ EQUIPMENT_RESERVATION_CANCELLED_BY_MANAGER = "equipment.reservation_cancelled_by
 EQUIPMENT_RESERVATION_MADE = "equipment.reservation_made"  # awareness ping to the equipment's managers
 EQUIPMENT_RESERVATION_CANCELLED = "equipment.reservation_cancelled"  # the member's own cancel, with any late fee
 BILLING_LATE_FEE_PAID = "billing.late_fee_paid"  # the receipt for a paid late cancellation fee
+BILLING_LATE_FEE_WAIVED = "billing.late_fee_waived"  # an unpaid late cancellation fee was forgiven
 
 # event.reminder keeps Discord OFF (the bell is enough; per-offset channel posts would
 # clutter the guild channel) but declares it so a lead can flip it on later; happening-now
@@ -1134,6 +1135,19 @@ _NEW_EVENTS: list[EventType] = [
         key=BILLING_LATE_FEE_PAID,
         label="Late cancellation fee paid",
         description="Your receipt for a late cancellation fee you paid.",
+        category="Billing",
+        recipient=Recipients.SINGLE_USER,
+        channels=(_IN_APP_ON, _EMAIL_FORCED),
+        activity_kind=None,
+    ),
+    # billing.late_fee_waived — an admin, the guild's staff or the equipment's managers
+    # forgave an unpaid fee (#456, part 3). The member can book again the moment it lands,
+    # so the email is forced like the receipt. Who waived it is not named. No activity row
+    # here: ``billing.late_fees.waive`` logs LATE_FEE_WAIVED with the reason.
+    EventType(
+        key=BILLING_LATE_FEE_WAIVED,
+        label="Late cancellation fee waived",
+        description="A late cancellation fee you owed was waived. You can book again.",
         category="Billing",
         recipient=Recipients.SINGLE_USER,
         channels=(_IN_APP_ON, _EMAIL_FORCED),

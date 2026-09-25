@@ -33,6 +33,20 @@ def describe_manage_activity():
         assert resp.status_code == 200
         assert b"Site Activity" in resp.content
 
+    def it_renders_the_late_fee_waived_and_refunded_kinds(client):
+        # #456 part 3: the two new kinds render in the feed and its Event filter like any other.
+        staff = User.objects.create_user(
+            username="a_fees", email="a_fees@example.com", password="pw12345!", is_staff=True
+        )
+        client.login(username="a_fees", password="pw12345!")
+        SiteActivity.log(SiteActivity.Kind.LATE_FEE_WAIVED, actor=staff)
+        SiteActivity.log(SiteActivity.Kind.LATE_FEE_REFUNDED, actor=staff)
+        content = client.get(reverse("manage_activity"), {"tab": "feed"}).content.decode()
+        assert content.count("Late cancellation fee waived") >= 2  # the row and the filter option
+        assert content.count("Late cancellation fee refunded") >= 2
+        assert 'value="late_fee_waived"' in content
+        assert 'value="late_fee_refunded"' in content
+
     def it_filters_the_feed_by_kind(client):
         staff = User.objects.create_user(
             username="a2",

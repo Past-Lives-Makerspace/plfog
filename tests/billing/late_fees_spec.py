@@ -1,33 +1,42 @@
-"""BDD specs for the late cancellation fee service and model (#456, part 2).
+"""BDD specs for the late cancellation fee service and model (#456, parts 2 and 3).
 
 ``charge_if_late`` on a late self cancel of each kind and not on an early one, the once
 only guard, the site switch off, ``start_fee_checkout``'s session and attempt counter,
 ``mark_paid`` idempotent and race-safe with the receipt, the landing reconcile,
-``unpaid_fee_for``, the model's labels and constraint, and the two activity kinds.
+``unpaid_fee_for``, the model's labels and constraint, the activity kinds; and part 3's
+``waive`` (each allowed role, the refusals, a paid fee refused, the block lifting, the
+open session expired, the activity row, the email once).
 """
 
 from __future__ import annotations
 
 import logging
 from datetime import timedelta
+from typing import Any
 from unittest.mock import patch
 
 import pytest
 from django.contrib.auth.models import User
 from django.core import mail, signing
 from django.db import IntegrityError, transaction
+from django.http import HttpRequest
+from django.test import RequestFactory
 from django.urls import reverse
 from django.utils import timezone
 
 from billing import late_fees
 from billing.models import LateCancellationFee
 from core.models import Notification, SiteActivity, SiteConfiguration
-from membership.models import EquipmentReservation, OrientationBooking
+from hub.view_as import ViewAs
+from membership.models import Equipment, EquipmentReservation, Guild, Member, OrientationBooking
 from tests.billing.factories import LateCancellationFeeFactory
 from tests.membership.factories import (
     EquipmentFactory,
     EquipmentReservationFactory,
+    EquipmentStaffMembershipFactory,
+    GuildFactory,
     GuildOrientationSettingsFactory,
+    GuildStaffMembershipFactory,
     MemberFactory,
     MembershipPlanFactory,
     OrientationBookingFactory,
@@ -47,12 +56,12 @@ def _site(*, enabled: bool = True) -> SiteConfiguration:
     return config
 
 
-def _member_with_user(username: str):
+def _member_with_user(username: str) -> Member:
     MembershipPlanFactory()
     return User.objects.create_user(username=username, email=f"{username}@example.com").member
 
 
-def _reservation(*, fee_cents: int = 1500, hours_ahead: int = 3, member=None) -> EquipmentReservation:
+def _reservation(*, fee_cents: int = 1500, hours_ahead: int = 3, member: Member | None = None) -> EquipmentReservation:
     starts = timezone.now() + timedelta(hours=hours_ahead)
     return EquipmentReservationFactory(
         equipment=EquipmentFactory(name="CNC Router", late_cancel_fee_cents=fee_cents),
@@ -62,7 +71,9 @@ def _reservation(*, fee_cents: int = 1500, hours_ahead: int = 3, member=None) ->
     )
 
 
-def _confirmed_booking(*, fee_cents: int = 1500, hours_ahead: int = 3, member=None) -> OrientationBooking:
+def _confirmed_booking(
+    *, fee_cents: int = 1500, hours_ahead: int = 3, member: Member | None = None
+) -> OrientationBooking:
     settings_obj = GuildOrientationSettingsFactory(late_cancel_fee_cents=fee_cents)
     starts = timezone.now() + timedelta(hours=hours_ahead)
     slot = OrientationSlotFactory(guild=settings_obj.guild, starts_at=starts, ends_at=starts + timedelta(hours=1))
@@ -295,8 +306,8 @@ def describe_mark_paid():
 
 
 def describe_reconcile_landed_checkout():
-    def _retrieved(**overrides):
-        session = {
+    def _retrieved(**overrides: Any) -> dict[str, Any]:
+        session: dict[str, Any] = {
             "id": "cs_fee_1",
             "url": "https://checkout.stripe.example/cs_fee_1",
             "status": "open",
@@ -438,3 +449,231 @@ def describe_activity_kinds():
         assert SiteActivity.Kind.LATE_FEE_PAID.label == "Late cancellation fee paid"
         row = SiteActivity.log(SiteActivity.Kind.LATE_FEE_CHARGED, target=LateCancellationFeeFactory())
         assert row.get_kind_display() == "Late cancellation fee charged"
+
+    def it_declares_the_waived_and_refunded_kinds_with_member_facing_labels():
+        assert SiteActivity.Kind.LATE_FEE_WAIVED.label == "Late cancellation fee waived"
+        assert SiteActivity.Kind.LATE_FEE_REFUNDED.label == "Late cancellation fee refunded"
+        row = SiteActivity.log(SiteActivity.Kind.LATE_FEE_WAIVED, target=LateCancellationFeeFactory())
+        assert row.get_kind_display() == "Late cancellation fee waived"
+
+
+# --- Part 3: waive -------------------------------------------------------------------------
+
+
+def _active_user(username: str) -> User:
+    """A signed-in-able user whose member is ACTIVE (what the permission helpers read)."""
+    member = _member_with_user(username)
+    member.status = Member.Status.ACTIVE
+    member.save(update_fields=["status"])
+    return member.user
+
+
+def _admin_user(username: str) -> User:
+    user = _active_user(username)
+    member = user.member
+    member.fog_role = Member.FogRole.ADMIN
+    member.save(update_fields=["fog_role"])
+    member.sync_user_permissions()
+    return user
+
+
+def _request(user: User) -> HttpRequest:
+    """A request carrying the same ``view_as`` the middleware would attach."""
+    request = RequestFactory().get("/")
+    request.user = user
+    request.view_as = ViewAs.for_request(request)  # type: ignore[attr-defined]
+    return request
+
+
+def _guild_fee(*, guild: Guild | None = None, member: Member | None = None) -> LateCancellationFee:
+    """An unpaid fee on a cancelled guild orientation booking."""
+    settings_obj = (
+        GuildOrientationSettingsFactory(guild=guild) if guild is not None else GuildOrientationSettingsFactory()
+    )
+    slot = OrientationSlotFactory(guild=settings_obj.guild)
+    booking = OrientationBookingFactory(
+        slot=slot, member=member or MemberFactory(), status=OrientationBooking.Status.CANCELLED
+    )
+    return LateCancellationFeeFactory(orientation_booking=booking)
+
+
+def _equipment_orientation_fee(equipment: Equipment, *, member: Member | None = None) -> LateCancellationFee:
+    """An unpaid fee on a cancelled booking of an orientation the equipment owns."""
+    orientation_type = OrientationTypeFactory(equipment_owned=True, equipment=equipment)
+    slot = OrientationSlotFactory(equipment_owned=True, orientation_type=orientation_type)
+    booking = OrientationBookingFactory(
+        slot=slot, member=member or MemberFactory(), status=OrientationBooking.Status.CANCELLED
+    )
+    return LateCancellationFeeFactory(orientation_booking=booking)
+
+
+def _reservation_fee(equipment: Equipment, *, member: Member | None = None) -> LateCancellationFee:
+    """An unpaid fee on a cancelled reservation of the equipment."""
+    reservation = EquipmentReservationFactory(
+        equipment=equipment, member=member or MemberFactory(), status=EquipmentReservation.Status.CANCELLED
+    )
+    return LateCancellationFeeFactory(for_reservation=True, reservation=reservation)
+
+
+def describe_governing_owner():
+    def it_is_the_guild_for_a_guild_orientation_fee():
+        fee = _guild_fee()
+        assert late_fees.governing_owner(fee) == fee.orientation_booking.guild
+
+    def it_is_the_equipment_for_an_equipment_owned_orientation_fee():
+        equipment = EquipmentFactory(name="Laser Cutter")
+        assert late_fees.governing_owner(_equipment_orientation_fee(equipment)) == equipment
+
+    def it_is_the_equipment_for_a_reservation_fee():
+        equipment = EquipmentFactory(name="CNC Router")
+        assert late_fees.governing_owner(_reservation_fee(equipment)) == equipment
+
+
+def describe_can_waive():
+    def it_lets_an_admin_waive_any_fee():
+        admin = _admin_user("cw_admin")
+        equipment = EquipmentFactory()
+        for fee in (_guild_fee(), _equipment_orientation_fee(equipment), _reservation_fee(equipment)):
+            assert late_fees.can_waive(_request(admin), fee) is True
+
+    def it_lets_the_governing_guilds_staff_and_lead_waive_an_orientation_fee():
+        staff = _active_user("cw_staff")
+        lead = _active_user("cw_lead")
+        guild = GuildFactory(name="Woodshop", guild_lead=lead.member)
+        GuildStaffMembershipFactory(guild=guild, member=staff.member)
+        fee = _guild_fee(guild=guild)
+        assert late_fees.can_waive(_request(staff), fee) is True
+        assert late_fees.can_waive(_request(lead), fee) is True
+
+    def it_lets_the_governing_equipments_managers_waive_its_fees():
+        manager = _active_user("cw_manager")
+        equipment = EquipmentFactory()
+        EquipmentStaffMembershipFactory(equipment=equipment, member=manager.member)
+        assert late_fees.can_waive(_request(manager), _reservation_fee(equipment)) is True
+        assert late_fees.can_waive(_request(manager), _equipment_orientation_fee(equipment)) is True
+
+    def it_refuses_a_lead_of_another_guild():
+        other_lead = _active_user("cw_other_lead")
+        GuildFactory(name="Art Framing", guild_lead=other_lead.member)
+        assert late_fees.can_waive(_request(other_lead), _guild_fee()) is False
+
+    def it_refuses_a_manager_of_another_equipment():
+        other_manager = _active_user("cw_other_mgr")
+        EquipmentStaffMembershipFactory(member=other_manager.member)
+        equipment = EquipmentFactory()
+        assert late_fees.can_waive(_request(other_manager), _reservation_fee(equipment)) is False
+        assert late_fees.can_waive(_request(other_manager), _equipment_orientation_fee(equipment)) is False
+
+    def it_refuses_the_member_who_owes_the_fee():
+        payer = _active_user("cw_payer")
+        assert late_fees.can_waive(_request(payer), _guild_fee(member=payer.member)) is False
+
+
+def describe_waive_refusal():
+    def it_names_the_guild_for_a_guild_orientation_fee():
+        fee = _guild_fee(guild=GuildFactory(name="Ceramics"))
+        assert late_fees.waive_refusal(fee) == "Only Ceramics staff or an admin can waive this fee."
+
+    def it_names_the_equipment_for_its_orientation_and_reservation_fees():
+        equipment = EquipmentFactory(name="Laser Cutter")
+        expected = "Only the Laser Cutter managers or an admin can waive this fee."
+        assert late_fees.waive_refusal(_equipment_orientation_fee(equipment)) == expected
+        assert late_fees.waive_refusal(_reservation_fee(equipment)) == expected
+
+
+def describe_waive():
+    def it_forgives_an_unpaid_fee_lifts_the_block_logs_and_emails_the_member_once():
+        payer = _active_user("wv_payer").member
+        equipment = EquipmentFactory(name="CNC Router")
+        fee = _reservation_fee(equipment, member=payer)
+        admin = _admin_user("wv_admin")
+        admin.member.preferred_name = "Moss Admin"
+        admin.member.save(update_fields=["preferred_name"])
+        assert late_fees.unpaid_fee_for(payer) == fee
+        assert any("late cancellation fee" in blocker for blocker in equipment.booking_blockers(payer))
+        mail.outbox.clear()
+
+        late_fees.waive(fee, actor=admin, reason="Family emergency")
+
+        fee.refresh_from_db()
+        assert fee.status == LateCancellationFee.Status.WAIVED
+        assert fee.waived_by == admin
+        assert fee.waived_reason == "Family emergency"
+        assert fee.waived_at is not None
+        assert fee.is_waived is True
+        # The block lifts: unpaid_fee_for reads UNPAID only.
+        assert late_fees.unpaid_fee_for(payer) is None
+        assert equipment.booking_blockers(payer) == []
+        row = SiteActivity.objects.get(kind=SiteActivity.Kind.LATE_FEE_WAIVED)
+        assert row.actor == admin
+        assert row.target == fee
+        assert row.payload == {"amount_cents": 1500, "item": fee.item_label, "reason": "Family emergency"}
+        sent = [m for m in mail.outbox if m.subject == "Your late cancellation fee was waived"]
+        assert len(sent) == 1
+        body = sent[0].body
+        assert sent[0].to == [payer.primary_email]
+        assert "$15.00" in body
+        assert fee.item_label in body
+        assert late_fees.pay_url(fee) in body
+        assert late_fees._absolute_url(fee.owner_page_path()) in body
+        assert "[missing:" not in body
+        assert "[missing:" not in sent[0].alternatives[0][0]
+        assert "Moss Admin" not in body  # who waived it is never named
+        bell = Notification.objects.get(user=payer.user, trigger="billing.late_fee_waived")
+        assert bell.url == reverse("hub_late_fee_detail", args=[fee.pk])
+
+    @patch("billing.stripe_utils.expire_checkout_session")
+    def it_expires_the_open_checkout_session(mock_expire):
+        fee = _guild_fee()
+        fee.stripe_session_id = "cs_open"
+        fee.save(update_fields=["stripe_session_id"])
+        late_fees.waive(fee, actor=_admin_user("wv_expire"), reason="Snow day")
+        mock_expire.assert_called_once_with(session_id="cs_open")
+
+    @patch("billing.stripe_utils.expire_checkout_session")
+    def it_has_no_session_to_expire_when_none_was_minted(mock_expire):
+        late_fees.waive(_guild_fee(), actor=_admin_user("wv_none"), reason="Snow day")
+        assert not mock_expire.called
+
+    def it_refuses_a_paid_fee():
+        fee = LateCancellationFeeFactory(status=LateCancellationFee.Status.PAID, stripe_payment_id="pi_paid")
+        mail.outbox.clear()
+        with pytest.raises(ValueError, match="This fee is already paid. Only an unpaid fee can be waived"):
+            late_fees.waive(fee, actor=_admin_user("wv_paid"), reason="Oops")
+        fee.refresh_from_db()
+        assert fee.status == LateCancellationFee.Status.PAID
+        assert fee.waived_by is None
+        assert not SiteActivity.objects.filter(kind=SiteActivity.Kind.LATE_FEE_WAIVED).exists()
+        assert mail.outbox == []
+
+    def it_refuses_a_second_waive():
+        fee = _guild_fee()
+        admin = _admin_user("wv_twice")
+        late_fees.waive(fee, actor=admin, reason="First")
+        with pytest.raises(ValueError, match="This fee is already waived."):
+            late_fees.waive(fee, actor=admin, reason="Second")
+        fee.refresh_from_db()
+        assert fee.waived_reason == "First"
+        assert SiteActivity.objects.filter(kind=SiteActivity.Kind.LATE_FEE_WAIVED).count() == 1
+
+
+def describe_waived_by_name():
+    def it_is_blank_until_waived():
+        assert LateCancellationFeeFactory().waived_by_name == ""
+
+    def it_is_the_waivers_member_name():
+        admin = _admin_user("wbn_member")
+        admin.member.preferred_name = "Moss"
+        admin.member.save(update_fields=["preferred_name"])
+        fee = LateCancellationFeeFactory(status=LateCancellationFee.Status.WAIVED, waived_by=admin)
+        assert fee.waived_by_name == "Moss"
+
+    def it_falls_back_to_the_accounts_name_or_email_without_a_member():
+        from django.db.models.signals import post_save
+        from factory.django import mute_signals
+
+        with mute_signals(post_save):
+            named = User.objects.create_user(username="wbn_named", email="named@example.com", first_name="Ada")
+            bare = User.objects.create_user(username="wbn_bare", email="bare@example.com")
+        assert LateCancellationFeeFactory(waived_by=named).waived_by_name == "Ada"
+        assert LateCancellationFeeFactory(waived_by=bare).waived_by_name == "bare@example.com"

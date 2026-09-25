@@ -2,9 +2,9 @@
 Equipment card grid — shared by the Equipment index (PR 1) and the guild page (PR 3).
 Context:
   cards — list of dicts: {equipment, access_state} where access_state is an
-          Equipment.AccessState value ("ok" / "needs_orientation" / "needs_guild" /
-          "inactive_member"). The badge renders from that one state so the card and
-          the detail banner can't drift.
+          Equipment.AccessState value ("ok" / "needs_fee" / "needs_orientation" /
+          "needs_guild" / "inactive_member"). The badge renders from that one state so
+          the card and the detail banner can't drift.
 The whole card is the tap target (a stretched link on the name); the guild chip sits
 above it with its own link.
 {% endcomment %}

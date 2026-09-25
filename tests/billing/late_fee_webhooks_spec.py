@@ -8,6 +8,7 @@ Administrators; an expired session is a no-op; both handlers sit in the billing 
 from __future__ import annotations
 
 import logging
+from typing import Any
 
 import pytest
 from django.contrib.auth.models import User
@@ -18,15 +19,17 @@ from factory.django import mute_signals
 from billing import views as billing_views
 from billing import webhook_handlers
 from billing.models import LateCancellationFee
-from membership.models import AdminCapability
+from membership.models import AdminCapability, Member
 from tests.billing.factories import LateCancellationFeeFactory
 from tests.membership.factories import MemberFactory, MembershipPlanFactory, OrientationBookingFactory
 
 pytestmark = pytest.mark.django_db
 
 
-def _event(kind: str = "late_cancel_fee", *, fee_id=None, payment_status: str = "paid", **extra):
-    session = {
+def _event(
+    kind: str = "late_cancel_fee", *, fee_id: int | str | None = None, payment_status: str = "paid", **extra: Any
+) -> dict[str, Any]:
+    session: dict[str, Any] = {
         "id": "cs_fee_hook_1",
         "metadata": {"kind": kind},
         "payment_status": payment_status,
@@ -46,7 +49,7 @@ def _unpaid_fee(username: str = "hook_member") -> LateCancellationFee:
     return LateCancellationFeeFactory(orientation_booking=OrientationBookingFactory(member=member))
 
 
-def _billing_approver():
+def _billing_approver() -> Member:
     member = MemberFactory(_pre_signup_email="fee-billing-approver@example.com")
     with mute_signals(post_save):
         user = User.objects.create_user(username=f"fba{member.pk}", email="fee-billing-approver@example.com")

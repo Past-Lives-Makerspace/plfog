@@ -30,6 +30,16 @@ urlpatterns = [
         views.payment_orientation_refund,
         name="billing_orientation_refund",
     ),
+    path(
+        "admin/late-fees/<int:fee_pk>/refund/form/",
+        views.payment_late_fee_refund_form,
+        name="billing_late_fee_refund_form",
+    ),
+    path(
+        "admin/late-fees/<int:fee_pk>/refund/",
+        views.payment_late_fee_refund,
+        name="billing_late_fee_refund",
+    ),
     path("admin/reports/", views.admin_reports, name="billing_admin_reports"),
     path("admin/reports/export/csv/", views.admin_reports_csv, name="billing_admin_reports_csv"),
     # --- Reconciliation (admin-only) ---

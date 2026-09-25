@@ -16,7 +16,7 @@ from typing import Any
 from django.contrib import messages
 from django.contrib.auth.decorators import login_required
 from django.core.paginator import Paginator
-from django.db.models import Prefetch
+from django.db.models import Prefetch, Q
 from django.http import Http404, HttpRequest, HttpResponse
 from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse
@@ -783,6 +783,33 @@ def _orientation_tab_context(request: HttpRequest, equipment: Equipment) -> dict
     }
 
 
+def _manage_late_fees(equipment: Equipment) -> list[tuple[Any, Any]]:
+    """The equipment's late cancellation fees (#456) newest first, each with its Waive form.
+
+    Its reservations' fees and its owned orientations' fees, in one query carrying what
+    each row's label and state read. The form per row has the fee's own prefix so N
+    modals on one page never share a field id. Everyone who can open the manage page may
+    waive every fee here: they all follow ``can_manage_equipment`` for this equipment.
+    """
+    from billing.forms import LateFeeWaiveForm
+    from billing.models import LateCancellationFee
+
+    fees = (
+        LateCancellationFee.objects.filter(
+            Q(reservation__equipment=equipment) | Q(orientation_booking__orientation_type__equipment=equipment)
+        )
+        .select_related(
+            "member",
+            "waived_by__member",
+            "reservation__equipment",
+            "orientation_booking__slot",
+            "orientation_booking__orientation_type",
+        )
+        .order_by("-created_at", "-pk")
+    )
+    return [(fee, LateFeeWaiveForm(fee=fee)) for fee in fees]
+
+
 def _render_manage(
     request: HttpRequest,
     equipment: Equipment,
@@ -828,6 +855,9 @@ def _render_manage(
             "manage_reservations": Paginator(equipment.reservations.upcoming().select_related("member"), 25).get_page(
                 request.GET.get("page", 1)
             ),
+            # The Reservations tab's late fee card (#456): the rows and where its Waive returns to.
+            "manage_late_fees": _manage_late_fees(equipment),
+            "manage_late_fees_next": f"{reverse('hub_equipment_manage', args=[equipment.slug])}?tab=reservations",
             "active_tab": active_tab,
         },
     )

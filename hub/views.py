@@ -1928,8 +1928,24 @@ def orientation_respond(request: HttpRequest, booking_pk: int) -> HttpResponse:
             messages.error(request, str(exc))
         return redirect("hub_orientation_respond", booking_pk=booking.pk)
 
+    from billing import late_fees
+    from billing.forms import LateFeeWaiveForm
+    from billing.models import LateCancellationFee
     from hub.view_as import has_refund_authority
 
+    # The booking's late cancellation fee (#456), if its self cancel was late: one query,
+    # with what the card's label and the waive rule read.
+    late_fee = (
+        LateCancellationFee.objects.filter(orientation_booking=booking)
+        .select_related(
+            "member",
+            "waived_by__member",
+            "orientation_booking__slot",
+            "orientation_booking__orientation_type__guild",
+            "orientation_booking__orientation_type__equipment",
+        )
+        .first()
+    )
     ctx = _get_hub_context(request)
     return render(
         request,
@@ -1939,6 +1955,10 @@ def orientation_respond(request: HttpRequest, booking_pk: int) -> HttpResponse:
             "booking": booking,
             "refund_state": booking.refund_state if booking.amount_paid_cents else "none",
             "viewer_has_refund_authority": has_refund_authority(request),
+            "late_fee": late_fee,
+            "late_fee_waive_form": LateFeeWaiveForm(fee=late_fee) if late_fee is not None else None,
+            "can_waive_fee": late_fee is not None and late_fees.can_waive(request, late_fee),
+            "late_fee_waive_next": reverse("hub_orientation_respond", args=[booking.pk]),
         },
     )
 
@@ -2275,6 +2295,57 @@ def hub_late_fee_checkout_cancelled(request: HttpRequest, token: str) -> HttpRes
     if fee.status == LateCancellationFee.Status.UNPAID:
         messages.info(request, "Your late cancellation fee is still due. Pay it from the Pay button any time.")
     return redirect(fee.owner_page_path())
+
+
+@login_required
+@require_POST
+def hub_late_fee_waive(request: HttpRequest, pk: int) -> HttpResponse:
+    """Waive an UNPAID late cancellation fee (#456, part 3) and return to the page the form came from.
+
+    Who may waive is :func:`billing.late_fees.can_waive` (an admin, the governing guild's
+    staff or the governing equipment's managers); anyone else gets a 403 whose body names
+    the governing owner, and a toast saying the same for an htmx caller. The check is on
+    the ``HX-Request`` header alone, which is right only because this view is POST-only
+    (a history restore is a GET, so it can never reach here). ``next`` is honoured when it
+    is a local path, else the fee's owner page.
+    """
+    from billing import late_fees
+    from billing.forms import LateFeeWaiveForm
+    from billing.models import LateCancellationFee
+
+    fee = get_object_or_404(
+        LateCancellationFee.objects.select_related(
+            "member",
+            "reservation__equipment",
+            "orientation_booking__slot",
+            "orientation_booking__orientation_type__guild",
+            "orientation_booking__orientation_type__equipment",
+        ),
+        pk=pk,
+    )
+    if not late_fees.can_waive(request, fee):
+        sentence = late_fees.waive_refusal(fee)
+        response = HttpResponse(sentence, status=403, content_type="text/plain; charset=utf-8")
+        if request.headers.get("HX-Request") == "true":
+            trigger_toast(response, sentence, "error")
+        return response
+    next_url = request.POST.get("next", "")
+    if not next_url or not url_has_allowed_host_and_scheme(next_url, allowed_hosts={request.get_host()}):
+        next_url = fee.owner_page_path()
+    form = LateFeeWaiveForm(request.POST, fee=fee)
+    if not form.is_valid():
+        messages.error(request, "Say why the fee is being waived. The reason is required.")
+        return redirect(next_url)
+    try:
+        late_fees.waive(fee, actor=cast(User, request.user), reason=form.cleaned_data["reason"])
+    except ValueError as exc:
+        messages.error(request, str(exc))
+        return redirect(next_url)
+    messages.success(
+        request,
+        f"Waived {fee.member.display_name}'s {fee.amount_display} late cancellation fee. They can book again.",
+    )
+    return redirect(next_url)
 
 
 def _token_cancel_fee_context(booking: Any, action: str, result: str | None) -> dict[str, Any]:
