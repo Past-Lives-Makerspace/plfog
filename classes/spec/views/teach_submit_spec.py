@@ -7,7 +7,7 @@ from django.contrib.messages import get_messages
 from django.urls import reverse
 
 from classes.factories import ClassOfferingFactory, InstructorFactory, UserFactory
-from classes.models import ClassOffering, DiscountCode
+from classes.models import READINESS_DESCRIPTION_HINT, ClassOffering, DiscountCode
 
 Status = ClassOffering.Status
 
@@ -222,7 +222,7 @@ def describe_a_quick_submit_refused_for_readiness():
         assert resp["Location"] == f"{edit}?step=1&missing=1"
         html = client.get(resp["Location"]).content.decode()
         assert "phase: 1," in html
-        assert "Write a short description." in html and "Add at least one date." in html
+        assert READINESS_DESCRIPTION_HINT in html and "Add at least one date." in html
 
 
 def describe_a_quick_submit_on_a_class_that_is_no_longer_a_draft():

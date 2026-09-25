@@ -26,8 +26,14 @@ from django.urls import reverse
 
 from classes.composer import COMPOSER_STEPS
 from classes.factories import ClassOfferingFactory, InstructorFactory, UserFactory
-from classes.forms import ClassFaqForm, ClassOfferingForm, TeachClassOfferingForm, build_class_faq_formset
-from classes.models import ClassOffering
+from classes.forms import (
+    DESCRIPTION_HELP_TEXT,
+    ClassFaqForm,
+    ClassOfferingForm,
+    TeachClassOfferingForm,
+    build_class_faq_formset,
+)
+from classes.models import READINESS_MIN_DESCRIPTION_CHARS, ClassOffering
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
 JS_PATH = REPO_ROOT / "static" / "js" / "composer_validation.js"
@@ -135,20 +141,21 @@ class _FragmentParser(HTMLParser):
 
 
 class _HookParser(HTMLParser):
-    """Every element stamped ``data-composer-gallery``, with all of its attributes."""
+    """Every element stamped with ``attr`` (``data-composer-gallery`` by default), with all of its attributes."""
 
-    def __init__(self) -> None:
+    def __init__(self, attr: str = GALLERY_HOOK_ATTR) -> None:
         super().__init__()
+        self.attr = attr
         self.hooks: list[dict[str, str | None]] = []
 
     def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
         a = dict(attrs)
-        if GALLERY_HOOK_ATTR in a:
+        if self.attr in a:
             self.hooks.append(a)
 
 
-def _hooks(html: str) -> list[dict[str, str | None]]:
-    parser = _HookParser()
+def _hooks(html: str, attr: str = GALLERY_HOOK_ATTR) -> list[dict[str, str | None]]:
+    parser = _HookParser(attr)
     parser.feed(html)
     return parser.hooks
 
@@ -442,6 +449,28 @@ def describe_the_gallery_minimum():
         # confirm) passes no `only`, so a draft may still be saved without a photo.
         assert "if (!control && only !== undefined) control = emptyGallery(panes[i]);" in js
         assert js.count("emptyGallery(") == 2
+
+
+def describe_the_description_count():
+    def it_stamps_the_box_and_the_minimum_on_one_counter_under_the_description(composer):
+        # The live count (#425) is server markup static/js/composer_description_count.js paints into.
+        # The textarea's id and the readiness minimum are both stamped by the template from the
+        # server's own values, so the script names no field and no number, and the help text under
+        # the box names the same minimum the checklist enforces. One counter, on the Basics step.
+        for mode, html in composer.pages.items():
+            counters = _hooks(html, "data-description-count")
+            assert len(counters) == 1, (mode, len(counters))
+            step_one = html[html.index('data-composer-step="1"') : html.index('data-composer-step="2"')]
+            assert _hooks(step_one, "data-description-count") == counters, mode
+            counter = counters[0]
+            assert counter["data-description-for"] == _by_name(_parse(html).controls[1], "description").attrs["id"]
+            assert counter["data-description-min"] == str(READINESS_MIN_DESCRIPTION_CHARS), mode
+            assert counter["aria-live"] == "polite", mode
+            assert (counter["class"] or "").split() == ["pl-field-hint", "pl-composer-count-hint"], mode
+            assert f'<p class="pl-field-hint">{DESCRIPTION_HELP_TEXT}</p>' in step_one, mode
+            assert '<script src="/static/js/composer_description_count.js" defer></script>' in html, mode
+        assert composer.form("create").fields["description"].help_text == DESCRIPTION_HELP_TEXT
+        assert str(READINESS_MIN_DESCRIPTION_CHARS) in DESCRIPTION_HELP_TEXT
 
 
 def describe_the_step_to_field_map_stays_in_one_place():

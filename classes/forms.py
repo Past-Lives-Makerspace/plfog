@@ -22,6 +22,7 @@ from core.widgets import PageContentEditorWidget, RichTextEditorWidget
 from classes.models import (
     DEFAULT_CLASS_FAQS,
     DEFAULT_SALE_BANNER_TEXT,
+    READINESS_MIN_DESCRIPTION_CHARS,
     Category,
     ClassFaq,
     ClassImage,
@@ -84,6 +85,9 @@ STRIPE_MIN_CHARGE_CENTS = 50  # Stripe's minimum USD charge is $0.50.
 MIN_PAID_PRICE_CENTS = 100  # Floor for every class ($1.00). There is no free option (#368 item 5).
 PRICE_FLOOR_MESSAGE = "Classes cost at least $1.00."
 PRICE_HELP_TEXT = "In dollars, e.g. 80.00 for $80. Every class costs at least $1.00."
+# Under the description box on both composers (#425): the readiness minimum, from the one constant
+# the rule reads, so the hint can never name a number the checklist would then contradict.
+DESCRIPTION_HELP_TEXT = f"At least {READINESS_MIN_DESCRIPTION_CHARS} characters. Say what students make and take home."
 MAX_MEMBER_DISCOUNT_PCT = 100  # A percentage; the model field only bounds it below.
 MEMBER_DISCOUNT_RANGE_MESSAGE = "Member discount must be between 0 and 100."
 
@@ -403,7 +407,10 @@ class ClassOfferingForm(
             "image",
             "video_url",
         ]
-        widgets = {"video_url": _video_url_widget()}
+        # Four rows, not the widget default of ten: the readiness minimum is 40 characters, so the
+        # box only has to invite a short paragraph, and the live count sits right under it.
+        widgets = {"video_url": _video_url_widget(), "description": forms.Textarea(attrs={"rows": 4})}
+        help_texts = {"description": DESCRIPTION_HELP_TEXT}
 
     def __init__(self, *args, **kwargs) -> None:
         super().__init__(*args, **kwargs)
@@ -468,7 +475,10 @@ class TeachClassOfferingForm(
             "image",
             "video_url",
         ]
-        widgets = {"video_url": _video_url_widget()}
+        # Four rows, not the widget default of ten: the readiness minimum is 40 characters, so the
+        # box only has to invite a short paragraph, and the live count sits right under it.
+        widgets = {"video_url": _video_url_widget(), "description": forms.Textarea(attrs={"rows": 4})}
+        help_texts = {"description": DESCRIPTION_HELP_TEXT}
 
     def __init__(self, *args, teaching_member: "Member | None" = None, **kwargs) -> None:
         self.teaching_member = teaching_member

@@ -19,7 +19,7 @@ from classes.factories import (
     RegistrationFactory,
     UserFactory,
 )
-from classes.models import ClassApproval, ClassOffering, CmsActivity, Registration
+from classes.models import READINESS_DESCRIPTION_HINT, ClassApproval, ClassOffering, CmsActivity, Registration
 from core.models import Notification
 from tests.membership.factories import GuildFactory
 
@@ -560,7 +560,7 @@ def describe_readiness_guard_on_approve():
         )
         assert resp.status_code == 200
         html = resp.content.decode()
-        assert "Not ready to publish: Write a short description. Add at least one date." in html
+        assert f"Not ready to publish: {READINESS_DESCRIPTION_HINT} Add at least one date." in html
         assert "This class is not ready to publish yet." in html
         offering.refresh_from_db()
         assert offering.status == Status.PENDING
@@ -583,7 +583,7 @@ def describe_readiness_guard_on_approve():
         html = client.get(reverse("classes:admin_class_review", kwargs={"pk": offering.pk})).content.decode()
         assert "Readiness" in html
         assert "Add at least one date." in html
-        assert "Write a short description." in html
+        assert READINESS_DESCRIPTION_HINT in html
         assert "Review Pipeline" in html
         assert "Approval Progress" not in html
         assert "This class is not ready to publish yet." in html
@@ -618,7 +618,7 @@ def describe_admin_class_create_publish_path():
         # The refusal is the Still Missing checklist on the composer, not a form error (issue #368 item 2.3).
         html = resp.content.decode()
         assert "Still Missing" in html and "Not ready to publish yet." in html
-        assert "goToField('id_description')\">Write a short description.</button>" in html
+        assert f"goToField('id_description')\">{READINESS_DESCRIPTION_HINT}</button>" in html
         assert "goToField('class-dates')\">Say how students pick a time.</button>" in html
         assert "Some Things Need Fixing" not in html
         assert not ClassOffering.objects.filter(title="Direct Publish").exists()
