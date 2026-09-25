@@ -105,6 +105,25 @@ def describe_policy_for_type():
         equipment = EquipmentFactory(late_cancel_fee_cents=800)
         assert policy_for_type(OrientationTypeFactory(equipment_owned=True, equipment=equipment)).fee_cents == 800
 
+    def it_uses_a_supplied_site_row_without_reading_it_again(django_assert_num_queries):
+        site = _site(enabled=True, notice=48, grace=4)
+        settings_obj = GuildOrientationSettingsFactory(late_cancel_fee_cents=1500)
+        orientation_type = OrientationTypeFactory(guild=settings_obj.guild)
+        # The type's owner and its settings are already loaded; the site row is handed in, so
+        # a page resolving many policies pays for the singleton once, not once per type.
+        orientation_type.guild.orientation_settings  # noqa: B018
+        with django_assert_num_queries(0):
+            policy = policy_for_type(orientation_type, site=site)
+        assert (policy.fee_cents, policy.notice_hours, policy.grace_hours) == (1500, 48, 4)
+
+    def it_reads_the_site_row_once_when_none_is_supplied(django_assert_num_queries):
+        _site(enabled=True)
+        settings_obj = GuildOrientationSettingsFactory(late_cancel_fee_cents=1500)
+        orientation_type = OrientationTypeFactory(guild=settings_obj.guild)
+        orientation_type.guild.orientation_settings  # noqa: B018
+        with django_assert_num_queries(1):
+            assert policy_for_type(orientation_type).fee_cents == 1500
+
 
 def describe_policy_for_equipment():
     def it_reads_the_equipments_fee_in_the_sites_window():
