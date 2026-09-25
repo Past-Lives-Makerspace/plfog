@@ -16,7 +16,16 @@ from django.test import Client
 from django.urls import reverse
 from django.utils import timezone
 
-from membership.models import AdminCapability, Equipment, EquipmentStaffMembership, Member
+from hub.forms import EquipmentForm
+from membership.equipment import reserve
+from membership.models import (
+    AdminCapability,
+    Equipment,
+    EquipmentError,
+    EquipmentStaffMembership,
+    Member,
+    OrientationType,
+)
 from tests.membership.factories import (
     EquipmentFactory,
     EquipmentReservationFactory,
@@ -471,8 +480,8 @@ def describe_equipment_manage():
         OrientationTypeFactory(name="Wheel")  # another guild's type
         equipment = EquipmentFactory(guild=guild)
         response = client.get(reverse("hub_equipment_manage", args=[equipment.slug]))
-        queryset = response.context["form"].fields["required_orientation"].queryset
-        assert list(queryset) == [own_type]
+        choices = response.context["form"].fields["required_orientation"].choices
+        assert [value for value, _label in choices] == ["", "new", str(own_type.pk)]
 
 
 def describe_equipment_details_save():
@@ -887,8 +896,8 @@ def describe_equipment_orientation_surface():
             inactive = _owned_type(other, is_active=False)
             fresh = EquipmentFactory()
             response = client.get(reverse("hub_equipment_manage", args=[fresh.slug]))
-            queryset = response.context["form"].fields["required_orientation"].queryset
-            assert inactive not in queryset
+            choices = response.context["form"].fields["required_orientation"].choices
+            assert str(inactive.pk) not in [value for value, _label in choices]
 
 
 def describe_equipment_orientation_list():
@@ -1048,3 +1057,306 @@ def describe_equipment_orientation_list():
         assert slot.is_cancelled is True
         content = client.get(reverse("hub_equipment_detail", args=[equipment.slug])).content.decode()
         assert "No orientation times are posted yet. Check back soon." in content
+
+
+def describe_equipment_own_orientation():
+    """Issue #466: "New orientation for this equipment" on the add page and the Details tab.
+
+    One Save creates the equipment, a type it owns (guild empty, active) and the
+    requirement, in one transaction; a bad type name saves nothing and lands beside the
+    field; the other two choices behave as before and ignore the nested inputs.
+    """
+
+    def _post(
+        equipment_name: str = "CNC Router", type_name: str = "Operator Basics", **overrides: str
+    ) -> dict[str, str]:
+        data = {
+            "name": equipment_name,
+            "kind": "tool",
+            "is_active": "on",
+            "required_orientation": EquipmentForm.NEW_TYPE_CHOICE,
+            "new_type-name": type_name,
+            "new_type-duration_minutes": "45",
+            "new_type-default_seats": "2",
+            "new_type-price": "15",
+            "new_type-default_location": "Wood shop",
+        }
+        data.update(overrides)
+        return data
+
+    def _error_sits_beside_the_name_field(content: str, message: str) -> bool:
+        """The error list renders between the nested name input and the next nested input."""
+        start = content.index('name="new_type-name"')
+        end = content.index('name="new_type-duration_minutes"')
+        return message in content[start:end]
+
+    def describe_the_picker():
+        def it_offers_no_orientation_then_new_then_the_types_in_the_old_order(client: Client):
+            _login(client, "eqn_choices", fog_role=Member.FogRole.ADMIN)
+            wheel = OrientationTypeFactory(guild=GuildFactory(name="Ceramics"), name="Wheel")
+            saw = OrientationTypeFactory(guild=GuildFactory(name="Woodshop"), name="Saw Basics")
+            OrientationTypeFactory(guild=GuildFactory(name="Metals"), name="Retired", is_active=False)
+            response = client.get(reverse("hub_equipment_add"))
+            field = response.context["form"].fields["required_orientation"]
+            assert list(field.choices) == [
+                ("", "No orientation needed"),
+                ("new", "New orientation for this equipment"),
+                (str(wheel.pk), str(wheel)),
+                (str(saw.pk), str(saw)),
+            ]
+            assert field.required is False
+            assert field.label == "Required orientation"
+
+        def it_renders_the_nested_fields_closed_with_the_model_defaults(client: Client):
+            _login(client, "eqn_closed", fog_role=Member.FogRole.ADMIN)
+            response = client.get(reverse("hub_equipment_add"))
+            content = response.content.decode()
+            form = response.context["form"]
+            assert form.creates_orientation_type is False
+            assert form.new_type_form.is_bound is False
+            assert form.new_type_form.prefix == "new_type"
+            assert form.new_type_form["duration_minutes"].value() == 60
+            assert form.new_type_form["default_seats"].value() == 4
+            assert "newOrientation: false" in content
+            assert '<div x-show="newOrientation" x-cloak class="pl-equip-new-type">' in content
+            for rendered in EquipmentForm.NEW_TYPE_FIELDS:
+                assert f'name="new_type-{rendered}"' in content
+            for unrendered in ("description", "sort_order", "is_active", "external_signup_url"):
+                assert f'name="new_type-{unrendered}"' not in content
+            # No browser-side required attribute: the inputs sit hidden until the choice is made.
+            name_input = content[content.index('name="new_type-name"') :].split(">", 1)[0]
+            assert "required" not in name_input
+
+    def describe_add_page():
+        def it_creates_the_equipment_its_own_type_and_the_gate_in_one_save(client: Client):
+            _login(client, "eqn_add_ok", fog_role=Member.FogRole.ADMIN)
+            response = client.post(reverse("hub_equipment_add"), _post())
+            equipment = Equipment.objects.get(name="CNC Router")
+            assert response.status_code == 302
+            assert response["Location"] == reverse("hub_equipment_detail", args=[equipment.slug])
+            assert Equipment.objects.count() == 1
+            assert OrientationType.objects.count() == 1
+            new_type = OrientationType.objects.get()
+            assert new_type.equipment == equipment
+            assert new_type.guild is None
+            assert new_type.is_active is True
+            assert new_type.name == "Operator Basics"
+            assert new_type.duration_minutes == 45
+            assert new_type.default_seats == 2
+            assert new_type.price_cents == 1500
+            assert new_type.default_location == "Wood shop"
+            assert (new_type.description, new_type.sort_order, new_type.external_signup_url) == ("", 0, "")
+            assert equipment.required_orientation == new_type
+            assert list(equipment.owned_orientation_types.all()) == [new_type]
+
+        def it_closes_the_gate_on_the_first_detail_page_load(client: Client):
+            _login(client, "eqn_add_gate_admin", fog_role=Member.FogRole.ADMIN)
+            response = client.post(reverse("hub_equipment_add"), _post(), follow=True)
+            equipment = Equipment.objects.get(name="CNC Router")
+            assert response.redirect_chain == [(reverse("hub_equipment_detail", args=[equipment.slug]), 302)]
+            assert response.context["access_state"] == Equipment.AccessState.NEEDS_ORIENTATION
+            client.logout()
+            member = _login(client, "eqn_add_gate_member").member
+            response = client.get(reverse("hub_equipment_detail", args=[equipment.slug]))
+            assert response.context["access_state"] == Equipment.AccessState.NEEDS_ORIENTATION
+            assert "pl-equip-banner--warn" in response.content.decode()
+            with pytest.raises(EquipmentError, match="Operator Basics orientation before you can book"):
+                reserve(equipment, member, timezone.now() + timedelta(days=1), 60)
+            assert not equipment.reservations.exists()
+
+        def it_lists_the_new_type_on_manage_orientation(client: Client):
+            _login(client, "eqn_add_listed", fog_role=Member.FogRole.ADMIN)
+            client.post(reverse("hub_equipment_add"), _post())
+            equipment = Equipment.objects.get(name="CNC Router")
+            response = client.get(f"{reverse('hub_equipment_manage', args=[equipment.slug])}?tab=orientation")
+            formset = response.context["orientation_types_formset"]
+            assert [row.instance for row in formset.forms] == [equipment.required_orientation]
+            assert formset.forms[0]["is_active"].value() is True
+            assert formset.forms[0].instance.equipment == equipment
+            assert 'name="otypes-0-name" value="Operator Basics"' in response.content.decode()
+
+        def it_rerenders_with_the_error_beside_the_field_and_saves_nothing_on_a_blank_name(client: Client):
+            _login(client, "eqn_add_blank", fog_role=Member.FogRole.ADMIN)
+            response = client.post(reverse("hub_equipment_add"), _post(type_name="   "))
+            assert response.status_code == 200
+            form = response.context["form"]
+            assert form.creates_orientation_type is True
+            assert form.new_type_form.errors == {"name": ["This field is required."]}
+            assert form.errors == {}
+            content = response.content.decode()
+            assert _error_sits_beside_the_name_field(content, "This field is required.")
+            # The panel renders open (no x-cloak) so the error is in view.
+            assert "newOrientation: true" in content
+            assert '<div x-show="newOrientation" class="pl-equip-new-type">' in content
+            assert not Equipment.objects.exists()
+            assert not OrientationType.objects.exists()
+
+        def it_ignores_the_nested_fields_when_no_orientation_is_needed(client: Client):
+            _login(client, "eqn_add_none", fog_role=Member.FogRole.ADMIN)
+            response = client.post(reverse("hub_equipment_add"), _post(required_orientation=""))
+            assert response.status_code == 302
+            assert Equipment.objects.get(name="CNC Router").required_orientation is None
+            assert not OrientationType.objects.exists()
+
+        def it_ignores_the_nested_fields_when_an_existing_type_is_picked(client: Client):
+            _login(client, "eqn_add_existing", fog_role=Member.FogRole.ADMIN)
+            existing = OrientationTypeFactory(name="Lathe")
+            response = client.post(reverse("hub_equipment_add"), _post(required_orientation=str(existing.pk)))
+            assert response.status_code == 302
+            assert Equipment.objects.get(name="CNC Router").required_orientation == existing
+            assert OrientationType.objects.count() == 1
+
+        def it_still_holds_an_existing_type_to_the_chosen_guild(client: Client):
+            _login(client, "eqn_add_mismatch", fog_role=Member.FogRole.ADMIN)
+            woodshop = GuildFactory(name="Woodshop")
+            foreign_type = OrientationTypeFactory(guild=GuildFactory(name="Ceramics"), name="Wheel")
+            response = client.post(
+                reverse("hub_equipment_add"),
+                _post(guild=str(woodshop.pk), required_orientation=str(foreign_type.pk)),
+            )
+            assert response.status_code == 200
+            assert response.context["form"].errors == {
+                "required_orientation": [
+                    "Pick an orientation offered by the chosen guild, or one of this equipment's own orientations."
+                ]
+            }
+            assert not Equipment.objects.exists()
+
+        def it_lets_guild_run_equipment_take_a_new_type_of_its_own(client: Client):
+            # The new type is the equipment's own, so the guild match rule does not apply to it.
+            _login(client, "eqn_add_guild", fog_role=Member.FogRole.ADMIN)
+            woodshop = GuildFactory(name="Woodshop")
+            response = client.post(reverse("hub_equipment_add"), _post(guild=str(woodshop.pk)))
+            assert response.status_code == 302
+            equipment = Equipment.objects.get(name="CNC Router")
+            assert equipment.guild == woodshop
+            assert equipment.required_orientation is not None
+            assert equipment.required_orientation.guild is None
+            assert equipment.required_orientation.equipment == equipment
+
+        def it_refuses_a_crafted_choice_and_saves_nothing(client: Client):
+            _login(client, "eqn_add_crafted", fog_role=Member.FogRole.ADMIN)
+            response = client.post(reverse("hub_equipment_add"), _post(required_orientation="424242"))
+            assert response.status_code == 200
+            assert list(response.context["form"].errors) == ["required_orientation"]
+            assert response.context["form"].creates_orientation_type is False
+            assert not Equipment.objects.exists()
+            assert not OrientationType.objects.exists()
+
+    def describe_details_tab():
+        def _save_url(equipment: Equipment) -> str:
+            return reverse("hub_equipment_details_save", args=[equipment.slug])
+
+        def it_creates_the_type_and_sets_the_requirement_on_existing_equipment(client: Client):
+            # A per-equipment manager, the Details tab's existing audience.
+            user = _login(client, "eqn_det_mgr")
+            equipment = EquipmentFactory(name="Old Lathe")
+            EquipmentStaffMembershipFactory(equipment=equipment, member=user.member)
+            response = client.post(_save_url(equipment), _post(equipment_name="Old Lathe", type_name="Lathe Basics"))
+            assert response.status_code == 302
+            assert response["Location"].endswith("?tab=details")
+            equipment.refresh_from_db()
+            new_type = equipment.owned_orientation_types.get()
+            assert equipment.required_orientation == new_type
+            assert (new_type.name, new_type.guild, new_type.is_active) == ("Lathe Basics", None, True)
+            assert Equipment.objects.count() == 1
+            assert equipment.access_state(MemberFactory()) == Equipment.AccessState.NEEDS_ORIENTATION
+
+        def it_rerenders_with_the_error_beside_the_field_and_saves_nothing_on_a_blank_name(client: Client):
+            _login(client, "eqn_det_blank", fog_role=Member.FogRole.ADMIN)
+            equipment = EquipmentFactory(name="Solid Saw")
+            response = client.post(_save_url(equipment), _post(equipment_name="Renamed Saw", type_name=""))
+            assert response.status_code == 200
+            assert response.context["form"].new_type_form.errors == {"name": ["This field is required."]}
+            assert _error_sits_beside_the_name_field(response.content.decode(), "This field is required.")
+            equipment.refresh_from_db()
+            assert equipment.name == "Solid Saw"
+            assert equipment.required_orientation is None
+            assert not OrientationType.objects.exists()
+
+        def it_refuses_a_name_this_equipment_already_uses_whatever_the_case(client: Client):
+            _login(client, "eqn_det_dup", fog_role=Member.FogRole.ADMIN)
+            equipment = EquipmentFactory(name="Solid Saw")
+            OrientationTypeFactory(equipment_owned=True, equipment=equipment, name="Operator Basics")
+            response = client.post(
+                _save_url(equipment), _post(equipment_name="Renamed Saw", type_name="operator basics")
+            )
+            assert response.status_code == 200
+            message = (
+                'This equipment already has an orientation named "operator basics". Give the new one its own name.'
+            )
+            assert response.context["form"].new_type_form.errors == {"name": [message]}
+            assert _error_sits_beside_the_name_field(response.content.decode(), "already has an orientation named")
+            equipment.refresh_from_db()
+            assert equipment.name == "Solid Saw"
+            assert equipment.required_orientation is None
+            assert OrientationType.objects.count() == 1
+
+        def it_only_checks_the_name_against_this_equipments_own_types(client: Client):
+            _login(client, "eqn_det_scoped", fog_role=Member.FogRole.ADMIN)
+            OrientationTypeFactory(name="Operator Basics")  # a guild's type
+            OrientationTypeFactory(equipment_owned=True, name="Operator Basics")  # another equipment's type
+            equipment = EquipmentFactory(name="Solid Saw")
+            response = client.post(_save_url(equipment), _post(equipment_name="Solid Saw"))
+            assert response.status_code == 302
+            equipment.refresh_from_db()
+            assert equipment.required_orientation is not None
+            assert equipment.required_orientation.equipment == equipment
+            assert OrientationType.objects.count() == 3
+
+        def it_keeps_a_guild_type_and_no_orientation_working_as_before(client: Client):
+            _login(client, "eqn_det_unchanged", fog_role=Member.FogRole.ADMIN)
+            guild = GuildFactory(name="Woodshop")
+            guild_type = OrientationTypeFactory(guild=guild, name="Saw Basics")
+            equipment = EquipmentFactory(name="Solid Saw", guild=guild)
+            response = client.post(
+                _save_url(equipment),
+                _post(equipment_name="Solid Saw", guild=str(guild.pk), required_orientation=str(guild_type.pk)),
+            )
+            assert response.status_code == 302
+            equipment.refresh_from_db()
+            assert equipment.required_orientation == guild_type
+            response = client.post(
+                _save_url(equipment), _post(equipment_name="Solid Saw", guild=str(guild.pk), required_orientation="")
+            )
+            assert response.status_code == 302
+            equipment.refresh_from_db()
+            assert equipment.required_orientation is None
+            assert OrientationType.objects.count() == 1
+
+        def it_still_allows_the_equipments_own_type_on_guild_run_equipment(client: Client):
+            _login(client, "eqn_det_own", fog_role=Member.FogRole.ADMIN)
+            guild = GuildFactory(name="Woodshop")
+            equipment = EquipmentFactory(name="Solid Saw", guild=guild)
+            own_type = OrientationTypeFactory(equipment_owned=True, equipment=equipment, name="Operator Basics")
+            response = client.post(
+                _save_url(equipment),
+                _post(equipment_name="Solid Saw", guild=str(guild.pk), required_orientation=str(own_type.pk)),
+            )
+            assert response.status_code == 302
+            equipment.refresh_from_db()
+            assert equipment.required_orientation == own_type
+            assert OrientationType.objects.count() == 1
+
+    def describe_the_form_save():
+        def it_rolls_the_equipment_back_when_the_type_cannot_be_saved(monkeypatch: pytest.MonkeyPatch):
+            # Fault injection on our own model, to prove the transaction boundary: the
+            # equipment row written first must not survive a failure writing the type.
+            def refuse(*_args: object, **_kwargs: object) -> None:
+                raise RuntimeError("no room for a type")
+
+            form = EquipmentForm(_post())
+            assert form.is_valid() is True
+            monkeypatch.setattr(OrientationType, "save", refuse)
+            with pytest.raises(RuntimeError, match="no room for a type"):
+                form.save()
+            assert not Equipment.objects.exists()
+            assert not OrientationType.objects.exists()
+
+        def it_saves_plainly_when_no_type_is_being_made():
+            form = EquipmentForm(_post(required_orientation=""))
+            assert form.is_valid() is True
+            equipment = form.save()
+            assert equipment.pk is not None
+            assert equipment.required_orientation is None
+            assert not OrientationType.objects.exists()
