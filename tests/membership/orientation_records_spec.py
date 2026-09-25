@@ -9,7 +9,7 @@ is removed. Recording is silent: no email, no event, one SiteActivity row.
 
 from __future__ import annotations
 
-from datetime import datetime, time, timedelta
+from datetime import date, datetime, time, timedelta
 from unittest import mock
 
 import pytest
@@ -21,7 +21,14 @@ from django.utils import timezone
 
 from core.models import EventDelivery, Notification, SiteActivity
 from membership import equipment as equipment_service
-from membership.models import Equipment, Member, OrientationError, OrientationRecord
+from membership.models import (
+    Equipment,
+    Member,
+    OrientationBooking,
+    OrientationError,
+    OrientationRecord,
+    OrientationType,
+)
 from tests.membership.factories import (
     EquipmentFactory,
     EquipmentHoursFactory,
@@ -47,7 +54,7 @@ def _linked_member(username: str) -> Member:
     return member
 
 
-def _completed_booking(member: Member, orientation_type, *, days_ago: int = 3):
+def _completed_booking(member: Member, orientation_type: OrientationType, *, days_ago: int = 3) -> OrientationBooking:
     slot = OrientationSlotFactory(
         guild=orientation_type.guild,
         orientation_type=orientation_type,
@@ -280,7 +287,7 @@ def describe_gates_on_a_record_alone():
             slot.book(member)
 
     def describe_equipment():
-        def _gated_tool():
+        def _gated_tool() -> tuple[Equipment, OrientationType, date]:
             orientation_type = OrientationTypeFactory(name="Lathe")
             equipment = EquipmentFactory(required_orientation=orientation_type)
             day = timezone.localdate() + timedelta(days=2)

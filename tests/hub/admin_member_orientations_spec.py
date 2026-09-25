@@ -20,7 +20,7 @@ from django.utils import timezone
 
 from core.models import EventDelivery, Notification, SiteActivity
 from hub.forms import OrientationRecordForm
-from membership.models import Member, OrientationRecord
+from membership.models import Guild, Member, OrientationBooking, OrientationRecord, OrientationType
 from tests.membership.factories import (
     EquipmentFactory,
     GuildFactory,
@@ -72,12 +72,12 @@ def _target_member(username: str = "orient-target") -> Member:
     return member
 
 
-def _woodshop_basics():
+def _woodshop_basics() -> tuple[Guild, OrientationType]:
     guild = GuildFactory(name="Woodshop")
     return guild, OrientationTypeFactory(guild=guild, name="Shop Basics")
 
 
-def _completed_booking(member: Member, orientation_type, *, days_ago: int = 3):
+def _completed_booking(member: Member, orientation_type: OrientationType, *, days_ago: int = 3) -> OrientationBooking:
     slot = OrientationSlotFactory(
         guild=orientation_type.guild,
         orientation_type=orientation_type,
