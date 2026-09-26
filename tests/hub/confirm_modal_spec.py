@@ -150,11 +150,15 @@ def describe_the_three_existing_callers():
         source = (Path(settings.BASE_DIR) / "templates" / template).read_text()
         assert "components/confirm_modal.html" in source
 
-    def it_leaves_the_archive_flow_as_the_only_caller_asking_for_a_required_note():
+    def it_keeps_the_required_note_to_the_flows_that_need_a_reason():
+        # Sorted, because rglob order is filesystem order and an unsorted list made this
+        # assertion fragile. Both callers collect a reason a person will read later: why a
+        # wiki page was removed, and why a discount request was turned down. A new name
+        # here wants that same justification, which is why the list stays explicit.
         root = Path(settings.BASE_DIR) / "templates"
-        callers = [
+        callers = sorted(
             path.name
             for path in root.rglob("*.html")
             if path.name != "confirm_modal.html" and "confirm_note_required" in path.read_text()
-        ]
-        assert callers == ["_wiki_moderation_actions.html"]
+        )
+        assert callers == ["_wiki_moderation_actions.html", "discount_code_request_review.html"]
