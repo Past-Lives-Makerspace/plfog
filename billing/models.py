@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from datetime import datetime, timedelta
 from decimal import ROUND_HALF_UP, Decimal
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, cast
 
 from django.conf import settings
 from django.core.exceptions import ValidationError
@@ -20,7 +20,7 @@ from .fields import EncryptedCharField
 if TYPE_CHECKING:
     from django.contrib.auth.models import User
 
-    from membership.models import Guild  # noqa: F401
+    from membership.models import EquipmentReservation, Guild, OrientationBooking  # noqa: F401
 
 
 _CENTS = Decimal("0.01")
@@ -1203,7 +1203,7 @@ class PaymentRefundQuerySet(models.QuerySet["PaymentRefund"]):
         return self.filter(status=PaymentRefund.Status.SUCCEEDED)
 
     def for_source(self, source: Any) -> PaymentRefundQuerySet:
-        """Refunds belonging to one refundable source row (a Registration or an OrientationBooking)."""
+        """Refunds belonging to one refundable source row (a Registration, an OrientationBooking or a LateCancellationFee)."""
         from billing.refunds import source_field_name
 
         return self.filter(**{source_field_name(source): source})
@@ -1219,7 +1219,8 @@ class PaymentRefund(models.Model):
     its own actor, reason, attempt count, and failure state; (d) two source
     apps must share one ledger without either owning the other.
 
-    Exactly one of ``registration`` / ``orientation_booking`` is set (DB-enforced).
+    Exactly one of ``registration`` / ``orientation_booking`` / ``late_fee`` is set
+    (DB-enforced).
     """
 
     class Status(models.TextChoices):
@@ -1246,6 +1247,14 @@ class PaymentRefund(models.Model):
         on_delete=models.PROTECT,
         related_name="refunds",
         help_text="Set for orientation-payment refunds. Exactly one source FK is set per row.",
+    )
+    late_fee = models.ForeignKey(
+        "billing.LateCancellationFee",
+        null=True,
+        blank=True,
+        on_delete=models.PROTECT,
+        related_name="refunds",
+        help_text="Set for late cancellation fee refunds (#456). Exactly one source FK is set per row.",
     )
     stripe_refund_id = models.CharField(
         max_length=255,
@@ -1304,12 +1313,14 @@ class PaymentRefund(models.Model):
         indexes = [
             models.Index(fields=["registration", "status"], name="idx_refund_reg_status"),
             models.Index(fields=["orientation_booking", "status"], name="idx_refund_booking_status"),
+            models.Index(fields=["late_fee", "status"], name="idx_refund_late_fee_status"),
         ]
         constraints = [
             models.CheckConstraint(
                 condition=(
-                    (Q(registration__isnull=False) & Q(orientation_booking__isnull=True))
-                    | (Q(registration__isnull=True) & Q(orientation_booking__isnull=False))
+                    Q(registration__isnull=False, orientation_booking__isnull=True, late_fee__isnull=True)
+                    | Q(registration__isnull=True, orientation_booking__isnull=False, late_fee__isnull=True)
+                    | Q(registration__isnull=True, orientation_booking__isnull=True, late_fee__isnull=False)
                 ),
                 name="ck_refund_one_source",
             ),
@@ -1325,15 +1336,21 @@ class PaymentRefund(models.Model):
 
     @property
     def source_object(self) -> Any:
-        """Whichever source row this refund belongs to (Registration or OrientationBooking)."""
+        """Whichever source row this refund belongs to (Registration, OrientationBooking or LateCancellationFee)."""
         if self.registration_id is not None:
             return self.registration
-        return self.orientation_booking
+        if self.orientation_booking_id is not None:
+            return self.orientation_booking
+        return self.late_fee
 
     @property
     def source_kind(self) -> str:
-        """``"class"`` for registration refunds, ``"orientation"`` for orientation-booking refunds."""
-        return "class" if self.registration_id is not None else "orientation"
+        """``"class"``, ``"orientation"`` or ``"late_fee"``: the ledger's source vocabulary."""
+        if self.registration_id is not None:
+            return "class"
+        if self.orientation_booking_id is not None:
+            return "orientation"
+        return "late_fee"
 
 
 # ---------------------------------------------------------------------------
@@ -1506,3 +1523,262 @@ class ReconciliationSnapshot(models.Model):
         )
         SiteActivity.log(SiteActivity.Kind.RECONCILIATION_SNAPSHOT_TAKEN, actor=actor, target=snapshot)
         return snapshot
+
+
+# ---------------------------------------------------------------------------
+# LateCancellationFee — what a late self cancel costs, paid through Stripe (#456)
+# ---------------------------------------------------------------------------
+
+
+class LateCancellationFee(models.Model):
+    """The fee a member owes for cancelling a confirmed orientation booking or an equipment
+    reservation inside the notice window (#456, part 2).
+
+    Money, so it lives with billing; the cancelled rows stay in membership and are reached
+    through string foreign keys, the way :class:`PaymentRefund` reaches its sources. Exactly
+    one of ``orientation_booking`` / ``reservation`` is set (DB-enforced), and each is a
+    OneToOne: the database is the last word on "at most one fee per cancel", behind the
+    ``get_or_create`` in :func:`billing.late_fees.charge_if_late`.
+
+    Paid through a hosted Stripe Checkout tagged ``kind=late_cancel_fee``, never the tab.
+    An unpaid fee is waived by the governing guild's staff, the governing equipment's
+    managers or an admin (:func:`billing.late_fees.waive`); a paid one is refunded from the
+    Payments dashboard through the shared refund engine (the ``RefundableSource`` surface
+    below), which flips it to ``REFUNDED`` on a full refund.
+    """
+
+    class Status(models.TextChoices):
+        UNPAID = "unpaid", "Unpaid"
+        PAID = "paid", "Paid"
+        WAIVED = "waived", "Waived"
+        REFUNDED = "refunded", "Refunded"
+
+    member = models.ForeignKey(
+        "membership.Member",
+        on_delete=models.CASCADE,
+        related_name="late_cancellation_fees",
+        help_text="Who owes, or paid, the fee.",
+    )
+    orientation_booking = models.OneToOneField(
+        "membership.OrientationBooking",
+        null=True,
+        blank=True,
+        on_delete=models.PROTECT,
+        related_name="late_fee",
+        help_text="The cancelled orientation booking this fee is for. Exactly one source is set per row.",
+    )
+    reservation = models.OneToOneField(
+        "membership.EquipmentReservation",
+        null=True,
+        blank=True,
+        on_delete=models.PROTECT,
+        related_name="late_fee",
+        help_text="The cancelled equipment reservation this fee is for. Exactly one source is set per row.",
+    )
+    amount_cents = models.PositiveIntegerField(help_text="The fee in cents, frozen from the policy at cancel time.")
+    status = models.CharField(
+        max_length=20,
+        choices=Status.choices,
+        default=Status.UNPAID,
+        help_text="Where the fee stands: unpaid, paid, waived or refunded.",
+    )
+    stripe_session_id = models.CharField(
+        max_length=255,
+        blank=True,
+        default="",
+        help_text="The newest Stripe Checkout Session minted for this fee, if any.",
+    )
+    stripe_payment_id = models.CharField(
+        max_length=255,
+        blank=True,
+        default="",
+        help_text="The Stripe PaymentIntent that paid the fee; blank until it is paid.",
+    )
+    checkout_attempts = models.PositiveSmallIntegerField(
+        default=0,
+        help_text="How many Checkout Sessions have been minted; part of each session's idempotency key.",
+    )
+    paid_at = models.DateTimeField(null=True, blank=True, help_text="When Stripe confirmed the payment.")
+    waived_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="+",
+        help_text="Who waived the fee, when it was waived.",
+    )
+    waived_reason = models.CharField(max_length=300, blank=True, default="", help_text="Why the fee was waived.")
+    waived_at = models.DateTimeField(null=True, blank=True, help_text="When the fee was waived.")
+    created_at = models.DateTimeField(auto_now_add=True, help_text="When the late cancel created the fee.")
+
+    class Meta:
+        ordering = ["-created_at"]
+        constraints = [
+            models.CheckConstraint(
+                condition=(
+                    Q(orientation_booking__isnull=False, reservation__isnull=True)
+                    | Q(orientation_booking__isnull=True, reservation__isnull=False)
+                ),
+                name="ck_latefee_one_source",
+            ),
+        ]
+
+    def __str__(self) -> str:
+        return f"{self.get_status_display()} late cancellation fee, {self.amount_display}: {self.item_label}"
+
+    @property
+    def amount_display(self) -> str:
+        """The fee in dollars with cents, e.g. "$15.00"."""
+        return f"${Decimal(self.amount_cents) / 100:.2f}"
+
+    @property
+    def is_unpaid(self) -> bool:
+        return self.status == self.Status.UNPAID
+
+    @property
+    def is_paid(self) -> bool:
+        return self.status == self.Status.PAID
+
+    @property
+    def is_waived(self) -> bool:
+        return self.status == self.Status.WAIVED
+
+    @property
+    def is_refunded(self) -> bool:
+        return self.status == self.Status.REFUNDED
+
+    @property
+    def waived_by_name(self) -> str:
+        """Who waived the fee, in member words: their member name, else the account's name or email."""
+        user = self.waived_by
+        if user is None:
+            return ""
+        member = getattr(user, "member", None)
+        if member is not None:
+            return cast(str, member.display_name)
+        return user.get_full_name() or user.email
+
+    @property
+    def target(self) -> OrientationBooking | EquipmentReservation:
+        """The cancelled booking or reservation; the constraint guarantees exactly one is set."""
+        if self.orientation_booking_id is not None:
+            return cast("OrientationBooking", self.orientation_booking)
+        return cast("EquipmentReservation", self.reservation)
+
+    @property
+    def item_label(self) -> str:
+        """What was cancelled, in member words: "Lathe orientation, Sat Sep 12" or "CNC Router reservation, Sat Sep 12"."""
+        if self.orientation_booking_id is not None:
+            booking = cast("OrientationBooking", self.orientation_booking)
+            name = f"{booking.orientation_type.name} orientation"
+            local = timezone.localtime(booking.slot.starts_at)
+        else:
+            reservation = cast("EquipmentReservation", self.reservation)
+            name = f"{reservation.equipment.name} reservation"
+            local = timezone.localtime(reservation.starts_at)
+        return f"{name}, {local:%a %b} {local.day}"
+
+    def owner_page_path(self) -> str:
+        """The relative hub path of the page the fee belongs to: the guild page or the equipment page."""
+        from django.urls import reverse
+
+        if self.orientation_booking_id is not None:
+            return cast("OrientationBooking", self.orientation_booking).orientation_type.owner_page_path()
+        return reverse("hub_equipment_detail", args=[cast("EquipmentReservation", self.reservation).equipment.slug])
+
+    # --- Refund engine surface (billing.refunds.RefundableSource) -----------
+
+    @property
+    def amount_refunded_cents(self) -> int:
+        """Sum of succeeded refunds against this fee's payment.
+
+        Iterates ``refunds.all()`` (not an aggregate) so a ``prefetch_related`` caller pays
+        no extra query per row, like the orientation booking.
+        """
+        return sum(r.amount_cents for r in self.refunds.all() if r.status == PaymentRefund.Status.SUCCEEDED)
+
+    @property
+    def refundable_cents(self) -> int:
+        """Cents still available to refund: the fee minus succeeded refunds.
+
+        Only a paid fee can reach the engine (an unpaid or waived one has no
+        ``stripe_payment_id``, which the engine refuses first), so the fee amount is the
+        amount collected.
+        """
+        return self.amount_cents - self.amount_refunded_cents
+
+    @property
+    def refund_state(self) -> str:
+        """``"none" | "partial" | "full" | "failed"``: the Payments panel's badge vocabulary.
+
+        ``"failed"``: the latest refund attempt is FAILED and no succeeded refund has since
+        covered that amount. Mirrors ``OrientationBooking.refund_state``.
+        """
+        refunds = list(self.refunds.all())  # newest first per PaymentRefund.Meta.ordering
+        latest = refunds[0] if refunds else None
+        if latest is not None and latest.status == PaymentRefund.Status.FAILED and self.refundable_cents > 0:
+            return "failed"
+        if self.amount_refunded_cents == 0:
+            return "none"
+        if self.refundable_cents == 0:
+            return "full"
+        return "partial"
+
+    @property
+    def refund_payment_intent_id(self) -> str:
+        """The Stripe PaymentIntent id refunds are issued against (blank until the fee is paid)."""
+        return self.stripe_payment_id
+
+    def refund_receipt_context(self) -> dict[str, Any]:
+        """The documented context keys the shared refund service reads (see the protocol).
+
+        Both links point at the fee's own hub page: it shows the fee, its state and what it
+        was for, and it is the page the cancellation and receipt emails already link.
+        """
+        from django.urls import reverse
+
+        from billing.late_fees import pay_url
+
+        member = self.member
+        return {
+            "item_title": f"Late cancellation fee: {self.item_label}",
+            "recipient_email": member.primary_email,
+            "recipient_name": member.display_name,
+            "payer_name": member.display_name,
+            "member": member,
+            "manage_url": pay_url(self),
+            "in_app_url": reverse("hub_late_fee_detail", args=[self.pk]),
+        }
+
+    def on_fully_refunded(self, reason: str, actor: User | None) -> None:
+        """Full-refund bookkeeping: the fee becomes REFUNDED and the activity feed says so.
+
+        Lifts nothing: a fee that could be refunded was paid, and a paid fee never blocked
+        a booking. A Retry that re-succeeds on a fee already REFUNDED runs this again and
+        must not write a second activity row, hence the status guard.
+        """
+        from core.models import SiteActivity
+
+        if self.status == self.Status.REFUNDED:
+            return
+        self.status = self.Status.REFUNDED
+        self.save(update_fields=["status"])
+        SiteActivity.log(
+            SiteActivity.Kind.LATE_FEE_REFUNDED,
+            actor=actor,
+            target=self,
+            payload={"amount_cents": self.amount_cents, "item": self.item_label, "reason": reason},
+        )
+
+    def issue_refund(
+        self, *, amount_cents: int | None = None, reason: str = "", actor: User | None = None
+    ) -> PaymentRefund:
+        """Send a real Stripe refund for this fee, full when ``amount_cents`` is ``None``.
+
+        Thin delegate: the shared billing-side service owns locking, the Stripe call, the
+        ledger row, the receipt email and the full-refund bookkeeping. See
+        :func:`billing.refunds.issue_refund` for the exceptions.
+        """
+        from billing.refunds import issue_refund
+
+        return issue_refund(self, amount_cents=amount_cents, reason=reason, actor=actor)

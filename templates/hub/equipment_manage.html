@@ -168,6 +168,9 @@
       {% include "components/form_field.html" with field=settings_form.max_duration_minutes %}
       {% include "components/form_field.html" with field=settings_form.max_advance_days %}
       {% include "components/form_field.html" with field=settings_form.max_active_reservations_per_member %}
+      {% if late_cancel_fees_enabled %}
+      {% include "components/form_field.html" with field=settings_form.late_cancel_fee %}
+      {% endif %}
       <div class="pl-equip-save-row">
         <button type="submit" class="pl-btn pl-btn--primary">Save</button>
       </div>
@@ -478,6 +481,32 @@
     <p class="hub-text-muted" style="margin:0;">No upcoming reservations.</p>
     {% endif %}
   </div>
+
+  {% if late_cancel_fees_enabled or manage_late_fees %}
+  {# Late cancellation fees (#456): this equipment's reservation and orientation fees, newest first, with Waive while unpaid. #}
+  <div class="hub-card pl-late-fee-panel" data-late-fee-list="{{ equipment.pk }}">
+    <h2 class="hub-detail-label pl-late-fee-panel__title">Late Cancellation Fees</h2>
+    {% if manage_late_fees %}
+    <div class="pl-late-fee-list">
+      {% for fee, waive_form in manage_late_fees %}
+      <div class="pl-late-fee-row" data-late-fee-row="{{ fee.pk }}" data-late-fee-status="{{ fee.status }}">
+        <span class="pl-late-fee-row__who">{{ fee.member.display_name }}</span>
+        <span class="pl-late-fee-row__item hub-text-muted">{{ fee.item_label }}</span>
+        <span class="pl-late-fee-row__amount">{{ fee.amount_display }}</span>
+        <span class="pl-late-fee-row__state">{% include "hub/partials/late_fee_state.html" %}</span>
+        <span class="pl-late-fee-row__action">
+          {% if fee.is_unpaid %}
+          <button type="button" class="pl-btn pl-btn--secondary pl-btn--sm" @click="$dispatch('open-modal', 'waive-fee-{{ fee.pk }}')">Waive</button>
+          {% endif %}
+        </span>
+      </div>
+      {% endfor %}
+    </div>
+    {% else %}
+    <p class="hub-text-muted pl-late-fee-panel__empty">No late fees here.</p>
+    {% endif %}
+  </div>
+  {% endif %}
 </div>
 
 {# Manager-cancel modals — one per row, reason required (server-enforced), outside the panes. #}
@@ -486,6 +515,15 @@
 {% with rpks=reservation.pk|stringformat:"s" who=reservation.member.display_name %}
 {% include "components/confirm_modal.html" with confirm_id="mgr-cancel-"|add:rpks confirm_title="Cancel This Reservation?" confirm_message="The member has this time booked. Cancelling frees it and tells them why." confirm_action_url=mgr_cancel_url confirm_button_text="Cancel Reservation" confirm_note_name="reason" confirm_note_label="Reason" confirm_note_placeholder="Why is this being cancelled?" confirm_note_hint="The member will see this. Please tell the member why." %}
 {% endwith %}
+{% endfor %}
+
+{# Waive modals (#456), one per unpaid fee, outside the panes so they always mount; the reason is required. #}
+{% for fee, waive_form in manage_late_fees %}
+{% if fee.is_unpaid %}
+{% with waive_next=manage_late_fees_next pk_str=fee.pk|stringformat:"s" %}
+{% include "components/modal.html" with modal_id="waive-fee-"|add:pk_str modal_title="Waive This Fee?" modal_size="sm" modal_body_include="hub/partials/_late_fee_waive_form.html" %}
+{% endwith %}
+{% endif %}
 {% endfor %}
 
 {# Confirm modals for manager removal — outside the x-show panes so they always mount. #}

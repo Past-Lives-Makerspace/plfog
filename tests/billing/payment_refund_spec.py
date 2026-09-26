@@ -7,7 +7,7 @@ from django.db import IntegrityError
 
 from billing.models import PaymentRefund
 from classes.factories import RegistrationFactory
-from tests.billing.factories import PaymentRefundFactory, TabChargeFactory
+from tests.billing.factories import LateCancellationFeeFactory, PaymentRefundFactory, TabChargeFactory
 from tests.membership.factories import OrientationBookingFactory
 
 pytestmark = pytest.mark.django_db
@@ -24,6 +24,11 @@ def describe_PaymentRefund():
             booking = OrientationBookingFactory()
             with pytest.raises(IntegrityError):
                 PaymentRefund.objects.create(registration=registration, orientation_booking=booking, amount_cents=100)
+
+        def it_rejects_a_row_with_a_late_fee_beside_another_source():
+            fee = LateCancellationFeeFactory()
+            with pytest.raises(IntegrityError):
+                PaymentRefund.objects.create(registration=RegistrationFactory(), late_fee=fee, amount_cents=100)
 
     def describe_stripe_refund_id_uniqueness():
         def it_rejects_a_duplicate_stripe_refund_id():
@@ -50,6 +55,12 @@ def describe_PaymentRefund():
             refund = PaymentRefundFactory(registration=None, orientation_booking=booking)
             assert refund.source_object == booking
             assert refund.source_kind == "orientation"
+
+        def it_returns_the_late_fee_when_set():
+            fee = LateCancellationFeeFactory()
+            refund = PaymentRefundFactory(registration=None, late_fee=fee)
+            assert refund.source_object == fee
+            assert refund.source_kind == "late_fee"
 
     def describe_str():
         def it_shows_dollars_source_and_status():

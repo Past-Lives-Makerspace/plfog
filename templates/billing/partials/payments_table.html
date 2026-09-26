@@ -95,6 +95,22 @@ initial render and the post-refund HTMX refresh (refund-done).
               Refund
             </button>
             {% endif %}
+          {% elif row.source_kind == "late_fee" and viewer_has_refund_authority %}
+            {% if row.status == "refund_failed" %}
+            <button type="button" class="pl-btn pl-btn--danger pl-btn--sm"
+                    hx-get="{% url 'billing_late_fee_refund_form' row.source_pk %}"
+                    hx-target="#refund-modal-body" hx-swap="innerHTML"
+                    @click="document.getElementById('refund-modal-body').innerHTML = 'Loading…'; $dispatch('open-modal', 'refund-modal')">
+              Retry Refund
+            </button>
+            {% elif row.can_refund %}
+            <button type="button" class="pl-btn pl-btn--danger pl-btn--sm"
+                    hx-get="{% url 'billing_late_fee_refund_form' row.source_pk %}"
+                    hx-target="#refund-modal-body" hx-swap="innerHTML"
+                    @click="document.getElementById('refund-modal-body').innerHTML = 'Loading…'; $dispatch('open-modal', 'refund-modal')">
+              Refund
+            </button>
+            {% endif %}
           {% elif row.source_kind == "tab" and row.stripe_url %}
           <a href="{{ row.stripe_url }}" target="_blank" rel="noopener" class="pl-text-muted" style="text-decoration:none;">Stripe ↗</a>
           {% endif %}

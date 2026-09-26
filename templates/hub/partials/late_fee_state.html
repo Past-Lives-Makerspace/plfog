@@ -1,0 +1,14 @@
+{% comment %}
+One late cancellation fee's state as a chip (#456, part 3): Unpaid, Paid on a date, Waived
+by a name on a date, or Refunded. Context: fee (a LateCancellationFee, with waived_by and
+its member selected). Shared by the respond page card and the equipment manage list.
+{% endcomment %}
+{% if fee.is_unpaid %}
+<span class="pl-price-chip pl-price-chip--danger" data-late-fee-state="unpaid">Unpaid</span>
+{% elif fee.is_paid %}
+<span class="pl-price-chip pl-price-chip--ok" data-late-fee-state="paid">Paid{% if fee.paid_at %} on {{ fee.paid_at|date:"M j" }}{% endif %}</span>
+{% elif fee.is_waived %}
+<span class="pl-price-chip" data-late-fee-state="waived">Waived{% if fee.waived_by_name %} by {{ fee.waived_by_name }}{% endif %}{% if fee.waived_at %} on {{ fee.waived_at|date:"M j" }}{% endif %}</span>
+{% else %}
+<span class="pl-price-chip" data-late-fee-state="refunded">Refunded</span>
+{% endif %}

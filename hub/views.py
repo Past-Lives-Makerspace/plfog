@@ -542,8 +542,12 @@ def _orientation_sections(
     view). Guild-only extras (availability blocks, custom requests) are layered on
     by the guild view.
     """
+    from core.models import SiteConfiguration
+    from membership.late_cancel import booking_sentence, cancel_sentence, policy_for_type
     from membership.models import OrientationBooking
 
+    # One site row for every type's policy (a config read per section would be an N+1).
+    site = SiteConfiguration.load() if orientation_types else None
     member_bookings: list[OrientationBooking] = []
     completed_type_ids: set[int] = set()
     record_by_type: dict[int, OrientationRecord] = {}
@@ -575,6 +579,16 @@ def _orientation_sections(
         record = None if orientation_type.pk in booked_type_ids else record_by_type.get(orientation_type.pk)
         open_for_type = not (done or live_booking or hold)
         type_slots = slots_by_type.get(orientation_type.pk, []) if open_for_type else []
+        policy = policy_for_type(orientation_type, site=site)
+        # The cancel modal's fee line (#456): only a CONFIRMED booking can carry a fee, and
+        # only while a cancel right now would be late. "" otherwise, so the modal is unchanged.
+        late_cancel_warning = (
+            cancel_sentence(policy)
+            if live_booking is not None
+            and live_booking.status == OrientationBooking.Status.CONFIRMED
+            and policy.is_late(live_booking.slot.starts_at)
+            else ""
+        )
         sections.append(
             {
                 "type": orientation_type,
@@ -583,6 +597,9 @@ def _orientation_sections(
                 "booking": live_booking,
                 "hold": hold,
                 "slots": type_slots[:slot_cap] if slot_cap is not None else type_slots,
+                # The booking prompts append this; "" when no late fee applies to the type.
+                "late_cancel_sentence": booking_sentence(policy),
+                "late_cancel_warning": late_cancel_warning,
             }
         )
     return sections
@@ -744,10 +761,13 @@ def guild_detail(request: HttpRequest, slug: str) -> HttpResponse:
             [block for block in upcoming_blocks if block.valid_starts_for(section["type"])] if open_for_type else []
         )
 
+    from billing.late_fees import unpaid_fee_for
     from hub.forms import GuildJoinForm, OrientationCustomRequestForm
 
     custom_request_form = OrientationCustomRequestForm(guild=guild)
     join_form = GuildJoinForm()
+    # The block until paid (#456): the orientation section shows the fee with a Pay button.
+    unpaid_late_fee = unpaid_fee_for(member) if member is not None and show_orientation else None
 
     # The Wiki tab (spec B). Three gates: the feature flag, the members surface (the guest
     # guilds surface does not resolve wiki URLs, so a tab of links nobody can follow is a
@@ -800,6 +820,7 @@ def guild_detail(request: HttpRequest, slug: str) -> HttpResponse:
             "orientation_all_done": orientation_all_done,
             "show_orientation": show_orientation,
             "orientation_sections": orientation_sections,
+            "unpaid_late_fee": unpaid_late_fee,
             "custom_request_form": custom_request_form,
             "join_form": join_form,
             "wiki_tab_enabled": wiki_tab_enabled,
@@ -1914,8 +1935,24 @@ def orientation_respond(request: HttpRequest, booking_pk: int) -> HttpResponse:
             messages.error(request, str(exc))
         return redirect("hub_orientation_respond", booking_pk=booking.pk)
 
+    from billing import late_fees
+    from billing.forms import LateFeeWaiveForm
+    from billing.models import LateCancellationFee
     from hub.view_as import has_refund_authority
 
+    # The booking's late cancellation fee (#456), if its self cancel was late: one query,
+    # with what the card's label and the waive rule read.
+    late_fee = (
+        LateCancellationFee.objects.filter(orientation_booking=booking)
+        .select_related(
+            "member",
+            "waived_by__member",
+            "orientation_booking__slot",
+            "orientation_booking__orientation_type__guild",
+            "orientation_booking__orientation_type__equipment",
+        )
+        .first()
+    )
     ctx = _get_hub_context(request)
     return render(
         request,
@@ -1925,6 +1962,10 @@ def orientation_respond(request: HttpRequest, booking_pk: int) -> HttpResponse:
             "booking": booking,
             "refund_state": booking.refund_state if booking.amount_paid_cents else "none",
             "viewer_has_refund_authority": has_refund_authority(request),
+            "late_fee": late_fee,
+            "late_fee_waive_form": LateFeeWaiveForm(fee=late_fee) if late_fee is not None else None,
+            "can_waive_fee": late_fee is not None and late_fees.can_waive(request, late_fee),
+            "late_fee_waive_next": reverse("hub_orientation_respond", args=[booking.pk]),
         },
     )
 
@@ -1966,11 +2007,29 @@ def orientation_cancel_mine(request: HttpRequest, booking_pk: int) -> HttpRespon
     if member is None or booking.member_id != member.pk:
         return HttpResponse("Forbidden", status=403)
     try:
-        orientations.cancel_orientation(booking, actor_label=member.display_name, actor=cast(User, request.user))
-        messages.success(request, "Your orientation was cancelled.")
+        fee = orientations.cancel_orientation(
+            booking, actor_label=member.display_name, actor=cast(User, request.user), self_cancel=True
+        )
     except OrientationError as exc:
         messages.error(request, str(exc))
-    return _owner_redirect(booking.orientation_type)
+        return _owner_redirect(booking.orientation_type)
+    if fee is None:
+        messages.success(request, "Your orientation was cancelled.")
+        return _owner_redirect(booking.orientation_type)
+    # A late cancel (#456): straight to Stripe Checkout. The modal's form is unboosted for
+    # exactly this redirect, so the browser follows it to Stripe's page.
+    from billing import late_fees
+
+    try:
+        checkout_url = late_fees.start_fee_checkout(fee)
+    except Exception:
+        logger.exception("Late fee checkout failed for orientation booking %s.", booking.pk)
+        messages.info(
+            request,
+            "Your orientation was cancelled. A late cancellation fee applies; use the Pay button to pay it.",
+        )
+        return _owner_redirect(booking.orientation_type)
+    return redirect(checkout_url)
 
 
 def _own_pending_hold_or_none(request: HttpRequest, booking_pk: int) -> Any:
@@ -2145,6 +2204,183 @@ def orientation_checkout_resume(request: HttpRequest, booking_pk: int) -> HttpRe
     return _owner_redirect(booking.orientation_type)
 
 
+def _own_late_fee_or_404(request: HttpRequest, pk: int) -> Any:
+    """The request member's own late cancellation fee, whatever its status, else 404."""
+    from billing.models import LateCancellationFee
+
+    fee = get_object_or_404(LateCancellationFee.objects.select_related("member"), pk=pk)
+    member = _get_member(request)
+    if member is None or fee.member_id != member.pk:
+        raise Http404("No such late cancellation fee.")
+    return fee
+
+
+@login_required
+def hub_late_fee_detail(request: HttpRequest, pk: int) -> HttpResponse:
+    """The fee's own page (#456): what it is for, where it stands, and the Pay button while unpaid.
+
+    The cancellation emails link here rather than straight to Stripe: a GET must never mint
+    a session (mail clients prefetch links), so the page shows the fee and the POST pays it.
+    """
+    fee = _own_late_fee_or_404(request, pk)
+    return render(request, "hub/late_fee_detail.html", {**_get_hub_context(request), "fee": fee})
+
+
+@login_required
+@require_POST
+def hub_late_fee_pay(request: HttpRequest, pk: int) -> HttpResponse:
+    """Pay an UNPAID late cancellation fee (#456): mint a fresh Checkout Session and go there.
+
+    The member's own UNPAID fee only, else 404. Every click mints a new session, so an
+    expired Checkout is never handed back.
+    """
+    from billing import late_fees
+    from billing.models import LateCancellationFee
+
+    fee = _own_late_fee_or_404(request, pk)
+    if fee.status != LateCancellationFee.Status.UNPAID:
+        raise Http404("This late cancellation fee is not unpaid.")
+    try:
+        checkout_url = late_fees.start_fee_checkout(fee)
+    except Exception:
+        logger.exception("Late fee checkout failed for fee %s.", fee.pk)
+        messages.error(request, "We couldn't open the payment page just now. Try again in a minute.")
+        return redirect("hub_late_fee_detail", pk=fee.pk)
+    return redirect(checkout_url)
+
+
+@login_required
+def hub_late_fee_return(request: HttpRequest, token: str) -> HttpResponse:
+    """The Stripe ``success_url`` landing for a fee (#456): paid, not confirmed yet, or a bad token.
+
+    A still-UNPAID fee is reconciled against Stripe synchronously (paid means marked paid
+    right here, race-safe against the webhook), so "Paid. Thank you." normally renders on
+    the first visit. When Stripe has not confirmed yet the page says so and keeps the Pay
+    button; a refresh reconciles again. A bad token renders 400.
+    """
+    from django.core.signing import BadSignature
+
+    from billing import late_fees
+    from billing.models import LateCancellationFee
+
+    try:
+        fee = late_fees.read_checkout_token(token)
+    except (BadSignature, LateCancellationFee.DoesNotExist):
+        return render(
+            request, "hub/late_fee_return.html", {**_get_hub_context(request), "state": "invalid"}, status=400
+        )
+    member = _get_member(request)
+    if member is None or fee.member_id != member.pk:
+        raise Http404("No such late cancellation fee.")
+    if fee.status == LateCancellationFee.Status.UNPAID:
+        if late_fees.reconcile_landed_checkout(fee) in ("paid", "already"):
+            fee.refresh_from_db()
+    if fee.status == LateCancellationFee.Status.PAID:
+        state = "paid"
+    elif fee.status == LateCancellationFee.Status.UNPAID:
+        state = "pending"
+    else:
+        state = "settled"
+    return render(request, "hub/late_fee_return.html", {**_get_hub_context(request), "state": state, "fee": fee})
+
+
+@login_required
+def hub_late_fee_checkout_cancelled(request: HttpRequest, token: str) -> HttpResponse:
+    """The Stripe ``cancel_url`` landing for a fee (#456): the fee is still due; back to the owner page."""
+    from django.core.signing import BadSignature
+
+    from billing import late_fees
+    from billing.models import LateCancellationFee
+
+    try:
+        fee = late_fees.read_checkout_token(token)
+    except (BadSignature, LateCancellationFee.DoesNotExist):
+        return redirect("hub_home")
+    member = _get_member(request)
+    if member is None or fee.member_id != member.pk:
+        raise Http404("No such late cancellation fee.")
+    if fee.status == LateCancellationFee.Status.UNPAID:
+        messages.info(request, "Your late cancellation fee is still due. Pay it from the Pay button any time.")
+    return redirect(fee.owner_page_path())
+
+
+@login_required
+@require_POST
+def hub_late_fee_waive(request: HttpRequest, pk: int) -> HttpResponse:
+    """Waive an UNPAID late cancellation fee (#456, part 3) and return to the page the form came from.
+
+    Who may waive is :func:`billing.late_fees.can_waive` (an admin, the governing guild's
+    staff or the governing equipment's managers); anyone else gets a 403 whose body names
+    the governing owner, and a toast saying the same for an htmx caller. The check is on
+    the ``HX-Request`` header alone, which is right only because this view is POST-only
+    (a history restore is a GET, so it can never reach here). ``next`` is honoured when it
+    is a local path, else the fee's owner page.
+    """
+    from billing import late_fees
+    from billing.forms import LateFeeWaiveForm
+    from billing.models import LateCancellationFee
+
+    fee = get_object_or_404(
+        LateCancellationFee.objects.select_related(
+            "member",
+            "reservation__equipment",
+            "orientation_booking__slot",
+            "orientation_booking__orientation_type__guild",
+            "orientation_booking__orientation_type__equipment",
+        ),
+        pk=pk,
+    )
+    if not late_fees.can_waive(request, fee):
+        sentence = late_fees.waive_refusal(fee)
+        response = HttpResponse(sentence, status=403, content_type="text/plain; charset=utf-8")
+        if request.headers.get("HX-Request") == "true":
+            trigger_toast(response, sentence, "error")
+        return response
+    next_url = request.POST.get("next", "")
+    if not next_url or not url_has_allowed_host_and_scheme(next_url, allowed_hosts={request.get_host()}):
+        next_url = fee.owner_page_path()
+    form = LateFeeWaiveForm(request.POST, fee=fee)
+    if not form.is_valid():
+        messages.error(request, "Say why the fee is being waived. The reason is required.")
+        return redirect(next_url)
+    try:
+        late_fees.waive(fee, actor=cast(User, request.user), reason=form.cleaned_data["reason"])
+    except ValueError as exc:
+        messages.error(request, str(exc))
+        return redirect(next_url)
+    messages.success(
+        request,
+        f"Waived {fee.member.display_name}'s {fee.amount_display} late cancellation fee. They can book again.",
+    )
+    return redirect(next_url)
+
+
+def _token_cancel_fee_context(booking: Any, action: str, result: str | None) -> dict[str, Any]:
+    """What the no-login cancel page says about the late fee (#456).
+
+    Before the click: the fee sentence when cancelling this CONFIRMED booking right now
+    would be late. After a cancel: the fee it created, with the link to its page (the
+    member pays from there once signed in; this page never redirects to Stripe).
+    """
+    from billing.models import LateCancellationFee
+    from membership.late_cancel import cancel_sentence, policy_for
+    from membership.models import OrientationBooking
+
+    warning = ""
+    if action == "cancel" and booking.status == OrientationBooking.Status.CONFIRMED:
+        policy = policy_for(booking)
+        if policy.is_late(booking.slot.starts_at):
+            warning = cancel_sentence(policy)
+    late_fee = (
+        LateCancellationFee.objects.filter(orientation_booking=booking).first() if result == "cancelled" else None
+    )
+    return {
+        "late_cancel_warning": warning,
+        "late_fee": late_fee,
+        "late_fee_url": reverse("hub_late_fee_detail", args=[late_fee.pk]) if late_fee is not None else "",
+    }
+
+
 def orientation_action(request: HttpRequest, token: str) -> HttpResponse:
     """No-login landing for email action links (lead confirm/decline, member cancel).
 
@@ -2162,7 +2398,11 @@ def orientation_action(request: HttpRequest, token: str) -> HttpResponse:
     except (BadSignature, OrientationBooking.DoesNotExist):
         return render(request, "hub/orientation_action.html", {"invalid": True}, status=400)
     result = orientations.apply_token_action(booking, action, recipient=recipient) if request.method == "POST" else None
-    return render(request, "hub/orientation_action.html", {"booking": booking, "action": action, "result": result})
+    return render(
+        request,
+        "hub/orientation_action.html",
+        {"booking": booking, "action": action, "result": result, **_token_cancel_fee_context(booking, action, result)},
+    )
 
 
 def _can_access_orientations(request: HttpRequest) -> bool:

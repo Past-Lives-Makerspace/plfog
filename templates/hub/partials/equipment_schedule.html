@@ -114,7 +114,10 @@ on day taps, week arrows, bookings, and cancels, so every list stays fresh.
         <button type="button" class="pl-btn pl-btn--primary" @click="$dispatch('open-confirm', 'equip-reserve-confirm')">Reserve</button>
       </div>
     </form>
-    {% include "components/confirm_modal.html" with confirm_id="equip-reserve-confirm" confirm_title="Reserve this time?" confirm_message="Your reservation confirms right away. If plans change, you can cancel and the time opens up for someone else." confirm_button_text="Reserve" confirm_button_style="primary" confirm_js="document.getElementById('equip-reserve-form').requestSubmit();" %}
+    {% if late_cancel_sentence %}
+    <p class="hub-text-muted pl-equip-book-note">{{ late_cancel_sentence }}</p>
+    {% endif %}
+    {% include "components/confirm_modal.html" with confirm_id="equip-reserve-confirm" confirm_title="Reserve this time?" confirm_message="Your reservation confirms right away. If plans change, you can cancel and the time opens up for someone else. "|add:late_cancel_sentence confirm_button_text="Reserve" confirm_button_style="primary" confirm_js="document.getElementById('equip-reserve-form').requestSubmit();" %}
     {% else %}
     <p class="hub-text-muted" style="margin:0;">No open times this day. Try another day.</p>
     {% endif %}
@@ -139,8 +142,9 @@ on day taps, week arrows, bookings, and cancels, so every list stays fresh.
                 @click="$dispatch('open-confirm', 'cancel-my-res-{{ reservation.pk }}')">Cancel</button>
         {% url 'hub_equipment_reservation_cancel' equipment.slug reservation.pk as cancel_url %}
         {# hx-vals keeps the re-rendered strip on the week and day the member was viewing. #}
+        {# A late cancel (#456) appends the fee line; the view then sends the member to Stripe. #}
         {% with rpks=reservation.pk|stringformat:"s" cancel_vals='{"week": "'|add:week_offset_str|add:'", "day": "'|add:selected_day_str|add:'"}' %}
-        {% include "components/confirm_modal.html" with confirm_id="cancel-my-res-"|add:rpks confirm_title="Cancel your reservation?" confirm_message="The time opens up for someone else. You can book again any time." confirm_button_text="Cancel reservation" confirm_hx_post=cancel_url confirm_hx_target="#equipment-schedule" confirm_hx_vals=cancel_vals %}
+        {% include "components/confirm_modal.html" with confirm_id="cancel-my-res-"|add:rpks confirm_title="Cancel your reservation?" confirm_message="The time opens up for someone else. You can book again any time. "|add:reservation.late_cancel_warning confirm_button_text="Cancel reservation" confirm_hx_post=cancel_url confirm_hx_target="#equipment-schedule" confirm_hx_vals=cancel_vals %}
         {% endwith %}
         {% endif %}
       </li>

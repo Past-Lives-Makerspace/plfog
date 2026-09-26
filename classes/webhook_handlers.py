@@ -8,7 +8,7 @@ event more than once.
 from __future__ import annotations
 
 import logging
-from typing import Any, Literal
+from typing import TYPE_CHECKING, Any, Literal
 
 from django.db import IntegrityError, transaction
 from django.db.models import F
@@ -27,6 +27,9 @@ from classes.models import (
     DiscountCode,
     Registration,
 )
+
+if TYPE_CHECKING:
+    from billing.models import LateCancellationFee
 
 logger = logging.getLogger(__name__)
 
@@ -488,17 +491,30 @@ def _handle_class_payment_link(session: dict[str, Any]) -> None:
         send_registration_confirmation(registration)
 
 
-def _refundable_source_for_payment_intent(payment_intent_id: str) -> Registration | None:
-    """Resolve a Stripe PaymentIntent id to a refundable source row, across BOTH sources.
+def _refundable_source_for_payment_intent(payment_intent_id: str) -> Registration | LateCancellationFee | None:
+    """Resolve a Stripe PaymentIntent id to a refundable source row.
 
-    Registrations are matched on ``stripe_payment_id``. Orientation bookings are
-    the documented lookup seam: the paid-orientations companion spec adds their
-    payment-intent field, and this resolver grows that second lookup then (the
-    return type widens alongside it). ``None`` means the payment is not a
-    refundable source we know — e.g. a Tab charge (reconciliation deferred) or
-    an unknown payment.
+    Registrations and late cancellation fees (#456) are matched on their
+    ``stripe_payment_id``, so a refund issued in the Stripe dashboard for either
+    reconciles into the ledger. Orientation bookings are still absent from this
+    lookup (a separate gap). ``None`` means the payment is not a refundable source
+    we know — e.g. a Tab charge (reconciliation deferred) or an unknown payment.
     """
-    return Registration.objects.filter(stripe_payment_id=payment_intent_id).first()
+    from billing.models import LateCancellationFee
+
+    registration = Registration.objects.filter(stripe_payment_id=payment_intent_id).first()
+    if registration is not None:
+        return registration
+    return LateCancellationFee.objects.filter(stripe_payment_id=payment_intent_id).first()
+
+
+def _lock_source(source: Registration | LateCancellationFee) -> Registration | LateCancellationFee:
+    """Re-fetch ``source`` under ``select_for_update``; call inside the handler's transaction."""
+    from billing.models import LateCancellationFee
+
+    if isinstance(source, Registration):
+        return Registration.objects.select_for_update().get(pk=source.pk)
+    return LateCancellationFee.objects.select_for_update().get(pk=source.pk)
 
 
 def handle_charge_refunded(event: dict[str, Any]) -> None:
@@ -544,7 +560,7 @@ def handle_charge_refunded(event: dict[str, Any]) -> None:
             )
         return
     with transaction.atomic():
-        locked = Registration.objects.select_for_update().get(pk=source.pk)
+        locked = _lock_source(source)
         for item in refund_items:
             refunds_service.reconcile_dashboard_refund(
                 locked,

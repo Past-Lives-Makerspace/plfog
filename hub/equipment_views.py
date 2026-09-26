@@ -8,6 +8,7 @@ permission guard → form/model/service call → toast, redirect, or render.
 
 from __future__ import annotations
 
+import logging
 from collections.abc import Sequence
 from datetime import date, datetime, time, timedelta
 from typing import Any
@@ -15,7 +16,7 @@ from typing import Any
 from django.contrib import messages
 from django.contrib.auth.decorators import login_required
 from django.core.paginator import Paginator
-from django.db.models import Prefetch
+from django.db.models import Prefetch, Q
 from django.http import Http404, HttpRequest, HttpResponse
 from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse
@@ -46,6 +47,8 @@ from membership.models import (
     Member,
 )
 from membership.permissions import can_create_equipment, can_manage_equipment
+
+logger = logging.getLogger("hub")
 
 
 def _equipment_queryset() -> EquipmentQuerySet:
@@ -259,8 +262,13 @@ def _schedule_context(
             for start in starts
         }
 
+    from billing.late_fees import unpaid_fee_for
+    from membership.late_cancel import booking_sentence, cancel_sentence, policy_for_equipment
+
+    policy = policy_for_equipment(equipment)
     blockers = equipment.booking_blockers(member)
     my_reservations: list[EquipmentReservation] = []
+    unpaid_late_fee = None
     if member is not None:
         now = timezone.now()
         my_reservations = list(
@@ -268,6 +276,12 @@ def _schedule_context(
             .exclude(status=EquipmentReservation.Status.CANCELLED, cancelled_by=member)
             .order_by("starts_at")
         )
+        for reservation in my_reservations:
+            # The cancel modal's fee line, only while a cancel right now would be late (#456).
+            reservation.late_cancel_warning = (
+                cancel_sentence(policy) if policy.is_late(reservation.starts_at, now=now) else ""
+            )
+        unpaid_late_fee = unpaid_fee_for(member)
     return {
         "equipment": equipment,
         "week_offset": week_offset,
@@ -289,6 +303,10 @@ def _schedule_context(
         "my_reservations": my_reservations,
         "upcoming_reservations": list(equipment.reservations.upcoming().select_related("member")[:20]),
         "manages": manages,
+        # Under the Book a Time form and appended to its Reserve prompt; "" when no fee applies.
+        "late_cancel_sentence": booking_sentence(policy),
+        # The block until paid (#456): the requirements banner shows it with a Pay button.
+        "unpaid_late_fee": unpaid_late_fee,
     }
 
 
@@ -343,10 +361,16 @@ def hub_equipment_index(request: HttpRequest) -> HttpResponse:
     equipment_list = list(filtered)
     _attach_running_orientations(equipment_list, now=now)
     oriented_ids, guild_ids = _member_access_sets(member)
+    # One fee lookup for the whole grid (#456): the block until paid is a per-member state.
+    from billing.late_fees import unpaid_fee_for
+
+    has_unpaid_fee = member is not None and unpaid_fee_for(member) is not None
     cards = [
         {
             "equipment": equipment,
-            "access_state": equipment.access_state(member, oriented_type_ids=oriented_ids, member_guild_ids=guild_ids),
+            "access_state": equipment.access_state(
+                member, oriented_type_ids=oriented_ids, member_guild_ids=guild_ids, has_unpaid_fee=has_unpaid_fee
+            ),
             "availability": equipment.availability_line(),
         }
         for equipment in equipment_list
@@ -434,7 +458,9 @@ def hub_equipment_detail(request: HttpRequest, slug: str) -> HttpResponse:
     if not equipment.is_active and not manages:
         raise Http404("This equipment has been retired.")
     member = _get_member(request)
-    access_state = equipment.access_state(member)
+    schedule = _schedule_context(equipment, member, manages=manages)
+    # The schedule builder already looked the fee up once; the banner state reads the same answer.
+    access_state = equipment.access_state(member, has_unpaid_fee=schedule["unpaid_late_fee"] is not None)
     orientation_type = equipment.required_orientation
     orientation_booking = None
     orientation_url = ""
@@ -452,7 +478,7 @@ def hub_equipment_detail(request: HttpRequest, slug: str) -> HttpResponse:
         "hub/equipment_detail.html",
         {
             **_get_hub_context(request),
-            **_schedule_context(equipment, member, manages=manages),
+            **schedule,
             "equipment": equipment,
             "access_state": access_state,
             "orientation_booking": orientation_booking,
@@ -586,13 +612,30 @@ def hub_equipment_reservation_cancel(request: HttpRequest, slug: str, pk: int) -
         week_offset = _parse_week_value(request.POST.get("week", "0"))
         selected_day = _parse_day(request.POST.get("day", ""))
         try:
-            reservation.cancel(member)
+            fee = reservation.cancel(member)
         except EquipmentError as exc:
             response = _render_schedule(request, equipment, week_offset=week_offset, selected_day=selected_day)
             trigger_toast(response, str(exc), "error")
             return response
         response = _render_schedule(request, equipment, week_offset=week_offset, selected_day=selected_day)
-        trigger_toast(response, "Reservation cancelled.", "success")
+        if fee is None:
+            trigger_toast(response, "Reservation cancelled.", "success")
+            return response
+        # A late cancel (#456): straight to Stripe Checkout. The modal posts through htmx, and
+        # an XHR cannot follow a cross-origin 302, so the redirect rides the HX-Redirect header.
+        from billing import late_fees
+
+        try:
+            checkout_url = late_fees.start_fee_checkout(fee)
+        except Exception:
+            logger.exception("Late fee checkout failed for reservation %s.", reservation.pk)
+            trigger_toast(
+                response,
+                "Reservation cancelled. A late cancellation fee applies; use the Pay button to pay it.",
+                "info",
+            )
+            return response
+        response["HX-Redirect"] = checkout_url
         return response
     if not can_manage_equipment(request, equipment):
         return HttpResponse("Forbidden", status=403)
@@ -740,6 +783,33 @@ def _orientation_tab_context(request: HttpRequest, equipment: Equipment) -> dict
     }
 
 
+def _manage_late_fees(equipment: Equipment) -> list[tuple[Any, Any]]:
+    """The equipment's late cancellation fees (#456) newest first, each with its Waive form.
+
+    Its reservations' fees and its owned orientations' fees, in one query carrying what
+    each row's label and state read. The form per row has the fee's own prefix so N
+    modals on one page never share a field id. Everyone who can open the manage page may
+    waive every fee here: they all follow ``can_manage_equipment`` for this equipment.
+    """
+    from billing.forms import LateFeeWaiveForm
+    from billing.models import LateCancellationFee
+
+    fees = (
+        LateCancellationFee.objects.filter(
+            Q(reservation__equipment=equipment) | Q(orientation_booking__orientation_type__equipment=equipment)
+        )
+        .select_related(
+            "member",
+            "waived_by__member",
+            "reservation__equipment",
+            "orientation_booking__slot",
+            "orientation_booking__orientation_type",
+        )
+        .order_by("-created_at", "-pk")
+    )
+    return [(fee, LateFeeWaiveForm(fee=fee)) for fee in fees]
+
+
 def _render_manage(
     request: HttpRequest,
     equipment: Equipment,
@@ -785,6 +855,9 @@ def _render_manage(
             "manage_reservations": Paginator(equipment.reservations.upcoming().select_related("member"), 25).get_page(
                 request.GET.get("page", 1)
             ),
+            # The Reservations tab's late fee card (#456): the rows and where its Waive returns to.
+            "manage_late_fees": _manage_late_fees(equipment),
+            "manage_late_fees_next": f"{reverse('hub_equipment_manage', args=[equipment.slug])}?tab=reservations",
             "active_tab": active_tab,
         },
     )

@@ -9335,6 +9335,10 @@ mark { background: color-mix(in srgb, var(--color-tuscan-yellow) 30%, transparen
     margin: 0.5rem 0 0;
     font-size: 0.8125rem;
 }
+.pl-equip-book-note {
+    margin: 0.75rem 0 0;
+    font-size: 0.8125rem;
+}
 /* An Upcoming Slots row sitting under a confirmed reservation: muted, never offered to members. */
 .pl-equip-res-row--blocked {
     opacity: 0.65;
@@ -9343,6 +9347,120 @@ mark { background: color-mix(in srgb, var(--color-tuscan-yellow) 30%, transparen
     display: block;
     color: var(--hub-text-muted);
     font-size: 0.8125rem;
+}
+
+/* Late cancellation fees (#456): the block-until-paid notice on the guild and equipment
+   pages (sentence + Pay button on one line, wrapping on phones), and the fee's own card on
+   its page and the Stripe landing. Theme tokens only. */
+.pl-late-fee-notice {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.5rem 1rem;
+    flex-wrap: wrap;
+    margin: 0 0 0.75rem;
+}
+.pl-late-fee-notice__text {
+    margin: 0;
+    font-size: 0.95rem;
+    color: var(--hub-text);
+}
+.pl-late-fee-notice__form {
+    margin: 0;
+}
+.pl-equip-banner .pl-late-fee-notice {
+    margin: 0;
+}
+.pl-late-fee-card__facts {
+    display: flex;
+    flex-direction: column;
+    gap: 0.75rem;
+    margin: 0 0 1.5rem;
+}
+.pl-late-fee-card__fact {
+    display: flex;
+    gap: 1rem;
+    align-items: baseline;
+}
+.pl-late-fee-card__label {
+    flex: 0 0 5rem;
+    margin: 0;
+    font-size: 0.75rem;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: var(--hub-text-muted);
+}
+.pl-late-fee-card__value {
+    margin: 0;
+    font-size: 0.95rem;
+    color: var(--hub-text);
+}
+.pl-late-fee-card__pay {
+    margin: 0 0 1.5rem;
+}
+.pl-late-fee-card__actions {
+    display: flex;
+    gap: 0.75rem;
+    flex-wrap: wrap;
+}
+/* Part 3: the staff-facing fee card on the orientation respond page, the fee list on the
+   equipment manage Reservations tab, and the Waive modal body. Theme tokens only. */
+.pl-late-fee-panel {
+    padding: 1.5rem;
+    margin-bottom: 1.5rem;
+}
+.pl-late-fee-panel__title {
+    margin: 0 0 0.75rem;
+}
+.pl-late-fee-panel__line {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    flex-wrap: wrap;
+    margin: 0 0 0.25rem;
+}
+.pl-late-fee-panel__amount {
+    font-size: 1.05rem;
+    font-weight: 700;
+    color: var(--hub-text);
+}
+.pl-late-fee-panel__meta {
+    margin: 0 0 0.75rem;
+}
+.pl-late-fee-panel__empty {
+    margin: 0;
+}
+.pl-late-fee-list {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+}
+.pl-late-fee-row {
+    display: grid;
+    grid-template-columns: minmax(0, 1.2fr) minmax(0, 2fr) auto auto auto;
+    gap: 0.5rem 1rem;
+    align-items: center;
+    padding: 0.5rem 0.75rem;
+    background: var(--hub-surface);
+    border-radius: 6px;
+}
+.pl-late-fee-row__amount {
+    font-weight: 700;
+    white-space: nowrap;
+}
+.pl-late-fee-row__action {
+    justify-self: end;
+}
+@media (max-width: 720px) {
+    .pl-late-fee-row {
+        grid-template-columns: 1fr;
+    }
+    .pl-late-fee-row__action {
+        justify-self: start;
+    }
+}
+.pl-late-fee-waive__lead {
+    margin: 0 0 1rem;
 }
 
 /* ========================================

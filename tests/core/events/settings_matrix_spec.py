@@ -453,6 +453,9 @@ def describe_always_emailed_section():
         "lease_expiring",
         "equipment.reservation_confirmed",
         "equipment.reservation_cancelled_by_manager",
+        "equipment.reservation_cancelled",
+        "billing.late_fee_paid",
+        "billing.late_fee_waived",
     }
 
     def describe_the_rule():

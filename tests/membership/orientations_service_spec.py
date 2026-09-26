@@ -718,3 +718,197 @@ def describe_equipment_request_lock():
         booking = orientations.request_orientation(slot, _member_with_user("lock_booked"))
         assert booking.status == OrientationBooking.Status.REQUESTED
         assert slot.bookings.count() == 1
+
+
+def describe_late_cancel_policy_in_the_confirmed_email():
+    """The confirmation carries the policy line only while a fee applies (#456, part 1)."""
+
+    def _late_fees(enabled: bool) -> None:
+        from core.models import SiteConfiguration
+
+        config = SiteConfiguration.load()
+        config.late_cancel_fees_enabled = enabled
+        config.save()
+
+    def _confirmation(username: str, *, fee_cents: int) -> object:
+        guild, _lead = _enabled_guild_with_lead(f"{username}_lead")
+        settings_obj = guild.orientation_settings
+        settings_obj.late_cancel_fee_cents = fee_cents
+        settings_obj.save(update_fields=["late_cancel_fee_cents"])
+        member = _member_with_user(username)
+        booking = OrientationBookingFactory(slot=OrientationSlotFactory(guild=guild), member=member)
+        mail.outbox.clear()
+        orientations.confirm_orientation(booking)
+        message = mail.outbox[0]
+        assert message.to == [member.primary_email]
+        return message
+
+    def it_names_the_fee_in_both_bodies_when_the_guild_charges_one():
+        _late_fees(True)
+        message = _confirmation("lcf_conf_on", fee_cents=3750)
+        assert "$37.50" in message.body
+        assert "$37.50" in message.alternatives[0][0]
+
+    def it_says_nothing_about_fees_with_no_fee():
+        _late_fees(True)
+        message = _confirmation("lcf_conf_free", fee_cents=0)
+        assert "$37.50" not in message.body
+        assert "$37.50" not in message.alternatives[0][0]
+
+    def it_says_nothing_about_fees_while_the_site_switch_is_off():
+        _late_fees(False)
+        message = _confirmation("lcf_conf_off", fee_cents=3750)
+        assert "$37.50" not in message.body
+        assert "$37.50" not in message.alternatives[0][0]
+
+
+def describe_late_cancel_fee_on_cancel():
+    """Only a member's late self cancel of a CONFIRMED booking creates a fee (#456, part 2)."""
+
+    def _late_fees(enabled: bool) -> None:
+        from core.models import SiteConfiguration
+
+        config = SiteConfiguration.load()
+        config.late_cancel_fees_enabled = enabled
+        config.save()
+
+    def _confirmed(username: str, *, hours_ahead: int = 3, fee_cents: int = 1500, **booking_kwargs) -> object:
+        guild, _lead = _enabled_guild_with_lead(f"{username}_lead")
+        settings_obj = guild.orientation_settings
+        settings_obj.late_cancel_fee_cents = fee_cents
+        settings_obj.save(update_fields=["late_cancel_fee_cents"])
+        member = _member_with_user(username)
+        starts = timezone.now() + timedelta(hours=hours_ahead)
+        slot = OrientationSlotFactory(guild=guild, starts_at=starts, ends_at=starts + timedelta(hours=1))
+        booking_kwargs.setdefault("status", OrientationBooking.Status.CONFIRMED)
+        return OrientationBookingFactory(slot=slot, member=member, **booking_kwargs)
+
+    def _fees():
+        from billing.models import LateCancellationFee
+
+        return LateCancellationFee.objects.all()
+
+    def it_charges_a_late_self_cancel_of_a_confirmed_booking_and_links_the_fee_in_the_email():
+        from billing import late_fees
+
+        _late_fees(True)
+        booking = _confirmed("lcf_self_late")
+        mail.outbox.clear()
+
+        fee = orientations.cancel_orientation(booking, actor_label="Sam", self_cancel=True)
+
+        assert fee is not None
+        assert fee.orientation_booking == booking
+        assert fee.amount_cents == 1500
+        booking.refresh_from_db()
+        assert booking.status == OrientationBooking.Status.CANCELLED
+        message = next(m for m in mail.outbox if m.to == [booking.member.primary_email])
+        assert "A $15.00 late cancellation fee applies to this cancellation." in message.body
+        assert late_fees.pay_url(fee) in message.body
+        html = message.alternatives[0][0]
+        assert f'href="{late_fees.pay_url(fee)}"' in html
+        assert "$15.00" in html
+
+    def it_charges_nothing_for_an_early_self_cancel():
+        _late_fees(True)
+        booking = _confirmed("lcf_self_early", hours_ahead=40)
+        mail.outbox.clear()
+        assert orientations.cancel_orientation(booking, actor_label="Sam", self_cancel=True) is None
+        assert not _fees().exists()
+        message = next(m for m in mail.outbox if m.to == [booking.member.primary_email])
+        assert "late cancellation fee" not in message.body
+        assert "late cancellation fee" not in message.alternatives[0][0]
+
+    def it_never_charges_a_requested_booking():
+        _late_fees(True)
+        booking = _confirmed("lcf_requested", status=OrientationBooking.Status.REQUESTED)
+        assert orientations.cancel_orientation(booking, actor_label="Sam", self_cancel=True) is None
+        assert not _fees().exists()
+
+    def it_never_charges_a_lead_cancel():
+        _late_fees(True)
+        booking = _confirmed("lcf_lead")
+        assert orientations.cancel_orientation(booking, actor_label="the guild") is None
+        assert not _fees().exists()
+
+    def it_never_charges_a_slot_cancel():
+        _late_fees(True)
+        booking = _confirmed("lcf_slot")
+        orientations.cancel_slot(booking.slot, reason="closed")
+        booking.refresh_from_db()
+        assert booking.status == OrientationBooking.Status.CANCELLED
+        assert not _fees().exists()
+
+    def it_never_charges_a_decline():
+        _late_fees(True)
+        booking = _confirmed("lcf_decline", status=OrientationBooking.Status.REQUESTED)
+        orientations.decline_orientation(booking, note="no")
+        assert not _fees().exists()
+
+    def it_never_charges_releasing_an_unpaid_hold():
+        _late_fees(True)
+        booking = _confirmed("lcf_hold", status=OrientationBooking.Status.PENDING_PAYMENT)
+        assert orientations.release_hold_if_unpaid(booking) == "released"
+        assert not _fees().exists()
+
+    def it_charges_nothing_while_the_site_switch_is_off():
+        _late_fees(False)
+        booking = _confirmed("lcf_off")
+        assert orientations.cancel_orientation(booking, actor_label="Sam", self_cancel=True) is None
+        assert not _fees().exists()
+
+    @patch("billing.stripe_utils.create_refund", return_value={"id": "re_lcf_1", "status": "succeeded", "amount": 2000})
+    def it_still_refunds_a_paid_booking_in_full_and_keeps_the_fee_separate(mock_refund):
+        from billing.models import PaymentRefund
+
+        _late_fees(True)
+        booking = _confirmed("lcf_paid", amount_paid_cents=2000, stripe_payment_id="pi_lcf_1")
+        fee = orientations.cancel_orientation(booking, actor_label="Sam", self_cancel=True)
+        assert fee is not None
+        assert fee.amount_cents == 1500
+        refund = PaymentRefund.objects.get(orientation_booking=booking)
+        assert refund.amount_cents == 2000
+        assert mock_refund.call_args.kwargs["amount_cents"] == 2000  # the full payment, never netted
+
+    def it_charges_through_the_members_emailed_cancel_link():
+        _late_fees(True)
+        booking = _confirmed("lcf_token")
+        assert orientations.apply_token_action(booking, "cancel", recipient=booking.member) == "cancelled"
+        assert _fees().get().orientation_booking == booking
+
+    @patch("billing.stripe_utils.create_checkout_session", return_value={"id": "cs_blk", "url": "https://x/cs_blk"})
+    def it_refuses_a_block_booking_and_a_block_checkout_before_any_slot_or_stripe_call(mock_create):
+        from tests.billing.factories import LateCancellationFeeFactory
+        from tests.membership.factories import OrientationAvailabilityBlockFactory
+
+        block = OrientationAvailabilityBlockFactory()
+        free_type = OrientationTypeFactory(guild=block.guild, name="Free Basics", duration_minutes=60)
+        paid_type = OrientationTypeFactory(guild=block.guild, name="Paid Basics", duration_minutes=60, price_cents=1500)
+        member = _member_with_user("lcf_block")
+        LateCancellationFeeFactory(orientation_booking=OrientationBookingFactory(member=member, status="cancelled"))
+        start = block.starts_at + timedelta(minutes=60)
+        with pytest.raises(OrientationError, match="Pay your late cancellation fee to book again."):
+            orientations.request_block_orientation(block, member, start, orientation_type=free_type)
+        with pytest.raises(OrientationError, match="Pay your late cancellation fee to book again."):
+            orientations.start_block_orientation_checkout(block, member, start, orientation_type=paid_type)
+        # The carved slots rolled back with their transactions, and Stripe was never asked.
+        assert not OrientationSlot.objects.filter(block=block).exists()
+        assert not mock_create.called
+        assert block.free_intervals() == [(block.starts_at, block.ends_at)]
+
+    def it_refuses_a_custom_request_while_a_fee_is_unpaid():
+        from tests.billing.factories import LateCancellationFeeFactory
+
+        guild, _lead = _enabled_guild_with_lead("lcf_custom_lead")
+        settings_obj = guild.orientation_settings
+        settings_obj.allow_custom_requests = True
+        settings_obj.save(update_fields=["allow_custom_requests"])
+        orientation_type = OrientationTypeFactory(guild=guild)
+        member = _member_with_user("lcf_custom")
+        LateCancellationFeeFactory(orientation_booking=OrientationBookingFactory(member=member, status="cancelled"))
+        with pytest.raises(OrientationError, match="Pay your late cancellation fee to book again."):
+            orientations.request_custom_orientation(
+                guild, member, timezone.now() + timedelta(days=3), orientation_type=orientation_type
+            )
+        # The one-off slot the request would have carved is gone with it.
+        assert not guild.orientation_slots.filter(source=OrientationSlot.Source.MANUAL).exists()

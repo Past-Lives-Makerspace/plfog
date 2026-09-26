@@ -639,6 +639,24 @@ class SiteConfiguration(models.Model):
         "also hides its Overview and Open Tabs tabs and opens straight on the Payments ledger. The "
         "Reports page and payment history are unaffected.",
     )
+    late_cancel_fees_enabled = models.BooleanField(
+        default=False,
+        verbose_name="Charge late cancellation fees",
+        help_text=(
+            "When on, guilds and equipment can set a fee for cancelling an orientation or reservation "
+            "inside the notice window. Off means nothing charges anywhere."
+        ),
+    )
+    late_cancel_notice_hours = models.PositiveSmallIntegerField(
+        default=24,
+        verbose_name="Cancellation notice (hours)",
+        help_text="How far ahead members are told to cancel. Shown wherever a fee applies.",
+    )
+    late_cancel_grace_hours = models.PositiveSmallIntegerField(
+        default=2,
+        verbose_name="Grace period (hours)",
+        help_text="Not shown to members. A cancel this close to the notice line is still free.",
+    )
     class_registration_enabled = models.BooleanField(
         default=True,
         verbose_name="Allow class registration",
@@ -1486,6 +1504,10 @@ class SiteActivity(models.Model):
         ORIENTATION_COMPLETED = "orientation_completed", "Orientation completed"
         ORIENTATION_RECORDED = "orientation_recorded", "Orientation recorded"
         ORIENTATION_RECORD_REMOVED = "orientation_record_removed", "Orientation record removed"
+        LATE_FEE_CHARGED = "late_fee_charged", "Late cancellation fee charged"
+        LATE_FEE_PAID = "late_fee_paid", "Late cancellation fee paid"
+        LATE_FEE_WAIVED = "late_fee_waived", "Late cancellation fee waived"
+        LATE_FEE_REFUNDED = "late_fee_refunded", "Late cancellation fee refunded"
         INSTRUCTOR_ORIENTED = "instructor_oriented", "Completed instructor orientation"
         TEACHING_APPLIED = "teaching_applied", "Applied to teach"
         TEACHING_APPLICATION_DECLINED = "teaching_application_declined", "Teaching application declined"

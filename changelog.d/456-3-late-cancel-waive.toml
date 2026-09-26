@@ -1,0 +1,7 @@
+bump = "minor"
+date = "2026-09-25"
+title = "Late cancellation fees can be waived or refunded"
+changes = [
+  "Guild leads, guild staff, equipment managers and admins: an unpaid late cancellation fee can be waived with a reason from the orientation's request page or the equipment's Reservations tab. The member gets an email and can book again right away.",
+  "Admins with refund authority: paid late fees appear in the Payments ledger under their own Late fees filter and refund through the same form as class and orientation payments.",
+]

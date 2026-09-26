@@ -53,7 +53,7 @@ if TYPE_CHECKING:
     from django.contrib.auth.models import User
     from django.http import HttpRequest
 
-    from billing.models import PaymentRefund
+    from billing.models import LateCancellationFee, PaymentRefund
     from classes.models import ClassOffering
     from core.events.channels import Channel, Message
     from core.events.emit import EmitResult
@@ -9272,6 +9272,13 @@ class GuildOrientationSettings(models.Model):
             "booking here. An orientation type can set its own link to override this one."
         ),
     )
+    late_cancel_fee_cents = models.PositiveIntegerField(
+        default=0,
+        help_text=(
+            "Fee for cancelling a confirmed orientation inside the site's cancellation notice window, "
+            "in cents. 0 = no fee (the default). Applies only while Site Settings charges late fees."
+        ),
+    )
     thankyou_email_enabled = models.BooleanField(
         default=True,
         help_text=(
@@ -10390,6 +10397,13 @@ class OrientationSlot(models.Model):
             raise OrientationError("This orientation slot is not available to book.")
         if member.is_oriented_for_type(self.orientation_type):
             raise OrientationError("You've already completed this orientation.")
+        # The block until paid (#456): an unpaid late cancellation fee closes every member
+        # road into a new booking. A staffer seating someone by hand is not blocked by it.
+        if not by_staff:
+            from billing.late_fees import unpaid_fee_for
+
+            if unpaid_fee_for(member) is not None:
+                raise OrientationError("Pay your late cancellation fee to book again.")
         if member.pending_payment_orientation_for_type(self.orientation_type) is not None:
             raise OrientationError(
                 "You already have a checkout in progress for this orientation. Resume or cancel it first."
@@ -11788,6 +11802,7 @@ class Equipment(HeroCropMixin, models.Model):
         """
 
         OK = "ok", "You're all set"
+        NEEDS_FEE = "needs_fee", "Pay your late cancellation fee to book again"
         NEEDS_ORIENTATION = "needs_orientation", "Orientation needed"
         NEEDS_GUILD = "needs_guild", "Guild members only"
         INACTIVE_MEMBER = "inactive_member", "Membership inactive"
@@ -11869,6 +11884,13 @@ class Equipment(HeroCropMixin, models.Model):
     )
     max_active_reservations_per_member = models.PositiveSmallIntegerField(
         default=2, help_text="How many upcoming reservations one member can hold on this equipment at once."
+    )
+    late_cancel_fee_cents = models.PositiveIntegerField(
+        default=0,
+        help_text=(
+            "Fee for cancelling a reservation or an owned orientation inside the site's cancellation notice "
+            "window, in cents. 0 = no fee (the default). Applies only while Site Settings charges late fees."
+        ),
     )
     is_closed = models.BooleanField(
         default=False,
@@ -11987,17 +12009,25 @@ class Equipment(HeroCropMixin, models.Model):
         *,
         oriented_type_ids: set[int] | None = None,
         member_guild_ids: set[int] | None = None,
+        has_unpaid_fee: bool | None = None,
     ) -> str:
         """The one :class:`AccessState` between ``member`` and this equipment.
 
         Drives both the index card badge and the detail-page requirements banner.
-        The two optional sets are the bulk-caller optimization for the index page —
-        pass the member's completed orientation-type pks and joined-guild pks so a
-        page of cards costs two queries, not two per card. Omit both and the checks
-        query per call.
+        The optional arguments are the bulk-caller optimization for the index page —
+        pass the member's completed orientation-type pks, joined-guild pks and whether
+        they owe a late cancellation fee (#456) so a page of cards costs three queries,
+        not three per card. Omit them and the checks query per call. An unpaid fee wins
+        over every other gap: it blocks booking whatever else is met.
         """
         if member is None or member.status != Member.Status.ACTIVE:
             return self.AccessState.INACTIVE_MEMBER
+        if has_unpaid_fee is None:
+            from billing.late_fees import unpaid_fee_for
+
+            has_unpaid_fee = unpaid_fee_for(member) is not None
+        if has_unpaid_fee:
+            return self.AccessState.NEEDS_FEE
         required_orientation = self.required_orientation
         if required_orientation is not None:
             if oriented_type_ids is not None:
@@ -12039,6 +12069,12 @@ class Equipment(HeroCropMixin, models.Model):
             and not member.guild_memberships.filter(guild_id=guild.pk).exists()
         ):
             blockers.append(f"Only {guild.name} members can book this.")
+        # The block until paid (#456): the same sentence ensure_bookable_for raises, with the amount.
+        from billing.late_fees import unpaid_fee_for
+
+        unpaid_fee = unpaid_fee_for(member)
+        if unpaid_fee is not None:
+            blockers.append(f"Pay your {unpaid_fee.amount_display} late cancellation fee to book again.")
         if self.is_closed:
             blockers.append(self.closed_message or "Closed for now.")
         return blockers
@@ -12452,6 +12488,11 @@ class EquipmentReservation(models.Model):
     by ``reserve()`` re-validating under ``select_for_update`` on the Equipment row.
     """
 
+    # View-attached (#456): the cancel modal's fee line, set by the schedule builder on the
+    # member's own rows only while a cancel right now would be late. Defaults to "" so a
+    # renderer that never set it cannot raise in the template.
+    late_cancel_warning: str = ""
+
     class Status(models.TextChoices):
         CONFIRMED = "confirmed", "Confirmed"
         CANCELLED = "cancelled", "Cancelled"
@@ -12517,15 +12558,20 @@ class EquipmentReservation(models.Model):
             and self.cancelled_by_id != self.member_id
         )
 
-    def cancel(self, actor: Member, *, reason: str = "", as_manager: bool = False) -> None:
+    def cancel(self, actor: Member, *, reason: str = "", as_manager: bool = False) -> LateCancellationFee | None:
         """Cancel this reservation as ``actor`` — the member themselves, or a manager.
 
-        Self cancel: future reservations only, no reason needed, notifies nobody (no
-        approver exists to care). Manager cancel: also allowed while in progress,
-        requires a reason the member will see, and notifies the member. A manager
-        cancelling THEIR OWN row from the manage tab passes ``as_manager=True`` —
-        the manager guards apply (reason honored, in-progress allowed) but nobody is
-        notified, because the member IS the actor.
+        Self cancel: future reservations only, no reason needed, the member gets their own
+        "you cancelled" email, and a cancel inside the notice window creates the late
+        cancellation fee (#456) in the same transaction as the cancel. Manager cancel: also
+        allowed while in progress, requires a reason the member will see, notifies the
+        member, and never charges. A manager cancelling THEIR OWN row from the manage tab
+        passes ``as_manager=True`` — the manager guards apply (reason honored, in-progress
+        allowed), nobody is notified because the member IS the actor, and nothing charges.
+
+        Returns:
+            The :class:`~billing.models.LateCancellationFee` a late self cancel created (or
+            already carried), else ``None``; the view sends the member to pay it.
 
         Raises:
             EquipmentError: When already cancelled, already started (self cancel),
@@ -12539,24 +12585,52 @@ class EquipmentReservation(models.Model):
         is_own_row = actor.pk == self.member_id
         acting_as_manager = as_manager or not is_own_row
         cleaned_reason = reason.strip()
+        self._ensure_cancel_allowed(actor, acting_as_manager=acting_as_manager, reason=cleaned_reason, now=now)
+        fee: LateCancellationFee | None = None
+        with transaction.atomic():
+            # A conditional update keyed on status, not a save: two requests that both loaded
+            # this row as CONFIRMED (two tabs, a double POST, a network retry) both pass the
+            # guards above, and a plain save would let both of them charge the fee. Only the
+            # request that flips the row owns the cancel; the other is told it was already
+            # done. The fee lands in the same transaction, so a cancel that does not commit
+            # charges nothing.
+            flipped = EquipmentReservation.objects.filter(pk=self.pk, status=self.Status.CONFIRMED).update(
+                status=self.Status.CANCELLED,
+                cancelled_by=actor,
+                cancelled_reason=cleaned_reason,
+                cancelled_at=now,
+            )
+            if not flipped:
+                raise EquipmentError("This reservation was already cancelled.")
+            self.status = self.Status.CANCELLED
+            self.cancelled_by = actor
+            self.cancelled_reason = cleaned_reason
+            self.cancelled_at = now
+            if not acting_as_manager:
+                from billing.late_fees import charge_if_late
+
+                fee = charge_if_late(self, now=now)
+        from membership import equipment as equipment_service
+
+        if not acting_as_manager:
+            equipment_service.notify_self_cancelled(self, fee)
+        elif not is_own_row:
+            equipment_service.notify_manager_cancelled(self)
+        return fee
+
+    def _ensure_cancel_allowed(
+        self, actor: Member, *, acting_as_manager: bool, reason: str, now: datetime_type
+    ) -> None:
+        """The :meth:`cancel` guards: who may cancel, the reason a manager owes, and the timing."""
         if acting_as_manager:
             if not actor.can_manage_equipment(self.equipment):
                 raise EquipmentError("Only the reserving member or an equipment manager can cancel this.")
-            if not cleaned_reason:
+            if not reason:
                 raise ValueError("A manager cancel needs a reason the member will see.")
             if self.ends_at <= now:
                 raise EquipmentError("This reservation already ended.")
         elif self.starts_at <= now:
             raise EquipmentError("This reservation already started. Ask a manager if it needs cancelling.")
-        self.status = self.Status.CANCELLED
-        self.cancelled_by = actor
-        self.cancelled_reason = cleaned_reason
-        self.cancelled_at = now
-        self.save(update_fields=["status", "cancelled_by", "cancelled_reason", "cancelled_at"])
-        if acting_as_manager and not is_own_row:
-            from membership import equipment as equipment_service
-
-            equipment_service.notify_manager_cancelled(self)
 
 
 # ---------------------------------------------------------------------------------------
@@ -14250,6 +14324,7 @@ _WIKI_BODY_MAX_CHARS = 60_000
 # a method so a missing state is a loud KeyError rather than a silently blank line.
 _WIKI_ACCESS_LINES: dict[str, str] = {
     "ok": "You are set up for this tool.",
+    "needs_fee": "Pay your late cancellation fee to book again.",
     "needs_orientation": "Orientation needed before you use this.",
     "needs_guild": "You need to join the guild before you use this.",
     "inactive_member": "Your membership needs to be active to use this.",

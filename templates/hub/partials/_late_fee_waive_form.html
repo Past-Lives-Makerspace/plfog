@@ -1,0 +1,18 @@
+{% comment %}
+The Waive modal body (#456, part 3): the required reason and the confirm. Context: fee (a
+LateCancellationFee), waive_form (a LateFeeWaiveForm built for that fee) and waive_next
+(the page to return to). Rendered inside components/modal.html through
+modal_body_include, so it reads the including context. The form is unboosted on purpose:
+the view answers with a redirect and a Django message, and a 403 has to render as a page
+rather than a dead boosted click.
+{% endcomment %}
+<form method="post" action="{% url 'hub_late_fee_waive' fee.pk %}" hx-boost="false" class="pl-late-fee-waive" data-late-fee-waive="{{ fee.pk }}">
+  {% csrf_token %}
+  <input type="hidden" name="next" value="{{ waive_next }}">
+  <p class="pl-late-fee-waive__lead">Waive the {{ fee.amount_display }} fee for {{ fee.member.display_name }}? They can book again right away and get an email saying the fee was waived.</p>
+  {% include "components/form_field.html" with field=waive_form.reason %}
+  <div class="pl-modal__actions">
+    <button type="button" class="pl-btn pl-btn--secondary" @click="$dispatch('close-modal', 'waive-fee-{{ fee.pk }}')">Cancel</button>
+    <button type="submit" class="pl-btn pl-btn--primary">Waive Fee</button>
+  </div>
+</form>
