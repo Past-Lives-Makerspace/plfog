@@ -6836,6 +6836,15 @@ class CommunityEventDraft(models.Model):
         default=CommunityEvent.GoogleCalendarTarget.PUBLIC,
         help_text="Which Google calendar the published event posts to. Public is the norm; members-only is the exception.",
     )
+    event_type = models.CharField(
+        max_length=20,
+        choices=CommunityEvent.EventType.choices,
+        default=CommunityEvent.EventType.COMMUNITY,
+        help_text=(
+            "The kind the preview card's What-it-is select settled on. A guild-less draft has "
+            "only one available, so the select asks the audience alone and this stays a plain event."
+        ),
+    )
     email_choice = models.CharField(
         max_length=20,
         choices=EmailChoice.choices,

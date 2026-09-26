@@ -908,10 +908,6 @@ _CREATE_RECURRENCE_CHOICES: list[tuple[str, str]] = [
     ("semi_monthly", "Twice a month"),
     ("monthly", "Monthly"),
 ]
-_CREATE_CALENDAR_CHOICES: list[tuple[str, str]] = [
-    ("public", "Public calendar"),
-    ("member", "Members-only calendar"),
-]
 _CREATE_EMAIL_CHOICES: list[tuple[str, str]] = [
     ("none", "No email"),
     ("guild_members", "Guild members only"),
@@ -992,7 +988,7 @@ def _channel_guild(interaction: Interaction) -> Guild | None:
 def _guild_from_select(slug: str) -> tuple[Guild | None, dict | None]:
     """Resolve the submitted Guild-select value: ``(guild, None)`` or ``(None, error_reply)``.
 
-    ``All Makerspace`` (or a blank value) → a site-wide event (``guild=None``); a guild slug
+    ``No guild`` (or a blank value) → a site-wide event (``guild=None``); a guild slug
     that no longer resolves (deactivated between open and submit) → the not-found reply.
     """
     from membership.models import Guild
@@ -1013,6 +1009,7 @@ def _build_event_form(
     end_naive: datetime,
     calendar: str,
     *,
+    event_type: str,
     location: str = "",
     video_url: str = "",
     recurrence: str = "none",
@@ -1022,9 +1019,9 @@ def _build_event_form(
     Reuses the web "Propose an event" form so date/time coercion (naive → aware), the
     end-after-start rule, and the URL validation are all enforced exactly once, in one
     place. ``details`` binds straight to the form's ``description`` field (a
-    blank-friendly Textarea), so an omitted value is an empty string. The event's kind is
-    settled afterwards by the caller (``_finalize_event`` for an authored event,
-    :meth:`CommunityEvent.propose` for a proposal), not by this form.
+    blank-friendly Textarea), so an omitted value is an empty string. ``event_type`` is the
+    kind the preview card settled on, bound like any other field so the form applies its own
+    rule that a guild meeting needs a guild.
     """
     from hub.forms import CommunityEventForm
 
@@ -1037,15 +1034,16 @@ def _build_event_form(
         "video_url": video_url,
         "recurrence": recurrence,
         "google_calendar_target": calendar,
+        "event_type": event_type,
     }
     if guild is not None:
         data["guild"] = str(guild.pk)
-    # ``can_choose_audience`` here only means "accept the audience this draft already carries".
-    # The permission itself is enforced by the card, which is what collects the value: the 📅
-    # Calendar select is only rendered for an author who passes :func:`_may_choose_audience`,
-    # and ``_event_cfg_component`` refuses a forged calendar click from anyone else, so a
-    # draft can only reach this form on the members calendar if its author may put it there.
-    # Part 2 of #505 reworks the card's wording; the gate lives there either way.
+    # ``can_choose_audience`` here only means "accept the two answers this draft already
+    # carries". The permission itself is enforced by the card, which is what collects them: the
+    # What-it-is select is only rendered for an author who passes :func:`_may_choose_audience`,
+    # and ``_event_cfg_component`` refuses a forged click from anyone else, so a draft can only
+    # reach this form on the members calendar, or as a guild meeting, if its author may put it
+    # there.
     return CommunityEventForm(data=data, can_choose_audience=True)
 
 
@@ -1093,6 +1091,11 @@ def _finalize_event(
 ) -> dict:
     """Author or propose the validated event, optionally email the audience, and build the reply.
 
+    The kind is the form's (:meth:`CommunityEventForm.resolved_event_type`), which is the
+    answer the card collected — the same call the web "Propose an event" view makes. It used to
+    be derived here from the guild, which is the thing #505 set out to stop: attaching a guild
+    filed the event as that guild's meeting, so a guild could never host anything else.
+
     ``authored`` (a lead/admin) publishes straight to the calendar via
     :meth:`CommunityEvent.schedule_or_go_live` (mirroring the web guild/admin event views);
     everyone else routes through :meth:`CommunityEvent.propose`, whose OPEN/APPROVAL branch
@@ -1102,20 +1105,17 @@ def _finalize_event(
     (``emailed = 0``). Once the event has a pk, the reply is always the published/pending one — the
     caller's outer guard then only catches genuine publish/propose failures (nothing created).
     """
-    from membership.models import CommunityEvent
-
     event = form.save(commit=False)
     if authored:
         event.guild = guild
-        event.event_type = (
-            CommunityEvent.EventType.GUILD_MEETING if guild is not None else CommunityEvent.EventType.COMMUNITY
-        )
         event.created_by = member.user
         event.save()
         event.schedule_or_go_live(actor=member.user)
         published = True
     else:
-        published = event.propose(by=member.user, guild=guild, policy=policy, editing=False)
+        published = event.propose(
+            by=member.user, guild=guild, policy=policy, editing=False, event_type=form.resolved_event_type()
+        )
 
     if not published:
         return _pending_reply()
@@ -1172,10 +1172,59 @@ def _config_select_row(field: str, pk: int, emoji_label: str, choices: list, cur
     return {"type": 1, "components": [row_select]}
 
 
-def _may_choose_audience(member: Member) -> bool:
-    """True when this member may put an event on the members-only calendar.
+def _shape_choices(guild: Guild | None) -> list[tuple[str, str]]:
+    """The What-it-is select's options: ``("<audience>:<kind>", label)``, the norm first.
 
-    The same standing the web composer asks for, which it takes from
+    One select carries both of #505's questions because a Discord message may hold five
+    component rows and this card already spends four on selects and one on its buttons. They
+    stay two independent questions — every combination of the two is an option, so a guild
+    meeting can be open to the public and a members-only night need not be a meeting — they
+    just share a control.
+
+    A guild-less event has only one kind available: the check constraint forbids a guild-less
+    guild meeting, which is the same reason the web form's guild picker turns required the
+    moment you pick one. So those options drop out and the labels stop naming a kind.
+    """
+    from membership.models import CommunityEvent
+
+    public, members = CommunityEvent.GoogleCalendarTarget.PUBLIC, CommunityEvent.GoogleCalendarTarget.MEMBER
+    meeting, plain = CommunityEvent.EventType.GUILD_MEETING, CommunityEvent.EventType.COMMUNITY
+    if guild is None:
+        return [(f"{public}:{plain}", "Open to the public"), (f"{members}:{plain}", "For members")]
+    return [
+        (f"{public}:{meeting}", "Guild meeting, open to the public"),
+        (f"{members}:{meeting}", "Guild meeting, for members"),
+        (f"{public}:{plain}", "Something else, open to the public"),
+        (f"{members}:{plain}", "Something else, for members"),
+    ]
+
+
+def _draft_shape(draft: CommunityEventDraft) -> str:
+    """This draft's current What-it-is value, the key into :func:`_shape_choices`'s labels."""
+    return f"{draft.google_calendar_target}:{draft.event_type}"
+
+
+def _opening_kind(guild: Guild | None, member: Member) -> str:
+    """The kind a new draft starts on — the answer the web form would open on.
+
+    A guild is the context the modal was filled in for, so a guild draft opens on a guild
+    meeting, which is what ``/create`` has always saved and what the guild's own Events tab
+    defaults to on the web. Someone who is never asked the question gets a plain event instead
+    of having a meeting typed for them, which is what the web's Propose an event now saves for
+    them (#505) — the old rule read the guild alone and called a member's guild event a meeting.
+    """
+    from membership.models import CommunityEvent
+
+    if guild is not None and _may_choose_audience(member):
+        return str(CommunityEvent.EventType.GUILD_MEETING)
+    return str(CommunityEvent.EventType.COMMUNITY)
+
+
+def _may_choose_audience(member: Member) -> bool:
+    """True when this member may answer the card's two opening questions.
+
+    Who the event is for, and — where a guild gives that question two answers — what kind of
+    event it is. The same standing the web composer asks for, which it takes from
     ``editable_meeting_scopes``: effective staff (an admin **or** a Guild Officer, the
     cross-guild tier ``is_effective_staff`` admits), or anyone holding lead or staff authority
     in ANY guild. The officer clause is not decoration: without it an officer who staffs no
@@ -1196,7 +1245,7 @@ def _create_card_parts(
     start_ts, end_ts = int(draft.starts_at.timestamp()), int(draft.ends_at.timestamp())
     fields = [
         {"name": "When", "value": f"<t:{start_ts}:F> to <t:{end_ts}:t>"},
-        {"name": "Guild", "value": guild.name if guild is not None else "All Makerspace"},
+        {"name": "Guild", "value": guild.name if guild is not None else "No guild"},
     ]
     if draft.location:
         fields.append({"name": "Location", "value": draft.location})
@@ -1209,17 +1258,13 @@ def _create_card_parts(
     # guild change recomputes it. The stored email_choice can only be guild_members on a guild
     # draft (the select never offers it otherwise, and the eventcfg handler rejects a forge).
     email_choices = [choice for choice in _CREATE_EMAIL_CHOICES if choice[0] != "guild_members" or guild is not None]
-    # Choosing the members-only calendar is a guild-staff and admin permission (#505), so an
-    # author without it is never offered the row — rebuilt from the draft on every re-render,
-    # exactly like the email choices above. A draft can only be on the members calendar when
-    # its author holds it: drafts start PUBLIC and the eventcfg handler rejects a forge.
+    # Answering the two questions is a guild-staff and admin permission (#505), so an author
+    # without it is never offered the row — rebuilt from the draft on every re-render, exactly
+    # like the email choices above. A draft can only hold an answer its author may give: drafts
+    # start public and a plain event, and the eventcfg handler rejects a forge.
     rows = [_config_select_row("repeats", draft.pk, "🔁 Repeats", _CREATE_RECURRENCE_CHOICES, draft.recurrence)]
     if can_choose_audience:
-        rows.append(
-            _config_select_row(
-                "calendar", draft.pk, "📅 Calendar", _CREATE_CALENDAR_CHOICES, draft.google_calendar_target
-            )
-        )
+        rows.append(_config_select_row("shape", draft.pk, "🏷 What it is", _shape_choices(guild), _draft_shape(draft)))
     rows.append(_config_select_row("email", draft.pk, "✉️ Email invite", email_choices, draft.email_choice))
     if not draft.when_had_end:
         minutes = int((draft.ends_at - draft.starts_at).total_seconds() // 60)
@@ -1260,12 +1305,12 @@ def _create_card_update(draft: CommunityEventDraft, *, authored: bool, policy: s
 
 
 def _create_guild_options(selected_slug: str) -> list[dict]:
-    """The Guild-select options: All Makerspace + active guilds (≤24), the current one preselected."""
+    """The Guild-select options: No guild + active guilds (≤24), the current one preselected."""
     from membership.models import Guild
 
     guilds = list(Guild.objects.filter(is_active=True).order_by("name"))[:24]
     selected = selected_slug or _GENERAL_VALUE
-    options = [{"label": "All Makerspace (no guild)", "value": _GENERAL_VALUE, "default": selected == _GENERAL_VALUE}]
+    options = [{"label": "No guild", "value": _GENERAL_VALUE, "default": selected == _GENERAL_VALUE}]
     options += [{"label": g.name, "value": g.slug, "default": g.slug == selected} for g in guilds]
     return options
 
@@ -1400,6 +1445,7 @@ def _create_submit(interaction: Interaction, member: Member | None) -> dict:
     if when.error is not None:
         return _create_error_card(_when_error_copy(when.error), **error_kwargs)
 
+    opening_kind = _opening_kind(guild, member)
     form = _build_event_form(
         title,
         description,
@@ -1407,6 +1453,7 @@ def _create_submit(interaction: Interaction, member: Member | None) -> dict:
         cast("datetime", when.start),
         cast("datetime", when.end),
         CommunityEvent.GoogleCalendarTarget.PUBLIC,
+        event_type=opening_kind,
         location=location,
     )
     if not form.is_valid():
@@ -1430,6 +1477,7 @@ def _create_submit(interaction: Interaction, member: Member | None) -> dict:
         description=cleaned["description"],
         recurrence=CommunityEvent.Recurrence.NONE,
         google_calendar_target=CommunityEvent.GoogleCalendarTarget.PUBLIC,
+        event_type=opening_kind,
         email_choice=CommunityEventDraft.EmailChoice.NONE,
         when_had_end=when.had_end,
     )
@@ -1457,7 +1505,6 @@ def _first_selected(value: object) -> str:
 # Preview-card config select → (draft attribute, allowed values) for the non-duration fields.
 _CREATE_CFG_APPLY: dict[str, tuple[str, set[str]]] = {
     "repeats": ("recurrence", {value for value, _ in _CREATE_RECURRENCE_CHOICES}),
-    "calendar": ("google_calendar_target", {value for value, _ in _CREATE_CALENDAR_CHOICES}),
     "email": ("email_choice", {value for value, _ in _CREATE_EMAIL_CHOICES}),
 }
 
@@ -1489,18 +1536,21 @@ def _event_cfg_component(interaction: Interaction, member: Member | None) -> dic
         attribute, allowed = _CREATE_CFG_APPLY[field]
         # A site-wide draft never offers "Guild members only", so a guild_members value on one
         # is a forged/tampered click — reject it (guards the v1.8.0 no-guild-email rule).
-        # Likewise the Calendar row is absent for an author who may not choose the audience,
-        # so any calendar click from one is forged: hiding the select is not a guard on its
-        # own, and without this a forged click still lands "member" on their draft (#505).
-        forged = (
-            value not in allowed
-            or (field == "email" and value == "guild_members" and draft.guild is None)
-            or (field == "calendar" and not _may_choose_audience(member))
-        )
+        forged = value not in allowed or (field == "email" and value == "guild_members" and draft.guild is None)
         if forged:
             return error_reply()
         setattr(draft, attribute, value)
         draft.save(update_fields=[attribute])
+    elif field == "shape":
+        # The row is absent for an author who may not answer, and a guild-less draft is never
+        # offered a guild meeting, so either value from one is forged. Hiding the select is not
+        # a guard on its own: without this check a forged click still lands "member", or a
+        # guild meeting, on their draft (#505).
+        audience, _, kind = value.partition(":")
+        if value not in {option for option, _ in _shape_choices(draft.guild)} or not _may_choose_audience(member):
+            return error_reply()
+        draft.google_calendar_target, draft.event_type = audience, kind
+        draft.save(update_fields=["google_calendar_target", "event_type"])
     else:
         logger.warning("Unknown eventcfg field %r", field)
         return error_reply()
@@ -1584,6 +1634,7 @@ def _confirm_create(interaction: Interaction, member: Member, draft: CommunityEv
         _local_naive(draft.starts_at),
         _local_naive(draft.ends_at),
         draft.google_calendar_target,
+        event_type=draft.event_type,
         location=draft.location,
         video_url=draft.video_url,
         recurrence=draft.recurrence,
