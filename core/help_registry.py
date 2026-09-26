@@ -386,7 +386,7 @@ HELP_KEYS: dict[str, HelpKeyEntry] = {
     "guild.events": {
         "title": "Guild events",
         "short_text": (
-            "Events you add publish straight to the community calendar and your guild "
+            "Events you add publish straight to the Calendar and your guild "
             "calendar; no approval step. Members get a heads-up in the app."
         ),
         "article_slug": "guild-events-hours-notes",
@@ -590,7 +590,7 @@ HELP_KEYS: dict[str, HelpKeyEntry] = {
         "anchor": None,
     },
     "nav.calendar": {
-        "title": "Community calendar",
+        "title": "Calendar",
         "short_text": (
             "Classes, guild meetups, and events all land on one calendar. Filter it, open any event, "
             "or subscribe from your own calendar app."

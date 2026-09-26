@@ -23,8 +23,8 @@
 
     <div class="hub-card" style="padding:1.5rem; margin-bottom:1.5rem;">
       <h2 class="hub-detail-label" style="margin-top:0; margin-bottom:1rem;">Event details</h2>
+      {% include "hub/partials/_event_audience_fields.html" %}
       {% include "components/form_field.html" with field=form.title %}
-      {% include "components/form_field.html" with field=form.guild field_hint="Pick your guild to propose one of its meetings/events; leave blank for a site-wide community event." %}
       {% include "components/form_field.html" with field=form.starts_at %}
       {% include "components/form_field.html" with field=form.ends_at %}
       {% include "components/form_field.html" with field=form.location field_hint="A room, address, or video link. Optional." %}

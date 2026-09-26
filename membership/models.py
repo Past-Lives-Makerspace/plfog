@@ -5398,12 +5398,19 @@ class CommunityEventQuerySet(models.QuerySet):
         return self.filter(guild__isnull=True)
 
     def for_member(self, member: "Member") -> CommunityEventQuerySet:
-        """Site-wide events plus events from the guilds this member has joined.
+        """Makerspace-wide events plus the meetings of the guilds this member has joined.
 
-        The personalized home feed: a member sees every makerspace-wide community/lead
-        event and the meetings of guilds they belong to, but not other guilds' meetings.
+        The personalized home feed. A guild's *own* gatherings — its meetings and its
+        standing studio hours — reach only its members; everything else is makerspace
+        business and reaches everyone, including a guild-hosted event open to all
+        (``community`` with a guild attached). The audience field is deliberately not
+        consulted: it picks a Google calendar, not who may see the event.
+
+        ``distinct()`` because the guild-membership join multiplies rows, and a member of
+        the hosting guild now matches both sides of the OR.
         """
-        return self.filter(Q(guild__isnull=True) | Q(guild__memberships__member=member))
+        guild_scoped = [CommunityEvent.EventType.GUILD_MEETING, CommunityEvent.EventType.STUDIO_HOURS]
+        return self.filter(~Q(event_type__in=guild_scoped) | Q(guild__memberships__member=member)).distinct()
 
     def published(self) -> CommunityEventQuerySet:
         """Only events live on the calendar (eligible to push to Google)."""
@@ -5480,7 +5487,7 @@ class CommunityEvent(models.Model):
     class EventType(models.TextChoices):
         GUILD_MEETING = "guild_meeting", "Guild meeting / event"
         LEAD_MEETING = "lead_meeting", "Guild Lead Meeting"
-        COMMUNITY = "community", "Community event"
+        COMMUNITY = "community", "Event"
         STUDIO_HOURS = "studio_hours", "Studio hours"
 
     class Recurrence(models.TextChoices):
@@ -5513,6 +5520,13 @@ class CommunityEvent(models.Model):
         MEMBER = "member", "Member calendar"  # members-only makerspace calendar (the former "General")
         PUBLIC = "public", "Public calendar"  # the outward-facing calendar anyone can see
 
+    # Types that name themselves on the badge instead of being labelled by audience. The
+    # cross-guild Guild Lead Meeting is a recognisable thing in its own right, and studio
+    # hours are ambient standing hours rather than a happening (CONTEXT.md) — badging either
+    # of them "Public event" would misdescribe what a member is looking at. Drives
+    # ``badge_label``, so this list is the only place the exceptions live.
+    SELF_NAMING_TYPES: tuple[str, ...] = (EventType.LEAD_MEETING, EventType.STUDIO_HOURS)
+
     # Months between occurrences for each recurring choice (semi-monthly walks
     # monthly but emits two dates per month — see ``occurrences_in``).
     _MONTH_INTERVALS: dict[str, int] = {
@@ -5522,13 +5536,6 @@ class CommunityEvent(models.Model):
         Recurrence.EVERY_3_MONTHS.value: 3,
         Recurrence.EVERY_6_MONTHS.value: 6,
         Recurrence.YEARLY.value: 12,
-    }
-
-    # Maps an event type to the registry event key its announcement fires.
-    _ANNOUNCE_EVENT: dict[str, str] = {
-        EventType.GUILD_MEETING: "event.guild_published",
-        EventType.LEAD_MEETING: "event.lead_meeting_published",
-        EventType.COMMUNITY: "event.community_published",
     }
 
     # (toggle field, days-before) pairs for the opt-in reminder pings. One place to add
@@ -5548,7 +5555,7 @@ class CommunityEvent(models.Model):
         blank=True,
         on_delete=models.CASCADE,
         related_name="events",
-        help_text="The guild this belongs to. Leave blank for a site-wide community or leadership event.",
+        help_text="The guild this belongs to. Leave blank for a makerspace wide or leadership event.",
     )
     starts_at = models.DateTimeField(help_text="When the event starts.")
     ends_at = models.DateTimeField(help_text="When the event ends.")
@@ -5760,9 +5767,13 @@ class CommunityEvent(models.Model):
                 name="ck_communityevent_end_after_start",
             ),
             models.CheckConstraint(
+                # A guild's own gatherings need a guild; the cross-guild Guild Lead Meeting
+                # must not have one; a general event is free either way, because a guild may
+                # now host something open to the whole makerspace (#505).
                 condition=(
                     (Q(event_type__in=["guild_meeting", "studio_hours"]) & Q(guild__isnull=False))
-                    | (~Q(event_type__in=["guild_meeting", "studio_hours"]) & Q(guild__isnull=True))
+                    | (Q(event_type="lead_meeting") & Q(guild__isnull=True))
+                    | Q(event_type="community")
                 ),
                 name="ck_communityevent_guild_matches_type",
             ),
@@ -5902,7 +5913,7 @@ class CommunityEvent(models.Model):
         lines = [
             "BEGIN:VCALENDAR",
             "VERSION:2.0",
-            "PRODID:-//Past Lives Makerspace//Community Calendar//EN",
+            "PRODID:-//Past Lives Makerspace//Calendar//EN",
             "CALSCALE:GREGORIAN",
             "METHOD:PUBLISH",
             *self.ics_vevent_lines(),
@@ -5915,6 +5926,25 @@ class CommunityEvent(models.Model):
     @property
     def is_site_wide(self) -> bool:
         return self.guild_id is None
+
+    @property
+    def badge_label(self) -> str:
+        """The one phrase members read about what this row is.
+
+        The single source of truth for the badge on the Community Calendar's Events tab and
+        on the public event page, so neither template branches on the stored type itself.
+
+        A type in :attr:`SELF_NAMING_TYPES` says its own name. Everything else badges who it
+        is *for*, because the rest of ``event_type`` is plumbing (it routes the announcement
+        and scopes a guild's own meetings) that no member should have to decode. "Member" and
+        "Public" name which of the two open Google calendars it lands on, never who is
+        allowed to look at it.
+        """
+        if self.event_type in self.SELF_NAMING_TYPES:
+            return str(self.EventType(self.event_type).label)
+        if self.google_calendar_target == self.GoogleCalendarTarget.MEMBER:
+            return "Member event"
+        return "Public event"
 
     @property
     def when_display(self) -> str:
@@ -6005,6 +6035,30 @@ class CommunityEvent(models.Model):
             "event_url": self.absolute_url,
         }
 
+    def announce_event_key(self) -> str:
+        """The registry key this event's launch announcement fires.
+
+        The **guild decides the audience, not the type**: a guild's gathering — its own
+        meeting or an open house it hosts for everyone — reaches that guild's members,
+        and a guild-less event reaches every active member. The cross-guild Guild Lead
+        Meeting keeps its own leadership key. One place, so the web composer and the
+        Discord ``/create`` path can never drift.
+
+        Raises:
+            ValueError: For a STUDIO_HOURS row. Ambient standing hours are never announced
+                and both callers return early on them, so reaching here means a new caller
+                skipped that guard. The dict this replaced raised ``KeyError`` on the same
+                input; answering "the guild's members" instead would quietly email people
+                about hours that are not an event.
+        """
+        if self.event_type == self.EventType.STUDIO_HOURS:
+            raise ValueError("Studio hours are ambient standing hours and are never announced.")
+        if self.event_type == self.EventType.LEAD_MEETING:
+            return "event.lead_meeting_published"
+        if self.guild_id is not None:
+            return "event.guild_published"
+        return "event.community_published"
+
     def announce(self, *, actor: User | None = None) -> None:
         """Post the launch announcement (in-app + Discord). Idempotent via ``period``.
 
@@ -6013,15 +6067,15 @@ class CommunityEvent(models.Model):
         events carry ``guild=None`` and route centrally only.
 
         STUDIO_HOURS rows are ambient standing hours, not an event to ping members about,
-        so they never announce (they are also absent from ``_ANNOUNCE_EVENT``) — this guard
-        makes ``publish()`` a safe no-op for the announce step on a studio-hours row.
+        so they never announce — this guard makes ``publish()`` a safe no-op for the
+        announce step on a studio-hours row.
         """
         if self.event_type == self.EventType.STUDIO_HOURS:
             return
         from core.events.emit import emit
 
         emit(
-            self._ANNOUNCE_EVENT[self.event_type],
+            self.announce_event_key(),
             actor=actor,
             target=self,
             context=self._announce_context(),
@@ -6065,7 +6119,7 @@ class CommunityEvent(models.Model):
         from core.events.emit import emit
         from core.events.registry import Channel, Recipients
 
-        event_key = self._ANNOUNCE_EVENT[self.event_type]
+        event_key = self.announce_event_key()
         if audience == "guild_members":
             recipients = (
                 resolvers.resolve(Recipients.GUILD_MEMBERS, {"guild": self.guild}) if self.guild is not None else []
@@ -6211,22 +6265,27 @@ class CommunityEvent(models.Model):
 
         remove_community_event(self)
 
-    def propose(self, *, by: User, guild: Guild | None, policy: str, editing: bool) -> bool:
+    def propose(
+        self, *, by: User, guild: Guild | None, policy: str, editing: bool, event_type: str | None = None
+    ) -> bool:
         """Route a member-proposed event to publication or the review queue.
 
         Owns the member-facing create/resubmit logic that the "Propose an event" view used
-        to carry inline: derive ``event_type`` from the guild, attribute a brand-new
-        proposal to ``by``, then branch on the site's member-event ``policy`` — an OPEN
-        policy publishes a new proposal immediately (announce + Google push), any other
-        policy enters the review queue. An edit always re-submits for review (a
-        changes-requested proposal returns to Pending). The instance must already carry the
-        form's field values (title/time/etc.); the caller enforces the DISABLED policy gate.
+        to carry inline: settle ``event_type``, attribute a brand-new proposal to ``by``,
+        then branch on the site's member-event ``policy`` — an OPEN policy publishes a new
+        proposal immediately (announce + Google push), any other policy enters the review
+        queue. An edit always re-submits for review (a changes-requested proposal returns
+        to Pending). The instance must already carry the form's field values
+        (title/time/etc.); the caller enforces the DISABLED policy gate.
 
         Args:
             by: The proposing member's user (the create actor + review submitter).
-            guild: The target guild, or ``None`` for a site-wide community event.
+            guild: The target guild, or ``None`` for a makerspace-wide event.
             policy: The current ``SiteConfiguration.member_event_policy`` value.
             editing: True when resubmitting an owned Pending/changes-requested proposal.
+            event_type: The kind the proposer's form settled on. Omit it and the guild
+                derives it the old way (guild → guild meeting, none → general event),
+                which is still what the Discord ``/create`` path does.
 
         Returns:
             True if the event went live immediately, False if it was queued for review.
@@ -6234,7 +6293,10 @@ class CommunityEvent(models.Model):
         from core.models import SiteConfiguration
 
         self.guild = guild
-        self.event_type = self.EventType.GUILD_MEETING if guild is not None else self.EventType.COMMUNITY
+        if event_type is not None:
+            self.event_type = event_type
+        else:
+            self.event_type = self.EventType.GUILD_MEETING if guild is not None else self.EventType.COMMUNITY
         if not editing:
             self.created_by = by
         if not editing and policy == SiteConfiguration.MemberEventPolicy.OPEN:
@@ -6754,7 +6816,7 @@ class CommunityEventDraft(models.Model):
         blank=True,
         on_delete=models.CASCADE,
         related_name="community_event_drafts",
-        help_text="The resolved target guild — NULL means a site-wide community event.",
+        help_text="The resolved target guild — NULL means a makerspace wide event.",
     )
     title = models.CharField(max_length=200, help_text="The event name, mirroring CommunityEvent.title.")
     starts_at = models.DateTimeField(help_text="Form-cleaned aware start (validated before the draft is written).")

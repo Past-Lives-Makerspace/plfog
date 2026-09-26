@@ -348,11 +348,16 @@ def describe_the_orphaned_payment_reason():
 def describe_the_billing_fan_in():
     def it_registers_the_classes_handler_for_expired_sessions():
         from billing import views as billing_views
+        from billing import webhook_handlers as billing_handlers
         from membership import webhook_handlers as membership_handlers
 
+        # Hand-kept list, so it goes stale every round that registers a handler. The
+        # dispatcher iterates _CHECKOUT_EXPIRED_HANDLERS, so a missing entry here never
+        # meant the handler was not dispatched. Late fees joined in #456.
         assert billing_views._CHECKOUT_EXPIRED_HANDLERS == [
             classes_handlers.handle_checkout_session_expired,
             membership_handlers.handle_checkout_session_expired,
+            billing_handlers.handle_late_fee_checkout_expired,
         ]
 
     def it_registers_the_classes_handler_for_async_failures():

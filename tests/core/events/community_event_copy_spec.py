@@ -13,6 +13,7 @@ from core.events.rendering import render_html, render_text
 from core.events.resolvers import all_guild_leads, resolve
 from membership.models import GuildStaffMembership, Member
 from tests.membership.factories import (
+    CommunityEventFactory,
     GuildFactory,
     GuildMembershipFactory,
     MemberFactory,
@@ -99,6 +100,29 @@ def describe_event_audiences():
         GuildMembershipFactory(guild=guild, member=member)
         event = get_event("event.guild_published")
         recipients = resolve(event.recipient, {"guild": guild})
+        assert member.user.pk in {user.pk for user, _ in recipients}
+
+    def it_resolves_a_public_event_a_guild_hosts_to_that_guild_not_the_membership():
+        # #505: the trigger follows the guild, not the type, so a guild's open house reaches
+        # its own members and never emails everyone.
+        MembershipPlanFactory()
+        guild = GuildFactory()
+        in_guild = _signed_up_member("ing")
+        GuildMembershipFactory(guild=guild, member=in_guild)
+        outsider = _signed_up_member("outg")
+        event = CommunityEventFactory(guild_hosted=True, guild=guild)
+        assert event.announce_event_key() == "event.guild_published"
+        recipients = resolve(get_event(event.announce_event_key()).recipient, {"guild": guild})
+        user_pks = {user.pk for user, _ in recipients}
+        assert in_guild.user.pk in user_pks
+        assert outsider.user.pk not in user_pks
+
+    def it_resolves_a_guild_less_event_to_the_whole_membership():
+        MembershipPlanFactory()
+        member = _signed_up_member("anyone")
+        event = CommunityEventFactory(community=True)
+        assert event.announce_event_key() == "event.community_published"
+        recipients = resolve(get_event(event.announce_event_key()).recipient, {})
         assert member.user.pk in {user.pk for user, _ in recipients}
 
     def it_resolves_community_published_to_all_active_members():
