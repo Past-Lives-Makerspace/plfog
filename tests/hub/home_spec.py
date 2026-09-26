@@ -180,6 +180,28 @@ def describe_hub_home_view():
 
             assert all("Textiles Meeting" != item.title for item in upcoming)
 
+        def it_includes_an_event_a_guild_hosts_for_everyone(client: Client):
+            # #505: a guild's open house is makerspace business. Only the guild's own
+            # meetings stay scoped to its members.
+            _member_user("hosted")
+            other_guild = GuildFactory(name="Textiles")
+            CommunityEventFactory(guild_hosted=True, guild=other_guild, title="Textiles Open House")
+            client.login(username="hosted", password="pass")
+
+            upcoming = client.get(reverse("hub_home")).context["upcoming"]
+
+            assert any(item.title == "Textiles Open House" for item in upcoming)
+
+        def it_excludes_another_guilds_studio_hours(client: Client):
+            _member_user("hours")
+            other_guild = GuildFactory(name="Glass")
+            CommunityEventFactory(studio_hours=True, guild=other_guild, title="Glass Studio Hours")
+            client.login(username="hours", password="pass")
+
+            upcoming = client.get(reverse("hub_home")).context["upcoming"]
+
+            assert all(item.title != "Glass Studio Hours" for item in upcoming)
+
         def it_shows_the_empty_state_when_nothing_upcoming(client: Client):
             _member_user("empty_up")
             client.login(username="empty_up", password="pass")

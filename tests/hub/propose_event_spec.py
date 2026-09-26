@@ -90,7 +90,10 @@ def describe_create():
         assert event.moderation_state == CommunityEvent.ModerationState.PUBLISHED
         assert event.sync_state == CommunityEvent.SyncState.PENDING
 
-    def it_derives_a_guild_meeting_when_a_guild_is_picked(client: Client):
+    def it_keeps_a_guild_picked_by_a_plain_member_on_a_plain_event(client: Client):
+        # A plain member is never asked what kind of member event this is, so their proposal
+        # is always the general kind — the guild they picked is who is hosting, not a meeting
+        # they have the standing to call (#505).
         _member("g1")
         guild = GuildFactory()
         _set_policy(SiteConfiguration.MemberEventPolicy.APPROVAL)
@@ -98,8 +101,69 @@ def describe_create():
         resp = client.post(reverse("hub_propose_event"), data=_payload(title="Guild Event", guild=str(guild.pk)))
         assert resp.status_code == 302
         event = CommunityEvent.objects.get(title="Guild Event")
-        assert event.event_type == CommunityEvent.EventType.GUILD_MEETING
+        assert event.event_type == CommunityEvent.EventType.COMMUNITY
         assert event.guild == guild
+
+    def it_asks_a_plain_member_neither_question(client: Client):
+        _member("g2")
+        _set_policy(SiteConfiguration.MemberEventPolicy.APPROVAL)
+        client.login(username="g2", password="pass")
+        resp = client.get(reverse("hub_propose_event"))
+        assert "google_calendar_target" not in resp.context["form"].fields
+        assert "event_type" not in resp.context["form"].fields
+
+    def it_posts_a_plain_members_proposal_to_the_public_calendar(client: Client):
+        _member("g2b")
+        _set_policy(SiteConfiguration.MemberEventPolicy.APPROVAL)
+        client.login(username="g2b", password="pass")
+        client.post(reverse("hub_propose_event"), data=_payload(title="Members Choice"))
+        event = CommunityEvent.objects.get(title="Members Choice")
+        assert event.google_calendar_target == CommunityEvent.GoogleCalendarTarget.PUBLIC
+        assert event.event_type == CommunityEvent.EventType.COMMUNITY
+
+    def it_asks_a_guild_lead_both_questions(client: Client):
+        user = _member("g3")
+        GuildFactory(name="Metals", guild_lead=user.member)
+        _set_policy(SiteConfiguration.MemberEventPolicy.APPROVAL)
+        client.login(username="g3", password="pass")
+        html = client.get(reverse("hub_propose_event")).content.decode()
+        assert "Who is the audience?" in html
+        assert "What kind of event is this?" in html
+
+    def it_lets_a_guild_lead_propose_their_guilds_meeting(client: Client):
+        user = _member("g4")
+        guild = GuildFactory(name="Forge", guild_lead=user.member)
+        _set_policy(SiteConfiguration.MemberEventPolicy.APPROVAL)
+        client.login(username="g4", password="pass")
+        client.post(
+            reverse("hub_propose_event"),
+            data=_payload(
+                title="Forge Meeting",
+                guild=str(guild.pk),
+                google_calendar_target="member",
+                event_type="guild_meeting",
+            ),
+        )
+        assert CommunityEvent.objects.get(title="Forge Meeting").event_type == CommunityEvent.EventType.GUILD_MEETING
+
+    def it_narrows_a_guild_leads_guild_picker_to_their_own_guilds(client: Client):
+        # Assert the picker's own queryset: every guild's name also renders in the sidebar.
+        user = _member("g5")
+        mine = GuildFactory(name="Mine", guild_lead=user.member)
+        GuildFactory(name="Someone Elses")
+        _set_policy(SiteConfiguration.MemberEventPolicy.APPROVAL)
+        client.login(username="g5", password="pass")
+        resp = client.get(reverse("hub_propose_event"))
+        assert list(resp.context["form"].fields["guild"].queryset) == [mine]
+
+    def it_offers_a_plain_member_every_active_guild(client: Client):
+        _member("g6")
+        open_to_all = GuildFactory(name="Open To All")
+        GuildFactory(name="Retired Guild", is_active=False)
+        _set_policy(SiteConfiguration.MemberEventPolicy.APPROVAL)
+        client.login(username="g6", password="pass")
+        resp = client.get(reverse("hub_propose_event"))
+        assert list(resp.context["form"].fields["guild"].queryset) == [open_to_all]
 
     def it_re_renders_with_errors_on_an_invalid_submission(client: Client):
         _member("inv1")

@@ -99,6 +99,7 @@ from membership.permissions import can_edit_class as _can_edit_offering
 from membership.permissions import can_edit_guild as _can_edit_guild
 from membership.permissions import can_manage_orientations as _can_manage_orientations
 from membership.permissions import can_propose_to_meeting as _can_propose_to_meeting
+from membership.permissions import editable_meeting_scopes
 from membership.services.account_deletion import delete_own_account
 
 logger = logging.getLogger("hub")
@@ -1082,8 +1083,14 @@ def _guild_edit_context(
         "is_admin": _viewing_as_admin(request),
         "google_sync_enabled": _google_sync_enabled(),
         "notes": guild.meeting_notes.prefetch_related("attachments"),
-        # Studio hours have their own Meetings-tab editor, so the Events tab lists only meetings.
-        "events": guild.events.meetings().upcoming().select_related("guild"),
+        # Everything the guild has on the calendar except its standing studio hours, which
+        # have their own editor on this page. Keyed on "not studio hours" rather than "is a
+        # meeting" so a public event the guild hosts stays on its own Events tab (#505).
+        # That leaves ``CommunityEventQuerySet.meetings()`` with no production caller; it is
+        # kept for its spec and for anything that genuinely wants only the meetings.
+        "events": (
+            guild.events.exclude(event_type=CommunityEvent.EventType.STUDIO_HOURS).upcoming().select_related("guild")
+        ),
         "studio_hours_formset": (
             studio_hours_formset
             if studio_hours_formset is not None
@@ -5510,6 +5517,28 @@ def _event_delete_confirm_message(event: CommunityEvent) -> str:
     return message
 
 
+def _event_guild_choices(request: HttpRequest, event: CommunityEvent) -> QuerySet[Guild]:
+    """The guilds this request may file ``event`` under.
+
+    ``editable_meeting_scopes`` is the one answer to "which guilds may this request edit"
+    (an admin: all of them; a lead or staffer: their own), so the picker invents no role
+    test of its own (#505 constraint). A member holding no such authority may still propose
+    an event for any active guild, exactly as today: that is what the review queue is for.
+
+    The event's **own** guild is always in the list, deactivated or not. Deactivating a guild
+    keeps its rows by design, so events on one exist; leaving it out of the queryset makes
+    every save of such an event fail on "Select a valid choice" with no way out, because a
+    guild meeting cannot be blanked either.
+    """
+    scopes, has_authority = editable_meeting_scopes(request)
+    allowed = Q(is_active=True)
+    if has_authority:
+        allowed &= Q(pk__in=[scope.pk for scope in scopes])
+    if event.guild_id is not None:
+        allowed |= Q(pk=event.guild_id)
+    return Guild.objects.filter(allowed).order_by("name")
+
+
 @login_required
 def guild_event_edit(request: HttpRequest, pk: int, event_pk: int | None = None) -> HttpResponse:
     """Add (no ``event_pk``) or edit a guild event. Editor only.
@@ -5528,12 +5557,16 @@ def guild_event_edit(request: HttpRequest, pk: int, event_pk: int | None = None)
     event = get_object_or_404(CommunityEvent, pk=event_pk, guild=guild) if event_pk is not None else CommunityEvent()
     is_new = event.pk is None
 
+    # Passing this gate already proves lead/staff/admin authority here, but the audience and
+    # kind questions ask the one question in `membership/permissions.py` (#505 constraint),
+    # not a role test this view invents.
+    _, can_choose_audience = editable_meeting_scopes(request)
+
     if request.method == "POST":
-        form = CommunityEventForm(request.POST, instance=event, guild=guild, as_admin=False)
+        form = CommunityEventForm(request.POST, instance=event, guild=guild, can_choose_audience=can_choose_audience)
         if form.is_valid():
             event = form.save(commit=False)
             event.guild = guild
-            event.event_type = CommunityEvent.EventType.GUILD_MEETING
             if is_new:
                 event.created_by = request.user
             event.save()
@@ -5551,7 +5584,7 @@ def guild_event_edit(request: HttpRequest, pk: int, event_pk: int | None = None)
                 messages.success(request, "Event saved.")
             return redirect(f"{reverse('hub_guild_edit', args=[guild.pk])}?tab=events")
     else:
-        form = CommunityEventForm(instance=event, guild=guild, as_admin=False)
+        form = CommunityEventForm(instance=event, guild=guild, can_choose_audience=can_choose_audience)
 
     ctx = _get_hub_context(request)
     return render(
@@ -5601,8 +5634,10 @@ def event_edit(request: HttpRequest, event_pk: int | None = None) -> HttpRespons
     is_new = event.pk is None
     cancel_url = reverse("hub_community_calendar") + "?tab=events"
 
+    guild_choices = _event_guild_choices(request, event)
+
     if request.method == "POST":
-        form = CommunityEventForm(request.POST, instance=event, as_admin=True)
+        form = CommunityEventForm(request.POST, instance=event, can_choose_audience=True, guild_choices=guild_choices)
         if form.is_valid():
             event = form.save(commit=False)
             if is_new:
@@ -5621,7 +5656,7 @@ def event_edit(request: HttpRequest, event_pk: int | None = None) -> HttpRespons
                 messages.success(request, "Event saved.")
             return redirect(cancel_url)
     else:
-        form = CommunityEventForm(instance=event, as_admin=True)
+        form = CommunityEventForm(instance=event, can_choose_audience=True, guild_choices=guild_choices)
 
     ctx = _get_hub_context(request)
     return render(
@@ -5731,11 +5766,24 @@ def propose_event(request: HttpRequest, pk: int | None = None) -> HttpResponse:
 
     cancel_url = reverse("hub_community_calendar") + "?tab=events"
 
+    _, can_choose_audience = editable_meeting_scopes(request)
+    guild_choices = _event_guild_choices(request, event)
+    form_kwargs: dict[str, Any] = {
+        "can_choose_audience": can_choose_audience,
+        "guild_choices": guild_choices,
+    }
+
     if request.method == "POST":
-        form = CommunityEventForm(request.POST, instance=event, as_member=True)
+        form = CommunityEventForm(request.POST, instance=event, **form_kwargs)
         if form.is_valid():
             event = form.save(commit=False)
-            published = event.propose(by=user, guild=form.cleaned_data.get("guild"), policy=policy, editing=editing)
+            published = event.propose(
+                by=user,
+                guild=form.cleaned_data.get("guild"),
+                policy=policy,
+                editing=editing,
+                event_type=form.resolved_event_type(),
+            )
             if published:
                 messages.success(request, "Your event is live on the Calendar.")
             else:
@@ -5745,7 +5793,7 @@ def propose_event(request: HttpRequest, pk: int | None = None) -> HttpResponse:
                 )
             return redirect(cancel_url)
     else:
-        form = CommunityEventForm(instance=event, as_member=True)
+        form = CommunityEventForm(instance=event, **form_kwargs)
 
     ctx = _get_hub_context(request)
     my_proposals = (
@@ -6342,7 +6390,7 @@ def calendar_export_ics(request: HttpRequest) -> HttpResponse:
     lines: list[str] = [
         "BEGIN:VCALENDAR",
         "VERSION:2.0",
-        "PRODID:-//Past Lives Makerspace//Community Calendar//EN",
+        "PRODID:-//Past Lives Makerspace//Calendar//EN",
         "X-WR-CALNAME:Past Lives Calendar",
         "CALSCALE:GREGORIAN",
         "METHOD:PUBLISH",

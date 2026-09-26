@@ -785,7 +785,7 @@ class SiteConfiguration(models.Model):
         verbose_name="Publish events to Discord",
         help_text=(
             "When on (and the Discord bot is configured with Manage Events), publishing/editing/deleting a "
-            "community event creates/updates/removes it in the Discord server's Events. Studio hours and "
+            "an event creates/updates/removes it in the Discord server's Events. Studio hours and "
             "classes are never pushed."
         ),
     )
@@ -872,7 +872,7 @@ class SiteConfiguration(models.Model):
     signage_event_qr = models.BooleanField(
         default=False,
         verbose_name="Add a QR to event slides",
-        help_text="Add a QR code to the community calendar on auto event slides.",
+        help_text="Add a QR code to the Calendar on auto event slides.",
     )
     # The self-building slide blocks. All default ON: a screen pointed at its URL should
     # arrive populated, and an admin switches off what they don't want on the wall.

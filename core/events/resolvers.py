@@ -543,7 +543,7 @@ def all_guild_leads(context: dict[str, Any]) -> list[Recipient]:
 def event_audience(context: dict[str, Any]) -> list[Recipient]:
     """The launch-announcement audience for a community event, by scope.
 
-    Mirrors ``CommunityEvent._ANNOUNCE_EVENT``: a guild event → the guild's members;
+    Mirrors ``CommunityEvent.announce_event_key``: a guild event → the guild's members;
     a leadership meeting → all guild leads; any other site-wide event → all active
     members. Composes the three existing resolvers (like :func:`guild_leadership_or_admins`),
     so one ``event.reminder`` / ``event.happening_now`` key serves all three scopes.

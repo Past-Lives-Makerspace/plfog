@@ -393,6 +393,55 @@ def describe_config_selects():
         draft.refresh_from_db()
         assert draft.email_choice == CommunityEventDraft.EmailChoice.NONE  # unchanged
 
+    def it_offers_the_calendar_select_to_an_admin(linked_member):
+        admin = linked_member(fog_role=Member.FogRole.ADMIN)
+        result, draft = _preview(admin, title="X", when="tomorrow 6pm")
+        assert f"eventcfg:calendar:{draft.pk}" in _custom_ids(result)
+
+    def it_offers_the_calendar_select_to_a_guild_lead_posting_a_site_wide_event(linked_member):
+        # Lead-or-staff authority ANYWHERE grants it, exactly as the web composer decides —
+        # not authority over the guild that happens to be picked.
+        lead = linked_member()
+        guild = GuildFactory(name="Fibers")
+        guild.guild_lead = lead
+        guild.save(update_fields=["guild_lead"])
+        result, draft = _preview(lead, title="X", when="tomorrow 6pm")  # All Makerspace → no guild
+        assert f"eventcfg:calendar:{draft.pk}" in _custom_ids(result)
+
+    def it_offers_the_calendar_select_to_a_guild_officer_who_staffs_no_guild(linked_member):
+        # is_effective_staff admits the cross-guild Guild Officer tier, so the web composer
+        # asks them. Discord must agree or the same person gets two different answers.
+        officer = linked_member(fog_role=Member.FogRole.GUILD_OFFICER)
+        result, draft = _preview(officer, title="X", when="tomorrow 6pm")
+        assert f"eventcfg:calendar:{draft.pk}" in _custom_ids(result)
+
+    def it_omits_the_calendar_select_from_a_plain_members_card(linked_member):
+        member = linked_member()
+        result, draft = _preview(member, title="X", when="tomorrow 6pm")
+        ids = _custom_ids(result)
+        assert f"eventcfg:calendar:{draft.pk}" not in ids
+        assert f"eventcfg:email:{draft.pk}" in ids  # the rest of the card is untouched
+
+    def it_rejects_a_forged_members_calendar_click_from_a_plain_member(linked_member):
+        # Hiding the select is not a guard on its own: without the handler check this forged
+        # interaction would land the draft on the members-only calendar (#505).
+        member = linked_member()
+        _result, draft = _preview(member, title="X", when="tomorrow 6pm")
+        result = _cfg(member, draft.pk, "calendar", "member")
+        assert "went wrong" in result["data"]["content"]
+        draft.refresh_from_db()
+        assert draft.google_calendar_target == CommunityEvent.GoogleCalendarTarget.PUBLIC  # unchanged
+
+    def it_lets_a_guild_lead_set_the_members_calendar(linked_member):
+        lead = linked_member()
+        guild = GuildFactory(name="Metals")
+        guild.guild_lead = lead
+        guild.save(update_fields=["guild_lead"])
+        _result, draft = _preview(lead, title="X", when="tomorrow 6pm", guild_slug=guild.slug)
+        _cfg(lead, draft.pk, "calendar", "member")
+        draft.refresh_from_db()
+        assert draft.google_calendar_target == CommunityEvent.GoogleCalendarTarget.MEMBER
+
     def it_adds_the_email_caveat_to_a_proposal_card(linked_member):
         _set_policy(SiteConfiguration.MemberEventPolicy.APPROVAL)
         member = linked_member()

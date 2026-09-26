@@ -32,9 +32,13 @@ _Avoid_: using bare "class" for both the abstract class and a single dated run �
 A labeled contact method on a Member — `{label, value}` (e.g. "Booking email" → an address) with per-surface placement toggles (show in the member directory and/or on the instructor page). One list per Member; absorbs the old fixed website/social/other-contact fields. `phone` and `discord` remain first-class fields, not Contacts.
 _Avoid_: contact field, social link, other contact info.
 
-**Community event**:
-A dated happening on the Community Calendar (`membership.CommunityEvent`) — site-wide events, guild meetings, guild events, and studio-hours rows. Published events mirror one-way to downstream calendars (Google; Discord Scheduled Events when that ships). Not a class: a bookable class run is a **Class offering** on the book CMS.
-_Avoid_: event (unqualified, when it could mean a class session or a notification-spine event key).
+**Member event** / **Public event**:
+The only two words for who a dated happening on the Community Calendar is *for*, stored in `CommunityEvent.google_calendar_target` (`member` / `public`). Every member-facing surface badges that answer; the public is the default. **It says nothing about who can see the event.** Both Google calendars are open subscription feeds, so a member event is visible to anyone, posts to Discord and keeps an open event page exactly like a public one; a stranger finding one is how people discover the makerspace. The choice only picks which of the two calendars it lands on, and the members one is for guild meetings, council meetings, studio hours and the occasional members only meeting. Choosing it is a guild-staff and admin permission: the composer asks "Who is the audience?" only of them, and a plain member's event goes on the public calendar.
+_Avoid_: community event, makerspace event, "which calendar"; and never call a member event private, hidden or restricted.
+
+**Community event** (the model, not the words):
+The record behind all of the above (`membership.CommunityEvent`) — guild meetings, guild events, makerspace-wide events, the Guild Lead Meeting, and studio-hours rows. The class keeps its name; nobody says it out loud. Its `event_type` is plumbing, not a label: it routes the launch announcement and scopes a guild's own meetings, and is never shown to a member (`community`, the general value, reads simply "Event" in the Django admin). Published events mirror one-way to downstream calendars (Google; Discord Scheduled Events). Not a class: a bookable class run is a **Class offering** on the book CMS.
+_Avoid_: saying "community event" to a member — say member event or public event; event (unqualified, when it could mean a class session or a notification-spine event key).
 
 **Studio hours**:
 A guild's ambient standing weekly hours — a special `CommunityEvent` type (`STUDIO_HOURS`). They render on in-app calendars/cards and the public Google calendar, but are never *announced* and never become Discord Scheduled Events (ambient hours are not happenings; scarce surfaces show happenings only).

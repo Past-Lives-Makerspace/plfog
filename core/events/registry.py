@@ -660,13 +660,14 @@ _NEW_EVENTS: list[EventType] = [
         channels=(_IN_APP_ON, _EMAIL_ON, _DISCORD_ON),
         activity_kind=None,
     ),
-    # 8. event.community_published — an admin posts a site-wide community event (One Mic
-    #    Night, Potluck). Every active member; in-app on, email ON by default (owner call,
-    #    copy-review 2026-08-18), Discord on (central).
+    # 8. event.community_published — an admin posts a guild-less event (One Mic Night,
+    #    Potluck). Every active member; in-app on, email ON by default (owner call,
+    #    copy-review 2026-08-18), Discord on (central). The KEY and its recipients are
+    #    fixed by #505; only the words a member reads changed.
     EventType(
         key=EVENT_COMMUNITY_PUBLISHED,
-        label="New community event",
-        description="A makerspace-wide community event was scheduled.",
+        label="New event at the space",
+        description="An event for the whole makerspace was scheduled.",
         category="Events",
         recipient=Recipients.ALL_ACTIVE_MEMBERS,
         channels=(_IN_APP_ON, _EMAIL_ON, _DISCORD_ON),
@@ -769,13 +770,13 @@ _NEW_EVENTS: list[EventType] = [
         channels=(_IN_APP_ON, _EMAIL_ON, _DISCORD_DM_ON),
         activity_kind=None,
     ),
-    # 18. event.reminder — a 7/3/1-day-before nudge for an upcoming community event, to the
+    # 18. event.reminder — a 7/3/1-day-before nudge for an upcoming event, to the
     #     same audience the launch announcement reached (by scope, via event_audience). In-app
     #     on; email + Discord OFF (the bell is enough — Discord flippable later).
     EventType(
         key=EVENT_REMINDER,
         label="Event reminder",
-        description="A reminder before a community event you're invited to starts.",
+        description="A reminder before an event you're invited to starts.",
         category="Events",
         recipient=Recipients.EVENT_AUDIENCE,
         channels=(_IN_APP_ON, _EMAIL_OFF, _DISCORD_OFF),
@@ -786,7 +787,7 @@ _NEW_EVENTS: list[EventType] = [
     EventType(
         key=EVENT_HAPPENING_NOW,
         label="Event starting now",
-        description="A ping when a community event you're invited to begins.",
+        description="A ping when an event you're invited to begins.",
         category="Events",
         recipient=Recipients.EVENT_AUDIENCE,
         channels=(_IN_APP_ON, _EMAIL_OFF, _DISCORD_ON),
