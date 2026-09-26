@@ -881,7 +881,7 @@ register_component(ComponentHandler(prefix="members", handler=_members_component
 
 # --- /create ------------------------------------------------------------------
 
-# The "guild" choice value that means "no guild — a site-wide community event".
+# The "guild" choice value that means "no guild — a makerspace wide event".
 _GENERAL_VALUE = "__general__"
 # The default event length when the typed When carries no explicit end time (the preview
 # card's Duration picker, shown only in that case, opens on this value).

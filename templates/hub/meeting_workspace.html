@@ -182,7 +182,7 @@ Quill, the eager notes Quills, and the savestate pill's full §5.2 error contrac
       <div class="pl-meeting-calendar__unlink">
         <button type="button" class="pl-btn pl-btn--secondary pl-btn--sm"
                 hx-post="{% url 'hub_meeting_event_unlink' meeting.pk %}" hx-swap="none">Unlink</button>
-        <span class="hub-text-muted pl-meeting-calendar__hint">{% if meeting.guild %}Unlinking leaves the event on the calendar — edit or cancel it from the guild's Events tab.{% else %}Unlinking leaves the event on the community calendar — an admin can edit or cancel it from the events editor.{% endif %}</span>
+        <span class="hub-text-muted pl-meeting-calendar__hint">{% if meeting.guild %}Unlinking leaves the event on the calendar — edit or cancel it from the guild's Events tab.{% else %}Unlinking leaves the event on the Calendar — an admin can edit or cancel it from the events editor.{% endif %}</span>
       </div>
       {% endif %}
     </div>
@@ -318,7 +318,7 @@ Quill, the eager notes Quills, and the savestate pill's full §5.2 error contrac
     {% elif meeting.event and meeting.guild %}
     {% include "components/confirm_modal.html" with confirm_id="delete-meeting" confirm_title="Delete this meeting?" confirm_message="Deletes this meeting, its agenda, attendance, and action items. Open action items here will no longer carry over. The linked calendar event stays on the calendar — cancel it separately from the guild's Events tab if the meeting really isn't happening." confirm_action_url="" confirm_hx_post=delete_url confirm_button_text="Delete meeting" %}
     {% elif meeting.event %}
-    {% include "components/confirm_modal.html" with confirm_id="delete-meeting" confirm_title="Delete this meeting?" confirm_message="Deletes this meeting, its agenda, attendance, and action items. Open action items here will no longer carry over. The linked calendar event stays on the community calendar — an admin can cancel it from the events editor if the meeting really isn't happening." confirm_action_url="" confirm_hx_post=delete_url confirm_button_text="Delete meeting" %}
+    {% include "components/confirm_modal.html" with confirm_id="delete-meeting" confirm_title="Delete this meeting?" confirm_message="Deletes this meeting, its agenda, attendance, and action items. Open action items here will no longer carry over. The linked calendar event stays on the Calendar — an admin can cancel it from the events editor if the meeting really isn't happening." confirm_action_url="" confirm_hx_post=delete_url confirm_button_text="Delete meeting" %}
     {% else %}
     {% include "components/confirm_modal.html" with confirm_id="delete-meeting" confirm_title="Delete this meeting?" confirm_message="Deletes this meeting, its agenda, attendance, and action items. Open action items here will no longer carry over." confirm_action_url="" confirm_hx_post=delete_url confirm_button_text="Delete meeting" %}
     {% endif %}

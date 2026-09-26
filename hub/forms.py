@@ -3497,7 +3497,7 @@ class GuildVisibilityForm(forms.ModelForm):
         help_texts = {
             "is_active": (
                 "When off, this guild is hidden from the sidebar, the guild directory, the "
-                "community calendar, and voting. Its guild page and this settings page stay "
+                "Calendar, and voting. Its guild page and this settings page stay "
                 "reachable by direct link, so an admin can turn it back on."
             )
         }

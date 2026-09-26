@@ -174,7 +174,7 @@ def community_event_entries(fetch_from: date, fetch_to: date, guild: Guild | Non
         qs = qs.for_guild(guild)
 
     # Site-wide entries adopt the feed chip matching their Google target, so the
-    # main Calendar legend needs no separate "Community events" chip. Guild-scoped
+    # main Calendar legend needs no separate chip of its own. Guild-scoped
     # entries stay unmapped — the guild calendar keeps its own generic chip.
     feed_keys = google_target_feed_keys() if guild is None else {}
 

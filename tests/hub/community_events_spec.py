@@ -745,6 +745,38 @@ def describe_member_facing_surfaces():
         offenders = [j.key for j in SCHEDULED_JOBS if "community event" in j.description.lower()]
         assert offenders == []
 
+    @pytest.mark.django_db
+    def it_never_says_community_event_in_the_email_catalogue():
+        # The Emails tab of notification preferences renders every row's label and
+        # description to the member reading it. Missed on the first sweep because the copy
+        # lives in a plain dict, not in the event registry the earlier sweep walked.
+        from core.events.email_catalogue import build_email_catalogue
+
+        offenders = [
+            row.key
+            for _group, rows in build_email_catalogue()
+            for row in rows
+            if "community event" in f"{row.label} {row.description} {row.schedule_note}".lower()
+        ]
+        assert offenders == []
+
+    def it_never_says_a_retired_calendar_name_in_member_facing_help():
+        # The Help Center is member-reachable copy, and the page is called "Calendar" — not
+        # the "community calendar". Checks the live tooltips and the seeded article intro;
+        # ``RETIRED_INTRO`` is deliberately excluded because it is a frozen fingerprint used
+        # to spot stale seed output, so editing it would break that detection.
+        from core.help_registry import HELP_KEYS
+        from membership.help_content import PAGE_INTRO
+
+        retired = ("community event", "community calendar")
+        offenders = [
+            key
+            for key, entry in HELP_KEYS.items()
+            if any(phrase in f"{entry.get('title', '')} {entry.get('short_text', '')}".lower() for phrase in retired)
+        ]
+        assert offenders == []
+        assert not any(phrase in PAGE_INTRO.lower() for phrase in retired)
+
 
 @pytest.mark.django_db
 def describe_events_tab_visibility():

@@ -6150,7 +6150,7 @@ def calendar_export_ics(request: HttpRequest) -> HttpResponse:
     lines: list[str] = [
         "BEGIN:VCALENDAR",
         "VERSION:2.0",
-        "PRODID:-//Past Lives Makerspace//Community Calendar//EN",
+        "PRODID:-//Past Lives Makerspace//Calendar//EN",
         "X-WR-CALNAME:Past Lives Calendar",
         "CALSCALE:GREGORIAN",
         "METHOD:PUBLISH",

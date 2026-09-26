@@ -5555,7 +5555,7 @@ class CommunityEvent(models.Model):
         blank=True,
         on_delete=models.CASCADE,
         related_name="events",
-        help_text="The guild this belongs to. Leave blank for a site-wide community or leadership event.",
+        help_text="The guild this belongs to. Leave blank for a makerspace wide or leadership event.",
     )
     starts_at = models.DateTimeField(help_text="When the event starts.")
     ends_at = models.DateTimeField(help_text="When the event ends.")
@@ -5913,7 +5913,7 @@ class CommunityEvent(models.Model):
         lines = [
             "BEGIN:VCALENDAR",
             "VERSION:2.0",
-            "PRODID:-//Past Lives Makerspace//Community Calendar//EN",
+            "PRODID:-//Past Lives Makerspace//Calendar//EN",
             "CALSCALE:GREGORIAN",
             "METHOD:PUBLISH",
             *self.ics_vevent_lines(),
@@ -6816,7 +6816,7 @@ class CommunityEventDraft(models.Model):
         blank=True,
         on_delete=models.CASCADE,
         related_name="community_event_drafts",
-        help_text="The resolved target guild — NULL means a site-wide community event.",
+        help_text="The resolved target guild — NULL means a makerspace wide event.",
     )
     title = models.CharField(max_length=200, help_text="The event name, mirroring CommunityEvent.title.")
     starts_at = models.DateTimeField(help_text="Form-cleaned aware start (validated before the draft is written).")
