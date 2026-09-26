@@ -7,6 +7,9 @@ from django.db import migrations, models
 class Migration(migrations.Migration):
     dependencies = [
         ("membership", "0180_event_audience_first"),
+        # Main grew its own 0180 while this branch was open; depending on both
+        # collapses the graph back to one leaf without a merge migration.
+        ("membership", "0180_late_cancel_fee_cents"),
     ]
 
     operations = [

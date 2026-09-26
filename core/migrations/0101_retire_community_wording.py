@@ -5,7 +5,7 @@ from django.db import migrations, models
 
 class Migration(migrations.Migration):
     dependencies = [
-        ("core", "0097_alter_siteactivity_kind"),
+        ("core", "0100_alter_siteactivity_kind"),
     ]
 
     operations = [
