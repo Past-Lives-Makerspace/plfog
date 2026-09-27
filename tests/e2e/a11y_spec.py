@@ -182,6 +182,15 @@ def describe_accessibility():
         ]
         assert not offenders, "a11y violations on the composer with a refusal showing:\n  " + "\n  ".join(offenders)
 
+    def it_has_no_violations_on_the_members_help_page(live_server, page, login_via_code):
+        # The help page once nested its own <main> inside hub/base.html's landmark (#376);
+        # scanning it keeps landmark-no-duplicate-main and landmark-main-is-top-level clean.
+        MembershipPlanFactory()
+        login_via_code("a11y-help@example.com")
+
+        offenders = _offenders_for(page, f"{live_server.url}{reverse('hub_help')}", MEMBERS_HUB_DEBT)
+        assert not offenders, "Critical or new (unbaselined) a11y violations on /help/:\n  " + "\n  ".join(offenders)
+
     def it_has_no_violations_on_the_v22_admin_surfaces(live_server, page, login_via_code):
         # The v22 editor pages: the guild editor's Meetings tab (studio-hours formset)
         # and Site Settings' Automations tab. Signed in as an admin; both live on the

@@ -134,7 +134,7 @@
 
 <div x-show="section === 'overview'">
 <div class="pl-guild-grid">
-    <main>
+    <div>
 
         {% if guild.featured_class %}
         <section class="pl-guild-section">
@@ -222,9 +222,9 @@
             <p>{{ guild.meeting_schedule|linebreaksbr }}</p>
         </section>
         {% endif %}
-    </main>
+    </div>
 
-    <aside>
+    <aside aria-label="Guild details">
         {% with staff_members=guild.staff_by_member %}
         {% if guild.guild_lead or staff_members %}
         <div class="hub-card" data-help-key="guild.staff-roster">
@@ -257,8 +257,8 @@
         <div class="hub-card">
             <div style="display:flex; align-items:center; gap:0.4rem;">
                 <h3 class="hub-detail-label" style="margin-bottom:0;">Studio Hours</h3>
-                <span class="pl-help pl-help--right" tabindex="0" aria-label="What are studio hours?">
-                    <span class="pl-help__icon" aria-hidden="true">?</span>
+                <span class="pl-help pl-help--right">
+                    <span class="pl-help__icon" tabindex="0" role="img" aria-label="What are studio hours?">?</span>
                     <span class="pl-help__bubble" role="tooltip">Come chat with the Guild Lead during these times.</span>
                 </span>
             </div>
