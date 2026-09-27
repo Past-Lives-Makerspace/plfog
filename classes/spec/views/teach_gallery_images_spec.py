@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 from datetime import timedelta
 from io import BytesIO
+from unittest.mock import patch
 
 import pytest
 from django.core.files.uploadedfile import SimpleUploadedFile
@@ -233,6 +234,62 @@ def describe_instructor_image_routes_validate_their_input():
         resp = client.post(reverse("classes:teach_class_image_upload", kwargs={"pk": offering.pk}), {"image": big})
         assert resp.status_code == 400
         assert offering.gallery_images.count() == before
+
+    @pytest.mark.parametrize(
+        ("name", "content_type"), [("bad.txt", "text/plain"), ("bad.png", "image/png")], ids=["text", "renamed"]
+    )
+    def it_refuses_a_hero_upload_that_is_not_an_image(instructor_fixture, client, name, content_type):
+        offering = _own(instructor_fixture, Status.DRAFT)
+        was = offering.image.name
+        client.force_login(instructor_fixture.user)
+        with patch.object(ClassOffering._meta.get_field("image").storage, "save") as save:
+            resp = client.post(
+                reverse("classes:teach_class_hero_upload", kwargs={"pk": offering.pk}),
+                {"image": SimpleUploadedFile(name, b"just some notes", content_type=content_type)},
+            )
+        assert resp.status_code == 400
+        assert "not a photo we can open" in resp.json()["error"]
+        save.assert_not_called()
+        offering.refresh_from_db()
+        assert offering.image.name == was
+
+    @pytest.mark.parametrize(
+        ("name", "content_type"), [("bad.txt", "text/plain"), ("bad.png", "image/png")], ids=["text", "renamed"]
+    )
+    def it_refuses_a_gallery_upload_that_is_not_an_image(instructor_fixture, client, name, content_type):
+        offering = _own(instructor_fixture, Status.DRAFT)
+        before = offering.gallery_images.count()
+        client.force_login(instructor_fixture.user)
+        with patch.object(ClassImage._meta.get_field("image").storage, "save") as save:
+            resp = client.post(
+                reverse("classes:teach_class_image_upload", kwargs={"pk": offering.pk}),
+                {"image": SimpleUploadedFile(name, b"just some notes", content_type=content_type)},
+            )
+        assert resp.status_code == 400
+        assert "not a photo we can open" in resp.json()["error"]
+        save.assert_not_called()
+        assert offering.gallery_images.count() == before
+
+    @pytest.mark.parametrize(("fmt", "ext"), [("PNG", "png"), ("JPEG", "jpg"), ("WEBP", "webp"), ("HEIF", "heic")])
+    def it_still_takes_a_real_image_on_both_routes(instructor_fixture, client, fmt, ext):
+        from PIL import Image
+
+        import core.images  # noqa: F401  registers the HEIF encoder the HEIC case needs
+
+        def upload() -> SimpleUploadedFile:
+            buf = BytesIO()
+            Image.new("RGB", (4, 4), (10, 20, 30)).save(buf, fmt)
+            return SimpleUploadedFile(f"shot.{ext}", buf.getvalue())
+
+        offering = _own(instructor_fixture, Status.DRAFT)
+        client.force_login(instructor_fixture.user)
+        hero = client.post(reverse("classes:teach_class_hero_upload", kwargs={"pk": offering.pk}), {"image": upload()})
+        gallery = client.post(
+            reverse("classes:teach_class_image_upload", kwargs={"pk": offering.pk}), {"image": upload()}
+        )
+        assert hero.status_code == 200
+        assert gallery.status_code == 200
+        assert ClassImage.objects.filter(pk=gallery.json()["id"], class_offering=offering).exists()
 
     def it_rejects_alt_text_that_is_not_a_string(instructor_fixture, client):
         offering = _own(instructor_fixture, Status.DRAFT)

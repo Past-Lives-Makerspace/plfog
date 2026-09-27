@@ -1948,14 +1948,19 @@ class ClassOffering(HeroCropMixin, models.Model):
 
         Raises:
             ValidationError: If adding ``files`` would push the offering over
-                ``MAX_GALLERY_IMAGES``. The batch is rejected whole — no rows are
-                created — so the caller can surface one clear message.
+                ``MAX_GALLERY_IMAGES``, or any file is not an image. The batch is
+                rejected whole — no rows are created — so the caller can surface one
+                clear message.
         """
         from django.core.exceptions import ValidationError
+
+        from core.validators import validate_image_content
 
         current = self.gallery_images.count()
         if current + len(files) > MAX_GALLERY_IMAGES:
             raise ValidationError(f"A class can have at most {MAX_GALLERY_IMAGES} images.")
+        for img_file in files:
+            validate_image_content(img_file)
         for offset, img_file in enumerate(files):
             ClassImage.objects.create(class_offering=self, image=img_file, sort_order=current + offset)
 

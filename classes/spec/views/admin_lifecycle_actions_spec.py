@@ -693,7 +693,7 @@ def describe_admin_class_create_publish_path():
         buf = BytesIO()
         Image.new("RGB", (4, 4), (10, 20, 30)).save(buf, "PNG")
         hero = SimpleUploadedFile("hero.png", buf.getvalue(), content_type="image/png")
-        gallery = SimpleUploadedFile("g.png", b"\x89PNG\r\n\x1a\n" + b"\x00" * 64, content_type="image/png")
+        gallery = SimpleUploadedFile("g.png", buf.getvalue(), content_type="image/png")
         client.force_login(admin_user)
         resp = client.post(
             reverse("classes:admin_class_create"),

@@ -134,6 +134,7 @@ from classes.models import (
 from core.htmx import wants_fragment
 from core.models import SiteConfiguration
 from core.urls_util import book_absolute_url
+from core.validators import validate_image_content
 
 logger = logging.getLogger(__name__)
 
@@ -4568,9 +4569,9 @@ def _hero_upload(request: HttpRequest, offering: ClassOffering) -> HttpResponse:
     file = request.FILES.get("image")
     if not file:
         return JsonResponse({"error": "No file provided."}, status=400)
-    oversize = _oversize_image_error(file)
-    if oversize is not None:
-        return oversize
+    refused = _oversize_image_error(file) or _not_an_image_error(file)
+    if refused is not None:
+        return refused
     offering.image = file
     offering.hero_crop_x = None
     offering.hero_crop_y = None
@@ -4594,15 +4595,28 @@ def _oversize_image_error(file: UploadedFile) -> JsonResponse | None:
     return JsonResponse({"error": f"Image must be {limit_mb:.0f} MB or smaller."}, status=400)
 
 
+def _not_an_image_error(file: UploadedFile) -> JsonResponse | None:
+    """The 400 for an upload whose bytes are not an image, or None when Pillow can open it.
+
+    Beside ``_oversize_image_error`` for the same reason: neither route builds a form, and the
+    model field never reads the bytes, so without this a text file is saved as a class photo.
+    """
+    try:
+        validate_image_content(file)
+    except ValidationError as exc:
+        return JsonResponse({"error": exc.messages[0]}, status=400)
+    return None
+
+
 def _gallery_upload(request: HttpRequest, offering: ClassOffering) -> HttpResponse:
     if offering.gallery_images.count() >= MAX_GALLERY_IMAGES:
         return JsonResponse({"error": f"A class can have at most {MAX_GALLERY_IMAGES} images."}, status=400)
     file = request.FILES.get("image")
     if not file:
         return JsonResponse({"error": "No file provided."}, status=400)
-    oversize = _oversize_image_error(file)
-    if oversize is not None:
-        return oversize
+    refused = _oversize_image_error(file) or _not_an_image_error(file)
+    if refused is not None:
+        return refused
     next_order = (offering.gallery_images.order_by("-sort_order").values_list("sort_order", flat=True).first() or 0) + 1
     img = ClassImage(class_offering=offering, image=file, sort_order=next_order)
     img.full_clean()

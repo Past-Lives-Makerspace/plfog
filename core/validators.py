@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import re
 
+from django import forms
 from django.conf import settings
 from django.core.exceptions import ValidationError
 from django.core.files.uploadedfile import UploadedFile
@@ -18,6 +19,21 @@ def validate_image_size(image: UploadedFile) -> None:
     limit_mb = limit / (1024 * 1024)
     size_mb = size / (1024 * 1024)
     raise ValidationError(f"Image must be {limit_mb:.1f} MB or smaller (got {size_mb:.1f} MB).")
+
+
+def validate_image_content(image: UploadedFile) -> None:
+    """Reject an upload whose bytes Pillow cannot open as an image, whatever its name or declared type.
+
+    A model ``ImageField`` never reads the file, so a route that saves an upload without a form
+    would store a text file as a photo. Django's form ``ImageField`` does the reading, and also
+    sets the file's real ``content_type`` and rewinds it for the save.
+    """
+    import core.images  # noqa: F401  registers the HEIC opener with Pillow
+
+    try:
+        forms.ImageField().to_python(image)
+    except ValidationError:
+        raise ValidationError("That file is not a photo we can open. Choose a JPG, PNG, WEBP or HEIC image.") from None
 
 
 def validate_hex_color(value: str) -> None:
