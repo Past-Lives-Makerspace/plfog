@@ -48,10 +48,6 @@ def describe_SiteConfiguration():
         assert str(config) == "Site Settings"
 
     def describe_feature_switches():
-        def it_defaults_my_tab_enabled_to_true():
-            config = SiteConfiguration.load()
-            assert config.my_tab_enabled is True
-
         def it_defaults_class_registration_enabled_to_true():
             config = SiteConfiguration.load()
             assert config.class_registration_enabled is True

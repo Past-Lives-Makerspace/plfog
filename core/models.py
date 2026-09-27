@@ -631,14 +631,6 @@ class SiteConfiguration(models.Model):
         verbose_name="Google Analytics measurement ID",
         help_text="GA4 measurement ID (e.g. G-XXXXXXX) — injected on every page, this admin included. Leave blank to disable.",
     )
-    my_tab_enabled = models.BooleanField(
-        default=True,
-        verbose_name="Enable My Tab",
-        help_text="When off, hides the member My Tab pages, the balance pill, and the Buyables tab "
-        "on guild pages; members visiting the Tab pages are redirected. The admin Payments dashboard "
-        "also hides its Overview and Open Tabs tabs and opens straight on the Payments ledger. The "
-        "Reports page and payment history are unaffected.",
-    )
     late_cancel_fees_enabled = models.BooleanField(
         default=False,
         verbose_name="Charge late cancellation fees",
@@ -2338,7 +2330,7 @@ class FeatureSwitch(models.Model):
         choices=FeatureState.choices,
         default=FeatureState.ON,
         help_text=(
-            "On is normal behaviour. Coming soon leaves the sidebar entry visible but inert, showing the message below on hover and on keyboard focus. Hidden removes the entry. Both off states change the sidebar only: every page in the feature stays reachable by its own link, for everyone."
+            "On is normal behaviour. Coming soon leaves the sidebar entry visible but inert, showing the message below on hover and on keyboard focus. Hidden removes the entry. For every feature but My Tab, both off states change the sidebar only: every page in the feature stays reachable by its own link, for everyone. My Tab is the exception: both off states turn tab billing off."
         ),
     )
     message = models.CharField(

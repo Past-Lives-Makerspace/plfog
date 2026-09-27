@@ -125,7 +125,7 @@
     <button type="button" class="vote-tab" :class="section === 'schedule' ? 'vote-tab--active' : ''" @click="section = 'schedule'">Guild Calendar</button>
     {% if show_orientation %}<button type="button" class="vote-tab" :class="section === 'orientations' ? 'vote-tab--active' : ''" @click="section = 'orientations'">Orientations</button>{% endif %}
     {% if wiki_tab_enabled %}<button type="button" class="vote-tab" :class="section === 'wiki' ? 'vote-tab--active' : ''" @click="section = 'wiki'">Wiki</button>{% endif %}
-    {% if my_tab_enabled and not is_guilds_surface %}<button type="button" class="vote-tab" :class="section === 'buyables' ? 'vote-tab--active' : ''" @click="section = 'buyables'">Buyables</button>{% endif %}
+    {% if features.my_tab.is_on and not is_guilds_surface %}<button type="button" class="vote-tab" :class="section === 'buyables' ? 'vote-tab--active' : ''" @click="section = 'buyables'">Buyables</button>{% endif %}
     {% if faq_items %}<button type="button" class="vote-tab" :class="section === 'faq' ? 'vote-tab--active' : ''" @click="section = 'faq'">{{ guild.faq_label|default:"FAQ" }}</button>{% endif %}
     {% if guild.wishlist or guild.donate_url %}<button type="button" class="vote-tab" :class="section === 'wishlist' ? 'vote-tab--active' : ''" @click="section = 'wishlist'">Wishlist</button>{% endif %}
     {% if not is_guilds_surface and features.meetings.is_on %}<button type="button" class="vote-tab" :class="section === 'meetings' ? 'vote-tab--active' : ''" @click="section = 'meetings'">Meetings</button>{% endif %}
@@ -450,7 +450,7 @@
 </div>
 {% endif %}
 
-{% if my_tab_enabled and not is_guilds_surface %}
+{% if features.my_tab.is_on and not is_guilds_surface %}
 <div x-show="section === 'buyables'" x-cloak>
     {# Products card #}
     <div class="hub-card">

@@ -25,7 +25,8 @@ def turn_on(key: str) -> FeatureSwitch:
 
 def hide(key: str) -> FeatureSwitch:
     """Hide a feature: no sidebar entry anywhere. Its pages stay reachable by URL — the
-    switch is cosmetic (#405), so nothing 404s in any state."""
+    switch is cosmetic (#405), so nothing 404s in any state. The exception is ``my_tab``
+    (#416): hiding it also switches tab billing off and sends the My Tab pages home."""
     return set_feature(key, FeatureState.HIDDEN)
 
 

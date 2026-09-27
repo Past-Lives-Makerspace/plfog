@@ -91,9 +91,9 @@ _WEBHOOK_HANDLERS = {
 @login_required
 def setup_payment_method(request: HttpRequest) -> HttpResponse:
     """Page with Stripe Elements for adding/replacing a payment method."""
-    from core.models import SiteConfiguration
+    from core.features import is_on
 
-    if not SiteConfiguration.load().my_tab_enabled:
+    if not is_on("my_tab"):
         django_messages.info(request, "My Tab isn't available right now.")
         return redirect("home")
 
@@ -241,7 +241,7 @@ def _payments_panel_context(request: HttpRequest) -> dict[str, object]:
 def admin_tab_dashboard(request: HttpRequest) -> HttpResponse:
     """Admin payments dashboard — tabbed view of billing data.
 
-    The tab set is a function of ``(my_tab_enabled, role)``. With My Tab off, the
+    The tab set is a function of ``(My Tab feature is On, role)``. With My Tab off, the
     Overview and Open Tabs tabs (100% tab-ledger content) disappear and Payments
     becomes the first and default tab; the Settings and Stripe tabs stay admin-only
     in every state (they configure Stripe, which powers class and orientation
@@ -251,14 +251,14 @@ def admin_tab_dashboard(request: HttpRequest) -> HttpResponse:
 
     from billing.forms import BillingSettingsForm, ConnectPlatformSettingsForm, ReconciliationSettingsForm
     from billing.models import BillingSettings, Product
-    from core.models import SiteConfiguration
+    from core.features import is_on
     from membership.models import Guild
 
     view_as = request.view_as  # type: ignore[attr-defined]
     viewer_is_fog_admin = view_as.has_actual("admin")
 
     # Tab set as a function of (flag, role). Settings/Stripe stay admin-only in every state.
-    tabs_on = SiteConfiguration.load().my_tab_enabled
+    tabs_on = is_on("my_tab")
     default_tab = "overview" if tabs_on else "payments"
     allowed = {"overview", "open-tabs", "payments"} if tabs_on else {"payments"}
     if viewer_is_fog_admin:
@@ -667,14 +667,14 @@ def admin_add_tab_entry(request: HttpRequest) -> HttpResponse:
     from django.contrib import admin
 
     from billing.forms import CustomSplitFormSet
-    from core.models import SiteConfiguration
+    from core.features import is_on
     from membership.models import Guild
 
     # New tab charges make no sense with My Tab off — members cannot see or pay them and
     # bill_tabs skips the run. Gate the view server-side so a mid-session flag flip cannot
     # leave an already-open dashboard POSTing entries onto a frozen ledger. Covers both the
     # modal POST and the standalone add-entry page. (Flag on = structural no-op.)
-    if not SiteConfiguration.load().my_tab_enabled:
+    if not is_on("my_tab"):
         django_messages.info(request, "My Tab is off, so new tab charges can't be added right now.")
         return redirect("billing_admin_dashboard")
 

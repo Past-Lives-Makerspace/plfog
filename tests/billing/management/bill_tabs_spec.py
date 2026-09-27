@@ -12,7 +12,6 @@ from django.core.management import call_command
 from django.utils import timezone
 
 from billing.models import BillingSettings, TabCharge
-from core.models import SiteConfiguration
 from tests.billing.factories import (
     BillingSettingsFactory,
     ProductFactory,
@@ -21,6 +20,7 @@ from tests.billing.factories import (
     TabFactory,
 )
 from tests.membership.factories import GuildFactory, MemberFactory
+from tests.features import coming_soon, hide
 
 pytestmark = pytest.mark.django_db
 
@@ -39,11 +39,11 @@ def describe_bill_tabs():
             assert "Another billing run" in output
 
     def describe_schedule():
-        def it_exits_when_tab_payments_disabled():
+        @pytest.mark.parametrize("turn_off", [hide, coming_soon])
+        def it_exits_while_my_tab_is_hidden_or_coming_soon(turn_off):
+            # Both off states are today's off (#416); only the sidebar tells them apart.
             BillingSettingsFactory()
-            config = SiteConfiguration.load()
-            config.my_tab_enabled = False
-            config.save(update_fields=["my_tab_enabled"])
+            turn_off("my_tab")
             output = _call_bill_tabs(force=True)
             assert "disabled" in output
 

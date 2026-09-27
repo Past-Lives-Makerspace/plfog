@@ -10,9 +10,9 @@ from django.test import RequestFactory
 
 from billing.context_processors import tab_context
 from billing.models import Tab
-from core.models import SiteConfiguration
 from membership.models import Member
 from tests.billing.factories import TabEntryFactory, TabFactory
+from tests.features import hide
 
 pytestmark = pytest.mark.django_db
 
@@ -52,9 +52,7 @@ def describe_tab_context():
         assert result["tab_has_payment_method"] is False
 
     def it_returns_empty_dict_when_tab_payments_disabled(rf: RequestFactory):
-        config = SiteConfiguration.load()
-        config.my_tab_enabled = False
-        config.save()
+        hide("my_tab")
         user = User.objects.create_user(username="payments_off", password="pass")
         TabFactory(member=user.member)
         request = rf.get("/")
