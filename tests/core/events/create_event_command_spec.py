@@ -734,6 +734,55 @@ def describe_confirming_a_preview():
         assert event.announce_event_key() == "event.guild_published"
 
     @respx.mock
+    def it_offers_the_author_a_trip_to_add_a_photo(settings, linked_member):
+        # A Discord modal cannot take a file, so the confirmation is where a photo starts
+        # (#505 part 3). The link is the composer that will accept the upload, which for a
+        # guild event is the guild-scoped one, so the author never lands on a 403.
+        _discord_settings(settings)
+        _mock_discord()
+        _set_policy(SiteConfiguration.MemberEventPolicy.DISABLED)
+        followup = _mock_discord()
+        lead = linked_member()
+        guild = GuildFactory(name="Print")
+        guild.guild_lead = lead
+        guild.save(update_fields=["guild_lead"])
+        _result, draft = _preview(lead, title="Zine Night", when="tomorrow 6pm", guild_slug=guild.slug)
+
+        _confirm(lead, draft.pk)
+        event = CommunityEvent.objects.get(title="Zine Night")
+        buttons = _followup_payload(followup)["components"][0]["components"]
+        photo_button = next(button for button in buttons if button["label"] == "Add a photo")
+        assert photo_button["url"].endswith(f"/guilds/{guild.pk}/events/{event.pk}/edit/")
+
+    @respx.mock
+    def it_points_a_site_wide_events_photo_link_at_the_admin_composer(settings, linked_member):
+        _discord_settings(settings)
+        followup = _mock_discord()
+        admin = linked_member(fog_role=Member.FogRole.ADMIN)
+        _result, draft = _preview(admin, title="One Mic Night", when="tomorrow 6pm")
+
+        _confirm(admin, draft.pk)
+        event = CommunityEvent.objects.get(title="One Mic Night")
+        buttons = _followup_payload(followup)["components"][0]["components"]
+        photo_button = next(button for button in buttons if button["label"] == "Add a photo")
+        assert photo_button["url"].endswith(f"/events/{event.pk}/edit/")
+
+    @respx.mock
+    def it_offers_no_photo_link_to_a_proposer(settings, linked_member):
+        # Their event published under the open policy, and the composer only opens a row
+        # still in review, so there is nowhere to send them.
+        _discord_settings(settings)
+        followup = _mock_discord()
+        _set_policy(SiteConfiguration.MemberEventPolicy.OPEN)
+        member = linked_member()
+        _result, draft = _preview(member, title="Repair Cafe", when="tomorrow 6pm")
+
+        _confirm(member, draft.pk)
+        labels = [button["label"] for button in _followup_payload(followup)["components"][0]["components"]]
+        assert "Add a photo" not in labels
+        assert "Open the event" in labels
+
+    @respx.mock
     def it_saves_the_description_location_and_card_recurrence(settings, linked_member):
         _discord_settings(settings)
         _mock_discord()
@@ -987,7 +1036,7 @@ def describe_instant_calendar_announce():
         assert channel.call_count == 1
         payload = _followup_payload(followup)
         labels = [b["label"] for b in payload["components"][0]["components"]]
-        assert labels == ["Open the event", "See it in #calendar"]
+        assert labels == ["Open the event", "See it in #calendar", "Add a photo"]
         jump = payload["components"][0]["components"][1]["url"]
         assert jump == "https://discord.com/channels/srv1/chan9/msg7"
         event = CommunityEvent.objects.get(title="Instant Card")
@@ -1007,7 +1056,7 @@ def describe_instant_calendar_announce():
         payload = _followup_payload(followup)
         assert "live on the Calendar" in payload["content"]  # publish succeeded regardless
         labels = [b["label"] for b in payload["components"][0]["components"]]
-        assert labels == ["Open the event"]  # no jump button on a failed card post
+        assert labels == ["Open the event", "Add a photo"]  # no jump button on a failed card post
         event = CommunityEvent.objects.get(title="Cron Fallback")
         assert event.channel_announced_at is None  # the 15 minute announcer will post it
         assert event.discord_announce_message_id == ""

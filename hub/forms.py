@@ -2732,6 +2732,7 @@ class CommunityEventForm(forms.ModelForm):
             "location",
             "video_url",
             "description",
+            "photo",
             "recurrence",
             "google_calendar_target",
             "publish_at",

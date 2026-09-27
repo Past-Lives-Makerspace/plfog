@@ -13,7 +13,7 @@
   </div>
   {% endif %}
 
-  <form method="post" class="hub-form">
+  <form method="post" class="hub-form" enctype="multipart/form-data">
     {% csrf_token %}
 
     <div class="hub-card" style="padding:1.5rem; margin-bottom:1.5rem;">
@@ -25,6 +25,17 @@
       {% include "components/form_field.html" with field=form.location field_hint="A room, address, or video link. Optional." %}
       {% include "components/form_field.html" with field=form.video_url field_hint="For an online or hybrid meeting — a Google Meet, Zoom, or Jitsi link. Optional." %}
       {% include "components/form_field.html" with field=form.description field_hint="Optional details for members." %}
+      {% comment %}
+      The photo. A file input needs the form's enctype above, and the delete button only
+      exists once there is something to delete, so a saved event passes the endpoint and an
+      unsaved one includes the same component without it.
+      {% endcomment %}
+      {% if event.pk and event.photo %}
+      {% url 'hub_event_photo_delete' event.pk as photo_delete_url %}
+      {% include "components/image_field.html" with field=form.photo current_image=event.photo delete_url=photo_delete_url delete_field_name="next" delete_field_value=request.get_full_path modal_id="delete-event-photo" label="Photo" shape="rect" thumbnail_width="240px" thumbnail_height="135px" max_bytes=max_upload_image_bytes hint_html=photo_upload_hint tooltip_html="Wide photo, about 1600x900, JPG or PNG. Up to ~2400px wide." delete_button_text="Delete photo" confirm_title="Delete this photo?" confirm_message="The photo will be removed from the event page, from future Discord posts, and from our storage. This can't be undone." %}
+      {% else %}
+      {% include "components/image_field.html" with field=form.photo current_image=None label="Photo" shape="rect" thumbnail_width="240px" thumbnail_height="135px" max_bytes=max_upload_image_bytes hint_html=photo_upload_hint tooltip_html="Wide photo, about 1600x900, JPG or PNG. Up to ~2400px wide." %}
+      {% endif %}
       {% include "components/form_field.html" with field=form.recurrence field_hint="A weekly event repeats on the same weekday; a monthly event repeats on the same weekday-of-month as the start (e.g. the 2nd Saturday)." %}
     </div>
 

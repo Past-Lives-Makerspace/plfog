@@ -1056,12 +1056,27 @@ def _form_error_message(form: CommunityEventForm) -> str:
     return " ".join(str(error) for errors in form.errors.values() for error in errors)
 
 
-def _published_reply(event: CommunityEvent, emailed: int, *, calendar_url: str = "") -> dict:
+def _photo_edit_url(event: CommunityEvent) -> str:
+    """Where this event's author goes to put a photo on it.
+
+    A photo cannot be uploaded through a Discord modal, so ``/create`` hands the author a link
+    to the composer that will take the file (#505 part 3). The guild-scoped composer for a
+    guild event, the admin one for a site-wide event: the same two surfaces the caller passed
+    to get here, so the link never lands them on a 403. Only offered to an author who
+    published the event themselves — a proposal's author has no composer for a live row.
+    """
+    if event.guild_id is not None:
+        return hub_url("hub_guild_event_edit", event.guild_id, event.pk)
+    return hub_url("hub_event_edit", event.pk)
+
+
+def _published_reply(event: CommunityEvent, emailed: int, *, calendar_url: str = "", photo_url: str = "") -> dict:
     """The success reply for a live event — the hub link is the edit affordance (v1).
 
     ``calendar_url`` (the just-posted #calendar RSVP card, when the instant announce
     succeeded) adds a second link button so the creator lands on the card people will
-    actually RSVP on, not just the hub page.
+    actually RSVP on, not just the hub page. ``photo_url`` adds the "Add a photo" link, which
+    is how a picture gets onto an event made from Discord.
     """
     content = "Your event is live on the Calendar. ✅"
     if emailed:
@@ -1069,6 +1084,8 @@ def _published_reply(event: CommunityEvent, emailed: int, *, calendar_url: str =
     buttons = [{"type": 2, "style": 5, "label": "Open the event", "url": event.public_url}]
     if calendar_url:
         buttons.append({"type": 2, "style": 5, "label": "See it in #calendar", "url": calendar_url})
+    if photo_url:
+        buttons.append({"type": 2, "style": 5, "label": "Add a photo", "url": photo_url})
     return reply(content, ephemeral=True, components=[{"type": 1, "components": buttons}])
 
 
@@ -1132,7 +1149,10 @@ def _finalize_event(
             emailed = event.email_announcement(email_choice, actor=member.user)
         except Exception:
             logger.exception("create: email announcement failed after the event was published")
-    return _published_reply(event, emailed, calendar_url=calendar_url)
+    # A Discord modal cannot take a file, so the reply offers the trip to the composer that
+    # can. Only for an author who published it: a proposer cannot open a live row.
+    photo_url = _photo_edit_url(event) if authored and not event.photo else ""
+    return _published_reply(event, emailed, calendar_url=calendar_url, photo_url=photo_url)
 
 
 def _local_naive(dt: datetime) -> datetime:

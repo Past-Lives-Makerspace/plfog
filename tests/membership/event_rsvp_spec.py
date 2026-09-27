@@ -18,6 +18,7 @@ import httpx
 import pytest
 import respx
 from django.contrib.auth.models import User
+from django.core.files.base import ContentFile
 from django.db import IntegrityError
 from django.db.models.signals import post_save
 from django.utils import timezone
@@ -30,6 +31,7 @@ from tests.membership.factories import (
     GuildFactory,
     GuildStaffMembershipFactory,
     MemberFactory,
+    tiny_png_bytes,
 )
 
 pytestmark = pytest.mark.django_db
@@ -196,6 +198,19 @@ def describe_discord_announcement_embed():
         embed = event.discord_announcement_embed()
         assert embed["description"].endswith("more on the event page")
         assert len(embed["description"]) <= 600 + len("… more on the event page")
+
+    def describe_the_photo():
+        def it_carries_the_photo_as_the_embed_image(settings):
+            # Discord fetches this URL itself, from its servers, so it has to be absolute —
+            # a storage-relative path would render as a broken card.
+            settings.MEMBER_BASE_URL = "https://members.example"
+            event = _future_event()
+            event.photo.save("flyer.png", ContentFile(tiny_png_bytes()), save=True)
+            assert event.discord_announcement_embed()["image"] == {"url": event.photo_url}
+            assert event.photo_url.startswith("https://")
+
+        def it_leaves_the_card_exactly_as_it_was_without_a_photo():
+            assert "image" not in _future_event().discord_announcement_embed()
 
     def it_shows_an_attendable_time_for_a_recurring_series():
         now = timezone.now()
