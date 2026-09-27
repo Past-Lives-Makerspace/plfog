@@ -28,7 +28,7 @@ from django.contrib.auth import get_user_model
 from django.urls import reverse
 from django.utils import timezone
 
-from classes.factories import ClassOfferingFactory, ClassSessionFactory
+from classes.factories import CategoryFactory, ClassOfferingFactory, ClassSessionFactory, InstructorFactory, UserFactory
 from classes.models import ClassOffering
 from tests.membership.factories import (
     GuildFactory,
@@ -75,11 +75,16 @@ SIGNAGE_DEBT: set[str] = {
 
 def _violations(page, url):
     page.goto(url, wait_until="networkidle")
+    return _scan(page)
+
+
+def _scan(page, context=None):
+    """Run axe over the page as it stands, once per theme, and return one line per violation."""
     found = []
     for theme in ("light", "dark"):
         page.evaluate("(t) => document.documentElement.setAttribute('data-theme', t)", theme)
         page.wait_for_timeout(200)
-        for v in Axe().run(page).response["violations"]:
+        for v in Axe().run(page, context).response["violations"]:
             node = v["nodes"][0] if v["nodes"] else {}
             target = (node.get("target") or ["?"])[0]
             fg = re.search(r"foreground color: (#[0-9a-f]{6})", node.get("failureSummary", "") or "")
@@ -155,6 +160,27 @@ def describe_accessibility():
         assert not offenders, "Critical or new (unbaselined) a11y violations on /notifications/:\n  " + "\n  ".join(
             offenders
         )
+
+    def it_has_no_violations_on_the_composer_with_a_refused_step(live_server, page, login_via_code):
+        # Next on an empty step 1 puts the live field error on screen (#497). The scan runs with no
+        # allowlist: the one thing MEMBERS_HUB_DEBT tolerates, color-contrast, lives on the sidebar's
+        # version pill, so that element alone is left out and the red of the message is held to AA.
+        MembershipPlanFactory()
+        email = "a11y-composer@example.com"
+        user = UserFactory(username=email)
+        InstructorFactory(user=user, full_legal_name="Axe Teacher", instructor_slug="axe-teacher")
+        CategoryFactory()
+        login_via_code(email)
+
+        page.goto(f"{live_server.url}{reverse('classes:teach_class_create')}", wait_until="networkidle")
+        page.locator("#composer-form .pl-composer-bar button:has-text('Next')").click()
+        page.locator('[data-live-error="id_title-error"] .pl-field-error').wait_for()
+
+        offenders = [
+            f"{theme}: [{impact}] {rule} ({nodes} node(s)) — {detail}"
+            for theme, impact, rule, nodes, detail in _scan(page, {"exclude": [[".pl-badge--version"]]})
+        ]
+        assert not offenders, "a11y violations on the composer with a refusal showing:\n  " + "\n  ".join(offenders)
 
     def it_has_no_violations_on_the_v22_admin_surfaces(live_server, page, login_via_code):
         # The v22 editor pages: the guild editor's Meetings tab (studio-hours formset)

@@ -684,7 +684,7 @@
 .pl-form-group input[aria-invalid="true"],
 .pl-form-group select[aria-invalid="true"],
 .pl-form-group textarea[aria-invalid="true"] {
-    border-color: #f87171;
+    border-color: var(--hub-danger-text, #f87171);
 }
 
 /* Custom dropdown chevron — replaces the native arrow that crowds the right edge. */
@@ -751,7 +751,7 @@
 
 .pl-field-error {
     font-size: 0.8125rem;
-    color: #f87171;
+    color: var(--hub-danger-text, #f87171);
 }
 
 .pl-field-hint {
