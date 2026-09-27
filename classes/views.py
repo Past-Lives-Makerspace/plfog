@@ -134,6 +134,7 @@ from classes.models import (
 from core.htmx import wants_fragment
 from core.models import SiteConfiguration
 from core.urls_util import book_absolute_url
+from core.validators import validate_image_content
 
 logger = logging.getLogger(__name__)
 
@@ -2190,7 +2191,7 @@ def teach_class_create(request: HttpRequest) -> HttpResponse:
         try:
             offering.add_gallery_images(request.FILES.getlist("gallery_images"))
         except ValidationError as exc:
-            offering.delete()  # roll back the half-created offering
+            _discard_half_created_offering(offering)
             form.add_error(None, exc.messages[0])
         else:
             _mark_composer_saved(request, offering)
@@ -3820,7 +3821,7 @@ def _create_form_readiness(form: ClassOfferingForm, session_formset: Any, galler
 
 
 def _discard_half_created_offering(offering: ClassOffering) -> None:
-    """Roll back an admin create that could not publish: files, activity rows, then the row.
+    """Roll back a create whose gallery was refused or that could not publish: files, activity rows, then the row.
 
     ``ClassOffering.delete`` alone would leave the hero and gallery objects in storage and
     the ``class_created`` activity rows dangling (their FK is SET_NULL). Files are removed
@@ -3851,9 +3852,9 @@ def admin_class_create(request: HttpRequest) -> HttpResponse:
     gallery files, or activity rows ever landing. Every other POST keeps the class as a
     draft (the composer's Save Draft). A readiness gap is not a form error: the form
     validated, so the composer re-renders on the first step owing an item with the Still
-    Missing checklist, never a non field error on step 1. Only the gallery cap (checked
-    inside ``add_gallery_images``) can still refuse after the save; that path rolls
-    everything back.
+    Missing checklist, never a non field error on step 1. Only the gallery (its cap, or a
+    file that is not an image, both checked inside ``add_gallery_images``) can still refuse
+    after the save; that path rolls everything back.
     """
     form = ClassOfferingForm(request.POST or None, request.FILES or None)
     session_formset = ClassSessionFormSet(request.POST or None, prefix="sessions")
@@ -4568,9 +4569,9 @@ def _hero_upload(request: HttpRequest, offering: ClassOffering) -> HttpResponse:
     file = request.FILES.get("image")
     if not file:
         return JsonResponse({"error": "No file provided."}, status=400)
-    oversize = _oversize_image_error(file)
-    if oversize is not None:
-        return oversize
+    refused = _oversize_image_error(file) or _not_an_image_error(file)
+    if refused is not None:
+        return refused
     offering.image = file
     offering.hero_crop_x = None
     offering.hero_crop_y = None
@@ -4594,15 +4595,28 @@ def _oversize_image_error(file: UploadedFile) -> JsonResponse | None:
     return JsonResponse({"error": f"Image must be {limit_mb:.0f} MB or smaller."}, status=400)
 
 
+def _not_an_image_error(file: UploadedFile) -> JsonResponse | None:
+    """The 400 for an upload whose bytes are not an image, or None when Pillow can open it.
+
+    Beside ``_oversize_image_error`` for the same reason: neither route builds a form, and the
+    model field never reads the bytes, so without this a text file is saved as a class photo.
+    """
+    try:
+        validate_image_content(file)
+    except ValidationError as exc:
+        return JsonResponse({"error": exc.messages[0]}, status=400)
+    return None
+
+
 def _gallery_upload(request: HttpRequest, offering: ClassOffering) -> HttpResponse:
     if offering.gallery_images.count() >= MAX_GALLERY_IMAGES:
         return JsonResponse({"error": f"A class can have at most {MAX_GALLERY_IMAGES} images."}, status=400)
     file = request.FILES.get("image")
     if not file:
         return JsonResponse({"error": "No file provided."}, status=400)
-    oversize = _oversize_image_error(file)
-    if oversize is not None:
-        return oversize
+    refused = _oversize_image_error(file) or _not_an_image_error(file)
+    if refused is not None:
+        return refused
     next_order = (offering.gallery_images.order_by("-sort_order").values_list("sort_order", flat=True).first() or 0) + 1
     img = ClassImage(class_offering=offering, image=file, sort_order=next_order)
     img.full_clean()

@@ -6,10 +6,13 @@ from io import BytesIO
 
 from django.core.files.uploadedfile import SimpleUploadedFile
 from django.urls import reverse
+from PIL import Image
 
 
 def _image_file(name: str = "shot.png") -> SimpleUploadedFile:
-    buf = BytesIO(b"\x89PNG\r\n\x1a\n" + b"\x00" * 64)
+    # A real PNG: the gallery refuses bytes Pillow cannot open (#498).
+    buf = BytesIO()
+    Image.new("RGB", (8, 8)).save(buf, "PNG")
     return SimpleUploadedFile(name, buf.getvalue(), content_type="image/png")
 
 
@@ -364,6 +367,60 @@ def describe_create_class():
         assert response.status_code == 302
         offering = ClassOffering.objects.get(title="Gallery Class")
         assert ClassImage.objects.filter(class_offering=offering).count() == 2
+
+    def it_refuses_a_gallery_file_that_is_not_an_image_and_saves_nothing(admin_user, client, db):
+        from classes.factories import CategoryFactory, InstructorFactory
+        from classes.factories import READY_DESCRIPTION
+        from classes.models import ClassImage, ClassOffering
+
+        client.force_login(admin_user)
+        cat = CategoryFactory()
+        inst = InstructorFactory()
+        response = client.post(
+            reverse("classes:admin_class_create"),
+            {
+                "title": "Gallery Class",
+                "slug": "gallery-class",
+                "category": cat.pk,
+                "instructor": inst.pk,
+                "price_cents": "50.00",
+                "member_discount_pct": 10,
+                "capacity": 6,
+                "scheduling_model": "fixed",
+                "sale_kind": "percent",
+                "scheduling_type": "single_session",
+                "description": READY_DESCRIPTION,
+                "image": _real_image_file(),
+                **_future_session_fields(),
+                "prerequisites": "",
+                "materials_included": "",
+                "materials_to_bring": "",
+                "safety_requirements": "",
+                "age_guardian_note": "",
+                "flexible_note": "",
+                "private_for_name": "",
+                "recurring_pattern": "",
+                "sessions-INITIAL_FORMS": "0",
+                "sessions-MIN_NUM_FORMS": "0",
+                "sessions-MAX_NUM_FORMS": "1000",
+                "faq-TOTAL_FORMS": "0",
+                "faq-INITIAL_FORMS": "0",
+                "faq-MIN_NUM_FORMS": "0",
+                "faq-MAX_NUM_FORMS": "1000",
+                "images-TOTAL_FORMS": "0",
+                "images-INITIAL_FORMS": "0",
+                "images-MIN_NUM_FORMS": "0",
+                "images-MAX_NUM_FORMS": "1000",
+                "gallery_images": [
+                    _image_file("a.png"),
+                    SimpleUploadedFile("b.png", b"notes", content_type="image/png"),
+                ],
+            },
+        )
+        assert response.status_code == 200
+        assert "not a photo we can open" in response.content.decode()
+        assert not ClassOffering.objects.filter(title="Gallery Class").exists()
+        assert not ClassImage.objects.exists()
 
     def it_rejects_an_over_cap_gallery_batch_without_publishing(admin_user, client, db):
         from classes.factories import CategoryFactory, InstructorFactory

@@ -564,3 +564,32 @@ def describe_a_server_message_and_a_live_one():
 
         _expect_clean(page, "id_price_cents")
         expect(_errors_under(page, "id_price_cents")).to_have_count(0)
+
+
+def describe_a_file_that_is_not_an_image():
+    def it_is_refused_by_both_drop_zones_with_the_servers_message_and_no_card(
+        live_server, page, login_via_code, tmp_path
+    ):
+        # A text file renamed .png passes the input's accept="image/*"; the server reads the bytes
+        # and answers 400, and each zone shows that message on its existing error path (#498).
+        offering = _seed_ready_draft(_seed_instructor(), gallery=0)
+        hero_before = offering.image.name
+        notes = tmp_path / "notes.png"
+        notes.write_text("just some notes")
+        page.on("dialog", lambda dialog: dialog.accept())
+        login_via_code(EMAIL)
+        _open_edit(page, live_server, offering)
+        _tab(page, 2).click()
+        expect(_step(page, 2)).to_be_visible()
+
+        said = []
+        for file_input in (GALLERY_FILE_INPUT, "#hero-file-input"):
+            with page.expect_event("dialog") as dialog:
+                page.locator(file_input).set_input_files(str(notes))
+            said.append(dialog.value.message)
+
+        assert said == ["That file is not a photo we can open. Choose a JPG, PNG, WEBP or HEIC image."] * 2
+        expect(page.locator("#gallery-grid .cls-image-cell")).to_have_count(0)
+        assert offering.gallery_images.count() == 0
+        offering.refresh_from_db()
+        assert offering.image.name == hero_before

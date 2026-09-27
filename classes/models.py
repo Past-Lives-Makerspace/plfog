@@ -26,7 +26,7 @@ from django.utils.timezone import localtime
 from core.files import delete_orphan_on_replace
 from core.images import normalize_field_if_uploaded
 from core.models import HeroCropMixin
-from core.validators import validate_image_size
+from core.validators import validate_image_content, validate_image_size
 
 if TYPE_CHECKING:
     from django.contrib.auth.models import AbstractBaseUser, AnonymousUser, User
@@ -1948,14 +1948,17 @@ class ClassOffering(HeroCropMixin, models.Model):
 
         Raises:
             ValidationError: If adding ``files`` would push the offering over
-                ``MAX_GALLERY_IMAGES``. The batch is rejected whole — no rows are
-                created — so the caller can surface one clear message.
+                ``MAX_GALLERY_IMAGES``, or any file is not an image. The batch is
+                rejected whole — no rows are created — so the caller can surface one
+                clear message.
         """
         from django.core.exceptions import ValidationError
 
         current = self.gallery_images.count()
         if current + len(files) > MAX_GALLERY_IMAGES:
             raise ValidationError(f"A class can have at most {MAX_GALLERY_IMAGES} images.")
+        for img_file in files:
+            validate_image_content(img_file)
         for offset, img_file in enumerate(files):
             ClassImage.objects.create(class_offering=self, image=img_file, sort_order=current + offset)
 

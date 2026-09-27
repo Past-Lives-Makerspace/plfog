@@ -313,9 +313,7 @@ def describe_honest_submit_messages():
             ClassOfferingFactory.build(title="Anvil", price_cents=5000, member_discount_pct=10, capacity=6), cat
         )
         payload["image"] = SimpleUploadedFile("hero.png", buf.getvalue(), content_type="image/png")
-        payload["gallery_images"] = [
-            SimpleUploadedFile("g.png", b"\x89PNG\r\n\x1a\n" + b"\x00" * 64, content_type="image/png")
-        ]
+        payload["gallery_images"] = [SimpleUploadedFile("g.png", buf.getvalue(), content_type="image/png")]
         client.force_login(instructor_fixture.user)
         resp = client.post(reverse("classes:teach_class_create"), payload)
         assert resp.status_code == 302
