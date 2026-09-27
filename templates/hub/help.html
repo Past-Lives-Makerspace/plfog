@@ -101,7 +101,7 @@ OrgInfoPage.intro_parts, and admins keep Edit this page / Adjust in the top corn
 {% endwith %}
 
 <div class="pl-guild-grid">
-    <main>
+    <div>
         {% comment %}
         Confluence-style category sections: every published guide is a direct link on
         this page — no need to click into a category to see what's inside. The category
@@ -191,18 +191,18 @@ OrgInfoPage.intro_parts, and admins keep Edit this page / Adjust in the top corn
         </section>
         {% endif %}
 
-    </main>
+    </div>
 
-    <aside>
+    <aside aria-label="Tours and resources">
         {% if tour_rows is not None %}
         {% comment %}Guided tours (Spec C §6.5) — authenticated members only, audience-filtered
         rows. Start = never taken or dismissed; Retake = completed. The empty state is in
         practice unreachable (member-welcome matches every member) but guarded anyway.{% endcomment %}
         <div class="hub-card" style="margin-bottom:1rem;">
             <div class="pl-tour-card__heading">
-                <h3 class="hub-detail-label">Guided Tours</h3>
-                <span class="pl-help pl-help--right" tabindex="0" aria-label="What is a guided tour?">
-                    <span class="pl-help__icon" aria-hidden="true">?</span>
+                <h2 class="hub-detail-label">Guided Tours</h2>
+                <span class="pl-help pl-help--right">
+                    <span class="pl-help__icon" tabindex="0" role="img" aria-label="What is a guided tour?">?</span>
                     <span class="pl-help__bubble" role="tooltip">
                         Starting a tour opens the page it covers and pops up a short series of tips that point at the actual buttons and panels, one step at a time. You can leave a tour at any point, and retake it whenever you like.
                     </span>
@@ -235,7 +235,7 @@ OrgInfoPage.intro_parts, and admins keep Edit this page / Adjust in the top corn
         {% endif %}
         {% if page.code_of_conduct_url or links %}
         <div class="hub-card">
-            <h3 class="hub-detail-label">Resources</h3>
+            <h2 class="hub-detail-label">Resources</h2>
             <div class="pl-guild-links">
                 {% if page.code_of_conduct_url %}<a href="{{ page.code_of_conduct_url }}" target="_blank" rel="noopener noreferrer" hx-boost="false">Code of Conduct</a>{% endif %}
                 {% for link in links %}<a href="{{ link.url }}" target="_blank" rel="noopener" hx-boost="false">{{ link.label }}</a>{% endfor %}
@@ -244,7 +244,7 @@ OrgInfoPage.intro_parts, and admins keep Edit this page / Adjust in the top corn
         {% endif %}
         {% if features.spaces.is_on %}
         <div class="hub-card" style="margin-top:1rem;">
-            <h3 class="hub-detail-label">Looking for a space?</h3>
+            <h2 class="hub-detail-label">Looking for a space?</h2>
             <p class="hub-text-muted" style="margin:0 0 0.75rem;">The floor plan and every studio and shared area moved to their own page.</p>
             <a href="{% url 'hub_spaces' %}" class="pl-btn pl-btn--secondary pl-btn--sm">Go to Spaces &rarr;</a>
         </div>
