@@ -5294,7 +5294,7 @@ mark { background: color-mix(in srgb, var(--color-tuscan-yellow) 30%, transparen
     text-transform: capitalize;
     margin: 0 0 0.85rem;
 }
-/* Tuscan yellow is 1.8:1 on the white card; the light theme's darker gold keeps the accent at 4.9:1. */
+/* Tuscan yellow is 1.8:1 on the white card; the light theme's darker gold keeps the accent at 4.7:1. */
 [data-theme="light"] .pl-compose-section__title { color: #9a6a00; }
 .pl-compose-section__note {
     color: var(--hub-text-muted);
