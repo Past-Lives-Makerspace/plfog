@@ -11,7 +11,7 @@ from datetime import timedelta
 import pytest
 from django.utils import timezone
 
-from membership.models import CommunityEventDraft
+from membership.models import CommunityEvent, CommunityEventDraft
 from tests.membership.factories import GuildFactory
 
 pytestmark = pytest.mark.django_db
@@ -68,6 +68,13 @@ def describe_CommunityEventDraft():
             first = base.update(confirmed_at=timezone.now())
             second = base.update(confirmed_at=timezone.now())
             assert (first, second) == (1, 0)
+
+    def describe_the_kind():
+        def it_defaults_to_a_plain_event(draft_for):
+            # The column's own default is the last guard: a draft written without an answer
+            # must not arrive as somebody's guild meeting (the model default for a real event
+            # is a guild meeting, so this field cannot borrow it).
+            assert draft_for().event_type == CommunityEvent.EventType.COMMUNITY
 
     def describe_guild_link():
         def it_carries_an_optional_guild(draft_for):

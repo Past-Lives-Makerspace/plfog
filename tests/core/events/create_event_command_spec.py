@@ -3,7 +3,7 @@
 Covers the zero-option command that opens the Create-an-Event modal, the guild-select and
 channel-default resolution, the modal submit (when-parse + form validation → the error card
 with an Edit Event button; a valid submit → the upgraded gold preview card), the config
-selects (Repeats / Calendar / Email / conditional Duration) that mutate the draft and
+selects (Repeats / What it is / Email / conditional Duration) that mutate the draft and
 re-render the card, the Edit reopens, and the Create Event / Cancel confirm flow behind the
 type-6 deferred ack (Discord REST mocked with ``respx``).
 """
@@ -36,6 +36,7 @@ from membership.discord_commands import (
     _event_cfg_component,
     _event_edit_component,
     _guild_from_select,
+    _shape_choices,
 )
 from membership.models import CommunityEvent, CommunityEventDraft, Member
 from tests.membership.factories import GuildFactory, GuildMembershipFactory, MemberFactory
@@ -119,6 +120,15 @@ def _select_options(result: dict, custom_id: str) -> list[str]:
     raise AssertionError(f"no select with custom_id {custom_id!r}")
 
 
+def _placeholder(result: dict, custom_id: str) -> str:
+    """The placeholder of the card select whose custom_id is ``custom_id`` (its current value)."""
+    for row in result["data"]["components"]:
+        for comp in row["components"]:
+            if comp.get("custom_id") == custom_id:
+                return str(comp["placeholder"])
+    raise AssertionError(f"no select with custom_id {custom_id!r}")
+
+
 def _label(result: dict, custom_id: str) -> dict:
     return next(
         row["component"]
@@ -168,7 +178,7 @@ def describe_command_definition():
 
 
 def describe_guild_resolution():
-    def it_returns_no_guild_for_the_all_makerspace_choice():
+    def it_returns_no_guild_for_the_no_guild_choice():
         assert _guild_from_select(_GENERAL_VALUE) == (None, None)
 
     def it_returns_no_guild_for_a_blank_value():
@@ -214,10 +224,11 @@ def describe_opening_the_modal():
         default = next(o for o in _label(result, "guild")["options"] if o["default"])
         assert default["value"] == guild.slug
 
-    def it_defaults_to_all_makerspace_when_the_channel_has_no_guild(linked_member):
+    def it_defaults_to_no_guild_when_the_channel_has_no_mapping(linked_member):
         result = _open_modal(linked_member(), channel_id="nowhere")
         default = next(o for o in _label(result, "guild")["options"] if o["default"])
         assert default["value"] == _GENERAL_VALUE
+        assert default["label"] == "No guild"  # the web form's own words for the same choice
 
     def it_peeks_the_rate_limit_without_recording_it(linked_member):
         member = linked_member()
@@ -302,12 +313,18 @@ def describe_the_preview_card():
         names = [f["name"] for f in result["data"]["embeds"][0]["fields"]]
         assert names == ["When", "Guild"]
 
+    def it_names_the_guild_less_state_no_guild(linked_member):
+        admin = linked_member(fog_role=Member.FogRole.ADMIN)
+        result, _draft = _preview(admin, title="Plain", when="tomorrow 6pm")
+        guild_field = next(f for f in result["data"]["embeds"][0]["fields"] if f["name"] == "Guild")
+        assert guild_field["value"] == "No guild"
+
     def it_carries_the_config_selects_and_action_buttons(linked_member):
         admin = linked_member(fog_role=Member.FogRole.ADMIN)
         result, draft = _preview(admin, title="X", when="tomorrow 6pm")
         ids = _custom_ids(result)
         assert f"eventcfg:repeats:{draft.pk}" in ids
-        assert f"eventcfg:calendar:{draft.pk}" in ids
+        assert f"eventcfg:shape:{draft.pk}" in ids
         assert f"eventcfg:email:{draft.pk}" in ids
         assert f"create:confirm:{draft.pk}" in ids
         assert f"create:edit:{draft.pk}" in ids
@@ -358,12 +375,14 @@ def describe_config_selects():
         draft.refresh_from_db()
         assert draft.recurrence == CommunityEvent.Recurrence.MONTHLY
 
-    def it_applies_the_calendar_target(linked_member):
+    def it_applies_both_answers_from_the_what_it_is_select(linked_member):
         admin = linked_member(fog_role=Member.FogRole.ADMIN)
-        _result, draft = _preview(admin, title="X", when="tomorrow 6pm")
-        _cfg(admin, draft.pk, "calendar", "public")
+        guild = GuildFactory(name="Wood")
+        _result, draft = _preview(admin, title="X", when="tomorrow 6pm", guild_slug=guild.slug)
+        _cfg(admin, draft.pk, "shape", "public:community")
         draft.refresh_from_db()
         assert draft.google_calendar_target == CommunityEvent.GoogleCalendarTarget.PUBLIC
+        assert draft.event_type == CommunityEvent.EventType.COMMUNITY
 
     def it_applies_the_email_audience(linked_member):
         admin = linked_member(fog_role=Member.FogRole.ADMIN)
@@ -374,7 +393,7 @@ def describe_config_selects():
 
     def it_omits_guild_members_from_a_site_wide_email_select(linked_member):
         admin = linked_member(fog_role=Member.FogRole.ADMIN)
-        result, draft = _preview(admin, title="X", when="tomorrow 6pm")  # All Makerspace → no guild
+        result, draft = _preview(admin, title="X", when="tomorrow 6pm")  # No guild
         assert _select_options(result, f"eventcfg:email:{draft.pk}") == ["none", "all_active"]
 
     def it_offers_all_three_email_options_for_a_guild_draft(linked_member):
@@ -393,41 +412,41 @@ def describe_config_selects():
         draft.refresh_from_db()
         assert draft.email_choice == CommunityEventDraft.EmailChoice.NONE  # unchanged
 
-    def it_offers_the_calendar_select_to_an_admin(linked_member):
+    def it_offers_the_what_it_is_select_to_an_admin(linked_member):
         admin = linked_member(fog_role=Member.FogRole.ADMIN)
         result, draft = _preview(admin, title="X", when="tomorrow 6pm")
-        assert f"eventcfg:calendar:{draft.pk}" in _custom_ids(result)
+        assert f"eventcfg:shape:{draft.pk}" in _custom_ids(result)
 
-    def it_offers_the_calendar_select_to_a_guild_lead_posting_a_site_wide_event(linked_member):
+    def it_offers_the_what_it_is_select_to_a_guild_lead_posting_a_site_wide_event(linked_member):
         # Lead-or-staff authority ANYWHERE grants it, exactly as the web composer decides —
         # not authority over the guild that happens to be picked.
         lead = linked_member()
         guild = GuildFactory(name="Fibers")
         guild.guild_lead = lead
         guild.save(update_fields=["guild_lead"])
-        result, draft = _preview(lead, title="X", when="tomorrow 6pm")  # All Makerspace → no guild
-        assert f"eventcfg:calendar:{draft.pk}" in _custom_ids(result)
+        result, draft = _preview(lead, title="X", when="tomorrow 6pm")  # No guild
+        assert f"eventcfg:shape:{draft.pk}" in _custom_ids(result)
 
-    def it_offers_the_calendar_select_to_a_guild_officer_who_staffs_no_guild(linked_member):
+    def it_offers_the_what_it_is_select_to_a_guild_officer_who_staffs_no_guild(linked_member):
         # is_effective_staff admits the cross-guild Guild Officer tier, so the web composer
         # asks them. Discord must agree or the same person gets two different answers.
         officer = linked_member(fog_role=Member.FogRole.GUILD_OFFICER)
         result, draft = _preview(officer, title="X", when="tomorrow 6pm")
-        assert f"eventcfg:calendar:{draft.pk}" in _custom_ids(result)
+        assert f"eventcfg:shape:{draft.pk}" in _custom_ids(result)
 
-    def it_omits_the_calendar_select_from_a_plain_members_card(linked_member):
+    def it_omits_the_what_it_is_select_from_a_plain_members_card(linked_member):
         member = linked_member()
         result, draft = _preview(member, title="X", when="tomorrow 6pm")
         ids = _custom_ids(result)
-        assert f"eventcfg:calendar:{draft.pk}" not in ids
+        assert f"eventcfg:shape:{draft.pk}" not in ids
         assert f"eventcfg:email:{draft.pk}" in ids  # the rest of the card is untouched
 
-    def it_rejects_a_forged_members_calendar_click_from_a_plain_member(linked_member):
+    def it_rejects_a_forged_members_click_from_a_plain_member(linked_member):
         # Hiding the select is not a guard on its own: without the handler check this forged
         # interaction would land the draft on the members-only calendar (#505).
         member = linked_member()
         _result, draft = _preview(member, title="X", when="tomorrow 6pm")
-        result = _cfg(member, draft.pk, "calendar", "member")
+        result = _cfg(member, draft.pk, "shape", "member:community")
         assert "went wrong" in result["data"]["content"]
         draft.refresh_from_db()
         assert draft.google_calendar_target == CommunityEvent.GoogleCalendarTarget.PUBLIC  # unchanged
@@ -438,7 +457,7 @@ def describe_config_selects():
         guild.guild_lead = lead
         guild.save(update_fields=["guild_lead"])
         _result, draft = _preview(lead, title="X", when="tomorrow 6pm", guild_slug=guild.slug)
-        _cfg(lead, draft.pk, "calendar", "member")
+        _cfg(lead, draft.pk, "shape", "member:guild_meeting")
         draft.refresh_from_db()
         assert draft.google_calendar_target == CommunityEvent.GoogleCalendarTarget.MEMBER
 
@@ -482,6 +501,93 @@ def describe_config_selects():
     def it_reports_setup_incomplete_for_a_userless_member():
         result = _event_cfg_component({"data": {"custom_id": "eventcfg:repeats:1"}}, MemberFactory())
         assert "isn't fully set up" in result["data"]["content"]
+
+
+# --- What it is: the audience, and the kind where a guild gives it two answers -
+
+
+def describe_the_what_it_is_select():
+    def it_offers_both_answers_for_a_guild_draft():
+        assert _shape_choices(GuildFactory(name="Print")) == [
+            ("public:guild_meeting", "Guild meeting, open to the public"),
+            ("member:guild_meeting", "Guild meeting, for members"),
+            ("public:community", "Something else, open to the public"),
+            ("member:community", "Something else, for members"),
+        ]
+
+    def it_asks_the_audience_alone_on_a_site_wide_draft():
+        # The event's check constraint forbids a guild-less guild meeting, so there is only one
+        # kind to be had and the labels stop naming one.
+        assert _shape_choices(None) == [
+            ("public:community", "Open to the public"),
+            ("member:community", "For members"),
+        ]
+
+    def it_never_names_a_google_calendar_in_its_options():
+        labels = [label for _value, label in _shape_choices(GuildFactory()) + _shape_choices(None)]
+        assert not any("calendar" in label.lower() for label in labels)
+
+    def it_offers_exactly_the_kinds_the_web_composer_offers():
+        # Two doors, one vocabulary. Add a kind to the web form and this fails until the card
+        # offers it too, which is the drift #505 was filed over.
+        from hub.forms import CommunityEventForm
+
+        kinds = {value.partition(":")[2] for value, _ in _shape_choices(GuildFactory())}
+        assert kinds == {value for value, _ in CommunityEventForm.KIND_CHOICES}
+
+    def it_names_each_kind_the_way_the_web_form_names_it():
+        from hub.forms import CommunityEventForm
+
+        web = dict(CommunityEventForm.KIND_CHOICES)
+        for value, label in _shape_choices(GuildFactory()):
+            assert label.startswith(web[value.partition(":")[2]])
+
+    def it_shows_the_current_answer_in_the_placeholder(linked_member):
+        admin = linked_member(fog_role=Member.FogRole.ADMIN)
+        guild = GuildFactory(name="Metals")
+        result, draft = _preview(admin, title="X", when="tomorrow 6pm", guild_slug=guild.slug)
+        placeholder = _placeholder(result, f"eventcfg:shape:{draft.pk}")
+        assert placeholder == "🏷 What it is: Guild meeting, open to the public"
+
+    def it_opens_a_guild_draft_on_a_guild_meeting(linked_member):
+        admin = linked_member(fog_role=Member.FogRole.ADMIN)
+        guild = GuildFactory(name="Fibers")
+        _result, draft = _preview(admin, title="X", when="tomorrow 6pm", guild_slug=guild.slug)
+        assert draft.event_type == CommunityEvent.EventType.GUILD_MEETING
+
+    def it_opens_a_site_wide_draft_on_a_plain_event(linked_member):
+        admin = linked_member(fog_role=Member.FogRole.ADMIN)
+        _result, draft = _preview(admin, title="X", when="tomorrow 6pm")
+        assert draft.event_type == CommunityEvent.EventType.COMMUNITY
+
+    def it_opens_a_plain_members_guild_draft_on_a_plain_event(linked_member):
+        # Nobody asked them, so nothing types their event as that guild's meeting — the same
+        # answer the web's Propose an event settles on for them (#505).
+        member = linked_member()
+        guild = GuildFactory(name="Clay")
+        _result, draft = _preview(member, title="X", when="tomorrow 6pm", guild_slug=guild.slug)
+        assert draft.event_type == CommunityEvent.EventType.COMMUNITY
+
+    def it_rejects_a_forged_guild_meeting_on_a_site_wide_draft(linked_member):
+        # The select never offers it on a guild-less draft and the check constraint would
+        # refuse the row, so a value arriving anyway is forged.
+        admin = linked_member(fog_role=Member.FogRole.ADMIN)
+        _result, draft = _preview(admin, title="X", when="tomorrow 6pm")
+        result = _cfg(admin, draft.pk, "shape", "public:guild_meeting")
+        assert "went wrong" in result["data"]["content"]
+        draft.refresh_from_db()
+        assert draft.event_type == CommunityEvent.EventType.COMMUNITY  # unchanged
+
+    def it_rejects_a_kind_this_form_never_writes(linked_member):
+        # Studio hours keep their own editor on the guild page, and a Guild Lead Meeting is
+        # written by the Meetings workspace. Neither is reachable from here.
+        admin = linked_member(fog_role=Member.FogRole.ADMIN)
+        guild = GuildFactory(name="Wood")
+        _result, draft = _preview(admin, title="X", when="tomorrow 6pm", guild_slug=guild.slug)
+        for forged in ("member:studio_hours", "public:lead_meeting"):
+            assert "went wrong" in _cfg(admin, draft.pk, "shape", forged)["data"]["content"]
+        draft.refresh_from_db()
+        assert draft.event_type == CommunityEvent.EventType.GUILD_MEETING  # unchanged
 
 
 # --- Editing (modal reopen) ---------------------------------------------------
@@ -559,18 +665,73 @@ def describe_confirming_a_preview():
         )
 
     @respx.mock
-    def it_applies_a_public_calendar_choice_from_the_card(settings, linked_member):
+    def it_applies_a_public_choice_from_the_card(settings, linked_member):
         _discord_settings(settings)
         _mock_discord()
         admin = linked_member(fog_role=Member.FogRole.ADMIN)
         _result, draft = _preview(admin, title="One Mic Night", when="tomorrow 6pm")
-        _cfg(admin, draft.pk, "calendar", "public")
+        _cfg(admin, draft.pk, "shape", "public:community")
 
         _confirm(admin, draft.pk)
         event = CommunityEvent.objects.get(title="One Mic Night")
         assert event.event_type == CommunityEvent.EventType.COMMUNITY
         assert event.guild is None
         assert event.google_calendar_target == CommunityEvent.GoogleCalendarTarget.PUBLIC
+
+    @respx.mock
+    def it_saves_a_guilds_public_event_as_a_plain_event_that_keeps_its_guild(settings, linked_member):
+        # The shape #505 was filed for: a guild hosting something open to everyone. It is not a
+        # meeting, it still belongs to the guild, and the announcement still goes to that
+        # guild's members rather than the whole membership.
+        _discord_settings(settings)
+        _mock_discord()
+        admin = linked_member(fog_role=Member.FogRole.ADMIN)
+        guild = GuildFactory(name="Print")
+        _result, draft = _preview(admin, title="Open House", when="tomorrow 6pm", guild_slug=guild.slug)
+        _cfg(admin, draft.pk, "shape", "public:community")
+
+        _confirm(admin, draft.pk)
+        event = CommunityEvent.objects.get(title="Open House")
+        assert event.event_type == CommunityEvent.EventType.COMMUNITY
+        assert event.guild == guild
+        assert event.google_calendar_target == CommunityEvent.GoogleCalendarTarget.PUBLIC
+        assert event.announce_event_key() == "event.guild_published"
+
+    @respx.mock
+    def it_saves_a_members_only_guild_meeting_from_the_card(settings, linked_member):
+        _discord_settings(settings)
+        _mock_discord()
+        lead = linked_member()
+        guild = GuildFactory(name="Fibers")
+        guild.guild_lead = lead
+        guild.save(update_fields=["guild_lead"])
+        _result, draft = _preview(lead, title="Monthly Meeting", when="tomorrow 6pm", guild_slug=guild.slug)
+        _cfg(lead, draft.pk, "shape", "member:guild_meeting")
+
+        _confirm(lead, draft.pk)
+        event = CommunityEvent.objects.get(title="Monthly Meeting")
+        assert event.event_type == CommunityEvent.EventType.GUILD_MEETING
+        assert event.google_calendar_target == CommunityEvent.GoogleCalendarTarget.MEMBER
+        assert event.guild == guild
+
+    @respx.mock
+    def it_saves_a_plain_members_guild_event_as_a_plain_event(settings, linked_member):
+        # Web parity: a member who is asked nothing no longer has their event filed as that
+        # guild's meeting. The same people still hear about it, because the guild decides the
+        # announcement, not the kind.
+        _discord_settings(settings)
+        _mock_discord()
+        _set_policy(SiteConfiguration.MemberEventPolicy.OPEN)
+        member = linked_member()
+        guild = GuildFactory(name="Clay")
+        _result, draft = _preview(member, title="Throw Night", when="tomorrow 6pm", guild_slug=guild.slug)
+
+        _confirm(member, draft.pk)
+        event = CommunityEvent.objects.get(title="Throw Night")
+        assert event.moderation_state == CommunityEvent.ModerationState.PUBLISHED
+        assert event.event_type == CommunityEvent.EventType.COMMUNITY
+        assert event.guild == guild
+        assert event.announce_event_key() == "event.guild_published"
 
     @respx.mock
     def it_saves_the_description_location_and_card_recurrence(settings, linked_member):
