@@ -239,6 +239,10 @@ def describe_window_and_span_merging():
 
 
 def describe_availability_line():
+    @pytest.fixture(autouse=True)
+    def _pinned_clock(midday_now):
+        """Every spec here builds today's hours and then reads now; pin it (#422)."""
+
     def it_reports_busy_without_a_prefetch():
         equipment = EquipmentFactory()
         EquipmentHoursFactory(

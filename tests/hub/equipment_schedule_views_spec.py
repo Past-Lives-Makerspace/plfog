@@ -833,7 +833,7 @@ def describe_index_availability_line():
         response = client.get(reverse("hub_equipment_index"))
         assert b"Closed. Back Tuesday." in response.content
 
-    def it_shows_available_now_inside_an_open_window(client: Client):
+    def it_shows_available_now_inside_an_open_window(client: Client, midday_now):
         _login(client, "idx_open")
         equipment = EquipmentFactory(name="Open Tool")
         EquipmentHoursFactory(
@@ -845,7 +845,7 @@ def describe_index_availability_line():
         response = client.get(reverse("hub_equipment_index"))
         assert b"Available now" in response.content
 
-    def it_shows_reserved_until_while_a_reservation_is_running(client: Client):
+    def it_shows_reserved_until_while_a_reservation_is_running(client: Client, midday_now):
         _login(client, "idx_busy")
         equipment = EquipmentFactory(name="Busy Tool")
         EquipmentHoursFactory(

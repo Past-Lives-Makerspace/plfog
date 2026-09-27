@@ -135,7 +135,7 @@ def describe_equipment_index():
         )
         assert count_queries() <= without_fee + 1
 
-    def it_shows_a_running_orientation_as_reserved_on_the_card(client: Client):
+    def it_shows_a_running_orientation_as_reserved_on_the_card(client: Client, midday_now):
         from datetime import time, timedelta
 
         from django.utils import timezone
