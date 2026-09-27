@@ -436,14 +436,25 @@
 .pl-calendar-list__item {
     position: relative;
     display: flex;
-    gap: 1rem;
     background: var(--hub-card-bg);
     border-radius: 10px;
     border: 1px solid rgba(255,255,255,0.06);
     border-left: 4px solid var(--event-color, #888);
-    padding: 0.875rem 1rem;
-    align-items: flex-start;
+    /* No padding of its own and no gap: each child brings its own, so an event photo can
+       bleed to the card's edges instead of floating inside a frame. overflow clips it to
+       the rounded corner. */
+    padding: 0;
+    overflow: hidden;
+    align-items: stretch;
     transition: box-shadow 0.3s, background 0.3s;
+}
+
+.pl-calendar-list__item > .pl-calendar-list__time {
+    padding: 0.875rem 0 0.875rem 1rem;
+}
+
+.pl-calendar-list__item > .pl-calendar-list__body {
+    padding: 0.875rem 1rem;
 }
 
 .pl-calendar-list__item--flash {
@@ -520,16 +531,15 @@
     min-width: 0;
 }
 
-/* An event's photo, at the END of the row on purpose: the row is a flex line and the time
-   column is its left edge, so a thumbnail here leaves every row's text aligned whether or
-   not that event carries a picture. Hidden on phones, where the row has no width to spare. */
+/* An event's photo is a panel of the row, not a sticker on it: it bleeds to the card's own
+   edges and stretches the full height, which is why the row hands its padding to its children
+   (below) rather than carrying it itself. It closes the row so a photoless row's text still
+   lines up with its neighbours'. Hidden on phones, where the row has no width to spare. */
 .pl-calendar-list__thumb {
-    flex: 0 0 auto;
-    width: 84px;
-    height: 56px;
-    border-radius: 6px;
+    flex: 0 0 150px;
+    align-self: stretch;
+    min-height: 104px;
     overflow: hidden;
-    border: 1px solid var(--hub-border);
 }
 
 .pl-calendar-list__thumb img {
@@ -537,6 +547,12 @@
     width: 100%;
     height: 100%;
     object-fit: cover;
+}
+
+@media (max-width: 900px) {
+    .pl-calendar-list__thumb {
+        flex-basis: 132px;
+    }
 }
 
 @media (max-width: 640px) {
