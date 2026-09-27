@@ -115,8 +115,10 @@ def _live_error(page, control_id: str):
 def _errors_under(page, control_id: str):
     """Every field error under that control, whoever wrote it: Django renders its list as a
     sibling of the input and the live one is inserted as a sibling too, so one selector sees
-    both and a count of two is the stacking bug."""
-    return page.locator(f"#{control_id} ~ .pl-field-errors .pl-field-error")
+    both and a count of two is the stacking bug. The live list sits inside its alert wrapper."""
+    return page.locator(
+        f"#{control_id} ~ .pl-field-errors .pl-field-error, #{control_id} ~ [data-live-error] .pl-field-error"
+    )
 
 
 def _open_create(page, live_server) -> None:
@@ -137,6 +139,11 @@ def _expect_refused_on(page, n: int, control_id: str, message: str = REQUIRED) -
     expect(control).to_have_attribute("aria-invalid", "true")
     expect(control).to_have_attribute("aria-describedby", re.compile(rf"\b{control_id}-error\b"))
     expect(_live_error(page, control_id)).to_have_text(message)
+    # The server's ul > li shape, with the alert role on a wrapper and none on the li (#497).
+    live = page.locator(f'[data-live-error="{control_id}-error"]')
+    expect(live).to_have_attribute("role", "alert")
+    expect(live.locator("> ul.pl-field-errors > li.pl-field-error")).to_have_count(1)
+    expect(live.locator("li[role]")).to_have_count(0)
 
 
 def _expect_refused_at_the_gallery(page: Page, container_id: str) -> None:
@@ -144,7 +151,7 @@ def _expect_refused_at_the_gallery(page: Page, container_id: str) -> None:
     refusal is the very next element after it, in the field error markup the rest of the composer uses."""
     _expect_refused_on(page, 2, container_id, GALLERY_MESSAGE)
     expect(_step(page, 3)).to_be_hidden()
-    expect(page.locator(f"#{container_id} + ul.pl-field-errors > li.pl-field-error[role='alert']")).to_have_text(
+    expect(page.locator(f"#{container_id} + [role='alert'] > ul.pl-field-errors > li.pl-field-error")).to_have_text(
         GALLERY_MESSAGE
     )
 

@@ -92,6 +92,7 @@ img {
     --hub-surface: #13151d;       /* inset panels, tiles, table stripes */
     --hub-card-bg: #181b24;       /* cards & modals (sits above the page) */
     --hub-elevated: #20242f;      /* dropdowns, popovers, raised pills */
+    --hub-danger-text: #f87171;   /* field errors: 6.2:1 on the card */
     --hub-card-border: rgba(255, 255, 255, 0.07);
     --hub-border: rgba(255, 255, 255, 0.08);
     --hub-border-strong: rgba(255, 255, 255, 0.14);
@@ -182,6 +183,7 @@ img {
     --hub-surface: #e6e9ee;
     --hub-card-bg: #ffffff;
     --hub-elevated: #ffffff;
+    --hub-danger-text: #b03030;   /* field errors: 6.3:1 on the white card */
     --hub-card-border: #dfe3ea;
     --hub-border: #e2e6ec;
     --hub-border-strong: #cfd5de;
@@ -5292,6 +5294,8 @@ mark { background: color-mix(in srgb, var(--color-tuscan-yellow) 30%, transparen
     text-transform: capitalize;
     margin: 0 0 0.85rem;
 }
+/* Tuscan yellow is 1.8:1 on the white card; the light theme's darker gold keeps the accent at 4.7:1. */
+[data-theme="light"] .pl-compose-section__title { color: #9a6a00; }
 .pl-compose-section__note {
     color: var(--hub-text-muted);
     font-size: 0.875rem;

@@ -187,18 +187,23 @@
         var id = errorId(el);
         dropServerErrors(el);
         var list = listFor(el);
+        // The alert role sits on a wrapper so the list keeps the ul > li shape the
+        // server renders: on the li it is a role li may not carry, and on the ul
+        // it would leave the li outside any list.
         if (!list) {
-            list = document.createElement("ul");
-            list.className = "pl-field-errors";
+            list = document.createElement("div");
+            list.setAttribute("role", "alert");
             list.setAttribute(LIST_ATTR, id);
+            var errors = document.createElement("ul");
+            errors.className = "pl-field-errors";
             var item = document.createElement("li");
             item.className = "pl-field-error";
             item.id = id;
-            item.setAttribute("role", "alert");
-            list.appendChild(item);
+            errors.appendChild(item);
+            list.appendChild(errors);
             anchorFor(el).insertAdjacentElement("afterend", list);
         }
-        list.firstElementChild.textContent = message(el);
+        list.querySelector(".pl-field-error").textContent = message(el);
         el.setAttribute("aria-invalid", "true");
         el.setAttribute(LIVE_ATTR, "");
         addToken(el, "aria-describedby", id);
