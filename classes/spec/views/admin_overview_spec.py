@@ -197,15 +197,13 @@ def describe_admin_overview():
             # Default range is the last 7 days, so the chart spans 7 daily buckets.
             assert len(resp.context["reg_by_day"]) == 7
 
-        def it_counts_todays_registration_in_the_series(admin_user, client, db):
-            import datetime
-
+        def it_counts_todays_registration_in_the_series(admin_user, client, db, midday_now):
             from classes.factories import RegistrationFactory
 
             client.force_login(admin_user)
             RegistrationFactory()
             resp = client.get(reverse("classes:admin_overview"))
-            today = datetime.date.today()
+            today = midday_now.date()
             today_entry = next(d for d in resp.context["reg_by_day"] if d["date"] == today)
             assert today_entry["count"] == 1
 

@@ -169,9 +169,7 @@ def describe_bill_tabs_self_gates_when_dispatched():
     billing time, even with a tab full of pending charges — the schedule gate
     inside the command is what protects against an unwanted charge."""
 
-    def it_makes_no_charge_outside_billing_time(db):
-        from datetime import date
-
+    def it_makes_no_charge_outside_billing_time(db, midday_now):
         from billing.models import BillingSettings, TabCharge
         from tests.billing.factories import (
             BillingSettingsFactory,
@@ -182,7 +180,7 @@ def describe_bill_tabs_self_gates_when_dispatched():
         # MONTHLY billing configured for day 15; "today" is not day 15 for most
         # of the month, so the command must no-op. Pin via charge_day_of_month to
         # a day that is guaranteed not to be today (today + offset, wrapped).
-        today = date.today().day
+        today = midday_now.day
         not_today = (today % 28) + 1  # 1..28, never equal to `today`
         BillingSettingsFactory(
             charge_frequency=BillingSettings.ChargeFrequency.MONTHLY,
