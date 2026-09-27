@@ -562,6 +562,8 @@ urlpatterns = [
     path("events/add/", views.event_edit, name="hub_event_add"),
     path("events/<int:event_pk>/edit/", views.event_edit, name="hub_event_edit"),
     path("events/<int:event_pk>/delete/", views.event_delete, name="hub_event_delete"),
+    # Shared by all three composers — the photo field's own delete endpoint.
+    path("events/<int:event_pk>/photo/delete/", views.event_photo_delete, name="hub_event_photo_delete"),
     # Member event proposals + reviewer queue.
     path("events/propose/", views.propose_event, name="hub_propose_event"),
     path("events/propose/<int:pk>/edit/", views.propose_event, name="hub_propose_event_edit"),

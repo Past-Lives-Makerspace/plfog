@@ -94,5 +94,14 @@ Params:
         <div class="pl-calendar-list__flag">{% include "hub/partials/_sync_flag.html" %}</div>
         {% endif %}
     </div>
+    {% comment %}
+    The event's photo, if it has one. Only a FOG event can: a class session, an orientation
+    and an iCal feed row reach this partial as duck-typed entries with no community_event,
+    which reads as empty here and draws nothing. It closes the row rather than opening it so
+    a photoless row's text still lines up with its neighbours'.
+    {% endcomment %}
+    {% if event.community_event.photo %}
+    <div class="pl-calendar-list__thumb"><img src="{{ event.community_event.photo.url }}" alt="" loading="lazy"></div>
+    {% endif %}
 </div>
 {% endwith %}

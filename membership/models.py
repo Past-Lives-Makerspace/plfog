@@ -5577,6 +5577,15 @@ class CommunityEvent(models.Model):
         ),
     )
     description = models.TextField(blank=True, default="", help_text="Optional details for members.")
+    photo = models.ImageField(
+        upload_to="events/photos/",
+        blank=True,
+        validators=[validate_image_size],
+        help_text=(
+            "Optional photo. It fronts the event page, rides along on the Discord announcement, "
+            "and becomes the cover image in Discord's own Events tab."
+        ),
+    )
     recurrence = models.CharField(
         max_length=20,
         choices=Recurrence.choices,
@@ -5788,6 +5797,20 @@ class CommunityEvent(models.Model):
         where = self.guild.name if self.guild is not None else "Site-wide"
         return f"{self.title} — {where} ({self.starts_at:%Y-%m-%d %H:%M})"
 
+    def save(self, *args: Any, **kwargs: Any) -> None:
+        """Normalize a freshly uploaded photo and clean up the one it replaced.
+
+        The photo work is skipped for a targeted ``update_fields`` save that does not name
+        it, which is most of this model's saves: the sync bookkeeping rewrites a handful of
+        columns after every Google and Discord push, and ``delete_orphan_on_replace`` costs a
+        query per call. An ordinary full save (a form, a new row) still checks both.
+        """
+        update_fields = kwargs.get("update_fields")
+        if update_fields is None or "photo" in update_fields:
+            delete_orphan_on_replace(self, "photo")
+            normalize_field_if_uploaded(self, "photo", settings.IMAGE_MAX_LONG_EDGE_HERO)
+        super().save(*args, **kwargs)
+
     # --- Recurrence (virtual expansion, reusing _nth_weekday) -----------------
 
     def _occurrence_ordinal(self) -> int:
@@ -5990,6 +6013,23 @@ class CommunityEvent(models.Model):
         from django.urls import reverse
 
         return f"{settings.MEMBER_BASE_URL}{reverse('hub_event_detail', args=[self.pk])}"
+
+    @property
+    def photo_url(self) -> str:
+        """The photo as an absolute URL, or ``""`` when the event has none.
+
+        Discord fetches the picture itself, from its own servers, so a storage-relative
+        ``/media/...`` path is no use to it. Object storage already returns an absolute URL
+        (the deployed config); anything relative is made absolute against
+        ``MEMBER_BASE_URL``, exactly as :attr:`public_url` does. In local development that
+        points at localhost, which Discord cannot reach, and the push degrades to no picture.
+        """
+        if not self.photo:
+            return ""
+        url = self.photo.url
+        if url.startswith(("http://", "https://")):
+            return url
+        return f"{settings.MEMBER_BASE_URL}{url}"
 
     @property
     def qr_url(self) -> str:
@@ -6606,6 +6646,12 @@ class CommunityEvent(models.Model):
             if len(description) > _DISCORD_DESCRIPTION_MAX:
                 description = description[:_DISCORD_DESCRIPTION_MAX].rstrip() + "… more on the event page"
             embed["description"] = description
+        # Discord fetches the picture itself, so an unreachable URL costs nothing but a
+        # plain card: the key is simply absent when there is no photo, and Discord drops an
+        # image it cannot load rather than refusing the message.
+        photo_url = self.photo_url
+        if photo_url:
+            embed["image"] = {"url": photo_url}
         return embed
 
     def discord_announcement_components(self) -> list[dict[str, Any]]:

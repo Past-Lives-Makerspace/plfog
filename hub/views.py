@@ -5517,6 +5517,17 @@ def _event_delete_confirm_message(event: CommunityEvent) -> str:
     return message
 
 
+def _event_photo_context() -> dict[str, Any]:
+    """The photo field's byte cap and its hint — one copy for all three composers."""
+    return {
+        "max_upload_image_bytes": settings.MAX_UPLOAD_IMAGE_BYTES,
+        "photo_upload_hint": (
+            "Optional. It fronts the event page and rides along on the Discord post. "
+            f"Max {settings.MAX_UPLOAD_IMAGE_BYTES / (1024 * 1024):.0f} MB."
+        ),
+    }
+
+
 def _event_guild_choices(request: HttpRequest, event: CommunityEvent) -> QuerySet[Guild]:
     """The guilds this request may file ``event`` under.
 
@@ -5563,7 +5574,9 @@ def guild_event_edit(request: HttpRequest, pk: int, event_pk: int | None = None)
     _, can_choose_audience = editable_meeting_scopes(request)
 
     if request.method == "POST":
-        form = CommunityEventForm(request.POST, instance=event, guild=guild, can_choose_audience=can_choose_audience)
+        form = CommunityEventForm(
+            request.POST, request.FILES, instance=event, guild=guild, can_choose_audience=can_choose_audience
+        )
         if form.is_valid():
             event = form.save(commit=False)
             event.guild = guild
@@ -5599,6 +5612,7 @@ def guild_event_edit(request: HttpRequest, pk: int, event_pk: int | None = None)
             "google_sync_enabled": _google_sync_enabled(),
             "delete_url": reverse("hub_guild_event_delete", args=[guild.pk, event.pk]) if event.pk else None,
             "delete_confirm_message": _event_delete_confirm_message(event) if event.pk else None,
+            **_event_photo_context(),
         },
     )
 
@@ -5637,7 +5651,9 @@ def event_edit(request: HttpRequest, event_pk: int | None = None) -> HttpRespons
     guild_choices = _event_guild_choices(request, event)
 
     if request.method == "POST":
-        form = CommunityEventForm(request.POST, instance=event, can_choose_audience=True, guild_choices=guild_choices)
+        form = CommunityEventForm(
+            request.POST, request.FILES, instance=event, can_choose_audience=True, guild_choices=guild_choices
+        )
         if form.is_valid():
             event = form.save(commit=False)
             if is_new:
@@ -5670,6 +5686,7 @@ def event_edit(request: HttpRequest, event_pk: int | None = None) -> HttpRespons
             "google_sync_enabled": _google_sync_enabled(),
             "delete_url": reverse("hub_event_delete", args=[event.pk]) if event.pk else None,
             "delete_confirm_message": _event_delete_confirm_message(event) if event.pk else None,
+            **_event_photo_context(),
         },
     )
 
@@ -5688,6 +5705,41 @@ def event_delete(request: HttpRequest, event_pk: int) -> HttpResponse:
     event.remove_from_discord()  # best-effort; must run before the FOG row is gone
     event.delete()
     messages.success(request, "Event deleted.")
+    return redirect(reverse("hub_community_calendar") + "?tab=events")
+
+
+@login_required
+@require_POST
+def event_photo_delete(request: HttpRequest, event_pk: int) -> HttpResponse:
+    """POST only — clear an event's photo (the ``image_field`` component's delete endpoint).
+
+    One endpoint for all three composers rather than one each, because who may clear the
+    photo is simply who may edit the event: :func:`can_edit_event` for the admin and guild
+    surfaces, which is the same helper the Edit affordance and the QR download already ask,
+    plus the proposer of a proposal still in the review loop — exactly the row
+    :func:`propose_event` lets them open.
+
+    Clearing the field and saving it (rather than ``photo.delete()``) leaves the storage
+    sweep to the model's own save, so a removed photo and a replaced one are cleaned up by
+    the same line of code.
+    """
+    from membership.models import CommunityEvent
+    from membership.permissions import can_edit_event
+
+    event = get_object_or_404(CommunityEvent, pk=event_pk)
+    own_proposal = event.submitted_by_id == request.user.pk and event.moderation_state in (
+        CommunityEvent.ModerationState.PENDING,
+        CommunityEvent.ModerationState.CHANGES_REQUESTED,
+    )
+    if not can_edit_event(request, event) and not own_proposal:
+        return HttpResponse("Forbidden", status=403)
+    if event.photo:
+        event.photo = ""
+        event.save(update_fields=["photo"])
+        messages.success(request, "Photo removed.")
+    next_url = request.POST.get("next", "")
+    if next_url and url_has_allowed_host_and_scheme(next_url, allowed_hosts={request.get_host()}):
+        return redirect(next_url)
     return redirect(reverse("hub_community_calendar") + "?tab=events")
 
 
@@ -5774,7 +5826,7 @@ def propose_event(request: HttpRequest, pk: int | None = None) -> HttpResponse:
     }
 
     if request.method == "POST":
-        form = CommunityEventForm(request.POST, instance=event, **form_kwargs)
+        form = CommunityEventForm(request.POST, request.FILES, instance=event, **form_kwargs)
         if form.is_valid():
             event = form.save(commit=False)
             published = event.propose(
@@ -5813,6 +5865,7 @@ def propose_event(request: HttpRequest, pk: int | None = None) -> HttpResponse:
             "policy": policy,
             "cancel_url": cancel_url,
             "my_proposals": my_proposals,
+            **_event_photo_context(),
         },
     )
 

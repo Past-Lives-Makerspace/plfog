@@ -1,0 +1,10 @@
+bump = "minor"
+date = "2026-09-26"
+title = "An event can carry a photo"
+changes = [
+  "Events can now have a photo. It fronts the event's page behind the title, shows as a thumbnail in the Calendar list, and goes out with the post in Discord.",
+  "The photo also becomes the event's cover image in Discord's own Events tab, so it looks like a real flyer there too.",
+  "Anyone who can put an event on the calendar can give it a photo: a guild lead or staffer, an admin, or a member proposing one.",
+  "Made the event with /create in Discord? The confirmation now offers a link straight to the page where you add the photo.",
+  "An event without a photo looks exactly the way it does today.",
+]

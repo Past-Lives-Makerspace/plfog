@@ -4626,6 +4626,73 @@ mark { background: color-mix(in srgb, var(--color-tuscan-yellow) 30%, transparen
     margin-bottom: 0.75rem;
 }
 
+/* The photo hero. Without a photo `.pl-event-detail__hero` is an inert wrapper and the
+   card reads as it always has; `--photo` lifts the headline onto the picture, which needs
+   the negative margins to escape the card's 1.75rem padding and its own radius to match
+   the card's 10px corners. The text is forced white on both themes because it now sits on
+   a photograph, not on the card, and the gradient is what guarantees it stays readable
+   over a pale or busy one (there is no cropping or focal point here by design). */
+.pl-event-detail__hero--photo {
+    position: relative;
+    display: flex;
+    align-items: flex-end;
+    min-height: 240px;
+    margin: -1.75rem -1.75rem 1.25rem;
+    padding: 1.75rem;
+    border-radius: 10px 10px 0 0;
+    overflow: hidden;
+}
+
+.pl-event-detail__hero-img {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+}
+
+.pl-event-detail__hero-shade {
+    position: absolute;
+    inset: 0;
+    background: linear-gradient(to top, rgba(0, 0, 0, 0.85) 0%, rgba(0, 0, 0, 0.5) 45%, rgba(0, 0, 0, 0.12) 100%);
+}
+
+.pl-event-detail__hero--photo .pl-event-detail__hero-text {
+    position: relative;
+    width: 100%;
+}
+
+.pl-event-detail__hero--photo .pl-event-detail__title,
+.pl-event-detail__hero--photo .pl-event-detail__row,
+.pl-event-detail__hero--photo .pl-event-detail__type {
+    color: #fff;
+}
+
+.pl-event-detail__hero--photo .pl-event-detail__guild {
+    background: rgba(255, 255, 255, 0.16);
+    color: #fff;
+}
+
+.pl-event-detail__hero--photo .pl-event-detail__guild:hover {
+    background: rgba(255, 255, 255, 0.28);
+}
+
+.pl-event-detail__hero--photo .pl-event-detail__badge {
+    border-color: rgba(255, 255, 255, 0.45);
+    color: #fff;
+}
+
+.pl-event-detail__hero--photo .pl-event-detail__row:last-child {
+    margin-bottom: 0;
+}
+
+@media (max-width: 640px) {
+    .pl-event-detail__hero--photo {
+        min-height: 180px;
+    }
+}
+
+
 .pl-event-detail__guild {
     display: inline-block;
     padding: 0.2rem 0.6rem;

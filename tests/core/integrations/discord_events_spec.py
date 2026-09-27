@@ -7,6 +7,7 @@ exercised through ``respx``.
 
 from __future__ import annotations
 
+import base64
 from datetime import datetime, timedelta
 from typing import Any
 from unittest.mock import MagicMock, call, patch
@@ -14,12 +15,13 @@ from unittest.mock import MagicMock, call, patch
 import httpx
 import pytest
 import respx
+from django.core.files.base import ContentFile
 from django.utils import timezone
 
 from core.integrations import discord_events as de
 from core.models import SiteConfiguration
 from membership.models import CommunityEvent
-from tests.membership.factories import CommunityEventFactory
+from tests.membership.factories import CommunityEventFactory, tiny_png_bytes
 
 SERVER_ID = "server123"
 _EVENTS_URL = f"https://discord.com/api/v10/guilds/{SERVER_ID}/scheduled-events"
@@ -281,6 +283,55 @@ def describe__build_scheduled_event_body():
         body = de._build_scheduled_event_body(event, occurrence=occ)
         assert body["scheduled_start_time"] == occ.isoformat()
         assert "recurrence_rule" not in body
+
+    def describe_the_cover_image():
+        def it_carries_the_photo_as_a_data_uri():
+            # Discord takes a cover as base64 bytes in the body, not as a URL, so the picture
+            # itself has to travel — and it is the event's own photo, decoded byte for byte.
+            event = _event()
+            raw = tiny_png_bytes()
+            event.photo.save("forge.png", ContentFile(raw), save=True)
+            body = de._build_scheduled_event_body(event)
+            header, _, encoded = body["image"].partition(",")
+            assert header == "data:image/png;base64"
+            assert base64.b64decode(encoded) == raw
+
+        def it_omits_the_image_for_an_event_with_no_photo():
+            assert "image" not in de._build_scheduled_event_body(_event())
+
+        def it_carries_the_cover_on_an_update_too():
+            # An edit PATCHes the same body builder, so a photo added after the first push
+            # still reaches Discord's Events tab.
+            event = _event(discord_event_id="evt1")
+            event.photo.save("forge.png", ContentFile(tiny_png_bytes()), save=True)
+            _enable_config()
+            client = _fake_client()
+            with patch.object(de.DiscordScheduledEventsClient, "from_settings", return_value=client):
+                de.push_community_event(event)
+            client.update_event.assert_called_once()
+            assert client.update_event.call_args.args[2]["image"].startswith("data:image/png;base64,")
+            assert event.discord_sync_state == CommunityEvent.SyncState.SYNCED
+
+        def it_pushes_without_a_cover_when_the_photo_cannot_be_read():
+            # Storage is a network call in production. A bucket that is down, or an object
+            # that is gone, must cost the banner and nothing else.
+            event = _event()
+            event.photo.save("forge.png", ContentFile(tiny_png_bytes()), save=True)
+            _enable_config()
+            client = _fake_client()
+            with (
+                patch.object(type(event.photo), "open", side_effect=OSError("bucket down")),
+                patch.object(de.DiscordScheduledEventsClient, "from_settings", return_value=client),
+            ):
+                de.push_community_event(event)
+            assert "image" not in client.insert_event.call_args.args[1]
+            assert event.discord_sync_state == CommunityEvent.SyncState.SYNCED  # the event still synced
+
+        def it_skips_a_photo_bigger_than_the_cover_cap():
+            event = _event()
+            event.photo.save("forge.png", ContentFile(tiny_png_bytes()), save=True)
+            with patch.object(type(event.photo), "size", de._COVER_IMAGE_MAX_BYTES + 1):
+                assert "image" not in de._build_scheduled_event_body(event)
 
 
 @pytest.mark.django_db
