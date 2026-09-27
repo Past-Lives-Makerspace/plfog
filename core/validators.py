@@ -9,6 +9,8 @@ from django.conf import settings
 from django.core.exceptions import ValidationError
 from django.core.files.uploadedfile import UploadedFile
 
+import core.images  # noqa: F401  registers the HEIC opener with Pillow
+
 
 def validate_image_size(image: UploadedFile) -> None:
     """Reject uploaded images larger than ``settings.MAX_UPLOAD_IMAGE_BYTES``."""
@@ -28,8 +30,6 @@ def validate_image_content(image: UploadedFile) -> None:
     would store a text file as a photo. Django's form ``ImageField`` does the reading, and also
     sets the file's real ``content_type`` and rewinds it for the save.
     """
-    import core.images  # noqa: F401  registers the HEIC opener with Pillow
-
     try:
         forms.ImageField().to_python(image)
     except ValidationError:

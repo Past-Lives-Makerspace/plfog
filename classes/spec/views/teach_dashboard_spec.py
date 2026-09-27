@@ -226,6 +226,21 @@ def describe_instructor_create_class():
         assert ClassImage.objects.filter(class_offering=offering).count() == 2
 
     def it_refuses_a_gallery_file_that_is_not_an_image_and_saves_nothing(instructor_fixture, client):
+        from django.core.files.storage import default_storage
+
+        from classes.models import CLASS_IMAGE_PREFIX
+
+        def stored() -> set[str]:
+            try:
+                return set(default_storage.listdir(CLASS_IMAGE_PREFIX)[1])
+            except FileNotFoundError:
+                return set()
+
+        # A hero no other spec uploads, so its content-addressed key is new to storage.
+        buf = BytesIO()
+        Image.new("RGB", (8, 8), (201, 17, 88)).save(buf, "PNG")
+        hero = SimpleUploadedFile("hero.png", buf.getvalue(), content_type="image/png")
+        before = stored()
         cat = CategoryFactory()
         client.force_login(instructor_fixture.user)
         response = client.post(
@@ -260,6 +275,7 @@ def describe_instructor_create_class():
                 "images-MIN_NUM_FORMS": "0",
                 "images-MAX_NUM_FORMS": "1000",
                 "action": "save",
+                "image": hero,
                 "gallery_images": [
                     _image_file("x.png"),
                     SimpleUploadedFile("y.png", b"notes", content_type="image/png"),
@@ -270,6 +286,7 @@ def describe_instructor_create_class():
         assert "not a photo we can open" in response.content.decode()
         assert not ClassOffering.objects.filter(title="Gallery Class").exists()
         assert not ClassImage.objects.exists()
+        assert stored() == before  # the hero form.save() wrote is removed with the row
 
     def it_date_stamps_the_slug_from_the_first_session(instructor_fixture, client):
         cat = CategoryFactory()

@@ -26,7 +26,7 @@ from django.utils.timezone import localtime
 from core.files import delete_orphan_on_replace
 from core.images import normalize_field_if_uploaded
 from core.models import HeroCropMixin
-from core.validators import validate_image_size
+from core.validators import validate_image_content, validate_image_size
 
 if TYPE_CHECKING:
     from django.contrib.auth.models import AbstractBaseUser, AnonymousUser, User
@@ -1953,8 +1953,6 @@ class ClassOffering(HeroCropMixin, models.Model):
                 clear message.
         """
         from django.core.exceptions import ValidationError
-
-        from core.validators import validate_image_content
 
         current = self.gallery_images.count()
         if current + len(files) > MAX_GALLERY_IMAGES:

@@ -2191,7 +2191,7 @@ def teach_class_create(request: HttpRequest) -> HttpResponse:
         try:
             offering.add_gallery_images(request.FILES.getlist("gallery_images"))
         except ValidationError as exc:
-            offering.delete()  # roll back the half-created offering
+            _discard_half_created_offering(offering)
             form.add_error(None, exc.messages[0])
         else:
             _mark_composer_saved(request, offering)
@@ -3821,7 +3821,7 @@ def _create_form_readiness(form: ClassOfferingForm, session_formset: Any, galler
 
 
 def _discard_half_created_offering(offering: ClassOffering) -> None:
-    """Roll back an admin create that could not publish: files, activity rows, then the row.
+    """Roll back a create whose gallery was refused or that could not publish: files, activity rows, then the row.
 
     ``ClassOffering.delete`` alone would leave the hero and gallery objects in storage and
     the ``class_created`` activity rows dangling (their FK is SET_NULL). Files are removed
@@ -3852,9 +3852,9 @@ def admin_class_create(request: HttpRequest) -> HttpResponse:
     gallery files, or activity rows ever landing. Every other POST keeps the class as a
     draft (the composer's Save Draft). A readiness gap is not a form error: the form
     validated, so the composer re-renders on the first step owing an item with the Still
-    Missing checklist, never a non field error on step 1. Only the gallery cap (checked
-    inside ``add_gallery_images``) can still refuse after the save; that path rolls
-    everything back.
+    Missing checklist, never a non field error on step 1. Only the gallery (its cap, or a
+    file that is not an image, both checked inside ``add_gallery_images``) can still refuse
+    after the save; that path rolls everything back.
     """
     form = ClassOfferingForm(request.POST or None, request.FILES or None)
     session_formset = ClassSessionFormSet(request.POST or None, prefix="sessions")
