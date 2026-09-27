@@ -8,9 +8,12 @@ Each mapping defines:
 
 from __future__ import annotations
 
+import logging
 from datetime import date
 from decimal import Decimal
 from typing import Any
+
+logger = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
 # Table IDs (PLM Members & Studios 2026 base)
@@ -122,10 +125,18 @@ def member_to_airtable(member: Any) -> dict[str, Any]:
     return fields
 
 
-def member_from_airtable(fields: dict[str, Any]) -> dict[str, Any]:
+def member_from_airtable(fields: dict[str, Any], record_id: str = "") -> dict[str, Any]:
     """Convert Airtable Member fields to Django field kwargs.
 
     Note: Does NOT set membership_plan (requires lookup). Caller must handle that.
+
+    An Airtable Status the map does not know leaves ``status`` out, so the member keeps the
+    status they had, and logs a warning naming the record and the value (#409): a silently
+    stale status is how a cancelled member keeps signing in.
+
+    Args:
+        fields: The Airtable record's fields.
+        record_id: The Airtable record id, used only to name the member in that warning.
     """
     display_name = fields.get("Member Name", "")
     legal_name = fields.get("Legal name (if different)", "")
@@ -152,6 +163,13 @@ def member_from_airtable(fields: dict[str, Any]) -> dict[str, Any]:
     at_status = fields.get("Status", "")
     if at_status and at_status in MEMBER_STATUS_FROM_AT:
         result["status"] = MEMBER_STATUS_FROM_AT[at_status]
+    elif at_status:
+        logger.warning(
+            "Airtable member %s (%s) has an unmapped Status %r; their status was left unchanged.",
+            record_id or "<no record id>",
+            display_name or "<no name>",
+            at_status,
+        )
 
     at_role = fields.get("Role", "")
     if at_role and at_role in MEMBER_TYPE_FROM_AT:

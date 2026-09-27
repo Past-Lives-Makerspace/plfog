@@ -240,6 +240,49 @@ class ToastFlashMiddleware:
         return response
 
 
+class MemberLockoutMiddleware:
+    """Sign out a live members-surface session whose Member is locked out (#409).
+
+    Sign-in and the biometric unlock already refuse a former (or, by setting, suspended)
+    member; this closes the other door, a session that was open when the status flipped. The
+    member is logged out and sent to the lockout page. Runs after AuthenticationMiddleware and
+    before MemberAgreementMiddleware, so a locked-out member is never bounced to the agreement.
+
+    Cost: one Member lookup per authenticated members-surface request, and it is the same
+    ``request.user.member`` the agreement middleware and the hub views read, cached on the user.
+    Only a status of FORMER or SUSPENDED goes on to load SiteConfiguration. Health checks and
+    static files are exempt; there is no loop, because the redirect's next request is anonymous.
+    """
+
+    EXEMPT_PREFIXES = ("/health/", "/static/")
+
+    def __init__(self, get_response: Callable[[HttpRequest], HttpResponse]) -> None:
+        self.get_response = get_response
+
+    def __call__(self, request: HttpRequest) -> HttpResponse:
+        if not request.user.is_authenticated or request.path.startswith(self.EXEMPT_PREFIXES):
+            return self.get_response(request)
+
+        from core.member_lockout import lockout_reason
+
+        reason = lockout_reason(request, request.user)
+        if reason is None:
+            return self.get_response(request)
+
+        from django.contrib.auth import logout
+        from django.urls import reverse
+
+        from core.htmx import wants_fragment
+
+        logout(request)
+        locked_url = f"{reverse('account_locked')}?reason={reason}"
+        if wants_fragment(request):
+            res = HttpResponse(status=200)
+            res["HX-Redirect"] = locked_url
+            return res
+        return HttpResponseRedirect(locked_url)
+
+
 class MemberAgreementMiddleware:
     """Redirects active members to the Member Agreement if required and not yet accepted."""
 

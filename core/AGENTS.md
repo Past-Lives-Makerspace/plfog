@@ -39,3 +39,7 @@ The allauth adapter (`plfog/adapters.py`) checks this before allowing new signup
 - `/restart-login/` — force re-login (clear session)
 - `/site-migration/` — migration landing page
 - `/find-account/` — find account by email (admin tool)
+
+## Member Lockout (#409)
+
+`core/member_lockout.py` holds the one rule for who the **members** surface turns away: `lockout_reason(request, user)` returns `former` (always, staff included) or `suspended` (while `SiteConfiguration.suspended_members_locked_out` is on), else None. It reads `Member.status`, never `User.is_active`, so the book surface still lets a former member see their receipts. Three gates call it: `AdminRedirectAccountAdapter.pre_login`, `biometric_unlock`, and `MemberLockoutMiddleware` (signs out a live session). All send the member to `/accounts/locked/?reason=`, which shows the admin-editable message (`former_member_signin_message` / `suspended_member_signin_message`, General tab of Site Settings) and the support email.

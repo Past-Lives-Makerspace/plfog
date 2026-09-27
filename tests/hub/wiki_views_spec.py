@@ -404,7 +404,7 @@ def describe_wiki_page_reading():
         # Quick Answers is opt-in on the editor, so a page with none is an ordinary good
         # page rather than an unfinished one. A whole card whose only content is a sentence
         # saying it is empty is noise to somebody who cannot do anything about it.
-        _login(client, "read_nofacts_reader", status=Member.Status.FORMER)
+        _login(client, "read_nofacts_reader", status=Member.Status.INVITED)
         page = WikiPageFactory()
         response = client.get(page.get_absolute_url())
         assert response.status_code == 200
@@ -412,7 +412,7 @@ def describe_wiki_page_reading():
         assert b"pl-wp-factsblock" not in response.content
 
     def it_still_shows_a_reader_the_facts_a_page_does_have(client: Client):
-        _login(client, "read_facts_reader", status=Member.Status.FORMER)
+        _login(client, "read_facts_reader", status=Member.Status.INVITED)
         page = WikiPageFactory()
         WikiPageFactFactory(page=page, label="Blade", value="10 inch")
         response = client.get(page.get_absolute_url())
@@ -423,7 +423,7 @@ def describe_wiki_page_reading():
         # Same rule as Quick Answers next door: attachments are optional, so an empty card
         # is the normal state of a good page and the sentence saying so is noise to
         # somebody who cannot attach anything.
-        _login(client, "read_noattach_reader", status=Member.Status.FORMER)
+        _login(client, "read_noattach_reader", status=Member.Status.INVITED)
         page = WikiPageFactory()
         response = client.get(page.get_absolute_url())
         assert response.status_code == 200
@@ -441,7 +441,7 @@ def describe_wiki_page_reading():
         assert b"Nothing attached yet." in response.content
 
     def it_still_shows_a_reader_the_attachments_a_page_does_have(client: Client):
-        _login(client, "read_attach_reader", status=Member.Status.FORMER)
+        _login(client, "read_attach_reader", status=Member.Status.INVITED)
         page = WikiPageFactory()
         WikiAttachmentFactory(page=page, label="The Manual")
         response = client.get(page.get_absolute_url())

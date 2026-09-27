@@ -81,9 +81,9 @@ def describe_teach_entry():
         assert reverse("classes:teach_overview") in nav
         assert "Teach a Class" not in nav
 
-    def it_is_absent_for_a_former_member_even_once_unlocked(plain_user, client):
+    def it_is_absent_for_a_member_who_is_not_active_even_once_unlocked(plain_user, client):
         member = _unlock(plain_user)
-        member.status = Member.Status.FORMER
+        member.status = Member.Status.INVITED
         member.save(update_fields=["status"])
         client.force_login(plain_user)
         assert 'data-nav="teach"' not in _sidebar(client)

@@ -168,7 +168,7 @@ def describe_add_to_wanted():
     def it_refuses_a_member_whose_membership_lapsed(db, client):
         user = _login(client, "miss_add_lapsed")
         guild = GuildFactory(guild_lead=user.member)
-        user.member.status = Member.Status.FORMER
+        user.member.status = Member.Status.INVITED
         user.member.save(update_fields=["status"])
         response = client.post(
             reverse("hub_wiki_wanted_request"),

@@ -1,0 +1,16 @@
+{% extends "base.html" %}
+
+{% block title %}Account Not Active - {{ brand_short_name }}{% endblock %}
+
+{% block content %}
+<div class="auth-page">
+    <h1 class="auth-page__title">Account Not Active</h1>
+    <p class="auth-page__subtitle" id="account-locked-message">{{ lockout_message }}</p>
+    <div class="auth-links">
+        {% if brand_support_email %}
+        <p id="account-locked-contact">Questions? Email <a href="mailto:{{ brand_support_email }}">{{ brand_support_email }}</a>.</p>
+        {% endif %}
+        <p><a href="{% url 'account_login' %}">Back to login</a></p>
+    </div>
+</div>
+{% endblock %}

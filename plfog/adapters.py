@@ -8,11 +8,12 @@ from typing import Any
 
 from allauth.account.adapter import DefaultAccountAdapter
 from allauth.account.forms import ConfirmLoginCodeForm, RequestLoginCodeForm, SignupForm
+from allauth.account.internal.stagekit import clear_login
 from allauth.core.internal.cryptokit import compare_user_code
 from django import forms
 from django.conf import settings
 from django.contrib.auth import get_user_model
-from django.http import HttpRequest
+from django.http import HttpRequest, HttpResponseRedirect
 from django.urls import reverse
 from django.utils import timezone
 
@@ -137,7 +138,19 @@ class AdminRedirectAccountAdapter(DefaultAccountAdapter):
         signup: bool = False,
         redirect_url: str | None = None,
     ) -> Any:
-        """Mark matching invite as accepted when a new user signs up."""
+        """Turn away a locked-out member, then mark a matching invite accepted on signup.
+
+        A former (or, by setting, suspended) member on the members surface is sent to the
+        lockout page instead of being logged in, and the half-finished login-code stage is
+        cleared so their next attempt starts clean (#409, ``core/member_lockout.py``).
+        """
+        from core.member_lockout import lockout_reason
+
+        reason = lockout_reason(request, user)
+        if reason is not None:
+            clear_login(request)
+            return HttpResponseRedirect(f"{reverse('account_locked')}?reason={reason}")
+
         if signup:
             from core.models import Invite
 

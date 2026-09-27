@@ -34,6 +34,7 @@ from django.views.decorators.http import require_GET, require_POST
 from allauth.account.internal.stagekit import clear_login
 
 from .forms import FindAccountForm, NewsletterSignupForm
+from .member_lockout import lockout_message, lockout_reason
 from .models import FcmDevice, PushSubscription, SiteActivity, TransactionalEmailLog
 
 logger = logging.getLogger(__name__)
@@ -188,6 +189,17 @@ def restart_login(request: HttpRequest) -> HttpResponse:
     """Clear any pending login stage and redirect to the login page."""
     clear_login(request)
     return redirect("account_login")
+
+
+def account_locked(request: HttpRequest) -> HttpResponse:
+    """Tell a member why the members site turned them away (#409).
+
+    Every lockout gate sends the member here, already signed out, with ``?reason=`` naming the
+    Member status that locked them out. The reason is not a secret: the page only shows the
+    matching admin-editable sentence and the support email.
+    """
+    message = lockout_message(request.GET.get("reason", ""))
+    return render(request, "account/account_locked.html", {"lockout_message": message})
 
 
 def find_account(request: HttpRequest) -> HttpResponse:
@@ -587,6 +599,14 @@ def biometric_unlock(request: HttpRequest) -> JsonResponse:
             BiometricCredential.objects.revoke_all(user)
             logger.warning("Biometric unlock refused for inactive user pk=%s; credentials revoked.", user.pk)
             return JsonResponse({"error": _BIOMETRIC_UNLOCK_FAILED}, status=401)
+
+        # A former (or, by setting, suspended) member is refused the same way, so the app drops
+        # the dead credential and falls back to the login-code form, which shows them why (#409).
+        lockout = lockout_reason(request, user)
+        if lockout is not None:
+            BiometricCredential.objects.revoke_all(user)
+            logger.warning("Biometric unlock refused for %s member pk=%s; credentials revoked.", lockout, user.pk)
+            return JsonResponse({"error": lockout_message(lockout)}, status=401)
 
         login(request, user, backend="django.contrib.auth.backends.ModelBackend")
         return JsonResponse({"ok": True, "secret": secret})

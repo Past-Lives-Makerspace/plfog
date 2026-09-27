@@ -661,6 +661,28 @@ class SiteConfiguration(models.Model):
         verbose_name="Registration-off message",
         help_text="Shown under the disabled Register button when class registration is off.",
     )
+    # #409: who the members site turns away, and what they read. Former members are always
+    # locked out; suspended ones only while the switch is on. See core/member_lockout.py.
+    former_member_signin_message = models.TextField(
+        blank=True,
+        default="Your membership is no longer active, so this account can no longer sign in to the member site.",
+        verbose_name="Former member sign in message",
+        help_text="Shown when a former member tries to sign in to the member site. The support email is "
+        "shown under it. Blank uses the built in sentence.",
+    )
+    suspended_members_locked_out = models.BooleanField(
+        default=True,
+        verbose_name="Lock out suspended members",
+        help_text="When on, a suspended member cannot sign in to the member site and sees the message below. "
+        "Former members are always locked out.",
+    )
+    suspended_member_signin_message = models.TextField(
+        blank=True,
+        default="Your membership is paused right now, so this account cannot sign in to the member site.",
+        verbose_name="Suspended member sign in message",
+        help_text="Shown when a suspended member tries to sign in while suspended members are locked out. "
+        "The support email is shown under it. Blank uses the built in sentence.",
+    )
     help_page_enabled = models.BooleanField(
         default=True,
         verbose_name="Show Help in the sidebar",
