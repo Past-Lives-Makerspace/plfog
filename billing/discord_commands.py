@@ -23,14 +23,14 @@ Interaction = dict
 def _balance(interaction: Interaction, member: Member | None) -> dict:
     """Render the caller's tab balance, remaining limit, and payment method — with a manage link.
 
-    Feature-gated first: when My Tab & Payments is off site-wide there's no tab to read, so
+    Feature-gated first: when the My Tab feature is not On there's no tab to read, so
     the gate reply returns immediately. Otherwise a tab is fetched (created on first use) and
     every state — zero balance, no card, locked — carries its actionable next step.
     """
     from billing.models import Tab
-    from core.models import SiteConfiguration
+    from core.features import is_on
 
-    if not SiteConfiguration.load().my_tab_enabled:
+    if not is_on("my_tab"):
         return reply("Tab payments aren't enabled right now.", ephemeral=True)
 
     member = cast("Member", member)  # requires_link=True: dispatch resolved a linked member before this runs

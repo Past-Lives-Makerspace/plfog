@@ -13,7 +13,7 @@ from django.utils import timezone
 
 from billing.models import BillingSettings, Tab, TabCharge, TabEntry
 from billing.notifications import notify_admin_charge_failed, send_receipt
-from core.models import SiteConfiguration
+from core.features import is_on
 
 logger = logging.getLogger(__name__)
 
@@ -65,7 +65,7 @@ class Command(BaseCommand):
         """Core billing logic."""
         settings = BillingSettings.load()
 
-        if not SiteConfiguration.load().my_tab_enabled:
+        if not is_on("my_tab"):
             self.stdout.write("Tab payments are disabled. Exiting.")
             return
 

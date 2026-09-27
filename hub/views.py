@@ -2813,6 +2813,11 @@ def guild_product_delete(request: HttpRequest, pk: int, product_pk: int) -> Http
 def guild_cart_confirm(request: HttpRequest, pk: int) -> HttpResponse:
     """Batch-add cart items to the member's tab. Expects JSON body with items array."""
 
+    # The Buyables tab is not rendered unless My Tab is On, but a crafted POST must not put
+    # entries on a tab that would bill the moment the switch comes back On (#416).
+    if not is_on("my_tab"):
+        return JsonResponse({"error": "My Tab isn't available right now."}, status=400)
+
     guild = get_object_or_404(Guild, pk=pk)
     member = _get_member(request)
     if member is None:  # pragma: no cover — defensive; signal auto-creates Member on User creation
@@ -2867,6 +2872,10 @@ def guild_cart_confirm(request: HttpRequest, pk: int) -> HttpResponse:
 def guild_eyop_form(request: HttpRequest, pk: int) -> HttpResponse:
     """Return the EYOP form partial (GET) or process submission (POST)."""
     from billing.forms import CONTEXT_MEMBER_GUILD_PAGE, TabItemForm
+
+    # Same guard as guild_cart_confirm: with My Tab off nothing reaches a tab (#416).
+    if not is_on("my_tab"):
+        return HttpResponse("My Tab isn't available right now.", status=400)
 
     guild = get_object_or_404(Guild, pk=pk)
     member = _get_member(request)
@@ -6019,7 +6028,7 @@ def beta_feedback(request: HttpRequest) -> HttpResponse:
 @require_http_methods(["GET"])
 def tab_detail(request: HttpRequest) -> HttpResponse:
     """My Tab page — shows current balance, pending entries, and saved payment method."""
-    if not SiteConfiguration.load().my_tab_enabled:
+    if not is_on("my_tab"):
         messages.info(request, "My Tab isn't available right now.")
         return redirect("home")
 
@@ -6072,7 +6081,7 @@ def void_tab_entry(request: HttpRequest, entry_pk: int) -> HttpResponse:
 @login_required
 def tab_history(request: HttpRequest) -> HttpResponse:
     """Tab History page — shows past billing charges with expandable details."""
-    if not SiteConfiguration.load().my_tab_enabled:
+    if not is_on("my_tab"):
         messages.info(request, "My Tab isn't available right now.")
         return redirect("home")
 

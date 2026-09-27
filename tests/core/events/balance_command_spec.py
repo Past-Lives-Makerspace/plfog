@@ -8,8 +8,8 @@ import pytest
 
 from billing.discord_commands import BALANCE, _balance
 from billing.models import Tab
-from core.models import SiteConfiguration
 from tests.billing.factories import TabEntryFactory, TabFactory
+from tests.features import hide
 
 pytestmark = pytest.mark.django_db
 
@@ -73,9 +73,7 @@ def describe_balance():
 
     def describe_when_tab_payments_are_disabled():
         def it_returns_the_gate_reply_without_touching_the_tab(linked_member):
-            config = SiteConfiguration.load()
-            config.my_tab_enabled = False
-            config.save(update_fields=["my_tab_enabled"])
+            hide("my_tab")
             member = linked_member()
 
             content = _content(member)

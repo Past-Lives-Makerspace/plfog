@@ -83,11 +83,9 @@ def describe_setup_payment_method():
         assert response.status_code in (200, 302)
 
     def it_redirects_to_the_dashboard_when_tab_payments_disabled(client: Client):
-        from core.models import SiteConfiguration
+        from tests.features import hide
 
-        config = SiteConfiguration.load()
-        config.my_tab_enabled = False
-        config.save()
+        hide("my_tab")
         User.objects.create_user(username="pm_off", password="pass")
         client.login(username="pm_off", password="pass")
 

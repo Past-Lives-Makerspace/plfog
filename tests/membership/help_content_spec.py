@@ -142,7 +142,7 @@ def describe_help_content():
 
         def it_publishes_no_gated_slugs():
             # GATED surfaces (§10.5 rule 4): Discord connect stays undocumented until
-            # the prod bot is confirmed; billing waits on my_tab_enabled.
+            # the prod bot is confirmed; billing waits on the My Tab feature switch.
             seeded = {article["slug"] for article in _articles()}
             assert not seeded & {"connecting-discord", "notifications-and-your-settings", "billing-admin"}
 

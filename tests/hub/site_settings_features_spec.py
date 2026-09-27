@@ -286,13 +286,12 @@ def describe_saving_the_late_cancel_fee_settings():
         assert config.late_cancel_notice_hours == 48
         assert config.late_cancel_grace_hours == 6
 
-    def it_renders_the_three_right_after_the_my_tab_switch(client: Client):
+    def it_renders_the_three_together_ahead_of_class_registration(client: Client):
         _superuser(client, "latefeerender")
         html = client.get(f"{URL}?tab=features").content.decode()
         positions = [
             html.index(f'name="{name}"')
             for name in (
-                "my_tab_enabled",
                 "late_cancel_fees_enabled",
                 "late_cancel_notice_hours",
                 "late_cancel_grace_hours",
@@ -309,3 +308,29 @@ def describe_saving_the_late_cancel_fee_settings():
         assert response.status_code == 200
         assert "The grace period must be shorter than the notice." in response.content.decode()
         assert SiteConfiguration.load().late_cancel_grace_hours == 2
+
+
+def describe_the_my_tab_card():
+    """My Tab moved from a flat toggle into the registry (#416): a card, not a checkbox."""
+
+    def it_shows_a_my_tab_card_with_the_three_states(client: Client):
+        _superuser(client, "mytabcard")
+        FeatureSwitch.objects.sync_registry()
+        html = client.get(f"{URL}?tab=features").content.decode()
+        index = [row.feature_key for row in FeatureSwitch.objects.all()].index("my_tab")
+        assert "My Tab" in html
+        assert "The one switch here that does more than the sidebar." in html
+        for state in ("on", "soon", "hidden"):
+            assert f'name="features-{index}-state" value="{state}"' in html
+
+    def it_no_longer_renders_a_flat_my_tab_toggle(client: Client):
+        _superuser(client, "mytabflat")
+        html = client.get(f"{URL}?tab=features").content.decode()
+        assert 'id="id_my_tab' not in html
+        assert 'name="my_tab' not in html
+
+    def it_saves_coming_soon_for_my_tab_through_the_view(client: Client):
+        _superuser(client, "mytabsave")
+        response = client.post(URL, _settings_post(states={"my_tab": FeatureState.SOON}))
+        assert response.status_code == 302
+        assert _state_of("my_tab") == FeatureState.SOON

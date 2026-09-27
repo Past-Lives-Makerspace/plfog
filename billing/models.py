@@ -570,9 +570,9 @@ class Tab(models.Model):
         of the same add is idempotent.
         """
         from core.events.emit import emit
-        from core.models import SiteConfiguration
+        from core.features import is_on
 
-        if not SiteConfiguration.load().my_tab_enabled:
+        if not is_on("my_tab"):
             return
 
         # Both events resolve the TAB_MEMBER (the tab's own member) and are transactional

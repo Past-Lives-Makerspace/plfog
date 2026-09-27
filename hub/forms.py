@@ -1229,7 +1229,6 @@ class SiteSettingsForm(forms.ModelForm):
             "discord_server_id",
             "discord_role_message_channel_id",
             "discord_role_message_id",
-            "my_tab_enabled",
             "late_cancel_fees_enabled",
             "late_cancel_notice_hours",
             "late_cancel_grace_hours",

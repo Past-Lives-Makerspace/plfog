@@ -1029,7 +1029,7 @@ def describe_admin_site_settings_features():
         response = client.get(reverse("hub_admin_site_settings") + "?tab=features")
         assert response.status_code == 200
         assert response.context["active_tab"] == "features"
-        assert b"Enable My Tab" in response.content
+        assert b"The one switch here that does more than the sidebar." in response.content  # the My Tab card
         assert b"Allow class registration" in response.content
 
     def _features_panel(response) -> bytes:
@@ -1084,7 +1084,6 @@ def describe_admin_site_settings_features():
         # Excluded from the General loop — each control renders only in the Features panel.
         _create_superuser(client)
         response = client.get(reverse("hub_admin_site_settings"))
-        assert response.content.count(b'id="id_my_tab_enabled"') == 1
         assert response.content.count(b'id="id_class_registration_enabled"') == 1
         assert response.content.count(b'id="id_class_registration_disabled_note"') == 1
         assert response.content.count(b'id="id_help_page_enabled"') == 1
@@ -1119,7 +1118,6 @@ def describe_admin_site_settings_features():
         assert response.status_code == 302
         assert "tab=features" in response["Location"]
         config = SiteConfiguration.load()
-        assert config.my_tab_enabled is False
         assert config.class_registration_enabled is False
         assert config.class_registration_disabled_note == "We'll be back soon."
 
@@ -1138,7 +1136,6 @@ def describe_admin_site_settings_features():
                 "mailchimp_api_key": "",
                 "mailchimp_list_id": "",
                 "google_analytics_measurement_id": "",
-                "my_tab_enabled": "on",
                 "class_registration_enabled": "on",
                 "class_registration_disabled_note": "",
                 "feeds-TOTAL_FORMS": "0",
@@ -1149,7 +1146,6 @@ def describe_admin_site_settings_features():
         )
         assert response.status_code == 302
         config = SiteConfiguration.load()
-        assert config.my_tab_enabled is True
         assert config.class_registration_enabled is True
 
     def it_saves_the_guild_welcome_email_switch_off_and_back_on(client):

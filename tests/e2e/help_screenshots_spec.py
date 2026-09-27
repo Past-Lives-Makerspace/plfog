@@ -145,11 +145,9 @@ def _seed_help_extras(personas: dict[str, Member]) -> None:
     # GATED surfaces stay out of the pictures, not just the prose (§10.5 rule 4):
     # the flag defaults on, which would leak My Tab, the balance pill, and the
     # Buyables guild tab into every screenshot.
-    from core.models import SiteConfiguration
+    from tests.features import hide
 
-    config = SiteConfiguration.load()
-    config.my_tab_enabled = False
-    config.save(update_fields=["my_tab_enabled"])
+    hide("my_tab")
 
     ceramics = Guild.objects.get(name="Ceramics Guild")
     textiles = Guild.objects.get(name="Textiles Guild")
