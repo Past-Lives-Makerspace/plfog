@@ -1,0 +1,3 @@
+# Teaching portal specs use an Invited member for the "not active" 403 case, since a Former member is now turned away by the lockout before the view runs. Internal: tests only.
+bump = "patch"
+audience = "internal"

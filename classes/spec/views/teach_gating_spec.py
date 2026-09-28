@@ -51,7 +51,7 @@ def describe_teaching_member_required():
     def it_403s_an_inactive_member(db, client, route):
         user = UserFactory(username=f"inactive-{route.split(':')[1]}@example.com")
         member = Member.objects.get(user=user)
-        member.status = Member.Status.FORMER
+        member.status = Member.Status.INVITED
         member.save(update_fields=["status"])
         client.force_login(user)
         assert client.get(reverse(route)).status_code == 403

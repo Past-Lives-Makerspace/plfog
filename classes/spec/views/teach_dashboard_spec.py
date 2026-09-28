@@ -64,7 +64,7 @@ def describe_instructor_access_gate():
 
     def it_blocks_inactive_instructor(db, client):
         user = UserFactory(username="inactive@example.com")
-        InstructorFactory(user=user, status=Member.Status.FORMER)
+        InstructorFactory(user=user, status=Member.Status.INVITED)
         client.force_login(user)
         response = client.get(reverse("classes:teach_dashboard"))
         assert response.status_code == 403
