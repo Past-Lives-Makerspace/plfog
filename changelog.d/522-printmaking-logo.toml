@@ -1,0 +1,7 @@
+bump = "minor"
+date = "2026-09-28"
+title = "The Printmaking Guild has its own logo"
+changes = [
+  "The Printmaking Guild now has a logo: the big spoked wheel you turn on an etching press.",
+  "It shows wherever the other guilds show theirs, like the guild list, the guild's page and guild voting.",
+]
