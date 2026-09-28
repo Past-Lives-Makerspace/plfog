@@ -1,23 +1,24 @@
-"""The Member Portal launch email: one announcement, two doors in.
+"""The Member Directory and Guild Pages launch email: one announcement, two doors in.
 
-Every active member hears that the portal is open and what unlocks in the weeks after.
-Which door they get depends on whether their account has ever signed in:
+Every active member hears that the Member Directory and Guild Pages are open, with a
+screenshot and a few lines on each, and what unlocks in the weeks after. Which door they
+get depends on whether their account has ever signed in:
 
-- A member who has signed in before gets the announcement with a sign-in button, as one
-  direct :func:`core.email.send` per member: email only, no bell, no push, and no opt-out
-  applies, because a launch notice is not a notification anyone chose to mute. The audit log
-  is its ledger: an address already logged SENT for the launch is skipped on a re-run.
+- A member who has signed in before gets the announcement with a button to their profile
+  settings, as one direct :func:`core.email.send` per member: email only, no bell, no push,
+  and no opt-out applies, because a launch notice is not a notification anyone chose to mute.
+  The audit log is its ledger: an address already logged SENT for this launch is skipped on
+  a re-run.
 - A member who has never signed in gets the same announcement as an activation invite: the
   forced ``member.login_invite`` email with a button to the login-code page and their address
   pre-filled. That event is email-only and forced by definition, and the delivery ledger
   under :data:`LAUNCH_PERIOD` makes a re-run skip whoever it already reached.
 
 Both variants render from ``membership/emails/launch_announcement.html``, which reuses the
-release email's hero, button and footer partials plus the rollout table. Two framed member-view
-screenshots (:data:`HOME_SHOT_SLUG`, :data:`CALENDAR_SHOT_SLUG`) sit in the body when they
-exist in object storage and drop out silently when they do not, the same rule the release
-email's cards follow. The plain-text part is built here so the two never drift, as
-``core.release_email`` does.
+release email's hero, button and footer partials plus the rollout table. Each feature section
+carries a framed member-view screenshot that drops out silently when it is missing from
+object storage, the same rule the release email's cards follow. The plain-text part is built
+here so the two never drift, as ``core.release_email`` does.
 
 Either way a re-run reaches only whoever was missed, and Discord is left alone: the
 launch post there is written by a person.
@@ -40,48 +41,81 @@ if TYPE_CHECKING:
     from core.events.emit import EmitResult
     from membership.models import Member
 
-#: The day the portal opened to members. Labels the hero band and keys the delivery ledger.
-LAUNCH_DATE = date(2026, 9, 21)
+#: The day the Member Directory and Guild Pages opened. Labels the hero band and keys the delivery ledger.
+LAUNCH_DATE = date(2026, 9, 28)
 
 #: The invite emit's idempotency bucket: a re-run skips everyone already delivered.
-LAUNCH_PERIOD = f"portal_launch:{LAUNCH_DATE.isoformat()}"
+LAUNCH_PERIOD = f"directory_guilds_launch:{LAUNCH_DATE.isoformat()}"
 
 #: The audit label of the direct announcement send; a SENT row under it is the send-once ledger.
-ANNOUNCEMENT_TRIGGER_KIND = "portal_launch.announcement"
+ANNOUNCEMENT_TRIGGER_KIND = "directory_guilds_launch.announcement"
 
-ANNOUNCEMENT_SUBJECT = "The Past Lives Member Portal is live"
-INVITE_SUBJECT = "Your Past Lives Member Portal account is ready"
+ANNOUNCEMENT_SUBJECT = "Find your people: the Member Directory and Guild Pages are live"
+INVITE_SUBJECT = "Find your people at Past Lives: your Member Portal account is ready"
 
-HERO_BADGE = "Now live"
-HERO_TITLE = "The Member Portal is open"
+HERO_BADGE = "New this week"
+HERO_TITLE = "Member Directory & Guild Pages"
 
-ANNOUNCEMENT_CTA = "Sign in to the Member Portal"
+ANNOUNCEMENT_CTA = "Set up your directory profile"
 INVITE_CTA = "Activate your account"
 
 _INTRO = (
-    "Today we're opening the Past Lives Member Portal to every member. It's one place for "
-    "your profile, your guilds, the member directory, the community calendar and your notifications."
+    "Two new parts of the Past Lives Member Portal opened today. The Member Directory helps "
+    "you find other members by name, skill or guild, and every guild now has its own page "
+    "with its announcements, studio hours, meetings and the people who run it."
 )
 _ACTIVATE = (
     "Your account is already set up. To activate it, click the button below and we'll email "
     "you a one-time login code. There's no password to remember."
 )
 
-#: What an ordinary active member can do on launch day. Every line checked against merged code.
-LIVE_TODAY: tuple[str, ...] = (
-    "Set up your profile and choose whether it appears in the Member Directory.",
-    "See who runs Past Lives and each guild on the Leadership Directory.",
-    "Follow guild meetings and community events on the calendar.",
-    "Choose how you hear from us: in the portal, by email or by Discord DM.",
+#: Object-storage slugs of the two section screenshots (``email/features/<slug>.png``), captured as a
+#: plain member against seeded demo data so no real member appears. Their own slugs, not the release
+#: email's ``member-directory`` and ``guild-pages``, so a later harness run cannot swap the approved images.
+DIRECTORY_SHOT_SLUG = "launch2-directory"
+GUILD_SHOT_SLUG = "launch2-guild"
+
+
+@dataclass(frozen=True)
+class FeatureSection:
+    """One feature in the email body: a heading, its screenshot and what a member can do there."""
+
+    title: str
+    path: str
+    shot_slug: str
+    shot_alt: str
+    points: tuple[str, ...]
+
+
+SECTIONS: tuple[FeatureSection, ...] = (
+    FeatureSection(
+        title="The Member Directory",
+        path="/members/",
+        shot_slug=DIRECTORY_SHOT_SLUG,
+        shot_alt="The Member Directory in the Member Portal",
+        points=(
+            "Search members by name or skill, or filter by guild and by who's open for commissions.",
+            "Your profile stays hidden until you choose to share it. Turn it on under Settings, Profile, "
+            "and pick which details show: pronouns, bio, photo, contact info and skills.",
+            "Add your skills and flag yourself as open for commissions so other members can find you.",
+        ),
+    ),
+    FeatureSection(
+        title="Guild Pages",
+        path="/guilds/",
+        shot_slug=GUILD_SHOT_SLUG,
+        shot_alt="A guild page in the Member Portal",
+        points=(
+            "Every guild has a page with its announcements, studio hours, upcoming classes, next meeting "
+            "and guild lead.",
+            "Join a guild from its page to get its updates by email, in the portal or on Discord, and to "
+            "add its badge to your directory profile.",
+            "Find every guild in the sidebar under Guilds.",
+        ),
+    ),
 )
 
 SCHEDULE_NOTE = "Dates are tentative. We'll announce each release in the portal and on Discord as it lands."
-
-#: Object-storage slugs of the two body screenshots (``email/features/<slug>.png``), captured as a
-#: plain member so no admin chrome shows. Their own slugs, not the release email's ``home`` and
-#: ``community-calendar``, so a later harness run cannot swap the approved launch images.
-HOME_SHOT_SLUG = "launch-home"
-CALENDAR_SHOT_SLUG = "launch-calendar"
 
 
 @dataclass(frozen=True)
@@ -93,19 +127,31 @@ class RolloutWeek:
     features: tuple[str, ...]
 
 
-#: The tentative rollout after launch day, as the email shows it. Week 1 is the launch itself.
+#: What is still to come, as the email shows it.
 ROLLOUT_SCHEDULE: tuple[RolloutWeek, ...] = (
-    RolloutWeek("Week 1", "Mon Sep 21", ("Member Portal opens",)),
-    RolloutWeek("Week 2", "Mon Sep 28", ("Guild Pages", "Orientations")),
     RolloutWeek("Week 3", "Mon Oct 5", ("Member Wiki", "Meetings & Spaces")),
     RolloutWeek("Week 4", "Mon Oct 12", ("Classes & Workshops",)),
     RolloutWeek("Week 5", "Mon Oct 19", ("Equipment (or Space Rentals)",)),
 )
 
 
-def portal_home_url() -> str:
-    """The absolute hub home URL: the announcement's button, and where a signed-out click lands on login."""
-    return f"{settings.MEMBER_BASE_URL}{reverse('hub_home')}"
+def profile_settings_url() -> str:
+    """The absolute Settings, Profile URL: the announcement's button, where the directory opt-in lives."""
+    return f"{settings.MEMBER_BASE_URL}{reverse('hub_user_settings')}?tab=profile"
+
+
+def _section_context() -> list[dict[str, object]]:
+    """The sections with absolute links and resolved screenshot URLs (blank drops the image)."""
+    return [
+        {
+            "title": section.title,
+            "url": f"{settings.MEMBER_BASE_URL}{section.path}",
+            "shot_url": resolve_feature_shot_url(section.shot_slug),
+            "shot_alt": section.shot_alt,
+            "points": list(section.points),
+        }
+        for section in SECTIONS
+    ]
 
 
 def _render(
@@ -126,9 +172,7 @@ def _render(
         "hero_subtitle": date_format(LAUNCH_DATE, "F j, Y"),
         "greeting": greeting,
         "intro_paragraphs": intro_paragraphs,
-        "home_shot_url": resolve_feature_shot_url(HOME_SHOT_SLUG),
-        "calendar_shot_url": resolve_feature_shot_url(CALENDAR_SHOT_SLUG),
-        "live_today": list(LIVE_TODAY),
+        "sections": _section_context(),
         "weeks": ROLLOUT_SCHEDULE,
         "schedule_note": SCHEDULE_NOTE,
         "cta_url": cta_url,
@@ -162,7 +206,9 @@ def _text(
     lines: list[str] = [subject, "", greeting, ""]
     for paragraph in intro_paragraphs:
         lines += [paragraph, ""]
-    lines += ["What you can do today", *[f"• {line}" for line in LIVE_TODAY], ""]
+    for section in SECTIONS:
+        lines += [f"{section.title}: {settings.MEMBER_BASE_URL}{section.path}"]
+        lines += [*[f"• {point}" for point in section.points], ""]
     lines += ["What's coming next"]
     for week in ROLLOUT_SCHEDULE:
         lines.append(f"{week.label}, starting {week.starts}: {'; '.join(week.features)}")
@@ -174,10 +220,10 @@ def _text(
 
 
 def render_launch_announcement(*, member_name: str, cta_url: str) -> tuple[str, str]:
-    """The variant for a member who has signed in before: a greeting and the sign-in button."""
+    """The variant for a member who has signed in before: a greeting and the profile settings button."""
     return _render(
         subject=ANNOUNCEMENT_SUBJECT,
-        preheader="Sign in for your profile, your guilds and the calendar, plus what's coming over the next five weeks.",
+        preheader="Find members by skill or guild, and see what every guild is up to.",
         greeting=f"Hi {member_name},",
         intro_paragraphs=[_INTRO],
         cta_url=cta_url,
@@ -190,7 +236,7 @@ def render_launch_invite(*, member_name: str, login_url: str, email: str) -> tup
     """The variant for a member who has never signed in: personal, with the activation button."""
     return _render(
         subject=INVITE_SUBJECT,
-        preheader="Activate your account with one click, then see what's coming over the next five weeks.",
+        preheader="Activate your account with one click, then find members by skill or guild.",
         greeting=f"Hi {member_name},",
         intro_paragraphs=[_INTRO, _ACTIVATE],
         cta_url=login_url,
@@ -227,11 +273,11 @@ def send_launch_announcement(member: Member) -> str:
         trigger_kind=ANNOUNCEMENT_TRIGGER_KIND, to_email=address, status=TransactionalEmailLog.Status.SENT
     ).exists():
         return "already"
-    html, text = render_launch_announcement(member_name=member.display_name, cta_url=portal_home_url())
+    html, text = render_launch_announcement(member_name=member.display_name, cta_url=profile_settings_url())
     log = send(
         to=address,
         subject=ANNOUNCEMENT_SUBJECT,
-        trigger_kind="portal_launch.announcement",
+        trigger_kind="directory_guilds_launch.announcement",
         text_body=text,
         html_body=html,
         best_effort=True,
@@ -284,8 +330,8 @@ def send_launch_previews(to: str) -> None:
     from membership.models import login_code_url
 
     name = _preview_name(to)
-    html, text = render_launch_announcement(member_name=name, cta_url=portal_home_url())
+    html, text = render_launch_announcement(member_name=name, cta_url=profile_settings_url())
     # The trigger_kind is a literal on purpose: the email gallery's send-site lint reads it.
-    send(to=to, subject=ANNOUNCEMENT_SUBJECT, trigger_kind="portal_launch.test", text_body=text, html_body=html)
+    send(to=to, subject=ANNOUNCEMENT_SUBJECT, trigger_kind="directory_guilds_launch.test", text_body=text, html_body=html)
     html, text = render_launch_invite(member_name=name, login_url=login_code_url(to), email=to)
-    send(to=to, subject=INVITE_SUBJECT, trigger_kind="portal_launch.test", text_body=text, html_body=html)
+    send(to=to, subject=INVITE_SUBJECT, trigger_kind="directory_guilds_launch.test", text_body=text, html_body=html)
