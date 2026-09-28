@@ -117,7 +117,7 @@ class Command(BaseCommand):
         default_plan = MembershipPlan.objects.first()
         for rec in at_records:
             record_id = rec["id"]
-            django_kwargs = member_from_airtable(rec["fields"])
+            django_kwargs = member_from_airtable(rec["fields"], record_id=record_id)
 
             existing = Member.objects.filter(airtable_record_id=record_id).first()
             if existing:

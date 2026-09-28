@@ -266,10 +266,10 @@ def describe_reverting():
 
         def it_refuses_an_officer_whose_membership_has_lapsed(client: Client):
             # The quiet half of the conjunction: can_edit_wiki_page's active-member check
-            # runs before its moderator legs, so a FORMER officer is refused even on a
+            # runs before its moderator legs, so a non-active officer is refused even on a
             # plain Community page. Intended — a lapsed member writes nothing — but it is
             # a silent consequence of adding the second gate, so it is pinned either way.
-            login(client, "rev_lapsed_officer", fog_role=Member.FogRole.ADMIN, status=Member.Status.FORMER)
+            login(client, "rev_lapsed_officer", fog_role=Member.FogRole.ADMIN, status=Member.Status.INVITED)
             page, original, _author = _page_with_two_versions()
             assert client.post(reverse("hub_wiki_revert", args=[page.slug, original.pk])).status_code == 403
             page.refresh_from_db()

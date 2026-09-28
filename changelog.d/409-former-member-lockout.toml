@@ -1,0 +1,9 @@
+# Nothing to announce: current members see no change.
+#
+# A former member is turned away from the members site with an editable message, at sign in,
+# at the app's biometric unlock and on the next request of any open session. Suspended members
+# are turned away too while a new Site Settings toggle is on (it starts on). The book site is
+# untouched, so a former member still reaches their class receipts. An Airtable status FOG does
+# not know now logs a warning instead of being skipped silently.
+bump = "minor"
+audience = "internal"

@@ -39,3 +39,13 @@ The allauth adapter (`plfog/adapters.py`) checks this before allowing new signup
 - `/restart-login/` — force re-login (clear session)
 - `/site-migration/` — migration landing page
 - `/find-account/` — find account by email (admin tool)
+
+## Member Lockout (#409)
+
+`core/member_lockout.py` holds the one rule: `lockout_reason(user)` returns `former` (always, staff included) or `suspended` (while `SiteConfiguration.suspended_members_locked_out` is on), else None. It reads `Member.status`, never `User.is_active`, and knows nothing about surfaces; the three gates decide that:
+
+- `AdminRedirectAccountAdapter.pre_login` refuses sign-in on the members surface only, so a former member can still sign in on book for their class receipts.
+- `biometric_unlock` always refuses (the app is the members site) and revokes the credentials.
+- `MemberLockoutMiddleware` never logs out, because the session cookie is shared with book. On the members surface it redirects everything to the lockout page except that page, logout, `/static/` and `/health/`. On book it serves only `settings.LOCKED_OUT_BOOK_PATH_PREFIXES` (`/classes/`, `/account/`, `/accounts/`, `/static/`, `/media/`, `/health/`), because `MEMBER_ONLY_PATH_PREFIXES` is a blocklist that would otherwise open hub pages, `/api/` and the KB sign-in (`/o/`). Guilds and signage are untouched.
+
+All send the member to `/accounts/locked/?reason=`, which renders on either host and shows the admin-editable message (`former_member_signin_message` / `suspended_member_signin_message`, General tab of Site Settings) and the support email. A signed-in viewer also gets a link to their bookings on book (`BOOK_BASE_URL`) and a log out link; an anonymous one gets "Back to login".

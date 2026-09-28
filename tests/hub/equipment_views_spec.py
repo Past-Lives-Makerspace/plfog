@@ -168,9 +168,9 @@ def describe_equipment_index():
         assert cards["Free Router"] == ("free", "Available now")
         assert b"Reserved until " in response.content
 
-    def it_shows_membership_inactive_badges_to_a_former_member(client: Client):
+    def it_shows_membership_inactive_badges_to_a_member_who_is_not_active(client: Client):
         user = _login(client, "eq_former")
-        user.member.status = Member.Status.FORMER
+        user.member.status = Member.Status.INVITED
         user.member.save(update_fields=["status"])
         EquipmentFactory(name="Open Bench")
         response = client.get(reverse("hub_equipment_index"))
@@ -413,7 +413,7 @@ def describe_equipment_detail():
 
     def it_shows_the_inactive_membership_state(client: Client):
         user = _login(client, "eq_det_former")
-        user.member.status = Member.Status.FORMER
+        user.member.status = Member.Status.INVITED
         user.member.save(update_fields=["status"])
         equipment = EquipmentFactory()
         response = client.get(reverse("hub_equipment_detail", args=[equipment.slug]))

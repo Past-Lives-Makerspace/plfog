@@ -371,7 +371,7 @@ def describe_claim_and_release():
     def it_refuses_a_member_whose_membership_lapsed(db, client):
         user = _login(client, "wanted_claim_lapsed")
         row = WikiWantedPageFactory(guild=GuildFactory())
-        user.member.status = Member.Status.FORMER
+        user.member.status = Member.Status.INVITED
         user.member.save(update_fields=["status"])
         assert client.post(reverse("hub_wiki_wanted_claim", args=[row.pk]), **_HTMX).status_code == 403
 
@@ -477,7 +477,7 @@ def describe_mark_as_written():
         guild = GuildFactory()
         row = WikiWantedPageFactory(guild=guild)
         page = WikiPageFactory(guild=guild)
-        user.member.status = Member.Status.FORMER
+        user.member.status = Member.Status.INVITED
         user.member.save(update_fields=["status"])
         response = client.post(
             reverse("hub_wiki_wanted_fulfil", args=[row.pk]),

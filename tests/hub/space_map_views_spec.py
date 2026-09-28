@@ -227,7 +227,7 @@ def describe_hotspot_detail():
 
     def it_blocks_an_inactive_member_with_an_explanation(client: Client):
         user = _user_with_role("m-lapsed")
-        user.member.status = Member.Status.FORMER
+        user.member.status = Member.Status.INVITED
         user.member.save(update_fields=["status"])
         hotspot = MapHotspotFactory()
         client.login(username="m-lapsed", password="pass")

@@ -95,7 +95,7 @@ def describe_space_request_create():
 
     def it_refuses_a_member_without_an_active_membership(client: Client):
         user = _user_with_role("lapsed")
-        user.member.status = Member.Status.FORMER
+        user.member.status = Member.Status.INVITED
         user.member.save(update_fields=["status"])
         hotspot = MapHotspotFactory()
         client.login(username="lapsed", password="pass")
