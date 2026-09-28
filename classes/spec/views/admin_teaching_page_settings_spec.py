@@ -82,10 +82,10 @@ def describe_admin_teaching_page_settings():
         content = client.get(reverse(URL_NAME)).content.decode()
         assert "rich-editor-init.js" in content
         for name in ("teach_page_how_it_works", "teach_page_expectations", "teach_page_faq"):
-            assert f'id="pl-rte-mount-id_{name}"' in content
+            assert f'data-rte-for="id_{name}"' in content
         assert content.count('data-rte-seed="server"') == 3
         assert content.count('data-rte-toolbar="page"') == 3
-        assert 'id="pl-rte-mount-id_teach_page_features"' not in content
+        assert 'data-rte-for="id_teach_page_features"' not in content
         assert '<textarea name="teach_page_features"' in content
 
     def it_prefills_the_defaults_rendered_into_the_editor(admin_user, client, db):
