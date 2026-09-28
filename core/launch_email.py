@@ -332,6 +332,8 @@ def send_launch_previews(to: str) -> None:
     name = _preview_name(to)
     html, text = render_launch_announcement(member_name=name, cta_url=profile_settings_url())
     # The trigger_kind is a literal on purpose: the email gallery's send-site lint reads it.
-    send(to=to, subject=ANNOUNCEMENT_SUBJECT, trigger_kind="directory_guilds_launch.test", text_body=text, html_body=html)
+    send(
+        to=to, subject=ANNOUNCEMENT_SUBJECT, trigger_kind="directory_guilds_launch.test", text_body=text, html_body=html
+    )
     html, text = render_launch_invite(member_name=name, login_url=login_code_url(to), email=to)
     send(to=to, subject=INVITE_SUBJECT, trigger_kind="directory_guilds_launch.test", text_body=text, html_body=html)
