@@ -185,6 +185,8 @@ BLOCKED_BOOK_PATHS = [
     "/meetings/",
     "/api/v1/",
     "/o/authorize/",
+    # Under the allowed /classes/, but registration management, not a book page.
+    "/classes/registrations/1/mark-paid/",
 ]
 
 
@@ -203,6 +205,15 @@ def describe_the_book_surface():
         assert book_client.get(reverse("account:overview")).status_code == 200
         assert book_client.get("/classes/").status_code == 200
         assert _signed_in_user_id(book_client) == str(user.pk)
+
+    def it_refuses_a_former_admin_marking_a_registration_paid(book_client):
+        user = _user_with_status("book_admin", Member.Status.FORMER)
+        book_client.force_login(user)
+
+        response = book_client.post("/classes/registrations/1/mark-paid/")
+
+        assert response.status_code == 302
+        assert response["Location"] == _locked_url("former")
 
     @pytest.mark.parametrize("path", BLOCKED_BOOK_PATHS)
     def it_sends_a_former_member_to_the_lockout_page_from_anything_else(book_client, path):

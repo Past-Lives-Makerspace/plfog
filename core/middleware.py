@@ -250,7 +250,8 @@ class MemberLockoutMiddleware:
 
     - Members surface: every request goes to the lockout page, except the lockout page itself,
       allauth's logout, ``/static/`` and ``/health/``.
-    - Book surface: only ``settings.LOCKED_OUT_BOOK_PATH_PREFIXES`` is served; anything else
+    - Book surface: only ``settings.LOCKED_OUT_BOOK_PATH_PREFIXES`` is served, less
+      ``settings.LOCKED_OUT_BOOK_BLOCKED_PREFIXES`` (registration management); anything else
       goes to the lockout page on book (``/accounts/`` is on that list, so it cannot loop).
     - Guilds and signage surfaces are guest surfaces with their own allowlists: untouched.
 
@@ -296,6 +297,8 @@ class MemberLockoutMiddleware:
             open_paths = (reverse("account_locked"), reverse("account_logout"))
             return path not in open_paths and not path.startswith(self.MEMBERS_EXEMPT_PREFIXES)
         if surface == "public":
+            if path.startswith(tuple(settings.LOCKED_OUT_BOOK_BLOCKED_PREFIXES)):
+                return True
             return not path.startswith(tuple(settings.LOCKED_OUT_BOOK_PATH_PREFIXES))
         return False
 

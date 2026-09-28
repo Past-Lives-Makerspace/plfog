@@ -159,6 +159,11 @@ LOCKED_OUT_BOOK_PATH_PREFIXES: tuple[str, ...] = (
     "/media/",
     "/health/",
 )
+# Carved back out of the allowlist above: registration management (mark paid, remove, move,
+# promote, payment links) lives under bare /classes/registrations/ and is driven from the
+# members host. Its permission check reads roles, not status, so a former admin or instructor
+# signed in on book could otherwise still run it.
+LOCKED_OUT_BOOK_BLOCKED_PREFIXES: tuple[str, ...] = ("/classes/registrations/",)
 
 # Paths that only exist on the public/book surface. Requests to these on the
 # members host get 302-redirected to the book host so members visiting
