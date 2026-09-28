@@ -8,6 +8,7 @@ import hashlib
 
 import httpx
 import pytest
+import respx
 from core.models import SiteConfiguration
 from django.test import RequestFactory
 from membership.models import Member, MemberAgreementAcceptance
@@ -19,14 +20,18 @@ AGREEMENT_URL = "https://kb.example.test/member-agreement/"
 BODY = b"<h1>Member Agreement</h1><p>v2.0.0</p>"
 
 
-def _response(content: bytes, status: int = 200) -> httpx.Response:
-    """A Response with its request attached — `raise_for_status()` needs one to exist."""
-    return httpx.Response(status, content=content, request=httpx.Request("GET", AGREEMENT_URL))
+def _publish(content: bytes = BODY, status: int = 200) -> None:
+    """Serve `content` at the agreement URL.
+
+    respx intercepts at the transport, which is what STANDARDS asks for and what this needs:
+    `fingerprint_agreement` streams the body, so patching `httpx.get` would no longer intercept
+    anything — the spec would pass while the code under test made a real request.
+    """
+    respx.get(AGREEMENT_URL).mock(return_value=httpx.Response(status, content=content))
 
 
-def _response(content: bytes, status: int = 200) -> httpx.Response:
-    """A response with its request attached — raise_for_status() needs one."""
-    return httpx.Response(status, content=content, request=httpx.Request("GET", AGREEMENT_URL))
+def _unreachable() -> None:
+    respx.get(AGREEMENT_URL).mock(side_effect=httpx.ConnectError("kb is down"))
 
 
 def _configure(version: str = "") -> SiteConfiguration:
@@ -39,27 +44,27 @@ def _configure(version: str = "") -> SiteConfiguration:
 
 
 def describe_fingerprint_agreement() -> None:
-    def it_hashes_what_was_published(monkeypatch: pytest.MonkeyPatch) -> None:
-        monkeypatch.setattr(httpx, "get", lambda *a, **k: _response(BODY))
+    @respx.mock
+    def it_hashes_what_was_published() -> None:
+        _publish()
 
         digest, length = fingerprint_agreement(AGREEMENT_URL)
 
         assert digest == hashlib.sha256(BODY).hexdigest()
         assert length == len(BODY)
 
-    def it_returns_blank_when_the_document_is_unreachable(monkeypatch: pytest.MonkeyPatch) -> None:
-        def boom(*args: object, **kwargs: object) -> httpx.Response:
-            raise httpx.ConnectError("kb is down")
-
-        monkeypatch.setattr(httpx, "get", boom)
+    @respx.mock
+    def it_returns_blank_when_the_document_is_unreachable() -> None:
+        _unreachable()
 
         assert fingerprint_agreement(AGREEMENT_URL) == ("", None)
 
     def it_returns_blank_for_a_blank_url() -> None:
         assert fingerprint_agreement("") == ("", None)
 
-    def it_refuses_a_document_too_large_to_be_one(monkeypatch: pytest.MonkeyPatch) -> None:
-        monkeypatch.setattr(httpx, "get", lambda *a, **k: _response(b"x" * 5_000_001))
+    @respx.mock
+    def it_refuses_a_document_too_large_to_be_one() -> None:
+        _publish(b"x" * 5_000_001)
 
         assert fingerprint_agreement(AGREEMENT_URL) == ("", None)
 
@@ -77,11 +82,10 @@ def describe_accept_member_agreement() -> None:
         req.user = member.user
         return req
 
-    def it_records_the_version_the_text_and_the_device(
-        member: Member, request_: object, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
+    @respx.mock
+    def it_records_the_version_the_text_and_the_device(member: Member, request_: object) -> None:
         _configure(version="2.0.0")
-        monkeypatch.setattr(httpx, "get", lambda *a, **k: _response(BODY))
+        _publish()
 
         member.accept_member_agreement(request_, AGREEMENT_URL)  # type: ignore[arg-type]
 
@@ -92,16 +96,11 @@ def describe_accept_member_agreement() -> None:
         assert row.user_agent == "Mozilla/5.0 (TestDevice)"
         assert row.ip_address
 
-    def it_still_accepts_when_the_document_cannot_be_fetched(
-        member: Member, request_: object, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
+    @respx.mock
+    def it_still_accepts_when_the_document_cannot_be_fetched(member: Member, request_: object) -> None:
         """A member is never locked out of the hub because a fingerprint fetch failed."""
         _configure(version="2.0.0")
-
-        def boom(*args: object, **kwargs: object) -> httpx.Response:
-            raise httpx.ConnectError("kb is down")
-
-        monkeypatch.setattr(httpx, "get", boom)
+        _unreachable()
 
         member.accept_member_agreement(request_, AGREEMENT_URL)  # type: ignore[arg-type]
 
@@ -110,9 +109,10 @@ def describe_accept_member_agreement() -> None:
         assert row.content_length is None
         assert row.document_version == "2.0.0"
 
-    def it_truncates_an_overlong_user_agent(member: Member, request_: object, monkeypatch: pytest.MonkeyPatch) -> None:
+    @respx.mock
+    def it_truncates_an_overlong_user_agent(member: Member, request_: object) -> None:
         _configure()
-        monkeypatch.setattr(httpx, "get", lambda *a, **k: _response(BODY))
+        _publish()
         req = RequestFactory().post("/agreement/", HTTP_USER_AGENT="U" * 2000)
         req.user = member.user
 

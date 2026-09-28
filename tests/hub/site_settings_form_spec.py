@@ -225,3 +225,49 @@ def describe_SiteSettingsForm_late_cancel_fees():
         form = SiteSettingsForm(_data(late_cancel_notice_hours="24", late_cancel_grace_hours=""))
         assert set(form.errors) == {"late_cancel_grace_hours"}
         assert "shorter than the notice" not in str(form.errors["late_cancel_grace_hours"])
+
+
+def describe_member_agreement_fields() -> None:
+    """The three Member Agreement fields are admin controls, not admin-only columns.
+
+    `member_agreement_version` was a column with no form field: settable in Django admin and
+    nowhere else, while the release note said Site Settings. Since setting a version is the whole
+    mechanism that re-prompts members, a field only a superuser can reach is a feature nobody can
+    operate (PastLivesReviewBot, #493).
+    """
+
+    _AGREEMENT_FIELDS = [
+        "member_agreement_required",
+        "member_agreement_url",
+        "member_agreement_version",
+    ]
+
+    @pytest.mark.parametrize("name", _AGREEMENT_FIELDS)
+    def it_offers_every_agreement_field(name: str) -> None:
+        assert name in SiteSettingsForm(instance=SiteConfiguration.load()).fields
+
+    def it_saves_a_released_version(client, admin_user) -> None:
+        """Set through the form rather than the model, so a missing field fails this."""
+        config = SiteConfiguration.load()
+        form = SiteSettingsForm(instance=config)
+        data = {k: v for k, v in form.initial.items() if v is not None}
+        data.update(
+            {
+                "member_agreement_required": "on",
+                "member_agreement_url": "https://kb.example.test/doc/policies-membership-agreement/",
+                "member_agreement_version": "2.4.0",
+            }
+        )
+        bound = SiteSettingsForm(data=data, instance=config)
+        assert "member_agreement_version" in bound.fields
+        bound.is_valid()  # other tabs' fields may be absent; this field must not error
+        assert "member_agreement_version" not in bound.errors
+
+    def it_renders_the_version_beside_the_url(client, admin_user) -> None:
+        """Rendered by hand next to the URL, so it must also be excluded from the generic loop —
+        get that wrong and the input appears twice."""
+        from django.urls import reverse
+
+        client.force_login(admin_user)
+        html = client.get(reverse("hub_admin_site_settings")).content.decode()
+        assert html.count('name="member_agreement_version"') == 1

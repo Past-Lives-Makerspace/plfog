@@ -45,16 +45,26 @@ def fingerprint_agreement(url: str) -> tuple[str, int | None]:
     """
     if not url:
         return "", None
+
+    # Streamed and hashed a chunk at a time, and abandoned the moment it runs over. The previous
+    # form read `response.content` — which buffers the whole body — and only THEN compared its
+    # length to the ceiling, so the ceiling stopped an oversized document being hashed but did
+    # nothing about the memory it had already taken. That is the outage this function's own
+    # comment warns about, so the check has to happen while reading rather than after it.
+    hasher = hashlib.sha256()
+    size = 0
     try:
-        response = httpx.get(url, timeout=_TIMEOUT_SECONDS, follow_redirects=True)
-        response.raise_for_status()
+        with httpx.stream("GET", url, timeout=_TIMEOUT_SECONDS, follow_redirects=True) as response:
+            response.raise_for_status()
+            for chunk in response.iter_bytes():
+                size += len(chunk)
+                if size > _MAX_BYTES:
+                    logger.warning("Member agreement at %s exceeds %d bytes; not fingerprinted", url, _MAX_BYTES)
+                    return "", None
+                hasher.update(chunk)
     except httpx.HTTPError:
         # Logged, not raised: the caller is mid-acceptance and must not fail because of this.
         logger.warning("Could not fingerprint the member agreement at %s", url, exc_info=True)
         return "", None
 
-    body = response.content
-    if len(body) > _MAX_BYTES:
-        logger.warning("Member agreement at %s is %d bytes; not fingerprinted", url, len(body))
-        return "", None
-    return hashlib.sha256(body).hexdigest(), len(body)
+    return hasher.hexdigest(), size

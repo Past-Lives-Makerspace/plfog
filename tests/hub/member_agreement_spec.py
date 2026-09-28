@@ -1,4 +1,6 @@
+import httpx
 import pytest
+import respx
 from django.contrib.messages import get_messages
 from django.test import Client
 from django.test import override_settings
@@ -11,6 +13,20 @@ pytestmark = pytest.mark.django_db
 
 
 def describe_hub_member_agreement() -> None:
+    @pytest.fixture(autouse=True)
+    def _stub_the_document_fetch() -> object:
+        """Accepting fingerprints the configured document, so every POST below would otherwise
+        make a real outbound request from the test suite.
+
+        Autouse and a catch-all rather than per-spec, because the fetch is a side effect of
+        accepting rather than the subject of any spec here — a mock each would be four chances to
+        forget on the next one added. `assert_all_called=False` because the GET-only specs
+        legitimately never reach it.
+        """
+        with respx.mock(assert_all_called=False) as mock:
+            mock.route(method="GET").mock(return_value=httpx.Response(200, content=b"agreement"))
+            yield mock
+
     @pytest.fixture
     def active_member() -> Member:
         from tests.membership.factories import UserFactory
