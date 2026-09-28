@@ -68,6 +68,28 @@ def _locked_url(reason: str) -> str:
 
 
 def describe_signing_in_by_code():
+    @pytest.mark.parametrize("status", [Member.Status.FORMER, Member.Status.SUSPENDED])
+    def it_turns_away_a_locked_out_member_who_never_had_an_account(client, status):
+        """Requesting a code creates and links the account; linking must not reactivate them."""
+        member = MemberFactory(_pre_signup_email="never@example.com", status=status)
+
+        response = _sign_in_by_code(client, "never@example.com")
+
+        member.refresh_from_db()
+        assert member.user is not None
+        assert member.status == status
+        assert response["Location"] == _locked_url(str(status))
+        assert _signed_in_user_id(client) is None
+
+    def it_still_activates_an_invited_member_on_first_sign_in(client):
+        member = MemberFactory(_pre_signup_email="invitee@example.com", status=Member.Status.INVITED)
+
+        _sign_in_by_code(client, "invitee@example.com")
+
+        member.refresh_from_db()
+        assert member.status == Member.Status.ACTIVE
+        assert _signed_in_user_id(client) == str(member.user.pk)
+
     def it_turns_a_former_member_away_with_the_former_message(client):
         user = _user_with_status("gone", Member.Status.FORMER)
 
