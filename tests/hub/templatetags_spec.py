@@ -129,3 +129,15 @@ def describe_by_kind():
 
         assert by_kind([], "website") == []
         assert by_kind(None, "social") == []
+
+
+def describe_guild_logo_prefix():
+    def it_maps_a_guild_name_to_its_logo_file_prefix():
+        from hub.templatetags.hub_tags import guild_logo_prefix
+
+        assert guild_logo_prefix("Printmaking Guild") == "printmaking"
+
+    def it_returns_none_for_a_guild_without_a_logo():
+        from hub.templatetags.hub_tags import guild_logo_prefix
+
+        assert guild_logo_prefix("Quantum Computing") is None

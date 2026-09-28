@@ -6,6 +6,8 @@ from django import template
 from django.utils.html import conditional_escape
 from django.utils.safestring import SafeString, mark_safe
 
+from membership.logos import logo_prefix_for
+
 if TYPE_CHECKING:
     from django.db.models import QuerySet
 
@@ -132,27 +134,5 @@ def by_kind(contacts: Any, kind: str) -> list[Any]:
 
 @register.filter
 def guild_logo_prefix(name: str) -> str | None:
-    """Map a guild name string to its logo prefix."""
-    name = name.lower()
-    mapping = {
-        "art framing": "art_framing",
-        "ceramics": "ceramics",
-        "events": "events",
-        "food independence": "food_independence",
-        "garden": "garden",
-        "glass": "glass",
-        "jewelry": "jewelers",
-        "jeweler": "jewelers",
-        "leather": "leatherwork",
-        "metal": "metalworking",
-        "prison": "prison_outreach",
-        "tech": "tech",
-        "textile": "textiles",
-        "visual": "visual_arts",
-        "wood": "woodworking",
-        "writer": "writers",
-    }
-    for key, prefix in mapping.items():
-        if key in name:
-            return prefix
-    return None
+    """Map a guild name string to its logo prefix, through the one shared name map."""
+    return logo_prefix_for(name)

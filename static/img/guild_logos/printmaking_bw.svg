@@ -1,0 +1,35 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 50 50">
+  <defs>
+    <style>
+      .cls-1 {
+        fill: none;
+        stroke: #231f20;
+        stroke-linecap: round;
+        stroke-linejoin: round;
+        stroke-width: 5.5px;
+      }
+      .cls-2 {
+        fill: none;
+        stroke: #fff;
+        stroke-linecap: round;
+        stroke-linejoin: round;
+        stroke-width: 2.5px;
+      }
+      .cls-3 {
+        fill: #fff;
+        stroke: #231f20;
+        stroke-linecap: round;
+        stroke-linejoin: round;
+        stroke-width: 3px;
+      }
+      .cls-4 {
+        fill: #231f20;
+      }
+    </style>
+  </defs>
+  <path class="cls-1" d="M25,25 L29.72,6.08 M25,25 L44.45,23.64 M25,25 L32.30,43.08 M25,25 L10.06,37.53 M25,25 L8.46,14.67 M25,5.5 A19.5,19.5 0 1,1 25,44.5 A19.5,19.5 0 1,1 25,5.5 Z"/>
+  <path class="cls-2" d="M25,25 L29.72,6.08 M25,25 L44.45,23.64 M25,25 L32.30,43.08 M25,25 L10.06,37.53 M25,25 L8.46,14.67 M25,5.5 A19.5,19.5 0 1,1 25,44.5 A19.5,19.5 0 1,1 25,5.5 Z"/>
+  <circle class="cls-3" cx="25" cy="25" r="5.5"/>
+  <circle class="cls-4" cx="25" cy="25" r="1.4"/>
+</svg>
