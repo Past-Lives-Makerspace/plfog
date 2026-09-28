@@ -9345,7 +9345,7 @@ class GuildOrientationSettings(models.Model):
         max_length=200, blank=True, default="", help_text="Subject line of the thank-you email."
     )
     thankyou_email_body = models.TextField(
-        blank=True, default="", help_text="Body of the thank-you email (plain text, line breaks preserved)."
+        blank=True, default="", help_text="Body of the thank-you email. Leave it blank to send the standard message."
     )
     thankyou_email_updated_at = models.DateTimeField(
         null=True, blank=True, help_text="When the thank-you email was last edited."
@@ -9361,7 +9361,9 @@ class GuildOrientationSettings(models.Model):
         max_length=200, blank=True, default="", help_text="Subject line of the welcome email."
     )
     welcome_email_body = models.TextField(
-        blank=True, default="", help_text="Body of the welcome email (your personal note; line breaks preserved)."
+        blank=True,
+        default="",
+        help_text="Body of the welcome email, your personal note. Leave it blank to send the standard message.",
     )
     welcome_email_updated_at = models.DateTimeField(
         null=True, blank=True, help_text="When the welcome email was last edited."
