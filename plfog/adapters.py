@@ -142,11 +142,12 @@ class AdminRedirectAccountAdapter(DefaultAccountAdapter):
 
         A former (or, by setting, suspended) member on the members surface is sent to the
         lockout page instead of being logged in, and the half-finished login-code stage is
-        cleared so their next attempt starts clean (#409, ``core/member_lockout.py``).
+        cleared so their next attempt starts clean. Other surfaces sign them in: the book site
+        keeps their class receipts (#409, ``core/member_lockout.py``).
         """
         from core.member_lockout import lockout_reason
 
-        reason = lockout_reason(request, user)
+        reason = lockout_reason(user) if getattr(request, "surface", None) == "members" else None
         if reason is not None:
             clear_login(request)
             return HttpResponseRedirect(f"{reverse('account_locked')}?reason={reason}")

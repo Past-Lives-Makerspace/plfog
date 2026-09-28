@@ -24,7 +24,7 @@ def describe_hub_member_agreement() -> None:
     @pytest.fixture
     def inactive_member(active_member: Member) -> Member:
         # INVITED, not FORMER: a former member never reaches this view, because
-        # MemberLockoutMiddleware signs them out first (#409). The view's own
+        # MemberLockoutMiddleware sends them to the lockout page first (#409). The view's own
         # not-ACTIVE guard still matters for an invited member.
         active_member.status = Member.Status.INVITED
         active_member.save(update_fields=["status"])

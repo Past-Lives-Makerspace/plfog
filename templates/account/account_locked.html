@@ -10,7 +10,12 @@
         {% if brand_support_email %}
         <p id="account-locked-contact">Questions? Email <a href="mailto:{{ brand_support_email }}">{{ brand_support_email }}</a>.</p>
         {% endif %}
-        <p><a href="{% url 'account_login' %}">Back to login</a></p>
+        {% if user.is_authenticated %}
+        <p id="account-locked-bookings"><a href="{{ book_account_url }}">See your class bookings</a></p>
+        <p id="account-locked-logout"><a href="{% url 'account_logout' %}">Log out</a></p>
+        {% else %}
+        <p id="account-locked-login"><a href="{% url 'account_login' %}">Back to login</a></p>
+        {% endif %}
     </div>
 </div>
 {% endblock %}

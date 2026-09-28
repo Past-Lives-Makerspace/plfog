@@ -146,6 +146,20 @@ MEMBER_ONLY_PATH_PREFIXES: tuple[str, ...] = (
     "/wiki/",
 )
 
+# #409: the only book-surface paths a locked-out (former, or by setting suspended) member may
+# reach while signed in. MEMBER_ONLY_PATH_PREFIXES above is a blocklist, so without this the
+# shared session would open hub pages, /api/ and the Knowledge Base sign-in (/o/) on book.
+# Everything else redirects to /accounts/locked/ (core.middleware.MemberLockoutMiddleware).
+# /classes/admin/ and /classes/teach/ stay 404 on book through the blocklist.
+LOCKED_OUT_BOOK_PATH_PREFIXES: tuple[str, ...] = (
+    "/classes/",
+    "/account/",
+    "/accounts/",
+    "/static/",
+    "/media/",
+    "/health/",
+)
+
 # Paths that only exist on the public/book surface. Requests to these on the
 # members host get 302-redirected to the book host so members visiting
 # /account/ end up on book.pastlives.space (where /account/ actually lives).

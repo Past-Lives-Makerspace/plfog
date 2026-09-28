@@ -1,16 +1,20 @@
-"""Who is turned away from the members site because of their membership status (#409).
+"""Whose membership status locks them out, and what they are told (#409).
 
-One rule, three gates. The allauth login (``AdminRedirectAccountAdapter.pre_login``), the
-biometric unlock (``core.views.biometric_unlock``) and every request of a live session
-(``core.middleware.MemberLockoutMiddleware``) all ask :func:`lockout_reason` and nothing else.
+One rule, three gates. :func:`lockout_reason` answers only "is this user's membership locked
+out"; each gate decides where that matters:
 
-The gate reads ``Member.status``, never ``User.is_active``: one account signs in to both the
-members site and the book site through a shared session cookie, and a former member keeps
-their class receipts on the book site. So only the members surface is gated.
+- ``AdminRedirectAccountAdapter.pre_login`` refuses a sign-in on the members surface only, so a
+  former member can still sign in on the book site to see their class receipts.
+- ``core.views.biometric_unlock`` always refuses: it is the app, which is the members site.
+- ``core.middleware.MemberLockoutMiddleware`` never logs anyone out (the session cookie is
+  shared with the book site). On the members surface it sends every request to the lockout
+  page; on the book surface it allows only ``settings.LOCKED_OUT_BOOK_PATH_PREFIXES``.
+
+The rule reads ``Member.status``, never ``User.is_active``:
 
 - FORMER is always locked out, staff and superusers included.
 - SUSPENDED is locked out while ``SiteConfiguration.suspended_members_locked_out`` is on.
-- INVITED and ACTIVE sign in, and so does a user with no Member row.
+- INVITED and ACTIVE are not, and neither is a user with no Member row.
 """
 
 from __future__ import annotations
@@ -21,22 +25,17 @@ from django.http import Http404
 
 if TYPE_CHECKING:
     from django.db.models import Field
-    from django.http import HttpRequest
 
 
-def lockout_reason(request: HttpRequest, user: object) -> str | None:
-    """The Member status that keeps ``user`` off the members site, or None if they may sign in.
+def lockout_reason(user: object) -> str | None:
+    """The Member status that locks ``user`` out, or None if their membership does not.
 
     Args:
-        request: The current request; only its ``surface`` is read.
-        user: The user signing in or already signed in.
+        user: The user signing in or already signed in (anonymous users have no member).
 
     Returns:
         ``Member.Status.FORMER`` or ``Member.Status.SUSPENDED`` when locked out, else None.
-        Always None off the members surface.
     """
-    if getattr(request, "surface", None) != "members":
-        return None
     # The reverse one-to-one accessor caches on the user, so the request's other readers of
     # ``request.user.member`` (MemberAgreementMiddleware, the hub views) reuse this lookup.
     member = getattr(user, "member", None)

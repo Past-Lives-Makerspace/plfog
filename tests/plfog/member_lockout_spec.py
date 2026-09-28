@@ -15,7 +15,7 @@ from django.contrib.auth.models import User
 from django.core.cache import cache
 from django.db import connection
 from django.http import Http404
-from django.test import Client, RequestFactory, override_settings
+from django.test import Client, override_settings
 from django.test.utils import CaptureQueriesContext
 from django.urls import reverse
 
@@ -168,33 +168,69 @@ def describe_signing_in_by_code():
             assert _signed_in_user_id(client) == str(user.pk)
 
 
+@pytest.fixture()
+def book_client():
+    """A client on the book host, with the book host configured as the public surface."""
+    with override_settings(ALLOWED_HOSTS=["testserver", BOOK_HOST], PUBLIC_HOSTS=[BOOK_HOST]):
+        yield Client(HTTP_HOST=BOOK_HOST)
+
+
+BLOCKED_BOOK_PATHS = [
+    "/home/",
+    "/leadership/",
+    "/equipment/",
+    "/spaces/",
+    "/help/",
+    "/calendar/",
+    "/meetings/",
+    "/api/v1/",
+    "/o/authorize/",
+]
+
+
 def describe_the_book_surface():
-    @pytest.fixture(autouse=True)
-    def _book_host():
-        with override_settings(ALLOWED_HOSTS=["testserver", BOOK_HOST], PUBLIC_HOSTS=[BOOK_HOST]):
-            yield
-
-    def it_still_lets_a_former_member_sign_in(db):
+    def it_still_lets_a_former_member_sign_in(book_client):
         user = _user_with_status("receipts", Member.Status.FORMER)
-        client = Client(HTTP_HOST=BOOK_HOST)
 
-        _sign_in_by_code(client, user.email)
+        _sign_in_by_code(book_client, user.email)
 
-        assert _signed_in_user_id(client) == str(user.pk)
+        assert _signed_in_user_id(book_client) == str(user.pk)
 
-    def it_keeps_their_session_on_the_next_request(db):
+    def it_serves_a_former_member_their_bookings_and_the_catalog(book_client):
         user = _user_with_status("receipts_live", Member.Status.FORMER)
-        client = Client(HTTP_HOST=BOOK_HOST)
-        client.force_login(user)
+        book_client.force_login(user)
 
-        response = client.get(reverse("account:overview"))
+        assert book_client.get(reverse("account:overview")).status_code == 200
+        assert book_client.get("/classes/").status_code == 200
+        assert _signed_in_user_id(book_client) == str(user.pk)
 
-        assert response.status_code == 200
-        assert _signed_in_user_id(client) == str(user.pk)
+    @pytest.mark.parametrize("path", BLOCKED_BOOK_PATHS)
+    def it_sends_a_former_member_to_the_lockout_page_from_anything_else(book_client, path):
+        user = _user_with_status("book_walk", Member.Status.FORMER)
+        book_client.force_login(user)
+
+        response = book_client.get(path)
+
+        assert response.status_code == 302
+        assert response["Location"] == _locked_url("former")
+        page = book_client.get(response["Location"])
+        assert page.status_code == 200
+        assert FORMER_COPY in page.content.decode()
+        assert _signed_in_user_id(book_client) == str(user.pk)
+
+    @pytest.mark.parametrize("path", ["/home/", "/equipment/", "/o/authorize/"])
+    def it_leaves_an_active_member_alone(book_client, path):
+        user = _user_with_status("book_active", Member.Status.ACTIVE)
+        book_client.force_login(user)
+
+        response = book_client.get(path)
+
+        assert response.get("Location") != _locked_url("former")
+        assert "/accounts/locked/" not in response.get("Location", "")
 
 
 def describe_a_live_session():
-    def it_is_signed_out_on_the_next_request_after_the_status_flips(client):
+    def it_lands_on_the_lockout_page_on_the_next_request_after_the_status_flips(client, book_client):
         user = _user_with_status("flipped", Member.Status.ACTIVE)
         client.force_login(user)
         assert client.get(reverse("hub_home")).status_code == 200
@@ -204,7 +240,19 @@ def describe_a_live_session():
 
         assert response.status_code == 302
         assert response["Location"] == _locked_url("former")
-        assert _signed_in_user_id(client) is None
+        # Still signed in, so the book site (same session cookie in production) still works.
+        assert _signed_in_user_id(client) == str(user.pk)
+        book_client.cookies = client.cookies
+        assert book_client.get(reverse("account:overview")).status_code == 200
+
+    def it_lets_a_reactivated_member_back_into_the_hub(client):
+        user = _user_with_status("flip_back", Member.Status.FORMER)
+        client.force_login(user)
+        assert client.get(reverse("hub_home"))["Location"] == _locked_url("former")
+
+        Member.objects.filter(user=user).update(status=Member.Status.ACTIVE)
+
+        assert client.get(reverse("hub_home")).status_code == 200
 
     def it_redirects_an_htmx_request_by_header(client):
         user = _user_with_status("flipped_htmx", Member.Status.FORMER)
@@ -214,9 +262,8 @@ def describe_a_live_session():
 
         assert response.status_code == 200
         assert response["HX-Redirect"] == _locked_url("former")
-        assert _signed_in_user_id(client) is None
 
-    def it_signs_out_a_suspended_member_with_the_suspended_reason(client):
+    def it_sends_a_suspended_member_with_the_suspended_reason(client):
         user = _user_with_status("flipped_paused", Member.Status.SUSPENDED)
         client.force_login(user)
 
@@ -224,30 +271,53 @@ def describe_a_live_session():
 
         assert response["Location"] == _locked_url("suspended")
 
-    def it_leaves_the_health_check_alone(client):
-        user = _user_with_status("flipped_health", Member.Status.FORMER)
+    @pytest.mark.parametrize(
+        "path", ["/health/", "/static/css/missing.css", "/accounts/logout/", "/accounts/locked/?reason=former"]
+    )
+    def it_leaves_the_lockout_page_logout_health_and_static_open(client, path):
+        user = _user_with_status("flipped_open", Member.Status.FORMER)
         client.force_login(user)
 
-        client.get("/health/")
+        response = client.get(path)
 
-        assert _signed_in_user_id(client) == str(user.pk)
+        assert response.status_code != 302
 
-    def it_leaves_static_files_alone(client):
-        user = _user_with_status("flipped_static", Member.Status.FORMER)
-        client.force_login(user)
-
-        client.get("/static/css/missing.css")
-
-        assert _signed_in_user_id(client) == str(user.pk)
-
-    def it_leaves_an_active_member_signed_in(client):
+    def it_leaves_an_active_member_alone(client):
         user = _user_with_status("staying", Member.Status.ACTIVE)
         client.force_login(user)
 
-        client.get(reverse("hub_home"))
+        assert client.get(reverse("hub_home")).status_code == 200
 
-        assert _signed_in_user_id(client) == str(user.pk)
 
+def describe_the_lockout_page():
+    def it_offers_a_signed_in_member_their_bookings_and_a_log_out(client, settings):
+        settings.BOOK_BASE_URL = "https://book.example.test"
+        user = _user_with_status("page_signed_in", Member.Status.FORMER)
+        client.force_login(user)
+
+        page = client.get(_locked_url("former")).content.decode()
+
+        assert 'href="https://book.example.test/account/"' in page
+        assert f'href="{reverse("account_logout")}"' in page
+        assert 'id="account-locked-login"' not in page
+
+    def it_renders_on_the_book_host_for_a_signed_in_member(book_client):
+        book_client.force_login(_user_with_status("page_book", Member.Status.FORMER))
+
+        page = book_client.get(_locked_url("former"))
+
+        assert page.status_code == 200
+        assert b'id="account-locked-bookings"' in page.content
+
+    def it_offers_an_anonymous_viewer_the_way_back_to_login(client):
+        page = client.get(_locked_url("former")).content.decode()
+
+        assert f'href="{reverse("account_login")}"' in page
+        assert 'id="account-locked-bookings"' not in page
+        assert 'id="account-locked-logout"' not in page
+
+
+def describe_the_query_cost():
     def it_adds_no_member_query_to_an_ordinary_page(client, settings):
         user = _user_with_status("cheap", Member.Status.ACTIVE)
         client.force_login(user)
@@ -373,25 +443,20 @@ def describe_the_messages():
 
 
 def describe_lockout_reason():
-    def _members_request() -> object:
-        request = RequestFactory().get("/")
-        request.surface = "members"
-        return request
-
-    def it_is_none_off_the_members_surface():
-        user = _user_with_status("rule_book", Member.Status.FORMER)
-        request = RequestFactory().get("/")
-        request.surface = "public"
-
-        assert lockout_reason(request, user) is None
-
     def it_is_none_for_an_anonymous_user():
         from django.contrib.auth.models import AnonymousUser
 
-        assert lockout_reason(_members_request(), AnonymousUser()) is None
+        assert lockout_reason(AnonymousUser()) is None
 
     def it_names_each_status():
-        assert lockout_reason(_members_request(), _user_with_status("r_f", Member.Status.FORMER)) == "former"
-        assert lockout_reason(_members_request(), _user_with_status("r_s", Member.Status.SUSPENDED)) == "suspended"
-        assert lockout_reason(_members_request(), _user_with_status("r_i", Member.Status.INVITED)) is None
-        assert lockout_reason(_members_request(), _user_with_status("r_a", Member.Status.ACTIVE)) is None
+        assert lockout_reason(_user_with_status("r_f", Member.Status.FORMER)) == "former"
+        assert lockout_reason(_user_with_status("r_s", Member.Status.SUSPENDED)) == "suspended"
+        assert lockout_reason(_user_with_status("r_i", Member.Status.INVITED)) is None
+        assert lockout_reason(_user_with_status("r_a", Member.Status.ACTIVE)) is None
+
+    def it_does_not_lock_out_a_suspended_member_when_the_switch_is_off():
+        config = SiteConfiguration.load()
+        config.suspended_members_locked_out = False
+        config.save()
+
+        assert lockout_reason(_user_with_status("r_s_off", Member.Status.SUSPENDED)) is None

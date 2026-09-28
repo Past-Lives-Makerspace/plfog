@@ -194,12 +194,20 @@ def restart_login(request: HttpRequest) -> HttpResponse:
 def account_locked(request: HttpRequest) -> HttpResponse:
     """Tell a member why the members site turned them away (#409).
 
-    Every lockout gate sends the member here, already signed out, with ``?reason=`` naming the
-    Member status that locked them out. The reason is not a secret: the page only shows the
-    matching admin-editable sentence and the support email.
+    Every lockout gate sends the member here with ``?reason=`` naming the Member status that
+    locked them out. The reason is not a secret: the page only shows the matching admin-editable
+    sentence and the support email. It renders on either host, signed in or not: a locked-out
+    member keeps their session for the book site, so a signed-in viewer gets a link to their
+    class bookings there and a sign-out link instead of "Back to login".
     """
+    from core.urls_util import book_absolute_url
+
     message = lockout_message(request.GET.get("reason", ""))
-    return render(request, "account/account_locked.html", {"lockout_message": message})
+    return render(
+        request,
+        "account/account_locked.html",
+        {"lockout_message": message, "book_account_url": book_absolute_url(reverse("account:overview"))},
+    )
 
 
 def find_account(request: HttpRequest) -> HttpResponse:
@@ -600,9 +608,10 @@ def biometric_unlock(request: HttpRequest) -> JsonResponse:
             logger.warning("Biometric unlock refused for inactive user pk=%s; credentials revoked.", user.pk)
             return JsonResponse({"error": _BIOMETRIC_UNLOCK_FAILED}, status=401)
 
-        # A former (or, by setting, suspended) member is refused the same way, so the app drops
-        # the dead credential and falls back to the login-code form, which shows them why (#409).
-        lockout = lockout_reason(request, user)
+        # A former (or, by setting, suspended) member is refused the same way, on any host: the
+        # app is the members site. It drops the dead credential and falls back to the login-code
+        # form, which shows them why (#409).
+        lockout = lockout_reason(user)
         if lockout is not None:
             BiometricCredential.objects.revoke_all(user)
             logger.warning("Biometric unlock refused for %s member pk=%s; credentials revoked.", lockout, user.pk)
