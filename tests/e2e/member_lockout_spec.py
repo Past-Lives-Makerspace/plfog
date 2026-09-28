@@ -12,6 +12,7 @@ from pathlib import Path
 from django.contrib.auth import get_user_model
 
 from membership.models import Member
+from tests.membership.factories import MemberFactory
 
 EMAIL = "former-e2e@example.com"
 
@@ -19,7 +20,13 @@ EMAIL = "former-e2e@example.com"
 def describe_member_lockout():
     def it_turns_a_former_member_away_at_sign_in(page, live_server, login_via_code):
         user, _ = get_user_model().objects.get_or_create(username=EMAIL, defaults={"email": EMAIL})
-        Member.objects.filter(user=user).update(status=Member.Status.FORMER)
+        # Built explicitly rather than trusting the User post_save signal: later in the e2e
+        # lane that signal can leave the user without a Member, and then there is nothing to
+        # lock out and the spec signs straight in.
+        member = Member.objects.filter(user=user).first() or MemberFactory(user=user)
+        member.status = Member.Status.FORMER
+        member.save(update_fields=["status"])
+        assert Member.objects.get(user=user).status == Member.Status.FORMER
 
         login_via_code(EMAIL)
 
