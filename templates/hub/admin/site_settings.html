@@ -553,9 +553,11 @@
             <div style="color:var(--error); margin-top:0.25rem;">{{ form.member_agreement_url.errors.0 }}</div>
           {% endif %}
         </div>
-        {# Beside the URL, because the two are read together: this names the edition published AT
-           that address. Setting it is what re-prompts members who accepted a different one, so it
-           belongs where an admin can see the count above it rather than in Django admin. #}
+        {% comment %}
+          Beside the URL, because the two are read together: this names the edition published AT
+          that address. Setting it is what re-prompts members who accepted a different one, so it
+          belongs where an admin can see the count above it rather than in Django admin.
+        {% endcomment %}
         <div class="field-row u-margin-top">
           <label for="{{ form.member_agreement_version.id_for_label }}" style="font-weight:600;color:var(--hub-text);">
             {{ form.member_agreement_version.label }}
