@@ -693,3 +693,60 @@ def describe_browser_back_onto_a_rich_text_editor():
         assert outcome["calls"] == 1, f"one settle ran the rich-editor init {outcome['calls']} times after two arrivals"
         assert outcome["mounted"] == 1, "the guard stopped a swapped-in editor from initialising"
         assert errors == [], "\n".join(errors[:5])
+
+
+# Saving a page that redirects back to itself is a boosted swap of a page onto a copy of
+# itself, and that is the one swap in which htmx's settle step has something to match.
+
+THANKYOU_EMAIL = "boosted-thankyou@example.com"
+THANKYOU_MOUNT = '.pl-rte[data-rte-for="id_thankyou_email_body"]'
+THANKYOU_SAVE = 'form:has(input[name="form_id"][value="thankyou_email"]) button[type="submit"]'
+# A mount this document's init claimed, and not the node that was on the page before Save.
+THANKYOU_MOUNT_REPLACED = """(selector) => {
+    const mount = document.querySelector(selector);
+    return Boolean(mount && mount.plRteReady && !mount.plBeforeSave);
+}"""
+
+
+def describe_saving_a_page_onto_itself_with_a_rich_text_editor():
+    def it_keeps_the_editor_framed_after_the_swap_settles(live_server, page, login_via_code):
+        """Save on the thank-you email used to leave the editor unframed and broken-looking.
+
+        For every element in the incoming body whose ``id`` is also on the outgoing one,
+        htmx copies the old ``class`` and ``style`` onto it for the swap and puts the
+        server's values back on a 20ms settle timer. The rich-text mount carried an id
+        derived from its field, so Save, which redirects to the same tab, matched it. The
+        init ran inside the swap and Quill added ``ql-container ql-snow``; the settle then
+        wrote the server's bare ``pl-rte`` over them. The editor lost its frame, and with no
+        ``ql-snow`` on the mount the rule hiding Quill's link tooltip stopped matching, so
+        its text input showed as an empty bordered box beneath the editor. A fresh load and
+        a boosted arrival from another page both looked perfect, because neither has a
+        matching id to settle.
+
+        The class is read on a timer armed after the swap, so it fires after the settle's.
+        Reading it the moment the new mount is claimed would pass on the broken build too.
+        """
+        MembershipPlanFactory()  # so the login signal auto-creates the member
+        guild = GuildFactory(name="Ceramics Guild")
+        errors = _watch_for_errors(page)
+        login_via_code(THANKYOU_EMAIL)
+        user = User.objects.get(username=THANKYOU_EMAIL)
+        user.is_staff = True
+        user.is_superuser = True
+        user.save(update_fields=["is_staff", "is_superuser"])
+
+        page.goto(f"{live_server.url}{reverse('hub_guild_edit', args=[guild.pk])}?tab=orientations")
+        page.wait_for_function(THANKYOU_MOUNT_REPLACED, arg=THANKYOU_MOUNT)
+        page.evaluate("(selector) => { document.querySelector(selector).plBeforeSave = true; }", THANKYOU_MOUNT)
+
+        page.locator(THANKYOU_SAVE).click()
+        page.wait_for_function(THANKYOU_MOUNT_REPLACED, arg=THANKYOU_MOUNT)
+        settled_classes = page.evaluate(
+            """(selector) => new Promise((resolve) => {
+                setTimeout(() => resolve(document.querySelector(selector).className), 100);
+            })""",
+            THANKYOU_MOUNT,
+        )
+
+        assert "ql-container" in settled_classes.split(), f"the settle stripped Quill's frame: {settled_classes!r}"
+        assert errors == [], "\n".join(errors[:5])
