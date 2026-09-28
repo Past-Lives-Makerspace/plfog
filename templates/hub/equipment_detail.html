@@ -42,7 +42,12 @@
 {% endif %}
 
 {# ── Requirements banner — exactly one state, from access_state (spec §7.3). ── #}
-{% if access_state == "ok" %}
+{# An unpaid late cancellation fee (#456) comes first: it blocks booking whatever else is met. #}
+{% if unpaid_late_fee %}
+<div class="hub-card pl-equip-banner pl-equip-banner--warn">
+  {% include "hub/partials/late_fee_notice.html" with fee=unpaid_late_fee %}
+</div>
+{% elif access_state == "ok" %}
 <div class="hub-card pl-equip-banner pl-equip-banner--ok">
   <p class="pl-equip-banner__ok-text" style="margin:0;">You're all set.{% if not equipment.is_closed %} Pick a time below.{% endif %}</p>
 </div>

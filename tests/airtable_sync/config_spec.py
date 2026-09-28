@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import logging
+
 from datetime import date
 from decimal import Decimal
 from unittest.mock import MagicMock
@@ -146,6 +148,34 @@ def describe_member_from_airtable():
         result = member_from_airtable(fields)
 
         assert "status" not in result
+
+    def it_warns_naming_the_member_and_the_unmapped_status(caplog):
+        fields = {"Member Name": "Pat Doe", "Status": "Lapsed"}
+
+        with caplog.at_level(logging.WARNING, logger="airtable_sync.config"):
+            result = member_from_airtable(fields, record_id="recPAT123")
+
+        assert "status" not in result
+        warnings = [r for r in caplog.records if r.levelno == logging.WARNING]
+        assert len(warnings) == 1
+        assert "recPAT123" in warnings[0].getMessage()
+        assert "Pat Doe" in warnings[0].getMessage()
+        assert "'Lapsed'" in warnings[0].getMessage()
+
+    def it_names_a_record_with_no_id_or_name_plainly(caplog):
+        with caplog.at_level(logging.WARNING, logger="airtable_sync.config"):
+            member_from_airtable({"Status": "Lapsed"})
+
+        message = caplog.records[-1].getMessage()
+        assert "<no record id>" in message
+        assert "<no name>" in message
+
+    def it_does_not_warn_for_a_mapped_or_empty_status(caplog):
+        with caplog.at_level(logging.WARNING, logger="airtable_sync.config"):
+            member_from_airtable({"Member Name": "A", "Status": "Former"}, record_id="recA")
+            member_from_airtable({"Member Name": "B", "Status": ""}, record_id="recB")
+
+        assert [r for r in caplog.records if r.name == "airtable_sync.config"] == []
 
     def it_handles_unknown_role_gracefully():
         fields = {"Member Name": "Test", "Role": "Unknown"}

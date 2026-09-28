@@ -1,0 +1,7 @@
+bump = "patch"
+date = "2026-09-24"
+title = "The class description check counts what you typed and says how much it needs"
+changes = [
+  "The class description needs at least 40 characters. The composer now shows a live count under the box and the hint names the number.",
+  "Text in angle brackets, like a note about safety glasses, now counts. Before, the check dropped it and could refuse a description that was long enough.",
+]

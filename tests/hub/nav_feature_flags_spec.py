@@ -48,12 +48,10 @@ def describe_hub_nav_feature_flags():
         assert reverse("billing_admin_dashboard").encode() not in body
         assert reverse("billing_admin_reports").encode() not in body
 
-    def it_hides_the_my_tab_link_when_disabled_and_still_no_billing_nav(client: Client):
-        # The flag scopes the MEMBER My Tab surfaces; the Payments/Reports sidebar links
-        # are simply gone (relocated to Admin Tools), independent of the flag.
-        config = SiteConfiguration.load()
-        config.my_tab_enabled = False
-        config.save()
+    def it_hides_the_my_tab_link_when_hidden_and_still_no_billing_nav(client: Client):
+        # The switch scopes the My Tab surfaces; the Payments/Reports sidebar links are simply
+        # gone (relocated to Admin Tools), independent of it.
+        hide("my_tab")
         _login_admin(client)
         body = client.get(reverse("hub_member_directory")).content
         assert b'href="/tab/"' not in body
@@ -118,6 +116,7 @@ _NAV_MARKERS: dict[str, tuple[bytes, bytes]] = {
     "equipment": (b'href="/equipment/" class="hub-sidebar__link', b"Equipment"),
     "voting": (b'href="/manage/voting/" class="hub-sidebar__link', b"Voting"),
     "wiki": (b'href="/wiki/" class="hub-sidebar__link', b"Member Wiki"),
+    "my_tab": (b'href="/tab/" class="hub-sidebar__link', b"My Tab"),
 }
 
 
@@ -285,3 +284,62 @@ def describe_the_registry():
         the sidebar with the setting on, off, and unconfigured, as an admin and as a member.
         """
         assert {f.key for f in FEATURES} == set(_NAV_MARKERS) | {"teach", "guilds", "knowledge_base"}
+
+
+def describe_the_my_tab_entry():
+    """My Tab (#416): the registry's one functional switch, shown for everyone like the rest.
+
+    It used to render only for ``request.view_as.is_member``, so these drive every viewer the
+    two sidebar blocks serve: a member (member block), an admin (admin block) and an admin
+    previewing as a guest (member block, the one viewer the old branch excluded).
+    """
+
+    def _preview_as_guest(client: Client) -> None:
+        session = client.session
+        session["view_as_role"] = "guest"
+        session.save()
+
+    def it_renders_the_link_for_an_admin_while_on(client: Client):
+        _login_admin(client)
+        turn_on("my_tab")
+        body = _sidebar(client)
+        assert b'href="/tab/" class="hub-sidebar__link' in body
+        assert b"hub-sidebar__link--soon" not in body
+
+    def it_renders_the_link_with_no_member_only_branch(client: Client):
+        _login_admin(client)
+        _preview_as_guest(client)
+        turn_on("my_tab")
+        assert b'href="/tab/" class="hub-sidebar__link' in _sidebar(client)
+
+    def it_renders_the_inert_entry_with_the_admins_message_for_a_member_while_coming_soon(client: Client):
+        _login_member(client, "mytab_soon_member")
+        coming_soon("my_tab", "Tabs open in October")
+        body = _sidebar(client)
+        assert b'href="/tab/"' not in body
+        assert b"hub-sidebar__link--soon" in body
+        assert b"My Tab" in body
+        assert b"Tabs open in October" in body
+
+    def it_renders_the_inert_entry_with_the_admins_message_for_an_admin_while_coming_soon(client: Client):
+        _login_admin(client)
+        coming_soon("my_tab", "Tabs open in October")
+        body = _sidebar(client)
+        assert b'href="/tab/"' not in body
+        assert b"hub-sidebar__link--soon" in body
+        assert b"Tabs open in October" in body
+
+    def it_renders_no_entry_at_all_while_hidden(client: Client):
+        _login_admin(client)
+        hide("my_tab")
+        body = _sidebar(client)
+        assert b'href="/tab/"' not in body
+        assert b"My Tab" not in body
+        assert b"hub-sidebar__link--soon" not in body
+
+    def it_leaves_the_home_quicklink_to_the_on_state_alone(client: Client):
+        _login_member(client, "mytab_home")
+        turn_on("my_tab")
+        assert b'<a href="/tab/" class="pl-quicklink">' in _nav(client)
+        coming_soon("my_tab", "Soon")
+        assert b'<a href="/tab/" class="pl-quicklink">' not in _nav(client)

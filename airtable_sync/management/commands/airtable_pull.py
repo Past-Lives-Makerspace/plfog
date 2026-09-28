@@ -78,7 +78,7 @@ class Command(BaseCommand):
         for rec in at_records:
             record_id = rec["id"]
             at_record_ids.add(record_id)
-            django_kwargs = member_from_airtable(rec["fields"])
+            django_kwargs = member_from_airtable(rec["fields"], record_id=record_id)
             self._upsert_member(Member, record_id, django_kwargs, default_plan, dry_run, results)
 
         self._report_orphaned_members(Member, at_record_ids)

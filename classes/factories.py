@@ -82,6 +82,10 @@ class InstructorFactory(DjangoModelFactory):
 
 
 READY_DESCRIPTION = "A hands-on class where you build a real project, learn the tools safely, and take your work home."
+# A description in the shape that was refused in issue #425: 63 typed characters, two of its phrases
+# in angle brackets. The class page renders every one of them (the description is escaped, never
+# parsed as HTML), and strip_tags used to read the brackets as markup and count 27.
+BRACKETED_DESCRIPTION = "Wear <closed toe shoes> and bring <safety glasses> to the shop."
 
 
 class ClassOfferingFactory(DjangoModelFactory):
@@ -193,6 +197,20 @@ class DiscountCodeFactory(DjangoModelFactory):
     # factory approves by default so fixtures represent a usable code. Tests that
     # exercise the pending state pass ``is_approved=False`` explicitly.
     is_approved = True
+
+
+class DiscountCodeRequestFactory(DjangoModelFactory):
+    """A pending ask from the class's own instructor, the shape the admin queue lists."""
+
+    class Meta:
+        model = models.DiscountCodeRequest
+
+    class_offering = factory.SubFactory(ClassOfferingFactory)
+    requested_by = factory.LazyAttribute(lambda o: o.class_offering.instructor)
+    code = factory.Sequence(lambda n: f"REQ{n}")
+    discount_pct = 15
+    reason = "Early bird for returning students."
+    status = models.DiscountCodeRequest.Status.PENDING
 
 
 class RegistrationFactory(DjangoModelFactory):

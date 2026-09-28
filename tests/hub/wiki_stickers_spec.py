@@ -191,8 +191,8 @@ def describe_the_page_qr_download():
         _login(client, "member@example.com")
         assert client.get(reverse("hub_wiki_qr_download", args=[official.slug])).status_code == 403
 
-    def it_403s_a_former_member(client, db, page):
-        _login(client, "lapsed@example.com", status=Member.Status.FORMER)
+    def it_403s_a_member_who_is_not_active(client, db, page):
+        _login(client, "lapsed@example.com", status=Member.Status.INVITED)
         assert client.get(reverse("hub_wiki_qr_download", args=[page.slug])).status_code == 403
 
     def it_still_downloads_while_the_wiki_is_hidden(client, db, page, _wiki_on):

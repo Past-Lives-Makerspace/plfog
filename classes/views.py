@@ -37,6 +37,7 @@ from django.http import (
     Http404,
     HttpRequest,
     HttpResponse,
+    HttpResponseBadRequest,
     HttpResponseForbidden,
     JsonResponse,
     StreamingHttpResponse,
@@ -76,7 +77,15 @@ from classes.emails import (
     send_registration_confirmation,
     send_waitlist_joined_confirmation,
 )
-from classes.composer import COMPOSER_STEPS, anchor_steps, clamp_step, error_summary, first_unready_step, step_marks
+from classes.composer import (
+    COMPOSER_STEPS,
+    STEP_COUNT,
+    anchor_steps,
+    clamp_step,
+    error_summary,
+    first_unready_step,
+    step_marks,
+)
 from classes.grouping import CatalogGroup, grouped_catalog
 from classes.lifecycle import ADMIN_FACETS, INSTRUCTOR_FACETS, facet_rows, resolve_facet
 from classes.questions import prefill_answers
@@ -92,6 +101,8 @@ from classes.forms import (
     ClassSessionFormSet,
     ClassSettingsForm,
     DiscountCodeForm,
+    DiscountCodeRequestDeclineForm,
+    DiscountCodeRequestForm,
     TeachClassOfferingForm,
     TeachPublishedClassForm,
     TeachWelcomeEmailForm,
@@ -104,6 +115,7 @@ from classes.forms import (
 from classes.models import (
     CAPACITY_CONSUMING_REGISTRATION_STATUSES,
     MAX_GALLERY_IMAGES,
+    READINESS_MIN_DESCRIPTION_CHARS,
     Category,
     ClassApproval,
     ClassImage,
@@ -112,6 +124,8 @@ from classes.models import (
     ClassSettings,
     CmsActivity,
     DiscountCode,
+    DiscountCodeRequest,
+    DiscountCodeRequestAlreadyDecided,
     ReadinessItem,
     Registration,
     RegistrationQuestion,
@@ -120,6 +134,7 @@ from classes.models import (
 from core.htmx import wants_fragment
 from core.models import SiteConfiguration
 from core.urls_util import book_absolute_url
+from core.validators import validate_image_content
 
 logger = logging.getLogger(__name__)
 
@@ -1372,6 +1387,43 @@ def instructor_discount_codes_required(view_func: _ViewFunc) -> _ViewFunc:
     return wrapper  # type: ignore[return-value]
 
 
+def instructor_direct_discount_codes_required(view_func: _ViewFunc) -> _ViewFunc:
+    """Decorator: the instructor's own create, edit, delete and approve routes belong to the direct flow.
+
+    Layered under ``instructor_discount_codes_required``. With
+    ``instructor_discount_codes_need_approval`` on (approval mode, #428) an instructor asks for
+    a code instead of making one, so these routes send them to the Discount Codes page with an
+    info message. A mode switch is not an authorization failure, so never a 403; a POST is
+    redirected the same way.
+    """
+
+    @wraps(view_func)
+    def wrapper(request: HttpRequest, *args: Any, **kwargs: Any) -> HttpResponse:
+        if SiteConfiguration.load().instructor_discount_codes_need_approval:
+            messages.info(request, "Discount codes are requested here and approved by an admin. Use Request a Code.")
+            return redirect("classes:teach_discount_codes")
+        return view_func(request, *args, **kwargs)
+
+    return wrapper  # type: ignore[return-value]
+
+
+def instructor_request_mode_required(view_func: _ViewFunc) -> _ViewFunc:
+    """Decorator: the mirror image of ``instructor_direct_discount_codes_required``, for the request route.
+
+    With the approval flag off, instructors create codes directly and there is nothing to
+    request, so the route sends them back to the Discount Codes page with an info message.
+    """
+
+    @wraps(view_func)
+    def wrapper(request: HttpRequest, *args: Any, **kwargs: Any) -> HttpResponse:
+        if not SiteConfiguration.load().instructor_discount_codes_need_approval:
+            messages.info(request, "Discount codes do not need approval right now. Use New Code instead.")
+            return redirect("classes:teach_discount_codes")
+        return view_func(request, *args, **kwargs)
+
+    return wrapper  # type: ignore[return-value]
+
+
 def classes_admin_access_required(view_func: _ViewFunc) -> _ViewFunc:
     """Decorator: Classes admin tabs are admin-only.
 
@@ -1963,6 +2015,25 @@ def _leave_class_url(request: HttpRequest, offering: ClassOffering) -> str:
     return reverse("classes:teach_dashboard")
 
 
+def _composer_discounts_context(
+    saved: ClassOffering | None, is_admin: bool, can_view_discount_codes: bool
+) -> dict[str, Any]:
+    """The Discounts step's rows for an instructor: the site wide codes that already apply, and this class's requests.
+
+    Admins get nothing extra: their step is the per class section, which reads
+    ``offering.discount_codes`` itself. ``can_view_discount_codes`` is the viewer's capability
+    on this class (:func:`_composer_context` resolves it), so a guild lead on a class they do
+    not teach, who has it False on purpose, is handed nothing to read.
+    """
+    if is_admin or not can_view_discount_codes:
+        return {}
+    requests = saved.discount_code_requests.all() if saved is not None else DiscountCodeRequest.objects.none()
+    return {
+        "composer_global_codes": DiscountCode.objects.site_wide_live(),
+        "composer_discount_requests": requests,
+    }
+
+
 def _composer_context(
     request: HttpRequest,
     *,
@@ -1974,7 +2045,7 @@ def _composer_context(
     """Everything ``classes/_components/class_composer.html`` reads beyond the forms themselves.
 
     ``readiness()`` and ``review_pipeline()`` need a saved row, so the pipeline card, the tab
-    marks, and the step 5 checklist are absent until the class has a pk; the template guards
+    marks, and the Review step's checklist are absent until the class has a pk; the template guards
     on these context keys, never on ``offering``. A failed POST lands on the first step with
     an error; otherwise the step comes from the request.
 
@@ -1999,9 +2070,21 @@ def _composer_context(
 
     is_published = saved is not None and saved.status == ClassOffering.Status.PUBLISHED
     marks = step_marks(readiness) if readiness is not None else {}
+    # Who may read discount codes on this class. On edit it is the capability
+    # ``class_screen_required`` resolved: an instructor's follows the master setting, and a
+    # guild lead on a class they do not teach has it False on purpose (``_guild_access``), so
+    # the Discounts step must not hand them the codes, the requests or a Request a Code link
+    # that dead ends. On create there is no class yet and the only person here is an
+    # instructor starting their own, so the master setting is the whole answer.
+    access: ClassAccess | None = getattr(request, "class_access", None)
+    can_view_discount_codes = (
+        access.can_view_discount_codes
+        if access is not None
+        else SiteConfiguration.load().instructor_discount_codes_enabled
+    )
     if saved is not None:
         # The card preview frames render the REAL catalog card three times (two widths on
-        # step 2, the phone on step 5) and each read offering.sessions.all; one prefetch
+        # the Photos step, the phone on the Review step) and each read offering.sessions.all; one prefetch
         # keeps that to a single sessions query however many frames there are.
         prefetch_related_objects([saved], "sessions")
     return {
@@ -2011,6 +2094,9 @@ def _composer_context(
         # the card the catalog would build. None until the class has a pk.
         "card_group": CatalogGroup(saved) if saved is not None else None,
         "composer_tabs": [{"step": step, "done": marks.get(step.number, False)} for step in COMPOSER_STEPS],
+        # The map's own count: every "how many steps" and "the last step" in the template reads it.
+        "step_count": STEP_COUNT,
+        "composer_can_view_discount_codes": can_view_discount_codes,
         "initial_phase": min(error_step_numbers) if error_step_numbers else _composer_step(request),
         "error_steps": error_step_numbers,
         "error_steps_json": json.dumps(error_step_numbers),
@@ -2021,6 +2107,9 @@ def _composer_context(
         "is_ready": readiness is not None and all(item.ok for item in readiness),
         "cancel_url": cancel_url,
         "save_label": "Save" if is_published else "Save Draft",
+        # Stamped on the description's live count (#425), so the browser paints the same minimum
+        # the readiness rule enforces and no template or script carries the number itself.
+        "description_min_chars": READINESS_MIN_DESCRIPTION_CHARS,
         # Draft persistence (issue #368, item 3c): the key the browser keeps the in flight
         # typing under, and the one shot signal that the database now has it.
         "composer_draft_key": _composer_draft_key(request, saved),
@@ -2036,6 +2125,7 @@ def _composer_context(
         # request may print them: published, or an admin looking at a draft.
         "can_print_marketing": saved is not None and can_print_class_marketing(request, saved),
         **_missing_context(missing, verb),
+        **_composer_discounts_context(saved, is_admin, can_view_discount_codes),
     }
 
 
@@ -2101,7 +2191,7 @@ def teach_class_create(request: HttpRequest) -> HttpResponse:
         try:
             offering.add_gallery_images(request.FILES.getlist("gallery_images"))
         except ValidationError as exc:
-            offering.delete()  # roll back the half-created offering
+            _discard_half_created_offering(offering)
             form.add_error(None, exc.messages[0])
         else:
             _mark_composer_saved(request, offering)
@@ -2494,7 +2584,22 @@ def teach_discount_codes(request: HttpRequest) -> HttpResponse:
     read-only here; admins manage them from the Classes admin.
     """
     teaching_member: Member = request.teaching_member  # type: ignore[attr-defined]
-    own_codes = DiscountCode.objects.filter(created_by=request.user).order_by("code")
+    config = SiteConfiguration.load()
+    approval_mode = config.instructor_discount_codes_approval_mode
+    if approval_mode:
+        # Read only: the codes on the instructor's classes, plus any they made under the direct
+        # flow before the switch, and where each of their requests stands.
+        own_codes = (
+            DiscountCode.objects.filter(Q(created_by=request.user) | Q(class_offering__instructor=teaching_member))
+            .distinct()
+            .order_by("code")
+        )
+        code_requests = DiscountCodeRequest.objects.filter(requested_by=teaching_member).select_related(
+            "class_offering", "discount_code"
+        )
+    else:
+        own_codes = DiscountCode.objects.filter(created_by=request.user).order_by("code")
+        code_requests = DiscountCodeRequest.objects.none()
     sitewide_codes = (
         DiscountCode.objects.filter(class_offering__isnull=True).exclude(created_by=request.user).order_by("code")
     )
@@ -2506,6 +2611,8 @@ def teach_discount_codes(request: HttpRequest) -> HttpResponse:
             "instructor": teaching_member,
             "own_codes": own_codes,
             "sitewide_codes": sitewide_codes,
+            "approval_mode": approval_mode,
+            "requests": code_requests,
             # Resolve the acting user's approval capability once (one Member query),
             # reused per row in the template — avoids an N+1 across the code list.
             "approver": DiscountCode.approver_for(request.user),
@@ -2515,6 +2622,27 @@ def teach_discount_codes(request: HttpRequest) -> HttpResponse:
 
 @teaching_member_required
 @instructor_discount_codes_required
+@instructor_request_mode_required
+def teach_discount_code_request(request: HttpRequest) -> HttpResponse:
+    """An instructor asks for a class code; an admin decides in ``admin_discount_code_request_review``."""
+    teaching_member: Member = request.teaching_member  # type: ignore[attr-defined]
+    form = DiscountCodeRequestForm(
+        request.POST or None, teaching_member=teaching_member, initial_class=request.GET.get("class")
+    )
+    if request.method == "POST" and form.is_valid():
+        req = form.save()
+        messages.success(request, f"Your request for {req.code} is in. An admin will review it.")
+        return redirect("classes:teach_class_discount_codes", pk=req.class_offering_id)
+    return render(
+        request,
+        "classes/teach/discount_code_request_form.html",
+        {"active_tab": "my_discount_codes", "instructor": teaching_member, "form": form},
+    )
+
+
+@teaching_member_required
+@instructor_discount_codes_required
+@instructor_direct_discount_codes_required
 def teach_discount_code_create(request: HttpRequest) -> HttpResponse:
     teaching_member: Member = request.teaching_member  # type: ignore[attr-defined]
     assert request.user.is_authenticated  # @teaching_member_required guarantees a real User
@@ -2555,6 +2683,7 @@ def teach_discount_code_create(request: HttpRequest) -> HttpResponse:
 
 @teaching_member_required
 @instructor_discount_codes_required
+@instructor_direct_discount_codes_required
 def teach_discount_code_edit(request: HttpRequest, pk: int) -> HttpResponse:
     teaching_member: Member = request.teaching_member  # type: ignore[attr-defined]
     # Instructors may only edit codes they created; site-wide / admin codes are
@@ -2574,6 +2703,7 @@ def teach_discount_code_edit(request: HttpRequest, pk: int) -> HttpResponse:
 
 @teaching_member_required
 @instructor_discount_codes_required
+@instructor_direct_discount_codes_required
 def teach_discount_code_delete(request: HttpRequest, pk: int) -> HttpResponse:
     # Only the instructor who created a code may delete it; site-wide / admin codes 404.
     code = get_object_or_404(DiscountCode, pk=pk, created_by=request.user)
@@ -2585,6 +2715,7 @@ def teach_discount_code_delete(request: HttpRequest, pk: int) -> HttpResponse:
 
 @teaching_member_required
 @instructor_discount_codes_required
+@instructor_direct_discount_codes_required
 @require_POST
 def teach_discount_code_approve(request: HttpRequest, pk: int) -> HttpResponse:
     """Approve one of the teaching member's own pending codes from the Teaching portal.
@@ -3103,12 +3234,21 @@ def teach_class_discount_codes(request: HttpRequest, pk: int) -> HttpResponse:
         raise Http404("Discount codes on this class are not open to this viewer.")
     offering: ClassOffering = request.class_offering  # type: ignore[attr-defined]
     codes = DiscountCode.objects.filter(Q(class_offering=offering) | Q(class_offering__isnull=True)).order_by("code")
+    # The instructor under approval mode (#428) reads this tab and asks for codes; admins keep today's page.
+    approval_mode = access.role == ROLE_INSTRUCTOR and SiteConfiguration.load().instructor_discount_codes_approval_mode
+    code_requests = (
+        offering.discount_code_requests.select_related("discount_code")
+        if approval_mode
+        else DiscountCodeRequest.objects.none()
+    )
     return render(
         request,
         "classes/teach/class_discount_codes.html",
         {
             **_class_screen_context(request, offering, "discount_codes"),
             "codes": codes,
+            "approval_mode": approval_mode,
+            "requests": code_requests,
             # Resolve the acting user's approval capability once (one Member query),
             # reused per row in the template — avoids an N+1 across the code list.
             "approver": DiscountCode.approver_for(request.user),
@@ -3681,7 +3821,7 @@ def _create_form_readiness(form: ClassOfferingForm, session_formset: Any, galler
 
 
 def _discard_half_created_offering(offering: ClassOffering) -> None:
-    """Roll back an admin create that could not publish: files, activity rows, then the row.
+    """Roll back a create whose gallery was refused or that could not publish: files, activity rows, then the row.
 
     ``ClassOffering.delete`` alone would leave the hero and gallery objects in storage and
     the ``class_created`` activity rows dangling (their FK is SET_NULL). Files are removed
@@ -3712,9 +3852,9 @@ def admin_class_create(request: HttpRequest) -> HttpResponse:
     gallery files, or activity rows ever landing. Every other POST keeps the class as a
     draft (the composer's Save Draft). A readiness gap is not a form error: the form
     validated, so the composer re-renders on the first step owing an item with the Still
-    Missing checklist, never a non field error on step 1. Only the gallery cap (checked
-    inside ``add_gallery_images``) can still refuse after the save; that path rolls
-    everything back.
+    Missing checklist, never a non field error on step 1. Only the gallery (its cap, or a
+    file that is not an image, both checked inside ``add_gallery_images``) can still refuse
+    after the save; that path rolls everything back.
     """
     form = ClassOfferingForm(request.POST or None, request.FILES or None)
     session_formset = ClassSessionFormSet(request.POST or None, prefix="sessions")
@@ -3816,7 +3956,7 @@ def _admin_composer(request: HttpRequest, pk: int) -> HttpResponse:
     """The composer as an admin sees it: every fact editable, and Publish on the last step.
 
     ``action=publish`` saves and then publishes a draft straight from the composer (the
-    admin's step 5 action); an unready class stays a draft and lands on the first step
+    admin's Review step action); an unready class stays a draft and lands on the first step
     still owing an item, with the reason shown. Every other POST saves and returns to the
     composer when it said which step it was on, else to the class page, which is where the
     old single page form always landed.
@@ -4429,9 +4569,9 @@ def _hero_upload(request: HttpRequest, offering: ClassOffering) -> HttpResponse:
     file = request.FILES.get("image")
     if not file:
         return JsonResponse({"error": "No file provided."}, status=400)
-    oversize = _oversize_image_error(file)
-    if oversize is not None:
-        return oversize
+    refused = _oversize_image_error(file) or _not_an_image_error(file)
+    if refused is not None:
+        return refused
     offering.image = file
     offering.hero_crop_x = None
     offering.hero_crop_y = None
@@ -4455,15 +4595,28 @@ def _oversize_image_error(file: UploadedFile) -> JsonResponse | None:
     return JsonResponse({"error": f"Image must be {limit_mb:.0f} MB or smaller."}, status=400)
 
 
+def _not_an_image_error(file: UploadedFile) -> JsonResponse | None:
+    """The 400 for an upload whose bytes are not an image, or None when Pillow can open it.
+
+    Beside ``_oversize_image_error`` for the same reason: neither route builds a form, and the
+    model field never reads the bytes, so without this a text file is saved as a class photo.
+    """
+    try:
+        validate_image_content(file)
+    except ValidationError as exc:
+        return JsonResponse({"error": exc.messages[0]}, status=400)
+    return None
+
+
 def _gallery_upload(request: HttpRequest, offering: ClassOffering) -> HttpResponse:
     if offering.gallery_images.count() >= MAX_GALLERY_IMAGES:
         return JsonResponse({"error": f"A class can have at most {MAX_GALLERY_IMAGES} images."}, status=400)
     file = request.FILES.get("image")
     if not file:
         return JsonResponse({"error": "No file provided."}, status=400)
-    oversize = _oversize_image_error(file)
-    if oversize is not None:
-        return oversize
+    refused = _oversize_image_error(file) or _not_an_image_error(file)
+    if refused is not None:
+        return refused
     next_order = (offering.gallery_images.order_by("-sort_order").values_list("sort_order", flat=True).first() or 0) + 1
     img = ClassImage(class_offering=offering, image=file, sort_order=next_order)
     img.full_clean()
@@ -5168,7 +5321,11 @@ def admin_discount_codes(request: HttpRequest) -> HttpResponse:
     return render(
         request,
         "classes/admin/discount_codes.html",
-        {"active_tab": "discount_codes", **table},
+        {
+            "active_tab": "discount_codes",
+            "pending_requests": DiscountCodeRequest.objects.pending().select_related("class_offering", "requested_by"),
+            **table,
+        },
     )
 
 
@@ -5240,6 +5397,70 @@ def admin_discount_code_approve(request: HttpRequest, pk: int) -> HttpResponse:
         code.approve(request.user)
         messages.success(request, f"Discount code {code.code} approved.")
     return redirect("classes:admin_discount_codes")
+
+
+@login_required
+def admin_discount_code_request_review(request: HttpRequest, pk: int) -> HttpResponse:
+    """Approve or decline one instructor's discount code request (#428).
+
+    Open to whoever the "needs approval" ping reaches and to admins: an actual admin, a
+    superuser, or a Discount Code Administrator (``DiscountCode.approver_for(...).approves_any``,
+    the same rule ``admin_discount_code_approve`` applies minus the self-approver leg, since a
+    request is decided by admins or holders only). Anyone else gets a 403.
+
+    The approve form is a ``DiscountCodeForm`` prefilled from the request, so the reviewer can
+    adjust anything before the code is made; a decline needs a note. ``request_row`` is the
+    context name so the template's ``request`` stays the HttpRequest. Reachable with the
+    master flag off too, for a reviewer following an email link after the queue was hidden.
+    An actual admin goes back to the queue afterwards; a holder who is not an admin cannot
+    open that page, so they land on the hub instead.
+    """
+    if not DiscountCode.approver_for(request.user).approves_any:
+        return HttpResponseForbidden(
+            "Reviewing discount code requests takes admin or Discount Code Administrator access."
+        )
+    view_as = getattr(request, "view_as", None)
+    is_admin = view_as is not None and view_as.has_actual("admin")
+    back_url = reverse("classes:admin_discount_codes") if is_admin else reverse("hub_home")
+    req = get_object_or_404(DiscountCodeRequest.objects.select_related("class_offering", "requested_by__user"), pk=pk)
+    if req.status != DiscountCodeRequest.Status.PENDING:
+        messages.info(request, "This request has already been decided.")
+        return redirect(back_url)
+    decision = request.POST.get("decision") if request.method == "POST" else None
+    if request.method == "POST" and decision not in ("approve", "decline"):
+        return HttpResponseBadRequest("Unknown decision.")
+    form = DiscountCodeForm(
+        request.POST if decision == "approve" else None,
+        initial=req.prefill(),
+        scoped_to=req.class_offering,
+        created_by=req.requested_by.user,
+    )
+    decline_form = DiscountCodeRequestDeclineForm(request.POST if decision == "decline" else None)
+    try:
+        if decision == "approve" and form.is_valid():
+            code = req.approve(cast("User", request.user), form)
+            messages.success(request, f"Discount code {code.code} approved and ready to use.")
+            return redirect(back_url)
+        if decision == "decline" and decline_form.is_valid():
+            req.decline(cast("User", request.user), decline_form.cleaned_data["note"])
+            messages.success(request, "Request declined. The instructor has been told.")
+            return redirect(back_url)
+    except DiscountCodeRequestAlreadyDecided:
+        # Another reviewer decided between this page's fetch and the click; the model's row
+        # lock made that one decision the only one.
+        messages.info(request, "This request has already been decided.")
+        return redirect(back_url)
+    return render(
+        request,
+        "classes/admin/discount_code_request_review.html",
+        {
+            "active_tab": "discount_codes",
+            "request_row": req,
+            "form": form,
+            "decline_form": decline_form,
+            "back_url": back_url,
+        },
+    )
 
 
 @classes_admin_access_required

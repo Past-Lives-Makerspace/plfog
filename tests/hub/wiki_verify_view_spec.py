@@ -146,7 +146,7 @@ def describe_the_permission_gate():
         user = _login(client, "verify_view_lapsed")
         guild = GuildFactory(guild_lead=user.member)
         page = WikiPageFactory(guild=guild)
-        user.member.status = Member.Status.FORMER
+        user.member.status = Member.Status.INVITED
         user.member.save(update_fields=["status"])
         assert client.post(reverse("hub_wiki_verify", args=[page.slug]), **_HTMX).status_code == 403
 

@@ -1,0 +1,8 @@
+bump = "minor"
+date = "2026-09-25"
+title = "Late cancellation fees are charged through Stripe"
+changes = [
+  "Members: when a guild or a tool charges a late cancellation fee and you cancel inside the notice window, the fee is due right away. You go straight to a secure Stripe payment page, your cancellation email carries a link to pay later, and you get a receipt once it is paid.",
+  "Until an unpaid late fee is paid, you cannot book a new orientation or reserve equipment. The guild page and the equipment page show the amount and a Pay button.",
+  "Cancellations by a guild lead, an equipment manager or an admin never charge a fee, and a paid orientation still refunds in full when it is cancelled.",
+]

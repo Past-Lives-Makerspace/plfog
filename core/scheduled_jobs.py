@@ -134,7 +134,7 @@ SCHEDULED_JOBS: list[ScheduledJob] = [
     ScheduledJob(
         key="send_event_reminders",
         name="Event reminders",
-        description="Reminds members about upcoming community events they can attend.",
+        description="Reminds members about upcoming events they can attend.",
         command="send_event_reminders",
         schedule_label="Every 15 min",
         cadence=Cadence.ALWAYS,

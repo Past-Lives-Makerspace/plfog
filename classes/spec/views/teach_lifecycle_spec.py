@@ -19,7 +19,7 @@ from classes.factories import (
     InstructorFactory,
     UserFactory,
 )
-from classes.models import ClassApproval, ClassOffering
+from classes.models import READINESS_DESCRIPTION_HINT, ClassApproval, ClassOffering
 from tests.membership.factories import GuildFactory, MemberFactory
 
 Status = ClassOffering.Status
@@ -213,7 +213,7 @@ def describe_edit_page_cards():
         offering = ClassOfferingFactory(instructor=instructor_fixture, status=Status.DRAFT, image="", gallery=0)
         client.force_login(instructor_fixture.user)
         html = client.get(reverse("classes:teach_class_edit", kwargs={"pk": offering.pk})).content.decode()
-        # On the five step composer a hash link would scroll to a hidden step, so each hint
+        # On the multi step composer a hash link would scroll to a hidden step, so each hint
         # is a button that jumps to the field's step first (readiness_list.html jump=True).
         assert "goToField('hero-preview')\">Add a hero photo.</button>" in html
         assert "goToField('gallery-manager')\">Add one gallery photo.</button>" in html
@@ -287,7 +287,7 @@ def describe_honest_submit_messages():
         offering = ClassOfferingFactory(instructor=instructor_fixture, status=Status.DRAFT)
         client.force_login(instructor_fixture.user)
         resp = client.post(reverse("classes:teach_class_submit", kwargs={"pk": offering.pk}))
-        assert "Not ready to submit: Write a short description. Add at least one date." in _messages(resp)
+        assert f"Not ready to submit: {READINESS_DESCRIPTION_HINT} Add at least one date." in _messages(resp)
 
     def it_names_the_guild_lead_on_the_edit_page_submit(instructor_fixture, client):
         cat = _guilded_category("Glass")
@@ -313,9 +313,7 @@ def describe_honest_submit_messages():
             ClassOfferingFactory.build(title="Anvil", price_cents=5000, member_discount_pct=10, capacity=6), cat
         )
         payload["image"] = SimpleUploadedFile("hero.png", buf.getvalue(), content_type="image/png")
-        payload["gallery_images"] = [
-            SimpleUploadedFile("g.png", b"\x89PNG\r\n\x1a\n" + b"\x00" * 64, content_type="image/png")
-        ]
+        payload["gallery_images"] = [SimpleUploadedFile("g.png", buf.getvalue(), content_type="image/png")]
         client.force_login(instructor_fixture.user)
         resp = client.post(reverse("classes:teach_class_create"), payload)
         assert resp.status_code == 302

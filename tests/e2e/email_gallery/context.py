@@ -509,6 +509,23 @@ def orientation_orphan_payment_alert_context(data: SampleData) -> dict[str, Any]
     }
 
 
+def late_fee_orphan_payment_alert_context(data: SampleData) -> dict[str, Any]:
+    """Reproduces ``billing.webhook_handlers._send_orphan_fee_alert`` exactly."""
+    stripe_url = "https://dashboard.stripe.com/payments/pi_sample_late_fee"
+    return {
+        "subject": "Orphaned late cancellation fee payment needs a manual refund",
+        "text_body": (
+            "A paid late cancellation fee Checkout landed with no fee to mark paid.\n\n"
+            "Late cancellation fee 12 no longer exists.\n\n"
+            "The member paid $15.00 and the app has nothing to show for it. "
+            "Refund the payment from the Stripe dashboard.\n\n"
+            f"Stripe payment: {stripe_url}\n"
+            "Checkout session: cs_sample_late_fee\n"
+            f"Customer email: {data.member.primary_email}"
+        ),
+    }
+
+
 def reminder_context(data: SampleData) -> dict[str, Any]:
     """Mirrors ``classes.emails.build_class_reminder_occurrence``."""
     session = _upcoming_sessions(data)[0]

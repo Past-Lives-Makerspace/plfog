@@ -453,17 +453,52 @@ def describe_prune_stale_occurrences():
 
         assert CalendarEvent.objects.filter(uid="council").count() == 1  # updated in place, nothing pruned
 
-    def it_never_prunes_a_uid_the_fetch_did_not_return():
+    def it_prunes_a_one_off_the_feed_no_longer_returns():
+        """Puppet Panic, 2026-09-22: the organizer deleted a one-off in Google and re-created it on a
+        new date. Google's ICS export drops a deleted event outright (no STATUS:CANCELLED), so the
+        old row was never fetched again — and lived on, on the calendar and as a Discord event."""
         from hub.calendar_service import _sync_window, _upsert_events
 
         feed = _feed()
-        # A different series' row — a transient empty/partial fetch of `council` must not wipe it.
-        survivor = _stored_occurrence(feed, "other-rec", days=30, uid="studio-hours")
+        deleted = _stored_occurrence(feed, "", days=1, uid="puppet-sep@google.com", discord_event_id="disc-sep")
+        client = _events_client()
+        with _with_client(client):
+            # The next fetch carries the re-created event under a fresh UID, and nothing under the old one.
+            _upsert_events(
+                [_evt("puppet-oct@google.com", "", days=30)],
+                guild=None,
+                source="general",
+                feed=feed,
+                window=_sync_window(),
+            )
+
+        assert not CalendarEvent.objects.filter(pk=deleted.pk).exists()  # the deleted date is gone
+        assert client.delete_event.call_args.args[1] == "disc-sep"  # and so is its Discord copy
+        assert list(CalendarEvent.objects.filter(feed=feed).values_list("uid", flat=True)) == ["puppet-oct@google.com"]
+
+    def it_prunes_every_occurrence_of_a_series_the_feed_no_longer_returns():
+        from hub.calendar_service import _sync_window, _upsert_events
+
+        feed = _feed()
+        retired = _stored_occurrence(feed, "other-rec", days=30, uid="retired-series")  # deleted upstream
         _upsert_events(
             [_evt("council", "rec-0615", days=30)], guild=None, source="general", feed=feed, window=_sync_window()
         )
 
-        assert CalendarEvent.objects.filter(pk=survivor.pk).exists()
+        assert not CalendarEvent.objects.filter(pk=retired.pk).exists()
+
+    def it_leaves_a_guilds_class_rows_alone_when_its_feed_syncs():
+        from tests.membership.factories import GuildFactory
+
+        from hub.calendar_service import _sync_window, _upsert_events
+
+        guild = GuildFactory()
+        # A class row shares the guild (and feed=None) with the guild's own feed rows but is
+        # written by sync_local_class_events, never by a feed fetch — it is not this fetch's to prune.
+        class_row = _feed_event(days=10, guild=guild, source=CalendarEvent.Source.CLASSES, uid="local-class-1")
+        _upsert_events([_evt("council", "rec-0615", days=30)], guild=guild, source="guild", window=_sync_window())
+
+        assert CalendarEvent.objects.filter(pk=class_row.pk).exists()
 
     def it_prunes_nothing_when_the_fetch_returned_no_events():
         from hub.calendar_service import _sync_window, _upsert_events

@@ -21,6 +21,7 @@ from django.utils import timezone
 if TYPE_CHECKING:
     from datetime import datetime
 
+    from billing.models import LateCancellationFee
     from membership.models import Equipment, EquipmentReservation, Member
 
 
@@ -79,12 +80,16 @@ def build_ics(reservation: EquipmentReservation, *, method: str, status: str) ->
 
 def _placeholder_context(reservation: EquipmentReservation) -> dict[str, str]:
     """The merge-field values shared by every equipment reservation event's copy."""
+    from membership.late_cancel import booking_sentence, policy_for
+
     equipment = reservation.equipment
     return {
         "member_name": reservation.member.display_name,
         "equipment_name": equipment.name,
         "reservation_when": when_display(reservation),
         "equipment_url": _absolute_url(reverse("hub_equipment_detail", args=[equipment.slug])),
+        # The late fee sentence while one applies, "" otherwise (#456).
+        "cancellation_policy": booking_sentence(policy_for(reservation)),
     }
 
 
@@ -186,4 +191,31 @@ def notify_manager_cancelled(reservation: EquipmentReservation) -> None:
         },
         url=reverse("hub_equipment_detail", args=[reservation.equipment.slug]),
         period=f"reservation:{reservation.pk}:manager_cancelled",
+    )
+
+
+def notify_self_cancelled(reservation: EquipmentReservation, fee: LateCancellationFee | None) -> None:
+    """Confirm to the member that they cancelled, naming the late fee and its Pay link when one applies (#456).
+
+    ``late_fee_line`` is the whole fee sentence for the text body and the bell row, and
+    ``late_fee_html`` the same sentence with a real link for the HTML body; both are ""
+    when the cancel was free, so the copy needs no conditional and a free cancel's email
+    says nothing about fees.
+    """
+    from billing.late_fees import pay_html, pay_line
+    from core.events.emit import emit
+
+    member = reservation.member
+    emit(
+        "equipment.reservation_cancelled",
+        actor=member.user,
+        target=reservation,
+        context={
+            "user": member.user,
+            "late_fee_line": pay_line(fee) if fee is not None else "",
+            "late_fee_html": pay_html(fee) if fee is not None else "",
+            **_placeholder_context(reservation),
+        },
+        url=reverse("hub_equipment_detail", args=[reservation.equipment.slug]),
+        period=f"reservation:{reservation.pk}:self_cancelled",
     )

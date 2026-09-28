@@ -1,16 +1,25 @@
 """Declared registry of every member feature an admin can switch off — one source of truth.
 
-**The switch owns the sidebar and nothing else. It is purely cosmetic.**
+**The switch owns the sidebar and nothing else, with ONE exception: My Tab.** For every other
+feature it is purely cosmetic.
 
 Three states, not two. ``ON`` is today's entry, byte for byte. ``SOON`` still renders the entry,
 inert, revealing the admin's own message on hover and on keyboard focus. ``HIDDEN`` removes it.
 
-No route is gated, for anyone. A saved URL keeps working in every state — that is intended, not
-a gap. Jo: *"They can still use the tools if they have the URLs saved but this is purely
-cosmetic."* So **Hidden is not a security boundary and must never be used as one**: nothing here
-withholds a feature that must not be reached. This replaced an earlier design in which both off
-states 404'd every route in the family; ``wiki_feature_required`` and
-``equipment_feature_required`` were that behaviour for two features and are gone with it.
+For the cosmetic features no route is gated, for anyone. A saved URL keeps working in every
+state — that is intended, not a gap. Jo: *"They can still use the tools if they have the URLs
+saved but this is purely cosmetic."* So **Hidden is not a security boundary and must never be
+used as one**: nothing here withholds a feature that must not be reached. This replaced an
+earlier design in which both off states 404'd every route in the family;
+``wiki_feature_required`` and ``equipment_feature_required`` were that behaviour for two
+features and are gone with it.
+
+**My Tab is the one functional switch** (#416). It absorbed the old ``SiteConfiguration`` My Tab boolean,
+which was always the kill switch for tab billing, not a sidebar toggle. ON is that boolean's
+True; SOON and HIDDEN are both its False, everywhere: ``bill_tabs`` exits, admin charges and
+charge notifications stop, ``/tab/`` redirects home, and the balance pill, guild Buyables, the
+Discord tab command and the Payments Overview and Open Tabs tabs all go. The two off states
+differ only in the sidebar. Every such gate reads :func:`is_on` with ``"my_tab"``.
 
 Beyond the sidebar, two surfaces follow the switch for cosmetic consistency rather than access:
 the lobby kiosk deck and the release-email screenshot registry. A wall screen must not advertise
@@ -52,7 +61,8 @@ class Feature:
     ``key`` is the ``FeatureSwitch.feature_key`` the state is stored under and the name every
     template and spec refers to. ``off_description`` is the "what turning this off does" line the
     admin card shows, kept next to the key instead of scattered across ``help_text`` — and it
-    describes the SIDEBAR, because the sidebar is all this switch touches.
+    describes the SIDEBAR, because the sidebar is all this switch touches (My Tab excepted,
+    whose line says so).
     """
 
     key: str
@@ -94,6 +104,17 @@ FEATURES: list[Feature] = [
         key="leadership",
         name="Leadership Directory",
         off_description="Takes Leadership Directory out of the sidebar.",
+    ),
+    Feature(
+        key="my_tab",
+        name="My Tab",
+        off_description=(
+            "The one switch here that does more than the sidebar. Both off states turn tab billing "
+            "off: no monthly tab charges, no new admin charges or charge notices, the My Tab pages "
+            "send members home, and the balance pill, guild Buyables, the Discord tab command and "
+            "the Payments Overview and Open Tabs tabs all go. Coming soon keeps an inert My Tab "
+            "entry in the sidebar; Hidden removes it."
+        ),
     ),
     Feature(
         key="spaces",

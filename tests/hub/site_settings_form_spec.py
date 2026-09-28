@@ -116,6 +116,8 @@ def describe_SiteSettingsForm_member_agreement():
             "org_name": "Past Lives Makerspace",
             "registration_mode": SiteConfiguration.RegistrationMode.OPEN,
             "member_event_policy": SiteConfiguration.MemberEventPolicy.APPROVAL,
+            "late_cancel_notice_hours": "24",
+            "late_cancel_grace_hours": "2",
         }
 
     def it_fails_clean_if_required_but_no_url(required_settings: dict[str, str]) -> None:
@@ -145,3 +147,81 @@ def describe_SiteSettingsForm_member_agreement():
         }
         form = SiteSettingsForm(data)
         assert form.is_valid(), form.errors
+
+
+def describe_SiteSettingsForm_late_cancel_fees():
+    """The switch and the window on the Features card (#456, part 1)."""
+
+    def _data(**overrides: str) -> dict[str, str]:
+        data = {
+            "org_name": "Past Lives Makerspace",
+            "registration_mode": SiteConfiguration.RegistrationMode.OPEN,
+            "member_event_policy": SiteConfiguration.MemberEventPolicy.APPROVAL,
+            "late_cancel_notice_hours": "24",
+            "late_cancel_grace_hours": "2",
+        }
+        data.update(overrides)
+        return data
+
+    def it_declares_the_switch_and_the_window():
+        for name in ("late_cancel_fees_enabled", "late_cancel_notice_hours", "late_cancel_grace_hours"):
+            assert name in SiteSettingsForm.Meta.fields
+
+    def it_ships_off_with_a_day_of_notice_and_two_hours_of_grace():
+        config = SiteConfiguration.load()
+        assert config.late_cancel_fees_enabled is False
+        assert config.late_cancel_notice_hours == 24
+        assert config.late_cancel_grace_hours == 2
+
+    def it_saves_the_three_onto_the_singleton():
+        form = SiteSettingsForm(
+            _data(late_cancel_fees_enabled="on", late_cancel_notice_hours="48", late_cancel_grace_hours="4"),
+            instance=SiteConfiguration.load(),
+        )
+        assert form.is_valid(), form.errors
+        form.save()
+        config = SiteConfiguration.load()
+        assert config.late_cancel_fees_enabled is True
+        assert config.late_cancel_notice_hours == 48
+        assert config.late_cancel_grace_hours == 4
+
+    def it_reads_an_unchecked_switch_as_off():
+        config = SiteConfiguration.load()
+        config.late_cancel_fees_enabled = True
+        config.save()
+        form = SiteSettingsForm(_data(), instance=config)
+        assert form.is_valid(), form.errors
+        form.save()
+        assert SiteConfiguration.load().late_cancel_fees_enabled is False
+
+    def it_refuses_a_notice_under_an_hour():
+        form = SiteSettingsForm(_data(late_cancel_notice_hours="0", late_cancel_grace_hours="0"))
+        assert not form.is_valid()
+        assert set(form.errors) == {"late_cancel_notice_hours"}
+        assert "at least 1 hour" in str(form.errors["late_cancel_notice_hours"])
+
+    def it_refuses_a_grace_equal_to_the_notice():
+        form = SiteSettingsForm(_data(late_cancel_notice_hours="24", late_cancel_grace_hours="24"))
+        assert not form.is_valid()
+        assert set(form.errors) == {"late_cancel_grace_hours"}
+        assert "shorter than the notice" in str(form.errors["late_cancel_grace_hours"])
+
+    def it_refuses_a_grace_longer_than_the_notice():
+        form = SiteSettingsForm(_data(late_cancel_notice_hours="24", late_cancel_grace_hours="30"))
+        assert not form.is_valid()
+        assert set(form.errors) == {"late_cancel_grace_hours"}
+
+    def it_accepts_no_grace_at_all():
+        form = SiteSettingsForm(_data(late_cancel_notice_hours="24", late_cancel_grace_hours="0"))
+        assert form.is_valid(), form.errors
+
+    def it_requires_both_hours():
+        # Blank hours are the field's own required error; the window check stays quiet.
+        form = SiteSettingsForm(_data(late_cancel_notice_hours="", late_cancel_grace_hours=""))
+        assert set(form.errors) == {"late_cancel_notice_hours", "late_cancel_grace_hours"}
+        assert "required" in str(form.errors["late_cancel_grace_hours"])
+
+    def it_requires_the_grace_without_judging_a_missing_one():
+        form = SiteSettingsForm(_data(late_cancel_notice_hours="24", late_cancel_grace_hours=""))
+        assert set(form.errors) == {"late_cancel_grace_hours"}
+        assert "shorter than the notice" not in str(form.errors["late_cancel_grace_hours"])

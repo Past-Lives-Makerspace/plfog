@@ -63,26 +63,27 @@ def feature_flags(request: HttpRequest) -> dict[str, Any]:
     It costs ONE query for the whole registry, which is why ``as_context`` exists rather than a
     lookup per key — a sidebar renders every key on every page in the app.
 
-    The switch is cosmetic and applies to everyone, with no viewer-role branch: hiding a feature
-    hides it from the sidebar for whoever is looking, and its pages stay reachable by URL. That
-    is the whole mechanism.
+    The switch applies to everyone, with no viewer-role branch: hiding a feature hides it from
+    the sidebar for whoever is looking, and (for every feature but My Tab, which is functional)
+    its pages stay reachable by URL. That is the whole mechanism.
 
-    The flat booleans below are the switches that stay flat by design (My Tab, class
-    registration, Help, the demo toggles). ``wiki_enabled``, ``equipment_page_enabled`` and
-    ``host_a_workshop_enabled`` used to be among them and are now ``features.wiki``,
-    ``features.equipment`` and ``features.teach``.
+    The flat booleans below are the switches that stay flat by design (class registration, Help,
+    the demo toggles). ``wiki_enabled``, ``equipment_page_enabled``, ``host_a_workshop_enabled``
+    and the My Tab boolean used to be among them and are now ``features.wiki``,
+    ``features.equipment``, ``features.teach`` and ``features.my_tab``.
     """
     from core.models import FeatureSwitch, SiteConfiguration
 
     config = SiteConfiguration.load()
     return {
         "features": FeatureSwitch.objects.as_context(),
-        "my_tab_enabled": config.my_tab_enabled,
         "class_registration_enabled": config.class_registration_enabled,
         "class_registration_disabled_note": config.class_registration_disabled_note,
         "help_page_enabled": config.help_page_enabled,
         "instructor_discount_codes_enabled": config.instructor_discount_codes_enabled,
+        "instructor_discount_codes_need_approval": config.instructor_discount_codes_need_approval,
         "guild_welcome_email_enabled": config.guild_welcome_email_enabled,
+        "late_cancel_fees_enabled": config.late_cancel_fees_enabled,
     }
 
 
@@ -149,6 +150,16 @@ def surface(request: HttpRequest) -> dict[str, str | bool]:
             "guilds/base_public.html" if is_guilds else "classes/base_public.html" if is_public else "base.html"
         ),
     }
+
+
+def environment(request: HttpRequest) -> dict[str, str | bool]:
+    """Expose which deployment is rendering, so a staging page can say so on every screen.
+
+    ``IS_STAGING`` gates the fixed STAGING ribbon (``components/staging_ribbon.html``) and its
+    stylesheet link in the base templates; ``ENVIRONMENT`` is the name itself for anything
+    that wants to print it. Both come straight from settings, so there is nothing to cache.
+    """
+    return {"ENVIRONMENT": settings.ENVIRONMENT, "IS_STAGING": settings.IS_STAGING}
 
 
 def google_analytics(request: HttpRequest) -> dict[str, str]:

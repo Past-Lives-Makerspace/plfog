@@ -5,29 +5,36 @@ browser does with a required field on a hidden step is exactly what the Python s
 see: whether Next stops on the step with the gap, whether the reason lands next to the
 field and clears once it is fixed, whether Back and the step tabs stay free, and whether the
 Submit confirm and Save Draft jump to a gap on another step instead of opening a modal
-over it (or posting a form the server would only bounce). This drives the real
-``static/js/composer_validation.js`` and the Alpine root in
-``templates/classes/_components/class_composer.html``. Run with ``pytest -m e2e``.
+over it (or posting a form the server would only bounce), and whether the one rule that is
+not an attribute, the gallery's minimum of one photo (#424), holds Next on the Photos step and
+lets Save Draft through. This drives the real ``static/js/composer_validation.js`` and the
+Alpine root in ``templates/classes/_components/class_composer.html``. Run with
+``pytest -m e2e``.
 """
 
 from __future__ import annotations
 
 import re
+from pathlib import Path
 from typing import cast
 
 import pytest
 from django.urls import reverse
+from PIL import Image
 from playwright.sync_api import Error as PlaywrightError
-from playwright.sync_api import expect
+from playwright.sync_api import Page, expect
 
 from classes.factories import CategoryFactory, ClassOfferingFactory, InstructorFactory, UserFactory
 from classes.forms import PRICE_FLOOR_MESSAGE
-from classes.models import ClassOffering
+from classes.models import READINESS_MIN_DESCRIPTION_CHARS, ClassOffering
+from core.models import SiteConfiguration
 from membership.models import Member
 from tests.membership.factories import MembershipPlanFactory
 
 EMAIL = "steps-teacher@example.com"
 REQUIRED = "This field is required."
+GALLERY_MESSAGE = "Add at least one gallery photo."
+GALLERY_FILE_INPUT = "#gallery-file-input"
 NEXT = "#composer-form .pl-composer-bar button:has-text('Next')"
 BACK = "#composer-form .pl-composer-bar button:has-text('Back')"
 SAVE_DRAFT = '#composer-form button[type="submit"]'
@@ -41,17 +48,24 @@ def _seed_instructor() -> Member:
     return cast(Member, InstructorFactory(user=user, full_legal_name="Steps Teacher", instructor_slug="steps-teacher"))
 
 
-def _seed_ready_draft(instructor: Member) -> ClassOffering:
+def _seed_ready_draft(instructor: Member, **traits: object) -> ClassOffering:
     return cast(
-        ClassOffering, ClassOfferingFactory(instructor=instructor, status=ClassOffering.Status.DRAFT, ready=True)
+        ClassOffering,
+        ClassOfferingFactory(instructor=instructor, status=ClassOffering.Status.DRAFT, ready=True, **traits),
     )
+
+
+def _png(path: Path) -> Path:
+    """A real, tiny PNG for the gallery pick: the zones filter on ``file.type`` and the saved class upload decodes it."""
+    Image.new("RGB", (8, 8), (40, 90, 160)).save(path, "PNG")
+    return path
 
 
 @pytest.fixture(autouse=True)
 def _settle_before_the_database_is_truncated(page, live_server, transactional_db):
     """Let the browser go quiet before the teardown truncates the tables.
 
-    Step 5 lazy loads a preview iframe and Save Draft posts the form, so a scenario can end
+    The Review step lazy loads a preview iframe and Save Draft posts the form, so a scenario can end
     with a request still in flight. The live server thread still holds that request's row
     locks when ``transactional_db`` truncates, and the truncate is the one that loses:
     ``psycopg.errors.DeadlockDetected``, surfaced as an ERROR with no assertion failure. It
@@ -101,8 +115,10 @@ def _live_error(page, control_id: str):
 def _errors_under(page, control_id: str):
     """Every field error under that control, whoever wrote it: Django renders its list as a
     sibling of the input and the live one is inserted as a sibling too, so one selector sees
-    both and a count of two is the stacking bug."""
-    return page.locator(f"#{control_id} ~ .pl-field-errors .pl-field-error")
+    both and a count of two is the stacking bug. The live list sits inside its alert wrapper."""
+    return page.locator(
+        f"#{control_id} ~ .pl-field-errors .pl-field-error, #{control_id} ~ [data-live-error] .pl-field-error"
+    )
 
 
 def _open_create(page, live_server) -> None:
@@ -115,14 +131,29 @@ def _open_edit(page, live_server, offering: ClassOffering) -> None:
     expect(_step(page, 1)).to_be_visible()
 
 
-def _expect_refused_on(page, n: int, control_id: str) -> None:
+def _expect_refused_on(page, n: int, control_id: str, message: str = REQUIRED) -> None:
     """The composer stayed on (or came back to) step ``n``, focused the control, and said why next to it."""
     expect(_step(page, n)).to_be_visible()
     control = page.locator(f"#{control_id}")
     expect(control).to_be_focused()
     expect(control).to_have_attribute("aria-invalid", "true")
     expect(control).to_have_attribute("aria-describedby", re.compile(rf"\b{control_id}-error\b"))
-    expect(_live_error(page, control_id)).to_have_text(REQUIRED)
+    expect(_live_error(page, control_id)).to_have_text(message)
+    # The server's ul > li shape, with the alert role on a wrapper and none on the li (#497).
+    live = page.locator(f'[data-live-error="{control_id}-error"]')
+    expect(live).to_have_attribute("role", "alert")
+    expect(live.locator("> ul.pl-field-errors > li.pl-field-error")).to_have_count(1)
+    expect(live.locator("li[role]")).to_have_count(0)
+
+
+def _expect_refused_at_the_gallery(page: Page, container_id: str) -> None:
+    """Step 2 stayed, step 3 never showed, the gallery container took the focus a control would, and the
+    refusal is the very next element after it, in the field error markup the rest of the composer uses."""
+    _expect_refused_on(page, 2, container_id, GALLERY_MESSAGE)
+    expect(_step(page, 3)).to_be_hidden()
+    expect(page.locator(f"#{container_id} + [role='alert'] > ul.pl-field-errors > li.pl-field-error")).to_have_text(
+        GALLERY_MESSAGE
+    )
 
 
 def _expect_clean(page, control_id: str) -> None:
@@ -151,10 +182,10 @@ def describe_next():
         # Still on step 1: fixing the field is not the same as pressing Next.
         expect(_step(page, 1)).to_be_visible()
 
-    def it_walks_a_valid_class_through_every_step(live_server, page, login_via_code):
+    def it_walks_a_valid_class_through_every_step(live_server, page, login_via_code, tmp_path):
         # Create mode on purpose: steps 3 and 4 are untouched, so this proves Next never blocks
         # on the defaults the server renders (capacity, discount, scheduling) or on the
-        # optional fields and the empty formsets.
+        # optional fields and the empty formsets. Step 2 gets the one photo it asks for (#424).
         _seed_instructor()
         CategoryFactory()
         login_via_code(EMAIL)
@@ -163,7 +194,14 @@ def describe_next():
         page.locator("#id_category").select_option(index=1)
         page.locator("#id_price_cents").fill("80")
 
-        for n in (2, 3, 4, 5):
+        page.locator(NEXT).click()
+        _settle(page)
+        expect(_step(page, 2)).to_be_visible()
+        expect(_step(page, 1)).to_be_hidden()
+        page.locator(GALLERY_FILE_INPUT).set_input_files(str(_png(tmp_path / "gallery.png")))
+        expect(page.locator("#gallery-preview-grid .cls-image-cell")).to_have_count(1)
+
+        for n in (3, 4, 5, 6):
             page.locator(NEXT).click()
             _settle(page)
             expect(_step(page, n)).to_be_visible()
@@ -208,6 +246,29 @@ def describe_next():
         expect(_step(page, 2)).to_be_visible()
 
 
+def describe_the_description_count():
+    def it_counts_what_was_typed_toward_the_minimum_and_says_when_it_is_long_enough(live_server, page, login_via_code):
+        # The counter (#425) is server markup static/js/composer_description_count.js paints into on
+        # boot and on every keystroke, with the readiness rule's own arithmetic: a run of spaces is
+        # one, and a bracketed phrase counts like any other words because the class page shows it.
+        # Thirty typed characters read thirty; crossing the minimum changes the line. Anchored on
+        # the hook, never on copy elsewhere.
+        _seed_instructor()
+        CategoryFactory()
+        login_via_code(EMAIL)
+        _open_create(page, live_server)
+        counter = page.locator("[data-description-count]")
+        expect(counter).to_have_text(f"0 of {READINESS_MIN_DESCRIPTION_CHARS} characters")
+
+        page.locator("#id_description").fill("Make a coat hook from one bar.")
+
+        expect(counter).to_have_text(f"30 of {READINESS_MIN_DESCRIPTION_CHARS} characters")
+
+        page.locator("#id_description").type("   Bring <safety glasses>.")
+
+        expect(counter).to_have_text("54 characters. Long enough.")
+
+
 def describe_back_and_tabs():
     def it_never_blocks_back_from_an_invalid_step(live_server, page, login_via_code):
         offering = _seed_ready_draft(_seed_instructor())
@@ -230,10 +291,10 @@ def describe_back_and_tabs():
         login_via_code(EMAIL)
         _open_create(page, live_server)
 
-        _tab(page, 5).click()
+        _tab(page, 6).click()
         _settle(page)
 
-        expect(_step(page, 5)).to_be_visible()
+        expect(_step(page, 6)).to_be_visible()
         expect(_step(page, 1)).to_be_hidden()
         expect(page.locator("[data-live-invalid]")).to_have_count(0)
 
@@ -244,27 +305,27 @@ def describe_the_submit_confirm():
         login_via_code(EMAIL)
         _open_edit(page, live_server, offering)
         page.locator("#id_price_cents").fill("")
-        _tab(page, 5).click()
-        expect(_step(page, 5)).to_be_visible()
+        _tab(page, 6).click()
+        expect(_step(page, 6)).to_be_visible()
 
         page.locator(SUBMIT).click()
         _settle(page)
 
         expect(page.locator(SUBMIT_MODAL)).to_be_hidden()
-        expect(_step(page, 5)).to_be_hidden()
+        expect(_step(page, 6)).to_be_hidden()
         _expect_refused_on(page, 1, "id_price_cents")
 
     def it_opens_the_modal_for_a_valid_class(live_server, page, login_via_code):
         offering = _seed_ready_draft(_seed_instructor())
         login_via_code(EMAIL)
         _open_edit(page, live_server, offering)
-        _tab(page, 5).click()
+        _tab(page, 6).click()
 
         page.locator(SUBMIT).click()
         _settle(page)
 
         expect(page.locator(SUBMIT_MODAL)).to_be_visible()
-        expect(_step(page, 5)).to_be_visible()
+        expect(_step(page, 6)).to_be_visible()
 
 
 def describe_save_draft():
@@ -317,6 +378,7 @@ def describe_formset_rows():
         _settle(page)
 
         expect(_step(page, 5)).to_be_visible()
+        expect(_step(page, 4)).to_be_hidden()
 
     def it_leaves_a_half_filled_row_to_the_server_which_refuses_it_at_save(live_server, page, login_via_code):
         # Django renders formset rows without `required`, so the browser has no rule to read and
@@ -335,6 +397,7 @@ def describe_formset_rows():
         page.locator(NEXT).click()
         _settle(page)
         expect(_step(page, 5)).to_be_visible()
+        expect(_step(page, 4)).to_be_hidden()
 
         page.locator(SAVE_DRAFT).click()
 
@@ -344,6 +407,127 @@ def describe_formset_rows():
         expect(answer).to_have_attribute("aria-invalid", "true")
         expect(answer.locator("xpath=following-sibling::ul[1]/li")).to_have_text(REQUIRED)
         assert offering.faqs.count() == 0
+
+
+def describe_the_discounts_step():
+    def it_shows_the_request_link_on_a_saved_draft_and_next_reaches_review(live_server, page, login_via_code):
+        # Links and read only tables (#428): nothing on the step is a control, so Next never refuses
+        # it. The request form stays on its own page, behind the link the step renders for a saved
+        # class under approval mode (the master setting on; the approval setting is on by default).
+        config = SiteConfiguration.load()
+        config.instructor_discount_codes_enabled = True
+        config.save(update_fields=["instructor_discount_codes_enabled"])
+        offering = _seed_ready_draft(_seed_instructor())
+        login_via_code(EMAIL)
+        _open_edit(page, live_server, offering)
+        _tab(page, 5).click()
+        expect(_step(page, 5)).to_be_visible()
+        request_link = _step(page, 5).locator(f'a[href^="{reverse("classes:teach_discount_code_request")}"]')
+        expect(request_link).to_be_visible()
+        expect(request_link).to_have_attribute("href", re.compile(rf"\?class={offering.pk}$"))
+
+        page.locator(NEXT).click()
+        _settle(page)
+
+        expect(_step(page, 6)).to_be_visible()
+        expect(_step(page, 5)).to_be_hidden()
+        expect(page.locator("[data-live-invalid]")).to_have_count(0)
+
+
+def describe_the_gallery_minimum():
+    def it_holds_next_on_photos_with_no_gallery_photo_and_lets_go_once_one_lands(
+        live_server, page, login_via_code, tmp_path
+    ):
+        # The one Next rule that is not an attribute (#424). A saved class with no gallery photo
+        # stops on step 2 with the reason right after the gallery, and the reason goes the
+        # moment the upload's card lands: the composer-gallery-changed event, not the file
+        # input's change, because the upload is a fetch and the card arrives after that event.
+        offering = _seed_ready_draft(_seed_instructor(), gallery=0)
+        login_via_code(EMAIL)
+        _open_edit(page, live_server, offering)
+        _tab(page, 2).click()
+        expect(_step(page, 2)).to_be_visible()
+
+        page.locator(NEXT).click()
+        _settle(page)
+
+        _expect_refused_at_the_gallery(page, "gallery-manager")
+
+        page.locator(GALLERY_FILE_INPUT).set_input_files(str(_png(tmp_path / "gallery.png")))
+
+        expect(page.locator("#gallery-grid .cls-image-cell")).to_have_count(1)
+        _expect_clean(page, "gallery-manager")
+        # Still on step 2: adding the photo is not the same as pressing Next.
+        expect(_step(page, 2)).to_be_visible()
+        assert offering.gallery_images.count() == 1
+
+        page.locator(NEXT).click()
+        _settle(page)
+
+        expect(_step(page, 3)).to_be_visible()
+        expect(_step(page, 2)).to_be_hidden()
+
+    def it_advances_from_photos_with_a_gallery_photo(live_server, page, login_via_code):
+        # The factory's default class carries one gallery photo, which is all the gate asks.
+        offering = _seed_ready_draft(_seed_instructor())
+        login_via_code(EMAIL)
+        _open_edit(page, live_server, offering)
+        _tab(page, 2).click()
+        expect(_step(page, 2)).to_be_visible()
+
+        page.locator(NEXT).click()
+        _settle(page)
+
+        expect(_step(page, 3)).to_be_visible()
+        expect(_step(page, 2)).to_be_hidden()
+        expect(page.locator("[data-live-invalid]")).to_have_count(0)
+
+    def it_leaves_save_draft_free_of_it(live_server, page, login_via_code):
+        # A draft may be incomplete: Save Draft from step 2 with no gallery photo posts and comes
+        # back to step 2 with nothing flagged. Submit keeps the server's readiness check as the
+        # real gate (classes/spec/views/class_composer_spec.py).
+        offering = _seed_ready_draft(_seed_instructor(), gallery=0)
+        login_via_code(EMAIL)
+        _open_edit(page, live_server, offering)
+        _tab(page, 2).click()
+        expect(_step(page, 2)).to_be_visible()
+
+        page.locator(SAVE_DRAFT).click()
+
+        page.wait_for_url(re.compile(r"step=2"))
+        expect(_step(page, 2)).to_be_visible()
+        expect(page.locator("[data-live-invalid]")).to_have_count(0)
+        assert offering.gallery_images.count() == 0
+
+    def it_advances_on_a_new_class_once_a_file_is_picked(live_server, page, login_via_code, tmp_path):
+        # Create mode has no upload endpoint yet: the picked files ride the form to save, so the
+        # gate counts the local preview cards under #gallery-create the same way.
+        _seed_instructor()
+        CategoryFactory()
+        login_via_code(EMAIL)
+        _open_create(page, live_server)
+        page.locator("#id_title").fill("Forge Basics")
+        page.locator("#id_category").select_option(index=1)
+        page.locator("#id_price_cents").fill("80")
+        page.locator(NEXT).click()
+        _settle(page)
+        expect(_step(page, 2)).to_be_visible()
+
+        page.locator(NEXT).click()
+        _settle(page)
+
+        _expect_refused_at_the_gallery(page, "gallery-create")
+
+        page.locator(GALLERY_FILE_INPUT).set_input_files(str(_png(tmp_path / "gallery.png")))
+
+        expect(page.locator("#gallery-preview-grid .cls-image-cell")).to_have_count(1)
+        _expect_clean(page, "gallery-create")
+
+        page.locator(NEXT).click()
+        _settle(page)
+
+        expect(_step(page, 3)).to_be_visible()
+        expect(_step(page, 2)).to_be_hidden()
 
 
 def describe_a_server_message_and_a_live_one():
@@ -380,3 +564,32 @@ def describe_a_server_message_and_a_live_one():
 
         _expect_clean(page, "id_price_cents")
         expect(_errors_under(page, "id_price_cents")).to_have_count(0)
+
+
+def describe_a_file_that_is_not_an_image():
+    def it_is_refused_by_both_drop_zones_with_the_servers_message_and_no_card(
+        live_server, page, login_via_code, tmp_path
+    ):
+        # A text file renamed .png passes the input's accept="image/*"; the server reads the bytes
+        # and answers 400, and each zone shows that message on its existing error path (#498).
+        offering = _seed_ready_draft(_seed_instructor(), gallery=0)
+        hero_before = offering.image.name
+        notes = tmp_path / "notes.png"
+        notes.write_text("just some notes")
+        page.on("dialog", lambda dialog: dialog.accept())
+        login_via_code(EMAIL)
+        _open_edit(page, live_server, offering)
+        _tab(page, 2).click()
+        expect(_step(page, 2)).to_be_visible()
+
+        said = []
+        for file_input in (GALLERY_FILE_INPUT, "#hero-file-input"):
+            with page.expect_event("dialog") as dialog:
+                page.locator(file_input).set_input_files(str(notes))
+            said.append(dialog.value.message)
+
+        assert said == ["That file is not a photo we can open. Choose a JPG, PNG, WEBP or HEIC image."] * 2
+        expect(page.locator("#gallery-grid .cls-image-cell")).to_have_count(0)
+        assert offering.gallery_images.count() == 0
+        offering.refresh_from_db()
+        assert offering.image.name == hero_before

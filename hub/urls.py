@@ -180,6 +180,17 @@ urlpatterns = [
         views.orientation_checkout_resume,
         name="hub_orientation_checkout_resume",
     ),
+    # Late cancellation fees (#456): the fee's own page with its Pay button (what emails
+    # link), the Pay POST that mints a Checkout, and the Stripe return and cancelled landings.
+    path("late-fees/<int:pk>/", views.hub_late_fee_detail, name="hub_late_fee_detail"),
+    path("late-fees/<int:pk>/pay/", views.hub_late_fee_pay, name="hub_late_fee_pay"),
+    path("late-fees/<int:pk>/waive/", views.hub_late_fee_waive, name="hub_late_fee_waive"),
+    path("late-fees/return/<str:token>/", views.hub_late_fee_return, name="hub_late_fee_return"),
+    path(
+        "late-fees/cancelled/<str:token>/",
+        views.hub_late_fee_checkout_cancelled,
+        name="hub_late_fee_checkout_cancelled",
+    ),
     path("orientations/", views.orientations_dashboard, name="hub_orientations_dashboard"),
     path("orientations/export/", views.orientations_export, name="hub_orientations_export"),
     path("orientations/add-member/", views.orientation_add_member, name="hub_orientation_add_member"),
@@ -551,6 +562,8 @@ urlpatterns = [
     path("events/add/", views.event_edit, name="hub_event_add"),
     path("events/<int:event_pk>/edit/", views.event_edit, name="hub_event_edit"),
     path("events/<int:event_pk>/delete/", views.event_delete, name="hub_event_delete"),
+    # Shared by all three composers — the photo field's own delete endpoint.
+    path("events/<int:event_pk>/photo/delete/", views.event_photo_delete, name="hub_event_photo_delete"),
     # Member event proposals + reviewer queue.
     path("events/propose/", views.propose_event, name="hub_propose_event"),
     path("events/propose/<int:pk>/edit/", views.propose_event, name="hub_propose_event_edit"),
@@ -606,6 +619,16 @@ urlpatterns = [
         "manage/members/<int:pk>/teaching/",
         views.admin_member_teaching_set,
         name="hub_admin_member_teaching",
+    ),
+    path(
+        "manage/members/<int:pk>/orientations/record/",
+        views.admin_member_orientation_record,
+        name="hub_admin_member_orientation_record",
+    ),
+    path(
+        "manage/members/<int:pk>/orientations/<int:record_pk>/remove/",
+        views.admin_member_orientation_record_remove,
+        name="hub_admin_member_orientation_record_remove",
     ),
     path(
         "manage/members/<int:pk>/send-login-invite/",

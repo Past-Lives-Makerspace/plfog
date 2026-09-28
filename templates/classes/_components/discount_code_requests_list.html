@@ -1,0 +1,47 @@
+{% load classes_tags %}
+{% comment %}
+An instructor's discount code requests, newest first, with the admin's decision where there is
+one. An approved request whose code was later deleted (the OneToOne is SET_NULL) says so in the
+Note column rather than showing an Approved pill with nothing behind it. Caller passes:
+  * requests   — the DiscountCodeRequest rows to list
+  * show_class — optional; when set, a Class column is rendered first. The global Discount
+                 Codes page lists requests across classes; the per-class tab already names it.
+Part 2 of #428 reuses this partial on the composer's Discounts step.
+{% endcomment %}
+<h3>Your Requests</h3>
+<div class="admin-table-wrap">
+<table>
+    <thead>
+        <tr>
+            {% if show_class %}<th>Class</th>{% endif %}
+            <th>Code</th>
+            <th>Discount</th>
+            <th>Requested</th>
+            <th>Status</th>
+            <th>Note</th>
+        </tr>
+    </thead>
+    <tbody>
+    {% for r in requests %}
+        <tr>
+            {% if show_class %}<td>{{ r.class_offering.title }}</td>{% endif %}
+            <td>{{ r.code }}</td>
+            <td>{% if r.discount_pct %}{{ r.discount_pct }}% off{% else %}{{ r.discount_fixed_cents|cents_as_dollars }} off{% endif %}</td>
+            <td>{{ r.created_at|date:"M j" }}</td>
+            <td>
+                {% if r.status == "approved" %}
+                    <span class="hub-pill hub-pill--ok">{{ r.get_status_display }}</span>
+                {% elif r.status == "declined" %}
+                    <span class="hub-pill hub-pill--danger">{{ r.get_status_display }}</span>
+                {% else %}
+                    <span class="hub-pill hub-pill--warn">{{ r.get_status_display }}</span>
+                {% endif %}
+            </td>
+            <td>{% if r.status == "approved" and not r.discount_code_id %}<span class="hub-pill hub-pill--neutral">Code removed</span> {% endif %}{% if r.decision_note %}{{ r.decision_note }}{% endif %}{% if r.decided_at %} ({{ r.decided_at|date:"M j" }}){% endif %}</td>
+        </tr>
+    {% empty %}
+        <tr><td colspan="{% if show_class %}6{% else %}5{% endif %}" class="pl-table-empty">You have not requested a code yet.</td></tr>
+    {% endfor %}
+    </tbody>
+</table>
+</div>

@@ -8,9 +8,13 @@ is driven by window.plRteInitAll() — run on DOMContentLoaded, after htmx settl
 
 PageContentEditorWidget sets data-rte-seed="server" and pre-renders the stored value (legacy
 Markdown or saved rich HTML) into the mount, so a Markdown body opens as formatted rich text.
-Saving then writes Quill's HTML back — a one-way, explicit Markdown→HTML conversion.{% endcomment %}
+Saving then writes Quill's HTML back — a one-way, explicit Markdown→HTML conversion.
+
+The mount carries no id, on purpose. When a boosted Save redirects back to the same page, htmx
+settles the class of every element whose id is on both pages, writing the server's bare
+"pl-rte" over the classes Quill added during the swap. data-rte-for is the mount's key.{% endcomment %}
 <textarea name="{{ widget.name }}" id="{{ widget.attrs.id }}" class="pl-rte-source"{% if widget.attrs.required %} required{% endif %}>{% if widget.value %}{{ widget.value }}{% endif %}</textarea>
 <div class="pl-rte-wrap">
-    <div class="pl-rte" id="pl-rte-mount-{{ widget.attrs.id }}" data-rte-for="{{ widget.attrs.id }}"{% if widget.toolbar %} data-rte-toolbar="{{ widget.toolbar }}"{% endif %}{% if widget.upload_url %} data-rte-upload-url="{{ widget.upload_url }}"{% endif %}{% if widget.seed_html is not None %} data-rte-seed="server"{% endif %}>{% if widget.seed_html %}{{ widget.seed_html|safe }}{% endif %}</div>
+    <div class="pl-rte" data-rte-for="{{ widget.attrs.id }}"{% if widget.toolbar %} data-rte-toolbar="{{ widget.toolbar }}"{% endif %}{% if widget.upload_url %} data-rte-upload-url="{{ widget.upload_url }}"{% endif %}{% if widget.seed_html is not None %} data-rte-seed="server"{% endif %}>{% if widget.seed_html %}{{ widget.seed_html|safe }}{% endif %}</div>
 </div>
 <script>if (window.plRteInitAll) window.plRteInitAll();</script>

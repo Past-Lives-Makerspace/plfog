@@ -1,0 +1,7 @@
+bump = "patch"
+date = "2026-09-24"
+title = "Deleted calendar events now leave the calendar"
+changes = [
+  "When an event is deleted from the Google calendar, it now disappears from the community calendar and from Discord's event list at the next morning sync, instead of lingering on its old date.",
+  "An event that was deleted and re-created on a new date no longer shows up twice.",
+]

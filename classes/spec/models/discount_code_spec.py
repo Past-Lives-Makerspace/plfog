@@ -120,6 +120,29 @@ def describe_DiscountCode():
             DiscountCodeFactory(class_offering=offering, auto_apply=False)
             assert DiscountCode.objects.best_auto_apply_for(offering, 10_000) is None
 
+    def describe_site_wide_live():
+        def it_lists_the_active_approved_codes_with_no_class_scope_by_code(db):
+            member10 = DiscountCodeFactory(class_offering=None, code="MEMBER10")
+            all5 = DiscountCodeFactory(class_offering=None, code="ALL5")
+            assert list(DiscountCode.objects.site_wide_live()) == [all5, member10]
+
+        def it_leaves_out_codes_scoped_to_a_class(db):
+            DiscountCodeFactory(class_offering=ClassOfferingFactory())
+            assert not DiscountCode.objects.site_wide_live().exists()
+
+        def it_leaves_out_inactive_codes(db):
+            DiscountCodeFactory(class_offering=None, is_active=False)
+            assert not DiscountCode.objects.site_wide_live().exists()
+
+        def it_leaves_out_codes_still_waiting_for_approval(db):
+            DiscountCodeFactory(class_offering=None, is_approved=False)
+            assert not DiscountCode.objects.site_wide_live().exists()
+
+        def it_keeps_a_code_outside_its_date_window(db):
+            # The window is checked at redemption; the listing shows the dates instead.
+            expired = DiscountCodeFactory(class_offering=None, valid_until=date.today() - timedelta(days=1))
+            assert list(DiscountCode.objects.site_wide_live()) == [expired]
+
     def describe_approve():
         def it_marks_the_code_approved(db):
             code = DiscountCodeFactory(is_approved=False)

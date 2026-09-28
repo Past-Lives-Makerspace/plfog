@@ -133,13 +133,19 @@ class CommunityEventSerializer(serializers.ModelSerializer):
         instance = self.instance
         event_type = attrs.get("event_type", instance.event_type if instance else CommunityEvent.EventType.COMMUNITY)
         guild = attrs.get("guild", instance.guild if instance else None)
+        # The same rule the DB check constraint enforces (ck_communityevent_guild_matches_type),
+        # kept in step with it deliberately: a meeting and a studio-hours block cannot exist
+        # without a guild, a lead_meeting is makerspace wide so it must not carry one, and a
+        # plain event may go either way — that last case is what lets a guild host something
+        # for the public. Drifting from the constraint here would refuse over the API exactly
+        # the events the app now creates routinely.
         guild_required_types = {CommunityEvent.EventType.GUILD_MEETING, CommunityEvent.EventType.STUDIO_HOURS}
         if event_type in guild_required_types and guild is None:
             raise serializers.ValidationError(
                 {"guild": "A guild is required for guild_meeting and studio_hours events."}
             )
-        if event_type not in guild_required_types and guild is not None:
-            raise serializers.ValidationError({"guild": "Community and lead_meeting events must not have a guild."})
+        if event_type == CommunityEvent.EventType.LEAD_MEETING and guild is not None:
+            raise serializers.ValidationError({"guild": "A lead_meeting event must not have a guild."})
         starts_at = attrs.get("starts_at")
         ends_at = attrs.get("ends_at")
         if starts_at and ends_at and ends_at <= starts_at:

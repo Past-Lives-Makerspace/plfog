@@ -13,6 +13,7 @@ Stripe tab billing system. Members accumulate charges on a tab; a management com
 | `TabEntry` | tab FK, tab_charge FK (null=pending), amount, voided_at | Single line item; splits stored on `TabEntrySplit` |
 | `TabEntrySplit` | entry FK, recipient_type, guild FK (nullable), percent, amount | Frozen split snapshot — reports SELECT from here |
 | `TabCharge` | tab FK, status, amount, stripe_payment_intent_id | Batched charge — one per tab per billing cycle |
+| `LateCancellationFee` | member FK, orientation_booking / reservation OneToOne (exactly one), amount_cents, status (unpaid / paid / waived / refunded), stripe_session_id, stripe_payment_id | A late self cancel's fee (#456). Never the tab: paid through a Stripe Checkout tagged `kind=late_cancel_fee`; `billing/late_fees.py` owns charge, checkout, mark paid, the block until paid and `waive` (guild staff, equipment managers or an admin forgive an unpaid fee). A paid fee is a `RefundableSource`: `PaymentRefund.late_fee` points at it and the Payments dashboard refunds it through `billing/refunds.py` |
 
 ## Revenue split
 

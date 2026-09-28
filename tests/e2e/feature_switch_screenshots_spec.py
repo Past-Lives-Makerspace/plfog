@@ -189,3 +189,16 @@ def describe_feature_switch_screenshots():
         admin_page.wait_for_timeout(400)
         saved = _save(admin_page, f"05-all-on-control-{theme}", clip=SIDEBAR_CLIP)
         print(f"\nSaved {saved}")
+
+    def it_captures_my_tab_coming_soon(admin_page, live_server):
+        """Shot 9 — My Tab (#416) in Coming soon, focused so its bubble shows. It renders for an
+        admin now: the member only branch it used to sit behind is gone."""
+        for key in ("meetings", "spaces", "equipment", "directory", "teach", "wiki", "voting", "catalog"):
+            turn_on(key)
+        coming_soon("my_tab", "Pay your shop tab here, starting soon")
+
+        admin_page.goto(f"{live_server.url}{reverse('hub_home')}", wait_until="networkidle", timeout=20000)
+        admin_page.focus(".hub-sidebar__link--soon")
+        admin_page.wait_for_timeout(400)
+        saved = _save(admin_page, "09-my-tab-soon", clip=SIDEBAR_CLIP)
+        print(f"\nSaved {saved}")

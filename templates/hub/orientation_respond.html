@@ -34,6 +34,26 @@
     {% if booking.member_note %}<p class="hub-text-muted" style="margin:0;">Note: {{ booking.member_note }}</p>{% endif %}
   </div>
 
+  {% if late_fee %}
+  {# The late cancellation fee this booking's self cancel created (#456): its state, and Waive while unpaid. #}
+  <div class="hub-card pl-late-fee-panel" data-late-fee-card="{{ late_fee.pk }}" data-late-fee-status="{{ late_fee.status }}">
+    <h2 class="hub-detail-label pl-late-fee-panel__title">Late Cancellation Fee</h2>
+    <p class="pl-late-fee-panel__line">
+      <span class="pl-late-fee-panel__amount">{{ late_fee.amount_display }}</span>
+      {% include "hub/partials/late_fee_state.html" with fee=late_fee %}
+    </p>
+    <p class="hub-text-muted pl-late-fee-panel__meta">{{ late_fee.item_label }}</p>
+    {% if late_fee.is_unpaid and can_waive_fee %}
+    <button type="button" class="pl-btn pl-btn--secondary pl-btn--sm" @click="$dispatch('open-modal', 'waive-fee-{{ late_fee.pk }}')">Waive</button>
+    {% endif %}
+  </div>
+  {% if late_fee.is_unpaid and can_waive_fee %}
+  {% with fee=late_fee waive_form=late_fee_waive_form waive_next=late_fee_waive_next pk_str=late_fee.pk|stringformat:"s" %}
+  {% include "components/modal.html" with modal_id="waive-fee-"|add:pk_str modal_title="Waive This Fee?" modal_size="sm" modal_body_include="hub/partials/_late_fee_waive_form.html" %}
+  {% endwith %}
+  {% endif %}
+  {% endif %}
+
   {% if booking.status == "requested" %}
   <div class="hub-card" style="padding:1.5rem; margin-bottom:1.5rem;">
     <form method="post" style="margin:0 0 1rem;">

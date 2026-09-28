@@ -238,3 +238,99 @@
 .pl-leadership__roles {
     margin-top: 0.75rem;
 }
+
+/* ── Orientations tab ───────────────────────────────────────────────── */
+/* Completed orientations as rows shaped like the Emails tab's, then the
+   Record an Orientation form under them (issue #465). */
+.pl-member-orient-heading {
+    font-size: 1.1rem;
+    margin: 0 0 0.25rem;
+}
+.pl-member-orient-hint {
+    font-size: 0.8125rem;
+    margin: 0 0 1.25rem;
+    max-width: 680px;
+}
+.pl-member-orient-empty {
+    font-size: 0.875rem;
+    margin: 0 0 1.25rem;
+}
+.pl-member-orient-list {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+    margin-bottom: 1.25rem;
+    max-width: 680px;
+}
+.pl-member-orient-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.75rem;
+    flex-wrap: wrap;
+    padding: 0.55rem 0.75rem;
+    background: var(--hub-surface);
+    border: 1px solid var(--hub-border);
+    border-radius: 6px;
+}
+.pl-member-orient-row__main {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    flex-wrap: wrap;
+    min-width: 0;
+}
+.pl-member-orient-row__name {
+    color: var(--hub-text);
+    font-weight: 600;
+}
+.pl-member-orient-row__meta {
+    font-size: 0.8125rem;
+}
+.pl-member-orient-row__note {
+    display: block;
+    width: 100%;
+    font-size: 0.8125rem;
+}
+.pl-member-orient-row__actions {
+    display: flex;
+    gap: 0.4rem;
+    flex-wrap: wrap;
+}
+/* The form continues the card under the list: same border rhythm as the Leadership block. */
+.pl-member-orient-form {
+    max-width: 680px;
+    margin-top: 1.5rem;
+    padding-top: 1.25rem;
+    border-top: 1px solid var(--hub-border);
+}
+.pl-member-orient-form__heading {
+    font-size: 1.1rem;
+    margin: 0 0 0.25rem;
+}
+.pl-member-orient-form__fields {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 0 1rem;
+}
+.pl-member-orient-form__type,
+.pl-member-orient-form__note {
+    grid-column: 1 / -1;
+}
+
+@media (max-width: 640px) {
+    .pl-member-orient-row {
+        flex-direction: column;
+        align-items: stretch;
+    }
+    .pl-member-orient-row__actions {
+        width: 100%;
+    }
+    .pl-member-orient-form__fields {
+        grid-template-columns: 1fr;
+    }
+}
+
+/* Light-theme contrast for the Booked / Recorded pills, like the email pills above. */
+[data-theme="light"] .pl-member-orient-list .hub-pill--ok { color: #1f7a52; }
+[data-theme="light"] .pl-member-orient-list .hub-pill--neutral { color: #5b6675; }

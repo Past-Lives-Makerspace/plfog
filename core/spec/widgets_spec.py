@@ -19,10 +19,15 @@ def describe_RichTextEditorWidget():
         assert 'id="id_body"' in html
         assert 'class="pl-rte-source"' in html
         assert 'class="pl-rte"' in html
-        assert 'data-rte-for="id_body"' in html
-        assert 'id="pl-rte-mount-id_body"' in html
         # The init script binds to this field's own id, not a global selector.
-        assert '"id_body"' in html
+        assert 'data-rte-for="id_body"' in html
+
+    def it_gives_the_mount_no_id_for_htmx_to_settle():
+        # An id on the mount let a boosted Save onto the same page restore its server class
+        # over Quill's, unframing the editor (tests/e2e/boosted_navigation_spec.py).
+        html = str(_RTEForm()["body"])
+        mount = html.split('class="pl-rte"', 1)[1].split(">", 1)[0]
+        assert "id=" not in mount
 
     def it_seeds_the_textarea_with_the_bound_value():
         form = _RTEForm(initial={"body": "<p>Hello</p>"})
@@ -33,6 +38,6 @@ def describe_RichTextEditorWidget():
         form = _RTEForm()
         body_html = str(form["body"])
         note_html = str(form["note"])
-        assert "pl-rte-mount-id_body" in body_html
-        assert "pl-rte-mount-id_note" in note_html
-        assert "pl-rte-mount-id_note" not in body_html
+        assert 'data-rte-for="id_body"' in body_html
+        assert 'data-rte-for="id_note"' in note_html
+        assert 'data-rte-for="id_note"' not in body_html

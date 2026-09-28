@@ -1992,12 +1992,18 @@ _CURATED: dict[str, EventCopy] = {
     # equipment.reservation_confirmed — the member's booking receipt (forced email with the
     # calendar invite attached by the emit call). One primary CTA to the equipment page.
     "equipment.reservation_confirmed": EventCopy(
-        placeholders=("member_name", "equipment_name", "reservation_when", "equipment_url"),
+        # cancellation_policy is the late fee sentence while the equipment charges one and ""
+        # otherwise (#456). Copy lives in a DB row on production: the deploy's
+        # seed_notification_templates refreshes a row nobody has edited, so this default lands
+        # there on its own; a row an admin edited (is_overridden) keeps its text, and the admin
+        # adds the merge field from the editor.
+        placeholders=("member_name", "equipment_name", "reservation_when", "equipment_url", "cancellation_policy"),
         sample_context={
             "member_name": "Robin Vale",
             "equipment_name": "CNC Router",
             "reservation_when": "Saturday, September 12, 2:00 PM to 4:00 PM",
             "equipment_url": "https://pastlives.example/equipment/cnc-router/",
+            "cancellation_policy": "Cancel at least 24 hours ahead. Cancelling later costs a $15.00 late fee.",
         },
         channels={
             Channel.IN_APP: ChannelCopy(
@@ -2011,7 +2017,8 @@ _CURATED: dict[str, EventCopy] = {
                     "Your reservation is set.\n\n"
                     "{{ equipment_name }}\n{{ reservation_when }}\n\n"
                     "A calendar invite is attached. If your plans change, you can cancel "
-                    "from the equipment page and the time opens up for someone else.\n\n"
+                    "from the equipment page and the time opens up for someone else. "
+                    "{{ cancellation_policy }}\n\n"
                     "See your reservation: {{ equipment_url }}\n\nPast Lives Makerspace"
                 ),
                 body_html=(
@@ -2020,7 +2027,7 @@ _CURATED: dict[str, EventCopy] = {
                     '<p><strong><a href="{{ equipment_url }}">{{ equipment_name }}</a></strong><br>'
                     "{{ reservation_when }}</p>"
                     "<p>A calendar invite is attached. If your plans change, you can cancel from the "
-                    "equipment page and the time opens up for someone else.</p>"
+                    "equipment page and the time opens up for someone else. {{ cancellation_policy }}</p>"
                     '<p style="text-align:center;margin:24px 0 8px;"><a href="{{ equipment_url }}" '
                     'style="display:inline-block;padding:12px 28px;background-color:#EEB44B;color:#092E4C;'
                     'font-size:14px;font-weight:700;text-decoration:none;border-radius:6px;">'
@@ -2104,6 +2111,138 @@ _CURATED: dict[str, EventCopy] = {
             Channel.DISCORD: ChannelCopy(
                 subject="New reservation",
                 body_text="{{ member_name }} reserved {{ equipment_name }}: {{ reservation_when }}.\n\n{{ equipment_url }}",
+            ),
+        },
+    ),
+    # equipment.reservation_cancelled — the member's own cancel confirmation (#456). late_fee_line
+    # is the whole fee sentence with the Pay link when the cancel was late (the text body and the
+    # bell row) and late_fee_html the same sentence with a real link (the HTML body); both are ""
+    # otherwise, so the copy needs no conditional and a free cancel says nothing about fees.
+    "equipment.reservation_cancelled": EventCopy(
+        placeholders=(
+            "member_name",
+            "equipment_name",
+            "reservation_when",
+            "equipment_url",
+            "late_fee_line",
+            "late_fee_html",
+        ),
+        sample_context={
+            "member_name": "Robin Vale",
+            "equipment_name": "CNC Router",
+            "reservation_when": "Saturday, September 12, 2:00 PM to 4:00 PM",
+            "equipment_url": "https://pastlives.example/equipment/cnc-router/",
+            "late_fee_line": (
+                "A $15.00 late cancellation fee applies to this cancellation. "
+                "Pay it at https://pastlives.example/late-fees/12/ and you'll get a receipt once it's paid."
+            ),
+            # App-built markup, marked safe the way the emit's value is, so the preview shows a link.
+            "late_fee_html": mark_safe(
+                "A $15.00 late cancellation fee applies to this cancellation. "
+                '<a href="https://pastlives.example/late-fees/12/">Pay the late fee</a> '
+                "and you'll get a receipt once it's paid."
+            ),
+        },
+        channels={
+            Channel.IN_APP: ChannelCopy(
+                subject="Reservation cancelled",
+                body_text="You cancelled your {{ equipment_name }} reservation for {{ reservation_when }}.",
+            ),
+            Channel.EMAIL: ChannelCopy(
+                subject="You cancelled your {{ equipment_name }} reservation",
+                body_text=(
+                    "Hi {{ member_name }},\n\n"
+                    "You cancelled your {{ equipment_name }} reservation for {{ reservation_when }}. "
+                    "The time is open for someone else. {{ late_fee_line }}\n\n"
+                    "Book again any time: {{ equipment_url }}\n\nPast Lives Makerspace"
+                ),
+                body_html=(
+                    "<p>Hi {{ member_name }},</p>"
+                    '<p>You cancelled your <strong><a href="{{ equipment_url }}">{{ equipment_name }}</a></strong> '
+                    "reservation for {{ reservation_when }}. The time is open for someone else. {{ late_fee_html }}</p>"
+                    '<p style="text-align:center;margin:24px 0 8px;"><a href="{{ equipment_url }}" '
+                    'style="display:inline-block;padding:12px 28px;background-color:#EEB44B;color:#092E4C;'
+                    'font-size:14px;font-weight:700;text-decoration:none;border-radius:6px;">'
+                    "Book Again</a></p>"
+                    "<p>Past Lives Makerspace</p>"
+                ),
+            ),
+        },
+    ),
+    # billing.late_fee_paid — the receipt for a late cancellation fee paid through Checkout (#456).
+    "billing.late_fee_paid": EventCopy(
+        placeholders=("member_name", "fee_amount", "fee_item", "paid_on", "fee_url"),
+        sample_context={
+            "member_name": "Robin Vale",
+            "fee_amount": "$15.00",
+            "fee_item": "CNC Router reservation, Sat Sep 12",
+            "paid_on": "Saturday, September 12",
+            "fee_url": "https://pastlives.example/late-fees/12/",
+        },
+        channels={
+            Channel.IN_APP: ChannelCopy(
+                subject="Late cancellation fee paid",
+                body_text="Your {{ fee_amount }} late cancellation fee for the {{ fee_item }} is paid. Thank you.",
+            ),
+            Channel.EMAIL: ChannelCopy(
+                subject="Your late cancellation fee is paid",
+                body_text=(
+                    "Hi {{ member_name }},\n\n"
+                    "Your {{ fee_amount }} late cancellation fee is paid. Thank you.\n\n"
+                    "For: {{ fee_item }}\nPaid on: {{ paid_on }}\n\n"
+                    "You can book orientations and equipment again. "
+                    "See the fee: {{ fee_url }}\n\nPast Lives Makerspace"
+                ),
+                body_html=(
+                    "<p>Hi {{ member_name }},</p>"
+                    "<p>Your <strong>{{ fee_amount }}</strong> late cancellation fee is paid. Thank you.</p>"
+                    '<p>For: <a href="{{ fee_url }}">{{ fee_item }}</a><br>Paid on: {{ paid_on }}</p>'
+                    "<p>You can book orientations and equipment again.</p>"
+                    "<p>Past Lives Makerspace</p>"
+                ),
+            ),
+        },
+    ),
+    # billing.late_fee_waived — an unpaid late cancellation fee was forgiven (#456, part 3).
+    # Who waived it is deliberately not named; the member learns the fee is gone and that
+    # they can book again, with the owner page as the one call to action.
+    "billing.late_fee_waived": EventCopy(
+        placeholders=("member_name", "fee_amount", "fee_item", "fee_url", "owner_url"),
+        sample_context={
+            "member_name": "Robin Vale",
+            "fee_amount": "$15.00",
+            "fee_item": "CNC Router reservation, Sat Sep 12",
+            "fee_url": "https://pastlives.example/late-fees/12/",
+            "owner_url": "https://pastlives.example/equipment/cnc-router/",
+        },
+        channels={
+            Channel.IN_APP: ChannelCopy(
+                subject="Late cancellation fee waived",
+                body_text=(
+                    "Your {{ fee_amount }} late cancellation fee for the {{ fee_item }} was waived. You can book again."
+                ),
+            ),
+            Channel.EMAIL: ChannelCopy(
+                subject="Your late cancellation fee was waived",
+                body_text=(
+                    "Hi {{ member_name }},\n\n"
+                    "Your {{ fee_amount }} late cancellation fee was waived. There is nothing to pay.\n\n"
+                    "For: {{ fee_item }}\n\n"
+                    "You can book orientations and equipment again: {{ owner_url }}\n\n"
+                    "See the fee: {{ fee_url }}\n\nPast Lives Makerspace"
+                ),
+                body_html=(
+                    "<p>Hi {{ member_name }},</p>"
+                    "<p>Your <strong>{{ fee_amount }}</strong> late cancellation fee was waived. "
+                    "There is nothing to pay.</p>"
+                    '<p>For: <a href="{{ fee_url }}">{{ fee_item }}</a></p>'
+                    "<p>You can book orientations and equipment again.</p>"
+                    '<p style="text-align:center;margin:24px 0 8px;"><a href="{{ owner_url }}" '
+                    'style="display:inline-block;padding:12px 28px;background-color:#EEB44B;color:#092E4C;'
+                    'font-size:14px;font-weight:700;text-decoration:none;border-radius:6px;">'
+                    "Book Again</a></p>"
+                    "<p>Past Lives Makerspace</p>"
+                ),
             ),
         },
     ),

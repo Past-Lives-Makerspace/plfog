@@ -240,6 +240,69 @@ class ToastFlashMiddleware:
         return response
 
 
+class MemberLockoutMiddleware:
+    """Keep a signed-in, locked-out member to the pages they may still use (#409).
+
+    Sign-in on the members surface and the biometric unlock already refuse a former (or, by
+    setting, suspended) member; this covers a session that is already open. It never logs
+    anyone out: the session cookie is shared with the book site, where a former member keeps
+    their class receipts.
+
+    - Members surface: every request goes to the lockout page, except the lockout page itself,
+      allauth's logout, ``/static/`` and ``/health/``.
+    - Book surface: only ``settings.LOCKED_OUT_BOOK_PATH_PREFIXES`` is served, less
+      ``settings.LOCKED_OUT_BOOK_BLOCKED_PREFIXES`` (registration management); anything else
+      goes to the lockout page on book (``/accounts/`` is on that list, so it cannot loop).
+    - Guilds and signage surfaces are guest surfaces with their own allowlists: untouched.
+
+    Runs after AuthenticationMiddleware and before MemberAgreementMiddleware, so a locked-out
+    member is never bounced to the agreement. Cost: one Member lookup per authenticated
+    request, the same cached ``request.user.member`` the agreement middleware and hub views
+    read. Only a status of FORMER or SUSPENDED goes on to load SiteConfiguration.
+    """
+
+    MEMBERS_EXEMPT_PREFIXES = ("/static/", "/health/")
+
+    def __init__(self, get_response: Callable[[HttpRequest], HttpResponse]) -> None:
+        self.get_response = get_response
+
+    def __call__(self, request: HttpRequest) -> HttpResponse:
+        if not request.user.is_authenticated or not self._is_gated(request):
+            return self.get_response(request)
+
+        from core.member_lockout import lockout_reason
+
+        reason = lockout_reason(request.user)
+        if reason is None:
+            return self.get_response(request)
+
+        from django.urls import reverse
+
+        from core.htmx import wants_fragment
+
+        locked_url = f"{reverse('account_locked')}?reason={reason}"
+        if wants_fragment(request):
+            res = HttpResponse(status=200)
+            res["HX-Redirect"] = locked_url
+            return res
+        return HttpResponseRedirect(locked_url)
+
+    def _is_gated(self, request: HttpRequest) -> bool:
+        """Whether this path, on this surface, is closed to a locked-out member."""
+        from django.urls import reverse
+
+        surface = getattr(request, "surface", None)
+        path = request.path
+        if surface == "members":
+            open_paths = (reverse("account_locked"), reverse("account_logout"))
+            return path not in open_paths and not path.startswith(self.MEMBERS_EXEMPT_PREFIXES)
+        if surface == "public":
+            if path.startswith(tuple(settings.LOCKED_OUT_BOOK_BLOCKED_PREFIXES)):
+                return True
+            return not path.startswith(tuple(settings.LOCKED_OUT_BOOK_PATH_PREFIXES))
+        return False
+
+
 class MemberAgreementMiddleware:
     """Redirects active members to the Member Agreement if required and not yet accepted."""
 

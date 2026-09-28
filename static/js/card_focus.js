@@ -56,7 +56,7 @@
                 return this.posX + "% " + this.posY + "%";
             },
 
-            /* Slider moves write the override; the composer root mirrors it onto step 5. */
+            /* Slider moves write the override; the composer root mirrors it onto the Review step. */
             update() {
                 this.following = false;
                 const field = this.input();

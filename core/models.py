@@ -643,13 +643,23 @@ class SiteConfiguration(models.Model):
         verbose_name="Google Analytics measurement ID",
         help_text="GA4 measurement ID (e.g. G-XXXXXXX) — injected on every page, this admin included. Leave blank to disable.",
     )
-    my_tab_enabled = models.BooleanField(
-        default=True,
-        verbose_name="Enable My Tab",
-        help_text="When off, hides the member My Tab pages, the balance pill, and the Buyables tab "
-        "on guild pages; members visiting the Tab pages are redirected. The admin Payments dashboard "
-        "also hides its Overview and Open Tabs tabs and opens straight on the Payments ledger. The "
-        "Reports page and payment history are unaffected.",
+    late_cancel_fees_enabled = models.BooleanField(
+        default=False,
+        verbose_name="Charge late cancellation fees",
+        help_text=(
+            "When on, guilds and equipment can set a fee for cancelling an orientation or reservation "
+            "inside the notice window. Off means nothing charges anywhere."
+        ),
+    )
+    late_cancel_notice_hours = models.PositiveSmallIntegerField(
+        default=24,
+        verbose_name="Cancellation notice (hours)",
+        help_text="How far ahead members are told to cancel. Shown wherever a fee applies.",
+    )
+    late_cancel_grace_hours = models.PositiveSmallIntegerField(
+        default=2,
+        verbose_name="Grace period (hours)",
+        help_text="Not shown to members. A cancel this close to the notice line is still free.",
     )
     class_registration_enabled = models.BooleanField(
         default=True,
@@ -662,6 +672,28 @@ class SiteConfiguration(models.Model):
         default="Online registration is paused right now. Email info@pastlives.space and we'll help you sign up.",
         verbose_name="Registration-off message",
         help_text="Shown under the disabled Register button when class registration is off.",
+    )
+    # #409: who the members site turns away, and what they read. Former members are always
+    # locked out; suspended ones only while the switch is on. See core/member_lockout.py.
+    former_member_signin_message = models.TextField(
+        blank=True,
+        default="Your membership is no longer active, so this account can no longer sign in to the member site.",
+        verbose_name="Former member sign in message",
+        help_text="Shown when a former member tries to sign in to the member site. The support email is "
+        "shown under it. Blank uses the built in sentence.",
+    )
+    suspended_members_locked_out = models.BooleanField(
+        default=True,
+        verbose_name="Lock out suspended members",
+        help_text="When on, a suspended member cannot sign in to the member site and sees the message below. "
+        "Former members are always locked out.",
+    )
+    suspended_member_signin_message = models.TextField(
+        blank=True,
+        default="Your membership is paused right now, so this account cannot sign in to the member site.",
+        verbose_name="Suspended member sign in message",
+        help_text="Shown when a suspended member tries to sign in while suspended members are locked out. "
+        "The support email is shown under it. Blank uses the built in sentence.",
     )
     help_page_enabled = models.BooleanField(
         default=True,
@@ -693,6 +725,16 @@ class SiteConfiguration(models.Model):
             "codes from the Teaching portal — the Discount Codes tile is hidden and the pages "
             "redirect. Admins can always create and approve discount codes from Classes admin, "
             "either way. Default off: only admins create discount codes."
+        ),
+    )
+    instructor_discount_codes_need_approval = models.BooleanField(
+        default=True,
+        verbose_name="Instructors request discount codes and an admin approves them",
+        help_text=(
+            "When on, instructors ask for a discount code and an admin approves or declines it; the "
+            "code exists only once approved. When off, instructors create, edit and delete their own "
+            "codes directly, and each new code waits for approval as before. This only matters while "
+            "the setting above is on."
         ),
     )
     display_demo_classes = models.BooleanField(
@@ -769,7 +811,7 @@ class SiteConfiguration(models.Model):
         verbose_name="Publish events to Discord",
         help_text=(
             "When on (and the Discord bot is configured with Manage Events), publishing/editing/deleting a "
-            "community event creates/updates/removes it in the Discord server's Events. Studio hours and "
+            "an event creates/updates/removes it in the Discord server's Events. Studio hours and "
             "classes are never pushed."
         ),
     )
@@ -856,7 +898,7 @@ class SiteConfiguration(models.Model):
     signage_event_qr = models.BooleanField(
         default=False,
         verbose_name="Add a QR to event slides",
-        help_text="Add a QR code to the community calendar on auto event slides.",
+        help_text="Add a QR code to the Calendar on auto event slides.",
     )
     # The self-building slide blocks. All default ON: a screen pointed at its URL should
     # arrive populated, and an admin switches off what they don't want on the wall.
@@ -997,6 +1039,11 @@ class SiteConfiguration(models.Model):
         """Load the singleton instance, creating it with defaults if needed."""
         obj, _created = cls.objects.get_or_create(pk=1)
         return obj
+
+    @property
+    def instructor_discount_codes_approval_mode(self) -> bool:
+        """Instructors request and an admin decides: both discount code settings on."""
+        return self.instructor_discount_codes_enabled and self.instructor_discount_codes_need_approval
 
 
 class CalendarFeed(models.Model):
@@ -1417,12 +1464,18 @@ class TransactionalEmailLog(models.Model):
     class Status(models.TextChoices):
         SENT = "sent", "Sent"
         FAILED = "failed", "Failed"
+        # Staging only: the delivery policy refused the recipient, so nothing was sent.
+        SUPPRESSED = "suppressed", "Suppressed"
 
     to_email = models.CharField(max_length=254, help_text="Recipient(s); comma-joined when multiple.")
     subject = models.CharField(max_length=500, help_text="Email subject line.")
     trigger_kind = models.CharField(max_length=100, help_text="Which workflow sent it, e.g. 'billing.receipt'.")
     status = models.CharField(max_length=10, choices=Status.choices, help_text="Send outcome.")
-    error_message = models.TextField(blank=True, default="", help_text="Exception text when status=failed.")
+    error_message = models.TextField(
+        blank=True,
+        default="",
+        help_text="Exception text when status=failed; the policy reason when status=suppressed.",
+    )
     created_at = models.DateTimeField(auto_now_add=True, db_index=True)
 
     class Meta:
@@ -1475,6 +1528,12 @@ class SiteActivity(models.Model):
         ORIENTATION_DECLINED = "orientation_declined", "Orientation declined"
         ORIENTATION_CANCELLED = "orientation_cancelled", "Orientation cancelled"
         ORIENTATION_COMPLETED = "orientation_completed", "Orientation completed"
+        ORIENTATION_RECORDED = "orientation_recorded", "Orientation recorded"
+        ORIENTATION_RECORD_REMOVED = "orientation_record_removed", "Orientation record removed"
+        LATE_FEE_CHARGED = "late_fee_charged", "Late cancellation fee charged"
+        LATE_FEE_PAID = "late_fee_paid", "Late cancellation fee paid"
+        LATE_FEE_WAIVED = "late_fee_waived", "Late cancellation fee waived"
+        LATE_FEE_REFUNDED = "late_fee_refunded", "Late cancellation fee refunded"
         INSTRUCTOR_ORIENTED = "instructor_oriented", "Completed instructor orientation"
         TEACHING_APPLIED = "teaching_applied", "Applied to teach"
         TEACHING_APPLICATION_DECLINED = "teaching_application_declined", "Teaching application declined"
@@ -2305,7 +2364,7 @@ class FeatureSwitch(models.Model):
         choices=FeatureState.choices,
         default=FeatureState.ON,
         help_text=(
-            "On is normal behaviour. Coming soon leaves the sidebar entry visible but inert, showing the message below on hover and on keyboard focus. Hidden removes the entry. Both off states change the sidebar only: every page in the feature stays reachable by its own link, for everyone."
+            "On is normal behaviour. Coming soon leaves the sidebar entry visible but inert, showing the message below on hover and on keyboard focus. Hidden removes the entry. For every feature but My Tab, both off states change the sidebar only: every page in the feature stays reachable by its own link, for everyone. My Tab is the exception: both off states turn tab billing off."
         ),
     )
     message = models.CharField(

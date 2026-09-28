@@ -15,6 +15,21 @@ from django.core.exceptions import ImproperlyConfigured
 from django.db import models
 
 
+def fernet_from_key(key: str | bytes, *, name: str = "STRIPE_FIELD_ENCRYPTION_KEY") -> Fernet:
+    """Build a Fernet from one key, naming ``name`` in the error when the key is malformed.
+
+    The field uses it with the settings key; the staging import command uses it with
+    production's key, supplied for one run, to read ciphertext this box's key cannot.
+
+    Raises:
+        ImproperlyConfigured: If the key is malformed.
+    """
+    try:
+        return Fernet(key.encode() if isinstance(key, str) else key)
+    except (ValueError, TypeError) as exc:
+        raise ImproperlyConfigured(f"{name} is malformed: {exc}") from exc
+
+
 def _fernet() -> Fernet:
     """Return a Fernet instance built from settings.STRIPE_FIELD_ENCRYPTION_KEY.
 
@@ -28,10 +43,7 @@ def _fernet() -> Fernet:
             '`python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"` '
             "and set it as an environment variable."
         )
-    try:
-        return Fernet(key.encode() if isinstance(key, str) else key)
-    except (ValueError, TypeError) as exc:
-        raise ImproperlyConfigured(f"STRIPE_FIELD_ENCRYPTION_KEY is malformed: {exc}") from exc
+    return fernet_from_key(key)
 
 
 class EncryptedCharField(models.CharField):

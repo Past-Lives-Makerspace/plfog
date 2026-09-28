@@ -133,7 +133,7 @@ def describe_teach_why():
     def it_403s_an_inactive_member(db, client):
         user = UserFactory(username="inactive-why@example.com")
         member = Member.objects.get(user=user)
-        member.status = Member.Status.FORMER
+        member.status = Member.Status.INVITED
         member.save(update_fields=["status"])
         client.force_login(user)
         assert client.get(reverse("classes:teach_why")).status_code == 403
@@ -403,7 +403,7 @@ def describe_teach_overview_branching():
     def it_403s_an_inactive_member(db, client):
         user = UserFactory(username="inactive-overview@example.com")
         member = Member.objects.get(user=user)
-        member.status = Member.Status.FORMER
+        member.status = Member.Status.INVITED
         member.save(update_fields=["status"])
         client.force_login(user)
         assert client.get(reverse("classes:teach_overview")).status_code == 403
@@ -483,7 +483,7 @@ def describe_teach_apply():
     def it_403s_an_inactive_member_posting_directly(db, client):
         user = UserFactory(username="apply-inactive@example.com")
         member = Member.objects.get(user=user)
-        member.status = Member.Status.FORMER
+        member.status = Member.Status.INVITED
         member.save(update_fields=["status"])
         client.force_login(user)
         response = client.post(reverse("classes:teach_apply"), {"note": "Let me in."})

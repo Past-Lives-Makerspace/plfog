@@ -103,6 +103,7 @@ def describe_email_gallery_completeness():
             "classes.instructor_message",
             "classes.admin_message",
             "membership.orientation_orphan_payment",
+            "billing.late_fee_orphan_payment",
             "release_email.test",
             "announcement.test",
             "hub.beta_feedback",

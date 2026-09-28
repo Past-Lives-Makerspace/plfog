@@ -19,6 +19,8 @@ _NAME_TO_PREFIX: dict[str, str] = {
     "jeweler": "jewelers",
     "leather": "leatherwork",
     "metal": "metalworking",
+    # "printmak", not "print": a "3D Printing" name must not take the press wheel.
+    "printmak": "printmaking",
     "prison": "prison_outreach",
     "tech": "tech",
     "textile": "textiles",

@@ -2,11 +2,14 @@
 
 from __future__ import annotations
 
+from io import BytesIO
+
 import pytest
 from django.core.exceptions import ValidationError
 from django.core.files.uploadedfile import SimpleUploadedFile
+from PIL import Image
 
-from core.validators import validate_image_size, validate_wiki_upload
+from core.validators import validate_image_content, validate_image_size, validate_wiki_upload
 
 
 def describe_validate_image_size():
@@ -36,6 +39,44 @@ def describe_validate_image_size():
             name = "no_size.jpg"
 
         assert validate_image_size(Sizeless()) is None  # type: ignore[arg-type]
+
+
+def _image_bytes(fmt: str) -> bytes:
+    import core.images  # noqa: F401  registers the HEIF encoder the HEIC case needs
+
+    buf = BytesIO()
+    Image.new("RGB", (4, 4), (10, 20, 30)).save(buf, fmt)
+    return buf.getvalue()
+
+
+def describe_validate_image_content():
+    @pytest.mark.parametrize(
+        ("name", "fmt", "content_type"),
+        [
+            ("a.png", "PNG", "image/png"),
+            ("a.jpg", "JPEG", "image/jpeg"),
+            ("a.webp", "WEBP", "image/webp"),
+            ("a.heic", "HEIF", "image/heic"),
+        ],
+    )
+    def it_accepts_a_real_image_and_leaves_it_rewound(name, fmt, content_type):
+        data = _image_bytes(fmt)
+        upload = SimpleUploadedFile(name, data, content_type=content_type)
+
+        assert validate_image_content(upload) is None
+        assert upload.read() == data
+
+    def it_refuses_a_text_file():
+        upload = SimpleUploadedFile("bad.txt", b"just some notes", content_type="text/plain")
+
+        with pytest.raises(ValidationError, match="not a photo we can open"):
+            validate_image_content(upload)
+
+    def it_reads_the_bytes_not_the_name_or_declared_type():
+        upload = SimpleUploadedFile("bad.png", b"just some notes", content_type="image/png")
+
+        with pytest.raises(ValidationError, match="not a photo we can open"):
+            validate_image_content(upload)
 
 
 def describe_validate_wiki_upload():

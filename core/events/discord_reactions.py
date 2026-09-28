@@ -22,7 +22,7 @@ from urllib.parse import quote
 
 import httpx
 
-from core.events.discord_dm import bot_token
+from core.events.discord_dm import bot_disabled, bot_token
 
 logger = logging.getLogger(__name__)
 
@@ -61,7 +61,7 @@ def fetch_reactors(channel_id: str, message_id: str, emoji: str) -> ReactorPage:
     URL-encoded here.
     """
     user_ids: set[str] = set()
-    if not bot_token() or not channel_id or not message_id or not emoji:
+    if bot_disabled("reactions fetch") or not channel_id or not message_id or not emoji:
         return ReactorPage(user_ids=user_ids, complete=False)
 
     encoded_emoji = quote(emoji, safe="")

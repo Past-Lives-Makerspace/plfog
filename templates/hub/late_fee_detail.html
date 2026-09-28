@@ -1,0 +1,19 @@
+{% extends "hub/base.html" %}
+{% block title %}Late Cancellation Fee · Past Lives{% endblock %}
+{% block content %}
+{% comment %}
+The fee's own page (#456): what the cancellation emails link. A GET shows the fee; the
+Pay button POSTs to mint the Stripe Checkout, so a mail client prefetching the link can
+never start a payment.
+{% endcomment %}
+{% if fee.is_unpaid %}
+{% include "components/page_header.html" with title="Late Cancellation Fee" description="You cancelled inside the notice window, so this fee applies. Pay it to book orientations and equipment again." %}
+{% else %}
+{% include "components/page_header.html" with title="Late Cancellation Fee" description="This fee is settled. Nothing more to pay." %}
+{% endif %}
+<div class="pl-checkout-return">
+  <div class="hub-card pl-checkout-return__card pl-late-fee-card">
+    {% include "hub/partials/late_fee_card.html" %}
+  </div>
+</div>
+{% endblock %}

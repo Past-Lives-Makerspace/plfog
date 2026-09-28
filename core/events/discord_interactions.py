@@ -26,7 +26,7 @@ import logging
 
 import httpx
 
-from core.events.discord_dm import API_BASE, _auth_headers, bot_token
+from core.events.discord_dm import API_BASE, _auth_headers, bot_disabled, bot_token
 
 logger = logging.getLogger(__name__)
 
@@ -326,6 +326,8 @@ def send_modal_via_callback(interaction_id: str, token: str, modal_response: dic
     short human-readable detail (logged too) that the caller can surface ephemerally
     instead of letting the interaction die as a timeout.
     """
+    if bot_disabled("modal callback"):
+        return None
     try:
         response = httpx.post(
             f"{API_BASE}/interactions/{interaction_id}/{token}/callback",
@@ -350,6 +352,8 @@ def ack_deferred(interaction_id: str, token: str, *, ephemeral: bool = True) -> 
     native "thinking…" indicator while the handler runs. Best-effort: returns ``True`` on
     a 2xx, ``False`` on a network error or any non-2xx (logged, never raised).
     """
+    if bot_disabled("deferred ack"):
+        return False
     try:
         response = httpx.post(
             f"{API_BASE}/interactions/{interaction_id}/{token}/callback",
@@ -374,6 +378,8 @@ def ack_component_deferred(interaction_id: str, token: str) -> bool:
     follow-up PATCH of ``@original`` then replaces the message the button lives on.
     Best-effort: returns ``True`` on a 2xx, ``False`` otherwise (logged, never raised).
     """
+    if bot_disabled("component ack"):
+        return False
     try:
         response = httpx.post(
             f"{API_BASE}/interactions/{interaction_id}/{token}/callback",
@@ -409,6 +415,8 @@ def send_followup(
     network error or any non-2xx (logged, never raised) — a failed followup leaves Discord's
     own "interaction failed" rather than a misleading success.
     """
+    if bot_disabled("followup"):
+        return False
     from core.events.discord_oauth import client_id
 
     payload: dict = {"content": content}
@@ -443,6 +451,8 @@ def expire_poll(channel_id: str, message_id: str) -> bool:
     non-2xx, which the caller surfaces as the friendly "already ended" reply. Never raises —
     logs and returns ``False`` on a network error or any non-2xx.
     """
+    if bot_disabled("poll expire"):
+        return False
     try:
         response = httpx.post(
             f"{API_BASE}/channels/{channel_id}/polls/{message_id}/expire",

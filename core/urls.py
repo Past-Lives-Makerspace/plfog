@@ -21,6 +21,8 @@ urlpatterns = [
     path("g/<slug:slug>/", views.guild_vanity_redirect, name="guild_vanity"),
     # Clear pending login stage and restart
     path("accounts/restart-login/", views.restart_login, name="restart_login"),
+    # Where the members site sends a former (or suspended) member it signs out (#409)
+    path("accounts/locked/", views.account_locked, name="account_locked"),
     # Find account by name
     path("accounts/find-account/", views.find_account, name="find_account"),
     # Public newsletter signup (Mailchimp)

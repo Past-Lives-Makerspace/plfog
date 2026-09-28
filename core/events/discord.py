@@ -17,6 +17,11 @@ owns two concerns kept deliberately separate:
 Per the project's "disabled when blank" idiom (see ``MailchimpClient`` /
 ``SimplybookClient``), a blank global webhook makes the whole channel a no-op.
 
+On staging (``settings.IS_STAGING``) every resolver here answers blank and
+:func:`post_embed` refuses even a URL it is handed, because staging carries a copy of
+production's Site Settings, routes and guild webhooks: the real server's webhooks are in
+its database, and the environment variable being blank is not enough to keep it quiet.
+
 HTTP uses ``httpx`` (mocked with ``respx`` in tests) — the event spine's outbound
 HTTP layer, distinct from the legacy ``requests``-based integration clients.
 """
@@ -62,7 +67,9 @@ SITE_CONFIG_EVENT_WEBHOOKS: dict[str, str] = {
 
 
 def global_webhook() -> str:
-    """The site-wide default Discord webhook URL (blank = channel disabled)."""
+    """The site-wide default Discord webhook URL (blank = channel disabled; always blank on staging)."""
+    if settings.IS_STAGING:
+        return ""
     return (getattr(settings, "DISCORD_NOTIFY_WEBHOOK_URL", "") or "").strip()
 
 
@@ -83,8 +90,10 @@ def guild_webhook(guild: object) -> str:
         guild: The guild-like object from the event context (``context["guild"]``).
 
     Returns:
-        The guild's webhook URL, or ``""`` when disabled, blank, or not a guild.
+        The guild's webhook URL, or ``""`` when disabled, blank, not a guild, or on staging.
     """
+    if settings.IS_STAGING:
+        return ""
     if not getattr(guild, "discord_post_enabled", False):
         return ""
     return (getattr(guild, "discord_webhook_url", "") or "").strip()
@@ -108,7 +117,8 @@ def webhook_for_event(event_key: str) -> str:
     4. **Global webhook** (``settings.DISCORD_NOTIFY_WEBHOOK_URL``).
 
     A blank result means Discord is disabled for this event (the adapter treats it
-    as a no-op).
+    as a no-op). Staging is blank before any of the four, so a copied production route
+    or Site Settings pin never wins there.
 
     Args:
         event_key: The :class:`core.events.registry.EventType` key being emitted.
@@ -116,6 +126,8 @@ def webhook_for_event(event_key: str) -> str:
     Returns:
         The webhook URL, or ``""`` when none is configured / disabled.
     """
+    if settings.IS_STAGING:
+        return ""
     route = _db_route(event_key)
     if route is not None and route.overrides_global:
         # Enabled route wins — its effective_webhook is the URL, or "" for a
@@ -220,9 +232,14 @@ def post_embed(webhook_url: str, message: Message) -> bool:
 
     Returns:
         ``True`` on a 2xx response, ``False`` on a blank webhook, a network error,
-        or any non-2xx status. Failures are logged (never the webhook value).
+        any non-2xx status, or on staging (refused before any request, and logged, so a
+        caller that resolved a URL on its own still never reaches Discord).
+        Failures are logged (never the webhook value).
     """
     if not webhook_url:
+        return False
+    if settings.IS_STAGING:
+        logger.warning("Discord webhook post refused: ENVIRONMENT=staging never reaches Discord (%s).", message.title)
         return False
     payload = build_embed_payload(message)
     try:

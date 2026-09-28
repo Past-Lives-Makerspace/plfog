@@ -1,0 +1,25 @@
+/* staging-ribbon.css: the fixed STAGING marker (templates/components/staging_ribbon.html).
+ *
+ * Linked from base.html and hub/base.html only when IS_STAGING, so production never loads it.
+ * Amber on white reads on both the Obsidian and Slate themes without borrowing either palette.
+ */
+.pl-staging-ribbon {
+    position: fixed;
+    left: 0.75rem;
+    bottom: 0.75rem;
+    /* Under the changelog modal and toasts (9999), above everything else. */
+    z-index: 9998;
+    padding: 0.4rem 0.85rem;
+    border-radius: 999px;
+    background: #b45309;
+    color: #ffffff;
+    font-family: "Inter", "Lato", "Helvetica Neue", Helvetica, Arial, sans-serif;
+    font-size: 0.72rem;
+    font-weight: 700;
+    line-height: 1;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    box-shadow: 0 6px 20px rgba(0, 0, 0, 0.35);
+    pointer-events: none;
+    user-select: none;
+}

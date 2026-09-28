@@ -64,6 +64,7 @@ Those six plus `plfog/` are the whole of `INSTALLED_APPS` for this project. Othe
 - `RegistrationQuestion` / `RegistrationAnswer` — custom per-class signup questions
 - `RegistrationReminder` — dedupe audit for scheduled reminder emails
 - `DiscountCode` (+ QuerySet) — per-class discount codes
+- `DiscountCodeRequest` (+ QuerySet) — an instructor's ask for a class code, approved or declined by an admin; approval creates the `DiscountCode`
 - `ClassImage` (gallery) · `Waiver` · `InstructorMessage` / `InstructorMessageRecipient` (instructor→registrant messaging)
 - `CmsActivity` — classes activity feed (mirrors to `core.SiteActivity`)
 - `ClassSettings` — singleton (pk=1); reminder timing, email footers, admin-notify emails
@@ -174,5 +175,5 @@ Every PR adds one fragment to `changelog.d/` declaring `bump = "patch" | "minor"
 ## Deployment
 
 - **Production**: Render.com (`DATABASE_URL` points to PostgreSQL)
-- **QA/Staging**: Hetzner VPS at `pastlives.plaza.codes`
+- **Staging**: Hetzner VPS at `staging.pastlives.space` and `classes.staging.pastlives.space`, a contained clone of production that tracks `main` (`deploy/staging/README.md`)
 - **Local**: SQLite (default when `DATABASE_URL` unset); the canonical dev stack is `docker compose up -d` from the primary checkout (see `/spin-up`)

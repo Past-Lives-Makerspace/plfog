@@ -206,7 +206,10 @@ def describe_cms_screenshots():
 
         config = SiteConfiguration.load()
         config.instructor_discount_codes_enabled = True
-        config.save(update_fields=["instructor_discount_codes_enabled"])
+        # The approval flag (default on) would redirect those two pages to the list; the
+        # captures are of the direct flow's create and edit forms.
+        config.instructor_discount_codes_need_approval = False
+        config.save(update_fields=["instructor_discount_codes_enabled", "instructor_discount_codes_need_approval"])
         login_via_code(ADMIN_EMAIL)
 
         host = urlparse(live_server.url).hostname

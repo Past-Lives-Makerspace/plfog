@@ -38,8 +38,29 @@ _DEFAULT_TIMEOUT_SECONDS = 5.0
 
 
 def bot_token() -> str:
-    """The FOG bot token (blank = the per-member DM channel is disabled)."""
+    """The FOG bot token (blank = the per-member DM channel is disabled).
+
+    Every bot-authenticated call in the app (DMs, roles, reactions, channel posts, the
+    Scheduled Events mirror, the guild sync) takes its credential from here, so answering
+    blank on staging is what keeps a staging box off the real server even though its copied
+    database names the server and its channels.
+    """
+    if settings.IS_STAGING:
+        return ""
     return (getattr(settings, "DISCORD_BOT_TOKEN", "") or "").strip()
+
+
+def bot_disabled(action: str) -> bool:
+    """True, with one log line, when the bot token is blank: the caller no-ops before any request.
+
+    Every module that talks to Discord's REST API as the bot asks this first, so a blank
+    token (unset, or ENVIRONMENT=staging) is a deliberate, visible no-op rather than a
+    request that only fails because ``Authorization: Bot `` is an illegal header.
+    """
+    if bot_token():
+        return False
+    logger.warning("Discord %s skipped: the bot token is blank (unset, or ENVIRONMENT=staging).", action)
+    return True
 
 
 def _auth_headers() -> dict[str, str]:
@@ -66,7 +87,7 @@ def open_dm_channel(discord_user_id: str) -> str:
     Returns the channel id, or ``""`` when disabled (blank token / blank id) or on any
     failure. Best-effort: logs and never raises.
     """
-    if not bot_token() or not discord_user_id:
+    if bot_disabled("DM channel open") or not discord_user_id:
         return ""
     try:
         response = httpx.post(
@@ -108,7 +129,7 @@ def post_dm(discord_user_id: str, message: Message) -> bool:
     when the DM channel can't be opened, on a network error, or on any non-2xx status.
     Failures are logged (never the token).
     """
-    if not bot_token() or not discord_user_id:
+    if bot_disabled("DM") or not discord_user_id:
         return False
     channel_id = open_dm_channel(discord_user_id)
     if not channel_id:
@@ -166,8 +187,10 @@ def send_dm_text(discord_user_id: str, content: str) -> bool:
     block — logged, never retried). Any other non-2xx (401, 429, 5xx) raises
     :class:`httpx.HTTPStatusError`, and network errors propagate as
     :class:`httpx.HTTPError` — the caller decides what an undelivered send means.
-    The caller ensures the bot is configured (a blank token would just 401 loudly).
+    A blank bot token is the one quiet outcome: logged, nothing sent, ``False``.
     """
+    if bot_disabled("DM"):
+        return False
     response = httpx.post(
         f"{API_BASE}/users/@me/channels",
         json={"recipient_id": discord_user_id},

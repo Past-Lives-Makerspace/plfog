@@ -225,6 +225,9 @@ _PUSH_ON_BY_DEFAULT: frozenset[str] = frozenset(
         "instructor_changes_requested",
         "instructor_application_approved",
         "instructor_application_declined",
+        # ...and the answer to your ask for a discount code, the same kind of decision.
+        "discount_code.request_approved",
+        "discount_code.request_declined",
         # Equipment — your reservation is set (time-sensitive, carries the invite)
         "equipment.reservation_confirmed",
     }
@@ -476,6 +479,8 @@ MEETING_ITEM_DECIDED = "meeting.item_decided"
 MEETING_MINUTES_APPROVED = "meeting.minutes_approved"
 MEETING_COUNCIL_MINUTES_APPROVED = "meeting.council_minutes_approved"
 DISCOUNT_CODE_REQUESTED = "discount_code.requested"  # a new code awaits approval (Discount Admins)
+DISCOUNT_CODE_REQUEST_APPROVED = "discount_code.request_approved"  # an admin approved an instructor's request
+DISCOUNT_CODE_REQUEST_DECLINED = "discount_code.request_declined"  # an admin declined it, with a note
 BILLING_CHARGE_FAILED_ADMIN = "billing.charge_failed_admin"  # a member's tab charge failed (Billing Admins)
 WAITLIST_PROMOTED = "waitlist_promoted"  # staff hand-picked a waitlister into the class (plain "you're in")
 WAITLIST_PROMOTED_PAY = "waitlist_promoted_pay"  # promoted with a balance due — "you're in" + pay link
@@ -485,6 +490,9 @@ GUILD_WELCOME = "guild_welcome"  # transactional per-guild join welcome — emai
 EQUIPMENT_RESERVATION_CONFIRMED = "equipment.reservation_confirmed"  # your reservation is set (+ .ics)
 EQUIPMENT_RESERVATION_CANCELLED_BY_MANAGER = "equipment.reservation_cancelled_by_manager"  # with the reason
 EQUIPMENT_RESERVATION_MADE = "equipment.reservation_made"  # awareness ping to the equipment's managers
+EQUIPMENT_RESERVATION_CANCELLED = "equipment.reservation_cancelled"  # the member's own cancel, with any late fee
+BILLING_LATE_FEE_PAID = "billing.late_fee_paid"  # the receipt for a paid late cancellation fee
+BILLING_LATE_FEE_WAIVED = "billing.late_fee_waived"  # an unpaid late cancellation fee was forgiven
 
 # event.reminder keeps Discord OFF (the bell is enough; per-offset channel posts would
 # clutter the guild channel) but declares it so a lead can flip it on later; happening-now
@@ -652,13 +660,14 @@ _NEW_EVENTS: list[EventType] = [
         channels=(_IN_APP_ON, _EMAIL_ON, _DISCORD_ON),
         activity_kind=None,
     ),
-    # 8. event.community_published — an admin posts a site-wide community event (One Mic
-    #    Night, Potluck). Every active member; in-app on, email ON by default (owner call,
-    #    copy-review 2026-08-18), Discord on (central).
+    # 8. event.community_published — an admin posts a guild-less event (One Mic Night,
+    #    Potluck). Every active member; in-app on, email ON by default (owner call,
+    #    copy-review 2026-08-18), Discord on (central). The KEY and its recipients are
+    #    fixed by #505; only the words a member reads changed.
     EventType(
         key=EVENT_COMMUNITY_PUBLISHED,
-        label="New community event",
-        description="A makerspace-wide community event was scheduled.",
+        label="New event at the space",
+        description="An event for the whole makerspace was scheduled.",
         category="Events",
         recipient=Recipients.ALL_ACTIVE_MEMBERS,
         channels=(_IN_APP_ON, _EMAIL_ON, _DISCORD_ON),
@@ -761,13 +770,13 @@ _NEW_EVENTS: list[EventType] = [
         channels=(_IN_APP_ON, _EMAIL_ON, _DISCORD_DM_ON),
         activity_kind=None,
     ),
-    # 18. event.reminder — a 7/3/1-day-before nudge for an upcoming community event, to the
+    # 18. event.reminder — a 7/3/1-day-before nudge for an upcoming event, to the
     #     same audience the launch announcement reached (by scope, via event_audience). In-app
     #     on; email + Discord OFF (the bell is enough — Discord flippable later).
     EventType(
         key=EVENT_REMINDER,
         label="Event reminder",
-        description="A reminder before a community event you're invited to starts.",
+        description="A reminder before an event you're invited to starts.",
         category="Events",
         recipient=Recipients.EVENT_AUDIENCE,
         channels=(_IN_APP_ON, _EMAIL_OFF, _DISCORD_OFF),
@@ -778,7 +787,7 @@ _NEW_EVENTS: list[EventType] = [
     EventType(
         key=EVENT_HAPPENING_NOW,
         label="Event starting now",
-        description="A ping when a community event you're invited to begins.",
+        description="A ping when an event you're invited to begins.",
         category="Events",
         recipient=Recipients.EVENT_AUDIENCE,
         channels=(_IN_APP_ON, _EMAIL_OFF, _DISCORD_ON),
@@ -991,6 +1000,32 @@ _NEW_EVENTS: list[EventType] = [
         channels=(_IN_APP_ON, _EMAIL_ON),
         activity_kind=None,
     ),
+    # 34. discount_code.request_approved — an admin approved an instructor's ask for a class code
+    #     (DiscountCodeRequest.approve). Routes to that instructor: in-app + email, push on by
+    #     default (a decision the member is waiting on, like the teaching application answers).
+    #     ``activity_kind`` is None: the approved code's own DiscountCode.save writes the
+    #     DISCOUNT_CODE_CREATED CmsActivity row.
+    EventType(
+        key=DISCOUNT_CODE_REQUEST_APPROVED,
+        label="Discount code request approved",
+        description="An admin approved a discount code you asked for. The code is ready to use.",
+        category="Teaching",
+        recipient=Recipients.INSTRUCTOR,
+        channels=(_IN_APP_ON, _EMAIL_ON),
+        activity_kind=None,
+    ),
+    # 35. discount_code.request_declined — the admin said no, with a note saying why
+    #     (DiscountCodeRequest.decline). Same audience and channels. ``activity_kind`` is None:
+    #     a decline is a decision on a request, not catalog activity.
+    EventType(
+        key=DISCOUNT_CODE_REQUEST_DECLINED,
+        label="Discount code request declined",
+        description="An admin declined a discount code you asked for, with a note saying why.",
+        category="Teaching",
+        recipient=Recipients.INSTRUCTOR,
+        channels=(_IN_APP_ON, _EMAIL_ON),
+        activity_kind=None,
+    ),
     # Roster management — staff promote / remove notices to the registrant. The email
     # goes to the registration's raw address via ``email_to`` (guest-safe, never
     # pref-gated); the REGISTRANT resolver posts the bell row to the linked member
@@ -1078,6 +1113,45 @@ _NEW_EVENTS: list[EventType] = [
         category="Spaces & Equipment",
         recipient=Recipients.EQUIPMENT_MANAGERS,
         channels=(_IN_APP_ON, _EMAIL_OFF, _DISCORD_ON),
+        activity_kind=None,
+    ),
+    # equipment.reservation_cancelled — the member's own "you cancelled" confirmation (#456),
+    # the email a self cancel lacked. Forced operational mail like the manager cancel; the
+    # copy's ``late_fee_line`` carries the fee sentence and Pay link when the cancel was
+    # late and is "" otherwise, so a free cancel says nothing about fees. No activity row:
+    # the fee's own LATE_FEE_CHARGED row is written by the service when one is created.
+    EventType(
+        key=EQUIPMENT_RESERVATION_CANCELLED,
+        label="Reservation cancelled",
+        description="You cancelled an equipment reservation. Names the late fee when one applies.",
+        category="Spaces & Equipment",
+        recipient=Recipients.SINGLE_USER,
+        channels=(_IN_APP_ON, _EMAIL_FORCED),
+        activity_kind=None,
+    ),
+    # billing.late_fee_paid — the receipt for a late cancellation fee paid through Stripe
+    # Checkout (#456). Money moved, so the email is forced, like the tab receipt. No
+    # activity row here: ``billing.late_fees.mark_paid`` logs LATE_FEE_PAID with the payload.
+    EventType(
+        key=BILLING_LATE_FEE_PAID,
+        label="Late cancellation fee paid",
+        description="Your receipt for a late cancellation fee you paid.",
+        category="Billing",
+        recipient=Recipients.SINGLE_USER,
+        channels=(_IN_APP_ON, _EMAIL_FORCED),
+        activity_kind=None,
+    ),
+    # billing.late_fee_waived — an admin, the guild's staff or the equipment's managers
+    # forgave an unpaid fee (#456, part 3). The member can book again the moment it lands,
+    # so the email is forced like the receipt. Who waived it is not named. No activity row
+    # here: ``billing.late_fees.waive`` logs LATE_FEE_WAIVED with the reason.
+    EventType(
+        key=BILLING_LATE_FEE_WAIVED,
+        label="Late cancellation fee waived",
+        description="A late cancellation fee you owed was waived. You can book again.",
+        category="Billing",
+        recipient=Recipients.SINGLE_USER,
+        channels=(_IN_APP_ON, _EMAIL_FORCED),
         activity_kind=None,
     ),
     # class_cancelled_admin_notice — an instructor cancelled their own live class and

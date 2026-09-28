@@ -78,9 +78,11 @@ def describe_feature_flags():
         rf = RequestFactory()
         request = rf.get("/")
         result = feature_flags(request)
-        assert result["my_tab_enabled"] is True
         assert result["class_registration_enabled"] is True
         assert result["guild_welcome_email_enabled"] is True
+        assert result["instructor_discount_codes_need_approval"] is True
+        assert result["late_cancel_fees_enabled"] is False
+        assert result["features"]["my_tab"].is_on
         # Ships in today's behaviour: the six features that were live stay live, and the wiki
         # keeps the off state it has always shipped with (see core/migrations/0087).
         assert [key for key, view in result["features"].items() if not view.is_on] == ["wiki"]
@@ -91,12 +93,13 @@ def describe_feature_flags():
 
     def it_reflects_toggled_values():
         config = SiteConfiguration.load()
-        config.my_tab_enabled = False
         config.class_registration_enabled = False
         config.class_registration_disabled_note = "Call the studio."
         config.help_page_enabled = False
         config.instructor_discount_codes_enabled = True
+        config.instructor_discount_codes_need_approval = False
         config.guild_welcome_email_enabled = False
+        config.late_cancel_fees_enabled = True
         config.save()
 
         rf = RequestFactory()
@@ -104,12 +107,13 @@ def describe_feature_flags():
         result = feature_flags(request)
         features = result.pop("features")
         assert result == {
-            "my_tab_enabled": False,
             "class_registration_enabled": False,
             "class_registration_disabled_note": "Call the studio.",
             "help_page_enabled": False,
             "instructor_discount_codes_enabled": True,
+            "instructor_discount_codes_need_approval": False,
             "guild_welcome_email_enabled": False,
+            "late_cancel_fees_enabled": True,
         }
         # The three-state features travel in their own key, every one of them present. Compared
         # against the registry rather than a hand-written list: the point of core.features is

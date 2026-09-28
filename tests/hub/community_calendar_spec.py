@@ -493,7 +493,7 @@ def describe_calendar_events_partial_view():
         response = client.get("/calendar/events/")
         assert b"Life Drawing Session" in response.content
 
-    def it_paginates_month_events_to_max_10_per_page(client: Client):
+    def it_paginates_month_events_to_max_10_per_page(client: Client, midday_now):
         _logged_in_user(client, username="caluser_page")
         guild = GuildFactory(name="Pagination Guild", calendar_url="https://example.com/pag.ics")
         now = timezone.now()
@@ -517,7 +517,7 @@ def describe_calendar_events_partial_view():
         assert response.context["event_total_pages"] == 2
         assert len(response.context["month_events"]) == 10
 
-    def it_returns_month_page_2_when_requested(client: Client):
+    def it_returns_month_page_2_when_requested(client: Client, midday_now):
         _logged_in_user(client, username="caluser_page2")
         guild = GuildFactory(name="Page2 Guild", calendar_url="https://example.com/pag2.ics")
         now = timezone.now()

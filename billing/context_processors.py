@@ -19,9 +19,9 @@ def tab_context(request: HttpRequest) -> dict[str, Any]:
     if user is None or not user.is_authenticated:
         return {}
 
-    from core.models import SiteConfiguration
+    from core.features import is_on
 
-    if not SiteConfiguration.load().my_tab_enabled:
+    if not is_on("my_tab"):
         return {}
 
     from membership.models import Member

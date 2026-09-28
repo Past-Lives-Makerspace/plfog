@@ -14,12 +14,14 @@
     {% load static %}
     <link rel="icon" type="image/png" href="{% static 'img/favicon.png' %}">
     <link rel="stylesheet" href="{% static 'css/style.css' %}">
+    {% if IS_STAGING %}<link rel="stylesheet" href="{% static 'css/staging-ribbon.css' %}">{% endif %}
     {% include "includes/google_analytics.html" %}
     {% block extra_head %}{% endblock %}
 </head>
 {# Read by static/js/biometric-auth.js: the offer prompt is only for a signed-in member. #}
 <body class="{% block body_class %}{% endblock %}" data-pl-authenticated="{% if user.is_authenticated %}1{% else %}0{% endif %}">
     <a href="#main-content" class="skip-link">Skip to main content</a>
+    {% include "components/staging_ribbon.html" %}
     <header class="site-header">
         <nav class="site-nav" aria-label="Main navigation">
             <a href="{% url 'home' %}" class="site-nav__brand">Past Lives</a>

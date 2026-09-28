@@ -1,0 +1,10 @@
+bump = "patch"
+date = "2026-09-24"
+title = "Orientation hours that repeat every week now start on the day you picked"
+changes = [
+  "Set a start date on weekly orientation hours and nothing is bookable before it. Until now the date was saved and ignored, and the hours ran from the same week.",
+  "The start date does not have to fall on the day the hours run. The first session is the first matching day on or after it.",
+  "Leave the start date blank and weekly hours run from now, exactly as before.",
+  "Each rule in the Orientations list names its start date while the date is still ahead, such as Every Sunday from Oct 4.",
+  "Hours already published with a start date lose their open sessions before that date the next time slots are generated. Anyone already booked keeps their place.",
+]

@@ -64,6 +64,8 @@ def _settings_post(**kwargs) -> dict[str, str]:
         "org_name": "Past Lives Makerspace",
         "registration_mode": SiteConfiguration.RegistrationMode.INVITE_ONLY,
         "member_event_policy": SiteConfiguration.MemberEventPolicy.APPROVAL,
+        "late_cancel_notice_hours": "24",
+        "late_cancel_grace_hours": "2",
         "feeds-TOTAL_FORMS": "0",
         "feeds-INITIAL_FORMS": "0",
         "feeds-MIN_NUM_FORMS": "0",
@@ -201,6 +203,8 @@ def describe_when_the_formset_is_not_posted():
                 "org_name": "Past Lives Makerspace",
                 "registration_mode": SiteConfiguration.RegistrationMode.INVITE_ONLY,
                 "member_event_policy": SiteConfiguration.MemberEventPolicy.APPROVAL,
+                "late_cancel_notice_hours": "24",
+                "late_cancel_grace_hours": "2",
                 "feeds-TOTAL_FORMS": "0",
                 "feeds-INITIAL_FORMS": "0",
                 "feeds-MIN_NUM_FORMS": "0",
@@ -264,3 +268,69 @@ def describe_the_settings_form_renders_each_field_once():
         """
         _superuser(client, "dirswitchadmin")
         assert "member_directory_public" in _rendered_names(client)
+
+
+def describe_saving_the_late_cancel_fee_settings():
+    """The three #456 fields sit in the Features card and save with the page's Save."""
+
+    def it_saves_the_switch_and_the_window_through_the_view(client: Client):
+        _superuser(client, "latefeeadmin")
+        data = _settings_post()
+        data.update(
+            {"late_cancel_fees_enabled": "on", "late_cancel_notice_hours": "48", "late_cancel_grace_hours": "6"}
+        )
+        response = client.post(URL, data)
+        assert response.status_code == 302
+        config = SiteConfiguration.load()
+        assert config.late_cancel_fees_enabled is True
+        assert config.late_cancel_notice_hours == 48
+        assert config.late_cancel_grace_hours == 6
+
+    def it_renders_the_three_together_ahead_of_class_registration(client: Client):
+        _superuser(client, "latefeerender")
+        html = client.get(f"{URL}?tab=features").content.decode()
+        positions = [
+            html.index(f'name="{name}"')
+            for name in (
+                "late_cancel_fees_enabled",
+                "late_cancel_notice_hours",
+                "late_cancel_grace_hours",
+                "class_registration_enabled",
+            )
+        ]
+        assert positions == sorted(positions)
+
+    def it_shows_the_window_error_on_the_page(client: Client):
+        _superuser(client, "latefeeerror")
+        data = _settings_post()
+        data.update({"late_cancel_notice_hours": "24", "late_cancel_grace_hours": "24"})
+        response = client.post(URL, data)
+        assert response.status_code == 200
+        assert "The grace period must be shorter than the notice." in response.content.decode()
+        assert SiteConfiguration.load().late_cancel_grace_hours == 2
+
+
+def describe_the_my_tab_card():
+    """My Tab moved from a flat toggle into the registry (#416): a card, not a checkbox."""
+
+    def it_shows_a_my_tab_card_with_the_three_states(client: Client):
+        _superuser(client, "mytabcard")
+        FeatureSwitch.objects.sync_registry()
+        html = client.get(f"{URL}?tab=features").content.decode()
+        index = [row.feature_key for row in FeatureSwitch.objects.all()].index("my_tab")
+        assert "My Tab" in html
+        assert "The one switch here that does more than the sidebar." in html
+        for state in ("on", "soon", "hidden"):
+            assert f'name="features-{index}-state" value="{state}"' in html
+
+    def it_no_longer_renders_a_flat_my_tab_toggle(client: Client):
+        _superuser(client, "mytabflat")
+        html = client.get(f"{URL}?tab=features").content.decode()
+        assert 'id="id_my_tab' not in html
+        assert 'name="my_tab' not in html
+
+    def it_saves_coming_soon_for_my_tab_through_the_view(client: Client):
+        _superuser(client, "mytabsave")
+        response = client.post(URL, _settings_post(states={"my_tab": FeatureState.SOON}))
+        assert response.status_code == 302
+        assert _state_of("my_tab") == FeatureState.SOON

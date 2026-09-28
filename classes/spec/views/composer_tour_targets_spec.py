@@ -1,4 +1,4 @@
-"""BDD specs proving the instructor tour's create-page stops still resolve on the five step composer.
+"""BDD specs proving the instructor tour's create-page stops still resolve on the multi step composer.
 
 The tour (core/tours.py) points at data-help-key elements that now sit on hidden step
 panes; static/js/pl_tour.js reveals the pane through the composer's composer-goto-step

@@ -5,6 +5,38 @@
     {% include "components/table_search.html" with q=q placeholder="Search codes…" %}
     <a class="hub-btn hub-btn--primary hub-btn--sm" href="{% url 'classes:admin_discount_code_create' %}">+ New Code</a>
 </div>
+{% if instructor_discount_codes_enabled and pending_requests %}
+{# Only pending asks; a decided request shows on the instructor's own pages. Master flag off hides the queue. #}
+<h3>Requests Waiting</h3>
+<div class="admin-table-wrap">
+<table>
+    <thead>
+        <tr>
+            <th>Class</th>
+            <th>Instructor</th>
+            <th>Code</th>
+            <th>Discount</th>
+            <th>Reason</th>
+            <th>Requested</th>
+            <th></th>
+        </tr>
+    </thead>
+    <tbody>
+    {% for r in pending_requests %}
+        <tr>
+            <td>{{ r.class_offering.title }}</td>
+            <td>{{ r.requested_by.display_name }}</td>
+            <td>{{ r.code }}</td>
+            <td>{% if r.discount_pct %}{{ r.discount_pct }}% off{% else %}{{ r.discount_fixed_cents|cents_as_dollars }} off{% endif %}</td>
+            <td>{{ r.reason }}</td>
+            <td>{{ r.created_at|date:"M j" }}</td>
+            <td><a class="hub-btn hub-btn--sm hub-btn--primary" href="{% url 'classes:admin_discount_code_request_review' pk=r.pk %}">Review</a></td>
+        </tr>
+    {% endfor %}
+    </tbody>
+</table>
+</div>
+{% endif %}
 <div class="admin-table-wrap">
 <table>
     <thead>

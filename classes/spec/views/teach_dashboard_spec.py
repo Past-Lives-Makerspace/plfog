@@ -9,6 +9,7 @@ import pytest
 from django.core.files.uploadedfile import SimpleUploadedFile
 from django.urls import reverse
 from django.utils import timezone
+from PIL import Image
 
 from classes.factories import (
     READY_DESCRIPTION,
@@ -23,7 +24,9 @@ from membership.models import Member
 
 
 def _image_file(name: str = "shot.png") -> SimpleUploadedFile:
-    buf = BytesIO(b"\x89PNG\r\n\x1a\n" + b"\x00" * 64)
+    # A real PNG: the gallery refuses bytes Pillow cannot open (#498).
+    buf = BytesIO()
+    Image.new("RGB", (8, 8)).save(buf, "PNG")
     return SimpleUploadedFile(name, buf.getvalue(), content_type="image/png")
 
 
@@ -61,7 +64,7 @@ def describe_instructor_access_gate():
 
     def it_blocks_inactive_instructor(db, client):
         user = UserFactory(username="inactive@example.com")
-        InstructorFactory(user=user, status=Member.Status.FORMER)
+        InstructorFactory(user=user, status=Member.Status.INVITED)
         client.force_login(user)
         response = client.get(reverse("classes:teach_dashboard"))
         assert response.status_code == 403
@@ -221,6 +224,69 @@ def describe_instructor_create_class():
         assert response.status_code == 302
         offering = ClassOffering.objects.get(title="Gallery Class")
         assert ClassImage.objects.filter(class_offering=offering).count() == 2
+
+    def it_refuses_a_gallery_file_that_is_not_an_image_and_saves_nothing(instructor_fixture, client):
+        from django.core.files.storage import default_storage
+
+        from classes.models import CLASS_IMAGE_PREFIX
+
+        def stored() -> set[str]:
+            try:
+                return set(default_storage.listdir(CLASS_IMAGE_PREFIX)[1])
+            except FileNotFoundError:
+                return set()
+
+        # A hero no other spec uploads, so its content-addressed key is new to storage.
+        buf = BytesIO()
+        Image.new("RGB", (8, 8), (201, 17, 88)).save(buf, "PNG")
+        hero = SimpleUploadedFile("hero.png", buf.getvalue(), content_type="image/png")
+        before = stored()
+        cat = CategoryFactory()
+        client.force_login(instructor_fixture.user)
+        response = client.post(
+            reverse("classes:teach_class_create"),
+            {
+                "title": "Gallery Class",
+                "category": cat.pk,
+                "description": "d",
+                "prerequisites": "",
+                "materials_included": "",
+                "materials_to_bring": "",
+                "safety_requirements": "",
+                "age_guardian_note": "",
+                "price_cents": 5000,
+                "member_discount_pct": 10,
+                "capacity": 6,
+                "scheduling_model": "fixed",
+                "sale_kind": "percent",
+                "scheduling_type": "single_session",
+                "flexible_note": "",
+                "recurring_pattern": "",
+                "sessions-TOTAL_FORMS": "0",
+                "sessions-INITIAL_FORMS": "0",
+                "sessions-MIN_NUM_FORMS": "0",
+                "sessions-MAX_NUM_FORMS": "1000",
+                "faq-TOTAL_FORMS": "0",
+                "faq-INITIAL_FORMS": "0",
+                "faq-MIN_NUM_FORMS": "0",
+                "faq-MAX_NUM_FORMS": "1000",
+                "images-TOTAL_FORMS": "0",
+                "images-INITIAL_FORMS": "0",
+                "images-MIN_NUM_FORMS": "0",
+                "images-MAX_NUM_FORMS": "1000",
+                "action": "save",
+                "image": hero,
+                "gallery_images": [
+                    _image_file("x.png"),
+                    SimpleUploadedFile("y.png", b"notes", content_type="image/png"),
+                ],
+            },
+        )
+        assert response.status_code == 200
+        assert "not a photo we can open" in response.content.decode()
+        assert not ClassOffering.objects.filter(title="Gallery Class").exists()
+        assert not ClassImage.objects.exists()
+        assert stored() == before  # the hero form.save() wrote is removed with the row
 
     def it_date_stamps_the_slug_from_the_first_session(instructor_fixture, client):
         cat = CategoryFactory()

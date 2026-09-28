@@ -1,4 +1,4 @@
-"""BDD specs for the five step class composer (teach and admin twins of one shared template)."""
+"""BDD specs for the multi step class composer (teach and admin twins of one shared template)."""
 
 from __future__ import annotations
 
@@ -13,11 +13,14 @@ import pytest
 from django.contrib.contenttypes.models import ContentType
 from django.contrib.messages import get_messages
 from django.core.files.uploadedfile import SimpleUploadedFile
+from django.http import HttpResponse
 from django.urls import reverse
 from django.utils import timezone
 from PIL import Image
 
+from classes.composer import STEP_COUNT
 from classes.factories import (
+    BRACKETED_DESCRIPTION,
     READY_DESCRIPTION,
     CategoryFactory,
     ClassOfferingFactory,
@@ -25,7 +28,7 @@ from classes.factories import (
     UserFactory,
 )
 from classes.forms import ClassOfferingForm, TeachClassOfferingForm
-from classes.models import ClassApproval, ClassOffering, ClassSettings, CmsActivity
+from classes.models import READINESS_DESCRIPTION_HINT, ClassApproval, ClassOffering, ClassSettings, CmsActivity
 from classes.views import COMPOSER_SAVED_LIMIT, COMPOSER_SAVED_SESSION_KEY, _mark_composer_saved
 from tests.membership.factories import GuildFactory, GuildStaffMembershipFactory
 
@@ -328,9 +331,9 @@ def describe_teach_composer_get():
         # The guided tour reveals a hidden pane through this contract (static/js/pl_tour.js).
         client.force_login(instructor_fixture.user)
         html = client.get(reverse("classes:teach_class_create")).content.decode()
-        for n in range(1, 6):
+        for n in range(1, STEP_COUNT + 1):
             assert f'data-composer-step="{n}"' in html, n
-        assert html.count("data-composer-step=") == 5
+        assert html.count("data-composer-step=") == STEP_COUNT
         assert '@composer-goto-step.window="goTo($event.detail.step)"' in html
 
     def it_announces_every_step_reveal_for_widgets_that_measure_their_pane(instructor_fixture, client):
@@ -383,11 +386,12 @@ def describe_teach_composer_get():
         html = client.get(reverse("classes:teach_class_create")).content.decode()
         assert re.search(r'<form[^>]*id="composer-form"[^>]*\bnovalidate\b', html)
 
-    def it_renders_the_five_tabs_and_lands_on_step_one(instructor_fixture, client):
+    def it_renders_every_tab_and_lands_on_step_one(instructor_fixture, client):
         client.force_login(instructor_fixture.user)
         html = client.get(reverse("classes:teach_class_create")).content.decode()
-        for label in ["1. Basics", "2. Photos", "3. Dates &amp; Price", "4. Details", "5. Review"]:
+        for label in ["1. Basics", "2. Photos", "3. Dates &amp; Price", "4. Details", "5. Discounts", "6. Review"]:
             assert label in html
+        assert html.count('data-step-tab="') == STEP_COUNT
         assert "phase: 1," in html
         assert "The Basics" in html and "Photos And Video" in html and "Dates, Seats And Price" in html
         assert "What Students Need To Know" in html and "Review And Submit" in html
@@ -544,7 +548,7 @@ def describe_teach_composer_get():
         client.force_login(instructor_fixture.user)
         url = reverse("classes:teach_class_edit", kwargs={"pk": offering.pk})
         assert "phase: 3," in client.get(f"{url}?step=3").content.decode()
-        assert "phase: 5," in client.get(f"{url}?step=9").content.decode()
+        assert f"phase: {STEP_COUNT}," in client.get(f"{url}?step=9").content.decode()
         assert "phase: 1," in client.get(f"{url}?step=x").content.decode()
         assert "phase: 1," in client.get(url).content.decode()
 
@@ -792,6 +796,64 @@ def describe_teach_composer_post():
         assert offering.status == Status.PENDING
 
 
+def describe_the_submit_check_reads_the_posted_description():
+    """Issue #425 named two candidate causes for a typed description being refused as too short.
+
+    Candidate 2, readiness read off something other than what was posted (the row as it stood, or
+    an editor that never synced), is ruled out here: the composer saves the POST and then checks
+    the saved row, so what was typed is what is measured, in both directions. Candidate 1, the
+    count itself dropping typed characters, is the one that reproduced
+    (classes/spec/models/class_readiness_spec.py) and is pinned at the view in the last spec.
+    """
+
+    def _submit(client, offering: ClassOffering, **extra: object) -> HttpResponse:
+        return client.post(
+            reverse("classes:teach_class_edit", kwargs={"pk": offering.pk}),
+            _full_payload(
+                offering.category, scheduling_model="fixed", scheduling_type="single_session", action="submit", **extra
+            ),
+        )
+
+    def it_submits_a_ready_description_posted_over_a_short_saved_one(instructor_fixture, client):
+        offering = ClassOfferingFactory(instructor=instructor_fixture, status=Status.DRAFT, ready=True)
+        offering.description = "Short"
+        offering.save(update_fields=["description"])
+        client.force_login(instructor_fixture.user)
+
+        resp = _submit(client, offering)
+
+        assert resp.status_code == 302
+        offering.refresh_from_db()
+        assert offering.status == Status.PENDING
+        assert offering.description == READY_DESCRIPTION
+
+    def it_refuses_a_short_description_posted_over_a_ready_saved_one(instructor_fixture, client):
+        # The row as it stood would have passed; the POST is what is checked, once it is saved.
+        offering = ClassOfferingFactory(instructor=instructor_fixture, status=Status.DRAFT, ready=True)
+        client.force_login(instructor_fixture.user)
+
+        resp = _submit(client, offering, description="Short")
+
+        edit = reverse("classes:teach_class_edit", kwargs={"pk": offering.pk})
+        assert resp["Location"] == f"{edit}?step=1&missing=1"
+        offering.refresh_from_db()
+        assert offering.status == Status.DRAFT
+        assert offering.description == "Short"
+        assert _messages(resp) == [f"Not ready to submit: {READINESS_DESCRIPTION_HINT}"]
+
+    def it_submits_a_description_typed_with_angle_brackets(instructor_fixture, client):
+        # Candidate 1 at the view: 63 typed characters, every one shown on the class page, go to review.
+        offering = ClassOfferingFactory(instructor=instructor_fixture, status=Status.DRAFT, ready=True)
+        client.force_login(instructor_fixture.user)
+
+        resp = _submit(client, offering, description=BRACKETED_DESCRIPTION)
+
+        assert resp.status_code == 302
+        offering.refresh_from_db()
+        assert offering.status == Status.PENDING
+        assert offering.description == BRACKETED_DESCRIPTION
+
+
 def describe_admin_composer():
     def it_switches_on_the_admin_only_fields_and_publish(admin_user, client, db):
         client.force_login(admin_user)
@@ -926,7 +988,7 @@ def describe_admin_composer():
         assert "phase: 2," in html
         notice = _still_missing(html)
         assert "Not ready to publish yet." in notice
-        assert "Add one gallery photo." in notice and "Write a short description." not in notice
+        assert "Add one gallery photo." in notice and READINESS_DESCRIPTION_HINT not in notice
 
     def it_lands_on_the_first_broken_step(admin_user, client, db):
         offering = ClassOfferingFactory(status=Status.DRAFT)
@@ -1477,10 +1539,11 @@ def describe_a_composer_submit_refused_for_readiness():
     def it_shows_no_notice_when_the_class_became_ready_before_the_page_loaded(instructor_fixture, client):
         offering = ClassOfferingFactory(instructor=instructor_fixture, status=Status.DRAFT, ready=True)
         client.force_login(instructor_fixture.user)
-        url = reverse("classes:teach_class_edit", kwargs={"pk": offering.pk}) + "?step=5&missing=1"
+        # The URL _unready_redirect builds once every item is ok: the Review step, where the checklist lives.
+        url = reverse("classes:teach_class_edit", kwargs={"pk": offering.pk}) + f"?step={STEP_COUNT}&missing=1"
         html = client.get(url).content.decode()
         assert _still_missing(html) == ""
-        assert "phase: 5," in html
+        assert f"phase: {STEP_COUNT}," in html
 
 
 def describe_the_admin_create_readiness_preflight():
@@ -1502,7 +1565,7 @@ def describe_the_admin_create_readiness_preflight():
         assert "Still Missing" in notice
         assert "Not ready to publish yet." in notice
         assert "Add a hero photo." in notice and "Add one gallery photo." in notice
-        assert "Write a short description." not in notice
+        assert READINESS_DESCRIPTION_HINT not in notice
         assert not ClassOffering.objects.filter(title="Round Trip").exists()
 
     def it_keeps_every_typed_value_in_the_form(admin_user, client, db):

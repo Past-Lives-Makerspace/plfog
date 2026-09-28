@@ -1,0 +1,8 @@
+bump = "minor"
+date = "2026-09-24"
+title = "The class composer has a Discounts step"
+changes = [
+  "A new step 5, Discounts, sits before Review. Where the studio has turned instructor discount codes on, instructors see the codes that already apply to every class, the codes on their own class, and where each of their requests stands, with a button to request a new code.",
+  "Admins get the same step with the discount codes for the class they are editing.",
+  "Review is now step 6.",
+]

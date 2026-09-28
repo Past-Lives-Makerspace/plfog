@@ -5,9 +5,17 @@
 rather than one winning: an admin gets the admin discount-code routes and the Unapprove toggle
 (their approval is reversible), an instructor gets the teach routes and the `approvable_by`
 guard (a self-approver may approve only their own). `access.can_administer` picks between them,
-and it is the same fact the two sets of endpoints are gated on.{% endcomment %}
+and it is the same fact the two sets of endpoints are gated on. A third branch, `approval_mode`
+(#428), is the instructor under the approval setting: they read the codes on this class and ask
+for new ones; the request list under the table shows where each ask stands.{% endcomment %}
 <div style="display:flex; justify-content:flex-end; margin-bottom:0.75rem;">
-    <a class="hub-btn hub-btn--primary hub-btn--sm" href="{% if access.can_administer %}{% url 'classes:admin_discount_code_create' %}{% else %}{% url 'classes:teach_discount_code_create' %}{% endif %}?class={{ offering.pk }}">+ New Code</a>
+    {% if access.can_administer %}
+    <a class="hub-btn hub-btn--primary hub-btn--sm" href="{% url 'classes:admin_discount_code_create' %}?class={{ offering.pk }}">+ New Code</a>
+    {% elif approval_mode %}
+    <a class="hub-btn hub-btn--primary hub-btn--sm" href="{% url 'classes:teach_discount_code_request' %}?class={{ offering.pk }}">Request a Code</a>
+    {% else %}
+    <a class="hub-btn hub-btn--primary hub-btn--sm" href="{% url 'classes:teach_discount_code_create' %}?class={{ offering.pk }}">+ New Code</a>
+    {% endif %}
 </div>
 <div class="admin-table-wrap">
 <table>
@@ -29,7 +37,7 @@ and it is the same fact the two sets of endpoints are gated on.{% endcomment %}
         {% if access.can_administer %}
             {% url 'classes:admin_discount_code_delete' pk=c.pk as code_delete_url %}
             {% url 'classes:admin_discount_code_edit' pk=c.pk as code_edit_url %}
-        {% else %}
+        {% elif not approval_mode %}
             {% url 'classes:teach_discount_code_delete' pk=c.pk as code_delete_url %}
             {% url 'classes:teach_discount_code_edit' pk=c.pk as code_edit_url %}
         {% endif %}
@@ -62,7 +70,15 @@ and it is the same fact the two sets of endpoints are gated on.{% endcomment %}
                         {% csrf_token %}
                         <button type="submit" class="hub-btn hub-btn--sm {% if c.is_approved %}hub-btn--ghost{% else %}hub-btn--success{% endif %}">{% if c.is_approved %}Unapprove{% else %}Approve{% endif %}</button>
                     </form>
-                    {% elif not c.is_approved and c|approvable_by:approver %}
+                    <a class="hub-btn hub-btn--sm hub-btn--ghost" href="{{ code_edit_url }}">Edit</a>
+                    <button type="button"
+                            class="hub-btn hub-btn--sm hub-btn--danger"
+                            @click="$dispatch('open-confirm', '{{ code_modal_id }}')">Delete</button>
+                    {% include "components/confirm_modal.html" with confirm_id=code_modal_id confirm_title="Delete this discount code?" confirm_message="The code will be permanently removed. Registrations that already used it keep the discount." confirm_action_url=code_delete_url confirm_button_text="Delete Code" %}
+                    {% elif approval_mode %}
+                    {# The instructor reads this tab under approval mode; new codes come through Request a Code. #}
+                    {% else %}
+                    {% if not c.is_approved and c|approvable_by:approver %}
                     <form method="post" action="{% url 'classes:teach_discount_code_approve' pk=c.pk %}" style="display:inline;">
                         {% csrf_token %}
                         <button type="submit" class="hub-btn hub-btn--sm hub-btn--success">Approve</button>
@@ -73,6 +89,7 @@ and it is the same fact the two sets of endpoints are gated on.{% endcomment %}
                             class="hub-btn hub-btn--sm hub-btn--danger"
                             @click="$dispatch('open-confirm', '{{ code_modal_id }}')">Delete</button>
                     {% include "components/confirm_modal.html" with confirm_id=code_modal_id confirm_title="Delete this discount code?" confirm_message="The code will be permanently removed. Registrations that already used it keep the discount." confirm_action_url=code_delete_url confirm_button_text="Delete Code" %}
+                    {% endif %}
                 </div>
             </td>
         </tr>
@@ -82,4 +99,5 @@ and it is the same fact the two sets of endpoints are gated on.{% endcomment %}
     </tbody>
 </table>
 </div>
+{% if approval_mode %}{% include "classes/_components/discount_code_requests_list.html" with requests=requests %}{% endif %}
 {% endblock detail_content %}

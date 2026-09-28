@@ -2,7 +2,7 @@
 
 Three consumers must agree on it: the template that renders the tabs and the step
 bodies, the view that decides which step to land on after a failed save, and the guard
-spec that proves no form field went missing when the form was cut into five steps. They
+spec that proves no form field went missing when the form was cut into six steps. They
 all read :data:`COMPOSER_STEPS`; nothing restates the mapping anywhere else.
 """
 
@@ -83,7 +83,10 @@ COMPOSER_STEPS: tuple[ComposerStep, ...] = (
             "age_guardian_note",
         ),
     ),
-    ComposerStep(number=5, key="review", tab_label="5. Review", heading="Review And Submit", fields=()),
+    # Links and read only tables (#428): no field, no anchor, no readiness item, so Next never
+    # refuses it and the tab never earns a mark.
+    ComposerStep(number=5, key="discounts", tab_label="5. Discounts", heading="Discounts", fields=()),
+    ComposerStep(number=6, key="review", tab_label="6. Review", heading="Review And Submit", fields=()),
 )
 
 STEP_COUNT = len(COMPOSER_STEPS)
@@ -118,7 +121,7 @@ def clamp_step(raw: str | None) -> int:
 
 
 def anchor_steps() -> dict[str, int]:
-    """DOM id to step number, for the step 5 readiness hints that jump to a field.
+    """DOM id to step number, for the Review step's readiness hints that jump to a field.
 
     Built from the step map, so the ``id_<field>`` anchors and the named section anchors can
     never point at a step the field is not on.
@@ -161,7 +164,7 @@ def error_steps(form: Any, formsets: Mapping[str, Any]) -> list[int]:
 def step_marks(readiness: Iterable[Any]) -> dict[int, bool]:
     """Step number to "every readiness item this step owns is ok", for the tab completion marks.
 
-    Steps that own no readiness item (Details, Review) are absent: nothing on them blocks
+    Steps that own no readiness item (Details, Discounts, Review) are absent: nothing on them blocks
     submission, and a checkmark there would train people to fill in optional fields.
     """
     ok_by_label = {item.label: item.ok for item in readiness}

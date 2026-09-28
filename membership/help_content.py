@@ -552,7 +552,7 @@ Refunds aren't automatic: for a paid class, an admin handles the refund — emai
         "sort_order": 10,
         "related": ["propose-an-event", "taking-a-class"],
         "body": """\
-The Calendar puts everything happening at the space in one place: guild meetings, classes, and community events.
+The Calendar puts everything happening at the space in one place: guild meetings, classes, public events, and member events.
 
 ### Browse the Calendar {#calendar-browse}
 
@@ -627,7 +627,7 @@ Got a workshop, meetup, or hangout in mind? Any member can propose an event for 
 ### Propose It {#event-propose}
 
 1. Open the **Calendar** and click **+ Propose an event**.
-2. Fill in the form: title, when it starts, whether it repeats, and the details. Pick your guild to propose one of its meetings or events, or leave the guild blank for a site-wide community event.
+2. Fill in the form: title, when it starts, whether it repeats, and the details. Pick the guild hosting it, or pick **No guild** for a makerspace wide event.
 3. Click **Submit for review**.
 
 ![The Events tab — the upcoming list, with the Propose an event button.](/static/help/propose-an-event/01-events-tab.png)
@@ -876,10 +876,10 @@ Three ways in:
 ### Create Your Draft {#teach-create-class}
 
 1. In the portal, open the **Classes** tab and click **+ New Class** (your first time, the button says **+ Create your first class**).
-2. The form is five steps. Step 1 is the basics: title, guild type, and description.
+2. The form is six steps. Step 1 is the basics: title, guild type, and description.
 3. Step 2 is photos. Add a hero image and at least one gallery photo; a class needs both before it can be submitted. Pick the important part of the photo for the class page banner and again for the catalog card.
 4. Step 3 is dates, seats, and price. A class can be one session or a series; add every date. You can also pick flexible scheduling if the dates are arranged later.
-5. Step 4 holds the optional details students read to prepare. Step 5 is the review: a checklist, a preview of your page and card, and the **Submit for Review** button.
+5. Step 4 holds the optional details students read to prepare. Step 5 is discounts. If the studio lets instructors have discount codes, you see the site wide codes that already apply, the codes on this class, and a **Request a Code** button (an admin approves the code before it exists). Otherwise the step says admins manage codes. Step 6 is the review: a checklist, a preview of your page and card, and the **Submit for Review** button.
 6. Click **Save Draft** on any step to keep working.
 
 ![The new class form: describe it, price it, and add your session dates.](/static/help/become-an-instructor/02-new-class-form.png)
@@ -1945,8 +1945,8 @@ There are no release days. When a change merges to the main branch on GitHub (af
 ## What the Member Portal Talks To
 
 - **Airtable** — the membership roster lives there; the Member Portal pulls members, spaces, and space agreements in on a schedule, and pushes guild-voting results back out.
-- **Discord** — the Fog Bot mirrors community events into Discord's event list, posts guild announcements and new classes, and links member accounts (see [Discord and the Member Portal](/help/contributing/discord-and-fog/)).
-- **Google Calendar** — community events are pushed to the shared calendar automatically.
+- **Discord** — the Fog Bot mirrors calendar events into Discord's event list, posts guild announcements and new classes, and links member accounts (see [Discord and the Member Portal](/help/contributing/discord-and-fog/)).
+- **Google Calendar** — events are pushed to the shared calendars automatically: the public one, or the members one for guild meetings and the like.
 
 ## Scheduled Jobs
 

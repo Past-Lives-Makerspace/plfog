@@ -36,7 +36,7 @@ from typing import TYPE_CHECKING, Any, cast
 
 import httpx
 
-from core.events.discord_dm import API_BASE, _auth_headers, bot_token
+from core.events.discord_dm import API_BASE, _auth_headers, bot_disabled, bot_token
 
 if TYPE_CHECKING:
     from datetime import datetime
@@ -64,6 +64,11 @@ _FREQUENCY_MONTHLY = 1
 _FREQUENCY_WEEKLY = 2
 # How far ahead to look for the next concrete occurrence of an unmappable-cadence event.
 _FALLBACK_HORIZON_DAYS = 366
+# Ceiling on the photo we will read back and send as a cover image. Uploads are already
+# capped (``MAX_UPLOAD_IMAGE_BYTES``) and downscaled to the hero long edge on save, so a file
+# above this is an old or odd row rather than the norm; it gets no cover instead of a slow
+# push. Discord takes the cover as base64, which inflates the payload by about a third.
+_COVER_IMAGE_MAX_BYTES = 6 * 1024 * 1024
 
 
 class DiscordEventsError(Exception):
@@ -173,6 +178,10 @@ class DiscordScheduledEventsClient:
         cron, not hang the request sleeping. A 429 without the flag, or with no usable or
         too-long ``Retry-After`` on any attempt, raises immediately.
         """
+        # A blank token (unset, or ENVIRONMENT=staging) never builds a request: callers
+        # already check ``enabled``, and this keeps a client built any other way honest.
+        if bot_disabled("scheduled events call"):
+            raise DiscordEventsError("Discord bot token is blank; nothing was sent.")
         response = DiscordScheduledEventsClient._send(method, path, json=json)
         attempts = 1
         while response.status_code == 429 and retry_on_rate_limit and attempts < _RATE_LIMIT_MAX_ATTEMPTS:
@@ -278,6 +287,35 @@ def _next_occurrence(event: CommunityEvent) -> datetime | None:
     return None
 
 
+def _cover_image_data_uri(event: CommunityEvent) -> str:
+    """The event's photo as a ``data:`` URI for the Scheduled Event cover, or ``""``.
+
+    Discord takes a cover image as base64 bytes in the body, not as a URL, so unlike the
+    #calendar card (which hands Discord a link and lets it fetch) this has to read the object
+    back out of storage while the push is in flight. That makes it the one part of a push
+    that depends on the bucket answering, so **every** failure returns ``""`` and is logged:
+    a missing object, an unreadable one, a bucket that is slow or down, or a file above
+    :data:`_COVER_IMAGE_MAX_BYTES`. A picture must never be the reason a calendar sync fails.
+    """
+    import base64
+    import mimetypes
+
+    if not event.photo:
+        return ""
+    try:
+        size = event.photo.size
+        if size > _COVER_IMAGE_MAX_BYTES:
+            logger.info("Discord cover skipped for event %s: %d bytes is over the cap", event.pk, size)
+            return ""
+        with event.photo.open("rb") as handle:
+            raw = handle.read()
+    except Exception:  # storage is a network call: any failure degrades to no cover
+        logger.warning("Discord cover skipped for event %s: the photo could not be read", event.pk, exc_info=True)
+        return ""
+    mime = mimetypes.guess_type(event.photo.name or "")[0] or "image/jpeg"
+    return f"data:{mime};base64,{base64.b64encode(raw).decode('ascii')}"
+
+
 def _build_scheduled_event_body(event: CommunityEvent, *, occurrence: datetime | None = None) -> dict[str, Any]:
     """Build the Discord Scheduled Event payload for a :class:`CommunityEvent`.
 
@@ -288,6 +326,11 @@ def _build_scheduled_event_body(event: CommunityEvent, *, occurrence: datetime |
     wins (the join link still shows in the description). When ``occurrence`` is given (the
     unmappable fallback, §5.3) the event is pushed as a single instance at that start with no
     ``recurrence_rule``; otherwise a mappable cadence carries its ``recurrence_rule``.
+
+    An event with a photo also carries it as the cover ``image``, which is what Discord shows
+    as the banner in its Events tab. That read can fail where nothing else here can (it goes
+    to object storage), so :func:`_cover_image_data_uri` swallows its own failures and the
+    key is simply absent — the event still syncs, without a banner.
     """
     start = occurrence if occurrence is not None else event.starts_at
     end = start + (event.ends_at - event.starts_at)
@@ -301,6 +344,9 @@ def _build_scheduled_event_body(event: CommunityEvent, *, occurrence: datetime |
         "entity_metadata": {"location": location[:_LOCATION_MAX]},
         "description": _build_description(event)[:_DESCRIPTION_MAX],
     }
+    cover = _cover_image_data_uri(event)
+    if cover:
+        body["image"] = cover
     if occurrence is None:
         rule = _recurrence_rule_for(event)
         if rule is not None:

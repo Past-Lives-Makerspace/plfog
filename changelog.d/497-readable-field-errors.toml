@@ -1,0 +1,7 @@
+bump = "patch"
+date = "2026-09-27"
+title = "Form errors are easier to read in light mode"
+changes = [
+  "The red message under a form field that needs fixing is now darker in light mode, so it is easy to read on a white page.",
+  "Screen readers announce the reason when the class form stops you on a step.",
+]

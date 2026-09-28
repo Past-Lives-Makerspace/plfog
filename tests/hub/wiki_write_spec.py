@@ -92,7 +92,7 @@ def describe_the_starter_chooser():
         assert b"title=Table+Saw" in response.content
 
     def it_tells_an_inactive_member_why_they_cannot_write(client: Client):
-        _login(client, "new_inactive", status=Member.Status.FORMER)
+        _login(client, "new_inactive", status=Member.Status.INVITED)
         response = client.get(reverse("hub_wiki_new"))
         assert b"Your membership needs to be active to write here." in response.content
         assert b"Machine or tool" not in response.content
@@ -133,7 +133,7 @@ def describe_creating_a_page():
         assert client.get(reverse("hub_wiki_create", args=["bogus"])).status_code == 404
 
     def it_403s_an_inactive_member(client: Client):
-        _login(client, "create_inactive", status=Member.Status.FORMER)
+        _login(client, "create_inactive", status=Member.Status.INVITED)
         assert client.get(reverse("hub_wiki_create", args=["howto"])).status_code == 403
 
     def it_opens_quick_answers_with_no_rows_at_all(client: Client):
@@ -677,7 +677,7 @@ def describe_autosave():
             assert response.status_code == 404
 
         def it_403s_an_inactive_member(client: Client):
-            _login(client, "auto_new_inactive", status=Member.Status.FORMER)
+            _login(client, "auto_new_inactive", status=Member.Status.INVITED)
             response = client.post(reverse("hub_wiki_new_autosave", args=["howto"]), {"field": "title", "value": "x"})
             assert response.status_code == 403
 
@@ -812,7 +812,7 @@ def describe_still_accurate():
         assert "There is nothing to confirm" in response["HX-Trigger"]
 
     def it_403s_an_inactive_member(client: Client):
-        _login(client, "confirm_inactive", status=Member.Status.FORMER)
+        _login(client, "confirm_inactive", status=Member.Status.INVITED)
         page = WikiPageFactory()
         assert client.post(reverse("hub_wiki_confirm", args=[page.slug])).status_code == 403
 

@@ -1,0 +1,7 @@
+bump = "patch"
+date = "2026-09-28"
+title = "Message boxes keep their shape after you save"
+changes = [
+  "After you saved a guild's thank-you or welcome email, the message box lost its outline and showed an empty extra box under it. It now looks the same after Save as before.",
+  "The hint under those message boxes no longer says plain text. It now says what leaving the box blank does: members get the standard message.",
+]

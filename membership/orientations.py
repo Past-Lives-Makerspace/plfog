@@ -27,6 +27,8 @@ if TYPE_CHECKING:
     from django.contrib.auth.models import User
     from django.db.models import QuerySet
 
+    from billing.models import LateCancellationFee
+
     from membership.models import (
         Equipment,
         Guild,
@@ -105,7 +107,8 @@ def apply_token_action(booking: OrientationBooking, action: str, *, recipient: M
     statuses = OrientationBooking.Status
     if action == "cancel":
         if booking.status in (statuses.REQUESTED, statuses.CONFIRMED):
-            cancel_orientation(booking, actor_label=booking.member.display_name, actor=actor)
+            # The member's own emailed link: a late cancel of a confirmed booking carries the fee.
+            cancel_orientation(booking, actor_label=booking.member.display_name, actor=actor, self_cancel=True)
             return "cancelled"
         return "already"
     if booking.status != statuses.REQUESTED:
@@ -169,6 +172,9 @@ def _context(booking: OrientationBooking, **extra: Any) -> dict[str, Any]:
         "owner_url": booking.orientation_type.owner_page_url(),
         "owner_page_label": "equipment page" if booking.orientation_type.is_equipment_owned else "guild page",
         "cancel_url": _action_url(booking, "cancel", recipient=member),
+        # The cancelled email's guarded fee block (#456): the row and its page, set by cancel_orientation.
+        "late_fee": None,
+        "late_fee_pay_url": "",
         **extra,
     }
 
@@ -182,6 +188,7 @@ def _emit_member_email(
     ics: tuple[str, bytes, str] | None,
     in_app_title: str = "",
     in_app_body: str = "",
+    extra_context: dict[str, Any] | None = None,
 ) -> None:
     """Emit a member-facing orientation email (structural shell + optional ``.ics``).
 
@@ -198,7 +205,7 @@ def _emit_member_email(
     request / confirm / decline / cancel emails are independent (each one sends once),
     while a re-run of the SAME step is deduped — replacing the old "send every time".
     """
-    ctx = _context(booking)
+    ctx = _context(booking, **(extra_context or {}))
     # Member in-app only fires for confirm/decline/cancel (in_app_title set). For the
     # request-received email, suppress the in-app by giving the resolver no member.
     resolver_context: dict[str, Any] = {"booking": booking} if in_app_title else {"member": None}
@@ -965,6 +972,8 @@ def confirm_orientation(booking: OrientationBooking, *, oriented_by: Member | No
     ``oriented_by`` credits the actual runner (Decision 7). The view passes the acting
     member; when omitted the booking model still defaults to the guild lead.
     """
+    from membership.late_cancel import booking_sentence, policy_for
+
     booking.confirm(oriented_by=oriented_by)
     actor = booking.oriented_by.user if booking.oriented_by is not None else None
     SiteActivity.log(SiteActivity.Kind.ORIENTATION_CONFIRMED, actor=actor, target=booking)
@@ -973,6 +982,8 @@ def confirm_orientation(booking: OrientationBooking, *, oriented_by: Member | No
         action="confirm",
         subject=f"Orientation confirmed — {booking.orientation_type.owner_name}",
         template="orientation_confirmed",
+        # The confirmed email's guarded policy line; "" when no late fee applies (#456).
+        extra_context={"cancellation_policy": booking_sentence(policy_for(booking))},
         ics=_ics(booking, method="REQUEST", status="CONFIRMED"),
         in_app_title="Orientation confirmed",
         in_app_body=f"Your orientation for {booking.orientation_type.owner_name} is confirmed.",
@@ -1001,13 +1012,34 @@ def decline_orientation(booking: OrientationBooking, *, note: str = "", actor: U
     recap_orphaned_slot(booking.slot)
 
 
-def cancel_orientation(booking: OrientationBooking, *, actor_label: str, actor: User | None = None) -> None:
+def cancel_orientation(
+    booking: OrientationBooking, *, actor_label: str, actor: User | None = None, self_cancel: bool = False
+) -> LateCancellationFee | None:
     """Cancel a booking: update state, auto-refund a paid booking, email the member, notify, log.
 
     Member cancels, lead cancels, slot cancels, and no-login token cancels all route
     through here — so every cancellation path refunds a paid booking automatically.
+
+    ``self_cancel`` marks the member cancelling their own booking (the hub button and
+    their emailed link). Only that path can carry a late cancellation fee (#456), and only
+    for a CONFIRMED booking: cancelling a request the lead never confirmed is free, and a
+    lead, a slot cancel, a decline and a manager never charge. The fee is written in the
+    same transaction as the cancel. A paid booking still refunds in full through
+    :func:`_refund_if_paid`; the fee is separate and never netted against it.
+
+    Returns:
+        The :class:`~billing.models.LateCancellationFee` a late self cancel created (or the
+        booking already carried), else ``None``; the view sends the member to pay it.
     """
-    booking.cancel()
+    from billing.late_fees import charge_if_late, pay_url
+    from membership.models import OrientationBooking
+
+    can_charge = self_cancel and booking.status == OrientationBooking.Status.CONFIRMED
+    fee: LateCancellationFee | None = None
+    with transaction.atomic():
+        booking.cancel()
+        if can_charge:
+            fee = charge_if_late(booking)
     _refund_if_paid(booking, actor=actor)
     SiteActivity.log(SiteActivity.Kind.ORIENTATION_CANCELLED, actor=None, target=booking)
     _emit_member_email(
@@ -1018,6 +1050,7 @@ def cancel_orientation(booking: OrientationBooking, *, actor_label: str, actor: 
         ics=_ics(booking, method="CANCEL", status="CANCELLED"),
         in_app_title="Orientation cancelled",
         in_app_body=f"The orientation for {booking.orientation_type.owner_name} was cancelled.",
+        extra_context={"late_fee": fee, "late_fee_pay_url": pay_url(fee) if fee is not None else ""},
     )
     # In-app ping to the orienters that a booking was cancelled (was lead-only; now
     # fans out to all orienters via the guild_orienters resolver — Decision 7). The
@@ -1035,6 +1068,7 @@ def cancel_orientation(booking: OrientationBooking, *, actor_label: str, actor: 
     # slot whose hours are gone or paused must not reopen. A slot cancel (cancel_slot)
     # has already marked the slot, so the recap leaves its reason alone.
     recap_orphaned_slot(booking.slot)
+    return fee
 
 
 def cancel_slot(slot: OrientationSlot, *, reason: str = "") -> None:

@@ -19,7 +19,7 @@ from typing import TYPE_CHECKING
 
 import httpx
 
-from core.events.discord_dm import bot_token
+from core.events.discord_dm import bot_disabled, bot_token
 
 if TYPE_CHECKING:
     from membership.models import Guild, Member
@@ -42,7 +42,7 @@ def _role_request(method: str, server_id: str, user_id: str, role_id: str) -> bo
     (member left the server) and a 403 (bot missing Manage-Roles, or its role sits below
     the target role) are treated as benign — logged, not raised.
     """
-    if not bot_token() or not server_id or not user_id or not role_id:
+    if bot_disabled(f"role {method}") or not server_id or not user_id or not role_id:
         return False
     url = f"{API_BASE}/guilds/{server_id}/members/{user_id}/roles/{role_id}"
     try:

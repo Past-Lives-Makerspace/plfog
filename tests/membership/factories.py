@@ -52,6 +52,7 @@ from membership.models import (
     OrientationAvailability,
     OrientationAvailabilityBlock,
     OrientationBooking,
+    OrientationRecord,
     OrientationSlot,
     OrientationType,
     Skill,
@@ -297,9 +298,10 @@ class UserFactory(factory.django.DjangoModelFactory):
 class CommunityEventFactory(factory.django.DjangoModelFactory):
     """A FOG-native community event. Defaults to a guild meeting (guild set).
 
-    Use the ``community`` / ``lead_meeting`` traits for the site-wide variants (which
-    null the guild to satisfy the type↔scope constraint); the ``pending`` / ``declined``
-    traits for member-proposal moderation states.
+    Use the ``community`` / ``lead_meeting`` traits for the makerspace-wide variants (which
+    null the guild; a lead meeting must have none), ``guild_hosted`` for a general event a
+    guild hosts (the fourth shape #505 opened up), and the ``pending`` / ``declined`` traits
+    for member-proposal moderation states.
     """
 
     class Meta:
@@ -315,6 +317,7 @@ class CommunityEventFactory(factory.django.DjangoModelFactory):
     class Params:
         guild_meeting = factory.Trait(event_type=CommunityEvent.EventType.GUILD_MEETING)
         community = factory.Trait(event_type=CommunityEvent.EventType.COMMUNITY, guild=None)
+        guild_hosted = factory.Trait(event_type=CommunityEvent.EventType.COMMUNITY)
         lead_meeting = factory.Trait(event_type=CommunityEvent.EventType.LEAD_MEETING, guild=None)
         studio_hours = factory.Trait(
             event_type=CommunityEvent.EventType.STUDIO_HOURS,
@@ -625,6 +628,21 @@ class OrientationBookingFactory(factory.django.DjangoModelFactory):
     slot = factory.SubFactory(OrientationSlotFactory)
     member = factory.SubFactory(MemberFactory)
     # guild is denormalized from the slot in OrientationBooking.save() (None for equipment-owned).
+
+
+class OrientationRecordFactory(factory.django.DjangoModelFactory):
+    """An orientation an admin recorded by hand (issue #465), on a guild-owned type by default.
+
+    Dated today. Pass ``orientation_type=OrientationTypeFactory(equipment_owned=True)``
+    for an equipment-owned one; nothing else differs between the two.
+    """
+
+    class Meta:
+        model = OrientationRecord
+
+    member = factory.SubFactory(MemberFactory)
+    orientation_type = factory.SubFactory(OrientationTypeFactory)
+    completed_on = factory.LazyFunction(timezone.localdate)
 
 
 class SkillCategoryFactory(factory.django.DjangoModelFactory):

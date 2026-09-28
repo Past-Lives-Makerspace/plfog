@@ -55,6 +55,7 @@ from hub.forms import (
     MemberContactFormSet,
     MemberSkillForm,
     NotificationEmailForm,
+    OrientationRecordForm,
     OrgInfoPageForm,
     ProfileSettingsForm,
     ReleaseAnnouncementForm,
@@ -85,6 +86,7 @@ from membership.models import (
     Member,
     MemberContact,
     OrgInfoPage,
+    OrientationRecord,
     Skill,
     SkillCategory,
     SpaceRequestQuerySet,
@@ -97,6 +99,7 @@ from membership.permissions import can_edit_class as _can_edit_offering
 from membership.permissions import can_edit_guild as _can_edit_guild
 from membership.permissions import can_manage_orientations as _can_manage_orientations
 from membership.permissions import can_propose_to_meeting as _can_propose_to_meeting
+from membership.permissions import editable_meeting_scopes
 from membership.services.account_deletion import delete_own_account
 
 logger = logging.getLogger("hub")
@@ -531,25 +534,36 @@ def _orientation_sections(
     """One per-type section dict for an orientation slot-list surface (guild page or equipment page).
 
     The SHARED builder both surfaces render from, so their per-type state logic
-    cannot drift: completed / live booking / pending-payment hold are computed from
-    the member's bookings on exactly these types; the (caller-filtered, ordered)
-    slot lists render only when the type is open for the member. ``slot_cap`` can
-    bound each type's list; both pages pass ``None`` (the five per page pager bounds
-    the view). Guild-only extras (availability blocks, custom requests) are layered
-    on by the guild view.
+    cannot drift: completed comes from the one resolver (a completed booking or a
+    hand-entered record, issue #465), live booking / pending-payment hold from the
+    member's bookings on exactly these types; the (caller-filtered, ordered) slot
+    lists render only when the type is open for the member. ``slot_cap`` can bound
+    each type's list; both pages pass ``None`` (the five per page pager bounds the
+    view). Guild-only extras (availability blocks, custom requests) are layered on
+    by the guild view.
     """
+    from core.models import SiteConfiguration
+    from membership.late_cancel import booking_sentence, cancel_sentence, policy_for_type
     from membership.models import OrientationBooking
 
-    member_bookings = (
-        list(
+    # One site row for every type's policy (a config read per section would be an N+1).
+    site = SiteConfiguration.load() if orientation_types else None
+    member_bookings: list[OrientationBooking] = []
+    completed_type_ids: set[int] = set()
+    record_by_type: dict[int, OrientationRecord] = {}
+    if member is not None and orientation_types:
+        member_bookings = list(
             member.orientation_bookings.filter(orientation_type__in=orientation_types).select_related(
                 "slot", "slot__orienter"
             )
         )
-        if member is not None and orientation_types
-        else []
-    )
-    completed_type_ids = {b.orientation_type_id for b in member_bookings if b.is_completed}
+        completed_type_ids = member.completed_orientation_type_ids(orientation_types)
+        # The records themselves are read for their date: the page says "Recorded on"
+        # under the done line only where the completion came from a record, not a booking.
+        record_by_type = {
+            r.orientation_type_id: r for r in member.orientation_records.filter(orientation_type__in=orientation_types)
+        }
+    booked_type_ids = {b.orientation_type_id for b in member_bookings if b.is_completed}
     live_by_type: dict[int, OrientationBooking] = {}
     hold_by_type: dict[int, OrientationBooking] = {}
     for booking in member_bookings:
@@ -562,15 +576,30 @@ def _orientation_sections(
         live_booking = live_by_type.get(orientation_type.pk)
         hold = hold_by_type.get(orientation_type.pk)
         done = orientation_type.pk in completed_type_ids
+        record = None if orientation_type.pk in booked_type_ids else record_by_type.get(orientation_type.pk)
         open_for_type = not (done or live_booking or hold)
         type_slots = slots_by_type.get(orientation_type.pk, []) if open_for_type else []
+        policy = policy_for_type(orientation_type, site=site)
+        # The cancel modal's fee line (#456): only a CONFIRMED booking can carry a fee, and
+        # only while a cancel right now would be late. "" otherwise, so the modal is unchanged.
+        late_cancel_warning = (
+            cancel_sentence(policy)
+            if live_booking is not None
+            and live_booking.status == OrientationBooking.Status.CONFIRMED
+            and policy.is_late(live_booking.slot.starts_at)
+            else ""
+        )
         sections.append(
             {
                 "type": orientation_type,
                 "is_oriented": done,
+                "record": record,
                 "booking": live_booking,
                 "hold": hold,
                 "slots": type_slots[:slot_cap] if slot_cap is not None else type_slots,
+                # The booking prompts append this; "" when no late fee applies to the type.
+                "late_cancel_sentence": booking_sentence(policy),
+                "late_cancel_warning": late_cancel_warning,
             }
         )
     return sections
@@ -683,12 +712,13 @@ def guild_detail(request: HttpRequest, slug: str) -> HttpResponse:
     orientation_types = (
         list(guild.orientation_types.active().select_related("guild__orientation_settings")) if show_orientation else []
     )
-    member_bookings = (
-        list(member.orientation_bookings.filter(guild=guild).select_related("slot", "slot__orienter"))
+    # Every type the guild owns, retired ones included: oriented for the guild means ANY
+    # completed type, by booking or by admin record (issue #465), through the one resolver.
+    completed_type_ids = (
+        member.completed_orientation_type_ids(guild.orientation_types.all())
         if member is not None and show_orientation
-        else []
+        else set()
     )
-    completed_type_ids = {b.orientation_type_id for b in member_bookings if b.is_completed}
     is_oriented = bool(completed_type_ids)  # oriented for the guild = ANY completed type
     orientation_all_done = bool(orientation_types) and all(t.pk in completed_type_ids for t in orientation_types)
     # bookable() (not upcoming()) so a departed orienter's surviving personal slot
@@ -731,10 +761,13 @@ def guild_detail(request: HttpRequest, slug: str) -> HttpResponse:
             [block for block in upcoming_blocks if block.valid_starts_for(section["type"])] if open_for_type else []
         )
 
+    from billing.late_fees import unpaid_fee_for
     from hub.forms import GuildJoinForm, OrientationCustomRequestForm
 
     custom_request_form = OrientationCustomRequestForm(guild=guild)
     join_form = GuildJoinForm()
+    # The block until paid (#456): the orientation section shows the fee with a Pay button.
+    unpaid_late_fee = unpaid_fee_for(member) if member is not None and show_orientation else None
 
     # The Wiki tab (spec B). Three gates: the feature flag, the members surface (the guest
     # guilds surface does not resolve wiki URLs, so a tab of links nobody can follow is a
@@ -787,6 +820,7 @@ def guild_detail(request: HttpRequest, slug: str) -> HttpResponse:
             "orientation_all_done": orientation_all_done,
             "show_orientation": show_orientation,
             "orientation_sections": orientation_sections,
+            "unpaid_late_fee": unpaid_late_fee,
             "custom_request_form": custom_request_form,
             "join_form": join_form,
             "wiki_tab_enabled": wiki_tab_enabled,
@@ -1049,8 +1083,14 @@ def _guild_edit_context(
         "is_admin": _viewing_as_admin(request),
         "google_sync_enabled": _google_sync_enabled(),
         "notes": guild.meeting_notes.prefetch_related("attachments"),
-        # Studio hours have their own Meetings-tab editor, so the Events tab lists only meetings.
-        "events": guild.events.meetings().upcoming().select_related("guild"),
+        # Everything the guild has on the calendar except its standing studio hours, which
+        # have their own editor on this page. Keyed on "not studio hours" rather than "is a
+        # meeting" so a public event the guild hosts stays on its own Events tab (#505).
+        # That leaves ``CommunityEventQuerySet.meetings()`` with no production caller; it is
+        # kept for its spec and for anything that genuinely wants only the meetings.
+        "events": (
+            guild.events.exclude(event_type=CommunityEvent.EventType.STUDIO_HOURS).upcoming().select_related("guild")
+        ),
         "studio_hours_formset": (
             studio_hours_formset
             if studio_hours_formset is not None
@@ -1895,8 +1935,24 @@ def orientation_respond(request: HttpRequest, booking_pk: int) -> HttpResponse:
             messages.error(request, str(exc))
         return redirect("hub_orientation_respond", booking_pk=booking.pk)
 
+    from billing import late_fees
+    from billing.forms import LateFeeWaiveForm
+    from billing.models import LateCancellationFee
     from hub.view_as import has_refund_authority
 
+    # The booking's late cancellation fee (#456), if its self cancel was late: one query,
+    # with what the card's label and the waive rule read.
+    late_fee = (
+        LateCancellationFee.objects.filter(orientation_booking=booking)
+        .select_related(
+            "member",
+            "waived_by__member",
+            "orientation_booking__slot",
+            "orientation_booking__orientation_type__guild",
+            "orientation_booking__orientation_type__equipment",
+        )
+        .first()
+    )
     ctx = _get_hub_context(request)
     return render(
         request,
@@ -1906,6 +1962,10 @@ def orientation_respond(request: HttpRequest, booking_pk: int) -> HttpResponse:
             "booking": booking,
             "refund_state": booking.refund_state if booking.amount_paid_cents else "none",
             "viewer_has_refund_authority": has_refund_authority(request),
+            "late_fee": late_fee,
+            "late_fee_waive_form": LateFeeWaiveForm(fee=late_fee) if late_fee is not None else None,
+            "can_waive_fee": late_fee is not None and late_fees.can_waive(request, late_fee),
+            "late_fee_waive_next": reverse("hub_orientation_respond", args=[booking.pk]),
         },
     )
 
@@ -1947,11 +2007,29 @@ def orientation_cancel_mine(request: HttpRequest, booking_pk: int) -> HttpRespon
     if member is None or booking.member_id != member.pk:
         return HttpResponse("Forbidden", status=403)
     try:
-        orientations.cancel_orientation(booking, actor_label=member.display_name, actor=cast(User, request.user))
-        messages.success(request, "Your orientation was cancelled.")
+        fee = orientations.cancel_orientation(
+            booking, actor_label=member.display_name, actor=cast(User, request.user), self_cancel=True
+        )
     except OrientationError as exc:
         messages.error(request, str(exc))
-    return _owner_redirect(booking.orientation_type)
+        return _owner_redirect(booking.orientation_type)
+    if fee is None:
+        messages.success(request, "Your orientation was cancelled.")
+        return _owner_redirect(booking.orientation_type)
+    # A late cancel (#456): straight to Stripe Checkout. The modal's form is unboosted for
+    # exactly this redirect, so the browser follows it to Stripe's page.
+    from billing import late_fees
+
+    try:
+        checkout_url = late_fees.start_fee_checkout(fee)
+    except Exception:
+        logger.exception("Late fee checkout failed for orientation booking %s.", booking.pk)
+        messages.info(
+            request,
+            "Your orientation was cancelled. A late cancellation fee applies; use the Pay button to pay it.",
+        )
+        return _owner_redirect(booking.orientation_type)
+    return redirect(checkout_url)
 
 
 def _own_pending_hold_or_none(request: HttpRequest, booking_pk: int) -> Any:
@@ -2126,6 +2204,183 @@ def orientation_checkout_resume(request: HttpRequest, booking_pk: int) -> HttpRe
     return _owner_redirect(booking.orientation_type)
 
 
+def _own_late_fee_or_404(request: HttpRequest, pk: int) -> Any:
+    """The request member's own late cancellation fee, whatever its status, else 404."""
+    from billing.models import LateCancellationFee
+
+    fee = get_object_or_404(LateCancellationFee.objects.select_related("member"), pk=pk)
+    member = _get_member(request)
+    if member is None or fee.member_id != member.pk:
+        raise Http404("No such late cancellation fee.")
+    return fee
+
+
+@login_required
+def hub_late_fee_detail(request: HttpRequest, pk: int) -> HttpResponse:
+    """The fee's own page (#456): what it is for, where it stands, and the Pay button while unpaid.
+
+    The cancellation emails link here rather than straight to Stripe: a GET must never mint
+    a session (mail clients prefetch links), so the page shows the fee and the POST pays it.
+    """
+    fee = _own_late_fee_or_404(request, pk)
+    return render(request, "hub/late_fee_detail.html", {**_get_hub_context(request), "fee": fee})
+
+
+@login_required
+@require_POST
+def hub_late_fee_pay(request: HttpRequest, pk: int) -> HttpResponse:
+    """Pay an UNPAID late cancellation fee (#456): mint a fresh Checkout Session and go there.
+
+    The member's own UNPAID fee only, else 404. Every click mints a new session, so an
+    expired Checkout is never handed back.
+    """
+    from billing import late_fees
+    from billing.models import LateCancellationFee
+
+    fee = _own_late_fee_or_404(request, pk)
+    if fee.status != LateCancellationFee.Status.UNPAID:
+        raise Http404("This late cancellation fee is not unpaid.")
+    try:
+        checkout_url = late_fees.start_fee_checkout(fee)
+    except Exception:
+        logger.exception("Late fee checkout failed for fee %s.", fee.pk)
+        messages.error(request, "We couldn't open the payment page just now. Try again in a minute.")
+        return redirect("hub_late_fee_detail", pk=fee.pk)
+    return redirect(checkout_url)
+
+
+@login_required
+def hub_late_fee_return(request: HttpRequest, token: str) -> HttpResponse:
+    """The Stripe ``success_url`` landing for a fee (#456): paid, not confirmed yet, or a bad token.
+
+    A still-UNPAID fee is reconciled against Stripe synchronously (paid means marked paid
+    right here, race-safe against the webhook), so "Paid. Thank you." normally renders on
+    the first visit. When Stripe has not confirmed yet the page says so and keeps the Pay
+    button; a refresh reconciles again. A bad token renders 400.
+    """
+    from django.core.signing import BadSignature
+
+    from billing import late_fees
+    from billing.models import LateCancellationFee
+
+    try:
+        fee = late_fees.read_checkout_token(token)
+    except (BadSignature, LateCancellationFee.DoesNotExist):
+        return render(
+            request, "hub/late_fee_return.html", {**_get_hub_context(request), "state": "invalid"}, status=400
+        )
+    member = _get_member(request)
+    if member is None or fee.member_id != member.pk:
+        raise Http404("No such late cancellation fee.")
+    if fee.status == LateCancellationFee.Status.UNPAID:
+        if late_fees.reconcile_landed_checkout(fee) in ("paid", "already"):
+            fee.refresh_from_db()
+    if fee.status == LateCancellationFee.Status.PAID:
+        state = "paid"
+    elif fee.status == LateCancellationFee.Status.UNPAID:
+        state = "pending"
+    else:
+        state = "settled"
+    return render(request, "hub/late_fee_return.html", {**_get_hub_context(request), "state": state, "fee": fee})
+
+
+@login_required
+def hub_late_fee_checkout_cancelled(request: HttpRequest, token: str) -> HttpResponse:
+    """The Stripe ``cancel_url`` landing for a fee (#456): the fee is still due; back to the owner page."""
+    from django.core.signing import BadSignature
+
+    from billing import late_fees
+    from billing.models import LateCancellationFee
+
+    try:
+        fee = late_fees.read_checkout_token(token)
+    except (BadSignature, LateCancellationFee.DoesNotExist):
+        return redirect("hub_home")
+    member = _get_member(request)
+    if member is None or fee.member_id != member.pk:
+        raise Http404("No such late cancellation fee.")
+    if fee.status == LateCancellationFee.Status.UNPAID:
+        messages.info(request, "Your late cancellation fee is still due. Pay it from the Pay button any time.")
+    return redirect(fee.owner_page_path())
+
+
+@login_required
+@require_POST
+def hub_late_fee_waive(request: HttpRequest, pk: int) -> HttpResponse:
+    """Waive an UNPAID late cancellation fee (#456, part 3) and return to the page the form came from.
+
+    Who may waive is :func:`billing.late_fees.can_waive` (an admin, the governing guild's
+    staff or the governing equipment's managers); anyone else gets a 403 whose body names
+    the governing owner, and a toast saying the same for an htmx caller. The check is on
+    the ``HX-Request`` header alone, which is right only because this view is POST-only
+    (a history restore is a GET, so it can never reach here). ``next`` is honoured when it
+    is a local path, else the fee's owner page.
+    """
+    from billing import late_fees
+    from billing.forms import LateFeeWaiveForm
+    from billing.models import LateCancellationFee
+
+    fee = get_object_or_404(
+        LateCancellationFee.objects.select_related(
+            "member",
+            "reservation__equipment",
+            "orientation_booking__slot",
+            "orientation_booking__orientation_type__guild",
+            "orientation_booking__orientation_type__equipment",
+        ),
+        pk=pk,
+    )
+    if not late_fees.can_waive(request, fee):
+        sentence = late_fees.waive_refusal(fee)
+        response = HttpResponse(sentence, status=403, content_type="text/plain; charset=utf-8")
+        if request.headers.get("HX-Request") == "true":
+            trigger_toast(response, sentence, "error")
+        return response
+    next_url = request.POST.get("next", "")
+    if not next_url or not url_has_allowed_host_and_scheme(next_url, allowed_hosts={request.get_host()}):
+        next_url = fee.owner_page_path()
+    form = LateFeeWaiveForm(request.POST, fee=fee)
+    if not form.is_valid():
+        messages.error(request, "Say why the fee is being waived. The reason is required.")
+        return redirect(next_url)
+    try:
+        late_fees.waive(fee, actor=cast(User, request.user), reason=form.cleaned_data["reason"])
+    except ValueError as exc:
+        messages.error(request, str(exc))
+        return redirect(next_url)
+    messages.success(
+        request,
+        f"Waived {fee.member.display_name}'s {fee.amount_display} late cancellation fee. They can book again.",
+    )
+    return redirect(next_url)
+
+
+def _token_cancel_fee_context(booking: Any, action: str, result: str | None) -> dict[str, Any]:
+    """What the no-login cancel page says about the late fee (#456).
+
+    Before the click: the fee sentence when cancelling this CONFIRMED booking right now
+    would be late. After a cancel: the fee it created, with the link to its page (the
+    member pays from there once signed in; this page never redirects to Stripe).
+    """
+    from billing.models import LateCancellationFee
+    from membership.late_cancel import cancel_sentence, policy_for
+    from membership.models import OrientationBooking
+
+    warning = ""
+    if action == "cancel" and booking.status == OrientationBooking.Status.CONFIRMED:
+        policy = policy_for(booking)
+        if policy.is_late(booking.slot.starts_at):
+            warning = cancel_sentence(policy)
+    late_fee = (
+        LateCancellationFee.objects.filter(orientation_booking=booking).first() if result == "cancelled" else None
+    )
+    return {
+        "late_cancel_warning": warning,
+        "late_fee": late_fee,
+        "late_fee_url": reverse("hub_late_fee_detail", args=[late_fee.pk]) if late_fee is not None else "",
+    }
+
+
 def orientation_action(request: HttpRequest, token: str) -> HttpResponse:
     """No-login landing for email action links (lead confirm/decline, member cancel).
 
@@ -2143,7 +2398,11 @@ def orientation_action(request: HttpRequest, token: str) -> HttpResponse:
     except (BadSignature, OrientationBooking.DoesNotExist):
         return render(request, "hub/orientation_action.html", {"invalid": True}, status=400)
     result = orientations.apply_token_action(booking, action, recipient=recipient) if request.method == "POST" else None
-    return render(request, "hub/orientation_action.html", {"booking": booking, "action": action, "result": result})
+    return render(
+        request,
+        "hub/orientation_action.html",
+        {"booking": booking, "action": action, "result": result, **_token_cancel_fee_context(booking, action, result)},
+    )
 
 
 def _can_access_orientations(request: HttpRequest) -> bool:
@@ -2221,6 +2480,22 @@ def orientations_dashboard(request: HttpRequest) -> HttpResponse:
         default_sort="slot__starts_at",
         default_dir="desc",
     )
+    # Hand-recorded orientations (issue #465) list under the bookings table when the
+    # Completed filter is on, under the same guild filter and date range (the day they
+    # happened). They have no slot, status or Mark done, so those filters skip them.
+    recorded_orientations: list[OrientationRecord] = []
+    if request.GET.get("completed") == "yes":
+        records = OrientationRecord.objects.with_related()
+        guild_filter = request.GET.get("guild", "")
+        if guild_filter.isdigit():
+            records = records.for_guild(int(guild_filter))
+        start = request.GET.get("start", "")
+        if start:
+            records = records.filter(completed_on__gte=start)
+        end = request.GET.get("end", "")
+        if end:
+            records = records.filter(completed_on__lte=end)
+        recorded_orientations = list(records)
     upcoming = (
         OrientationBooking.objects.upcoming()
         .select_related(
@@ -2285,6 +2560,7 @@ def orientations_dashboard(request: HttpRequest) -> HttpResponse:
             **_get_hub_context(request),
             **table,
             "upcoming": upcoming,
+            "recorded_orientations": recorded_orientations,
             "hours_nudge_guilds": hours_nudge_guilds,
             "guilds": Guild.objects.filter(is_active=True).order_by("name"),
             "statuses": OrientationBooking.Status.choices,
@@ -2537,6 +2813,11 @@ def guild_product_delete(request: HttpRequest, pk: int, product_pk: int) -> Http
 def guild_cart_confirm(request: HttpRequest, pk: int) -> HttpResponse:
     """Batch-add cart items to the member's tab. Expects JSON body with items array."""
 
+    # The Buyables tab is not rendered unless My Tab is On, but a crafted POST must not put
+    # entries on a tab that would bill the moment the switch comes back On (#416).
+    if not is_on("my_tab"):
+        return JsonResponse({"error": "My Tab isn't available right now."}, status=400)
+
     guild = get_object_or_404(Guild, pk=pk)
     member = _get_member(request)
     if member is None:  # pragma: no cover — defensive; signal auto-creates Member on User creation
@@ -2591,6 +2872,10 @@ def guild_cart_confirm(request: HttpRequest, pk: int) -> HttpResponse:
 def guild_eyop_form(request: HttpRequest, pk: int) -> HttpResponse:
     """Return the EYOP form partial (GET) or process submission (POST)."""
     from billing.forms import CONTEXT_MEMBER_GUILD_PAGE, TabItemForm
+
+    # Same guard as guild_cart_confirm: with My Tab off nothing reaches a tab (#416).
+    if not is_on("my_tab"):
+        return HttpResponse("My Tab isn't available right now.", status=400)
 
     guild = get_object_or_404(Guild, pk=pk)
     member = _get_member(request)
@@ -5241,6 +5526,39 @@ def _event_delete_confirm_message(event: CommunityEvent) -> str:
     return message
 
 
+def _event_photo_context() -> dict[str, Any]:
+    """The photo field's byte cap and its hint — one copy for all three composers."""
+    return {
+        "max_upload_image_bytes": settings.MAX_UPLOAD_IMAGE_BYTES,
+        "photo_upload_hint": (
+            "Optional. It fronts the event page and rides along on the Discord post. "
+            f"Max {settings.MAX_UPLOAD_IMAGE_BYTES / (1024 * 1024):.0f} MB."
+        ),
+    }
+
+
+def _event_guild_choices(request: HttpRequest, event: CommunityEvent) -> QuerySet[Guild]:
+    """The guilds this request may file ``event`` under.
+
+    ``editable_meeting_scopes`` is the one answer to "which guilds may this request edit"
+    (an admin: all of them; a lead or staffer: their own), so the picker invents no role
+    test of its own (#505 constraint). A member holding no such authority may still propose
+    an event for any active guild, exactly as today: that is what the review queue is for.
+
+    The event's **own** guild is always in the list, deactivated or not. Deactivating a guild
+    keeps its rows by design, so events on one exist; leaving it out of the queryset makes
+    every save of such an event fail on "Select a valid choice" with no way out, because a
+    guild meeting cannot be blanked either.
+    """
+    scopes, has_authority = editable_meeting_scopes(request)
+    allowed = Q(is_active=True)
+    if has_authority:
+        allowed &= Q(pk__in=[scope.pk for scope in scopes])
+    if event.guild_id is not None:
+        allowed |= Q(pk=event.guild_id)
+    return Guild.objects.filter(allowed).order_by("name")
+
+
 @login_required
 def guild_event_edit(request: HttpRequest, pk: int, event_pk: int | None = None) -> HttpResponse:
     """Add (no ``event_pk``) or edit a guild event. Editor only.
@@ -5259,12 +5577,18 @@ def guild_event_edit(request: HttpRequest, pk: int, event_pk: int | None = None)
     event = get_object_or_404(CommunityEvent, pk=event_pk, guild=guild) if event_pk is not None else CommunityEvent()
     is_new = event.pk is None
 
+    # Passing this gate already proves lead/staff/admin authority here, but the audience and
+    # kind questions ask the one question in `membership/permissions.py` (#505 constraint),
+    # not a role test this view invents.
+    _, can_choose_audience = editable_meeting_scopes(request)
+
     if request.method == "POST":
-        form = CommunityEventForm(request.POST, instance=event, guild=guild, as_admin=False)
+        form = CommunityEventForm(
+            request.POST, request.FILES, instance=event, guild=guild, can_choose_audience=can_choose_audience
+        )
         if form.is_valid():
             event = form.save(commit=False)
             event.guild = guild
-            event.event_type = CommunityEvent.EventType.GUILD_MEETING
             if is_new:
                 event.created_by = request.user
             event.save()
@@ -5282,7 +5606,7 @@ def guild_event_edit(request: HttpRequest, pk: int, event_pk: int | None = None)
                 messages.success(request, "Event saved.")
             return redirect(f"{reverse('hub_guild_edit', args=[guild.pk])}?tab=events")
     else:
-        form = CommunityEventForm(instance=event, guild=guild, as_admin=False)
+        form = CommunityEventForm(instance=event, guild=guild, can_choose_audience=can_choose_audience)
 
     ctx = _get_hub_context(request)
     return render(
@@ -5297,6 +5621,7 @@ def guild_event_edit(request: HttpRequest, pk: int, event_pk: int | None = None)
             "google_sync_enabled": _google_sync_enabled(),
             "delete_url": reverse("hub_guild_event_delete", args=[guild.pk, event.pk]) if event.pk else None,
             "delete_confirm_message": _event_delete_confirm_message(event) if event.pk else None,
+            **_event_photo_context(),
         },
     )
 
@@ -5332,8 +5657,12 @@ def event_edit(request: HttpRequest, event_pk: int | None = None) -> HttpRespons
     is_new = event.pk is None
     cancel_url = reverse("hub_community_calendar") + "?tab=events"
 
+    guild_choices = _event_guild_choices(request, event)
+
     if request.method == "POST":
-        form = CommunityEventForm(request.POST, instance=event, as_admin=True)
+        form = CommunityEventForm(
+            request.POST, request.FILES, instance=event, can_choose_audience=True, guild_choices=guild_choices
+        )
         if form.is_valid():
             event = form.save(commit=False)
             if is_new:
@@ -5352,7 +5681,7 @@ def event_edit(request: HttpRequest, event_pk: int | None = None) -> HttpRespons
                 messages.success(request, "Event saved.")
             return redirect(cancel_url)
     else:
-        form = CommunityEventForm(instance=event, as_admin=True)
+        form = CommunityEventForm(instance=event, can_choose_audience=True, guild_choices=guild_choices)
 
     ctx = _get_hub_context(request)
     return render(
@@ -5366,6 +5695,7 @@ def event_edit(request: HttpRequest, event_pk: int | None = None) -> HttpRespons
             "google_sync_enabled": _google_sync_enabled(),
             "delete_url": reverse("hub_event_delete", args=[event.pk]) if event.pk else None,
             "delete_confirm_message": _event_delete_confirm_message(event) if event.pk else None,
+            **_event_photo_context(),
         },
     )
 
@@ -5384,6 +5714,41 @@ def event_delete(request: HttpRequest, event_pk: int) -> HttpResponse:
     event.remove_from_discord()  # best-effort; must run before the FOG row is gone
     event.delete()
     messages.success(request, "Event deleted.")
+    return redirect(reverse("hub_community_calendar") + "?tab=events")
+
+
+@login_required
+@require_POST
+def event_photo_delete(request: HttpRequest, event_pk: int) -> HttpResponse:
+    """POST only — clear an event's photo (the ``image_field`` component's delete endpoint).
+
+    One endpoint for all three composers rather than one each, because who may clear the
+    photo is simply who may edit the event: :func:`can_edit_event` for the admin and guild
+    surfaces, which is the same helper the Edit affordance and the QR download already ask,
+    plus the proposer of a proposal still in the review loop — exactly the row
+    :func:`propose_event` lets them open.
+
+    Clearing the field and saving it (rather than ``photo.delete()``) leaves the storage
+    sweep to the model's own save, so a removed photo and a replaced one are cleaned up by
+    the same line of code.
+    """
+    from membership.models import CommunityEvent
+    from membership.permissions import can_edit_event
+
+    event = get_object_or_404(CommunityEvent, pk=event_pk)
+    own_proposal = event.submitted_by_id == request.user.pk and event.moderation_state in (
+        CommunityEvent.ModerationState.PENDING,
+        CommunityEvent.ModerationState.CHANGES_REQUESTED,
+    )
+    if not can_edit_event(request, event) and not own_proposal:
+        return HttpResponse("Forbidden", status=403)
+    if event.photo:
+        event.photo = ""
+        event.save(update_fields=["photo"])
+        messages.success(request, "Photo removed.")
+    next_url = request.POST.get("next", "")
+    if next_url and url_has_allowed_host_and_scheme(next_url, allowed_hosts={request.get_host()}):
+        return redirect(next_url)
     return redirect(reverse("hub_community_calendar") + "?tab=events")
 
 
@@ -5462,11 +5827,24 @@ def propose_event(request: HttpRequest, pk: int | None = None) -> HttpResponse:
 
     cancel_url = reverse("hub_community_calendar") + "?tab=events"
 
+    _, can_choose_audience = editable_meeting_scopes(request)
+    guild_choices = _event_guild_choices(request, event)
+    form_kwargs: dict[str, Any] = {
+        "can_choose_audience": can_choose_audience,
+        "guild_choices": guild_choices,
+    }
+
     if request.method == "POST":
-        form = CommunityEventForm(request.POST, instance=event, as_member=True)
+        form = CommunityEventForm(request.POST, request.FILES, instance=event, **form_kwargs)
         if form.is_valid():
             event = form.save(commit=False)
-            published = event.propose(by=user, guild=form.cleaned_data.get("guild"), policy=policy, editing=editing)
+            published = event.propose(
+                by=user,
+                guild=form.cleaned_data.get("guild"),
+                policy=policy,
+                editing=editing,
+                event_type=form.resolved_event_type(),
+            )
             if published:
                 messages.success(request, "Your event is live on the Calendar.")
             else:
@@ -5476,7 +5854,7 @@ def propose_event(request: HttpRequest, pk: int | None = None) -> HttpResponse:
                 )
             return redirect(cancel_url)
     else:
-        form = CommunityEventForm(instance=event, as_member=True)
+        form = CommunityEventForm(instance=event, **form_kwargs)
 
     ctx = _get_hub_context(request)
     my_proposals = (
@@ -5496,6 +5874,7 @@ def propose_event(request: HttpRequest, pk: int | None = None) -> HttpResponse:
             "policy": policy,
             "cancel_url": cancel_url,
             "my_proposals": my_proposals,
+            **_event_photo_context(),
         },
     )
 
@@ -5649,7 +6028,7 @@ def beta_feedback(request: HttpRequest) -> HttpResponse:
 @require_http_methods(["GET"])
 def tab_detail(request: HttpRequest) -> HttpResponse:
     """My Tab page — shows current balance, pending entries, and saved payment method."""
-    if not SiteConfiguration.load().my_tab_enabled:
+    if not is_on("my_tab"):
         messages.info(request, "My Tab isn't available right now.")
         return redirect("home")
 
@@ -5702,7 +6081,7 @@ def void_tab_entry(request: HttpRequest, entry_pk: int) -> HttpResponse:
 @login_required
 def tab_history(request: HttpRequest) -> HttpResponse:
     """Tab History page — shows past billing charges with expandable details."""
-    if not SiteConfiguration.load().my_tab_enabled:
+    if not is_on("my_tab"):
         messages.info(request, "My Tab isn't available right now.")
         return redirect("home")
 
@@ -6073,7 +6452,7 @@ def calendar_export_ics(request: HttpRequest) -> HttpResponse:
     lines: list[str] = [
         "BEGIN:VCALENDAR",
         "VERSION:2.0",
-        "PRODID:-//Past Lives Makerspace//Community Calendar//EN",
+        "PRODID:-//Past Lives Makerspace//Calendar//EN",
         "X-WR-CALNAME:Past Lives Calendar",
         "CALSCALE:GREGORIAN",
         "METHOD:PUBLISH",
@@ -6698,54 +7077,65 @@ def admin_members(request: HttpRequest) -> HttpResponse:
     )
 
 
-@fog_admin_required
-def admin_member_edit(request: HttpRequest, pk: int) -> HttpResponse:
-    """Hub-native tabbed edit page for a single Member (Details, Permissions, Notifications, Emails).
+def _member_edit_forms(member: Member, data: Any = None) -> tuple[MemberAdminEditForm, LeadershipListingForm, Any]:
+    """The Details tab's three forms, bound to ``data`` when given and unbound otherwise.
 
-    Three independent save forms, dispatched by a hidden ``form_id``: the Details form
-    (role + profile), the Permissions capability toggles, and the Notifications tab's
-    matrix (so an admin can edit a member's notification preferences for them).
+    The Leadership Directory listing saves with the Details form; the queryset hands back
+    an unsaved stand-in for a member nobody listed, so no row is written until it changes.
     """
+    listing = LeadershipListing.objects.for_member(member)
+    return (
+        MemberAdminEditForm(data, instance=member),
+        LeadershipListingForm(data, instance=listing, prefix="leadership"),
+        LeadershipRoleFormSet(data, instance=listing, prefix="roles"),
+    )
+
+
+def _member_orientation_rows(member: Member) -> list[dict[str, Any]]:
+    """The Orientations tab's rows: completed bookings and hand-entered records, newest first.
+
+    One shape for both so the template renders one list: the type (its owner reads off
+    it), the day it happened (the slot's day for a booking, ``completed_on`` for a
+    record), who ran it, and ``record`` set only for a record, the one kind the tab can
+    remove (the dashboard's toggle owns a booking's completion).
+    """
+    rows: list[dict[str, Any]] = [
+        {
+            "orientation_type": booking.orientation_type,
+            "completed_on": dj_timezone.localtime(booking.slot.starts_at).date(),
+            "oriented_by": booking.oriented_by,
+            "record": None,
+            "remove_url": "",
+        }
+        for booking in member.orientation_bookings.completed().select_related(
+            "slot", "oriented_by", "orientation_type__guild", "orientation_type__equipment"
+        )
+    ]
+    rows.extend(
+        {
+            "orientation_type": record.orientation_type,
+            "completed_on": record.completed_on,
+            "oriented_by": record.oriented_by,
+            "record": record,
+            "remove_url": reverse("hub_admin_member_orientation_record_remove", args=[member.pk, record.pk]),
+        }
+        for record in member.orientation_records.with_related()
+    )
+    rows.sort(key=lambda row: row["completed_on"], reverse=True)
+    return rows
+
+
+def _render_member_edit(
+    request: HttpRequest,
+    member: Member,
+    form: MemberAdminEditForm,
+    listing_form: LeadershipListingForm,
+    role_formset: Any,
+) -> HttpResponse:
+    """Render the member edit page with every tab's context (the Details forms bound or not)."""
     from core.events import settings_matrix
 
-    member = get_object_or_404(Member, pk=pk)
-    permissions_url = f"{reverse('hub_admin_member_edit', args=[member.pk])}?tab=permissions"
-    # The Leadership Directory listing saves with the Details form; the queryset hands back
-    # an unsaved stand-in for a member nobody listed, so no row is written until it changes.
-    listing = LeadershipListing.objects.for_member(member)
-
-    if request.method == "POST":
-        form_id = request.POST.get("form_id")
-        if form_id == "capabilities":
-            cap_form = MemberCapabilitiesForm(request.POST)
-            if cap_form.is_valid():
-                member.sync_admin_capabilities(cap_form.selected(), granted_by=cast(User, request.user))
-                messages.success(request, "Saved admin capabilities.")
-            return redirect(permissions_url)
-        if form_id == "notifications":
-            target = member.user
-            if target is not None:
-                settings_matrix.save_matrix(target, request.POST)
-                messages.success(request, "Saved notification settings.")
-            return redirect(permissions_url)
-        form = MemberAdminEditForm(request.POST, instance=member)
-        listing_form = LeadershipListingForm(request.POST, instance=listing, prefix="leadership")
-        role_formset = LeadershipRoleFormSet(request.POST, instance=listing, prefix="roles")
-        listing_ok = listing_form.is_valid()
-        roles_ok = role_formset.is_valid()
-        if form.is_valid() and listing_ok and roles_ok:
-            obj = form.save(commit=False)
-            obj.save()
-            obj.apply_admin_role(form.cleaned_data["role"])
-            listing_form.save_with_roles(role_formset)
-            display = obj.full_legal_name or obj.primary_email or f"member #{obj.pk}"
-            messages.success(request, f"Saved {display}.")
-            return redirect("hub_admin_members")
-    else:
-        form = MemberAdminEditForm(instance=member)
-        listing_form = LeadershipListingForm(instance=listing, prefix="leadership")
-        role_formset = LeadershipRoleFormSet(instance=listing, prefix="roles")
-
+    orientation_form = OrientationRecordForm(member)
     user = member.user
     has_signed_in = bool(user and user.last_login)
     status_label, status_modifier = _person_status_badge(is_member=True, has_signed_in=has_signed_in)
@@ -6797,8 +7187,55 @@ def admin_member_edit(request: HttpRequest, pk: int) -> HttpResponse:
             "email_add_form": _email_add_form(member),
             "email_add_url": reverse("hub_admin_member_email_add", args=[member.pk]),
             "send_login_invite_url": reverse("hub_admin_member_send_login_invite", args=[member.pk]),
+            "orientation_rows": _member_orientation_rows(member),
+            "orientation_form": orientation_form,
+            "orientation_record_url": reverse("hub_admin_member_orientation_record", args=[member.pk]),
         },
     )
+
+
+@fog_admin_required
+def admin_member_edit(request: HttpRequest, pk: int) -> HttpResponse:
+    """Hub-native tabbed edit page for a single Member (Details, Permissions, Notifications, Orientations, Emails).
+
+    Three independent save forms, dispatched by a hidden ``form_id``: the Details form
+    (role + profile), the Permissions capability toggles, and the Notifications tab's
+    matrix (so an admin can edit a member's notification preferences for them). The
+    Orientations tab's record and remove actions post to their own views and come back here.
+    """
+    from core.events import settings_matrix
+
+    member = get_object_or_404(Member, pk=pk)
+    permissions_url = f"{reverse('hub_admin_member_edit', args=[member.pk])}?tab=permissions"
+
+    if request.method == "POST":
+        form_id = request.POST.get("form_id")
+        if form_id == "capabilities":
+            cap_form = MemberCapabilitiesForm(request.POST)
+            if cap_form.is_valid():
+                member.sync_admin_capabilities(cap_form.selected(), granted_by=cast(User, request.user))
+                messages.success(request, "Saved admin capabilities.")
+            return redirect(permissions_url)
+        if form_id == "notifications":
+            target = member.user
+            if target is not None:
+                settings_matrix.save_matrix(target, request.POST)
+                messages.success(request, "Saved notification settings.")
+            return redirect(permissions_url)
+        form, listing_form, role_formset = _member_edit_forms(member, request.POST)
+        listing_ok = listing_form.is_valid()
+        roles_ok = role_formset.is_valid()
+        if form.is_valid() and listing_ok and roles_ok:
+            obj = form.save(commit=False)
+            obj.save()
+            obj.apply_admin_role(form.cleaned_data["role"])
+            listing_form.save_with_roles(role_formset)
+            display = obj.full_legal_name or obj.primary_email or f"member #{obj.pk}"
+            messages.success(request, f"Saved {display}.")
+            return redirect("hub_admin_members")
+    else:
+        form, listing_form, role_formset = _member_edit_forms(member)
+    return _render_member_edit(request, member, form, listing_form, role_formset)
 
 
 @fog_admin_required
@@ -6826,6 +7263,45 @@ def admin_member_teaching_set(request: HttpRequest, pk: int) -> HttpResponse:
         member.revoke_instructor(revoked_by=admin_member)
         messages.success(request, f"Removed instructor access for {display}.")
     return redirect(f"{reverse('hub_admin_member_edit', args=[member.pk])}?tab=permissions")
+
+
+@fog_admin_required
+@require_POST
+def admin_member_orientation_record(request: HttpRequest, pk: int) -> HttpResponse:
+    """Record an orientation the member completed outside the booking flow (issue #465).
+
+    Full-page POST + Django message + redirect to the Orientations tab, matching the
+    page's sibling actions. A refused form comes back to the tab with the reason as a
+    message: this URL is POST only, so re-rendering the page here would strand its other
+    forms (none carry an explicit action) on a URL that refuses them. Silent by design:
+    no email, no Discord, one activity row with the acting admin as actor.
+    """
+    member = get_object_or_404(Member, pk=pk)
+    orientations_url = f"{reverse('hub_admin_member_edit', args=[member.pk])}?tab=orientations"
+    form = OrientationRecordForm(member, request.POST)
+    if not form.is_valid():
+        for error in dict.fromkeys(str(message) for field_errors in form.errors.values() for message in field_errors):
+            messages.error(request, error)
+        return redirect(orientations_url)
+    record = form.save(recorded_by=cast(User, request.user))
+    messages.success(request, f"Recorded the {record.orientation_type.name} orientation for {member.display_name}.")
+    return redirect(orientations_url)
+
+
+@fog_admin_required
+@require_POST
+def admin_member_orientation_record_remove(request: HttpRequest, pk: int, record_pk: int) -> HttpResponse:
+    """Remove a hand-entered orientation record from the member edit Orientations tab.
+
+    Only a record is removable here; a booking's completion is the dashboard's toggle.
+    The gates close again at once. Silent like recording: one activity row, nothing sent.
+    """
+    member = get_object_or_404(Member, pk=pk)
+    record = get_object_or_404(OrientationRecord.objects.with_related(), pk=record_pk, member=member)
+    name = record.orientation_type.name
+    record.remove(removed_by=cast(User, request.user))
+    messages.success(request, f"Removed the {name} orientation record for {member.display_name}.")
+    return redirect(f"{reverse('hub_admin_member_edit', args=[member.pk])}?tab=orientations")
 
 
 @fog_admin_required

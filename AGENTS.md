@@ -10,7 +10,7 @@ Read before changing code:
 
 ## Environments
 
-Production is **Render**, deployed from `main`. Staging is the Hetzner VPS (`pastlives.plaza.codes`). Local dev defaults to SQLite. Configuration is environment variables, read in `plfog/settings.py`.
+Production is **Render**, deployed from `main`. Staging is the Hetzner VPS (`staging.pastlives.space`, a contained clone of production; `deploy/staging/README.md`). Local dev defaults to SQLite. Configuration is environment variables, read in `plfog/settings.py`.
 
 ## Releases
 
