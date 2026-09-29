@@ -493,6 +493,13 @@ EQUIPMENT_RESERVATION_MADE = "equipment.reservation_made"  # awareness ping to t
 EQUIPMENT_RESERVATION_CANCELLED = "equipment.reservation_cancelled"  # the member's own cancel, with any late fee
 BILLING_LATE_FEE_PAID = "billing.late_fee_paid"  # the receipt for a paid late cancellation fee
 BILLING_LATE_FEE_WAIVED = "billing.late_fee_waived"  # an unpaid late cancellation fee was forgiven
+# Staff and admin emails that used to go out to a fixed address list (#524). The four
+# payment alerts keep their old trigger_kind strings as keys, so the email log reads as one series.
+CLASS_REGISTRATION_ADMIN_NOTICE = "class_registration_admin_notice"  # the Admins' copy of a new registration
+CLASSES_DUPLICATE_PAYMENT_ALERT = "classes.duplicate_payment_alert"  # a settled balance was paid again
+CLASSES_ORPHANED_PAYMENT_ALERT = "classes.orphaned_payment_alert"  # paid on a registration that lost its seat
+BILLING_LATE_FEE_ORPHAN_PAYMENT = "billing.late_fee_orphan_payment"  # a paid fee Checkout with no fee to mark
+MEMBERSHIP_ORIENTATION_ORPHAN_PAYMENT = "membership.orientation_orphan_payment"  # a paid Checkout, no booking
 
 # event.reminder keeps Discord OFF (the bell is enough; per-offset channel posts would
 # clutter the guild channel) but declares it so a lead can flip it on later; happening-now
@@ -1248,6 +1255,63 @@ _NEW_EVENTS: list[EventType] = [
         category="Guilds",
         recipient=Recipients.GUILD_LEADERSHIP,
         channels=(_IN_APP_ON, _EMAIL_ON),
+        activity_kind=None,
+    ),
+    # The five staff emails that used to go to a fixed address list with no row on the
+    # settings page (#524). Each sender now emits its flat email as a per-channel EMAIL
+    # override, so subject and body are unchanged while the resolver picks the people and
+    # each person's own switch decides. None declares IN_APP, so there is no bell and
+    # _with_push adds no Push, exactly as before. No activity row: none of them logged one.
+    #
+    # class_registration_admin_notice: the Admins' copy of every new class registration,
+    # which used to ride the instructor's own key. Email on by default and switchable.
+    EventType(
+        key=CLASS_REGISTRATION_ADMIN_NOTICE,
+        label="New class registration",
+        description="Someone registered for a class: who, what they paid, and how full the class is.",
+        category="Classes",
+        recipient=Recipients.FOG_ADMINS,
+        channels=(_EMAIL_ON,),
+        activity_kind=None,
+    ),
+    # The four payment alerts: money was taken with nowhere in the app to put it, so a
+    # person has to refund or re-seat by hand. Forced like refund_failed: silence is not
+    # allowed while money is owed. Each emit passes a period keyed on the payment, so a
+    # second alert the same day is a new slot and never swallowed as a repeat.
+    EventType(
+        key=CLASSES_DUPLICATE_PAYMENT_ALERT,
+        label="Duplicate class payment",
+        description="A class balance was paid online after it was already settled, so a refund is owed.",
+        category="Classes",
+        recipient=Recipients.FOG_ADMINS,
+        channels=(_EMAIL_FORCED,),
+        activity_kind=None,
+    ),
+    EventType(
+        key=CLASSES_ORPHANED_PAYMENT_ALERT,
+        label="Class payment needs a decision",
+        description="A class was paid for after its registration lost the seat. Refund it or re-seat them.",
+        category="Classes",
+        recipient=Recipients.FOG_ADMINS,
+        channels=(_EMAIL_FORCED,),
+        activity_kind=None,
+    ),
+    EventType(
+        key=BILLING_LATE_FEE_ORPHAN_PAYMENT,
+        label="Orphaned late fee payment",
+        description="A late cancellation fee was paid online with no fee left to mark paid. Refund it in Stripe.",
+        category="Billing",
+        recipient=Recipients.BILLING_APPROVERS,
+        channels=(_EMAIL_FORCED,),
+        activity_kind=None,
+    ),
+    EventType(
+        key=MEMBERSHIP_ORIENTATION_ORPHAN_PAYMENT,
+        label="Orphaned orientation payment",
+        description="An orientation was paid online with no booking left to credit. Refund it in Stripe.",
+        category="Billing",
+        recipient=Recipients.BILLING_APPROVERS,
+        channels=(_EMAIL_FORCED,),
         activity_kind=None,
     ),
 ]

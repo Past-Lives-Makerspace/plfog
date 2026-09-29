@@ -493,8 +493,15 @@ def describe_always_emailed_section():
     def describe_the_inventory():
         def it_holds_exactly_todays_forced_email_events(db):
             derived = {event.key for event in all_events() if settings_matrix._is_always_sent(event)}
-            # refund_failed also forces email but is staff-routed; the staff check wins.
-            assert derived == ALWAYS_EMAILED_KEYS | {"refund_failed"}
+            # refund_failed and the four #524 payment alerts also force email but are
+            # staff-routed; the staff check wins.
+            assert derived == ALWAYS_EMAILED_KEYS | {
+                "refund_failed",
+                "classes.duplicate_payment_alert",
+                "classes.orphaned_payment_alert",
+                "billing.late_fee_orphan_payment",
+                "membership.orientation_orphan_payment",
+            }
 
         def it_renders_those_ten_rows_to_a_plain_member(db):
             user = User.objects.create_user(username="ae1", email="ae1@example.com")

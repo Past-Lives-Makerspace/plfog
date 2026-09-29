@@ -85,8 +85,13 @@ TRIGGERS: list[Trigger] = [
     ),
     Trigger(
         "class_review_requested",
-        "Class needs your review",
-        "An instructor submitted a class in a guild you lead — review it.",
+        # Matches the email subject ("Review request: ..."), so an admin searching the
+        # settings page for the email they got finds this row.
+        "Class review request",
+        (
+            "An instructor submitted a class for review. Guild leadership reviews their own guild's "
+            "classes; CMS Administrators review classes with no guild lead."
+        ),
         "Teaching",
         email_default=True,
     ),
@@ -100,11 +105,15 @@ TRIGGERS: list[Trigger] = [
     ),
     # Guild activity
     Trigger("guild_announcement", "Guild announcement", "A guild you follow posted an announcement.", "Guilds"),
+    # Email defaults ON (#524): the request email used to go to a fixed address list that
+    # ignored this switch, so everyone got it. Now the switch decides, and an OFF default
+    # would silently stop the email for every leader who never opened the settings page.
     Trigger(
         "orientation_requested",
         "Orientation requested",
         "Someone requested an orientation for a guild you lead.",
         "Orientations",
+        email_default=True,
     ),
     Trigger(
         "orientation_update",

@@ -76,7 +76,7 @@ Beyond the single `guild_lead` FK, a guild has `GuildStaffMembership` rows (`rol
 | `SPACE_APPROVER` (Space & Cubby Administrator) | `space.lease_requested`, `space.cubby_requested` | review space requests (`hub._map_reviewer_scope` grants admin-level review) |
 | `DISCOUNT_APPROVER` (Discount Code Administrator) | `discount_code.requested` | approve any discount code (`DiscountCode.approver_for` → `approves_any`) |
 | `EVENTS_APPROVER` (Calendar Administrator) | `event.submitted`, `meeting.item_proposed` (site-wide/council) | review calendar proposals (`hub._reviewer_guild_scope` grants admin-level review) |
-| `BILLING_APPROVER` (Billing Administrator) | `billing.charge_failed_admin`, `refund_failed` | sees the admin Payments dashboard (`billing_admin_access_required`) |
+| `BILLING_APPROVER` (Billing Administrator) | `billing.charge_failed_admin`, `refund_failed`, `billing.late_fee_orphan_payment`, `membership.orientation_orphan_payment` | sees the admin Payments dashboard (`billing_admin_access_required`) |
 | `REFUNDS` (Refunds) | (action-only — routes nothing) | issue/retry Stripe refunds (`refund_authority_required`); opens no new pages on its own |
 
 Helpers on `Member`: `has_admin_capability(cap)` (the authorization gate) and `sync_admin_capabilities([...], granted_by=…)` (reconcile-to-set, used by the admin member-edit form). Assign/revoke on the **Details tab** of the hub Member edit page (`MemberAdminEditForm.capabilities`, admin-only, same surface as `can_self_approve_discounts`).

@@ -96,14 +96,10 @@ def describe_email_gallery_completeness():
         assert set(literal_kinds) == {
             "core.find_account",
             "classes.welcome_email",
-            "classes.duplicate_payment_alert",
-            "classes.orphaned_payment_alert",
             "classes.registration_resume_link",
             "classes.welcome_email_test",
             "classes.instructor_message",
             "classes.admin_message",
-            "membership.orientation_orphan_payment",
-            "billing.late_fee_orphan_payment",
             "release_email.test",
             "announcement.test",
             "hub.beta_feedback",
@@ -143,6 +139,21 @@ def describe_email_gallery_completeness():
             e.key for e in emails if e.renderer is Renderer.SPINE_COPY
         }
         assert "guild_joined" not in carded_keys
+
+    def it_cards_the_five_staff_emails_as_the_flat_body_they_ship():
+        """#524: the five staff emails became spine events whose email is a flat body the
+        sender writes. Each is carded once, as that body; a derived card would show default
+        copy that never ships."""
+        emails = gallery_emails()
+        for key in (
+            "class_registration_admin_notice",
+            "classes.duplicate_payment_alert",
+            "classes.orphaned_payment_alert",
+            "billing.late_fee_orphan_payment",
+            "membership.orientation_orphan_payment",
+        ):
+            cards = [e for e in emails if key in e.event_keys]
+            assert [card.renderer for card in cards] == [Renderer.INLINE_STRING], key
 
     def it_dedups_review_decision_two_keys():
         """M1: both decision events resolve to the single review_decision entry."""

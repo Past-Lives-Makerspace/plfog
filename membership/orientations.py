@@ -878,62 +878,16 @@ def _request_resolver_context(booking: OrientationBooking) -> dict[str, Any]:
     return {"guild": booking.guild, "slot": booking.slot}
 
 
-def equipment_personal_audience(equipment: Equipment, orienter: Member) -> list[Member]:
-    """Who hears about a request on a manager's personal slot: the manager, the EQUIPMENT
-    capability holders, and the owning guild's lead if any, deduped (the equipment twin of
-    "the orienter plus the lead")."""
-    from membership.models import AdminCapability
-
-    audience: list[Member] = [orienter]
-    seen = {orienter.pk}
-    holders = AdminCapability.objects.filter(capability=AdminCapability.Capability.EQUIPMENT).select_related("member")
-    for grant in holders:
-        if grant.member_id not in seen:
-            audience.append(grant.member)
-            seen.add(grant.member_id)
-    guild = equipment.guild
-    if guild is not None and guild.guild_lead_id is not None and guild.guild_lead_id not in seen:
-        audience.append(cast("Member", guild.guild_lead))
-    return audience
-
-
-def _request_audience(booking: OrientationBooking) -> list[Member]:
-    """Who hears about a request: the slot's orienter + the lead (personal), or all leadership.
-
-    A personal slot routes to the person the member actually booked, with the guild lead
-    kept in the loop (deduped); a guild slot keeps the full leadership fan-out.
-    """
-    orientation_type = booking.orientation_type
-    if orientation_type.is_equipment_owned:
-        equipment = cast("Equipment", orientation_type.equipment)
-        if booking.slot.orienter_id is not None and booking.slot.orienter is not None:
-            return equipment_personal_audience(equipment, booking.slot.orienter)
-        # Shared slot: the three manage tiers, deduped — any manager confirms.
-        return equipment.manager_members()
-    guild = cast("Guild", booking.guild)  # guild-owned: the one-owner constraint guarantees it
-    slot = booking.slot
-    if slot.orienter_id is not None and slot.orienter is not None:
-        audience = [slot.orienter]
-        lead = guild.guild_lead
-        if lead is not None and lead.pk != slot.orienter_id:
-            audience.append(lead)
-        return audience
-    return guild.leadership_members()
-
-
 def _emit_lead_request(booking: OrientationBooking) -> None:
-    """Email the request's audience, and in-app-notify the matching orienters (Decision 7).
+    """Tell the request's audience a member asked for an orientation: email + bell (Decision 7).
 
-    For a guild slot the email recipients are the guild's whole leadership team (lead +
-    staff), byte-identical to before. For a personal slot both the email and the in-app
-    ``orientation_requested`` row route to the slot's orienter + the guild lead (deduped)
-    — the ``guild_orienters`` resolver honors the slot passed in context. The activity
-    row is logged by the caller.
+    One audience for every channel, the ``orientation_requested`` resolver
+    (:func:`core.events.resolvers.guild_orienters_or_equipment_managers`): a guild's
+    shared slot reaches its whole leadership, a personal slot the orienter booked plus
+    the guild lead, and equipment its managers. Each person's own Email switch decides
+    the email (#524), which goes to their notification address. The activity row is
+    logged by the caller.
     """
-    recipients: list[str] = []
-    for member in _request_audience(booking):
-        if member.primary_email and member.primary_email not in recipients:
-            recipients.append(member.primary_email)
     # One body goes to the whole audience, so the confirm/decline links carry the
     # slot's primary responder (personal slot: the orienter; guild slot: the lead)
     # as the token recipient — a paid booking's email-link decline credits them.
@@ -961,7 +915,6 @@ def _emit_lead_request(booking: OrientationBooking) -> None:
         in_app_title="New orientation request",
         in_app_body=f"{booking.member.display_name} requested an orientation for {booking.orientation_type.owner_name}.",
         url=reverse("hub_orientation_respond", args=[booking.pk]),
-        email_to=recipients or None,
         period=f"booking:{booking.pk}:request",
     )
 
@@ -1052,10 +1005,12 @@ def cancel_orientation(
         in_app_body=f"The orientation for {booking.orientation_type.owner_name} was cancelled.",
         extra_context={"late_fee": fee, "late_fee_pay_url": pay_url(fee) if fee is not None else ""},
     )
-    # In-app ping to the orienters that a booking was cancelled (was lead-only; now
-    # fans out to all orienters via the guild_orienters resolver — Decision 7). The
-    # orientation_requested EMAIL channel defaults OFF (opt-in), so this matches the
-    # old dispatch (in-app always; generic email only for an opted-in orienter).
+    # Bell (and push / Discord per switch) that a booking was cancelled, to the same
+    # audience the request reached (the orientation_requested resolver: a shared guild
+    # slot's whole leadership, a personal slot's orienter plus lead, or the equipment's
+    # managers). No email: the row's Email switch is about requests, and since #524 it
+    # defaults ON, so letting this ping email would start a new bare cancel email to
+    # every leader who never touched the page.
     emit(
         "orientation_requested",
         context=_request_resolver_context(booking),
@@ -1063,6 +1018,7 @@ def cancel_orientation(
         body=f"{actor_label} cancelled the orientation for {booking.orientation_type.owner_name}.",
         url=reverse("hub_orientation_respond", args=[booking.pk]),
         period=f"booking:{booking.pk}:cancel",
+        suppress_email=True,
     )
     # Member self-cancel, lead cancel, and token cancel all land here: a freed seat on a
     # slot whose hours are gone or paused must not reopen. A slot cancel (cancel_slot)

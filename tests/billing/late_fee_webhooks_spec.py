@@ -199,3 +199,46 @@ def describe_billing_fan_in():
         billing_views._dispatch_checkout_completed(_event(fee_id=fee.pk))
         fee.refresh_from_db()
         assert fee.status == LateCancellationFee.Status.PAID
+
+
+def describe_orphan_fee_alert_delivery():
+    """#524: the alert rides the ``billing.late_fee_orphan_payment`` event, forced to the
+    Billing Administrators and keyed on the Checkout session."""
+
+    def it_reaches_a_billing_administrator_who_switched_the_email_off():
+        from core.models import NotificationPreference, TransactionalEmailLog
+
+        approver = _billing_approver()
+        NotificationPreference.objects.create(
+            user=approver.user, event_key="billing.late_fee_orphan_payment", channel="email", enabled=False
+        )
+        mail.outbox.clear()
+
+        webhook_handlers.handle_late_fee_checkout_completed(_event(fee_id=999999))
+
+        assert [m.to for m in mail.outbox] == [["fee-billing-approver@example.com"]]
+        assert TransactionalEmailLog.objects.filter(trigger_kind="billing.late_fee_orphan_payment").count() == 1
+
+    def it_alerts_once_per_checkout_session():
+        _billing_approver()
+        mail.outbox.clear()
+
+        webhook_handlers.handle_late_fee_checkout_completed(_event(fee_id=999998, id="cs_fee_orphan_a"))
+        webhook_handlers.handle_late_fee_checkout_completed(_event(fee_id=999998, id="cs_fee_orphan_b"))
+        webhook_handlers.handle_late_fee_checkout_completed(_event(fee_id=999998, id="cs_fee_orphan_b"))
+
+        assert [line for m in mail.outbox for line in m.body.splitlines() if line.startswith("Checkout session:")] == [
+            "Checkout session: cs_fee_orphan_a",
+            "Checkout session: cs_fee_orphan_b",
+        ]
+
+    def it_skips_a_billing_administrator_with_no_login():
+        # The event system reaches people who hold switches; a capability holder with no
+        # login gets nothing (they could not have switched it off either).
+        member = MemberFactory(_pre_signup_email="nologin-billing@example.com")
+        member.admin_capabilities.create(capability=AdminCapability.Capability.BILLING_APPROVER)
+        mail.outbox.clear()
+
+        webhook_handlers.handle_late_fee_checkout_completed(_event(fee_id=999997))
+
+        assert mail.outbox == []
