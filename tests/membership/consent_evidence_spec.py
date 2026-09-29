@@ -191,3 +191,66 @@ def describe_re_acceptance() -> None:
             )
 
         assert Member.objects.active().accepted_agreement().count() == 1
+
+
+def describe_owes_agreement() -> None:
+    """The list an admin reads must match the prompt a member is shown.
+
+    `missing_agreement` asks "has this member ever accepted anything?". Once a version is
+    released that stops being the same question, and the gap is invisible in the worst way: the
+    member is re-prompted on every page load while the admin's "missing" filter passes over them
+    (PastLivesReviewBot, #493).
+    """
+
+    @pytest.fixture
+    def member() -> Member:
+        from tests.membership.factories import MemberFactory
+
+        return MemberFactory(status="active")
+
+    def it_lists_a_member_who_accepted_only_an_older_edition(member: Member) -> None:
+        _configure(version="2.0.0")
+        MemberAgreementAcceptance.objects.create(
+            member=member, agreement_url=AGREEMENT_URL, ip_address="127.0.0.1", document_version="1.0.0"
+        )
+
+        # The bug, stated as an assertion: the old filter cannot see them...
+        assert member not in Member.objects.missing_agreement()
+        # ...while the member is genuinely being re-prompted.
+        assert member.needs_member_agreement
+        # The new one agrees with the product.
+        assert member in Member.objects.owes_agreement()
+
+    def it_leaves_out_a_member_who_accepted_the_current_edition(member: Member) -> None:
+        _configure(version="2.0.0")
+        MemberAgreementAcceptance.objects.create(
+            member=member, agreement_url=AGREEMENT_URL, ip_address="127.0.0.1", document_version="2.0.0"
+        )
+
+        assert member not in Member.objects.owes_agreement()
+        assert not member.needs_member_agreement
+
+    def it_lists_a_member_who_never_accepted_anything(member: Member) -> None:
+        _configure(version="2.0.0")
+
+        assert member in Member.objects.owes_agreement()
+
+    def it_matches_the_old_filter_when_no_version_is_configured(member: Member) -> None:
+        """One-time behaviour: any acceptance settles it, so the two questions coincide."""
+        _configure(version="")
+        MemberAgreementAcceptance.objects.create(
+            member=member, agreement_url=AGREEMENT_URL, ip_address="127.0.0.1", document_version="1.0.0"
+        )
+
+        assert member not in Member.objects.owes_agreement()
+        assert not member.needs_member_agreement
+
+    def it_counts_a_member_once_despite_several_old_acceptances(member: Member) -> None:
+        """A NOT IN subquery, not a join — several non-matching rows must not duplicate the member."""
+        _configure(version="3.0.0")
+        for version in ("1.0.0", "2.0.0"):
+            MemberAgreementAcceptance.objects.create(
+                member=member, agreement_url=AGREEMENT_URL, ip_address="127.0.0.1", document_version=version
+            )
+
+        assert list(Member.objects.owes_agreement()).count(member) == 1

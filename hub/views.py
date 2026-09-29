@@ -7014,7 +7014,9 @@ def admin_members(request: HttpRequest) -> HttpResponse:
     if agreement_filter == "accepted":
         members = members.accepted_agreement()
     elif agreement_filter == "missing":
-        members = members.missing_agreement()
+        # The version-aware one: a member who accepted an older edition owes an acceptance and has
+        # to appear here, or the list disagrees with the prompt they are actually being shown.
+        members = members.owes_agreement()
     if search:
         members = members.filter(
             Q(full_legal_name__icontains=search)

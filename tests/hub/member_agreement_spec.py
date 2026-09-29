@@ -1,3 +1,5 @@
+from collections.abc import Iterator
+
 import httpx
 import pytest
 import respx
@@ -14,7 +16,7 @@ pytestmark = pytest.mark.django_db
 
 def describe_hub_member_agreement() -> None:
     @pytest.fixture(autouse=True)
-    def _stub_the_document_fetch() -> object:
+    def _stub_the_document_fetch() -> Iterator[respx.MockRouter]:
         """Accepting fingerprints the configured document, so every POST below would otherwise
         make a real outbound request from the test suite.
 

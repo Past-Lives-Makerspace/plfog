@@ -207,6 +207,31 @@ class MemberQuerySet(models.QuerySet):
         """
         return self.filter(member_agreement_acceptances__isnull=True)
 
+    def owes_agreement(self) -> MemberQuerySet:
+        """Members who need to accept the agreement **as it stands now**.
+
+        This is the question an admin filtering for "missing" actually means, and it is not the
+        one :meth:`missing_agreement` answers. That one asks "has this member ever accepted
+        anything?", which stops being the same question the moment a version is released: a member
+        who accepted v1.0.0 has an acceptance row, so `missing_agreement` passes over them while
+        they are being re-prompted on every page load (PastLivesReviewBot, #493).
+
+        With no version configured the two agree, and deliberately so — that is the one-time
+        behaviour, where any acceptance settles it forever.
+
+        Mirrors :attr:`Member.needs_member_agreement` so the list an admin reads and the gate a
+        member hits cannot disagree; a report that contradicts the product is worse than no report.
+        """
+        from core.models import SiteConfiguration
+
+        version = SiteConfiguration.load().member_agreement_version
+        if not version:
+            return self.missing_agreement()
+        # exclude() across a multi-valued relation builds a NOT IN subquery, so it means "has no
+        # acceptance of this version" rather than "has an acceptance that is not this version" —
+        # which is the difference between a correct list and its near-inverse.
+        return self.exclude(member_agreement_acceptances__document_version=version)
+
     def leadership_candidates(self) -> MemberQuerySet:
         """Members an admin may add to the Leadership Directory: everyone not on it, by name.
 
