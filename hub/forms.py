@@ -1217,6 +1217,7 @@ class SiteSettingsForm(forms.ModelForm):
             "suspended_member_signin_message",
             "member_agreement_required",
             "member_agreement_url",
+            "member_agreement_version",
             "sync_classes_enabled",
             "classes_calendar_color",
             "legacy_cms_sync_enabled",

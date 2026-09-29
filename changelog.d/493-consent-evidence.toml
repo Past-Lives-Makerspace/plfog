@@ -1,0 +1,9 @@
+bump = "minor"
+date = "2026-09-23"
+title = "An accepted agreement now records which version you accepted"
+changes = [
+  "When you accept the Member Agreement, PLM now records the version you accepted and a fingerprint of the document as it stood at that moment — so the record says what you agreed to, not just that you agreed.",
+  "The browser and device you accepted from are recorded alongside the time and network address, as corroboration.",
+  "Accepting a revised agreement no longer overwrites the old record. Each acceptance is kept, so an earlier one still shows what was agreed at the time.",
+  "Nothing changes for members until an admin sets a Member Agreement version in Site Settings. Until then, anyone who has accepted once is never asked again, exactly as before.",
+]

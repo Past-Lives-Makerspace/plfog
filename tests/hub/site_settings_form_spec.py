@@ -8,6 +8,8 @@ and are deliberately not duplicated across the two forms.
 from __future__ import annotations
 
 import pytest
+from django.contrib.auth.models import User
+from django.test import Client
 
 from core.models import SiteConfiguration
 from hub.forms import SiteSettingsForm, SlideshowSettingsForm
@@ -225,3 +227,58 @@ def describe_SiteSettingsForm_late_cancel_fees():
         form = SiteSettingsForm(_data(late_cancel_notice_hours="24", late_cancel_grace_hours=""))
         assert set(form.errors) == {"late_cancel_grace_hours"}
         assert "shorter than the notice" not in str(form.errors["late_cancel_grace_hours"])
+
+
+def describe_member_agreement_fields() -> None:
+    """The three Member Agreement fields are admin controls, not admin-only columns.
+
+    `member_agreement_version` was a column with no form field: settable in Django admin and
+    nowhere else, while the release note said Site Settings. Since setting a version is the whole
+    mechanism that re-prompts members, a field only a superuser can reach is a feature nobody can
+    operate (PastLivesReviewBot, #493).
+    """
+
+    _AGREEMENT_FIELDS = [
+        "member_agreement_required",
+        "member_agreement_url",
+        "member_agreement_version",
+    ]
+
+    @pytest.mark.parametrize("name", _AGREEMENT_FIELDS)
+    def it_offers_every_agreement_field(name: str) -> None:
+        assert name in SiteSettingsForm(instance=SiteConfiguration.load()).fields
+
+    def it_saves_a_released_version() -> None:
+        """Saved through the form rather than the model, so a missing field fails this.
+
+        The value has to reach the database: a bound form with no errors proves the field
+        validates, not that anything was stored (PastLivesReviewBot, #493).
+        """
+        config = SiteConfiguration.load()
+        form = SiteSettingsForm(instance=config)
+        data = {k: v for k, v in form.initial.items() if v is not None}
+        data.update(
+            {
+                "member_agreement_required": "on",
+                "member_agreement_url": "https://kb.example.test/doc/policies-membership-agreement/",
+                "member_agreement_version": "2.4.0",
+            }
+        )
+        bound = SiteSettingsForm(data=data, instance=config)
+        assert bound.is_valid(), bound.errors
+        bound.save()
+
+        assert SiteConfiguration.objects.get(pk=config.pk).member_agreement_version == "2.4.0"
+
+    def it_renders_the_version_beside_the_url(client: Client, admin_user: User) -> None:
+        """Rendered by hand next to the URL, so it must also be excluded from the generic loop —
+        get that wrong and the input appears twice."""
+        from django.urls import reverse
+
+        client.force_login(admin_user)
+        html = client.get(reverse("hub_admin_site_settings")).content.decode()
+        assert html.count('name="member_agreement_version"') == 1
+        # Not asserting the explanatory note is absent from the page. A multi-line {# #} renders
+        # as visible text and this spec would sail past it — but tests/template_comment_lint_spec.py
+        # already catches that repo-wide, for every template, with a self-test of its own
+        # (FRONTEND.md Rule 17). A second, weaker copy here would only rot.

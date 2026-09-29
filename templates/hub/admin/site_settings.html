@@ -183,7 +183,7 @@
     {# -------- General tab -------- #}
     <div x-show="tab === 'general'" x-cloak class="pl-settings-tab pl-settings-tab--tight">
       {% for field in form %}
-        {% if field.name != 'sync_classes_enabled' and field.name != 'classes_calendar_color' and field.name != 'legacy_cms_sync_enabled' and field.name != 'instructor_discount_codes_enabled' and field.name != 'instructor_discount_codes_need_approval' and field.name != 'member_directory_public' and field.name != 'late_cancel_fees_enabled' and field.name != 'late_cancel_notice_hours' and field.name != 'late_cancel_grace_hours' and field.name != 'class_registration_enabled' and field.name != 'class_registration_disabled_note' and field.name != 'help_page_enabled' and field.name != 'guided_tours_enabled' and field.name != 'guild_welcome_email_enabled' and field.name != 'display_demo_classes' and field.name != 'display_demo_guild' and field.name != 'discord_general_webhook_url' and field.name != 'discord_leadership_webhook_url' and field.name != 'discord_officers_webhook_url' and field.name != 'discord_reservations_webhook_url' and field.name != 'discord_server_id' and field.name != 'discord_role_message_channel_id' and field.name != 'discord_role_message_id' and field.name != 'member_event_policy' and field.name != 'member_google_calendar_id' and field.name != 'public_google_calendar_id' and field.name != 'google_calendar_sync_enabled' and field.name != 'discord_events_sync_enabled' and field.name != 'discord_calendar_channel_id' and field.name != 'discord_calendar_posts_enabled' and field.name != 'discord_classes_channel_id' and field.name != 'discord_classes_posts_enabled' and field.name != 'discord_info_channel_id' and field.name != 'discord_info_message_id' and field.name != 'discord_info_links_content' and field.name != 'member_agreement_required' and field.name != 'member_agreement_url' and field.name != 'org_name' and field.name != 'org_short_name' and field.name != 'org_legal_name' and field.name != 'org_logo' and field.name != 'org_primary_color' and field.name != 'org_support_email' and field.name != 'org_website_url' and field.name != 'google_play_url' and field.name != 'app_store_url' %}
+        {% if field.name != 'sync_classes_enabled' and field.name != 'classes_calendar_color' and field.name != 'legacy_cms_sync_enabled' and field.name != 'instructor_discount_codes_enabled' and field.name != 'instructor_discount_codes_need_approval' and field.name != 'member_directory_public' and field.name != 'late_cancel_fees_enabled' and field.name != 'late_cancel_notice_hours' and field.name != 'late_cancel_grace_hours' and field.name != 'class_registration_enabled' and field.name != 'class_registration_disabled_note' and field.name != 'help_page_enabled' and field.name != 'guided_tours_enabled' and field.name != 'guild_welcome_email_enabled' and field.name != 'display_demo_classes' and field.name != 'display_demo_guild' and field.name != 'discord_general_webhook_url' and field.name != 'discord_leadership_webhook_url' and field.name != 'discord_officers_webhook_url' and field.name != 'discord_reservations_webhook_url' and field.name != 'discord_server_id' and field.name != 'discord_role_message_channel_id' and field.name != 'discord_role_message_id' and field.name != 'member_event_policy' and field.name != 'member_google_calendar_id' and field.name != 'public_google_calendar_id' and field.name != 'google_calendar_sync_enabled' and field.name != 'discord_events_sync_enabled' and field.name != 'discord_calendar_channel_id' and field.name != 'discord_calendar_posts_enabled' and field.name != 'discord_classes_channel_id' and field.name != 'discord_classes_posts_enabled' and field.name != 'discord_info_channel_id' and field.name != 'discord_info_message_id' and field.name != 'discord_info_links_content' and field.name != 'member_agreement_required' and field.name != 'member_agreement_url' and field.name != 'member_agreement_version' and field.name != 'org_name' and field.name != 'org_short_name' and field.name != 'org_legal_name' and field.name != 'org_logo' and field.name != 'org_primary_color' and field.name != 'org_support_email' and field.name != 'org_website_url' and field.name != 'google_play_url' and field.name != 'app_store_url' %}
         <div class="field-row{% if field.field.widget.input_type == 'checkbox' %} field-checkbox{% endif %}">
           {% if field.field.widget.input_type == 'checkbox' %}
             {{ field }}
@@ -551,6 +551,21 @@
           <small style="color:var(--hub-text-muted);">{{ form.member_agreement_url.help_text }}</small>
           {% if form.member_agreement_url.errors %}
             <div style="color:var(--error); margin-top:0.25rem;">{{ form.member_agreement_url.errors.0 }}</div>
+          {% endif %}
+        </div>
+        {% comment %}
+          Beside the URL, because the two are read together: this names the edition published AT
+          that address. Setting it is what re-prompts members who accepted a different one, so it
+          belongs where an admin can see the count above it rather than in Django admin.
+        {% endcomment %}
+        <div class="field-row u-margin-top">
+          <label for="{{ form.member_agreement_version.id_for_label }}" style="font-weight:600;color:var(--hub-text);">
+            {{ form.member_agreement_version.label }}
+          </label>
+          {{ form.member_agreement_version }}
+          <small style="color:var(--hub-text-muted);">{{ form.member_agreement_version.help_text }}</small>
+          {% if form.member_agreement_version.errors %}
+            <div style="color:var(--error); margin-top:0.25rem;">{{ form.member_agreement_version.errors.0 }}</div>
           {% endif %}
         </div>
       </div>

@@ -7012,9 +7012,13 @@ def admin_members(request: HttpRequest) -> HttpResponse:
     if type_filter:
         members = members.filter(member_type=type_filter)
     if agreement_filter == "accepted":
-        members = members.accepted_agreement()
+        # Version-aware, so this and "missing" stay complements. Counting an older edition as
+        # accepted would put a member owing a re-accept in both lists at once.
+        members = members.accepted_current_agreement()
     elif agreement_filter == "missing":
-        members = members.missing_agreement()
+        # The version-aware one: a member who accepted an older edition owes an acceptance and has
+        # to appear here, or the list disagrees with the prompt they are actually being shown.
+        members = members.owes_agreement()
     if search:
         members = members.filter(
             Q(full_legal_name__icontains=search)
@@ -8180,7 +8184,9 @@ def admin_site_settings(request: HttpRequest) -> HttpResponse:
     ctx = _get_hub_context(request)
 
     active_members_count = Member.objects.active().count()
-    accepted_members_count = Member.objects.active().accepted_agreement().count()
+    # The figure printed directly above the version field, so it has to mean "accepted the
+    # edition named there" — otherwise setting a version reports the re-consent as already done.
+    accepted_members_count = Member.objects.active().accepted_current_agreement().count()
 
     return render(
         request,

@@ -505,6 +505,18 @@ class SiteConfiguration(models.Model):
         verbose_name="Member Agreement URL",
         help_text="URL to the Member Agreement (e.g., in the Knowledge Base).",
     )
+    member_agreement_version = models.CharField(
+        max_length=40,
+        blank=True,
+        default="",
+        verbose_name="Member Agreement version",
+        help_text=(
+            "The released version members must have accepted, e.g. '2.0.0'. Leave blank to keep "
+            "the one-time behaviour: anyone who has ever accepted is never asked again. Setting a "
+            "version here re-prompts every member who accepted a different one, so change it only "
+            "for a release that people genuinely need to re-read."
+        ),
+    )
     general_calendar_url = models.URLField(
         blank=True,
         default="",
