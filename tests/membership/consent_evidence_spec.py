@@ -10,7 +10,7 @@ import httpx
 import pytest
 import respx
 from core.models import SiteConfiguration
-from django.test import RequestFactory
+from django.test import RequestFactory, override_settings
 from membership.models import Member, MemberAgreementAcceptance
 from membership.services.consent import fingerprint_agreement
 
@@ -61,6 +61,16 @@ def describe_fingerprint_agreement() -> None:
 
     def it_returns_blank_for_a_blank_url() -> None:
         assert fingerprint_agreement("") == ("", None)
+
+    @respx.mock
+    def it_makes_no_request_at_all_on_staging() -> None:
+        """A clone of production must not send real traffic to the real KB (STANDARDS)."""
+        route = respx.get(AGREEMENT_URL).mock(return_value=httpx.Response(200, content=BODY))
+
+        with override_settings(IS_STAGING=True):
+            assert fingerprint_agreement(AGREEMENT_URL) == ("", None)
+
+        assert not route.called
 
     @respx.mock
     def it_refuses_a_document_too_large_to_be_one() -> None:

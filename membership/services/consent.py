@@ -25,6 +25,7 @@ import hashlib
 import logging
 
 import httpx
+from django.conf import settings
 
 logger = logging.getLogger(__name__)
 
@@ -44,6 +45,14 @@ def fingerprint_agreement(url: str) -> tuple[str, int | None]:
     Returns ``("", None)`` if it cannot be fetched, is too large, or the URL is blank.
     """
     if not url:
+        return "", None
+
+    # Staging goes dark, like every other outbound integration (STANDARDS: "a new outbound
+    # integration must go dark under that flag too"). A clone of production hitting the real
+    # Knowledge Base on every accept is real traffic from a place nothing should originate, and
+    # the blank it returns already means "not captured" — which is exactly true here.
+    if settings.IS_STAGING:
+        logger.info("Staging: not fingerprinting the member agreement at %s", url)
         return "", None
 
     # Streamed and hashed a chunk at a time, and abandoned the moment it runs over. The previous
