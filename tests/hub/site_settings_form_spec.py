@@ -278,8 +278,7 @@ def describe_member_agreement_fields() -> None:
         client.force_login(admin_user)
         html = client.get(reverse("hub_admin_site_settings")).content.decode()
         assert html.count('name="member_agreement_version"') == 1
-        # Django's {# … #} is SINGLE-LINE. One spanning three lines is not a comment at all — the
-        # text renders on the page, and the count assertion above sails straight past it
-        # (PastLivesReviewBot, #493). Asserting on prose from the note itself is what catches it.
-        assert "re-prompts members who accepted" not in html
-        assert "{% comment %}" not in html
+        # Not asserting the explanatory note is absent from the page. A multi-line {# #} renders
+        # as visible text and this spec would sail past it — but tests/template_comment_lint_spec.py
+        # already catches that repo-wide, for every template, with a self-test of its own
+        # (FRONTEND.md Rule 17). A second, weaker copy here would only rot.
