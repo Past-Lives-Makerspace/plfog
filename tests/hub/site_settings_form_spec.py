@@ -249,7 +249,11 @@ def describe_member_agreement_fields() -> None:
         assert name in SiteSettingsForm(instance=SiteConfiguration.load()).fields
 
     def it_saves_a_released_version() -> None:
-        """Set through the form rather than the model, so a missing field fails this."""
+        """Saved through the form rather than the model, so a missing field fails this.
+
+        The value has to reach the database: a bound form with no errors proves the field
+        validates, not that anything was stored (PastLivesReviewBot, #493).
+        """
         config = SiteConfiguration.load()
         form = SiteSettingsForm(instance=config)
         data = {k: v for k, v in form.initial.items() if v is not None}
@@ -261,9 +265,10 @@ def describe_member_agreement_fields() -> None:
             }
         )
         bound = SiteSettingsForm(data=data, instance=config)
-        assert "member_agreement_version" in bound.fields
-        bound.is_valid()  # other tabs' fields may be absent; this field must not error
-        assert "member_agreement_version" not in bound.errors
+        assert bound.is_valid(), bound.errors
+        bound.save()
+
+        assert SiteConfiguration.objects.get(pk=config.pk).member_agreement_version == "2.4.0"
 
     def it_renders_the_version_beside_the_url(client: Client, admin_user: User) -> None:
         """Rendered by hand next to the URL, so it must also be excluded from the generic loop —

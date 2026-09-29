@@ -198,6 +198,28 @@ class MemberQuerySet(models.QuerySet):
         """
         return self.filter(member_agreement_acceptances__isnull=False).distinct()
 
+    def accepted_current_agreement(self) -> MemberQuerySet:
+        """Members who have accepted the agreement **as it stands now** — the complement of
+        :meth:`owes_agreement` among active members.
+
+        The symmetric half of that filter, and it has to exist for the same reason: fixing one side
+        alone is worse than fixing neither. With a version set, `accepted_agreement` counts anyone
+        holding any acceptance, so a member who accepted v1.0.0 would appear in BOTH the "Accepted"
+        and "Missing" filters at once, and the "N of M have accepted" figure on Site Settings would
+        report a re-consent as already done (PastLivesReviewBot, #493).
+
+        With no version configured it defers to `accepted_agreement`, so the one-time behaviour is
+        untouched.
+        """
+        from core.models import SiteConfiguration
+
+        version = SiteConfiguration.load().member_agreement_version
+        if not version:
+            return self.accepted_agreement()
+        # .distinct() for the same reason accepted_agreement needs it: the constraint that allowed
+        # one acceptance per member is gone, so this join can return a member more than once.
+        return self.filter(member_agreement_acceptances__document_version=version).distinct()
+
     def missing_agreement(self) -> MemberQuerySet:
         """Members who have never accepted the member agreement, at any version.
 

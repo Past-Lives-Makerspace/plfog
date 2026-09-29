@@ -255,6 +255,28 @@ def describe_owes_agreement() -> None:
         assert member not in Member.objects.owes_agreement()
         assert not member.needs_member_agreement
 
+    def it_does_not_also_call_an_old_acceptance_accepted(member: Member) -> None:
+        """The two filters must be complements. Before this, a member who accepted v1.0.0 appeared
+        in "Accepted" AND "Missing" at once."""
+        _configure(version="2.0.0")
+        MemberAgreementAcceptance.objects.create(
+            member=member, agreement_url=AGREEMENT_URL, ip_address="127.0.0.1", document_version="1.0.0"
+        )
+
+        assert member in Member.objects.owes_agreement()
+        assert member not in Member.objects.accepted_current_agreement()
+        # ...while the version-blind filter is what would have double-counted them.
+        assert member in Member.objects.accepted_agreement()
+
+    def it_calls_a_current_acceptance_accepted(member: Member) -> None:
+        _configure(version="2.0.0")
+        MemberAgreementAcceptance.objects.create(
+            member=member, agreement_url=AGREEMENT_URL, ip_address="127.0.0.1", document_version="2.0.0"
+        )
+
+        assert member in Member.objects.accepted_current_agreement()
+        assert member not in Member.objects.owes_agreement()
+
     def it_counts_a_member_once_despite_several_old_acceptances(member: Member) -> None:
         """A NOT IN subquery, not a join — several non-matching rows must not duplicate the member."""
         _configure(version="3.0.0")
