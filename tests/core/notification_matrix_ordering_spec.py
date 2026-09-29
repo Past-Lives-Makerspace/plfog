@@ -1,8 +1,9 @@
 """Section ordering + orientation re-tag for the settings notification matrix.
 
-Covers the settings-restructure changes: the new CATEGORY_ORDER (Orientations, Guilds,
-Events first; Staff & Leadership dead-last), the two orientation trigger re-tags, and the
-event-key round-trip that proves the re-tag never touches stored preferences.
+Covers the section order (Admin / Permissions first for anyone with a row in it, then
+Orientations, Guilds, Events and the rest of CATEGORY_ORDER), the two orientation trigger
+re-tags, and the event-key round-trip that proves the re-tag never touches stored
+preferences.
 """
 
 import pytest
@@ -28,13 +29,13 @@ def _member_user(username, **member_kwargs):
 
 
 def _sections(user):
-    return [section for section, _rows in settings_matrix.build_matrix(user)]
+    return [section.title for section in settings_matrix.build_matrix(user)]
 
 
 def _section_of(user, event_key):
-    for section, rows in settings_matrix.build_matrix(user):
-        if any(row.event_key == event_key for row in rows):
-            return section
+    for section in settings_matrix.build_matrix(user):
+        if any(row.event_key == event_key for block in section.blocks for row in block.rows):
+            return section.title
     return None
 
 
@@ -48,20 +49,23 @@ def describe_section_order():
         # The three lead the page, in this relative order.
         assert sections.index("Orientations") < sections.index("Guilds") < sections.index("Events")
 
-    def it_never_shows_the_staff_section_to_a_plain_member():
+    def it_never_shows_the_admin_section_to_a_plain_member():
         user, _member = _member_user("orderplain2")
-        assert settings_matrix.STAFF_SECTION not in _sections(user)
+        assert settings_matrix.ADMIN_SECTION not in _sections(user)
 
-    def it_renders_the_staff_section_last_for_an_admin():
+    def it_renders_the_admin_section_first_for_an_admin():
         user, _member = _member_user("orderadmin", fog_role=Member.FogRole.ADMIN)
         sections = _sections(user)
-        assert sections[-1] == settings_matrix.STAFF_SECTION
+        assert sections[0] == settings_matrix.ADMIN_SECTION
+        # Then the member topics in their own order.
+        assert sections.index("Orientations") < sections.index("Guilds") < sections.index("Events")
 
-    def it_sorts_an_unknown_category_alpha_before_staff():
-        # _ordered_categories is the pure ordering rule: known categories in CATEGORY_ORDER,
-        # then unknown extras alpha, then the staff section dead-last.
-        ordered = settings_matrix._ordered_categories({"Zebra", "Guilds", settings_matrix.STAFF_SECTION, "Apple"})
-        assert ordered == ["Guilds", "Apple", "Zebra", settings_matrix.STAFF_SECTION]
+    def it_sorts_unknown_categories_alphabetically_after_the_known_ones():
+        # _ordered_categories is the pure ordering rule for member topics: known categories
+        # in CATEGORY_ORDER, then unknown extras alpha. Admin / Permissions is not a
+        # category; build_matrix places it first itself.
+        ordered = settings_matrix._ordered_categories({"Zebra", "Guilds", "Apple"})
+        assert ordered == ["Guilds", "Apple", "Zebra"]
 
 
 def describe_orientation_retag():
@@ -71,10 +75,10 @@ def describe_orientation_retag():
         # And it is no longer grouped under Guilds.
         assert _section_of(user, "orientation_update") != "Guilds"
 
-    def it_keeps_orientation_requested_in_staff_for_an_orienter():
+    def it_keeps_orientation_requested_in_admin_permissions_for_an_orienter():
         user, member = _member_user("retag2")
         GuildStaffMembershipFactory(member=member, role=GuildStaffMembership.Role.ORIENTER)
-        assert _section_of(user, "orientation_requested") == settings_matrix.STAFF_SECTION
+        assert _section_of(user, "orientation_requested") == settings_matrix.ADMIN_SECTION
 
     def it_hides_orientation_requested_from_a_plain_member():
         user, _member = _member_user("retag3")
@@ -88,9 +92,10 @@ def describe_orientation_retag():
         # build_matrix reflects the saved row as a checked email cell, under Orientations.
         row = next(
             r
-            for section, rows in settings_matrix.build_matrix(user)
-            if section == "Orientations"
-            for r in rows
+            for section in settings_matrix.build_matrix(user)
+            if section.title == "Orientations"
+            for block in section.blocks
+            for r in block.rows
             if r.event_key == "orientation_update"
         )
         email_cell = next(c for c in row.cells if c.channel is Channel.EMAIL and c.present)

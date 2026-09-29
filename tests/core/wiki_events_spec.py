@@ -151,8 +151,8 @@ def describe_the_registry_wiring():
         # the very people it exists for.
         assert Recipients.WIKI_SCOPE_LEADERSHIP in settings_matrix.STAFF_RECIPIENTS
         assert Recipients.WIKI_PAGE_CONTRIBUTORS not in settings_matrix.STAFF_RECIPIENTS
-        assert settings_matrix._section_for(get_event("wiki.page_reported")) == settings_matrix.STAFF_SECTION
-        assert settings_matrix._section_for(get_event("wiki.page_proposed")) == settings_matrix.STAFF_SECTION
+        assert settings_matrix._section_for(get_event("wiki.page_reported")) == settings_matrix.ADMIN_SECTION
+        assert settings_matrix._section_for(get_event("wiki.page_proposed")) == settings_matrix.ADMIN_SECTION
         assert settings_matrix._section_for(get_event("wiki.page_verified")) == "Wiki"
 
     def it_lists_wiki_in_both_category_orders():
@@ -163,20 +163,28 @@ def describe_the_registry_wiring():
         assert "Wiki" in settings_matrix.CATEGORY_ORDER
 
 
+def _row_keys(user):
+    return {
+        row.event_key
+        for section in settings_matrix.build_matrix(user)
+        for block in section.blocks
+        for row in block.rows
+    }
+
+
 def describe_the_settings_matrix_rows():
     def it_shows_the_report_row_to_a_lead_and_hides_it_from_a_plain_member(db):
         lead = _linked_member("matrix_lead")
         GuildFactory(guild_lead=lead)
         plain = _linked_member("matrix_plain")
-        lead_keys = {row.event_key for _section, rows in settings_matrix.build_matrix(lead.user) for row in rows}
-        plain_keys = {row.event_key for _section, rows in settings_matrix.build_matrix(plain.user) for row in rows}
+        lead_keys = _row_keys(lead.user)
+        plain_keys = _row_keys(plain.user)
         assert "wiki.page_reported" in lead_keys
         assert "wiki.page_reported" not in plain_keys
 
     def it_shows_the_verified_row_to_everyone(db):
         plain = _linked_member("matrix_plain2")
-        keys = {row.event_key for _section, rows in settings_matrix.build_matrix(plain.user) for row in rows}
-        assert "wiki.page_verified" in keys
+        assert "wiki.page_verified" in _row_keys(plain.user)
 
 
 def describe_the_curated_copy():

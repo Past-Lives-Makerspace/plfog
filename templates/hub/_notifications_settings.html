@@ -18,8 +18,8 @@ device and no Capacitor bridge to ask.
   </p>
   {% if not prefs_token %}
   <nav class="pl-notif-jump" aria-label="Jump to a notification section">
-    {% for category, rows in notif_matrix %}
-      <a class="pl-notif-jump__chip" href="#notif-{{ category|slugify }}">{{ category }}</a>
+    {% for section in notif_matrix %}
+      <a class="pl-notif-jump__chip" href="#notif-{{ section.slug }}">{{ section.title }}</a>
     {% endfor %}
   </nav>
   {% endif %}

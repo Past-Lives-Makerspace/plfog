@@ -1107,7 +1107,7 @@ _NEW_EVENTS: list[EventType] = [
         activity_kind=None,
     ),
     # equipment.reservation_made — awareness, not action (no approval exists), to the
-    # equipment's managers: in-app on, email opt-in. Grouped under Staff & leadership
+    # equipment's managers: in-app on, email opt-in. Grouped under Admin / Permissions
     # on the settings page via the EQUIPMENT_MANAGERS recipient. The DISCORD broadcast
     # posts to the #reservations channel ONLY: the event is pinned to the Site Settings
     # discord_reservations_webhook_url (core.events.discord.SITE_CONFIG_EVENT_WEBHOOKS —
@@ -1166,7 +1166,7 @@ _NEW_EVENTS: list[EventType] = [
     # people who CAN refund (fog admins OR REFUNDS holders, the REFUND_AUTHORITY union)
     # get an in-app row + email pointing at the class's Registrations tab. Never fires
     # for a free class or an admin's own cancel. Per-recipient only, no broadcast.
-    # Grouped under Staff & leadership on the settings page via its recipient.
+    # Grouped under Admin / Permissions on the settings page via its recipient.
     EventType(
         key=CLASS_CANCELLED_ADMIN_NOTICE,
         label="Instructor cancelled a paid class",
@@ -1237,7 +1237,7 @@ _NEW_EVENTS: list[EventType] = [
     # members searched for and did not find. A guild with nothing to report gets NO email,
     # so this is never a monthly reminder that nothing happened.
     #
-    # It renders under "Staff & leadership" on the settings page, not under Guilds: the
+    # It renders under "Admin / Permissions" on the settings page, not under Guilds: the
     # category drives the email's X-Category header, while GUILD_LEADERSHIP being in
     # settings_matrix.STAFF_RECIPIENTS is what picks the section. That is the right home
     # (only leadership receives it) — do not "fix" the category to move a row that is

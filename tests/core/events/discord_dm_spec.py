@@ -305,12 +305,13 @@ def describe_registry_declares_discord_dm():
 
 
 def _cell(matrix, event_key, channel):
-    for _category, rows in matrix:
-        for row in rows:
-            if row.event_key == event_key:
-                for cell in row.cells:
-                    if cell.channel is channel:
-                        return cell
+    for section in matrix:
+        for block in section.blocks:
+            for row in block.rows:
+                if row.event_key == event_key:
+                    for cell in row.cells:
+                        if cell.channel is channel:
+                            return cell
     return None
 
 

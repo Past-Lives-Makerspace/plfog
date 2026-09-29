@@ -3186,7 +3186,7 @@ def user_settings(request: HttpRequest) -> HttpResponse:
     # Channel labels keyed by channel value, so each matrix cell can build its own
     # screen-reader name (event × channel) via the get_item template filter.
     notif_channel_labels = {channel.value: label for channel, label in notif_channels}
-    # Full admins get a shortcut from the Staff & leadership section to their own capability
+    # Full admins get a shortcut from the Admin / Permissions section to their own capability
     # checkboxes (the master switch for those emails). Only admins can edit capabilities, so
     # the link is theirs alone; guild leads see the section but manage it via channel toggles.
     capabilities_url = (
@@ -3250,7 +3250,7 @@ def _notification_email_form(
 
 
 def _settings_include_staff(request: HttpRequest) -> bool:
-    """Whether the Staff & Leadership notification section should render (and save).
+    """Whether the Admin / Permissions notification section should render (and save).
 
     An admin/officer previewing the page as a Member or Guest must not see — or, on save,
     wipe — the section. The flag flips only when a higher-role holder is previewing down; an

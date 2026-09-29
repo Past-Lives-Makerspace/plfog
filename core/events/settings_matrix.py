@@ -13,6 +13,11 @@ preference column. Channels the user has no agency over (IN_APP is always on) st
 appear, rendered locked-on, so the page honestly shows every way an event reaches
 them.
 
+The page is a list of :class:`MatrixSection`: **Admin / Permissions** first (every row a
+viewer gets because of a role or an admin permission, grouped by that permission into
+:class:`MatrixBlock` s), then the member topics in :data:`CATEGORY_ORDER`. A forced email
+never moves a row; it only locks that row's Email cell (the padlock).
+
 This is the model/service layer for the page (CLAUDE.md: logic out of views). The
 view calls :func:`build_matrix` for the GET context and :func:`save_matrix` for the
 POST.
@@ -21,7 +26,10 @@ POST.
 from __future__ import annotations
 
 from dataclasses import dataclass
+from enum import Enum
 from typing import TYPE_CHECKING
+
+from django.utils.text import slugify
 
 from core.events import preferences
 from core.events.registry import Channel, EventType, Recipients, all_events
@@ -57,9 +65,9 @@ CHANNEL_LABELS: dict[Channel, str] = {
 # Shown on a disabled DISCORD_DM toggle when the member hasn't linked Discord yet.
 _DISCORD_LINK_HINT = "Connect your Discord account first to receive DMs."
 
-# Stable category display order; any category not listed falls to the end, alpha,
-# ahead of both collapsed tail sections. _ordered_categories forces ALWAYS_EMAILED_SECTION
-# then STAFF_SECTION dead-last, so neither is listed here.
+# Stable display order of the member topics; any category not listed falls to the end,
+# alphabetically. ADMIN_SECTION is not a category and always renders first, so it is not
+# listed here.
 CATEGORY_ORDER: tuple[str, ...] = (
     "Orientations",
     "Guilds",
@@ -68,8 +76,8 @@ CATEGORY_ORDER: tuple[str, ...] = (
     "Teaching",
     "Voting",
     # wiki.page_verified is member-facing and lands here. wiki.page_reported is staff-only
-    # and collapses into STAFF_SECTION instead, so this category is never empty for the
-    # people it exists for.
+    # and sits in ADMIN_SECTION instead, so this category is never empty for the people
+    # it exists for.
     "Wiki",
     "Billing",
     "Membership",
@@ -79,17 +87,16 @@ CATEGORY_ORDER: tuple[str, ...] = (
     "Meetings",
 )
 
-# The single display section that collects every staff / leadership / admin event
-# (approval requests + admin-only alerts) instead of scattering them through the
-# member-facing categories. Rendered dead-last and shown ONLY to eligible viewers
-# (see _is_staff_or_leadership); a plain member never sees it. When an admin/officer
-# previews the page as a Member or Guest, the section is omitted entirely
-# (include_staff_section=False).
-STAFF_SECTION = "Staff & leadership"
+# The one section that collects every event a viewer gets because of a role or an admin
+# permission (approval requests + admin-only alerts) instead of scattering them through the
+# member topics. Rendered FIRST, and shown only to a viewer with at least one row in it
+# (_eligible_for); a plain member never sees it. When an admin/officer previews the page as
+# a Member or Guest, the section is omitted entirely (include_staff_section=False).
+ADMIN_SECTION = "Admin / Permissions"
 
 # Recipients that target staff, leadership, or admins rather than an individual
-# member. Every event routed to one of these is grouped under STAFF_SECTION and
-# gated behind _is_staff_or_leadership. Member-facing recipients (REGISTRANT,
+# member. Every event routed to one of these lands in ADMIN_SECTION and is gated
+# behind _eligible_for. Member-facing recipients (REGISTRANT,
 # INSTRUCTOR, the SINGLE_USER approval-*outcome* notices the proposer receives,
 # broadcast audiences, …) are deliberately absent — those stay in their own
 # category and remain visible to everyone.
@@ -119,19 +126,72 @@ STAFF_RECIPIENTS: frozenset[Recipients] = frozenset(
     }
 )
 
-# The single display section that collects every event whose EMAIL channel is FORCED —
-# mail the member cannot switch off. It renders as a collapsed disclosure rather than ten
-# rows of grid (templates/hub/partials/_notification_matrix.html).
-#
-# The name is pronoun-free ("Always emailed", not "Always sent to you") so the one string
-# reads correctly on all three surfaces — the member's own page, the no-login token page,
-# and the admin editing someone else's — with no template branching. It is about the
-# *email* specifically: these rows keep writable Push and Discord cells. Those cells are
-# why the block is COLLAPSED rather than hidden — a collapsed <details> still submits its
-# inputs, whereas omitting the rows would omit their checkboxes from the POST and
-# save_matrix would read the absence as enabled=False, silently wiping the member's
-# push/Discord choices.
-ALWAYS_EMAILED_SECTION = "Always emailed"
+
+class PermissionGroup(str, Enum):
+    """The groups inside Admin / Permissions: the permission that brings a row, in page order.
+
+    The seven capability groups share their value with :class:`membership.models.AdminCapability`
+    ``Capability`` and read their heading from its label, so the settings page and the
+    Permissions tab use the same words. Which of these a viewer holds is
+    :meth:`_StaffProfile.holds`; which a row can reach them through is
+    :data:`_GROUPS_BY_RECIPIENT`.
+    """
+
+    ADMIN = "admin"
+    CLASS_APPROVER = "class_approver"
+    BILLING_APPROVER = "billing_approver"
+    REFUNDS = "refunds"
+    EVENTS_APPROVER = "events_approver"
+    SPACE_APPROVER = "space_approver"
+    DISCOUNT_APPROVER = "discount_approver"
+    EQUIPMENT = "equipment"
+    GUILD_LEADERSHIP = "guild_leadership"
+    EQUIPMENT_MANAGER = "equipment_manager"
+
+
+# The groups each staff recipient can reach a viewer through, in order. A row lands under
+# the FIRST of these the viewer holds, so a notice that reaches them through two roles
+# shows once. Mirrors the resolvers the way _eligible_for does: every viewer _eligible_for
+# admits holds at least one group here (a spec walks every recipient), and a miss raises.
+_GROUPS_BY_RECIPIENT: dict[Recipients, tuple[PermissionGroup, ...]] = {
+    Recipients.FOG_ADMINS: (PermissionGroup.ADMIN,),
+    Recipients.REFUND_AUTHORITY: (PermissionGroup.ADMIN, PermissionGroup.REFUNDS),
+    Recipients.GUILD_LEADERSHIP_OR_ADMINS: (PermissionGroup.ADMIN, PermissionGroup.GUILD_LEADERSHIP),
+    Recipients.WIKI_SCOPE_LEADERSHIP: (PermissionGroup.ADMIN, PermissionGroup.GUILD_LEADERSHIP),
+    Recipients.CLASS_APPROVERS: (PermissionGroup.CLASS_APPROVER,),
+    Recipients.GUILD_LEADERSHIP_OR_CLASS_APPROVERS: (PermissionGroup.CLASS_APPROVER, PermissionGroup.GUILD_LEADERSHIP),
+    Recipients.BILLING_APPROVERS: (PermissionGroup.BILLING_APPROVER,),
+    Recipients.EVENTS_APPROVERS: (PermissionGroup.EVENTS_APPROVER,),
+    Recipients.GUILD_LEADERSHIP_OR_EVENTS_APPROVERS: (
+        PermissionGroup.EVENTS_APPROVER,
+        PermissionGroup.GUILD_LEADERSHIP,
+    ),
+    Recipients.SPACE_APPROVERS: (PermissionGroup.SPACE_APPROVER,),
+    Recipients.DISCOUNT_APPROVERS: (PermissionGroup.DISCOUNT_APPROVER,),
+    Recipients.EQUIPMENT_MANAGERS: (
+        PermissionGroup.EQUIPMENT,
+        PermissionGroup.GUILD_LEADERSHIP,
+        PermissionGroup.EQUIPMENT_MANAGER,
+    ),
+    Recipients.GUILD_ORIENTERS_OR_EQUIPMENT_MANAGERS: (
+        PermissionGroup.EQUIPMENT,
+        PermissionGroup.GUILD_LEADERSHIP,
+        PermissionGroup.EQUIPMENT_MANAGER,
+    ),
+    Recipients.GUILD_LEADERSHIP: (PermissionGroup.GUILD_LEADERSHIP,),
+    Recipients.GUILD_LEAD: (PermissionGroup.GUILD_LEADERSHIP,),
+    Recipients.GUILD_ORIENTERS: (PermissionGroup.GUILD_LEADERSHIP,),
+    Recipients.ALL_GUILD_LEADS: (PermissionGroup.GUILD_LEADERSHIP,),
+}
+
+
+class NoPermissionGroupError(Exception):
+    """A staff row the viewer may see matched none of its recipient's permission groups.
+
+    A programming error: :func:`_eligible_for` and :data:`_GROUPS_BY_RECIPIENT` have drifted
+    apart. Raised rather than dropping the row, because a dropped row is a notice the viewer
+    still receives but can no longer find or switch off.
+    """
 
 
 @dataclass(frozen=True)
@@ -154,23 +214,86 @@ class Cell:
     present: bool
     available: bool = True
     hint: str = ""
-    badge: str = ""
+
+    @property
+    def is_editable(self) -> bool:
+        """Whether the viewer can flip this box: present, not locked, and usable now.
+
+        A locked cell (a forced email, or the always-on bell) and an unavailable one (Discord
+        before it is linked) render disabled, so no bulk control may count or touch them.
+        """
+        return self.present and not self.forced and self.available
 
 
 @dataclass(frozen=True)
 class Row:
-    """One event row in the matrix: its label/description + a cell per user channel.
-
-    ``badge`` is a short note explaining a non-obvious reason the user receives this
-    event — set when they're a default recipient via an admin capability (e.g. "You get
-    this as a CMS Administrator") rather than by a plain opt-in.
-    """
+    """One event row in the matrix: its label/description + a cell per user channel."""
 
     event_key: str
     label: str
     description: str
     cells: list[Cell]
-    badge: str = ""
+
+
+def _in_display_order(channels: set[Channel]) -> list[Channel]:
+    return [channel for channel in USER_CHANNELS if channel in channels]
+
+
+@dataclass(frozen=True)
+class MatrixBlock:
+    """One run of rows under an optional heading, with the channels its rows let you flip.
+
+    A member topic is one untitled block (``heading == ""``). Inside Admin / Permissions each
+    :class:`PermissionGroup` the viewer has rows under is one block, headed with the group's
+    name. ``editable_channels`` is every channel at least one of the block's cells lets the
+    viewer change (:attr:`Cell.is_editable`), in column order: it drives the block's bulk
+    controls, so a channel none of its rows offers gets no control.
+
+    Not :class:`RowGroup`, which folds sibling events into one row; a block holds rows.
+    """
+
+    heading: str
+    rows: list[Row]
+    editable_channels: list[Channel]
+
+    @classmethod
+    def of(cls, heading: str, rows: list[Row]) -> MatrixBlock:
+        """Build a block, deriving its editable channels from its rows' cells."""
+        editable = {cell.channel for row in rows for cell in row.cells if cell.is_editable}
+        return cls(heading=heading, rows=rows, editable_channels=_in_display_order(editable))
+
+
+@dataclass(frozen=True)
+class MatrixSection:
+    """One section of the page: Admin / Permissions, or a member topic.
+
+    ``slug`` is the jump-chip anchor. ``editable_channels`` is the union of its blocks', in
+    column order, and drives the section's bulk controls. ``is_admin`` marks Admin /
+    Permissions, the one section with a note on top and headed blocks inside.
+    """
+
+    title: str
+    slug: str
+    blocks: list[MatrixBlock]
+    editable_channels: list[Channel]
+    is_admin: bool
+
+    @classmethod
+    def of(cls, title: str, blocks: list[MatrixBlock], *, is_admin: bool) -> MatrixSection:
+        """Build a section, deriving its slug and editable channels."""
+        editable = {channel for block in blocks for channel in block.editable_channels}
+        return cls(
+            title=title,
+            slug=slugify(title),
+            blocks=blocks,
+            editable_channels=_in_display_order(editable),
+            is_admin=is_admin,
+        )
+
+
+def page_editable_channels(sections: list[MatrixSection]) -> list[Channel]:
+    """The channels the page-wide bulk controls offer: the union of every section's."""
+    return _in_display_order({channel for section in sections for channel in section.editable_channels})
 
 
 @dataclass(frozen=True)
@@ -280,34 +403,20 @@ def _post_key_for(event: EventType) -> str:
     return event.key if group is None else group.group_id
 
 
-def _is_always_sent(event: EventType) -> bool:
-    """Whether ``event`` reaches the member's inbox no matter what they choose.
-
-    Derived, never declared: an event whose EMAIL channel default is ``FORCED`` is exactly
-    the set :data:`ALWAYS_EMAILED_SECTION` collects.
-    """
-    spec = event.channel(Channel.EMAIL)
-    return spec is not None and spec.is_forced
-
-
 def _section_for(event: EventType) -> str:
     """The settings-page section an event renders under.
 
-    Precedence, in order: staff/leadership/admin events collapse into the single
-    STAFF_SECTION; then an event whose email is forced collapses into
-    ALWAYS_EMAILED_SECTION; every other event keeps its own member-facing ``category``.
-
-    The staff check deliberately wins: ``refund_failed`` declares a forced email *and*
-    routes to BILLING_APPROVERS, and it belongs with the other staff duties, gated behind
-    the same eligibility check, not in a block a plain member would be shown.
+    One rule: an event routed to a staff recipient (:data:`STAFF_RECIPIENTS`) goes to
+    :data:`ADMIN_SECTION`; every other event keeps its own member-facing ``category``. A
+    forced email moves nothing: ``refund_failed`` forces its email and routes to the
+    Billing Administrators, so it sits in Admin / Permissions with a padlocked Email cell,
+    and ``class_cancelled`` forces its email and stays in Classes.
 
     This is display grouping only — an event's ``category`` (which also drives the email
     ``X-Category`` header) is left untouched.
     """
     if event.recipient in STAFF_RECIPIENTS:
-        return STAFF_SECTION
-    if _is_always_sent(event):
-        return ALWAYS_EMAILED_SECTION
+        return ADMIN_SECTION
     return event.category
 
 
@@ -315,10 +424,12 @@ def _section_for(event: EventType) -> str:
 class _StaffProfile:
     """A viewer's staff / leadership standing, computed once per settings page.
 
-    Drives per-row visibility in the STAFF_SECTION: a capability row shows ONLY to a holder
-    of that capability; a role-scoped row shows ONLY to that role. So an admin who does not
-    hold (say) the Discount capability neither sees nor receives discount-code alerts, and
-    what the page shows always equals what the send path delivers.
+    Drives per-row visibility in ADMIN_SECTION (:func:`_eligible_for`): a capability row
+    shows ONLY to a holder of that capability; a role-scoped row shows ONLY to that role. So
+    an admin who does not hold (say) the Discount capability neither sees nor receives
+    discount-code alerts, and what the page shows always equals what the send path
+    delivers. It also says which :class:`PermissionGroup` a visible row files under
+    (:meth:`holds`).
     """
 
     is_admin: bool
@@ -333,6 +444,31 @@ class _StaffProfile:
     @property
     def is_leadership(self) -> bool:
         return self.leads_guild or self.staffs_guild
+
+    def holds(self, group: PermissionGroup) -> bool:
+        """Whether this viewer holds ``group``, the permission a row can reach them through.
+
+        Guild leadership covers leading a guild, holding any guild staff role, or being a
+        guild officer (the ALL_GUILD_LEADS audience); Equipment manager is a per-tool staff
+        row. The capability groups are the matching :class:`AdminCapability` grant.
+        """
+        from membership.models import AdminCapability
+
+        capability = AdminCapability.Capability
+        caps = self.capabilities
+        held: dict[PermissionGroup, bool] = {
+            PermissionGroup.ADMIN: self.is_admin,
+            PermissionGroup.CLASS_APPROVER: capability.CLASS_APPROVER in caps,
+            PermissionGroup.BILLING_APPROVER: capability.BILLING_APPROVER in caps,
+            PermissionGroup.REFUNDS: capability.REFUNDS in caps,
+            PermissionGroup.EVENTS_APPROVER: capability.EVENTS_APPROVER in caps,
+            PermissionGroup.SPACE_APPROVER: capability.SPACE_APPROVER in caps,
+            PermissionGroup.DISCOUNT_APPROVER: capability.DISCOUNT_APPROVER in caps,
+            PermissionGroup.EQUIPMENT: capability.EQUIPMENT in caps,
+            PermissionGroup.GUILD_LEADERSHIP: self.is_leadership or self.is_officer,
+            PermissionGroup.EQUIPMENT_MANAGER: self.manages_equipment,
+        }
+        return held[group]
 
 
 def _staff_profile(user: User) -> _StaffProfile:
@@ -380,10 +516,10 @@ def _eligible_for(recipient: Recipients, profile: _StaffProfile) -> bool:
         # lead/officer would see this row but never receive the mail — gate on is_active too.
         Recipients.ALL_GUILD_LEADS: (lead or profile.is_officer) and profile.is_active,
         Recipients.GUILD_ORIENTERS: profile.leads_guild or profile.is_orienter,
-        # Either audience of the composed orientation_requested resolver.
-        Recipients.GUILD_ORIENTERS_OR_EQUIPMENT_MANAGERS: (
-            profile.leads_guild or profile.is_orienter or lead or profile.manages_equipment or cap.EQUIPMENT in caps
-        ),
+        # Every audience of the composed orientation_requested resolver: a guild's leadership
+        # (whole team for a shared slot, orienter plus lead for a personal one) or the
+        # equipment's managers.
+        Recipients.GUILD_ORIENTERS_OR_EQUIPMENT_MANAGERS: lead or profile.manages_equipment or cap.EQUIPMENT in caps,
         Recipients.CLASS_APPROVERS: cap.CLASS_APPROVER in caps,
         Recipients.GUILD_LEADERSHIP_OR_CLASS_APPROVERS: lead or cap.CLASS_APPROVER in caps,
         Recipients.SPACE_APPROVERS: cap.SPACE_APPROVER in caps,
@@ -404,24 +540,58 @@ def _eligible_for(recipient: Recipients, profile: _StaffProfile) -> bool:
     return checks[recipient]
 
 
-def _visible_events(user: User, *, include_staff_section: bool = True) -> list[EventType]:
-    """Events whose preference row should be shown to ``user``.
+def _group_for(recipient: Recipients, profile: _StaffProfile) -> PermissionGroup:
+    """The Admin / Permissions group a visible staff row files under for this viewer.
+
+    The first of the recipient's candidate groups (:data:`_GROUPS_BY_RECIPIENT`) the viewer
+    holds, so a notice that reaches them through two roles shows once, under the earlier.
+
+    Raises:
+        NoPermissionGroupError: the viewer holds none of them, which means _eligible_for
+            admitted a row the group table cannot place.
+    """
+    for group in _GROUPS_BY_RECIPIENT[recipient]:
+        if profile.holds(group):
+            return group
+    raise NoPermissionGroupError(f"No permission group places a {recipient.value} row for this viewer")
+
+
+def _group_headings() -> dict[PermissionGroup, str]:
+    """Each group's heading; the capability groups use the Permissions tab's own labels."""
+    from membership.models import AdminCapability
+
+    capability = AdminCapability.Capability
+    return {
+        PermissionGroup.ADMIN: "Admin",
+        PermissionGroup.CLASS_APPROVER: capability.CLASS_APPROVER.label,
+        PermissionGroup.BILLING_APPROVER: capability.BILLING_APPROVER.label,
+        PermissionGroup.REFUNDS: capability.REFUNDS.label,
+        PermissionGroup.EVENTS_APPROVER: capability.EVENTS_APPROVER.label,
+        PermissionGroup.SPACE_APPROVER: capability.SPACE_APPROVER.label,
+        PermissionGroup.DISCOUNT_APPROVER: capability.DISCOUNT_APPROVER.label,
+        PermissionGroup.EQUIPMENT: capability.EQUIPMENT.label,
+        PermissionGroup.GUILD_LEADERSHIP: "Guild leadership",
+        PermissionGroup.EQUIPMENT_MANAGER: "Equipment manager",
+    }
+
+
+def _visible_events(profile: _StaffProfile, *, include_staff_section: bool = True) -> list[EventType]:
+    """Events whose preference row should be shown to the viewer ``profile`` describes.
 
     Every registered *member-facing* event that declares a user channel is shown — the page
     is the full catalogue of how the app can reach you. (Audience scoping is the resolver's
     job at send time; the page lists every member event so a user always sees, e.g., the
     teaching events even before they teach.)
 
-    A STAFF_SECTION event (approval request or admin alert) is shown only to a viewer who is
-    actually eligible to receive it — a holder of its capability or a member of its role
-    (:func:`_eligible_for`). A plain member sees none of them; an admin sees only the duties
-    they hold plus the admin/leadership alerts.
+    An Admin / Permissions event (approval request or admin alert) is shown only to a viewer
+    who is actually eligible to receive it — a holder of its capability or a member of its
+    role (:func:`_eligible_for`). A plain member sees none of them; an admin sees only the
+    duties they hold plus the admin/leadership alerts.
 
     When ``include_staff_section`` is ``False`` (an admin/officer previewing the page as a
     Member or Guest), every staff/leadership/admin event is dropped up front — before the
-    eligibility check — so the Staff & Leadership section is omitted entirely.
+    eligibility check — so Admin / Permissions is omitted entirely.
     """
-    profile = _staff_profile(user)
     out: list[EventType] = []
     for event in all_events():
         if not any(event.has_channel(channel) for channel in USER_CHANNELS):
@@ -436,17 +606,14 @@ def _visible_events(user: User, *, include_staff_section: bool = True) -> list[E
 
 
 def _ordered_categories(categories: set[str]) -> list[str]:
-    """Order the rendered sections: CATEGORY_ORDER first, unknown extras alpha, then the
-    two collapsed blocks — Always emailed, then Staff & leadership.
+    """Order the member topics: CATEGORY_ORDER first, then unknown categories alphabetically.
 
-    Both tail sections are placed **structurally**, not alphabetically, so a brand-new
-    category not yet listed in CATEGORY_ORDER still sorts ahead of them whatever it is
-    called.
+    Admin / Permissions is not a category and is placed first by :func:`build_matrix`
+    itself, so no category name can outrank it.
     """
-    tail = [section for section in (ALWAYS_EMAILED_SECTION, STAFF_SECTION) if section in categories]
     ranked = [c for c in CATEGORY_ORDER if c in categories]
-    rest = sorted(c for c in categories if c not in CATEGORY_ORDER and c not in tail)
-    return ranked + rest + tail
+    rest = sorted(c for c in categories if c not in CATEGORY_ORDER)
+    return ranked + rest
 
 
 def _member_discord_linked(user: User) -> bool:
@@ -485,59 +652,24 @@ def visible_channels(user: User, *, include_staff_section: bool = True) -> list[
     ``include_staff_section`` is forwarded to :func:`_visible_events` so a member-view
     preview doesn't render a dead column for a channel only staff events offer.
     """
-    events = _visible_events(user, include_staff_section=include_staff_section)
+    events = _visible_events(_staff_profile(user), include_staff_section=include_staff_section)
+    return _channels_offered_by(events)
+
+
+def _channels_offered_by(events: list[EventType]) -> list[Channel]:
     return [channel for channel in USER_CHANNELS if any(event.channel(channel) is not None for event in events)]
 
 
-# Each capability-scoped recipient maps to the capability whose holders receive the
-# event by default; a member holding it gets a "You get this as a …" badge on the row.
-_CAPABILITY_BY_RECIPIENT: dict[Recipients, str] = {
-    Recipients.CLASS_APPROVERS: "class_approver",
-    Recipients.GUILD_LEADERSHIP_OR_CLASS_APPROVERS: "class_approver",
-    Recipients.SPACE_APPROVERS: "space_approver",
-    Recipients.DISCOUNT_APPROVERS: "discount_approver",
-    Recipients.EVENTS_APPROVERS: "events_approver",
-    Recipients.GUILD_LEADERSHIP_OR_EVENTS_APPROVERS: "events_approver",
-    Recipients.BILLING_APPROVERS: "billing_approver",
-    Recipients.REFUND_AUTHORITY: "refunds",
-    Recipients.EQUIPMENT_MANAGERS: "equipment",
-    Recipients.GUILD_ORIENTERS_OR_EQUIPMENT_MANAGERS: "equipment",
-}
-
-
-def _capability_badges(user: User, events: list[EventType]) -> dict[str, str]:
-    """Map each visible event the user receives via a held capability to its row badge.
-
-    One bounded query for the member's capabilities (not a resolver call per row): a row
-    is badged only when the event routes to a capability the member actually holds.
-    """
-    from membership.models import AdminCapability, Member
-
-    member = Member.objects.filter(user=user).only("id").first()
-    if member is None:
-        return {}
-    held = set(member.admin_capabilities.values_list("capability", flat=True))
-    if not held:
-        return {}
-    labels = {choice.value: choice.label for choice in AdminCapability.Capability}
-    badges: dict[str, str] = {}
-    for event in events:
-        capability = _CAPABILITY_BY_RECIPIENT.get(event.recipient)
-        if capability is not None and capability in held:
-            badges[event.key] = f"You get this as a {labels[capability]}"
-    return badges
-
-
-def build_matrix(user: User, *, include_staff_section: bool = True) -> list[tuple[str, list[Row]]]:
-    """Assemble the matrix for ``user`` — a list of ``(category, [Row, ...])``.
+def build_matrix(user: User, *, include_staff_section: bool = True) -> list[MatrixSection]:
+    """Assemble the settings page for ``user`` as a list of :class:`MatrixSection`.
 
     For each visible event, one :class:`Row` with a :class:`Cell` per user channel:
     forced cells locked-on, opt-out-able cells reflecting the saved preference (or the
-    event's channel default). A row the user receives via an admin capability carries a
-    badge. Sections are returned in :data:`CATEGORY_ORDER`, with every always-emailed
-    event collected into :data:`ALWAYS_EMAILED_SECTION` and every staff/leadership event
-    into a single :data:`STAFF_SECTION` rendered **last** (and only for eligible viewers —
-    see :func:`_visible_events`).
+    event's channel default). Sections come in page order: :data:`ADMIN_SECTION` first when
+    the viewer has any row in it, its rows split into one :class:`MatrixBlock` per
+    :class:`PermissionGroup` (group order, first held group wins, empty groups absent);
+    then the member topics in :data:`CATEGORY_ORDER`, one untitled block each. Rows keep
+    catalogue order inside a block.
 
     The members of a :class:`RowGroup` collapse into ONE row, emitted at the position of
     the group's first member and named after the group. Such a row's cell is on only when
@@ -546,16 +678,20 @@ def build_matrix(user: User, *, include_staff_section: bool = True) -> list[tupl
     flattens the group on their next save — the approved rule, not a bug.
 
     When ``include_staff_section`` is ``False`` (an admin/officer previewing as Member or
-    Guest), the Staff & Leadership section and any staff-only channel columns are omitted.
+    Guest), Admin / Permissions and any staff-only channel columns are omitted.
+
+    Raises:
+        NoPermissionGroupError: a visible staff row fits none of the viewer's groups.
     """
-    events = _visible_events(user, include_staff_section=include_staff_section)
-    channels = visible_channels(user, include_staff_section=include_staff_section)
+    profile = _staff_profile(user)
+    events = _visible_events(profile, include_staff_section=include_staff_section)
+    channels = _channels_offered_by(events)
     # Compute per-channel availability once (the Discord-linked lookup is a single
     # query) rather than re-deriving it for every cell.
     discord_linked = _member_discord_linked(user)
     availability = {channel: channel_availability(user, channel, discord_linked=discord_linked) for channel in channels}
-    capability_badges = _capability_badges(user, events)
-    by_category: dict[str, list[Row]] = {}
+    admin_rows: dict[PermissionGroup, list[Row]] = {}
+    topic_rows: dict[str, list[Row]] = {}
     rendered: set[str] = set()
     for event in events:
         post_key = _post_key_for(event)
@@ -596,10 +732,22 @@ def build_matrix(user: User, *, include_staff_section: bool = True) -> list[tupl
             label=event.label if group is None else group.label,
             description=event.description if group is None else group.description,
             cells=cells,
-            badge=capability_badges.get(event.key, ""),
         )
-        by_category.setdefault(_section_for(event), []).append(row)
-    return [(category, by_category[category]) for category in _ordered_categories(set(by_category))]
+        section = _section_for(event)
+        if section == ADMIN_SECTION:
+            admin_rows.setdefault(_group_for(event.recipient, profile), []).append(row)
+        else:
+            topic_rows.setdefault(section, []).append(row)
+    sections: list[MatrixSection] = []
+    if admin_rows:
+        headings = _group_headings()
+        blocks = [
+            MatrixBlock.of(headings[group], admin_rows[group]) for group in PermissionGroup if group in admin_rows
+        ]
+        sections.append(MatrixSection.of(ADMIN_SECTION, blocks, is_admin=True))
+    for category in _ordered_categories(set(topic_rows)):
+        sections.append(MatrixSection.of(category, [MatrixBlock.of("", topic_rows[category])], is_admin=False))
+    return sections
 
 
 def save_matrix(user: User, posted: dict[str, str], *, include_staff_section: bool = True) -> None:
@@ -628,12 +776,16 @@ def save_matrix(user: User, posted: dict[str, str], *, include_staff_section: bo
     here would write ``enabled=False`` and silently wipe the admin's own staff prefs. The
     flag drops those events from the iteration entirely, the same protective pattern as the
     Discord-unlinked channel skip below.
+
+    The same trap binds the page: every row this iterates must render its writable
+    checkboxes, collapsed or not. A padlocked row (forced email) keeps live Push and Discord
+    cells, so it renders in its topic like any other row rather than being hidden.
     """
     discord_linked = _member_discord_linked(user)
     availability = {
         channel: channel_availability(user, channel, discord_linked=discord_linked) for channel in USER_CHANNELS
     }
-    for event in _visible_events(user, include_staff_section=include_staff_section):
+    for event in _visible_events(_staff_profile(user), include_staff_section=include_staff_section):
         for channel in USER_CHANNELS:
             spec = event.channel(channel)
             if spec is None or spec.is_forced or channel is Channel.IN_APP:
