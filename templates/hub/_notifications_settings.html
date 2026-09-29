@@ -11,15 +11,14 @@ device and no Capacitor bridge to ask.
 <div class="hub-card">
   <h2 class="pl-notif-title">Notifications</h2>
   <p class="hub-text-muted pl-notif-intro">
-    Choose how each event reaches you. A few essential notices are always emailed and can't be
-    turned off: sign-in links and invitations, a class being cancelled, refunds, charges, and tab limit
-    warnings, a space agreement ending, equipment reservations, and Discord setup. Most of them sit together in
-    the Always emailed block.
+    Choose how each notice reaches you. The bell always shows everything. A padlock means that notice is always
+    emailed, because missing it would cause real problems: sign-in links and invitations, a cancelled class,
+    refunds, charges and tab limits, a space agreement ending, equipment reservations, late fees and Discord setup.
   </p>
   {% if not prefs_token %}
   <nav class="pl-notif-jump" aria-label="Jump to a notification section">
     {% for section in notif_matrix %}
-      <a class="pl-notif-jump__chip" href="#notif-{{ section.slug }}">{{ section.title }}</a>
+      <a class="pl-notif-jump__chip{% if section.is_admin %} pl-notif-jump__chip--admin{% endif %}" href="#notif-{{ section.slug }}">{{ section.title }}</a>
     {% endfor %}
   </nav>
   {% endif %}

@@ -1,5 +1,6 @@
 """Notifications settings tab saves NotificationPreference rows."""
 
+import html
 import re
 
 import pytest
@@ -185,11 +186,33 @@ def _browser_post_data(content):
     return data
 
 
+_SECTION_START = re.compile(r'<(?:section|div) class="pl-notif-section[^"]*" id="notif-([a-z0-9-]+)"')
+
+
+def _section_ids(content):
+    """The rendered sections' anchors, in page order."""
+    return [match.group(1) for match in _SECTION_START.finditer(content)]
+
+
 def _section_markup(content, slug):
-    """The rendered markup of one section, from its anchor to the next section's."""
-    start = content.index(f'<div class="pl-notif-section" id="notif-{slug}">')
-    end = content.find('<div class="pl-notif-section" id="notif-', start + 1)
-    return content[start : end if end != -1 else content.index('<div class="pl-notif-actions">', start)]
+    """The rendered markup of one section, from its opening tag to the next section's."""
+    starts = list(_SECTION_START.finditer(content))
+    for index, match in enumerate(starts):
+        if match.group(1) == slug:
+            end = (
+                starts[index + 1].start()
+                if index + 1 < len(starts)
+                else content.index("pl-notif-actions", match.start())
+            )
+            return content[match.start() : end]
+    raise AssertionError(f"no section notif-{slug} on the page")
+
+
+def _notifications_card(content):
+    """The notifications card only: intro to the end of the form, so the changelog every
+    page renders (STANDARDS.md §8) can never satisfy or break an assertion."""
+    start = content.index('<h2 class="pl-notif-title">')
+    return content[start : content.index('<div class="pl-notif-actions">', start)]
 
 
 def _input_tag(markup, name):
@@ -217,52 +240,56 @@ def _admin_edit_page(client, target_member, admin_username):
     return client.get(reverse("hub_admin_member_edit", args=[target_member.pk])).content.decode()
 
 
-ADMIN_SECTION_ANCHOR = '<div class="pl-notif-section" id="notif-admin-permissions">'
+ADMIN_SLUG = "admin-permissions"
 RETIRED_BLOCK_ANCHOR = 'id="notif-always-emailed"'
 
 
 def describe_admin_permissions_on_every_surface():
     def it_renders_first_with_its_jump_chip_on_an_admins_own_page(client):
         content = _own_page(client, "ap_own", admin=True)
-        assert ADMIN_SECTION_ANCHOR in content
-        first_section = content.index('<div class="pl-notif-section" id="notif-')
-        assert content.index(ADMIN_SECTION_ANCHOR) == first_section
-        assert 'href="#notif-admin-permissions"' in content
+        assert _section_ids(content)[0] == ADMIN_SLUG
+        assert '<section class="pl-notif-section pl-notif-section--admin" id="notif-admin-permissions"' in content
+        assert 'class="pl-notif-jump__chip pl-notif-jump__chip--admin" href="#notif-admin-permissions"' in content
 
     def it_heads_each_permission_group_inside_it(client):
-        section = _section_markup(_own_page(client, "ap_heads", admin=True), "admin-permissions")
-        assert '<h4 class="hub-detail-label pl-notif-block-heading">Admin</h4>' in section
+        section = _section_markup(_own_page(client, "ap_heads", admin=True), ADMIN_SLUG)
+        assert '<div class="pl-notif-group pl-notif-block" id="notif-admin-admin">' in section
+        assert '<h4 class="pl-notif-group__title">Admin</h4>' in section
 
     def it_carries_the_note_and_the_manage_link_at_its_top(client):
-        section = _section_markup(_own_page(client, "ap_note", admin=True), "admin-permissions")
+        section = _section_markup(_own_page(client, "ap_note", admin=True), ADMIN_SLUG)
         note = section.index("pl-notif-section-note")
         assert "Manage your admin duties" in section
-        assert note < section.index("pl-notif-block-heading")
+        assert note < section.index("pl-notif-group__title")
 
     def it_renders_when_an_admin_edits_another_admin(client):
         target = User.objects.create_user(username="ap_target", email="ap_target@example.com").member
         target.fog_role = Member.FogRole.ADMIN
         target.save()
-        content = _admin_edit_page(client, target, "ap_editor")
-        assert ADMIN_SECTION_ANCHOR in content
+        assert ADMIN_SLUG in _section_ids(_admin_edit_page(client, target, "ap_editor"))
 
     def it_renders_on_the_no_login_token_page_for_an_admin(client):
         user, _member = _make_admin_matrix_user("ap_token")
-        assert ADMIN_SECTION_ANCHOR in _token_page(client, user)
+        assert ADMIN_SLUG in _section_ids(_token_page(client, user))
 
     def describe_for_a_plain_member():
         def it_renders_no_section_and_no_chip_on_their_own_page(client):
             content = _own_page(client, "ap_plain")
-            assert ADMIN_SECTION_ANCHOR not in content
+            assert ADMIN_SLUG not in _section_ids(content)
             assert 'href="#notif-admin-permissions"' not in content
 
         def it_renders_no_section_on_the_token_page(client):
             user = User.objects.create_user(username="ap_plain_token", email="ap_plain_token@example.com")
-            assert ADMIN_SECTION_ANCHOR not in _token_page(client, user)
+            assert ADMIN_SLUG not in _section_ids(_token_page(client, user))
 
         def it_renders_no_section_when_an_admin_edits_them(client):
             target = User.objects.create_user(username="ap_plain_t", email="ap_plain_t@example.com").member
-            assert ADMIN_SECTION_ANCHOR not in _admin_edit_page(client, target, "ap_plain_editor")
+            assert ADMIN_SLUG not in _section_ids(_admin_edit_page(client, target, "ap_plain_editor"))
+
+        def it_renders_a_chip_for_every_real_section_and_nothing_else(client):
+            content = _own_page(client, "ap_chips")
+            chips = re.findall(r'class="pl-notif-jump__chip[^"]*" href="#notif-([a-z0-9-]+)"', content)
+            assert chips == _section_ids(content)
 
 
 def describe_padlocked_rows_on_every_surface():
@@ -277,6 +304,14 @@ def describe_padlocked_rows_on_every_surface():
         for page in (own, admin_page, token):
             assert RETIRED_BLOCK_ANCHOR not in page
             assert '<details class="pl-disclosure">' not in page
+        # The copy is gone from the notifications card too (the card only: the changelog
+        # on every page may quote the old name).
+        for page in (own, token):
+            assert "Always emailed" not in _notifications_card(page)
+
+    def it_explains_the_padlock_in_the_intro(client):
+        intro = " ".join(_notifications_card(_own_page(client, "pl_intro")).split())
+        assert "The bell always shows everything. A padlock means that notice is always emailed" in intro
 
     def it_renders_class_cancelled_in_classes_with_a_padlocked_email(client):
         classes = _section_markup(_own_page(client, "pl_classes"), "classes")
@@ -358,3 +393,99 @@ def describe_padlocked_rows_on_every_surface():
                 channel__in=["email", "in_app"],
             )
             assert not locked.exists()
+
+
+def _aria_labels(markup):
+    """The bulk buttons' accessible names, unescaped ("Spaces & Equipment" renders &amp;)."""
+    return {html.unescape(label) for label in re.findall(r'aria-label="(Turn (?:on|off) [^"]+)"', markup)}
+
+
+def describe_bulk_controls():
+    def describe_the_everything_bar():
+        def it_offers_all_and_each_channel_a_plain_member_can_flip(client):
+            labels = _aria_labels(_notifications_card(_own_page(client, "bk_page")))
+            for action in ("on", "off"):
+                assert f"Turn {action} all channels for everything" in labels
+                assert f"Turn {action} Email for everything" in labels
+                assert f"Turn {action} Push for everything" in labels
+            # Discord is not linked, so no Discord cell can change and no control shows.
+            assert "Turn off Discord for everything" not in labels
+
+        def it_offers_discord_once_the_member_links_it(client):
+            user = User.objects.create_user(username="bk_disc", email="bk_disc@example.com", password="pw12345!")
+            member = Member.objects.get(user=user)
+            member.discord_user_id = "bk-disc-1"
+            member.save(update_fields=["discord_user_id"])
+            client.login(username="bk_disc", password="pw12345!")
+            content = client.get(reverse("hub_user_settings") + "?tab=notifications").content.decode()
+            assert "Turn off Discord for everything" in _aria_labels(_notifications_card(content))
+
+        def it_says_nothing_changes_until_save(client):
+            card = _notifications_card(_own_page(client, "bk_hint"))
+            assert "Every section on this page. Nothing changes until you press Save." in card
+
+    def describe_every_grid():
+        def it_offers_exactly_the_channels_its_rows_let_you_flip(client):
+            # Walk the real page: for every grid, each channel has an On and Off button if
+            # and only if the grid's editable channels include it, and never the bell.
+            User.objects.create_user(username="bk_grid", email="bk_grid@example.com", password="pw12345!")
+            client.login(username="bk_grid", password="pw12345!")
+            response = client.get(reverse("hub_user_settings") + "?tab=notifications")
+            content = response.content.decode()
+            labels = dict(response.context["notif_channels"])
+            for section in response.context["notif_matrix"]:
+                markup = _aria_labels(_section_markup(content, section.slug))
+                for block in section.blocks:
+                    scope = block.heading or section.title
+                    for channel, label in labels.items():
+                        offered = f"Turn off {label} for {scope}" in markup
+                        assert offered == (channel in block.editable_channels), (scope, label)
+                    assert (f"Turn on all channels for {scope}" in markup) == bool(block.editable_channels), scope
+
+        def it_renders_no_bulk_row_for_a_grid_with_nothing_to_flip(client):
+            User.objects.create_user(username="bk_none", email="bk_none@example.com", password="pw12345!")
+            client.login(username="bk_none", password="pw12345!")
+            response = client.get(reverse("hub_user_settings") + "?tab=notifications")
+            content = response.content.decode()
+            locked = [section for section in response.context["notif_matrix"] if not section.editable_channels]
+            assert locked, "expected a topic whose every cell is padlocked (Membership)"
+            for section in locked:
+                markup = _section_markup(content, section.slug)
+                assert "pl-notif-matrix__bulk" not in markup
+                assert "pl-notif-onoff" not in markup
+
+        def it_names_billing_in_its_controls(client):
+            markup = _aria_labels(_section_markup(_own_page(client, "bk_bill"), "billing"))
+            assert "Turn off Email for Billing" in markup
+            assert "Turn on Push for Billing" in markup
+
+        def it_never_offers_a_bell_control(client):
+            assert not [label for label in _aria_labels(_own_page(client, "bk_bell", admin=True)) if "Bell" in label]
+
+    def describe_admin_permissions():
+        def it_has_a_whole_section_bar_and_one_set_per_group(client):
+            section = _aria_labels(_section_markup(_own_page(client, "bk_admin", admin=True), ADMIN_SLUG))
+            assert "Turn off Email for Admin / Permissions" in section
+            assert "Turn off all channels for Admin / Permissions" in section
+            assert "Turn off Email for Admin" in section
+
+    def it_tags_every_checkbox_with_its_channel(client):
+        card = _notifications_card(_own_page(client, "bk_tags", admin=True))
+        boxes = re.findall(r'<input type="checkbox"\s+name="pref__[^"]+__([a-z_]+)"\s+data-channel="([a-z_]+)"', card)
+        assert boxes
+        assert all(suffix == channel for suffix, channel in boxes)
+        assert len(boxes) == card.count('<input type="checkbox"')
+
+    def it_keeps_the_dirty_guard_on_the_members_own_page(client):
+        card = _notifications_card(_own_page(client, "bk_dirty"))
+        assert 'data-dirty-key="notifications"' in card
+        assert '@change="dirty.notifications = true"' in card
+
+    def it_renders_the_controls_on_the_token_page_and_the_admin_tab_too(client):
+        target = User.objects.create_user(username="bk_t", email="bk_t@example.com")
+        admin_page = _admin_edit_page(client, target.member, "bk_admin_editor")
+        client.logout()
+        token = _token_page(client, target)
+        for page in (admin_page, token):
+            assert "Turn off Email for everything" in _aria_labels(page)
+            assert "Turn off Email for Billing" in _aria_labels(page)

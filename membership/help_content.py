@@ -239,15 +239,17 @@ Some events also offer a **Scheduled** or **Digest** column — a weekly round-u
 
 Flip any switch to turn that notice on or off for that channel. To move faster:
 
-- **All on** / **All off** at the very top flips everything at once.
-- Each category ("Classes", "Your guilds", and so on) has its own **All on** / **All off**.
+- **Everything**, at the very top, flips every switch on the page: **All** for every channel, or just **Email**, **Push** or **Discord**.
+- Each category ("Classes", "Guilds", and so on) has the same **On** / **Off** buttons at the top of its table, for just that category.
 - Some rows cover a whole family of notices at once — every update about an event you proposed, say. Switching that row off switches off the whole family.
 
 Then hit **Save** at the bottom.
 
 ## What You Can't Turn Off {#always-on}
 
-A few notices are locked on, because missing them would cause real problems: sign-in links and invitations, a class being cancelled, refunds, charges, and tab limit warnings, a space agreement ending, equipment reservations, and Discord setup. You'll always get those by email. Most of them sit together in a block called **Always emailed**. Open it and you can still change push and Discord for the ones that offer them.
+A few notices are locked on, because missing them would cause real problems: sign-in links and invitations, a class being cancelled, refunds, charges and tab limit warnings, a space agreement ending, equipment reservations, late fees and Discord setup. Their Email switch shows a padlock. You can still change push and Discord for the ones that offer them.
+
+If you hold a role or an admin permission, the notices it brings you sit together in **Admin / Permissions** at the top of the page, grouped by the permission. Every section has buttons to turn all Email, all Push or all Discord on or off at once. Nothing changes until you press Save.
 
 Announcements can also be marked **urgent** by whoever sends them. An urgent announcement reaches you even if you've turned that kind of email off — it's saved for the things you truly need to know.
 

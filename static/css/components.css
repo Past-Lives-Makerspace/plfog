@@ -342,17 +342,6 @@
     margin-top: 0.1rem;
 }
 
-.pl-notif-matrix__event-badge {
-    display: inline-block;
-    margin-top: 0.3rem;
-    padding: 0.1rem 0.45rem;
-    border-radius: 999px;
-    font-size: 0.68rem;
-    font-weight: 600;
-    color: var(--hub-accent, #EEB44B);
-    background: rgba(238, 180, 75, 0.14);
-}
-
 .pl-notif-matrix__cell {
     display: flex;
     align-items: center;
@@ -476,8 +465,8 @@
     margin: 0;
 }
 
-/* Category header row: title on the left, the per-section All on/off control on
-   the right. */
+/* Category header row: the member topic's title. Its bulk switches live in the grid's
+   second header row (.pl-notif-matrix__bulk). */
 .pl-notif-category-head {
     display: flex;
     align-items: center;
@@ -567,45 +556,265 @@
     color: #b03030;
 }
 
-/* Bulk on/off controls (the top "Everything" row and each section's). */
-.pl-notif-bulk {
+/* Admin / Permissions and the per-channel bulk switches (#524). Tokens only. The one
+   accent is the existing admin audience violet (--pl-help-admin, both themes defined in
+   hub.css), the same colour the Help Center uses for its "Admins" badge. */
+
+:root {
+    --pl-notif-admin: var(--pl-help-admin);
+}
+
+/* On | Off pair. One component for every bulk control on the page (All, Email, Push,
+   Discord at page, section and group scope). Two momentary actions, never a state:
+   neither half is ever shown as selected. 24px tall = the WCAG 2.2 minimum target. */
+.pl-notif-onoff {
+    display: inline-flex;
+    flex: none;
+    border: 1px solid var(--hub-border-strong);
+    border-radius: 6px;
+    background: var(--hub-card-bg);
+    overflow: hidden;
+}
+
+.pl-notif-onoff__btn {
+    appearance: none;
+    margin: 0;
+    border: 0;
+    background: transparent;
+    min-width: 1.75rem;
+    height: 1.5rem;
+    padding: 0 0.45rem;
+    font-family: var(--font-body);
+    font-size: 0.6875rem;
+    font-weight: 600;
+    line-height: 1;
+    color: var(--hub-text);
+    cursor: pointer;
+    transition: background-color 0.15s ease, color 0.15s ease;
+}
+
+.pl-notif-onoff__btn + .pl-notif-onoff__btn {
+    border-left: 1px solid var(--hub-border-strong);
+}
+
+.pl-notif-onoff__btn:hover {
+    color: var(--hub-link);
+    background: color-mix(in srgb, var(--color-tuscan-yellow) 12%, transparent);
+}
+
+.pl-notif-onoff__btn:active {
+    background: color-mix(in srgb, var(--color-tuscan-yellow) 24%, transparent);
+}
+
+.pl-notif-onoff__btn:focus-visible {
+    outline: 2px solid var(--hub-blue);
+    outline-offset: -2px;
+}
+
+/* Group / topic scope: the grid's header gets a second line. "All" under Event, and one
+   On | Off pair under each channel this grid can change. It only renders when the grid
+   has at least one editable cell (pl-notif-matrix--bulk); a column with none stays empty. */
+.pl-notif-matrix--bulk .pl-notif-matrix__event-head,
+.pl-notif-matrix--bulk .pl-notif-matrix__chan-head {
+    border-bottom: 0;
+    padding-bottom: 0.2rem;
+}
+
+.pl-notif-matrix__bulk {
+    display: contents;
+}
+
+.pl-notif-matrix__bulk-cell {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.5rem;
+    padding: 0.2rem 0.25rem 0.5rem;
+    background: var(--hub-surface);
+    border-bottom: 1px solid var(--hub-border);
+}
+
+.pl-notif-matrix__bulk-cell--event {
+    justify-content: flex-start;
+}
+
+.pl-notif-matrix__bulk-label {
+    font-size: 0.72rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.03em;
+    color: var(--hub-text-muted);
+}
+
+/* The bell column never gets a control; a quiet padlock says why its slot is empty. */
+.pl-notif-matrix__bulk-fixed {
+    display: inline-flex;
+    color: var(--hub-text-muted);
+    opacity: 0.6;
+}
+
+/* Scope bar: the same controls for a scope that spans several grids (the whole page,
+   and Admin / Permissions as a whole). Not sticky on purpose: a pinned "Email Off"
+   scrolled over the Billing grid would read as Billing's. */
+.pl-notif-scope {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.75rem 1.5rem;
+    padding: 0.75rem 1rem;
+    border: 1px solid var(--hub-border);
+    border-radius: 8px;
+    background: var(--hub-surface);
+}
+
+.pl-notif-scope--page {
+    margin-bottom: 1.75rem;
+}
+
+.pl-notif-scope--section {
+    margin-bottom: 1.25rem;
+    background: var(--hub-card-bg);
+    border-color: color-mix(in srgb, var(--pl-notif-admin) 28%, var(--hub-border));
+}
+
+/* The title gives way first, so the controls keep one line beside it on a desktop. */
+.pl-notif-scope__title {
+    flex: 1 1 14rem;
+    display: flex;
+    flex-direction: column;
+    gap: 0.125rem;
+    min-width: 0;
+}
+
+.pl-notif-scope__label {
+    font-size: 0.75rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    color: var(--hub-text);
+}
+
+.pl-notif-scope__hint {
+    font-size: 0.78rem;
+    color: var(--hub-text-muted);
+}
+
+.pl-notif-scope__controls {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.5rem 1.25rem;
+}
+
+.pl-notif-scope__ctl {
     display: inline-flex;
     align-items: center;
     gap: 0.5rem;
 }
 
-.pl-notif-bulk--all {
-    margin-bottom: 0.5rem;
-    padding-bottom: 0.75rem;
-    border-bottom: 1px solid var(--hub-border, rgba(255, 255, 255, 0.1));
-}
-
-.pl-notif-bulk__label {
+.pl-notif-scope__ctl-label {
     font-size: 0.72rem;
     font-weight: 600;
     text-transform: uppercase;
     letter-spacing: 0.03em;
-    color: var(--hub-text-muted, #8b97a8);
-    margin-right: 0.25rem;
+    color: var(--hub-text-muted);
 }
 
-.pl-notif-bulk__btn {
-    background: none;
-    border: none;
-    padding: 0;
-    cursor: pointer;
-    font-size: 0.78rem;
-    font-weight: 600;
-    color: var(--color-tuscan-yellow, #eeb44b);
+/* Admin / Permissions: rendered first, framed and tinted in the admin violet with a left
+   rail, so it reads as its own room without raising its voice. Its grids sit on the card
+   colour so the rows stay as legible as every other section's. */
+.pl-notif-section--admin {
+    margin: 0 0 1.75rem;
+    padding: 1.25rem 1.25rem 1.25rem 1.5rem;
+    border: 1px solid color-mix(in srgb, var(--pl-notif-admin) 30%, transparent);
+    border-radius: 10px;
+    background: color-mix(in srgb, var(--pl-notif-admin) 5%, transparent);
+    box-shadow: inset 3px 0 0 var(--pl-notif-admin);
 }
 
-.pl-notif-bulk__btn:hover {
-    text-decoration: underline;
+.pl-notif-admin__head {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
 }
 
-.pl-notif-bulk__sep {
-    color: var(--hub-text-muted, #8b97a8);
-    opacity: 0.5;
+.pl-notif-admin__icon {
+    flex: none;
+    color: var(--pl-notif-admin);
+}
+
+.pl-notif-admin__title {
+    margin: 0;
+    font-family: var(--font-heading);
+    font-size: 1.0625rem;
+    font-weight: 700;
+    color: var(--hub-text);
+}
+
+.pl-notif-section--admin > .pl-notif-section-note {
+    margin: 0.375rem 0 1rem;
+}
+
+.pl-notif-section--admin .pl-notif-matrix__scroll {
+    background: var(--hub-card-bg);
+}
+
+/* A group inside Admin / Permissions, headed by the permission that brings its rows.
+   Capitalised per FRONTEND.md rule 22 ("Guild leadership" renders "Guild Leadership"). */
+.pl-notif-group {
+    scroll-margin-top: calc(var(--topbar-height) + 1rem);
+}
+
+.pl-notif-group + .pl-notif-group {
+    margin-top: 1.5rem;
+}
+
+.pl-notif-group__title {
+    margin: 0 0 0.5rem;
+    font-family: var(--font-body);
+    font-size: 0.875rem;
+    font-weight: 700;
+    color: var(--pl-notif-admin);
+    text-transform: capitalize;
+}
+
+/* Its jump chip carries the same accent, first in the row. */
+.pl-notif-jump__chip--admin {
+    color: var(--pl-notif-admin);
+    background: color-mix(in srgb, var(--pl-notif-admin) 12%, transparent);
+    border-color: color-mix(in srgb, var(--pl-notif-admin) 35%, transparent);
+}
+
+.pl-notif-jump__chip--admin:hover,
+.pl-notif-jump__chip--admin:focus-visible {
+    color: var(--pl-notif-admin);
+    border-color: var(--pl-notif-admin);
+}
+
+@media (max-width: 640px) {
+    .pl-notif-section--admin {
+        padding: 1rem 0.75rem 1rem 1rem;
+    }
+
+    .pl-notif-scope {
+        padding: 0.75rem;
+    }
+
+    /* Two controls per line, each owning half the bar: label left, pair right, so the
+       pairs line up in two clean columns and never run past the bar's edge. */
+    .pl-notif-scope__controls {
+        flex: 1 1 100%;
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 0.5rem 0.75rem;
+    }
+
+    .pl-notif-scope__ctl {
+        display: flex;
+        justify-content: space-between;
+        gap: 0.25rem;
+    }
 }
 
 .pl-notif-actions {

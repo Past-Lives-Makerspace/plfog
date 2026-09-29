@@ -1,13 +1,23 @@
 {% load hub_tags %}
 {% comment %}
 The event x channel notification preference grid. Shared by a member's own settings
-page (_notifications_settings.html) and the admin member-edit Permissions tab, so an
-admin can edit a member's notifications for them. The form posts to the current page
-with form_id=notifications; each host view saves the matrix for the right user.
+page (_notifications_settings.html), the no-login email-preferences page and the admin
+member-edit Permissions tab, so an admin can edit a member's notifications for them. The
+form posts to the current page with form_id=notifications; each host view saves the
+matrix for the right user.
+
+Layout (#524): an "Everything" bar, then the sections from build_matrix. Admin /
+Permissions comes first when the viewer has rows in it, framed, with a "Whole section"
+bar and one grid per permission group; each member topic is one grid. Every grid with at
+least one editable cell gets a second header row of bulk switches: All, then On | Off
+under each channel its rows let you change. The bell never gets a control. Padlocked,
+bell and unlinked-Discord cells render disabled, so plNotifBulk's :not(:disabled) never
+touches them. Every rendered row still posts its live boxes, which is what keeps
+save_matrix from reading a missing box as off.
 
 Context:
-  notif_matrix   — build_matrix output: sections, each holding blocks of rows. Admin /
-                   Permissions comes first and heads each block with its permission.
+  notif_matrix   — build_matrix output: sections, each holding blocks of rows.
+  notif_page_channels — page_editable_channels(notif_matrix): the Everything bar's channels.
   notif_channels, notif_channel_labels — the grid's columns.
   matrix_self    — True on the member's own page ("you"); False when an admin edits
                    someone else's ("this member"). Defaults falsy → the admin phrasing.
@@ -19,98 +29,165 @@ Context:
   {% csrf_token %}
   <input type="hidden" name="form_id" value="notifications">
   {% if prefs_token %}<input type="hidden" name="t" value="{{ prefs_token }}">{% endif %}
-  <div class="pl-notif-bulk pl-notif-bulk--all">
-    <span class="pl-notif-bulk__label">Everything</span>
-    <button type="button" class="pl-notif-bulk__btn" onclick="plNotifBulk(this.closest('form'), true)">All on</button>
-    <span class="pl-notif-bulk__sep">·</span>
-    <button type="button" class="pl-notif-bulk__btn" onclick="plNotifBulk(this.closest('form'), false)">All off</button>
-  </div>
-  {% for section in notif_matrix %}
-    <div class="pl-notif-section" id="notif-{{ section.slug }}">
-    <div class="pl-notif-category-head">
-      <h3 class="hub-detail-label pl-notif-category">{{ section.title }}</h3>
-      <div class="pl-notif-bulk pl-notif-bulk--section">
-        <button type="button" class="pl-notif-bulk__btn" onclick="plNotifBulk(this.closest('.pl-notif-section'), true)">All on</button>
-        <span class="pl-notif-bulk__sep">·</span>
-        <button type="button" class="pl-notif-bulk__btn" onclick="plNotifBulk(this.closest('.pl-notif-section'), false)">All off</button>
-      </div>
+  {% if notif_page_channels %}
+  <div class="pl-notif-scope pl-notif-scope--page" role="group" aria-label="Everything: bulk switches">
+    <div class="pl-notif-scope__title">
+      <span class="pl-notif-scope__label">Everything</span>
+      <span class="pl-notif-scope__hint">Every section on this page. Nothing changes until you press Save.</span>
     </div>
+    <div class="pl-notif-scope__controls">
+      <span class="pl-notif-scope__ctl"><span class="pl-notif-scope__ctl-label">All</span>
+        {% include "hub/partials/_notification_onoff.html" with scope="form" scope_name="everything" channel="" %}
+      </span>
+      {% for channel in notif_page_channels %}
+      {% with label=notif_channel_labels|get_item:channel.value %}
+      <span class="pl-notif-scope__ctl"><span class="pl-notif-scope__ctl-label">{{ label }}</span>
+        {% include "hub/partials/_notification_onoff.html" with scope="form" scope_name="everything" channel=channel.value channel_label=label %}
+      </span>
+      {% endwith %}
+      {% endfor %}
+    </div>
+  </div>
+  {% endif %}
+  {% for section in notif_matrix %}
     {% if section.is_admin %}
+    <section class="pl-notif-section pl-notif-section--admin" id="notif-{{ section.slug }}" aria-labelledby="notif-{{ section.slug }}-title">
+      <div class="pl-notif-admin__head">
+        <svg class="pl-notif-admin__icon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/><path d="M9 12l2 2 4-4"/></svg>
+        <h3 class="pl-notif-admin__title" id="notif-{{ section.slug }}-title">{{ section.title }}</h3>
+      </div>
       {% if matrix_self %}
         <p class="hub-text-muted pl-notif-section-note">You see a row here only for a duty you hold or a role you have. Class, space, discount, calendar, and billing alerts are controlled by your admin capabilities.{% if capabilities_url %} <a href="{{ capabilities_url }}" hx-boost="false">Manage your admin duties →</a>{% endif %}</p>
       {% else %}
         <p class="hub-text-muted pl-notif-section-note">This member sees a row here only for a duty they hold or a role they have. The five capability alerts follow their admin capabilities on the Permissions tab.</p>
       {% endif %}
-    {% endif %}
-    {% if section.title == 'Guilds' and matrix_self and not prefs_token %}
-      <p class="hub-text-muted pl-notif-section-note">
-        <a href="?tab=guilds" @click.prevent="go('guilds')">Manage which guilds send you updates →</a>
-      </p>
-    {% endif %}
-    {% if section.title == 'Meetings' and matrix_self and not prefs_token and features.meetings.is_on %}
-      <p class="hub-text-muted pl-notif-section-note">
-        <a href="{% url 'hub_meetings' %}">View upcoming meetings →</a>
-      </p>
-    {% endif %}
-    {% for block in section.blocks %}
-    {% if block.heading %}<h4 class="hub-detail-label pl-notif-block-heading">{{ block.heading }}</h4>{% endif %}
-    <div class="pl-notif-matrix__scroll">
-      <div class="pl-notif-matrix" role="table" aria-label="{{ block.heading|default:section.title }} notification preferences"
-           style="--pl-notif-cols: {{ notif_channels|length }};">
-        <div class="pl-notif-matrix__head" role="row">
-          <div class="pl-notif-matrix__event-head" role="columnheader">Event</div>
-          {% for channel, label in notif_channels %}
-            <div class="pl-notif-matrix__chan-head" role="columnheader">{{ label }}{% if channel.value == "push" %} <span class="pl-help pl-help--right"><span class="pl-help__icon" tabindex="0" role="img" aria-label="Push: Android only for now, iOS coming soon.">?</span><span class="pl-help__bubble">Android only for now. iOS coming soon.</span></span>{% endif %}</div>
+      {% if section.editable_channels %}
+      <div class="pl-notif-scope pl-notif-scope--section" role="group" aria-label="Whole section: bulk switches">
+        <div class="pl-notif-scope__title">
+          <span class="pl-notif-scope__label">Whole section</span>
+          <span class="pl-notif-scope__hint">Every group below.</span>
+        </div>
+        <div class="pl-notif-scope__controls">
+          <span class="pl-notif-scope__ctl"><span class="pl-notif-scope__ctl-label">All</span>
+            {% include "hub/partials/_notification_onoff.html" with scope="section" scope_name=section.title channel="" %}
+          </span>
+          {% for channel in section.editable_channels %}
+          {% with label=notif_channel_labels|get_item:channel.value %}
+          <span class="pl-notif-scope__ctl"><span class="pl-notif-scope__ctl-label">{{ label }}</span>
+            {% include "hub/partials/_notification_onoff.html" with scope="section" scope_name=section.title channel=channel.value channel_label=label %}
+          </span>
+          {% endwith %}
           {% endfor %}
         </div>
-        {% for row in block.rows %}
-          <div class="pl-notif-matrix__row" role="row">
-            <div class="pl-notif-matrix__event" role="rowheader">
-              <div class="pl-notif-matrix__event-label">{{ row.label }}</div>
-              <div class="hub-text-muted pl-notif-matrix__event-desc">{{ row.description }}</div>
+      </div>
+      {% endif %}
+    {% else %}
+    <div class="pl-notif-section pl-notif-block" id="notif-{{ section.slug }}">
+      <div class="pl-notif-category-head">
+        <h3 class="hub-detail-label pl-notif-category">{{ section.title }}</h3>
+      </div>
+      {% if section.title == 'Guilds' and matrix_self and not prefs_token %}
+        <p class="hub-text-muted pl-notif-section-note">
+          <a href="?tab=guilds" @click.prevent="go('guilds')">Manage which guilds send you updates →</a>
+        </p>
+      {% endif %}
+      {% if section.title == 'Meetings' and matrix_self and not prefs_token and features.meetings.is_on %}
+        <p class="hub-text-muted pl-notif-section-note">
+          <a href="{% url 'hub_meetings' %}">View upcoming meetings →</a>
+        </p>
+      {% endif %}
+    {% endif %}
+    {% for block in section.blocks %}
+    {% with scope_name=block.heading|default:section.title %}
+      {% if section.is_admin %}
+      <div class="pl-notif-group pl-notif-block" id="notif-admin-{{ block.heading|slugify }}">
+        <h4 class="pl-notif-group__title">{{ block.heading }}</h4>
+      {% endif %}
+      <div class="pl-notif-matrix__scroll">
+        <div class="pl-notif-matrix{% if block.editable_channels %} pl-notif-matrix--bulk{% endif %}" role="table" aria-label="{{ scope_name }} notification preferences"
+             style="--pl-notif-cols: {{ notif_channels|length }};">
+          <div class="pl-notif-matrix__head" role="row">
+            <div class="pl-notif-matrix__event-head" role="columnheader">Event</div>
+            {% for channel, label in notif_channels %}
+              <div class="pl-notif-matrix__chan-head" role="columnheader">{{ label }}{% if channel.value == "push" %} <span class="pl-help pl-help--right"><span class="pl-help__icon" tabindex="0" role="img" aria-label="Push: Android only for now, iOS coming soon.">?</span><span class="pl-help__bubble">Android only for now. iOS coming soon.</span></span>{% endif %}</div>
+            {% endfor %}
+          </div>
+          {% if block.editable_channels %}
+          <div class="pl-notif-matrix__bulk" role="row">
+            <div class="pl-notif-matrix__bulk-cell pl-notif-matrix__bulk-cell--event" role="rowheader">
+              <span class="pl-notif-matrix__bulk-label">All</span>
+              {% include "hub/partials/_notification_onoff.html" with scope="block" scope_name=scope_name channel="" %}
             </div>
-            {% for cell in row.cells %}
-              <div class="pl-notif-matrix__cell" role="cell">
-                {% if cell.present %}
-                  <label class="pl-toggle pl-toggle--sm{% if cell.forced %} pl-toggle--locked{% elif not cell.available %} pl-toggle--disabled{% endif %}"
-                         {% if cell.forced %}title="Always on — this notice can't be turned off"{% elif not cell.available %}title="{{ cell.hint }}"{% endif %}>
-                    <input type="checkbox"
-                           name="{{ cell.name }}"
-                           aria-label="{{ row.label }} — {{ notif_channel_labels|get_item:cell.channel.value }}{% if cell.forced %} (always on){% elif not cell.available %} ({{ cell.hint }}){% endif %}"
-                           {% if cell.enabled %}checked{% endif %}
-                           {% if cell.forced or not cell.available %}disabled aria-disabled="true"{% endif %}>
-                    <span class="pl-toggle__slider">
-                      {% if cell.forced %}
-                        <svg class="pl-toggle__lock" width="9" height="9" viewBox="0 0 24 24" fill="none"
-                             stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"
-                             aria-hidden="true"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
-                      {% endif %}
-                    </span>
-                  </label>
-                {% else %}
-                  <span class="pl-notif-matrix__na" aria-hidden="true">—</span>
+            {% for channel, label in notif_channels %}
+              <div class="pl-notif-matrix__bulk-cell" role="cell">
+                {% if channel.value == "in_app" %}
+                  <span class="pl-notif-matrix__bulk-fixed"><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg><span class="sr-only">Bell is always on</span></span>
+                {% elif channel in block.editable_channels %}
+                  {% include "hub/partials/_notification_onoff.html" with scope="block" scope_name=scope_name channel=channel.value channel_label=label %}
                 {% endif %}
               </div>
             {% endfor %}
           </div>
-        {% endfor %}
+          {% endif %}
+          {% for row in block.rows %}
+            <div class="pl-notif-matrix__row" role="row">
+              <div class="pl-notif-matrix__event" role="rowheader">
+                <div class="pl-notif-matrix__event-label">{{ row.label }}</div>
+                <div class="hub-text-muted pl-notif-matrix__event-desc">{{ row.description }}</div>
+              </div>
+              {% for cell in row.cells %}
+                <div class="pl-notif-matrix__cell" role="cell">
+                  {% if cell.present %}
+                    <label class="pl-toggle pl-toggle--sm{% if cell.forced %} pl-toggle--locked{% elif not cell.available %} pl-toggle--disabled{% endif %}"
+                           {% if cell.forced %}title="Always on — this notice can't be turned off"{% elif not cell.available %}title="{{ cell.hint }}"{% endif %}>
+                      <input type="checkbox"
+                             name="{{ cell.name }}"
+                             data-channel="{{ cell.channel.value }}"
+                             aria-label="{{ row.label }} — {{ notif_channel_labels|get_item:cell.channel.value }}{% if cell.forced %} (always on){% elif not cell.available %} ({{ cell.hint }}){% endif %}"
+                             {% if cell.enabled %}checked{% endif %}
+                             {% if cell.forced or not cell.available %}disabled aria-disabled="true"{% endif %}>
+                      <span class="pl-toggle__slider">
+                        {% if cell.forced %}
+                          <svg class="pl-toggle__lock" width="9" height="9" viewBox="0 0 24 24" fill="none"
+                               stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"
+                               aria-hidden="true"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
+                        {% endif %}
+                      </span>
+                    </label>
+                  {% else %}
+                    <span class="pl-notif-matrix__na" aria-hidden="true">—</span>
+                  {% endif %}
+                </div>
+              {% endfor %}
+            </div>
+          {% endfor %}
+        </div>
       </div>
-    </div>
+      {% if section.is_admin %}
+      </div>
+      {% endif %}
+    {% endwith %}
     {% endfor %}
+    {% if section.is_admin %}
+    </section>
+    {% else %}
     </div>
+    {% endif %}
   {% endfor %}
   <div class="pl-notif-actions">
     <button type="submit" class="hub-btn hub-btn--primary">Save</button>
   </div>
 </form>
 <script>
-  // Bulk on/off for the notification matrix. ``scope`` is the whole <form> (the
-  // top "Everything" control) or one .pl-notif-section (a per-category control).
-  // Only non-disabled boxes flip — locked/always-on cells (the bell, forced mail)
-  // are disabled and stay put.
-  function plNotifBulk(scope, on) {
+  // Bulk on/off for the notification matrix (#524). ``scope`` is the <form> (Everything),
+  // a .pl-notif-section (Admin / Permissions as a whole) or a .pl-notif-block (one grid: a
+  // member topic or a group inside Admin / Permissions). ``channel`` narrows the flip to
+  // one column through data-channel; omitted, every channel flips (All on / All off).
+  // :not(:disabled) leaves the bell, padlocked Email and unlinked Discord cells alone.
+  function plNotifBulk(scope, on, channel) {
     if (!scope) return;
-    scope.querySelectorAll('input[type="checkbox"]:not(:disabled)').forEach(function (cb) {
+    var sel = 'input[type="checkbox"]' + (channel ? '[data-channel="' + channel + '"]' : '') + ':not(:disabled)';
+    scope.querySelectorAll(sel).forEach(function (cb) {
       cb.checked = on;
     });
     // Flipping .checked fires no change event, so the dirty guard would miss a bulk flip.

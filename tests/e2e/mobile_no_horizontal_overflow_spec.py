@@ -106,3 +106,37 @@ def describe_mobile_no_horizontal_overflow():
         page.goto(f"{live_server.url}{reverse('hub_user_settings')}?tab=notifications")
         page.locator("#notif-classes").wait_for(state="visible")
         assert page.evaluate(NO_H_SCROLL), f"notifications tab scrolls sideways at {PHONE['width']}px"
+
+    def it_keeps_an_admins_notifications_tab_narrow_with_every_bulk_control_reachable(
+        live_server, page, login_via_code
+    ):
+        """An admin's page adds the framed Admin / Permissions section and its bars (#524).
+        At 390px the page must not scroll sideways, and every On / Off button must be
+        reachable: the page bars wrap, and a grid's own buttons scroll into view inside
+        that grid's scroll box."""
+        from django.contrib.auth import get_user_model
+
+        from membership.models import Member
+
+        email = "mobile-overflow-admin@example.com"
+        MembershipPlanFactory()
+        page.set_viewport_size({"width": 390, "height": 844})
+        login_via_code(email)
+        Member.objects.filter(user=get_user_model().objects.get(username=email)).update(
+            fog_role=Member.FogRole.ADMIN, discord_user_id="mobile-overflow-admin"
+        )
+
+        page.goto(f"{live_server.url}{reverse('hub_user_settings')}?tab=notifications")
+        page.locator("#notif-admin-permissions").wait_for(state="visible")
+        assert page.evaluate(NO_H_SCROLL), "an admin's notifications tab scrolls sideways at 390px"
+
+        buttons = page.locator(".pl-notif-onoff__btn")
+        assert buttons.count() > 0
+        for index in range(buttons.count()):
+            button = buttons.nth(index)
+            button.scroll_into_view_if_needed()
+            box = button.bounding_box()
+            assert box is not None and box["x"] >= 0 and box["x"] + box["width"] <= 390, button.get_attribute(
+                "aria-label"
+            )
+        assert page.evaluate(NO_H_SCROLL), "scrolling a grid's buttons into view pushed the page sideways"
