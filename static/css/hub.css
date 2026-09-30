@@ -3534,6 +3534,9 @@ a:hover { color: var(--hub-link-hover); }
     border: 1px solid var(--hub-border);
     border-radius: 8px;
     overflow: hidden;
+    /* A phone is narrower than six columns: the table scrolls sideways inside its
+       frame instead of losing every column past the second (#543). */
+    overflow-x: auto;
 }
 
 .admin-table-wrap table {
@@ -3577,6 +3580,14 @@ html:not(.dark) .admin-table-wrap thead {
 .admin-table-wrap tbody td {
     padding: 0.6rem 0.75rem;
     font-size: 0.875rem;
+}
+
+/* Manage Classes: the title cell shows the whole title and wraps it (#543). The
+   floor stops a long title from folding one word per line beside the nowrap
+   Date(s) column; overflow-wrap covers a single unbroken word wider than that. */
+.admin-table-wrap td.pl-class-list__title {
+    min-width: 14rem;
+    overflow-wrap: anywhere;
 }
 
 .admin-table-wrap tbody tr {

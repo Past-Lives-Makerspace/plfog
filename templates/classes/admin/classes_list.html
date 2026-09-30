@@ -61,9 +61,9 @@
     <tbody>
     {% for c in page %}
         <tr{% if c.status == 'archived' %} style="opacity:0.55;"{% endif %}>
-            <td>
-                <a href="{% url 'classes:teach_class_detail' pk=c.pk %}" title="{{ c.title }}"
-                   style="display:inline-block;max-width:22ch;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;vertical-align:bottom;">{{ c.title }}</a>
+            {# The whole title, wrapped, never clipped: one instructor's rows share a long prefix and were unreadable at 22ch (#543). #}
+            <td class="pl-class-list__title">
+                <a href="{% url 'classes:teach_class_detail' pk=c.pk %}">{{ c.title }}</a>
             </td>
             <td>{{ c.instructor.display_name }}</td>
             <td>{{ c.category.name }}</td>

@@ -889,3 +889,24 @@ def describe_duplicate_class():
         assert "pottery" in slugs
         assert "pottery-copy" in slugs
         assert "pottery-copy-2" in slugs
+
+
+def describe_title_column():
+    def it_shows_the_whole_title_and_never_clips_it(admin_user, client, db):
+        # The shape of production's "... with Billy" rows, 54 characters, which the old
+        # 22ch clamp cut to the same "Blacksmithing 101 with…" on every row (#543).
+        from classes.factories import ClassOfferingFactory
+        from classes.models import ClassOffering
+
+        client.force_login(admin_user)
+        title = "Blacksmithing 101 with Billy - Pick Your November Time"
+        ClassOfferingFactory(title=title, status=ClassOffering.Status.PUBLISHED, instructor=admin_user.member)
+        # The whole catalog and the My Classes toggle render the same cell.
+        for query in ("", "?mine=1"):
+            response = client.get(reverse("classes:admin_classes") + query)
+            html = response.content.decode()
+            assert 'class="pl-class-list__title"' in html, query
+            cell = html.split('class="pl-class-list__title"')[1].split("</td>")[0]
+            assert f">{title}</a>" in cell, query
+            assert 'title="' not in cell, query
+            assert "max-width:22ch" not in html, query
