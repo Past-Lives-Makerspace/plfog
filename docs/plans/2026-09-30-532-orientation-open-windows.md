@@ -8,7 +8,7 @@ the window engine; do not rebuild it. Every existing hours row keeps working unc
 Mockups (approved by Felix before part 1 opens): `mockups/532-orientation-open-windows.html`
 (`?view=schedule|editor|member|picker`, `?theme=light`, `&phone=1`) and `mockups/screenshots/532-open-windows-01.png` to `-09.png`.
 
-Approved by Felix 2026-09-30: the desktop screens as drawn (D1 stands) and D7's fixed with fixed exception. The phone layout (D10, screenshots 08 and 09) was redrawn the same day after his review and awaits his yes.
+Approved by Felix 2026-09-30: the desktop screens as drawn (D1 stands) and D7's fixed with fixed exception. The phone layout (D10, screenshots 08 and 09) was redrawn the same day after his review and approved with one change, more room between the orienter name and the button (1.25rem). Part 1 started 2026-09-30.
 
 ## Words
 
@@ -58,7 +58,7 @@ Approved by Felix 2026-09-30: the desktop screens as drawn (D1 stands) and D7's 
   a window row's action is today's Pick a time button and modal. The "Pick a Time" sub heading goes.
   On a phone (640px and under) the same markup lays out as a day header (`.pl-orient-times__day`,
   one per local date via `{% ifchanged %}`) and one card per time (`.pl-orient-time`): the span in
-  1.125rem semibold, "with Amber" under it, and a full width 48px button, Request or Pick a time; a
+  1.125rem semibold, "with Amber" under it, and after a 1.25rem gap a full width 48px button, Request or Pick a time; a
   full fixed slot is a dimmed card with a dashed Full bar. The pager hides and a full width "Show more
   times" button shows instead; both read the list's Alpine `page` and `size`, and a row's visibility is
   `mobile ? i < (page + 1) * size : (i >= page * size && i < (page + 1) * size)` with `mobile` from
