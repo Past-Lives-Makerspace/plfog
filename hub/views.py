@@ -760,6 +760,9 @@ def guild_detail(request: HttpRequest, slug: str) -> HttpResponse:
         section["blocks"] = (
             [block for block in upcoming_blocks if block.valid_starts_for(section["type"])] if open_for_type else []
         )
+    # With nothing posted for any type, the custom request is the only way to book, so it
+    # renders as the primary button instead of the quiet one under a list of times.
+    orientation_has_posted_times = any(section["slots"] or section["blocks"] for section in orientation_sections)
 
     from billing.late_fees import unpaid_fee_for
     from hub.forms import GuildJoinForm, OrientationCustomRequestForm
@@ -820,6 +823,7 @@ def guild_detail(request: HttpRequest, slug: str) -> HttpResponse:
             "orientation_all_done": orientation_all_done,
             "show_orientation": show_orientation,
             "orientation_sections": orientation_sections,
+            "orientation_has_posted_times": orientation_has_posted_times,
             "unpaid_late_fee": unpaid_late_fee,
             "custom_request_form": custom_request_form,
             "join_form": join_form,
