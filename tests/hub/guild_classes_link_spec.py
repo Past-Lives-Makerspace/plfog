@@ -15,10 +15,10 @@ from tests.membership.factories import GuildFactory, GuildLinkFactory
 
 pytestmark = pytest.mark.django_db
 
-GUILDS_HOST = "guilds.pastlives.app"
+GUILDS_HOST = "guilds.pastlives.space"
 GUILDS_SETTINGS = dict(
-    ALLOWED_HOSTS=["guilds.pastlives.app", "testserver"],
-    GUILDS_HOSTS=["guilds.pastlives.app"],
+    ALLOWED_HOSTS=["guilds.pastlives.space", "testserver"],
+    GUILDS_HOSTS=["guilds.pastlives.space"],
     BOOK_BASE_URL="https://book.pastlives.space",
 )
 

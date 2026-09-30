@@ -1,7 +1,8 @@
-"""BDD specs for the public vanity redirect: pastlives.app/g/<slug> → guest guild page.
+"""BDD specs for the public vanity redirect: members.pastlives.space/g/<slug> → guest guild page.
 
 The vanity route is public (no @login_required), reachable on the member host pre-login,
-and 301-redirects to the guest guild page on GUILDS_BASE_URL. Unknown or soft-deleted
+and 302-redirects to the guest guild page on GUILDS_BASE_URL (temporary, so a browser never
+caches the guest host and a host move reaches every printed QR). Unknown or soft-deleted
 slugs 404 (the default Guild manager hides soft-deleted guilds).
 """
 
@@ -16,8 +17,8 @@ from tests.membership.factories import GuildFactory
 pytestmark = pytest.mark.django_db
 
 VANITY_SETTINGS = dict(
-    MEMBER_BASE_URL="https://pastlives.app",
-    GUILDS_BASE_URL="https://guilds.pastlives.app",
+    MEMBER_BASE_URL="https://members.pastlives.space",
+    GUILDS_BASE_URL="https://guilds.pastlives.space",
 )
 
 
@@ -27,18 +28,18 @@ def describe_guild_vanity_redirect():
         with override_settings(**VANITY_SETTINGS):
             yield
 
-    def it_permanently_redirects_an_anonymous_visitor_to_the_guest_page(client: Client):
+    def it_redirects_an_anonymous_visitor_to_the_guest_page(client: Client):
         guild = GuildFactory(name="Ceramics")
         resp = client.get(f"/g/{guild.slug}/")
-        assert resp.status_code == 301
-        assert resp["Location"] == f"https://guilds.pastlives.app/guilds/{guild.slug}/"
+        assert resp.status_code == 302
+        assert resp["Location"] == f"https://guilds.pastlives.space/guilds/{guild.slug}/"
 
     def it_reaches_the_view_without_login_on_the_member_host(client: Client):
         # Proves the view carries no @login_required — an anonymous GET yields the
-        # 301 (not a bounce to /accounts/login/).
+        # 302 to the guest page (not a bounce to /accounts/login/).
         guild = GuildFactory(name="Woodworking")
         resp = client.get(f"/g/{guild.slug}/")
-        assert resp.status_code == 301
+        assert resp.status_code == 302
         assert "/accounts/login/" not in resp["Location"]
 
     def it_resolves_to_the_named_vanity_route(client: Client):

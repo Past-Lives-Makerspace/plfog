@@ -217,25 +217,25 @@ def describe_guilds_surface():
     def _guilds_settings():
         with override_settings(
             ALLOWED_HOSTS=[
-                "guilds.pastlives.app",
+                "guilds.pastlives.space",
                 "book.pastlives.space",
                 "members.pastlives.space",
                 "testserver",
             ],
-            GUILDS_HOSTS=["guilds.pastlives.app"],
-            GUILDS_BASE_URL="https://guilds.pastlives.app",
+            GUILDS_HOSTS=["guilds.pastlives.space"],
+            GUILDS_BASE_URL="https://guilds.pastlives.space",
             PUBLIC_HOSTS=["book.pastlives.space"],
             MEMBER_HOST="members.pastlives.space",
         ):
             yield
 
     def it_sets_surface_to_guilds_for_the_guilds_host():
-        request, middleware = _build("guilds.pastlives.app", "/guilds/")
+        request, middleware = _build("guilds.pastlives.space", "/guilds/")
         middleware(request)
         assert request.surface == "guilds"
 
     def it_redirects_root_to_the_directory():
-        request, middleware = _build("guilds.pastlives.app", "/")
+        request, middleware = _build("guilds.pastlives.space", "/")
         response = middleware(request)
         assert response.status_code == 302
         assert response["Location"] == "/guilds/"
@@ -258,7 +258,7 @@ def describe_guilds_surface():
         ],
     )
     def it_allows_guest_appropriate_views(path):
-        request, middleware = _build("guilds.pastlives.app", path)
+        request, middleware = _build("guilds.pastlives.space", path)
         response = middleware(request)
         assert response.status_code == 200
 
@@ -274,12 +274,12 @@ def describe_guilds_surface():
         ],
     )
     def it_404s_views_that_are_not_guest_appropriate(path):
-        request, middleware = _build("guilds.pastlives.app", path)
+        request, middleware = _build("guilds.pastlives.space", path)
         with pytest.raises(Http404):
             middleware(request)
 
     def it_404s_a_path_that_does_not_resolve():
-        request, middleware = _build("guilds.pastlives.app", "/totally/unknown/xyz/")
+        request, middleware = _build("guilds.pastlives.space", "/totally/unknown/xyz/")
         with pytest.raises(Http404):
             middleware(request)
 

@@ -1,0 +1,7 @@
+bump = "patch"
+date = "2026-09-30"
+title = "Guild pages anyone can open"
+changes = [
+  "The \"View public page\" button on a guild, guild QR codes and printed guild flyers used to lead to an address that did not load. They now open the guild's public page, so nothing you printed needs reprinting.",
+  "Anyone can browse every guild at guilds.pastlives.space without logging in.",
+]

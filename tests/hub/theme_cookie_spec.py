@@ -59,7 +59,7 @@ def describe_theme_cookie_persistence():
 
     def describe_when_theme_cookie_domain_is_set():
         def it_injects_the_parent_domain_so_the_cookie_spans_subdomains(settings):
-            settings.THEME_COOKIE_DOMAIN = ".pastlives.app"
+            settings.THEME_COOKIE_DOMAIN = ".pastlives.space"
             html = _render_base()
-            assert "var themeCookieDomain = '.pastlives.app';" in html
+            assert "var themeCookieDomain = '.pastlives.space';" in html
             assert "c += '; domain=' + themeCookieDomain;" in html

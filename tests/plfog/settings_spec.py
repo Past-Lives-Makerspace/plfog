@@ -665,3 +665,16 @@ def describe_default_from_email():
                 {"DJANGO_DEBUG": "True", "SENTRY_DSN": None, "DEFAULT_FROM_EMAIL": None},
             )
             assert settings_module.DEFAULT_FROM_EMAIL == "noreply@pastlives.space"
+
+
+def describe_guilds_surface_defaults():
+    # Production sets neither variable, so these defaults are the live guest host. The .app
+    # host they once named never got DNS, and every "View public page" link died on it.
+    def it_serves_the_guest_guild_pages_on_pastlives_space(monkeypatch):
+        with patch("sentry_sdk.init"):
+            settings_module = _reload_settings(
+                monkeypatch,
+                {"GUILDS_HOSTS": None, "GUILDS_BASE_URL": None, "DJANGO_DEBUG": "True", "SENTRY_DSN": None},
+            )
+            assert settings_module.GUILDS_HOSTS == ["guilds.pastlives.space"]
+            assert settings_module.GUILDS_BASE_URL == "https://guilds.pastlives.space"

@@ -9,7 +9,7 @@ Plfog answers to three kinds of hostname:
   Everything else (admin, billing, voting, settings, member directory, the
   classes admin/instructor dashboards, etc.) returns 404 from this surface.
   ``request.surface == "public"``.
-- ``guilds.pastlives.app``: a public guild directory + guest guild pages.
+- ``guilds.pastlives.space``: a public guild directory + guest guild pages.
   ``request.surface == "guilds"``. Only the guest-appropriate views in
   ``GUILDS_ALLOWED_VIEW_NAMES`` (plus allauth's ``account_*`` login views)
   resolve here; everything else 404s, so the guild editor / product / cart
@@ -19,11 +19,11 @@ The middleware tags every request with ``request.surface`` so templates and
 views can branch on the chrome they should render, and short-circuits any
 request to a member-only path that arrives on the public surface.
 
-Member auth (``/accounts/*``) is served on all surfaces. On ``.pastlives.space``
-session cookies scope to ``.pastlives.space`` so a login completed on book is
-recognised on members automatically; on the ``.app`` guilds surface cookies are
-host-only (prod ``COOKIE_DOMAIN`` is unset), so login-in-place resolves on the
-guilds host with no extra plumbing.
+Member auth (``/accounts/*``) is served on all surfaces. Session cookies are
+host-only unless ``COOKIE_DOMAIN`` is set (production leaves it unset), so
+login-in-place resolves on the guilds host with no extra plumbing. Setting
+``COOKIE_DOMAIN=.pastlives.space`` would share one login across members, book
+and guilds.
 
 The root path on the public surface redirects to ``/classes/`` so the bare
 domain lands on the catalog rather than the member hub home.

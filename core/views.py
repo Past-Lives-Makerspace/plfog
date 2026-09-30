@@ -12,7 +12,7 @@ from django.contrib.auth.decorators import login_required
 from django.contrib.auth.models import User
 from django.core.paginator import Paginator
 from django.db.models import Q
-from django.http import Http404, HttpRequest, HttpResponse, HttpResponsePermanentRedirect, JsonResponse
+from django.http import Http404, HttpRequest, HttpResponse, HttpResponseRedirect, JsonResponse
 from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse
 from django.views.decorators.csrf import csrf_exempt
@@ -230,18 +230,18 @@ def home(request):
 
 
 def guild_vanity_redirect(request: HttpRequest, slug: str) -> HttpResponse:
-    """Public, human-typable pastlives.app/g/<slug> → 301 to the guest guild page.
+    """Public, human-typable members.pastlives.space/g/<slug> → 302 to the guest guild page.
 
     Reachable pre-login (no decorator). The default Guild manager hides soft-deleted
-    guilds, so an unknown OR soft-deleted slug 404s. Permanent (301) because the
-    vanity ↔ guild mapping is stable; the QR/flyer encode THIS route so the guest
-    host can move without reprints.
+    guilds, so an unknown OR soft-deleted slug 404s. The QR/flyer encode THIS route so
+    the guest host can move without reprints, which is why it is temporary (302): a
+    browser caches a 301 and would keep sending a scan to the old host after a move.
     """
     from membership.models import Guild
 
     guild = get_object_or_404(Guild, slug=slug)
     target = f"{settings.GUILDS_BASE_URL}{reverse('hub_guild_detail', args=[guild.slug])}"
-    return HttpResponsePermanentRedirect(target)
+    return HttpResponseRedirect(target)
 
 
 def newsletter_signup(request: HttpRequest) -> HttpResponse:

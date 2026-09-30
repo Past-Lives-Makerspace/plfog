@@ -18,8 +18,8 @@
         (function() {
             var h = document.documentElement;
             // Injected from settings.THEME_COOKIE_DOMAIN. Empty → host-only cookie
-            // (local dev); ".pastlives.app" in prod so the choice is shared across
-            // the member hub, the guilds surface, and the Discord OAuth callback.
+            // (local dev); ".pastlives.space" shares the choice across the member
+            // hub and the guilds surface.
             var themeCookieDomain = '{{ theme_cookie_domain|escapejs }}';
             function readThemeCookie() {
                 var m = document.cookie.match(/(?:^|;\s*)pl_theme=(light|dark)/);

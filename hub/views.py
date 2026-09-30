@@ -509,7 +509,7 @@ def guild_detail_redirect(request: HttpRequest, pk: int) -> HttpResponse:
 def guild_directory(request: HttpRequest) -> HttpResponse:
     """Public guild directory — featured guilds first, then alphabetical.
 
-    Renders in guest chrome on the guilds surface (guilds.pastlives.app); the
+    Renders in guest chrome on the guilds surface (guilds.pastlives.space); the
     sidebar context is ignored there but keeps parity on the members host.
     """
     guilds = Guild.objects.directory().select_related("guild_lead").annotate(member_total=Count("memberships"))

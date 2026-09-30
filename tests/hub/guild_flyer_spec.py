@@ -13,8 +13,8 @@ from tests.membership.factories import GuildFactory, MembershipPlanFactory
 pytestmark = pytest.mark.django_db
 
 FLYER_SETTINGS = dict(
-    MEMBER_BASE_URL="https://pastlives.app",
-    GUILDS_BASE_URL="https://guilds.pastlives.app",
+    MEMBER_BASE_URL="https://members.pastlives.space",
+    GUILDS_BASE_URL="https://guilds.pastlives.space",
 )
 
 
@@ -42,7 +42,7 @@ def describe_guild_flyer():
         assert resp.status_code == 200
         body = resp.content.decode()
         assert "Flyer Guild" in body  # the guild name
-        assert f"https://pastlives.app/g/{guild.slug}/" in body  # the vanity URL text
+        assert f"https://members.pastlives.space/g/{guild.slug}/" in body  # the vanity URL text
         assert "<svg" in body  # inline QR
 
     def it_is_a_standalone_page_without_member_chrome(client: Client):

@@ -452,21 +452,21 @@ def describe_directory():
 
 
 def describe_vanity_url():
-    @override_settings(MEMBER_BASE_URL="https://pastlives.app")
+    @override_settings(MEMBER_BASE_URL="https://members.pastlives.space")
     def it_is_the_member_host_g_slug_path():
         guild = GuildFactory(name="Ceramics")
-        assert guild.vanity_url == f"https://pastlives.app/g/{guild.slug}/"
+        assert guild.vanity_url == f"https://members.pastlives.space/g/{guild.slug}/"
 
 
 def describe_qr_svg():
-    @override_settings(MEMBER_BASE_URL="https://pastlives.app")
+    @override_settings(MEMBER_BASE_URL="https://members.pastlives.space")
     def it_returns_non_empty_svg_markup():
         guild = GuildFactory(name="Ceramics")
         svg = guild.qr_svg()
         assert "<svg" in svg
         assert svg.strip() != ""
 
-    @override_settings(MEMBER_BASE_URL="https://pastlives.app")
+    @override_settings(MEMBER_BASE_URL="https://members.pastlives.space")
     def it_encodes_the_vanity_url():
         from membership.qr import qr_svg
 
@@ -474,7 +474,7 @@ def describe_qr_svg():
         # The QR is generated from the vanity URL specifically (not the slug or guest URL).
         assert guild.qr_svg() == qr_svg(guild.vanity_url)
 
-    @override_settings(MEMBER_BASE_URL="https://pastlives.app")
+    @override_settings(MEMBER_BASE_URL="https://members.pastlives.space")
     def it_differs_for_a_different_guild():
         one = GuildFactory(name="Ceramics")
         two = GuildFactory(name="Woodworking")
@@ -482,7 +482,7 @@ def describe_qr_svg():
 
 
 def describe_qr_png_bytes():
-    @override_settings(MEMBER_BASE_URL="https://pastlives.app")
+    @override_settings(MEMBER_BASE_URL="https://members.pastlives.space")
     def it_returns_bytes_with_the_png_magic_header():
         guild = GuildFactory(name="Ceramics")
         png = guild.qr_png_bytes()

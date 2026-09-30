@@ -33,13 +33,13 @@ IOS = "https://apps.apple.com/app/id1234567890"  # an edited listing, distinct f
 PLAY_ALT = 'alt="Get it on Google Play"'
 IOS_ALT = 'alt="Download on the App Store"'
 
-GUILDS_HOST = "guilds.pastlives.app"
+GUILDS_HOST = "guilds.pastlives.space"
 GUILDS_SETTINGS = dict(
-    ALLOWED_HOSTS=["guilds.pastlives.app", "testserver"],
-    GUILDS_HOSTS=["guilds.pastlives.app"],
-    GUILDS_BASE_URL="https://guilds.pastlives.app",
+    ALLOWED_HOSTS=["guilds.pastlives.space", "testserver"],
+    GUILDS_HOSTS=["guilds.pastlives.space"],
+    GUILDS_BASE_URL="https://guilds.pastlives.space",
     BOOK_BASE_URL="https://book.pastlives.space",
-    MEMBER_BASE_URL="https://members.pastlives.app",
+    MEMBER_BASE_URL="https://members.pastlives.space",
 )
 
 # The opening tag of every badge block the partial rendered.
