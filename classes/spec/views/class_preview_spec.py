@@ -148,3 +148,60 @@ def describe_booking_state_in_preview():
         body = client.get(reverse("classes:class_preview", kwargs={"pk": offering.pk})).content.decode()
         assert 'cp-detail__spots--full">Registration closed' in body
         assert "Register now" not in body
+
+
+def describe_page_parity_in_preview():
+    """Whatever the public page shows around the class, the preview shows too.
+
+    Regression: the preview once built its own, thinner context, so the hero
+    placement widget got an empty content-type id (a JS syntax error that killed
+    it), and the "Other Dates" and related-classes strips never rendered.
+    """
+
+    @pytest.fixture
+    def category(db):
+        from classes.factories import CategoryFactory
+
+        return CategoryFactory(name="Smithing", slug="smithing")
+
+    def _publish(title, slug, category, instructor, days_out):
+        from datetime import timedelta
+
+        from django.utils import timezone
+
+        from classes.factories import ClassSessionFactory
+
+        offering = ClassOfferingFactory(
+            title=title,
+            slug=slug,
+            category=category,
+            instructor=instructor,
+            status=ClassOffering.Status.PUBLISHED,
+        )
+        start = timezone.now() + timedelta(days=days_out)
+        ClassSessionFactory(class_offering=offering, starts_at=start, ends_at=start + timedelta(hours=2))
+        return offering
+
+    def it_gives_the_hero_widget_its_content_type_id(admin_user, instructor_fixture, category, client):
+        offering = _publish("Forge Night", "forge-hero", category, instructor_fixture, days_out=3)
+        offering.legacy_image_url = "https://img.example.com/forge.jpg"
+        offering.save(update_fields=["legacy_image_url"])
+        client.force_login(admin_user)
+        body = client.get(reverse("classes:class_preview", kwargs={"pk": offering.pk})).content.decode()
+        assert "contentTypeId: ," not in body
+        assert "heroPlacement(" in body
+
+    def it_lists_other_dates_of_the_same_class(admin_user, instructor_fixture, category, client):
+        first = _publish("Forge Night with Glen", "forge-a", category, instructor_fixture, days_out=2)
+        _publish("Forge Night with Glen", "forge-b", category, instructor_fixture, days_out=9)
+        client.force_login(admin_user)
+        body = client.get(reverse("classes:class_preview", kwargs={"pk": first.pk})).content.decode()
+        assert "Other Dates for This Class" in body
+        assert "forge-b" in body
+
+    def it_lists_related_classes_in_the_same_category(admin_user, instructor_fixture, category, client):
+        offering = _publish("Forge Night", "forge-main", category, instructor_fixture, days_out=2)
+        _publish("Anvil Basics", "anvil-basics", category, instructor_fixture, days_out=5)
+        client.force_login(admin_user)
+        body = client.get(reverse("classes:class_preview", kwargs={"pk": offering.pk})).content.decode()
+        assert "anvil-basics" in body

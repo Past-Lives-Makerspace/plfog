@@ -372,13 +372,26 @@ def public_category(request: HttpRequest, slug: str) -> HttpResponse:
     return public_list(request)
 
 
-def public_class_detail(request: HttpRequest, slug: str) -> HttpResponse:
-    """Full class detail page — schedule, info grid, (future: registration form)."""
-    offering = get_object_or_404(
-        ClassOffering.objects.public().select_related("category", "instructor").prefetch_related("sessions"),
-        slug=slug,
-    )
-    settings_obj = ClassSettings.load()
+def _class_detail_context(request: HttpRequest, offering: ClassOffering) -> dict[str, Any]:
+    """Everything ``classes/public/detail.html`` reads that does not depend on who is looking.
+
+    Shared by the public detail page and both class previews (the login-gated
+    owner/admin one and the token-authorized reviewer one), so a preview shows
+    exactly the page a member will see: the sign-up rail, the schedule, other
+    dates of the same class, related classes and the hero-placement widget's
+    content-type ids. Keys that depend on the viewer's role (``can_edit_offering``,
+    ``edit_url``, ``is_admin``, ``is_instructor``) are the caller's.
+
+    Args:
+        request: The current request, used only for the category edit permission.
+        offering: The class being rendered; ``category`` and ``sessions`` should be
+            fetched already.
+
+    Returns:
+        The template context, ready to be extended with the viewer-specific keys.
+    """
+    from membership.permissions import can_edit_category as can_edit_category_perm
+
     # Member price reads off the SALE base so every quoted member number
     # matches what compute_final_price_cents will actually charge.
     member_price_cents = compute_member_price_cents(offering.sale_price_cents, offering.member_discount_pct)
@@ -415,8 +428,40 @@ def public_class_detail(request: HttpRequest, slug: str) -> HttpResponse:
         .exclude(pk=offering.pk)
         .select_related("instructor")[:3]
     )
+
+    # If the class has NO specific image (real or legacy), it falls back to the category image.
+    has_no_class_image = not offering.image and not offering.legacy_image_url
+    can_edit_category = bool(
+        has_no_class_image and offering.category.hero_image and can_edit_category_perm(request, offering.category)
+    )
+
+    return {
+        "offering": offering,
+        "offering_ct_id": ContentType.objects.get_for_model(ClassOffering).pk,
+        "category_ct_id": ContentType.objects.get_for_model(Category).pk,
+        "can_edit_category": can_edit_category,
+        "settings_obj": ClassSettings.load(),
+        "site_config": SiteConfiguration.load(),
+        "upcoming_sessions": upcoming_sessions,
+        "schedule_sessions": schedule_sessions,
+        # The sign-up rail keys off this; an undefined name is false in a template,
+        # which is how every preview once read "Registration closed".
+        "is_bookable": offering.is_bookable,
+        "now": now,
+        "member_price_cents": member_price_cents,
+        "spots_remaining": offering.spots_remaining,
+        "related_offerings": related_offerings,
+        "sibling_offerings": sibling_offerings,
+    }
+
+
+def public_class_detail(request: HttpRequest, slug: str) -> HttpResponse:
+    """Full class detail page — schedule, info grid, (future: registration form)."""
+    offering = get_object_or_404(
+        ClassOffering.objects.public().select_related("category", "instructor").prefetch_related("sessions"),
+        slug=slug,
+    )
     from hub.view_as import ROLE_ADMIN, ROLE_GUILD_OFFICER
-    from membership.permissions import can_edit_category as can_edit_category_perm
     from membership.permissions import can_edit_class, is_effective_staff
 
     view_as = getattr(request, "view_as", None)
@@ -437,40 +482,17 @@ def public_class_detail(request: HttpRequest, slug: str) -> HttpResponse:
             # Instructors and guild leads manage the class from the teaching portal.
             edit_url = reverse("classes:teach_class_edit", kwargs={"pk": offering.pk})
 
-    # If the class has NO specific image (real or legacy), it falls back to the category image.
-    has_no_class_image = not offering.image and not offering.legacy_image_url
-    can_edit_category = bool(
-        has_no_class_image and offering.category.hero_image and can_edit_category_perm(request, offering.category)
-    )
-
-    offering_ct = ContentType.objects.get_for_model(ClassOffering)
-    category_ct = ContentType.objects.get_for_model(Category)
-
-    return render(
-        request,
-        "classes/public/detail.html",
+    context = _class_detail_context(request, offering)
+    context.update(
         {
-            "offering": offering,
-            "offering_ct_id": offering_ct.pk,
-            "category_ct_id": category_ct.pk,
             "can_edit_offering": can_edit_offering,
-            "can_edit_category": can_edit_category,
             "edit_url": edit_url,
             "is_admin": is_admin,
             "is_instructor": is_instructor,
             "view_as": view_as,
-            "settings_obj": settings_obj,
-            "site_config": SiteConfiguration.load(),
-            "upcoming_sessions": upcoming_sessions,
-            "schedule_sessions": schedule_sessions,
-            "is_bookable": offering.is_bookable,
-            "now": now,
-            "member_price_cents": member_price_cents,
-            "spots_remaining": offering.spots_remaining,
-            "related_offerings": related_offerings,
-            "sibling_offerings": sibling_offerings,
-        },
+        }
     )
+    return render(request, "classes/public/detail.html", context)
 
 
 def public_instructor(request: HttpRequest, slug: str) -> HttpResponse:
@@ -3384,41 +3406,26 @@ def _render_class_preview(
 
     Shared by the login-gated owner/admin preview and the token-authorized
     reviewer preview. ``is_preview`` makes the public template show its
-    "preview" banner and bypass the published-only gating.
+    "preview" banner and bypass the published-only gating. The page content
+    itself comes from :func:`_class_detail_context`, the same builder the public
+    page uses, so the preview never drifts from what a member will see.
     """
-    now = timezone.now()
-    upcoming_sessions = list(offering.sessions.filter(starts_at__gte=now).order_by("starts_at"))
-    # Same rule as ``public_class_detail``: a series shows every date, a single
-    # class its one upcoming date.
-    schedule_sessions = list(offering.sessions.order_by("starts_at")) if offering.is_series else upcoming_sessions
-    return render(
-        request,
-        "classes/public/detail.html",
+    context = _class_detail_context(request, offering)
+    context.update(
         {
             # ``?framed=1`` drops the hub sidebar and every topbar so the review page's
             # iframe shows the class page itself, not a page nested inside another page.
             # Read here rather than in a context processor: only the preview is framed,
             # and no other surface should be strippable by a query parameter.
             "is_framed": request.GET.get("framed") == "1",
-            "offering": offering,
             "can_edit_offering": can_edit_offering,
             "edit_url": edit_url,
             "is_admin": is_admin,
             "is_instructor": is_instructor,
-            "settings_obj": ClassSettings.load(),
-            "site_config": SiteConfiguration.load(),
-            "upcoming_sessions": upcoming_sessions,
-            "schedule_sessions": schedule_sessions,
-            # The template's sign-up rail keys off ``is_bookable``; leaving it out
-            # made every preview read "Registration closed" (an undefined name is
-            # falsy in a Django template), whatever the class's dates.
-            "is_bookable": offering.is_bookable,
-            "now": now,
-            "member_price_cents": compute_member_price_cents(offering.sale_price_cents, offering.member_discount_pct),
-            "spots_remaining": offering.spots_remaining,
             "is_preview": True,
-        },
+        }
     )
+    return render(request, "classes/public/detail.html", context)
 
 
 @login_required
