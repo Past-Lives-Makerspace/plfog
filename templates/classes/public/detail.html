@@ -230,8 +230,9 @@
             {% else %}
               <span class="cp-detail__instructor-name">{{ offering.instructor.display_name }}</span>
             {% endif %}
-            {% if offering.instructor.about_me %}
-              <div class="cp-detail__prose">{{ offering.instructor.about_me|linebreaks }}</div>
+            {# The teaching bio, never the member-directory one: that has a directory-only privacy toggle this public page cannot honour (#526). #}
+            {% if offering.instructor.instructor_bio %}
+              <div class="cp-detail__prose">{{ offering.instructor.instructor_bio|linebreaks }}</div>
             {% endif %}
             {% if offering.instructor.instructor_slug %}
               <a class="cp-detail__instructor-link" href="{% url 'classes:public_instructor' slug=offering.instructor.instructor_slug %}">See all classes by {{ offering.instructor.display_name }} &rarr;</a>

@@ -626,6 +626,43 @@ def describe_public_class_detail():
         assert 'name="description"' in html
         assert escape(published_class.seo_description[:30]) in html
 
+    def _anvil_class(instructor) -> ClassOffering:
+        offering = ClassOfferingFactory(
+            status=ClassOffering.Status.PUBLISHED, slug="anvil-hours", instructor=instructor
+        )
+        ClassSessionFactory(
+            class_offering=offering,
+            starts_at=timezone.now() + timedelta(days=4),
+            ends_at=timezone.now() + timedelta(days=4, hours=3),
+        )
+        return offering
+
+    def it_shows_the_teaching_bio_in_the_instructor_card_not_the_directory_bio(db, client):
+        # #526: the card read `about_me`, the member-directory blurb, so what an instructor wrote
+        # under "About me as an instructor" never reached their class pages. Same rule as the
+        # instructor page (``it_renders_the_instructor_bio_not_the_directory_bio`` below).
+        instructor = InstructorFactory(
+            full_legal_name="Sadie",
+            instructor_slug="sadie",
+            about_me="Member directory blurb",
+            instructor_bio="Twenty years at the anvil.",
+        )
+        response = client.get(reverse("classes:public_class_detail", kwargs={"slug": _anvil_class(instructor).slug}))
+        assert response.status_code == 200
+        assert b"Twenty years at the anvil." in response.content
+        assert b"Member directory blurb" not in response.content
+
+    def it_shows_no_bio_at_all_when_the_teaching_bio_is_blank(db, client):
+        # No fallback to the directory blurb: it carries a directory-only privacy toggle that a
+        # public class page cannot honour, so it stays off the page rather than leaking.
+        instructor = InstructorFactory(
+            full_legal_name="Sadie", instructor_slug="sadie", about_me="Member directory blurb", instructor_bio=""
+        )
+        response = client.get(reverse("classes:public_class_detail", kwargs={"slug": _anvil_class(instructor).slug}))
+        assert response.status_code == 200
+        assert b"Member directory blurb" not in response.content
+        assert b"Sadie" in response.content
+
     def describe_related_classes():
         def it_recommends_upcoming_classes_in_the_same_category(published_class, client):
             soon = timezone.now() + timedelta(days=14)
