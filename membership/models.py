@@ -9736,6 +9736,15 @@ class OrientationAvailability(models.Model):
     ``slot_minutes`` decides the window's shape: empty keeps the legacy one slot
     spanning the whole window; set, each occurrence is carved into slots that long,
     ``buffer_minutes`` apart (see :meth:`carve_spans`).
+
+    ``booking_style`` says how members book what the row yields (issue #532). A
+    ``fixed`` row materializes ``OrientationSlot`` rows as above. An ``open`` row
+    materializes one :class:`OrientationAvailabilityBlock` (an open window) per
+    occurrence instead: members pick an orientation and any 15 minute start that
+    fits, one member at a time, so seats, slot length and break do not apply. An
+    open row may leave ``orientation_type`` empty, meaning any of the guild's active
+    orientations; that is the one shape allowed a NULL type, and only on a personal,
+    guild owned row (``ck_orientavail_any_type_open``).
     """
 
     class Weekday(models.IntegerChoices):
@@ -9756,6 +9765,10 @@ class OrientationAvailability(models.Model):
         EVERY_6_MONTHS = "every_6_months", "Every 6 months"
         YEARLY = "yearly", "Every year"
 
+    class BookingStyle(models.TextChoices):
+        FIXED = "fixed", "Fixed start times"
+        OPEN = "open", "Any time in the window"
+
     # Whole months between occurrences, for the month-based cadences only.
     MONTHS_BY_CADENCE: ClassVar[dict[str, int]] = {
         Cadence.MONTHLY: 1,
@@ -9775,9 +9788,14 @@ class OrientationAvailability(models.Model):
     )
     orientation_type = models.ForeignKey(
         OrientationType,
+        null=True,
+        blank=True,
         on_delete=models.CASCADE,
         related_name="rules",
-        help_text="The orientation type slots generated from this rule are for.",
+        help_text=(
+            "The orientation type this row's times are for. Empty means any of the guild's active "
+            "orientations, which only an open personal row may say."
+        ),
     )
     orienter = models.ForeignKey(
         Member,
@@ -9788,6 +9806,15 @@ class OrientationAvailability(models.Model):
         help_text=(
             "The staff member who personally gives orientations during this window. "
             "Empty means any orienter (legacy guild hours)."
+        ),
+    )
+    booking_style = models.CharField(
+        max_length=8,
+        choices=BookingStyle.choices,
+        default=BookingStyle.FIXED,
+        help_text=(
+            "How members book this row's times. Fixed start times materialize slots with seats; any time in "
+            "the window materializes open windows members pick a start inside, one member at a time."
         ),
     )
     weekday = models.PositiveSmallIntegerField(
@@ -9840,12 +9867,41 @@ class OrientationAvailability(models.Model):
                 condition=Q(slot_minutes__isnull=True) | Q(slot_minutes__gt=0),
                 name="ck_orientavail_slot_positive",
             ),
+            # Any orientation (a NULL type) is one shape only: an open, personal, guild owned row.
+            models.CheckConstraint(
+                condition=Q(orientation_type__isnull=False)
+                | Q(booking_style="open", guild__isnull=False, orienter__isnull=False),
+                name="ck_orientavail_any_type_open",
+            ),
         ]
 
     def __str__(self) -> str:
         who = self.orienter.display_name if self.orienter is not None else "any orienter"
-        owner_name = self.orientation_type.owner_name
-        return f"{owner_name} orientation: {self.cadence_display} {self.start_time:%H:%M} ({who})"
+        return f"{self.owner_name} orientation: {self.cadence_display} {self.start_time:%H:%M} ({who})"
+
+    @property
+    def is_open(self) -> bool:
+        """True when members book any time in the window rather than a fixed start."""
+        return self.booking_style == self.BookingStyle.OPEN
+
+    @property
+    def owner_name(self) -> str:
+        """The owning guild's or equipment's name: through the type, or the guild for an Any orientation row."""
+        if self.orientation_type is not None:
+            return self.orientation_type.owner_name
+        return cast(Guild, self.guild).name
+
+    @property
+    def type_display(self) -> str:
+        """The orientation this row is for, or "Any orientation" for an open row with no type."""
+        if self.orientation_type is not None:
+            return self.orientation_type.name
+        return "Any orientation"
+
+    @property
+    def style_display(self) -> str:
+        """The booking style in the lower case words a schedule line uses."""
+        return "any time in the window" if self.is_open else "fixed start times"
 
     @property
     def cadence_display(self) -> str:
@@ -9952,14 +10008,58 @@ class OrientationAvailability(models.Model):
                 value = getattr(self, field)
                 if value is not None and (value.minute % 30 != 0 or value.second or value.microsecond):
                     errors[field] = "Orientation hours line up on half hour marks, e.g. 9:00 or 9:30."
+        errors.update(self._style_errors())
+        clash = self.overlapping_rule()
+        if clash is not None:
+            errors["start_time"] = (
+                f"These hours overlap your {clash.get_weekday_display()} "
+                f"{clash.start_time:%-I:%M %p}–{clash.end_time:%-I:%M %p} hours. "
+                "One person can be booked one way at a time."
+            )
         if errors:
             raise ValidationError(errors)
+
+    def _style_errors(self) -> dict[str, str]:
+        """The booking style's own shape rules: what an open row needs, and what a fixed row must have."""
+        errors: dict[str, str] = {}
+        if self.is_open:
+            if self.orienter_id is None:
+                errors["booking_style"] = "An open window needs a person."
+            if self.slot_minutes is not None:
+                errors["slot_minutes"] = "An open window has no slot length. Members pick any start that fits."
+        elif self.orientation_type_id is None:
+            errors["orientation_type"] = "Pick an orientation."
+        return errors
+
+    def overlapping_rule(self) -> OrientationAvailability | None:
+        """The orienter's other active row this one may not overlap, or None.
+
+        One person, one calendar (issue #532): an open window promises the whole span,
+        so it may not share a weekday and hours with any other row of the same person,
+        in any guild, and no other row may overlap an open one. Two fixed rows may
+        overlap: the Events Guild publishes two orientations over the same hours on
+        purpose. The check is by weekday alone, so two cadences that never fall on the
+        same date still clash; that is the conservative reading. Shared rows (no
+        orienter), paused rows and a row with no times yet take no part.
+        """
+        if self.orienter_id is None or not self.is_active or self.start_time is None or self.end_time is None:
+            return None
+        others = OrientationAvailability.objects.filter(
+            orienter_id=self.orienter_id,
+            weekday=self.weekday,
+            is_active=True,
+            start_time__lt=self.end_time,
+            end_time__gt=self.start_time,
+        ).exclude(pk=self.pk)
+        if not self.is_open:
+            others = others.filter(booking_style=self.BookingStyle.OPEN)
+        return others.order_by("start_time").first()
 
     def carve_spans(self, day: date_type) -> list[tuple[datetime_type, datetime_type]]:
         """Aware local ``(start, end)`` spans this window yields on ``day`` (already known to be its weekday).
 
         ``slot_minutes`` empty yields one span covering the whole window (the legacy
-        shape). Otherwise the window is stepped from ``start_time`` by
+        shape), and so does an open row. Otherwise the window is stepped from ``start_time`` by
         ``slot_minutes + buffer_minutes`` for as long as a whole slot still fits before
         ``end_time``. Stepping happens on local wall clock time and each instant is made
         aware individually, so a DST day never shifts the whole grid (the
@@ -9967,7 +10067,8 @@ class OrientationAvailability(models.Model):
         """
         window_start = datetime_type.combine(day, self.start_time)
         window_end = datetime_type.combine(day, self.end_time)
-        if self.slot_minutes is None:
+        if self.slot_minutes is None or self.is_open:
+            # An open row is always one window, whatever a stray slot_minutes says (clean refuses one).
             return [(timezone.make_aware(window_start), timezone.make_aware(window_end))]
         length = timedelta(minutes=self.slot_minutes)
         step = length + timedelta(minutes=self.buffer_minutes)
@@ -9990,22 +10091,27 @@ class OrientationAvailabilityBlockQuerySet(models.QuerySet):
 
 
 class OrientationAvailabilityBlock(models.Model):
-    """A one-off window of an orienter's available time that members book INTO (issue #283).
+    """An open window of an orienter's time that members book INTO (issues #283 and #532).
 
-    Unlike a fixed whole-window slot, a block is a flexible span: a member picks an
-    orientation type, then any 15-minute-aligned start inside the block that leaves
+    Unlike a fixed whole-window slot, a window is a flexible span: a member picks an
+    orientation type, then any 15-minute-aligned start inside the window that leaves
     room for the type's duration. Booking carves out a 1-seat ``FROM_BLOCK``
-    :class:`OrientationSlot` and rides the normal booking pipeline; the block row is
-    never physically split — free intervals are computed live as the block minus its
-    seat-holding segments, so cancellations and expired payment holds free their
-    segment automatically.
+    :class:`OrientationSlot` and rides the normal booking pipeline; the window row is
+    never physically split — free intervals are computed live as the window minus its
+    occupied segments, so cancellations and expired payment holds free their segment
+    automatically. Occupied means this window's own carved slots plus every other
+    seat holding slot of the same orienter over the span, in any guild: one person,
+    one calendar.
 
-    Blocks are type-agnostic (any of the guild's active types may book in) and are
-    posted one-off from the orientations dashboard. Deliberately NOT auto-generated
-    from weekly recurring rules — that stays a possible future mode (YAGNI for now).
-    Shrinking/editing a block is not supported either: edit = cancel + repost, which
-    keeps the model simple. Cancelling stops NEW bookings only; existing bookings
-    live on their own slots and are handled by the per-slot cancel tools.
+    A window is materialized by the slot generation job from an
+    :class:`OrientationAvailability` row set to any time in the window
+    (``availability`` set, keyed by row and start), or posted as a one off
+    (``availability`` empty). ``orientation_type`` empty means any of the guild's
+    active types may book in; set, only that one may. Shrinking/editing a window is
+    not supported: edit = cancel + repost, which keeps the model simple. Cancelling
+    stops NEW bookings only; existing bookings live on their own slots and are
+    handled by the per-slot cancel tools. In member and lead facing copy this is an
+    "open window"; the class keeps its name.
     """
 
     guild = models.ForeignKey(
@@ -10016,6 +10122,22 @@ class OrientationAvailabilityBlock(models.Model):
         on_delete=models.CASCADE,
         related_name="orientation_blocks_offered",
         help_text="The staff member available during this window. Required — a block is one person's posted time.",
+    )
+    availability = models.ForeignKey(
+        OrientationAvailability,
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="windows",
+        help_text="The recurring hours row that generated this window, if any. Empty for a one off.",
+    )
+    orientation_type = models.ForeignKey(
+        OrientationType,
+        null=True,
+        blank=True,
+        on_delete=models.CASCADE,
+        related_name="windows",
+        help_text="Only this orientation may book into the window. Empty means any of the guild's active orientations.",
     )
     starts_at = models.DateTimeField(help_text="When the availability window opens.")
     ends_at = models.DateTimeField(help_text="When the availability window closes.")
@@ -10036,22 +10158,45 @@ class OrientationAvailabilityBlock(models.Model):
                 condition=Q(ends_at__gt=models.F("starts_at")),
                 name="ck_orientationblock_end_after_start",
             ),
+            # Generation is idempotent on (row, start), exactly like a slot.
+            models.UniqueConstraint(
+                fields=["availability", "starts_at"],
+                condition=Q(availability__isnull=False),
+                name="uq_orientblock_rule_start",
+            ),
         ]
 
     def __str__(self) -> str:
         return f"{self.guild.name} block: {self.starts_at:%Y-%m-%d %H:%M}–{self.ends_at:%H:%M} ({self.orienter})"
 
+    @property
+    def type_display(self) -> str:
+        """The orientation this window is for, or "Any orientation"."""
+        if self.orientation_type is not None:
+            return self.orientation_type.name
+        return "Any orientation"
+
+    def admits(self, orientation_type: OrientationType) -> bool:
+        """Whether ``orientation_type`` may book into this window: any type, or the one it is for."""
+        return self.orientation_type_id is None or self.orientation_type_id == orientation_type.pk
+
     SNAP_MINUTES = 15
 
     def _busy_spans(self) -> list[tuple[datetime_type, datetime_type]]:
-        """Merged occupied segments: this block's live carved-out slot spans, sorted.
+        """Merged occupied segments: this window's live carved-out slots plus the orienter's other busy time.
 
-        A slot occupies its span while it is uncancelled and either holds a seat
+        A carved slot occupies its span while it is uncancelled and either holds a seat
         (``PENDING_PAYMENT | REQUESTED | CONFIRMED`` booking) or has no bookings yet —
         the momentary gap between the segment being carved out and its booking row
         landing. A slot whose bookings all resolved (cancelled / declined / released
         hold) frees its segment, as does a cancelled slot; orphan bookingless slots
         are deleted by the failure paths.
+
+        One person, one calendar (issue #532): the orienter's seat holding slots
+        anywhere else over this span, a fixed slot, a one off or another window's
+        segment, in any guild, occupy this window too, so two members can never book
+        the same person at once. An empty fixed slot does not: nobody is committed to it
+        yet, and the hours editor refuses the recurring overlap at save time.
         """
         seat_holding = [
             OrientationBooking.Status.PENDING_PAYMENT,
@@ -10065,11 +10210,16 @@ class OrientationAvailabilityBlock(models.Model):
                 booking_count=Count("bookings"),
             )
             .filter(Q(holder_count__gt=0) | Q(booking_count=0))
-            .order_by("starts_at")
+            .values_list("starts_at", "ends_at")
+        )
+        elsewhere = (
+            OrientationSlot.objects.holding_seats()
+            .filter(orienter_id=self.orienter_id, starts_at__lt=self.ends_at, ends_at__gt=self.starts_at)
+            .exclude(block_id=self.pk)
+            .values_list("starts_at", "ends_at")
         )
         merged: list[tuple[datetime_type, datetime_type]] = []
-        for slot in occupied:
-            start, end = slot.starts_at, slot.ends_at
+        for start, end in sorted([*occupied, *elsewhere]):
             if merged and start <= merged[-1][1]:
                 merged[-1] = (merged[-1][0], max(merged[-1][1], end))
             else:
@@ -10091,8 +10241,11 @@ class OrientationAvailabilityBlock(models.Model):
         return free
 
     def valid_starts_for(self, orientation_type: OrientationType) -> list[datetime_type]:
-        """Future 15-minute-aligned starts (measured from the block start) that fit the type's duration."""
-        if self.is_cancelled:
+        """Future 15-minute-aligned starts (measured from the block start) that fit the type's duration.
+
+        A cancelled window, or one for another orientation only, offers none.
+        """
+        if self.is_cancelled or not self.admits(orientation_type):
             return []
         duration = timedelta(minutes=orientation_type.duration_minutes)
         step = timedelta(minutes=self.SNAP_MINUTES)
@@ -10125,6 +10278,8 @@ class OrientationAvailabilityBlock(models.Model):
             raise OrientationError("That availability window was cancelled. Please pick another time.")
         if orientation_type.guild_id != self.guild_id or not orientation_type.is_active:
             raise OrientationError("That orientation isn't offered right now.")
+        if not self.admits(orientation_type):
+            raise OrientationError(f"That window is for {cast(OrientationType, self.orientation_type).name} only.")
         if starts_at <= timezone.now():
             raise OrientationError("That time's already past. Please pick a future time.")
         offset = starts_at - self.starts_at
@@ -10155,6 +10310,20 @@ class OrientationAvailabilityBlock(models.Model):
         """Call off the window — stops NEW bookings only; existing carved-out slots live on."""
         self.is_cancelled = True
         self.save(update_fields=["is_cancelled"])
+
+    def mark_retired(self) -> None:
+        """Cancel a generated window its hours no longer justify AND detach it from its row, in one save.
+
+        The window stops taking bookings; its booked segments live on their own slots.
+        With ``availability`` cleared it no longer owns the ``(row, start)`` key, so the
+        row regenerates a fresh window at that time once it is live again, and that
+        fresh window sees the old segments as busy through the orienter wide check. A
+        manager's deliberate :meth:`cancel` stays attached and dead on purpose, so the
+        time is never quietly re-offered.
+        """
+        self.is_cancelled = True
+        self.availability = None
+        self.save(update_fields=["is_cancelled", "availability"])
 
 
 class OrientationSlotQuerySet(models.QuerySet):

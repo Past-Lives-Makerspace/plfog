@@ -2526,6 +2526,9 @@ class OrientationAvailabilityForm(forms.ModelForm):
         if guild is None and equipment is None and self.instance is not None and self.instance.guild_id is not None:
             guild = self.instance.guild
         type_field = cast(forms.ModelChoiceField, self.fields["orientation_type"])
+        # The FK went nullable for open rows (#532); a fixed row still needs its type, and this
+        # editor offers fixed rows only until part 2 adds the booking style choice.
+        type_field.required = True
         allowed: Any = None
         if equipment is not None:
             allowed = equipment.owned_orientation_types.active()
