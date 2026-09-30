@@ -1,0 +1,486 @@
+<!DOCTYPE html>
+<html lang="en" class="dark">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<title>#532 mockup · Orientation hours: open windows</title>
+<!--
+  #532 Orientation open windows mockup (static; not served by Django).
+  Links the real stylesheets and uses the real class names so the build can lift the markup.
+  Views: ?view=schedule (default) · ?view=editor · ?view=member · ?view=picker   Theme: ?theme=light
+  CSS: the first <style> block is NEW product CSS for hub.css; the second is mockup-only.
+-->
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;700&family=Lato:wght@400;700;900&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="../static/css/hub.css">
+<link rel="stylesheet" href="../static/css/components.css">
+<style>
+/* ==========================================================================
+   NEW PRODUCT CSS for static/css/hub.css, next to the Orientations tab rules
+   (.pl-orient-overview__*, .pl-slot-admin__*). Tokens only.
+   ========================================================================== */
+
+/* How members book: two radio chips on one line. Reuses .pl-chip (hub.css) for the
+   chip itself; this wrapper only lays the pair out with its label. */
+.pl-booking-style { display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap; margin-bottom: 0.75rem; }
+.pl-booking-style__label { font-size: 0.8125rem; font-weight: 600; color: var(--hub-text-muted); margin-right: 0.25rem; }
+
+/* The hours row: a card per row, fields in wrapping lines (replaces the inline style= on the modal rows). */
+.pl-hours-row { padding: 1rem; background: var(--hub-surface); border: 1px solid var(--hub-border); border-radius: 10px; }
+.pl-hours-row__line { display: flex; gap: 0.75rem; flex-wrap: wrap; }
+.pl-hours-row__line > * { flex: 1; min-width: 120px; }
+.pl-hours-row__line > .pl-hours-row__narrow { min-width: 90px; }
+.pl-hours-row__hint { font-size: 0.8125rem; color: var(--hub-text-muted); margin: 0 0 0.5rem; }
+
+/* Muted style tag on an Orientation Schedule line and an Upcoming Times row. */
+.pl-orient-style { font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0.04em; color: var(--hub-text-muted); }
+
+/* Booked segments listed under an open window row on Upcoming Times. */
+.pl-slot-admin__segments { flex-basis: 100%; list-style: none; margin: 0; padding: 0 0 0 1.25rem; font-size: 0.85rem; color: var(--hub-text-muted); }
+.pl-slot-admin__segments li { padding: 0.15rem 0; }
+.pl-slot-admin__segments strong { color: var(--hub-text); font-weight: 500; }
+
+/* Add a one off: the revealed form's field lines (same shape as the hours row). */
+.pl-oneoff { margin-top: 1rem; padding-top: 1rem; border-top: 1px solid var(--hub-border); }
+.pl-oneoff__actions { display: flex; gap: 0.75rem; margin-top: 1rem; }
+</style>
+<style>
+/* ---------- mockup-only ---------- */
+.mock-view { display: contents; }
+html[data-mock-view="schedule"] .mock-view:not([data-mock-view="schedule"]),
+html[data-mock-view="editor"] .mock-view:not([data-mock-view="editor"]),
+html[data-mock-view="member"] .mock-view:not([data-mock-view="member"]),
+html[data-mock-view="picker"] .mock-view:not([data-mock-view="picker"]) { display: none; }
+.mock-switcher { position: fixed; right: 1rem; bottom: 1rem; z-index: 900; display: flex; gap: 0.75rem; align-items: center; padding: 0.5rem 0.75rem; border-radius: 8px; background: var(--hub-elevated); border: 1px solid var(--hub-border); font-size: 0.8rem; }
+.mock-switcher__title { font-weight: 700; color: var(--hub-text-muted); }
+.mock-switcher a { color: var(--hub-link); text-decoration: none; }
+.mock-switcher a[aria-current="page"] { color: var(--hub-text); text-decoration: underline; }
+html.mock-shot .mock-switcher, html.mock-shot .hub-feedback-fab { display: none; }
+.mock-collapsed { display: flex; justify-content: space-between; align-items: center; padding: 0.75rem 1.5rem; margin-bottom: 0.75rem; opacity: 0.6; }
+.mock-collapsed span:last-child { font-size: 0.75rem; color: var(--hub-text-muted); }
+.mock-card { padding: 1.5rem; margin-bottom: 1.5rem; }
+.mock-card h2 { margin-top: 0; margin-bottom: 0.25rem; }
+.mock-card .mock-hint { font-size: 0.8125rem; margin-bottom: 1rem; }
+.mock-modal-static { position: static; inset: auto; padding: 2rem 1rem; }
+.mock-modal-static .pl-modal { max-height: none; }
+html.mock-phone .hub-sidebar { display: none; }
+html.mock-phone .hub-main-wrapper { margin-left: 0 !important; }
+.mock-page-title { margin-bottom: 0.25rem; }
+.mock-crumb { font-size: 0.85rem; margin: 0 0 1rem; }
+.mock-section + .mock-section { margin-top: 1rem; padding-top: 1rem; border-top: 1px solid var(--hub-border); }
+.mock-inline { display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap; }
+.mock-list { list-style: none; padding: 0; margin: 0; }
+.mock-pager-count { font-size: 0.85rem; }
+.mock-hidden { display: none; }
+</style>
+<script>
+  (function () {
+    var p = new URLSearchParams(location.search);
+    var view = p.get('view') || 'schedule';
+    document.documentElement.setAttribute('data-mock-view', view);
+    if (p.get('theme') === 'light') document.documentElement.setAttribute('data-theme', 'light');
+    if (p.get('shot') === '1') document.documentElement.classList.add('mock-shot');
+    if (p.get('phone') === '1') document.documentElement.classList.add('mock-phone');
+  })();
+  function mockToggleTheme() {
+    var p = new URLSearchParams(location.search);
+    if (p.get('theme') === 'light') p.delete('theme'); else p.set('theme', 'light');
+    location.search = p.toString();
+  }
+</script>
+</head>
+<body>
+  <nav class="mock-switcher" aria-label="Mockup views">
+    <span class="mock-switcher__title">#532 mockup</span>
+    <a href="?view=schedule">Schedule + Upcoming</a>
+    <a href="?view=editor">Edit Hours</a>
+    <a href="?view=member">Member list</a>
+    <a href="?view=picker">Pick a time</a>
+    <a href="#" onclick="mockToggleTheme(); return false;">Theme</a>
+  </nav>
+
+  <aside class="hub-sidebar">
+    <nav class="hub-sidebar__nav" aria-label="Hub navigation">
+      <a href="#" class="hub-sidebar__link"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg>Home</a>
+      <hr class="hub-sidebar__divider" />
+      <a href="#" class="hub-sidebar__link"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z"/><path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z"/></svg>Class Catalog</a>
+      <a href="#" class="hub-sidebar__link"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>Calendar</a>
+      <a href="#" class="hub-sidebar__link"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>Member Directory</a>
+      <a href="#" class="hub-sidebar__link"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"/></svg>Reservations</a>
+      <hr class="hub-sidebar__divider" />
+      <div>
+        <button class="hub-sidebar__section-toggle" aria-expanded="true"><span>Guilds</span>
+          <svg class="hub-sidebar__chevron" width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 4.5l3 3 3-3"/></svg>
+        </button>
+        <div class="hub-sidebar__collapsible open">
+          <div class="hub-sidebar__collapsible-inner">
+            <a href="#" class="hub-sidebar__link">Art Framing Guild</a>
+            <a href="#" class="hub-sidebar__link">Events Guild</a>
+            <a href="#" class="hub-sidebar__link" aria-current="page">Printmaking Guild</a>
+            <a href="#" class="hub-sidebar__link">Woodworking Guild</a>
+          </div>
+        </div>
+      </div>
+    </nav>
+  </aside>
+  <a href="#" class="hub-feedback-fab" aria-label="Send feedback">
+    <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
+  </a>
+
+  <div class="hub-main-wrapper">
+    <header class="pl-topbar">
+      <button class="pl-topbar__toggle" aria-label="Toggle sidebar">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M9 3v18"/></svg>
+      </button>
+      <span class="pl-topbar__divider"></span>
+      <div class="pl-topbar__spacer"></div>
+      <a href="#" class="pl-bell__btn" aria-label="Notifications">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></svg>
+      </a>
+      <button class="pl-topbar__theme-toggle" aria-label="Toggle theme" onclick="mockToggleTheme()">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="5"/><path d="M12 1v2"/><path d="M12 21v2"/><path d="M4.22 4.22l1.42 1.42"/><path d="M18.36 18.36l1.42 1.42"/><path d="M1 12h2"/><path d="M21 12h2"/><path d="M4.22 19.78l1.42-1.42"/><path d="M18.36 5.64l1.42-1.42"/></svg>
+      </button>
+      <div class="pl-profile"><button class="pl-profile__avatar" aria-label="User menu">AC</button></div>
+    </header>
+
+    <main id="main-content" class="hub-content" tabindex="-1">
+
+      <!-- ============================ VIEW: schedule ============================ -->
+      <div class="mock-view" data-mock-view="schedule">
+        <h1 class="hub-page-title mock-page-title">Printmaking Guild</h1>
+        <p class="hub-text-muted mock-crumb">Guild Settings</p>
+        <div class="pl-tabs">
+          <button type="button" class="vote-tab">Basic Information</button>
+          <button type="button" class="vote-tab">Meetings</button>
+          <button type="button" class="vote-tab">Studio Hours</button>
+          <button type="button" class="vote-tab">Events</button>
+          <button type="button" class="vote-tab vote-tab--active">Orientations</button>
+          <button type="button" class="vote-tab">Images</button>
+          <button type="button" class="vote-tab">FAQ</button>
+          <button type="button" class="vote-tab">Staff</button>
+        </div>
+
+        <div class="hub-card mock-collapsed"><span class="hub-detail-label" style="margin:0;">Booking</span><span>unchanged (order and first run state: #503)</span></div>
+        <div class="hub-card mock-collapsed"><span class="hub-detail-label" style="margin:0;">Orientation Types</span><span>Print Studio Orientation · 60 min · $50 &nbsp;·&nbsp; Intro to Cyanoprinting · 60 min · $50</span></div>
+        <div class="hub-card mock-collapsed"><span class="hub-detail-label" style="margin:0;">Thank-you Email</span><span>unchanged</span></div>
+
+        <div class="hub-card mock-card">
+          <h2 class="hub-detail-label">Orientation Schedule</h2>
+          <p class="hub-text-muted mock-hint">Everyone on staff who can give orientations, and when.</p>
+
+          <div class="pl-orient-overview__group">
+            <div class="pl-orient-overview__person">
+              <span class="pl-orient-avatar pl-orient-avatar--initials">A</span>
+              <strong>Amber Capwell</strong>
+              <button type="button" class="hub-btn hub-btn--sm">Edit Hours</button>
+            </div>
+            <ul class="pl-orient-overview__rules">
+              <li>Any orientation · Every Sunday · 11:00 am–6:00 pm · <span class="pl-orient-style">any time in the window</span></li>
+              <li>Print Studio Orientation · Every Monday · 11:00 am–6:00 pm · 4 seats · <span class="pl-orient-style">fixed start times</span></li>
+            </ul>
+          </div>
+          <div class="pl-orient-overview__group">
+            <div class="pl-orient-overview__person">
+              <span class="pl-orient-avatar pl-orient-avatar--initials">M</span>
+              <strong>Morgan Rhodes</strong>
+              <button type="button" class="hub-btn hub-btn--sm">Edit Hours</button>
+            </div>
+            <p class="hub-text-muted" style="font-size:0.85rem; margin:0.4rem 0 0;">No hours published</p>
+          </div>
+          <div class="pl-orient-overview__group">
+            <div class="pl-orient-overview__person">
+              <span class="pl-orient-avatar pl-orient-avatar--initials">L</span>
+              <strong>Lane Kidd</strong>
+              <button type="button" class="hub-btn hub-btn--sm">Edit Hours</button>
+            </div>
+            <p class="hub-text-muted" style="font-size:0.85rem; margin:0.4rem 0 0;">No hours published</p>
+          </div>
+        </div>
+
+        <div class="hub-card mock-card">
+          <h2 class="hub-detail-label">Upcoming Times</h2>
+          <p class="hub-text-muted mock-hint">Everything members can book for the next 8 weeks: fixed times from everyone's hours, open windows, and one offs.</p>
+
+          <div class="pl-slot-admin__row">
+            <span class="pl-slot-admin__when">Sun Oct 4 · 11:00 AM–6:00 PM · Any orientation</span>
+            <span class="pl-slot-admin__with"><span class="pl-orient-avatar pl-orient-avatar--initials">A</span>Amber Capwell</span>
+            <span class="pl-slot-admin__seats">2 booked</span>
+            <span class="pl-slot-admin__source hub-text-muted">open window · recurring</span>
+            <button type="button" class="pl-btn pl-btn--danger pl-btn--sm">Cancel</button>
+            <ul class="pl-slot-admin__segments">
+              <li><strong>12:15–1:15 PM</strong> · Print Studio Orientation · Sam Rivera · requested</li>
+              <li><strong>3:00–4:00 PM</strong> · Intro to Cyanoprinting · Dee Okafor · confirmed</li>
+            </ul>
+          </div>
+          <div class="pl-slot-admin__row">
+            <span class="pl-slot-admin__when">Mon Oct 5 · 11:00 AM–12:00 PM · Print Studio Orientation</span>
+            <span class="pl-slot-admin__with"><span class="pl-orient-avatar pl-orient-avatar--initials">A</span>Amber Capwell</span>
+            <span class="pl-slot-admin__seats">1 of 4 booked</span>
+            <span class="pl-slot-admin__source hub-text-muted">recurring</span>
+            <button type="button" class="pl-btn pl-btn--danger pl-btn--sm">Cancel</button>
+          </div>
+          <div class="pl-slot-admin__row">
+            <span class="pl-slot-admin__when">Mon Oct 5 · 12:00 PM–1:00 PM · Print Studio Orientation</span>
+            <span class="pl-slot-admin__with"><span class="pl-orient-avatar pl-orient-avatar--initials">A</span>Amber Capwell</span>
+            <span class="pl-slot-admin__seats">0 of 4 booked</span>
+            <span class="pl-slot-admin__source hub-text-muted">recurring</span>
+            <button type="button" class="pl-btn pl-btn--danger pl-btn--sm">Cancel</button>
+          </div>
+          <div class="pl-slot-admin__row">
+            <span class="pl-slot-admin__when">Thu Oct 8 · 11:00 AM–6:00 PM · Any orientation</span>
+            <span class="pl-slot-admin__with"><span class="pl-orient-avatar pl-orient-avatar--initials">A</span>Amber Capwell</span>
+            <span class="pl-slot-admin__seats">nothing booked yet</span>
+            <span class="pl-slot-admin__source hub-text-muted">open window · one off</span>
+            <button type="button" class="pl-btn pl-btn--danger pl-btn--sm">Cancel</button>
+          </div>
+          <div class="pl-orient-slots__pager">
+            <button type="button" class="hub-btn hub-btn--sm hub-btn--ghost" disabled aria-label="Previous">←</button>
+            <span class="hub-text-muted mock-pager-count">1 / 21</span>
+            <button type="button" class="hub-btn hub-btn--sm hub-btn--ghost" aria-label="More">→</button>
+          </div>
+
+          <div class="pl-oneoff">
+            <form class="hub-form">
+              <div class="pl-booking-style" role="radiogroup" aria-label="How members book">
+                <span class="pl-booking-style__label">How members book</span>
+                <label class="pl-chip"><input type="radio" name="oneoff_style" value="fixed"> Fixed start times</label>
+                <label class="pl-chip"><input type="radio" name="oneoff_style" value="open" checked> Any time in the window</label>
+              </div>
+              <div class="pl-hours-row__line">
+                <div class="pl-form-group"><label class="pl-form-label">Orientation</label><select><option>Any orientation</option><option>Print Studio Orientation</option><option>Intro to Cyanoprinting</option></select></div>
+                <div class="pl-form-group"><label class="pl-form-label">Date</label><input type="date" value="2026-10-15" class="pl-slot-date"></div>
+                <div class="pl-form-group pl-hours-row__narrow"><label class="pl-form-label">From</label><select><option>11:00 AM</option></select></div>
+                <div class="pl-form-group pl-hours-row__narrow"><label class="pl-form-label">Until</label><select><option>6:00 PM</option></select></div>
+              </div>
+              <div class="pl-hours-row__line">
+                <div class="pl-form-group"><label class="pl-form-label">Location</label><input type="text" value="Print Studio"></div>
+                <div class="pl-form-group"><label class="pl-form-label">Orienter</label><select><option>Amber Capwell</option><option>Morgan Rhodes</option><option>Lane Kidd</option></select></div>
+              </div>
+              <p class="pl-hours-row__hint">Members pick an orientation and any 15 minute start that fits inside this window. Each booking takes that time off the window.</p>
+              <div class="pl-oneoff__actions">
+                <button type="button" class="hub-btn hub-btn--sm hub-btn--ghost">Cancel</button>
+                <button type="submit" class="pl-btn pl-btn--primary">Save</button>
+              </div>
+            </form>
+          </div>
+        </div>
+      </div>
+
+      <!-- ============================ VIEW: editor ============================ -->
+      <div class="mock-view" data-mock-view="editor">
+        <div class="pl-modal-backdrop mock-modal-static" role="dialog" aria-modal="true" aria-labelledby="edit-hours-title">
+          <div class="pl-modal pl-modal--lg">
+            <div class="pl-modal__header">
+              <h2 class="pl-modal__title" id="edit-hours-title">Edit Hours</h2>
+              <button type="button" class="pl-modal__close" aria-label="Close">&times;</button>
+            </div>
+            <div class="pl-modal__body">
+              <h2 class="hub-detail-label" style="margin-top:0; margin-bottom:0.25rem;">Editing Amber Capwell's Hours</h2>
+              <p class="hub-text-muted" style="font-size:0.8125rem; margin-bottom:1rem;">Recurring hours when Amber Capwell can give orientations, weekly, every other week, or monthly and beyond. Members book them by name.</p>
+              <form class="hub-form">
+                <div class="pl-hours-rows">
+
+                  <div class="pl-hours-row">
+                    <div class="pl-booking-style" role="radiogroup" aria-label="How members book">
+                      <span class="pl-booking-style__label">How members book</span>
+                      <label class="pl-chip"><input type="radio" name="r1_style" value="fixed" checked> Fixed start times</label>
+                      <label class="pl-chip"><input type="radio" name="r1_style" value="open"> Any time in the window</label>
+                    </div>
+                    <div class="pl-hours-row__line">
+                      <div class="pl-form-group"><label class="pl-form-label">Orientation</label><select><option>Print Studio Orientation</option><option>Intro to Cyanoprinting</option></select></div>
+                      <div class="pl-form-group"><label class="pl-form-label">Day</label><select><option>Monday</option></select></div>
+                      <div class="pl-form-group pl-hours-row__narrow"><label class="pl-form-label">From</label><select><option>11:00 AM</option></select></div>
+                      <div class="pl-form-group pl-hours-row__narrow"><label class="pl-form-label">Until</label><select><option>6:00 PM</option></select></div>
+                      <div class="pl-form-group pl-hours-row__narrow"><label class="pl-form-label">Seats</label><input type="number" value="4"></div>
+                    </div>
+                    <div class="pl-hours-row__line">
+                      <div class="pl-form-group"><label class="pl-form-label">Repeats</label><select><option>Every week</option><option>Every other week</option><option>Every month</option></select></div>
+                      <div class="pl-form-group"><label class="pl-form-label">Starting on</label><input type="date" class="pl-slot-date"></div>
+                    </div>
+                    <div class="pl-hours-row__line">
+                      <div class="pl-form-group"><label class="pl-form-label">Slot length</label><select><option>1 hour</option></select></div>
+                      <div class="pl-form-group"><label class="pl-form-label">Break between slots</label><select><option>None</option></select></div>
+                    </div>
+                    <p class="pl-hours-row__hint">Leave slot length blank to offer the whole window as one slot.</p>
+                    <div class="pl-toggle-row">
+                      <div class="pl-toggle-info"><div class="pl-toggle-label">Active</div></div>
+                      <label class="pl-toggle"><input type="checkbox" checked><span class="pl-toggle__slider"></span></label>
+                    </div>
+                    <button type="button" class="pl-btn pl-btn--danger pl-btn--sm pl-btn--spaced">Delete</button>
+                  </div>
+
+                  <div class="pl-hours-row">
+                    <div class="pl-booking-style" role="radiogroup" aria-label="How members book">
+                      <span class="pl-booking-style__label">How members book</span>
+                      <label class="pl-chip"><input type="radio" name="r2_style" value="fixed"> Fixed start times</label>
+                      <label class="pl-chip"><input type="radio" name="r2_style" value="open" checked> Any time in the window</label>
+                    </div>
+                    <div class="pl-hours-row__line">
+                      <div class="pl-form-group"><label class="pl-form-label">Orientation</label><select><option>Any orientation</option><option>Print Studio Orientation</option><option>Intro to Cyanoprinting</option></select></div>
+                      <div class="pl-form-group"><label class="pl-form-label">Day</label><select><option>Sunday</option></select></div>
+                      <div class="pl-form-group pl-hours-row__narrow"><label class="pl-form-label">From</label><select><option>11:00 AM</option></select></div>
+                      <div class="pl-form-group pl-hours-row__narrow"><label class="pl-form-label">Until</label><select><option>6:00 PM</option></select></div>
+                    </div>
+                    <div class="pl-hours-row__line">
+                      <div class="pl-form-group"><label class="pl-form-label">Repeats</label><select><option>Every week</option></select></div>
+                      <div class="pl-form-group"><label class="pl-form-label">Starting on</label><input type="date" class="pl-slot-date"></div>
+                    </div>
+                    <p class="pl-hours-row__hint">Members pick an orientation and any 15 minute start that fits inside these hours. Each booking takes that time off the window.</p>
+                    <div class="pl-toggle-row">
+                      <div class="pl-toggle-info"><div class="pl-toggle-label">Active</div></div>
+                      <label class="pl-toggle"><input type="checkbox" checked><span class="pl-toggle__slider"></span></label>
+                    </div>
+                    <button type="button" class="pl-btn pl-btn--danger pl-btn--sm pl-btn--spaced">Delete</button>
+                  </div>
+
+                </div>
+                <div style="margin-top:1rem; display:flex; gap:1rem; align-items:center; flex-wrap:wrap;">
+                  <button type="button" class="hub-btn hub-btn--sm">+ Add hours</button>
+                  <button type="button" class="hub-btn hub-btn--sm">Cancel</button>
+                  <button type="submit" class="pl-btn pl-btn--primary">Save</button>
+                </div>
+              </form>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- ============================ VIEW: member ============================ -->
+      <div class="mock-view" data-mock-view="member">
+        <h1 class="hub-page-title mock-page-title">Printmaking Guild</h1>
+        <p class="hub-text-muted mock-crumb">Guild page</p>
+        <div class="pl-tabs">
+          <button type="button" class="vote-tab">About</button>
+          <button type="button" class="vote-tab">Calendar</button>
+          <button type="button" class="vote-tab">Classes</button>
+          <button type="button" class="vote-tab vote-tab--active">Orientations</button>
+          <button type="button" class="vote-tab">FAQ</button>
+        </div>
+
+        <section class="hub-card mock-card" aria-label="Orientation">
+          <h2 class="hub-detail-label" style="margin:0 0 0.5rem;">Get oriented for Printmaking Guild</h2>
+          <p class="hub-text-muted" style="margin:0 0 0.75rem; font-size:0.9rem;">Come see the studio, learn the presses and the inks, and get signed off to work here on your own.</p>
+
+          <div class="mock-section">
+            <div class="pl-orient-heading">
+              <h3 class="hub-detail-label" style="margin:0;">Print Studio Orientation</h3>
+              <span class="pl-price-chip">$50.00</span>
+              <span class="hub-text-muted" style="font-size:0.85rem;">60 min</span>
+            </div>
+            <p class="hub-text-muted" style="margin:0.25rem 0 0.75rem; font-size:0.9rem;">The whole studio: presses, drying racks, solvents and cleanup.</p>
+            <div class="pl-orient-slots__head">
+              <span class="pl-orient-slots__date">Date</span>
+              <span class="pl-orient-slots__time">Time</span>
+              <span class="pl-orient-slots__with"></span>
+              <span class="pl-orient-slots__action"></span>
+            </div>
+            <ul class="mock-list">
+              <li class="pl-orient-slots__row">
+                <span class="pl-orient-slots__date">Sun Oct 4</span>
+                <span class="pl-orient-slots__time">11:00 AM – 6:00 PM</span>
+                <span class="pl-orient-slots__with"><span class="pl-orient-avatar pl-orient-avatar--initials">A</span><span>with Amber</span></span>
+                <span class="pl-orient-slots__action"><button type="button" class="hub-btn hub-btn--sm hub-btn--primary">Pick a time</button></span>
+              </li>
+              <li class="pl-orient-slots__row">
+                <span class="pl-orient-slots__date">Mon Oct 5</span>
+                <span class="pl-orient-slots__time">11:00 AM – 12:00 PM</span>
+                <span class="pl-orient-slots__with"><span class="pl-orient-avatar pl-orient-avatar--initials">A</span><span>with Amber</span></span>
+                <span class="pl-orient-slots__action"><button type="button" class="hub-btn hub-btn--sm hub-btn--primary">Request</button></span>
+              </li>
+              <li class="pl-orient-slots__row">
+                <span class="pl-orient-slots__date">Mon Oct 5</span>
+                <span class="pl-orient-slots__time">12:00 PM – 1:00 PM</span>
+                <span class="pl-orient-slots__with"><span class="pl-orient-avatar pl-orient-avatar--initials">A</span><span>with Amber</span></span>
+                <span class="pl-orient-slots__action"><button type="button" class="hub-btn hub-btn--sm hub-btn--primary">Request</button></span>
+              </li>
+              <li class="pl-orient-slots__row">
+                <span class="pl-orient-slots__date">Mon Oct 5</span>
+                <span class="pl-orient-slots__time">1:00 PM – 2:00 PM</span>
+                <span class="pl-orient-slots__with"><span class="pl-orient-avatar pl-orient-avatar--initials">A</span><span>with Amber</span></span>
+                <span class="pl-orient-slots__action"><span class="hub-text-muted" style="font-size:0.85rem;">Full</span></span>
+              </li>
+              <li class="pl-orient-slots__row">
+                <span class="pl-orient-slots__date">Thu Oct 8</span>
+                <span class="pl-orient-slots__time">11:00 AM – 6:00 PM</span>
+                <span class="pl-orient-slots__with"><span class="pl-orient-avatar pl-orient-avatar--initials">A</span><span>with Amber</span></span>
+                <span class="pl-orient-slots__action"><button type="button" class="hub-btn hub-btn--sm hub-btn--primary">Pick a time</button></span>
+              </li>
+            </ul>
+            <div class="pl-orient-slots__pager">
+              <button type="button" class="hub-btn hub-btn--sm hub-btn--ghost" disabled aria-label="Previous">←</button>
+              <span class="hub-text-muted mock-pager-count">1 / 7</span>
+              <button type="button" class="hub-btn hub-btn--sm hub-btn--ghost" aria-label="More">→</button>
+            </div>
+          </div>
+
+          <div class="mock-section">
+            <div class="pl-orient-heading">
+              <h3 class="hub-detail-label" style="margin:0;">Intro to Cyanoprinting</h3>
+              <span class="pl-price-chip">$50.00</span>
+              <span class="hub-text-muted" style="font-size:0.85rem;">60 min</span>
+            </div>
+            <div class="pl-orient-slots__head">
+              <span class="pl-orient-slots__date">Date</span>
+              <span class="pl-orient-slots__time">Time</span>
+              <span class="pl-orient-slots__with"></span>
+              <span class="pl-orient-slots__action"></span>
+            </div>
+            <ul class="mock-list">
+              <li class="pl-orient-slots__row">
+                <span class="pl-orient-slots__date">Sun Oct 4</span>
+                <span class="pl-orient-slots__time">11:00 AM – 6:00 PM</span>
+                <span class="pl-orient-slots__with"><span class="pl-orient-avatar pl-orient-avatar--initials">A</span><span>with Amber</span></span>
+                <span class="pl-orient-slots__action"><button type="button" class="hub-btn hub-btn--sm hub-btn--primary">Pick a time</button></span>
+              </li>
+              <li class="pl-orient-slots__row">
+                <span class="pl-orient-slots__date">Thu Oct 8</span>
+                <span class="pl-orient-slots__time">11:00 AM – 6:00 PM</span>
+                <span class="pl-orient-slots__with"><span class="pl-orient-avatar pl-orient-avatar--initials">A</span><span>with Amber</span></span>
+                <span class="pl-orient-slots__action"><button type="button" class="hub-btn hub-btn--sm hub-btn--primary">Pick a time</button></span>
+              </li>
+            </ul>
+          </div>
+
+          <div class="mock-section">
+            <button type="button" class="hub-btn hub-btn--sm hub-btn--ghost">None of these times work? Request a custom time</button>
+          </div>
+        </section>
+      </div>
+
+      <!-- ============================ VIEW: picker ============================ -->
+      <div class="mock-view" data-mock-view="picker">
+        <div class="pl-modal-backdrop mock-modal-static" role="dialog" aria-modal="true" aria-labelledby="pick-title">
+          <div class="pl-modal pl-modal--md">
+            <div class="pl-modal__header">
+              <h2 class="pl-modal__title" id="pick-title">Pick a Time</h2>
+              <button type="button" class="pl-modal__close" aria-label="Close">&times;</button>
+            </div>
+            <div class="pl-modal__body">
+              <p style="margin:0 0 0.25rem; font-weight:700; color:var(--hub-text);">Print Studio Orientation · 60 min</p>
+              <p class="hub-text-muted" style="margin:0 0 0.75rem; font-size:0.9rem;">Sunday, October 4 · 11:00 AM to 6:00 PM · Print Studio · with Amber Capwell</p>
+              <form class="hub-form">
+                <div class="pl-form-group">
+                  <label class="pl-form-label">Start time</label>
+                  <select>
+                    <option>11:00 AM</option><option>11:15 AM</option><option>11:30 AM</option><option>11:45 AM</option>
+                    <option selected>12:00 PM</option><option>1:15 PM</option><option>1:30 PM</option><option>1:45 PM</option><option>2:00 PM</option>
+                  </select>
+                  <p class="pl-field-hint">Only starts that leave a full hour free are listed. 12:15 to 1:15 and 3:00 to 4:00 are already taken.</p>
+                </div>
+                <div class="pl-form-group">
+                  <label class="pl-form-label">Note (optional)</label>
+                  <textarea rows="2" placeholder="Anything Amber should know"></textarea>
+                </div>
+                <p class="hub-text-muted" style="margin:0.75rem 0 0; font-size:0.85rem;">You pay $50.00 when you book, with an automatic full refund if the guild can't make it work.</p>
+                <div style="margin-top:0.75rem;">
+                  <button type="submit" class="hub-btn hub-btn--sm hub-btn--primary">Continue to payment</button>
+                </div>
+              </form>
+            </div>
+          </div>
+        </div>
+      </div>
+
+    </main>
+  </div>
+</body>
+</html>
