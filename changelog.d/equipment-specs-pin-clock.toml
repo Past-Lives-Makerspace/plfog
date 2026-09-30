@@ -1,3 +1,0 @@
-# Equipment availability specs pin the clock to midday, so a run that straddles midnight stays green. Internal: tests only.
-bump = "patch"
-audience = "internal"

@@ -1,3 +1,0 @@
-# The delivery board moves its own cards. Internal: a GitHub Actions workflow members never see.
-bump = "patch"
-audience = "internal"

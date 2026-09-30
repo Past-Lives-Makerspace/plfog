@@ -1,3 +1,0 @@
-# The composer draft e2e stops failing at random. Internal: a test only change.
-bump = "patch"
-audience = "internal"
