@@ -1,0 +1,47 @@
+{% comment %}
+The Subscribe menu: the makerspace's Member and Public Google calendars, each offered in the
+two forms a calendar app can take, grouped by app because that is the choice a member makes.
+Apple Calendar (and Outlook) open a webcal:// link as a live subscription. Android has no
+handler for webcal://, in Chrome or in the app, so Google Calendar gets its own add link, a
+plain https URL that the native shells hand to the system. An event is pushed to exactly one
+of the two calendars, so the note says to take both for everything.
+
+Parameters:
+  subscribe_links — hub.calendar_entries.calendar_subscribe_links(): one row per configured
+                    calendar, with both link forms
+  show_export     — also offer the one-time .ics of every upcoming event (the calendar page)
+  align           — "left" opens the dropdown from the button's left edge (the event page's
+                    actions row); default right-aligned (the calendar toolbar)
+  button_class    — the trigger's classes; defaults to the calendar toolbar's small button
+  help_key        — optional data-help-key for the wrapper
+
+Renders nothing when there is nothing to offer, so a page with no calendar configured and no
+export shows no empty menu. The one-time download is an attachment: hx-boost="false" and
+data-pl-download (FRONTEND.md rule 24).
+{% endcomment %}
+{% if subscribe_links or show_export %}
+<div class="pl-calendar-export{% if align == 'left' %} pl-calendar-export--left{% endif %}" x-data="{ open: false }"{% if help_key %} data-help-key="{{ help_key }}"{% endif %}>
+    <button type="button" class="{{ button_class|default:'pl-btn pl-btn--secondary pl-btn--sm' }}" @click="open = !open" @click.away="open = false" aria-haspopup="true" :aria-expanded="open">
+        Subscribe
+        <svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 4.5l3 3 3-3"/></svg>
+    </button>
+    <div class="pl-calendar-export__dropdown" x-show="open" x-transition>
+        {% if subscribe_links %}
+        <p class="pl-calendar-export__heading">Apple Calendar</p>
+        {% for row in subscribe_links %}
+        <a href="{{ row.webcal_url }}" class="pl-calendar-export__item">{{ row.label }}</a>
+        {% endfor %}
+        <p class="pl-calendar-export__heading">Google Calendar</p>
+        {% for row in subscribe_links %}
+        <a href="{{ row.google_url }}" class="pl-calendar-export__item" target="_blank" rel="noopener">{{ row.label }}</a>
+        {% endfor %}
+        {% endif %}
+        {% if show_export %}
+        <a href="{% url 'hub_calendar_export_ics' %}" class="pl-calendar-export__item pl-calendar-export__item--export" download hx-boost="false" data-pl-download>Download .ics (one time)</a>
+        {% endif %}
+        <p class="pl-calendar-export__note">
+            Subscribe once and your calendar app stays up to date. Member events and public events live on separate calendars, so take both for everything. Outlook and most other apps use the Apple Calendar links.
+        </p>
+    </div>
+</div>
+{% endif %}

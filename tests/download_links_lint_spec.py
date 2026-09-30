@@ -15,8 +15,10 @@ added here and its links then fall under the rule. Then every ``<a>`` and ``<for
 ``templates/`` that points at one of those URL names, directly, through a
 ``{% url ... as var %}`` in the same template, or through an ``{% include ... with
 param=var %}`` one level down, or that carries a ``download`` attribute, must carry
-``hx-boost="false"``. The attribute is inert on a page that is not boosted, so the rule
-applies everywhere and no template has to know its base.
+``hx-boost="false"`` and, when it points at one of our own attachments, ``data-pl-download``,
+which ``static/js/native-downloads.js`` uses to hide it inside the native app (the shells
+drop a download). Both attributes are inert on a page that is not boosted and in a browser,
+so the rule applies everywhere and no template has to know its base.
 """
 
 from __future__ import annotations
@@ -49,6 +51,7 @@ ATTACHMENT_SOURCES: dict[tuple[str, str], frozenset[str]] = {
 ATTACHMENT_URL_NAMES: frozenset[str] = frozenset().union(*ATTACHMENT_SOURCES.values())
 
 OPT_OUT = 'hx-boost="false"'
+MARK = "data-pl-download"
 URL_REF = re.compile(r"{%\s*url\s+['\"]([^'\"]+)['\"]")
 URL_AS = re.compile(r"{%\s*url\s+['\"]([^'\"]+)['\"][^%]*?\bas\s+(\w+)\s*%}")
 INCLUDE = re.compile(r"{%\s*include\s+['\"]([^'\"]+)['\"]([^%]*)%}")
@@ -124,29 +127,44 @@ def _uses(var: str, tag: str) -> bool:
     return re.search(r"{{\s*" + re.escape(var) + r"\b", tag) is not None
 
 
+def _missing(tag: str, required: tuple[str, ...]) -> str:
+    return " ".join(attr for attr in required if attr not in tag)
+
+
 def _offenders_in(text: str, template: str, templates: dict[str, str]) -> list[str]:
-    """Rule violations in one template. ``templates`` maps a template name to its text for includes."""
+    """Rule violations in one template. ``templates`` maps a template name to its text for includes.
+
+    A tag that points at one of our attachments needs both the opt-out and the marker; a tag
+    that only carries a ``download`` attribute (an uploaded document on another host, which
+    the native shells hand to the system) needs the opt-out alone.
+    """
     assigned = {var: name for name, var in URL_AS.findall(text) if name in ATTACHMENT_URL_NAMES}
     offenders = []
     for lineno, tag in _tags(text):
-        if OPT_OUT in tag:
-            continue
-        reasons = sorted(
+        reasons: list[str]
+        required: tuple[str, ...]
+        attachments = sorted(
             {n for n in URL_REF.findall(tag) if n in ATTACHMENT_URL_NAMES}
             | {assigned[v] for v in assigned if _uses(v, tag)}
         )
-        if BARE_DOWNLOAD.search(_blank_quoted(tag)):
-            reasons.append("download attribute")
-        if reasons:
-            offenders.append(f"{template}:{lineno} ({', '.join(reasons)})")
-    # One level of include: a parameter fed from an attachment URL must land on an opted-out tag there.
+        if attachments:
+            reasons, required = attachments, (OPT_OUT, MARK)
+        elif BARE_DOWNLOAD.search(_blank_quoted(tag)):
+            reasons, required = ["download attribute"], (OPT_OUT,)
+        else:
+            continue
+        if missing := _missing(tag, required):
+            offenders.append(f"{template}:{lineno} ({', '.join(reasons)}) missing {missing}")
+    # One level of include: a parameter fed from an attachment URL must land on a marked tag there.
     for included, args in INCLUDE.findall(text):
         for param, var in re.findall(r"(\w+)=(\w+)", args):
             if var not in assigned or included not in templates:
                 continue
             for lineno, tag in _tags(templates[included]):
-                if _uses(param, tag) and OPT_OUT not in tag:
-                    offenders.append(f"{included}:{lineno} ({assigned[var]} via {template} {param}={var})")
+                if _uses(param, tag) and (missing := _missing(tag, (OPT_OUT, MARK))):
+                    offenders.append(
+                        f"{included}:{lineno} ({assigned[var]} via {template} {param}={var}) missing {missing}"
+                    )
     return offenders
 
 
@@ -178,27 +196,40 @@ def describe_download_links():
             "file's text into the page instead of downloading it (FRONTEND.md rule 24):\n  " + "\n  ".join(offenders)
         )
 
-    def it_actually_detects_a_boosted_download_link():
+    def it_actually_detects_a_boosted_or_unmarked_download_link():
         # Self-test so a refactor can't quietly neuter the lint.
         leaky = "\n".join(
             [
                 "{% url 'hub_event_ics' 1 as ics %}",
                 '<a href="{{ ics }}">Add</a>',
-                "<a href=\"{% url 'hub_guild_qr' 1 'svg' %}\" hx-boost=\"false\">fine</a>",
+                "<a href=\"{% url 'hub_guild_qr' 1 'svg' %}\" hx-boost=\"false\" data-pl-download>fine</a>",
                 '<a href="/x" @click="() => 1 > 0" download>doc</a>',
                 '<a class="download" title="Download the app">not a download</a>',
                 "<form action=\"{% url 'hub_calendar_export_ics' %}\"></form>",
+                "<a href=\"{% url 'hub_guild_qr' 1 'png' %}\" hx-boost=\"false\">opted out, not marked</a>",
+                '<a href="/doc.pdf" download hx-boost="false">a document needs no marker</a>',
             ]
         )
         assert _offenders_in(leaky, "leaky.html", {}) == [
-            "leaky.html:2 (hub_event_ics)",
-            "leaky.html:4 (download attribute)",
-            "leaky.html:6 (hub_calendar_export_ics)",
+            'leaky.html:2 (hub_event_ics) missing hx-boost="false" data-pl-download',
+            'leaky.html:4 (download attribute) missing hx-boost="false"',
+            'leaky.html:6 (hub_calendar_export_ics) missing hx-boost="false" data-pl-download',
+            "leaky.html:7 (hub_guild_qr) missing data-pl-download",
         ]
 
     def it_follows_an_attachment_url_into_an_included_component():
-        card = '<a href="{{ svg_url }}">QR</a>\n<a href="{{ png_url }}" hx-boost="false">QR</a>'
-        caller = "{% url 'hub_event_qr' 1 'svg' as u %}\n{% include \"card.html\" with svg_url=u png_url=u|add:'?x' %}"
+        card = "\n".join(
+            [
+                '<a href="{{ svg_url }}">QR</a>',
+                '<a href="{{ png_url }}" hx-boost="false">QR</a>',
+                '<a href="{{ pdf_url }}" hx-boost="false" data-pl-download>fine</a>',
+            ]
+        )
+        caller = (
+            "{% url 'hub_event_qr' 1 'svg' as u %}\n"
+            "{% include \"card.html\" with svg_url=u png_url=u|add:'?x' pdf_url=u %}"
+        )
         assert _offenders_in(caller, "caller.html", {"card.html": card}) == [
-            "card.html:1 (hub_event_qr via caller.html svg_url=u)"
+            'card.html:1 (hub_event_qr via caller.html svg_url=u) missing hx-boost="false" data-pl-download',
+            "card.html:2 (hub_event_qr via caller.html png_url=u) missing data-pl-download",
         ]

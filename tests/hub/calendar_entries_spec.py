@@ -9,7 +9,13 @@ from django.utils import timezone
 
 from classes.factories import CategoryFactory, ClassOfferingFactory, ClassSessionFactory
 from classes.models import ClassOffering
-from hub.calendar_entries import CalendarEntry, google_calendar_subscribe_url, google_target_feed_keys
+from hub.calendar_entries import (
+    CalendarEntry,
+    calendar_subscribe_links,
+    google_calendar_add_url,
+    google_calendar_subscribe_url,
+    google_target_feed_keys,
+)
 from tests.membership.factories import GuildFactory
 
 
@@ -179,3 +185,39 @@ def describe_guild_calendar_entries():
 
         class_entries = [e for e in entries if e.source == "classes"]
         assert len(class_entries) == 3
+
+
+def describe_google_calendar_add_url():
+    def it_builds_google_calendars_add_link_with_the_id_encoded():
+        assert (
+            google_calendar_add_url("abc123@group.calendar.google.com")
+            == "https://calendar.google.com/calendar/r?cid=abc123%40group.calendar.google.com"
+        )
+
+    def it_is_blank_when_no_calendar_is_configured():
+        assert google_calendar_add_url("") == ""
+
+
+class _Config:
+    def __init__(self, member: str, public: str) -> None:
+        self.member_google_calendar_id = member
+        self.public_google_calendar_id = public
+
+
+def describe_calendar_subscribe_links():
+    def it_gives_each_configured_calendar_both_link_forms():
+        rows = calendar_subscribe_links(_Config("mem@group.calendar.google.com", "pub@group.calendar.google.com"))
+        assert [row["key"] for row in rows] == ["member", "public"]
+        assert rows[0] == {
+            "key": "member",
+            "label": "Member calendar",
+            "webcal_url": google_calendar_subscribe_url("mem@group.calendar.google.com"),
+            "google_url": google_calendar_add_url("mem@group.calendar.google.com"),
+        }
+        assert rows[1]["label"] == "Public calendar"
+
+    def it_skips_a_calendar_with_no_id():
+        assert [row["key"] for row in calendar_subscribe_links(_Config("", "pub@group.calendar.google.com"))] == [
+            "public"
+        ]
+        assert calendar_subscribe_links(_Config("", "")) == []

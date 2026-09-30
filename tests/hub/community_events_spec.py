@@ -938,8 +938,13 @@ def describe_calendar_subscribe_links():
 
         assert "webcal://calendar.google.com/calendar/ical/memid%40group.calendar.google.com/public/basic.ics" in body
         assert "webcal://calendar.google.com/calendar/ical/pubid%40group.calendar.google.com/public/basic.ics" in body
-        assert "Subscribe to the Member calendar" in body
-        assert "Subscribe to the Public calendar" in body
+        assert "https://calendar.google.com/calendar/r?cid=memid%40group.calendar.google.com" in body
+        assert "https://calendar.google.com/calendar/r?cid=pubid%40group.calendar.google.com" in body
+        # Grouped by calendar app, each calendar under both.
+        assert 'pl-calendar-export__heading">Apple Calendar</p>' in body
+        assert 'pl-calendar-export__heading">Google Calendar</p>' in body
+        assert body.count(">Member calendar</a>") == 2 and body.count(">Public calendar</a>") == 2
+        assert "Download .ics (one time)" in body
 
     def it_hides_a_subscribe_link_when_its_calendar_is_unset(client: Client):
         _user_with_role("sub2")
@@ -951,5 +956,5 @@ def describe_calendar_subscribe_links():
 
         body = client.get(reverse("hub_community_calendar")).content.decode()
 
-        assert "Subscribe to the Member calendar" in body
-        assert "Subscribe to the Public calendar" not in body
+        assert body.count(">Member calendar</a>") == 2
+        assert ">Public calendar</a>" not in body

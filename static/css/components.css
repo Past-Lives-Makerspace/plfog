@@ -1959,3 +1959,91 @@
   width: 100%;
   display: block;
 }
+
+/* ========================================
+   Calendar subscribe menu
+   (hub/partials/_calendar_subscribe.html: the Community Calendar
+   and the event page share one dropdown)
+   ======================================== */
+.pl-calendar-export {
+    position: relative;
+}
+
+.pl-calendar-export__dropdown {
+    position: absolute;
+    right: 0;
+    top: calc(100% + 6px);
+    background: var(--hub-card-bg);
+    border: 1px solid rgba(255,255,255,0.1);
+    border-radius: 8px;
+    box-shadow: 0 8px 24px rgba(0,0,0,0.3);
+    min-width: 220px;
+    z-index: 100;
+    overflow: hidden;
+}
+
+.pl-calendar-export__item {
+    display: block;
+    padding: 0.625rem 1rem;
+    font-size: 0.8125rem;
+    color: var(--hub-text);
+    text-decoration: none;
+    transition: background 0.15s;
+}
+
+.pl-calendar-export__item:hover {
+    background: rgba(255,255,255,0.06);
+}
+
+.pl-calendar-export__note {
+    margin: 0;
+    padding: 0.5rem 1rem 0.625rem;
+    font-size: 0.75rem;
+    color: var(--hub-text-muted);
+    line-height: 1.4;
+    border-top: 1px solid rgba(255,255,255,0.06);
+}
+
+[data-theme="light"] .pl-calendar-export__note {
+    border-top-color: rgba(0,0,0,0.06);
+}
+
+.pl-calendar-export__heading {
+    margin: 0;
+    padding: 0.625rem 1rem 0.25rem;
+    font-size: 0.6875rem;
+    font-weight: 600;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: var(--hub-text-muted);
+}
+
+.pl-calendar-export__item + .pl-calendar-export__heading {
+    border-top: 1px solid rgba(255,255,255,0.06);
+}
+
+[data-theme="light"] .pl-calendar-export__item + .pl-calendar-export__heading {
+    border-top-color: rgba(0,0,0,0.06);
+}
+
+/* The one-time download follows the last subscribe group and is not one of its rows. */
+.pl-calendar-export__item--export {
+    border-top: 1px solid rgba(255,255,255,0.06);
+}
+
+[data-theme="light"] .pl-calendar-export__item--export {
+    border-top-color: rgba(0,0,0,0.06);
+}
+
+/* The event page opens the menu from the left end of its actions row, where a
+   right-anchored dropdown would hang off the card. */
+.pl-calendar-export--left .pl-calendar-export__dropdown {
+    left: 0;
+    right: auto;
+}
+
+/* native-downloads.js: a download link inside the native app, where a tap would do
+   nothing. A class rather than the hidden attribute, because .hub-btn sets display. */
+.pl-native-hidden {
+    display: none !important;
+}

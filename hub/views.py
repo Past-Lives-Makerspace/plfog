@@ -6345,7 +6345,7 @@ def community_calendar(request: HttpRequest) -> HttpResponse:
     """
     from django.core.paginator import Paginator
 
-    from hub.calendar_entries import google_calendar_subscribe_url, upcoming_calendar_events
+    from hub.calendar_entries import calendar_subscribe_links, upcoming_calendar_events
     from membership.models import CommunityEvent
 
     ctx = _get_hub_context(request)
@@ -6377,10 +6377,9 @@ def community_calendar(request: HttpRequest) -> HttpResponse:
     policy = site_config.member_event_policy
     cal_ctx["member_can_propose"] = policy != SiteConfiguration.MemberEventPolicy.DISABLED
     cal_ctx["google_sync_enabled"] = _google_sync_enabled()
-    # Subscribe links point at the makerspace's existing Member/Public Google Calendars
-    # (their public iCal feeds), so a member's calendar app stays live. Blank when unset.
-    cal_ctx["member_calendar_subscribe_url"] = google_calendar_subscribe_url(site_config.member_google_calendar_id)
-    cal_ctx["public_calendar_subscribe_url"] = google_calendar_subscribe_url(site_config.public_google_calendar_id)
+    # The Subscribe menu: the makerspace's Member/Public Google Calendars in both link forms
+    # (webcal for Apple Calendar, Google's add link), one row per configured calendar.
+    cal_ctx["calendar_subscribe_links"] = calendar_subscribe_links(site_config)
 
     # Reviewer queue link + count, and the member's own in-flight proposals (Screen A′).
     scope = _reviewer_guild_scope(request)
@@ -6506,6 +6505,8 @@ def event_detail(request: HttpRequest, pk: int) -> HttpResponse:
     unknown pk) 404s identically via the themed ``404.html`` — no unreviewed proposal ever
     leaks onto a scannable URL, and a missing event never reveals its title.
     """
+    from core.models import SiteConfiguration
+    from hub.calendar_entries import calendar_subscribe_links
     from membership.models import CommunityEvent
     from membership.permissions import can_edit_event
 
@@ -6518,6 +6519,11 @@ def event_detail(request: HttpRequest, pk: int) -> HttpResponse:
     rsvps = list(event.rsvps.select_related("member"))
     member = _get_member(request)
     viewer_rsvped = member is not None and any(rsvp.member_id == member.pk for rsvp in rsvps)
+    # A signed-in member is offered the calendar subscription in place of the one-time .ics:
+    # a downloaded event goes stale when it moves, a subscription follows it. An anonymous
+    # scanner keeps Add to calendar. Empty when no Google calendar is configured, and the
+    # template then falls back to Add to calendar for the member too.
+    subscribe_links = calendar_subscribe_links(SiteConfiguration.load()) if request.user.is_authenticated else []
     return render(
         request,
         "hub/event_detail.html",
@@ -6526,6 +6532,7 @@ def event_detail(request: HttpRequest, pk: int) -> HttpResponse:
             "event": event,
             "can_edit": can_edit,
             "is_recurring": is_recurring,
+            "calendar_subscribe_links": subscribe_links,
             # A non-recurring event that has already ended is still viewable; show an honest
             # "already taken place" note. A recurring series is ongoing, so never flag it.
             "show_past_note": not is_recurring and event.ends_at < dj_timezone.now(),
