@@ -2679,12 +2679,19 @@ class ClassOffering(HeroCropMixin, models.Model):
         _save_with_unique_slug(self, base, exclude_pk=self.pk, save=lambda: self.save(update_fields=["slug"]))
 
     def duplicate(self) -> "ClassOffering":
-        """Clone this offering as a fresh draft with a unique slug and title."""
+        """Clone this offering as a fresh draft with a unique slug and title.
+
+        The row's own columns come across with the new pk, the hero included; the gallery
+        and the FAQ rows are copied afterwards (:meth:`_copy_photos_and_faqs_from`), because
+        a fresh pk has no related rows and a copy with an empty gallery cannot be submitted.
+        """
+        source_pk = self.pk
         base_slug = f"{self.slug}-copy"
         self.pk = None
         self.title = f"{self.title} (copy)"
         self._reset_lifecycle_for_clone()
         _save_with_unique_slug(self, base_slug, exclude_pk=None, save=self.save)
+        self._copy_photos_and_faqs_from(source_pk)
         return self
 
     def _reset_lifecycle_for_clone(self) -> None:
@@ -2696,6 +2703,30 @@ class ClassOffering(HeroCropMixin, models.Model):
         self.cancelled_by = None
         self.cancellation_reason = ""
 
+    def _copy_photos_and_faqs_from(self, source_pk: int) -> None:
+        """Re-point the source's gallery and FAQ rows at this freshly saved clone.
+
+        The one place both clone paths copy what hangs off the row, so the two cannot drift.
+        Sessions are deliberately not here: a run starts undated by design.
+
+        The copied gallery rows carry the SAME storage key as the source's, exactly as the
+        hero column already does. No file is read or written, and nothing here goes through
+        ``ClassImage.save`` (no re-normalising, no orphan sweep) or ``clean`` (the source
+        already sits under ``MAX_GALLERY_IMAGES``). Shared keys are why every gallery delete
+        goes through ``core.files.delete_if_unreferenced``: the file leaves storage only once
+        no row points at it.
+        """
+        ClassImage.objects.bulk_create(
+            ClassImage(
+                class_offering=self, image=image.image.name, alt_text=image.alt_text, sort_order=image.sort_order
+            )
+            for image in ClassImage.objects.filter(class_offering_id=source_pk).order_by("sort_order", "created_at")
+        )
+        ClassFaq.objects.bulk_create(
+            ClassFaq(class_offering=self, question=faq.question, answer=faq.answer, sort_order=faq.sort_order)
+            for faq in ClassFaq.objects.filter(class_offering_id=source_pk).order_by("sort_order", "pk")
+        )
+
     def duplicate_as_new_run(self) -> "ClassOffering":
         """Clone as a fresh draft "run" of the SAME class on a new set of dates.
 
@@ -2704,15 +2735,19 @@ class ClassOffering(HeroCropMixin, models.Model):
         card — it becomes another date-set option rather than a separate class.
         The clone starts with no sessions (a new pk has no related rows yet) so
         the instructor/admin fills in fresh dates, and as a DRAFT so it isn't
-        public until reviewed/published. ``legacy_cms_id`` is cleared: a
+        public until reviewed/published. The gallery and the FAQs do come across
+        (:meth:`_copy_photos_and_faqs_from`): "keep everything else exactly as it
+        was" is the promise on the Teach page. ``legacy_cms_id`` is cleared: a
         hand-added run is locally authored, not a synced legacy node, and the
         partial unique constraint would otherwise reject the duplicate.
         """
+        source_pk = self.pk
         base_slug = f"{self.slug}-run"
         self.pk = None
         self._reset_lifecycle_for_clone()
         self.legacy_cms_id = ""
         _save_with_unique_slug(self, base_slug, exclude_pk=None, save=self.save)
+        self._copy_photos_and_faqs_from(source_pk)
         return self
 
 

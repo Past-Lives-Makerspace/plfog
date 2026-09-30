@@ -155,6 +155,9 @@ def describe_the_admin_capability_set():
     def it_can_send_email(admin_access):
         assert admin_access.can_send_email is True
 
+    def it_can_delete(admin_access):
+        assert admin_access.can_delete is True
+
     def it_shows_every_tab_in_order(admin_access):
         assert [tab.key for tab in admin_access.tabs] == [
             "overview",
@@ -208,6 +211,9 @@ def describe_the_reviewer_capability_set():
     def it_cannot_send_email(reviewer_access):
         assert reviewer_access.can_send_email is False
 
+    def it_cannot_delete(reviewer_access):
+        assert reviewer_access.can_delete is False
+
     def it_shows_only_the_overview_tab(reviewer_access):
         # Criterion 5: the grant's contract is approve/validate, so it opens no other tab.
         assert [tab.key for tab in reviewer_access.tabs] == ["overview"]
@@ -256,6 +262,11 @@ def describe_the_instructor_capability_set():
 
     def it_can_send_email(instructor_access):
         assert instructor_access.can_send_email is True
+
+    def it_can_delete(instructor_access):
+        # #526: the draft-only half of the rule is the endpoint's (`_may_delete`); the row
+        # carries the capability outright, like every other row here.
+        assert instructor_access.can_delete is True
 
     def it_shows_every_tab_in_order_while_the_flag_is_on(instructor_access):
         assert [tab.key for tab in instructor_access.tabs] == [
@@ -330,6 +341,11 @@ def describe_the_guild_capability_set():
         # and the composer's Send answered 403. Jo's call is that a lead may address a class in
         # their own guild, with the composer's per-person picker.
         assert guild_access.can_send_email is True
+
+    def it_cannot_delete(guild_access):
+        # Ruling 12 gives this population no Overview on someone else's class, and #526
+        # widened Delete to the class's own instructor only, so nothing here changed.
+        assert guild_access.can_delete is False
 
     def it_shows_only_the_emails_tab(guild_access):
         assert [tab.key for tab in guild_access.tabs] == ["emails"]

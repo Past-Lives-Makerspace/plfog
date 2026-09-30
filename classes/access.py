@@ -111,6 +111,7 @@ class ClassAccess:
     can_cancel: bool
     can_sale: bool
     can_send_email: bool
+    can_delete: bool
 
     @property
     def tabs(self) -> tuple[ClassTab, ...]:
@@ -137,6 +138,7 @@ def _admin_access() -> ClassAccess:
         can_cancel=True,
         can_sale=True,
         can_send_email=True,
+        can_delete=True,
     )
 
 
@@ -165,6 +167,7 @@ def _reviewer_access() -> ClassAccess:
         can_cancel=False,
         can_sale=False,
         can_send_email=False,
+        can_delete=False,
     )
 
 
@@ -173,6 +176,13 @@ def _instructor_access() -> ClassAccess:
 
     Discount Codes is the one conditional tab on the strip — instructor self-service
     codes are a site flag, default off, and the tab follows it.
+
+    **Delete is theirs on a draft.** ``can_delete`` sat on the admin row alone until #526: a
+    guild lead could delete a draft while wearing the admin hat and not as the instructor of
+    it, and Felix's call (2026-09-30) was that the gap was a bad feature decision, not a
+    guard. This row carries the capability; the draft-only rule (a submitted class is
+    withdrawn, a live one cancelled, so registrants are told) is the endpoint's, in
+    ``classes.views._may_delete``, because a status rule never belongs in a population table.
     """
     return ClassAccess(
         role=ROLE_INSTRUCTOR,
@@ -189,6 +199,7 @@ def _instructor_access() -> ClassAccess:
         can_cancel=True,
         can_sale=True,
         can_send_email=True,
+        can_delete=True,
     )
 
 
@@ -237,6 +248,7 @@ def _guild_access() -> ClassAccess:
         can_cancel=False,
         can_sale=False,
         can_send_email=True,
+        can_delete=False,
     )
 
 
