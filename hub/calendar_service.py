@@ -578,9 +578,16 @@ def sync_all_sources() -> list[str]:
 
     config = SiteConfiguration.load()
     if config.legacy_cms_sync_enabled:
-        from classes.import_service import sync_legacy_cms
+        from django.core.management import call_command
+
+        from classes.import_service import sync_legacy_cms, sync_legacy_gallery
 
         _run_source("legacy CMS", sync_legacy_cms, errors)
+        # The catalog sync leaves a new class pointing at the legacy host for its hero and
+        # without its gallery; these two bring the photos into our own storage the same night,
+        # so nothing has to remember to run them by hand.
+        _run_source("legacy hero images", partial(call_command, "download_legacy_images"), errors)
+        _run_source("legacy gallery", sync_legacy_gallery, errors)
 
     # Always materialize local plfog classes onto the calendar — independent of the
     # external feed toggles. This is the sole source of class events on the calendar.

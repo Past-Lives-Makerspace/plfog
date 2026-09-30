@@ -324,7 +324,11 @@
             <h2 class="cp-detail__h2" style="margin-bottom:0;">Supported by the {{ offering.category.guild.name }}</h2>
           </div>
           <div class="cp-detail__guild">
-            <p class="cp-detail__prose">{% if offering.category.guild.about %}{{ offering.category.guild.about }}{% else %}This class is offered in partnership with the {{ offering.category.guild.name }} at Past Lives Makerspace.{% endif %}</p>
+            {% if offering.category.guild.about %}
+            <div class="cp-detail__prose">{{ offering.category.guild.about|linebreaks }}</div>
+            {% else %}
+            <p class="cp-detail__prose">This class is offered in partnership with the {{ offering.category.guild.name }} at Past Lives Makerspace.</p>
+            {% endif %}
             <a class="cp-detail__guild-link" href="{% url 'hub_guild_detail' offering.category.guild.slug %}" hx-boost="false">About our guilds &rarr;</a>
           </div>
         </section>

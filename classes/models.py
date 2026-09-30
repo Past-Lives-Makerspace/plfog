@@ -2983,10 +2983,26 @@ class ClassImage(models.Model):
         help_text="Short description of the image for accessibility.",
     )
     sort_order = models.PositiveIntegerField(default=0, help_text="Ascending; lower shows first.")
+    legacy_source_url = models.URLField(
+        max_length=500,
+        blank=True,
+        default="",
+        help_text=(
+            "The classes.pastlives.space file this row was imported from, or blank for an upload. "
+            "The nightly gallery import skips a file its class already holds under this URL."
+        ),
+    )
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:
         ordering = ["sort_order", "created_at"]
+        indexes = [
+            models.Index(
+                fields=["legacy_source_url"],
+                condition=models.Q(legacy_source_url__gt=""),
+                name="ix_classimage_legacy_src",
+            ),
+        ]
 
     def __str__(self) -> str:
         return f"Image #{self.pk} for {self.class_offering.title}"

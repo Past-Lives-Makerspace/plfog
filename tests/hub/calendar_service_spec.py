@@ -333,11 +333,49 @@ def describe_sync_all_sources_legacy_cms():
         config.legacy_cms_sync_enabled = True
         config.save()
 
-        with patch("classes.import_service.sync_legacy_cms") as mock_sync:
+        with (
+            patch("classes.import_service.sync_legacy_cms") as mock_sync,
+            patch("django.core.management.call_command"),
+            patch("classes.import_service.sync_legacy_gallery"),
+        ):
             errors = sync_all_sources()
 
         mock_sync.assert_called_once()
         assert errors == []
+
+    def it_brings_the_legacy_photos_across_after_the_catalog_sync():
+        from hub.calendar_service import sync_all_sources
+
+        config = SiteConfiguration.load()
+        config.legacy_cms_sync_enabled = True
+        config.save()
+
+        with (
+            patch("classes.import_service.sync_legacy_cms"),
+            patch("django.core.management.call_command") as mock_command,
+            patch("classes.import_service.sync_legacy_gallery") as mock_gallery,
+        ):
+            errors = sync_all_sources()
+
+        mock_command.assert_called_once_with("download_legacy_images")
+        mock_gallery.assert_called_once()
+        assert errors == []
+
+    def it_records_a_gallery_failure_without_stopping_the_run():
+        from hub.calendar_service import sync_all_sources
+
+        config = SiteConfiguration.load()
+        config.legacy_cms_sync_enabled = True
+        config.save()
+
+        with (
+            patch("classes.import_service.sync_legacy_cms"),
+            patch("django.core.management.call_command"),
+            patch("classes.import_service.sync_legacy_gallery", side_effect=RuntimeError("bucket down")),
+        ):
+            errors = sync_all_sources()
+
+        assert errors == ["legacy gallery: bucket down"]
 
     def it_skips_sync_legacy_cms_when_disabled():
         from hub.calendar_service import sync_all_sources
@@ -346,10 +384,14 @@ def describe_sync_all_sources_legacy_cms():
         config.legacy_cms_sync_enabled = False
         config.save()
 
-        with patch("classes.import_service.sync_legacy_cms") as mock_sync:
+        with (
+            patch("classes.import_service.sync_legacy_cms") as mock_sync,
+            patch("classes.import_service.sync_legacy_gallery") as mock_gallery,
+        ):
             sync_all_sources()
 
         mock_sync.assert_not_called()
+        mock_gallery.assert_not_called()
 
     def it_captures_exceptions_from_legacy_cms_sync():
         from hub.calendar_service import sync_all_sources
@@ -358,7 +400,11 @@ def describe_sync_all_sources_legacy_cms():
         config.legacy_cms_sync_enabled = True
         config.save()
 
-        with patch("classes.import_service.sync_legacy_cms", side_effect=RuntimeError("drupal down")):
+        with (
+            patch("classes.import_service.sync_legacy_cms", side_effect=RuntimeError("drupal down")),
+            patch("django.core.management.call_command"),
+            patch("classes.import_service.sync_legacy_gallery"),
+        ):
             errors = sync_all_sources()
 
         assert any("legacy CMS" in e and "drupal down" in e for e in errors)
