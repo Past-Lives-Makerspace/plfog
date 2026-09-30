@@ -10,6 +10,7 @@ import time
 import urllib.request
 from dataclasses import dataclass
 from pathlib import Path
+from collections.abc import Iterator
 from typing import TYPE_CHECKING, Any
 from urllib.parse import urljoin
 
@@ -285,7 +286,7 @@ class GalleryImportResult:
         )
 
 
-def _iter_legacy_pages(url: str | None):
+def _iter_legacy_pages(url: str | None) -> Iterator[tuple[list[dict[str, Any]], dict[str, dict[str, Any]]]]:
     """Yield ``(items, included)`` per page of the legacy feed, following ``links.next``."""
     while url:
         data = _fetch_json(url)
