@@ -1,0 +1,9 @@
+bump = "major"
+date = "2026-09-30"
+title = "Past Lives 2.0"
+changes = [
+  "Say you are interested in hosting a workshop and we now ask how you want to be reached: email, text message or a phone call. The admins see that with your note, so they can get back to you the way you asked.",
+  "A multi session series on the class catalog lists every date in the set, so you know which days you are signing up for before you click.",
+  "In the class composer, a date you have just added counts when you submit for review. You no longer have to save first.",
+  "The composer's card and phone previews follow the crop you choose the moment you choose it, and the page preview shows the saved crop.",
+]
