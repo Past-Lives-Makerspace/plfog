@@ -1066,3 +1066,42 @@ def describe_all_guild_types_show():
 
         slugs = {c.slug for c in response.context["categories"]}
         assert "demo-lamp-working" in slugs
+
+
+def describe_detail_guild_card():
+    """The guild's About text is plain text; its paragraphs and line breaks must survive on the class page."""
+
+    def it_keeps_the_guild_about_paragraphs_and_line_breaks(client, db):
+        from classes.factories import ClassOfferingFactory
+        from classes.models import ClassOffering
+        from membership.models import Guild
+
+        guild = Guild.objects.create(
+            name="Metalworkers Guild",
+            slug="metalworkers-guild",
+            about="Welcome to the metal shop.\n\n• Two gas forges\n• MIG and TIG welding",
+        )
+        offering = ClassOfferingFactory(
+            status=ClassOffering.Status.PUBLISHED,
+            category__name="Metalworking",
+            category__guild=guild,
+        )
+        resp = client.get(reverse("classes:public_class_detail", kwargs={"slug": offering.slug}))
+        assert resp.status_code == 200
+        body = resp.content.decode()
+        assert "<p>Welcome to the metal shop.</p>" in body
+        assert "• Two gas forges<br>• MIG and TIG welding" in body
+
+    def it_falls_back_to_the_partnership_line_when_about_is_empty(client, db):
+        from classes.factories import ClassOfferingFactory
+        from classes.models import ClassOffering
+        from membership.models import Guild
+
+        guild = Guild.objects.create(name="Glass Guild", slug="glass-guild", about="")
+        offering = ClassOfferingFactory(
+            status=ClassOffering.Status.PUBLISHED,
+            category__name="Glass",
+            category__guild=guild,
+        )
+        resp = client.get(reverse("classes:public_class_detail", kwargs={"slug": offering.slug}))
+        assert "offered in partnership with the Glass Guild" in resp.content.decode()
