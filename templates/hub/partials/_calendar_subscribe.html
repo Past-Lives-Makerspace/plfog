@@ -40,7 +40,7 @@ data-pl-download (FRONTEND.md rule 24).
         <a href="{% url 'hub_calendar_export_ics' %}" class="pl-calendar-export__item pl-calendar-export__item--export" download hx-boost="false" data-pl-download>Download .ics (one time)</a>
         {% endif %}
         <p class="pl-calendar-export__note">
-            Subscribe once and your calendar app stays up to date. Member events and public events live on separate calendars, so take both for everything. Outlook and most other apps use the Apple Calendar links.
+            Subscribe once and your calendar app stays up to date.{% if subscribe_links|length > 1 %} Member events and public events live on separate calendars, so take both for everything.{% endif %}{% if subscribe_links %} Outlook and most other apps use the Apple Calendar links.{% endif %}
         </p>
     </div>
 </div>
