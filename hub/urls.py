@@ -142,7 +142,6 @@ urlpatterns = [
         views.orientation_block_book,
         name="hub_orientation_block_book",
     ),
-    path("orientation/blocks/post/", views.orientation_block_post, name="hub_orientation_block_post"),
     path(
         "orientation/blocks/<int:block_pk>/cancel/",
         views.orientation_block_cancel,

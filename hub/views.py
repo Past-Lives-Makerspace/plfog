@@ -988,6 +988,51 @@ def _guild_attention_context(request: HttpRequest, guild: Guild) -> dict[str, An
     }
 
 
+def _overview_group(member: Any, rules: list[Any]) -> tuple[Any, list[Any], bool]:
+    """One Orientation Schedule group: the person, their rows, and whether any row is an open window.
+
+    A schedule line names its booking style only for a person who mixes the two shapes, so
+    a guild that never opens a window keeps today's quiet lines (#532).
+    """
+    return member, rules, any(rule.is_open for rule in rules)
+
+
+def _upcoming_times(guild: Guild) -> list[dict[str, Any]]:
+    """Everything the Upcoming Times card lists, fixed slots and open windows together, in start order.
+
+    Each entry is ``{"kind": "slot" | "window", "item": <row>}``. A slot carved out of a
+    live window (``FROM_BLOCK``) is not a row of its own; it shows as a booked segment
+    under its window. Each window carries ``live_segments`` (its seat holding carved slots)
+    and each segment ``holders`` (the members in it), both prefetched, so the card costs the
+    same queries at eight windows as at one.
+    """
+    from django.db.models import Prefetch
+
+    from membership.models import OrientationBooking, OrientationSlot
+
+    slots = (
+        guild.orientation_slots.upcoming()
+        .exclude(source=OrientationSlot.Source.FROM_BLOCK, block__is_cancelled=False)
+        .with_active_booking_count()  # one aggregate, not a COUNT per row — the list is unbounded
+        .with_pending_hold_count()  # holds consume seats but hide from active() — show them, not ghosts
+        .select_related("orienter", "orientation_type")
+    )
+    holders = Prefetch(
+        "bookings", queryset=OrientationBooking.objects.seat_holding().select_related("member"), to_attr="holders"
+    )
+    segments = Prefetch(
+        "slots",
+        queryset=OrientationSlot.objects.holding_seats().select_related("orientation_type").prefetch_related(holders),
+        to_attr="live_segments",
+    )
+    windows = (
+        guild.orientation_blocks.upcoming().select_related("orienter", "orientation_type").prefetch_related(segments)
+    )
+    times: list[dict[str, Any]] = [{"kind": "slot", "item": slot} for slot in slots]
+    times.extend({"kind": "window", "item": window} for window in windows)
+    return sorted(times, key=lambda entry: entry["item"].starts_at)
+
+
 def _guild_edit_context(
     request: HttpRequest,
     guild: Guild,
@@ -1052,20 +1097,14 @@ def _guild_edit_context(
         rules_by_orienter.setdefault(orienter_id, []).append(rule)
         if orienter_id not in leadership_ids:
             orphan_orienters[orienter_id] = rule.orienter
-    orienter_overview = [(m, rules_by_orienter.get(m.pk, [])) for m in leadership]
+    orienter_overview = [_overview_group(m, rules_by_orienter.get(m.pk, [])) for m in leadership]
     former_staff_overview = sorted(
-        ((m, rules_by_orienter[pk]) for pk, m in orphan_orienters.items()),
-        key=lambda pair: pair[0].display_name.lower(),
+        (_overview_group(m, rules_by_orienter[pk]) for pk, m in orphan_orienters.items()),
+        key=lambda group: group[0].display_name.lower(),
     )
     guild_rules_qs = guild.orientation_rules.guild_level()
     has_guild_rules = guild_rules_qs.exists()
-    upcoming_slots_admin = list(
-        guild.orientation_slots.upcoming()
-        .with_active_booking_count()  # one aggregate, not a COUNT per row — the list is unbounded
-        .with_pending_hold_count()  # holds consume seats but hide from active() — show them, not ghosts
-        .select_related("orienter", "orientation_type")
-        .order_by("starts_at")
-    )
+    upcoming_times_admin = _upcoming_times(guild)
 
     return {
         **ctx,
@@ -1143,7 +1182,7 @@ def _guild_edit_context(
             )
         ),
         "guild_rules_readonly": (list(guild_rules_qs) if has_guild_rules and not can_edit_others_hours else []),
-        "upcoming_slots_admin": upcoming_slots_admin,
+        "upcoming_times_admin": upcoming_times_admin,
         "slot_form": OrientationSlotForm(guild=guild, acting_member=viewer, lock_to_acting=not can_edit_others_hours),
         "slot_form_locked": not can_edit_others_hours,
     }
@@ -1336,7 +1375,7 @@ def _hours_save_message(*, deleted_rules: int, removed: int, kept: int, shared_f
     if kept:
         pronoun = "it" if kept == 1 else "them"
         parts.append(
-            f"{kept} booked slot{'' if kept == 1 else 's'} kept. Cancel {pronoun} from the Upcoming Slots card."
+            f"{kept} booked slot{'' if kept == 1 else 's'} kept. Cancel {pronoun} from the Upcoming Times card."
         )
     return " ".join(parts)
 
@@ -1401,8 +1440,14 @@ def guild_orientation_hours_save(request: HttpRequest, pk: int) -> HttpResponse:
     else:
         prefix = "guild_rules"
         queryset = guild.orientation_rules.guild_level()
+    # A person's own rows may open a window (#532); the shared guild scope stays fixed. The
+    # scope's person is handed to each form so the model's clean can read it before save.
     formset = OrientationAvailabilityFormSet(
-        request.POST, instance=guild, prefix=prefix, queryset=queryset, form_kwargs={"guild": guild}
+        request.POST,
+        instance=guild,
+        prefix=prefix,
+        queryset=queryset,
+        form_kwargs={"guild": guild, "orienter": target, "allow_open": target is not None},
     )
     if formset.is_valid():
         deleted_rules, removed, kept = _apply_hours_formset(formset, target=target)
@@ -1439,6 +1484,7 @@ def guild_orientation_hours_save(request: HttpRequest, pk: int) -> HttpResponse:
                 "target": target,
                 "formset": formset,
                 "hours_save_url": reverse("hub_guild_orientation_hours_save", args=[guild.pk]),
+                "offer_open": target is not None,
             },
         )
     # Guild scope is the only other path here — re-render the full page with the bound formset.
@@ -1472,7 +1518,7 @@ def guild_orientation_hours_form(request: HttpRequest, pk: int) -> HttpResponse:
         instance=guild,
         prefix="modal_rules",
         queryset=guild.orientation_rules.for_orienter(target),
-        form_kwargs={"guild": guild},
+        form_kwargs={"guild": guild, "orienter": target, "allow_open": True},
     )
     return render(
         request,
@@ -1482,6 +1528,7 @@ def guild_orientation_hours_form(request: HttpRequest, pk: int) -> HttpResponse:
             "target": target,
             "formset": formset,
             "hours_save_url": reverse("hub_guild_orientation_hours_save", args=[guild.pk]),
+            "offer_open": True,
         },
     )
 
@@ -1646,7 +1693,7 @@ def guild_staff_remove(request: HttpRequest, pk: int, staff_pk: int) -> HttpResp
             message += (
                 f" They still have {booked_remaining} upcoming booked "
                 f"orientation{'' if booked_remaining == 1 else 's'}. Cancel them from the "
-                "Upcoming Slots card on the Orientations tab if they won't be run."
+                "Upcoming Times card on the Orientations tab if they won't be run."
             )
     messages.success(request, message)
     return redirect(f"{reverse('hub_guild_edit', args=[guild.pk])}?tab=staff")
@@ -1683,7 +1730,7 @@ def guild_lead_set(request: HttpRequest, pk: int) -> HttpResponse:
 @login_required
 @require_POST
 def guild_orientation_slot_add(request: HttpRequest, pk: int) -> HttpResponse:
-    """POST-only — add a one-off orientation slot to this guild. Editors only."""
+    """POST-only — add a one off to this guild: a fixed slot, or an open window (#532). Editors only."""
     from hub.forms import OrientationSlotForm
     from membership.models import OrientationSlot
     from membership.permissions import can_edit_orienter_hours
@@ -1702,11 +1749,15 @@ def guild_orientation_slot_add(request: HttpRequest, pk: int) -> HttpResponse:
         lock_to_acting=not can_edit_orienter_hours(request, guild, None),
     )
     if form.is_valid():
-        slot = form.save(commit=False)
-        slot.guild = guild
-        slot.source = OrientationSlot.Source.MANUAL
-        slot.save()
-        messages.success(request, "Orientation slot added.")
+        if form.is_open:
+            form.save_window()
+            messages.success(request, "Open window added. Members can pick a time inside it.")
+        else:
+            slot = form.save(commit=False)
+            slot.guild = guild
+            slot.source = OrientationSlot.Source.MANUAL
+            slot.save()
+            messages.success(request, "Orientation slot added.")
     else:
         for field, errors in form.errors.items():
             for error in errors:
@@ -2554,16 +2605,6 @@ def orientations_dashboard(request: HttpRequest) -> HttpResponse:
     for slot in manageable:
         if slot.orientation_type.is_paid:
             paid_slot_prices[str(slot.pk)] = cents_as_price(slot.orientation_type.price_cents)
-    # Availability blocks (issue #283): upcoming blocks for the guilds this request
-    # manages (admins: all), with their booked segments listed via block.booked_segments.
-    from hub.forms import OrientationBlockForm
-    from membership.models import OrientationAvailabilityBlock
-
-    blocks_qs = OrientationAvailabilityBlock.objects.upcoming().select_related("guild", "orienter")
-    if not (view_as is not None and view_as.has_actual("admin")):
-        blocks_qs = blocks_qs.filter(guild_id__in=my_leadership_guild_ids)
-    my_blocks = list(blocks_qs.order_by("starts_at"))
-    block_form = OrientationBlockForm(guild_queryset=_orientation_block_guilds(request))
     return render(
         request,
         "hub/orientations_dashboard.html",
@@ -2576,8 +2617,6 @@ def orientations_dashboard(request: HttpRequest) -> HttpResponse:
             "guilds": Guild.objects.filter(is_active=True).order_by("name"),
             "statuses": OrientationBooking.Status.choices,
             "add_member_form": OrientationAddMemberForm(slot_queryset=_manageable_slots(request)),
-            "my_blocks": my_blocks,
-            "block_form": block_form,
             "paid_slot_prices_json": json.dumps(paid_slot_prices),
             "viewer_has_refund_authority": has_refund_authority(request),
             "is_admin": view_as is not None and view_as.has_actual("admin"),
@@ -2648,62 +2687,10 @@ def orientation_toggle_completed(request: HttpRequest, booking_pk: int) -> HttpR
     return redirect("hub_orientations_dashboard")
 
 
-def _orientation_block_guilds(request: HttpRequest) -> Any:
-    """Guilds this request may post availability blocks for — the acting member's leadership guilds.
-
-    Deliberately leadership-scoped for admins too: a block's orienter is the poster,
-    and a carved-out slot whose orienter is off the guild's leadership is unbookable
-    (``OrientationSlot.is_bookable``) — posting one anywhere else would be dead weight.
-    """
-    member = _get_member(request)
-    if member is None:
-        return Guild.objects.none()
-    return (
-        Guild.objects.filter(is_active=True)
-        .filter(Q(guild_lead=member) | Q(staff_memberships__member=member))
-        .distinct()
-        .order_by("name")
-    )
-
-
-@login_required
-@require_POST
-def orientation_block_post(request: HttpRequest) -> HttpResponse:
-    """POST-only — an orienter/lead/admin posts a one-off availability block (issue #283).
-
-    The block's orienter is always the acting member — you post your own available
-    time. The guild choices are scoped to the guilds the poster leads or staffs
-    (admins: any active guild), enforced by the form's queryset.
-    """
-    from hub.forms import OrientationBlockForm
-    from membership.models import OrientationAvailabilityBlock
-
-    if not _can_access_orientations(request):
-        return HttpResponse("Forbidden", status=403)
-    member = _get_member(request)
-    if member is None:
-        return HttpResponse("Forbidden", status=403)
-    form = OrientationBlockForm(request.POST, guild_queryset=_orientation_block_guilds(request))
-    if form.is_valid():
-        OrientationAvailabilityBlock.objects.create(
-            guild=form.cleaned_data["guild"],
-            orienter=member,
-            starts_at=form.cleaned_data["starts_at"],
-            ends_at=form.cleaned_data["ends_at"],
-            location=form.cleaned_data["location"],
-        )
-        messages.success(request, "Availability block posted. Members can now pick a time inside it.")
-    else:
-        for errors in form.errors.values():
-            for error in errors:
-                messages.error(request, str(error))
-    return redirect("hub_orientations_dashboard")
-
-
 @login_required
 @require_POST
 def orientation_block_cancel(request: HttpRequest, block_pk: int) -> HttpResponse:
-    """POST-only — cancel an availability block. Stops new bookings; carved-out slots live on."""
+    """POST-only — cancel an open window from the Upcoming Times card. Stops new bookings; carved-out slots live on."""
     from membership.models import OrientationAvailabilityBlock
 
     block = get_object_or_404(OrientationAvailabilityBlock.objects.select_related("guild"), pk=block_pk)
@@ -2711,8 +2698,8 @@ def orientation_block_cancel(request: HttpRequest, block_pk: int) -> HttpRespons
     if forbidden is not None:
         return forbidden
     block.cancel()
-    messages.success(request, "Availability block cancelled. Existing bookings inside it are untouched.")
-    return redirect("hub_orientations_dashboard")
+    messages.success(request, "Open window cancelled. Anything already booked inside it is untouched.")
+    return redirect(f"{reverse('hub_guild_edit', args=[block.guild.pk])}?tab=orientations")
 
 
 def _surface_product_errors(request: HttpRequest, form: Any, formset: Any) -> None:

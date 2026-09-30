@@ -1,6 +1,6 @@
 """BDD specs for the availability-block views (issue #283): the HTMX start picker, member
-booking, the dashboard post/cancel surfaces with their permission gates, and the guild-page
-pick-a-time section."""
+booking, the window cancel gate, the dashboard without its retired blocks card (#532), and the
+guild-page pick-a-time section."""
 
 from __future__ import annotations
 
@@ -10,14 +10,13 @@ from unittest.mock import patch
 import pytest
 from django.contrib.auth.models import User
 from django.test import Client
-from django.urls import reverse
+from django.urls import NoReverseMatch, reverse
 from django.utils import timezone
 
 from membership import orientations
-from membership.models import Member, OrientationAvailabilityBlock, OrientationBooking
+from membership.models import Member, OrientationBooking
 from tests.membership.factories import (
     GuildFactory,
-    GuildStaffMembershipFactory,
     MemberFactory,
     MembershipPlanFactory,
     OrientationAvailabilityBlockFactory,
@@ -204,94 +203,6 @@ def describe_orientation_block_book():
         assert not block.slots.exists()
 
 
-def describe_orientation_block_post():
-    def _post_data(guild, *, days_out: int = 3) -> dict:
-        day = timezone.localdate() + timedelta(days=days_out)
-        return {
-            "guild": guild.pk,
-            "date": day.isoformat(),
-            "start_time": "18:00",
-            "end_time": "21:00",
-            "location": "Woodshop",
-        }
-
-    def it_posts_a_block_for_a_guild_lead(client: Client):
-        user = _user_with_role("bp1")
-        guild = GuildFactory(guild_lead=user.member)
-        client.login(username="bp1", password="pass")
-
-        response = client.post(reverse("hub_orientation_block_post"), _post_data(guild))
-
-        assert response.status_code == 302
-        block = OrientationAvailabilityBlock.objects.get(guild=guild)
-        assert block.orienter_id == user.member.pk
-        assert block.location == "Woodshop"
-        assert block.ends_at - block.starts_at == timedelta(hours=3)
-
-    def it_posts_a_block_for_guild_staff(client: Client):
-        user = _user_with_role("bp2")
-        guild = GuildFactory()
-        GuildStaffMembershipFactory(guild=guild, member=user.member)
-        client.login(username="bp2", password="pass")
-        assert client.post(reverse("hub_orientation_block_post"), _post_data(guild)).status_code == 302
-        assert OrientationAvailabilityBlock.objects.filter(guild=guild, orienter=user.member).exists()
-
-    def it_forbids_a_regular_member(client: Client):
-        _user_with_role("bp3")
-        guild = GuildFactory()
-        client.login(username="bp3", password="pass")
-        response = client.post(reverse("hub_orientation_block_post"), _post_data(guild))
-        assert response.status_code == 403
-        assert not OrientationAvailabilityBlock.objects.exists()
-
-    def it_rejects_a_guild_the_poster_does_not_staff(client: Client):
-        user = _user_with_role("bp4")
-        GuildFactory(guild_lead=user.member)  # they lead one guild, but post for another
-        other = GuildFactory()
-        client.login(username="bp4", password="pass")
-        response = client.post(reverse("hub_orientation_block_post"), _post_data(other), follow=True)
-        assert response.status_code == 200
-        assert not OrientationAvailabilityBlock.objects.exists()
-
-    def it_rejects_a_block_that_ends_before_it_starts(client: Client):
-        user = _user_with_role("bp5")
-        guild = GuildFactory(guild_lead=user.member)
-        client.login(username="bp5", password="pass")
-        data = _post_data(guild)
-        data["start_time"] = "21:00"
-        data["end_time"] = "18:00"
-        response = client.post(reverse("hub_orientation_block_post"), data, follow=True)
-        assert any("end after it starts" in str(m) for m in response.context["messages"])
-        assert not OrientationAvailabilityBlock.objects.exists()
-
-    def it_rejects_a_block_in_the_past(client: Client):
-        user = _user_with_role("bp6")
-        guild = GuildFactory(guild_lead=user.member)
-        client.login(username="bp6", password="pass")
-        response = client.post(reverse("hub_orientation_block_post"), _post_data(guild, days_out=-3), follow=True)
-        assert any("in the future" in str(m) for m in response.context["messages"])
-        assert not OrientationAvailabilityBlock.objects.exists()
-
-    def it_rejects_a_submission_with_no_date(client: Client):
-        user = _user_with_role("bp7")
-        guild = GuildFactory(guild_lead=user.member)
-        client.login(username="bp7", password="pass")
-        data = _post_data(guild)
-        del data["date"]
-        response = client.post(reverse("hub_orientation_block_post"), data, follow=True)
-        assert response.status_code == 200
-        assert not OrientationAvailabilityBlock.objects.exists()
-
-    def it_forbids_a_lead_whose_member_row_is_gone(client: Client):
-        user = _user_with_role("bp8", fog_role=Member.FogRole.ADMIN)
-        guild = GuildFactory()
-        client.force_login(user)
-        Member.objects.filter(pk=user.member.pk).delete()
-        response = client.post(reverse("hub_orientation_block_post"), _post_data(guild))
-        assert response.status_code == 403
-        assert not OrientationAvailabilityBlock.objects.exists()
-
-
 def describe_orientation_block_cancel():
     def it_cancels_for_the_guild_lead(client: Client):
         user = _user_with_role("bc1")
@@ -341,37 +252,25 @@ def describe_guild_page_pick_a_time_section():
         assert reverse("hub_orientation_block_starts", args=[block.pk, orientation_type.pk]) not in content
 
 
-def describe_orientations_dashboard_blocks_card():
-    def it_lists_the_leaderships_upcoming_blocks_with_booked_segments(client: Client):
-        user = _user_with_role("db1")
+def describe_orientations_dashboard_without_blocks():
+    # Markup anchors, not the card's words: the changelog renders on every page, and a
+    # fragment that mentions Availability Blocks would fail a copy assertion (STANDARDS.md §8).
+    def it_renders_no_availability_blocks_card(client: Client):
+        user = _user_with_role("nb1")
         guild = GuildFactory(guild_lead=user.member)
-        block = OrientationAvailabilityBlockFactory(guild=guild, orienter=user.member)
-        orientation_type = OrientationTypeFactory(guild=guild)
-        booker = MemberFactory(full_legal_name="Zebulon Quartermain")
-        orientations.request_block_orientation(
-            block, booker, block.starts_at + timedelta(minutes=30), orientation_type=orientation_type
-        )
-        OrientationAvailabilityBlockFactory()  # someone else's guild — not listed for this lead
-        client.login(username="db1", password="pass")
-
+        OrientationAvailabilityBlockFactory(guild=guild, orienter=user.member)
+        client.login(username="nb1", password="pass")
         content = client.get(reverse("hub_orientations_dashboard")).content.decode()
+        assert 'data-help-key="orientation.availability-blocks"' not in content
+        assert "/orientation/blocks/post/" not in content
+        assert "Add a member to a slot" in content  # the page still ends with its own tools
 
-        assert reverse("hub_orientation_block_post") in content
-        assert reverse("hub_orientation_block_cancel", args=[block.pk]) in content
-        assert "Zebulon Quartermain" in content  # the booked segment lists who's inside
-        other = OrientationAvailabilityBlock.objects.exclude(pk=block.pk).get()
-        assert reverse("hub_orientation_block_cancel", args=[other.pk]) not in content
-
-    def it_lists_every_upcoming_block_for_an_admin(client: Client):
-        _user_with_role("db2", fog_role=Member.FogRole.ADMIN)
-        block = OrientationAvailabilityBlockFactory()
-        client.login(username="db2", password="pass")
-        content = client.get(reverse("hub_orientations_dashboard")).content.decode()
-        assert reverse("hub_orientation_block_cancel", args=[block.pk]) in content
+    def it_has_no_post_route():
+        with pytest.raises(NoReverseMatch):
+            reverse("hub_orientation_block_post")
 
     def it_renders_for_an_admin_whose_member_row_is_gone(client: Client):
         user = _user_with_role("db3", fog_role=Member.FogRole.ADMIN)
         client.force_login(user)
         Member.objects.filter(pk=user.member.pk).delete()
-        # No member → no postable guilds, but the dashboard still renders.
         assert client.get(reverse("hub_orientations_dashboard")).status_code == 200

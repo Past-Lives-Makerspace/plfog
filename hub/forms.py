@@ -2059,7 +2059,7 @@ class MeetingAttachmentForm(forms.ModelForm):
 EXTERNAL_SIGNUP_URL_WARNING = (
     "Signups that go through this link are not recorded here, so finishing one does not mark "
     "anyone oriented. To mark someone oriented by hand, do three things in order: add a time "
-    "under Upcoming Slots on this tab, add the member to that time from the "
+    "from the Upcoming card on this tab, add the member to that time from the "
     "Orientations dashboard, then tick Completed on their row there."
 )
 GUILD_EXTERNAL_SIGNUP_HINT = (
@@ -2502,11 +2502,23 @@ class OrientationAvailabilityForm(forms.ModelForm):
         choices=_ORIENTATION_BUFFER_CHOICES,
         label="Break between slots",
     )
+    # Optional so the legacy shared rows form and the equipment editor, which never render
+    # it, stay fixed: clean_booking_style turns the blank into fixed and refuses open where
+    # it is not offered. RadioSelect renders as two .pl-chip labels; x-model drives the
+    # row's Alpine state so the fixed only fields hide in place (#532).
+    booking_style = forms.ChoiceField(
+        required=False,
+        choices=OrientationAvailability.BookingStyle.choices,
+        initial=OrientationAvailability.BookingStyle.FIXED,
+        widget=forms.RadioSelect(attrs={"x-model": "style"}),
+        label="How members book",
+    )
 
     class Meta:
         model = OrientationAvailability
         fields = [
             "orientation_type",
+            "booking_style",
             "weekday",
             "cadence",
             "anchor_date",
@@ -2520,15 +2532,27 @@ class OrientationAvailabilityForm(forms.ModelForm):
         labels = {"orientation_type": "Orientation"}
 
     def __init__(
-        self, *args: Any, guild: Guild | None = None, equipment: Equipment | None = None, **kwargs: Any
+        self,
+        *args: Any,
+        guild: Guild | None = None,
+        equipment: Equipment | None = None,
+        orienter: Member | None = None,
+        allow_open: bool = False,
+        **kwargs: Any,
     ) -> None:
         super().__init__(*args, **kwargs)
+        self.allow_open = allow_open
         if guild is None and equipment is None and self.instance is not None and self.instance.guild_id is not None:
             guild = self.instance.guild
+        if orienter is not None and self.instance is not None and self.instance.orienter_id is None:
+            # Stamp the scope's person BEFORE validation: the model's clean reads orienter_id
+            # for the open row rules and the one person one calendar overlap check (#532).
+            self.instance.orienter = orienter
         type_field = cast(forms.ModelChoiceField, self.fields["orientation_type"])
-        # The FK went nullable for open rows (#532); a fixed row still needs its type, and this
-        # editor offers fixed rows only until part 2 adds the booking style choice.
-        type_field.required = True
+        # A fixed row needs its type; an open row may say Any orientation, a NULL type (#532).
+        # Where open is offered the model's clean refuses a fixed row with no type; where it
+        # is not (shared rows, equipment), the field stays required.
+        type_field.required = not allow_open
         allowed: Any = None
         if equipment is not None:
             allowed = equipment.owned_orientation_types.active()
@@ -2545,7 +2569,7 @@ class OrientationAvailabilityForm(forms.ModelForm):
             first_type = allowed.first()
             if first_type is not None:
                 type_field.initial = first_type.pk
-        type_field.empty_label = None
+        type_field.empty_label = "Any orientation" if allow_open else None
         if self.instance and self.instance.pk:
             _seed_time_choice(self, "start_time", self.instance.start_time)
             _seed_time_choice(self, "end_time", self.instance.end_time)
@@ -2564,11 +2588,23 @@ class OrientationAvailabilityForm(forms.ModelForm):
     def clean_cadence(self) -> str:
         return cast(str, self.cleaned_data["cadence"]) or str(OrientationAvailability.Cadence.WEEKLY)
 
+    def clean_booking_style(self) -> str:
+        posted = cast(str, self.cleaned_data.get("booking_style") or "")
+        style = posted or str(OrientationAvailability.BookingStyle.FIXED)
+        if style == OrientationAvailability.BookingStyle.OPEN and not self.allow_open:
+            raise forms.ValidationError("Any time in the window is for a person's own hours in a guild.")
+        return style
+
     def clean(self) -> dict[str, Any]:
         cleaned = cast(dict[str, Any], super().clean())
         # The start day rules (required off weekly, on the rule's weekday) live in the model's
         # clean(), which ModelForm runs after this and which the admin runs too; adding them
         # here as well rendered the same message twice.
+        if cleaned.get("booking_style") == OrientationAvailability.BookingStyle.OPEN:
+            # The fixed only fields are hidden on an open row, not absent from the POST: a
+            # window has no seats, slot length or break, whatever the hidden inputs carried.
+            cleaned["slot_minutes"] = None
+            cleaned["buffer_minutes"] = 0
         start = cleaned.get("start_time")
         end = cleaned.get("end_time")
         if start and end and end <= start:
@@ -2594,14 +2630,26 @@ EquipmentOrientationAvailabilityFormSet = forms.modelformset_factory(
 
 
 class OrientationSlotForm(forms.ModelForm):
-    """Add a one-off orientation slot from the Upcoming Slots card.
+    """Add a one off from the Upcoming Times card: a fixed slot, or an open window (#532).
 
-    First surfaced with per-orienter availability: date + half-hour start + duration
-    dropdowns (Rule 20 — no per-minute pickers), plus an Orienter select whose choices
-    are the guild's leadership and an "Any orienter (guild slot)" empty choice. A plain
-    staff member gets the field locked to themselves (a crafted POST cannot override it).
+    Date and half hour times are ``<select>`` dropdowns (Rule 20), plus an Orienter select
+    whose choices are the guild's leadership and an "Any orienter (guild slot)" empty
+    choice; a plain staff member gets the field locked to themselves (a crafted POST cannot
+    override it). ``booking_style`` picks the shape. Fixed start times need an orientation,
+    a duration and seats and save an :class:`OrientationSlot`. Any time in the window needs
+    an end time and a person and saves an :class:`OrientationAvailabilityBlock`, for one
+    orientation or, left at Any orientation, for all of the guild's. Either shape refuses to
+    overlap the person's open window that day, and an open one off also refuses their fixed
+    times: the one off twin of the recurring rows' overlap rule.
     """
 
+    booking_style = forms.ChoiceField(
+        required=False,
+        choices=OrientationAvailability.BookingStyle.choices,
+        initial=OrientationAvailability.BookingStyle.FIXED,
+        widget=forms.RadioSelect(attrs={"x-model": "style"}),
+        label="How members book",
+    )
     date = forms.DateField(
         label="Date",
         widget=forms.DateInput(
@@ -2611,13 +2659,15 @@ class OrientationSlotForm(forms.ModelForm):
         ),
     )
     start_time = forms.ChoiceField(choices=half_hour_time_choices(required=True), label="Start time")
+    end_time = forms.ChoiceField(required=False, choices=half_hour_time_choices(required=True), label="Until")
     duration_minutes = forms.TypedChoiceField(
-        coerce=int, choices=_SLOT_DURATION_CHOICES, initial="60", label="Duration"
+        coerce=int, required=False, choices=_SLOT_DURATION_CHOICES, initial="60", label="Duration"
     )
     orientation_type = forms.ModelChoiceField(
         queryset=OrientationType.objects.none(),
+        required=False,
         label="Orientation",
-        empty_label=None,
+        empty_label="Any orientation",
     )
     orienter = forms.ModelChoiceField(
         queryset=Member.objects.none(),
@@ -2639,8 +2689,11 @@ class OrientationSlotForm(forms.ModelForm):
         **kwargs: Any,
     ) -> None:
         super().__init__(*args, **kwargs)
+        self._guild = guild
         self._acting_member = acting_member
         self._lock_to_acting = lock_to_acting
+        # Seats belong to a fixed slot only; clean() puts the model default back on an open one.
+        self.fields["seats"].required = False
         type_field = cast(forms.ModelChoiceField, self.fields["orientation_type"])
         type_field.queryset = OrientationType.objects.filter(guild=guild).active()
         type_field.error_messages["invalid_choice"] = "Pick one of this guild's orientations."
@@ -2662,19 +2715,89 @@ class OrientationSlotForm(forms.ModelForm):
             return self._acting_member
         return cast("Member | None", self.cleaned_data.get("orienter"))
 
+    @property
+    def is_open(self) -> bool:
+        """True once a valid form describes an open window rather than a fixed slot."""
+        return bool(self.cleaned_data.get("booking_style") == OrientationAvailability.BookingStyle.OPEN)
+
     def clean(self) -> dict[str, Any]:
         cleaned = cast(dict[str, Any], super().clean())
-        day = cleaned.get("date")
-        start_raw = cleaned.get("start_time")
-        duration = cleaned.get("duration_minutes")
-        if day and start_raw and duration:
-            starts_at = timezone.make_aware(datetime.combine(day, _parse_time_choice(start_raw)))
-            if starts_at <= timezone.now():
-                self.add_error("date", "Pick a time in the future.")
-            else:
-                cleaned["starts_at"] = starts_at
-                cleaned["ends_at"] = starts_at + timedelta(minutes=duration)
+        style = cleaned.get("booking_style") or str(OrientationAvailability.BookingStyle.FIXED)
+        cleaned["booking_style"] = style
+        is_open = style == OrientationAvailability.BookingStyle.OPEN
+        if cleaned.get("seats") is None:
+            # The Seats input is hidden on an open one off, and blank on a fixed one that
+            # never touched it; the slot's own default is the honest value for both.
+            cleaned["seats"] = OrientationSlot._meta.get_field("seats").default
+        self._require_shape_fields(cleaned, is_open=is_open)
+        if self.errors or not cleaned.get("date") or not cleaned.get("start_time"):
+            return cleaned
+        span = self._span(cleaned, is_open=is_open)
+        if span is None:
+            return cleaned
+        starts_at, ends_at = span
+        orienter = cleaned.get("orienter")
+        clash = self._clash_message(orienter, starts_at, ends_at, is_open=is_open) if orienter is not None else None
+        if clash is not None:
+            self.add_error("start_time", clash)
+            return cleaned
+        cleaned["starts_at"] = starts_at
+        cleaned["ends_at"] = ends_at
         return cleaned
+
+    def _require_shape_fields(self, cleaned: dict[str, Any], *, is_open: bool) -> None:
+        """Each shape's own required fields, as field errors: the widgets hide by style, so the form has to say."""
+        if is_open:
+            if cleaned.get("orienter") is None:
+                self.add_error("orienter", "An open window needs a person.")
+            if not cleaned.get("end_time"):
+                self.add_error("end_time", "Pick when the window ends.")
+            return
+        if cleaned.get("orientation_type") is None:
+            self.add_error("orientation_type", "Pick an orientation.")
+        if not cleaned.get("duration_minutes"):
+            self.add_error("duration_minutes", "Pick how long it runs.")
+
+    def _span(self, cleaned: dict[str, Any], *, is_open: bool) -> tuple[datetime, datetime] | None:
+        """The one off's aware span from the cleaned fields, or None after adding the error that stops it."""
+        starts_at = timezone.make_aware(datetime.combine(cleaned["date"], _parse_time_choice(cleaned["start_time"])))
+        if is_open:
+            ends_at = timezone.make_aware(datetime.combine(cleaned["date"], _parse_time_choice(cleaned["end_time"])))
+            if ends_at <= starts_at:
+                self.add_error("end_time", "The window has to end after it starts.")
+                return None
+        else:
+            ends_at = starts_at + timedelta(minutes=cleaned["duration_minutes"])
+        if starts_at <= timezone.now():
+            self.add_error("date", "Pick a time in the future.")
+            return None
+        return starts_at, ends_at
+
+    @staticmethod
+    def _clash_message(orienter: Member, starts_at: datetime, ends_at: datetime, *, is_open: bool) -> str | None:
+        """One person, one calendar for a one off, or None when the span is clear.
+
+        The person's open window that day clashes with either shape; their fixed times
+        clash with an open one off only, because two fixed times may overlap (a lead
+        publishing two orientations over the same hours on purpose).
+        """
+        windows = OrientationAvailabilityBlock.objects.upcoming().filter(
+            orienter=orienter, starts_at__lt=ends_at, ends_at__gt=starts_at
+        )
+        if windows.exists():
+            return (
+                f"These hours overlap {orienter.display_name}'s open window that day. "
+                "One person can be booked one way at a time."
+            )
+        fixed = OrientationSlot.objects.filter(
+            orienter=orienter, is_cancelled=False, starts_at__lt=ends_at, ends_at__gt=starts_at
+        )
+        if is_open and fixed.exists():
+            return (
+                f"These hours overlap {orienter.display_name}'s fixed times that day. "
+                "One person can be booked one way at a time."
+            )
+        return None
 
     def save(self, commit: bool = True) -> OrientationSlot:
         slot = cast(OrientationSlot, super().save(commit=False))
@@ -2685,6 +2808,17 @@ class OrientationSlotForm(forms.ModelForm):
         if commit:
             slot.save()
         return slot
+
+    def save_window(self) -> OrientationAvailabilityBlock:
+        """Create the open window an any time one off describes (the form is valid and ``is_open``)."""
+        return OrientationAvailabilityBlock.objects.create(
+            guild=self._guild,
+            orienter=cast(Member, self.cleaned_data["orienter"]),
+            orientation_type=self.cleaned_data["orientation_type"],
+            starts_at=self.cleaned_data["starts_at"],
+            ends_at=self.cleaned_data["ends_at"],
+            location=self.cleaned_data["location"],
+        )
 
 
 class CommunityEventForm(forms.ModelForm):
@@ -3204,49 +3338,6 @@ class OrientationRecordForm(forms.Form):
             note=self.cleaned_data["note"],
             recorded_by=recorded_by,
         )
-
-
-class OrientationBlockForm(forms.Form):
-    """An orienter posts a one-off block of available time from the orientations dashboard.
-
-    Type-agnostic on purpose (issue #283): a block belongs to a guild + orienter, and
-    any of the guild's active orientation types may book into it. The orienter is
-    always the acting member — you post your own time.
-    """
-
-    guild = forms.ModelChoiceField(queryset=Guild.objects.none(), label="Guild", empty_label=None)
-    date = forms.DateField(
-        label="Date",
-        widget=forms.DateInput(
-            # Rule 14: the whole field opens the picker; .pl-slot-date inverts the
-            # black picker icon on the dark theme (reset under the light theme).
-            attrs={"type": "date", "class": "pl-slot-date", "onclick": "try { this.showPicker() } catch (e) {}"}
-        ),
-    )
-    start_time = forms.ChoiceField(choices=half_hour_time_choices(required=True), label="From")
-    end_time = forms.ChoiceField(choices=half_hour_time_choices(required=True), label="Until")
-    location = forms.CharField(max_length=200, required=False, label="Location (optional)")
-
-    def __init__(self, *args: Any, guild_queryset: Any = None, **kwargs: Any) -> None:
-        super().__init__(*args, **kwargs)
-        if guild_queryset is not None:
-            cast(forms.ModelChoiceField, self.fields["guild"]).queryset = guild_queryset
-
-    def clean(self) -> dict[str, Any]:
-        cleaned: dict[str, Any] = super().clean() or {}
-        day = cleaned.get("date")
-        start_choice = cleaned.get("start_time")
-        end_choice = cleaned.get("end_time")
-        if day and start_choice and end_choice:
-            starts_at = timezone.make_aware(datetime.combine(day, _parse_time_choice(start_choice)))
-            ends_at = timezone.make_aware(datetime.combine(day, _parse_time_choice(end_choice)))
-            if ends_at <= starts_at:
-                raise forms.ValidationError("The block has to end after it starts.")
-            if starts_at <= timezone.now():
-                raise forms.ValidationError("Pick a time in the future.")
-            cleaned["starts_at"] = starts_at
-            cleaned["ends_at"] = ends_at
-        return cleaned
 
 
 class OrientationBlockBookingForm(forms.Form):

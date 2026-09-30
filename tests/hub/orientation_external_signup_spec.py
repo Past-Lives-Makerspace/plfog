@@ -372,7 +372,7 @@ def describe_the_guild_orientation_settings_editor():
         # tab, not on the dashboard, and an external guild usually has no slots at all.
         # "on this tab" and not a tab name: the guild editor labels it Orientations and the
         # equipment panel labels it Orientation, and one constant has to be true on both.
-        assert "add a time under Upcoming Slots on this tab" in content
+        assert "add a time from the Upcoming card on this tab" in content
         assert "Orientation tab" not in EXTERNAL_SIGNUP_URL_WARNING
         assert "add the member to that time from the Orientations dashboard" in content
         assert "tick Completed on their row there" in content

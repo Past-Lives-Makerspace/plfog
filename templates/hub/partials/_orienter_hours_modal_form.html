@@ -1,5 +1,5 @@
 {% comment %}
-Edit Hours modal body — the orientation-availability formset for one orienter (a guild
+Edit Hours modal body — the orientation availability formset for one orienter (a guild
 staffer or an equipment manager), or an equipment's shared rows, loaded via HTMX into
 #edit-hours-modal-body (see the Orientation Schedule card on the guild edit page and the
 equipment manage panel's Orientation tab).
@@ -11,12 +11,13 @@ formset its DOM ids could collide with.
 
 Context: target (the Member being edited, or None for an equipment's shared rows), formset
 (unbound on GET; bound on an invalid POST re-render so errors show inside the open modal),
-hours_save_url (the owner's save endpoint). Slot length and break are optional: blank keeps
-one slot for the whole window.
+hours_save_url (the owner's save endpoint), offer_open (truthy for a guild staffer's own
+rows: each row shows How members book, fixed start times or any time in the window; #532).
+Each row is hub/partials/_orienter_hours_row.html, bound rows and the cloned empty form alike.
 {% endcomment %}
 {% if target %}
 <h2 class="hub-detail-label" style="margin-top:0; margin-bottom:0.25rem;">Editing {{ target.display_name }}'s Hours</h2>
-<p class="hub-text-muted" style="font-size:0.8125rem; margin-bottom:1rem;">Recurring windows when {{ target.display_name }} can give orientations, weekly, every other week, or monthly and beyond. We turn them into bookable slots automatically. Members book them by name.</p>
+<p class="hub-text-muted" style="font-size:0.8125rem; margin-bottom:1rem;">Recurring hours when {{ target.display_name }} can give orientations, weekly, every other week, or monthly and beyond.{% if offer_open %} Each row is either fixed start times or any time in the window.{% else %} We turn them into bookable slots automatically.{% endif %} Members book them by name.</p>
 {% else %}
 <h2 class="hub-detail-label" style="margin-top:0; margin-bottom:0.25rem;">Editing Shared Hours</h2>
 <p class="hub-text-muted" style="font-size:0.8125rem; margin-bottom:1rem;">Shared weekly windows any manager can run. Keep, edit, or retire them; new recurring hours belong to a person.</p>
@@ -31,42 +32,7 @@ one slot for the whole window.
   {% if formset.non_form_errors %}<div class="hub-form-errors">{{ formset.non_form_errors }}</div>{% endif %}
   <div id="modal-rule-rows" class="pl-hours-rows">
     {% for rule in formset %}
-    <div class="hub-card" style="padding:1rem; background:rgba(255,255,255,0.02);">
-      {{ rule.id }}
-      <div style="display:flex; gap:0.75rem; flex-wrap:wrap;">
-        <div style="flex:1; min-width:140px;">{% include "components/form_field.html" with field=rule.orientation_type %}</div>
-        <div style="flex:1; min-width:120px;">{% include "components/form_field.html" with field=rule.weekday %}</div>
-        <div style="flex:1; min-width:90px;">{% include "components/form_field.html" with field=rule.start_time %}</div>
-        <div style="flex:1; min-width:90px;">{% include "components/form_field.html" with field=rule.end_time %}</div>
-        <div style="flex:1; min-width:70px;">{% include "components/form_field.html" with field=rule.seats %}</div>
-      </div>
-      <div style="display:flex; gap:0.75rem; flex-wrap:wrap;">
-        <div style="flex:1; min-width:140px;">{% include "components/form_field.html" with field=rule.cadence %}</div>
-        <div style="flex:1; min-width:160px;">{% include "components/form_field.html" with field=rule.anchor_date %}</div>
-      </div>
-      <div style="display:flex; gap:0.75rem; flex-wrap:wrap;">
-        <div style="flex:1; min-width:140px;">{% include "components/form_field.html" with field=rule.slot_minutes %}</div>
-        <div style="flex:1; min-width:140px;">{% include "components/form_field.html" with field=rule.buffer_minutes %}</div>
-      </div>
-      <p class="hub-text-muted" style="font-size:0.8125rem; margin:0 0 0.5rem;">Leave slot length blank to offer the whole window as one slot.</p>
-      {% include "components/form_field.html" with field=rule.is_active %}
-      {% if rule.instance.pk %}
-        {# Delete confirms first (it retires future open slots), then flips DELETE and submits the modal form. #}
-        <div style="display:none;">{{ rule.DELETE }}</div>
-        <button type="button" class="pl-btn pl-btn--danger pl-btn--sm pl-btn--spaced"
-                @click="$dispatch('open-confirm', 'modal-rule-del-{{ rule.instance.pk }}')">
-          Delete
-        </button>
-        {% with rpks=rule.instance.pk|stringformat:"s" ruledel="document.getElementById('"|add:rule.DELETE.id_for_label|add:"').checked = true; document.getElementById('edit-hours-modal-form').requestSubmit();" %}
-        {% if target %}
-        {% include "components/confirm_modal.html" with confirm_id="modal-rule-del-"|add:rpks confirm_title="Delete these hours?" confirm_message="Upcoming open slots from this window will be removed. Slots someone already booked stay until you cancel them." confirm_button_text="Delete" confirm_js=ruledel %}
-        {% else %}
-        {# Shared rows are the one-way door: once deleted they cannot be recreated. #}
-        {% include "components/confirm_modal.html" with confirm_id="modal-rule-del-"|add:rpks confirm_title="Delete these shared hours?" confirm_message="Shared recurring hours cannot be recreated. Upcoming open slots from this window will be removed; booked slots stay until you cancel them." confirm_button_text="Delete" confirm_js=ruledel %}
-        {% endif %}
-        {% endwith %}
-      {% endif %}
-    </div>
+    {% include "hub/partials/_orienter_hours_row.html" with rule=rule offer_open=offer_open target=target %}
     {% empty %}
     <p class="hub-text-muted">{% if target %}No hours yet. Add a window and members can start booking {{ target.display_name }}.{% else %}No shared hours.{% endif %}</p>
     {% endfor %}
@@ -74,32 +40,10 @@ one slot for the whole window.
 
   {# Hidden empty-form template, cloned by the +Add button below. #}
   <template id="modal-rule-empty-template">
-    <div class="hub-card" style="padding:1rem; background:rgba(255,255,255,0.02);">
-      {% with formset.empty_form as er %}
-        {{ er.id }}
-        <div style="display:flex; gap:0.75rem; flex-wrap:wrap;">
-          <div style="flex:1; min-width:140px;">{% include "components/form_field.html" with field=er.orientation_type %}</div>
-          <div style="flex:1; min-width:120px;">{% include "components/form_field.html" with field=er.weekday %}</div>
-          <div style="flex:1; min-width:90px;">{% include "components/form_field.html" with field=er.start_time %}</div>
-          <div style="flex:1; min-width:90px;">{% include "components/form_field.html" with field=er.end_time %}</div>
-          <div style="flex:1; min-width:70px;">{% include "components/form_field.html" with field=er.seats %}</div>
-        </div>
-        <div style="display:flex; gap:0.75rem; flex-wrap:wrap;">
-          <div style="flex:1; min-width:140px;">{% include "components/form_field.html" with field=er.cadence %}</div>
-          <div style="flex:1; min-width:160px;">{% include "components/form_field.html" with field=er.anchor_date %}</div>
-        </div>
-        <div style="display:flex; gap:0.75rem; flex-wrap:wrap;">
-          <div style="flex:1; min-width:140px;">{% include "components/form_field.html" with field=er.slot_minutes %}</div>
-          <div style="flex:1; min-width:140px;">{% include "components/form_field.html" with field=er.buffer_minutes %}</div>
-        </div>
-        <p class="hub-text-muted" style="font-size:0.8125rem; margin:0 0 0.5rem;">Leave slot length blank to offer the whole window as one slot.</p>
-        {% include "components/form_field.html" with field=er.is_active %}
-        <button type="button" class="pl-btn pl-btn--danger pl-btn--sm pl-btn--spaced" onclick="this.closest('.hub-card').remove();">Remove</button>
-      {% endwith %}
-    </div>
+    {% include "hub/partials/_orienter_hours_row.html" with rule=formset.empty_form offer_open=offer_open target=target %}
   </template>
 
-  <div style="margin-top:1rem; display:flex; gap:1rem; align-items:center; flex-wrap:wrap;">
+  <div class="pl-oneoff__actions">
     {# Shared rows are keep/edit/retire only: no new shared recurring hours (the one-way door). #}
     {% if target %}
     <button type="button" class="hub-btn hub-btn--sm"
