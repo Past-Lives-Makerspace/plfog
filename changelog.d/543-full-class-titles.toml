@@ -1,0 +1,6 @@
+bump = "patch"
+date = "2026-09-30"
+title = "Manage Classes shows the whole class title"
+changes = [
+  "The Title column on Manage Classes cut every class name off after about 22 characters, so one instructor's classes all read the same. It now shows the whole title, wrapping onto a second line when it needs to.",
+]
