@@ -1553,6 +1553,10 @@ def _why_teach_context(member: Member, apply_form: TeachingApplicationForm) -> d
         "article": article,
         "guide": guide,
         "apply_form": apply_form,
+        # What the I'm Interested modal prefills into "Where to reach you" when the member
+        # picks a method: the account email, or the phone on their profile (blank when none).
+        "contact_prefill_email": member.primary_email,
+        "contact_prefill_phone": member.phone,
         "application_state": member.teaching_application_state,
         # The page's words, edited on the classes Settings page. A blanked field hides
         # its section, so the template guards every one.
@@ -1598,7 +1602,11 @@ def teach_apply(request: HttpRequest) -> HttpResponse:
     if not form.is_valid():
         return render(request, "classes/teach/why_teach.html", _why_teach_context(member, form))
     try:
-        member.apply_to_teach(form.cleaned_data["note"])
+        member.apply_to_teach(
+            form.cleaned_data["note"],
+            contact_method=form.cleaned_data["contact_method"],
+            contact_detail=form.cleaned_data["contact_detail"],
+        )
     except ValueError:
         if member.can_create_classes:
             messages.error(request, "You can already host workshops. The teaching portal is open.")

@@ -86,3 +86,27 @@ def describe_upserting_a_persona_registration():
         assert kept.first_name == "New"
         assert cancelled.status == Registration.Status.CANCELLED  # left where the migration put it
         assert Registration.objects.filter(class_offering=offering, email=email).count() == 2
+
+
+def describe_resetting_the_member_persona():
+    """Issue #536: the reset clears the contact pair along with the four teaching fields."""
+
+    def it_clears_the_contact_method_and_detail_with_the_note(db):
+        from django.contrib.auth.models import User
+
+        from core.management.commands.stage_demo_meeting import MEMBER_EMAIL, Command
+        from membership.models import Member
+
+        user = User.objects.create_user(username=MEMBER_EMAIL, email=MEMBER_EMAIL, password="pw")
+        Member.objects.filter(user=user).update(
+            teaching_applied_at="2026-09-01T00:00:00Z",
+            teaching_application_note="Wheel throwing.",
+            teaching_contact_method="text",
+            teaching_contact_detail="503 555 0100",
+        )
+        member = Command()._reset_member_persona()
+        member.refresh_from_db()
+        assert member.teaching_applied_at is None
+        assert member.teaching_application_note == ""
+        assert member.teaching_contact_method == ""
+        assert member.teaching_contact_detail == ""

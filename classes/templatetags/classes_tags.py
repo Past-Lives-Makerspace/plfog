@@ -252,6 +252,22 @@ def session_date_range(sessions) -> str:
 
 
 @register.filter
+def session_dates(sessions) -> str:
+    """Every date of a session list, comma separated, e.g. 'Oct 2, Oct 9, Oct 23'.
+
+    The catalog card's series option rows and the class page's other-date rows use
+    it so a member sees which days a session set commits them to, not just its first
+    and last. Dates are local time, sorted, one per session; a session with no start
+    is skipped. The register page's run picker keeps ``session_date_range`` because a
+    ``<select>`` option cannot wrap. Returns "" when empty.
+    """
+    from django.utils.timezone import localtime
+
+    items = sorted((s for s in (sessions or []) if s.starts_at), key=lambda s: s.starts_at)
+    return ", ".join(localtime(s.starts_at).strftime("%b %-d") for s in items)
+
+
+@register.filter
 def strip_date_suffix(value: str | None) -> str:
     """Strip CMS-imported date suffixes like ' - 6/5/26' or ' 9/8/26, 9/10/26' from a title."""
     if not value:

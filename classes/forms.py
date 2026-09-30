@@ -10,7 +10,7 @@ from urllib.parse import urlencode
 
 from django import forms
 from django.core.exceptions import ValidationError
-from django.core.validators import MaxValueValidator
+from django.core.validators import MaxValueValidator, validate_email
 from django.db.models import Q
 from django.forms import inlineformset_factory
 from django.utils import timezone
@@ -566,12 +566,30 @@ class ClassSaleForm(_SaleMixin, forms.ModelForm):
         return offering
 
 
+def _teaching_contact_method_choices() -> list[tuple[str, str]]:
+    """The Best way to reach you options, behind a blank so a missed pick is a field error.
+
+    A callable so the form module never imports ``membership.models`` at load time
+    (the two apps import each other).
+    """
+    from membership.models import Member
+
+    return [("", "Pick one"), *Member.TeachingContactMethod.choices]
+
+
 class TeachingApplicationForm(forms.Form):
-    """The I'm Interested modal's single note field.
+    """The I'm Interested modal: the note, how to reach the member, and where.
 
     Validation lives here, not the view: the note is what an admin reads when they
     decide, so a blank submit gets the field error rather than filing an empty ask.
     ``strip`` is Django's default, so a note of only whitespace fails ``required``.
+    The detail is checked against the method in ``clean``: Email must be an address;
+    Text message and Phone call need a phone number with at least seven digits,
+    however it is punctuated. What the member typed is stored as typed.
+
+    The widget attributes on the two contact fields are what the modal's Alpine
+    component hooks: the select reports a change and the detail input takes the
+    prefill (``templates/classes/teach/partials/apply_form.html``).
     """
 
     note = forms.CharField(
@@ -588,6 +606,43 @@ class TeachingApplicationForm(forms.Form):
             "max_length": "That is longer than we can store. Trim it to 2000 characters or fewer.",
         },
     )
+    contact_method = forms.ChoiceField(
+        required=True,
+        choices=_teaching_contact_method_choices,
+        label="Best way to reach you",
+        widget=forms.Select(attrs={"x-ref": "method", "@change": "pick($event.target.value)"}),
+        error_messages={
+            "required": "Pick how you would like us to reach you.",
+            "invalid_choice": "Pick how you would like us to reach you.",
+        },
+    )
+    contact_detail = forms.CharField(
+        required=True,
+        max_length=254,
+        label="Where to reach you",
+        widget=forms.TextInput(attrs={"x-ref": "detail"}),
+        error_messages={
+            "required": "Tell us where to reach you: an email address or a phone number.",
+            "max_length": "That is longer than we can store. Keep it to 254 characters or fewer.",
+        },
+    )
+
+    def clean(self) -> dict:
+        data = super().clean() or {}
+        method = data.get("contact_method")
+        detail = data.get("contact_detail")
+        if not method or not detail:
+            return data  # the field errors already say which one is missing
+        from membership.models import Member
+
+        if method == Member.TeachingContactMethod.EMAIL:
+            try:
+                validate_email(detail)
+            except ValidationError:
+                self.add_error("contact_detail", "That does not look like an email address. Check it and try again.")
+        elif sum(ch.isdigit() for ch in detail) < 7:
+            self.add_error("contact_detail", "That does not look like a phone number. It needs at least seven digits.")
+        return data
 
 
 class ClassSessionForm(forms.ModelForm):

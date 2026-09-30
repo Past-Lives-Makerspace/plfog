@@ -252,7 +252,7 @@
                   <a href="{% url 'classes:public_class_detail' slug=sibling.slug %}">
                     {% if sibling.scheduling_type == 'series_package' %}
                       {% with ses=sibling.sessions.all|upcoming_sessions %}
-                        <span class="cp-detail__other-date-when">{{ ses|session_date_range }} · {{ ses|length }} session{{ ses|length|pluralize }}</span>
+                        <span class="cp-detail__other-date-when">{{ ses|session_dates }} · {{ ses|length }} session{{ ses|length|pluralize }}</span>
                       {% endwith %}
                     {% else %}
                       {% with session=sibling.sessions.all|upcoming_sessions|first %}

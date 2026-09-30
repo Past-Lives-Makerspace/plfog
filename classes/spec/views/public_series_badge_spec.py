@@ -86,6 +86,49 @@ def describe_catalog_card_badges():
         assert "2 options" in body
 
 
+def _date_labels(offering: ClassOffering) -> list[str]:
+    from django.utils.timezone import localtime
+
+    return [localtime(s.starts_at).strftime("%b %-d") for s in offering.sessions.order_by("starts_at")]
+
+
+def describe_series_option_dates():
+    """Issue #536: a series option lists every upcoming date, not its first to last span."""
+
+    @pytest.fixture
+    def second_run(published_series):
+        return SeriesClassOfferingFactory(
+            title="Blacksmithing 101",
+            slug="blacksmithing-101-july",
+            category=published_series.category,
+            instructor=published_series.instructor,
+            status=ClassOffering.Status.PUBLISHED,
+            session_count=3,
+        )
+
+    def it_lists_every_date_of_each_option_on_the_catalog_card(published_series, second_run, client):
+        body = client.get(reverse("classes:public_list")).content.decode()
+        for run in (published_series, second_run):
+            labels = _date_labels(run)
+            assert f'<span class="cls-schedule__date cls-schedule__date--list">{", ".join(labels)}</span>' in body
+            assert f'cls-schedule__date--list">{labels[0]} – {labels[-1]}<' not in body
+        assert body.count('<span class="cls-schedule__time">3 sessions</span>') == 2
+
+    def it_lists_every_date_on_the_class_pages_other_date_rows(published_series, second_run, client):
+        body = client.get(
+            reverse("classes:public_class_detail", kwargs={"slug": published_series.slug})
+        ).content.decode()
+        labels = _date_labels(second_run)
+        assert f'<span class="cp-detail__other-date-when">{", ".join(labels)} · 3 sessions</span>' in body
+        assert f'other-date-when">{labels[0]} – {labels[-1]} ·' not in body
+
+    def it_keeps_the_first_to_last_span_in_the_register_pages_run_picker(published_series, second_run, client):
+        body = client.get(reverse("classes:register", kwargs={"slug": published_series.slug})).content.decode()
+        labels = _date_labels(second_run)
+        assert f">{labels[0]} – {labels[-1]} · 3 sessions · 6 left</option>" in body
+        assert ", ".join(labels) not in body
+
+
 def describe_detail_page_badges():
     def it_shows_a_multi_session_series_label_on_a_series_detail_page(published_series, client):
         response = client.get(reverse("classes:public_class_detail", kwargs={"slug": published_series.slug}))

@@ -9875,6 +9875,13 @@ mark { background: color-mix(in srgb, var(--color-tuscan-yellow) 30%, transparen
     color: var(--hub-text-muted);
 }
 
+/* "Contact them at 503 555 0100 (text message)" on an Interested in Teaching row: the one
+   line the admin acts on, so it keeps the full text colour between the two muted lines. */
+.pl-queue-contact {
+    font-size: 0.85rem;
+    color: var(--hub-text);
+}
+
 /* Home page Teaching card (class-lifecycle spec PR 2): single-line rows that wrap on phones. */
 .pl-teaching {
     list-style: none;

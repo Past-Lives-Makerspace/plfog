@@ -501,6 +501,18 @@ class Member(models.Model):
         APPROVED = "approved", "Approved"
         DECLINED = "declined", "Declined"
 
+    class TeachingContactMethod(models.TextChoices):
+        """How a member asked to be reached about their teaching application.
+
+        Stored on :attr:`Member.teaching_contact_method` beside the detail the member
+        gave for it (an address or a number). "Text message" is a preference the admin
+        acts on by hand; nothing here sends an SMS.
+        """
+
+        EMAIL = "email", "Email"
+        TEXT = "text", "Text message"
+        PHONE = "phone", "Phone call"
+
     class EmailGap(models.TextChoices):
         """Why a member has no usable email (labels only; no field stores this).
 
@@ -730,6 +742,22 @@ class Member(models.Model):
         blank=True,
         default="",
         help_text="What the member said they want to teach, in their own words.",
+    )
+    teaching_contact_method = models.CharField(
+        max_length=10,
+        choices=TeachingContactMethod.choices,
+        blank=True,
+        default="",
+        help_text=(
+            "How the member asked to be reached about their teaching application: email, text message "
+            "or phone call. Blank for an application filed before the question was asked."
+        ),
+    )
+    teaching_contact_detail = models.CharField(
+        max_length=254,
+        blank=True,
+        default="",
+        help_text="The email address or phone number the member gave for that method, exactly as they typed it.",
     )
     teaching_decided_at = models.DateTimeField(
         null=True,
@@ -1410,20 +1438,39 @@ class Member(models.Model):
             return states.PENDING
         return states.NONE
 
-    def apply_to_teach(self, note: str) -> None:
+    @property
+    def teaching_contact_method_label(self) -> str:
+        """The contact method as lower case prose ("text message"), or "" when never asked.
+
+        The notification to the admins and the queue row both say "Contact them at
+        503 555 0100 (text message)"; an application filed before the question existed
+        has no method and reads as "".
+        """
+        if not self.teaching_contact_method:
+            return ""
+        return str(self.TeachingContactMethod(self.teaching_contact_method).label).lower()
+
+    def apply_to_teach(self, note: str, *, contact_method: str, contact_detail: str) -> None:
         """Record this member's ask to teach and put it in front of the admins.
 
         Teaching is not self-service: this only files the request. An admin turns the
         Instructor permission on (``grant_teaching``) to actually open the portal.
         Re-applying after a decline is deliberate and clears the old decline, so the
         member is back in the queue with a clean slate rather than reading a stale no.
+        The contact fields tell the admin how to get in touch; a new application
+        overwrites the previous pair.
 
         Args:
             note: What they want to teach, in their own words. Required.
+            contact_method: A :class:`TeachingContactMethod` value: how they want to be
+                reached. Required.
+            contact_detail: The email address or phone number for that method, stored
+                as typed. Required; the form has already checked its shape.
 
         Raises:
-            ValueError: If the member is not ACTIVE, if ``note`` is blank, or if they
-                already have an application waiting on an admin.
+            ValueError: If the member is not ACTIVE, if ``note``, ``contact_method`` or
+                ``contact_detail`` is blank, if ``contact_method`` is not a known method,
+                or if they already have an application waiting on an admin.
         """
         from core.events.emit import emit
         from core.models import SiteActivity
@@ -1433,6 +1480,12 @@ class Member(models.Model):
         note = note.strip()
         if not note:
             raise ValueError("A teaching application needs a note saying what they want to teach")
+        if not contact_method:
+            raise ValueError("A teaching application needs to say how the member wants to be reached")
+        method = self.TeachingContactMethod(contact_method)  # an unknown method raises ValueError
+        contact_detail = contact_detail.strip()
+        if not contact_detail:
+            raise ValueError("A teaching application needs an email address or phone number to reach the member at")
         if self.teaching_application_state == self.TeachingApplicationState.PENDING:
             raise ValueError(f"Member {self.pk} already has a teaching application waiting on an admin")
         if self.can_create_classes:
@@ -1441,12 +1494,16 @@ class Member(models.Model):
             raise ValueError(f"Member {self.pk} can already teach and has nothing to apply for")
         self.teaching_applied_at = timezone.now()
         self.teaching_application_note = note
+        self.teaching_contact_method = method
+        self.teaching_contact_detail = contact_detail
         self.teaching_decided_at = None
         self.teaching_decline_reason = ""
         self.save(
             update_fields=[
                 "teaching_applied_at",
                 "teaching_application_note",
+                "teaching_contact_method",
+                "teaching_contact_detail",
                 "teaching_decided_at",
                 "teaching_decline_reason",
             ]
@@ -1460,6 +1517,8 @@ class Member(models.Model):
             context={
                 "member_name": self.display_name,
                 "application_note": note,
+                "contact_method": self.teaching_contact_method_label,
+                "contact_detail": contact_detail,
                 "review_url": review_url,
             },
             url=review_url,

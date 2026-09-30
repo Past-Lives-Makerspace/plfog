@@ -23,7 +23,7 @@ def _applicant(username: str, note: str = "Intro to wheel throwing.") -> Member:
     member.membership_plan = plan
     member.full_legal_name = "Robin Applicant"
     member.save(update_fields=["status", "membership_plan", "full_legal_name"])
-    member.apply_to_teach(note)
+    member.apply_to_teach(note, contact_method="text", contact_detail="503 555 0100")
     return member
 
 
@@ -35,11 +35,31 @@ def describe_teaching_applications_card():
         # The queue is a group inside the merged "Needs Attention" card now.
         assert "Needs Attention" in content
         assert "Interested in Teaching" in content
-        assert "is interested in becoming an instructor." in content
+        assert "wants to be an instructor." in content
         assert member.display_name in content
         assert "I would like to run a two hour intro." in content
         assert reverse("classes:admin_teaching_approve", kwargs={"pk": member.pk}) in content
         assert reverse("classes:admin_teaching_decline", kwargs={"pk": member.pk}) in content
+
+    def it_shows_how_to_reach_a_new_applicant_above_their_note(admin_user, client, db):
+        """Issue #536: the row says where to get in touch, in the method's own words."""
+        _applicant("reachable@example.com", note="Two hour intro to wheel throwing.")
+        client.force_login(admin_user)
+        content = client.get(reverse("classes:admin_overview")).content.decode()
+        contact_line = '<span class="pl-queue-contact">Contact them at 503 555 0100 (text message)</span>'
+        assert contact_line in content
+        assert content.index("wants to be an instructor.") < content.index(contact_line)
+        assert content.index(contact_line) < content.index("Two hour intro to wheel throwing.")
+
+    def it_shows_no_contact_line_for_an_application_filed_before_the_question_existed(admin_user, client, db):
+        """An older application has no method on file: no line at all, not an empty one."""
+        member = _applicant("older@example.com", note="Filed before the contact fields.")
+        Member.objects.filter(pk=member.pk).update(teaching_contact_method="", teaching_contact_detail="")
+        client.force_login(admin_user)
+        content = client.get(reverse("classes:admin_overview")).content.decode()
+        assert "Filed before the contact fields." in content
+        assert 'class="pl-queue-contact"' not in content
+        assert "Contact them at" not in content
 
     def it_lands_the_mailed_anchor_on_the_applications_themselves(admin_user, client, db):
         """membership/models.py mails admins #teaching-applications when somebody applies.
