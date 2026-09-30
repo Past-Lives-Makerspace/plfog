@@ -16,6 +16,7 @@ import icalendar
 from django.conf import settings
 from django.core import signing
 from django.db import transaction
+from django.db.models import Q
 from django.urls import reverse
 from django.utils import timezone
 
@@ -1159,6 +1160,22 @@ def _overlaps_other_slot(
     )
 
 
+def _owner_accepting(rule: OrientationAvailability) -> bool:
+    """Whether the row's owner takes bookings now: the type's gate, or the guild's for an Any orientation row.
+
+    An open row with no type (any of the guild's orientations) has no type to ask, so
+    it reads the guild's settings gate directly and needs at least one active type to
+    offer; the constraint guarantees such a row is guild owned.
+    """
+    from membership.models import GuildOrientationSettings
+
+    if rule.orientation_type is not None:
+        return rule.orientation_type.is_accepting
+    guild = cast("Guild", rule.guild)
+    settings_obj = GuildOrientationSettings.objects.filter(guild=guild).first()
+    return settings_obj is not None and settings_obj.is_accepting and guild.orientation_types.active().exists()
+
+
 def _rule_generates(rule: OrientationAvailability, *, runners_by_equipment: dict[int, set[int]]) -> bool:
     """The per-rule gate: an accepting owner, and a personal rule's orienter still current.
 
@@ -1171,13 +1188,13 @@ def _rule_generates(rule: OrientationAvailability, *, runners_by_equipment: dict
     shown as an orienter — the guild branch above reads ``leadership_members()`` for the
     identical reason.
     """
-    if not rule.orientation_type.is_accepting:
+    if not _owner_accepting(rule):
         return False
     if rule.orienter_id is None:
         return True
     if rule.guild_id is not None:
         return rule.orienter_id in {member.pk for member in cast("Guild", rule.guild).leadership_members()}
-    equipment = cast("Equipment", rule.orientation_type.equipment)
+    equipment = cast("Equipment", cast("OrientationType", rule.orientation_type).equipment)
     if equipment.pk not in runners_by_equipment:
         runners_by_equipment[equipment.pk] = {member.pk for member in equipment.orienter_members()}
     return rule.orienter_id in runners_by_equipment[equipment.pk]
@@ -1225,12 +1242,13 @@ def _materialize(
             starts_at=start_dt,
             defaults={
                 "guild": rule.guild,
-                # The rule's type rides onto every slot it materializes (issue #282).
-                "orientation_type": rule.orientation_type,
+                # The rule's type rides onto every slot it materializes (issue #282). A fixed
+                # row always has one; only an open row may leave it empty.
+                "orientation_type": cast("OrientationType", rule.orientation_type),
                 "orienter": rule.orienter,
                 "ends_at": end_dt,
                 "seats": rule.seats,
-                "location": rule.location or rule.orientation_type.default_location,
+                "location": rule.location or cast("OrientationType", rule.orientation_type).default_location,
                 "source": OrientationSlot.Source.GENERATED,
             },
         )
@@ -1239,6 +1257,71 @@ def _materialize(
             if occupied is not None:
                 occupied.append((rule.pk, start_dt, end_dt))
     return created
+
+
+def _materialize_windows(
+    rule: OrientationAvailability, spans: list[tuple[datetime, datetime]], *, reference: datetime
+) -> int:
+    """Create an open row's missing future windows from ``spans``; returns how many were created.
+
+    One :class:`OrientationAvailabilityBlock` per occurrence, keyed by row and start
+    like a slot (``uq_orientblock_rule_start``), so a rerun creates nothing. The window
+    carries the row's orienter, its type (or none, for any orientation) and its location.
+    """
+    from membership.models import OrientationAvailabilityBlock
+
+    created = 0
+    for start_dt, end_dt in spans:
+        if start_dt <= reference:
+            continue
+        _window, was_created = OrientationAvailabilityBlock.objects.get_or_create(
+            availability=rule,
+            starts_at=start_dt,
+            defaults={
+                # The constraint makes an open row guild owned and personal, so both are set.
+                "guild": cast("Guild", rule.guild),
+                "orienter": cast("Member", rule.orienter),
+                "orientation_type": rule.orientation_type,
+                "ends_at": end_dt,
+                "location": rule.location,
+            },
+        )
+        if was_created:
+            created += 1
+    return created
+
+
+def _future_generated_windows(rule: OrientationAvailability) -> Any:
+    """The row's uncancelled windows that have not started yet, the only windows retirement may touch."""
+    return rule.windows.filter(starts_at__gte=timezone.now(), is_cancelled=False)
+
+
+def _retire_windows(windows: Any) -> tuple[int, int]:
+    """Retire the windows in ``windows``; keep, cancelled and detached, the ones with a booked segment.
+
+    A window nobody booked into is deleted. One with a live segment (a seat holding
+    booking on a carved slot) is retired instead, so no new booking lands in it while
+    the segment stays on the member's own slot and booking.
+
+    Returns:
+        ``(open_windows_removed, kept_with_bookings)``.
+    """
+    removed = kept = 0
+    for window in windows:
+        if window.booked_segments().exists():
+            window.mark_retired()
+            kept += 1
+        else:
+            window.delete()
+            removed += 1
+    return removed, kept
+
+
+def _retire_off_grid_windows(rule: OrientationAvailability, spans: list[tuple[datetime, datetime]]) -> None:
+    """The window twin of :func:`_retire_off_grid`: retire future windows whose span fell off the row's grid."""
+    grid = set(spans)
+    off_grid = [window for window in _future_generated_windows(rule) if (window.starts_at, window.ends_at) not in grid]
+    _retire_windows(off_grid)
 
 
 def generate_slots(
@@ -1266,6 +1349,12 @@ def generate_slots(
     own off-grid open slots the same way, so a rule edited to a sparser cadence does
     not leave its off-grid slots bookable (booked ones stay, capped, as on a delete).
 
+    A row set to any time in the window (issue #532) materializes one open window
+    (:class:`OrientationAvailabilityBlock`) per occurrence instead of slots, keyed by
+    row and start the same way, and retires its off-grid future windows the same way
+    (a window with a booked segment is cancelled and detached, not deleted). The
+    count returned includes windows.
+
     Raises:
         ValueError: If both ``guild`` and ``equipment`` are given.
     """
@@ -1276,9 +1365,12 @@ def generate_slots(
     reference = now or timezone.now()
     today = timezone.localdate()
     # A rule whose orientation type was deactivated stops generating (existing slots
-    # are handled by the bookable() type-active filter, not deleted).
-    rules = OrientationAvailability.objects.filter(is_active=True, orientation_type__is_active=True).select_related(
-        "guild", "orientation_type", "orientation_type__equipment"
+    # are handled by the bookable() type-active filter, not deleted). An Any
+    # orientation open row has no type; _owner_accepting reads its guild instead.
+    rules = (
+        OrientationAvailability.objects.filter(is_active=True)
+        .filter(Q(orientation_type__isnull=True) | Q(orientation_type__is_active=True))
+        .select_related("guild", "orientation_type", "orientation_type__equipment")
     )
     if guild is not None:
         rules = rules.filter(guild=guild)
@@ -1291,16 +1383,23 @@ def generate_slots(
         if _rule_generates(rule, runners_by_equipment=runners_by_equipment)
     ]
     for rule, spans in eligible:
-        _retire_off_grid(rule, spans)
+        if rule.is_open:
+            _retire_off_grid_windows(rule, spans)
+        else:
+            _retire_off_grid(rule, spans)
     occupied_by_equipment: dict[int, list[tuple[int | None, datetime, datetime]]] = {}
     created = 0
     for rule, spans in eligible:
+        if rule.is_open:
+            created += _materialize_windows(rule, spans, reference=reference)
+            continue
         occupied: list[tuple[int | None, datetime, datetime]] | None = None
-        equipment_id = rule.orientation_type.equipment_id
+        orientation_type = cast("OrientationType", rule.orientation_type)
+        equipment_id = orientation_type.equipment_id
         if equipment_id is not None:
             if equipment_id not in occupied_by_equipment:
                 occupied_by_equipment[equipment_id] = _occupied_spans(
-                    cast("Equipment", rule.orientation_type.equipment), reference=reference
+                    cast("Equipment", orientation_type.equipment), reference=reference
                 )
             occupied = occupied_by_equipment[equipment_id]
         created += _materialize(rule, spans, reference=reference, occupied=occupied)
@@ -1369,8 +1468,11 @@ def reseat_slots(rule: OrientationAvailability) -> None:
     """Apply a seats-only edit to the rule's future open generated slots without a re-grid.
 
     Open slots take the rule's new count; booked ones take ``max(new, taken)`` so a
-    raise reaches already-booked days and a lower never drops below what is held.
+    raise reaches already-booked days and a lower never drops below what is held. An
+    open row has no seats to follow, so it is left alone.
     """
+    if rule.is_open:
+        return
     _reseat(_future_generated(rule).with_seat_holding_count(), seats=rule.seats)
 
 
@@ -1387,9 +1489,15 @@ def retire_open_slots(rule: OrientationAvailability) -> tuple[int, int]:
     ``active()``-only test would cascade a live paid ``PENDING_PAYMENT`` hold away
     with the slot, eating a checkout mid-payment.
 
+    An open row retires its future windows the same way (:func:`_retire_windows`): a
+    window nobody booked into is deleted, one with a booked segment is cancelled and
+    detached, and the counts read the same for the success message.
+
     Returns:
         ``(open_slots_removed, kept_with_bookings)`` for the success message.
     """
+    if rule.is_open:
+        return _retire_windows(_future_generated_windows(rule))
     return _retire_slots(_retire_candidates(rule))
 
 

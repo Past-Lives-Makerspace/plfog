@@ -104,7 +104,7 @@ Approved by Felix 2026-09-30: the desktop screens as drawn (D1 stands) and D7's 
   `_busy_spans` D8; `valid_starts_for` and `ensure_start_valid` D9; `booked_segments` selects member.
 - `membership/models.py` `OrientationSlotQuerySet.bookable`: unchanged (the member list filters
   `FROM_BLOCK` at the view, D10, because the dashboard and Add member still need those slots).
-- `membership/migrations/0179_orientation_open_windows.py`.
+- `membership/migrations/0187_orientation_open_windows.py`.
 - `membership/orientations.py`: `_rule_generates` NULL type branch; `_materialize_windows`;
   `_retire_off_grid_windows`; `retire_open_slots` and `retire_rule` dispatch on style; `generate_slots`
   dispatch. `_carve_block_slot` copies `locked.orientation_type or orientation_type`.

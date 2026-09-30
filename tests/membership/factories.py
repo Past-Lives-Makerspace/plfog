@@ -534,6 +534,12 @@ class OrientationAvailabilityFactory(factory.django.DjangoModelFactory):
             orientation_type=factory.SubFactory(OrientationTypeFactory, equipment_owned=True),
             slot_minutes=60,
         )
+        # An open row (#532): any time in the window, any orientation, one person's hours.
+        open_window = factory.Trait(
+            booking_style=OrientationAvailability.BookingStyle.OPEN,
+            orientation_type=None,
+            orienter=factory.SubFactory(MemberFactory),
+        )
 
     guild = factory.SubFactory(GuildFactory)
     orientation_type = factory.SubFactory(OrientationTypeFactory, guild=factory.SelfAttribute("..guild"))
@@ -552,6 +558,9 @@ class OrientationAvailabilityBlockFactory(factory.django.DjangoModelFactory):
 
     guild = factory.SubFactory(GuildFactory)
     orienter = factory.SubFactory(MemberFactory)
+    # A one off by default; generation sets availability, and a typed window sets orientation_type (#532).
+    availability = None
+    orientation_type = None
     # Minute-aligned like real blocks (the dashboard form posts half-hour times); the
     # picker's option values carry minute precision, so sub-minute starts can't round-trip.
     starts_at = factory.LazyFunction(lambda: (timezone.now() + timedelta(days=2)).replace(second=0, microsecond=0))
