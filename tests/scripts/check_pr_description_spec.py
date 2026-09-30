@@ -111,6 +111,36 @@ def describe_description_errors():
     def it_accepts_impact_risks_without_spaces(script):
         assert script.description_errors(GOOD.replace("### Impact / Risks", "## Impact/Risks")) == []
 
+    def describe_split_issue_parts():
+        def _problem(line: str) -> str:
+            return GOOD.replace("Closes #412. A class sent back", f"{line} A class sent back")
+
+        def it_requires_the_last_part_to_close_its_issue(script):
+            errors = script.description_errors(_problem("Part 3 of 3 of #412, the last of it."))
+            assert len(errors) == 1
+            assert "part 3 of 3" in errors[0]
+            assert "Closes #" in errors[0]
+
+        def it_accepts_a_last_part_that_closes(script):
+            assert script.description_errors(_problem("Closes #412, part 3 of 3.")) == []
+
+        def it_accepts_any_github_closing_keyword(script):
+            assert script.description_errors(_problem("Fixes: #412 (part 2 of 2; part 1 was #410).")) == []
+
+        def it_rejects_an_earlier_part_that_closes(script):
+            errors = script.description_errors(_problem("Closes #412, part 1 of 3."))
+            assert len(errors) == 1
+            assert "part 1 of 3" in errors[0]
+
+        def it_accepts_an_earlier_part_that_only_names_its_issue(script):
+            assert script.description_errors(_problem("#412, part 2 of 3.")) == []
+
+        def it_reads_the_part_from_the_problem_section_only(script):
+            body = GOOD.replace(
+                "- Store the reason on the review.", "- Store the reason, as part 1 of 2 did for notes."
+            )
+            assert script.description_errors(body) == []
+
     def describe_solution_bullets():
         def it_rejects_one(script):
             body = GOOD.replace("- Show it on the class page and in the email.\n", "")

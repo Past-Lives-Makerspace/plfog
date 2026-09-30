@@ -5,7 +5,7 @@
 **Area:** 
 
 ### Problem
-<!-- One sentence: what happens now and what should happen, or "Closes #123" (add "part 1 of 3" for a split issue). -->
+<!-- One sentence: what happens now and what should happen, or "Closes #123". A split issue: "#123, part 1 of 3", and only the last part says "Closes #123, part 3 of 3". -->
 
 ### Solution
 <!-- Two to four bullets. -->
