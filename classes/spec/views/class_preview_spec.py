@@ -114,3 +114,122 @@ def describe_gallery_rendering():
         assert "cls-gallery__thumbs" in body
         # ensure BytesIO import is referenced so ruff doesn't complain
         assert BytesIO is not None
+
+
+def describe_booking_state_in_preview():
+    """The preview must show the same sign-up state the public page will.
+
+    Regression: the preview helper passed no ``is_bookable``, so the template's
+    ``{% if not is_bookable %}`` branch fired for every class and a published,
+    weeks-away class previewed as "Registration closed / has already started".
+    """
+
+    @pytest.fixture
+    def future_published(instructor_fixture):
+        from datetime import timedelta
+
+        from django.utils import timezone
+
+        from classes.factories import ClassSessionFactory
+
+        offering = ClassOfferingFactory(
+            instructor=instructor_fixture,
+            slug="weeks-away",
+            status=ClassOffering.Status.PUBLISHED,
+            capacity=15,
+        )
+        start = timezone.now() + timedelta(days=25)
+        ClassSessionFactory(class_offering=offering, starts_at=start, ends_at=start + timedelta(hours=2))
+        return offering
+
+    def it_offers_registration_for_a_future_class(admin_user, future_published, client):
+        client.force_login(admin_user)
+        body = client.get(reverse("classes:class_preview", kwargs={"pk": future_published.pk})).content.decode()
+        # Match the rail markup, not bare words: the changelog panel on every page
+        # may quote the phrase "Registration closed" in a release note.
+        assert 'cp-detail__spots--full">Registration closed' not in body
+        assert 'data-help-key="class.register"' in body
+
+    def it_shows_the_schedule_for_a_future_class(admin_user, future_published, client):
+        client.force_login(admin_user)
+        body = client.get(reverse("classes:class_preview", kwargs={"pk": future_published.pk})).content.decode()
+        assert "cp-detail__session-date" in body
+
+    def it_still_closes_a_started_class(admin_user, instructor_fixture, client):
+        from datetime import timedelta
+
+        from django.utils import timezone
+
+        from classes.factories import ClassSessionFactory
+
+        offering = ClassOfferingFactory(
+            instructor=instructor_fixture,
+            slug="already-started",
+            status=ClassOffering.Status.PUBLISHED,
+        )
+        start = timezone.now() - timedelta(days=1)
+        ClassSessionFactory(class_offering=offering, starts_at=start, ends_at=start + timedelta(hours=2))
+        client.force_login(admin_user)
+        body = client.get(reverse("classes:class_preview", kwargs={"pk": offering.pk})).content.decode()
+        assert 'cp-detail__spots--full">Registration closed' in body
+        assert 'data-help-key="class.register"' not in body
+
+
+def describe_page_parity_in_preview():
+    """Whatever the public page shows around the class, the preview shows too.
+
+    Regression: the preview once built its own, thinner context, so the hero
+    placement widget got an empty content-type id (a JS syntax error that killed
+    it), and the "Other Dates" and related-classes strips never rendered.
+    """
+
+    @pytest.fixture
+    def category(db):
+        from classes.factories import CategoryFactory
+
+        return CategoryFactory(name="Smithing", slug="smithing")
+
+    def _publish(title, slug, category, instructor, days_out):
+        from datetime import timedelta
+
+        from django.utils import timezone
+
+        from classes.factories import ClassSessionFactory
+
+        offering = ClassOfferingFactory(
+            title=title,
+            slug=slug,
+            category=category,
+            instructor=instructor,
+            status=ClassOffering.Status.PUBLISHED,
+        )
+        start = timezone.now() + timedelta(days=days_out)
+        ClassSessionFactory(class_offering=offering, starts_at=start, ends_at=start + timedelta(hours=2))
+        return offering
+
+    def it_gives_the_hero_widget_its_content_type_id(admin_user, instructor_fixture, category, client):
+        offering = _publish("Forge Night", "forge-hero", category, instructor_fixture, days_out=3)
+        offering.legacy_image_url = "https://img.example.com/forge.jpg"
+        offering.save(update_fields=["legacy_image_url"])
+        client.force_login(admin_user)
+        body = client.get(reverse("classes:class_preview", kwargs={"pk": offering.pk})).content.decode()
+        assert "contentTypeId: ," not in body
+        assert "heroPlacement(" in body
+
+    def it_lists_other_dates_of_the_same_class(admin_user, instructor_fixture, category, client):
+        first = _publish("Forge Night with Glen", "forge-a", category, instructor_fixture, days_out=2)
+        _publish("Forge Night with Glen", "forge-b", category, instructor_fixture, days_out=9)
+        client.force_login(admin_user)
+        body = client.get(reverse("classes:class_preview", kwargs={"pk": first.pk})).content.decode()
+        # The related strip lists forge-b too (same guild); only the other-dates
+        # markup proves the sibling strip rendered.
+        assert 'class="cp-detail__other-date"' in body
+        assert "cp-detail__other-date" in body.split("Other Dates for This Class", 1)[1][:2000]
+        assert "/classes/forge-b/" in body
+
+    def it_lists_related_classes_in_the_same_category(admin_user, instructor_fixture, category, client):
+        offering = _publish("Forge Night", "forge-main", category, instructor_fixture, days_out=2)
+        _publish("Anvil Basics", "anvil-basics", category, instructor_fixture, days_out=5)
+        client.force_login(admin_user)
+        body = client.get(reverse("classes:class_preview", kwargs={"pk": offering.pk})).content.decode()
+        assert "anvil-basics" in body
