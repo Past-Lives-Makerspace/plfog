@@ -4,11 +4,17 @@ from __future__ import annotations
 
 import html
 import json
+import logging
 import re
 import time
 import urllib.request
+from dataclasses import dataclass
+from pathlib import Path
 from typing import TYPE_CHECKING, Any
+from urllib.parse import urljoin
 
+from django.conf import settings
+from django.core.files.base import ContentFile
 from django.utils import timezone
 from django.utils.dateparse import parse_datetime
 from django.utils.html import strip_tags
@@ -20,6 +26,16 @@ if TYPE_CHECKING:
 
 LEGACY_CMS_BASE = "https://classes.pastlives.space"
 LEGACY_CMS_API_URL = f"{LEGACY_CMS_BASE}/jsonapi/node/class"
+# The same feed with each node's gallery files (``field_additional_images``) included, so one
+# pull carries the file URLs; Drupal keeps the ``include`` on its ``links.next`` pages.
+LEGACY_CMS_GALLERY_API_URL = f"{LEGACY_CMS_API_URL}?include=field_additional_images"
+# Only files on the legacy host are ever fetched (SSRF guard: the feed names the URL).
+LEGACY_FILE_PREFIX = f"{LEGACY_CMS_BASE}/"
+# Fraction of attempted gallery downloads that may fail before the run reports failure. A few
+# dead files are routine; half of them failing means the host or storage is wrong.
+GALLERY_FAILURE_ABORT_FRACTION = 0.5
+
+logger = logging.getLogger(__name__)
 
 _CLASS_TYPE_MAP = {
     "workshop": "Workshop",
@@ -244,3 +260,201 @@ def sync_legacy_cms() -> int:
     config.save(update_fields=["legacy_cms_last_synced_at", "legacy_cms_last_sync_duration"])
 
     return len(seen_ids)
+
+
+class LegacyGalleryImportError(Exception):
+    """Most gallery downloads failed; whatever succeeded has been saved."""
+
+
+@dataclass(frozen=True)
+class GalleryImportResult:
+    """What one :func:`sync_legacy_gallery` run did, for the command's summary and the cron log."""
+
+    created: int
+    downloaded: int
+    reused: int
+    over_cap: int
+    unmatched: int
+    failed: int
+
+    def summary(self) -> str:
+        return (
+            f"Added {self.created} gallery photo(s): {self.downloaded} downloaded, {self.reused} re-used "
+            f"an object already stored. {self.over_cap} skipped at the gallery cap, {self.unmatched} legacy "
+            f"class(es) have no offering here, {self.failed} failed."
+        )
+
+
+def _iter_legacy_pages(url: str | None):
+    """Yield ``(items, included)`` per page of the legacy feed, following ``links.next``."""
+    while url:
+        data = _fetch_json(url)
+        included = {inc["id"]: inc for inc in data.get("included") or [] if inc.get("id")}
+        yield (data.get("data") or []), included
+        url = ((data.get("links") or {}).get("next") or {}).get("href")
+
+
+def _legacy_gallery_files(item: dict[str, Any], included: dict[str, dict[str, Any]]) -> list[tuple[str, str]]:
+    """The ``(absolute url, alt text)`` of a node's gallery files, in the order Drupal shows them.
+
+    A reference whose file entity the feed did not include is logged and skipped: the row can
+    only be made from a URL, and the next run sees the reference again.
+    """
+    refs = ((item.get("relationships") or {}).get("field_additional_images") or {}).get("data") or []
+    files: list[tuple[str, str]] = []
+    for ref in refs:
+        entity = included.get(ref.get("id") or "")
+        path = (((entity or {}).get("attributes") or {}).get("uri") or {}).get("url") or ""
+        if not path:
+            logger.warning(
+                "Legacy gallery: node %s references file %s the feed did not include", item.get("id"), ref.get("id")
+            )
+            continue
+        files.append((urljoin(LEGACY_CMS_BASE, path), (ref.get("meta") or {}).get("alt") or ""))
+    return files
+
+
+def _fetch_legacy_file(url: str) -> bytes:
+    """Download one file from the legacy host. Raises ``ValueError`` for any other host."""
+    if not url.startswith(LEGACY_FILE_PREFIX):
+        raise ValueError(f"untrusted URL: {url}")
+    with urllib.request.urlopen(url, timeout=15) as resp:
+        return resp.read()
+
+
+def _store_legacy_gallery_file(url: str) -> str:
+    """Download a legacy gallery file and store it normalized under a content-addressed key.
+
+    A file that is not an image we can read is stored as its original bytes under its own
+    extension, so the photo is kept rather than lost and nothing claims to be a JPEG.
+    """
+    from PIL import UnidentifiedImageError
+
+    from classes.models import CLASS_IMAGE_PREFIX
+    from core.images import normalize_image, store_content_addressed
+
+    content = _fetch_legacy_file(url)
+    filename = Path(url).name
+    ext = "jpg"
+    try:
+        data = normalize_image(
+            ContentFile(content, name=filename), max_long_edge=settings.IMAGE_MAX_LONG_EDGE_GALLERY
+        ).read()
+    except (UnidentifiedImageError, OSError, ValueError) as exc:
+        logger.warning("Legacy gallery: could not normalize %s (%s); keeping the original bytes", filename, exc)
+        data = content
+        ext = (Path(filename).suffix.lstrip(".").lower() or "bin")[:10]
+    return store_content_addressed(data, prefix=CLASS_IMAGE_PREFIX, ext=ext)
+
+
+def _import_offering_gallery(
+    offering: Any, files: list[tuple[str, str]], keys_by_url: dict[str, str]
+) -> tuple[int, int, int, int, int]:
+    """Add ``files`` to one offering's gallery; returns ``(created, downloaded, reused, over_cap, failed)``.
+
+    ``keys_by_url`` is the run's memory of stored keys, read and extended here so a file two
+    classes share is fetched once per run.
+    """
+    from classes.models import MAX_GALLERY_IMAGES, ClassImage
+
+    created = downloaded = reused = over_cap = failed = 0
+    existing = list(offering.gallery_images.all())
+    held = {row.legacy_source_url for row in existing if row.legacy_source_url}
+    slots = MAX_GALLERY_IMAGES - len(existing)
+    next_sort = max((row.sort_order for row in existing), default=-1) + 1
+    for url, alt in files:
+        if url in held:
+            continue
+        if slots <= 0:
+            over_cap += 1
+            continue
+        key = keys_by_url.get(url)
+        if key is None:
+            key = (
+                ClassImage.objects.filter(legacy_source_url=url)
+                .exclude(image="")
+                .values_list("image", flat=True)
+                .first()
+                or ""
+            )
+        if key:
+            reused += 1
+        else:
+            try:
+                key = _store_legacy_gallery_file(url)
+            except (OSError, ValueError) as exc:
+                logger.warning("Legacy gallery: %s for offering %s: %s", url, offering.pk, exc)
+                failed += 1
+                continue
+            downloaded += 1
+        keys_by_url[url] = key
+        ClassImage.objects.create(
+            class_offering=offering, image=key, alt_text=alt[:255], sort_order=next_sort, legacy_source_url=url
+        )
+        held.add(url)
+        next_sort += 1
+        slots -= 1
+        created += 1
+    return created, downloaded, reused, over_cap, failed
+
+
+def sync_legacy_gallery() -> GalleryImportResult:
+    """Copy each legacy class's gallery photos into its offering's gallery.
+
+    The nightly catalog sync carries only the hero (``legacy_image_url``); the gallery lives in
+    Drupal's ``field_additional_images``. This walks the feed with those files included and adds
+    a ``ClassImage`` row per file to the offering with the matching ``legacy_cms_id``, in Drupal's
+    order, after whatever the gallery already holds.
+
+    Idempotent: a row remembers its source in ``legacy_source_url``, so a file the class already
+    holds is never added twice, and a file any class already imported is re-used from storage
+    without a download (the key is content-addressed, so one stored object serves every class
+    that shares the picture). Uploads made here are left alone; when they fill the gallery to
+    ``MAX_GALLERY_IMAGES`` the legacy files past the cap are counted, not added.
+
+    Returns:
+        The run's counts.
+
+    Raises:
+        LegacyGalleryImportError: when at least :data:`GALLERY_FAILURE_ABORT_FRACTION` of the
+            attempted downloads failed. Everything that succeeded is already saved.
+    """
+    from classes.models import ClassOffering
+
+    created = downloaded = reused = over_cap = unmatched = failed = 0
+    keys_by_url: dict[str, str] = {}
+
+    for items, included in _iter_legacy_pages(LEGACY_CMS_GALLERY_API_URL):
+        wanted = {item["id"]: _legacy_gallery_files(item, included) for item in items if item.get("id")}
+        wanted = {node_id: files for node_id, files in wanted.items() if files}
+        offerings = {
+            offering.legacy_cms_id: offering
+            for offering in ClassOffering.objects.filter(legacy_cms_id__in=list(wanted)).prefetch_related(
+                "gallery_images"
+            )
+        }
+        for node_id, files in wanted.items():
+            offering = offerings.get(node_id)
+            if offering is None:
+                unmatched += 1
+                continue
+            counts = _import_offering_gallery(offering, files, keys_by_url)
+            created, downloaded, reused, over_cap, failed = (
+                created + counts[0],
+                downloaded + counts[1],
+                reused + counts[2],
+                over_cap + counts[3],
+                failed + counts[4],
+            )
+
+    result = GalleryImportResult(
+        created=created, downloaded=downloaded, reused=reused, over_cap=over_cap, unmatched=unmatched, failed=failed
+    )
+    attempted = downloaded + failed
+    if failed and failed >= attempted * GALLERY_FAILURE_ABORT_FRACTION:
+        raise LegacyGalleryImportError(
+            f"{failed} of {attempted} legacy gallery download(s) failed, at or above the "
+            f"{GALLERY_FAILURE_ABORT_FRACTION:.0%} ceiling. This usually means the legacy host is unreachable "
+            f"or storage is misconfigured, not that the photos are gone. {result.summary()}"
+        )
+    return result
