@@ -89,3 +89,63 @@ def describe_gallery_rendering():
         assert "cls-gallery__thumbs" in body
         # ensure BytesIO import is referenced so ruff doesn't complain
         assert BytesIO is not None
+
+
+def describe_booking_state_in_preview():
+    """The preview must show the same sign-up state the public page will.
+
+    Regression: the preview helper passed no ``is_bookable``, so the template's
+    ``{% if not is_bookable %}`` branch fired for every class and a published,
+    weeks-away class previewed as "Registration closed / has already started".
+    """
+
+    @pytest.fixture
+    def future_published(instructor_fixture):
+        from datetime import timedelta
+
+        from django.utils import timezone
+
+        from classes.factories import ClassSessionFactory
+
+        offering = ClassOfferingFactory(
+            instructor=instructor_fixture,
+            slug="weeks-away",
+            status=ClassOffering.Status.PUBLISHED,
+            capacity=15,
+        )
+        start = timezone.now() + timedelta(days=25)
+        ClassSessionFactory(class_offering=offering, starts_at=start, ends_at=start + timedelta(hours=2))
+        return offering
+
+    def it_offers_registration_for_a_future_class(admin_user, future_published, client):
+        client.force_login(admin_user)
+        body = client.get(reverse("classes:class_preview", kwargs={"pk": future_published.pk})).content.decode()
+        # Match the rail markup, not bare words: the changelog panel on every page
+        # may quote the phrase "Registration closed" in a release note.
+        assert 'cp-detail__spots--full">Registration closed' not in body
+        assert "sign-ups are closed" not in body
+        assert "Register now" in body
+
+    def it_shows_the_schedule_for_a_future_class(admin_user, future_published, client):
+        client.force_login(admin_user)
+        body = client.get(reverse("classes:class_preview", kwargs={"pk": future_published.pk})).content.decode()
+        assert "cp-detail__session-date" in body
+
+    def it_still_closes_a_started_class(admin_user, instructor_fixture, client):
+        from datetime import timedelta
+
+        from django.utils import timezone
+
+        from classes.factories import ClassSessionFactory
+
+        offering = ClassOfferingFactory(
+            instructor=instructor_fixture,
+            slug="already-started",
+            status=ClassOffering.Status.PUBLISHED,
+        )
+        start = timezone.now() - timedelta(days=1)
+        ClassSessionFactory(class_offering=offering, starts_at=start, ends_at=start + timedelta(hours=2))
+        client.force_login(admin_user)
+        body = client.get(reverse("classes:class_preview", kwargs={"pk": offering.pk})).content.decode()
+        assert 'cp-detail__spots--full">Registration closed' in body
+        assert "Register now" not in body

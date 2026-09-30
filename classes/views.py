@@ -3386,7 +3386,11 @@ def _render_class_preview(
     reviewer preview. ``is_preview`` makes the public template show its
     "preview" banner and bypass the published-only gating.
     """
-    upcoming_sessions = list(offering.sessions.filter(starts_at__gte=timezone.now()).order_by("starts_at"))
+    now = timezone.now()
+    upcoming_sessions = list(offering.sessions.filter(starts_at__gte=now).order_by("starts_at"))
+    # Same rule as ``public_class_detail``: a series shows every date, a single
+    # class its one upcoming date.
+    schedule_sessions = list(offering.sessions.order_by("starts_at")) if offering.is_series else upcoming_sessions
     return render(
         request,
         "classes/public/detail.html",
@@ -3404,6 +3408,12 @@ def _render_class_preview(
             "settings_obj": ClassSettings.load(),
             "site_config": SiteConfiguration.load(),
             "upcoming_sessions": upcoming_sessions,
+            "schedule_sessions": schedule_sessions,
+            # The template's sign-up rail keys off ``is_bookable``; leaving it out
+            # made every preview read "Registration closed" (an undefined name is
+            # falsy in a Django template), whatever the class's dates.
+            "is_bookable": offering.is_bookable,
+            "now": now,
             "member_price_cents": compute_member_price_cents(offering.sale_price_cents, offering.member_discount_pct),
             "spots_remaining": offering.spots_remaining,
             "is_preview": True,
