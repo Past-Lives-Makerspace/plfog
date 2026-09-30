@@ -54,6 +54,31 @@ def describe_class_preview():
         response = client.get(reverse("classes:class_preview", kwargs={"pk": draft.pk}))
         assert response.status_code == 200
 
+    def it_renders_the_hero_adjust_tool_with_the_content_type_ids(instructor_fixture, client):
+        """Issue #536, item 4: the preview passes the ids heroPlacement({...}) interpolates.
+
+        Without them the rendered ``contentTypeId: ,`` is a JavaScript syntax error, the
+        component never initialises, the hero shows at 50% 50% whatever the saved crop, and
+        the Adjust tool the imported photo note sends instructors to is dead in every preview.
+        """
+        from django.contrib.contenttypes.models import ContentType
+
+        from classes.models import Category
+
+        draft = ClassOfferingFactory(
+            instructor=instructor_fixture, slug="adjustable", status=ClassOffering.Status.DRAFT
+        )
+        client.force_login(instructor_fixture.user)
+        html = client.get(reverse("classes:class_preview", kwargs={"pk": draft.pk})).content.decode()
+        offering_ct = ContentType.objects.get_for_model(ClassOffering)
+        assert "heroPlacement({" in html
+        assert f"contentTypeId: {offering_ct.pk}," in html
+        assert f"objectId: {draft.pk}," in html
+        assert "contentTypeId: ," not in html
+        # The category id is in the context too, for the category hero branch the public page shares.
+        response = client.get(reverse("classes:class_preview", kwargs={"pk": draft.pk}))
+        assert response.context["category_ct_id"] == ContentType.objects.get_for_model(Category).pk
+
     def it_redirects_anonymous_to_login(db, client):
         offering = ClassOfferingFactory(slug="any", status=ClassOffering.Status.DRAFT)
         response = client.get(reverse("classes:class_preview", kwargs={"pk": offering.pk}))

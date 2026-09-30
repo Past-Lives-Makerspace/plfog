@@ -97,8 +97,9 @@
     //
     // Next only. firstInvalidStep runs it when `only` is given; Save Draft and the
     // submit confirm (validateAll, no `only`) never do: a draft may be incomplete, and
-    // Submit already has the server's readiness check plus a disabled button while
-    // the class is unready. The server stays the gate; this is an earlier refusal.
+    // Submit already has the server's readiness check, which saves the POST first and
+    // sends an unready class back to the missing step with the checklist. The server
+    // stays the gate; this is an earlier refusal.
     function emptyGallery(pane) {
         var gallery = pane.querySelector("[" + GALLERY_ATTR + "]");
         return gallery && !gallery.querySelector(GALLERY_CARD) ? gallery : null;

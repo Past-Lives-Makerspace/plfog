@@ -1,6 +1,0 @@
-bump = "patch"
-date = "2026-09-27"
-title = "Class photos refuse files that are not pictures"
-changes = [
-  "If you drop a file that is not a photo onto a class's main image or gallery, it is turned away with a message, instead of saving a broken picture on the class page.",
-]

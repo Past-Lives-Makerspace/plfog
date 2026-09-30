@@ -1,9 +1,0 @@
-# Admin capability and admin screens only, so there is nothing to announce.
-#
-# My Tab becomes a feature switch with On, Coming soon and Hidden. Unlike the other switches it
-# is functional: Coming soon and Hidden both switch tab billing off, exactly as the old toggle's
-# off did, and differ only in the sidebar. The old toggle's value carries over, so nobody's
-# sidebar or billing changes on merge day. Showing members the Coming soon entry is a config
-# change afterwards, which adds no fragment and announces nothing.
-bump = "minor"
-audience = "internal"

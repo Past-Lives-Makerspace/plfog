@@ -1,8 +1,0 @@
-bump = "minor"
-date = "2026-09-30"
-title = "Subscribe to the calendar from your own calendar app"
-changes = [
-  "The Community Calendar's Subscribe menu now offers each calendar for Apple Calendar and for Google Calendar, so it works on Android and in the app as well as on a Mac or iPhone.",
-  "An event page offers Subscribe to signed-in members in place of the one-time Add to calendar, so a rescheduled event follows you. A visitor who scanned a flyer still gets Add to calendar.",
-  "Inside the Past Lives app, download buttons the app cannot handle yet are hidden instead of doing nothing.",
-]

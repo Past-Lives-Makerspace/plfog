@@ -84,8 +84,12 @@
         {% concat "Let " item.member.display_name " teach?" as approve_title %}
         <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;padding:6px 0;border-bottom:1px solid var(--hub-border);flex-wrap:wrap;">
           <span style="display:flex;flex-direction:column;gap:2px;min-width:0;">
-            <span><a href="{% url 'hub_admin_member_edit' pk=item.member.pk %}?tab=permissions">{{ item.member.display_name }}</a> is interested in becoming an instructor.</span>
+            <span><a href="{% url 'hub_admin_member_edit' pk=item.member.pk %}?tab=permissions">{{ item.member.display_name }}</a> wants to be an instructor.</span>
             <span style="color:var(--hub-text-muted);font-size:0.85rem;">{% if item.days_waiting == 0 %}asked today{% else %}asked {{ item.days_waiting }} day{{ item.days_waiting|pluralize }} ago{% endif %}</span>
+            {# An application filed before the contact question existed has no method: no line, rather than an empty one. #}
+            {% if item.member.teaching_contact_method %}
+            <span class="pl-queue-contact">Contact them at {{ item.member.teaching_contact_detail }} ({{ item.member.teaching_contact_method_label }})</span>
+            {% endif %}
             <span style="color:var(--hub-text-muted);font-size:0.85rem;">{{ item.member.teaching_application_note|truncatechars:140 }}</span>
           </span>
           <span class="pl-row-actions">

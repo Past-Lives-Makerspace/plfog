@@ -1,9 +1,0 @@
-bump = "minor"
-date = "2026-09-26"
-title = "Posting an event from Discord asks the same question"
-changes = [
-  "The /create card in Discord now asks what the event is in the same words the website uses, instead of asking which Google calendar it should go on.",
-  "Guild staff and admins can post their guild's event as a guild meeting or as something else, and either one can be open to the public or just for members.",
-  "The guild picker says No guild, matching the website.",
-  "Anyone else posts a public event, the way it already worked.",
-]

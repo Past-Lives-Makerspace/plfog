@@ -232,6 +232,8 @@ class Command(BaseCommand):
         member.instructor_oriented_at = None
         member.teaching_applied_at = None
         member.teaching_application_note = ""
+        member.teaching_contact_method = ""
+        member.teaching_contact_detail = ""
         member.teaching_decided_at = None
         member.teaching_decline_reason = ""
         member.save(
@@ -241,6 +243,8 @@ class Command(BaseCommand):
                 "instructor_oriented_at",
                 "teaching_applied_at",
                 "teaching_application_note",
+                "teaching_contact_method",
+                "teaching_contact_detail",
                 "teaching_decided_at",
                 "teaching_decline_reason",
             ]

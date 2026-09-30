@@ -5,6 +5,9 @@ Parameters (pass via {% include ... with %}):
   field       — required, Django form field
   field_label — optional, label override (defaults to field.label)
   field_hint  — optional, hint text (defaults to field.help_text)
+  field_label_x_text — optional, an Alpine expression the label text follows (x-text) once
+                Alpine runs, for a label that changes with another control; the server
+                label stays as the text until then and for anything without Alpine.
 {% endcomment %}
 {% if field.field.widget.input_type == "checkbox" %}
     {% include "components/toggle.html" with field=field toggle_label=field_label|default:field.label toggle_description=field_hint|default:field.help_text %}
@@ -25,7 +28,7 @@ Parameters (pass via {% include ... with %}):
     </div>
 {% else %}
 <div class="pl-form-group">
-    <label for="{{ field.id_for_label }}" class="pl-form-label">
+    <label for="{{ field.id_for_label }}" class="pl-form-label"{% if field_label_x_text %} x-text="{{ field_label_x_text }}"{% endif %}>
         {{ field_label|default:field.label }}
     </label>
     {{ field }}

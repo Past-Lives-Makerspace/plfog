@@ -1,8 +1,0 @@
-bump = "minor"
-date = "2026-09-30"
-title = "Run it again keeps your photos, class pages show your teaching bio, and you can delete your own drafts"
-changes = [
-  "Run it again and Duplicate now carry over the gallery photos and the FAQ answers, so a new date-set only needs its dates before you submit it.",
-  "The instructor card on a class page now shows the bio from your Instructor Profile, not your member-directory bio.",
-  "Instructors can delete a draft of their own from the class page while nobody has signed up. A submitted class is withdrawn and a live one is cancelled, as before.",
-]

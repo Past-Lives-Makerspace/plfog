@@ -113,7 +113,9 @@ def describe_the_step_count():
             'x-show="phase < {{ step_count }}"',
         ):
             assert read in source, read
-        assert source.count('x-show="phase === {{ step_count }}"') == 4
+        # The Review pane, the admin's Publish and the instructor's Submit for Review: one live
+        # button per viewer since #536 (the disabled variant on an unready draft is gone).
+        assert source.count('x-show="phase === {{ step_count }}"') == 3
 
 
 def describe_the_admin_variant():

@@ -1,7 +1,0 @@
-bump = "patch"
-date = "2026-09-30"
-title = "Guild orientations lead with Schedule an Orientation"
-changes = [
-  "When a guild has no orientation times up, its Orientations tab now shows a Schedule an Orientation button instead of telling you to check back later.",
-  "Where times are up, the same button sits under them for proposing your own time.",
-]

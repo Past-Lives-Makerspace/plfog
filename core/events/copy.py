@@ -330,31 +330,40 @@ _CURATED: dict[str, EventCopy] = {
         },
     ),
     # instructor_application_received — a member asked to teach. The subject noun (their
-    # name) links to the queue where an admin acts, and the body names the one action.
+    # name) links to the queue where an admin acts, and the body opens with how the member
+    # wants to be reached (contact_method is the lower case label: "text message") so the
+    # admin can get in touch without hunting for their details.
     "instructor_application_received": EventCopy(
-        placeholders=("member_name", "application_note", "review_url"),
+        placeholders=("member_name", "application_note", "contact_method", "contact_detail", "review_url"),
         sample_context={
             "member_name": "Robin Vale",
             "application_note": "I would like to run a two hour intro to wheel throwing.",
+            "contact_method": "text message",
+            "contact_detail": "503 555 0100",
             "review_url": "https://pastlives.example/classes/admin/#teaching-applications",
         },
         channels={
             Channel.IN_APP: ChannelCopy(
-                subject="{{ member_name }} is interested in becoming an instructor",
-                body_text="{{ application_note }}",
+                subject="{{ member_name }} wants to be an instructor",
+                body_text=(
+                    "{{ member_name }} wants to be an instructor. "
+                    "Contact them at {{ contact_detail }} ({{ contact_method }}).\n\n"
+                    '"{{ application_note }}"'
+                ),
             ),
             Channel.EMAIL: ChannelCopy(
-                subject="{{ member_name }} is interested in becoming an instructor",
+                subject="{{ member_name }} wants to be an instructor",
                 body_text=(
-                    "{{ member_name }} is interested in becoming an instructor.\n\n"
-                    'They wrote: "{{ application_note }}"\n\n'
+                    "{{ member_name }} wants to be an instructor. "
+                    "Contact them at {{ contact_detail }} ({{ contact_method }}).\n\n"
+                    '"{{ application_note }}"\n\n'
                     "Have a look on the classes overview: {{ review_url }}\n\n"
                     "Past Lives Makerspace"
                 ),
                 body_html=(
                     '<p><strong><a href="{{ review_url }}">{{ member_name }}</a></strong> '
-                    "is interested in becoming an instructor.</p>"
-                    "<p>They wrote: &ldquo;{{ application_note }}&rdquo;</p>"
+                    "wants to be an instructor. Contact them at {{ contact_detail }} ({{ contact_method }}).</p>"
+                    "<p>&ldquo;{{ application_note }}&rdquo;</p>"
                     '<p style="text-align:center;margin:24px 0 8px;"><a href="{{ review_url }}" '
                     'style="display:inline-block;padding:12px 28px;background-color:#EEB44B;color:#092E4C;'
                     'font-size:14px;font-weight:700;text-decoration:none;border-radius:6px;">'

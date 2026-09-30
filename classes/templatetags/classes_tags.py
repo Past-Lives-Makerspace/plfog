@@ -12,7 +12,7 @@ from django.http import QueryDict
 from classes.video_providers import YOUTUBE, VideoLink, recognize
 
 if TYPE_CHECKING:
-    from classes.models import ClassApproval, ClassOffering, DiscountApprover, DiscountCode
+    from classes.models import ClassApproval, ClassOffering, ClassSession, DiscountApprover, DiscountCode
 
 register = template.Library()
 
@@ -249,6 +249,22 @@ def session_date_range(sessions) -> str:
     first = localtime(items[0].starts_at).strftime("%b %-d")
     last = localtime(items[-1].starts_at).strftime("%b %-d")
     return first if first == last else f"{first} – {last}"
+
+
+@register.filter
+def session_dates(sessions: Iterable[ClassSession] | None) -> str:
+    """Every date of a session list, comma separated, e.g. 'Oct 2, Oct 9, Oct 23'.
+
+    The catalog card's series option rows and the class page's other-date rows use
+    it so a member sees which days a session set commits them to, not just its first
+    and last. Dates are local time, sorted, one per session; a session with no start
+    is skipped. The register page's run picker keeps ``session_date_range`` because a
+    ``<select>`` option cannot wrap. Returns "" when empty.
+    """
+    from django.utils.timezone import localtime
+
+    items = sorted((s for s in (sessions or []) if s.starts_at), key=lambda s: s.starts_at)
+    return ", ".join(localtime(s.starts_at).strftime("%b %-d") for s in items)
 
 
 @register.filter

@@ -29,6 +29,14 @@ APPROVED_BANNER = "You Can Host Workshops"
 PLACEHOLDER = "The guide has not been loaded yet."
 BLANK_NOTE_ERROR = "Tell us a little about what you want to host."
 OPEN_MODAL = "$dispatch('open-modal', 'apply-to-teach')"
+# Issue #536: the modal also asks how to reach the member. Every valid POST carries this pair.
+CONTACT = {"contact_method": "text", "contact_detail": "503 555 0100"}
+MISSING_METHOD_ERROR = "Pick how you would like us to reach you."
+MISSING_DETAIL_ERROR = "Tell us where to reach you: an email address or a phone number."
+BAD_EMAIL_ERROR = "That does not look like an email address. Check it and try again."
+BAD_PHONE_ERROR = "That does not look like a phone number. It needs at least seven digits."
+METHOD_SELECT = '<select name="contact_method"'
+DETAIL_INPUT = '<input type="text" name="contact_detail"'
 # The heading itself: the release notes on every hub page also say "Where the Money Goes".
 MONEY_TITLE = '<h2 class="pl-teach-section__title">Where the Money Goes</h2>'
 FAQ_ITEM = '<details class="pl-disclosure pl-teach-faq__item"'
@@ -89,7 +97,11 @@ def describe_teach_why():
 
     def it_renders_the_pending_banner_and_no_apply_button_while_waiting(db, client):
         user, member = _active_member_user("pending-page@example.com")
-        member.apply_to_teach("I would like to run a two hour intro to wheel throwing.")
+        member.apply_to_teach(
+            "I would like to run a two hour intro to wheel throwing.",
+            contact_method="email",
+            contact_detail="reach@example.com",
+        )
         client.force_login(user)
         content = client.get(reverse("classes:teach_why")).content.decode()
         assert PENDING_BANNER in content
@@ -101,7 +113,7 @@ def describe_teach_why():
 
     def it_renders_the_decline_reason_and_an_apply_again_button(db, client):
         user, member = _active_member_user("declined-page@example.com")
-        member.apply_to_teach("Wheel throwing.")
+        member.apply_to_teach("Wheel throwing.", contact_method="email", contact_detail="reach@example.com")
         member.decline_teaching(decided_by=None, reason="Finish the wheel orientation first.")
         client.force_login(user)
         content = client.get(reverse("classes:teach_why")).content.decode()
@@ -349,7 +361,8 @@ def describe_teach_why():
             """The example is fetched with its category, instructor and sessions in the same
             lookup, so the card partial reads them from the cache instead of querying per
             field. The count covers ``_why_teach_context`` (two guide lookups, the settings
-            row, the example plus its sessions) and the card render (one seat count).
+            row, the example plus its sessions, and the member's user then primary email
+            for the modal's prefill) and the card render (one seat count).
             """
             from django.template.loader import render_to_string
 
@@ -360,7 +373,7 @@ def describe_teach_why():
             example = _published_example()
             ClassSessionFactory(class_offering=example)
             _, member = _active_member_user("query-count@example.com")
-            with django_assert_num_queries(6):
+            with django_assert_num_queries(8):
                 context = _why_teach_context(member, TeachingApplicationForm())
                 html = render_to_string("classes/public/_class_card.html", {"group": context["example_group"]})
             assert example.title in html
@@ -413,12 +426,16 @@ def describe_teach_apply():
     def it_files_the_application_and_redirects_to_the_portal(db, client):
         user, member = _active_member_user("apply-ok@example.com")
         client.force_login(user)
-        response = client.post(reverse("classes:teach_apply"), {"note": "Intro to wheel throwing, two hours."})
+        response = client.post(
+            reverse("classes:teach_apply"), {"note": "Intro to wheel throwing, two hours.", **CONTACT}
+        )
         assert response.status_code == 302
         assert response["Location"] == reverse("classes:teach_overview")
         member.refresh_from_db()
         assert member.teaching_applied_at is not None
         assert member.teaching_application_note == "Intro to wheel throwing, two hours."
+        assert member.teaching_contact_method == Member.TeachingContactMethod.TEXT
+        assert member.teaching_contact_detail == "503 555 0100"
         assert SiteActivity.objects.filter(kind=SiteActivity.Kind.TEACHING_APPLIED).count() == 1
 
     def it_refuses_an_instructor_and_says_the_portal_is_already_open(db, client):
@@ -428,7 +445,7 @@ def describe_teach_apply():
         member.instructor_oriented_at = timezone.now()
         member.save(update_fields=["instructor_oriented_at"])
         client.force_login(user)
-        response = client.post(reverse("classes:teach_apply"), {"note": "Let me apply again."})
+        response = client.post(reverse("classes:teach_apply"), {"note": "Let me apply again.", **CONTACT})
         assert response.status_code == 302
         assert response["Location"] == reverse("classes:teach_why")
         member.refresh_from_db()
@@ -441,7 +458,7 @@ def describe_teach_apply():
     def it_rerenders_with_the_field_error_on_a_blank_note(db, client):
         user, member = _active_member_user("apply-blank@example.com")
         client.force_login(user)
-        response = client.post(reverse("classes:teach_apply"), {"note": "   "})
+        response = client.post(reverse("classes:teach_apply"), {"note": "   ", **CONTACT})
         assert response.status_code == 200
         assert BLANK_NOTE_ERROR in response.content.decode()
         member.refresh_from_db()
@@ -450,30 +467,30 @@ def describe_teach_apply():
     def it_reopens_the_modal_on_an_invalid_submit(db, client):
         user, _ = _active_member_user("apply-reopen@example.com")
         client.force_login(user)
-        content = client.post(reverse("classes:teach_apply"), {"note": ""}).content.decode()
+        content = client.post(reverse("classes:teach_apply"), {"note": "", **CONTACT}).content.decode()
         assert OPEN_MODAL in content
 
     def it_thanks_the_member_on_the_page_it_lands_on(db, client):
         user, _ = _active_member_user("apply-thanks@example.com")
         client.force_login(user)
-        response = client.post(reverse("classes:teach_apply"), {"note": "Wheel throwing."}, follow=True)
+        response = client.post(reverse("classes:teach_apply"), {"note": "Wheel throwing.", **CONTACT}, follow=True)
         content = response.content.decode()
         assert "Thanks. An admin will get back to you." in content
         assert PENDING_BANNER in content
 
     def it_says_it_already_has_the_note_on_a_duplicate(db, client):
         user, member = _active_member_user("apply-dup-message@example.com")
-        member.apply_to_teach("First ask.")
+        member.apply_to_teach("First ask.", contact_method="email", contact_detail="reach@example.com")
         client.force_login(user)
-        response = client.post(reverse("classes:teach_apply"), {"note": "Second ask."}, follow=True)
+        response = client.post(reverse("classes:teach_apply"), {"note": "Second ask.", **CONTACT}, follow=True)
         assert "We already have your note." in response.content.decode()
 
     def it_refuses_a_second_application_while_one_is_pending(db, client):
         user, member = _active_member_user("apply-twice@example.com")
-        member.apply_to_teach("First ask.")
+        member.apply_to_teach("First ask.", contact_method="email", contact_detail="reach@example.com")
         first_stamp = Member.objects.get(pk=member.pk).teaching_applied_at
         client.force_login(user)
-        response = client.post(reverse("classes:teach_apply"), {"note": "Second ask."})
+        response = client.post(reverse("classes:teach_apply"), {"note": "Second ask.", **CONTACT})
         assert response.status_code == 302
         assert response["Location"] == reverse("classes:teach_why")
         member.refresh_from_db()
@@ -486,7 +503,7 @@ def describe_teach_apply():
         member.status = Member.Status.INVITED
         member.save(update_fields=["status"])
         client.force_login(user)
-        response = client.post(reverse("classes:teach_apply"), {"note": "Let me in."})
+        response = client.post(reverse("classes:teach_apply"), {"note": "Let me in.", **CONTACT})
         assert response.status_code == 403
         member.refresh_from_db()
         assert member.teaching_applied_at is None
@@ -497,9 +514,137 @@ def describe_teach_apply():
         assert client.get(reverse("classes:teach_apply")).status_code == 405
 
     def it_redirects_an_anonymous_visitor_to_login(db, client):
-        response = client.post(reverse("classes:teach_apply"), {"note": "Let me in."})
+        response = client.post(reverse("classes:teach_apply"), {"note": "Let me in.", **CONTACT})
         assert response.status_code == 302
         assert "login" in response["Location"]
+
+
+def describe_the_interest_modals_contact_fields():
+    """Issue #536: the modal asks how to reach the member, and the POST checks the answer."""
+
+    def it_renders_the_select_the_detail_field_and_the_prefill_sources(db, client):
+        user, member = _active_member_user("contact-fields@example.com")
+        member.phone = "503 555 0100"
+        member.save(update_fields=["phone"])
+        client.force_login(user)
+        content = client.get(reverse("classes:teach_why")).content.decode()
+        assert METHOD_SELECT in content
+        assert 'x-ref="method"' in content
+        assert '@change="pick($event.target.value)"' in content
+        assert '<option value="" selected>Pick one</option>' in content
+        assert '<option value="email">Email</option>' in content
+        assert '<option value="text">Text message</option>' in content
+        assert '<option value="phone">Phone call</option>' in content
+        assert DETAIL_INPUT in content
+        assert 'x-ref="detail"' in content
+        assert 'class="pl-form-label" x-text="label()">' in content
+        assert 'data-email="contact-fields@example.com"' in content
+        assert 'data-phone="503 555 0100"' in content
+        # Label and field order: the note, then how, then where.
+        assert content.index('name="note"') < content.index(METHOD_SELECT) < content.index(DETAIL_INPUT)
+        assert "Best way to reach you" in content
+        assert "Where to reach you" in content
+
+    def it_renders_an_empty_phone_prefill_for_a_member_with_no_phone_on_file(db, client):
+        user, _ = _active_member_user("no-phone@example.com")
+        client.force_login(user)
+        content = client.get(reverse("classes:teach_why")).content.decode()
+        assert 'data-phone=""' in content
+
+    def it_puts_the_prefill_sources_in_the_context(db):
+        from classes.forms import TeachingApplicationForm
+        from classes.views import _why_teach_context
+
+        _, member = _active_member_user("prefill-context@example.com")
+        member.phone = "(503) 555-0100"
+        member.save(update_fields=["phone"])
+        context = _why_teach_context(member, TeachingApplicationForm())
+        assert context["contact_prefill_email"] == "prefill-context@example.com"
+        assert context["contact_prefill_phone"] == "(503) 555-0100"
+
+    def it_reopens_the_modal_with_the_error_when_no_method_is_picked(db, client):
+        user, member = _active_member_user("no-method@example.com")
+        client.force_login(user)
+        response = client.post(
+            reverse("classes:teach_apply"), {"note": "Wheel throwing.", "contact_method": "", "contact_detail": "x"}
+        )
+        assert response.status_code == 200
+        content = response.content.decode()
+        assert MISSING_METHOD_ERROR in content
+        assert OPEN_MODAL in content
+        member.refresh_from_db()
+        assert member.teaching_applied_at is None
+
+    def it_reopens_the_modal_with_the_error_when_the_detail_is_blank(db, client):
+        user, member = _active_member_user("no-detail@example.com")
+        client.force_login(user)
+        response = client.post(
+            reverse("classes:teach_apply"),
+            {"note": "Wheel throwing.", "contact_method": "email", "contact_detail": " "},
+        )
+        assert response.status_code == 200
+        content = response.content.decode()
+        assert MISSING_DETAIL_ERROR in content
+        assert OPEN_MODAL in content
+        member.refresh_from_db()
+        assert member.teaching_applied_at is None
+
+    def it_keeps_the_picked_method_selected_on_the_reopened_modal(db, client):
+        user, _ = _active_member_user("keep-method@example.com")
+        client.force_login(user)
+        content = client.post(
+            reverse("classes:teach_apply"), {"note": "", "contact_method": "phone", "contact_detail": "503 555 0100"}
+        ).content.decode()
+        assert '<option value="phone" selected>Phone call</option>' in content
+        assert 'value="503 555 0100"' in content
+
+    def it_refuses_an_email_that_is_not_one(db, client):
+        user, member = _active_member_user("bad-email@example.com")
+        client.force_login(user)
+        response = client.post(
+            reverse("classes:teach_apply"),
+            {"note": "Wheel throwing.", "contact_method": "email", "contact_detail": "robin at example"},
+        )
+        assert response.status_code == 200
+        assert BAD_EMAIL_ERROR in response.content.decode()
+        member.refresh_from_db()
+        assert member.teaching_applied_at is None
+
+    def it_refuses_a_phone_number_with_too_few_digits(db, client):
+        user, member = _active_member_user("bad-phone@example.com")
+        client.force_login(user)
+        response = client.post(
+            reverse("classes:teach_apply"),
+            {"note": "Wheel throwing.", "contact_method": "phone", "contact_detail": "555 01"},
+        )
+        assert response.status_code == 200
+        assert BAD_PHONE_ERROR in response.content.decode()
+        member.refresh_from_db()
+        assert member.teaching_applied_at is None
+
+    def it_stores_a_punctuated_phone_number_as_typed(db, client):
+        user, member = _active_member_user("typed-phone@example.com")
+        client.force_login(user)
+        response = client.post(
+            reverse("classes:teach_apply"),
+            {"note": "Wheel throwing.", "contact_method": "text", "contact_detail": "+1 (503) 555-0100"},
+        )
+        assert response.status_code == 302
+        member.refresh_from_db()
+        assert member.teaching_contact_method == Member.TeachingContactMethod.TEXT
+        assert member.teaching_contact_detail == "+1 (503) 555-0100"
+
+    def it_stores_an_email_address(db, client):
+        user, member = _active_member_user("typed-email@example.com")
+        client.force_login(user)
+        response = client.post(
+            reverse("classes:teach_apply"),
+            {"note": "Wheel throwing.", "contact_method": "email", "contact_detail": "robin@example.com"},
+        )
+        assert response.status_code == 302
+        member.refresh_from_db()
+        assert member.teaching_contact_method == Member.TeachingContactMethod.EMAIL
+        assert member.teaching_contact_detail == "robin@example.com"
 
 
 def describe_retired_orientation_route():

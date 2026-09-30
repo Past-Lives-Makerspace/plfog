@@ -474,6 +474,10 @@ html.dark .cp-page {
 .cp-page .cls-schedule{display:flex;flex-direction:column;gap:3px;margin-top:2px}
 .cp-page .cls-schedule__row{display:flex;justify-content:space-between;align-items:baseline;gap:8px;font-size:12px}
 .cp-page .cls-schedule__date{color:var(--text);font-weight:600;white-space:nowrap}
+/* A series option lists every date ("Oct 2, Oct 9, Oct 23"). The list may wrap, so an eight
+   date series stays inside the card at phone width; the count and the spots keep nowrap and
+   the right edge. min-width:0 lets the flex item shrink below its longest date. */
+.cp-page .cls-schedule__date--list{white-space:normal;min-width:0;flex:0 1 auto}
 .cp-page .cls-schedule__time{color:var(--text3);white-space:nowrap;font-size:11px}
 .cp-page .cls-schedule__more{font-size:11px;color:var(--gold-text);font-weight:600;margin-top:1px}
 .cp-page .cls-schedule__tba{font-size:11px;color:var(--text3);font-style:italic}
@@ -912,7 +916,9 @@ a.cp-detail__cat-chip:hover { background: #f5ca6e; color: var(--color-navy); tex
   transition: border-color .15s ease, background .15s ease;
 }
 .cp-detail__other-date a:hover { border-color: var(--gold); background: var(--bg4); }
-.cp-detail__other-date-when { font-weight: 600; font-size: 15px; color: var(--text); }
+.cp-detail__other-date-when { font-weight: 600; font-size: 15px; color: var(--text); min-width: 0; }
+/* A series row lists every date and may wrap; the spots stay on one line at the right. */
+.cp-detail__other-date .cls-spots { white-space: nowrap; }
 
 .cp-detail__flex-note {
   padding: 16px 18px;
