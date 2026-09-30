@@ -12,7 +12,7 @@ from django.http import QueryDict
 from classes.video_providers import YOUTUBE, VideoLink, recognize
 
 if TYPE_CHECKING:
-    from classes.models import ClassApproval, ClassOffering, DiscountApprover, DiscountCode
+    from classes.models import ClassApproval, ClassOffering, ClassSession, DiscountApprover, DiscountCode
 
 register = template.Library()
 
@@ -252,7 +252,7 @@ def session_date_range(sessions) -> str:
 
 
 @register.filter
-def session_dates(sessions) -> str:
+def session_dates(sessions: Iterable[ClassSession] | None) -> str:
     """Every date of a session list, comma separated, e.g. 'Oct 2, Oct 9, Oct 23'.
 
     The catalog card's series option rows and the class page's other-date rows use

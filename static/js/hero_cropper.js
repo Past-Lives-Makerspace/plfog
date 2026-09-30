@@ -189,8 +189,14 @@
                             x: initial.x, y: initial.y,
                             width: initial.w, height: initial.h,
                         });
+                        // Only a restored box is worth announcing. A hero placed with the
+                        // Adjust tool is a focal point (w 0, x and y as percentages) and the
+                        // composer seeds hero_crop empty for it, so the box here would be
+                        // Cropper's automatic one, nobody's choice: its centre would pull the
+                        // card frames off the saved focal point the real card keeps. The
+                        // server's banner stays right until the host drags (cropend).
+                        announceCentre();
                     }
-                    announceCentre();
                 },
                 cropend: function () {
                     writeCrop(cropInput, instance.getData(true));
