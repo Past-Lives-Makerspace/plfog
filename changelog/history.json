@@ -1,5 +1,14 @@
 [
   {
+    "version": "1.98.48",
+    "date": "2026-09-30",
+    "title": "Class previews show the real page",
+    "changes": [
+      "Previewing a class from the teaching portal or a review link no longer reports sign-ups as closed for a class that is still weeks away; it shows the same Register button, seat count and schedule the public page will.",
+      "The preview now also shows the other dates the class runs, related classes in the same guild, and lets an editor adjust the hero image placement, just like the live page."
+    ]
+  },
+  {
     "version": "1.98.46",
     "date": "2026-09-30",
     "title": "Guild orientations lead with Schedule an Orientation",
