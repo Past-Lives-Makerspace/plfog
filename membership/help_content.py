@@ -372,7 +372,7 @@ Some guilds post open windows of orienter time as well as fixed slots. Under **P
 
 ## Request a Custom Time {#orientation-request-custom-time}
 
-If none of the posted times work, or the guild hasn't posted any, click **Request a Custom Time** below the orientations. Propose a date and time, add a note if it helps, and click **Send request**. The same rule applies: a guild lead has to confirm it before it's real.
+If none of the posted times work, or the guild hasn't posted any, click **Schedule an Orientation** below the orientations. Propose a date and time, add a note if it helps, and click **Send request**. The same rule applies: a guild lead has to confirm it before it's real.
 
 Not every guild offers this — the button only appears when the guild allows custom requests.
 

@@ -174,7 +174,7 @@ def describe_custom_request_button():
         client.login(username="cr1", password="pass")
         content = client.get(reverse("hub_guild_detail", args=[guild.slug])).content.decode()
         button = _custom_button(content)
-        assert "Request a Custom Time" in button
+        assert "Schedule an Orientation" in button
         assert "hub-btn--primary" in button
         assert "posted times" not in _section(content)
 
