@@ -31,13 +31,13 @@ _PNG = (
     b"\x00\x00\x05\x00\x01\r\n-\xb4\x00\x00\x00\x00IEND\xaeB`\x82"
 )
 
-GUILDS_HOST = "guilds.pastlives.app"
+GUILDS_HOST = "guilds.pastlives.space"
 GUILDS_SETTINGS = dict(
-    ALLOWED_HOSTS=["guilds.pastlives.app", "testserver"],
-    GUILDS_HOSTS=["guilds.pastlives.app"],
-    GUILDS_BASE_URL="https://guilds.pastlives.app",
+    ALLOWED_HOSTS=["guilds.pastlives.space", "testserver"],
+    GUILDS_HOSTS=["guilds.pastlives.space"],
+    GUILDS_BASE_URL="https://guilds.pastlives.space",
     BOOK_BASE_URL="https://book.pastlives.space",
-    MEMBER_BASE_URL="https://members.pastlives.app",
+    MEMBER_BASE_URL="https://members.pastlives.space",
 )
 
 

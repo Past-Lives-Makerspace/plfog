@@ -17,7 +17,7 @@ urlpatterns = [
     path("robots.txt", views.robots_txt, name="robots_txt"),
     # Home page
     path("", views.home, name="home"),
-    # Short, human-typable vanity share URL → 301 to the public guest guild page.
+    # Short, human-typable vanity share URL → 302 to the public guest guild page.
     path("g/<slug:slug>/", views.guild_vanity_redirect, name="guild_vanity"),
     # Clear pending login stage and restart
     path("accounts/restart-login/", views.restart_login, name="restart_login"),

@@ -49,8 +49,8 @@ def theme(request: HttpRequest) -> dict[str, str]:
     The script writes the light/dark choice to the ``pl_theme`` cookie so an
     explicit choice survives navigation across subdomains of the registrable
     domain. Empty string → a host-only cookie (correct for local dev like
-    ``pastlives.test``); production sets ``THEME_COOKIE_DOMAIN=.pastlives.app``
-    so the member hub and the guilds surface share the choice.
+    ``pastlives.test``); ``THEME_COOKIE_DOMAIN=.pastlives.space`` lets the
+    member hub and the guilds surface share the choice.
     """
     return {"theme_cookie_domain": settings.THEME_COOKIE_DOMAIN}
 
@@ -121,7 +121,7 @@ def surface(request: HttpRequest) -> dict[str, str | bool]:
     """Expose which surface the request arrived on so templates can branch chrome.
 
     ``surface`` is ``"public"`` on book.pastlives.space, ``"guilds"`` on
-    guilds.pastlives.app, ``"signage"`` on slideshow.pastlives.space, and
+    guilds.pastlives.space, ``"signage"`` on slideshow.pastlives.space, and
     ``"members"`` everywhere else (members host, local dev, Hetzner staging,
     Render preview). ``is_public_surface`` / ``is_guilds_surface`` /
     ``is_signage_surface`` are the convenience booleans templates branch on;
@@ -142,7 +142,7 @@ def surface(request: HttpRequest) -> dict[str, str | bool]:
         "MEMBER_HOST": settings.MEMBER_HOST,
         "MEMBER_BASE_URL": getattr(settings, "MEMBER_BASE_URL", f"https://{settings.MEMBER_HOST}"),
         "BOOK_BASE_URL": getattr(settings, "BOOK_BASE_URL", "https://book.pastlives.space"),
-        "GUILDS_BASE_URL": getattr(settings, "GUILDS_BASE_URL", "https://guilds.pastlives.app"),
+        "GUILDS_BASE_URL": getattr(settings, "GUILDS_BASE_URL", "https://guilds.pastlives.space"),
         "SIGNAGE_BASE_URL": getattr(settings, "SIGNAGE_BASE_URL", "https://slideshow.pastlives.space"),
         "guilds_page_base": "guilds/base_public.html" if is_guilds else "hub/base.html",
         "signage_page_base": "signage/base.html" if is_signage else "hub/base.html",

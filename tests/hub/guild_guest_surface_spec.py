@@ -1,4 +1,4 @@
-"""BDD specs for the guest guild page rendered on the guilds surface (guilds.pastlives.app).
+"""BDD specs for the guest guild page rendered on the guilds surface (guilds.pastlives.space).
 
 Covers the reviewer MUST/SHOULD-FIXes: roster privacy (#1), absolute class links + no
 Teach button (#3), no editor affordances for a lead (#4), lead-contact privacy (#7),
@@ -25,12 +25,12 @@ from tests.membership.factories import (
 
 pytestmark = pytest.mark.django_db
 
-GUILDS_HOST = "guilds.pastlives.app"
+GUILDS_HOST = "guilds.pastlives.space"
 GUILDS_SETTINGS = dict(
-    ALLOWED_HOSTS=["guilds.pastlives.app", "members.pastlives.space", "book.pastlives.space", "testserver"],
-    GUILDS_HOSTS=["guilds.pastlives.app"],
-    GUILDS_BASE_URL="https://guilds.pastlives.app",
-    MEMBER_BASE_URL="https://members.pastlives.app",
+    ALLOWED_HOSTS=["guilds.pastlives.space", "members.pastlives.space", "book.pastlives.space", "testserver"],
+    GUILDS_HOSTS=["guilds.pastlives.space"],
+    GUILDS_BASE_URL="https://guilds.pastlives.space",
+    MEMBER_BASE_URL="https://members.pastlives.space",
     BOOK_BASE_URL="https://book.pastlives.space",
 )
 
@@ -134,7 +134,7 @@ def describe_guest_guild_page():
             assert b"guildCart(" not in body
             assert b"cart/confirm" not in body
             assert b"Add to Cart" not in body
-            assert f"https://members.pastlives.app/guilds/{guild.slug}/".encode() in body
+            assert f"https://members.pastlives.space/guilds/{guild.slug}/".encode() in body
 
         def it_suppresses_cart_for_a_logged_in_member_too(client: Client):
             guild = GuildFactory(name="Shop Guild")

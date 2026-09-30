@@ -390,12 +390,12 @@ def describe_theme():
         assert theme(request) == {"theme_cookie_domain": ""}
 
     def it_exposes_the_configured_parent_domain(settings):
-        # Production scopes the theme cookie to the .pastlives.app registrable
-        # domain so the choice is shared across the hub and guilds surfaces.
-        settings.THEME_COOKIE_DOMAIN = ".pastlives.app"
+        # A parent domain such as .pastlives.space shares the theme cookie, and so
+        # the choice, across the hub and guilds surfaces.
+        settings.THEME_COOKIE_DOMAIN = ".pastlives.space"
         rf = RequestFactory()
         request = rf.get("/")
-        assert theme(request) == {"theme_cookie_domain": ".pastlives.app"}
+        assert theme(request) == {"theme_cookie_domain": ".pastlives.space"}
 
 
 def describe_notification_badge():

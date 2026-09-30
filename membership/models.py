@@ -2456,9 +2456,9 @@ class Guild(HeroCropMixin, models.Model):
 
     @property
     def vanity_url(self) -> str:
-        """Absolute, human-typable share URL, e.g. https://pastlives.app/g/ceramics/.
+        """Absolute, human-typable share URL, e.g. https://members.pastlives.space/g/ceramics/.
 
-        Lives on the member host and 301-redirects to the public guest guild page. It is
+        Lives on the member host and 302-redirects to the public guest guild page. It is
         the single source of truth for what the QR encodes and the flyer prints.
         """
         from django.urls import reverse

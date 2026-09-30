@@ -17,11 +17,11 @@ from tests.membership.factories import GuildFactory, MembershipPlanFactory
 
 pytestmark = pytest.mark.django_db
 
-GUILDS_HOST = "guilds.pastlives.app"
+GUILDS_HOST = "guilds.pastlives.space"
 GUILDS_SETTINGS = dict(
-    ALLOWED_HOSTS=["guilds.pastlives.app", "testserver"],
-    GUILDS_HOSTS=["guilds.pastlives.app"],
-    GUILDS_BASE_URL="https://guilds.pastlives.app",
+    ALLOWED_HOSTS=["guilds.pastlives.space", "testserver"],
+    GUILDS_HOSTS=["guilds.pastlives.space"],
+    GUILDS_BASE_URL="https://guilds.pastlives.space",
     EMAIL_BACKEND="django.core.mail.backends.locmem.EmailBackend",
 )
 
