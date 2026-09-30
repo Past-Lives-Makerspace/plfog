@@ -137,6 +137,8 @@ def describe_delete_class():
         offering = ClassOfferingFactory(status=ClassOffering.Status.DRAFT)
         response = client.post(reverse("classes:admin_class_delete", kwargs={"pk": offering.pk}))
         assert response.status_code == 302
+        # The admin lands back on the whole-catalog list; an instructor lands on My Classes (#526).
+        assert response.url == reverse("classes:admin_classes")
         assert not ClassOffering.objects.filter(pk=offering.pk).exists()
 
     def it_deletes_a_published_class_with_no_registrations(admin_user, client, db):

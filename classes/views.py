@@ -131,6 +131,7 @@ from classes.models import (
     RegistrationQuestion,
     readiness_items,
 )
+from core.files import delete_if_unreferenced
 from core.htmx import wants_fragment
 from core.models import SiteConfiguration
 from core.urls_util import book_absolute_url
@@ -2787,9 +2788,10 @@ def _administered_class(request: HttpRequest) -> ClassOffering:
     ``class_screen_required`` is admission to the screen and nothing more: a reviewer and a
     guild lead both get through it. Every lifecycle action behind the screen — approve,
     archive, restore, unpublish, remind, duplicate, delete — asserts its own capability as
-    well, and this is where the seven that want ``can_administer`` do it. Cancelling and
-    deleting are not undone by a revert, so the endpoint carries the same answer the button
-    does rather than trusting the button.
+    well, and this is where the six that want ``can_administer`` do it (delete asks
+    :func:`_may_delete`, because since #526 the instructor holds it on a draft). Cancelling
+    and deleting are not undone by a revert, so the endpoint carries the same answer the
+    button does rather than trusting the button.
     """
     access: ClassAccess = request.class_access  # type: ignore[attr-defined]
     if not access.can_administer:
@@ -2806,6 +2808,24 @@ def _may_run_again(access: ClassAccess) -> bool:
     button nor the endpoint.
     """
     return access.can_administer or access.can_submit
+
+
+def _may_delete(access: ClassAccess, offering: ClassOffering) -> bool:
+    """Whether this viewer may hard-delete this class right now.
+
+    ``can_delete`` is the capability (the admin and instructor rows carry it); the state
+    half is here so the button and the endpoint answer the same question. An admin deletes
+    any class, an instructor only a draft of their own: once it is submitted it is in a
+    reviewer's hands (Withdraw is the way back), and once it is live it is cancelled, not
+    deleted, so registrants are told. A bounced draft is still a draft. The registrations
+    guard is not here: it is a refusal with a message, not a 404, because a taken-back draft
+    can carry sign-ups and the person clicking deserves to be told why.
+    """
+    if not access.can_delete:
+        return False
+    if access.can_administer:
+        return True
+    return offering.status == ClassOffering.Status.DRAFT
 
 
 def _render_class_overview(
@@ -2838,6 +2858,7 @@ def _render_class_overview(
             "archive_blocker": offering.archive_blocker if access.can_administer else "",
             "paid_registration_count": offering.paid_registration_count,
             "can_duplicate_run": _may_run_again(access),
+            "can_delete_now": _may_delete(access, offering),
         },
     )
 
@@ -4450,17 +4471,24 @@ def admin_class_delete(request: HttpRequest, pk: int) -> HttpResponse:
 
     There is no soft-delete column behind this and no undo: too loose a gate here is strictly
     worse than too tight, which is why the capability is asserted on the endpoint and not only
-    drawn on the screen.
+    drawn on the screen. Since #526 the instructor holds it too, on a draft of their own
+    (:func:`_may_delete`); the URL name keeps its ``admin_`` prefix because
+    ``legacy_class_routes_spec`` pins every name that an old bookmark may still reverse.
+    Each population lands back on its own list.
     """
-    offering = _administered_class(request)
+    access: ClassAccess = request.class_access  # type: ignore[attr-defined]
+    offering: ClassOffering = request.class_offering  # type: ignore[attr-defined]
+    if not _may_delete(access, offering):
+        raise Http404("This class is not this viewer's to delete.")
     if request.method == "POST":
         if offering.registrations.exists():
-            messages.error(request, "Can't delete — this class has registrations. Archive it instead.")
+            remedy = "Archive it instead." if access.can_administer else "Ask an admin to archive it."
+            messages.error(request, f"Can't delete — this class has registrations. {remedy}")
             return redirect("classes:teach_class_detail", pk=offering.pk)
         title = offering.title
         offering.delete()
         messages.success(request, f"Deleted ‘{title}’.")
-        return redirect("classes:admin_classes")
+        return redirect("classes:admin_classes" if access.can_administer else "classes:teach_dashboard")
     return redirect("classes:teach_class_detail", pk=offering.pk)
 
 
@@ -4639,8 +4667,15 @@ def _gallery_reorder(request: HttpRequest, offering: ClassOffering) -> HttpRespo
 
 
 def _gallery_delete(img: ClassImage) -> HttpResponse:
-    img.image.delete(save=False)
+    """Drop the row, then the file only if no other gallery row still shows it.
+
+    A copied class (Run it again, Duplicate) carries the same storage keys as its source
+    (``ClassOffering._copy_photos_and_faqs_from``), and legacy imports are content-addressed,
+    so a bare ``FieldFile.delete`` here blanked the picture on every class sharing it.
+    """
+    name = img.image.name or ""
     img.delete()
+    delete_if_unreferenced(ClassImage, "image", name)
     return JsonResponse({"ok": True})
 
 

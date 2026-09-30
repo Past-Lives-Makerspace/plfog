@@ -17,7 +17,7 @@ The short blurb a Member writes about themselves, shown in the member directory 
 _Avoid_: about me (ambiguous — say which bio), profile bio.
 
 **Instructor bio**:
-A *separate* teaching-focused bio shown on the public instructor page, distinct from the Member bio. Edited on the instructor settings page, labeled "About me as an instructor". A Member who instructs maintains both bios independently.
+A *separate* teaching-focused bio shown on the public instructor page and in the instructor card on every public class page, distinct from the Member bio, which never appears on a public page. Edited on the instructor settings page and the teach portal's Instructor Profile tab, labeled "About me as an instructor". A Member who instructs maintains both bios independently.
 _Avoid_: about me, instructor about.
 
 **Onboarding**:

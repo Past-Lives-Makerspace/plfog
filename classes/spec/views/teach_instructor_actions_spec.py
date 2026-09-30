@@ -411,6 +411,91 @@ def describe_run_it_again():
         assert "<form" not in tail
 
 
+def describe_deleting_a_draft():
+    """#526: Delete was the admin's alone. The class's own instructor now gets it on a draft, a
+    bounced one included, and never on a class that is submitted, live, finished or cancelled:
+    those are withdrawn or cancelled, so reviewers and registrants are told."""
+
+    def _delete_url(offering: ClassOffering) -> str:
+        return reverse("classes:admin_class_delete", kwargs={"pk": offering.pk})
+
+    def _bounced_draft(instructor) -> ClassOffering:
+        """Sent back with notes: still status DRAFT, lifecycle Changes requested."""
+        offering = ClassOfferingFactory(instructor=instructor, status=Status.DRAFT)
+        ClassApproval.objects.create(
+            class_offering=offering,
+            role=ClassApproval.Role.ADMIN,
+            decision=ClassApproval.Decision.CHANGES_REQUESTED,
+            notes="Add a photo of the finished piece.",
+        )
+        return offering
+
+    def it_offers_delete_on_the_instructors_own_draft(instructor_fixture, client):
+        client.force_login(instructor_fixture.user)
+        plain = ClassOfferingFactory(instructor=instructor_fixture, status=Status.DRAFT)
+        for draft in (plain, _bounced_draft(instructor_fixture)):
+            html = client.get(reverse("classes:teach_class_detail", kwargs={"pk": draft.pk})).content.decode()
+            assert _delete_url(draft) in html
+            assert "Delete this class?" in html
+            assert "This permanently removes your draft and its dates." in html
+
+    def it_withholds_delete_once_the_class_is_submitted_live_finished_or_cancelled(instructor_fixture, client):
+        client.force_login(instructor_fixture.user)
+        pending = ClassOfferingFactory(instructor=instructor_fixture, status=Status.PENDING)
+        gone = ClassOfferingFactory(instructor=instructor_fixture, status=Status.CANCELLED)
+        for offering in (pending, _live(instructor_fixture), _completed_class(instructor_fixture), gone):
+            html = client.get(reverse("classes:teach_class_detail", kwargs={"pk": offering.pk})).content.decode()
+            assert _delete_url(offering) not in html, offering.status
+            assert "Delete unavailable" not in html, offering.status
+
+    def it_deletes_the_draft_and_lands_on_my_classes(instructor_fixture, client):
+        draft = ClassOfferingFactory(instructor=instructor_fixture, title="Scrap Draft", status=Status.DRAFT)
+        client.force_login(instructor_fixture.user)
+        response = client.post(_delete_url(draft))
+        assert response.status_code == 302
+        assert response.url == reverse("classes:teach_dashboard")
+        assert not ClassOffering.objects.filter(pk=draft.pk).exists()
+        assert _messages(response) == ["Deleted ‘Scrap Draft’."]
+
+    def it_refuses_a_class_that_is_no_longer_a_draft(instructor_fixture, client):
+        client.force_login(instructor_fixture.user)
+        pending = ClassOfferingFactory(instructor=instructor_fixture, status=Status.PENDING)
+        for offering in (pending, _live(instructor_fixture)):
+            assert client.post(_delete_url(offering)).status_code == 404
+            assert ClassOffering.objects.filter(pk=offering.pk).exists()
+
+    def it_refuses_another_instructors_draft(instructor_fixture, other_instructor, client):
+        draft = ClassOfferingFactory(instructor=other_instructor, status=Status.DRAFT)
+        client.force_login(instructor_fixture.user)
+        assert client.post(_delete_url(draft)).status_code == 404
+        assert ClassOffering.objects.filter(pk=draft.pk).exists()
+
+    def it_refuses_the_lead_of_the_classes_guild(instructor_fixture, other_instructor, client):
+        # The guild row carries Edit and Emails on someone else's class and nothing more; it
+        # has no Overview to draw the button on and no capability for the endpoint.
+        guild = GuildFactory(name="Forge Guild", guild_lead=other_instructor)
+        draft = ClassOfferingFactory(
+            instructor=instructor_fixture, status=Status.DRAFT, category=CategoryFactory(guild=guild)
+        )
+        client.force_login(other_instructor.user)
+        assert client.post(_delete_url(draft)).status_code == 404
+        assert ClassOffering.objects.filter(pk=draft.pk).exists()
+
+    def it_refuses_a_draft_that_carries_registrations(instructor_fixture, client):
+        # A class taken back to draft keeps its sign-ups, and only an admin can archive it.
+        draft = ClassOfferingFactory(instructor=instructor_fixture, status=Status.DRAFT)
+        RegistrationFactory(class_offering=draft, status=Registration.Status.CONFIRMED)
+        client.force_login(instructor_fixture.user)
+        html = client.get(reverse("classes:teach_class_detail", kwargs={"pk": draft.pk})).content.decode()
+        assert _delete_url(draft) not in html
+        assert "Delete unavailable (has registrations)" in html
+        response = client.post(_delete_url(draft))
+        assert response.status_code == 302
+        assert response.url == reverse("classes:teach_class_detail", kwargs={"pk": draft.pk})
+        assert ClassOffering.objects.filter(pk=draft.pk).exists()
+        assert _messages(response) == ["Can't delete — this class has registrations. Ask an admin to archive it."]
+
+
 def describe_classes_list_withdraw():
     def it_offers_withdraw_on_pending_rows(instructor_fixture, client):
         pending = ClassOfferingFactory(instructor=instructor_fixture, title="Pending Row", status=Status.PENDING)
