@@ -386,7 +386,7 @@
                 {% endif %}{% endwith %}
                 {% if item.has_document %}
                 <div style="margin-top:0.75rem;">
-                    <a href="{{ item.document_href }}" class="hub-btn hub-btn--sm"{% if item.document %} download{% else %} target="_blank" rel="noopener nofollow noreferrer"{% endif %}>{% if item.document %}📄{% else %}🔗{% endif %} {{ item.document_display_name }}</a>
+                    <a href="{{ item.document_href }}" class="hub-btn hub-btn--sm"{% if item.document %} download hx-boost="false"{% else %} target="_blank" rel="noopener nofollow noreferrer"{% endif %}>{% if item.document %}📄{% else %}🔗{% endif %} {{ item.document_display_name }}</a>
                 </div>
                 {% endif %}
             </div>

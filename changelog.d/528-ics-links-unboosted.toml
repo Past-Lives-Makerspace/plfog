@@ -1,0 +1,7 @@
+bump = "patch"
+date = "2026-09-30"
+title = "Downloads download again"
+changes = [
+  "Add to calendar on an event page hands you the calendar file instead of showing its raw text.",
+  "The same fix covers every other download in the portal: the Community Calendar's .ics, the QR images on the Share & Print cards, the CSV exports and uploaded guild documents.",
+]

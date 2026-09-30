@@ -67,7 +67,7 @@
     {% if sort %}<input type="hidden" name="sort" value="{{ sort }}">{% endif %}
     {% if sort_dir %}<input type="hidden" name="dir" value="{{ sort_dir }}">{% endif %}
     <button type="submit" class="hub-btn hub-btn--sm hub-btn--primary">Apply</button>
-    <a href="{% url 'hub_orientations_export' %}{% if base_params %}?{{ base_params }}{% endif %}" class="hub-btn hub-btn--sm hub-btn--ghost">Export CSV</a>
+    <a href="{% url 'hub_orientations_export' %}{% if base_params %}?{{ base_params }}{% endif %}" class="hub-btn hub-btn--sm hub-btn--ghost" hx-boost="false">Export CSV</a>
   </form>
 
   <div class="admin-table-wrap">
