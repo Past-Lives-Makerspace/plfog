@@ -101,6 +101,10 @@
     browser and leaves them hidden in the native app. Head, so it binds its afterSettle listener
     once; the reveal itself re-runs on every boosted arrival.{% endcomment %}
     <script defer src="{% static 'js/app-store-badges.js' %}"></script>
+    {% comment %}Hides every link to one of our attachments inside the native app, where the
+    WebView drops a download; a browser is untouched. Head, so it binds its afterSettle
+    listener once; the hide itself re-runs on every boosted arrival.{% endcomment %}
+    <script defer src="{% static 'js/native-downloads.js' %}"></script>
     {% block extra_head %}{% endblock %}
 </head>
 <body class="{% block body_class %}{% endblock %}" data-pl-authenticated="1" hx-boost="true" hx-ext="head-support" x-data="{ sidebarOpen: window.innerWidth > 768 ? ((localStorage.getItem('hubSidebarOpen') !== null) ? (localStorage.getItem('hubSidebarOpen') === '1') : true) : false }" x-init="$watch('sidebarOpen', v => { if (window.innerWidth > 768) localStorage.setItem('hubSidebarOpen', v ? '1' : '0') })">

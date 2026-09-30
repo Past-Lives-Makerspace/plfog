@@ -75,8 +75,8 @@ HELP_KEYS: dict[str, HelpKeyEntry] = {
     "calendar.subscribe": {
         "title": "Subscribe to the calendar",
         "short_text": (
-            "Subscribe to the Member or Public calendar and it stays in sync in your own "
-            "calendar app, or download a one-time .ics."
+            "Subscribe to the Member or Public calendar from Apple Calendar or Google Calendar "
+            "and it stays in sync in your own calendar app, or download a one-time .ics."
         ),
         "article_slug": "community-calendar",
         "anchor": "calendar-subscribe",

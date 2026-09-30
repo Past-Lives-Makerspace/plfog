@@ -93,16 +93,26 @@ rest via templates/404.html). Add-to-calendar works logged-out.
 
     <div class="pl-event-detail__actions">
       {% comment %}
-      Add to calendar carries hx-boost="false" because the .ics is an attachment, not a page:
-      under the body's hx-boost, htmx fetched it over XHR and swapped the raw calendar text
-      into the body instead of letting the browser download it. Only a real click sees this;
-      tests/e2e/event_ics_download_spec.py drives one.
+      A signed-in member with a configured calendar gets the Subscribe menu in place of Add to
+      calendar: a downloaded .ics goes stale when the event moves, a subscription follows it,
+      and inside the native app a download does nothing at all. An anonymous scanner keeps
+      Add to calendar; their phone's browser handles the .ics. That anchor carries
+      hx-boost="false" and data-pl-download (FRONTEND.md rule 24): under the body's hx-boost,
+      htmx fetched it over XHR and swapped the raw calendar text into the body instead of
+      letting the browser download it, and in the native app the link is hidden. Only a real
+      click sees the first; tests/e2e/event_ics_download_spec.py drives one.
       {% endcomment %}
       {% if event.video_url %}
       <a class="hub-btn hub-btn--primary" href="{{ event.video_url }}" target="_blank" rel="noopener noreferrer">Join online</a>
-      <a class="hub-btn hub-btn--ghost" href="{% url 'hub_event_ics' event.pk %}" hx-boost="false">Add to calendar</a>
+      {% endif %}
+      {% if calendar_subscribe_links and event.video_url %}
+        {% include "hub/partials/_calendar_subscribe.html" with subscribe_links=calendar_subscribe_links align="left" button_class="hub-btn hub-btn--ghost" %}
+      {% elif calendar_subscribe_links %}
+        {% include "hub/partials/_calendar_subscribe.html" with subscribe_links=calendar_subscribe_links align="left" button_class="hub-btn hub-btn--primary" %}
+      {% elif event.video_url %}
+      <a class="hub-btn hub-btn--ghost" href="{% url 'hub_event_ics' event.pk %}" hx-boost="false" data-pl-download>Add to calendar</a>
       {% else %}
-      <a class="hub-btn hub-btn--primary" href="{% url 'hub_event_ics' event.pk %}" hx-boost="false">Add to calendar</a>
+      <a class="hub-btn hub-btn--primary" href="{% url 'hub_event_ics' event.pk %}" hx-boost="false" data-pl-download>Add to calendar</a>
       {% endif %}
       {% if user.is_authenticated %}
         <a class="hub-btn hub-btn--ghost" href="{% url 'hub_community_calendar' %}">View the Calendar</a>

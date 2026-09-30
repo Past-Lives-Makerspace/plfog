@@ -317,7 +317,7 @@
              onclick="try { this.showPicker() } catch (e) {}">
       <button type="submit" class="pl-btn pl-btn--secondary pl-btn--sm">Apply</button>
     </form>
-    <a href="{% url 'billing_admin_payments_csv' %}?{{ payments_query }}" class="pl-btn pl-btn--secondary pl-btn--sm" hx-boost="false">Export CSV</a>
+    <a href="{% url 'billing_admin_payments_csv' %}?{{ payments_query }}" class="pl-btn pl-btn--secondary pl-btn--sm" hx-boost="false" data-pl-download>Export CSV</a>
   </div>
 
   <div class="pl-table-scroll"
@@ -358,7 +358,7 @@
       <a href="?tab=reconciliation" class="pl-filter">This month</a>
     </form>
     <div class="pl-actions">
-      <a href="{% url 'billing_admin_reconciliation_csv' %}?{{ reconciliation_query }}" class="pl-btn pl-btn--secondary pl-btn--sm" hx-boost="false">Export CSV</a>
+      <a href="{% url 'billing_admin_reconciliation_csv' %}?{{ reconciliation_query }}" class="pl-btn pl-btn--secondary pl-btn--sm" hx-boost="false" data-pl-download>Export CSV</a>
       <a href="{% url 'billing_admin_reconciliation_print' %}?{{ reconciliation_query }}" target="_blank" class="pl-btn pl-btn--secondary pl-btn--sm">Export PDF</a>
       <button type="button" class="pl-btn pl-btn--primary pl-btn--sm" onclick="document.getElementById('recon-snapshot-modal').style.display='flex'">Take Snapshot</button>
     </div>

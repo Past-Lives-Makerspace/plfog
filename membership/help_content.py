@@ -581,7 +581,7 @@ A row of colored filter chips sits above the grid — one per guild or calendar.
 You'll need to be signed in for this part.
 
 1. On the **Calendar** tab, click **Subscribe** (top right).
-2. Pick **Subscribe to the Member calendar** for all makerspace events, or **Subscribe to the Public calendar** for the outward facing one. Your calendar app stays in sync as new events are added.
+2. Pick the calendar under your calendar app: **Apple Calendar** (Outlook and most other apps take these links too) or **Google Calendar**. Member events and public events live on separate calendars, so take both to see everything. Your calendar app stays in sync as events are added or moved.
 3. Or pick **Download .ics (one time)** for a one time import of this page.
 
 ![The Subscribe button, top right of the Calendar tab.](/static/help/community-calendar/03-export-calendar.png)

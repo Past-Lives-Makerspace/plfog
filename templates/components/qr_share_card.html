@@ -40,10 +40,10 @@ or an <a> link, so the card is safe to drop INSIDE another <form> (e.g. the even
   {% if locked_note %}
   <p class="hub-text-muted pl-qr-share__locked">{{ locked_note }}</p>
   {% else %}
-  {# hx-boost="false" on both: the card sits under the boosted hub body, and a boosted click swaps the image's bytes into the page instead of downloading it (FRONTEND.md rule 24). #}
+  {# hx-boost="false" on both: the card sits under the boosted hub body, and a boosted click swaps the image's bytes into the page instead of downloading it; data-pl-download hides them inside the native app, where a download does nothing (FRONTEND.md rule 24). #}
   <div class="pl-qr-share__actions">
-    <a class="hub-btn hub-btn--sm hub-btn--ghost" href="{{ svg_url }}" hx-boost="false">Download QR (SVG)</a>
-    <a class="hub-btn hub-btn--sm hub-btn--ghost" href="{{ png_url }}" hx-boost="false">Download QR (PNG)</a>
+    <a class="hub-btn hub-btn--sm hub-btn--ghost" href="{{ svg_url }}" hx-boost="false" data-pl-download>Download QR (SVG)</a>
+    <a class="hub-btn hub-btn--sm hub-btn--ghost" href="{{ png_url }}" hx-boost="false" data-pl-download>Download QR (PNG)</a>
   </div>
   {% endif %}
 </div>

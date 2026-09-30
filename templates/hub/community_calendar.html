@@ -150,34 +150,7 @@
                 <span class="pl-calendar-clock__date"
                       x-text="now.toLocaleDateString('en-US', {weekday: 'long', month: 'long', day: 'numeric', year: 'numeric'})"></span>
             </div>
-            <div class="pl-calendar-export" x-data="{ open: false }" data-help-key="calendar.subscribe">
-                <button class="pl-btn pl-btn--secondary pl-btn--sm" @click="open = !open" @click.away="open = false">
-                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                        <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/>
-                    </svg>
-                    Subscribe
-                    <svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 4.5l3 3 3-3"/></svg>
-                </button>
-                <div class="pl-calendar-export__dropdown" x-show="open" x-transition>
-                    {% if member_calendar_subscribe_url %}
-                    <a href="{{ member_calendar_subscribe_url }}" class="pl-calendar-export__item">
-                        Subscribe to the Member calendar
-                    </a>
-                    {% endif %}
-                    {% if public_calendar_subscribe_url %}
-                    <a href="{{ public_calendar_subscribe_url }}" class="pl-calendar-export__item">
-                        Subscribe to the Public calendar
-                    </a>
-                    {% endif %}
-                    {# hx-boost="false": an attachment under the boosted body; `download` alone does not stop htmx from taking the click and swapping the file's text into the page. #}
-                    <a href="{% url 'hub_calendar_export_ics' %}" class="pl-calendar-export__item" download hx-boost="false">
-                        Download .ics (one time)
-                    </a>
-                    <p class="pl-calendar-export__note">
-                        Subscribe once and your calendar app stays up to date. The Member calendar is all makerspace events; the Public calendar is the outward facing one.
-                    </p>
-                </div>
-            </div>
+            {% include "hub/partials/_calendar_subscribe.html" with subscribe_links=calendar_subscribe_links show_export=True help_key="calendar.subscribe" %}
         </div>
     </div>
 
