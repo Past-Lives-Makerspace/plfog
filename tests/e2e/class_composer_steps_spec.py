@@ -15,11 +15,13 @@ Alpine root in ``templates/classes/_components/class_composer.html``. Run with
 from __future__ import annotations
 
 import re
+from datetime import timedelta
 from pathlib import Path
 from typing import cast
 
 import pytest
 from django.urls import reverse
+from django.utils import timezone
 from PIL import Image
 from playwright.sync_api import Error as PlaywrightError
 from playwright.sync_api import Page, expect
@@ -326,6 +328,36 @@ def describe_the_submit_confirm():
 
         expect(page.locator(SUBMIT_MODAL)).to_be_visible()
         expect(_step(page, 6)).to_be_visible()
+
+    def it_takes_a_date_added_in_the_scheduler_without_a_save_first(live_server, page, login_via_code):
+        """Issue #536, item 3: a date added on step 3 lives only in the hidden formset inputs until a
+        POST. Submit used to be a disabled button gated on the saved row, so the page never noticed
+        the date and nothing said "save first". The POST saves the date, then submit_for_review()
+        is the gate, so the class reaches PENDING with that session on one click."""
+        offering = _seed_ready_draft(_seed_instructor())
+        offering.sessions.all().delete()
+        login_via_code(EMAIL)
+        _open_edit(page, live_server, offering)
+        _tab(page, 3).click()
+        expect(_step(page, 3)).to_be_visible()
+        page.fill("#session-add-date", (timezone.localdate() + timedelta(days=1)).isoformat())
+        page.locator(".session-cal__add-btn").click()
+        _tab(page, 6).click()
+        expect(_step(page, 6)).to_be_visible()
+
+        page.locator(SUBMIT).click()
+        _settle(page)
+        modal = page.locator(SUBMIT_MODAL)
+        expect(modal).to_be_visible()
+        modal.get_by_role("button", name="Submit It").click()
+
+        page.wait_for_url(re.compile(r"step=6"))
+        expect(
+            page.locator(".pl-composer__footnote:has-text('You can still edit it until it is approved.')")
+        ).to_be_visible()
+        offering.refresh_from_db()
+        assert offering.status == ClassOffering.Status.PENDING
+        assert offering.sessions.count() == 1
 
 
 def describe_save_draft():

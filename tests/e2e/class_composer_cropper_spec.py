@@ -210,6 +210,35 @@ def describe_hero_cropper():
                 shown = _percentages(photo.evaluate("el => getComputedStyle(el).objectPosition"))
                 assert shown == pytest.approx(centre, abs=0.5), (step, shown, centre)
 
+    def it_moves_the_card_frames_with_the_crop_before_any_save(live_server, page, login_via_code, serve_media):
+        # Issue #536, item 4: the cropper announces the crop's centre (hero-crop on window) after
+        # every drag and the card focus component follows it, so the laptop and phone frames on
+        # this step and the phone frame on Review show the crop the host is dragging, not the
+        # saved one. Before, they held the saved value until Save Draft.
+        offering = _seed_draft_with_square_photo(_seed_instructor())
+        login_via_code(EMAIL)
+        _open_photos_step(page, live_server, "classes:teach_class_edit", pk=offering.pk)
+        expect(page.locator(FRAME)).to_be_visible()
+        _wait_ready(page)
+
+        _drag_frame_down(page, 60)
+        crop = json.loads(page.locator(CROP_INPUT).input_value())
+        # The photo is 1200x1200: the crop's centre as a percentage of the source image.
+        centre = ((crop["x"] + crop["w"] / 2) / 1200 * 100, (crop["y"] + crop["h"] / 2) / 1200 * 100)
+        assert centre[1] > 55, centre  # the drag moved the box well below the middle
+        page.evaluate("() => new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r)))")
+
+        for step, frames in ((2, 2), (6, 1)):
+            card_photos = page.locator(f'[data-composer-step="{step}"] {CARD_PHOTOS}')
+            expect(card_photos).to_have_count(frames)
+            for photo in card_photos.all():
+                shown = _percentages(photo.evaluate("el => getComputedStyle(el).objectPosition"))
+                assert shown == pytest.approx(centre, abs=0.6), (step, shown, centre)
+        # Nothing was saved: the row still carries no crop and the sliders were never touched.
+        offering.refresh_from_db()
+        assert offering.hero_object_position == "50% 50%"
+        expect(page.locator("[data-card-focus-input]")).to_have_value("")
+
     def it_frames_a_freshly_uploaded_photo_on_a_saved_class(live_server, page, login_via_code, serve_media, tmp_path):
         offering = _seed_draft_with_square_photo(_seed_instructor())
         login_via_code(EMAIL)

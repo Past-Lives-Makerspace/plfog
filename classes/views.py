@@ -2113,7 +2113,6 @@ def _composer_context(
         "anchor_steps_json": json.dumps(anchor_steps()),
         "pipeline": saved.review_pipeline() if saved is not None else None,
         "readiness": readiness,
-        "is_ready": readiness is not None and all(item.ok for item in readiness),
         "cancel_url": cancel_url,
         "save_label": "Save" if is_published else "Save Draft",
         # Stamped on the description's live count (#425), so the browser paints the same minimum
@@ -3405,6 +3404,11 @@ def _render_class_preview(
             # and no other surface should be strippable by a query parameter.
             "is_framed": request.GET.get("framed") == "1",
             "offering": offering,
+            # The public detail view passes the same two ids; the template interpolates them
+            # into heroPlacement({...}), and a missing one renders "contentTypeId: ," (a
+            # JavaScript syntax error that leaves the hero at 50% 50% and Adjust dead).
+            "offering_ct_id": ContentType.objects.get_for_model(ClassOffering).pk,
+            "category_ct_id": ContentType.objects.get_for_model(Category).pk,
             "can_edit_offering": can_edit_offering,
             "edit_url": edit_url,
             "is_admin": is_admin,

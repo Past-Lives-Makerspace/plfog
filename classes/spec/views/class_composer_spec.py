@@ -32,6 +32,13 @@ from classes.models import READINESS_DESCRIPTION_HINT, ClassApproval, ClassOffer
 from classes.views import COMPOSER_SAVED_LIMIT, COMPOSER_SAVED_SESSION_KEY, _mark_composer_saved
 from tests.membership.factories import GuildFactory, GuildStaffMembershipFactory
 
+# Issue #536: the Review step says the checklist reads the saved row and Submit saves first.
+SUBMIT_NOTE = (
+    "This list reads your saved draft. Submit saves your changes first, "
+    "so a date or description you have just added counts."
+)
+LIVE_SUBMIT = "confirmSubmit('submit-class')\">Submit for Review</button>"
+
 Status = ClassOffering.Status
 
 VIDEO = "https://www.youtube.com/watch?v=dQw4w9WgXcQ"
@@ -502,13 +509,22 @@ def describe_teach_composer_get():
         assert html.count("pl-phase-tab--done") == 3
         assert html.count("pl-phase-tab__mark") >= 3
 
-    def it_marks_nothing_on_an_unready_draft_and_disables_submit(instructor_fixture, client):
+    def it_marks_nothing_on_an_unready_draft_and_keeps_submit_live(instructor_fixture, client):
+        """Issue #536: the checklist reads the saved row, but Submit is live on every draft.
+
+        A date added in the scheduler exists only in the hidden formset inputs until a POST,
+        so a button gated on the saved row never noticed it and nothing said "save first".
+        The POST saves first and submit_for_review() refuses with the checklist instead.
+        """
         offering = ClassOfferingFactory(instructor=instructor_fixture, status=Status.DRAFT, image="", gallery=0)
         client.force_login(instructor_fixture.user)
         html = client.get(reverse("classes:teach_class_edit", kwargs={"pk": offering.pk})).content.decode()
         assert "pl-phase-tab--done" not in html
-        assert "Finish the checklist above first." in html
-        assert "disabled" in html.split("Finish the checklist above first.")[0].rsplit("<button", 1)[1]
+        assert LIVE_SUBMIT in html
+        assert "disabled" not in html.split(LIVE_SUBMIT)[0].rsplit("<button", 1)[1]
+        assert "Finish the checklist above first." not in html
+        assert SUBMIT_NOTE in html
+        assert html.index("Ready to Submit?") < html.index(SUBMIT_NOTE) < html.index("Add a hero photo.")
         # Readiness hints jump to their step instead of linking to a hidden anchor.
         assert "goToField('hero-preview')\">Add a hero photo.</button>" in html
         assert "goToField('gallery-manager')\">Add one gallery photo.</button>" in html
@@ -518,8 +534,8 @@ def describe_teach_composer_get():
         offering = ClassOfferingFactory(instructor=instructor_fixture, status=Status.DRAFT, ready=True)
         client.force_login(instructor_fixture.user)
         html = client.get(reverse("classes:teach_class_edit", kwargs={"pk": offering.pk})).content.decode()
-        assert "Finish the checklist above first." not in html
-        assert "confirmSubmit('submit-class')\">Submit for Review</button>" in html
+        assert LIVE_SUBMIT in html
+        assert "disabled" not in html.split(LIVE_SUBMIT)[0].rsplit("<button", 1)[1]
 
     def it_relabels_submit_on_a_bounced_class(instructor_fixture, client):
         offering = ClassOfferingFactory(instructor=instructor_fixture, status=Status.DRAFT, ready=True)
@@ -1469,13 +1485,39 @@ def describe_a_composer_submit_refused_for_readiness():
         assert "Some Things Need Fixing" not in html
         assert "errorSteps: []," in html
 
+    def it_names_only_the_photo_when_a_draft_still_has_no_hero(instructor_fixture, client):
+        """Issue #536, sharpened: Submit is live on every draft, so a draft missing its photo lands on step 2 naming only the photo."""
+        offering = ClassOfferingFactory(instructor=instructor_fixture, status=Status.DRAFT, ready=True, image="")
+        client.force_login(instructor_fixture.user)
+        resp = client.post(
+            reverse("classes:teach_class_edit", kwargs={"pk": offering.pk}),
+            _full_payload(
+                offering.category,
+                scheduling_model="fixed",
+                scheduling_type="single_session",
+                action="submit",
+                step="5",
+            ),
+        )
+        assert resp.status_code == 302
+        edit = reverse("classes:teach_class_edit", kwargs={"pk": offering.pk})
+        assert resp["Location"] == f"{edit}?step=2&missing=1"
+        assert "Not ready to submit: Add a hero photo." in _messages(resp)
+        offering.refresh_from_db()
+        assert offering.status == Status.DRAFT
+        notice = _still_missing(client.get(resp["Location"]).content.decode())
+        assert "goToField('hero-preview')\">Add a hero photo.</button>" in notice
+        assert "Add one gallery photo." not in notice
+        assert "Add at least one date." not in notice
+        assert notice.count("goToField(") == 1
+
     def it_lands_on_the_dates_step_when_the_only_session_slipped_into_the_past(instructor_fixture, client):
         offering = ClassOfferingFactory(instructor=instructor_fixture, status=Status.DRAFT, ready=True)
         session = offering.sessions.get()
         client.force_login(instructor_fixture.user)
-        # Rendered while the session was still ahead: Submit is enabled, the Dates item is ticked.
+        # Rendered while the session was still ahead: Submit is live, the Dates item is ticked.
         before = client.get(reverse("classes:teach_class_edit", kwargs={"pk": offering.pk})).content.decode()
-        assert "Finish the checklist above first." not in before
+        assert LIVE_SUBMIT in before
         # Time passes with the page open; nothing on screen changes.
         session.starts_at = timezone.now() - timedelta(minutes=1)
         session.ends_at = session.starts_at + timedelta(hours=2)

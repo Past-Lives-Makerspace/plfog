@@ -30,7 +30,7 @@ Context (from _composer_context in classes/views.py, plus the form context):
   initial_phase   — the step to open on: the first broken step after a failed POST, else ?step=
   error_steps / error_steps_json / error_summary — the broken steps and their failing field labels
   anchor_steps_json — DOM id -> step number, for goToField()
-  pipeline, readiness, is_ready — only present once the class has a pk
+  pipeline, readiness — only present once the class has a pk
   missing_items / missing_verb — the failing readiness items behind a refused submit or
                     publish (?missing=1 after the redirect, or the admin create preflight),
                     rendered as the Still Missing checklist: not a form error, the form validated
@@ -372,6 +372,7 @@ Do not merge them.
       {# The five things a class needs before it can be submitted; each hint jumps to its step and field. #}
       <section class="hub-card pl-readiness-card pl-composer__card" data-help-key="teach.submit-for-review">
         <h3 class="pl-composer__card-title">Ready to Submit?</h3>
+        <p class="pl-compose-section__note">This list reads your saved draft. Submit saves your changes first, so a date or description you have just added counts.</p>
         {% include "classes/_components/readiness_list.html" with readiness=readiness link_hints=True jump=True grid=True %}
       </section>
       {% endif %}
@@ -425,16 +426,11 @@ Do not merge them.
         {% if is_admin %}
           <button type="button" class="hub-btn hub-btn--sm hub-btn--primary pl-composer-bar__primary" x-show="phase === {{ step_count }}" x-cloak
                   @click="confirmSubmit('submit-class')">Publish</button>
-        {% elif not offering or is_ready %}
+        {% else %}
+          {# Live on every draft: the checklist reads the saved row, the POST saves first, and submit_for_review() is the gate (#536). #}
           <button type="button" class="hub-btn hub-btn--sm hub-btn--primary pl-composer-bar__primary" x-show="phase === {{ step_count }}" x-cloak
                   data-help-key="teach.submit-for-review"
                   @click="confirmSubmit('submit-class')">{% if pipeline.is_bounced %}Fix and Resubmit{% else %}Submit for Review{% endif %}</button>
-        {% else %}
-          <span class="pl-help pl-help--right pl-composer-bar__primary" x-show="phase === {{ step_count }}" x-cloak>
-            <button type="button" class="hub-btn hub-btn--sm hub-btn--primary" disabled aria-label="Submit for Review: finish the checklist above first."
-                    data-help-key="teach.submit-for-review">{% if pipeline.is_bounced %}Fix and Resubmit{% else %}Submit for Review{% endif %}</button>
-            <span class="pl-help__bubble" role="tooltip">Finish the checklist above first.</span>
-          </span>
         {% endif %}
       {% endif %}
       <a class="hub-btn hub-btn--sm hub-btn--ghost" href="{{ cancel_url }}">Cancel</a>
