@@ -9,6 +9,7 @@ from django.utils import timezone
 
 from classes.factories import CategoryFactory, ClassOfferingFactory, ClassSessionFactory
 from classes.models import ClassOffering
+from core.models import SiteConfiguration
 from hub.calendar_entries import (
     CalendarEntry,
     calendar_subscribe_links,
@@ -198,15 +199,17 @@ def describe_google_calendar_add_url():
         assert google_calendar_add_url("") == ""
 
 
-class _Config:
-    def __init__(self, member: str, public: str) -> None:
-        self.member_google_calendar_id = member
-        self.public_google_calendar_id = public
-
-
+@pytest.mark.django_db
 def describe_calendar_subscribe_links():
+    def _configure(member: str, public: str) -> SiteConfiguration:
+        config = SiteConfiguration.load()
+        config.member_google_calendar_id = member
+        config.public_google_calendar_id = public
+        config.save()
+        return config
+
     def it_gives_each_configured_calendar_both_link_forms():
-        rows = calendar_subscribe_links(_Config("mem@group.calendar.google.com", "pub@group.calendar.google.com"))
+        rows = calendar_subscribe_links(_configure("mem@group.calendar.google.com", "pub@group.calendar.google.com"))
         assert [row["key"] for row in rows] == ["member", "public"]
         assert rows[0] == {
             "key": "member",
@@ -217,7 +220,7 @@ def describe_calendar_subscribe_links():
         assert rows[1]["label"] == "Public calendar"
 
     def it_skips_a_calendar_with_no_id():
-        assert [row["key"] for row in calendar_subscribe_links(_Config("", "pub@group.calendar.google.com"))] == [
+        assert [row["key"] for row in calendar_subscribe_links(_configure("", "pub@group.calendar.google.com"))] == [
             "public"
         ]
-        assert calendar_subscribe_links(_Config("", "")) == []
+        assert calendar_subscribe_links(_configure("", "")) == []
