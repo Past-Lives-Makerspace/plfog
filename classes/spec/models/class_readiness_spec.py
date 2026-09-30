@@ -235,18 +235,30 @@ def describe_a_refused_submit_or_publish():
 
 def describe_description_length():
     def it_counts_the_typed_text_with_whitespace_collapsed():
-        # (what was typed, what counts). Only whitespace runs shrink; brackets, tags and a less than
-        # sign count as typed, because the class page shows them as typed. One emoji is one.
+        # (what was typed, what counts). Plain text: only whitespace runs shrink; brackets and a less
+        # than sign count as typed, because the class page shows them as typed. One emoji is one.
         table = [
             ("", 0),
             ("   ", 0),
             ("Forge a coat hook.", 18),
             ("  Forge   a\n\ncoat\thook.  ", 18),
             (BRACKETED_DESCRIPTION, 63),
-            ("<p>Short   words</p>", 18),
             ("Kids <16 need a guardian.", 25),
             ("Forge a hook \U0001f525 and take it home.", 32),
             ("Learn to forge a hook." + "\n" * 20, 22),
+        ]
+        assert [(text, description_length(text)) for text, _ in table] == table
+
+    def it_counts_only_the_text_of_editor_html():
+        # (what the editor stored, what counts). A block tag marks editor HTML: the tags are the
+        # editor's and do not count, a typed < arrives as &lt; and counts as one, and the count is
+        # what Quill's own getText() gives the browser for the same content.
+        table = [
+            ("<p>Short   words</p>", 11),
+            ("<p>Make a coat hook.</p><p>Bring &lt;safety glasses&gt;.</p>", 41),
+            ("<h2>What You Make</h2><ul><li>A hook</li><li>A hanger</li></ul>", 29),
+            ("<p><br></p>", 0),
+            ("<p>Forge a hook \U0001f525</p>", 14),
         ]
         assert [(text, description_length(text)) for text, _ in table] == table
 

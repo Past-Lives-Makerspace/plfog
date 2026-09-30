@@ -518,7 +518,7 @@ def sync_local_class_events() -> int:
             defaults={
                 "source": "classes",
                 "title": strip_date_suffix(offering.title),
-                "description": offering.description[:500],
+                "description": offering.description_text[:500],
                 "location": "Past Lives Makerspace",
                 "url": f"/classes/{offering.slug}/",
                 "start_dt": session.starts_at,

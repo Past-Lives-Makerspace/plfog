@@ -6,6 +6,8 @@ from typing import Any
 
 from django import forms
 
+from core.html_sanitize import is_editor_html, render_rich_body
+
 
 class RichTextEditorWidget(forms.Textarea):
     """A Quill-backed rich-text editor rendered over a hidden textarea.
@@ -25,6 +27,24 @@ class RichTextEditorWidget(forms.Textarea):
     """
 
     template_name = "widgets/rich_text_editor.html"
+
+
+class RichBodyEditorWidget(RichTextEditorWidget):
+    """The editor for a body that is stored as editor HTML or, from before the editor, plain text.
+
+    Quill seeds from the textarea, so ``format_value`` hands the textarea plain text as the
+    paragraphs the page renders (:func:`core.html_sanitize.render_rich_body`), and a description
+    typed before the editor existed opens as those paragraphs rather than one run-on line.
+    Editor HTML passes through untouched: sanitizing is the form's job, and the composer's draft
+    baseline reads this same method, so what the page renders and what the browser compares
+    against are one value.
+    """
+
+    def format_value(self, value: Any) -> Any:
+        rendered = super().format_value(value)
+        if rendered is None or is_editor_html(str(rendered)):
+            return rendered
+        return render_rich_body(str(rendered)) or None
 
 
 class PageContentEditorWidget(RichTextEditorWidget):

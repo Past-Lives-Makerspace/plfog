@@ -14,6 +14,8 @@ from django.utils.dateparse import parse_datetime
 from django.utils.html import strip_tags
 from django.utils.text import slugify
 
+from core.html_sanitize import sanitize_rich_html
+
 if TYPE_CHECKING:
     from classes.models import Category
     from membership.models import Member
@@ -28,6 +30,11 @@ _CLASS_TYPE_MAP = {
 }
 
 _WITH_NAME_RE = re.compile(r"\bwith\s+(\w+)", re.IGNORECASE)
+# Drupal's editor offers every heading level; ours stops at h3, and a stripped heading would run
+# into the paragraph after it, so the others fold into h3.
+_OTHER_HEADING_RE = re.compile(r"<(/?)h[1456]\b", re.IGNORECASE)
+# The blank spacer paragraphs Drupal's editor leaves between blocks (``<p>&nbsp;</p>``).
+_SPACER_P_RE = re.compile(r"<p(?:\s[^>]*)?>(?:\s|&nbsp;|<br\s*/?>)*</p>", re.IGNORECASE)
 
 
 def _fetch_json(url: str) -> dict[str, Any]:
@@ -59,8 +66,21 @@ def extract_instructor_name(title: str) -> str | None:
     return match.group(1) if match else None
 
 
+def _legacy_body_html(raw: str) -> str:
+    """A Drupal body as the description stores it: the editor's own HTML.
+
+    Sanitized to the editor's allowlist so the page renders it like a description written here,
+    with Drupal's other heading levels folded into ``h3`` and its blank spacer paragraphs dropped.
+    """
+    return sanitize_rich_html(_SPACER_P_RE.sub("", _OTHER_HEADING_RE.sub(r"<\1h3", raw)))
+
+
 def _html_to_text(raw: str) -> str:
-    """Convert Drupal HTML body to clean plain text with paragraph breaks."""
+    """Convert Drupal HTML body to clean plain text with paragraph breaks.
+
+    What every import wrote as the description before formatting came across; the sync still
+    computes it to recognise a description nobody has edited here (see ``_upsert_offering``).
+    """
     text = re.sub(r"</p>\s*<p[^>]*>", "\n\n", raw, flags=re.IGNORECASE)
     text = re.sub(r"<br\s*/?>", "\n", text, flags=re.IGNORECASE)
     text = re.sub(r"</p>", "\n\n", text, flags=re.IGNORECASE)
@@ -127,8 +147,8 @@ def _upsert_offering(item: dict[str, Any]) -> str | None:
     attrs = item.get("attributes") or {}
 
     title = strip_date_suffix(attrs.get("title") or "(Untitled)")
-    body = attrs.get("body") or {}
-    description = _html_to_text(body.get("processed") or body.get("value") or "")
+    body_html = (attrs.get("body") or {}).get("processed") or (attrs.get("body") or {}).get("value") or ""
+    description = _legacy_body_html(body_html)
     price_cents = int(float(attrs.get("field_price") or "0") * 100)
     capacity = attrs.get("field_max_students") or 0
     status = ClassOffering.Status.PUBLISHED if attrs.get("status") else ClassOffering.Status.ARCHIVED
@@ -157,7 +177,6 @@ def _upsert_offering(item: dict[str, Any]) -> str | None:
     # curation on every nightly sync.
     shared_defaults = {
         "title": title,
-        "description": description,
         "price_cents": price_cents,
         "capacity": capacity,
         "status": status,
@@ -168,7 +187,7 @@ def _upsert_offering(item: dict[str, Any]) -> str | None:
     offering, created = ClassOffering.objects.update_or_create(
         legacy_cms_id=node_id,
         defaults=shared_defaults,
-        create_defaults={**shared_defaults, "category": category},
+        create_defaults={**shared_defaults, "category": category, "description": description},
     )
 
     if created:
@@ -188,6 +207,14 @@ def _upsert_offering(item: dict[str, Any]) -> str | None:
         offering.legacy_image_url = ""
     elif image_url:
         offering.legacy_image_url = image_url
+
+    # Description ownership. Written on create, and after that rewritten only while it still
+    # reads exactly as an import left it: blank, the flattened text every import wrote before
+    # formatting came across, or this run's HTML. A description an instructor edited here is
+    # never overwritten by the nightly sync (it used to be, every night), and an untouched one
+    # gets its bold, lists and links back from Drupal on the next run.
+    if not created and offering.description in ("", _html_to_text(body_html)):
+        offering.description = description
 
     if not offering.instructor_id:
         name = extract_instructor_name(title)

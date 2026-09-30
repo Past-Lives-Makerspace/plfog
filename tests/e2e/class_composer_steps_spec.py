@@ -42,6 +42,8 @@ BACK = "#composer-form .pl-composer-bar button:has-text('Back')"
 SAVE_DRAFT = '#composer-form button[type="submit"]'
 SUBMIT = "#composer-form .pl-composer-bar button:has-text('Submit for Review')"
 SUBMIT_MODAL = ".pl-modal-backdrop:has-text('Submit This Class for Review?')"
+# The description is a rich-text editor: typing goes into the Quill mount, not the hidden textarea.
+DESCRIPTION_EDITOR = '.pl-rte[data-rte-for="id_description"] .ql-editor'
 
 
 def _seed_instructor() -> Member:
@@ -239,7 +241,7 @@ def describe_next():
         _open_create(page, live_server)
         page.locator("#id_title").fill("Forge Basics")
         page.locator("#id_category").select_option(index=1)
-        page.locator("#id_description").fill("Short.")
+        page.locator(DESCRIPTION_EDITOR).fill("Short.")
         page.locator("#id_price_cents").fill("80")
 
         page.locator(NEXT).click()
@@ -251,10 +253,10 @@ def describe_next():
 def describe_the_description_count():
     def it_counts_what_was_typed_toward_the_minimum_and_says_when_it_is_long_enough(live_server, page, login_via_code):
         # The counter (#425) is server markup static/js/composer_description_count.js paints into on
-        # boot and on every keystroke, with the readiness rule's own arithmetic: a run of spaces is
-        # one, and a bracketed phrase counts like any other words because the class page shows it.
-        # Thirty typed characters read thirty; crossing the minimum changes the line. Anchored on
-        # the hook, never on copy elsewhere.
+        # boot and on every edit, with the readiness rule's own arithmetic over the editor's text: a
+        # run of spaces is one, and a bracketed phrase counts like any other words because the class
+        # page shows it. Thirty typed characters read thirty; crossing the minimum changes the line.
+        # Anchored on the hook, never on copy elsewhere.
         _seed_instructor()
         CategoryFactory()
         login_via_code(EMAIL)
@@ -262,11 +264,12 @@ def describe_the_description_count():
         counter = page.locator("[data-description-count]")
         expect(counter).to_have_text(f"0 of {READINESS_MIN_DESCRIPTION_CHARS} characters")
 
-        page.locator("#id_description").fill("Make a coat hook from one bar.")
+        page.locator(DESCRIPTION_EDITOR).fill("Make a coat hook from one bar.")
 
         expect(counter).to_have_text(f"30 of {READINESS_MIN_DESCRIPTION_CHARS} characters")
 
-        page.locator("#id_description").type("   Bring <safety glasses>.")
+        page.locator(DESCRIPTION_EDITOR).press("End")
+        page.locator(DESCRIPTION_EDITOR).type("   Bring <safety glasses>.")
 
         expect(counter).to_have_text("54 characters. Long enough.")
 

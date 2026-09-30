@@ -16,6 +16,13 @@
  * The box to count is named by the template too (data-description-for, the textarea's id), so
  * this file knows no field name; the composer keeps its field map in classes/composer.py.
  *
+ * The box is a rich-text editor (core.widgets.RichBodyEditorWidget): the named textarea holds
+ * the editor's HTML and is hidden, and the person types into the Quill mount beside it. What
+ * counts is the editor's text, which is what the rule measures server side too (editor HTML
+ * counts its text alone), so the count reads it from the mount's Quill instance and from the
+ * pl-rte-change event rich-editor-init.js fires on every edit, never from the textarea's HTML.
+ * A plain textarea (no mount) still counts its value, on input.
+ *
  * Loads in <body>, so hx-boost re-runs it on every arrival (FRONTEND.md, Scripts under hx-boost).
  * The first copy keeps the one document listener and hands every later run back to boot(), which
  * paints the DOM that just arrived. The listener looks its counters up on every input event, so
@@ -37,9 +44,16 @@
         return Array.from(text.trim().split(/\s+/).filter(Boolean).join(" ")).length;
     }
 
-    function paint(counter, field) {
+    /* The text a field holds: the editor's own text when the field is a rich-text mount, else the value. */
+    function textOf(field) {
+        var mount = document.querySelector('.pl-rte[data-rte-for="' + field.id + '"]');
+        if (mount && mount.plQuill) return mount.plQuill.getText();
+        return field.value;
+    }
+
+    function paint(counter, field, text) {
         var min = parseInt(counter.getAttribute(MIN_ATTR), 10);
-        var n = length(field.value);
+        var n = length(text === undefined ? textOf(field) : text);
         counter.textContent = n < min ? n + " of " + min + " characters" : n + " characters. Long enough.";
     }
 
@@ -54,12 +68,18 @@
         });
     }
 
-    document.addEventListener("input", function (event) {
-        var target = event.target;
+    function repaint(target, text) {
         if (!target || !target.id) return;
         Array.prototype.forEach.call(counters(), function (counter) {
-            if (counter.getAttribute(FOR_ATTR) === target.id) paint(counter, target);
+            if (counter.getAttribute(FOR_ATTR) === target.id) paint(counter, target, text);
         });
+    }
+
+    document.addEventListener("input", function (event) {
+        repaint(event.target);
+    });
+    document.addEventListener("pl-rte-change", function (event) {
+        repaint(event.target, event.detail && event.detail.text);
     });
 
     window.plDescriptionCount = { boot: boot, length: length };
