@@ -174,8 +174,8 @@ def describe_event_detail():
             ' target="_blank" rel="noopener noreferrer">Join online</a>' in content
         )
         assert (
-            f'class="hub-btn hub-btn--ghost" href="{reverse("hub_event_ics", args=[event.pk])}">Add to calendar</a>'
-            in content
+            f'class="hub-btn hub-btn--ghost" href="{reverse("hub_event_ics", args=[event.pk])}" hx-boost="false">'
+            "Add to calendar</a>" in content
         )
 
     def it_omits_join_online_and_keeps_add_to_calendar_primary_when_video_url_is_blank(client: Client):
@@ -187,8 +187,8 @@ def describe_event_detail():
         # "Join online" in this feature's own release notes.
         assert 'target="_blank" rel="noopener noreferrer">Join online</a>' not in content
         assert (
-            f'class="hub-btn hub-btn--primary" href="{reverse("hub_event_ics", args=[event.pk])}">Add to calendar</a>'
-            in content
+            f'class="hub-btn hub-btn--primary" href="{reverse("hub_event_ics", args=[event.pk])}" hx-boost="false">'
+            "Add to calendar</a>" in content
         )
 
     def it_shows_the_edit_button_to_a_guild_lead(client: Client):

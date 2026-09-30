@@ -1,0 +1,7 @@
+bump = "patch"
+date = "2026-09-30"
+title = "Calendar downloads download again"
+changes = [
+  "Add to calendar on an event page hands you the calendar file instead of showing its raw text in the browser.",
+  "Download .ics (one time) on the Community Calendar does the same.",
+]

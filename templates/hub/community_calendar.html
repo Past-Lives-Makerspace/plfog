@@ -169,7 +169,8 @@
                         Subscribe to the Public calendar
                     </a>
                     {% endif %}
-                    <a href="{% url 'hub_calendar_export_ics' %}" class="pl-calendar-export__item" download>
+                    {# hx-boost="false": an attachment under the boosted body; `download` alone does not stop htmx from taking the click and swapping the file's text into the page. #}
+                    <a href="{% url 'hub_calendar_export_ics' %}" class="pl-calendar-export__item" download hx-boost="false">
                         Download .ics (one time)
                     </a>
                     <p class="pl-calendar-export__note">
