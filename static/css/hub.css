@@ -3534,6 +3534,9 @@ a:hover { color: var(--hub-link-hover); }
     border: 1px solid var(--hub-border);
     border-radius: 8px;
     overflow: hidden;
+    /* A phone is narrower than six columns: the table scrolls sideways inside its
+       frame instead of losing every column past the second (#543). */
+    overflow-x: auto;
 }
 
 .admin-table-wrap table {

@@ -900,10 +900,13 @@ def describe_title_column():
 
         client.force_login(admin_user)
         title = "Blacksmithing 101 with Billy - Pick Your November Time"
-        ClassOfferingFactory(title=title, status=ClassOffering.Status.PUBLISHED)
-        response = client.get(reverse("classes:admin_classes"))
-        html = response.content.decode()
-        cell = html.split('class="pl-class-list__title"')[1].split("</td>")[0]
-        assert f">{title}</a>" in cell
-        assert 'title="' not in cell
-        assert "max-width:22ch" not in html
+        ClassOfferingFactory(title=title, status=ClassOffering.Status.PUBLISHED, instructor=admin_user.member)
+        # The whole catalog and the My Classes toggle render the same cell.
+        for query in ("", "?mine=1"):
+            response = client.get(reverse("classes:admin_classes") + query)
+            html = response.content.decode()
+            assert 'class="pl-class-list__title"' in html, query
+            cell = html.split('class="pl-class-list__title"')[1].split("</td>")[0]
+            assert f">{title}</a>" in cell, query
+            assert 'title="' not in cell, query
+            assert "max-width:22ch" not in html, query
