@@ -1,0 +1,3 @@
+# The PR description check fails the last part of a split issue that does not close it, and an earlier part that does. Internal: CI and contributor docs only.
+bump = "patch"
+audience = "internal"

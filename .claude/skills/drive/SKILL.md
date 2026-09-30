@@ -233,7 +233,9 @@ multi call commands like `gh pr create` fail almost every time without it.
    line) and `### Verification`. Verification holds the evidence, one line per criterion: a spec name for
    backend, and for a screen a screenshot committed under `mockups/screenshots/` and embedded. Jo reads
    evidence, not claims. CI's `description` check fails a body that breaks the shape; edit it and it re-runs.
-   Aim under 400 changed lines of code; a bigger ticket ships as parts ("#412, part 1 of 2").
+   Aim under 400 changed lines of code; a bigger ticket ships as parts ("#412, part 1 of 2"). Only the
+   last part closes the ticket ("Closes #412, part 2 of 2"): GitHub closes it on any merged PR that says
+   `Closes`, and a last part without it leaves the ticket open after the work ships, as #514 did to #505.
 
    ```
    **Summary:** Admins can send a class back to its instructor with a reason instead of rejecting it.

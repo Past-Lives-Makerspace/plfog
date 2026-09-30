@@ -6,6 +6,11 @@ Problem / Solution / Impact / Verification skeleton, and at most 300 words. It a
 that changes what members see (templates, CSS, front-end JS) without adding a screenshot or
 mockup under ``mockups/``, and warns, without failing, when more than 400 lines of code change.
 
+A split issue closes on its last part, never before. GitHub closes an issue when any merged PR
+carries a closing keyword for it, so the Problem section of the last part must say ``Closes #N`` and
+an earlier part must not. PR #514, the last of three parts of #505, said neither and left the
+issue open after the work shipped.
+
 Stdlib only and no Django, like ``check_changelog_fragment.py``: it runs in its own workflow so
 an edited description re-checks in seconds.
 """
@@ -39,6 +44,9 @@ _SUMMARY = re.compile(r"^\*\*Summary:\*\*[ \t]*(.*)$", re.MULTILINE)
 _AREA = re.compile(r"^\*\*Area:\*\*[ \t]*\S", re.MULTILINE)
 _HEADING = re.compile(r"^#{2,3}[ \t]+(.+?)[ \t]*$", re.MULTILINE)
 _BULLET = re.compile(r"^(?:[-*]|\d+\.)[ \t]+\S", re.MULTILINE)
+_PART = re.compile(r"\bpart\s+(\d+)\s+of\s+(\d+)\b", re.IGNORECASE)
+#: GitHub's closing keywords, colon optional: https://docs.github.com/articles/closing-issues-using-keywords
+_CLOSES = re.compile(r"\b(?:close[sd]?|fix(?:e[sd])?|resolve[sd]?):?\s+#\d+", re.IGNORECASE)
 
 
 def _sections(body: str) -> dict[str, str]:
@@ -56,6 +64,26 @@ def word_count(body: str) -> int:
     """Words a reader reads: HTML comments and link or image targets do not count."""
     visible = _LINK_TARGET.sub("]", _COMMENT.sub("", body))
     return len(_WORD.findall(visible))
+
+
+def part_error(problem: str) -> str | None:
+    """Why the Problem section of one part of a split issue closes it at the wrong merge, if it does."""
+    part = _PART.search(problem)
+    if part is None:
+        return None
+    number, total = int(part.group(1)), int(part.group(2))
+    closes = _CLOSES.search(problem) is not None
+    if number == total and not closes:
+        return (
+            f"This is part {number} of {total}, the last: open `### Problem` with `Closes #N` "
+            "so the issue closes when it merges."
+        )
+    if number < total and closes:
+        return (
+            f"This is part {number} of {total}, and a closing keyword would close the issue at this merge. "
+            "Write `#N, part N of M` and leave `Closes` to the last part."
+        )
+    return None
 
 
 def description_errors(body: str) -> list[str]:
@@ -80,6 +108,10 @@ def description_errors(body: str) -> list[str]:
     bullets = len(_BULLET.findall(sections.get("Solution", "")))
     if sections.get("Solution") and not 2 <= bullets <= 4:
         errors.append(f"`### Solution` has {bullets} bullet(s); use 2 to 4.")
+
+    part = part_error(sections.get("Problem", ""))
+    if part:
+        errors.append(part)
 
     words = word_count(body)
     if words > MAX_WORDS:

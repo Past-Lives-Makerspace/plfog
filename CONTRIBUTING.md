@@ -13,7 +13,7 @@ Issues and pull requests are read by maintainers, Past Lives council members and
 
 Every card on the project board is an issue written with the **Ticket** form (`.github/ISSUE_TEMPLATE/ticket.yml`). Besides the four parts above it asks for a **goal** (why this matters), **acceptance criteria** (a checklist, each item observable and testable), **constraints** the solution must respect, when known, and what is **out of scope**.
 
-A big issue is fine: ship it as several PRs, each naming its part ("#123, part 1 of 3").
+A big issue is fine: ship it as several PRs, each naming its part ("#123, part 1 of 3"). Only the last part closes the issue ("Closes #123, part 3 of 3"); GitHub closes an issue on any merged PR that says `Closes`, so an earlier part must not.
 
 ## Pull requests
 
@@ -23,6 +23,7 @@ Rules marked ✓ are checked by `.github/workflows/pr-description.yml`, which re
 
 - ✓ The summary is present and at most 160 characters; the Area line and all four sections are present; Solution has 2 to 4 bullets.
 - ✓ At most 300 words.
+- ✓ A PR naming its part in `### Problem` ("part 3 of 3") says `Closes #N` there when it is the last part, and does not when it is an earlier one.
 - ✓ A PR touching `templates/`, `static/css/` or `static/js/` adds a screenshot or mockup under [`mockups/screenshots/`](mockups/screenshots/README.md) and shows it. When such a change shows nothing (a comment, a refactor), add the `no-screenshots` label.
 - ✓ (warning) About 400 changed lines of code or fewer. Docs, migrations, lock files, images and changelog fragments do not count.
 - Every PR also adds a changelog fragment (`changelog.d/README.md`).
