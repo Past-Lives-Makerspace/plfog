@@ -42,6 +42,37 @@
 /* Add a one off: the revealed form's field lines (same shape as the hours row). */
 .pl-oneoff { margin-top: 1rem; padding-top: 1rem; border-top: 1px solid var(--hub-border); }
 .pl-oneoff__actions { display: flex; gap: 0.75rem; margin-top: 1rem; }
+
+/* Merged times list on the guild page (part 3). One markup, two layouts.
+   Desktop (the approved layout): one row per time, date | time | with | action.
+   Phone: a day header, then one card per time with a large, centered, full width
+   button; the pager becomes a Show more button. */
+.pl-orient-times { list-style: none; margin: 0; padding: 0; }
+.pl-orient-times__head, .pl-orient-time { display: flex; align-items: center; gap: 1rem; }
+.pl-orient-times__head { padding: 0 0 0.4rem; font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0.04em; color: var(--hub-text-muted); }
+.pl-orient-time { padding: 0.55rem 0; border-top: 1px solid var(--hub-border); }
+.pl-orient-time__date { flex: 0 0 6rem; font-weight: 500; }
+.pl-orient-time__span { flex: 1; color: var(--hub-text-muted); font-size: 0.9rem; }
+.pl-orient-time__with { flex: 1; display: flex; align-items: center; gap: 0.4rem; min-width: 0; font-size: 0.9rem; }
+.pl-orient-time__action { flex: 0 0 7rem; text-align: right; }
+.pl-orient-time__action .hub-btn { width: 100%; }
+.pl-orient-time__full { color: var(--hub-text-muted); font-size: 0.85rem; }
+.pl-orient-times__day, .pl-orient-times__more { display: none; }
+@media (max-width: 640px) {
+    .pl-orient-times__head, .pl-orient-time__date, .pl-orient-slots__pager { display: none; }
+    .pl-orient-times__day { display: block; margin: 1.25rem 0 0.5rem; font-size: 0.8125rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em; color: var(--hub-text-muted); }
+    .pl-orient-time { display: block; padding: 1rem; margin: 0 0 0.625rem; border: 1px solid var(--hub-border); border-radius: 14px; background: var(--hub-surface); }
+    .pl-orient-time__span { display: block; font-size: 1.125rem; font-weight: 600; color: var(--hub-text); }
+    .pl-orient-time__with { margin-top: 0.35rem; font-size: 0.95rem; }
+    .pl-orient-time__with .pl-orient-avatar { width: 24px; height: 24px; font-size: 0.75rem; }
+    .pl-orient-time__action { margin-top: 0.875rem; text-align: center; }
+    .pl-orient-time__action .hub-btn { display: inline-flex; align-items: center; justify-content: center; width: 100%; min-height: 48px; font-size: 1rem; }
+    .pl-orient-time--full { opacity: 0.6; }
+    .pl-orient-time__full { display: block; margin-top: 0.875rem; padding: 0.75rem 0; text-align: center; border-radius: 10px; border: 1px dashed var(--hub-border); font-size: 0.95rem; }
+    .pl-orient-times__more { display: block; margin-top: 0.25rem; }
+    .pl-orient-times__more .hub-btn, .pl-orient-custom .hub-btn, .pl-orient-pick__submit .hub-btn { display: inline-flex; align-items: center; justify-content: center; width: 100%; min-height: 48px; font-size: 1rem; white-space: normal; }
+    .pl-orient-pick .pl-form-group select, .pl-orient-pick .pl-form-group textarea { min-height: 48px; font-size: 1rem; }
+}
 </style>
 <style>
 /* ---------- mockup-only ---------- */
@@ -367,42 +398,45 @@ html.mock-phone .hub-main-wrapper { margin-left: 0 !important; }
               <span class="hub-text-muted" style="font-size:0.85rem;">60 min</span>
             </div>
             <p class="hub-text-muted" style="margin:0.25rem 0 0.75rem; font-size:0.9rem;">The whole studio: presses, drying racks, solvents and cleanup.</p>
-            <div class="pl-orient-slots__head">
-              <span class="pl-orient-slots__date">Date</span>
-              <span class="pl-orient-slots__time">Time</span>
-              <span class="pl-orient-slots__with"></span>
-              <span class="pl-orient-slots__action"></span>
+            <div class="pl-orient-times__head">
+              <span class="pl-orient-time__date">Date</span>
+              <span class="pl-orient-time__span">Time</span>
+              <span class="pl-orient-time__with"></span>
+              <span class="pl-orient-time__action"></span>
             </div>
-            <ul class="mock-list">
-              <li class="pl-orient-slots__row">
-                <span class="pl-orient-slots__date">Sun Oct 4</span>
-                <span class="pl-orient-slots__time">11:00 AM – 6:00 PM</span>
-                <span class="pl-orient-slots__with"><span class="pl-orient-avatar pl-orient-avatar--initials">A</span><span>with Amber</span></span>
-                <span class="pl-orient-slots__action"><button type="button" class="hub-btn hub-btn--sm hub-btn--primary">Pick a time</button></span>
+            <ul class="pl-orient-times">
+              <li class="pl-orient-times__day">Sunday, October 4</li>
+              <li class="pl-orient-time">
+                <span class="pl-orient-time__date">Sun Oct 4</span>
+                <span class="pl-orient-time__span">11:00 AM – 6:00 PM</span>
+                <span class="pl-orient-time__with"><span class="pl-orient-avatar pl-orient-avatar--initials">A</span><span>with Amber</span></span>
+                <span class="pl-orient-time__action"><button type="button" class="hub-btn hub-btn--sm hub-btn--primary">Pick a time</button></span>
               </li>
-              <li class="pl-orient-slots__row">
-                <span class="pl-orient-slots__date">Mon Oct 5</span>
-                <span class="pl-orient-slots__time">11:00 AM – 12:00 PM</span>
-                <span class="pl-orient-slots__with"><span class="pl-orient-avatar pl-orient-avatar--initials">A</span><span>with Amber</span></span>
-                <span class="pl-orient-slots__action"><button type="button" class="hub-btn hub-btn--sm hub-btn--primary">Request</button></span>
+              <li class="pl-orient-times__day">Monday, October 5</li>
+              <li class="pl-orient-time">
+                <span class="pl-orient-time__date">Mon Oct 5</span>
+                <span class="pl-orient-time__span">11:00 AM – 12:00 PM</span>
+                <span class="pl-orient-time__with"><span class="pl-orient-avatar pl-orient-avatar--initials">A</span><span>with Amber</span></span>
+                <span class="pl-orient-time__action"><button type="button" class="hub-btn hub-btn--sm hub-btn--primary">Request</button></span>
               </li>
-              <li class="pl-orient-slots__row">
-                <span class="pl-orient-slots__date">Mon Oct 5</span>
-                <span class="pl-orient-slots__time">12:00 PM – 1:00 PM</span>
-                <span class="pl-orient-slots__with"><span class="pl-orient-avatar pl-orient-avatar--initials">A</span><span>with Amber</span></span>
-                <span class="pl-orient-slots__action"><button type="button" class="hub-btn hub-btn--sm hub-btn--primary">Request</button></span>
+              <li class="pl-orient-time">
+                <span class="pl-orient-time__date">Mon Oct 5</span>
+                <span class="pl-orient-time__span">12:00 PM – 1:00 PM</span>
+                <span class="pl-orient-time__with"><span class="pl-orient-avatar pl-orient-avatar--initials">A</span><span>with Amber</span></span>
+                <span class="pl-orient-time__action"><button type="button" class="hub-btn hub-btn--sm hub-btn--primary">Request</button></span>
               </li>
-              <li class="pl-orient-slots__row">
-                <span class="pl-orient-slots__date">Mon Oct 5</span>
-                <span class="pl-orient-slots__time">1:00 PM – 2:00 PM</span>
-                <span class="pl-orient-slots__with"><span class="pl-orient-avatar pl-orient-avatar--initials">A</span><span>with Amber</span></span>
-                <span class="pl-orient-slots__action"><span class="hub-text-muted" style="font-size:0.85rem;">Full</span></span>
+              <li class="pl-orient-time pl-orient-time--full">
+                <span class="pl-orient-time__date">Mon Oct 5</span>
+                <span class="pl-orient-time__span">1:00 PM – 2:00 PM</span>
+                <span class="pl-orient-time__with"><span class="pl-orient-avatar pl-orient-avatar--initials">A</span><span>with Amber</span></span>
+                <span class="pl-orient-time__action"><span class="pl-orient-time__full">Full</span></span>
               </li>
-              <li class="pl-orient-slots__row">
-                <span class="pl-orient-slots__date">Thu Oct 8</span>
-                <span class="pl-orient-slots__time">11:00 AM – 6:00 PM</span>
-                <span class="pl-orient-slots__with"><span class="pl-orient-avatar pl-orient-avatar--initials">A</span><span>with Amber</span></span>
-                <span class="pl-orient-slots__action"><button type="button" class="hub-btn hub-btn--sm hub-btn--primary">Pick a time</button></span>
+              <li class="pl-orient-times__day">Thursday, October 8</li>
+              <li class="pl-orient-time">
+                <span class="pl-orient-time__date">Thu Oct 8</span>
+                <span class="pl-orient-time__span">11:00 AM – 6:00 PM</span>
+                <span class="pl-orient-time__with"><span class="pl-orient-avatar pl-orient-avatar--initials">A</span><span>with Amber</span></span>
+                <span class="pl-orient-time__action"><button type="button" class="hub-btn hub-btn--sm hub-btn--primary">Pick a time</button></span>
               </li>
             </ul>
             <div class="pl-orient-slots__pager">
@@ -410,6 +444,7 @@ html.mock-phone .hub-main-wrapper { margin-left: 0 !important; }
               <span class="hub-text-muted mock-pager-count">1 / 7</span>
               <button type="button" class="hub-btn hub-btn--sm hub-btn--ghost" aria-label="More">→</button>
             </div>
+            <div class="pl-orient-times__more"><button type="button" class="hub-btn hub-btn--ghost">Show more times</button></div>
           </div>
 
           <div class="mock-section">
@@ -418,29 +453,31 @@ html.mock-phone .hub-main-wrapper { margin-left: 0 !important; }
               <span class="pl-price-chip">$50.00</span>
               <span class="hub-text-muted" style="font-size:0.85rem;">60 min</span>
             </div>
-            <div class="pl-orient-slots__head">
-              <span class="pl-orient-slots__date">Date</span>
-              <span class="pl-orient-slots__time">Time</span>
-              <span class="pl-orient-slots__with"></span>
-              <span class="pl-orient-slots__action"></span>
+            <div class="pl-orient-times__head">
+              <span class="pl-orient-time__date">Date</span>
+              <span class="pl-orient-time__span">Time</span>
+              <span class="pl-orient-time__with"></span>
+              <span class="pl-orient-time__action"></span>
             </div>
-            <ul class="mock-list">
-              <li class="pl-orient-slots__row">
-                <span class="pl-orient-slots__date">Sun Oct 4</span>
-                <span class="pl-orient-slots__time">11:00 AM – 6:00 PM</span>
-                <span class="pl-orient-slots__with"><span class="pl-orient-avatar pl-orient-avatar--initials">A</span><span>with Amber</span></span>
-                <span class="pl-orient-slots__action"><button type="button" class="hub-btn hub-btn--sm hub-btn--primary">Pick a time</button></span>
+            <ul class="pl-orient-times">
+              <li class="pl-orient-times__day">Sunday, October 4</li>
+              <li class="pl-orient-time">
+                <span class="pl-orient-time__date">Sun Oct 4</span>
+                <span class="pl-orient-time__span">11:00 AM – 6:00 PM</span>
+                <span class="pl-orient-time__with"><span class="pl-orient-avatar pl-orient-avatar--initials">A</span><span>with Amber</span></span>
+                <span class="pl-orient-time__action"><button type="button" class="hub-btn hub-btn--sm hub-btn--primary">Pick a time</button></span>
               </li>
-              <li class="pl-orient-slots__row">
-                <span class="pl-orient-slots__date">Thu Oct 8</span>
-                <span class="pl-orient-slots__time">11:00 AM – 6:00 PM</span>
-                <span class="pl-orient-slots__with"><span class="pl-orient-avatar pl-orient-avatar--initials">A</span><span>with Amber</span></span>
-                <span class="pl-orient-slots__action"><button type="button" class="hub-btn hub-btn--sm hub-btn--primary">Pick a time</button></span>
+              <li class="pl-orient-times__day">Thursday, October 8</li>
+              <li class="pl-orient-time">
+                <span class="pl-orient-time__date">Thu Oct 8</span>
+                <span class="pl-orient-time__span">11:00 AM – 6:00 PM</span>
+                <span class="pl-orient-time__with"><span class="pl-orient-avatar pl-orient-avatar--initials">A</span><span>with Amber</span></span>
+                <span class="pl-orient-time__action"><button type="button" class="hub-btn hub-btn--sm hub-btn--primary">Pick a time</button></span>
               </li>
             </ul>
           </div>
 
-          <div class="mock-section">
+          <div class="mock-section pl-orient-custom">
             <button type="button" class="hub-btn hub-btn--sm hub-btn--ghost">None of these times work? Request a custom time</button>
           </div>
         </section>
@@ -457,7 +494,7 @@ html.mock-phone .hub-main-wrapper { margin-left: 0 !important; }
             <div class="pl-modal__body">
               <p style="margin:0 0 0.25rem; font-weight:700; color:var(--hub-text);">Print Studio Orientation · 60 min</p>
               <p class="hub-text-muted" style="margin:0 0 0.75rem; font-size:0.9rem;">Sunday, October 4 · 11:00 AM to 6:00 PM · Print Studio · with Amber Capwell</p>
-              <form class="hub-form">
+              <form class="hub-form pl-orient-pick">
                 <div class="pl-form-group">
                   <label class="pl-form-label">Start time</label>
                   <select>
@@ -471,7 +508,7 @@ html.mock-phone .hub-main-wrapper { margin-left: 0 !important; }
                   <textarea rows="2" placeholder="Anything Amber should know"></textarea>
                 </div>
                 <p class="hub-text-muted" style="margin:0.75rem 0 0; font-size:0.85rem;">You pay $50.00 when you book, with an automatic full refund if the guild can't make it work.</p>
-                <div style="margin-top:0.75rem;">
+                <div class="pl-orient-pick__submit" style="margin-top:0.75rem;">
                   <button type="submit" class="hub-btn hub-btn--sm hub-btn--primary">Continue to payment</button>
                 </div>
               </form>

@@ -6,7 +6,9 @@ Brief: one availability model, a per row choice of how members book, the dashboa
 the window engine; do not rebuild it. Every existing hours row keeps working unchanged.
 
 Mockups (approved by Felix before part 1 opens): `mockups/532-orientation-open-windows.html`
-(`?view=schedule|editor|member|picker`, `?theme=light`) and `mockups/screenshots/532-open-windows-0*.png`.
+(`?view=schedule|editor|member|picker`, `?theme=light`, `&phone=1`) and `mockups/screenshots/532-open-windows-01.png` to `-09.png`.
+
+Approved by Felix 2026-09-30: the desktop screens as drawn (D1 stands) and D7's fixed with fixed exception. The phone layout (D10, screenshots 08 and 09) was redrawn the same day after his review and awaits his yes.
 
 ## Words
 
@@ -54,6 +56,15 @@ Mockups (approved by Felix before part 1 opens): `mockups/532-orientation-open-w
   `source=FROM_BLOCK`) and windows (`upcoming()`, type NULL or this type, `valid_starts_for(type)` non
   empty), sorted by `starts_at`, each tagged `kind` (`slot` / `window`). The template renders one `<ul>`;
   a window row's action is today's Pick a time button and modal. The "Pick a Time" sub heading goes.
+  On a phone (640px and under) the same markup lays out as a day header (`.pl-orient-times__day`,
+  one per local date via `{% ifchanged %}`) and one card per time (`.pl-orient-time`): the span in
+  1.125rem semibold, "with Amber" under it, and a full width 48px button, Request or Pick a time; a
+  full fixed slot is a dimmed card with a dashed Full bar. The pager hides and a full width "Show more
+  times" button shows instead; both read the list's Alpine `page` and `size`, and a row's visibility is
+  `mobile ? i < (page + 1) * size : (i >= page * size && i < (page + 1) * size)` with `mobile` from
+  `window.matchMedia('(max-width: 640px)').matches` in the list's `x-data`. The custom time button and
+  the picker's submit are full width 48px on a phone; the picker's select and textarea grow to 48px.
+  The CSS is the `.pl-orient-times*` and `.pl-orient-time*` block in the mockup's first `<style>`.
 - D11. Upcoming Times (the tab card) lists `upcoming_times_admin`: slots minus `FROM_BLOCK` plus
   `guild.orientation_blocks.upcoming()`, sorted. A window row shows the orienter, "open window",
   recurring or one off, and its `booked_segments()` (time, orientation, member, status) or "nothing booked
