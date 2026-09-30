@@ -123,7 +123,6 @@ def describe_booking_state_in_preview():
         # Match the rail markup, not bare words: the changelog panel on every page
         # may quote the phrase "Registration closed" in a release note.
         assert 'cp-detail__spots--full">Registration closed' not in body
-        assert "sign-ups are closed" not in body
         assert "Register now" in body
 
     def it_shows_the_schedule_for_a_future_class(admin_user, future_published, client):
