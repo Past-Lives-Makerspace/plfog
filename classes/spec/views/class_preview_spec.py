@@ -123,7 +123,7 @@ def describe_booking_state_in_preview():
         # Match the rail markup, not bare words: the changelog panel on every page
         # may quote the phrase "Registration closed" in a release note.
         assert 'cp-detail__spots--full">Registration closed' not in body
-        assert "Register now" in body
+        assert 'data-help-key="class.register"' in body
 
     def it_shows_the_schedule_for_a_future_class(admin_user, future_published, client):
         client.force_login(admin_user)
@@ -147,7 +147,7 @@ def describe_booking_state_in_preview():
         client.force_login(admin_user)
         body = client.get(reverse("classes:class_preview", kwargs={"pk": offering.pk})).content.decode()
         assert 'cp-detail__spots--full">Registration closed' in body
-        assert "Register now" not in body
+        assert 'data-help-key="class.register"' not in body
 
 
 def describe_page_parity_in_preview():
@@ -196,8 +196,11 @@ def describe_page_parity_in_preview():
         _publish("Forge Night with Glen", "forge-b", category, instructor_fixture, days_out=9)
         client.force_login(admin_user)
         body = client.get(reverse("classes:class_preview", kwargs={"pk": first.pk})).content.decode()
-        assert "Other Dates for This Class" in body
-        assert "forge-b" in body
+        # The related strip lists forge-b too (same guild); only the other-dates
+        # markup proves the sibling strip rendered.
+        assert 'class="cp-detail__other-date"' in body
+        assert "cp-detail__other-date" in body.split("Other Dates for This Class", 1)[1][:2000]
+        assert "/classes/forge-b/" in body
 
     def it_lists_related_classes_in_the_same_category(admin_user, instructor_fixture, category, client):
         offering = _publish("Forge Night", "forge-main", category, instructor_fixture, days_out=2)
