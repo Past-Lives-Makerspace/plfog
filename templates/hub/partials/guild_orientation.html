@@ -190,9 +190,6 @@ Member-facing orientation section on the guild page, grouped by orientation type
       {% include "components/modal.html" with modal_id="block-pick-"|add:tpks modal_title="Pick a Time" %}
       {% endwith %}
       {% endif %}
-      {% if not sec.slots and not sec.blocks %}
-      <p class="hub-text-muted" style="margin:0; font-size:0.9rem;">No one has posted times for this orientation yet — check back soon.</p>
-      {% endif %}
       {% endif %}
     </div>
     {% endfor %}
@@ -201,8 +198,8 @@ Member-facing orientation section on the guild page, grouped by orientation type
     {% if orientation.allow_custom_requests and not orientation_all_done and custom_request_form.has_internal_types %}
     {% if user.is_authenticated %}
     <div x-data="{ showCustom: false }" style="margin-top:1rem; padding-top:1rem; border-top:1px solid var(--hub-border);" data-help-key="orientation.request-custom-time">
-      <button type="button" class="hub-btn hub-btn--sm hub-btn--ghost" x-show="!showCustom" @click="showCustom = true">
-        None of these times work? Request a custom time
+      <button type="button" class="hub-btn hub-btn--sm {% if orientation_has_posted_times %}hub-btn--ghost{% else %}hub-btn--primary{% endif %}" x-show="!showCustom" @click="showCustom = true">
+        Request a Custom Time
       </button>
       <div x-show="showCustom" x-cloak style="max-width:420px;">
         <p class="hub-text-muted" style="margin:0 0 0.75rem; font-size:0.85rem;">Pick an orientation, propose your own time, and the guild lead will confirm it.</p>
@@ -221,7 +218,7 @@ Member-facing orientation section on the guild page, grouped by orientation type
     </div>
     {% else %}
     <div style="margin-top:1rem; padding-top:1rem; border-top:1px solid var(--hub-border);">
-      <a href="{% url 'account_login' %}?next={{ request.path|urlencode }}" class="hub-btn hub-btn--sm hub-btn--ghost">Log in to request a custom time</a>
+      <a href="{% url 'account_login' %}?next={{ request.path|urlencode }}" class="hub-btn hub-btn--sm {% if orientation_has_posted_times %}hub-btn--ghost{% else %}hub-btn--primary{% endif %}">Log in to request a custom time</a>
     </div>
     {% endif %}
     {% endif %}

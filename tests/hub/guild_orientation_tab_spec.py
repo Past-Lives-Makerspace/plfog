@@ -20,6 +20,7 @@ from tests.membership.factories import (
     GuildFactory,
     GuildOrientationSettingsFactory,
     MembershipPlanFactory,
+    OrientationAvailabilityBlockFactory,
     OrientationBookingFactory,
     OrientationSlotFactory,
     OrientationTypeFactory,
@@ -150,6 +151,51 @@ def describe_per_type_sections():
         response = client.get(reverse("hub_guild_detail", args=[guild.slug]))
         form = response.context["custom_request_form"]
         assert list(form.fields["orientation_type"].queryset) == [basics]
+
+
+def describe_custom_request_button():
+    """With no times posted the custom request is the way in, not an apology under an empty list."""
+
+    def _enabled_guild():
+        guild = GuildFactory()
+        GuildOrientationSettingsFactory(guild=guild, is_enabled=True, allow_custom_requests=True)
+        return guild
+
+    def _custom_button(content: str) -> str:
+        return content.split('data-help-key="orientation.request-custom-time"')[1].split("</button>")[0]
+
+    def _section(content: str) -> str:
+        return content.split('id="guild-orientation"')[1].split("</section>")[0]
+
+    def it_leads_with_the_custom_request_when_nothing_is_posted(client: Client):
+        _member("cr1")
+        guild = _enabled_guild()
+        OrientationTypeFactory(guild=guild, name="Shop Basics")
+        client.login(username="cr1", password="pass")
+        content = client.get(reverse("hub_guild_detail", args=[guild.slug])).content.decode()
+        button = _custom_button(content)
+        assert "Request a Custom Time" in button
+        assert "hub-btn--primary" in button
+        assert "posted times" not in _section(content)
+
+    def it_keeps_the_custom_request_quiet_under_posted_slots(client: Client):
+        _member("cr2")
+        guild = _enabled_guild()
+        basics = OrientationTypeFactory(guild=guild, name="Shop Basics")
+        OrientationSlotFactory(guild=guild, orientation_type=basics)
+        client.login(username="cr2", password="pass")
+        button = _custom_button(client.get(reverse("hub_guild_detail", args=[guild.slug])).content.decode())
+        assert "hub-btn--ghost" in button
+        assert "hub-btn--primary" not in button
+
+    def it_keeps_the_custom_request_quiet_under_an_open_window(client: Client):
+        _member("cr3")
+        guild = _enabled_guild()
+        OrientationTypeFactory(guild=guild, name="Shop Basics", duration_minutes=30)
+        OrientationAvailabilityBlockFactory(guild=guild, enabled_settings=False)
+        client.login(username="cr3", password="pass")
+        button = _custom_button(client.get(reverse("hub_guild_detail", args=[guild.slug])).content.decode())
+        assert "hub-btn--ghost" in button
 
 
 def describe_slot_cap():

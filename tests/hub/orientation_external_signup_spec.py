@@ -49,6 +49,8 @@ pytestmark = pytest.mark.django_db
 
 GUILD_LINK = "https://forms.gle/guild-orientation"
 TYPE_LINK = "https://forms.gle/lathe-orientation"
+# The custom-time block's markup anchor: its copy is free to change, its help key is not.
+CUSTOM_REQUEST = 'data-help-key="orientation.request-custom-time"'
 
 
 def _member_user(username: str) -> User:
@@ -196,7 +198,7 @@ def describe_the_guild_page():
         section = _orientation_section(
             client.get(reverse("hub_guild_detail", args=[settings_obj.guild.slug])).content.decode()
         )
-        assert "Request a custom time" not in section
+        assert CUSTOM_REQUEST not in section
 
     def it_hides_the_custom_time_request_when_every_type_carries_its_own_link(client: Client):
         # No guild-wide link at all, a link on each active type. The guild-level guard
@@ -208,7 +210,7 @@ def describe_the_guild_page():
         section = _orientation_section(
             client.get(reverse("hub_guild_detail", args=[settings_obj.guild.slug])).content.decode()
         )
-        assert "Request a custom time" not in section
+        assert CUSTOM_REQUEST not in section
         assert settings_obj.external_signup_url == ""  # the guild-level field is genuinely blank
 
     def it_shows_the_hold_state_over_the_link(client: Client):
@@ -237,7 +239,7 @@ def describe_the_guild_page():
         section = _orientation_section(
             client.get(reverse("hub_guild_detail", args=[settings_obj.guild.slug])).content.decode()
         )
-        assert "Request a custom time" in section
+        assert CUSTOM_REQUEST in section
 
 
 def describe_the_equipment_page():
