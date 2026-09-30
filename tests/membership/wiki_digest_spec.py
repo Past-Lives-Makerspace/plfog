@@ -14,7 +14,7 @@ from django.utils import timezone
 from factory.django import mute_signals
 
 from core.events.registry import get_event
-from core.events.settings_matrix import STAFF_SECTION, _section_for
+from core.events.settings_matrix import ADMIN_SECTION, _section_for
 from core.models import EventDelivery
 from membership.models import WikiPage, WikiSearchMiss
 from membership import wiki_guild
@@ -181,12 +181,12 @@ def describe_digest_in_app_body():
 
 
 def describe_the_settings_page_section():
-    def it_lands_under_staff_and_leadership_not_Guilds(db):
+    def it_lands_under_admin_permissions_not_Guilds(db):
         """GUILD_LEADERSHIP is in STAFF_RECIPIENTS, so category only drives the email's
         X-Category header. Asserted so nobody later "fixes" a row that is already right."""
         event = get_event("wiki.guild_digest_monthly")
         assert event.category == "Guilds"
-        assert _section_for(event) == STAFF_SECTION
+        assert _section_for(event) == ADMIN_SECTION
 
 
 def describe_send_wiki_guild_digest():

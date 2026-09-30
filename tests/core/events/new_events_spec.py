@@ -306,7 +306,7 @@ def describe_orientation_completed():
         from core.events.settings_matrix import build_matrix
 
         viewer = User.objects.create_user(username="oc-settings", email="oc-settings@example.com")
-        rendered = {row.event_key for _section, rows in build_matrix(viewer) for row in rows}
+        rendered = {row.event_key for section in build_matrix(viewer) for block in section.blocks for row in block.rows}
         assert rendered  # the page is not empty, so the absence below means something
         assert "orientation.completed" not in rendered
 

@@ -4,7 +4,6 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from django.conf import settings
 from django.template.loader import render_to_string
 
 from core import email as core_email
@@ -18,45 +17,6 @@ if TYPE_CHECKING:
     from core.events.emit import EmitResult
     from core.events.scheduler import ScheduledOccurrence
     from membership.models import Guild, Member
-
-
-def _admin_recipients() -> list[str]:
-    """Email addresses for admin notifications, deduplicated and order-preserving.
-
-    Resolves every Member with the Admin role (via their primary email), then
-    unions in any addresses configured via ``CLASS_ADMIN_NOTIFY_EMAILS``. The
-    setting is an optional extra — admins on the roster are notified out of the
-    box, with no per-environment configuration required.
-    """
-    from membership.models import Member
-
-    seen: list[str] = []
-    for member in Member.objects.filter(fog_role=Member.FogRole.ADMIN):
-        email = member.primary_email
-        if email and email not in seen:
-            seen.append(email)
-    raw = getattr(settings, "CLASS_ADMIN_NOTIFY_EMAILS", "") or ""
-    for chunk in raw.split(","):
-        email = chunk.strip()
-        if email and email not in seen:
-            seen.append(email)
-    return seen
-
-
-def _guild_leadership_recipients(guild: "Guild | None") -> list[str]:
-    """Every distinct email for the guild's lead and staff — they share review duties.
-
-    Staff (co-leads, secretaries, treasurers, orienters) carry full guild-lead
-    permissions, so each guild-lead review request fans out to all of them.
-    """
-    if guild is None:
-        return []
-    seen: list[str] = []
-    for member in guild.leadership_members():
-        email = member.primary_email
-        if email and email not in seen:
-            seen.append(email)
-    return seen
 
 
 def _absolute_url(path: str) -> str:
@@ -251,23 +211,16 @@ def emit_instructor_new_registration(registration: "Registration") -> None:
 
 
 def send_admin_registration_notification(registration: "Registration") -> None:
-    """Emit the admins' new-registration CC: one flat email, no in-app row.
+    """Emit the Admins' copy of a new registration: one flat email, no in-app row.
 
-    Mirrors the instructor sibling (:func:`emit_instructor_new_registration`) on the
-    spine: the flat admin-CC body is preserved exactly and addressed to the
-    ``_admin_recipients()`` set via ``email_to`` (byte-identical recipients to today).
-    The event resolves the in-app audience from an empty ``instructor`` context so the
-    resolver finds nobody — admins get the email only, never a bell row (they never had
-    one). The event logs no activity, and its distinct ``period`` + admin ``email_to``
-    keep it independent of the instructor's own ``instructor_new_registration`` emit.
+    Its own event, ``class_registration_admin_notice`` (#524), so it has a row under
+    Admin / Permissions and each Admin's Email switch decides; it used to ride the
+    instructor's ``instructor_new_registration`` key to a fixed address list. The
+    ``fog_admins`` resolver picks the people and each gets the email at their
+    notification address. The body is unchanged. The event declares no bell, so admins
+    get the email only, as before.
     """
-    admin_emails = _admin_recipients()
-    if not admin_emails:
-        return
-
-    from core.events.channels import Message
-    from core.events.emit import emit
-    from core.events.registry import Channel
+    from core.events.senders import emit_flat_email
 
     offering = registration.class_offering
     class_url = _absolute_url(reverse("classes:public_class_detail", kwargs={"slug": offering.slug}))
@@ -280,14 +233,12 @@ def send_admin_registration_notification(registration: "Registration") -> None:
         f"Capacity: {offering.seats_taken}/{offering.capacity}\n\n"
         f"View the class: {class_url}"
     )
-    # No trigger_kind → emit labels the audit row with the event key (one vocabulary).
-    email_message = Message(title=subject, body=body, html_body=_flat_text_email_html(body))
-    emit(
-        "instructor_new_registration",
+    emit_flat_email(
+        "class_registration_admin_notice",
         target=registration,
-        context={"instructor": None},
-        messages={Channel.EMAIL: email_message},
-        email_to=admin_emails,
+        subject=subject,
+        text_body=body,
+        html_body=_flat_text_email_html(body),
         period=f"reg:{registration.pk}:admin_notice",
     )
 
@@ -296,7 +247,6 @@ def _emit_review_request(
     offering: "ClassOffering",
     row: "ClassApproval",
     *,
-    recipients: list[str],
     role_label: str,
     guild: "Guild | None",
     instructor_name: str,
@@ -308,14 +258,11 @@ def _emit_review_request(
     dated bucket so a reminder delivers once per day and dedupes after that.
 
     The reviewer email is the preserved ``review_request.{txt,html}`` shell (tokenized
-    ``/classes/review/<token>/`` link), addressed to the exact ``recipients`` list via
-    ``email_to`` (lead+staff for the guild-lead gate, admins for the lead-less gate). The
-    in-app "A class needs your review" row resolves from the event's
-    ``GUILD_LEADERSHIP_OR_CLASS_APPROVERS`` resolver against ``guild`` — the guild's
-    whole leadership gets a bell row, and a ``None`` guild (lead-less category) routes
-    the bell rows to the CLASS_APPROVER capability holders, who are the reviewers in
-    that branch. No-op on the email when there are no recipients; the in-app still fans
-    out to whoever the resolver finds.
+    ``/classes/review/<token>/`` link). Email, bell, push and Discord DM all go to the
+    event's ``GUILD_LEADERSHIP_OR_CLASS_APPROVERS`` resolver against ``guild``: the
+    guild's whole leadership for a guild-led class, the CMS Administrators (capability
+    holders) for a lead-less one. Each person's own switches decide (#524), and the email
+    goes to their notification address; a leader with no login gets nothing.
     """
     from core.events.senders import emit_with_email_shell
 
@@ -342,9 +289,22 @@ def _emit_review_request(
             else f"{instructor_name} requests approval for their upcoming class dates."
         ),
         url="/classes/teach/",
-        email_to=recipients or None,
         period=period or f"approval:{row.pk}:request",
     )
+
+
+def guild_has_reachable_leadership(guild: "Guild | None") -> bool:
+    """Whether anyone in ``guild``'s leadership can be sent a review request.
+
+    The request goes through the ``class_review_requested`` resolver, which reaches only
+    lead and staff members with a login and an email. A guild whose leadership is empty,
+    or made up only of people the event system cannot reach, has nobody to remind: the
+    admin queue offers "Review it yourself" and Remind lead refuses, instead of claiming
+    a reminder went out.
+    """
+    from core.events import resolvers
+
+    return guild is not None and bool(resolvers.guild_leadership({"guild": guild}))
 
 
 def send_guild_lead_review_reminder(row: "ClassApproval") -> "EmitResult | None":
@@ -354,19 +314,18 @@ def send_guild_lead_review_reminder(row: "ClassApproval") -> "EmitResult | None"
     the dated period ``approval:{pk}:reminder:{today}`` so a second click the same day
     lands in ``EmitResult.skipped_duplicates`` and tomorrow's click delivers again. The
     instructor explainer is deliberately NOT re-sent (the instructor already knows).
-    Returns ``None`` when the guild has no lead or staff left to remind.
+    Returns ``None`` when the guild has nobody left to remind
+    (:func:`guild_has_reachable_leadership`).
     """
     offering = row.class_offering
     guild = offering.category.guild if offering.category_id else None
-    recipients = _guild_leadership_recipients(guild)
-    if not recipients:
+    if not guild_has_reachable_leadership(guild):
         return None
     instructor_name = offering.instructor.display_name if offering.instructor is not None else "An instructor"
     today = timezone.localdate().isoformat()
     return _emit_review_request(
         offering,
         row,
-        recipients=recipients,
         role_label="Guild Lead",
         guild=guild,
         instructor_name=instructor_name,
@@ -417,18 +376,13 @@ def send_guild_lead_review_request(offering: "ClassOffering", approval: "ClassAp
 
     Fired from ``ClassOffering._notify_first_stage_reviewer`` when the first-stage gate is
     the Guild Lead. One ``class_review_requested`` event sends the dedicated review email
-    to the category's guild leadership (lead plus every staff member — they share review
-    duties) AND posts the in-app row to that same leadership; a second event sends the
-    instructor explainer (email only). This collapses the old model ``dispatch`` +
-    dedicated send into a single path, so opted-in leadership get exactly one email and
-    one bell row. When no leadership has an email, only the instructor explainer goes out.
+    and the in-app row to the category's guild leadership (lead plus every staff member,
+    they share review duties), each person's Email switch deciding the email; a second
+    event sends the instructor explainer (email only).
     """
     guild = offering.category.guild if offering.category_id else None
-    recipients = _guild_leadership_recipients(guild)
     instructor_name = offering.instructor.display_name if offering.instructor is not None else "An instructor"
-    _emit_review_request(
-        offering, approval, recipients=recipients, role_label="Guild Lead", guild=guild, instructor_name=instructor_name
-    )
+    _emit_review_request(offering, approval, role_label="Guild Lead", guild=guild, instructor_name=instructor_name)
     _emit_instructor_review_explainer(offering, approval)
 
 
@@ -444,7 +398,6 @@ def send_admin_review_request(offering: "ClassOffering", approval: "ClassApprova
     _emit_review_request(
         offering,
         approval,
-        recipients=[],
         role_label="Admin",
         guild=None,
         instructor_name=instructor_name,
@@ -459,8 +412,7 @@ def send_admin_validation_request(offering: "ClassOffering", approval: "ClassApp
     Admin gate opens. One ``class_validation_requested`` event: the structural
     ``admin_validation_request.{txt,html}`` shell is preserved as the email, and both the
     email and in-app row ride the CLASS_APPROVERS resolver — the CMS Administrators
-    (holders only) get it, replacing the static
-    ``_admin_recipients()`` blast. ``class_validation_requested`` logs no SiteActivity, so
+    (holders only) get it. ``class_validation_requested`` logs no SiteActivity, so
     the emit introduces no activity-row duplication.
     """
     from core.events.senders import emit_with_email_shell
@@ -852,12 +804,14 @@ def send_duplicate_payment_alert(
 ) -> None:
     """Alert the admins that a balance payment landed AFTER the row was already settled.
 
-    The studio has collected twice and a refund is owed — silence is unacceptable.
-    Flat-text body wrapped in the branded shell, addressed to the admin rails.
+    The studio has collected twice and a refund is owed, so silence is unacceptable: the
+    ``classes.duplicate_payment_alert`` event forces its email to every Admin
+    (``fog_admins``), whatever their switches say. Flat-text body wrapped in the branded
+    shell. The period is keyed on this payment, so a second duplicate the same day is a
+    new alert, never swallowed as a repeat of the first.
     """
-    admin_emails = _admin_recipients()
-    if not admin_emails:
-        return
+    from core.events.senders import emit_flat_email
+
     offering = registration.class_offering
     detail_url = _absolute_url(reverse("classes:admin_registration_detail", kwargs={"pk": registration.pk}))
     stripe_url = f"https://dashboard.stripe.com/payments/{payment_intent}"
@@ -871,12 +825,13 @@ def send_duplicate_payment_alert(
         f"Stripe payment: {stripe_url}\n"
         f"Checkout session: {session_id}"
     )
-    core_email.send(
-        to=admin_emails,
+    emit_flat_email(
+        "classes.duplicate_payment_alert",
+        target=registration,
         subject=f"Duplicate payment: {name}, {offering.title}",
-        trigger_kind="classes.duplicate_payment_alert",
         text_body=body,
         html_body=_flat_text_email_html(body),
+        period=f"reg:{registration.pk}:payment:{payment_intent or session_id}",
     )
 
 
@@ -927,12 +882,13 @@ def send_orphaned_payment_alert(
     The registrant cancelled (or was refunded) and the class seat has since gone to a
     live signup for the same person, so confirming this row back in is not possible.
     The card has been charged and nothing else in the app points at that charge, so a
-    human has to decide between a refund and a manual re-seat. Flat-text body wrapped in
-    the branded shell, addressed to the admin rails.
+    human has to decide between a refund and a manual re-seat. The
+    ``classes.orphaned_payment_alert`` event forces its email to every Admin
+    (``fog_admins``). Flat-text body wrapped in the branded shell; the period is keyed on
+    this payment, like the duplicate alert.
     """
-    admin_emails = _admin_recipients()
-    if not admin_emails:
-        return
+    from core.events.senders import emit_flat_email
+
     offering = registration.class_offering
     detail_url = _absolute_url(reverse("classes:admin_registration_detail", kwargs={"pk": registration.pk}))
     stripe_url = f"https://dashboard.stripe.com/payments/{payment_intent}"
@@ -947,12 +903,13 @@ def send_orphaned_payment_alert(
         f"Stripe payment: {stripe_url}\n"
         f"Checkout session: {session_id}"
     )
-    core_email.send(
-        to=admin_emails,
+    emit_flat_email(
+        "classes.orphaned_payment_alert",
+        target=registration,
         subject=f"Payment needs a decision: {name}, {offering.title}",
-        trigger_kind="classes.orphaned_payment_alert",
         text_body=body,
         html_body=_flat_text_email_html(body),
+        period=f"reg:{registration.pk}:payment:{payment_intent or session_id}",
     )
 
 

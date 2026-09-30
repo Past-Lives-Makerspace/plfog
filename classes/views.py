@@ -3635,10 +3635,11 @@ class _GuildLeadQueueRow(TypedDict):
 def _with_guild_leads_queue(now: Any) -> list[_GuildLeadQueueRow]:
     """Every PENDING class whose guild-lead gate is open, with who holds it and for how long.
 
-    ``leadless`` marks a guild whose lead and staff have all gone (nobody to remind), so
-    the row offers "Review it yourself" instead of Remind lead.
+    ``leadless`` marks a guild whose lead and staff have all gone or cannot be reached (nobody to remind), so
+    the row offers "Review it yourself" instead of Remind lead. It asks the same question
+    Remind lead does (:func:`classes.emails.guild_has_reachable_leadership`).
     """
-    from classes.emails import _guild_leadership_recipients
+    from classes.emails import guild_has_reachable_leadership
 
     offerings = (
         ClassOffering.objects.awaiting_guild_lead_any()
@@ -3661,7 +3662,7 @@ def _with_guild_leads_queue(now: Any) -> list[_GuildLeadQueueRow]:
                 "row": gate,
                 "lead": guild.guild_lead if guild is not None else None,
                 "days_waiting": max(0, (now - gate.created_at).days),
-                "leadless": not _guild_leadership_recipients(guild),
+                "leadless": not guild_has_reachable_leadership(guild),
             }
         )
     return queue

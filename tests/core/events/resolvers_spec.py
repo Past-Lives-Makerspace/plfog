@@ -72,6 +72,19 @@ def describe_fog_admins():
             recipients = resolvers.fog_admins({})
             assert _user_pks(recipients) == {admin.user_id}
 
+        def it_drops_a_configured_address_with_no_account(settings, linked_member):
+            # Since #524 the staff emails go through this resolver: an address with no
+            # account has no switches to obey, so it gets nothing.
+            admin = linked_member(fog_role=Member.FogRole.ADMIN)
+            settings.CLASS_ADMIN_NOTIFY_EMAILS = "nobody@example.com"
+            assert _user_pks(resolvers.fog_admins({})) == {admin.user_id}
+
+        def it_counts_an_admin_who_is_also_configured_once(settings, linked_member):
+            admin = linked_member(fog_role=Member.FogRole.ADMIN, email="both@example.com")
+            settings.CLASS_ADMIN_NOTIFY_EMAILS = "both@example.com, BOTH@example.com"
+            recipients = resolvers.fog_admins({})
+            assert [user.pk for user, _reason in recipients] == [admin.user_id]
+
 
 def describe_guild_leadership():
     def it_includes_lead_and_all_staff(linked_member):
@@ -314,13 +327,46 @@ def describe_guild_orienters_or_equipment_managers():
         )
         assert _user_pks(recipients) == {lead.user.pk, row_manager.user.pk, holder.user.pk}
 
-    def it_keeps_the_guild_orienter_leg_byte_identical():
-        lead = _linked("goem_glead")
+    def _staffed_guild(prefix):
+        lead = _linked(f"{prefix}_lead")
         guild = GuildFactory(guild_lead=lead)
-        orienter = _linked("goem_orienter")
+        orienter = _linked(f"{prefix}_orienter")
         GuildStaffMembershipFactory(guild=guild, member=orienter, role=GuildStaffMembership.Role.ORIENTER)
-        recipients = resolvers.resolve(Recipients.GUILD_ORIENTERS_OR_EQUIPMENT_MANAGERS, {"guild": guild, "slot": None})
+        treasurer = _linked(f"{prefix}_treasurer")
+        GuildStaffMembershipFactory(guild=guild, member=treasurer, role=GuildStaffMembership.Role.TREASURER)
+        return guild, lead, orienter, treasurer
+
+    def it_routes_a_guild_shared_slot_to_the_whole_leadership():
+        # #524: one audience for the email and the bell. The email always went to the whole
+        # team; now the bell does too, so a treasurer who can confirm hears about it.
+        from tests.membership.factories import OrientationSlotFactory
+
+        guild, lead, orienter, treasurer = _staffed_guild("goem_s")
+        shared = OrientationSlotFactory(guild=guild)
+        recipients = resolvers.resolve(
+            Recipients.GUILD_ORIENTERS_OR_EQUIPMENT_MANAGERS, {"guild": guild, "slot": shared}
+        )
+        assert _user_pks(recipients) == {lead.user.pk, orienter.user.pk, treasurer.user.pk}
+
+    def it_routes_a_guild_context_with_no_slot_to_the_whole_leadership():
+        guild, lead, orienter, treasurer = _staffed_guild("goem_n")
+        recipients = resolvers.resolve(Recipients.GUILD_ORIENTERS_OR_EQUIPMENT_MANAGERS, {"guild": guild})
+        assert _user_pks(recipients) == {lead.user.pk, orienter.user.pk, treasurer.user.pk}
+
+    def it_narrows_a_guild_personal_slot_to_the_orienter_and_the_lead():
+        from tests.membership.factories import OrientationSlotFactory
+
+        guild, lead, orienter, _treasurer = _staffed_guild("goem_p")
+        personal = OrientationSlotFactory(guild=guild, orienter=orienter)
+        recipients = resolvers.resolve(
+            Recipients.GUILD_ORIENTERS_OR_EQUIPMENT_MANAGERS, {"guild": guild, "slot": personal}
+        )
         assert _user_pks(recipients) == {lead.user.pk, orienter.user.pk}
+
+    def it_leaves_guild_orienters_itself_lead_plus_orienters():
+        # Other callers use guild_orienters; the orientation audience change is not theirs.
+        guild, lead, orienter, _treasurer = _staffed_guild("goem_o")
+        assert _user_pks(resolvers.guild_orienters({"guild": guild})) == {lead.user.pk, orienter.user.pk}
 
     def it_fails_loudly_with_neither_key():
         with pytest.raises(KeyError):

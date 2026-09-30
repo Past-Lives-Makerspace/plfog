@@ -1,0 +1,16 @@
+{% comment %}
+One On | Off pair for the notification matrix's bulk controls (#524). Two momentary
+buttons, never a state: neither half is ever shown as selected. Nothing is saved until
+the form's Save.
+
+Context:
+  scope         — "form" (the whole page), "section" (Admin / Permissions as a whole) or
+                  "block" (one grid: a member topic or a group inside Admin / Permissions).
+  scope_name    — the scope as the accessible name reads it: "everything", "Billing".
+  channel       — a channel value ("email") to flip one column, or "" for every channel.
+  channel_label — that channel's column label ("Email"); unused when channel is "".
+{% endcomment %}
+<span class="pl-notif-onoff" role="group" aria-label="{% if channel %}{{ channel_label }}{% else %}All channels{% endif %} for {{ scope_name }}">
+  <button type="button" class="pl-notif-onoff__btn" aria-label="Turn on {% if channel %}{{ channel_label }}{% else %}all channels{% endif %} for {{ scope_name }}" onclick="plNotifBulk(this.closest('{% if scope == "form" %}form{% elif scope == "section" %}.pl-notif-section{% else %}.pl-notif-block{% endif %}'), true{% if channel %}, '{{ channel }}'{% endif %})">On</button>
+  <button type="button" class="pl-notif-onoff__btn" aria-label="Turn off {% if channel %}{{ channel_label }}{% else %}all channels{% endif %} for {{ scope_name }}" onclick="plNotifBulk(this.closest('{% if scope == "form" %}form{% elif scope == "section" %}.pl-notif-section{% else %}.pl-notif-block{% endif %}'), false{% if channel %}, '{{ channel }}'{% endif %})">Off</button>
+</span>

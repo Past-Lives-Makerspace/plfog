@@ -23,7 +23,9 @@ Status = ClassOffering.Status
 
 
 def _guilded_category(guild_name: str = "Woodshop"):
-    lead = MemberFactory(_pre_signup_email=f"{guild_name.lower()}-lead@example.com")
+    # The lead has a login: the review request reaches only people who hold switches (#524).
+    email = f"{guild_name.lower()}-lead@example.com"
+    lead = UserFactory(username=email, email=email).member  # type: ignore[attr-defined]
     guild = GuildFactory(name=guild_name, guild_lead=lead)
     return CategoryFactory(guild=guild)
 

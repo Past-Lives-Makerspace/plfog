@@ -37,9 +37,19 @@ def _event(kind: str = "orientation_booking", *, booking_id=None, payment_status
 def _hold(**overrides):
     from tests.membership.factories import MemberFactory
 
+    from django.contrib.auth.models import User
+    from django.db.models.signals import post_save
+    from factory.django import mute_signals
+
     settings_obj = GuildOrientationSettingsFactory()
     OrientationTypeFactory(guild=settings_obj.guild, price_cents=1500)
-    settings_obj.guild.guild_lead = MemberFactory()
+    # The lead has a login: the request reaches only people who hold switches (#524).
+    # Signals muted so create_user does not provision a second Member for the user.
+    lead = MemberFactory()
+    with mute_signals(post_save):
+        lead.user = User.objects.create_user(username=f"hold_lead_{lead.pk}", email=f"hold_lead_{lead.pk}@example.com")
+    lead.save(update_fields=["user"])
+    settings_obj.guild.guild_lead = lead
     settings_obj.guild.save(update_fields=["guild_lead"])
     slot = OrientationSlotFactory(guild=settings_obj.guild)
     defaults = {
@@ -139,6 +149,39 @@ def describe_handle_checkout_session_completed():
         booking.refresh_from_db()
         assert booking.status == OrientationBooking.Status.DECLINED  # untouched
         assert any("Orphaned orientation payment" in m.subject for m in mail.outbox)
+
+    def it_reaches_a_billing_administrator_who_switched_the_email_off():
+        # Money with no in-app home: the email is forced, so no switch can stop it.
+        from core.models import NotificationPreference, TransactionalEmailLog
+
+        approver = _billing_approver()
+        NotificationPreference.objects.create(
+            user=approver.user, event_key="membership.orientation_orphan_payment", channel="email", enabled=False
+        )
+        mail.outbox.clear()
+
+        webhook_handlers.handle_checkout_session_completed(_event(booking_id=999999))
+
+        alerts = [m for m in mail.outbox if "Orphaned orientation payment" in m.subject]
+        assert [m.to for m in alerts] == [["billing-approver@example.com"]]
+        assert TransactionalEmailLog.objects.filter(trigger_kind="membership.orientation_orphan_payment").count() == 1
+
+    def it_alerts_once_per_checkout_session():
+        # The dedupe trap: the period is the session, so a second orphaned session is its
+        # own alert while a Stripe re-delivery of the first is not re-sent.
+        _billing_approver()
+        mail.outbox.clear()
+
+        webhook_handlers.handle_checkout_session_completed(_event(booking_id=999998, id="cs_orphan_a"))
+        webhook_handlers.handle_checkout_session_completed(_event(booking_id=999998, id="cs_orphan_b"))
+        webhook_handlers.handle_checkout_session_completed(_event(booking_id=999998, id="cs_orphan_b"))
+
+        alerts = [m for m in mail.outbox if "Orphaned orientation payment" in m.subject]
+        assert len(alerts) == 2
+        assert {line for m in alerts for line in m.body.splitlines() if line.startswith("Checkout session:")} == {
+            "Checkout session: cs_orphan_a",
+            "Checkout session: cs_orphan_b",
+        }
 
     def it_stays_quiet_on_a_true_redelivery():
         _billing_approver()

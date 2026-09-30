@@ -7,7 +7,8 @@ from django.core import mail
 from classes.emails import emit_instructor_new_registration, send_admin_registration_notification
 from classes.factories import ClassOfferingFactory, InstructorFactory, RegistrationFactory, UserFactory
 from classes.models import ClassOffering
-from core.models import Notification
+from core.models import Notification, NotificationPreference
+from membership.models import Member
 
 
 def describe_emit_instructor_new_registration():
@@ -50,9 +51,23 @@ def describe_emit_instructor_new_registration():
         assert len(mail.outbox) == 0
 
 
+def _admin(email: str) -> Member:
+    """An Admin with a login: the admin copy reaches only people who hold switches."""
+    member = UserFactory(username=email, email=email).member  # type: ignore[attr-defined]
+    member.fog_role = Member.FogRole.ADMIN
+    member.save(update_fields=["fog_role"])
+    return member
+
+
+def _admin_copies(address: str) -> list:
+    return [m for m in mail.outbox if m.to == [address] and m.subject.startswith("[Classes] New registration:")]
+
+
 def describe_send_admin_registration_notification():
-    def it_emails_configured_admins(db, settings):
-        settings.CLASS_ADMIN_NOTIFY_EMAILS = "admin1@example.com, admin2@example.com"
+    def it_emails_every_admin_one_copy(db, settings):
+        settings.CLASS_ADMIN_NOTIFY_EMAILS = ""
+        _admin("admin1@example.com")
+        _admin("admin2@example.com")
         offering = ClassOfferingFactory(title="Pottery Basics", capacity=6, status=ClassOffering.Status.PUBLISHED)
         registration = RegistrationFactory(
             class_offering=offering,
@@ -65,8 +80,7 @@ def describe_send_admin_registration_notification():
 
         send_admin_registration_notification(registration)
 
-        # The spine sends one email per admin address (deduped + audited per recipient);
-        # the recipient SET is identical to the old single multi-To send.
+        # One email per Admin, each at their own address.
         assert len(mail.outbox) == 2
         assert {addr for m in mail.outbox for addr in m.to} == {"admin1@example.com", "admin2@example.com"}
         msg = mail.outbox[0]
@@ -76,12 +90,63 @@ def describe_send_admin_registration_notification():
         assert offering.instructor.display_name in msg.body
         assert "Capacity: 1/6" in msg.body
 
+    def it_is_its_own_event_with_no_bell(db, settings):
+        from core.models import TransactionalEmailLog
+
+        settings.CLASS_ADMIN_NOTIFY_EMAILS = ""
+        admin = _admin("logadmin@example.com")
+
+        send_admin_registration_notification(RegistrationFactory())
+
+        assert TransactionalEmailLog.objects.filter(trigger_kind="class_registration_admin_notice").count() == 1
+        assert not Notification.objects.filter(user=admin.user).exists()
+
+    def it_reaches_a_configured_address_only_when_it_has_an_account(db, settings):
+        UserFactory(username="cfg@example.com", email="cfg@example.com")
+        settings.CLASS_ADMIN_NOTIFY_EMAILS = "cfg@example.com, nobody@example.com"
+
+        send_admin_registration_notification(RegistrationFactory())
+
+        assert {addr for m in mail.outbox for addr in m.to} == {"cfg@example.com"}
+
+    def describe_the_email_switch():
+        def it_sends_no_copy_to_an_admin_who_switched_it_off(db, settings):
+            settings.CLASS_ADMIN_NOTIFY_EMAILS = ""
+            quiet = _admin("quietadmin@example.com")
+            NotificationPreference.objects.create(
+                user=quiet.user, event_key="class_registration_admin_notice", channel="email", enabled=False
+            )
+            _admin("loudadmin@example.com")
+
+            send_admin_registration_notification(RegistrationFactory())
+
+            assert _admin_copies("quietadmin@example.com") == []
+            assert len(_admin_copies("loudadmin@example.com")) == 1
+
+        def it_leaves_the_instructors_own_notice_alone(db, settings):
+            # The instructor's notice is a different event with its own switch: an Admin
+            # switching off their copy never silences the instructor.
+            settings.CLASS_ADMIN_NOTIFY_EMAILS = ""
+            quiet = _admin("quietadmin2@example.com")
+            NotificationPreference.objects.create(
+                user=quiet.user, event_key="class_registration_admin_notice", channel="email", enabled=False
+            )
+            instructor = InstructorFactory(user=UserFactory(email="teach2@example.com"))
+            offering = ClassOfferingFactory(instructor=instructor, status=ClassOffering.Status.PUBLISHED)
+            registration = RegistrationFactory(class_offering=offering, status="confirmed")
+
+            emit_instructor_new_registration(registration)
+            send_admin_registration_notification(registration)
+
+            assert [m.to for m in mail.outbox] == [["teach2@example.com"]]
+
     def it_counts_capacity_the_way_every_other_surface_does(db, settings):
         """The admin email goes out one line after the instructor's, about the same signup.
 
         Counting every row ever written had the two disagree by four in the same instant.
         """
-        settings.CLASS_ADMIN_NOTIFY_EMAILS = "admin@example.com"
+        settings.CLASS_ADMIN_NOTIFY_EMAILS = ""
+        _admin("admin@example.com")
         offering = ClassOfferingFactory(capacity=6, status=ClassOffering.Status.PUBLISHED)
         for _ in range(4):
             RegistrationFactory(class_offering=offering, status="cancelled")
@@ -99,7 +164,8 @@ def describe_send_admin_registration_notification():
         The admin half counted every row ever written, so on a class with four cancelled
         signups the instructor was told 1/6 and the admins 5/6 about one registration.
         """
-        settings.CLASS_ADMIN_NOTIFY_EMAILS = "admin@example.com"
+        settings.CLASS_ADMIN_NOTIFY_EMAILS = ""
+        _admin("admin@example.com")
         user = UserFactory(email="teach@example.com")
         instructor = InstructorFactory(user=user)
         offering = ClassOfferingFactory(instructor=instructor, capacity=6, status=ClassOffering.Status.PUBLISHED)
@@ -117,7 +183,8 @@ def describe_send_admin_registration_notification():
         assert all("1/6" in body for body in bodies)
 
     def it_does_not_count_the_waitlist_against_capacity(db, settings):
-        settings.CLASS_ADMIN_NOTIFY_EMAILS = "admin@example.com"
+        settings.CLASS_ADMIN_NOTIFY_EMAILS = ""
+        _admin("admin@example.com")
         offering = ClassOfferingFactory(capacity=9, status=ClassOffering.Status.PUBLISHED)
         for _ in range(2):
             RegistrationFactory(class_offering=offering, status="confirmed")
@@ -131,7 +198,7 @@ def describe_send_admin_registration_notification():
         assert "Capacity: 3/9" in body
         assert "8/9" not in body
 
-    def it_skips_when_no_admin_emails_configured(db, settings):
+    def it_sends_nothing_when_there_is_no_admin(db, settings):
         settings.CLASS_ADMIN_NOTIFY_EMAILS = ""
         registration = RegistrationFactory()
 
@@ -139,7 +206,7 @@ def describe_send_admin_registration_notification():
 
         assert len(mail.outbox) == 0
 
-    def it_skips_when_setting_is_only_whitespace(db, settings):
+    def it_sends_nothing_when_the_setting_is_only_whitespace(db, settings):
         settings.CLASS_ADMIN_NOTIFY_EMAILS = "  ,  , "
         registration = RegistrationFactory()
 

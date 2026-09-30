@@ -119,7 +119,8 @@ _AUDIENCE_DESCRIPTIONS: dict[Recipients, str] = {
     Recipients.GUILD_MEMBERS: "Every active member of the guild.",
     Recipients.GUILD_ORIENTERS: "The guild's lead and everyone holding the orienter role.",
     Recipients.GUILD_ORIENTERS_OR_EQUIPMENT_MANAGERS: (
-        "The guild's lead and orienters; for an equipment-owned orientation, everyone who manages the equipment."
+        "The guild's lead and staff (for a personal slot, the orienter booked plus the lead); "
+        "for an equipment-owned orientation, everyone who manages the equipment."
     ),
     Recipients.ORIENTATION_RUNNER: "The staffer who claimed/ran the orientation.",
     Recipients.REGISTRANT: "The member the event is about (the registrant).",

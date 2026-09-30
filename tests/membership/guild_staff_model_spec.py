@@ -5,7 +5,7 @@ from __future__ import annotations
 import pytest
 from django.db import IntegrityError, transaction
 
-from classes.emails import _guild_leadership_recipients
+from core.events import resolvers
 from membership.models import GuildStaffMembership
 from tests.membership.factories import GuildFactory, GuildStaffMembershipFactory, MemberFactory
 
@@ -177,15 +177,26 @@ def describe_Guild_staff_helpers():
             assert GuildFactory(guild_lead=None).leadership_members() == []
 
 
-def describe_guild_leadership_recipients():
-    def it_returns_empty_for_no_guild():
-        assert _guild_leadership_recipients(None) == []
+def describe_guild_leadership_audience():
+    """The review and orientation requests reach the leadership through the event system
+    (#524), so the audience is the ``guild_leadership`` resolver, not an address list."""
 
-    def it_dedupes_and_skips_members_without_an_email():
-        lead = MemberFactory(_pre_signup_email="lead@example.com")
+    def _linked(email):
+        from django.contrib.auth.models import User
+
+        return User.objects.create_user(username=email, email=email).member
+
+    def it_resolves_nobody_for_no_guild():
+        assert resolvers.guild_leadership({"guild": None}) == []
+
+    def it_dedupes_and_skips_members_without_a_login_or_an_email():
+        lead = _linked("lead@example.com")
         guild = GuildFactory(guild_lead=lead)
-        with_email = MemberFactory(_pre_signup_email="staff@example.com")
-        without_email = MemberFactory(_pre_signup_email="")
-        GuildStaffMembershipFactory(guild=guild, member=with_email, role=Role.CO_LEAD)
-        GuildStaffMembershipFactory(guild=guild, member=without_email, role=Role.ORIENTER)
-        assert _guild_leadership_recipients(guild) == ["lead@example.com", "staff@example.com"]
+        with_login = _linked("staff@example.com")
+        no_login = MemberFactory(_pre_signup_email="nologin@example.com")
+        GuildStaffMembershipFactory(guild=guild, member=with_login, role=Role.CO_LEAD)
+        GuildStaffMembershipFactory(guild=guild, member=no_login, role=Role.ORIENTER)
+        # The lead also holds a staff role; they must resolve once.
+        GuildStaffMembershipFactory(guild=guild, member=lead, role=Role.TREASURER)
+        users = [user.email for user, _reason in resolvers.guild_leadership({"guild": guild})]
+        assert users == ["lead@example.com", "staff@example.com"]

@@ -33,21 +33,15 @@ def _send_orphan_payment_alert(session: dict[str, Any], *, reason: str) -> None:
     """Email the Billing Administrators about a paid session with no live booking to credit.
 
     Mirrors the classes duplicate-payment alert: money moved with no in-app home
-    is never allowed to be silent. The refund has to happen from the Stripe
-    dashboard, so the alert links the payment directly.
+    is never allowed to be silent, so the ``membership.orientation_orphan_payment``
+    event forces its email to every Billing Administrator (``billing_approvers``),
+    whatever their switches say. The refund has to happen from the Stripe dashboard,
+    so the alert links the payment directly. The period is the Checkout session, so an
+    alert for a second session is its own slot and a Stripe re-delivery of the same
+    one is not re-sent.
     """
-    from core import email as core_email
-    from membership.models import AdminCapability, Member
+    from core.events.senders import emit_flat_email
 
-    recipients = [
-        member.primary_email
-        for member in Member.objects.filter(
-            admin_capabilities__capability=AdminCapability.Capability.BILLING_APPROVER
-        ).distinct()
-        if member.primary_email
-    ]
-    if not recipients:
-        return
     payment_intent = session.get("payment_intent") or ""
     amount_total = session.get("amount_total")
     amount = f"${amount_total / 100:.2f}" if isinstance(amount_total, int) else "an unknown amount"
@@ -65,13 +59,12 @@ def _send_orphan_payment_alert(session: dict[str, Any], *, reason: str) -> None:
         f"Checkout session: {session.get('id', '')}\n"
         f"Customer email: {session.get('customer_email') or session.get('customer_details', {}).get('email', '')}"
     )
-    core_email.send(
-        to=recipients,
+    emit_flat_email(
+        "membership.orientation_orphan_payment",
         subject="Orphaned orientation payment needs a manual refund",
-        trigger_kind="membership.orientation_orphan_payment",
         text_body=body,
         html_body=_flat_html(body),
-        best_effort=True,
+        period=f"checkout:{session['id']}",
     )
 
 

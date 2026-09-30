@@ -68,6 +68,41 @@ _BRAND_NEW_KEYS = {
     "instructor_application_approved",
     "instructor_application_declined",
     "wiki.guild_digest_monthly",
+    "class_registration_admin_notice",
+    "classes.duplicate_payment_alert",
+    "classes.orphaned_payment_alert",
+    "billing.late_fee_orphan_payment",
+    "membership.orientation_orphan_payment",
+}
+
+# The five staff emails #524 moved off fixed address lists, pinned as a literal: who gets
+# each one and whether their Email switch can stop it is the whole point of the ticket.
+_STAFF_EMAIL_EVENTS = {
+    "class_registration_admin_notice": ("New class registration", "Classes", Recipients.FOG_ADMINS, ChannelDefault.ON),
+    "classes.duplicate_payment_alert": (
+        "Duplicate class payment",
+        "Classes",
+        Recipients.FOG_ADMINS,
+        ChannelDefault.FORCED,
+    ),
+    "classes.orphaned_payment_alert": (
+        "Class payment needs a decision",
+        "Classes",
+        Recipients.FOG_ADMINS,
+        ChannelDefault.FORCED,
+    ),
+    "billing.late_fee_orphan_payment": (
+        "Orphaned late fee payment",
+        "Billing",
+        Recipients.BILLING_APPROVERS,
+        ChannelDefault.FORCED,
+    ),
+    "membership.orientation_orphan_payment": (
+        "Orphaned orientation payment",
+        "Billing",
+        Recipients.BILLING_APPROVERS,
+        ChannelDefault.FORCED,
+    ),
 }
 
 
@@ -111,6 +146,8 @@ def describe_event_registry():
                 "voting.discord_reminder",
                 "voting.results_discord",
                 "orientation.completed",
+                # The five #524 staff emails never had a bell; they stay email only.
+                *_STAFF_EMAIL_EVENTS,
             }
             for event in registry.EVENTS:
                 if event.key in no_bell:
@@ -271,3 +308,32 @@ def describe_event_registry():
                 Channel.DISCORD,
                 Channel.PUSH,
             ]
+
+
+def describe_the_staff_emails_from_524():
+    def it_registers_each_with_its_audience_and_one_email_channel():
+        for key, (label, category, recipient, email_default) in _STAFF_EMAIL_EVENTS.items():
+            event = get_event(key)
+            assert (event.label, event.category, event.recipient) == (label, category, recipient), key
+            # Email only: no bell, so _with_push adds no Push, and no Discord.
+            assert event.channels == (registry.ChannelSpec(Channel.EMAIL, email_default),), key
+            assert event.activity_kind is None, key
+
+
+def describe_the_class_review_row():
+    def it_reads_as_the_email_subject_and_names_both_reviewers():
+        event = get_event("class_review_requested")
+        assert event.label == "Class review request"
+        assert event.description == (
+            "An instructor submitted a class for review. Guild leadership reviews their own guild's "
+            "classes; CMS Administrators review classes with no guild lead."
+        )
+
+
+def describe_the_orientation_request_row():
+    def it_defaults_email_on_now_that_the_switch_decides():
+        # The request email used to ignore this switch and reach everyone. An OFF default
+        # would silently stop it for every leader who never opened the settings page.
+        email = get_event("orientation_requested").channel(Channel.EMAIL)
+        assert email is not None
+        assert email.default is ChannelDefault.ON

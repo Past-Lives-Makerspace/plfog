@@ -1,9 +1,9 @@
 """BDD specs for personal-slot request routing and the "with Bob" copy deltas.
 
 A personal slot's request (email + in-app) goes to the slot's orienter + the guild
-lead, deduped; guild slots keep the full leadership fan-out. Member-facing emails
-and the ``.ics`` gain the orienter's name, guarded so guild-slot emails carry no
-"with".
+lead, deduped; a guild's shared slot goes to its whole leadership, email and bell alike,
+each person's Email switch deciding the email (#524). Member-facing emails and the
+``.ics`` gain the orienter's name, guarded so guild-slot emails carry no "with".
 """
 
 from __future__ import annotations
@@ -12,7 +12,7 @@ import pytest
 from django.contrib.auth.models import User
 from django.core import mail
 
-from core.models import Notification
+from core.models import Notification, NotificationPreference
 from membership import orientations
 from membership.models import GuildStaffMembership
 from tests.membership.factories import (
@@ -131,6 +131,61 @@ def describe_personal_slot_request_routing():
         assert bob.user.pk in cancelled
         assert lead.user.pk in cancelled
         assert other.user.pk not in cancelled
+
+
+def describe_shared_slot_request_audience():
+    """#524: one audience for the request's email and bell, from the event's resolver."""
+
+    def it_rings_every_leadership_member_not_just_the_orienters():
+        # Co-leads, secretaries and treasurers used to get the email but not the bell.
+        guild, lead, bob, other = _routed_guild("sh_b")
+        requester = _member_with_user("sh_b_member")
+        slot = OrientationSlotFactory(guild=guild, enabled_settings=False)
+
+        orientations.request_orientation(slot, requester)
+
+        notified = set(Notification.objects.filter(trigger="orientation_requested").values_list("user", flat=True))
+        assert notified == {lead.user.pk, bob.user.pk, other.user.pk}
+
+    def it_skips_the_email_for_a_leader_who_switched_it_off_and_keeps_their_bell():
+        guild, lead, bob, other = _routed_guild("sh_o")
+        NotificationPreference.objects.create(
+            user=other.user, event_key="orientation_requested", channel="email", enabled=False
+        )
+        requester = _member_with_user("sh_o_member")
+        slot = OrientationSlotFactory(guild=guild, enabled_settings=False)
+
+        orientations.request_orientation(slot, requester)
+
+        assert _staff_addresses(requester) == {lead.primary_email, bob.primary_email}
+        assert Notification.objects.filter(trigger="orientation_requested", user=other.user).exists()
+
+    def it_emails_a_leader_who_switched_it_back_on():
+        guild, lead, bob, other = _routed_guild("sh_on")
+        NotificationPreference.objects.create(
+            user=other.user, event_key="orientation_requested", channel="email", enabled=True
+        )
+        requester = _member_with_user("sh_on_member")
+        slot = OrientationSlotFactory(guild=guild, enabled_settings=False)
+
+        orientations.request_orientation(slot, requester)
+
+        assert other.primary_email in _staff_addresses(requester)
+
+    def it_rings_the_whole_leadership_on_a_cancel_but_emails_nobody():
+        guild, lead, bob, other = _routed_guild("sh_c")
+        requester = _member_with_user("sh_c_member")
+        slot = OrientationSlotFactory(guild=guild, enabled_settings=False)
+        booking = OrientationBookingFactory(slot=slot, member=requester)
+        Notification.objects.all().delete()
+        mail.outbox.clear()
+
+        orientations.cancel_orientation(booking, actor_label=requester.display_name)
+
+        cancelled = set(Notification.objects.filter(trigger="orientation_requested").values_list("user", flat=True))
+        assert cancelled == {lead.user.pk, bob.user.pk, other.user.pk}
+        # The Email switch is about requests: the cancel ping never emails the leadership.
+        assert _staff_addresses(requester) == set()
 
 
 def describe_with_copy_deltas():

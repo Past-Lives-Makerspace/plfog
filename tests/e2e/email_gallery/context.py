@@ -441,6 +441,27 @@ def duplicate_payment_alert_context(data: SampleData) -> dict[str, Any]:
     }
 
 
+def class_registration_admin_notice_context(data: SampleData) -> dict[str, Any]:
+    """Reproduces ``classes.emails.send_admin_registration_notification`` exactly."""
+    from classes.emails import _absolute_url
+
+    registration = data.registration
+    offering = data.offering
+    class_url = _absolute_url(reverse("classes:public_class_detail", kwargs={"slug": offering.slug}))
+    instructor = offering.instructor.display_name if offering.instructor else "N/A"
+    return {
+        "subject": f"[Classes] New registration: {registration.first_name} {registration.last_name} — {offering.title}",
+        "text_body": (
+            f"{registration.first_name} {registration.last_name} ({registration.email}) "
+            f'registered for "{offering.title}" (instructor: {instructor}).\n\n'
+            f"Status: {registration.get_status_display()}\n"
+            f"Paid: ${registration.amount_paid_cents / 100:.2f}\n"
+            f"Capacity: {offering.seats_taken}/{offering.capacity}\n\n"
+            f"View the class: {class_url}"
+        ),
+    }
+
+
 def registration_resume_link_context(data: SampleData) -> dict[str, Any]:
     """Reproduces ``classes.emails.send_registration_resume_link`` exactly."""
     from classes.emails import _absolute_url

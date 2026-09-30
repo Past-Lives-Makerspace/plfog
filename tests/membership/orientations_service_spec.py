@@ -150,8 +150,10 @@ def describe_request_orientation():
         booking.refresh_from_db()
         assert booking.oriented_by_id == orienter.pk
 
-    def it_emails_a_lead_without_a_user_but_skips_their_in_app_notification():
-        lead = MemberFactory()  # no linked user → can't receive an in-app notification
+    def it_skips_a_lead_without_a_user_on_every_channel():
+        # #524: the request goes through the event system, which reaches only people who
+        # hold switches. A lead with no login gets neither the email nor the bell.
+        lead = MemberFactory()
         guild = GuildFactory(guild_lead=lead)
         GuildOrientationSettingsFactory(guild=guild, is_enabled=True)
         member = _member_with_user("svc_nuser")
@@ -159,7 +161,7 @@ def describe_request_orientation():
 
         orientations.request_orientation(slot, member)
 
-        assert lead.primary_email in {m.to[0] for m in mail.outbox}
+        assert lead.primary_email not in {m.to[0] for m in mail.outbox}
         assert Notification.objects.filter(trigger="orientation_requested").count() == 0
 
 
@@ -638,14 +640,21 @@ def describe_equipment_owned_orientations_service():
         from membership.models import AdminCapability, EquipmentStaffMembership
         from tests.membership.factories import EquipmentFactory
 
+        # The personal-slot audience is the orientation_requested resolver's (#524), so a
+        # manager who is also the EQUIPMENT holder and the owning guild's lead is one
+        # recipient, on an owned tool and on a standalone one alike.
         dana = _member_with_user("eq_d_dana")
         dana.admin_capabilities.create(capability=AdminCapability.Capability.EQUIPMENT)
         owned = EquipmentFactory(guild=GuildFactory(guild_lead=dana))
-        EquipmentStaffMembership.objects.create(equipment=owned, member=dana)
-        assert orientations.equipment_personal_audience(owned, dana) == [dana]
         standalone = EquipmentFactory(guild=None)
-        EquipmentStaffMembership.objects.create(equipment=standalone, member=dana)
-        assert orientations.equipment_personal_audience(standalone, dana) == [dana]
+        for index, equipment in enumerate((owned, standalone)):
+            EquipmentStaffMembership.objects.create(equipment=equipment, member=dana)
+            orientation_type = OrientationTypeFactory(equipment_owned=True, equipment=equipment, name="Basics")
+            slot = OrientationSlotFactory(equipment_owned=True, orientation_type=orientation_type, orienter=dana)
+            mail.outbox.clear()
+            orientations.request_orientation(slot, _member_with_user(f"eq_d_member_{index}"))
+            requests = [m.to for m in mail.outbox if "New orientation request" in m.subject]
+            assert requests == [[dana.primary_email]], equipment
 
     def it_routes_the_request_to_the_equipment_managers_only():
         from membership.models import EquipmentStaffMembership

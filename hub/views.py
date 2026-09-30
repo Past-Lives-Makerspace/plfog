@@ -2962,6 +2962,7 @@ def _notification_prefs_via_token(request: HttpRequest) -> HttpResponse:
         messages.success(request, "Notification preferences updated.")
         return redirect(f"{reverse('hub_user_settings')}?tab=notifications&t={token}")
 
+    notif_matrix = settings_matrix.build_matrix(user)
     notif_channels = [
         (channel, settings_matrix.CHANNEL_LABELS[channel]) for channel in settings_matrix.visible_channels(user)
     ]
@@ -2969,7 +2970,8 @@ def _notification_prefs_via_token(request: HttpRequest) -> HttpResponse:
         request,
         "hub/settings_notifications_token.html",
         {
-            "notif_matrix": settings_matrix.build_matrix(user),
+            "notif_matrix": notif_matrix,
+            "notif_page_channels": settings_matrix.page_editable_channels(notif_matrix),
             "notif_channels": notif_channels,
             "notif_channel_labels": {channel.value: label for channel, label in notif_channels},
             "prefs_token": token,
@@ -3186,7 +3188,7 @@ def user_settings(request: HttpRequest) -> HttpResponse:
     # Channel labels keyed by channel value, so each matrix cell can build its own
     # screen-reader name (event × channel) via the get_item template filter.
     notif_channel_labels = {channel.value: label for channel, label in notif_channels}
-    # Full admins get a shortcut from the Staff & leadership section to their own capability
+    # Full admins get a shortcut from the Admin / Permissions section to their own capability
     # checkboxes (the master switch for those emails). Only admins can edit capabilities, so
     # the link is theirs alone; guild leads see the section but manage it via channel toggles.
     capabilities_url = (
@@ -3211,6 +3213,7 @@ def user_settings(request: HttpRequest) -> HttpResponse:
             "primary_verified_json": primary_verified_json,
             "active_tab": active_tab,
             "notif_matrix": notif_matrix,
+            "notif_page_channels": settings_matrix.page_editable_channels(notif_matrix),
             "notif_channels": notif_channels,
             "notif_channel_labels": notif_channel_labels,
             "push_device_count": push_device_count(user),
@@ -3250,7 +3253,7 @@ def _notification_email_form(
 
 
 def _settings_include_staff(request: HttpRequest) -> bool:
-    """Whether the Staff & Leadership notification section should render (and save).
+    """Whether the Admin / Permissions notification section should render (and save).
 
     An admin/officer previewing the page as a Member or Guest must not see — or, on save,
     wipe — the section. The flag flips only when a higher-role holder is previewing down; an
@@ -7157,9 +7160,10 @@ def _render_member_edit(
     # Permissions tab: capability toggles (always) + this member's notification matrix
     # (only when they have a linked account to hold preferences on).
     cap_form = MemberCapabilitiesForm(initial=MemberCapabilitiesForm.initial_for(member))
-    notif_matrix = notif_channels = notif_channel_labels = None
+    notif_matrix = notif_channels = notif_channel_labels = notif_page_channels = None
     if user is not None:
         notif_matrix = settings_matrix.build_matrix(user)
+        notif_page_channels = settings_matrix.page_editable_channels(notif_matrix)
         notif_channels = [(c, settings_matrix.CHANNEL_LABELS[c]) for c in settings_matrix.visible_channels(user)]
         notif_channel_labels = {channel.value: label for channel, label in notif_channels}
 
@@ -7179,6 +7183,7 @@ def _render_member_edit(
             "capabilities_form": cap_form,
             "instructor_description": Member.INSTRUCTOR_PERMISSION_DESCRIPTION,
             "notif_matrix": notif_matrix,
+            "notif_page_channels": notif_page_channels,
             "notif_channels": notif_channels,
             "notif_channel_labels": notif_channel_labels,
             "person_name": member.full_legal_name or member.display_name or "Member",
