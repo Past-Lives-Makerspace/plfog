@@ -1,0 +1,7 @@
+bump = "minor"
+date = "2026-09-30"
+title = "Classes from the old class site now bring their photo galleries along"
+changes = [
+  "Photos that a class had in its gallery on classes.pastlives.space now show on its page here too, under the sign up panel.",
+  "New classes posted on the old site pick up their gallery and header photo the same night they are imported, so nobody has to copy them over by hand.",
+]
