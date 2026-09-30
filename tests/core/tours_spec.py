@@ -36,7 +36,10 @@ HELP_KEY_TARGET_RE = re.compile(r'^\[data-help-key="([^"]+)"\]$')
 
 TEMPLATES_DIR = Path(__file__).resolve().parent.parent.parent / "templates"
 _STAMPED_KEY_RE = re.compile(r'data-help-key="([^"{}]*)"')
-_STAMPED_PARAM_RE = re.compile(r'action_help_key="([^"{}]*)"')
+# Include parameters a partial stamps as its own data-help-key: page_header.html takes
+# action_help_key, _calendar_subscribe.html takes help_key. A key passed that way is on
+# the page at runtime even though no template carries it as a literal attribute.
+_STAMPED_PARAM_RE = re.compile(r'(?:action_)?help_key="([^"{}]*)"')
 
 
 def _keys_stamped_in_templates() -> set[str]:
