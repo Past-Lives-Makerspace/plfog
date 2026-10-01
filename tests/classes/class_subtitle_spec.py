@@ -12,6 +12,7 @@ import re
 
 import pytest
 from django.contrib.auth.models import User
+from django.db import connection
 from django.test import Client
 from django.urls import reverse
 
@@ -86,6 +87,20 @@ def describe_the_subtitle_field():
         offering = ClassOfferingFactory()
         offering.refresh_from_db()
         assert offering.subtitle == ""
+
+    def it_fills_a_blank_subtitle_when_the_previous_release_inserts_a_class():
+        # The migration applies while the previous release still serves (STANDARDS.md section 10),
+        # and that release's INSERT names every column it knows, which is every one but subtitle.
+        unsaved = ClassOfferingFactory.build(category=CategoryFactory(), instructor=None, image="", slug="old-release")
+        fields = [f for f in ClassOffering._meta.concrete_fields if not f.primary_key and f.name != "subtitle"]
+        quote = connection.ops.quote_name
+        with connection.cursor() as cursor:
+            cursor.execute(
+                f"INSERT INTO {quote(ClassOffering._meta.db_table)} ({', '.join(quote(f.column) for f in fields)}) "
+                f"VALUES ({', '.join(['%s'] * len(fields))})",
+                [f.get_db_prep_save(f.pre_save(unsaved, add=True), connection) for f in fields],
+            )
+        assert ClassOffering.objects.get(slug="old-release").subtitle == ""
 
     @pytest.mark.parametrize("form_class", [ClassOfferingForm, TeachClassOfferingForm, TeachPublishedClassForm])
     def it_takes_at_most_150_characters(form_class):

@@ -1,0 +1,6 @@
+bump = "patch"
+date = "2026-10-01"
+title = "Long class titles fit the class page on a phone"
+changes = [
+  "On a phone, a long class title or subtitle no longer pushes the guild label off the top of the class photo. The photo grows to fit the words instead.",
+]
