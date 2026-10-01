@@ -388,7 +388,7 @@ class _RichDescriptionMixin:
     cleaned_data: dict[str, Any]
 
     def clean_description(self) -> str:
-        return clean_rich_body(self.cleaned_data.get("description") or "")
+        return clean_rich_body(self.cleaned_data["description"])
 
 
 class ClassOfferingForm(

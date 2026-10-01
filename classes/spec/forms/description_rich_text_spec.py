@@ -26,20 +26,26 @@ def _cleaned(form_class, instance, description: str) -> str:
     return form.cleaned_data["description"]
 
 
-@pytest.mark.parametrize("form_class", [ClassOfferingForm, TeachClassOfferingForm, TeachPublishedClassForm])
-def describe_the_description_field(form_class):
-    def it_is_the_rich_text_editor():
+FORMS = [ClassOfferingForm, TeachClassOfferingForm, TeachPublishedClassForm]
+
+
+def describe_the_description_field():
+    @pytest.mark.parametrize("form_class", FORMS)
+    def it_is_the_rich_text_editor(form_class):
         assert isinstance(form_class().fields["description"].widget, RichBodyEditorWidget)
 
-    def it_stores_editor_html_sanitized():
+    @pytest.mark.parametrize("form_class", FORMS)
+    def it_stores_editor_html_sanitized(form_class):
         offering = ClassOfferingFactory()
         assert _cleaned(form_class, offering, EDITOR_HTML) == CLEAN_HTML
 
-    def it_stores_an_empty_editor_as_blank():
+    @pytest.mark.parametrize("form_class", FORMS)
+    def it_stores_an_empty_editor_as_blank(form_class):
         offering = ClassOfferingFactory()
         assert _cleaned(form_class, offering, "<p><br></p>") == ""
 
-    def it_keeps_plain_text_exactly_as_typed():
+    @pytest.mark.parametrize("form_class", FORMS)
+    def it_keeps_plain_text_exactly_as_typed(form_class):
         offering = ClassOfferingFactory()
         assert _cleaned(form_class, offering, PLAIN) == PLAIN
 
