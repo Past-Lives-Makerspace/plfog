@@ -297,6 +297,15 @@ class ClassOfferingQuerySet(models.QuerySet["ClassOffering"]):
             applied += 1
         return applied
 
+    def for_legacy_alias(self, alias: str) -> "ClassOffering | None":
+        """The imported offering whose old classes.pastlives.space page was ``/class/<alias>``.
+
+        The import set each imported offering's slug to its Drupal path alias, with ``-legacy``
+        appended when the alias was already taken. ``None`` when nothing here came from that
+        page, or its slug has been changed since.
+        """
+        return self.exclude(legacy_cms_id="").filter(slug__in=[alias, f"{alias}-legacy"]).order_by("pk").first()
+
     def bookable(self) -> "ClassOfferingQuerySet":
         """Public classes still open for sign-up, soonest first.
 
@@ -1246,20 +1255,6 @@ class ClassOffering(HeroCropMixin, models.Model):
         from classes.emails import _absolute_url
 
         return _absolute_url(reverse("classes:public_class_detail", kwargs={"slug": self.slug}))
-
-    @property
-    def legacy_public_url(self) -> str:
-        """This class's page on the legacy Drupal site, or ``""`` for locally-authored offerings.
-
-        The import derives ``slug`` from the Drupal path alias (``/class/<alias>``), appending a
-        ``-legacy`` suffix only when that alias collides with an existing local slug — so stripping
-        the suffix recovers the alias.
-        """
-        from classes.import_service import LEGACY_CMS_BASE
-
-        if not self.legacy_cms_id:
-            return ""
-        return f"{LEGACY_CMS_BASE}/class/{self.slug.removesuffix('-legacy')}"
 
     @property
     def qr_url(self) -> str:

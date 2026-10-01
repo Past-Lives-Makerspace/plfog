@@ -19,7 +19,7 @@
       <a class="cta-secondary" href="{% if is_public_surface %}{{ MEMBER_BASE_URL }}{% endif %}{% url 'classes:teach_overview' %}">Manage My Classes</a>
     {% endif %}
     {% if user.is_authenticated and not is_public_surface %}
-      <a class="cta-secondary" href="{{ BOOK_BASE_URL }}" target="_blank" rel="noopener" title="See the public booking site at book.pastlives.space">View Publicly</a>
+      <a class="cta-secondary" href="{{ BOOK_BASE_URL }}" target="_blank" rel="noopener" title="See the public class site">View Publicly</a>
     {% endif %}
   </div>
 </div>

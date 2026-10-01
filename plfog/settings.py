@@ -67,10 +67,9 @@ CSRF_COOKIE_SECURE = not DEBUG
 SESSION_COOKIE_SECURE = not DEBUG
 SECURE_PROXY_SSL_HEADER = ("HTTP_X_FORWARDED_PROTO", "https")
 
-# Cross-subdomain cookies. Production sets COOKIE_DOMAIN=.pastlives.space so a
-# member logged in on members.pastlives.space is recognized on book.pastlives.space
-# (and vice versa). Local dev and Hetzner staging leave this unset so cookies
-# stay scoped to their own host.
+# Cross-subdomain cookies. COOKIE_DOMAIN=.pastlives.space would let a member logged in
+# on members.pastlives.space be recognized on classes.pastlives.space (and vice versa).
+# Production and local dev leave it unset, so each host keeps its own login.
 _cookie_domain = os.environ.get("COOKIE_DOMAIN", "").strip()
 if _cookie_domain:
     SESSION_COOKIE_DOMAIN = _cookie_domain
@@ -90,8 +89,17 @@ THEME_COOKIE_DOMAIN = os.environ.get("THEME_COOKIE_DOMAIN", "").strip()
 # MEMBER_HOST is where the public surface redirects /accounts/* requests so
 # allauth sessions always land on the members domain.
 PUBLIC_HOSTS = [
-    h.strip().lower() for h in os.environ.get("PUBLIC_HOSTS", "book.pastlives.space").split(",") if h.strip()
+    h.strip().lower() for h in os.environ.get("PUBLIC_HOSTS", "classes.pastlives.space").split(",") if h.strip()
 ]
+# Retired public hosts. A GET or HEAD here 301s to the same path on BOOK_BASE_URL, so old
+# links and bookmarks land on the class site. Any other method is served as the public
+# surface instead, so a form opened before the move still submits and nothing that POSTs
+# here is lost to a redirect. A host that is also in PUBLIC_HOSTS is served, not
+# redirected: retiring a host is taking it out of PUBLIC_HOSTS. Auto-added to ALLOWED_HOSTS.
+PUBLIC_REDIRECT_HOSTS = [
+    h.strip().lower() for h in os.environ.get("PUBLIC_REDIRECT_HOSTS", "book.pastlives.space").split(",") if h.strip()
+]
+ALLOWED_HOSTS += [h for h in PUBLIC_REDIRECT_HOSTS if h not in ALLOWED_HOSTS]
 MEMBER_HOST = os.environ.get("MEMBER_HOST", "members.pastlives.space").strip().lower()
 # Absolute base URL of the members surface, used to build cross-surface links
 # from the public catalog (e.g. the admin/teach "Manage" buttons). Defaults to
@@ -166,7 +174,7 @@ LOCKED_OUT_BOOK_BLOCKED_PREFIXES: tuple[str, ...] = ("/classes/registrations/",)
 
 # Paths that only exist on the public/book surface. Requests to these on the
 # members host get 302-redirected to the book host so members visiting
-# /account/ end up on book.pastlives.space (where /account/ actually lives).
+# /account/ end up on the public class site (where /account/ actually lives).
 PUBLIC_ONLY_PATH_PREFIXES: tuple[str, ...] = ("/account/",)
 
 # Guilds surface. GUILDS_HOSTS is the set of hostnames that serve the public
@@ -636,8 +644,8 @@ EMAIL_DELIVERY_ALLOWLIST: frozenset[str] = frozenset(
     entry.strip().lower() for entry in _email_allowlist_raw.split(",") if entry.strip()
 )
 
-# Base URL for the public booking site, used to build absolute links in emails.
-BOOK_BASE_URL = os.environ.get("BOOK_BASE_URL", "https://book.pastlives.space")
+# Base URL for the public class site, used to build absolute links in emails and Discord posts.
+BOOK_BASE_URL = os.environ.get("BOOK_BASE_URL", "https://classes.pastlives.space")
 
 # Admins to notify on new class registrations (comma-delimited emails). Empty = no admin notifications.
 CLASS_ADMIN_NOTIFY_EMAILS = os.environ.get("CLASS_ADMIN_NOTIFY_EMAILS", "")

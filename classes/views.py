@@ -502,6 +502,19 @@ def public_class_detail(request: HttpRequest, slug: str) -> HttpResponse:
     return render(request, "classes/public/detail.html", context)
 
 
+def legacy_class_page(request: HttpRequest, alias: str) -> HttpResponse:
+    """An old classes.pastlives.space class link (``/class/<alias>``): 301 to that class here.
+
+    The old site's address now serves this app, so Discord posts, flyers and search results
+    that point at a Drupal class page land here. A class that is no longer listed, or never
+    came across, goes to the catalog instead of a dead page.
+    """
+    offering = ClassOffering.objects.public().for_legacy_alias(alias)
+    if offering is None:
+        return redirect("classes:public_list", permanent=True)
+    return redirect("classes:public_class_detail", slug=offering.slug, permanent=True)
+
+
 def public_instructor(request: HttpRequest, slug: str) -> HttpResponse:
     """Public instructor profile — bio, photo, current + past classes."""
     from membership.models import Member as MemberModel

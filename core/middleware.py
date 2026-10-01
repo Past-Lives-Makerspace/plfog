@@ -4,11 +4,13 @@ Plfog answers to three kinds of hostname:
 
 - ``members.pastlives.space`` (and local dev, Hetzner staging, Render preview):
   the full member application. ``request.surface == "members"``.
-- ``book.pastlives.space``: a public-only face that exposes the class catalog,
+- ``classes.pastlives.space``: a public-only face that exposes the class catalog,
   class detail pages, registration, and self-serve registration management.
   Everything else (admin, billing, voting, settings, member directory, the
   classes admin/instructor dashboards, etc.) returns 404 from this surface.
-  ``request.surface == "public"``.
+  ``request.surface == "public"``. A retired public host (``book.pastlives.space``,
+  ``PUBLIC_REDIRECT_HOSTS``) 301s every GET and HEAD to the same path on
+  ``BOOK_BASE_URL`` and serves any other method as this surface.
 - ``guilds.pastlives.space``: a public guild directory + guest guild pages.
   ``request.surface == "guilds"``. Only the guest-appropriate views in
   ``GUILDS_ALLOWED_VIEW_NAMES`` (plus allauth's ``account_*`` login views)
@@ -47,19 +49,12 @@ class SurfaceMiddleware:
 
     def __call__(self, request: HttpRequest) -> HttpResponse:
         host = request.get_host().split(":", 1)[0].lower()
-
-        # Redirect legacy pastlives.app URLs to the canonical members domain.
-        if host in {"pastlives.app", "www.pastlives.app"}:
-            qs = f"?{request.META['QUERY_STRING']}" if request.META.get("QUERY_STRING") else ""
-            return HttpResponsePermanentRedirect(f"https://{settings.MEMBER_HOST}{request.path}{qs}")
-
-        # calendar.pastlives.space is a pure vanity alias: every path 302s to the
-        # community calendar (temporary, not 301, so the target can evolve without
-        # fighting browser caches).
-        if host in set(getattr(settings, "CALENDAR_REDIRECT_HOSTS", [])):
-            return HttpResponseRedirect(f"https://{settings.MEMBER_HOST}/calendar/?public=1")
-
         public_hosts: set[str] = set(getattr(settings, "PUBLIC_HOSTS", []))
+
+        host_redirect = self._host_redirect(request, host, public_hosts)
+        if host_redirect is not None:
+            return host_redirect
+
         guilds_hosts: set[str] = set(getattr(settings, "GUILDS_HOSTS", []))
         signage_hosts: set[str] = set(getattr(settings, "SIGNAGE_HOSTS", []))
 
@@ -77,6 +72,9 @@ class SurfaceMiddleware:
                 return short_circuit
             return self.get_response(request)
 
+        # A retired public host's reads redirected above; its writes are served as the public site.
+        public_hosts |= set(getattr(settings, "PUBLIC_REDIRECT_HOSTS", []))
+
         request.surface = "public" if host in public_hosts else "members"  # type: ignore[attr-defined]
 
         if request.surface == "public":  # type: ignore[attr-defined]
@@ -89,6 +87,28 @@ class SurfaceMiddleware:
                 return short_circuit
 
         return self.get_response(request)
+
+    @staticmethod
+    def _host_redirect(request: HttpRequest, host: str, public_hosts: set[str]) -> HttpResponse | None:
+        """The redirect for a host that only forwards, or ``None`` when the request should be served."""
+        # Redirect legacy pastlives.app URLs to the canonical members domain.
+        if host in {"pastlives.app", "www.pastlives.app"}:
+            qs = f"?{request.META['QUERY_STRING']}" if request.META.get("QUERY_STRING") else ""
+            return HttpResponsePermanentRedirect(f"https://{settings.MEMBER_HOST}{request.path}{qs}")
+
+        # calendar.pastlives.space is a pure vanity alias: every path 302s to the
+        # community calendar (temporary, not 301, so the target can evolve without
+        # fighting browser caches).
+        if host in set(getattr(settings, "CALENDAR_REDIRECT_HOSTS", [])):
+            return HttpResponseRedirect(f"https://{settings.MEMBER_HOST}/calendar/?public=1")
+
+        # A retired public host (in PUBLIC_REDIRECT_HOSTS, not PUBLIC_HOSTS) 301s a read to the same
+        # path on the class site. Only GET and HEAD: a form opened before the move must still
+        # submit, and nothing that POSTs here may be lost to a redirect.
+        retired_hosts = set(getattr(settings, "PUBLIC_REDIRECT_HOSTS", [])) - public_hosts
+        if host in retired_hosts and request.method in ("GET", "HEAD"):
+            return HttpResponsePermanentRedirect(f"{settings.BOOK_BASE_URL.rstrip('/')}{request.get_full_path()}")
+        return None
 
     def _handle_guilds_surface(self, request: HttpRequest) -> HttpResponse | None:
         """Redirect the root to /guilds/ and gate every other path to an allowlist.
