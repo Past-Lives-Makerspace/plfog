@@ -120,8 +120,41 @@ def describe_leadership_badges():
         badge.refresh_from_db()
         assert badge.color == "#092E4C"
 
-        # Give it on the Leadership tab: Morlock's toggle on the Board tab turns on with it.
+        # A whole hex code edited into a partial one before it saves: the refusal puts the hex
+        # input back, and the swatch and the picker's own value follow it rather than keep #123456.
+        swatch = fields.locator(".pl-color-picker__swatch-wrapper")
+        hex_input.fill("#123456")
+        assert _background(swatch) == "rgb(18, 52, 86)"
+        hex_input.fill("#12345")
+        hex_input.press("Tab")
+        page.wait_for_function(
+            "(id) => document.querySelector(`[data-badge-fields='${id}'] [data-autosave='color']`).value === '#092E4C'",
+            arg=badge.pk,
+        )
+        page.wait_for_function(
+            "(id) => getComputedStyle(document.querySelector(`[data-badge-fields='${id}'] "
+            ".pl-color-picker__swatch-wrapper`)).backgroundColor === 'rgb(9, 46, 76)'",
+            arg=badge.pk,
+        )
+        assert fields.locator(".pl-color-picker input[type='hidden']").input_value() == "#092E4C"
+        assert _background(preview) == "rgb(9, 46, 76)"
+        badge.refresh_from_db()
+        assert badge.color == "#092E4C"
+
+        # Give it while the connection drops: nothing is saved, every pane's toggle goes back off,
+        # and the save pill says it could not save.
         toggles = page.locator(f"[data-badge-toggle][data-badge-id='{badge.pk}'][data-member-id='{morlock.pk}']")
+        give_url = reverse("hub_admin_leadership_badge_give", args=[badge.pk, morlock.pk])
+        page.route(f"**{give_url}", lambda route: route.abort())
+        page.locator(f"#leadership-pane-{leadership.pk} .pl-badge-toggle").click()
+        page.wait_for_function(
+            "() => document.querySelector('[data-save-pill]').textContent.trim().startsWith(\"Couldn't save\")"
+        )
+        assert [toggles.nth(i).is_checked() for i in range(2)] == [False, False]
+        assert badge.members.count() == 0
+        page.unroute(f"**{give_url}")
+
+        # Give it on the Leadership tab: Morlock's toggle on the Board tab turns on with it.
         assert toggles.count() == 2
         before = _saves(page)
         page.locator(f"#leadership-pane-{leadership.pk} .pl-badge-toggle").click()

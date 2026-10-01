@@ -296,6 +296,9 @@ save of that line runs, and a line is never added twice.
             var refused = await response.json();
             showError(input, refused.errors[field]);
             input.value = lastSaved(input);
+            // A color picker's swatch follows its hex input's own input listener. The event does
+            // not bubble, so the editor's listener on the root never sees it and nothing re-saves.
+            input.dispatchEvent(new Event('input'));
             this.follow(input);
             this.state = 'saved';
           } else {
@@ -338,8 +341,19 @@ save of that line runs, and a line is never added twice.
           var held = input.checked;
           var twins = root.querySelectorAll('[data-badge-toggle][data-badge-id="' + input.dataset.badgeId + '"][data-member-id="' + input.dataset.memberId + '"]');
           twins.forEach(function (twin) { twin.checked = held; });
+          function revert() {
+            twins.forEach(function (twin) { twin.checked = !held; });
+          }
           self.enqueue(async function () {
-            var response = await self.post(held ? input.dataset.giveUrl : input.dataset.takeUrl, {});
+            var response;
+            try {
+              response = await self.post(held ? input.dataset.giveUrl : input.dataset.takeUrl, {});
+            } catch (error) {
+              // Offline or a dropped connection: nothing was saved, so every pane's toggle goes
+              // back, and the rethrow lets the queue show Couldn't save.
+              revert();
+              throw error;
+            }
             if (response.ok) {
               var saved = await response.json();
               // The confirm is teleported to <body>, outside the editor's root.
@@ -355,7 +369,7 @@ save of that line runs, and a line is never added twice.
               self.state = 'saved';
               return;
             }
-            twins.forEach(function (twin) { twin.checked = !held; });
+            revert();
             self.state = 'error';
           });
         },

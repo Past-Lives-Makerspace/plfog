@@ -10,7 +10,8 @@ Parameters:
                     and change on the hex input, so a script listening on an ancestor saves
                     it. Omit it and the picker behaves exactly as before.
 {% endcomment %}
-<div class="pl-color-picker" x-data="{ color: '{{ field.value|default:"#EEB44B" }}' }">
+{# The starting color is a data attribute, escaped by Django, so a refused value never runs inside the Alpine expression. #}
+<div class="pl-color-picker" data-color="{{ field.value|default:"#EEB44B" }}" x-data="{ color: $el.dataset.color }">
     <div class="pl-color-picker__swatch-wrapper" :style="`background-color: ${color}`">
         <input type="color"
                class="pl-color-picker__input"
