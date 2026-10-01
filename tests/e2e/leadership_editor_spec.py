@@ -262,6 +262,21 @@ def describe_leadership_editor():
         page.wait_for_function(ALPINE_READY)
         assert _people_order(page, leadership.pk) == ["Lena Lead", "Wilma Weaver", "Otto Ostrander"]
 
+    def it_says_couldnt_save_and_keeps_the_card_when_the_session_has_expired(live_server, page, login_via_code):
+        wilma, _otto, leadership = _seed()
+        LeadershipListingFactory(tab=leadership, member=wilma, sort_order=1)
+        login_via_code(ADMIN_EMAIL)
+        _open_editor(page, live_server, f"?tab={leadership.pk}")
+        # Signed out behind the page's back: fetch follows the login redirect and reads a 200.
+        page.context.clear_cookies(name="sessionid")
+        _row(page, leadership.pk, wilma).get_by_role("button", name="Remove from tab").click()
+        page.locator(".plt-toast--error").first.wait_for()
+        page.wait_for_function(
+            "() => document.querySelector('[data-save-pill]').textContent.trim().startsWith(\"Couldn't save\")"
+        )
+        assert _row(page, leadership.pk, wilma).is_visible()
+        assert leadership.listings.get(member=wilma).is_listed is True
+
     def it_holds_a_blank_title_until_blur_instead_of_saving_it_mid_typing(live_server, page, login_via_code):
         _wilma, _otto, leadership = _seed()
         login_via_code(ADMIN_EMAIL)

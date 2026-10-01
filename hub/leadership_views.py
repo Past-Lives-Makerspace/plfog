@@ -248,6 +248,6 @@ def admin_leadership_role_save(request: HttpRequest, pk: int) -> HttpResponse:
 @fog_admin_required
 @require_POST
 def admin_leadership_role_delete(request: HttpRequest, pk: int) -> HttpResponse:
-    """Remove a role line."""
-    get_object_or_404(LeadershipRole, pk=pk).delete()
+    """Remove a role line; a line on a card another window took off its tab is a 404 and stays kept."""
+    get_object_or_404(LeadershipRole, pk=pk, listing__is_listed=True).delete()
     return HttpResponse(status=204)

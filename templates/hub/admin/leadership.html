@@ -184,6 +184,12 @@ save of that line runs, and a line is never added twice.
             body: body,
             credentials: 'same-origin',
           }).then(function (response) {
+            // fetch follows the login redirect of an expired session and reads it as a 200,
+            // so a redirected answer is a save that never happened: say so and fail the call.
+            if (response.redirected) {
+              toast('You were signed out, so that change was not saved. Reload the page and sign in.', 'error');
+              return new Response(null, { status: 401 });
+            }
             relayToast(response);
             return response;
           });

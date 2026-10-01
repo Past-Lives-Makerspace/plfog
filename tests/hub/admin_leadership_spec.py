@@ -797,3 +797,10 @@ def describe_role_delete():
     def it_answers_404_for_a_line_that_is_gone(client: Client):
         _admin(client)
         assert client.post(reverse("hub_admin_leadership_role_delete", args=[999999])).status_code == 404
+
+    def it_answers_404_and_keeps_a_line_on_a_card_another_window_took_off_its_tab(client: Client):
+        _admin(client)
+        role = LeadershipRoleFactory(title="Kept Line")
+        role.listing.remove_from_tab()
+        assert client.post(reverse("hub_admin_leadership_role_delete", args=[role.pk])).status_code == 404
+        assert LeadershipRole.objects.filter(pk=role.pk).exists()
