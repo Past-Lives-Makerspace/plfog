@@ -10543,7 +10543,11 @@ class OrientationSlotQuerySet(models.QuerySet):
             & (Q(orienter__isnull=True) | self._run_by_gate())
             & ~Exists(reserved_over_span)
         )
-        rule_gate = Q(availability__isnull=True) | Q(availability__is_active=True)
+        # A slot kept through a row's switch to open (#532) stays its member's but never
+        # reopens: the row's window now offers that span, and one person books one way.
+        rule_gate = Q(availability__isnull=True) | Q(
+            availability__is_active=True, availability__booking_style=OrientationAvailability.BookingStyle.FIXED
+        )
         return (
             self.upcoming()
             .filter(orientation_type__is_active=True)

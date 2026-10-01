@@ -21,6 +21,7 @@ from membership.models import (
     Member,
     OrientationAvailability,
     OrientationAvailabilityBlock,
+    OrientationBooking,
     OrientationSlot,
 )
 from tests.membership.factories import (
@@ -31,6 +32,7 @@ from tests.membership.factories import (
     MembershipPlanFactory,
     OrientationAvailabilityBlockFactory,
     OrientationAvailabilityFactory,
+    OrientationBookingFactory,
     OrientationSlotFactory,
     OrientationTypeFactory,
 )
@@ -168,6 +170,29 @@ def describe_changing_a_rows_style():
         assert rule.is_open
         assert not OrientationSlot.objects.filter(availability=rule, is_cancelled=False).exists()
         assert rule.windows.filter(is_cancelled=False).count() == 8
+
+    def it_keeps_a_booked_fixed_slot_closed_after_the_row_turns_open(client: Client):
+        user, guild = _lead("fl3")
+        amber = _staffer(guild)
+        rule = OrientationAvailabilityFactory(
+            guild=guild,
+            orienter=amber,
+            orientation_type=guild.orientation_types.first(),
+            weekday=int(_weekday_ahead(3)),
+        )
+        orientations.generate_slots(guild=guild)
+        booked = rule.slots.order_by("starts_at").first()
+        booking = OrientationBookingFactory(slot=booked)
+        client.login(username="fl3", password="pass")
+        client.post(
+            reverse("hub_guild_orientation_hours_save", args=[guild.pk]),
+            _modal_payload(amber, **{"modal_rules-INITIAL_FORMS": "1", "modal_rules-0-id": str(rule.pk)}),
+            HTTP_HX_REQUEST="true",
+        )
+        assert OrientationSlot.objects.filter(pk=booked.pk, is_cancelled=False).exists()  # the member keeps it
+        booking.status = OrientationBooking.Status.CANCELLED
+        booking.save(update_fields=["status"])
+        assert not OrientationSlot.objects.bookable().filter(pk=booked.pk).exists()
 
     def it_retires_the_windows_when_a_row_turns_fixed(client: Client):
         user, guild = _lead("fl2")
