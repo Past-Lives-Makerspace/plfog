@@ -1,0 +1,14 @@
+{% comment %}
+One role line in the Leadership Directory editor (#564): a title and a contact email, each saved
+by itself as it changes. ``form`` is a LeadershipRoleForm. A saved line carries its id and its
+own save and delete URLs; the "+ Add a role" template renders this with an unsaved form and
+none of them, so the script's first save of it posts to the card's add URL and stamps on the id
+and URLs that come back, and every later save of the line updates it instead of adding another.
+{% endcomment %}
+<div class="pl-leadership-role" data-role{% if form.instance.pk %} data-role-id="{{ form.instance.pk }}" data-save-url="{% url 'hub_admin_leadership_role_save' form.instance.pk %}" data-delete-url="{% url 'hub_admin_leadership_role_delete' form.instance.pk %}"{% endif %}>
+  <div class="pl-leadership-role__fields">
+    <div>{% include "components/form_field.html" with field=form.title %}</div>
+    <div>{% include "components/form_field.html" with field=form.email %}</div>
+  </div>
+  <button type="button" class="pl-btn pl-btn--danger pl-btn--sm pl-btn--spaced" data-remove-role>Remove</button>
+</div>

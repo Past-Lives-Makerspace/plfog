@@ -254,13 +254,17 @@ class MemberQuerySet(models.QuerySet):
         # which is the difference between a correct list and its near-inverse.
         return self.exclude(member_agreement_acceptances__document_version=version)
 
-    def leadership_candidates(self) -> MemberQuerySet:
-        """Members an admin may add to the Leadership Directory: everyone not on it, by name.
+    def leadership_candidates(self, tab: LeadershipTab) -> MemberQuerySet:
+        """Members an admin may add to one Leadership Directory tab: everyone not listed on it, by name.
 
-        A member taken off the page keeps an unlisted row, so they are offered again and
-        :meth:`LeadershipListingQuerySet.list_member` relists them with the lines they had.
+        A member may sit on several tabs, so only this tab's listed rows count. A member taken
+        off the tab keeps an unlisted row there, so they are offered again and
+        :meth:`LeadershipTab.list_member` relists them with the lines they had. A subquery,
+        not a two-condition ``exclude`` across the relation, which would test the tab and
+        the listed flag on possibly different rows.
         """
-        return self.exclude(leadership_listing__is_listed=True).order_by("full_legal_name")
+        on_tab = LeadershipListing.objects.filter(tab=tab, is_listed=True).values("member_id")
+        return self.exclude(pk__in=on_tab).order_by("full_legal_name")
 
     def paying(self) -> MemberQuerySet:
         """Only standard members count as paying."""
@@ -3492,12 +3496,17 @@ class OrgLink(models.Model):
 
 
 class LeadershipPage(models.Model):
-    """Singleton (pk=1) wording for the Leadership Directory page: the hero and both section headers.
+    """Singleton (pk=1) wording for the Leadership Directory page: the hero above the tabs.
 
-    Every word an admin might want to change, with its default here and in the migration so
-    no site renders a blank hero (the Host a Workshop precedent). Load the one row via
-    :meth:`load`, exactly like ``OrgInfoPage``. Who is on the page is not here: the curated
-    team is :class:`LeadershipListing`, and the Guild Leaders section is read from each guild.
+    The page title and lead line, with their defaults here and in the migration so no site
+    renders a blank hero (the Host a Workshop precedent). Load the one row via :meth:`load`,
+    exactly like ``OrgInfoPage``. Who is on the page is not here: each :class:`LeadershipTab`
+    carries its own title and intro, its people are :class:`LeadershipListing` rows, and the
+    Guild Leads tab is read from each guild.
+
+    The four ``team_*`` and ``guilds_*`` columns are retired (#564): migration 0190 copied
+    them onto the first two tabs and nothing reads them now. They stay only so the release
+    before #564 keeps working while the migration deploys; a later PR drops them.
     """
 
     hero_title = models.CharField(max_length=120, default="Leadership Directory", help_text="The page heading.")
@@ -3545,11 +3554,161 @@ class LeadershipPage(models.Model):
         return obj
 
 
+class LeadershipRowGoneError(LookupError):
+    """An id posted to a Leadership Directory reorder names a tab or listing that no longer exists.
+
+    Another admin deleted it after this page loaded. Views answer it with a 404, which the
+    editor reads as "that went away" (the meeting workspace contract).
+    """
+
+
+class LeadershipTabQuerySet(models.QuerySet["LeadershipTab"]):
+    """Queries over the Leadership Directory's tabs, in admin order (``Meta.ordering``)."""
+
+    def people(self) -> LeadershipTabQuerySet:
+        """The People tabs: the ones admins add, fill and may delete."""
+        return self.filter(kind=LeadershipTab.Kind.PEOPLE)
+
+    def with_listed(self) -> LeadershipTabQuerySet:
+        """Each tab with its listed people on ``listed_listings``, their members and role lines loaded.
+
+        Three queries however many tabs, people and lines there are: the tabs, the listings
+        with their members, then the role lines.
+        """
+        return self.prefetch_related(
+            models.Prefetch("listings", queryset=LeadershipListing.objects.listed(), to_attr="listed_listings")
+        )
+
+    def for_directory(self, *, include_empty: bool) -> list[LeadershipTab]:
+        """The tabs the directory shows, in order, each with its listed people loaded.
+
+        A People tab with nobody listed is left out of a member's view; ``include_empty``
+        keeps it for an admin, who sees where the next person goes. Guild Leads always shows.
+        """
+        return [tab for tab in self.with_listed() if include_empty or tab.is_guild_leads or tab.listed_listings]
+
+    def add_people_tab(self, title: str, intro: str) -> LeadershipTab:
+        """Make a People tab, last in the order."""
+        last = self.aggregate(last=Max("sort_order"))["last"]
+        sort_order = 0 if last is None else last + 1
+        return self.create(title=title, intro=intro, kind=LeadershipTab.Kind.PEOPLE, sort_order=sort_order)
+
+    def reorder(self, ids: list[int]) -> None:
+        """Put the tabs ``ids`` names in that order, each at its index; a tab not named keeps its place.
+
+        Raises:
+            LeadershipRowGoneError: an id names no tab, so the strip the admin reordered is stale.
+        """
+        tabs = self.in_bulk(ids)
+        missing = set(ids) - set(tabs)
+        if missing:
+            raise LeadershipRowGoneError(f"No Leadership Directory tab with id {sorted(missing)}")
+        for index, pk in enumerate(ids):
+            tabs[pk].sort_order = index
+        self.bulk_update(tabs.values(), ["sort_order"])
+
+
+class LeadershipTab(models.Model):
+    """One tab of the Leadership Directory: a group of people cards, or the built in Guild Leads tab.
+
+    Admins add, name, order and delete People tabs, each holding :class:`LeadershipListing`
+    rows; one member may sit on several tabs with separate role lines on each. The single
+    Guild Leads tab (a constraint allows no second one) shows every visible guild's card,
+    read from the guild's own settings; it can be renamed, given an intro and moved, never
+    deleted. Migration 0190 made the first two tabs from the page's old section wording.
+    """
+
+    class Kind(models.TextChoices):
+        PEOPLE = "people", "People"
+        GUILD_LEADS = "guild_leads", "Guild Leads"
+
+    title = models.CharField(max_length=120, help_text="The tab's label in the strip, e.g. 'Council'.")
+    intro = models.TextField(blank=True, default="", help_text="A line above the tab's cards. Blank hides the line.")
+    kind = models.CharField(
+        max_length=20,
+        choices=Kind.choices,
+        default=Kind.PEOPLE,
+        help_text="People holds the cards admins add; Guild Leads shows each visible guild's card.",
+    )
+    sort_order = models.PositiveIntegerField(default=0, help_text="Ascending; lower shows first.")
+
+    objects = LeadershipTabQuerySet.as_manager()
+
+    # The tab's cards on show, set only by LeadershipTabQuerySet.with_listed (a to_attr prefetch).
+    listed_listings: list[LeadershipListing]
+
+    class Meta:
+        ordering = ["sort_order", "id"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["kind"], condition=Q(kind="guild_leads"), name="leadershiptab_one_guild_leads"
+            ),
+        ]
+
+    def __str__(self) -> str:
+        return self.title
+
+    @property
+    def is_guild_leads(self) -> bool:
+        """Whether this is the built in tab of guild cards rather than a tab of people."""
+        return self.kind == self.Kind.GUILD_LEADS
+
+    @classmethod
+    def pick(cls, tabs: Iterable[LeadershipTab], requested: str | None) -> LeadershipTab | None:
+        """The tab ``?tab=<id>`` names when it is among ``tabs``, else the first of them, else None."""
+        candidates = list(tabs)
+        for tab in candidates:
+            if str(tab.pk) == requested:
+                return tab
+        return candidates[0] if candidates else None
+
+    def list_member(self, member: Member, title: str, email: str) -> LeadershipListing:
+        """Put a member on this tab, last, with a role line; a member taken off this tab earlier is relisted.
+
+        One row per tab and member, so this creates or relists in one ``update_or_create``.
+        A relisted member keeps the lines they had on this tab, and the typed title is added
+        only when they do not already hold it here, so adding someone back never doubles a
+        line. Their rows on other tabs are untouched.
+        """
+        last = self.listings.filter(is_listed=True).aggregate(last=Max("sort_order"))["last"]
+        sort_order = 0 if last is None else last + 1
+        with transaction.atomic():
+            listing, _created = LeadershipListing.objects.update_or_create(
+                tab=self, member=member, defaults={"is_listed": True, "sort_order": sort_order}
+            )
+            if not listing.roles.filter(title=title).exists():
+                listing.add_role(title, email)
+        return listing
+
+    def reorder_listings(self, ids: list[int]) -> None:
+        """Put this tab's cards ``ids`` names in that order; a card not named keeps its place.
+
+        Only the rows whose place changed are written, and their ``updated_at`` moves with
+        them, because the order is part of what the page's Updated line reports.
+
+        Raises:
+            LeadershipRowGoneError: an id names no card on this tab, so the list is stale.
+        """
+        rows = self.listings.in_bulk(ids)
+        missing = set(ids) - set(rows)
+        if missing:
+            raise LeadershipRowGoneError(f"No card with id {sorted(missing)} on the {self.title} tab")
+        now = timezone.now()
+        moved = []
+        for index, pk in enumerate(ids):
+            row = rows[pk]
+            if row.sort_order != index:
+                row.sort_order = index
+                row.updated_at = now
+                moved.append(row)
+        LeadershipListing.objects.bulk_update(moved, ["sort_order", "updated_at"])
+
+
 class LeadershipListingQuerySet(models.QuerySet["LeadershipListing"]):
-    """Queries over the curated Leadership & Admin Team roster."""
+    """Queries over the cards on the Leadership Directory's People tabs."""
 
     def listed(self) -> LeadershipListingQuerySet:
-        """The rows on the page, in admin order, with each member and their role lines loaded."""
+        """The cards on show, in admin order, with each member and their role lines loaded."""
         return (
             self.filter(is_listed=True).select_related("member").prefetch_related("roles").order_by("sort_order", "id")
         )
@@ -3557,57 +3716,50 @@ class LeadershipListingQuerySet(models.QuerySet["LeadershipListing"]):
     def last_updated(self) -> datetime_type | None:
         """When the roster last changed: the newest listing or role save, or None with no rows.
 
-        One aggregate over both tables. Page wording edits do not count; the page's
+        One aggregate over both tables. Page and tab wording edits do not count; the page's
         "Updated" line is about who is on it.
         """
         stamps = self.aggregate(listing=Max("updated_at"), role=Max("roles__updated_at"))
         found = [stamp for stamp in stamps.values() if stamp is not None]
         return max(found) if found else None
 
-    def for_member(self, member: Member) -> LeadershipListing:
-        """The member's listing row, or an unsaved stand-in when they have none.
-
-        The stand-in lets the Details tab bind its toggle and role formset without writing
-        a row; nothing is saved until the toggle or a role line changes.
-        """
-        return self.filter(member=member).first() or LeadershipListing(member=member)
-
-    def list_member(self, member: Member, title: str, email: str) -> LeadershipListing:
-        """Put a member on the page, last, with a role line; a member taken off earlier is relisted.
-
-        One row per member, so this creates or relists in one ``update_or_create``. A relisted
-        member keeps the lines they had, and the typed title is added only when they do not
-        already hold it, so adding someone back never doubles a line.
-        """
-        last = self.listed().aggregate(last=Max("sort_order"))["last"]
-        sort_order = 0 if last is None else last + 1
-        with transaction.atomic():
-            listing, _created = self.update_or_create(
-                member=member, defaults={"is_listed": True, "sort_order": sort_order}
-            )
-            if not listing.roles.filter(title=title).exists():
-                listing.roles.create(title=title, email=email, sort_order=listing.roles.count())
-        return listing
+    def on_tabs_for(self, member: Member) -> LeadershipListingQuerySet:
+        """The member's cards on show, in tab order, each with its tab and role lines: the Details tab's list."""
+        return (
+            self.listed()
+            .filter(member=member, tab__isnull=False)
+            .select_related("tab")
+            .order_by("tab__sort_order", "tab_id")
+        )
 
 
 class LeadershipListing(models.Model):
-    """A member's place on the Leadership & Admin Team section of the Leadership Directory.
+    """A member's card on one Leadership Directory tab, with that tab's role lines.
 
-    The toggle, the order and the timestamp live here rather than on the Airtable managed
-    :class:`Member`: a person is on the page because their profile is flagged, never because
-    they were typed in. Photo, name and pronouns come from the member; the title and contact
-    lines are :class:`LeadershipRole` rows.
+    One row per tab and member (a constraint): someone on two tabs has two rows, each with
+    its own lines. The listed flag, the order and the timestamp live here rather than on the
+    Airtable managed :class:`Member`: a person is on a tab because an admin put them there,
+    never because they were typed in. Remove from tab clears ``is_listed`` and keeps the
+    lines, so Add a person on that tab brings them back. Photo, name and pronouns come from
+    the member; the title and contact lines are :class:`LeadershipRole` rows.
     """
 
-    member = models.OneToOneField(
+    tab = models.ForeignKey(
+        LeadershipTab,
+        null=True,
+        on_delete=models.CASCADE,
+        related_name="listings",
+        help_text="The tab this card sits on. Always set; blank only on a row the release before tabs wrote mid deploy.",
+    )
+    member = models.ForeignKey(
         Member,
         on_delete=models.CASCADE,
-        related_name="leadership_listing",
+        related_name="leadership_listings",
         help_text="The member this card shows. Photo, name and pronouns come from their profile.",
     )
     is_listed = models.BooleanField(
         default=False,
-        help_text="Show this member on the Leadership Directory. Off hides the card and keeps the role lines.",
+        help_text="Show this card on its tab. Off hides the card and keeps the role lines.",
     )
     sort_order = models.PositiveIntegerField(default=0, help_text="Ascending; lower shows first.")
     updated_at = models.DateTimeField(
@@ -3618,17 +3770,30 @@ class LeadershipListing(models.Model):
 
     class Meta:
         ordering = ["sort_order", "id"]
+        constraints = [
+            models.UniqueConstraint(fields=["tab", "member"], name="leadershiplisting_tab_member"),
+        ]
 
     def __str__(self) -> str:
         state = "listed" if self.is_listed else "unlisted"
-        return f"{self.member.display_name} ({state})"
+        return f"{self.member.display_name} on {self.tab} ({state})"
+
+    def add_role(self, title: str, email: str) -> LeadershipRole:
+        """Add a role line under the card's last one."""
+        last = self.roles.aggregate(last=Max("sort_order"))["last"]
+        return self.roles.create(title=title, email=email, sort_order=0 if last is None else last + 1)
+
+    def remove_from_tab(self) -> None:
+        """Take the card off its tab and keep its role lines, so adding the member back restores them."""
+        self.is_listed = False
+        self.save(update_fields=["is_listed", "updated_at"])
 
 
 class LeadershipRole(models.Model):
     """One role line on a leadership card: a title and, when there is one, that role's email.
 
-    A person with two roles has two rows, each with its own address. A per-member child
-    list like ``MemberContact``, edited as a formset beside the listing toggle.
+    A person with two roles on a tab has two rows, each with its own address. Edited line
+    by line on the Leadership Directory admin, where every change saves by itself.
     """
 
     listing = models.ForeignKey(

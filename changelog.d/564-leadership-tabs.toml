@@ -1,0 +1,8 @@
+bump = "minor"
+date = "2026-10-01"
+title = "The Leadership Directory is split into tabs"
+changes = [
+  "The Leadership Directory now shows its people in tabs, starting with Leadership and Guild Leads, so you can jump straight to the group you want.",
+  "Admins can add, name, reorder and delete tabs, and one person can appear on more than one tab with a different role on each.",
+  "The Leadership Directory editor saves every change as you make it. There is no Save button to remember.",
+]

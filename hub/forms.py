@@ -5,7 +5,7 @@ from __future__ import annotations
 from datetime import date, datetime, time, timedelta
 from decimal import Decimal
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Any, ClassVar, cast
+from typing import TYPE_CHECKING, Any, ClassVar, Self, cast
 
 from django.db import transaction
 from django import forms
@@ -19,7 +19,7 @@ from django.utils.text import slugify
 if TYPE_CHECKING:
     from django.contrib.auth.models import User
     from django.core.files.uploadedfile import UploadedFile
-    from django.http import HttpRequest, QueryDict
+    from django.http import HttpRequest
 
     from classes.models import ClassOffering
 
@@ -48,6 +48,7 @@ from membership.models import (
     LeadershipListing,
     LeadershipPage,
     LeadershipRole,
+    LeadershipTab,
     MapHotspot,
     MeetingAttachment,
     MeetingItemProposal,
@@ -920,181 +921,116 @@ class MemberAdminEditForm(forms.ModelForm):
         return member.fog_role
 
 
-class LeadershipRoleForm(forms.ModelForm):
-    """One role line (a title and that role's contact email) on a Leadership Directory card."""
+class LeadershipAutosaveForm(forms.ModelForm):
+    """Base for the Leadership Directory editor's typed fields, each of which saves by itself.
 
-    class Meta:
-        model = LeadershipRole
-        fields = ["title", "email", "sort_order"]
-        widgets = {
-            "title": forms.TextInput(attrs={"placeholder": "e.g. Member Liaison"}),
-            "email": forms.EmailInput(attrs={"placeholder": "someone@pastlives.space"}),
-            "sort_order": forms.HiddenInput(),
-        }
-        labels = {"title": "Role title", "email": "Contact email"}
-
-    def has_changed(self) -> bool:
-        """Ignore a sort_order-only change so an untouched "+ Add a role" row never blocks the save.
-
-        The add button stamps the cloned row's hidden ``sort_order`` with its position the
-        moment the row is created (mirrors ``MemberContactForm.has_changed``).
-        """
-        return bool(set(self.changed_data) - {"sort_order"})
-
-
-LeadershipRoleFormSet = forms.inlineformset_factory(
-    LeadershipListing, LeadershipRole, form=LeadershipRoleForm, extra=0, can_delete=True
-)
-
-
-class LeadershipListingForm(forms.ModelForm):
-    """The "Show on Leadership Directory" toggle on the admin member edit Details tab.
-
-    Alpine's ``x-model`` on the checkbox reveals the role lines beneath it while it is on.
-    The role lines are the sibling :data:`LeadershipRoleFormSet`; :meth:`save_with_roles`
-    writes both, and only when one of them changed.
+    Every widget carries ``data-autosave="<field>"``, which the editor script reads to post
+    that one field when it changes. :meth:`for_field` narrows the form to the posted field,
+    so a save validates and writes that field alone and never blanks a neighbour.
     """
 
-    class Meta:
-        model = LeadershipListing
-        fields = ["is_listed"]
-        widgets = {"is_listed": forms.CheckboxInput(attrs={"x-model": "listed"})}
-        labels = {"is_listed": "Show on Leadership Directory"}
+    def __init__(self, *args: Any, **kwargs: Any) -> None:
+        super().__init__(*args, **kwargs)
+        for name, field in self.fields.items():
+            field.widget.attrs["data-autosave"] = name
 
-    def save_with_roles(
-        self, role_formset: forms.BaseInlineFormSet[LeadershipRole, LeadershipListing, LeadershipRoleForm]
-    ) -> bool:
-        """Persist the toggle and the role lines when either changed; return whether anything was written.
+    @classmethod
+    def for_field(
+        cls, field: str, value: str, instance: LeadershipPage | LeadershipTab | LeadershipRole
+    ) -> Self | None:
+        """This form over ``field`` alone, bound to ``value`` for ``instance``; None for a field it does not edit."""
+        if field not in cast(list[str], cls._meta.fields):
+            return None
+        narrowed = cast("type[Self]", forms.modelform_factory(type(instance), form=cls, fields=[field]))
+        return narrowed({field: value}, instance=instance)
 
-        An unchanged pair is skipped on purpose: a member nobody ever listed never gains an
-        empty listing row, and ``updated_at`` (the page's Updated date) stays still when an
-        admin saves an unrelated Details field.
-        """
-        if not (self.has_changed() or role_formset.has_changed()):
-            return False
-        self.save()
-        role_formset.save()
-        return True
+    def editor_row(self) -> dict[str, Any]:
+        """The saved row as JSON: its id and each field this form saved, which the editor keeps as last good values."""
+        return {"id": self.instance.pk, **{name: getattr(self.instance, name) for name in self.fields}}
 
 
-class LeadershipPageForm(forms.ModelForm):
-    """Page Wording on the Leadership Directory admin page: the hero and both section headers.
+class LeadershipPageForm(LeadershipAutosaveForm):
+    """The page title and lead line above the Leadership Directory's tabs, each saved as it changes.
 
-    Six plain text fields, declared in page order (the template walks them top to bottom).
-    Their defaults live on :class:`LeadershipPage`; a blanked intro hides its line on the page.
+    Their defaults live on :class:`LeadershipPage`; a blanked lead line hides its line on the
+    page, and the title is required.
     """
 
     class Meta:
         model = LeadershipPage
-        fields = ["hero_title", "hero_lead", "team_heading", "team_intro", "guilds_heading", "guilds_intro"]
+        fields = ["hero_title", "hero_lead"]
+        widgets = {"hero_lead": forms.Textarea(attrs={"rows": 2})}
+        labels = {"hero_title": "Page title", "hero_lead": "Lead line"}
+
+
+class LeadershipTabForm(LeadershipAutosaveForm):
+    """A tab's title and intro on its pane in the editor, each saved as it changes."""
+
+    class Meta:
+        model = LeadershipTab
+        fields = ["title", "intro"]
+        widgets = {"intro": forms.Textarea(attrs={"rows": 2})}
+        labels = {"title": "Tab title", "intro": "Intro"}
+
+
+class LeadershipTabAddForm(forms.ModelForm):
+    """The Add a Tab modal: a title and an optional intro for a new People tab, placed last."""
+
+    class Meta:
+        model = LeadershipTab
+        fields = ["title", "intro"]
         widgets = {
-            "hero_lead": forms.Textarea(attrs={"rows": 2}),
-            "team_intro": forms.Textarea(attrs={"rows": 2}),
-            "guilds_intro": forms.Textarea(attrs={"rows": 2}),
+            "title": forms.TextInput(attrs={"placeholder": "e.g. Council"}),
+            "intro": forms.Textarea(attrs={"rows": 2}),
         }
-        labels = {
-            "hero_title": "Page title",
-            "hero_lead": "Lead line",
-            "team_heading": "Team heading",
-            "team_intro": "Team intro",
-            "guilds_heading": "Guilds heading",
-            "guilds_intro": "Guilds intro",
-        }
+        labels = {"title": "Title", "intro": "Intro (optional)"}
+
+    def create(self) -> LeadershipTab:
+        """Make the People tab, last in the order."""
+        return LeadershipTab.objects.add_people_tab(self.cleaned_data["title"], self.cleaned_data["intro"])
 
 
-class LeadershipOrderForm(forms.ModelForm):
-    """One roster row on the Leadership Directory admin page: two hidden values and nothing typed.
+class LeadershipRoleForm(LeadershipAutosaveForm):
+    """One role line (a title and that role's contact email) on a card in the editor.
 
-    The reorder script rewrites ``sort_order`` to the row's visual index (the Slideshow
-    pattern) and the Remove from page button sets ``is_listed`` to False before it submits,
-    so a removed person keeps their role lines for the Details tab toggle to bring back.
+    A saved line posts each field to its own save URL. A line made by "+ Add a role" has no
+    row yet: its first save posts the title to the card's add URL (:meth:`create_on`), and
+    the id that comes back is what every later save of that line uses.
     """
 
     class Meta:
-        model = LeadershipListing
-        fields = ["sort_order", "is_listed"]
-        widgets = {"sort_order": forms.HiddenInput(), "is_listed": forms.HiddenInput()}
+        model = LeadershipRole
+        fields = ["title", "email"]
+        widgets = {
+            "title": forms.TextInput(attrs={"placeholder": "e.g. Member Liaison"}),
+            "email": forms.EmailInput(attrs={"placeholder": "someone@pastlives.space"}),
+        }
+        labels = {"title": "Role title", "email": "Contact email"}
 
+    def create_on(self, listing: LeadershipListing) -> LeadershipRole:
+        """Add the typed line under the card's last one."""
+        self.instance = listing.add_role(self.cleaned_data["title"], self.cleaned_data["email"])
+        return self.instance
 
-if TYPE_CHECKING:
-    _RosterFormSetBase = forms.BaseModelFormSet[LeadershipListing, LeadershipOrderForm]
-else:
-    # The stubs' generic exists for the type checker only; Django's class is not subscriptable.
-    _RosterFormSetBase = forms.BaseModelFormSet
-
-
-class LeadershipRosterBaseFormSet(_RosterFormSetBase):
-    """The roster's order forms, refusing a Save whose rows no longer match the page.
-
-    A posted row whose listing left the page meanwhile (another admin's Remove, the Details
-    tab toggle in another window) binds to an unsaved stand-in. Saving around it would drop
-    that admin's edits without a word, so the whole Save is refused with one message.
-    """
-
-    def clean(self) -> None:
-        super().clean()
-        if any(form.instance.pk is None for form in self.forms):
-            raise forms.ValidationError("The team changed while you were editing. Reload the page and try again.")
-
-
-LeadershipRosterFormSet = forms.modelformset_factory(
-    LeadershipListing, form=LeadershipOrderForm, formset=LeadershipRosterBaseFormSet, extra=0
-)
-
-
-@dataclass
-class LeadershipRosterRow:
-    """One person on the admin roster: their order form and the formset of their role lines."""
-
-    form: LeadershipOrderForm
-    roles: forms.BaseInlineFormSet[LeadershipRole, LeadershipListing, LeadershipRoleForm]
-
-    @property
-    def expanded(self) -> bool:
-        """Whether the row opens with its role lines showing: only when a line failed validation."""
-        return any(self.roles.errors)
-
-
-class LeadershipRosterEditor:
-    """The Leadership & Admin Team editor: one order form per listed member, each with their role lines.
-
-    Two formset layers with distinct prefixes, ``roster`` over the listings and one
-    ``roles-<pk>`` inline formset per listing, so one Save carries the order, the listed
-    flags and every role edit. Every formset is validated before any is saved, so each
-    error renders at once, and the save is one transaction.
-    """
-
-    def __init__(self, data: QueryDict | None = None) -> None:
-        self.formset = LeadershipRosterFormSet(data, queryset=LeadershipListing.objects.listed(), prefix="roster")
-        self.rows = [
-            LeadershipRosterRow(
-                form=form,
-                roles=LeadershipRoleFormSet(data, instance=form.instance, prefix=f"roles-{form.instance.pk}"),
-            )
-            for form in self.formset
-            # A row whose listing left the page binds to an unsaved stand-in; the formset's
-            # clean() refuses the Save, and the template never touches that row's role lines.
-            if form.instance.pk is not None
-        ]
-
-    def is_valid(self) -> bool:
-        """Validate the order forms and every person's role lines, all of them, and report the whole."""
-        results = [self.formset.is_valid(), *(row.roles.is_valid() for row in self.rows)]
-        return all(results)
-
-    def save(self) -> None:
-        """Write the order, the listed flags and the role lines together."""
-        with transaction.atomic():
-            self.formset.save()
-            for row in self.rows:
-                row.roles.save()
+    def editor_row(self) -> dict[str, Any]:
+        """The saved line with its own URLs, so a new line's next save updates it instead of adding another."""
+        role = self.instance
+        return {
+            "id": role.pk,
+            "title": role.title,
+            "email": role.email,
+            "save_url": reverse("hub_admin_leadership_role_save", args=[role.pk]),
+            "delete_url": reverse("hub_admin_leadership_role_delete", args=[role.pk]),
+        }
 
 
 class LeadershipAddForm(forms.Form):
-    """Add a Person on the Leadership Directory admin page: a member not on it and their first role line.
+    """Add a Person on one Leadership Directory tab: a member not listed on it and their first line there.
 
-    The picker offers :meth:`MemberQuerySet.leadership_candidates`, so a member already on
-    the page is refused at the form even from a forged POST; :meth:`save` lists them last.
+    The picker offers :meth:`MemberQuerySet.leadership_candidates` for that tab, so a member
+    already on it is refused at the form even from a forged POST; :meth:`save` lists them
+    last on the tab, and their cards on other tabs are untouched. The prefix carries the
+    tab, so every People tab's form can sit on the page at once.
     """
 
     member = forms.ModelChoiceField(queryset=Member.objects.none(), label="Member", empty_label="Choose a member")
@@ -1107,15 +1043,120 @@ class LeadershipAddForm(forms.Form):
         widget=forms.EmailInput(attrs={"placeholder": "someone@pastlives.space"}),
     )
 
-    def __init__(self, *args: Any, **kwargs: Any) -> None:
+    def __init__(self, *args: Any, tab: LeadershipTab, **kwargs: Any) -> None:
+        kwargs["prefix"] = f"add-{tab.pk}"
         super().__init__(*args, **kwargs)
-        cast(forms.ModelChoiceField, self.fields["member"]).queryset = Member.objects.leadership_candidates()
+        self.tab = tab
+        cast(forms.ModelChoiceField, self.fields["member"]).queryset = Member.objects.leadership_candidates(tab)
 
     def save(self) -> LeadershipListing:
-        """List the chosen member last with the typed line, or relist them (see ``list_member``)."""
-        return LeadershipListing.objects.list_member(
-            self.cleaned_data["member"], self.cleaned_data["title"], self.cleaned_data["email"]
-        )
+        """List the chosen member last on the tab with the typed line, or relist them (see ``list_member``)."""
+        return self.tab.list_member(self.cleaned_data["member"], self.cleaned_data["title"], self.cleaned_data["email"])
+
+
+@dataclass
+class LeadershipEditorPerson:
+    """One card on a People tab in the editor: the listing and a form per role line."""
+
+    listing: LeadershipListing
+    role_forms: list[LeadershipRoleForm]
+
+
+@dataclass
+class LeadershipEditorPane:
+    """One tab's pane in the editor: its title and intro, its people, and its Add a person form.
+
+    Guild Leads has no people and no add form; its cards are read from each guild.
+    ``open_add`` opens the Add a person modal on load, for a refused add or the member
+    edit page's link.
+    """
+
+    tab: LeadershipTab
+    form: LeadershipTabForm
+    people: list[LeadershipEditorPerson]
+    add_form: LeadershipAddForm | None
+    open_add: bool = False
+
+    @property
+    def add_modal_id(self) -> str:
+        """The DOM id of this tab's Add a person modal."""
+        return f"leadership-add-{self.tab.pk}"
+
+    @property
+    def delete_confirm_id(self) -> str:
+        """The DOM id of this tab's Delete tab confirm modal."""
+        return f"leadership-delete-{self.tab.pk}"
+
+    @property
+    def delete_message(self) -> str:
+        """The Delete tab confirm's body: how many people come off the tab, and that other tabs keep theirs."""
+        count = len(self.people)
+        if count == 0:
+            return "Nobody is on this tab, so only the tab goes."
+        people = "1 person comes" if count == 1 else f"{count} people come"
+        return f"{people} off it. Their lines on other tabs stay."
+
+
+class LeadershipEditor:
+    """The Leadership Directory admin: the page wording, then one pane per tab in admin order.
+
+    Three queries for the tabs, their listed cards and their role lines, then one picker
+    query per People tab. ``requested`` is ``?tab=``. ``add_member`` is ``?add=<member id>``,
+    the member edit page's link, which opens Add a person with that member chosen on the
+    first People tab they are not on. ``add_form`` and ``tab_add_form`` are refused bound
+    forms to re-render with their errors and their modal open; a refused add opens its tab.
+    """
+
+    def __init__(
+        self,
+        *,
+        requested: str | None = None,
+        add_member: str | None = None,
+        add_form: LeadershipAddForm | None = None,
+        tab_add_form: LeadershipTabAddForm | None = None,
+    ) -> None:
+        self.page_form = LeadershipPageForm(instance=LeadershipPage.load())
+        self.tab_add_form = tab_add_form or LeadershipTabAddForm(prefix="newtab")
+        # The "+ Add a role" template; the script swaps __prefix__ for a fresh key per line.
+        self.new_role_form = LeadershipRoleForm(prefix="role-__prefix__")
+        tabs = list(LeadershipTab.objects.with_listed())
+        self.panes = [self._pane(tab) for tab in tabs]
+        target = self._add_target(add_form, add_member)
+        self.open_tab = target.tab if target else LeadershipTab.pick(tabs, requested)
+
+    @staticmethod
+    def _pane(tab: LeadershipTab) -> LeadershipEditorPane:
+        form = LeadershipTabForm(instance=tab, prefix=f"tab-{tab.pk}")
+        if tab.is_guild_leads:
+            return LeadershipEditorPane(tab=tab, form=form, people=[], add_form=None)
+        people = [
+            LeadershipEditorPerson(
+                listing=listing,
+                role_forms=[
+                    LeadershipRoleForm(instance=role, prefix=f"role-{role.pk}") for role in listing.roles.all()
+                ],
+            )
+            for listing in tab.listed_listings
+        ]
+        return LeadershipEditorPane(tab=tab, form=form, people=people, add_form=LeadershipAddForm(tab=tab))
+
+    def _add_target(self, add_form: LeadershipAddForm | None, add_member: str | None) -> LeadershipEditorPane | None:
+        """The pane whose Add a person opens on load, with the refused form or the linked member chosen."""
+        people_panes = [pane for pane in self.panes if not pane.tab.is_guild_leads]
+        if add_form is not None:
+            target = next(pane for pane in people_panes if pane.tab.pk == add_form.tab.pk)
+            target.add_form = add_form
+        elif add_member is not None and add_member.isdigit() and people_panes:
+            member_id = int(add_member)
+            target = next(
+                (pane for pane in people_panes if member_id not in {p.listing.member_id for p in pane.people}),
+                people_panes[0],
+            )
+            target.add_form = LeadershipAddForm(tab=target.tab, initial={"member": member_id})
+        else:
+            return None
+        target.open_add = True
+        return target
 
 
 class MemberCapabilitiesForm(forms.Form):

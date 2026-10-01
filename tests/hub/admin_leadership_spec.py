@@ -1,31 +1,48 @@
-"""BDD specs for the Leadership Directory admin page at /manage/leadership/ (#476).
+"""BDD specs for the Leadership Directory editor at /manage/leadership/ (#476; tabs and auto save, #564).
 
-Three sibling forms on one page: Page Wording (posts to the page itself), the team roster
-(the order, who stays listed and each person's role lines, one Save) and Add a Person (a
-modal with its own form). Assertions anchor on markup, ids and factory strings, never on
-copy the changelog could also carry.
+The editor page, then one small POST endpoint per object. A typed field posts ``field`` and
+``value`` and gets the saved row back as JSON; a refused value is a 422 with the field's
+errors and an error toast; a tab, card or line that is gone is a 404. The two modals and
+Delete tab are plain POSTs that redirect back with a message. Assertions anchor on markup,
+ids, URLs and factory strings, never on copy the changelog could also carry.
+
+The data migration makes two tabs in every migrated test database, so each spec starts from
+none (``_no_tabs``) and builds exactly the tabs it needs.
 """
 
 from __future__ import annotations
 
-from datetime import timedelta
+import json
+import re
 
 import pytest
 from django.contrib.auth.models import User
+from django.contrib.messages import get_messages
+from django.http import HttpResponse
 from django.test import Client
-from django.urls import reverse
-from django.utils import timezone
+from django.urls import get_resolver, reverse
 
-from membership.models import LeadershipListing, LeadershipPage, LeadershipRole, Member
-from tests.membership.factories import LeadershipListingFactory, LeadershipRoleFactory, MemberFactory
+from hub.forms import LeadershipEditor
+from membership.models import LeadershipListing, LeadershipPage, LeadershipRole, LeadershipTab, Member
+from tests.membership.factories import (
+    LeadershipListingFactory,
+    LeadershipRoleFactory,
+    LeadershipTabFactory,
+    MemberFactory,
+)
 
 pytestmark = pytest.mark.django_db
 
 PASSWORD = "pw12345!"
 _PAGE = reverse("hub_admin_leadership")
-_ADD = reverse("hub_admin_leadership_add")
-_SAVE = reverse("hub_admin_leadership_roster_save")
-_DIRECTORY = reverse("hub_leadership_directory")
+_PAGE_SAVE = reverse("hub_admin_leadership_page_save")
+_TAB_ADD = reverse("hub_admin_leadership_tab_add")
+_TAB_ORDER = reverse("hub_admin_leadership_tab_order")
+
+
+@pytest.fixture(autouse=True)
+def _no_tabs() -> None:
+    LeadershipTab.objects.all().delete()
 
 
 def _login(client: Client, username: str, role: str) -> Member:
@@ -41,114 +58,195 @@ def _admin(client: Client) -> Member:
     return _login(client, "lead-admin", Member.FogRole.ADMIN)
 
 
-def _listed(name: str, sort_order: int = 0, title: str = "Founder", email: str = "") -> LeadershipListing:
-    listing = LeadershipListingFactory(member=MemberFactory(full_legal_name=name), sort_order=sort_order)
-    LeadershipRoleFactory(listing=listing, title=title, email=email)
+def _guild_leads(**kwargs: object) -> LeadershipTab:
+    return LeadershipTabFactory(kind=LeadershipTab.Kind.GUILD_LEADS, **kwargs)
+
+
+def _person(tab: LeadershipTab, name: str, title: str = "Founder", sort_order: int = 0) -> LeadershipListing:
+    listing = LeadershipListingFactory(tab=tab, member=MemberFactory(full_legal_name=name), sort_order=sort_order)
+    LeadershipRoleFactory(listing=listing, title=title)
     return listing
 
 
-def _role_row(role: LeadershipRole, **overrides: str) -> dict[str, str]:
-    """The posted fields of one saved role line, exactly as the page rendered them."""
-    row = {"id": str(role.pk), "title": role.title, "email": role.email, "sort_order": str(role.sort_order)}
-    row.update(overrides)
-    return row
+def _toast(response: HttpResponse) -> dict[str, str]:
+    return json.loads(response["HX-Trigger"])["showToast"]
 
 
-def _roster_post(
-    rows: list[tuple[LeadershipListing, list[dict[str, str]]]], unlist: set[int] | None = None
-) -> dict[str, str]:
-    """The roster Save payload: one order row per listing in the posted order, plus each listing's role lines.
-
-    ``rows`` is the visual order; ``sort_order`` is stamped from the index the way the reorder
-    script does. A listing in ``unlist`` posts ``is_listed`` False, which is what Remove does.
-    """
-    unlist = unlist or set()
-    data = {
-        "roster-TOTAL_FORMS": str(len(rows)),
-        "roster-INITIAL_FORMS": str(len(rows)),
-        "roster-MIN_NUM_FORMS": "0",
-        "roster-MAX_NUM_FORMS": "1000",
-    }
-    for index, (listing, roles) in enumerate(rows):
-        data[f"roster-{index}-id"] = str(listing.pk)
-        data[f"roster-{index}-sort_order"] = str(index)
-        data[f"roster-{index}-is_listed"] = "False" if listing.pk in unlist else "True"
-        prefix = f"roles-{listing.pk}"
-        data[f"{prefix}-TOTAL_FORMS"] = str(len(roles))
-        data[f"{prefix}-INITIAL_FORMS"] = str(sum(1 for row in roles if "id" in row))
-        data[f"{prefix}-MIN_NUM_FORMS"] = "0"
-        data[f"{prefix}-MAX_NUM_FORMS"] = "1000"
-        for row_index, row in enumerate(roles):
-            for key, value in row.items():
-                data[f"{prefix}-{row_index}-{key}"] = value
-    return data
+def _messages(response: HttpResponse) -> list[str]:
+    return [str(message) for message in get_messages(response.wsgi_request)]
 
 
-def _wording_post(**overrides: str) -> dict[str, str]:
-    data = {
-        "hero_title": "Who Runs This Place",
-        "hero_lead": "Every name in one place.",
-        "team_heading": "The Crew",
-        "team_intro": "",
-        "guilds_heading": "Shop Leads",
-        "guilds_intro": "One card per guild.",
-    }
-    data.update(overrides)
-    return data
+def _form(html: str, action: str) -> str:
+    """The form posting to ``action``, from its opening tag to its close."""
+    start = html.index(f'action="{action}"')
+    return html[start : html.index("</form>", start)]
 
 
-def describe_leadership_admin_gating():
-    def it_redirects_anonymous_users(client: Client):
+def _between(html: str, start_marker: str, end_marker: str) -> str:
+    start = html.index(start_marker)
+    end = html.find(end_marker, start + len(start_marker))
+    return html[start : end if end != -1 else len(html)]
+
+
+def _pane(html: str, tab: LeadershipTab) -> str:
+    return _between(html, f'id="leadership-pane-{tab.pk}"', 'id="leadership-pane-')
+
+
+def _strip(html: str) -> list[int]:
+    nav = _between(html, "data-tab-strip", "</nav>")
+    return [int(pk) for pk in re.findall(r'data-tab-id="(\d+)"', nav)]
+
+
+def describe_editor_gating():
+    def _endpoints() -> dict[str, tuple[str, dict[str, object]]]:
+        """Every editor endpoint by URL name, with a payload that would change something."""
+        tab = LeadershipTabFactory(title="Gated Tab")
+        listing = LeadershipListingFactory(tab=tab)
+        role = LeadershipRoleFactory(listing=listing, title="Gated Title")
+        newcomer = MemberFactory()
+        return {
+            "hub_admin_leadership_page_save": (_PAGE_SAVE, {"field": "hero_title", "value": "Hijacked"}),
+            "hub_admin_leadership_tab_add": (_TAB_ADD, {"newtab-title": "Hijacked"}),
+            "hub_admin_leadership_tab_order": (_TAB_ORDER, {"order": [tab.pk]}),
+            "hub_admin_leadership_tab_save": (
+                reverse("hub_admin_leadership_tab_save", args=[tab.pk]),
+                {"field": "title", "value": "Hijacked"},
+            ),
+            "hub_admin_leadership_tab_delete": (reverse("hub_admin_leadership_tab_delete", args=[tab.pk]), {}),
+            "hub_admin_leadership_person_add": (
+                reverse("hub_admin_leadership_person_add", args=[tab.pk]),
+                {f"add-{tab.pk}-member": newcomer.pk, f"add-{tab.pk}-title": "Hijacked"},
+            ),
+            "hub_admin_leadership_people_order": (
+                reverse("hub_admin_leadership_people_order", args=[tab.pk]),
+                {"order": [listing.pk]},
+            ),
+            "hub_admin_leadership_person_remove": (
+                reverse("hub_admin_leadership_person_remove", args=[listing.pk]),
+                {},
+            ),
+            "hub_admin_leadership_role_add": (
+                reverse("hub_admin_leadership_role_add", args=[listing.pk]),
+                {"title": "Hijacked"},
+            ),
+            "hub_admin_leadership_role_save": (
+                reverse("hub_admin_leadership_role_save", args=[role.pk]),
+                {"field": "title", "value": "Hijacked"},
+            ),
+            "hub_admin_leadership_role_delete": (reverse("hub_admin_leadership_role_delete", args=[role.pk]), {}),
+        }
+
+    def _untouched() -> None:
+        assert LeadershipPage.load().hero_title == "Leadership Directory"
+        assert list(LeadershipTab.objects.values_list("title", flat=True)) == ["Gated Tab"]
+        assert list(LeadershipRole.objects.values_list("title", flat=True)) == ["Gated Title"]
+        assert LeadershipListing.objects.filter(is_listed=True).count() == 1
+
+    def it_covers_every_editor_url():
+        names = {
+            name
+            for name in get_resolver().reverse_dict
+            if isinstance(name, str) and name.startswith("hub_admin_leadership")
+        }
+        assert names == {"hub_admin_leadership", *_endpoints()}
+
+    def it_sends_anonymous_users_to_login_from_every_endpoint(client: Client):
         assert client.get(_PAGE).status_code == 302
-        assert client.post(_ADD, {}).status_code == 302
-        assert client.post(_SAVE, {}).status_code == 302
+        for url, payload in _endpoints().values():
+            response = client.post(url, payload)
+            assert response.status_code == 302, url
+            assert "login" in response["Location"]
+        _untouched()
 
-    def it_forbids_a_plain_member(client: Client):
+    def it_forbids_a_plain_member_on_every_endpoint(client: Client):
+        endpoints = _endpoints()
         _login(client, "plain", Member.FogRole.MEMBER)
         assert client.get(_PAGE).status_code == 403
-        assert client.post(_ADD, {}).status_code == 403
-        assert client.post(_SAVE, {}).status_code == 403
+        for url, payload in endpoints.values():
+            assert client.post(url, payload).status_code == 403, url
+        _untouched()
 
+    def it_forbids_a_guild_officer_too(client: Client):
+        endpoints = _endpoints()
+        _login(client, "officer", Member.FogRole.GUILD_OFFICER)
+        for url, payload in endpoints.values():
+            assert client.post(url, payload).status_code == 403, url
+        _untouched()
 
-def describe_leadership_admin_page():
-    def it_keeps_the_three_forms_as_siblings_never_nested(client: Client):
+    def it_answers_every_endpoint_to_post_only(client: Client):
+        endpoints = _endpoints()
         _admin(client)
-        _listed("Ada Aldous")
-        html = client.get(_PAGE).content.decode()
-        wording_at = html.index(f'action="{_PAGE}"')
-        roster_at = html.index(f'action="{_SAVE}"')
-        add_at = html.index(f'action="{_ADD}"')
-        assert roster_at > html.index("</form>", wording_at)
-        assert add_at > html.index("</form>", roster_at)
+        for url, _payload in endpoints.values():
+            assert client.get(url).status_code == 405, url
+        assert client.post(_PAGE, {}).status_code == 405
+        _untouched()
 
-    def it_renders_each_listed_person_as_a_reorder_row_with_hidden_order_and_flag(client: Client):
+
+def describe_editor_page():
+    def it_autosaves_the_page_wording_and_has_no_save_button(client: Client):
         _admin(client)
-        listing = _listed("Ada Aldous", title="Founder")
-        LeadershipListingFactory(is_listed=False, member=MemberFactory(full_legal_name="Hidden Hank"))
         html = client.get(_PAGE).content.decode()
-        # The roster form only: the add picker below it offers Hidden Hank on purpose.
-        roster_at = html.index(f'action="{_SAVE}"')
-        roster = html[roster_at : html.index("</form>", roster_at)]
-        assert 'id="leadership-rows"' in roster
-        assert "Ada Aldous" in roster
-        assert "Hidden Hank" not in roster
-        assert 'class="pl-slide-grip" draggable="true"' in html
-        assert 'data-move="up"' in html
-        assert 'data-move="down"' in html
-        assert '<input type="hidden" name="roster-0-sort_order"' in html
-        assert 'name="roster-0-is_listed" value="True"' in html
-        assert 'value="Founder"' in html
-        assert f'name="roles-{listing.pk}-TOTAL_FORMS"' in html
-        assert f'id="leadership-role-empty-template-{listing.pk}"' in html
-        assert f'data-add-role="{listing.pk}"' in html
-        assert f'name="roles-{listing.pk}-0-DELETE"' in html
-        assert 'x-data="{ expanded: false }"' in html
+        page = _between(html, f'data-save-url="{_PAGE_SAVE}"', "</section>")
+        assert 'data-autosave="hero_title"' in page
+        assert 'data-autosave="hero_lead"' in page
+        assert 'value="Leadership Directory"' in page
+        assert ">Save</button>" not in html
+        assert "data-save-pill" in html
+
+    def it_renders_the_strip_and_a_pane_per_tab_in_order_with_the_first_open(client: Client):
+        _admin(client)
+        later = LeadershipTabFactory(title="Board Tab", sort_order=2)
+        guilds = _guild_leads(title="Guild Leads Tab", sort_order=1)
+        first = LeadershipTabFactory(title="Leadership Tab", sort_order=0)
+        html = client.get(_PAGE).content.decode()
+        assert _strip(html) == [first.pk, guilds.pk, later.pk]
+        assert f'class="vote-tab vote-tab--active" data-tab-id="{first.pk}"' in html
+        assert f'class="vote-tab" data-tab-id="{later.pk}"' in html
+        assert f'x-data="plLeadershipEditor({first.pk})"' in html
+        for tab in (first, guilds, later):
+            pane = _pane(html, tab)
+            assert f'data-save-url="{reverse("hub_admin_leadership_tab_save", args=[tab.pk])}"' in pane
+            assert f'value="{tab.title}"' in pane
+            assert 'data-move-tab="left"' in pane and 'data-move-tab="right"' in pane
+        assert "x-cloak" not in _pane(html, first).split(">", 1)[0]
+        assert "x-cloak" in _pane(html, later).split(">", 1)[0]
+        assert f'data-order-url="{_TAB_ORDER}"' in html
+
+    def it_opens_the_tab_the_query_names(client: Client):
+        _admin(client)
+        LeadershipTabFactory(sort_order=0)
+        second = LeadershipTabFactory(sort_order=1)
+        html = client.get(f"{_PAGE}?tab={second.pk}").content.decode()
+        assert f'class="vote-tab vote-tab--active" data-tab-id="{second.pk}"' in html
+
+    def it_renders_each_person_with_their_lines_and_their_own_urls(client: Client):
+        _admin(client)
+        tab = LeadershipTabFactory()
+        listing = _person(tab, "Ada Aldous", title="Founder")
+        role = listing.roles.get()
+        _person(tab, "Zed Zephyr", sort_order=1)
+        LeadershipListingFactory(tab=tab, is_listed=False, member=MemberFactory(full_legal_name="Hidden Hank"))
+        html = client.get(_PAGE).content.decode()
+        people = _between(html, "data-people", "</section>")
+        assert people.index("Ada Aldous") < people.index("Zed Zephyr")
+        assert "Hidden Hank" not in people
+        assert f'data-order-url="{reverse("hub_admin_leadership_people_order", args=[tab.pk])}"' in html
+        assert f'data-listing-id="{listing.pk}"' in people
+        assert f'data-remove-url="{reverse("hub_admin_leadership_person_remove", args=[listing.pk])}"' in people
+        assert f'data-add-url="{reverse("hub_admin_leadership_role_add", args=[listing.pk])}"' in people
+        assert f'data-role-id="{role.pk}"' in people
+        assert f'data-save-url="{reverse("hub_admin_leadership_role_save", args=[role.pk])}"' in people
+        assert f'data-delete-url="{reverse("hub_admin_leadership_role_delete", args=[role.pk])}"' in people
+        assert 'value="Founder"' in people
+        assert 'class="pl-slide-grip" draggable="true"' in people
+        assert 'data-move="up"' in people and 'data-move="down"' in people
 
     def it_shows_the_photo_in_a_row_only_when_the_member_allows_it(client: Client):
         _admin(client)
-        shown = _listed("Ada Aldous")
+        tab = LeadershipTabFactory()
+        shown = _person(tab, "Ada Aldous")
         Member.objects.filter(pk=shown.member.pk).update(profile_photo="members/profile/shown.png")
-        hidden = _listed("Quiet Quill", sort_order=1)
+        hidden = _person(tab, "Quiet Quill", sort_order=1)
         Member.objects.filter(pk=hidden.member.pk).update(
             profile_photo="members/profile/hidden.png", directory_visibility={"profile_photo": False}
         )
@@ -157,234 +255,449 @@ def describe_leadership_admin_page():
         assert "members/profile/hidden.png" not in html
         assert "QQ" in html
 
-    def it_shows_the_empty_state_when_nobody_is_listed(client: Client):
+    def it_gives_a_people_tab_its_own_add_form_and_delete_confirm_and_guild_leads_neither(client: Client):
         _admin(client)
+        people = LeadershipTabFactory()
+        guilds = _guild_leads()
         html = client.get(_PAGE).content.decode()
-        assert 'class="pl-leadership-admin__empty"' in html
-        assert "pl-roster-row" not in html
+        assert f'action="{reverse("hub_admin_leadership_person_add", args=[people.pk])}"' in html
+        assert f'action="{reverse("hub_admin_leadership_tab_delete", args=[people.pk])}"' in html
+        assert f"$dispatch('open-confirm', 'leadership-delete-{people.pk}')" in _pane(html, people)
+        assert reverse("hub_admin_leadership_person_add", args=[guilds.pk]) not in html
+        assert reverse("hub_admin_leadership_tab_delete", args=[guilds.pk]) not in html
+        assert "data-people" not in _pane(html, guilds)
 
-    def it_renders_the_wording_fields_inside_the_wording_form(client: Client):
+    def it_offers_each_people_tab_only_the_members_not_on_it(client: Client):
         _admin(client)
-        html = client.get(_PAGE).content.decode()
-        start = html.index(f'action="{_PAGE}"')
-        wording_form = html[start : html.index("</form>", start)]
-        for field in ("hero_title", "hero_lead", "team_heading", "team_intro", "guilds_heading", "guilds_intro"):
-            assert f'name="{field}"' in wording_form
-
-    def it_offers_only_members_who_are_not_on_the_page_in_the_add_picker(client: Client):
-        _admin(client)
-        listed = _listed("Ada Aldous")
-        removed = LeadershipListingFactory(is_listed=False, member=MemberFactory(full_legal_name="Hidden Hank"))
+        leadership = LeadershipTabFactory()
+        board = LeadershipTabFactory()
+        on_leadership = _person(leadership, "Ada Aldous").member
+        removed = LeadershipListingFactory(tab=leadership, is_listed=False).member
         never = MemberFactory(full_legal_name="Newcomer Nell")
         html = client.get(_PAGE).content.decode()
-        start = html.index(f'action="{_ADD}"')
-        add_form = html[start : html.index("</form>", start)]
-        assert f'<option value="{listed.member.pk}"' not in add_form
-        assert f'<option value="{removed.member.pk}"' in add_form
-        assert f'<option value="{never.pk}"' in add_form
+        leadership_form = _form(html, reverse("hub_admin_leadership_person_add", args=[leadership.pk]))
+        board_form = _form(html, reverse("hub_admin_leadership_person_add", args=[board.pk]))
+        assert f'<option value="{on_leadership.pk}"' not in leadership_form
+        assert f'<option value="{removed.pk}"' in leadership_form
+        assert f'<option value="{never.pk}"' in leadership_form
+        assert f'<option value="{on_leadership.pk}"' in board_form
 
-    def it_reopens_the_add_modal_with_the_errors_after_a_failed_add(client: Client):
+    def it_renders_the_add_a_role_template_unsaved(client: Client):
         _admin(client)
-        response = client.post(_ADD, {"member": "", "title": "", "email": ""})
+        html = client.get(_PAGE).content.decode()
+        template = _between(html, "<template data-role-template>", "</template>")
+        assert 'id="id_role-__prefix__-title"' in template
+        assert 'data-autosave="title"' in template and 'data-autosave="email"' in template
+        assert "data-save-url" not in template and "data-role-id" not in template
+
+    def it_renders_with_no_tabs(client: Client):
+        _admin(client)
+        html = client.get(_PAGE).content.decode()
+        assert 'x-data="plLeadershipEditor(null)"' in html
+        assert 'class="pl-leadership-admin__empty"' in html
+
+    def describe_the_member_edit_link():
+        def it_opens_add_a_person_with_the_member_on_the_first_tab_they_are_not_on(client: Client):
+            _admin(client)
+            leadership = LeadershipTabFactory(sort_order=0)
+            board = LeadershipTabFactory(sort_order=1)
+            member = _person(leadership, "Morlock Mender").member
+            html = client.get(f"{_PAGE}?add={member.pk}").content.decode()
+            assert f"x-init=\"$dispatch('open-modal', 'leadership-add-{board.pk}')" in html
+            assert f"x-init=\"$dispatch('open-modal', 'leadership-add-{leadership.pk}')" not in html
+            assert f'class="vote-tab vote-tab--active" data-tab-id="{board.pk}"' in html
+            board_form = _form(html, reverse("hub_admin_leadership_person_add", args=[board.pk]))
+            assert f'<option value="{member.pk}" selected>' in board_form
+
+        def it_falls_back_to_the_first_people_tab_when_they_are_on_every_one(client: Client):
+            _admin(client)
+            _guild_leads(sort_order=0)
+            only = LeadershipTabFactory(sort_order=1)
+            member = _person(only, "Everywhere Eve").member
+            html = client.get(f"{_PAGE}?add={member.pk}").content.decode()
+            assert f"x-init=\"$dispatch('open-modal', 'leadership-add-{only.pk}')" in html
+
+        def it_opens_nothing_for_a_bad_id_or_with_no_people_tab(client: Client):
+            _admin(client)
+            guilds = _guild_leads()
+            html = client.get(f"{_PAGE}?add=nope").content.decode()
+            assert "x-init=\"$dispatch('open-modal', 'leadership-add-" not in html
+            html = client.get(f"{_PAGE}?add=5").content.decode()
+            assert "x-init=\"$dispatch('open-modal', 'leadership-add-" not in html
+            assert f'class="vote-tab vote-tab--active" data-tab-id="{guilds.pk}"' in html
+
+
+def describe_LeadershipEditorPane_delete_message():
+    def it_names_how_many_people_come_off_the_tab():
+        empty = LeadershipTabFactory()
+        one = LeadershipTabFactory()
+        three = LeadershipTabFactory()
+        _person(one, "Solo Sam")
+        for name in ("A One", "B Two", "C Three"):
+            _person(three, name)
+        panes = {pane.tab.pk: pane for pane in LeadershipEditor().panes}
+        assert "1 person comes off" in panes[one.pk].delete_message
+        assert "3 people come off" in panes[three.pk].delete_message
+        assert "Nobody" in panes[empty.pk].delete_message
+        assert panes[three.pk].delete_confirm_id == f"leadership-delete-{three.pk}"
+
+
+def describe_page_save():
+    def it_saves_the_title_and_answers_the_saved_row(client: Client):
+        _admin(client)
+        response = client.post(_PAGE_SAVE, {"field": "hero_title", "value": "  Who Runs This Place  "})
         assert response.status_code == 200
-        html = response.content.decode()
-        assert "$dispatch('open-modal', 'leadership-add')" in html
-        assert 'class="pl-field-error"' in html
-        assert LeadershipListing.objects.count() == 0
+        assert response.json() == {"id": 1, "hero_title": "Who Runs This Place"}
+        assert LeadershipPage.load().hero_title == "Who Runs This Place"
 
-
-def describe_page_wording_save():
-    def it_saves_every_field_and_the_directory_shows_them(client: Client):
+    def it_saves_a_blank_lead_line_and_leaves_the_title(client: Client):
         _admin(client)
-        response = client.post(_PAGE, _wording_post())
-        assert response.status_code == 302
-        assert response["Location"] == _PAGE
+        assert client.post(_PAGE_SAVE, {"field": "hero_lead", "value": ""}).status_code == 200
         page = LeadershipPage.load()
-        assert page.hero_title == "Who Runs This Place"
-        assert page.hero_lead == "Every name in one place."
-        assert page.team_heading == "The Crew"
-        assert page.team_intro == ""
-        assert page.guilds_heading == "Shop Leads"
-        assert page.guilds_intro == "One card per guild."
-        body = client.get(_DIRECTORY).content.decode()
-        assert "Who Runs This Place" in body
-        assert 'class="pl-leadership__intro"' in body.split('id="leadership-guilds"')[1]
-        assert 'class="pl-leadership__intro"' not in body.split('id="leadership-guilds"')[0]
+        assert (page.hero_lead, page.hero_title) == ("", "Leadership Directory")
 
-    def it_re_renders_with_the_typed_values_on_an_invalid_save(client: Client):
+    def it_refuses_a_blank_title_with_the_field_error_and_an_error_toast(client: Client):
         _admin(client)
-        response = client.post(_PAGE, _wording_post(hero_title="", team_heading="The Crew Typed"))
-        assert response.status_code == 200
-        html = response.content.decode()
-        assert 'value="The Crew Typed"' in html
-        assert 'class="pl-field-error"' in html
+        response = client.post(_PAGE_SAVE, {"field": "hero_title", "value": "  "})
+        assert response.status_code == 422
+        assert list(response.json()["errors"]) == ["hero_title"]
+        assert _toast(response)["type"] == "error"
+        assert LeadershipPage.load().hero_title == "Leadership Directory"
+
+    def it_refuses_a_field_it_does_not_edit_and_a_post_with_no_value(client: Client):
+        _admin(client)
+        assert client.post(_PAGE_SAVE, {"field": "team_heading", "value": "Old Column"}).status_code == 400
+        assert client.post(_PAGE_SAVE, {"field": "hero_title"}).status_code == 400
+        assert client.post(_PAGE_SAVE, {"value": "x"}).status_code == 400
         assert LeadershipPage.load().team_heading == "Leadership & Admin Team"
 
 
-def describe_add_a_person():
-    def it_lists_a_new_member_last_with_the_first_role_line(client: Client):
+def describe_tab_add():
+    def it_adds_a_people_tab_last_and_opens_the_editor_on_it(client: Client):
         _admin(client)
-        _listed("Ada Aldous", sort_order=4)
-        newcomer = MemberFactory(full_legal_name="Newcomer Nell")
-        response = client.post(_ADD, {"member": newcomer.pk, "title": "Council Secretary", "email": "sec@x.com"})
+        _guild_leads(sort_order=3)
+        response = client.post(_TAB_ADD, {"newtab-title": "Board Tab", "newtab-intro": "Who advises us."})
+        tab = LeadershipTab.objects.get(title="Board Tab")
+        assert (tab.kind, tab.intro, tab.sort_order) == (LeadershipTab.Kind.PEOPLE, "Who advises us.", 4)
+        assert response.status_code == 302
+        assert response["Location"] == f"{_PAGE}?tab={tab.pk}"
+        assert any("Board Tab" in message for message in _messages(response))
+
+    def it_reopens_the_modal_with_the_error_for_a_blank_title(client: Client):
+        _admin(client)
+        response = client.post(_TAB_ADD, {"newtab-title": "", "newtab-intro": "Typed Intro Kept"})
+        assert response.status_code == 200
+        html = response.content.decode()
+        assert "x-init=\"$dispatch('open-modal', 'leadership-tab-add')" in html
+        assert 'class="pl-field-error"' in _form(html, _TAB_ADD)
+        assert "Typed Intro Kept" in _form(html, _TAB_ADD)
+        assert LeadershipTab.objects.count() == 0
+
+
+def describe_tab_save():
+    def it_saves_a_title_and_an_intro(client: Client):
+        _admin(client)
+        tab = LeadershipTabFactory(title="Old Title")
+        url = reverse("hub_admin_leadership_tab_save", args=[tab.pk])
+        response = client.post(url, {"field": "title", "value": "Council Tab"})
+        assert response.json() == {"id": tab.pk, "title": "Council Tab"}
+        assert client.post(url, {"field": "intro", "value": "Who votes."}).json() == {
+            "id": tab.pk,
+            "intro": "Who votes.",
+        }
+        tab.refresh_from_db()
+        assert (tab.title, tab.intro) == ("Council Tab", "Who votes.")
+
+    def it_renames_guild_leads(client: Client):
+        _admin(client)
+        tab = _guild_leads(title="Guild Leaders")
+        url = reverse("hub_admin_leadership_tab_save", args=[tab.pk])
+        assert client.post(url, {"field": "title", "value": "Guild Leads Tab"}).status_code == 200
+        tab.refresh_from_db()
+        assert tab.title == "Guild Leads Tab"
+
+    def it_refuses_a_blank_title_and_keeps_the_old_one(client: Client):
+        _admin(client)
+        tab = LeadershipTabFactory(title="Kept Title")
+        response = client.post(reverse("hub_admin_leadership_tab_save", args=[tab.pk]), {"field": "title", "value": ""})
+        assert response.status_code == 422
+        assert "title" in response.json()["errors"]
+        assert _toast(response)["type"] == "error"
+        tab.refresh_from_db()
+        assert tab.title == "Kept Title"
+
+    def it_never_changes_the_kind(client: Client):
+        _admin(client)
+        tab = LeadershipTabFactory()
+        url = reverse("hub_admin_leadership_tab_save", args=[tab.pk])
+        assert client.post(url, {"field": "kind", "value": "guild_leads"}).status_code == 400
+        tab.refresh_from_db()
+        assert tab.kind == LeadershipTab.Kind.PEOPLE
+
+    def it_answers_404_for_a_tab_that_is_gone(client: Client):
+        _admin(client)
+        url = reverse("hub_admin_leadership_tab_save", args=[999999])
+        assert client.post(url, {"field": "title", "value": "x"}).status_code == 404
+
+
+def describe_tab_order():
+    def it_saves_the_strip_order(client: Client):
+        _admin(client)
+        a, b, c = LeadershipTabFactory(), _guild_leads(), LeadershipTabFactory()
+        response = client.post(_TAB_ORDER, {"order": [c.pk, a.pk, b.pk]})
+        assert response.status_code == 200
+        assert response.json() == {"order": [c.pk, a.pk, b.pk]}
+        assert list(LeadershipTab.objects.values_list("pk", flat=True)) == [c.pk, a.pk, b.pk]
+
+    def it_answers_404_when_a_tab_is_gone(client: Client):
+        _admin(client)
+        a, b = LeadershipTabFactory(sort_order=0), LeadershipTabFactory(sort_order=1)
+        assert client.post(_TAB_ORDER, {"order": [b.pk, 999999, a.pk]}).status_code == 404
+        assert list(LeadershipTab.objects.all()) == [a, b]
+
+    def it_refuses_an_id_that_is_not_a_number(client: Client):
+        _admin(client)
+        assert client.post(_TAB_ORDER, {"order": ["1", "x"]}).status_code == 400
+
+
+def describe_tab_delete():
+    def it_deletes_a_people_tab_and_its_cards_and_keeps_the_same_people_on_other_tabs(client: Client):
+        _admin(client)
+        board = LeadershipTabFactory(title="Board Tab")
+        leadership = LeadershipTabFactory()
+        gone = _person(board, "Morlock Mender", title="Board Advisor")
+        kept = LeadershipListingFactory(tab=leadership, member=gone.member)
+        LeadershipRoleFactory(listing=kept, title="Guild Executor")
+        response = client.post(reverse("hub_admin_leadership_tab_delete", args=[board.pk]))
         assert response.status_code == 302
         assert response["Location"] == _PAGE
-        listing = LeadershipListing.objects.get(member=newcomer)
-        assert listing.is_listed is True
-        assert listing.sort_order == 5
-        assert list(listing.roles.values_list("title", "email", "sort_order")) == [
-            ("Council Secretary", "sec@x.com", 0)
-        ]
+        assert any("Board Tab" in message for message in _messages(response))
+        assert not LeadershipTab.objects.filter(pk=board.pk).exists()
+        assert list(LeadershipListing.objects.values_list("pk", flat=True)) == [kept.pk]
+        assert list(LeadershipRole.objects.values_list("title", flat=True)) == ["Guild Executor"]
 
-    def it_starts_the_order_at_zero_when_nobody_is_listed(client: Client):
+    def it_never_deletes_guild_leads(client: Client):
         _admin(client)
-        LeadershipListingFactory(is_listed=False, sort_order=7)  # an unlisted row never sets the pace
-        newcomer = MemberFactory(full_legal_name="Newcomer Nell")
-        client.post(_ADD, {"member": newcomer.pk, "title": "Founder", "email": ""})
-        assert LeadershipListing.objects.get(member=newcomer).sort_order == 0
+        tab = _guild_leads()
+        assert client.post(reverse("hub_admin_leadership_tab_delete", args=[tab.pk])).status_code == 404
+        assert LeadershipTab.objects.filter(pk=tab.pk).exists()
 
-    def it_relists_a_removed_member_last_and_keeps_the_lines_they_had(client: Client):
+    def it_answers_404_for_a_tab_that_is_gone(client: Client):
         _admin(client)
-        _listed("Ada Aldous", sort_order=0)
-        removed = LeadershipListingFactory(
-            is_listed=False, sort_order=0, member=MemberFactory(full_legal_name="Back Again")
+        assert client.post(reverse("hub_admin_leadership_tab_delete", args=[999999])).status_code == 404
+
+
+def describe_person_add():
+    def _post(client: Client, tab: LeadershipTab, member: Member | str, title: str, email: str = "") -> HttpResponse:
+        member_pk = member.pk if isinstance(member, Member) else member
+        return client.post(
+            reverse("hub_admin_leadership_person_add", args=[tab.pk]),
+            {f"add-{tab.pk}-member": member_pk, f"add-{tab.pk}-title": title, f"add-{tab.pk}-email": email},
         )
-        LeadershipRoleFactory(listing=removed, title="Old Title", email="old@x.com")
-        response = client.post(_ADD, {"member": removed.member.pk, "title": "Old Title", "email": ""})
+
+    def it_lists_a_new_member_last_on_the_tab_with_the_first_line(client: Client):
+        _admin(client)
+        tab = LeadershipTabFactory(title="Board Tab")
+        _person(tab, "Ada Aldous", sort_order=4)
+        newcomer = MemberFactory(full_legal_name="Newcomer Nell")
+        response = _post(client, tab, newcomer, "Council Secretary", "sec@x.com")
         assert response.status_code == 302
+        assert response["Location"] == f"{_PAGE}?tab={tab.pk}"
+        assert any("Newcomer Nell" in message and "Board Tab" in message for message in _messages(response))
+        listing = LeadershipListing.objects.get(member=newcomer)
+        assert (listing.tab, listing.is_listed, listing.sort_order) == (tab, True, 5)
+        assert list(listing.roles.values_list("title", "email")) == [("Council Secretary", "sec@x.com")]
+
+    def it_relists_a_member_taken_off_the_tab_with_the_lines_they_had(client: Client):
+        _admin(client)
+        tab = LeadershipTabFactory()
+        removed = LeadershipListingFactory(tab=tab, is_listed=False)
+        LeadershipRoleFactory(listing=removed, title="Old Title", email="old@x.com")
+        assert _post(client, tab, removed.member, "Old Title").status_code == 302
         removed.refresh_from_db()
         assert removed.is_listed is True
-        assert removed.sort_order == 1
-        # The same title again is not a second line, and the address they had stays.
         assert list(removed.roles.values_list("title", "email")) == [("Old Title", "old@x.com")]
 
-    def it_adds_the_typed_line_when_relisting_with_a_new_title(client: Client):
+    def it_adds_someone_already_on_another_tab_with_separate_lines(client: Client):
         _admin(client)
-        removed = LeadershipListingFactory(is_listed=False, member=MemberFactory(full_legal_name="Back Again"))
-        LeadershipRoleFactory(listing=removed, title="Old Title")
-        client.post(_ADD, {"member": removed.member.pk, "title": "New Title", "email": "new@x.com"})
-        assert list(removed.roles.values_list("title", "email", "sort_order")) == [
-            ("Old Title", "", 0),
-            ("New Title", "new@x.com", 1),
-        ]
+        leadership, board = LeadershipTabFactory(), LeadershipTabFactory()
+        morlock = _person(leadership, "Morlock Mender", title="Guild Executor").member
+        assert _post(client, board, morlock, "Board Advisor").status_code == 302
+        lines = {
+            row.tab_id: list(row.roles.values_list("title", flat=True)) for row in morlock.leadership_listings.all()
+        }
+        assert lines == {leadership.pk: ["Guild Executor"], board.pk: ["Board Advisor"]}
 
-    def it_refuses_a_member_who_is_already_listed(client: Client):
+    def it_refuses_someone_already_on_the_tab_and_reopens_its_modal(client: Client):
         _admin(client)
-        listing = _listed("Ada Aldous", title="Founder")
-        response = client.post(_ADD, {"member": listing.member.pk, "title": "Second Line", "email": ""})
+        tab = LeadershipTabFactory(sort_order=1)
+        LeadershipTabFactory(sort_order=0)
+        listing = _person(tab, "Ada Aldous", title="Founder")
+        response = _post(client, tab, listing.member, "Second Line")
         assert response.status_code == 200
-        assert 'class="pl-field-error"' in response.content.decode()
+        html = response.content.decode()
+        assert f"x-init=\"$dispatch('open-modal', 'leadership-add-{tab.pk}')" in html
+        assert f'class="vote-tab vote-tab--active" data-tab-id="{tab.pk}"' in html
+        assert 'class="pl-field-error"' in _form(html, reverse("hub_admin_leadership_person_add", args=[tab.pk]))
         assert list(listing.roles.values_list("title", flat=True)) == ["Founder"]
 
     def it_requires_a_title(client: Client):
         _admin(client)
-        newcomer = MemberFactory(full_legal_name="Newcomer Nell")
-        response = client.post(_ADD, {"member": newcomer.pk, "title": "", "email": "sec@x.com"})
-        assert response.status_code == 200
+        tab = LeadershipTabFactory()
+        newcomer = MemberFactory()
+        assert _post(client, tab, newcomer, "").status_code == 200
         assert not LeadershipListing.objects.filter(member=newcomer).exists()
 
-
-def describe_roster_save():
-    def it_persists_a_reorder_and_changes_no_role_line(client: Client):
+    def it_answers_404_on_guild_leads_or_a_tab_that_is_gone(client: Client):
         _admin(client)
-        first = _listed("Ada Aldous", sort_order=0, title="Founder", email="founder@x.com")
-        second = _listed("Zed Zephyr", sort_order=1, title="Liaison")
-        stamp = timezone.now() - timedelta(days=3)
-        LeadershipRole.objects.update(updated_at=stamp)
-        first_role = first.roles.get()
-        second_role = second.roles.get()
-        # The drag that lifts Zed above Ada, each row carrying its lines untouched.
-        payload = _roster_post([(second, [_role_row(second_role)]), (first, [_role_row(first_role)])])
-        response = client.post(_SAVE, payload)
-        assert response.status_code == 302
-        assert response["Location"] == _PAGE
-        assert list(LeadershipListing.objects.listed().values_list("member__full_legal_name", flat=True)) == [
+        guilds = _guild_leads()
+        newcomer = MemberFactory()
+        assert _post(client, guilds, newcomer, "Lead").status_code == 404
+        response = client.post(reverse("hub_admin_leadership_person_add", args=[999999]), {})
+        assert response.status_code == 404
+        assert LeadershipListing.objects.count() == 0
+
+
+def describe_people_order():
+    def it_saves_the_order_of_the_cards(client: Client):
+        _admin(client)
+        tab = LeadershipTabFactory()
+        first = _person(tab, "Ada Aldous", sort_order=0)
+        second = _person(tab, "Zed Zephyr", sort_order=1)
+        url = reverse("hub_admin_leadership_people_order", args=[tab.pk])
+        response = client.post(url, {"order": [second.pk, first.pk]})
+        assert response.status_code == 200
+        assert list(tab.listings.listed().values_list("member__full_legal_name", flat=True)) == [
             "Zed Zephyr",
             "Ada Aldous",
         ]
-        first_role.refresh_from_db()
-        second_role.refresh_from_db()
-        assert (first_role.title, first_role.email, first_role.updated_at) == ("Founder", "founder@x.com", stamp)
-        assert (second_role.title, second_role.email, second_role.updated_at) == ("Liaison", "", stamp)
 
-    def it_edits_a_title_and_an_email_in_place(client: Client):
+    def it_answers_404_for_a_card_on_another_tab_or_gone(client: Client):
         _admin(client)
-        listing = _listed("Ada Aldous", title="Founder")
-        role = listing.roles.get()
-        payload = _roster_post([(listing, [_role_row(role, title="Executive Director", email="ed@x.com")])])
-        assert client.post(_SAVE, payload).status_code == 302
-        role.refresh_from_db()
-        assert (role.title, role.email) == ("Executive Director", "ed@x.com")
-        body = client.get(_DIRECTORY).content.decode()
-        assert "Executive Director" in body
-        assert "mailto:ed@x.com" in body
+        tab = LeadershipTabFactory()
+        mine = _person(tab, "Ada Aldous")
+        elsewhere = LeadershipListingFactory()
+        url = reverse("hub_admin_leadership_people_order", args=[tab.pk])
+        assert client.post(url, {"order": [elsewhere.pk, mine.pk]}).status_code == 404
+        assert client.post(url, {"order": [999999]}).status_code == 404
 
-    def it_adds_a_role_line_to_a_person(client: Client):
+    def it_answers_404_for_guild_leads_and_400_for_a_bad_id(client: Client):
         _admin(client)
-        listing = _listed("Ada Aldous", title="Founder")
-        role = listing.roles.get()
-        new_row = {"title": "Class Administrator", "email": "classes@x.com", "sort_order": "1"}
-        payload = _roster_post([(listing, [_role_row(role), new_row])])
-        assert client.post(_SAVE, payload).status_code == 302
-        assert list(listing.roles.values_list("title", "email", "sort_order")) == [
-            ("Founder", "", 0),
-            ("Class Administrator", "classes@x.com", 1),
-        ]
+        guilds = _guild_leads()
+        assert client.post(reverse("hub_admin_leadership_people_order", args=[guilds.pk]), {}).status_code == 404
+        tab = LeadershipTabFactory()
+        url = reverse("hub_admin_leadership_people_order", args=[tab.pk])
+        assert client.post(url, {"order": ["-1"]}).status_code == 400
 
-    def it_deletes_a_role_line(client: Client):
-        _admin(client)
-        listing = _listed("Ada Aldous", title="Founder")
-        gone = LeadershipRoleFactory(listing=listing, title="Old Title", sort_order=1)
-        keep = listing.roles.get(title="Founder")
-        payload = _roster_post([(listing, [_role_row(keep), _role_row(gone, DELETE="on")])])
-        assert client.post(_SAVE, payload).status_code == 302
-        assert list(listing.roles.values_list("title", flat=True)) == ["Founder"]
 
-    def it_ignores_an_abandoned_blank_added_line(client: Client):
+def describe_person_remove():
+    def it_hides_the_card_at_once_and_keeps_the_lines(client: Client):
         _admin(client)
-        listing = _listed("Ada Aldous", title="Founder")
-        role = listing.roles.get()
-        # The add button stamped sort_order and the admin typed nothing.
-        payload = _roster_post([(listing, [_role_row(role), {"title": "", "email": "", "sort_order": "1"}])])
-        assert client.post(_SAVE, payload).status_code == 302
-        assert listing.roles.count() == 1
-
-    def it_removes_a_person_and_keeps_their_lines(client: Client):
-        _admin(client)
-        listing = _listed("Ada Aldous", title="Founder")
-        role = listing.roles.get()
-        assert client.post(_SAVE, _roster_post([(listing, [_role_row(role)])], unlist={listing.pk})).status_code == 302
+        tab = LeadershipTabFactory()
+        listing = _person(tab, "Ada Aldous", title="Founder")
+        response = client.post(reverse("hub_admin_leadership_person_remove", args=[listing.pk]))
+        assert response.status_code == 204
         listing.refresh_from_db()
         assert listing.is_listed is False
         assert list(listing.roles.values_list("title", flat=True)) == ["Founder"]
-        assert "Ada Aldous" not in client.get(_DIRECTORY).content.decode()
+        assert "Ada Aldous" not in client.get(reverse("hub_leadership_directory")).content.decode()
 
-    def it_refuses_a_save_whose_rows_no_longer_match_the_page(client: Client):
+    def it_answers_404_for_a_card_that_is_gone(client: Client):
         _admin(client)
-        listing = _listed("Ada Aldous", title="Founder")
-        role = listing.roles.get()
-        payload = _roster_post([(listing, [_role_row(role, title="Renamed")])])
-        # Another admin took Ada off the page after this page was loaded.
-        LeadershipListing.objects.filter(pk=listing.pk).update(is_listed=False)
-        response = client.post(_SAVE, payload)
-        assert response.status_code == 200
-        html = response.content.decode()
-        assert "The team changed while you were editing" in html
-        assert "pl-roster-row" not in html  # the stale row is not drawn, so nothing reads its lines
-        role.refresh_from_db()
-        assert role.title == "Founder"
+        assert client.post(reverse("hub_admin_leadership_person_remove", args=[999999])).status_code == 404
 
-    def it_re_renders_the_row_open_with_the_error_when_a_line_has_no_title(client: Client):
+
+def describe_role_add():
+    def it_adds_the_line_last_and_answers_its_id_and_urls(client: Client):
         _admin(client)
-        listing = _listed("Ada Aldous", title="Founder")
-        role = listing.roles.get()
-        bad_row = {"title": "", "email": "typed@x.com", "sort_order": "1"}
-        response = client.post(_SAVE, _roster_post([(listing, [_role_row(role, title="Renamed"), bad_row])]))
+        listing = _person(LeadershipTabFactory(), "Ada Aldous", title="Founder")
+        response = client.post(reverse("hub_admin_leadership_role_add", args=[listing.pk]), {"title": "Advisor"})
         assert response.status_code == 200
-        html = response.content.decode()
-        assert 'class="pl-field-error"' in html
-        assert 'x-data="{ expanded: true }"' in html
-        assert 'value="typed@x.com"' in html  # the admin's typing survives
-        role.refresh_from_db()
-        assert role.title == "Founder"  # nothing persisted
+        role = listing.roles.get(title="Advisor")
+        assert role.sort_order == 1
+        assert response.json() == {
+            "id": role.pk,
+            "title": "Advisor",
+            "email": "",
+            "save_url": reverse("hub_admin_leadership_role_save", args=[role.pk]),
+            "delete_url": reverse("hub_admin_leadership_role_delete", args=[role.pk]),
+        }
+
+    def it_never_adds_a_line_twice_once_the_first_save_has_answered(client: Client):
+        """The editor's sequence for a new line: create with the title, then update the email at the URL it got."""
+        _admin(client)
+        listing = _person(LeadershipTabFactory(), "Ada Aldous")
+        created = client.post(reverse("hub_admin_leadership_role_add", args=[listing.pk]), {"title": "Advisor"}).json()
+        client.post(created["save_url"], {"field": "email", "value": "advisor@x.com"})
+        client.post(created["save_url"], {"field": "title", "value": "Senior Advisor"})
+        assert list(listing.roles.order_by("sort_order").values_list("title", "email")) == [
+            ("Founder", ""),
+            ("Senior Advisor", "advisor@x.com"),
+        ]
+
+    def it_refuses_a_blank_title_and_a_bad_email(client: Client):
+        _admin(client)
+        listing = _person(LeadershipTabFactory(), "Ada Aldous")
+        url = reverse("hub_admin_leadership_role_add", args=[listing.pk])
+        blank = client.post(url, {"title": ""})
+        assert blank.status_code == 422
+        assert list(blank.json()["errors"]) == ["title"]
+        assert _toast(blank)["type"] == "error"
+        bad = client.post(url, {"title": "Advisor", "email": "not-an-email"})
+        assert bad.status_code == 422
+        assert list(bad.json()["errors"]) == ["email"]
         assert listing.roles.count() == 1
+
+    def it_answers_404_for_a_card_that_is_gone(client: Client):
+        _admin(client)
+        assert client.post(reverse("hub_admin_leadership_role_add", args=[999999]), {"title": "x"}).status_code == 404
+
+
+def describe_role_save():
+    def it_saves_a_title_and_an_email(client: Client):
+        _admin(client)
+        role = LeadershipRoleFactory(title="Founder")
+        url = reverse("hub_admin_leadership_role_save", args=[role.pk])
+        assert client.post(url, {"field": "title", "value": "Executive Director"}).json()["title"] == (
+            "Executive Director"
+        )
+        assert client.post(url, {"field": "email", "value": "ed@x.com"}).json()["email"] == "ed@x.com"
+        role.refresh_from_db()
+        assert (role.title, role.email) == ("Executive Director", "ed@x.com")
+
+    def it_refuses_a_bad_email_and_keeps_the_old_one(client: Client):
+        _admin(client)
+        role = LeadershipRoleFactory(email="kept@x.com")
+        response = client.post(
+            reverse("hub_admin_leadership_role_save", args=[role.pk]), {"field": "email", "value": "nope"}
+        )
+        assert response.status_code == 422
+        assert list(response.json()["errors"]) == ["email"]
+        assert _toast(response)["type"] == "error"
+        role.refresh_from_db()
+        assert role.email == "kept@x.com"
+
+    def it_refuses_a_field_it_does_not_edit(client: Client):
+        _admin(client)
+        role = LeadershipRoleFactory(sort_order=3)
+        url = reverse("hub_admin_leadership_role_save", args=[role.pk])
+        assert client.post(url, {"field": "sort_order", "value": "0"}).status_code == 400
+        role.refresh_from_db()
+        assert role.sort_order == 3
+
+    def it_answers_404_for_a_line_that_is_gone(client: Client):
+        _admin(client)
+        url = reverse("hub_admin_leadership_role_save", args=[999999])
+        assert client.post(url, {"field": "title", "value": "x"}).status_code == 404
+
+
+def describe_role_delete():
+    def it_removes_the_line_at_once(client: Client):
+        _admin(client)
+        role = LeadershipRoleFactory()
+        assert client.post(reverse("hub_admin_leadership_role_delete", args=[role.pk])).status_code == 204
+        assert not LeadershipRole.objects.filter(pk=role.pk).exists()
+
+    def it_answers_404_for_a_line_that_is_gone(client: Client):
+        _admin(client)
+        assert client.post(reverse("hub_admin_leadership_role_delete", args=[999999])).status_code == 404

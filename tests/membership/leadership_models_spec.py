@@ -1,7 +1,11 @@
-"""BDD specs for the Leadership Directory data (#464, part 1).
+"""BDD specs for the Leadership Directory data (#464, tabs #564).
 
-The page wording singleton, the curated listing rows and their role lines, plus the two
-small helpers the page will read: ``Member.discord_profile_url`` and ``Guild.co_leads``.
+The page wording singleton, the tabs (People tabs admins add, and the one Guild Leads tab),
+the cards on each tab and their role lines, plus the two small helpers the page reads:
+``Member.discord_profile_url`` and ``Guild.co_leads``.
+
+The data migration makes two tabs in every migrated test database, so each spec here starts
+from none (``_no_tabs``) and builds exactly what it needs.
 """
 
 from __future__ import annotations
@@ -9,18 +13,34 @@ from __future__ import annotations
 from datetime import timedelta
 
 import pytest
+from django.db import IntegrityError, transaction
 from django.utils import timezone
 
-from membership.models import Guild, GuildStaffMembership, LeadershipListing, LeadershipPage, LeadershipRole, Member
+from membership.models import (
+    Guild,
+    GuildStaffMembership,
+    LeadershipListing,
+    LeadershipPage,
+    LeadershipRole,
+    LeadershipRowGoneError,
+    LeadershipTab,
+    Member,
+)
 from tests.membership.factories import (
     GuildFactory,
     GuildStaffMembershipFactory,
     LeadershipListingFactory,
     LeadershipRoleFactory,
+    LeadershipTabFactory,
     MemberFactory,
 )
 
 pytestmark = pytest.mark.django_db
+
+
+@pytest.fixture(autouse=True)
+def _no_tabs() -> None:
+    LeadershipTab.objects.all().delete()
 
 
 def describe_LeadershipPage():
@@ -28,9 +48,7 @@ def describe_LeadershipPage():
         page = LeadershipPage.load()
         assert page.pk == 1
         assert page.hero_title == "Leadership Directory"
-        assert page.team_heading == "Leadership & Admin Team"
-        assert page.guilds_heading == "Guild Leaders"
-        assert page.hero_lead and page.team_intro and page.guilds_intro
+        assert page.hero_lead
         assert LeadershipPage.load().pk == 1
         assert LeadershipPage.objects.count() == 1
 
@@ -43,7 +61,182 @@ def describe_LeadershipPage():
         assert str(LeadershipPage.load()) == "Leadership Directory"
 
 
+def describe_LeadershipTab():
+    def it_names_itself_by_its_title():
+        assert str(LeadershipTabFactory(title="Council")) == "Council"
+
+    def it_orders_by_sort_order_then_id():
+        late = LeadershipTabFactory(sort_order=1)
+        early = LeadershipTabFactory(sort_order=0)
+        tie = LeadershipTabFactory(sort_order=1)
+        assert list(LeadershipTab.objects.all()) == [early, late, tie]
+
+    def it_knows_the_guild_leads_tab():
+        assert LeadershipTabFactory(kind=LeadershipTab.Kind.GUILD_LEADS).is_guild_leads is True
+        assert LeadershipTabFactory().is_guild_leads is False
+
+    def it_allows_only_one_guild_leads_tab():
+        LeadershipTabFactory(kind=LeadershipTab.Kind.GUILD_LEADS)
+        with pytest.raises(IntegrityError), transaction.atomic():
+            LeadershipTabFactory(kind=LeadershipTab.Kind.GUILD_LEADS)
+
+    def it_allows_any_number_of_people_tabs():
+        LeadershipTabFactory()
+        LeadershipTabFactory()
+        assert LeadershipTab.objects.people().count() == 2
+
+    def describe_people():
+        def it_leaves_out_guild_leads():
+            people = LeadershipTabFactory()
+            LeadershipTabFactory(kind=LeadershipTab.Kind.GUILD_LEADS)
+            assert list(LeadershipTab.objects.people()) == [people]
+
+    def describe_pick():
+        def it_opens_the_tab_the_query_names():
+            first, second = LeadershipTabFactory(), LeadershipTabFactory()
+            assert LeadershipTab.pick([first, second], str(second.pk)) == second
+
+        def it_falls_back_to_the_first_for_a_missing_or_unknown_id():
+            first, second = LeadershipTabFactory(), LeadershipTabFactory()
+            assert LeadershipTab.pick([first, second], None) == first
+            assert LeadershipTab.pick([first, second], "999999") == first
+            assert LeadershipTab.pick([first, second], "not-a-number") == first
+
+        def it_is_none_with_no_tabs():
+            assert LeadershipTab.pick([], "1") is None
+
+    def describe_add_people_tab():
+        def it_puts_the_new_tab_last():
+            LeadershipTabFactory(sort_order=4)
+            tab = LeadershipTab.objects.add_people_tab("Board", "Who advises the council.")
+            assert (tab.title, tab.intro, tab.kind, tab.sort_order) == (
+                "Board",
+                "Who advises the council.",
+                LeadershipTab.Kind.PEOPLE,
+                5,
+            )
+
+        def it_starts_at_zero_with_no_tabs():
+            assert LeadershipTab.objects.add_people_tab("Board", "").sort_order == 0
+
+    def describe_reorder():
+        def it_sets_each_named_tab_to_its_index():
+            a, b, c = LeadershipTabFactory(), LeadershipTabFactory(), LeadershipTabFactory()
+            LeadershipTab.objects.reorder([c.pk, a.pk, b.pk])
+            assert list(LeadershipTab.objects.all()) == [c, a, b]
+
+        def it_refuses_an_id_that_is_gone_and_moves_nothing():
+            a, b = LeadershipTabFactory(sort_order=0), LeadershipTabFactory(sort_order=1)
+            with pytest.raises(LeadershipRowGoneError):
+                LeadershipTab.objects.reorder([b.pk, 999999, a.pk])
+            assert list(LeadershipTab.objects.all()) == [a, b]
+
+    def describe_with_listed():
+        def it_loads_listed_cards_members_and_lines_in_three_queries(django_assert_num_queries):
+            first = LeadershipTabFactory()
+            second = LeadershipTabFactory()
+            LeadershipRoleFactory(listing=LeadershipListingFactory(tab=first), title="Founder")
+            LeadershipListingFactory(tab=first, is_listed=False)
+            LeadershipRoleFactory(listing=LeadershipListingFactory(tab=second), title="Advisor")
+            with django_assert_num_queries(3):
+                tabs = list(LeadershipTab.objects.with_listed())
+                lines = [[[role.title for role in row.roles.all()] for row in tab.listed_listings] for tab in tabs]
+                names = [[row.member.display_name for row in tab.listed_listings] for tab in tabs]
+            assert lines == [[["Founder"]], [["Advisor"]]]
+            assert all(len(per_tab) == 1 for per_tab in names)
+
+    def describe_for_directory():
+        def it_leaves_an_empty_people_tab_out_of_the_member_view():
+            full = LeadershipTabFactory()
+            LeadershipListingFactory(tab=full)
+            empty = LeadershipTabFactory()
+            hidden_only = LeadershipTabFactory()
+            LeadershipListingFactory(tab=hidden_only, is_listed=False)
+            guild_leads = LeadershipTabFactory(kind=LeadershipTab.Kind.GUILD_LEADS)
+            assert LeadershipTab.objects.for_directory(include_empty=False) == [full, guild_leads]
+            assert LeadershipTab.objects.for_directory(include_empty=True) == [full, empty, hidden_only, guild_leads]
+
+    def describe_list_member():
+        def it_puts_the_member_last_on_the_tab_with_the_line():
+            tab = LeadershipTabFactory()
+            LeadershipListingFactory(tab=tab, sort_order=4)
+            LeadershipListingFactory(tab=tab, is_listed=False, sort_order=9)  # an unlisted row never sets the pace
+            LeadershipListingFactory(sort_order=20)  # nor does a card on another tab
+            listing = tab.list_member(MemberFactory(), "Council Secretary", "sec@x.com")
+            assert (listing.tab, listing.is_listed, listing.sort_order) == (tab, True, 5)
+            assert list(listing.roles.values_list("title", "email", "sort_order")) == [
+                ("Council Secretary", "sec@x.com", 0)
+            ]
+
+        def it_starts_at_zero_on_an_empty_tab():
+            assert LeadershipTabFactory().list_member(MemberFactory(), "Founder", "").sort_order == 0
+
+        def it_relists_a_member_taken_off_this_tab_and_adds_only_a_title_they_do_not_hold():
+            tab = LeadershipTabFactory()
+            LeadershipListingFactory(tab=tab, sort_order=0)
+            removed = LeadershipListingFactory(tab=tab, is_listed=False, sort_order=0)
+            LeadershipRoleFactory(listing=removed, title="Old Title", email="old@x.com")
+            again = tab.list_member(removed.member, "Old Title", "")
+            assert again.pk == removed.pk
+            assert (again.is_listed, again.sort_order) == (True, 1)
+            assert list(again.roles.values_list("title", "email")) == [("Old Title", "old@x.com")]
+            tab.list_member(removed.member, "New Title", "new@x.com")
+            assert list(again.roles.values_list("title", "email", "sort_order")) == [
+                ("Old Title", "old@x.com", 0),
+                ("New Title", "new@x.com", 1),
+            ]
+
+        def it_gives_a_member_on_another_tab_a_second_card_with_separate_lines():
+            leadership, board = LeadershipTabFactory(title="Leadership"), LeadershipTabFactory(title="Board")
+            morlock = MemberFactory(full_legal_name="Morlock")
+            first = leadership.list_member(morlock, "Guild Executor", "")
+            second = board.list_member(morlock, "Board Advisor", "board@x.com")
+            assert first.pk != second.pk
+            assert list(first.roles.values_list("title", flat=True)) == ["Guild Executor"]
+            assert list(second.roles.values_list("title", flat=True)) == ["Board Advisor"]
+            assert morlock.leadership_listings.count() == 2
+
+    def describe_reorder_listings():
+        def it_moves_only_the_cards_whose_place_changed_and_stamps_them():
+            tab = LeadershipTabFactory()
+            a = LeadershipListingFactory(tab=tab, sort_order=0)
+            b = LeadershipListingFactory(tab=tab, sort_order=1)
+            c = LeadershipListingFactory(tab=tab, sort_order=2)
+            stamp = timezone.now() - timedelta(days=3)
+            LeadershipListing.objects.update(updated_at=stamp)
+            tab.reorder_listings([b.pk, a.pk, c.pk])
+            rows = {row.pk: row for row in LeadershipListing.objects.all()}
+            assert [rows[a.pk].sort_order, rows[b.pk].sort_order, rows[c.pk].sort_order] == [1, 0, 2]
+            assert rows[c.pk].updated_at == stamp
+            assert rows[a.pk].updated_at > stamp and rows[b.pk].updated_at > stamp
+
+        def it_refuses_a_card_from_another_tab():
+            tab = LeadershipTabFactory()
+            mine = LeadershipListingFactory(tab=tab, sort_order=0)
+            elsewhere = LeadershipListingFactory(sort_order=5)
+            with pytest.raises(LeadershipRowGoneError):
+                tab.reorder_listings([elsewhere.pk, mine.pk])
+            mine.refresh_from_db()
+            elsewhere.refresh_from_db()
+            assert (mine.sort_order, elsewhere.sort_order) == (0, 5)
+
+
 def describe_LeadershipListing():
+    def it_allows_one_card_per_tab_and_member():
+        listing = LeadershipListingFactory()
+        with pytest.raises(IntegrityError), transaction.atomic():
+            LeadershipListingFactory(tab=listing.tab, member=listing.member)
+
+    def it_deletes_a_tabs_cards_and_lines_with_the_tab_and_keeps_the_others():
+        member = MemberFactory()
+        gone = LeadershipListingFactory(member=member)
+        kept = LeadershipListingFactory(member=member)
+        LeadershipRoleFactory(listing=gone, title="Going")
+        LeadershipRoleFactory(listing=kept, title="Staying")
+        gone.tab.delete()
+        assert list(LeadershipListing.objects.values_list("pk", flat=True)) == [kept.pk]
+        assert list(LeadershipRole.objects.values_list("title", flat=True)) == ["Staying"]
+
     def describe_listed():
         def it_returns_listed_rows_in_sort_order_with_members_and_roles_loaded(django_assert_num_queries):
             second = LeadershipListingFactory(is_listed=True, sort_order=2)
@@ -79,29 +272,47 @@ def describe_LeadershipListing():
             listing = LeadershipListingFactory()
             assert LeadershipListing.objects.last_updated() == listing.updated_at
 
-        def it_counts_an_unlisted_row_because_hiding_a_card_changes_the_page():
-            hidden = LeadershipListingFactory(is_listed=False)
-            assert LeadershipListing.objects.last_updated() == hidden.updated_at
-
-    def describe_for_member():
-        def it_returns_the_saved_row():
-            listing = LeadershipListingFactory()
-            assert LeadershipListing.objects.for_member(listing.member) == listing
-
-        def it_returns_an_unsaved_stand_in_without_writing_one():
+    def describe_on_tabs_for():
+        def it_lists_the_members_cards_on_show_in_tab_order_with_tab_and_lines(django_assert_num_queries):
             member = MemberFactory()
-            stand_in = LeadershipListing.objects.for_member(member)
-            assert stand_in.pk is None
-            assert stand_in.member == member
-            assert LeadershipListing.objects.count() == 0
+            later = LeadershipListingFactory(member=member, tab=LeadershipTabFactory(sort_order=5))
+            earlier = LeadershipListingFactory(member=member, tab=LeadershipTabFactory(sort_order=1))
+            LeadershipRoleFactory(listing=earlier, title="Guild Executor")
+            LeadershipListingFactory(member=member, is_listed=False)
+            LeadershipListingFactory()  # someone else
+            with django_assert_num_queries(2):
+                rows = list(LeadershipListing.objects.on_tabs_for(member))
+                seen = [(row.tab.title, [role.title for role in row.roles.all()]) for row in rows]
+            assert rows == [earlier, later]
+            assert seen == [(earlier.tab.title, ["Guild Executor"]), (later.tab.title, [])]
+
+    def describe_add_role():
+        def it_adds_the_line_under_the_last_one():
+            listing = LeadershipListingFactory()
+            LeadershipRoleFactory(listing=listing, sort_order=4)
+            assert listing.add_role("Advisor", "a@x.com").sort_order == 5
+            assert LeadershipListingFactory().add_role("First", "").sort_order == 0
+
+    def describe_remove_from_tab():
+        def it_hides_the_card_keeps_the_lines_and_moves_the_stamp():
+            listing = LeadershipListingFactory()
+            LeadershipRoleFactory(listing=listing, title="Founder")
+            stamp = timezone.now() - timedelta(days=3)
+            LeadershipListing.objects.filter(pk=listing.pk).update(updated_at=stamp)
+            listing.refresh_from_db()
+            listing.remove_from_tab()
+            listing.refresh_from_db()
+            assert listing.is_listed is False
+            assert listing.updated_at > stamp
+            assert list(listing.roles.values_list("title", flat=True)) == ["Founder"]
 
     def describe___str__():
-        def it_names_the_member_and_whether_they_are_listed():
+        def it_names_the_member_the_tab_and_whether_they_are_listed():
             member = MemberFactory(full_legal_name="Ada Lovelace")
-            listing = LeadershipListingFactory(member=member, is_listed=True)
-            assert str(listing) == "Ada Lovelace (listed)"
+            listing = LeadershipListingFactory(member=member, tab=LeadershipTabFactory(title="Council"))
+            assert str(listing) == "Ada Lovelace on Council (listed)"
             listing.is_listed = False
-            assert str(listing) == "Ada Lovelace (unlisted)"
+            assert str(listing) == "Ada Lovelace on Council (unlisted)"
 
 
 def describe_LeadershipRole():
@@ -151,45 +362,20 @@ def describe_Guild_co_leads():
 
 
 def describe_Member_leadership_candidates():
-    def it_offers_everyone_not_on_the_page_by_name():
-        LeadershipListingFactory(member=MemberFactory(full_legal_name="Listed Lou"))
-        LeadershipListingFactory(is_listed=False, member=MemberFactory(full_legal_name="Zed Removed"))
+    def it_offers_everyone_not_listed_on_the_tab_by_name():
+        tab = LeadershipTabFactory()
+        LeadershipListingFactory(tab=tab, member=MemberFactory(full_legal_name="Listed Lou"))
+        LeadershipListingFactory(tab=tab, is_listed=False, member=MemberFactory(full_legal_name="Zed Removed"))
+        LeadershipListingFactory(member=MemberFactory(full_legal_name="Other Tab Olive"))
         MemberFactory(full_legal_name="Ada Never")
-        names = list(Member.objects.leadership_candidates().values_list("full_legal_name", flat=True))
+        names = list(Member.objects.leadership_candidates(tab).values_list("full_legal_name", flat=True))
         assert "Listed Lou" not in names
-        assert names.index("Ada Never") < names.index("Zed Removed")
+        assert names.index("Ada Never") < names.index("Other Tab Olive") < names.index("Zed Removed")
 
-
-def describe_LeadershipListing_list_member():
-    def it_creates_a_listing_after_the_last_listed_row_with_the_line():
-        LeadershipListingFactory(sort_order=4)
-        LeadershipListingFactory(is_listed=False, sort_order=9)  # an unlisted row never sets the pace
-        listing = LeadershipListing.objects.list_member(MemberFactory(), "Council Secretary", "sec@x.com")
-        assert (listing.is_listed, listing.sort_order) == (True, 5)
-        assert list(listing.roles.values_list("title", "email", "sort_order")) == [
-            ("Council Secretary", "sec@x.com", 0)
-        ]
-
-    def it_starts_at_zero_on_an_empty_page():
-        assert LeadershipListing.objects.list_member(MemberFactory(), "Founder", "").sort_order == 0
-
-    def it_relists_a_removed_member_last_and_adds_only_a_title_they_do_not_hold():
-        LeadershipListingFactory(sort_order=0)
-        removed = LeadershipListingFactory(is_listed=False, sort_order=0)
-        LeadershipRoleFactory(listing=removed, title="Old Title", email="old@x.com")
-        again = LeadershipListing.objects.list_member(removed.member, "Old Title", "")
-        assert again.pk == removed.pk
-        assert (again.is_listed, again.sort_order) == (True, 1)
-        assert list(again.roles.values_list("title", "email")) == [("Old Title", "old@x.com")]
-        LeadershipListing.objects.list_member(removed.member, "New Title", "new@x.com")
-        assert list(again.roles.values_list("title", "email", "sort_order")) == [
-            ("Old Title", "old@x.com", 0),
-            ("New Title", "new@x.com", 1),
-        ]
-
-    def it_adds_nothing_when_the_member_already_holds_the_title_twice():
-        removed = LeadershipListingFactory(is_listed=False)
-        LeadershipRoleFactory(listing=removed, title="Twice")
-        LeadershipRoleFactory(listing=removed, title="Twice", sort_order=1)
-        LeadershipListing.objects.list_member(removed.member, "Twice", "")
-        assert removed.roles.filter(title="Twice").count() == 2
+    def it_tests_the_tab_and_the_listed_flag_on_the_same_card():
+        """Listed on another tab and unlisted here is still a candidate here: one subquery, not two joins."""
+        tab = LeadershipTabFactory()
+        member = MemberFactory(full_legal_name="Split Sam")
+        LeadershipListingFactory(tab=tab, member=member, is_listed=False)
+        LeadershipListingFactory(member=member, is_listed=True)
+        assert member in Member.objects.leadership_candidates(tab)

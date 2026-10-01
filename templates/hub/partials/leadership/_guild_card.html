@@ -1,0 +1,41 @@
+{% load hub_tags static %}
+{% comment %}
+One guild's card on the Guild Leads tab of the Leadership Directory (#464): the guild's SVG
+logo (or its initials) on the navy gradient, its name on the brass plate linking to the guild
+page, then its lead, its Co-Lead staff and its contact address, all read from the guild's own
+settings. ``guild`` comes from Guild.objects.visible() with the lead and staff loaded. A guild
+with no lead still gets a card that says so.
+{% endcomment %}
+<article class="pl-leader-card pl-leader-card--guild">
+    <div class="pl-leader-card__visual pl-leader-card__visual--guild">
+        {% if guild.logo_prefix %}
+        <img class="pl-leader-card__logo" src="{% static 'img/guild_logos/'|add:guild.logo_prefix|add:'_color.svg' %}" alt="">
+        {% else %}
+        <span class="pl-leader-card__initials" aria-hidden="true">{{ guild.name|initials }}</span>
+        {% endif %}
+    </div>
+    <h3 class="pl-leader-card__plate">
+        <a class="pl-leader-card__plate-link" href="{% url 'hub_guild_detail' guild.slug %}">{{ guild.name }}</a>
+    </h3>
+    <div class="pl-leader-card__body">
+        <div class="pl-leader-card__role">
+            <span class="pl-leader-card__eyebrow">Lead</span>
+            {% if guild.guild_lead %}
+            <span class="pl-leader-card__person">{{ guild.guild_lead.display_name }}</span>
+            {% include "hub/partials/leadership/_discord_row.html" with person=guild.guild_lead %}
+            {% else %}
+            <span class="pl-leader-card__person pl-leader-card__person--none">No lead set yet</span>
+            {% endif %}
+        </div>
+        {% for co_lead in guild.co_leads %}
+        <div class="pl-leader-card__role">
+            <span class="pl-leader-card__eyebrow">Co-Lead</span>
+            <span class="pl-leader-card__person">{{ co_lead.display_name }}</span>
+            {% include "hub/partials/leadership/_discord_row.html" with person=co_lead %}
+        </div>
+        {% endfor %}
+        {% if guild.contact_email %}
+        {% include "hub/partials/leadership/_email_row.html" with email=guild.contact_email %}
+        {% endif %}
+    </div>
+</article>

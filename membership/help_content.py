@@ -263,12 +263,14 @@ So that nobody misses something important, several updates come **switched on by
         "title": "Leadership Directory: Who to Ask",
         "sort_order": 30,
         "related": ["welcome-to-fog", "member-directory", "guilds-and-guild-pages"],
-        "body": """Need the person who runs something at Past Lives? Open **Leadership Directory** in the sidebar. It is one page with a card for each person, so you never have to dig through Discord for a name.
+        "body": """Need the person who runs something at Past Lives? Open **Leadership Directory** in the sidebar. Its tabs group the people by what they do, with a card for each person, so you never have to dig through Discord for a name.
 
 ## Who Is on the Page {#who-is-listed}
 
-- **Leadership & Admin Team** — the people who keep the makerspace running. Each card shows their title, an email for that role, and their Discord handle.
-- **Guild Leaders** — one card per active guild, with the lead, any co-leads, their Discord handles, and the guild's own email address.
+- **People tabs**, such as Leadership or Council: one card per person, with their title, an email for that role, and their Discord handle. Someone in two groups has a card on each tab, with that group's title.
+- **Guild Leads**: one card per active guild, with the lead, any co-leads, their Discord handles, and the guild's own email address.
+
+Tap a tab to open it. The page remembers the open tab in its address, so a link you share opens the same tab.
 
 ## Getting in Touch {#getting-in-touch}
 
@@ -280,10 +282,10 @@ So that nobody misses something important, several updates come **switched on by
 
 - The guild cards read each guild's settings. When a guild changes its lead there, the card changes on its own.
 - Your Discord handle comes from your own **Settings**. Guild leads: your guild's email lives in your guild page's settings.
-- Admins add people to the team section, fix titles and emails, and set the order from **Admin Tools → Leadership Directory**, or with the **Edit this page** button on the directory. The toggle on a member's profile in Manage Members does the same for one person.
+- Admins add and name tabs, add people to a tab, fix titles and emails, and set the order from **Admin Tools → Leadership Directory**, or with the **Edit this page** button on the directory. Each change saves as they make it. A member's profile in Manage Members lists the tabs they are on.
 
 !!! tip
-    The **Updated** date under the page title is the last change to the team list, so you can tell how fresh it is.
+    The **Updated** date under the page title is the last change to who is on the page, so you can tell how fresh it is.
 """,
         "screenshots": [],
     },

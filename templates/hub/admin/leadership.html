@@ -1,5 +1,5 @@
 {% extends "hub/base.html" %}
-{% load hub_tags static %}
+{% load static %}
 {% block title %}Leadership Directory{% endblock %}
 
 {% block extra_head %}
@@ -8,229 +8,437 @@
 
 {% block content %}
 {% comment %}
-The Leadership Directory admin (#476): three sibling forms, never nested, the Slideshow page's
-shape. Page Wording posts to this page; the team roster posts to its own save endpoint with the
-order, who stays listed and every person's role lines; Add a Person is a modal with a form of
-its own. The roster rows reuse the Slideshow row classes and its delegated reorder script (grip
-drag on desktop, up and down buttons on touch), which rewrites each row's hidden sort_order;
-Remove from page sets the row's hidden is_listed to False and submits, so the person keeps
-their role lines for the Details tab toggle to bring back. The page's Guild Leaders section has
-no editor here: it reads each guild's own settings.
+The Leadership Directory editor (#476; tabs and auto save, #564). Every edit saves by itself
+and there is no Save button: typed fields when they change and after a short pause in typing,
+order on a drop or an arrow, removals at once. The save state pill is the meeting workspace's
+(Saving, Saved, Couldn't save). The page wording sits above the tab strip; each tab has a pane
+(hub/admin/_leadership_pane.html). The two modals, Add a Tab and Add a Person, keep their Add
+buttons because they create something; they and Delete tab are plain POSTs that come back here
+with a toast. The script below posts one field, one order or one removal per request, all
+through one queue, so a new role line's first save has answered with its id before the next
+save of that line runs, and a line is never added twice.
 {% endcomment %}
-<div class="pl-leadership-admin" x-data="{}">
-  <div>
-    <h1 class="hub-page-title">Leadership Directory</h1>
-    <p class="pl-leadership-admin__lead">
-      Who is on the <a href="{% url 'hub_leadership_directory' %}">Leadership Directory</a>, in what order, and the words around them.
-      The guild cards come from each guild's own settings.
-    </p>
+<div class="pl-leadership-admin" x-data="plLeadershipEditor({{ editor.open_tab.pk|default:'null' }})" data-editor-url="{% url 'hub_admin_leadership' %}">
+  <div class="pl-leadership-admin__header">
+    <div>
+      <h1 class="hub-page-title">Leadership Directory</h1>
+      <p class="pl-leadership-admin__lead">
+        The tabs and people on the <a href="{% url 'hub_leadership_directory' %}">Leadership Directory</a>.
+        Every change saves as you make it.
+      </p>
+    </div>
+    <span class="pl-meeting-savestate" data-save-pill
+          :class="'pl-meeting-savestate--' + (pending > 0 ? 'saving' : state)"
+          :data-saves="saves"
+          x-show="pending > 0 || state !== 'idle'" x-text="label()" aria-live="polite" x-cloak></span>
   </div>
 
-  {# ---- Page wording ---- #}
-  <form method="post" action="{% url 'hub_admin_leadership' %}" class="hub-card pl-leadership-admin__card">
-    {% csrf_token %}
-    <h2 class="hub-detail-label pl-leadership-admin__title">Page Wording</h2>
-    <p class="hub-text-muted pl-leadership-admin__hint">The heading and lead at the top of the page, and both section headings. A blank intro hides its line.</p>
-    {% for field in page_form %}
+  <section class="hub-card pl-leadership-admin__card" data-save-url="{% url 'hub_admin_leadership_page_save' %}">
+    <h2 class="hub-detail-label pl-leadership-admin__title">Page</h2>
+    <p class="hub-text-muted pl-leadership-admin__hint">The heading and lead line above the tabs. A blank lead line hides it.</p>
+    {% for field in editor.page_form %}
       {% include "components/form_field.html" with field=field %}
     {% endfor %}
-    <div class="pl-leadership-admin__actions">
-      <button type="submit" class="pl-btn pl-btn--primary">Save</button>
-    </div>
-  </form>
+  </section>
 
-  {# ---- Team ---- #}
-  <form method="post" action="{% url 'hub_admin_leadership_roster_save' %}" class="hub-card pl-leadership-admin__card" id="leadership-roster-form">
-    {% csrf_token %}
-    <div class="pl-leadership-admin__head">
-      <h2 class="hub-detail-label pl-leadership-admin__title">Leadership &amp; Admin Team</h2>
-      <button type="button" class="hub-btn hub-btn--sm" @click="$dispatch('open-modal', 'leadership-add')">+ Add a person</button>
+  <section class="hub-card pl-leadership-admin__card">
+    <div class="pl-leadership-admin__strip">
+      <nav class="pl-tabs" role="tablist" aria-label="Leadership tabs" data-tab-strip data-order-url="{% url 'hub_admin_leadership_tab_order' %}">
+        {% for pane in editor.panes %}
+        <button type="button" role="tab" class="vote-tab{% if pane.tab == editor.open_tab %} vote-tab--active{% endif %}" data-tab-id="{{ pane.tab.pk }}"
+                aria-selected="{% if pane.tab == editor.open_tab %}true{% else %}false{% endif %}"
+                :class="{ 'vote-tab--active': open === {{ pane.tab.pk }} }" :aria-selected="open === {{ pane.tab.pk }}"
+                @click="show({{ pane.tab.pk }})">{{ pane.tab.title }}</button>
+        {% endfor %}
+      </nav>
+      <button type="button" class="hub-btn hub-btn--sm" @click="$dispatch('open-modal', 'leadership-tab-add')">+ Add a tab</button>
     </div>
-    <p class="hub-text-muted pl-leadership-admin__hint">
-      Drag the grip, or use the arrows, to set the order the page shows. Edit opens a person's role lines.
-      Remove from page takes them off the page and keeps their lines for later. Save keeps all of it.
-    </p>
-    {{ editor.formset.management_form }}
-    {% for error in editor.formset.non_form_errors %}<p class="pl-field-error">{{ error }}</p>{% endfor %}
-    <div id="leadership-rows" class="pl-slideshow-rows">
-      {% for row in editor.rows %}
-        {% with form=row.form roles=row.roles member=row.form.instance.member %}
-        <div class="hub-card pl-slideshow-row pl-slide-card pl-roster-row" x-data="{ expanded: {{ row.expanded|yesno:'true,false' }} }">
-          {{ form.id }}{{ form.sort_order }}{{ form.is_listed }}
-          {% for error in form.non_field_errors %}<p class="pl-field-error">{{ error }}</p>{% endfor %}
-          <div class="pl-slide-summary">
-            <span class="pl-slide-grip" draggable="true" title="Drag to reorder" aria-label="Drag to reorder">⠿</span>
-            <span class="pl-roster-row__avatar" aria-hidden="true">
-              {% if member.profile_photo and member|is_public:"profile_photo" %}<img src="{{ member.profile_photo.url }}" alt="">{% else %}{{ member.display_name|initials }}{% endif %}
-            </span>
-            <span class="pl-slide-summary__main">
-              <span class="pl-slide-summary__title">{{ member.display_name }}</span>
-              <span class="pl-slide-summary__meta">
-                {% for role in form.instance.roles.all %}<span class="pl-slide-badge">{{ role.title }}</span>{% empty %}<span class="pl-roster-row__none">No role line yet</span>{% endfor %}
-              </span>
-            </span>
-            <span class="pl-slide-summary__actions">
-              <span class="pl-slide-move" role="group" aria-label="Reorder">
-                <button type="button" class="pl-slide-move__btn" data-move="up" title="Move up" aria-label="Move up">↑</button>
-                <button type="button" class="pl-slide-move__btn" data-move="down" title="Move down" aria-label="Move down">↓</button>
-              </span>
-              <button type="button" class="hub-btn hub-btn--sm" @click="expanded = !expanded" :aria-expanded="expanded" x-text="expanded ? 'Done' : 'Edit'">Edit</button>
-              <button type="button" class="pl-btn pl-btn--danger pl-btn--sm"
-                      onclick="document.getElementById('{{ form.is_listed.id_for_label }}').value = 'False'; this.form.requestSubmit();">
-                Remove from page
-              </button>
-            </span>
-          </div>
-          <div x-show="expanded" class="pl-slide-editor">
-            {{ roles.management_form }}
-            {% for error in roles.non_form_errors %}<p class="pl-field-error">{{ error }}</p>{% endfor %}
-            <div id="leadership-role-rows-{{ form.instance.pk }}">
-              {% for role_form in roles %}
-                <div class="pl-leadership-role">
-                  {{ role_form.id }}{{ role_form.sort_order }}
-                  <div class="pl-leadership-role__fields">
-                    <div>{% include "components/form_field.html" with field=role_form.title %}</div>
-                    <div>{% include "components/form_field.html" with field=role_form.email %}</div>
-                  </div>
-                  {% if role_form.instance.pk %}
-                    <div class="pl-leadership-role__flag">{{ role_form.DELETE }}</div>
-                    <button type="button" class="pl-btn pl-btn--danger pl-btn--sm pl-btn--spaced"
-                            onclick="document.getElementById('{{ role_form.DELETE.id_for_label }}').checked = true; this.form.requestSubmit();">
-                      Delete
-                    </button>
-                  {% else %}
-                    <button type="button" class="pl-btn pl-btn--danger pl-btn--sm pl-btn--spaced" onclick="this.closest('.pl-leadership-role').remove();">Remove</button>
-                  {% endif %}
-                </div>
-              {% endfor %}
-            </div>
-            {# Hidden empty-form template for this person, cloned by their + Add a role button. #}
-            <template id="leadership-role-empty-template-{{ form.instance.pk }}">
-              {% with roles.empty_form as ef %}
-              <div class="pl-leadership-role">
-                {{ ef.id }}{{ ef.sort_order }}
-                <div class="pl-leadership-role__fields">
-                  <div>{% include "components/form_field.html" with field=ef.title %}</div>
-                  <div>{% include "components/form_field.html" with field=ef.email %}</div>
-                </div>
-                <button type="button" class="pl-btn pl-btn--danger pl-btn--sm pl-btn--spaced" onclick="this.closest('.pl-leadership-role').remove();">Remove</button>
-              </div>
-              {% endwith %}
-            </template>
-            <button type="button" class="hub-btn hub-btn--sm pl-leadership__add" data-add-role="{{ form.instance.pk }}">+ Add a role</button>
-          </div>
-        </div>
-        {% endwith %}
-      {% empty %}
-        <p class="pl-leadership-admin__empty">Nobody is listed yet. Add a person to start the team.</p>
-      {% endfor %}
-    </div>
-    <div class="pl-leadership-admin__actions">
-      <button type="submit" class="pl-btn pl-btn--primary">Save</button>
-    </div>
-  </form>
+    {% for pane in editor.panes %}
+      {% include "hub/admin/_leadership_pane.html" %}
+    {% empty %}
+      <p class="pl-leadership-admin__empty">No tabs yet. Add a tab to start.</p>
+    {% endfor %}
+  </section>
 
-  {# Add a Person: its own form inside the modal, a sibling of the two forms above. #}
-  {% include "components/modal.html" with modal_id="leadership-add" modal_title="Add a Person" modal_size="sm" modal_body_include="hub/admin/_leadership_add_form.html" %}
-  {% if add_form.errors %}
-  <div x-data x-init="$dispatch('open-modal', 'leadership-add')"></div>
+  {% include "components/modal.html" with modal_id="leadership-tab-add" modal_title="Add a Tab" modal_size="sm" modal_body_include="hub/admin/_leadership_tab_add_form.html" %}
+  {% if editor.tab_add_form.errors %}
+  <div x-data x-init="$dispatch('open-modal', 'leadership-tab-add')"></div>
   {% endif %}
+  {% for pane in editor.panes %}
+    {% if pane.add_form %}
+      {% include "components/modal.html" with modal_id=pane.add_modal_id modal_title="Add a Person" modal_size="sm" modal_body_include="hub/admin/_leadership_add_form.html" %}
+      {% if pane.open_add %}
+      <div x-data x-init="$dispatch('open-modal', '{{ pane.add_modal_id }}')"></div>
+      {% endif %}
+      {% url 'hub_admin_leadership_tab_delete' pane.tab.pk as delete_url %}
+      {% include "components/confirm_modal.html" with confirm_id=pane.delete_confirm_id confirm_title="Delete this tab?" confirm_message=pane.delete_message confirm_action_url=delete_url confirm_button_text="Delete tab" %}
+    {% endif %}
+  {% endfor %}
+
+  {# The + Add a role line, cloned by the script with __prefix__ swapped for a fresh key. #}
+  <template data-role-template>{% include "hub/admin/_leadership_role_row.html" with form=editor.new_role_form %}</template>
 </div>
 <script>
-  // Roster reorder and role lines: ONE delegated set of handlers on #leadership-rows, the
-  // Slideshow slides script with its ids renamed. Desktop: native HTML5 drag from the ⠿ grip.
-  // Touch: the up/down buttons (the grip is hidden there via @media (hover: none)). Either path
-  // rewrites every row's hidden roster-N-sort_order to its visual index (0,1,2…); Save persists
-  // it and Meta.ordering = ["sort_order", "id"] re-renders that order on reload. The "+ Add a
-  // role" button clones that person's empty-form template, the Details tab pattern.
-  (function () {
-    var container = document.getElementById('leadership-rows');
-    if (!container) return;
+// Registered on whichever side of alpine:init this script lands (FRONTEND.md, Scripts under
+// hx-boost): before Alpine starts on a hard load, after it on a boosted arrival.
+(function () {
+  function lastSaved(input) {
+    return 'saved' in input.dataset ? input.dataset.saved : input.defaultValue;
+  }
 
-    function rows() {
-      return Array.prototype.filter.call(container.children, function (el) {
-        return el.classList && el.classList.contains('pl-slide-card');
-      });
+  function showError(input, messages) {
+    var group = input.closest('.pl-form-group') || input.parentElement;
+    var list = group.querySelector('.pl-field-errors');
+    if (!list) {
+      list = document.createElement('ul');
+      list.className = 'pl-field-errors';
+      input.insertAdjacentElement('afterend', list);
     }
+    list.textContent = '';
+    (messages || []).forEach(function (message) {
+      var item = document.createElement('li');
+      item.className = 'pl-field-error';
+      item.textContent = message;
+      list.appendChild(item);
+    });
+  }
 
-    function reindex() {
-      rows().forEach(function (row, idx) {
-        // The roster's own order input, never one of the role lines' sort_order inputs.
-        var input = row.querySelector('input[name^="roster-"][name$="-sort_order"]');
-        if (input) input.value = idx;
-      });
-    }
+  function clearError(input) {
+    var group = input.closest('.pl-form-group');
+    var list = group && group.querySelector('.pl-field-errors');
+    if (list) list.remove();
+  }
 
-    function addRole(pk) {
-      var tpl = document.getElementById('leadership-role-empty-template-' + pk);
-      var total = document.getElementById('id_roles-' + pk + '-TOTAL_FORMS');
-      var idx = parseInt(total.value, 10);
-      var wrap = document.createElement('div');
-      wrap.innerHTML = tpl.innerHTML.replaceAll('__prefix__', idx);
-      document.getElementById('leadership-role-rows-' + pk).appendChild(wrap.firstElementChild);
-      document.getElementById('id_roles-' + pk + '-' + idx + '-sort_order').value = idx;
-      total.value = idx + 1;
-    }
+  function toast(message, type) {
+    window.dispatchEvent(new CustomEvent('show-toast', { detail: { message: message, type: type } }));
+  }
 
-    // Up / down move buttons (the touch-friendly path), and + Add a role.
-    container.addEventListener('click', function (e) {
-      var add = e.target.closest && e.target.closest('[data-add-role]');
-      if (add && container.contains(add)) {
-        addRole(add.getAttribute('data-add-role'));
-        return;
-      }
-      var btn = e.target.closest && e.target.closest('[data-move]');
-      if (!btn || !container.contains(btn)) return;
-      var row = btn.closest('.pl-slide-card');
-      if (!row) return;
-      if (btn.getAttribute('data-move') === 'up') {
-        var prev = row.previousElementSibling;
-        if (prev && prev.classList.contains('pl-slide-card')) container.insertBefore(row, prev);
-      } else {
-        var next = row.nextElementSibling;
-        if (next && next.classList.contains('pl-slide-card')) container.insertBefore(next, row);
-      }
-      reindex();
-    });
+  // The 422 contract sets its error toast in HX-Trigger, as for htmx; fetch has to relay it.
+  function relayToast(response) {
+    var header = response.headers.get('HX-Trigger');
+    if (!header) return;
+    var events = JSON.parse(header);
+    if (events.showToast) toast(events.showToast.message, events.showToast.type);
+  }
 
-    // Native drag-and-drop from the grip handle (desktop).
-    var dragRow = null;
-    container.addEventListener('dragstart', function (e) {
-      var grip = e.target.closest && e.target.closest('.pl-slide-grip');
-      if (!grip) return;
-      dragRow = grip.closest('.pl-slide-card');
-      if (!dragRow) return;
-      dragRow.classList.add('pl-slide-card--dragging');
-      e.dataTransfer.effectAllowed = 'move';
-      try { e.dataTransfer.setData('application/x-roster-reorder', '1'); } catch (err) {}
+  function definePlLeadershipEditor() {
+    Alpine.data('plLeadershipEditor', function (openTab) {
+      // Plumbing kept out of Alpine's reactive state: the root, typing timers, the save chain.
+      var root = null;
+      var timers = new WeakMap();
+      var chain = Promise.resolve();
+      var fresh = 0;
+      var dragRow = null;
+
+      return {
+        open: openTab,
+        state: 'idle',
+        pending: 0,
+        saves: 0,
+
+        init() {
+          root = this.$el;
+          var self = this;
+          root.addEventListener('input', function (e) { self.onInput(e.target); });
+          root.addEventListener('change', function (e) { self.onChange(e.target); });
+          root.addEventListener('click', function (e) { self.onClick(e); });
+          root.addEventListener('dragstart', function (e) { self.onDragStart(e); });
+          root.addEventListener('dragend', function () { self.onDragEnd(); });
+          root.addEventListener('dragover', function (e) { self.onDragOver(e); });
+          root.addEventListener('drop', function (e) { self.onDrop(e); });
+        },
+
+        show(id) {
+          this.open = id;
+          history.replaceState(history.state, '', root.dataset.editorUrl + '?tab=' + id);
+        },
+
+        label() {
+          if (this.pending > 0) return 'Saving…';
+          if (this.state === 'error') return "Couldn't save. Check your connection.";
+          return 'Saved';
+        },
+
+        // --- The queue: one request at a time, each reading the page as it is when it runs ---
+        enqueue(job) {
+          var self = this;
+          self.pending += 1;
+          chain = chain
+            .then(job)
+            .catch(function () { self.state = 'error'; })
+            .then(function () { self.pending -= 1; });
+        },
+        done() {
+          this.saves += 1;
+          this.state = 'saved';
+        },
+        post(url, data) {
+          var body = new URLSearchParams();
+          Object.keys(data).forEach(function (key) {
+            [].concat(data[key]).forEach(function (value) { body.append(key, value); });
+          });
+          var token = document.querySelector('meta[name="csrf-token"]').content;
+          return fetch(url, {
+            method: 'POST',
+            headers: { 'X-CSRFToken': token },
+            body: body,
+            credentials: 'same-origin',
+          }).then(function (response) {
+            relayToast(response);
+            return response;
+          });
+        },
+        // A 404 means another admin removed it: drop that row, or reload for a tab or the strip.
+        gone(response, el) {
+          if (response.status !== 404) {
+            this.state = 'error';
+            return;
+          }
+          toast('That was removed in another window. Reload to see the latest.', 'error');
+          var row = el.closest('[data-role], [data-listing-id]');
+          if (row) {
+            row.remove();
+          } else {
+            setTimeout(function () { window.location.reload(); }, 1500);
+          }
+          this.state = 'saved';
+        },
+
+        // --- Typed fields: after a pause in typing, and at once when the field changes ---
+        onInput(input) {
+          if (!input.dataset || input.dataset.autosave === undefined) return;
+          var self = this;
+          self.relabel(input);
+          clearTimeout(timers.get(input));
+          timers.set(input, setTimeout(function () {
+            self.enqueue(function () { return self.saveInput(input); });
+          }, 800));
+        },
+        onChange(input) {
+          if (!input.dataset || input.dataset.autosave === undefined) return;
+          var self = this;
+          clearTimeout(timers.get(input));
+          self.enqueue(function () { return self.saveInput(input); });
+        },
+        async saveInput(input) {
+          if (!input.isConnected) return;
+          var line = input.closest('[data-role]');
+          if (line && line.dataset.removed) return;
+          if (line && !line.dataset.saveUrl) return this.createRole(line);
+          if (input.value.trim() === lastSaved(input).trim()) return;
+          var box = input.closest('[data-save-url]');
+          var field = input.dataset.autosave;
+          var response = await this.post(box.dataset.saveUrl, { field: field, value: input.value });
+          if (response.ok) {
+            var row = await response.json();
+            input.dataset.saved = row[field];
+            clearError(input);
+            this.done();
+          } else if (response.status === 422) {
+            var refused = await response.json();
+            showError(input, refused.errors[field]);
+            input.value = lastSaved(input);
+            this.relabel(input);
+            this.state = 'saved';
+          } else {
+            this.gone(response, box);
+          }
+        },
+        // The tab strip's label follows the tab's title as it is typed, and its last good value.
+        relabel(input) {
+          var fields = input.closest('[data-tab-fields]');
+          if (!fields || input.dataset.autosave !== 'title') return;
+          var button = root.querySelector('[data-tab-strip] [data-tab-id="' + fields.dataset.tabFields + '"]');
+          button.textContent = input.value.trim() || lastSaved(input);
+        },
+
+        // --- Role lines ---
+        addRole(button) {
+          var person = button.closest('[data-listing-id]');
+          var template = root.querySelector('template[data-role-template]');
+          fresh += 1;
+          var holder = document.createElement('div');
+          holder.innerHTML = template.innerHTML.replaceAll('__prefix__', 'new' + fresh);
+          var line = holder.firstElementChild;
+          person.querySelector('[data-roles]').appendChild(line);
+          line.querySelector('[data-autosave="title"]').focus();
+        },
+        // A new line's first save: the title alone, so a bad email can never sink it. The id
+        // and URLs that come back go on the line before the queue runs anything else, so the
+        // email (and every later edit) updates this line instead of adding a second one.
+        async createRole(line) {
+          var title = line.querySelector('[data-autosave="title"]');
+          var email = line.querySelector('[data-autosave="email"]');
+          if (!title.value.trim()) return;
+          var list = line.closest('[data-roles]');
+          var response = await this.post(list.dataset.addUrl, { title: title.value });
+          if (response.ok) {
+            var saved = await response.json();
+            line.dataset.roleId = saved.id;
+            line.dataset.saveUrl = saved.save_url;
+            line.dataset.deleteUrl = saved.delete_url;
+            title.dataset.saved = saved.title;
+            email.dataset.saved = saved.email;
+            clearError(title);
+            this.done();
+            if (email.value.trim()) await this.saveInput(email);
+          } else if (response.status === 422) {
+            var refused = await response.json();
+            Object.keys(refused.errors).forEach(function (name) {
+              showError(line.querySelector('[data-autosave="' + name + '"]'), refused.errors[name]);
+            });
+            this.state = 'saved';
+          } else {
+            this.gone(response, list);
+          }
+        },
+        removeRole(line) {
+          var self = this;
+          line.hidden = true;
+          line.dataset.removed = '1';
+          self.enqueue(async function () {
+            if (!line.dataset.deleteUrl) {
+              line.remove();
+              return;
+            }
+            var response = await self.post(line.dataset.deleteUrl, {});
+            if (response.ok || response.status === 404) {
+              line.remove();
+              self.done();
+              return;
+            }
+            line.hidden = false;
+            delete line.dataset.removed;
+            self.state = 'error';
+          });
+        },
+
+        // --- People ---
+        removePerson(row) {
+          var self = this;
+          row.hidden = true;
+          row.dataset.removed = '1';
+          self.enqueue(async function () {
+            var response = await self.post(row.dataset.removeUrl, {});
+            if (response.ok || response.status === 404) {
+              row.remove();
+              self.done();
+              return;
+            }
+            row.hidden = false;
+            delete row.dataset.removed;
+            self.state = 'error';
+          });
+        },
+        movePerson(button) {
+          var row = button.closest('[data-listing-id]');
+          var list = row.parentElement;
+          if (button.dataset.move === 'up') {
+            if (!row.previousElementSibling) return;
+            list.insertBefore(row, row.previousElementSibling);
+          } else {
+            if (!row.nextElementSibling) return;
+            list.insertBefore(row.nextElementSibling, row);
+          }
+          this.saveOrder(list);
+        },
+        saveOrder(list) {
+          var self = this;
+          self.enqueue(async function () {
+            var ids = Array.prototype.filter.call(list.children, function (el) {
+              return el.dataset.listingId && !el.dataset.removed;
+            }).map(function (el) { return el.dataset.listingId; });
+            var response = await self.post(list.dataset.orderUrl, { order: ids });
+            if (response.ok) self.done();
+            else self.gone(response, list);
+          });
+        },
+
+        // --- Tabs: Move left and Move right reorder the strip and save it ---
+        moveTab(button) {
+          var strip = root.querySelector('[data-tab-strip]');
+          var id = button.closest('[data-tab-pane]').dataset.tabPane;
+          var tab = strip.querySelector('[data-tab-id="' + id + '"]');
+          if (button.dataset.moveTab === 'left') {
+            if (!tab.previousElementSibling) return;
+            strip.insertBefore(tab, tab.previousElementSibling);
+          } else {
+            if (!tab.nextElementSibling) return;
+            strip.insertBefore(tab.nextElementSibling, tab);
+          }
+          var self = this;
+          self.enqueue(async function () {
+            var ids = Array.prototype.map.call(strip.querySelectorAll('[data-tab-id]'), function (el) {
+              return el.dataset.tabId;
+            });
+            var response = await self.post(strip.dataset.orderUrl, { order: ids });
+            if (response.ok) self.done();
+            else self.gone(response, strip);
+          });
+        },
+
+        onClick(e) {
+          var target = e.target.closest('[data-add-role], [data-remove-role], [data-remove-person], [data-move], [data-move-tab]');
+          if (!target || !root.contains(target)) return;
+          if (target.matches('[data-add-role]')) this.addRole(target);
+          else if (target.matches('[data-remove-role]')) this.removeRole(target.closest('[data-role]'));
+          else if (target.matches('[data-remove-person]')) this.removePerson(target.closest('[data-listing-id]'));
+          else if (target.matches('[data-move]')) this.movePerson(target);
+          else this.moveTab(target);
+        },
+
+        // --- Drag from the grip (desktop; touch uses the arrows): the Slideshow reorder script ---
+        onDragStart(e) {
+          var grip = e.target.closest && e.target.closest('.pl-slide-grip');
+          if (!grip) return;
+          dragRow = grip.closest('[data-listing-id]');
+          dragRow.classList.add('pl-slide-card--dragging');
+          e.dataTransfer.effectAllowed = 'move';
+          e.dataTransfer.setData('application/x-leadership-reorder', '1');
+        },
+        onDragEnd() {
+          if (!dragRow) return;
+          dragRow.classList.remove('pl-slide-card--dragging');
+          Array.prototype.forEach.call(dragRow.parentElement.children, function (row) {
+            row.classList.remove('pl-slide-card--drag-over');
+          });
+          dragRow = null;
+        },
+        dropTarget(e) {
+          if (!dragRow) return null;
+          var row = e.target.closest && e.target.closest('[data-listing-id]');
+          if (!row || row === dragRow || row.parentElement !== dragRow.parentElement) return null;
+          return row;
+        },
+        onDragOver(e) {
+          var row = this.dropTarget(e);
+          if (!row) return;
+          e.preventDefault();
+          Array.prototype.forEach.call(row.parentElement.children, function (other) {
+            if (other !== row) other.classList.remove('pl-slide-card--drag-over');
+          });
+          row.classList.add('pl-slide-card--drag-over');
+        },
+        onDrop(e) {
+          var row = this.dropTarget(e);
+          if (!row) return;
+          e.preventDefault();
+          row.classList.remove('pl-slide-card--drag-over');
+          var list = row.parentElement;
+          var rows = Array.prototype.slice.call(list.children);
+          if (rows.indexOf(dragRow) < rows.indexOf(row)) list.insertBefore(dragRow, row.nextElementSibling);
+          else list.insertBefore(dragRow, row);
+          this.saveOrder(list);
+        },
+      };
     });
-    container.addEventListener('dragend', function () {
-      if (dragRow) dragRow.classList.remove('pl-slide-card--dragging');
-      rows().forEach(function (r) { r.classList.remove('pl-slide-card--drag-over'); });
-      dragRow = null;
-    });
-    container.addEventListener('dragover', function (e) {
-      if (!dragRow) return;
-      var row = e.target.closest && e.target.closest('.pl-slide-card');
-      if (!row || row === dragRow) return;
-      e.preventDefault();
-      rows().forEach(function (r) { if (r !== row) r.classList.remove('pl-slide-card--drag-over'); });
-      row.classList.add('pl-slide-card--drag-over');
-    });
-    container.addEventListener('drop', function (e) {
-      if (!dragRow) return;
-      var row = e.target.closest && e.target.closest('.pl-slide-card');
-      if (!row || row === dragRow) return;
-      e.preventDefault();
-      row.classList.remove('pl-slide-card--drag-over');
-      var list = rows();
-      if (list.indexOf(dragRow) < list.indexOf(row)) {
-        container.insertBefore(dragRow, row.nextElementSibling);
-      } else {
-        container.insertBefore(dragRow, row);
-      }
-      reindex();
-    });
-  })();
+  }
+
+  if (window.Alpine && window.Alpine.data) {
+    definePlLeadershipEditor();
+  } else {
+    document.addEventListener('alpine:init', definePlLeadershipEditor);
+  }
+})();
 </script>
 {% endblock %}

@@ -4,7 +4,8 @@ The roster names real people, so it never lives in git: the ``seed_leadership_ro
 command takes it as a file or a base64 argument and hands it to :func:`seed_roster`. Each
 person is matched to an existing member (never invented) and each guild's channel to one
 active guild; anything that does not match exactly one row is reported and skipped for a
-human to settle. No guild lead is ever changed.
+human to settle. No guild lead is ever changed. The team goes on the Leadership tab: the
+first People tab in admin order, which migration 0190 made from the old team section (#564).
 
 Roster shape::
 
@@ -29,7 +30,7 @@ import re
 from dataclasses import dataclass, field
 from typing import Any
 
-from membership.models import Guild, LeadershipListing, LeadershipRole, Member
+from membership.models import Guild, LeadershipListing, LeadershipRole, LeadershipTab, Member
 
 _DISCORD_MENTION = re.compile(r"<@(\d+)>")
 
@@ -87,25 +88,29 @@ def find_guild(fragment: str) -> Guild | None:
 
 
 def seed_roster(roster: dict[str, Any], *, dry_run: bool = False) -> RosterReport:
-    """Create the team listings and fill blank guild channel names from ``roster``; return the report.
+    """Put the team on the Leadership tab and fill blank guild channel names from ``roster``; return the report.
 
-    Idempotent: a member who already has a listing is left alone, as is a guild whose channel
-    name is already set (``sync_guild_discord_channels`` owns that field once a webhook exists).
-    With ``dry_run`` the report is the same and nothing is written.
+    The Leadership tab is the first People tab in admin order; a site with none gets one
+    titled "Leadership" on the first write. Idempotent: a member already on that tab is left
+    alone (their cards on other tabs never count), as is a guild whose channel name is
+    already set (``sync_guild_discord_channels`` owns that field once a webhook exists).
+    With ``dry_run`` the report is the same and nothing is written, not even the tab.
     """
     report = RosterReport()
+    tab = LeadershipTab.objects.people().first()
     for position, person in enumerate(roster["team"]):
         member = find_member(person["name"], person["discord"])
         if member is None:
             report.unmatched_people.append(person["name"])
             continue
-        if LeadershipListing.objects.filter(member=member).exists():
+        if tab is not None and tab.listings.filter(member=member).exists():
             report.already_listed.append(person["name"])
             continue
         report.listed.append(person["name"])
         if dry_run:
             continue
-        listing = LeadershipListing.objects.create(member=member, is_listed=True, sort_order=position)
+        tab = tab or LeadershipTab.objects.add_people_tab("Leadership", "")
+        listing = LeadershipListing.objects.create(tab=tab, member=member, is_listed=True, sort_order=position)
         for index, role in enumerate(person["roles"]):
             LeadershipRole.objects.create(listing=listing, title=role["title"], email=role["email"], sort_order=index)
 

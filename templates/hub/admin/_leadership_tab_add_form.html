@@ -1,0 +1,16 @@
+{% comment %}
+Add a Tab in the Leadership Directory editor (#564): the modal's body. A form of its own that
+makes a People tab, last in the strip, and opens the editor on it with a toast. Included by
+components/modal.html with the page context; a refused add re-renders its errors here and the
+page reopens this modal.
+{% endcomment %}
+<form method="post" action="{% url 'hub_admin_leadership_tab_add' %}" class="pl-leadership-add">
+  {% csrf_token %}
+  <p class="pl-leadership-add__hint">A new tab of people cards. It shows to members once someone is on it.</p>
+  {% include "components/form_field.html" with field=editor.tab_add_form.title %}
+  {% include "components/form_field.html" with field=editor.tab_add_form.intro %}
+  <div class="pl-leadership-add__actions">
+    <button type="button" class="pl-btn pl-btn--secondary" @click="$dispatch('close-modal', 'leadership-tab-add')">Cancel</button>
+    <button type="submit" class="pl-btn pl-btn--primary">Add</button>
+  </div>
+</form>

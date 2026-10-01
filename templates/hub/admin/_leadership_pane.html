@@ -1,0 +1,40 @@
+{% comment %}
+One tab's pane in the Leadership Directory editor (#564). ``pane`` is a LeadershipEditorPane.
+Its title and intro save as they change (the strip's label follows the title as it is typed),
+and Move left and Move right save the strip's order at once. A People tab lists its people and
+offers + Add a person (a modal of its own) and Delete tab (a confirm naming how many come off
+it). Guild Leads has neither: its cards are read from each guild's own settings.
+{% endcomment %}
+<section class="pl-leadership-pane" id="leadership-pane-{{ pane.tab.pk }}" data-tab-pane="{{ pane.tab.pk }}" role="tabpanel"
+         x-show="open === {{ pane.tab.pk }}"{% if pane.tab != editor.open_tab %} x-cloak{% endif %}>
+  <div class="pl-leadership-pane__fields" data-save-url="{% url 'hub_admin_leadership_tab_save' pane.tab.pk %}" data-tab-fields="{{ pane.tab.pk }}">
+    {% for field in pane.form %}
+      {% include "components/form_field.html" with field=field %}
+    {% endfor %}
+  </div>
+  <div class="pl-leadership-pane__toolbar">
+    <span class="pl-leadership-pane__moves" role="group" aria-label="Place in the tab strip">
+      <button type="button" class="hub-btn hub-btn--sm" data-move-tab="left">← Move left</button>
+      <button type="button" class="hub-btn hub-btn--sm" data-move-tab="right">Move right →</button>
+    </span>
+    {% if pane.add_form %}
+    <span class="pl-leadership-pane__actions">
+      <button type="button" class="hub-btn hub-btn--sm hub-btn--primary" @click="$dispatch('open-modal', '{{ pane.add_modal_id }}')">+ Add a person</button>
+      <button type="button" class="pl-btn pl-btn--danger pl-btn--sm" @click="$dispatch('open-confirm', '{{ pane.delete_confirm_id }}')">Delete tab</button>
+    </span>
+    {% endif %}
+  </div>
+  {% if pane.tab.is_guild_leads %}
+  <p class="hub-text-muted pl-leadership-admin__hint">This tab shows a card for every guild, read from the guild's own settings: its lead, its Co-Leads and its email. Rename it, give it an intro or move it here; it cannot be deleted.</p>
+  {% else %}
+  <p class="hub-text-muted pl-leadership-admin__hint">Drag the grip, or use the arrows, to set the order. Remove from tab keeps a person's lines, so adding them back brings the lines too.</p>
+  <div class="pl-slideshow-rows" data-people data-order-url="{% url 'hub_admin_leadership_people_order' pane.tab.pk %}">
+    {% for person in pane.people %}
+      {% include "hub/admin/_leadership_person_row.html" %}
+    {% endfor %}
+  </div>
+  {% if not pane.people %}
+  <p class="pl-leadership-admin__empty">Nobody is on this tab yet. Members do not see it until someone is.</p>
+  {% endif %}
+  {% endif %}
+</section>

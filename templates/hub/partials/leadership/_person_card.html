@@ -1,0 +1,39 @@
+{% load hub_tags %}
+{% comment %}
+One person's card on a People tab of the Leadership Directory (#464, #564): the Plate
+treatment. ``listing`` is a LeadershipListing with its member and its role lines loaded
+(LeadershipTabQuerySet.with_listed). The portrait is a round medallion in a gold ring,
+cropped to its centre square like the Member Directory circle; a member with no visible
+photo gets their initials in the same ring. Each role line has its own title and, when it
+has one, its own email row; the member's Discord row closes the card.
+{% endcomment %}
+{% with member=listing.member %}
+<article class="pl-leader-card">
+    <div class="pl-leader-card__visual">
+        <span class="pl-leader-card__avatar">
+            {% if member.profile_photo and member|is_public:"profile_photo" %}
+            <img class="pl-leader-card__photo" src="{{ member.profile_photo.url }}" alt="" loading="lazy">
+            {% else %}
+            <span class="pl-leader-card__initials" aria-hidden="true">{{ member.display_name|initials }}</span>
+            {% endif %}
+        </span>
+    </div>
+    <h3 class="pl-leader-card__plate">
+        {{ member.display_name }}
+        {% if member.pronouns and member|is_public:"pronouns" %}
+        <span class="pl-leader-card__pronouns">{{ member.pronouns }}</span>
+        {% endif %}
+    </h3>
+    <div class="pl-leader-card__body">
+        {% for role in listing.roles.all %}
+        <div class="pl-leader-card__role">
+            <span class="pl-leader-card__title">{{ role.title }}</span>
+            {% if role.email %}
+            {% include "hub/partials/leadership/_email_row.html" with email=role.email %}
+            {% endif %}
+        </div>
+        {% endfor %}
+        {% include "hub/partials/leadership/_discord_row.html" with person=member %}
+    </div>
+</article>
+{% endwith %}

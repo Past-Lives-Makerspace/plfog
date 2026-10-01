@@ -1,7 +1,8 @@
 """BDD specs for the Leadership Directory roster seed (#464): matching, seeding and its report.
 
 Names here are invented; the real roster lives outside the repo and is handed to the
-``seed_leadership_roster`` command at run time.
+``seed_leadership_roster`` command at run time. Since #564 the team goes on the Leadership
+tab, the first People tab; each spec starts from no tabs (the data migration makes two).
 """
 
 from __future__ import annotations
@@ -9,10 +10,15 @@ from __future__ import annotations
 import pytest
 
 from membership.leadership_roster import RosterReport, find_guild, find_member, seed_roster
-from membership.models import Guild, LeadershipListing, LeadershipRole
-from tests.membership.factories import GuildFactory, LeadershipListingFactory, MemberFactory
+from membership.models import Guild, LeadershipListing, LeadershipRole, LeadershipTab
+from tests.membership.factories import GuildFactory, LeadershipListingFactory, LeadershipTabFactory, MemberFactory
 
 pytestmark = pytest.mark.django_db
+
+
+@pytest.fixture(autouse=True)
+def _no_tabs() -> None:
+    LeadershipTab.objects.all().delete()
 
 
 def _roster(team=None, guild_channels=None) -> dict:
@@ -68,7 +74,10 @@ def describe_find_guild():
 
 
 def describe_seed_roster():
-    def it_lists_matched_people_in_roster_order_with_their_roles():
+    def it_lists_matched_people_on_the_first_people_tab_in_roster_order_with_their_roles():
+        LeadershipTabFactory(kind=LeadershipTab.Kind.GUILD_LEADS, sort_order=0)
+        leadership = LeadershipTabFactory(title="Leadership", sort_order=1)
+        LeadershipTabFactory(title="Council", sort_order=2)
         MemberFactory(full_legal_name="Grace Hopper")
         MemberFactory(full_legal_name="Ada Lovelace")
         roster = _roster(
@@ -86,6 +95,7 @@ def describe_seed_roster():
         )
         report = seed_roster(roster)
         rows = LeadershipListing.objects.listed()
+        assert {row.tab for row in rows} == {leadership}
         assert [(row.member.full_legal_name, row.sort_order) for row in rows] == [
             ("Ada Lovelace", 0),
             ("Grace Hopper", 2),
@@ -98,13 +108,34 @@ def describe_seed_roster():
         assert report.listed == ["Ada Lovelace", "Grace Hopper"]
         assert report.unmatched_people == ["Nobody Here"]
 
-    def it_leaves_a_member_who_already_has_a_listing_alone():
+    def it_leaves_a_member_already_on_the_leadership_tab_alone():
         existing = LeadershipListingFactory(member__full_legal_name="Ada Lovelace", is_listed=False, sort_order=7)
         report = seed_roster(_roster(team=[_person("Ada Lovelace")]))
         existing.refresh_from_db()
         assert (existing.is_listed, existing.sort_order, existing.roles.count()) == (False, 7, 0)
+        assert LeadershipListing.objects.count() == 1
         assert report.already_listed == ["Ada Lovelace"]
         assert report.listed == []
+
+    def it_seeds_a_member_whose_only_card_is_on_another_tab():
+        leadership = LeadershipTabFactory(title="Leadership", sort_order=0)
+        elsewhere = LeadershipListingFactory(
+            tab=LeadershipTabFactory(title="Board", sort_order=1), member__full_legal_name="Ada Lovelace"
+        )
+        report = seed_roster(_roster(team=[_person("Ada Lovelace")]))
+        assert report.listed == ["Ada Lovelace"]
+        assert set(elsewhere.member.leadership_listings.values_list("tab", flat=True)) == {
+            leadership.pk,
+            elsewhere.tab_id,
+        }
+
+    def it_makes_a_leadership_tab_when_the_site_has_no_people_tab():
+        LeadershipTabFactory(kind=LeadershipTab.Kind.GUILD_LEADS)
+        MemberFactory(full_legal_name="Ada Lovelace")
+        seed_roster(_roster(team=[_person("Ada Lovelace")]))
+        tab = LeadershipTab.objects.people().get()
+        assert tab.title == "Leadership"
+        assert list(tab.listings.values_list("member__full_legal_name", flat=True)) == ["Ada Lovelace"]
 
     def it_fills_blank_channel_names_and_keeps_set_ones():
         wood = GuildFactory(name="Woodworking Guild")
@@ -150,6 +181,7 @@ def describe_seed_roster():
         report = seed_roster(roster, dry_run=True)
         assert (report.listed, report.channels_set) == (["Ada Lovelace"], ["Woodworking Guild"])
         assert LeadershipListing.objects.count() == 0
+        assert LeadershipTab.objects.count() == 0  # not even the tab a real run would make
         assert Guild.objects.get(pk=wood.pk).discord_channel_name == ""
 
     def it_fails_loudly_on_a_roster_missing_a_key():
