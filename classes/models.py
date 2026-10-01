@@ -24,6 +24,7 @@ from django.utils.safestring import SafeString, mark_safe
 from django.utils.timezone import localtime
 
 from core.files import delete_orphan_on_replace
+from core.html_sanitize import is_editor_html, rich_body_to_text, rich_html_to_text
 from core.images import normalize_field_if_uploaded
 from core.models import HeroCropMixin
 from core.validators import validate_image_content, validate_image_size
@@ -659,14 +660,19 @@ READINESS_DESCRIPTION_HINT = f"Write at least {READINESS_MIN_DESCRIPTION_CHARS} 
 def description_length(text: str) -> int:
     """How many characters a description counts for: what a member reads on the class page.
 
-    Whitespace runs collapse to one space and the ends are trimmed, because ``linebreaks`` renders
-    a run of blank lines as one break and a browser shows a run of spaces as one. Nothing else is
-    dropped: the field is plain text and the page renders it escaped, so a typed ``<safety glasses>``
-    is on screen in full and counts in full (issue #425: ``strip_tags`` used to read it as markup and
-    refuse a description that was long enough). ``static/js/composer_description_count.js`` mirrors
-    this rule for the live count, and ``classes/spec/models/class_readiness_spec.py`` pins that the
-    two carry the same expression.
+    Editor HTML (a block tag is what marks it) counts its text alone: the tags are the editor's,
+    not the member's, and a ``<`` the instructor typed reached us as ``&lt;`` and is unescaped back
+    before counting. Plain text counts as typed, brackets and all, because the page renders it
+    escaped and a typed ``<safety glasses>`` is on screen in full (issue #425: ``strip_tags`` used
+    to read it as markup and refuse a description that was long enough). Either way whitespace
+    runs collapse to one space and the ends are trimmed, because the page shows a run of blank
+    lines as one break and a browser shows a run of spaces as one.
+    ``static/js/composer_description_count.js`` mirrors this rule for the live count, reading the
+    editor's own text, and ``classes/spec/models/class_readiness_spec.py`` pins that the two carry
+    the same expression.
     """
+    if is_editor_html(text):
+        text = rich_html_to_text(text)
     return len(" ".join(text.split()))
 
 
@@ -2102,6 +2108,11 @@ class ClassOffering(HeroCropMixin, models.Model):
         return bool(self.legacy_image_url) and not self.image.name
 
     @property
+    def description_text(self) -> str:
+        """The description as plain text, for a feed or a tag: editor HTML flattened, legacy text as is."""
+        return rich_body_to_text(self.description or "")
+
+    @property
     def hero_image_url(self) -> str:
         """The class's own hero photo as a URL, or "" when it has none.
 
@@ -2645,7 +2656,7 @@ class ClassOffering(HeroCropMixin, models.Model):
         """
         from classes.templatetags.classes_tags import strip_date_suffix
 
-        raw = " ".join(strip_tags(self.description or "").split())
+        raw = " ".join(self.description_text.split())
         if not raw:
             base = strip_date_suffix(self.title).strip()
             raw = f"{base} at Past Lives Makerspace in Portland, OR. {self.category.name} class — register online."

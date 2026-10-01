@@ -1068,6 +1068,40 @@ def describe_all_guild_types_show():
         assert "demo-lamp-working" in slugs
 
 
+def describe_the_description_on_the_class_page():
+    def it_renders_editor_html_formatted_and_sanitized(published_class, client):
+        published_class.description = (
+            "<p>Make a <strong>coat hook</strong>.</p><ul><li>Bring gloves</li></ul><script>evil()</script>"
+        )
+        published_class.save(update_fields=["description"])
+
+        html = client.get(
+            reverse("classes:public_class_detail", kwargs={"slug": published_class.slug})
+        ).content.decode()
+
+        prose = html.split('class="cp-detail__prose"', 1)[1].split("</section>", 1)[0]
+        assert "<strong>coat hook</strong>" in prose
+        assert "<ul><li>Bring gloves</li></ul>" in prose
+        assert "<script" not in prose
+
+    def it_renders_a_pre_editor_description_as_escaped_paragraphs(published_class, client):
+        published_class.description = "Wear <closed toe shoes>.\n\nTake it home."
+        published_class.save(update_fields=["description"])
+
+        html = client.get(
+            reverse("classes:public_class_detail", kwargs={"slug": published_class.slug})
+        ).content.decode()
+
+        prose = html.split('class="cp-detail__prose"', 1)[1].split("</section>", 1)[0]
+        assert "<p>Wear &lt;closed toe shoes&gt;.</p><p>Take it home.</p>" in prose
+
+    def it_keeps_the_meta_description_plain(published_class, client):
+        published_class.description = "<p>Make a <strong>coat hook</strong> &amp; hanger.</p>"
+        published_class.save(update_fields=["description"])
+
+        assert published_class.seo_description.startswith("Make a coat hook & hanger.")
+
+
 def describe_detail_guild_card():
     """The guild's About text is plain text; its paragraphs and line breaks must survive on the class page."""
 

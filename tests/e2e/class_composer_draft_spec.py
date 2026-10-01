@@ -36,6 +36,9 @@ NEXT = "#composer-form .pl-composer-bar button:has-text('Next')"
 SAVE_DRAFT = '#composer-form button[type="submit"]'
 TITLE = "A Forge of One's Own"
 DESCRIPTION = "Two evenings at the forge, starting from a cold anvil and a bar of mild steel."
+# The description is a rich-text editor: the person types into the Quill mount, and the named
+# textarea (#id_description, hidden) carries the editor's HTML, which is what the copy keeps.
+DESCRIPTION_EDITOR = '.pl-rte[data-rte-for="id_description"] .ql-editor'
 VIDEO = "https://www.youtube.com/watch?v=dQw4w9WgXcQ"
 # A URL the browser is happy with and the server refuses: video_url takes YouTube, Instagram
 # and Facebook links only, and the per step check reads the rendered constraint attributes,
@@ -121,7 +124,7 @@ def _type_a_class(page, video: str = VIDEO) -> None:
     """Fill step 1 and step 2, so a restore has to reach across a pane that is not on screen."""
     page.locator("#id_title").fill(TITLE)
     page.locator("#id_category").select_option(index=1)
-    page.locator("#id_description").fill(DESCRIPTION)
+    page.locator(DESCRIPTION_EDITOR).fill(DESCRIPTION)
     page.locator("#id_price_cents").fill("80")
     page.locator(NEXT).click()
     _settle(page)
@@ -157,7 +160,8 @@ def _wait_until_forgotten(page, key: str) -> None:
 
 def _expect_the_class_is_back(page) -> None:
     expect(page.locator("#id_title")).to_have_value(TITLE)
-    expect(page.locator("#id_description")).to_have_value(DESCRIPTION)
+    expect(page.locator("#id_description")).to_have_value(f"<p>{DESCRIPTION}</p>")
+    expect(page.locator(DESCRIPTION_EDITOR)).to_have_text(DESCRIPTION)
     expect(page.locator("#id_price_cents")).to_have_value("80")
     expect(page.locator("#id_video_url")).to_have_value(VIDEO)
     assert page.locator("#id_category").input_value() != ""
@@ -225,7 +229,7 @@ def describe_a_refresh_mid_wizard():
         login_via_code(EMAIL)
         _open_create(page, live_server)
         page.locator("#id_title").fill(TITLE)
-        page.locator("#id_description").fill(DESCRIPTION)
+        page.locator(DESCRIPTION_EDITOR).fill(DESCRIPTION)
         _kept(page)
 
         record = _stored(page)
@@ -367,7 +371,9 @@ def describe_a_save_the_server_refuses():
         page.locator(RESTORE).click()
 
         expect(page.locator("#id_title")).to_have_value(TITLE)
-        expect(page.locator("#id_description")).to_have_value(ADMIN_DESCRIPTION)
+        # The admin wrote plain text; the editor holds it as the paragraph the page renders.
+        expect(page.locator("#id_description")).to_have_value(f"<p>{ADMIN_DESCRIPTION}</p>")
+        expect(page.locator(DESCRIPTION_EDITOR)).to_have_text(ADMIN_DESCRIPTION)
         _tab(page, 2).click()
         expect(page.locator("#id_video_url")).to_have_value(VIDEO)
 

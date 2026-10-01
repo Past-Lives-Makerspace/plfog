@@ -825,6 +825,15 @@ a.cp-detail__cat-chip:hover { background: #f5ca6e; color: var(--color-navy); tex
 .cp-detail__prose p:last-child { margin-bottom: 0; }
 .cp-detail__prose a { color: var(--gold-text); font-weight: 600; }
 .cp-detail__prose a:hover { color: var(--gold-text); }
+/* The description is editor HTML (core.html_sanitize allowlist): headings, lists and quotes. */
+.cp-detail__prose h2,
+.cp-detail__prose h3 { margin: 20px 0 8px; line-height: 1.25; color: var(--text); }
+.cp-detail__prose h2 { font-size: 22px; }
+.cp-detail__prose h3 { font-size: 19px; }
+.cp-detail__prose ul,
+.cp-detail__prose ol { margin: 0 0 12px; padding-left: 24px; }
+.cp-detail__prose li { margin: 0 0 4px; }
+.cp-detail__prose blockquote { margin: 0 0 12px; padding-left: 14px; border-left: 3px solid var(--border2); color: var(--text2); }
 
 /* ── Video embed (responsive 16:9) ───────────── */
 .cp-detail__video {

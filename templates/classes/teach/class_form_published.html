@@ -1,6 +1,8 @@
 {% extends "classes/teach/base.html" %}
 {% load classes_tags static %}
 {% block tab_content %}
+{# The description is a rich-text editor (core.widgets.RichBodyEditorWidget); Quill loads once here, above the form. #}
+{% include "_components/rich_editor_assets.html" %}
 <div x-data>
 <h2 style="margin-top:0;">Edit Class — {{ offering.title }}</h2>
 {# A live class: content edits only, no re-review. The locked facts change through an admin. #}

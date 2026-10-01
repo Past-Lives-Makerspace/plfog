@@ -16,8 +16,8 @@ from django.forms import inlineformset_factory
 from django.utils import timezone
 from django.utils.text import slugify
 
-from core.html_sanitize import sanitize_rich_html
-from core.widgets import PageContentEditorWidget, RichTextEditorWidget
+from core.html_sanitize import clean_rich_body, sanitize_rich_html
+from core.widgets import PageContentEditorWidget, RichBodyEditorWidget, RichTextEditorWidget
 
 from classes.models import (
     DEFAULT_CLASS_FAQS,
@@ -377,8 +377,28 @@ class _SchedulingTypeMixin:
         field.label = "How does this class run?"
 
 
+class _RichDescriptionMixin:
+    """The description is written in the rich-text editor and stored as its sanitized HTML.
+
+    A description saved before the editor existed is plain text, and a client without the editor
+    still posts plain text; :func:`core.html_sanitize.clean_rich_body` keeps that as typed and
+    sanitizes only editor HTML, so the stored value is always one the page can render.
+    """
+
+    cleaned_data: dict[str, Any]
+
+    def clean_description(self) -> str:
+        return clean_rich_body(self.cleaned_data["description"])
+
+
 class ClassOfferingForm(
-    _HeroCropMixin, _CardFocusMixin, _PricingRulesMixin, _LiveSaleGuardMixin, _SchedulingTypeMixin, forms.ModelForm
+    _RichDescriptionMixin,
+    _HeroCropMixin,
+    _CardFocusMixin,
+    _PricingRulesMixin,
+    _LiveSaleGuardMixin,
+    _SchedulingTypeMixin,
+    forms.ModelForm,
 ):
     """The admin composer form. The six ``sale_*`` fields live on :class:`ClassSaleForm`."""
 
@@ -410,7 +430,7 @@ class ClassOfferingForm(
         ]
         # Four rows, not the widget default of ten: the readiness minimum is 40 characters, so the
         # box only has to invite a short paragraph, and the live count sits right under it.
-        widgets = {"video_url": _video_url_widget(), "description": forms.Textarea(attrs={"rows": 4})}
+        widgets = {"video_url": _video_url_widget(), "description": RichBodyEditorWidget(attrs={"rows": 4})}
         help_texts = {"description": DESCRIPTION_HELP_TEXT}
 
     def __init__(self, *args, **kwargs) -> None:
@@ -445,7 +465,13 @@ class ClassOfferingForm(
 
 
 class TeachClassOfferingForm(
-    _HeroCropMixin, _CardFocusMixin, _PricingRulesMixin, _LiveSaleGuardMixin, _SchedulingTypeMixin, forms.ModelForm
+    _RichDescriptionMixin,
+    _HeroCropMixin,
+    _CardFocusMixin,
+    _PricingRulesMixin,
+    _LiveSaleGuardMixin,
+    _SchedulingTypeMixin,
+    forms.ModelForm,
 ):
     """Class form for teaching members — no `instructor`, no `is_private`, slug auto-generated.
 
@@ -478,7 +504,7 @@ class TeachClassOfferingForm(
         ]
         # Four rows, not the widget default of ten: the readiness minimum is 40 characters, so the
         # box only has to invite a short paragraph, and the live count sits right under it.
-        widgets = {"video_url": _video_url_widget(), "description": forms.Textarea(attrs={"rows": 4})}
+        widgets = {"video_url": _video_url_widget(), "description": RichBodyEditorWidget(attrs={"rows": 4})}
         help_texts = {"description": DESCRIPTION_HELP_TEXT}
 
     def __init__(self, *args, teaching_member: "Member | None" = None, **kwargs) -> None:
@@ -733,7 +759,7 @@ class CategoryForm(forms.ModelForm):
         fields = ["name", "slug", "sort_order", "hero_image"]
 
 
-class TeachPublishedClassForm(forms.ModelForm):
+class TeachPublishedClassForm(_RichDescriptionMixin, forms.ModelForm):
     """Light edits an instructor may make to a LIVE class without re-review.
 
     Only fields that do not change what registrants booked on: description, prep notes,
@@ -757,7 +783,7 @@ class TeachPublishedClassForm(forms.ModelForm):
             "flexible_note",
             "video_url",
         ]
-        widgets = {"video_url": _video_url_widget()}
+        widgets = {"video_url": _video_url_widget(), "description": RichBodyEditorWidget(attrs={"rows": 4})}
 
     def clean_video_url(self) -> str:
         return validate_video_url(self.cleaned_data.get("video_url", ""))

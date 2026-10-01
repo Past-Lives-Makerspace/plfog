@@ -1,5 +1,10 @@
 {% load static %}
 {% load classes_tags %}
+{% comment %}The description is a rich-text editor (core.widgets.RichBodyEditorWidget). Quill and
+rich-editor-init.js load here, above the form, so the widget's own init line finds them and the
+editor is mounted while the page is still parsing: composer_draft.js reads its baseline from the
+form at the bottom of the page, and that has to be the value Quill settled on.{% endcomment %}
+{% include "_components/rich_editor_assets.html" %}
 {% comment %}
 The class composer, one pane per step of classes/composer.py, shared by
 templates/classes/class_form.html (the one per-class composer) and

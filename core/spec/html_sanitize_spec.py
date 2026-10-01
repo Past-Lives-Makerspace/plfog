@@ -122,3 +122,75 @@ def describe_render_rich_email_text():
 
     def it_returns_empty_for_an_empty_quill_doc():
         assert render_rich_email_text("<p><br></p>") == ""
+
+
+def describe_is_editor_html():
+    def it_is_true_for_a_body_with_a_block_tag():
+        from core.html_sanitize import is_editor_html
+
+        assert is_editor_html("<p>Hi</p>") is True
+        assert is_editor_html("one<br>two") is True
+
+    def it_is_false_for_plain_text_even_with_angle_brackets():
+        from core.html_sanitize import is_editor_html
+
+        assert is_editor_html("Wear <closed toe shoes>.") is False
+        assert is_editor_html("") is False
+
+
+def describe_clean_rich_body():
+    def it_sanitizes_editor_html():
+        from core.html_sanitize import clean_rich_body
+
+        out = clean_rich_body('<p onclick="x()">Hi <strong>there</strong></p><iframe src="x"></iframe>')
+        assert out == "<p>Hi <strong>there</strong></p>"
+
+    def it_stores_an_empty_editor_as_blank():
+        from core.html_sanitize import clean_rich_body
+
+        assert clean_rich_body("<p><br></p>") == ""
+        assert clean_rich_body("   ") == ""
+
+    def it_keeps_plain_text_exactly_as_typed_brackets_and_all():
+        # Issue #425: a client without the editor posts text, and the renderer escapes it.
+        from core.html_sanitize import clean_rich_body
+
+        assert clean_rich_body("Wear <closed toe shoes> and bring <safety glasses>.") == (
+            "Wear <closed toe shoes> and bring <safety glasses>."
+        )
+
+
+def describe_render_rich_body():
+    def it_renders_editor_html_sanitized_and_unstyled():
+        from core.html_sanitize import render_rich_body
+
+        out = render_rich_body('<h2>Head</h2><p class="x">Body <em>x</em></p><iframe src="x"></iframe>')
+        assert out == "<h2>Head</h2><p>Body <em>x</em></p>"
+        assert "style=" not in out
+
+    def it_renders_plain_text_as_escaped_paragraphs():
+        from core.html_sanitize import render_rich_body
+
+        out = render_rich_body("Wear <closed toe shoes>.\nBring glasses.\n\nTake it home.")
+        assert out == "<p>Wear &lt;closed toe shoes&gt;.<br>Bring glasses.</p><p>Take it home.</p>"
+
+    def it_is_blank_for_blank():
+        from core.html_sanitize import render_rich_body
+
+        assert render_rich_body("") == ""
+        assert render_rich_body("  \n ") == ""
+
+
+def describe_rich_body_to_text():
+    def it_flattens_editor_html_to_lines_with_bullets():
+        from core.html_sanitize import rich_body_to_text
+
+        assert (
+            rich_body_to_text("<p>Make a hook.</p><ul><li>one</li><li>two</li></ul>")
+            == "Make a hook.\n\n- one\n\n- two"
+        )
+
+    def it_returns_plain_text_unchanged():
+        from core.html_sanitize import rich_body_to_text
+
+        assert rich_body_to_text("Line one\n\nLine <two>") == "Line one\n\nLine <two>"

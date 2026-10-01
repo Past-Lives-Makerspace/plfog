@@ -1,5 +1,5 @@
 {% extends "hub/base.html" %}
-{% load static classes_tags %}
+{% load static classes_tags rich_text %}
 
 {% block title %}Review: {{ offering.title }} — Past Lives{% endblock %}
 {% block public_topbar %}{% include "classes/_components/review_topbar.html" %}{% endblock public_topbar %}
@@ -47,7 +47,7 @@
     </dd>
     {% if offering.description %}
       <dt>Description</dt>
-      <dd style="white-space:pre-wrap;">{{ offering.description }}</dd>
+      <dd class="pl-rich-body">{{ offering.description|rich_body }}</dd>
     {% endif %}
     {% if offering.prerequisites %}
       <dt>Prerequisites</dt>

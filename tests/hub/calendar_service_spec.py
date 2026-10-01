@@ -141,6 +141,19 @@ def describe_sync_local_class_events():
         event = CalendarEvent.objects.get(source="classes")
         assert event.title == "Intro to Welding"
 
+    def it_carries_the_description_as_plain_text_not_editor_html():
+        from hub.calendar_service import sync_local_class_events
+
+        offering = _published_offering(slug="welding-102")
+        offering.description = "<p>Make a <strong>hook</strong>.</p><ul><li>Bring gloves</li></ul>"
+        offering.save(update_fields=["description"])
+        _future_session(offering)
+
+        sync_local_class_events()
+
+        event = CalendarEvent.objects.get(source="classes")
+        assert event.description == "Make a hook.\n\n- Bring gloves"
+
     def it_links_to_the_local_class_page_not_the_legacy_site():
         from hub.calendar_service import sync_local_class_events
 

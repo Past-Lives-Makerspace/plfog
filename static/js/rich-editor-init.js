@@ -139,12 +139,39 @@
                 var toolbarModule = quill.getModule("toolbar");
                 toolbarModule.addHandler("image", wikiImageHandler(quill, mount.dataset.rteUploadUrl || ""));
             }
-            ta.value = quill.root.innerHTML;
+            mount.plQuill = quill;
+            sync(ta, quill);
             quill.on("text-change", function () {
-                ta.value = quill.root.innerHTML;
+                sync(ta, quill);
             });
         });
     };
+
+    /* Write Quill's HTML to the textarea and tell the page. The textarea is display:none, so
+       nothing else sees a keystroke land in it: the composer's draft copy listens for input on
+       the form, and the description count wants the editor's TEXT, not its HTML, so the event
+       carries it (static/js/composer_description_count.js). */
+    function sync(ta, quill) {
+        ta.value = quill.root.innerHTML;
+        ta.dispatchEvent(new CustomEvent("pl-rte-change", { bubbles: true, detail: { text: quill.getText() } }));
+    }
+
+    /* The reverse direction: something wrote the textarea behind the editor (the composer's
+       draft Restore puts a kept value back and fires change on the control) and Quill has to
+       show it, or the page would post one thing and display another. Bound once per document,
+       for the same reason as the settle listener below. */
+    if (!window.plRteChangeBound) {
+        window.plRteChangeBound = true;
+        document.addEventListener("change", function (event) {
+            var ta = event.target;
+            if (!ta || !ta.classList || !ta.classList.contains("pl-rte-source") || !ta.id) return;
+            var mount = document.querySelector('.pl-rte[data-rte-for="' + ta.id + '"]');
+            var quill = mount && mount.plQuill;
+            if (!quill || quill.root.innerHTML === ta.value) return;
+            quill.setContents(quill.clipboard.convert({ html: ta.value }), "silent");
+            sync(ta, quill);
+        });
+    }
 
     if (document.readyState === "loading") {
         document.addEventListener("DOMContentLoaded", window.plRteInitAll);

@@ -28,6 +28,7 @@ def _class_item(
     dates: list | None = None,
     image_url: str = "https://classes.pastlives.space/sites/default/files/img.jpg",
     path_alias: str = "/class/intro-to-welding",
+    body: str = "<p>Great class</p>",
 ) -> dict:
     return {
         "id": node_id,
@@ -38,7 +39,7 @@ def _class_item(
             "field_price": price,
             "field_max_students": capacity,
             "field_dates": dates or [{"value": "2026-08-01T10:00:00+00:00", "end_value": "2026-08-01T12:00:00+00:00"}],
-            "body": {"processed": "<p>Great class</p>"},
+            "body": {"processed": body},
             "path": {"alias": path_alias},
             "metatag": [{"attributes": {"property": "og:image", "content": image_url}}],
         },
@@ -505,3 +506,62 @@ def describe_sync_legacy_cms_archive_guard():
 
         statuses = set(ClassOffering.objects.values_list("status", flat=True))
         assert statuses == {ClassOffering.Status.PUBLISHED}
+
+
+DRUPAL_BODY = (
+    "<p>Craft a <strong>bouquet</strong>.</p><p>&nbsp;</p><ul><li>Cut glass</li></ul>"
+    '<h6 class="x">About The Instructor</h6><p>Cait <a href="https://example.com" onclick="x()">site</a></p><iframe src="x"></iframe>'
+)
+STORED_BODY = (
+    "<p>Craft a <strong>bouquet</strong>.</p><ul><li>Cut glass</li></ul><h3>About The Instructor</h3>"
+    '<p>Cait <a href="https://example.com" rel="noopener nofollow noreferrer" target="_blank">site</a></p>'
+)
+
+
+def describe_the_description_a_sync_writes():
+    def _sync(item: dict) -> ClassOffering:
+        from classes.import_service import sync_legacy_cms
+
+        with patch("urllib.request.urlopen", return_value=_make_mock_resp(_page([item]))):
+            sync_legacy_cms()
+        return ClassOffering.objects.get(legacy_cms_id=item["id"])
+
+    def it_keeps_drupals_formatting_as_sanitized_editor_html(db):
+        # Bold, lists and links come across; spacer paragraphs go; other heading levels fold into h3;
+        # frames, classes and handlers are stripped like any editor HTML.
+        offering = _sync(_class_item(body=DRUPAL_BODY))
+        assert offering.description == STORED_BODY
+
+    def it_never_overwrites_a_description_edited_here(db):
+        offering = _sync(_class_item(body=DRUPAL_BODY))
+        offering.description = "<p>Rewritten by the instructor in the composer.</p>"
+        offering.save(update_fields=["description"])
+
+        _sync(_class_item(body="<p>Changed on Drupal too.</p>"))
+
+        offering.refresh_from_db()
+        assert offering.description == "<p>Rewritten by the instructor in the composer.</p>"
+
+    def it_upgrades_a_description_an_earlier_import_flattened(db):
+        # Every import before this one wrote the body as plain text. A row still holding exactly that
+        # text was never touched here, so it gets its formatting back.
+        from classes.import_service import _html_to_text
+
+        offering = _sync(_class_item(body=DRUPAL_BODY))
+        offering.description = _html_to_text(DRUPAL_BODY)
+        offering.save(update_fields=["description"])
+
+        _sync(_class_item(body=DRUPAL_BODY))
+
+        offering.refresh_from_db()
+        assert offering.description == STORED_BODY
+
+    def it_fills_a_blank_description(db):
+        offering = _sync(_class_item(body=DRUPAL_BODY))
+        offering.description = ""
+        offering.save(update_fields=["description"])
+
+        _sync(_class_item(body="<p>Now written.</p>"))
+
+        offering.refresh_from_db()
+        assert offering.description == "<p>Now written.</p>"

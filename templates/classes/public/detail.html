@@ -1,5 +1,5 @@
 {% extends "classes/base_public.html" %}
-{% load classes_tags static %}
+{% load classes_tags rich_text static %}
 
 {% block title %}{{ offering.seo_title }}{% endblock %}
 {% block meta_description %}{{ offering.seo_description }}{% endblock %}
@@ -169,7 +169,8 @@
       {% if offering.description %}
         <section class="cp-detail__section">
           <h2 class="cp-detail__h2">About This Class</h2>
-          <div class="cp-detail__prose">{{ offering.description|linebreaks }}</div>
+          {# Editor HTML sanitized, or a description from before the editor as escaped paragraphs (core.html_sanitize.render_rich_body). #}
+          <div class="cp-detail__prose">{{ offering.description|rich_body }}</div>
         </section>
       {% endif %}
 

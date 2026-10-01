@@ -1,0 +1,8 @@
+bump = "minor"
+date = "2026-09-30"
+title = "Class descriptions can be formatted"
+changes = [
+  "Writing or editing a class, the description box now has bold, italics, underline, headings, lists and links, and the class page shows them.",
+  "Classes brought over from classes.pastlives.space get the formatting they had there back on the next nightly sync, unless someone has already rewritten the description here.",
+  "A description edited here is now yours: the nightly sync from the old class site no longer overwrites it.",
+]
