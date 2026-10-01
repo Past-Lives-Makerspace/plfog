@@ -1367,6 +1367,40 @@ def describe_the_rail_and_the_card_of_a_flexible_class():
         fixed_row = next(row for row in rows[1:] if "grouped-forge-1" in row)
         assert 'class="cls-spots' not in flexible_row
         assert 'class="cls-spots ok"' in fixed_row
+        # The flexible row dates nothing: the flex line stands in for the session date.
+        assert '<span class="cls-schedule__date">Flexible: schedule with the instructor</span>' in flexible_row
+        assert "cls-schedule__time" not in flexible_row
+
+    def it_shows_the_flex_line_and_no_seat_pill_on_a_flexible_other_date_row(db, client):
+        # The detail page's "Other Dates for This Class" rows are the card rows' twin: a flexible
+        # sibling of a fixed class shows the flex line with its window and no pill, never "None spots".
+        instructor = InstructorFactory(full_legal_name="Group Lead", instructor_slug="group-lead")
+        category = CategoryFactory(name="Forge", slug="forge")
+        fixed = ClassOfferingFactory(
+            title="Grouped Forge",
+            slug="grouped-forge-1",
+            status=ClassOffering.Status.PUBLISHED,
+            instructor=instructor,
+            category=category,
+        )
+        ClassSessionFactory(class_offering=fixed, starts_at=timezone.now() + timedelta(days=3))
+        _flexible(
+            title="Grouped Forge",
+            slug="grouped-forge-2",
+            instructor=instructor,
+            category=category,
+            capacity=1,
+            flexible_starts_on=date(2026, 11, 2),
+            flexible_ends_on=date(2026, 12, 1),
+        )
+        html = client.get(reverse("classes:public_class_detail", kwargs={"slug": fixed.slug})).content.decode()
+        rows = html.split('<li class="cp-detail__other-date">')[1:]
+        assert len(rows) == 1
+        row = rows[0].split("</li>")[0]
+        assert "grouped-forge-2" in row
+        assert "Flexible: schedule with the instructor · Nov 2 to Dec 1, 2026" in row
+        assert "cls-spots" not in row
+        assert "None" not in row
 
 
 def describe_sale_markup():

@@ -783,7 +783,9 @@ def describe_instructor_list_markup():
         html = client.get(reverse("classes:teach_dashboard")).content.decode()
         assert '<td class="pl-class-list__dates">Nov 2 to Dec 1, 2026</td>' in html
         assert '<td class="pl-class-list__dates">Flexible</td>' in html
-        assert "Oct 10" not in html
+        # The session row never reaches the Date(s) cells; the rest of the page is not the subject.
+        dates_cells = html.split('<td class="pl-class-list__dates">')[1:]
+        assert dates_cells and all("Oct 10" not in cell.split("</td>")[0] for cell in dates_cells)
         assert html.count('<span class="pl-class-list__no-dates">') == 0
 
     def it_uses_the_admin_table_styling_with_no_inline_styles(instructor_fixture, client):

@@ -255,7 +255,10 @@
             {% for sibling in sibling_offerings %}
                 <li class="cp-detail__other-date">
                   <a href="{% url 'classes:public_class_detail' slug=sibling.slug %}">
-                    {% if sibling.scheduling_type == 'series_package' %}
+                    {% if sibling.is_flexible %}
+                      {# A flexible run has no session to date: the flex line and its window, if any (#545). #}
+                      <span class="cp-detail__other-date-when">Flexible: schedule with the instructor{% if sibling.has_flexible_window %} · {{ sibling.flexible_window_label }}{% endif %}</span>
+                    {% elif sibling.scheduling_type == 'series_package' %}
                       {% with ses=sibling.sessions.all|upcoming_sessions %}
                         <span class="cp-detail__other-date-when">{{ ses|session_dates }} · {{ ses|length }} session{{ ses|length|pluralize }}</span>
                       {% endwith %}
@@ -264,9 +267,12 @@
                         <span class="cp-detail__other-date-when">{{ session.starts_at|date:"l, F j, Y" }} · {{ session|session_time_range }}</span>
                       {% endwith %}
                     {% endif %}
+                    {# None is a flexible run: no seat cap, no pill (#545). #}
+                    {% if sibling.spots_left is not None %}
                     <span class="cls-spots {{ sibling.spots_left|spots_class }}">
                       {% if sibling.spots_left == 0 %}Full{% elif sibling.spots_left <= 3 %}{{ sibling.spots_left }} left{% else %}{{ sibling.spots_left }} spots{% endif %}
                     </span>
+                    {% endif %}
                   </a>
                 </li>
             {% endfor %}

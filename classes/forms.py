@@ -400,7 +400,9 @@ class _FlexibleWindowMixin:
 
     def setup_flexible_window_fields(self) -> None:
         fields = self.fields  # type: ignore[attr-defined]
-        fields["scheduling_model"].widget.attrs["x-model"] = "schedulingModel"
+        model = fields["scheduling_model"]
+        model.widget.attrs["x-model"] = "schedulingModel"
+        model.help_text = "Fixed sessions: you set the dates and times. Flexible: each student books a day with you."
         fields["flexible_starts_on"].label = "First day"
         fields["flexible_ends_on"].label = "Last day"
         note = fields["flexible_note"]

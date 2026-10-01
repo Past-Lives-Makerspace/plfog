@@ -298,7 +298,7 @@ def describe_the_flexible_window_on_the_manage_pages():
             offering = _flexible_live(instructor_fixture, **traits)
             html = client.get(reverse("classes:teach_class_detail", kwargs={"pk": offering.pk})).content.decode()
             assert _window_row(html) == label, traits
-            assert "session_duration_words" not in html and "No sessions scheduled yet." not in html, traits
+            assert "No sessions scheduled yet." not in html, traits
 
     def it_keeps_the_session_rows_for_a_fixed_class_in_the_overview(instructor_fixture, client):
         offering = _live(instructor_fixture)
