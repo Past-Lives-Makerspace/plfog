@@ -14,7 +14,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta
 from typing import TYPE_CHECKING, Any
-from urllib.parse import quote
+from urllib.parse import quote, quote_plus, urlencode
 
 from django.utils import timezone
 
@@ -309,3 +309,55 @@ def calendar_subscribe_links(config: SiteConfiguration) -> list[dict[str, str]]:
                 }
             )
     return rows
+
+
+# Google rejects a link past roughly 8 KB. The limit is on the encoded description, because
+# accented text and emoji encode to many bytes per character.
+_GOOGLE_EVENT_DETAILS_LIMIT = 3000
+
+
+def _trim_to_encoded_length(text: str, limit: int) -> str:
+    """The longest prefix of ``text`` whose URL encoding fits in ``limit`` bytes."""
+    used = 0
+    for index, char in enumerate(text):
+        used += len(quote_plus(char))
+        if used > limit:
+            return text[:index]
+    return text
+
+
+def google_calendar_event_url(event: CommunityEvent, page_url: str = "") -> str:
+    """Google Calendar's "create this event" link for one event, for the Add to calendar menu.
+
+    Opens Google Calendar (the app on a phone, the site on a desktop) with the title, times,
+    place and description filled in, so a member adds the one event they care about rather
+    than subscribing to the whole makerspace calendar. A plain ``https`` URL on another host,
+    so it works in every browser and the native shells hand it to the system, where the
+    ``.ics`` download does nothing. A recurring series carries its ``RRULE``, as the ``.ics``
+    does. The details end with the video link, when there is one, and the event page's link,
+    so the entry leads back here.
+
+    Times go in the makerspace's local time with its zone named (``ctz``), because the
+    ``RRULE``'s weekday is the local one: in UTC an evening series would land a day late for
+    anyone whose own calendar is not on Pacific time.
+    """
+    details = _trim_to_encoded_length(event.description, _GOOGLE_EVENT_DETAILS_LIMIT)
+    for link in (event.video_url, page_url):
+        if link:
+            details = f"{details}\n\n{link}" if details else link
+    params = {
+        "action": "TEMPLATE",
+        "text": event.title,
+        "dates": "/".join(
+            timezone.localtime(moment).strftime("%Y%m%dT%H%M%S") for moment in (event.starts_at, event.ends_at)
+        ),
+        "ctz": timezone.get_default_timezone_name(),
+    }
+    if details:
+        params["details"] = details
+    if event.location:
+        params["location"] = event.location
+    rrule = event.ical_rrule()
+    if rrule:
+        params["recur"] = f"RRULE:{rrule}"
+    return f"https://calendar.google.com/calendar/render?{urlencode(params)}"

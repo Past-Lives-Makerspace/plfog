@@ -1,0 +1,25 @@
+{% comment %}
+Add to calendar on the event page: this one event into the viewer's own calendar, never a
+subscription to the whole makerspace calendar (that is the Community Calendar's Subscribe menu).
+Grouped by calendar app, because that is the choice a viewer makes.
+
+Google Calendar gets Google's own "create this event" link, a plain https URL that works in
+every browser and that the native shells hand to the system. Apple Calendar, Outlook and the
+rest take the single-event .ics, an attachment: hx-boost="false" and data-pl-download
+(FRONTEND.md rule 24), so inside the native app that row is hidden and Google Calendar remains.
+
+Parameters:
+  event            — the CommunityEvent
+  google_event_url — hub.calendar_entries.google_calendar_event_url()
+  button_class     — the trigger's classes (primary, or ghost beside Join online)
+{% endcomment %}
+<div class="pl-calendar-export pl-calendar-export--left" x-data="{ open: false }">
+    <button type="button" class="{{ button_class }}" @click="open = !open" @click.away="open = false" aria-haspopup="true" :aria-expanded="open">
+        Add to calendar
+        <svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 4.5l3 3 3-3"/></svg>
+    </button>
+    <div class="pl-calendar-export__dropdown" x-show="open" x-transition>
+        <a href="{{ google_event_url }}" class="pl-calendar-export__item" target="_blank" rel="noopener">Google Calendar</a>
+        <a href="{% url 'hub_event_ics' event.pk %}" class="pl-calendar-export__item" download hx-boost="false" data-pl-download>Apple Calendar or Outlook (.ics)</a>
+    </div>
+</div>

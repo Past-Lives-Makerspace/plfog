@@ -9,10 +9,7 @@ of the two calendars, so the note says to take both for everything.
 Parameters:
   subscribe_links — hub.calendar_entries.calendar_subscribe_links(): one row per configured
                     calendar, with both link forms
-  show_export     — also offer the one-time .ics of every upcoming event (the calendar page)
-  align           — "left" opens the dropdown from the button's left edge (the event page's
-                    actions row); default right-aligned (the calendar toolbar)
-  button_class    — the trigger's classes; defaults to the calendar toolbar's small button
+  show_export     — also offer the one-time .ics of every upcoming event
   help_key        — optional data-help-key for the wrapper
 
 Renders nothing when there is nothing to offer, so a page with no calendar configured and no
@@ -20,8 +17,8 @@ export shows no empty menu. The one-time download is an attachment: hx-boost="fa
 data-pl-download (FRONTEND.md rule 24).
 {% endcomment %}
 {% if subscribe_links or show_export %}
-<div class="pl-calendar-export{% if align == 'left' %} pl-calendar-export--left{% endif %}" x-data="{ open: false }"{% if help_key %} data-help-key="{{ help_key }}"{% endif %}>
-    <button type="button" class="{{ button_class|default:'pl-btn pl-btn--secondary pl-btn--sm' }}" @click="open = !open" @click.away="open = false" aria-haspopup="true" :aria-expanded="open">
+<div class="pl-calendar-export" x-data="{ open: false }"{% if help_key %} data-help-key="{{ help_key }}"{% endif %}>
+    <button type="button" class="pl-btn pl-btn--secondary pl-btn--sm" @click="open = !open" @click.away="open = false" aria-haspopup="true" :aria-expanded="open">
         Subscribe
         <svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 4.5l3 3 3-3"/></svg>
     </button>

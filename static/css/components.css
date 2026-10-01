@@ -1961,9 +1961,9 @@
 }
 
 /* ========================================
-   Calendar subscribe menu
-   (hub/partials/_calendar_subscribe.html: the Community Calendar
-   and the event page share one dropdown)
+   Calendar menus
+   (hub/partials/_calendar_subscribe.html on the Community Calendar,
+   hub/partials/_add_event_to_calendar.html on the event page)
    ======================================== */
 .pl-calendar-export {
     position: relative;
@@ -2035,7 +2035,7 @@
     border-top-color: rgba(0,0,0,0.06);
 }
 
-/* The event page opens the menu from the left end of its actions row, where a
+/* The event page opens its menu from the left end of its actions row, where a
    right-anchored dropdown would hang off the card. */
 .pl-calendar-export--left .pl-calendar-export__dropdown {
     left: 0;

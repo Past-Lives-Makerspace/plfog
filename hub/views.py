@@ -6516,8 +6516,7 @@ def event_detail(request: HttpRequest, pk: int) -> HttpResponse:
     unknown pk) 404s identically via the themed ``404.html`` — no unreviewed proposal ever
     leaks onto a scannable URL, and a missing event never reveals its title.
     """
-    from core.models import SiteConfiguration
-    from hub.calendar_entries import calendar_subscribe_links
+    from hub.calendar_entries import google_calendar_event_url
     from membership.models import CommunityEvent
     from membership.permissions import can_edit_event
 
@@ -6530,11 +6529,9 @@ def event_detail(request: HttpRequest, pk: int) -> HttpResponse:
     rsvps = list(event.rsvps.select_related("member"))
     member = _get_member(request)
     viewer_rsvped = member is not None and any(rsvp.member_id == member.pk for rsvp in rsvps)
-    # A signed-in member is offered the calendar subscription in place of the one-time .ics:
-    # a downloaded event goes stale when it moves, a subscription follows it. An anonymous
-    # scanner keeps Add to calendar. Empty when no Google calendar is configured, and the
-    # template then falls back to Add to calendar for the member too.
-    subscribe_links = calendar_subscribe_links(SiteConfiguration.load()) if request.user.is_authenticated else []
+    # Add to calendar puts this one event in the viewer's own calendar. Subscribing to the
+    # whole makerspace calendar lives on the Community Calendar, not here.
+    google_event_url = google_calendar_event_url(event, request.build_absolute_uri(request.path))
     return render(
         request,
         "hub/event_detail.html",
@@ -6543,7 +6540,7 @@ def event_detail(request: HttpRequest, pk: int) -> HttpResponse:
             "event": event,
             "can_edit": can_edit,
             "is_recurring": is_recurring,
-            "calendar_subscribe_links": subscribe_links,
+            "google_event_url": google_event_url,
             # A non-recurring event that has already ended is still viewable; show an honest
             # "already taken place" note. A recurring series is ongoing, so never flag it.
             "show_past_note": not is_recurring and event.ends_at < dj_timezone.now(),

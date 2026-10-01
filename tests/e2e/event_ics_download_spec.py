@@ -27,7 +27,8 @@ from playwright.sync_api import TimeoutError as PlaywrightTimeoutError
 from membership.models import Member
 from tests.membership.factories import CommunityEventFactory, MembershipPlanFactory
 
-ADD_TO_CALENDAR = 'a.hub-btn:has-text("Add to calendar")'
+ADD_TO_CALENDAR = '.pl-calendar-export button:has-text("Add to calendar")'
+EVENT_ICS = 'a.pl-calendar-export__item:has-text("Apple Calendar or Outlook")'
 CALENDAR_EXPORT = 'a.pl-calendar-export__item:has-text("Download .ics")'
 QR_SVG = 'a.hub-btn:has-text("Download QR (SVG)")'
 EXPORT_CSV = 'a.hub-btn:has-text("Export CSV")'
@@ -81,7 +82,8 @@ def describe_add_to_calendar_on_the_public_event_page():
     def it_downloads_the_ics_for_an_anonymous_visitor(live_server, page):
         event = CommunityEventFactory(community=True, title="Potluck", location="Common Area")
         _open(page, live_server, reverse("hub_event_detail", args=[event.pk]))
-        fetched, report = _click_and_report(page, page.locator(ADD_TO_CALENDAR), "event.ics")
+        page.locator(ADD_TO_CALENDAR).click()
+        fetched, report = _click_and_report(page, page.locator(EVENT_ICS), "event.ics")
         assert fetched, f"htmx took the click instead of the browser; {report}"
 
     def it_downloads_the_ics_when_the_service_worker_controls_the_page(live_server, page):
@@ -90,7 +92,8 @@ def describe_add_to_calendar_on_the_public_event_page():
         page.wait_for_function("() => navigator.serviceWorker && !!navigator.serviceWorker.controller")
         _open(page, live_server, reverse("hub_event_detail", args=[event.pk]))
         assert page.evaluate("() => !!navigator.serviceWorker.controller"), "service worker lost control"
-        fetched, report = _click_and_report(page, page.locator(ADD_TO_CALENDAR), "event.ics")
+        page.locator(ADD_TO_CALENDAR).click()
+        fetched, report = _click_and_report(page, page.locator(EVENT_ICS), "event.ics")
         assert fetched, f"htmx took the click instead of the browser; {report}"
 
 
