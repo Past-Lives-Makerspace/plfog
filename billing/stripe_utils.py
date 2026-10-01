@@ -19,7 +19,7 @@ from typing import TYPE_CHECKING, Any
 import stripe
 from django.core.exceptions import ImproperlyConfigured
 from django.utils import timezone
-from stripe.params import RefundCreateParams
+from stripe.params import RefundCreateParams, SetupIntentCreateParams
 from stripe.params.checkout import SessionCreateParams
 
 if TYPE_CHECKING:
@@ -88,13 +88,12 @@ def create_setup_intent(*, customer_id: str) -> dict[str, str]:
     Includes usage='off_session' for future off-session charges (SCA/3DS compliance).
     """
     client = _get_stripe_client()
-    intent = client.v1.setup_intents.create(
-        params={
-            "customer": customer_id,
-            "usage": "off_session",
-            "payment_method_types": ["card"],
-        },
-    )
+    params: SetupIntentCreateParams = {
+        "customer": customer_id,
+        "usage": "off_session",
+        "payment_method_types": ["card"],
+    }
+    intent = client.v1.setup_intents.create(params=params)
     return {"client_secret": intent.client_secret or "", "setup_intent_id": intent.id}
 
 
