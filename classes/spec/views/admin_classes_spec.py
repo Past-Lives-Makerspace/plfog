@@ -1304,14 +1304,20 @@ def describe_grouped_classes():
         assert _row_pks(client, "?status=draft") == [draft.pk]
 
     def it_links_the_date_count_to_every_run_of_the_class(admin_user, client, db):
-        from classes.factories import CategoryFactory, ClassOfferingFactory
+        from datetime import timedelta
+
+        from django.utils import timezone
+
+        from classes.factories import CategoryFactory, ClassOfferingFactory, ClassSessionFactory
+        from classes.models import ClassOffering
 
         client.force_login(admin_user)
         category = CategoryFactory()
-        _run(category, "forge-2024", days=-480)
+        oldest = _run(category, "forge-2024", days=-480)
         sooner = _run(category, "forge-oct", days=3)
         later = _run(category, "forge-dec", days=60)
-        ClassOfferingFactory(title="Unrelated Weaving", slug="weaving")
+        weaving = ClassOfferingFactory(title="Unrelated Weaving", slug="weaving", status=ClassOffering.Status.PUBLISHED)
+        ClassSessionFactory(class_offering=weaving, starts_at=timezone.now() + timedelta(days=5))
 
         html = client.get(reverse("classes:admin_classes") + "?status=upcoming").content.decode()
         expand = f"?status=upcoming&amp;group={sooner.grouping_key.replace(':', '%3A')}"
@@ -1320,5 +1326,18 @@ def describe_grouped_classes():
 
         rows = _row_pks(client, f"?status=upcoming&group={sooner.grouping_key}")
         assert sorted(rows) == sorted([sooner.pk, later.pk])
+        assert sorted(_row_pks(client, f"?group={sooner.grouping_key}")) == sorted([oldest.pk, sooner.pk, later.pk])
         html = client.get(reverse("classes:admin_classes") + f"?group={sooner.grouping_key}").content.decode()
         assert 'href="?">Show one row per class</a>' in html
+
+    def it_counts_classes_not_dates_on_the_tab_chips(admin_user, client, db):
+        from classes.factories import CategoryFactory
+
+        client.force_login(admin_user)
+        category = CategoryFactory()
+        for slug, days in (("forge-oct", 3), ("forge-nov", 30), ("forge-dec", 60)):
+            _run(category, slug, days=days, instructor=admin_user.member)
+        response = client.get(reverse("classes:admin_classes") + "?status=upcoming")
+        counts = {label: count for _url, label, count, _selected in response.context["status_filters"]}
+        assert counts["Upcoming"] == len(response.context["page"]) == 1
+        assert response.context["mine_count"] == 1

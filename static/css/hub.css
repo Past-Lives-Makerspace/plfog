@@ -3624,7 +3624,7 @@ html:not(.dark) .admin-table-wrap thead {
     padding: 0.1rem 0.45rem;
     border-radius: 9999px;
     background: rgba(238, 180, 75, 0.15);
-    color: #EEB44B;
+    color: var(--hub-link);
     text-decoration: none;
 }
 

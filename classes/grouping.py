@@ -9,9 +9,11 @@ offering stays independently bookable with its own capacity and registrations.
 
 from __future__ import annotations
 
-from datetime import datetime
+import math
+from datetime import date, datetime, time
 from typing import Any
 
+from django.utils import timezone
 from django.utils.text import slugify
 
 from classes.templatetags.classes_tags import strip_date_suffix
@@ -61,14 +63,37 @@ def grouped_catalog(offerings: Any) -> list[CatalogGroup]:
     return [groups[key] for key in order]
 
 
+_Rank = tuple[int, bool, float, int]
+
+
+def _admin_row_rank(row: tuple[Any, ...], now: datetime, today: date) -> _Rank:
+    """Sort key for a run competing to be its class's row: lowest wins.
+
+    Open or upcoming first (a dated run's soonest first session, then any flexible run whose
+    window is still open), then past (most recent first), then undated. Within each, a
+    published run beats a draft or cancelled one, and the lowest pk breaks a tie.
+    """
+    pk, _key, first_session, status, scheduling_model, flexible_ends_on = row
+    unpublished = status != "published"
+    if scheduling_model == "flexible":
+        if flexible_ends_on is None or flexible_ends_on >= today:
+            return (0, unpublished, math.inf, pk)
+        last_day = timezone.make_aware(datetime.combine(flexible_ends_on, time.max))
+        return (1, unpublished, -last_day.timestamp(), pk)
+    if first_session is None:
+        return (2, unpublished, 0.0, pk)
+    if first_session >= now:
+        return (0, unpublished, first_session.timestamp(), pk)
+    return (1, unpublished, -first_session.timestamp(), pk)
+
+
 def admin_group_rows(offerings: Any, now: datetime) -> tuple[list[int], dict[str, int]]:
     """One row per class for Manage Classes, chosen among the offerings that passed its filters.
 
     Grouping after the filters is the point: a group's row picked from all of its runs is
     often one the active tab or search excludes, and the whole class then vanishes from the
     list (a June 2024 run hid Glen's October run from Upcoming). Within a group the row shown
-    is the soonest upcoming run, else the latest past one, else the lowest pk. An offering
-    with a blank key stands alone.
+    is the one :func:`_admin_row_rank` puts first. An offering with a blank key stands alone.
 
     Args:
         offerings: the filtered queryset, annotated with ``first_session``.
@@ -77,20 +102,20 @@ def admin_group_rows(offerings: Any, now: datetime) -> tuple[list[int], dict[str
     Returns:
         The pks to list, and how many matching runs each grouping key holds.
     """
-    best: dict[str, tuple[tuple[int, float, int], int]] = {}
+    today = timezone.localtime(now).date()
+    best: dict[str, tuple[_Rank, int]] = {}
     sizes: dict[str, int] = {}
     pks: list[int] = []
-    for pk, key, first_session in offerings.values_list("pk", "grouping_key", "first_session"):
+    rows = offerings.values_list(
+        "pk", "grouping_key", "first_session", "status", "scheduling_model", "flexible_ends_on"
+    )
+    for row in rows:
+        pk, key = row[0], row[1]
         if not key:
             pks.append(pk)
             continue
         sizes[key] = sizes.get(key, 0) + 1
-        if first_session is None:
-            rank = (2, 0.0, pk)
-        elif first_session >= now:
-            rank = (0, first_session.timestamp(), pk)
-        else:
-            rank = (1, -first_session.timestamp(), pk)
+        rank = _admin_row_rank(row, now, today)
         if key not in best or rank < best[key][0]:
             best[key] = (rank, pk)
     pks.extend(pk for _rank, pk in best.values())

@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 import logging
 from collections.abc import Iterable
-from datetime import timedelta
+from datetime import datetime, timedelta
 from functools import wraps
 from typing import TYPE_CHECKING, Any, Callable, TypedDict, cast
 
@@ -3778,6 +3778,11 @@ def _admin_class_rows(qs: Any, group_filter: str, q: str, search_fields: list[st
     return qs.filter(pk__in=shown_pks), group_sizes
 
 
+def _admin_class_count(offerings: Any, now: datetime) -> int:
+    """How many Manage Classes rows ``offerings`` makes: one per class, as the list shows them."""
+    return len(admin_group_rows(offerings, now)[0])
+
+
 @classes_review_access_required
 def admin_classes(request: HttpRequest) -> HttpResponse:
     facet = resolve_facet(ADMIN_FACETS, request.GET.get("status", "").strip())
@@ -3824,8 +3829,10 @@ def admin_classes(request: HttpRequest) -> HttpResponse:
         qs = qs.hosted_by(own_member) if own_member is not None else qs.none()  # type: ignore[assignment]
 
     # mine_count is global — all statuses, ignoring q and the Instructor dropdown —
-    # to match how the facet-chip counts ignore the search box and each other.
-    mine_count = base.hosted_by(own_member).count() if own_member is not None else 0
+    # to match how the facet-chip counts ignore the search box and each other. Both count
+    # classes, as the list shows them, not each run of a class.
+    now = timezone.now()
+    mine_count = _admin_class_count(base.hosted_by(own_member), now) if own_member is not None else 0
 
     # Every view-computed URL starts from a normalized copy of the GET params: a
     # bogus mine value (anything but "1") is stripped, not echoed, so cruft never
@@ -3844,7 +3851,7 @@ def admin_classes(request: HttpRequest) -> HttpResponse:
 
     mine_toggle_url = _url_without("mine") if mine_active else _url_without(mine="1")
     # Lifecycle facet chips (All, Needs review, With guild lead, ...), each counted
-    # against the ungrouped base so the numbers ignore the search box and each other.
+    # against the unsearched base so the numbers ignore the search box and each other.
     status_filters = [
         (row.url, row.label, row.count, row.is_selected)
         for row in facet_rows(
@@ -3852,6 +3859,7 @@ def admin_classes(request: HttpRequest) -> HttpResponse:
             base,  # type: ignore[arg-type]  # annotated queryset keeps its aliases
             facet,
             lambda key: "?" + _url_without("status", **({"status": key} if key else {})),
+            count=lambda offerings: _admin_class_count(offerings, now),
         )
     ]
     search_clear_url = _url_without("q")

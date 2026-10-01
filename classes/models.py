@@ -1404,18 +1404,23 @@ class ClassOffering(HeroCropMixin, models.Model):
         # ``category_written`` for the same reason as the reopen above, and the cost of
         # missing it is higher here: on a save that leaves the category where it was, this
         # would carry every sibling off to a category the class itself never moved to,
-        # splitting the group it exists to keep together. Each sibling's key comes from its
-        # own title: the same save may rename this class, and stamping the new name's key on
-        # runs still carrying the old name files them on the wrong catalog card until their
-        # next save moves them back.
-        if old is not None and old.category_id != self.category_id and category_written and old.grouping_key:
-            siblings = list(
-                type(self)._default_manager.filter(grouping_key=old.grouping_key).exclude(pk=self.pk).only("title")
+        # splitting the group it exists to keep together. A save that also renames the
+        # class out of its group moves it alone: its old runs keep their name and category,
+        # and stamping the new name's key on them would file them on the wrong catalog card.
+        # (``old`` loads only a few columns, so its title would read back the new one.)
+        if (
+            old is not None
+            and old.category_id != self.category_id
+            and category_written
+            and old.grouping_key
+            and grouping_key_for(self.title, old.category_id) == old.grouping_key
+        ):
+            type(self)._default_manager.filter(
+                grouping_key=old.grouping_key,
+            ).exclude(pk=self.pk).update(
+                category_id=self.category_id,
+                grouping_key=self.grouping_key,
             )
-            for sibling in siblings:
-                sibling.category_id = self.category_id
-                sibling.grouping_key = grouping_key_for(sibling.title, self.category_id)
-            type(self)._default_manager.bulk_update(siblings, ["category", "grouping_key"])
 
         if creating:
             from classes import activity

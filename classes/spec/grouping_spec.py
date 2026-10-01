@@ -115,6 +115,60 @@ def describe_admin_group_rows():
         pks, _sizes = admin_group_rows(_annotated([undated.pk]), now)
         assert pks == [undated.pk]
 
+    def it_counts_a_run_starting_this_instant_as_upcoming(db):
+        from django.utils import timezone
+
+        from classes.factories import ClassSessionFactory
+
+        now = timezone.now()
+        category = CategoryFactory()
+        starting = ClassOfferingFactory(title="Forging 101 with Glen", slug="starting", category=category)
+        ClassSessionFactory(class_offering=starting, starts_at=now)
+        undated = ClassOfferingFactory(title="Forging 101 with Glen", slug="undated", category=category)
+
+        pks, _sizes = admin_group_rows(_annotated([undated.pk, starting.pk]), now)
+        assert pks == [starting.pk]
+
+    def it_prefers_a_published_run_and_an_open_flexible_window(db):
+        from datetime import timedelta
+
+        from django.utils import timezone
+
+        from classes.factories import ClassSessionFactory
+
+        now = timezone.now()
+        today = timezone.localdate()
+        category = CategoryFactory()
+
+        def flexible(slug: str, ends_on, status=ClassOffering.Status.PUBLISHED) -> ClassOffering:
+            return ClassOfferingFactory(
+                title="Open Forge",
+                slug=slug,
+                category=category,
+                status=status,
+                scheduling_model=ClassOffering.SchedulingModel.FLEXIBLE,
+                flexible_ends_on=ends_on,
+            )
+
+        ended_long_ago = flexible("ended-long-ago", today - timedelta(days=400))
+        ended_lately = flexible("ended-lately", today - timedelta(days=3))
+        open_draft = flexible("open-draft", None, status=ClassOffering.Status.DRAFT)
+        open_published = flexible("open-published", today + timedelta(days=30))
+
+        pks, _sizes = admin_group_rows(_annotated([ended_long_ago.pk, ended_lately.pk]), now)
+        assert pks == [ended_lately.pk]
+        pks, _sizes = admin_group_rows(_annotated([ended_lately.pk, open_draft.pk]), now)
+        assert pks == [open_draft.pk]
+        pks, _sizes = admin_group_rows(_annotated([ended_lately.pk, open_draft.pk, open_published.pk]), now)
+        assert pks == [open_published.pk]
+
+        dated = ClassOfferingFactory(
+            title="Open Forge", slug="dated", category=category, status=ClassOffering.Status.PUBLISHED
+        )
+        ClassSessionFactory(class_offering=dated, starts_at=now + timedelta(days=60))
+        pks, _sizes = admin_group_rows(_annotated([open_published.pk, dated.pk]), now)
+        assert pks == [dated.pk]
+
 
 def describe_spots_remaining_map():
     def it_returns_seats_left_per_offering_in_the_queryset(db):
