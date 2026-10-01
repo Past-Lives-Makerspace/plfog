@@ -403,7 +403,14 @@ class _FlexibleWindowMixin:
         fields["scheduling_model"].widget.attrs["x-model"] = "schedulingModel"
         fields["flexible_starts_on"].label = "First day"
         fields["flexible_ends_on"].label = "Last day"
-        fields["flexible_note"].label = "Note for students"
+        note = fields["flexible_note"]
+        note.label = "Note for students"
+        # The model field's help text is developer wording; the page carries the sentence that says
+        # what Flexible means, so the note is the instructor's extra.
+        note.help_text = (
+            "Optional. Hours you teach, what to bring to the first meeting, "
+            "anything students should know before they book."
+        )
 
     def clean_flexible_window(self) -> None:
         data = self.cleaned_data  # type: ignore[attr-defined]

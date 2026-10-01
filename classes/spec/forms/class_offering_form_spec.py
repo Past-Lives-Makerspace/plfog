@@ -214,6 +214,8 @@ def describe_the_flexible_window():
         assert form.fields["flexible_ends_on"].label == "Last day"
         assert form.fields["flexible_note"].label == "Note for students"
         assert form.fields["flexible_note"].required is False
+        assert form.fields["flexible_note"].help_text.startswith("Optional. Hours you teach")
+        assert "scheduling_model" not in form.fields["flexible_note"].help_text
         assert form.fields["flexible_starts_on"].required is False
         assert form.fields["flexible_ends_on"].required is False
 
