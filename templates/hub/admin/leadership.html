@@ -189,7 +189,13 @@ save of that line runs, and a line is never added twice.
           });
         },
         // A 404 means another admin removed it: drop that row, or reload for a tab or the strip.
+        // A 409 means an order no longer matches the page: the server's toast says so, and we reload.
         gone(response, el) {
+          if (response.status === 409) {
+            setTimeout(function () { window.location.reload(); }, 1500);
+            this.state = 'saved';
+            return;
+          }
           if (response.status !== 404) {
             this.state = 'error';
             return;
@@ -205,12 +211,15 @@ save of that line runs, and a line is never added twice.
         },
 
         // --- Typed fields: after a pause in typing, and at once when the field changes ---
+        // A required field left blank waits for the change (blur): mid typing, a cleared title
+        // is a field being retyped, not a value to refuse and snap back.
         onInput(input) {
           if (!input.dataset || input.dataset.autosave === undefined) return;
           var self = this;
           self.relabel(input);
           clearTimeout(timers.get(input));
           timers.set(input, setTimeout(function () {
+            if (input.required && !input.value.trim()) return;
             self.enqueue(function () { return self.saveInput(input); });
           }, 800));
         },
@@ -345,8 +354,10 @@ save of that line runs, and a line is never added twice.
         saveOrder(list) {
           var self = this;
           self.enqueue(async function () {
+            // Every card still in the page, hidden ones too: a removal still queued has not
+            // reached the server yet, and one that has is gone from the page by now.
             var ids = Array.prototype.filter.call(list.children, function (el) {
-              return el.dataset.listingId && !el.dataset.removed;
+              return el.dataset.listingId;
             }).map(function (el) { return el.dataset.listingId; });
             var response = await self.post(list.dataset.orderUrl, { order: ids });
             if (response.ok) self.done();

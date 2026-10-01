@@ -1,9 +1,11 @@
 """Data-migration spec for 0190: the Leadership Directory's first two tabs (#564).
 
-Forward makes a People tab from the page's team heading and intro and the Guild Leads tab
-from its guilds heading and intro, in that order, and puts every listing (listed or not) on
-the People tab. Reverse folds the tabs' wording back onto the page, keeps one listing per
-member so 0189's reverse can restore the one-card-per-member rule, and drops the tabs.
+Forward makes a People tab titled "Leadership" with the page's team intro and the Guild Leads
+tab titled "Guild Leads" with its guilds intro, in that order, and puts every listing (listed
+or not) on the Leadership tab; the old headings never become tab titles. Reverse puts the
+tabs' intros back on the page and leaves the headings, which forward never touched; it keeps
+one listing per member so 0189's reverse can restore the one-card-per-member rule, and drops
+the tabs.
 
 Uses Django's ``MigrationExecutor`` (the 0132 spec's approach) so fixtures are built against
 the state before or after; each test restores the head in a ``finally``.
@@ -38,7 +40,7 @@ def _member(apps: Any, name: str) -> Any:
 
 @pytest.mark.django_db(transaction=True)
 def describe_migration_0190_leadership_tabs_data():
-    def it_makes_the_people_tab_then_guild_leads_from_the_page_wording_and_moves_every_listing():
+    def it_makes_leadership_then_guild_leads_with_the_page_intros_and_moves_every_listing():
         try:
             apps = _migrate(_BEFORE)
             apps.get_model(_APP, "LeadershipPage").objects.update_or_create(
@@ -57,9 +59,11 @@ def describe_migration_0190_leadership_tabs_data():
             apps = _migrate(_AFTER)
             tab_model = apps.get_model(_APP, "LeadershipTab")
             assert list(tab_model.objects.order_by("sort_order").values_list("title", "intro", "kind")) == [
-                ("The Crew", "Who keeps the lights on.", "people"),
-                ("Shop Leads", "", "guild_leads"),
+                ("Leadership", "Who keeps the lights on.", "people"),
+                ("Guild Leads", "", "guild_leads"),
             ]
+            page = apps.get_model(_APP, "LeadershipPage").objects.get(pk=1)
+            assert (page.team_heading, page.guilds_heading) == ("The Crew", "Shop Leads")  # left in place
             people = tab_model.objects.get(kind="people")
             listing_model = apps.get_model(_APP, "LeadershipListing")
             assert set(listing_model.objects.values_list("pk", "tab_id")) == {
@@ -70,24 +74,31 @@ def describe_migration_0190_leadership_tabs_data():
         finally:
             _migrate(_AFTER)
 
-    def it_uses_the_default_wording_when_the_page_was_never_saved():
+    def it_uses_the_default_intros_when_the_page_was_never_saved():
         try:
             apps = _migrate(_BEFORE)
             apps.get_model(_APP, "LeadershipPage").objects.all().delete()
 
             apps = _migrate(_AFTER)
             tab_model = apps.get_model(_APP, "LeadershipTab")
-            assert list(tab_model.objects.order_by("sort_order").values_list("title", "kind")) == [
-                ("Leadership & Admin Team", "people"),
-                ("Guild Leaders", "guild_leads"),
+            assert list(tab_model.objects.order_by("sort_order").values_list("title", "intro", "kind")) == [
+                ("Leadership", "The people who keep the makerspace running, and how to reach each of them.", "people"),
+                (
+                    "Guild Leads",
+                    "Every active guild and who leads it, straight from the guild's own settings.",
+                    "guild_leads",
+                ),
             ]
             assert apps.get_model(_APP, "LeadershipPage").objects.count() == 0  # forward reads, never writes it
         finally:
             _migrate(_AFTER)
 
-    def it_reverses_to_one_listing_per_member_with_the_wording_back_on_the_page():
+    def it_reverses_to_one_listing_per_member_with_the_intros_back_on_the_page():
         try:
             apps = _migrate(_AFTER)
+            apps.get_model(_APP, "LeadershipPage").objects.update_or_create(
+                pk=1, defaults={"team_heading": "Original Heading", "guilds_heading": "Original Guilds"}
+            )
             tab_model = apps.get_model(_APP, "LeadershipTab")
             listing_model = apps.get_model(_APP, "LeadershipListing")
             role_model = apps.get_model(_APP, "LeadershipRole")
@@ -107,8 +118,8 @@ def describe_migration_0190_leadership_tabs_data():
 
             apps = _migrate(_BEFORE)
             page = apps.get_model(_APP, "LeadershipPage").objects.get(pk=1)
-            assert (page.team_heading, page.team_intro) == ("Board", "Advisors.")
-            assert (page.guilds_heading, page.guilds_intro) == ("Guild Leads", "From each guild.")
+            assert (page.team_heading, page.team_intro) == ("Original Heading", "Advisors.")
+            assert (page.guilds_heading, page.guilds_intro) == ("Original Guilds", "From each guild.")
             listing_model = apps.get_model(_APP, "LeadershipListing")
             assert set(listing_model.objects.values_list("pk", flat=True)) == {shown_council.pk, ada_board.pk}
             assert not listing_model.objects.filter(pk=ada_council.pk).exists()
@@ -125,11 +136,11 @@ def describe_migration_0190_leadership_tabs_data():
             apps = _migrate(_AFTER)
             apps.get_model(_APP, "LeadershipTab").objects.all().delete()
             apps.get_model(_APP, "LeadershipPage").objects.update_or_create(
-                pk=1, defaults={"team_heading": "Kept Heading", "guilds_heading": "Kept Guilds"}
+                pk=1, defaults={"team_intro": "Kept Intro", "guilds_intro": "Kept Guilds Intro"}
             )
 
             apps = _migrate(_BEFORE)
             page = apps.get_model(_APP, "LeadershipPage").objects.get(pk=1)
-            assert (page.team_heading, page.guilds_heading) == ("Kept Heading", "Kept Guilds")
+            assert (page.team_intro, page.guilds_intro) == ("Kept Intro", "Kept Guilds Intro")
         finally:
             _migrate(_AFTER)

@@ -12,6 +12,8 @@ Waits are on what the page shows, never a fixed sleep: the save pill reads Saved
 
 from __future__ import annotations
 
+from datetime import datetime, timedelta
+
 from django.contrib.auth.models import User
 from django.urls import reverse
 
@@ -28,6 +30,9 @@ from tests.membership.factories import (
 ADMIN_EMAIL = "leadership-editor-admin@example.com"
 ALPINE_READY = "() => !!(document.querySelector('.pl-leadership-admin') || {})._x_dataStack"
 PENDING = "() => document.querySelector('.pl-leadership-admin')._x_dataStack[0].pending"
+SAVES_OR_PENDING = (
+    "() => { const d = document.querySelector('.pl-leadership-admin')._x_dataStack[0]; return d.saves + d.pending; }"
+)
 SAVED_PAST = (
     "(n) => { const pill = document.querySelector('[data-save-pill]');"
     " return pill && Number(pill.dataset.saves) >= n && pill.textContent.trim() === 'Saved'; }"
@@ -241,3 +246,49 @@ def describe_leadership_editor():
         page.wait_for_function(ALPINE_READY)
         assert page.locator("[data-tab-strip] [data-tab-id]").nth(0).get_attribute("data-tab-id") == str(guild_leads.pk)
         assert _people_order(page, leadership.pk) == ["Lena Lead"]
+
+    def it_reloads_with_a_toast_when_the_order_it_saves_is_stale(live_server, page, login_via_code):
+        wilma, otto, leadership = _seed()
+        LeadershipListingFactory(tab=leadership, member=wilma, sort_order=1)
+        login_via_code(ADMIN_EMAIL)
+        _open_editor(page, live_server, f"?tab={leadership.pk}")
+        assert _people_order(page, leadership.pk) == ["Lena Lead", "Wilma Weaver"]
+        LeadershipListingFactory(tab=leadership, member=otto, sort_order=2)  # another window adds Otto
+        with page.expect_response(lambda response: "/people/order/" in response.url) as answer:
+            _row(page, leadership.pk, wilma).locator("[data-move='up']").click()
+        assert answer.value.status == 409
+        page.locator(".plt-toast--error").first.wait_for()
+        _row(page, leadership.pk, otto).wait_for()  # the reload brings in the card the order missed
+        page.wait_for_function(ALPINE_READY)
+        assert _people_order(page, leadership.pk) == ["Lena Lead", "Wilma Weaver", "Otto Ostrander"]
+
+    def it_holds_a_blank_title_until_blur_instead_of_saving_it_mid_typing(live_server, page, login_via_code):
+        _wilma, _otto, leadership = _seed()
+        login_via_code(ADMIN_EMAIL)
+        page.clock.install()
+        _open_editor(page, live_server, f"?tab={leadership.pk}")
+        page.clock.pause_at(datetime.now() + timedelta(seconds=5))
+        title = page.locator(f"#id_tab-{leadership.pk}-title")
+        errors = page.locator(f"[data-tab-fields='{leadership.pk}'] .pl-field-error")
+
+        # Cleared and left past the typing pause: nothing is queued, nothing snaps back.
+        title.fill("")
+        page.clock.run_for(2000)
+        assert page.evaluate(PENDING) == 0
+        assert title.input_value() == ""
+        assert errors.count() == 0
+
+        # The same pause with a value does save, so the guard held the blank, not a dead timer.
+        before = _saves(page)
+        title.fill("Leadership Team")
+        page.clock.run_for(2000)
+        assert page.evaluate(SAVES_OR_PENDING) > before
+        page.clock.resume()
+        _wait_saved(page, before + 1)
+
+        # On blur a blank is checked: refused, its error shown, the saved title put back.
+        title.fill("")
+        title.press("Tab")
+        errors.wait_for()
+        assert title.input_value() == "Leadership Team"
+        assert LeadershipTab.objects.get(pk=leadership.pk).title == "Leadership Team"

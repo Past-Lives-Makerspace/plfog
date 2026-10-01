@@ -189,6 +189,9 @@ def describe_editor_page():
         page = _between(html, f'data-save-url="{_PAGE_SAVE}"', "</section>")
         assert 'data-autosave="hero_title"' in page
         assert 'data-autosave="hero_lead"' in page
+        # The script holds a typing-pause save of a blank required field until blur; it reads this.
+        assert re.search(r'<input[^>]*name="hero_title"[^>]*required', page)
+        assert not re.search(r'<textarea[^>]*name="hero_lead"[^>]*required', page)
         assert 'value="Leadership Directory"' in page
         assert ">Save</button>" not in html
         assert "data-save-pill" in html
@@ -326,20 +329,74 @@ def describe_editor_page():
             assert "x-init=\"$dispatch('open-modal', 'leadership-add-" not in html
             assert f'class="vote-tab vote-tab--active" data-tab-id="{guilds.pk}"' in html
 
+        def it_ignores_a_digit_that_is_not_a_number(client: Client):
+            _admin(client)
+            LeadershipTabFactory()
+            response = client.get(f"{_PAGE}?add=²")
+            assert response.status_code == 200
+            assert "x-init=\"$dispatch('open-modal', 'leadership-add-" not in response.content.decode()
+
+    def describe_cards_written_mid_deploy():
+        def it_settles_them_onto_the_first_people_tab_when_an_admin_opens_the_editor(client: Client):
+            _admin(client)
+            leadership = LeadershipTabFactory(sort_order=0)
+            stray = LeadershipListingFactory(tab=None, member=MemberFactory(full_legal_name="Stray Stella"))
+            LeadershipRoleFactory(listing=stray, title="Stray Title")
+            html = client.get(_PAGE).content.decode()
+            stray.refresh_from_db()
+            assert stray.tab == leadership
+            assert f'data-listing-id="{stray.pk}"' in _pane(html, leadership)
+
+        def it_folds_a_stray_into_the_card_already_on_the_tab(client: Client):
+            _admin(client)
+            leadership = LeadershipTabFactory()
+            existing = _person(leadership, "Morlock Mender", title="Guild Executor")
+            stray = LeadershipListingFactory(tab=None, member=existing.member)
+            LeadershipRoleFactory(listing=stray, title="Board Advisor")
+            assert client.get(_PAGE).status_code == 200
+            assert list(existing.member.leadership_listings.values_list("pk", flat=True)) == [existing.pk]
+            assert list(existing.roles.values_list("title", flat=True)) == ["Guild Executor", "Board Advisor"]
+
+        def it_never_runs_from_the_public_page(client: Client):
+            _admin(client)
+            LeadershipTabFactory()
+            stray = LeadershipListingFactory(tab=None)
+            assert client.get(reverse("hub_leadership_directory")).status_code == 200
+            stray.refresh_from_db()
+            assert stray.tab is None
+
 
 def describe_LeadershipEditorPane_delete_message():
-    def it_names_how_many_people_come_off_the_tab():
+    def it_says_who_comes_off_and_whose_kept_lines_go_too_in_every_case():
         empty = LeadershipTabFactory()
         one = LeadershipTabFactory()
         three = LeadershipTabFactory()
+        hidden_only = LeadershipTabFactory()
+        mixed = LeadershipTabFactory()
         _person(one, "Solo Sam")
         for name in ("A One", "B Two", "C Three"):
             _person(three, name)
-        panes = {pane.tab.pk: pane for pane in LeadershipEditor().panes}
-        assert "1 person comes off" in panes[one.pk].delete_message
-        assert "3 people come off" in panes[three.pk].delete_message
-        assert "Nobody" in panes[empty.pk].delete_message
-        assert panes[three.pk].delete_confirm_id == f"leadership-delete-{three.pk}"
+        LeadershipRoleFactory(listing=LeadershipListingFactory(tab=hidden_only, is_listed=False))
+        _person(mixed, "Shown Shay")
+        LeadershipListingFactory(tab=mixed, is_listed=False)
+        LeadershipListingFactory(tab=mixed, is_listed=False)
+        messages = {pane.tab.pk: pane.delete_message for pane in LeadershipEditor().panes}
+        assert messages[empty.pk] == "Nobody is on this tab, so only the tab goes."
+        assert messages[one.pk] == "1 person comes off it. Everyone's lines on other tabs stay."
+        assert messages[three.pk] == "3 people come off it. Everyone's lines on other tabs stay."
+        assert messages[hidden_only.pk] == (
+            "Nobody is shown on this tab. The lines kept for 1 person taken off it earlier go too. "
+            "Everyone's lines on other tabs stay."
+        )
+        assert messages[mixed.pk] == (
+            "1 person comes off it. The lines kept for 2 people taken off it earlier go too. "
+            "Everyone's lines on other tabs stay."
+        )
+
+    def it_gives_each_confirm_its_own_id():
+        tab = LeadershipTabFactory()
+        (pane,) = LeadershipEditor().panes
+        assert pane.delete_confirm_id == f"leadership-delete-{tab.pk}"
 
 
 def describe_page_save():
@@ -449,15 +506,22 @@ def describe_tab_order():
         assert response.json() == {"order": [c.pk, a.pk, b.pk]}
         assert list(LeadershipTab.objects.values_list("pk", flat=True)) == [c.pk, a.pk, b.pk]
 
-    def it_answers_404_when_a_tab_is_gone(client: Client):
+    def it_answers_409_with_a_toast_for_a_partial_doubled_or_stale_order_and_moves_nothing(client: Client):
         _admin(client)
-        a, b = LeadershipTabFactory(sort_order=0), LeadershipTabFactory(sort_order=1)
-        assert client.post(_TAB_ORDER, {"order": [b.pk, 999999, a.pk]}).status_code == 404
-        assert list(LeadershipTab.objects.all()) == [a, b]
+        a = LeadershipTabFactory(sort_order=0)
+        guilds = _guild_leads(sort_order=1)
+        b = LeadershipTabFactory(sort_order=2)
+        for stale in ([b.pk], [b.pk, a.pk, a.pk, guilds.pk], [b.pk, a.pk, guilds.pk, 999999], [b.pk, 999999, a.pk]):
+            response = client.post(_TAB_ORDER, {"order": stale})
+            assert response.status_code == 409, stale
+            assert _toast(response)["type"] == "error"
+        assert list(LeadershipTab.objects.values_list("pk", "sort_order")) == [(a.pk, 0), (guilds.pk, 1), (b.pk, 2)]
 
     def it_refuses_an_id_that_is_not_a_number(client: Client):
         _admin(client)
+        tab = LeadershipTabFactory()
         assert client.post(_TAB_ORDER, {"order": ["1", "x"]}).status_code == 400
+        assert client.post(_TAB_ORDER, {"order": [str(tab.pk), "²"]}).status_code == 400
 
 
 def describe_tab_delete():
@@ -572,22 +636,37 @@ def describe_people_order():
             "Ada Aldous",
         ]
 
-    def it_answers_404_for_a_card_on_another_tab_or_gone(client: Client):
+    def it_answers_409_with_a_toast_for_a_partial_doubled_or_stale_order_and_moves_nothing(client: Client):
         _admin(client)
         tab = LeadershipTabFactory()
-        mine = _person(tab, "Ada Aldous")
+        first = _person(tab, "Ada Aldous", sort_order=0)
+        second = _person(tab, "Zed Zephyr", sort_order=1)
+        removed = LeadershipListingFactory(tab=tab, is_listed=False, sort_order=2)
         elsewhere = LeadershipListingFactory()
         url = reverse("hub_admin_leadership_people_order", args=[tab.pk])
-        assert client.post(url, {"order": [elsewhere.pk, mine.pk]}).status_code == 404
-        assert client.post(url, {"order": [999999]}).status_code == 404
+        for stale in (
+            [second.pk],  # partial
+            [second.pk, first.pk, first.pk],  # doubled
+            [second.pk, first.pk, elsewhere.pk],  # a card on another tab
+            [second.pk, first.pk, removed.pk],  # a card another window took off
+            [second.pk, 999999],  # gone in place of one that is there
+        ):
+            response = client.post(url, {"order": stale})
+            assert response.status_code == 409, stale
+            assert _toast(response)["type"] == "error"
+        rows = dict(LeadershipListing.objects.filter(tab=tab).values_list("pk", "sort_order"))
+        assert rows == {first.pk: 0, second.pk: 1, removed.pk: 2}
 
-    def it_answers_404_for_guild_leads_and_400_for_a_bad_id(client: Client):
+    def it_answers_404_for_guild_leads_or_a_tab_that_is_gone_and_400_for_a_bad_id(client: Client):
         _admin(client)
         guilds = _guild_leads()
         assert client.post(reverse("hub_admin_leadership_people_order", args=[guilds.pk]), {}).status_code == 404
+        assert client.post(reverse("hub_admin_leadership_people_order", args=[999999]), {}).status_code == 404
         tab = LeadershipTabFactory()
+        listing = _person(tab, "Ada Aldous")
         url = reverse("hub_admin_leadership_people_order", args=[tab.pk])
         assert client.post(url, {"order": ["-1"]}).status_code == 400
+        assert client.post(url, {"order": [str(listing.pk), "²"]}).status_code == 400
 
 
 def describe_person_remove():
@@ -652,6 +731,14 @@ def describe_role_add():
         _admin(client)
         assert client.post(reverse("hub_admin_leadership_role_add", args=[999999]), {"title": "x"}).status_code == 404
 
+    def it_answers_404_for_a_card_another_window_took_off_its_tab(client: Client):
+        _admin(client)
+        listing = _person(LeadershipTabFactory(), "Ada Aldous")
+        listing.remove_from_tab()
+        response = client.post(reverse("hub_admin_leadership_role_add", args=[listing.pk]), {"title": "Late Line"})
+        assert response.status_code == 404
+        assert not listing.roles.filter(title="Late Line").exists()
+
 
 def describe_role_save():
     def it_saves_a_title_and_an_email(client: Client):
@@ -689,6 +776,15 @@ def describe_role_save():
         _admin(client)
         url = reverse("hub_admin_leadership_role_save", args=[999999])
         assert client.post(url, {"field": "title", "value": "x"}).status_code == 404
+
+    def it_answers_404_for_a_line_on_a_card_another_window_took_off_its_tab(client: Client):
+        _admin(client)
+        role = LeadershipRoleFactory(title="Kept Line")
+        role.listing.remove_from_tab()
+        url = reverse("hub_admin_leadership_role_save", args=[role.pk])
+        assert client.post(url, {"field": "title", "value": "Late Edit"}).status_code == 404
+        role.refresh_from_db()
+        assert role.title == "Kept Line"
 
 
 def describe_role_delete():

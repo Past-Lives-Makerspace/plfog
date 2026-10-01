@@ -3,6 +3,7 @@ from __future__ import annotations
 import logging
 import re
 import secrets
+from collections import Counter
 from collections.abc import Iterable
 from dataclasses import dataclass
 from datetime import date as date_type
@@ -3505,7 +3506,7 @@ class LeadershipPage(models.Model):
     Guild Leads tab is read from each guild.
 
     The four ``team_*`` and ``guilds_*`` columns are retired (#564): migration 0190 copied
-    them onto the first two tabs and nothing reads them now. They stay only so the release
+    the two intros onto the Leadership and Guild Leads tabs and nothing reads them now. They stay only so the release
     before #564 keeps working while the migration deploys; a later PR drops them.
     """
 
@@ -3554,11 +3555,12 @@ class LeadershipPage(models.Model):
         return obj
 
 
-class LeadershipRowGoneError(LookupError):
-    """An id posted to a Leadership Directory reorder names a tab or listing that no longer exists.
+class LeadershipOrderStaleError(ValueError):
+    """A posted Leadership Directory order does not name exactly the tabs, or the cards on show, there are now.
 
-    Another admin deleted it after this page loaded. Views answer it with a 404, which the
-    editor reads as "that went away" (the meeting workspace contract).
+    One is left out, named twice, or gone: another window added, removed or deleted something
+    after this page loaded. Saving a partial order would leave two rows on one place, so the
+    whole order is refused; views answer 409 and the editor reloads.
     """
 
 
@@ -3594,15 +3596,16 @@ class LeadershipTabQuerySet(models.QuerySet["LeadershipTab"]):
         return self.create(title=title, intro=intro, kind=LeadershipTab.Kind.PEOPLE, sort_order=sort_order)
 
     def reorder(self, ids: list[int]) -> None:
-        """Put the tabs ``ids`` names in that order, each at its index; a tab not named keeps its place.
+        """Put every tab in the order ``ids`` gives, each at its index.
+
+        ``ids`` must name every tab exactly once, so no two tabs can end on one place.
 
         Raises:
-            LeadershipRowGoneError: an id names no tab, so the strip the admin reordered is stale.
+            LeadershipOrderStaleError: ``ids`` leaves a tab out, names one twice, or names one that is gone.
         """
-        tabs = self.in_bulk(ids)
-        missing = set(ids) - set(tabs)
-        if missing:
-            raise LeadershipRowGoneError(f"No Leadership Directory tab with id {sorted(missing)}")
+        tabs = self.in_bulk()
+        if sorted(ids) != sorted(tabs):
+            raise LeadershipOrderStaleError(f"The order {ids} does not name the {len(tabs)} tabs there are now")
         for index, pk in enumerate(ids):
             tabs[pk].sort_order = index
         self.bulk_update(tabs.values(), ["sort_order"])
@@ -3615,7 +3618,7 @@ class LeadershipTab(models.Model):
     rows; one member may sit on several tabs with separate role lines on each. The single
     Guild Leads tab (a constraint allows no second one) shows every visible guild's card,
     read from the guild's own settings; it can be renamed, given an intro and moved, never
-    deleted. Migration 0190 made the first two tabs from the page's old section wording.
+    deleted. Migration 0190 made the first two, Leadership and Guild Leads, with the page's old intros.
     """
 
     class Kind(models.TextChoices):
@@ -3681,18 +3684,19 @@ class LeadershipTab(models.Model):
         return listing
 
     def reorder_listings(self, ids: list[int]) -> None:
-        """Put this tab's cards ``ids`` names in that order; a card not named keeps its place.
+        """Put this tab's cards on show in the order ``ids`` gives, each at its index.
 
-        Only the rows whose place changed are written, and their ``updated_at`` moves with
-        them, because the order is part of what the page's Updated line reports.
+        ``ids`` must name every card on show here exactly once, so no two can end on one
+        place. Only the rows whose place changed are written, and their ``updated_at`` moves
+        with them, because the order is part of what the page's Updated line reports.
 
         Raises:
-            LeadershipRowGoneError: an id names no card on this tab, so the list is stale.
+            LeadershipOrderStaleError: ``ids`` leaves a card out, names one twice, or names one
+                not on show here.
         """
-        rows = self.listings.in_bulk(ids)
-        missing = set(ids) - set(rows)
-        if missing:
-            raise LeadershipRowGoneError(f"No card with id {sorted(missing)} on the {self.title} tab")
+        rows = self.listings.filter(is_listed=True).in_bulk()
+        if sorted(ids) != sorted(rows):
+            raise LeadershipOrderStaleError(f"The order {ids} does not name the {len(rows)} cards on {self.title}")
         now = timezone.now()
         moved = []
         for index, pk in enumerate(ids):
@@ -3722,6 +3726,51 @@ class LeadershipListingQuerySet(models.QuerySet["LeadershipListing"]):
         stamps = self.aggregate(listing=Max("updated_at"), role=Max("roles__updated_at"))
         found = [stamp for stamp in stamps.values() if stamp is not None]
         return max(found) if found else None
+
+    def hidden_counts_by_tab(self) -> Counter[int]:
+        """How many cards each tab holds that were taken off it, by tab id; zero for a tab with none.
+
+        Their lines were kept for adding them back, and a Delete tab takes them too, so the
+        confirm names them. One grouped query.
+        """
+        rows = self.filter(is_listed=False, tab__isnull=False).values_list("tab_id").annotate(count=Count("id"))
+        return Counter(dict(rows.order_by()))
+
+    def adopt_untabbed(self) -> int:
+        """Settle every card with no tab onto the first People tab; return how many there were.
+
+        The release before tabs keeps serving while 0189 and 0190 apply, and its Add a Person
+        and Details toggle write cards with no tab, which no tab shows. Each such card moves
+        onto the first People tab, last in its order. Where that member already has a card
+        there, the stray's role lines move onto it (a title it already holds is skipped) and
+        the stray goes, so the member never has two cards on one tab. One transaction, with
+        the strays locked, so two admins opening the editor at once settle each one once.
+        Nothing moves while no People tab exists; the strays wait for one.
+        """
+        if not self.filter(tab__isnull=True).exists():
+            return 0
+        tab = LeadershipTab.objects.people().first()
+        if tab is None:
+            return 0
+        with transaction.atomic():
+            strays = list(self.filter(tab__isnull=True).select_for_update().order_by("id"))
+            last = tab.listings.aggregate(last=Max("sort_order"))["last"]
+            next_place = 0 if last is None else last + 1
+            for stray in strays:
+                existing = tab.listings.filter(member_id=stray.member_id).first()
+                if existing is None:
+                    stray.tab = tab
+                    stray.sort_order = next_place
+                    next_place += 1
+                    stray.save(update_fields=["tab", "sort_order", "updated_at"])
+                    continue
+                held = set(existing.roles.values_list("title", flat=True))
+                for role in stray.roles.all():
+                    if role.title not in held:
+                        existing.add_role(role.title, role.email)
+                        held.add(role.title)
+                stray.delete()
+        return len(strays)
 
     def on_tabs_for(self, member: Member) -> LeadershipListingQuerySet:
         """The member's cards on show, in tab order, each with its tab and role lines: the Details tab's list."""

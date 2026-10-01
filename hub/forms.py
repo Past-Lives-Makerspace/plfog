@@ -1067,7 +1067,8 @@ class LeadershipEditorPane:
     """One tab's pane in the editor: its title and intro, its people, and its Add a person form.
 
     Guild Leads has no people and no add form; its cards are read from each guild.
-    ``open_add`` opens the Add a person modal on load, for a refused add or the member
+    ``hidden`` counts the people taken off the tab earlier, whose kept lines a delete takes
+    too. ``open_add`` opens the Add a person modal on load, for a refused add or the member
     edit page's link.
     """
 
@@ -1075,6 +1076,7 @@ class LeadershipEditorPane:
     form: LeadershipTabForm
     people: list[LeadershipEditorPerson]
     add_form: LeadershipAddForm | None
+    hidden: int = 0
     open_add: bool = False
 
     @property
@@ -1089,20 +1091,33 @@ class LeadershipEditorPane:
 
     @property
     def delete_message(self) -> str:
-        """The Delete tab confirm's body: how many people come off the tab, and that other tabs keep theirs."""
-        count = len(self.people)
-        if count == 0:
+        """The Delete tab confirm's body: who comes off the tab, whose kept lines go with it, and what stays.
+
+        Counts the people on show, and apart from them the people taken off the tab earlier
+        (``hidden``), whose lines were kept for adding them back and go with the tab too.
+        """
+        shown, hidden = len(self.people), self.hidden
+        if not (shown or hidden):
             return "Nobody is on this tab, so only the tab goes."
-        people = "1 person comes" if count == 1 else f"{count} people come"
-        return f"{people} off it. Their lines on other tabs stay."
+        if shown == 0:
+            lead = "Nobody is shown on this tab."
+        elif shown == 1:
+            lead = "1 person comes off it."
+        else:
+            lead = f"{shown} people come off it."
+        kept = ""
+        if hidden:
+            who = "1 person" if hidden == 1 else f"{hidden} people"
+            kept = f" The lines kept for {who} taken off it earlier go too."
+        return f"{lead}{kept} Everyone's lines on other tabs stay."
 
 
 class LeadershipEditor:
     """The Leadership Directory admin: the page wording, then one pane per tab in admin order.
 
-    Three queries for the tabs, their listed cards and their role lines, then one picker
-    query per People tab. ``requested`` is ``?tab=``. ``add_member`` is ``?add=<member id>``,
-    the member edit page's link, which opens Add a person with that member chosen on the
+    Three queries for the tabs, their listed cards and their role lines, one for the hidden
+    card counts, then one picker query per People tab. ``requested`` is ``?tab=``.
+    ``add_member`` is ``?add=<member id>``, the member edit page's link, which opens Add a person with that member chosen on the
     first People tab they are not on. ``add_form`` and ``tab_add_form`` are refused bound
     forms to re-render with their errors and their modal open; a refused add opens its tab.
     """
@@ -1120,12 +1135,13 @@ class LeadershipEditor:
         # The "+ Add a role" template; the script swaps __prefix__ for a fresh key per line.
         self.new_role_form = LeadershipRoleForm(prefix="role-__prefix__")
         tabs = list(LeadershipTab.objects.with_listed())
-        self.panes = [self._pane(tab) for tab in tabs]
+        hidden = LeadershipListing.objects.hidden_counts_by_tab()
+        self.panes = [self._pane(tab, hidden[tab.pk]) for tab in tabs]
         target = self._add_target(add_form, add_member)
         self.open_tab = target.tab if target else LeadershipTab.pick(tabs, requested)
 
     @staticmethod
-    def _pane(tab: LeadershipTab) -> LeadershipEditorPane:
+    def _pane(tab: LeadershipTab, hidden: int) -> LeadershipEditorPane:
         form = LeadershipTabForm(instance=tab, prefix=f"tab-{tab.pk}")
         if tab.is_guild_leads:
             return LeadershipEditorPane(tab=tab, form=form, people=[], add_form=None)
@@ -1138,7 +1154,9 @@ class LeadershipEditor:
             )
             for listing in tab.listed_listings
         ]
-        return LeadershipEditorPane(tab=tab, form=form, people=people, add_form=LeadershipAddForm(tab=tab))
+        return LeadershipEditorPane(
+            tab=tab, form=form, people=people, add_form=LeadershipAddForm(tab=tab), hidden=hidden
+        )
 
     def _add_target(self, add_form: LeadershipAddForm | None, add_member: str | None) -> LeadershipEditorPane | None:
         """The pane whose Add a person opens on load, with the refused form or the linked member chosen."""
@@ -1146,7 +1164,7 @@ class LeadershipEditor:
         if add_form is not None:
             target = next(pane for pane in people_panes if pane.tab.pk == add_form.tab.pk)
             target.add_form = add_form
-        elif add_member is not None and add_member.isdigit() and people_panes:
+        elif add_member is not None and add_member.isdecimal() and people_panes:
             member_id = int(add_member)
             target = next(
                 (pane for pane in people_panes if member_id not in {p.listing.member_id for p in pane.people}),

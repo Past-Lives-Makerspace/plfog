@@ -285,7 +285,7 @@ Tap a tab to open it. The page remembers the open tab in its address, so a link 
 - Admins add and name tabs, add people to a tab, fix titles and emails, and set the order from **Admin Tools → Leadership Directory**, or with the **Edit this page** button on the directory. Each change saves as they make it. A member's profile in Manage Members lists the tabs they are on.
 
 !!! tip
-    The **Updated** date under the page title is the last change to who is on the page, so you can tell how fresh it is.
+    The **Updated** date under the page title is the last time a card on the page was added, moved, or had a title or email changed, so you can tell how fresh it is. Taking a person or a title off the page does not change it.
 """,
         "screenshots": [],
     },

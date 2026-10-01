@@ -6,7 +6,8 @@ JSON, which the editor keeps as that field's last good value; a refused value an
 with the field's errors and an error toast, and the editor puts the field back (the meeting
 workspace contract). A new role line's first save answers with the line's own URLs, so its
 next save updates it rather than adding it again. A tab, card or line that is gone answers
-404. The two modals (Add a Tab, Add a Person) and the Delete tab confirm are plain POSTs that
+404, and so does a line on a card another window took off its tab. An order that does not
+name exactly what is there now answers 409, and the editor reloads. The two modals (Add a Tab, Add a Person) and the Delete tab confirm are plain POSTs that
 redirect back with a message, which the hub shows as a toast.
 """
 
@@ -14,7 +15,7 @@ from __future__ import annotations
 
 from django.contrib import messages
 from django.forms import BaseForm
-from django.http import Http404, HttpRequest, HttpResponse, HttpResponseBadRequest, JsonResponse
+from django.http import HttpRequest, HttpResponse, HttpResponseBadRequest, JsonResponse
 from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse
 from django.views.decorators.http import require_GET, require_POST
@@ -35,7 +36,7 @@ from membership.models import (
     LeadershipListing,
     LeadershipPage,
     LeadershipRole,
-    LeadershipRowGoneError,
+    LeadershipOrderStaleError,
     LeadershipTab,
 )
 
@@ -90,11 +91,21 @@ def _autosave(
 
 
 def _posted_ids(request: HttpRequest) -> list[int] | None:
-    """The posted ``order`` as ids, each once in first mention order; None when one is not a whole number."""
+    """The posted ``order`` as ids, as posted (a repeat is the model's to refuse); None when one is not a number.
+
+    ``isdecimal``, not ``isdigit``: "²" is a digit that ``int`` cannot read.
+    """
     raw = request.POST.getlist("order")
-    if not all(value.isdigit() for value in raw):
+    if not all(value.isdecimal() for value in raw):
         return None
-    return list(dict.fromkeys(int(value) for value in raw))
+    return [int(value) for value in raw]
+
+
+def _stale_order(exc: LeadershipOrderStaleError) -> HttpResponse:
+    """409 with an error toast: the list changed in another window, and the editor reloads to show it."""
+    response = HttpResponse(str(exc), status=409)
+    trigger_toast(response, "The list changed in another window. Reloading to show the latest.", "error")
+    return response
 
 
 # --- The page ---
@@ -107,7 +118,10 @@ def hub_admin_leadership(request: HttpRequest) -> HttpResponse:
 
     ``?tab=<id>`` opens a tab (the public page's Edit this page button and the member edit
     page link there); ``?add=<member id>`` opens Add a person with that member chosen.
+    First it settles any card the release before tabs wrote with no tab (an admin path only,
+    never the public page).
     """
+    LeadershipListing.objects.adopt_untabbed()
     return _render_editor(request)
 
 
@@ -144,14 +158,14 @@ def admin_leadership_tab_save(request: HttpRequest, pk: int) -> HttpResponse:
 @fog_admin_required
 @require_POST
 def admin_leadership_tab_order(request: HttpRequest) -> HttpResponse:
-    """Save the strip's order after a move left or right: ``order`` is every tab id, first to last."""
+    """Save the strip's order after a move left or right: ``order`` is every tab id, first to last, once each."""
     ids = _posted_ids(request)
     if ids is None:
         return HttpResponseBadRequest("Post the order as tab ids.")
     try:
         LeadershipTab.objects.reorder(ids)
-    except LeadershipRowGoneError as exc:
-        raise Http404(str(exc)) from exc
+    except LeadershipOrderStaleError as exc:
+        return _stale_order(exc)
     return JsonResponse({"order": ids})
 
 
@@ -185,15 +199,15 @@ def admin_leadership_person_add(request: HttpRequest, pk: int) -> HttpResponse:
 @fog_admin_required
 @require_POST
 def admin_leadership_people_order(request: HttpRequest, pk: int) -> HttpResponse:
-    """Save a People tab's card order after a drop or an arrow: ``order`` is the card ids, first to last."""
+    """Save a People tab's card order after a drop or an arrow: ``order`` is every card on show, once each."""
     tab = get_object_or_404(LeadershipTab.objects.people(), pk=pk)
     ids = _posted_ids(request)
     if ids is None:
         return HttpResponseBadRequest("Post the order as card ids.")
     try:
         tab.reorder_listings(ids)
-    except LeadershipRowGoneError as exc:
-        raise Http404(str(exc)) from exc
+    except LeadershipOrderStaleError as exc:
+        return _stale_order(exc)
     return JsonResponse({"order": ids})
 
 
@@ -211,8 +225,12 @@ def admin_leadership_person_remove(request: HttpRequest, pk: int) -> HttpRespons
 @fog_admin_required
 @require_POST
 def admin_leadership_role_add(request: HttpRequest, pk: int) -> HttpResponse:
-    """A new role line's first save: add it under the card's last line and answer with its id and URLs."""
-    listing = get_object_or_404(LeadershipListing, pk=pk)
+    """A new role line's first save: add it under the card's last line and answer with its id and URLs.
+
+    A card another window took off its tab is a 404, so the editor drops it rather than
+    saying Saved for a line nobody can see.
+    """
+    listing = get_object_or_404(LeadershipListing, pk=pk, is_listed=True)
     form = LeadershipRoleForm(request.POST)
     if not form.is_valid():
         return _refused(form)
@@ -223,8 +241,8 @@ def admin_leadership_role_add(request: HttpRequest, pk: int) -> HttpResponse:
 @fog_admin_required
 @require_POST
 def admin_leadership_role_save(request: HttpRequest, pk: int) -> HttpResponse:
-    """Save a role line's title or email."""
-    return _autosave(request, LeadershipRoleForm, get_object_or_404(LeadershipRole, pk=pk))
+    """Save a role line's title or email; a line on a card another window took off its tab is a 404."""
+    return _autosave(request, LeadershipRoleForm, get_object_or_404(LeadershipRole, pk=pk, listing__is_listed=True))
 
 
 @fog_admin_required

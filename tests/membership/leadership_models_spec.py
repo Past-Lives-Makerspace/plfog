@@ -22,7 +22,7 @@ from membership.models import (
     LeadershipListing,
     LeadershipPage,
     LeadershipRole,
-    LeadershipRowGoneError,
+    LeadershipOrderStaleError,
     LeadershipTab,
     Member,
 )
@@ -125,11 +125,25 @@ def describe_LeadershipTab():
             LeadershipTab.objects.reorder([c.pk, a.pk, b.pk])
             assert list(LeadershipTab.objects.all()) == [c, a, b]
 
-        def it_refuses_an_id_that_is_gone_and_moves_nothing():
-            a, b = LeadershipTabFactory(sort_order=0), LeadershipTabFactory(sort_order=1)
-            with pytest.raises(LeadershipRowGoneError):
-                LeadershipTab.objects.reorder([b.pk, 999999, a.pk])
-            assert list(LeadershipTab.objects.all()) == [a, b]
+        def it_refuses_an_order_that_is_not_exactly_the_tabs_there_are_and_moves_nothing():
+            """Tabs A0 GL1 B2 with order=[B] once gave [0, 0, 1]: a partial list is refused whole."""
+            a = LeadershipTabFactory(sort_order=0)
+            guilds = LeadershipTabFactory(kind=LeadershipTab.Kind.GUILD_LEADS, sort_order=1)
+            b = LeadershipTabFactory(sort_order=2)
+            for stale in (
+                [b.pk],  # partial
+                [b.pk, a.pk, a.pk, guilds.pk],  # a tab named twice
+                [b.pk, a.pk, guilds.pk, 999999],  # a tab that is gone
+                [b.pk, guilds.pk, 999999],  # gone in place of one that is there
+                [],
+            ):
+                with pytest.raises(LeadershipOrderStaleError):
+                    LeadershipTab.objects.reorder(stale)
+            assert list(LeadershipTab.objects.values_list("pk", "sort_order")) == [
+                (a.pk, 0),
+                (guilds.pk, 1),
+                (b.pk, 2),
+            ]
 
     def describe_with_listed():
         def it_loads_listed_cards_members_and_lines_in_three_queries(django_assert_num_queries):
@@ -210,15 +224,28 @@ def describe_LeadershipTab():
             assert rows[c.pk].updated_at == stamp
             assert rows[a.pk].updated_at > stamp and rows[b.pk].updated_at > stamp
 
-        def it_refuses_a_card_from_another_tab():
+        def it_refuses_an_order_that_is_not_exactly_the_cards_on_show_and_moves_nothing():
             tab = LeadershipTabFactory()
-            mine = LeadershipListingFactory(tab=tab, sort_order=0)
+            a = LeadershipListingFactory(tab=tab, sort_order=0)
+            b = LeadershipListingFactory(tab=tab, sort_order=1)
+            hidden = LeadershipListingFactory(tab=tab, is_listed=False, sort_order=2)
             elsewhere = LeadershipListingFactory(sort_order=5)
-            with pytest.raises(LeadershipRowGoneError):
-                tab.reorder_listings([elsewhere.pk, mine.pk])
-            mine.refresh_from_db()
-            elsewhere.refresh_from_db()
-            assert (mine.sort_order, elsewhere.sort_order) == (0, 5)
+            for stale in (
+                [b.pk],  # partial
+                [b.pk, a.pk, a.pk],  # a card named twice
+                [b.pk, a.pk, elsewhere.pk],  # a card on another tab
+                [b.pk, a.pk, hidden.pk],  # a card taken off the tab in another window
+                [b.pk, 999999],  # gone in place of one that is there
+            ):
+                with pytest.raises(LeadershipOrderStaleError):
+                    tab.reorder_listings(stale)
+            rows = dict(LeadershipListing.objects.values_list("pk", "sort_order"))
+            assert (rows[a.pk], rows[b.pk], rows[hidden.pk], rows[elsewhere.pk]) == (0, 1, 2, 5)
+
+        def it_accepts_an_empty_order_for_a_tab_with_nobody_on_show():
+            tab = LeadershipTabFactory()
+            LeadershipListingFactory(tab=tab, is_listed=False)
+            tab.reorder_listings([])
 
 
 def describe_LeadershipListing():
@@ -271,6 +298,77 @@ def describe_LeadershipListing():
         def it_counts_a_listing_that_has_no_roles():
             listing = LeadershipListingFactory()
             assert LeadershipListing.objects.last_updated() == listing.updated_at
+
+    def describe_hidden_counts_by_tab():
+        def it_counts_each_tabs_cards_taken_off_it_and_reads_zero_for_the_rest(django_assert_num_queries):
+            tab = LeadershipTabFactory()
+            LeadershipListingFactory(tab=tab)
+            LeadershipListingFactory(tab=tab, is_listed=False)
+            LeadershipListingFactory(tab=tab, is_listed=False)
+            other = LeadershipTabFactory()
+            LeadershipListingFactory(tab=None, is_listed=False)  # a stray has no tab to count against
+            with django_assert_num_queries(1):
+                counts = LeadershipListing.objects.hidden_counts_by_tab()
+            assert (counts[tab.pk], counts[other.pk]) == (2, 0)
+            assert dict(counts) == {tab.pk: 2}
+
+    def describe_adopt_untabbed():
+        """Cards the release before tabs wrote with no tab while 0189 and 0190 deployed."""
+
+        def it_does_nothing_with_no_strays(django_assert_num_queries):
+            LeadershipListingFactory()
+            with django_assert_num_queries(1):
+                assert LeadershipListing.objects.adopt_untabbed() == 0
+
+        def it_moves_each_stray_last_onto_the_first_people_tab():
+            LeadershipTabFactory(kind=LeadershipTab.Kind.GUILD_LEADS, sort_order=0)
+            leadership = LeadershipTabFactory(sort_order=1)
+            LeadershipTabFactory(sort_order=2)
+            LeadershipListingFactory(tab=leadership, sort_order=3)
+            first = LeadershipListingFactory(tab=None, sort_order=0)
+            LeadershipRoleFactory(listing=first, title="Stray Title")
+            hidden = LeadershipListingFactory(tab=None, is_listed=False, sort_order=0)
+            assert LeadershipListing.objects.adopt_untabbed() == 2
+            first.refresh_from_db()
+            hidden.refresh_from_db()
+            assert (first.tab, first.sort_order, first.is_listed) == (leadership, 4, True)
+            assert (hidden.tab, hidden.sort_order, hidden.is_listed) == (leadership, 5, False)
+            assert list(first.roles.values_list("title", flat=True)) == ["Stray Title"]
+            assert not LeadershipListing.objects.filter(tab__isnull=True).exists()
+
+        def it_folds_a_stray_into_the_card_the_member_already_has_there():
+            leadership = LeadershipTabFactory()
+            existing = LeadershipListingFactory(tab=leadership)
+            LeadershipRoleFactory(listing=existing, title="Guild Executor", sort_order=0)
+            stray = LeadershipListingFactory(tab=None, member=existing.member)
+            LeadershipRoleFactory(listing=stray, title="Guild Executor", email="dupe@x.com", sort_order=0)
+            LeadershipRoleFactory(listing=stray, title="Treasurer", email="treasurer@x.com", sort_order=1)
+            assert LeadershipListing.objects.adopt_untabbed() == 1
+            assert not LeadershipListing.objects.filter(pk=stray.pk).exists()
+            assert list(LeadershipListing.objects.values_list("pk", flat=True)) == [existing.pk]
+            assert list(existing.roles.values_list("title", "email", "sort_order")) == [
+                ("Guild Executor", "", 0),
+                ("Treasurer", "treasurer@x.com", 1),
+            ]
+
+        def it_folds_two_strays_for_one_member_into_one_card():
+            leadership = LeadershipTabFactory()
+            member = MemberFactory()
+            first = LeadershipListingFactory(tab=None, member=member)
+            LeadershipRoleFactory(listing=first, title="First Line")
+            second = LeadershipListingFactory(tab=None, member=member)
+            LeadershipRoleFactory(listing=second, title="Second Line")
+            assert LeadershipListing.objects.adopt_untabbed() == 2
+            card = LeadershipListing.objects.get(member=member)
+            assert (card.pk, card.tab) == (first.pk, leadership)
+            assert list(card.roles.values_list("title", flat=True)) == ["First Line", "Second Line"]
+
+        def it_leaves_the_strays_while_no_people_tab_exists():
+            LeadershipTabFactory(kind=LeadershipTab.Kind.GUILD_LEADS)
+            stray = LeadershipListingFactory(tab=None)
+            assert LeadershipListing.objects.adopt_untabbed() == 0
+            stray.refresh_from_db()
+            assert stray.tab is None
 
     def describe_on_tabs_for():
         def it_lists_the_members_cards_on_show_in_tab_order_with_tab_and_lines(django_assert_num_queries):
