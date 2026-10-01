@@ -1047,3 +1047,140 @@ def describe_title_column():
             assert f">{title}</a>" in cell, query
             assert 'title="' not in cell, query
             assert "max-width:22ch" not in html, query
+
+
+def describe_the_flexible_window_through_the_admin_composer():
+    """The admin's save paths shed a flexible class's sessions and clear a fixed class's window (#545)."""
+
+    def _payload(**overrides) -> dict:
+        from classes.factories import CategoryFactory, InstructorFactory
+
+        payload = {
+            "action": "save",
+            "step": "3",
+            "title": "Window Class",
+            "category": CategoryFactory().pk,
+            "instructor": InstructorFactory().pk,
+            "description": "Hands-on intro.",
+            "price_cents": "50.00",
+            "member_discount_pct": 10,
+            "capacity": 6,
+            "scheduling_model": "flexible",
+            "scheduling_type": "single_session",
+            "prerequisites": "",
+            "materials_included": "",
+            "materials_to_bring": "",
+            "safety_requirements": "",
+            "age_guardian_note": "",
+            "flexible_note": "",
+            "flexible_starts_on": "2026-11-02",
+            "flexible_ends_on": "2026-12-01",
+            "private_for_name": "",
+            "sessions-INITIAL_FORMS": "0",
+            "sessions-MIN_NUM_FORMS": "0",
+            "sessions-MAX_NUM_FORMS": "1000",
+            "faq-TOTAL_FORMS": "0",
+            "faq-INITIAL_FORMS": "0",
+            "faq-MIN_NUM_FORMS": "0",
+            "faq-MAX_NUM_FORMS": "1000",
+            **_future_session_fields(),
+        }
+        payload.update(overrides)
+        return payload
+
+    def it_stores_the_window_and_sheds_the_posted_session_on_create(admin_user, client, db):
+        from datetime import date
+
+        from classes.models import ClassOffering
+
+        client.force_login(admin_user)
+        resp = client.post(reverse("classes:admin_class_create"), _payload())
+        assert resp.status_code == 302
+        created = ClassOffering.objects.get(title="Window Class")
+        assert created.scheduling_model == "flexible"
+        assert (created.flexible_starts_on, created.flexible_ends_on) == (date(2026, 11, 2), date(2026, 12, 1))
+        assert created.sessions.count() == 0
+
+    def it_sheds_the_sessions_a_class_had_on_edit(admin_user, client, db):
+        from classes.factories import ClassOfferingFactory
+        from classes.models import ClassOffering
+
+        offering = ClassOfferingFactory(status=ClassOffering.Status.DRAFT, ready=True)
+        assert offering.sessions.count() == 1
+        client.force_login(admin_user)
+        resp = client.post(reverse("classes:teach_class_edit", kwargs={"pk": offering.pk}), _payload())
+        assert resp.status_code == 302
+        offering.refresh_from_db()
+        assert offering.sessions.count() == 0
+        assert offering.flexible_ends_on is not None
+
+    def it_clears_the_window_and_keeps_the_session_on_a_class_saved_as_fixed(admin_user, client, db):
+        from datetime import date
+
+        from classes.factories import ClassOfferingFactory
+        from classes.models import ClassOffering
+
+        offering = ClassOfferingFactory(
+            status=ClassOffering.Status.DRAFT,
+            scheduling_model=ClassOffering.SchedulingModel.FLEXIBLE,
+            flexible_starts_on=date(2026, 11, 2),
+            flexible_ends_on=date(2026, 12, 1),
+        )
+        client.force_login(admin_user)
+        resp = client.post(
+            reverse("classes:teach_class_edit", kwargs={"pk": offering.pk}), _payload(scheduling_model="fixed")
+        )
+        assert resp.status_code == 302
+        offering.refresh_from_db()
+        assert offering.scheduling_model == "fixed"
+        assert (offering.flexible_starts_on, offering.flexible_ends_on) == (None, None)
+        assert offering.sessions.count() == 1
+
+    def it_refuses_a_reversed_window_before_anything_is_written_on_create(admin_user, client, db):
+        from classes.models import ClassOffering
+
+        client.force_login(admin_user)
+        resp = client.post(
+            reverse("classes:admin_class_create"),
+            _payload(flexible_starts_on="2026-12-01", flexible_ends_on="2026-11-02"),
+        )
+        assert resp.status_code == 200
+        assert resp.context["initial_phase"] == 3
+        assert "The last day is before the first day." in resp.content.decode()
+        assert "schedulingModel: 'flexible'" in resp.content.decode()
+        assert not ClassOffering.objects.filter(title="Window Class").exists()
+
+    def it_passes_the_publish_preflight_with_no_note_and_no_dates(admin_user, client, db):
+        from classes.models import ClassOffering
+
+        client.force_login(admin_user)
+        resp = client.post(
+            reverse("classes:admin_class_create"),
+            _payload(
+                action="publish",
+                flexible_starts_on="",
+                flexible_ends_on="",
+                **{"sessions-TOTAL_FORMS": "0"},
+                **{k: v for k, v in _publishable_fields().items() if not k.startswith("sessions-")},
+            ),
+        )
+        assert resp.status_code == 302
+        assert ClassOffering.objects.get(title="Window Class").status == ClassOffering.Status.PUBLISHED
+
+    def it_refuses_publish_on_create_when_the_last_day_has_passed(admin_user, client, db):
+        from classes.models import ClassOffering
+
+        client.force_login(admin_user)
+        resp = client.post(
+            reverse("classes:admin_class_create"),
+            _payload(
+                action="publish",
+                flexible_starts_on="2020-01-01",
+                flexible_ends_on="2020-01-31",
+                **{k: v for k, v in _publishable_fields().items() if not k.startswith("sessions-")},
+            ),
+        )
+        assert resp.status_code == 200
+        assert resp.context["initial_phase"] == 3
+        assert "The last day has passed." in resp.content.decode()
+        assert not ClassOffering.objects.filter(title="Window Class").exists()

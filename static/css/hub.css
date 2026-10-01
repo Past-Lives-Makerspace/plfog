@@ -5351,6 +5351,24 @@ mark { background: color-mix(in srgb, var(--color-tuscan-yellow) 30%, transparen
     font-size: 0.875rem;
     margin: 0 0 1rem;
 }
+/* A heading inside a section, under the section title: the composer's Optional Date Window. */
+.pl-compose-section__subtitle {
+    font-size: 1rem;
+    font-weight: 600;
+    color: var(--hub-text);
+    margin: 1rem 0 0.5rem;
+}
+/* The step 3 blocks the scheduling model select swaps between (x-show, so no display here). */
+.pl-schedule-block { margin-top: 0.25rem; }
+/* A flexible class's window: the two day pickers side by side, one hint under the pair. */
+.pl-date-window {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 0 1rem;
+}
+.pl-date-window .pl-form-group { margin-bottom: 0.5rem; }
+@media (max-width: 560px) { .pl-date-window { grid-template-columns: 1fr; } }
+.pl-date-window__hint { margin: 0 0 1rem; }
 .pl-compose-hint {
     padding-top: 1rem;
     margin: 0;

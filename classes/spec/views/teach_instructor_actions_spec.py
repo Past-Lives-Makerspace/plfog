@@ -3,7 +3,7 @@ published light-edit page, Run it again on both workspaces, and the Profile tab.
 
 from __future__ import annotations
 
-from datetime import timedelta
+from datetime import date, timedelta
 
 import pytest
 from django.contrib.messages import get_messages
@@ -243,6 +243,70 @@ def describe_request_change():
         resp = client.post(reverse("classes:teach_class_request_change", kwargs={"pk": draft.pk}), {"note": "x"})
         assert resp.status_code == 302
         assert any("Only published classes can request a change" in m for m in _messages(resp))
+
+
+def describe_the_flexible_window_on_the_manage_pages():
+    """The published edit page's Dates row and the overview's Sessions table read the window (#545)."""
+
+    def _flexible_live(instructor, **traits) -> ClassOffering:
+        # _live adds a dated session: the row shape of production class 643, which still carries
+        # a session standing in for its window. Both pages read the window, never that row.
+        return _live(instructor, scheduling_model=ClassOffering.SchedulingModel.FLEXIBLE, **traits)
+
+    def _window_cell(html: str) -> str:
+        return html.split("<span data-flexible-window>")[1].split("</span>")[0]
+
+    def _window_row(html: str) -> str:
+        return html.split('<td colspan="2" data-flexible-window>')[1].split("</td>")[0]
+
+    def it_shows_the_window_in_locked_details(instructor_fixture, client):
+        offering = _flexible_live(
+            instructor_fixture, flexible_starts_on=date(2026, 11, 2), flexible_ends_on=date(2026, 12, 1)
+        )
+        client.force_login(instructor_fixture.user)
+        html = client.get(reverse("classes:teach_class_edit", kwargs={"pk": offering.pk})).content.decode()
+        assert "Locked Details" in html
+        assert _window_cell(html) == "Nov 2 to Dec 1, 2026"
+        assert "Arranged with each student" not in html
+
+    def it_says_any_time_in_locked_details_without_a_window(instructor_fixture, client):
+        offering = _flexible_live(instructor_fixture)
+        client.force_login(instructor_fixture.user)
+        html = client.get(reverse("classes:teach_class_edit", kwargs={"pk": offering.pk})).content.decode()
+        assert _window_cell(html) == "Any time, arranged with each student"
+
+    def it_keeps_the_session_list_for_a_fixed_class(instructor_fixture, client):
+        offering = _live(instructor_fixture)
+        client.force_login(instructor_fixture.user)
+        html = client.get(reverse("classes:teach_class_edit", kwargs={"pk": offering.pk})).content.decode()
+        assert "data-flexible-window" not in html
+        assert "<li>" in html.split("<dt")[-1]
+
+    def it_shows_each_window_shape_in_the_overview_sessions_table(instructor_fixture, client):
+        shapes = [
+            ({"flexible_starts_on": date(2026, 11, 2), "flexible_ends_on": date(2026, 12, 1)}, "Nov 2 to Dec 1, 2026"),
+            (
+                {"flexible_starts_on": date(2026, 12, 20), "flexible_ends_on": date(2027, 1, 10)},
+                "Dec 20, 2026 to Jan 10, 2027",
+            ),
+            ({"flexible_starts_on": date(2026, 11, 2)}, "From Nov 2, 2026"),
+            ({"flexible_ends_on": date(2026, 12, 1)}, "Through Dec 1, 2026"),
+            ({}, "Any time, arranged with each student"),
+        ]
+        client.force_login(instructor_fixture.user)
+        for traits, label in shapes:
+            offering = _flexible_live(instructor_fixture, **traits)
+            html = client.get(reverse("classes:teach_class_detail", kwargs={"pk": offering.pk})).content.decode()
+            assert _window_row(html) == label, traits
+            assert "session_duration_words" not in html and "No sessions scheduled yet." not in html, traits
+
+    def it_keeps_the_session_rows_for_a_fixed_class_in_the_overview(instructor_fixture, client):
+        offering = _live(instructor_fixture)
+        client.force_login(instructor_fixture.user)
+        html = client.get(reverse("classes:teach_class_detail", kwargs={"pk": offering.pk})).content.decode()
+        table = html.split('<th colspan="2">Sessions</th>')[1].split("</table>")[0]
+        assert "data-flexible-window" not in table
+        assert "→" in table
 
 
 def describe_published_light_edit():

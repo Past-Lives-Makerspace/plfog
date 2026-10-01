@@ -697,13 +697,23 @@ class ReadinessItem:
     anchor: str
 
 
+def flexible_window_has_ended(ends_on: date_type | None) -> bool:
+    """True once a flexible class's last day is behind the site's local date.
+
+    The one rule behind :attr:`ClassOffering.flexible_window_ended` and the admin create
+    preflight, which reads the validated form before any row exists. A class whose last day
+    is today still runs; it leaves the catalog tomorrow.
+    """
+    return ends_on is not None and ends_on < timezone.localdate()
+
+
 def readiness_items(
     *,
     has_hero: bool,
     has_gallery: bool,
     description: str,
     scheduling_model: str,
-    flexible_note: str,
+    flexible_window_ended: bool,
     has_future_session: bool,
     capacity: int,
 ) -> list[ReadinessItem]:
@@ -713,11 +723,14 @@ def readiness_items(
     it from the validated form BEFORE anything is written, so an unready class is refused
     without leaving a hero file, gallery files, or activity rows behind. One function, one
     rule set, so the two can never disagree.
+
+    A flexible class needs no dates and no note: the class page says what Flexible means
+    on its own. Its one Dates rule is that the window, when it has a last day, is still open.
     """
     description_ok = description_length(description) >= READINESS_MIN_DESCRIPTION_CHARS
     if scheduling_model == "flexible":
-        dates_ok = bool(flexible_note.strip())
-        dates_hint = "Say how students pick a time."
+        dates_ok = not flexible_window_ended
+        dates_hint = "The last day has passed."
     else:
         dates_ok = has_future_session
         dates_hint = "Add at least one date."
@@ -890,6 +903,18 @@ class ClassOffering(HeroCropMixin, models.Model):
         help_text="Fixed scheduled sessions or flexible per-student scheduling.",
     )
     flexible_note = models.TextField(blank=True, help_text="Notes when scheduling_model=flexible.")
+    # Both nullable on purpose: the columns land while the previous release still serves, and
+    # its INSERTs omit them (STANDARDS.md section 10). Blank means "no window" on that end.
+    flexible_starts_on = models.DateField(
+        null=True,
+        blank=True,
+        help_text="First day a flexible class runs; blank when the window has no first day.",
+    )
+    flexible_ends_on = models.DateField(
+        null=True,
+        blank=True,
+        help_text="Last day a flexible class runs; it leaves the catalog the day after. Blank for no last day.",
+    )
     scheduling_type = models.CharField(
         max_length=20,
         choices=SchedulingType.choices,
@@ -1413,8 +1438,14 @@ class ClassOffering(HeroCropMixin, models.Model):
         :attr:`_guild_already_approved_this_schedule` compares against a stored
         fingerprint, and the empty string there means "this row predates the field" — it must
         never be able to match a real schedule.
+
+        A flexible class's schedule is its date window, so that goes into the digest first:
+        a window moved after the lead approved reopens the gate exactly as a retimed session
+        does. A fixed class digests only its sessions, as it always has.
         """
         digest = hashlib.sha256()
+        if self.is_flexible:
+            digest.update(f"window|{self.flexible_starts_on}|{self.flexible_ends_on}\n".encode())
         stamps = sorted(
             (session.starts_at.astimezone(UTC).isoformat(), session.ends_at.astimezone(UTC).isoformat())
             for session in self.sessions.all()
@@ -2181,6 +2212,54 @@ class ClassOffering(HeroCropMixin, models.Model):
         earliest = self.earliest_session_at
         return earliest is not None and earliest >= timezone.now()
 
+    # --- Flexible scheduling ----------------------------------------------------
+
+    @property
+    def is_flexible(self) -> bool:
+        """Students book their day with the instructor instead of a scheduled session."""
+        return self.scheduling_model == self.SchedulingModel.FLEXIBLE
+
+    @property
+    def has_flexible_window(self) -> bool:
+        """A flexible class with a first day, a last day, or both."""
+        return self.is_flexible and (self.flexible_starts_on is not None or self.flexible_ends_on is not None)
+
+    @property
+    def flexible_window_label(self) -> str:
+        """The window as members read it, or "" for a class with none.
+
+        "Nov 2 to Dec 1, 2026" when both days are set (the year once when they share it),
+        "From Nov 2, 2026" with only a first day, "Through Dec 1, 2026" with only a last day.
+        The word "to" sits between two dates, never a dash.
+        """
+        if not self.is_flexible:
+            return ""
+        starts_on, ends_on = self.flexible_starts_on, self.flexible_ends_on
+        if starts_on is not None and ends_on is not None:
+            first = date_format(starts_on, "M j" if starts_on.year == ends_on.year else "M j, Y")
+            return f"{first} to {date_format(ends_on, 'M j, Y')}"
+        if starts_on is not None:
+            return f"From {date_format(starts_on, 'M j, Y')}"
+        if ends_on is not None:
+            return f"Through {date_format(ends_on, 'M j, Y')}"
+        return ""
+
+    @property
+    def flexible_window_ended(self) -> bool:
+        """The last day is set and behind us, on the site's local date."""
+        return self.is_flexible and flexible_window_has_ended(self.flexible_ends_on)
+
+    def apply_scheduling_model(self) -> None:
+        """Shed the session rows a flexible class cannot use.
+
+        Every composer save path calls this right after the session formset saves: a class
+        saved as Flexible drops every session it had, the rows that POST just wrote included,
+        so its page never renders a schedule. A class saved as Fixed keeps its sessions; its
+        window is already cleared by the form.
+        """
+        if self.is_flexible:
+            self.sessions.all().delete()
+
     @property
     def member_price_cents(self) -> int | None:
         """Discounted price in cents for verified members.
@@ -2567,7 +2646,7 @@ class ClassOffering(HeroCropMixin, models.Model):
             has_gallery=self._has_gallery_photo,
             description=self.description,
             scheduling_model=self.scheduling_model,
-            flexible_note=self.flexible_note,
+            flexible_window_ended=self.flexible_window_ended,
             has_future_session=self._has_future_session,
             capacity=self.capacity,
         )

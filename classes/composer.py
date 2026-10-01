@@ -61,6 +61,8 @@ COMPOSER_STEPS: tuple[ComposerStep, ...] = (
             "scheduling_model",
             "scheduling_type",
             "flexible_note",
+            "flexible_starts_on",
+            "flexible_ends_on",
             "capacity",
             "member_discount_pct",
             "is_private",

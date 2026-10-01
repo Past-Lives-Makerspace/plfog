@@ -131,6 +131,7 @@ from classes.models import (
     ReadinessItem,
     Registration,
     RegistrationQuestion,
+    flexible_window_has_ended,
     readiness_items,
 )
 from core.files import delete_if_unreferenced
@@ -2255,6 +2256,7 @@ def teach_class_create(request: HttpRequest) -> HttpResponse:
         offering = form.save()
         formset.instance = offering
         formset.save()
+        offering.apply_scheduling_model()
         offering.finalize_recurring_slug()
         try:
             offering.add_gallery_images(request.FILES.getlist("gallery_images"))
@@ -2334,6 +2336,7 @@ def _instructor_composer(request: HttpRequest, pk: int) -> HttpResponse:
     if request.method == "POST" and form.is_valid() and formset.is_valid() and faq_formset.is_valid():
         offering = form.save()  # type: ignore[assignment]  # django-stubs infers an annotated row type for offering
         formset.save()
+        offering.apply_scheduling_model()
         faq_formset.save()
         _mark_composer_saved(request, offering)
         submit_now = request.POST.get("action") == "submit"
@@ -3919,7 +3922,8 @@ def _create_form_readiness(form: ClassOfferingForm, session_formset: Any, galler
         has_gallery=bool(gallery_files),
         description=data.get("description") or "",
         scheduling_model=data["scheduling_model"],
-        flexible_note=data.get("flexible_note") or "",
+        # Cleared by the form on a Fixed class, so the rule reads only what a flexible class keeps.
+        flexible_window_ended=flexible_window_has_ended(data["flexible_ends_on"]),
         has_future_session=has_future_session,
         capacity=data.get("capacity") or 0,
     )
@@ -3977,6 +3981,7 @@ def admin_class_create(request: HttpRequest) -> HttpResponse:
             offering.save()
             session_formset.instance = offering
             session_formset.save()
+            offering.apply_scheduling_model()
             offering.finalize_recurring_slug()
             try:
                 offering.add_gallery_images(gallery_files)
@@ -4076,6 +4081,7 @@ def _admin_composer(request: HttpRequest, pk: int) -> HttpResponse:
     if request.method == "POST" and form.is_valid() and session_formset.is_valid() and faq_formset.is_valid():
         form.save()
         session_formset.save()
+        offering.apply_scheduling_model()
         faq_formset.save()
         _mark_composer_saved(request, offering)
         if request.POST.get("action") == "publish":

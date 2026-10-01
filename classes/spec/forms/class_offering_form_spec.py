@@ -10,13 +10,14 @@ POST helpers below.
 from __future__ import annotations
 
 import json
-from datetime import timedelta
+from datetime import date, timedelta
 
 import pytest
+from django import forms
 from django.utils import timezone
 
 from classes.factories import CategoryFactory, ClassOfferingFactory, InstructorFactory
-from classes.forms import ClassOfferingForm, ClassSessionForm, TeachClassOfferingForm
+from classes.forms import FLEXIBLE_WINDOW_ORDER_MESSAGE, ClassOfferingForm, ClassSessionForm, TeachClassOfferingForm
 from classes.models import ClassOffering, ClassSettings
 
 pytestmark = pytest.mark.django_db
@@ -218,6 +219,101 @@ def describe_the_member_discount():
             form = _form(TeachClassOfferingForm, instance=offering, member_discount_pct="0")
             assert form.is_valid(), form.errors
             assert form.save().member_discount_pct == 25
+
+
+def describe_the_flexible_window():
+    """A flexible class takes an optional first and last day instead of session times (#545)."""
+
+    def it_stores_a_window_in_order(form_class):
+        form = _form(
+            form_class, scheduling_model="flexible", flexible_starts_on="2026-11-02", flexible_ends_on="2026-12-01"
+        )
+        assert form.is_valid(), form.errors
+        offering = form.save()
+        assert (offering.flexible_starts_on, offering.flexible_ends_on) == (date(2026, 11, 2), date(2026, 12, 1))
+
+    def it_accepts_either_day_alone_and_neither(form_class):
+        for starts_on, ends_on in (("2026-11-02", ""), ("", "2026-12-01"), ("", "")):
+            form = _form(
+                form_class, scheduling_model="flexible", flexible_starts_on=starts_on, flexible_ends_on=ends_on
+            )
+            assert form.is_valid(), form.errors
+
+    def it_accepts_a_one_day_window(form_class):
+        form = _form(
+            form_class, scheduling_model="flexible", flexible_starts_on="2026-11-02", flexible_ends_on="2026-11-02"
+        )
+        assert form.is_valid(), form.errors
+
+    def it_refuses_a_last_day_before_the_first_day_on_the_last_day_field(form_class):
+        form = _form(
+            form_class, scheduling_model="flexible", flexible_starts_on="2026-12-01", flexible_ends_on="2026-11-02"
+        )
+        assert not form.is_valid()
+        assert form.errors["flexible_ends_on"] == [FLEXIBLE_WINDOW_ORDER_MESSAGE]
+        assert "flexible_starts_on" not in form.errors
+
+    def it_clears_a_posted_window_on_a_fixed_class(form_class):
+        # The window block is hidden, not removed, under Fixed sessions, so its inputs still post.
+        offering = ClassOfferingFactory(
+            scheduling_model=ClassOffering.SchedulingModel.FLEXIBLE,
+            flexible_starts_on=date(2026, 11, 2),
+            flexible_ends_on=date(2026, 12, 1),
+        )
+        form = _form(
+            form_class,
+            instance=offering,
+            scheduling_model="fixed",
+            flexible_starts_on="2026-11-02",
+            flexible_ends_on="2026-12-01",
+        )
+        assert form.is_valid(), form.errors
+        assert form.cleaned_data["flexible_starts_on"] is None
+        assert form.cleaned_data["flexible_ends_on"] is None
+        saved = form.save()
+        saved.refresh_from_db()
+        assert (saved.flexible_starts_on, saved.flexible_ends_on) == (None, None)
+
+    def it_never_refuses_a_reversed_window_on_a_fixed_class(form_class):
+        form = _form(
+            form_class, scheduling_model="fixed", flexible_starts_on="2026-12-01", flexible_ends_on="2026-11-02"
+        )
+        assert form.is_valid(), form.errors
+
+    def it_labels_the_days_and_the_note_for_students(form_class):
+        form = form_class()
+        assert form.fields["flexible_starts_on"].label == "First day"
+        assert form.fields["flexible_ends_on"].label == "Last day"
+        assert form.fields["flexible_note"].label == "Note for students"
+        assert form.fields["flexible_note"].required is False
+        assert form.fields["flexible_starts_on"].required is False
+        assert form.fields["flexible_ends_on"].required is False
+
+    def it_renders_the_days_as_date_pickers_in_the_schedulers_clothes(form_class):
+        # type=date, never a time (FRONTEND.md rule 20); the scheduler's input class carries the
+        # rule 14 dark mode picker fix and the whole field opens the picker; no hint under either
+        # day, because the one hint sits under the pair on step 3.
+        form = form_class()
+        for name in ("flexible_starts_on", "flexible_ends_on"):
+            widget = form.fields[name].widget
+            assert isinstance(widget, forms.DateInput), name
+            assert widget.input_type == "date"
+            assert widget.attrs["class"] == "session-cal__input"
+            assert widget.attrs["@click"] == "(() => { try { $el.showPicker() } catch (e) {} })()"
+            assert widget.format == "%Y-%m-%d"
+            assert form.fields[name].help_text == ""
+
+    def it_renders_a_saved_day_in_the_format_a_date_input_reads(form_class):
+        offering = ClassOfferingFactory(
+            scheduling_model=ClassOffering.SchedulingModel.FLEXIBLE, flexible_starts_on=date(2026, 11, 2)
+        )
+        html = str(form_class(instance=offering)["flexible_starts_on"])
+        assert 'value="2026-11-02"' in html
+        assert 'type="date"' in html and 'class="session-cal__input"' in html
+
+    def it_binds_the_scheduling_model_select_to_the_composers_alpine(form_class):
+        # The composer's step 3 swaps the scheduler for the window on this state (class_composer.html).
+        assert form_class().fields["scheduling_model"].widget.attrs["x-model"] == "schedulingModel"
 
 
 def describe_HeroCropMixin():

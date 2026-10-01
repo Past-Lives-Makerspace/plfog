@@ -23,14 +23,15 @@
         <dt style="color:var(--hub-text-muted);">Capacity</dt><dd style="margin:0;">{{ offering.capacity }}</dd>
         <dt style="color:var(--hub-text-muted);">Dates</dt>
         <dd style="margin:0;">
-            {% if sessions %}
+            {# A flexible class reads its window, whatever session rows it still carries. #}
+            {% if offering.is_flexible %}
+                <span data-flexible-window>{% if offering.has_flexible_window %}{{ offering.flexible_window_label }}{% else %}Any time, arranged with each student{% endif %}</span>
+            {% elif sessions %}
                 <ul style="margin:0;padding-left:18px;">
                     {% for session in sessions %}
                         <li>{{ session.starts_at|date:"D, M j, Y" }} · {{ session.starts_at|time:"g:i A" }} to {{ session.ends_at|time:"g:i A" }}</li>
                     {% endfor %}
                 </ul>
-            {% elif offering.scheduling_model == 'flexible' %}
-                <span style="color:var(--hub-text-muted);">Arranged with each student</span>
             {% else %}
                 <span style="color:var(--hub-text-muted);">No dates yet</span>
             {% endif %}
