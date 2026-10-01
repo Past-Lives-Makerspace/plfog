@@ -87,17 +87,28 @@ def video_link(url: str | None) -> VideoLink | None:
 
 @register.inclusion_tag("components/table_sort_header.html")
 def sort_header(label: str, field: str, current_sort: str, current_dir: str, base_params: str) -> dict:
-    """Render a sortable table header cell."""
+    """Render a sortable table header cell.
+
+    Every header carries a glyph so it reads as a control: a muted double arrow when the
+    column is not the active sort, an up or down arrow when it is. ``aria_sort`` is the
+    ``aria-sort`` value for the active column's ``<th>`` ("ascending" or "descending") and
+    "" otherwise; it follows the same rule as the ordering, where anything but "desc" is
+    ascending.
+    """
     is_active = current_sort == field
     next_dir = "desc" if is_active and current_dir == "asc" else "asc"
     qd = QueryDict(base_params, mutable=True)
     qd["sort"] = field
     qd["dir"] = next_dir
+    aria_sort = ""
+    if is_active:
+        aria_sort = "descending" if current_dir == "desc" else "ascending"
     return {
         "label": label,
         "href": f"?{qd.urlencode()}",
         "is_active": is_active,
         "direction": current_dir if is_active else "",
+        "aria_sort": aria_sort,
     }
 
 

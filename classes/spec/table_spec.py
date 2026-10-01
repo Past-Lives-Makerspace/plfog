@@ -2,17 +2,39 @@
 
 from __future__ import annotations
 
-import pytest
-from django.test import RequestFactory
+from datetime import timedelta
 
-from classes.factories import CategoryFactory
-from classes.models import Category
+import pytest
+from django.db.models import Min
+from django.test import RequestFactory
+from django.utils import timezone
+
+from classes.factories import CategoryFactory, ClassOfferingFactory, ClassSessionFactory
+from classes.models import Category, ClassOffering
 from classes.table import prepare_table
 
 
 @pytest.fixture
 def rf():
     return RequestFactory()
+
+
+def _dated_offerings() -> dict[str, ClassOffering]:
+    """Three classes: one dated early, one late, one with no sessions at all."""
+    now = timezone.now()
+    early = ClassOfferingFactory(title="Early", slug="early")
+    ClassSessionFactory(class_offering=early, starts_at=now + timedelta(days=1))
+    late = ClassOfferingFactory(title="Late", slug="late")
+    ClassSessionFactory(class_offering=late, starts_at=now + timedelta(days=30))
+    undated = ClassOfferingFactory(title="Undated", slug="undated")
+    return {"early": early, "late": late, "undated": undated}
+
+
+def _by_first_session(rf, direction: str) -> list[str]:
+    request = rf.get("/", {"sort": "first_session", "dir": direction})
+    queryset = ClassOffering.objects.annotate(first_session=Min("sessions__starts_at"))
+    result = prepare_table(request, queryset, search_fields=[], default_sort="created_at", default_dir="desc")
+    return [c.slug for c in result["page"]]
 
 
 def describe_prepare_table():
@@ -67,3 +89,56 @@ def describe_prepare_table():
             request, Category.objects.all(), search_fields=["name"], default_sort="sort_order", default_dir="desc"
         )
         assert result["sort_dir"] == "desc"
+
+
+def describe_nulls_last():
+    def it_puts_undated_rows_last_when_ascending(rf, db):
+        _dated_offerings()
+        assert _by_first_session(rf, "asc") == ["early", "late", "undated"]
+
+    def it_puts_undated_rows_last_when_descending(rf, db):
+        _dated_offerings()
+        assert _by_first_session(rf, "desc") == ["late", "early", "undated"]
+
+
+def describe_sortable_keys():
+    def _table(rf, params: dict[str, str]) -> dict:
+        request = rf.get("/", params)
+        return prepare_table(
+            request,
+            Category.objects.all(),
+            search_fields=["name"],
+            default_sort="sort_order",
+            sortable=frozenset({"name"}),
+        )
+
+    def it_sorts_by_a_listed_key(rf, db):
+        CategoryFactory(name="Beta", sort_order=1)
+        CategoryFactory(name="Alpha", sort_order=2)
+        result = _table(rf, {"sort": "name"})
+        assert [c.name for c in result["page"]] == ["Alpha", "Beta"]
+        assert result["sort"] == "name"
+        assert "sort=name" in result["base_params"]
+
+    def it_falls_back_to_the_default_sort_for_an_unknown_key(rf, db):
+        CategoryFactory(name="Alpha", sort_order=2)
+        CategoryFactory(name="Beta", sort_order=1)
+        result = _table(rf, {"sort": "nonsense"})
+        assert [c.name for c in result["page"]] == ["Beta", "Alpha"]
+        assert result["sort"] == "sort_order"
+        assert "sort=" not in result["base_params"]
+
+    def it_keeps_the_direction_when_the_key_falls_back(rf, db):
+        CategoryFactory(name="Alpha", sort_order=2)
+        CategoryFactory(name="Beta", sort_order=1)
+        result = _table(rf, {"sort": "nonsense", "dir": "desc"})
+        assert [c.name for c in result["page"]] == ["Alpha", "Beta"]
+        assert result["base_params"] == "dir=desc"
+
+    def it_leaves_the_sort_unrestricted_when_no_allowlist_is_given(rf, db):
+        CategoryFactory(name="Alpha", sort_order=2, slug="alpha")
+        CategoryFactory(name="Beta", sort_order=1, slug="beta")
+        request = rf.get("/", {"sort": "slug"})
+        result = prepare_table(request, Category.objects.all(), search_fields=["name"], default_sort="sort_order")
+        assert [c.name for c in result["page"]] == ["Alpha", "Beta"]
+        assert result["sort"] == "slug"
