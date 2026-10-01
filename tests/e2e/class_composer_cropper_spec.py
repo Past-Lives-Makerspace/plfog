@@ -131,22 +131,22 @@ def _width(page, selector: str) -> float:
     return box["width"]
 
 
-def _boxed_geometry(photo) -> tuple[float, float, float, float]:
-    """A boxed frame photo: its frame's width and height, the photo's laid out width, and its left offset in the frame."""
+def _boxed_geometry(photo) -> tuple[float, float, float, float, float]:
+    """A boxed frame photo: its frame's width and height, the photo's laid out width, and its left and top offsets in the frame."""
     return tuple(
         photo.evaluate(
             "el => { const frame = el.closest('.cls-media').getBoundingClientRect();"
             " const img = el.getBoundingClientRect();"
-            " return [frame.width, frame.height, img.width, img.left - frame.left]; }"
+            " return [frame.width, frame.height, img.width, img.left - frame.left, img.top - frame.top]; }"
         )
     )
 
 
-def _expected_left(crop: dict, frame_w: float, scale: float, focus_x: float = 50) -> float:
-    """Where card_focus.js puts a boxed photo's left edge: the box's left edge meets the frame's,
+def _expected_offset(box_edge: float, box_size: float, frame_size: float, scale: float, focus: float = 50) -> float:
+    """Where card_focus.js puts a boxed photo's edge on one axis: the box's edge meets the frame's,
     less the share of the box's overflow the card focus (50% while the sliders are untouched) picks.
-    Zero when the scaled box is exactly the frame's width, so a sign check is not enough."""
-    return -(crop["x"] * scale) - (crop["w"] * scale - frame_w) * focus_x / 100
+    Zero when the scaled box is exactly the frame's size on that axis, so a sign check is not enough."""
+    return -(box_edge * scale) - (box_size * scale - frame_size) * focus / 100
 
 
 def _boxed_offsets(photo) -> tuple[float, float]:
@@ -317,10 +317,14 @@ def describe_hero_cropper():
                 expect(photo).to_have_attribute("src", offering.image.url)
                 expect(photo).not_to_have_attribute("data-hero-source", re.compile(r".*"))
                 expect(photo).to_have_class(re.compile(r"pl-card-focus__img--boxed"))
-                frame_w, frame_h, shown_w, left = _boxed_geometry(photo)
+                frame_w, frame_h, shown_w, left, top = _boxed_geometry(photo)
                 scale = max(frame_w / crop["w"], frame_h / crop["h"])
                 assert shown_w == pytest.approx(natural_w * scale, abs=1), (step, shown_w, natural_w * scale)
-                assert left == pytest.approx(_expected_left(crop, frame_w, scale), abs=1), (step, left)
+                assert left == pytest.approx(_expected_offset(crop["x"], crop["w"], frame_w, scale), abs=1), (
+                    step,
+                    left,
+                )
+                assert top == pytest.approx(_expected_offset(crop["y"], crop["h"], frame_h, scale), abs=1), (step, top)
 
         # The card focus sliders choose which part of the box shows: moving Up and down shifts
         # the photo inside the frame. The phone frame is the wide one, so there the box is
@@ -339,7 +343,10 @@ def describe_hero_cropper():
             " return img.getBoundingClientRect().top - img.closest('.cls-media').getBoundingClientRect().top !== before; }",
             arg=top_before,
         )
-        assert _boxed_offsets(photo)[1] < top_before
+        frame_w, frame_h, _shown_w, _left, top = _boxed_geometry(photo)
+        scale = max(frame_w / crop["w"], frame_h / crop["h"])
+        assert top < top_before
+        assert top == pytest.approx(_expected_offset(crop["y"], crop["h"], frame_h, scale, focus=90), abs=1), top
         # Nothing was saved: the row keeps its box and its copy.
         copy = offering.hero_cropped.name
         offering.refresh_from_db()
@@ -390,10 +397,11 @@ def describe_hero_cropper():
         page.evaluate("() => new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r)))")
         for photo in page.locator(f'[data-composer-step="2"] {CARD_PHOTOS}').all():
             expect(photo).to_have_class(re.compile(r"pl-card-focus__img--boxed"))
-            frame_w, frame_h, shown_w, left = _boxed_geometry(photo)
+            frame_w, frame_h, shown_w, left, top = _boxed_geometry(photo)
             scale = max(frame_w / crop["w"], frame_h / crop["h"])
             assert shown_w == pytest.approx(1200 * scale, abs=1)
-            assert left == pytest.approx(_expected_left(crop, frame_w, scale), abs=1), left
+            assert left == pytest.approx(_expected_offset(crop["x"], crop["w"], frame_w, scale), abs=1), left
+            assert top == pytest.approx(_expected_offset(crop["y"], crop["h"], frame_h, scale), abs=1), top
 
     def it_frames_a_freshly_uploaded_photo_on_a_saved_class(live_server, page, login_via_code, serve_media, tmp_path):
         # Seeded with a box, so the class has a cropped copy and its card frames show it (#547).
