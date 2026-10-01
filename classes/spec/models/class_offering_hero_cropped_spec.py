@@ -239,7 +239,7 @@ def describe_hero_object_position():
         # A class cropped before #547 and not yet backfilled by render_hero_crops still
         # shows the original, positioned on the box's centre.
         offering = _cropped((1000, 600), (100, 50, 400, 225))
-        ClassOffering.objects.filter(pk=offering.pk).update(hero_cropped=None)
+        ClassOffering.objects.filter(pk=offering.pk).update(hero_cropped="")
         offering.refresh_from_db()
         assert offering.hero_object_position == "30.0% 27.1%"
 
@@ -270,7 +270,7 @@ def describe_focal_point_on_source():
         assert focal.focal_point_on_source(50, 50) == (50, 50)
         # A box not yet backfilled shows the original, so a point picked on it needs no mapping.
         not_backfilled = _cropped()
-        ClassOffering.objects.filter(pk=not_backfilled.pk).update(hero_cropped=None)
+        ClassOffering.objects.filter(pk=not_backfilled.pk).update(hero_cropped="")
         not_backfilled.refresh_from_db()
         assert not_backfilled.focal_point_on_source(50, 50) == (50, 50)
 

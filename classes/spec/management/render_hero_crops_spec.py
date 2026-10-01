@@ -25,7 +25,7 @@ def _cropped_before_the_column_existed() -> ClassOffering:
     migration leaves every existing row.
     """
     offering = ClassOfferingFactory(image__width=1000, image__height=600, **BOX)
-    ClassOffering.objects.filter(pk=offering.pk).update(hero_cropped=None)
+    ClassOffering.objects.filter(pk=offering.pk).update(hero_cropped="")
     offering.refresh_from_db()
     assert not offering.hero_cropped
     return offering

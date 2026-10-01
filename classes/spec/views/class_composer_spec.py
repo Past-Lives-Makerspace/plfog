@@ -497,6 +497,9 @@ def describe_teach_composer_get():
         assert unescape(src.group(1)) == offering.image.url
         assert offering.hero_cropped.url not in hero
         assert f'src="{offering.hero_cropped.url}"' in html
+        # Every frame showing the copy (two on Photos, the phone one on Review) carries the
+        # original for card_focus.js to swap in when a new box is dragged.
+        assert html.count(f'data-hero-source="{offering.image.url}"') == 3
 
     def it_shows_the_crop_hint_before_the_first_save(instructor_fixture, client):
         client.force_login(instructor_fixture.user)

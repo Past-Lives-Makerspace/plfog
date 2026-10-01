@@ -911,7 +911,6 @@ class ClassOffering(HeroCropMixin, models.Model):
     )
     hero_cropped = models.ImageField(
         upload_to="classes/hero-crops/",
-        null=True,
         blank=True,
         help_text=(
             "The hero image cut to the composer's crop box. Rendered by save() whenever the box or the "
@@ -991,7 +990,7 @@ class ClassOffering(HeroCropMixin, models.Model):
         shows the original again. Writes storage only; the caller saves the row.
         """
         if not (self.image and self.hero_crop_w and self.hero_crop_h):
-            self.hero_cropped = None
+            self.hero_cropped = ""
             return
         try:
             opened = Image.open(io.BytesIO(self._hero_source_bytes()))
@@ -999,7 +998,7 @@ class ClassOffering(HeroCropMixin, models.Model):
             img: Image.Image = ImageOps.exif_transpose(opened) or opened
         except (UnidentifiedImageError, OSError, ValueError) as exc:
             logger.warning("hero crop skipped for ClassOffering %s: %s", self.pk, exc)
-            self.hero_cropped = None
+            self.hero_cropped = ""
             return
         src_w, src_h = img.size
         left = min(self.hero_crop_x or 0, src_w)
@@ -1007,7 +1006,7 @@ class ClassOffering(HeroCropMixin, models.Model):
         right = min(left + self.hero_crop_w, src_w)
         bottom = min(top + self.hero_crop_h, src_h)
         if right <= left or bottom <= top:
-            self.hero_cropped = None
+            self.hero_cropped = ""
             return
         cropped = img.crop((left, top, right, bottom))
         buffer = io.BytesIO()

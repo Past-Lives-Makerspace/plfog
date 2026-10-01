@@ -107,9 +107,16 @@ def describe_class_card_media():
         html = _media(offering, preview=True, live_position="objectPosition")
         assert f'src="{offering.hero_cropped.url}"' in html
         assert "hero-crops/" in offering.hero_cropped.url
-        assert offering.image.url not in html
+        assert f'src="{offering.image.url}"' not in html
+        # A live frame carries the original for card_focus.js: a drag of the crop box frames
+        # a new box on the original, and the frame swaps to it before the centre lands.
+        assert f'data-hero-source="{offering.image.url}"' in html
         # The card's position rule still applies, now within the cropped photo.
         assert f'style="object-position: {offering.card_object_position};"' in html
+        # A public card has no live binding, so it never carries the attribute.
+        assert "data-hero-source" not in _media(offering)
+        # Nor does a live frame on a class with no copy: it already shows the original.
+        assert "data-hero-source" not in _media(_published(), preview=True, live_position="objectPosition")
 
     def it_renders_a_live_source_in_place_of_the_fallback_when_the_class_has_no_photo():
         """The composer mirrors the hero field's local preview through live_src before a save."""

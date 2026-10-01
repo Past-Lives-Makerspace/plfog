@@ -13,7 +13,10 @@ Parameters (pass via {% include ... with %}):
   live_position  — optional, an Alpine expression whose value is a CSS object-position
                    string; when set, the photo binds :style to it so the composer's
                    sliders move the image live. The server rendered style stays as the
-                   first paint.
+                   first paint. When the photo shown is the copy cut to the crop box, the
+                   img also carries data-hero-source, the original's URL: a drag of the
+                   crop box frames a new box on the original, so card_focus.js swaps the
+                   frame to it before applying the box's centre (issue #547).
   live_src       — optional, an Alpine expression whose value is an image URL (the hero
                    field's local preview, a data URL or the just uploaded file). Only
                    read when the offering has no hero_image_url: the photo then renders
@@ -32,8 +35,9 @@ no photo of its own.
 {% endcomment %}
 {% if preview %}<span class="cls-media">{% else %}<a class="cls-media" href="{% url 'classes:public_class_detail' slug=offering.slug %}" aria-label="View {{ offering.title|strip_date_suffix }}">{% endif %}
   {% if offering.hero_image_url %}
+    {# data-hero-source: the original, for card_focus.js to swap in when a new crop box is dragged over a copy. #}
     <img class="cls-img" src="{{ offering.hero_image_url }}" alt="" loading="lazy"
-         style="object-position: {{ offering.card_object_position }};"{% if live_position %} :style="'object-position: ' + {{ live_position }}"{% endif %}>
+         style="object-position: {{ offering.card_object_position }};"{% if live_position %} :style="'object-position: ' + {{ live_position }}"{% if offering.hero_cropped %} data-hero-source="{{ offering.hero_source_url }}"{% endif %}{% endif %}>
   {% elif live_src %}
     <img class="cls-img" :src="{{ live_src }}" alt=""{% if live_position %} :style="'object-position: ' + {{ live_position }}"{% endif %}>
   {% elif offering.category.hero_image %}

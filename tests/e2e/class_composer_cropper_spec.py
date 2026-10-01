@@ -77,11 +77,13 @@ def _seed_instructor() -> Member:
     )
 
 
-def _seed_draft_with_square_photo(instructor: Member) -> ClassOffering:
+def _seed_draft_with_square_photo(instructor: Member, **fields) -> ClassOffering:
     """A ready draft with a square hero photo.
 
     Square on purpose: a 16:9 frame on a square photo has room to move, so a drag
     changes the crop. On a 16:9 photo the frame fills the image and cannot move.
+    ``fields`` can carry the four hero_crop_* columns to seed a saved box, which the save
+    cuts into a cropped copy (issue #547).
     """
     return cast(
         ClassOffering,
@@ -91,8 +93,14 @@ def _seed_draft_with_square_photo(instructor: Member) -> ClassOffering:
             ready=True,
             image__width=1200,
             image__height=1200,
+            **fields,
         ),
     )
+
+
+# The box Cropper draws by itself on the square photo (full width, 16:9, centred), so a drag
+# from it moves the same distance as on a photo with no box.
+CENTRED_BOX = {"hero_crop_x": 0, "hero_crop_y": 262, "hero_crop_w": 1200, "hero_crop_h": 675}
 
 
 def _png(path: Path, width: int, height: int) -> Path:
@@ -243,12 +251,19 @@ def describe_hero_cropper():
         # Issue #536, item 4: the cropper announces the crop's centre (hero-crop on window) after
         # every drag and the card focus component follows it, so the laptop and phone frames on
         # this step and the phone frame on Review show the crop the host is dragging, not the
-        # saved one. Before, they held the saved value until Save Draft.
-        offering = _seed_draft_with_square_photo(_seed_instructor())
+        # saved one. Before, they held the saved value until Save Draft. On a class that already
+        # has a cropped copy (#547) the frames show that copy, and the new box is measured on the
+        # original, so the first drag swaps every frame to the original before the centre lands.
+        offering = _seed_draft_with_square_photo(_seed_instructor(), **CENTRED_BOX)
+        assert offering.hero_cropped
         login_via_code(EMAIL)
         _open_photos_step(page, live_server, "classes:teach_class_edit", pk=offering.pk)
         expect(page.locator(FRAME)).to_be_visible()
         _wait_ready(page)
+        card_photos = page.locator(CARD_PHOTOS)
+        expect(card_photos).to_have_count(3)
+        for photo in card_photos.all():
+            expect(photo).to_have_attribute("src", offering.hero_cropped.url)
 
         _drag_frame_down(page, 60)
         crop = json.loads(page.locator(CROP_INPUT).input_value())
@@ -261,11 +276,15 @@ def describe_hero_cropper():
             card_photos = page.locator(f'[data-composer-step="{step}"] {CARD_PHOTOS}')
             expect(card_photos).to_have_count(frames)
             for photo in card_photos.all():
+                expect(photo).to_have_attribute("src", offering.image.url)
+                expect(photo).not_to_have_attribute("data-hero-source", re.compile(r".*"))
                 shown = _percentages(photo.evaluate("el => getComputedStyle(el).objectPosition"))
                 assert shown == pytest.approx(centre, abs=0.6), (step, shown, centre)
-        # Nothing was saved: the row still carries no crop and the sliders were never touched.
+        # Nothing was saved: the row keeps its box and its copy, and the sliders were never touched.
+        copy = offering.hero_cropped.name
         offering.refresh_from_db()
-        assert offering.hero_object_position == "50% 50%"
+        assert offering.hero_crop_box == tuple(CENTRED_BOX.values())
+        assert offering.hero_cropped.name == copy
         expect(page.locator("[data-card-focus-input]")).to_have_value("")
 
     def it_keeps_the_frames_on_a_saved_focal_point_until_the_host_drags(live_server, page, login_via_code, serve_media):
