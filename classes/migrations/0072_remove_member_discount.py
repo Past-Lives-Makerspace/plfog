@@ -96,7 +96,7 @@ def drop_member_discount_copy_reverse(apps: Any, schema_editor: Any) -> None:
 
 class Migration(migrations.Migration):
     dependencies = [
-        ("classes", "0070_classimage_legacy_source_url"),
+        ("classes", "0071_classoffering_hero_cropped"),
     ]
 
     operations = [

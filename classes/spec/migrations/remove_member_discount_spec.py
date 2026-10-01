@@ -1,7 +1,7 @@
-"""Data-migration spec for classes 0071: the Host a Workshop defaults stop naming the member discount.
+"""Data-migration spec for classes 0072: the Host a Workshop defaults stop naming the member discount.
 
 Uses Django's ``MigrationExecutor`` (the pattern of teach_page_no_free_option_spec) so rows
-are built against the 0070 state, before the two defaults change and the discount columns
+are built against the 0071 state, before the two defaults change and the discount columns
 go. Each test restores the schema to head in a ``finally`` so the rest of the suite sees
 the current DB.
 """
@@ -16,8 +16,8 @@ from django.db.migrations.executor import MigrationExecutor
 from django.db.migrations.loader import MigrationLoader
 
 _APP = "classes"
-_BEFORE = "0070_classimage_legacy_source_url"
-_AFTER = "0071_remove_member_discount"
+_BEFORE = "0071_classoffering_hero_cropped"
+_AFTER = "0072_remove_member_discount"
 # The real head off the graph: a pinned name goes stale the day a later migration drops a column.
 _HEAD = MigrationLoader(None).graph.leaf_nodes(_APP)[0][1]
 
@@ -58,7 +58,7 @@ def _columns(table: str) -> set[str]:
 
 
 @pytest.mark.django_db(transaction=True)
-def describe_migration_0071_remove_member_discount():
+def describe_migration_0072_remove_member_discount():
     def it_drops_both_discount_columns_and_the_reverse_puts_them_back_at_ten():
         try:
             _migrate(_BEFORE)

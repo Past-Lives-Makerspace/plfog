@@ -28,7 +28,7 @@ _APP = "classes"
 _BEFORE = "0064_video_provider_help_text"
 _AFTER = "0065_cancel_duplicate_signups"
 # The real head, read off the graph: ``ClassOfferingFactory`` writes with the current model, so
-# a pinned name goes stale the day a later migration drops a column (0071 did).
+# a pinned name goes stale the day a later migration drops a column (0072 did).
 _HEAD = MigrationLoader(None).graph.leaf_nodes(_APP)[0][1]
 
 _migration = import_module(f"classes.migrations.{_AFTER}")
