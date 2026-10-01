@@ -1839,12 +1839,14 @@ def _sessions_json(request: HttpRequest, formset: Any, offering: ClassOffering |
             if starts or ends:
                 sessions_data.append({"id": pk, "starts_at": starts, "ends_at": ends, "DELETE": bool(delete)})
     elif offering is not None and offering.pk:
+        # Wall clock in the site's timezone: the scheduler reads these as local times and
+        # posts them back as local times, so the UTC value here drifts seven hours a save.
         for s in offering.sessions.order_by("starts_at"):
             sessions_data.append(
                 {
                     "id": s.pk,
-                    "starts_at": s.starts_at.strftime("%Y-%m-%dT%H:%M"),
-                    "ends_at": s.ends_at.strftime("%Y-%m-%dT%H:%M"),
+                    "starts_at": timezone.localtime(s.starts_at).strftime("%Y-%m-%dT%H:%M"),
+                    "ends_at": timezone.localtime(s.ends_at).strftime("%Y-%m-%dT%H:%M"),
                 }
             )
     return json.dumps(sessions_data)
