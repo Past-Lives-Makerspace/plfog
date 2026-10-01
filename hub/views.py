@@ -43,11 +43,6 @@ from hub.forms import (
     DiscordGuildEmojiFormSet,
     GuildEditForm,
     GuildRoleFormSet,
-    LeadershipAddForm,
-    LeadershipListingForm,
-    LeadershipPageForm,
-    LeadershipRoleFormSet,
-    LeadershipRosterEditor,
     MeetingItemProposalForm,
     MemberAdminEditForm,
     MemberCapabilitiesForm,
@@ -81,6 +76,7 @@ from membership.models import (
     HelpCategory,
     LeadershipListing,
     LeadershipPage,
+    LeadershipTab,
     Meeting,
     MeetingItemProposal,
     Member,
@@ -291,25 +287,30 @@ def guild_voting(request: HttpRequest) -> HttpResponse:
 
 @login_required
 def leadership_directory(request: HttpRequest) -> HttpResponse:
-    """Leadership Directory: who runs Past Lives and who leads each guild (#464).
+    """Leadership Directory: who runs Past Lives and who leads each guild (#464), in tabs admins name (#564).
 
-    Two sections. The team is curated: the profiles an admin flagged ``Show on Leadership
-    Directory``, in the admin's order, each with its role lines. The guild section is derived
-    from each active guild's own lead, Co-Lead staff and contact address, so a change of lead
-    on the guild's settings page changes this page with nothing retyped. Members only: the
-    issue keeps a signed-out view out of the first release.
+    One tab per :class:`LeadershipTab` in admin order, the first open unless ``?tab=<id>``
+    names another, like the guild page. A People tab shows its listed cards with their role
+    lines; one with nobody on it is left out of a member's view, and an admin still sees it,
+    to know where the next person goes. The Guild Leads tab is derived from each visible
+    guild's own lead, Co-Lead staff and contact address, so a change of lead on the guild's
+    settings page changes this page with nothing retyped. Members only: the issue keeps a
+    signed-out view out of scope.
     """
     ctx = _get_hub_context(request)
+    # The Edit this page button in the hero; view-as aware, like the Admin Tools tile.
+    is_admin = _viewing_as_admin(request)
+    tabs = LeadershipTab.objects.for_directory(include_empty=is_admin)
     # visible() is the member-facing guild gate (active guilds, plus the example guild only
     # while display_demo_guild is on), the same set the sidebar and the guild directory show.
     # Under its own key: "guilds" is the sidebar's list, and overwriting it would change the
     # sidebar on this one page.
     ctx.update(
         {
-            # The Edit this page button in the hero; view-as aware, like the Admin Tools tile.
-            "is_admin": _viewing_as_admin(request),
+            "is_admin": is_admin,
             "leadership_page": LeadershipPage.load(),
-            "listings": LeadershipListing.objects.listed(),
+            "tabs": tabs,
+            "open_tab": LeadershipTab.pick(tabs, request.GET.get("tab")),
             "guild_cards": Guild.objects.visible()
             .select_related("guild_lead")
             .prefetch_related("staff_memberships__member")
@@ -7107,20 +7108,6 @@ def admin_members(request: HttpRequest) -> HttpResponse:
     )
 
 
-def _member_edit_forms(member: Member, data: Any = None) -> tuple[MemberAdminEditForm, LeadershipListingForm, Any]:
-    """The Details tab's three forms, bound to ``data`` when given and unbound otherwise.
-
-    The Leadership Directory listing saves with the Details form; the queryset hands back
-    an unsaved stand-in for a member nobody listed, so no row is written until it changes.
-    """
-    listing = LeadershipListing.objects.for_member(member)
-    return (
-        MemberAdminEditForm(data, instance=member),
-        LeadershipListingForm(data, instance=listing, prefix="leadership"),
-        LeadershipRoleFormSet(data, instance=listing, prefix="roles"),
-    )
-
-
 def _member_orientation_rows(member: Member) -> list[dict[str, Any]]:
     """The Orientations tab's rows: completed bookings and hand-entered records, newest first.
 
@@ -7155,14 +7142,8 @@ def _member_orientation_rows(member: Member) -> list[dict[str, Any]]:
     return rows
 
 
-def _render_member_edit(
-    request: HttpRequest,
-    member: Member,
-    form: MemberAdminEditForm,
-    listing_form: LeadershipListingForm,
-    role_formset: Any,
-) -> HttpResponse:
-    """Render the member edit page with every tab's context (the Details forms bound or not)."""
+def _render_member_edit(request: HttpRequest, member: Member, form: MemberAdminEditForm) -> HttpResponse:
+    """Render the member edit page with every tab's context (the Details form bound or not)."""
     from core.events import settings_matrix
 
     orientation_form = OrientationRecordForm(member)
@@ -7201,8 +7182,8 @@ def _render_member_edit(
             "member": member,
             "agreement": agreement,
             "form": form,
-            "listing_form": listing_form,
-            "role_formset": role_formset,
+            # Read only: the member's Leadership Directory tabs and lines, edited on the editor (#564).
+            "leadership_listings": LeadershipListing.objects.on_tabs_for(member),
             "capabilities_form": cap_form,
             "instructor_description": Member.INSTRUCTOR_PERMISSION_DESCRIPTION,
             "notif_matrix": notif_matrix,
@@ -7254,20 +7235,17 @@ def admin_member_edit(request: HttpRequest, pk: int) -> HttpResponse:
                 settings_matrix.save_matrix(target, request.POST)
                 messages.success(request, "Saved notification settings.")
             return redirect(permissions_url)
-        form, listing_form, role_formset = _member_edit_forms(member, request.POST)
-        listing_ok = listing_form.is_valid()
-        roles_ok = role_formset.is_valid()
-        if form.is_valid() and listing_ok and roles_ok:
+        form = MemberAdminEditForm(request.POST, instance=member)
+        if form.is_valid():
             obj = form.save(commit=False)
             obj.save()
             obj.apply_admin_role(form.cleaned_data["role"])
-            listing_form.save_with_roles(role_formset)
             display = obj.full_legal_name or obj.primary_email or f"member #{obj.pk}"
             messages.success(request, f"Saved {display}.")
             return redirect("hub_admin_members")
     else:
-        form, listing_form, role_formset = _member_edit_forms(member)
-    return _render_member_edit(request, member, form, listing_form, role_formset)
+        form = MemberAdminEditForm(instance=member)
+    return _render_member_edit(request, member, form)
 
 
 @fog_admin_required
@@ -8361,71 +8339,6 @@ def admin_slideshow_slides_save(request: HttpRequest) -> HttpResponse:
         inst.save()
     messages.success(request, "Slides saved.")
     return redirect("hub_admin_slideshow")
-
-
-def _render_leadership_admin(
-    request: HttpRequest,
-    *,
-    page_form: LeadershipPageForm | None = None,
-    editor: LeadershipRosterEditor | None = None,
-    add_form: LeadershipAddForm | None = None,
-) -> HttpResponse:
-    """Render the Leadership Directory admin with whichever bound form is re-rendering its errors."""
-    ctx = _get_hub_context(request)
-    return render(
-        request,
-        "hub/admin/leadership.html",
-        {
-            **ctx,
-            "page_form": page_form or LeadershipPageForm(instance=LeadershipPage.load()),
-            "editor": editor or LeadershipRosterEditor(),
-            "add_form": add_form or LeadershipAddForm(),
-        },
-    )
-
-
-@fog_admin_required
-def hub_admin_leadership(request: HttpRequest) -> HttpResponse:
-    """The Leadership Directory admin: the page wording, and the team's order and role lines (#476).
-
-    Three sibling forms on one page, the Slideshow page's shape. This view renders the page
-    and saves Page Wording; the roster and Add a Person post to their own endpoints below.
-    """
-    if request.method == "POST":
-        form = LeadershipPageForm(request.POST, instance=LeadershipPage.load())
-        if form.is_valid():
-            form.save()
-            messages.success(request, "Page wording saved.")
-            return redirect("hub_admin_leadership")
-        messages.error(request, "Couldn't save the page wording. Check the highlighted fields.")
-        return _render_leadership_admin(request, page_form=form)
-    return _render_leadership_admin(request)
-
-
-@fog_admin_required
-@require_POST
-def admin_leadership_add(request: HttpRequest) -> HttpResponse:
-    """Add a Person: list a member last with their first role line, or relist someone taken off earlier."""
-    form = LeadershipAddForm(request.POST)
-    if not form.is_valid():
-        messages.error(request, "Couldn't add that person. Check the highlighted fields.")
-        return _render_leadership_admin(request, add_form=form)
-    listing = form.save()
-    messages.success(request, f"Added {listing.member.display_name} to the Leadership Directory.")
-    return redirect("hub_admin_leadership")
-
-
-@fog_admin_required
-@require_POST
-def admin_leadership_roster_save(request: HttpRequest) -> HttpResponse:
-    """Save the team: the order, who stays listed, and every person's role lines, in one POST."""
-    editor = LeadershipRosterEditor(request.POST)
-    if not editor.is_valid():
-        messages.error(request, "Couldn't save the team. Check the highlighted fields.")
-        return _render_leadership_admin(request, editor=editor)
-    editor.save()
-    messages.success(request, "Team saved.")
-    return redirect("hub_admin_leadership")
 
 
 # ── Interactive space map ────────────────────────────────────────────────────

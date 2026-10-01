@@ -1,26 +1,29 @@
-"""BDD specs for the Show on Leadership Directory control on the admin member edit Details tab (#464).
+"""BDD specs for the Leadership Directory list on the admin member edit Details tab (#464, read only since #564).
 
-The toggle and its role lines save with the Details form. A listing row is written only
-when the toggle or a role line changed, so a member nobody listed never gains a row and
-the page's Updated date stays still on an unrelated Details save.
+The Details tab shows the member's tabs and role lines, each tab linking to its pane on the
+editor, plus a link that opens Add a person there with the member chosen. Editing happens on
+the editor only, so a Details save never writes a listing.
 """
 
 from __future__ import annotations
-
-from datetime import timedelta
 
 import pytest
 from django.contrib.auth.models import User
 from django.test import Client
 from django.urls import reverse
-from django.utils import timezone
 
-from membership.models import LeadershipListing, LeadershipRole, Member
-from tests.membership.factories import LeadershipListingFactory, LeadershipRoleFactory
+from membership.models import LeadershipListing, LeadershipTab, Member
+from tests.membership.factories import LeadershipListingFactory, LeadershipRoleFactory, LeadershipTabFactory
 
 pytestmark = pytest.mark.django_db
 
 PASSWORD = "pw12345!"
+_EDITOR = reverse("hub_admin_leadership")
+
+
+@pytest.fixture(autouse=True)
+def _no_tabs() -> None:
+    LeadershipTab.objects.all().delete()
 
 
 def _login(client: Client, username: str, role: str) -> Member:
@@ -32,8 +35,8 @@ def _login(client: Client, username: str, role: str) -> Member:
     return member
 
 
-def _target(username: str = "lead-target") -> Member:
-    user = User.objects.create_user(username=username, email=f"{username}@x.com", password=PASSWORD)
+def _target() -> Member:
+    user = User.objects.create_user(username="lead-target", email="lead-target@x.com", password=PASSWORD)
     member = Member.objects.get(user=user)
     member.full_legal_name = "Target Member"
     member.save()
@@ -44,130 +47,91 @@ def _edit_url(member: Member) -> str:
     return reverse("hub_admin_member_edit", kwargs={"pk": member.pk})
 
 
-def _details_post(member: Member, roles: list[dict[str, str]] | None = None, **overrides: str) -> dict[str, str]:
-    """The full Details payload: the member fields plus the role formset's rows and management form.
-
-    Rows with an ``id`` (saved roles) must come first, as the formset's INITIAL_FORMS count expects.
-    """
-    roles = roles or []
-    data = {
-        "full_legal_name": member.full_legal_name,
-        "preferred_name": "",
-        "pronouns": "",
-        "discord_handle": "",
-        "about_me": "",
-        "status": Member.Status.ACTIVE,
-        "member_type": Member.MemberType.STANDARD,
-        "role": Member.FogRole.MEMBER,
-        "show_in_directory": "on",
-        "roles-TOTAL_FORMS": str(len(roles)),
-        "roles-INITIAL_FORMS": str(sum(1 for row in roles if "id" in row)),
-        "roles-MIN_NUM_FORMS": "0",
-        "roles-MAX_NUM_FORMS": "1000",
-    }
-    for index, row in enumerate(roles):
-        for key, value in row.items():
-            data[f"roles-{index}-{key}"] = value
-    data.update(overrides)
-    return data
+def _section(html: str) -> str:
+    """The Details tab's Leadership Directory block."""
+    start = html.index('<h2 class="hub-detail-label pl-leadership__heading">')
+    return html[start : html.index('<div class="pl-person-actions">', start)]
 
 
 def describe_admin_member_edit_leadership():
-    def it_denies_a_plain_member(client):
+    def it_denies_a_plain_member(client: Client):
         _login(client, "plain", Member.FogRole.MEMBER)
         assert client.get(_edit_url(_target())).status_code == 403
 
-    def it_renders_the_toggle_off_with_no_role_rows_for_an_unlisted_member(client):
+    def it_lists_each_tab_the_member_is_on_with_its_lines_linking_to_the_editor(client: Client):
         _login(client, "admin1", Member.FogRole.ADMIN)
-        content = client.get(_edit_url(_target())).content.decode()
-        assert 'name="leadership-is_listed"' in content
-        assert 'x-model="listed"' in content
-        assert 'x-data="{ listed: false }"' in content
-        assert 'name="roles-TOTAL_FORMS" value="0"' in content
-        assert 'id="leadership-role-empty-template"' in content
-        assert LeadershipListing.objects.count() == 0  # a GET never writes a listing row
+        target = _target()
+        board = LeadershipTabFactory(title="Board Tab", sort_order=2)
+        leadership = LeadershipTabFactory(title="Leadership Tab", sort_order=1)
+        LeadershipRoleFactory(listing=LeadershipListingFactory(tab=board, member=target), title="Board Advisor")
+        on_leadership = LeadershipListingFactory(tab=leadership, member=target)
+        LeadershipRoleFactory(listing=on_leadership, title="Guild Executor")
+        LeadershipRoleFactory(listing=on_leadership, title="Treasurer Line", sort_order=1)
+        LeadershipListingFactory(tab=LeadershipTabFactory(title="Hidden Tab"), member=target, is_listed=False)
+        section = _section(client.get(_edit_url(target)).content.decode())
+        assert section.index("Leadership Tab") < section.index("Board Tab")
+        assert f'href="{_EDITOR}?tab={leadership.pk}"' in section
+        assert f'href="{_EDITOR}?tab={board.pk}"' in section
+        assert section.index("Guild Executor") < section.index("Treasurer Line") < section.index("Board Advisor")
+        assert "Hidden Tab" not in section
 
-    def it_renders_the_saved_roles_for_a_listed_member(client):
+    def it_says_a_member_with_no_lines_on_a_tab_has_none(client: Client):
         _login(client, "admin2", Member.FogRole.ADMIN)
         target = _target()
-        listing = LeadershipListingFactory(member=target, is_listed=True)
-        LeadershipRoleFactory(listing=listing, title="Founder", email="founder@x.com")
-        content = client.get(_edit_url(target)).content.decode()
-        assert 'x-data="{ listed: true }"' in content
-        assert 'value="Founder"' in content
-        assert 'name="roles-0-DELETE"' in content
+        LeadershipListingFactory(tab=LeadershipTabFactory(title="Bare Tab"), member=target)
+        section = _section(client.get(_edit_url(target)).content.decode())
+        assert "Bare Tab" in section
+        assert 'class="pl-slide-badge"' not in section
 
-    def it_creates_the_listing_and_its_roles_when_turned_on(client):
+    def it_shows_the_empty_state_and_the_add_link_for_a_member_on_no_tab(client: Client):
         _login(client, "admin3", Member.FogRole.ADMIN)
         target = _target()
-        roles = [{"title": "Founder", "email": "founder@x.com", "sort_order": "0"}]
-        response = client.post(_edit_url(target), _details_post(target, roles, **{"leadership-is_listed": "on"}))
-        assert response.status_code == 302
-        listing = LeadershipListing.objects.get(member=target)
-        assert listing.is_listed is True
-        assert list(listing.roles.values_list("title", "email")) == [("Founder", "founder@x.com")]
+        section = _section(client.get(_edit_url(target)).content.decode())
+        assert 'class="hub-text-muted pl-leadership__none"' in section
+        assert "pl-leadership__lines" not in section
+        assert f'href="{_EDITOR}?add={target.pk}"' in section
 
-    def it_leaves_an_untouched_member_without_a_listing_row(client):
+    def it_edits_nothing_here(client: Client):
         _login(client, "admin4", Member.FogRole.ADMIN)
         target = _target()
-        response = client.post(_edit_url(target), _details_post(target, full_legal_name="Renamed"))
-        assert response.status_code == 302
-        target.refresh_from_db()
-        assert target.full_legal_name == "Renamed"
-        assert not LeadershipListing.objects.filter(member=target).exists()
+        LeadershipListingFactory(member=target)
+        html = client.get(_edit_url(target)).content.decode()
+        assert 'name="leadership-is_listed"' not in html
+        assert "roles-TOTAL_FORMS" not in html
+        assert "<input" not in _section(html)
 
-    def it_keeps_the_roles_when_turned_off(client):
+    def it_saves_the_details_without_touching_a_listing(client: Client):
         _login(client, "admin5", Member.FogRole.ADMIN)
         target = _target()
-        listing = LeadershipListingFactory(member=target, is_listed=True)
-        role = LeadershipRoleFactory(listing=listing, title="Founder")
-        roles = [{"id": str(role.pk), "title": "Founder", "email": "", "sort_order": "0"}]
-        response = client.post(_edit_url(target), _details_post(target, roles))  # no toggle key: off
-        assert response.status_code == 302
-        listing.refresh_from_db()
-        assert listing.is_listed is False
-        assert list(listing.roles.values_list("title", flat=True)) == ["Founder"]
-
-    def it_deletes_a_role_and_adds_another_in_one_save(client):
-        _login(client, "admin6", Member.FogRole.ADMIN)
-        target = _target()
-        listing = LeadershipListingFactory(member=target, is_listed=True)
-        gone = LeadershipRoleFactory(listing=listing, title="Old Title")
-        roles = [
-            {"id": str(gone.pk), "title": "Old Title", "email": "", "sort_order": "0", "DELETE": "on"},
-            {"title": "New Title", "email": "new@x.com", "sort_order": "1"},
-        ]
-        response = client.post(_edit_url(target), _details_post(target, roles, **{"leadership-is_listed": "on"}))
-        assert response.status_code == 302
-        assert list(listing.roles.values_list("title", "sort_order")) == [("New Title", 1)]
-        assert not LeadershipRole.objects.filter(pk=gone.pk).exists()
-
-    def it_ignores_an_abandoned_blank_role_row(client):
-        _login(client, "admin7", Member.FogRole.ADMIN)
-        target = _target()
-        listing = LeadershipListingFactory(member=target, is_listed=True)
-        roles = [{"title": "", "email": "", "sort_order": "3"}]  # the add button stamped sort_order
-        response = client.post(_edit_url(target), _details_post(target, roles, **{"leadership-is_listed": "on"}))
-        assert response.status_code == 302
-        assert listing.roles.count() == 0
-
-    def it_re_renders_with_the_error_when_a_role_has_no_title(client):
-        _login(client, "admin8", Member.FogRole.ADMIN)
-        target = _target()
-        roles = [{"title": "", "email": "x@x.com", "sort_order": "0"}]
-        response = client.post(_edit_url(target), _details_post(target, roles, **{"leadership-is_listed": "on"}))
-        assert response.status_code == 200
-        assert 'class="pl-field-error"' in response.content.decode()
-        assert not LeadershipListing.objects.filter(member=target).exists()
-
-    def it_does_not_move_the_listing_stamp_on_an_unrelated_details_save(client):
-        _login(client, "admin9", Member.FogRole.ADMIN)
-        target = _target()
-        listing = LeadershipListingFactory(member=target, is_listed=True)
-        stamp = timezone.now() - timedelta(days=2)
-        LeadershipListing.objects.filter(pk=listing.pk).update(updated_at=stamp)
-        payload = _details_post(target, full_legal_name="Renamed", **{"leadership-is_listed": "on"})
+        listing = LeadershipListingFactory(member=target)
+        stamp = listing.updated_at
+        payload = {
+            "full_legal_name": "Renamed Member",
+            "preferred_name": "",
+            "pronouns": "",
+            "discord_handle": "",
+            "about_me": "",
+            "status": Member.Status.ACTIVE,
+            "member_type": Member.MemberType.STANDARD,
+            "role": Member.FogRole.MEMBER,
+            "show_in_directory": "on",
+            # The old Details controls, posted by a page still open from before #564: ignored.
+            "leadership-is_listed": "",
+        }
         response = client.post(_edit_url(target), payload)
         assert response.status_code == 302
+        target.refresh_from_db()
+        assert target.full_legal_name == "Renamed Member"
         listing.refresh_from_db()
-        assert listing.updated_at == stamp
+        assert (listing.is_listed, listing.updated_at) == (True, stamp)
+        assert LeadershipListing.objects.count() == 1
+
+    def it_re_renders_a_refused_details_save_with_the_list(client: Client):
+        _login(client, "admin6", Member.FogRole.ADMIN)
+        target = _target()
+        LeadershipListingFactory(tab=LeadershipTabFactory(title="Still Shown Tab"), member=target)
+        response = client.post(_edit_url(target), {"full_legal_name": ""})
+        assert response.status_code == 200
+        html = response.content.decode()
+        assert 'class="pl-field-error"' in html
+        assert "Still Shown Tab" in _section(html)

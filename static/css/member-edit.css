@@ -224,7 +224,9 @@
     font-size: 0.85rem;
 }
 
-/* ── Details tab: Leadership Directory listing ──────────────────────── */
+/* ── Details tab: Leadership Directory, read only (#564) ─────────────
+   One line per tab the member is on: the tab's name, linking to its pane on the editor,
+   then that tab's role titles as the Slideshow badges (hub.css .pl-slide-badge). */
 .pl-leadership {
     max-width: 680px;
     margin: 1.5rem 0 1rem;
@@ -235,8 +237,30 @@
     font-size: 1.1rem;
     margin: 0 0 0.75rem;
 }
+.pl-leadership__lines {
+    list-style: none;
+    margin: 0 0 0.75rem;
+    padding: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+}
+.pl-leadership__line {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.5rem 0.75rem;
+}
+.pl-leadership__tab {
+    font-weight: 600;
+}
 .pl-leadership__roles {
-    margin-top: 0.75rem;
+    display: inline-flex;
+    flex-wrap: wrap;
+    gap: 0.35rem;
+}
+.pl-leadership__none {
+    margin: 0 0 0.75rem;
 }
 
 /* ── Orientations tab ───────────────────────────────────────────────── */

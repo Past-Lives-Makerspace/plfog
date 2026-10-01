@@ -1,7 +1,15 @@
 from django.urls import path
 from django.views.generic import RedirectView
 
-from . import discord_views, equipment_views, meeting_views, notification_views, views, wiki_views
+from . import (
+    discord_views,
+    equipment_views,
+    leadership_views,
+    meeting_views,
+    notification_views,
+    views,
+    wiki_views,
+)
 
 urlpatterns = [
     # --- Meetings (spec §6.0) ---
@@ -696,13 +704,59 @@ urlpatterns = [
         views.admin_slideshow_slides_save,
         name="hub_admin_slideshow_slides_save",
     ),
-    # The Leadership Directory admin (#476): the page, and the roster's two sibling forms.
-    path("manage/leadership/", views.hub_admin_leadership, name="hub_admin_leadership"),
-    path("manage/leadership/add/", views.admin_leadership_add, name="hub_admin_leadership_add"),
+    # The Leadership Directory editor (#476; tabs and auto save, #564): the page, then one
+    # endpoint per object, every one of them POST only (hub/leadership_views.py).
+    path("manage/leadership/", leadership_views.hub_admin_leadership, name="hub_admin_leadership"),
     path(
-        "manage/leadership/roster/save/",
-        views.admin_leadership_roster_save,
-        name="hub_admin_leadership_roster_save",
+        "manage/leadership/page/save/",
+        leadership_views.admin_leadership_page_save,
+        name="hub_admin_leadership_page_save",
+    ),
+    path("manage/leadership/tabs/add/", leadership_views.admin_leadership_tab_add, name="hub_admin_leadership_tab_add"),
+    path(
+        "manage/leadership/tabs/order/",
+        leadership_views.admin_leadership_tab_order,
+        name="hub_admin_leadership_tab_order",
+    ),
+    path(
+        "manage/leadership/tabs/<int:pk>/save/",
+        leadership_views.admin_leadership_tab_save,
+        name="hub_admin_leadership_tab_save",
+    ),
+    path(
+        "manage/leadership/tabs/<int:pk>/delete/",
+        leadership_views.admin_leadership_tab_delete,
+        name="hub_admin_leadership_tab_delete",
+    ),
+    path(
+        "manage/leadership/tabs/<int:pk>/people/add/",
+        leadership_views.admin_leadership_person_add,
+        name="hub_admin_leadership_person_add",
+    ),
+    path(
+        "manage/leadership/tabs/<int:pk>/people/order/",
+        leadership_views.admin_leadership_people_order,
+        name="hub_admin_leadership_people_order",
+    ),
+    path(
+        "manage/leadership/people/<int:pk>/remove/",
+        leadership_views.admin_leadership_person_remove,
+        name="hub_admin_leadership_person_remove",
+    ),
+    path(
+        "manage/leadership/people/<int:pk>/roles/add/",
+        leadership_views.admin_leadership_role_add,
+        name="hub_admin_leadership_role_add",
+    ),
+    path(
+        "manage/leadership/roles/<int:pk>/save/",
+        leadership_views.admin_leadership_role_save,
+        name="hub_admin_leadership_role_save",
+    ),
+    path(
+        "manage/leadership/roles/<int:pk>/delete/",
+        leadership_views.admin_leadership_role_delete,
+        name="hub_admin_leadership_role_delete",
     ),
     # --- Notification copy catalogue (design §2.3 + §2.4, Decision 6) ---
     path("manage/notifications/", notification_views.catalogue, name="hub_admin_notifications"),

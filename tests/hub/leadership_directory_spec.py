@@ -1,10 +1,15 @@
-"""BDD specs for the Leadership Directory page (#464, part 2).
+"""BDD specs for the Leadership Directory page (#464, tabs #564).
 
-The team section is the admin's curated, ordered list of flagged profiles with their role
-lines; the guild section is derived from each active guild's own lead, Co-Lead staff and
-contact address. Assertions anchor on markup (ids, classes, hrefs) or on factory strings,
-never on copy the changelog could also carry. Guild assertions read the guild section only,
-because the sidebar lists the same guilds alphabetically and would pass for the wrong reason.
+Under the hero, one tab per LeadershipTab in admin order: the first open, or the one
+``?tab=<id>`` names. People tabs show the admins' cards with their role lines; the Guild Leads
+tab is derived from each visible guild's own lead, Co-Lead staff and contact address; a People
+tab with nobody on it never reaches a member. Assertions anchor on markup (ids, classes,
+hrefs) or on factory strings, never on copy the changelog could also carry. Guild assertions
+read the Guild Leads pane only, because the sidebar lists the same guilds alphabetically and
+would pass for the wrong reason.
+
+The data migration makes two tabs in every migrated test database, so each spec starts from
+none (``_no_tabs``) and builds exactly the tabs it needs.
 """
 
 from __future__ import annotations
@@ -16,26 +21,35 @@ from datetime import timedelta
 import pytest
 from django.contrib.auth.models import User
 from django.core.files.uploadedfile import SimpleUploadedFile
+from django.db import connection
 from django.template.defaultfilters import date as date_filter
 from django.test import Client
+from django.test.utils import CaptureQueriesContext
 from django.urls import reverse
 from django.utils import timezone
 from PIL import Image
 
 from core.models import SiteConfiguration
 from hub.templatetags.hub_tags import email_breaks, initials
-from membership.models import EXAMPLE_GUILD_SLUG, LeadershipListing, LeadershipPage, Member
+from membership.models import EXAMPLE_GUILD_SLUG, LeadershipListing, LeadershipPage, LeadershipTab, Member
 from tests.membership.factories import (
     GuildFactory,
     GuildStaffMembershipFactory,
     LeadershipListingFactory,
     LeadershipRoleFactory,
+    LeadershipTabFactory,
     MemberFactory,
 )
 
 pytestmark = pytest.mark.django_db
 
 PASSWORD = "pw12345!"
+_URL = reverse("hub_leadership_directory")
+
+
+@pytest.fixture(autouse=True)
+def _no_tabs() -> None:
+    LeadershipTab.objects.all().delete()
 
 
 def _login(client: Client) -> Member:
@@ -47,25 +61,38 @@ def _login(client: Client) -> Member:
     return member
 
 
-def _page(client: Client) -> bytes:
+def _page(client: Client, query: str = "") -> bytes:
     _login(client)
-    response = client.get(reverse("hub_leadership_directory"))
+    response = client.get(_URL + query)
     assert response.status_code == 200
     return response.content
 
 
-def _admin_page(client: Client) -> bytes:
+def _admin_page(client: Client, query: str = "") -> bytes:
     member = _login(client)
     member.fog_role = Member.FogRole.ADMIN
     member.save(update_fields=["fog_role"])
-    response = client.get(reverse("hub_leadership_directory"))
+    response = client.get(_URL + query)
     assert response.status_code == 200
     return response.content
 
 
-def _section(body: bytes, section_id: str) -> bytes:
-    """The body from the given section's opening tag onward."""
-    return body[body.index(f'id="{section_id}"'.encode()) :]
+def _pane(body: bytes, tab: LeadershipTab) -> bytes:
+    """One tab's pane: from its opening tag to the next pane, or to the end of the page."""
+    start = body.index(f'id="leadership-pane-{tab.pk}"'.encode())
+    following = body.find(b'id="leadership-pane-', start + 1)
+    return body[start : following if following != -1 else len(body)]
+
+
+def _tab_button(body: bytes, tab: LeadershipTab) -> bytes:
+    """One tab's button in the strip, opening tag through its label."""
+    match = re.search(rb'<button[^>]*id="leadership-tab-' + str(tab.pk).encode() + rb'".*?</button>', body, re.S)
+    assert match is not None
+    return match.group(0)
+
+
+def _guild_leads() -> LeadershipTab:
+    return LeadershipTabFactory(kind=LeadershipTab.Kind.GUILD_LEADS, title="Guild Leads")
 
 
 def _photo() -> SimpleUploadedFile:
@@ -76,37 +103,106 @@ def _photo() -> SimpleUploadedFile:
 
 def describe_leadership_directory():
     def it_sends_a_signed_out_visitor_to_login(client: Client):
-        response = client.get(reverse("hub_leadership_directory"))
+        response = client.get(_URL)
         assert response.status_code == 302
         assert "next=/leadership/" in response["Location"]
 
-    def it_renders_the_hero_then_the_team_then_the_guilds(client: Client):
+    def it_renders_the_hero_then_the_strip_then_the_panes(client: Client):
         page = LeadershipPage.load()
         page.hero_title = "Who Runs This Place"
         page.hero_lead = "Every name in one place."
-        page.team_heading = "The Crew"
-        page.guilds_heading = "Shop Leads"
         page.save()
+        tab = LeadershipTabFactory()
+        LeadershipListingFactory(tab=tab)
         body = _page(client)
         assert b"Who Runs This Place" in body
         assert b"Every name in one place." in body
         hero = body.index(b'class="pl-guild-hero pl-guild-hero--noimg pl-teach-hero"')
-        team = body.index(b'id="leadership-team"')
-        guilds = body.index(b'id="leadership-guilds"')
-        assert hero < team < guilds
-        assert body.index(b"The Crew") < body.index(b"Shop Leads")
+        strip = body.index(b'class="pl-tabs pl-leadership__tabs" role="tablist"')
+        pane = body.index(f'id="leadership-pane-{tab.pk}"'.encode())
+        assert hero < strip < pane
 
     def it_marks_its_own_sidebar_entry_active(client: Client):
         assert b'href="/leadership/" class="hub-sidebar__link active"' in _page(client)
 
-    def it_lists_only_listed_members_in_the_admins_order(client: Client):
-        LeadershipListingFactory(sort_order=2, member=MemberFactory(full_legal_name="Zed Zephyr"))
-        LeadershipListingFactory(sort_order=1, member=MemberFactory(full_legal_name="Ada Aldous"))
-        LeadershipListingFactory(is_listed=False, member=MemberFactory(full_legal_name="Hidden Hank"))
+    def it_shows_the_tabs_in_admin_order_and_opens_the_first(client: Client):
+        second = LeadershipTabFactory(title="Council Tab", sort_order=2)
+        first = LeadershipTabFactory(title="Leadership Tab", sort_order=1)
+        LeadershipListingFactory(tab=first)
+        LeadershipListingFactory(tab=second)
+        guilds = _guild_leads()
+        LeadershipTab.objects.filter(pk=guilds.pk).update(sort_order=0)
         body = _page(client)
-        assert b"Hidden Hank" not in body
-        assert body.index(b"Ada Aldous") < body.index(b"Zed Zephyr")
-        assert body.count(b'<article class="pl-leader-card">') == 2
+        strip = [int(pk) for pk in re.findall(rb'id="leadership-tab-(\d+)"', body)]
+        assert strip == [guilds.pk, first.pk, second.pk]
+        assert b'class="vote-tab vote-tab--active"' in _tab_button(body, guilds)
+        assert b'class="vote-tab"' in _tab_button(body, first)
+        assert b'x-data="{ open: ' + str(guilds.pk).encode() + b' }"' in body
+        assert b"x-cloak" not in _pane(body, guilds).split(b">", 1)[0]
+        assert b"x-cloak" in _pane(body, first).split(b">", 1)[0]
+
+    def it_opens_the_tab_the_query_names(client: Client):
+        first = LeadershipTabFactory(sort_order=0)
+        second = LeadershipTabFactory(sort_order=1)
+        LeadershipListingFactory(tab=first)
+        LeadershipListingFactory(tab=second)
+        body = _page(client, f"?tab={second.pk}")
+        assert b'class="vote-tab vote-tab--active"' in _tab_button(body, second)
+        assert b'class="vote-tab"' in _tab_button(body, first)
+        assert b"x-cloak" not in _pane(body, second).split(b">", 1)[0]
+
+    def it_opens_the_first_tab_for_an_unknown_or_hidden_tab_id(client: Client):
+        first = LeadershipTabFactory(sort_order=0)
+        LeadershipListingFactory(tab=first)
+        empty = LeadershipTabFactory(sort_order=1)
+        for query in ("?tab=999999", f"?tab={empty.pk}", "?tab=nope"):
+            client.logout()
+            User.objects.filter(username="leader-viewer").delete()
+            body = _page(client, query)
+            assert b'class="vote-tab vote-tab--active"' in _tab_button(body, first)
+
+    def it_hides_a_people_tab_with_nobody_on_it_from_a_member(client: Client):
+        shown = LeadershipTabFactory(title="Shown Tab")
+        LeadershipListingFactory(tab=shown)
+        empty = LeadershipTabFactory(title="Empty Tab")
+        hidden_only = LeadershipTabFactory(title="Hidden Only Tab")
+        LeadershipListingFactory(tab=hidden_only, is_listed=False)
+        body = _page(client)
+        assert f'id="leadership-tab-{shown.pk}"'.encode() in body
+        assert f'id="leadership-tab-{empty.pk}"'.encode() not in body
+        assert f'id="leadership-pane-{hidden_only.pk}"'.encode() not in body
+
+    def it_shows_an_admin_the_empty_tab_with_a_note(client: Client):
+        empty = LeadershipTabFactory(title="Empty Tab")
+        body = _admin_page(client)
+        assert b'class="pl-leadership__empty"' in _pane(body, empty)
+
+    def it_renders_no_strip_without_tabs(client: Client):
+        body = _page(client)
+        assert b'role="tablist"' not in body
+        assert b'x-data="{ open: null }"' in body
+
+    def it_puts_each_card_on_its_own_tab_and_a_person_on_two_tabs_twice(client: Client):
+        leadership = LeadershipTabFactory(title="Leadership Tab")
+        board = LeadershipTabFactory(title="Board Tab")
+        morlock = MemberFactory(full_legal_name="Morlock Mender")
+        LeadershipRoleFactory(listing=LeadershipListingFactory(tab=leadership, member=morlock), title="Guild Executor")
+        LeadershipRoleFactory(listing=LeadershipListingFactory(tab=board, member=morlock), title="Board Advisor")
+        body = _page(client)
+        assert b"Guild Executor" in _pane(body, leadership)
+        assert b"Board Advisor" not in _pane(body, leadership)
+        assert b"Board Advisor" in _pane(body, board)
+        assert body.count(b"Morlock Mender") == 2
+
+    def it_lists_only_listed_members_in_the_admins_order(client: Client):
+        tab = LeadershipTabFactory()
+        LeadershipListingFactory(tab=tab, sort_order=2, member=MemberFactory(full_legal_name="Zed Zephyr"))
+        LeadershipListingFactory(tab=tab, sort_order=1, member=MemberFactory(full_legal_name="Ada Aldous"))
+        LeadershipListingFactory(tab=tab, is_listed=False, member=MemberFactory(full_legal_name="Hidden Hank"))
+        pane = _pane(_page(client), tab)
+        assert b"Hidden Hank" not in pane
+        assert pane.index(b"Ada Aldous") < pane.index(b"Zed Zephyr")
+        assert pane.count(b'<article class="pl-leader-card">') == 2
 
     def it_shows_two_role_lines_each_with_its_own_mailto(client: Client):
         listing = LeadershipListingFactory()
@@ -151,15 +247,17 @@ def describe_leadership_directory():
         assert b'<span class="pl-leader-card__initials" aria-hidden="true">QQ</span>' in body
         assert body.index(b'class="pl-leader-card__avatar"') < body.index(b'aria-hidden="true">QQ</span>')
 
-    def it_keeps_the_medallion_off_the_guild_cards(client: Client):
-        GuildFactory(name="Unbadged Guild")
-        assert b"pl-leader-card__avatar" not in _section(_page(client), "leadership-guilds")
-
-    def it_shows_an_admin_the_edit_link_in_the_hero(client: Client):
+    def it_shows_an_admin_the_edit_link_on_the_open_tab(client: Client):
+        tab = LeadershipTabFactory()
+        LeadershipListingFactory(tab=tab)
         body = _admin_page(client)
-        hero = body[: body.index(b'id="leadership-team"')]
+        hero = body[: body.index(b'role="tablist"')]
         assert b'class="pl-leadership__admin"' in hero
-        assert reverse("hub_admin_leadership").encode() in hero
+        assert f'href="{reverse("hub_admin_leadership")}?tab={tab.pk}"'.encode() in hero
+
+    def it_links_an_admin_to_the_editor_with_no_tabs(client: Client):
+        body = _admin_page(client)
+        assert f'href="{reverse("hub_admin_leadership")}"'.encode() in body
 
     def it_hides_the_edit_link_from_a_member(client: Client):
         body = _page(client)
@@ -167,8 +265,9 @@ def describe_leadership_directory():
         assert reverse("hub_admin_leadership").encode() not in body
 
     def it_links_the_discord_profile_only_when_the_account_is_verified(client: Client):
-        LeadershipListingFactory(member=MemberFactory(discord_handle="@linked", discord_user_id="123456"))
-        LeadershipListingFactory(member=MemberFactory(discord_handle="@typed"))
+        tab = LeadershipTabFactory()
+        LeadershipListingFactory(tab=tab, member=MemberFactory(discord_handle="@linked", discord_user_id="123456"))
+        LeadershipListingFactory(tab=tab, member=MemberFactory(discord_handle="@typed"))
         body = _page(client)
         assert b'href="https://discord.com/users/123456" target="_blank" rel="noopener"' in body
         assert b"@typed" in body
@@ -197,33 +296,66 @@ def describe_leadership_directory():
         expected = f"Updated {date_filter(timezone.localtime(old))}".encode()
         assert b'<span class="pl-leadership__updated">' + expected in body
 
-    def it_shows_no_updated_line_and_no_team_cards_when_nobody_is_listed(client: Client):
+    def it_shows_no_updated_line_when_nobody_is_listed(client: Client):
+        _guild_leads()
         body = _page(client)
         assert b"pl-leadership__updated" not in body
         assert b'<article class="pl-leader-card">' not in body
-        assert b'id="leadership-team"' in body
 
-    def it_omits_a_blank_intro(client: Client):
-        page = LeadershipPage.load()
-        page.team_intro = ""
-        page.guilds_intro = "Straight from each guild."
-        page.save()
+    def it_shows_a_tabs_intro_and_omits_a_blank_one(client: Client):
+        with_intro = LeadershipTabFactory(intro="Who keeps the lights on.")
+        without = LeadershipTabFactory(intro="")
+        LeadershipListingFactory(tab=with_intro)
+        LeadershipListingFactory(tab=without)
         body = _page(client)
-        assert body.count(b'class="pl-leadership__intro"') == 1
-        assert b"Straight from each guild." in body
+        assert b'<p class="pl-leadership__intro">Who keeps the lights on.</p>' in _pane(body, with_intro)
+        assert b"pl-leadership__intro" not in _pane(body, without)
+
+    def it_keeps_its_query_count_flat_as_tabs_people_and_lines_grow(client: Client):
+        """No N+1: one query for the tabs, one for the cards with members, one for the lines."""
+        _login(client)
+
+        def count() -> int:
+            with CaptureQueriesContext(connection) as queries:
+                assert client.get(_URL).status_code == 200
+            return len(queries.captured_queries)
+
+        tab = LeadershipTabFactory()
+        LeadershipRoleFactory(listing=LeadershipListingFactory(tab=tab))
+        _guild_leads()
+        GuildStaffMembershipFactory(guild=GuildFactory(name="Only Guild", guild_lead=MemberFactory()))
+        count()  # the first request after login warms the session and the site settings
+        small = count()
+        for _ in range(3):
+            more = LeadershipTabFactory()
+            for _ in range(3):
+                listing = LeadershipListingFactory(tab=more)
+                LeadershipRoleFactory(listing=listing)
+                LeadershipRoleFactory(listing=listing)
+        for name in ("Second Guild", "Third Guild"):
+            guild = GuildFactory(name=name, guild_lead=MemberFactory())
+            GuildStaffMembershipFactory(guild=guild)
+        assert count() == small
 
 
-def describe_guild_leader_cards():
+def describe_guild_leads_tab():
     def it_lists_active_guilds_alphabetically_and_skips_inactive_ones(client: Client):
+        tab = _guild_leads()
         GuildFactory(name="Woodworking Guild")
         GuildFactory(name="Ceramics Guild")
         GuildFactory(name="Retired Guild", is_active=False)
-        section = _section(_page(client), "leadership-guilds")
-        assert b"Retired Guild" not in section
-        assert section.index(b"Ceramics Guild") < section.index(b"Woodworking Guild")
-        assert section.count(b'<article class="pl-leader-card pl-leader-card--guild">') == 2
+        pane = _pane(_page(client), tab)
+        assert b"Retired Guild" not in pane
+        assert pane.index(b"Ceramics Guild") < pane.index(b"Woodworking Guild")
+        assert pane.count(b'<article class="pl-leader-card pl-leader-card--guild">') == 2
+
+    def it_keeps_the_medallion_off_the_guild_cards(client: Client):
+        tab = _guild_leads()
+        GuildFactory(name="Unbadged Guild")
+        assert b"pl-leader-card__avatar" not in _pane(_page(client), tab)
 
     def it_shows_the_lead_and_co_leads_with_their_discord(client: Client):
+        tab = _guild_leads()
         guild = GuildFactory(name="Tech Guild")
         guild.guild_lead = MemberFactory(
             full_legal_name="Patricia Lead", discord_handle="@patricia", discord_user_id="777"
@@ -233,56 +365,64 @@ def describe_guild_leader_cards():
             guild=guild, member=MemberFactory(full_legal_name="Cole Colead", discord_handle="cole_typed")
         )
         GuildStaffMembershipFactory(guild=guild, member=MemberFactory(full_legal_name="Sam Staff"), custom=True)
-        section = _section(_page(client), "leadership-guilds")
-        assert b"Patricia Lead" in section
-        assert b'href="https://discord.com/users/777"' in section
-        assert section.index(b"Patricia Lead") < section.index(b"Cole Colead")
-        assert b"cole_typed" in section
-        assert b"Sam Staff" not in section
-        assert section.count(b'class="pl-leader-card__eyebrow"') == 2
+        pane = _pane(_page(client), tab)
+        assert b"Patricia Lead" in pane
+        assert b'href="https://discord.com/users/777"' in pane
+        assert pane.index(b"Patricia Lead") < pane.index(b"Cole Colead")
+        assert b"cole_typed" in pane
+        assert b"Sam Staff" not in pane
+        assert pane.count(b'class="pl-leader-card__eyebrow"') == 2
 
     def it_says_when_a_guild_has_no_lead(client: Client):
+        tab = _guild_leads()
         GuildFactory(name="Leaderless Guild")
-        section = _section(_page(client), "leadership-guilds")
-        assert b"Leaderless Guild" in section
-        assert b"pl-leader-card__person--none" in section
+        pane = _pane(_page(client), tab)
+        assert b"Leaderless Guild" in pane
+        assert b"pl-leader-card__person--none" in pane
 
     def it_links_the_guild_address_when_it_has_one(client: Client):
+        tab = _guild_leads()
         GuildFactory(name="Glass Guild", contact_email="glass@example.com")
         GuildFactory(name="Quiet Guild")
-        section = _section(_page(client), "leadership-guilds")
-        assert b'href="mailto:glass@example.com"' in section
-        assert section.count(b"mailto:") == 1
+        pane = _pane(_page(client), tab)
+        assert b'href="mailto:glass@example.com"' in pane
+        assert pane.count(b"mailto:") == 1
 
     def it_uses_the_guild_logo_when_the_name_matches_one(client: Client):
+        tab = _guild_leads()
         GuildFactory(name="Ceramics Guild")
         GuildFactory(name="Cartography Guild")
-        section = _section(_page(client), "leadership-guilds")
-        assert b"img/guild_logos/ceramics_color.svg" in section
-        assert b'<span class="pl-leader-card__initials" aria-hidden="true">CG</span>' in section
+        pane = _pane(_page(client), tab)
+        assert b"img/guild_logos/ceramics_color.svg" in pane
+        assert b'<span class="pl-leader-card__initials" aria-hidden="true">CG</span>' in pane
 
     def it_shows_the_example_guild_only_while_the_demo_setting_is_on(client: Client):
         """The cards use Guild.objects.visible(), the member-facing gate the sidebar and the guild
         directory use: active guilds, plus the inactive example guild only while display_demo_guild
         is on. So the example guild is on the cards exactly when it is in the sidebar."""
+        tab = _guild_leads()
         GuildFactory(name="Cartographers Guild", slug=EXAMPLE_GUILD_SLUG, is_active=False)
         _login(client)
-        url = reverse("hub_leadership_directory")
-        assert b"Cartographers Guild" not in _section(client.get(url).content, "leadership-guilds")
+        assert b"Cartographers Guild" not in _pane(client.get(_URL).content, tab)
         config = SiteConfiguration.load()
         config.display_demo_guild = True
         config.save()
-        body = client.get(url).content
+        body = client.get(_URL).content
         sidebar = re.search(rb'<nav class="hub-sidebar__nav".*?</nav>', body, re.S)
         assert sidebar is not None
         assert b"Cartographers Guild" in sidebar.group(0)
-        assert b"Cartographers Guild" in _section(body, "leadership-guilds")
+        assert b"Cartographers Guild" in _pane(body, tab)
 
     def it_links_each_nameplate_to_the_guild_page(client: Client):
+        tab = _guild_leads()
         guild = GuildFactory(name="Writers Guild")
-        section = _section(_page(client), "leadership-guilds")
+        pane = _pane(_page(client), tab)
         href = reverse("hub_guild_detail", args=[guild.slug]).encode()
-        assert b'class="pl-leader-card__plate-link" href="' + href + b'"' in section
+        assert b'class="pl-leader-card__plate-link" href="' + href + b'"' in pane
+
+    def it_shows_even_when_no_guild_is_visible(client: Client):
+        tab = _guild_leads()
+        assert f'id="leadership-tab-{tab.pk}"'.encode() in _page(client)
 
 
 def describe_initials_filter():

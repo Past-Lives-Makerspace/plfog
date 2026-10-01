@@ -1,0 +1,36 @@
+{% load hub_tags %}
+{% comment %}
+One person on a People tab in the Leadership Directory editor (#564). ``person`` is a
+LeadershipEditorPerson. The row reuses the Slideshow row classes: a grip for drag on desktop and
+up and down arrows on touch, either of which saves the tab's order at once. Remove from tab
+hides the card at once and keeps its lines, so Add a person on this tab brings them back. The
+role lines sit open under the name, each saving by itself.
+{% endcomment %}
+{% with listing=person.listing member=person.listing.member %}
+<div class="hub-card pl-slideshow-row pl-slide-card pl-roster-row" data-listing-id="{{ listing.pk }}" data-remove-url="{% url 'hub_admin_leadership_person_remove' listing.pk %}">
+  <div class="pl-slide-summary">
+    <span class="pl-slide-grip" draggable="true" aria-label="Drag to reorder">⠿</span>
+    <span class="pl-roster-row__avatar" aria-hidden="true">
+      {% if member.profile_photo and member|is_public:"profile_photo" %}<img src="{{ member.profile_photo.url }}" alt="">{% else %}{{ member.display_name|initials }}{% endif %}
+    </span>
+    <span class="pl-slide-summary__main">
+      <span class="pl-slide-summary__title">{{ member.display_name }}</span>
+    </span>
+    <span class="pl-slide-summary__actions">
+      <span class="pl-slide-move" role="group" aria-label="Reorder">
+        <button type="button" class="pl-slide-move__btn" data-move="up" aria-label="Move up">↑</button>
+        <button type="button" class="pl-slide-move__btn" data-move="down" aria-label="Move down">↓</button>
+      </span>
+      <button type="button" class="pl-btn pl-btn--danger pl-btn--sm" data-remove-person>Remove from tab</button>
+    </span>
+  </div>
+  <div class="pl-roster-row__roles">
+    <div data-roles data-add-url="{% url 'hub_admin_leadership_role_add' listing.pk %}">
+      {% for form in person.role_forms %}
+        {% include "hub/admin/_leadership_role_row.html" %}
+      {% endfor %}
+    </div>
+    <button type="button" class="hub-btn hub-btn--sm pl-leadership__add" data-add-role>+ Add a role</button>
+  </div>
+</div>
+{% endwith %}

@@ -34,6 +34,7 @@ from membership.models import (
     HelpCategory,
     LeadershipListing,
     LeadershipRole,
+    LeadershipTab,
     Lease,
     MapHotspot,
     Meeting,
@@ -122,10 +123,22 @@ class MemberContactFactory(factory.django.DjangoModelFactory):
     kind = MemberContact.Kind.OTHER
 
 
+class LeadershipTabFactory(factory.django.DjangoModelFactory):
+    """A People tab by default; pass ``kind=LeadershipTab.Kind.GUILD_LEADS`` for the one Guild Leads tab."""
+
+    class Meta:
+        model = LeadershipTab
+
+    title = factory.Sequence(lambda n: f"Tab {n}")
+    kind = LeadershipTab.Kind.PEOPLE
+    sort_order = factory.Sequence(lambda n: n)
+
+
 class LeadershipListingFactory(factory.django.DjangoModelFactory):
     class Meta:
         model = LeadershipListing
 
+    tab = factory.SubFactory(LeadershipTabFactory)
     member = factory.SubFactory(MemberFactory)
     is_listed = True
 

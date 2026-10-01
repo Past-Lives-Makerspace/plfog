@@ -1,14 +1,15 @@
-/* Leadership Directory (#464, part 2): the Plate card treatment.
-   A brass nameplate sits over the edge of each card's visual. The team card's visual is a
+/* Leadership Directory (#464, part 2; tabs #564): the Plate card treatment.
+   Under the hero, hub.css's shared .pl-tabs strip opens one pane per tab; it scrolls sideways
+   inside itself on a phone. A brass nameplate sits over the edge of each card's visual. The team card's visual is a
    round portrait in a gold ring (#476), cropped to its centre square like the Member
    Directory circle so a face is never cut off; a member with no visible photo gets their
    initials in the same ring. Guild cards carry the guild's SVG logo on the navy gradient.
    Loaded by templates/hub/leadership_directory.html and, for the admin page's own rules at
-   the end, templates/hub/admin/leadership.html. The hero and the gold section titles come
-   from hub.css (.pl-guild-hero, .pl-teach-hero, .pl-teach-section__title); the admin page's
-   roster rows reuse hub.css's Slideshow row classes (.pl-slide-card, .pl-slide-grip,
-   .pl-slide-move__btn). The phone rules sit at the end so they win over the unconditional
-   ones above them. */
+   the end, templates/hub/admin/leadership.html. The hero comes from hub.css (.pl-guild-hero,
+   .pl-teach-hero); the editor's people rows reuse hub.css's Slideshow row classes
+   (.pl-slide-card, .pl-slide-grip, .pl-slide-move__btn) and its save state pill is the meeting
+   workspace's (.pl-meeting-savestate). The phone rules sit at the end so they win over the
+   unconditional ones above them. */
 
 .pl-leadership {
     max-width: 980px;
@@ -48,9 +49,26 @@
     border-color: rgba(156, 94, 13, 0.45);
 }
 
+/* The column's gap already spaces the strip from the hero and the pane. */
+.pl-leadership > .pl-tabs {
+    margin-bottom: 0;
+}
+
 .pl-leadership__intro {
     margin: 0;
     color: var(--hub-text-muted);
+}
+
+/* A pane with no intro starts with its cards. */
+.pl-leadership__pane > .pl-leader-grid:first-child {
+    margin-top: 0;
+}
+
+/* An admin's view of a People tab with nobody on it; members never get one. */
+.pl-leadership__empty {
+    margin: 0;
+    color: var(--hub-text-muted);
+    font-style: italic;
 }
 
 .pl-leader-grid {
@@ -289,13 +307,22 @@ a.pl-leader-card__row:focus-visible {
     margin-top: auto;
 }
 
-/* ---- The admin page (#476): Page Wording, the roster rows and the Add a Person modal.
-   The rows' grip, move buttons, summary and editor panel come from hub.css's Slideshow
-   classes; only what is particular to a person is here. ---- */
+/* ---- The editor (#476, #564): the page wording, the tab strip with a pane per tab, the
+   people rows with their role lines, and the two modals. The rows' grip, move buttons and
+   summary come from hub.css's Slideshow classes; only what is particular to a person is
+   here. ---- */
 .pl-leadership-admin {
     display: flex;
     flex-direction: column;
     gap: 1.5rem;
+}
+
+.pl-leadership-admin__header {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 0.75rem 1rem;
+    flex-wrap: wrap;
 }
 
 .pl-leadership-admin__lead {
@@ -311,22 +338,54 @@ a.pl-leader-card__row:focus-visible {
     margin: 0 0 0.25rem;
 }
 
-.pl-leadership-admin__head {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: 0.75rem;
-    flex-wrap: wrap;
-}
-
 .pl-leadership-admin__hint {
     font-size: 0.8125rem;
     margin: 0 0 1rem;
 }
 
-/* Breathing room before the next card (FRONTEND.md Rule 18). */
-.pl-leadership-admin__actions {
-    margin-top: 1.5rem;
+/* The strip takes the row and scrolls inside itself; + Add a tab keeps its size beside it. */
+.pl-leadership-admin__strip {
+    display: flex;
+    align-items: flex-end;
+    gap: 0.75rem;
+    margin-bottom: 1.25rem;
+}
+
+.pl-leadership-admin__strip > .pl-tabs {
+    flex: 1 1 auto;
+    min-width: 0;
+    margin-bottom: 0;
+}
+
+.pl-leadership-admin__strip > .hub-btn {
+    flex: 0 0 auto;
+    margin-bottom: 0.4rem;
+}
+
+/* Display lives in the class so Alpine's x-show only toggles display:none (FRONTEND.md Rule 12). */
+.pl-leadership-pane {
+    display: flex;
+    flex-direction: column;
+    gap: 1rem;
+}
+
+.pl-leadership-pane__toolbar {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.75rem;
+}
+
+.pl-leadership-pane__moves,
+.pl-leadership-pane__actions {
+    display: inline-flex;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+}
+
+.pl-leadership-pane .pl-leadership-admin__hint {
+    margin: 0;
 }
 
 .pl-leadership-admin__empty {
@@ -358,9 +417,13 @@ a.pl-leader-card__row:focus-visible {
     object-fit: cover;
 }
 
-.pl-roster-row__none {
-    font-style: italic;
-    color: var(--hub-text-muted);
+/* A person's role lines sit open under their name, each saving by itself. */
+.pl-roster-row__roles {
+    padding: 0 0.875rem 0.875rem;
+}
+
+.pl-roster-row__roles .pl-leadership__add {
+    margin-bottom: 0;
 }
 
 .pl-leadership-add__hint {

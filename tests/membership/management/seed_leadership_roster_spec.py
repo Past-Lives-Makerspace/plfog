@@ -9,7 +9,7 @@ from io import StringIO
 import pytest
 from django.core.management import CommandError, call_command
 
-from membership.models import LeadershipListing
+from membership.models import LeadershipListing, LeadershipTab
 from tests.membership.factories import MemberFactory
 
 pytestmark = pytest.mark.django_db
@@ -32,7 +32,8 @@ def describe_seed_leadership_roster():
         path = tmp_path / "roster.json"
         path.write_text(json.dumps(ROSTER), encoding="utf-8")
         out = _run(file=str(path))
-        assert LeadershipListing.objects.filter(member__full_legal_name="Ada Lovelace", is_listed=True).exists()
+        listing = LeadershipListing.objects.get(member__full_legal_name="Ada Lovelace", is_listed=True)
+        assert listing.tab == LeadershipTab.objects.people().first()
         assert "Listed: Ada Lovelace" in out
         assert "Dry run" not in out
 

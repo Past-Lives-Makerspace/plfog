@@ -1924,8 +1924,8 @@
     height: 52px;
 }
 
-/* Leadership Directory role lines (#464, #476): one title and email row in a formset, on the
-   admin member edit Details tab and on the Leadership Directory admin page alike. */
+/* Leadership Directory role lines (#464, #476, #564): one title and email row on a card in the
+   Leadership Directory editor, each field saving by itself. */
 .pl-leadership-role {
     padding: 0.75rem;
     margin-bottom: 0.75rem;
@@ -1945,12 +1945,8 @@
     min-width: 0;
 }
 
-/* The formset's DELETE checkbox: driven by the real Delete button, never shown. */
-.pl-leadership-role__flag {
-    display: none;
-}
-
-/* Breathing room before the Save button below (FRONTEND.md Rule 18). */
+/* "+ Add a role" under a card's lines, and "+ Add to a tab" on the member edit Details tab:
+   breathing room before what follows (FRONTEND.md Rule 18). */
 .pl-leadership__add {
     margin: 0.25rem 0 1.5rem;
 }
