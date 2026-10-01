@@ -165,6 +165,36 @@ def describe_description_errors():
         assert "keep it to 300" in errors[0]
 
 
+def describe_picture_link_errors():
+    def it_accepts_the_raw_file_on_the_branch(script):
+        body = (
+            GOOD
+            + "\n![Reason](https://raw.githubusercontent.com/Past-Lives-Makerspace/plfog/fog/x/mockups/screenshots/412-review-01.png)\n"
+        )
+        assert script.description_errors(body) == []
+
+    def it_accepts_an_upload_github_hosts(script):
+        body = GOOD + "\n![Reason](https://github.com/user-attachments/assets/abc123)\n"
+        assert script.description_errors(body) == []
+
+    def it_fails_a_relative_link_which_renders_broken_in_a_pr(script):
+        body = GOOD + "\n![Reason](mockups/screenshots/412-review-01.png)\n"
+        errors = script.description_errors(body)
+        assert len(errors) == 1
+        assert "relative link" in errors[0] and "raw.githubusercontent.com" in errors[0]
+
+    def it_names_each_broken_image(script):
+        body = GOOD + "\n![A](mockups/screenshots/a.png)\n![B](./mockups/screenshots/b.png)\n"
+        assert [error.split("`")[1] for error in script.description_errors(body)] == [
+            "mockups/screenshots/a.png",
+            "./mockups/screenshots/b.png",
+        ]
+
+    def it_ignores_an_image_inside_a_comment(script):
+        body = GOOD + "\n<!-- ![Reason](mockups/screenshots/412-review-01.png) -->\n"
+        assert script.description_errors(body) == []
+
+
 def describe_word_count():
     def it_skips_comments_and_link_targets(script):
         body = "<!-- hidden words here -->Two words ![shot](mockups/screenshots/412-review-01.png)"
@@ -246,11 +276,30 @@ def describe_main():
                 script.main()
             assert "mockups/screenshots/" in str(exit_info.value)
 
-        def it_passes_with_a_picture(script, env, capsys):
+        def it_passes_with_a_picture_shown_by_its_raw_url(script, env, capsys):
             shot = "mockups/screenshots/412-review-01.png"
+            env.setenv(
+                "PR_BODY",
+                GOOD + f"\n![Reason](https://raw.githubusercontent.com/Past-Lives-Makerspace/plfog/fog/x/{shot})\n",
+            )
             env.setattr(script, "_git", _fake_git(changed=f"templates/classes/detail.html\n{shot}", added=shot))
             script.main()
             assert "PR description OK" in capsys.readouterr().out
+
+        def it_fails_a_picture_that_is_added_but_not_shown(script, env):
+            shot = "mockups/screenshots/412-review-01.png"
+            env.setattr(script, "_git", _fake_git(changed=f"templates/classes/detail.html\n{shot}", added=shot))
+            with pytest.raises(SystemExit) as exit_info:
+                script.main()
+            assert "does not show it" in str(exit_info.value)
+
+        def it_fails_a_picture_shown_by_a_relative_link(script, env):
+            shot = "mockups/screenshots/412-review-01.png"
+            env.setenv("PR_BODY", GOOD + f"\n![Reason]({shot})\n")
+            env.setattr(script, "_git", _fake_git(changed=f"templates/classes/detail.html\n{shot}", added=shot))
+            with pytest.raises(SystemExit) as exit_info:
+                script.main()
+            assert "relative link" in str(exit_info.value)
 
         def it_passes_with_the_label(script, env, capsys):
             env.setenv("PR_LABELS", json.dumps(["No-Screenshots"]))
