@@ -1,0 +1,6 @@
+bump = "patch"
+date = "2026-09-30"
+title = "Class dates stay at the time you picked"
+changes = [
+  "Saving a class no longer shifts its dates seven hours later each time. A session added at 6pm reopened as 1am the next day, and moved again on every save.",
+]

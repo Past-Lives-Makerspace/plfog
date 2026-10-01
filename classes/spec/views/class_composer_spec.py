@@ -1537,7 +1537,7 @@ def describe_a_composer_submit_refused_for_readiness():
         assert "Not ready to submit: Add at least one date." in _messages(resp)
         after = client.get(resp["Location"]).content.decode()
         assert "phase: 3," in after
-        assert session.starts_at.strftime("%Y-%m-%dT%H:%M") in after
+        assert timezone.localtime(session.starts_at).strftime("%Y-%m-%dT%H:%M") in after
         assert "goToField('class-dates')\">Add at least one date.</button>" in _still_missing(after)
 
     def it_lands_on_the_photos_step_from_a_first_save_that_submits(instructor_fixture, client):
@@ -2193,3 +2193,41 @@ def describe_the_composer_draft_notice():
         assert baseline["title"] == ""
         assert baseline["description"] == ""
         assert baseline["capacity"] == str(TeachClassOfferingForm().fields["capacity"].initial)
+
+
+# ── A saved session comes back to the scheduler at the wall clock time the instructor picked ──
+
+
+def _scheduler_sessions(html: str) -> str:
+    match = re.search(r'x-data="sessionCalendar\((\[.*?\]), \d+\)"', html)
+    assert match, "scheduler not on the page"
+    return unescape(match.group(1))
+
+
+def describe_a_session_saved_at_six_pm():
+    def it_reloads_at_six_pm_not_shifted_to_utc(instructor_fixture, client):
+        cat = CategoryFactory()
+        client.force_login(instructor_fixture.user)
+        resp = client.post(
+            reverse("classes:teach_class_create"),
+            {
+                **_full_payload(cat, step="3"),
+                "sessions-TOTAL_FORMS": "1",
+                "sessions-0-id": "",
+                "sessions-0-starts_at": "2026-10-28T18:00",
+                "sessions-0-ends_at": "2026-10-28T20:00",
+                "sessions-0-DELETE": "",
+            },
+        )
+        assert resp.status_code == 302
+        offering = ClassOffering.objects.get(title="Round Trip")
+        [session] = list(offering.sessions.all())
+        # Stored right: 6pm Pacific is 01:00 UTC the next day.
+        assert session.starts_at.isoformat() == "2026-10-29T01:00:00+00:00"
+
+        page = client.get(reverse("classes:teach_class_edit", kwargs={"pk": offering.pk}) + "?step=3")
+        sessions = _scheduler_sessions(page.content.decode())
+        # The scheduler reads and posts local wall clock times, so it must get 6pm back,
+        # not 01:00 UTC, or every save shifts the session seven hours later.
+        assert '"starts_at": "2026-10-28T18:00"' in sessions, sessions
+        assert '"ends_at": "2026-10-28T20:00"' in sessions, sessions
