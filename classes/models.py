@@ -2158,7 +2158,7 @@ class ClassOffering(HeroCropMixin, models.Model):
     def gallery_display_images(self) -> list[dict]:
         """Gallery rows only — no hero and no category fallback.
 
-        Feeds the gallery block under the public detail page's booking rail, which
+        Feeds the gallery block above the public detail page's booking card, which
         should render nothing at all when the class has no gallery shots of its own
         (the hero already leads the page).
         """

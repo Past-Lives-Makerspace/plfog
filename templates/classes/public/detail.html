@@ -359,6 +359,13 @@
     {# ── Sticky booking rail ─────────────────────────────── #}
     <div class="cp-detail__rail">
       <div class="cp-detail__rail-inner">
+      {# Gallery — the class's extra shots, above the booking card (hover-zoom + lightbox from the component) #}
+      {% if offering.gallery_display_images %}
+        <div class="cp-detail__rail-gallery">
+          <h3 class="cp-detail__h3">Gallery</h3>
+          {% include "classes/_components/gallery.html" with offering=offering images=offering.gallery_display_images %}
+        </div>
+      {% endif %}
       <div class="cp-detail__rail-card">
         <div class="cp-detail__price-row">
           {% if offering.sale_is_active %}
@@ -408,13 +415,6 @@
         </ul>
       </div>
 
-      {# Gallery — the class's extra shots, right under the booking card (hover-zoom + lightbox from the component) #}
-      {% if offering.gallery_display_images %}
-        <div class="cp-detail__rail-gallery">
-          <h3 class="cp-detail__h3">Gallery</h3>
-          {% include "classes/_components/gallery.html" with offering=offering images=offering.gallery_display_images %}
-        </div>
-      {% endif %}
       </div>{# /rail-inner #}
     </div>
   </div>
