@@ -30,9 +30,10 @@ from django.db.models import (
     QuerySet,
     Subquery,
     Sum,
+    Value,
     prefetch_related_objects,
 )
-from django.db.models.functions import TruncDate
+from django.db.models.functions import Coalesce, NullIf, TruncDate
 from django.http import (
     Http404,
     HttpRequest,
@@ -3753,7 +3754,7 @@ def _with_guild_leads_queue(now: Any) -> list[_GuildLeadQueueRow]:
 ADMIN_CLASSES_SORTABLE = frozenset(
     {
         "title",
-        "instructor__full_legal_name",
+        "instructor_name",
         "category__name",
         "first_session",
         "lifecycle_order",
@@ -3803,6 +3804,12 @@ def admin_classes(request: HttpRequest) -> HttpResponse:
             ),
             first_session=Min("sessions__starts_at"),
             last_session=Max("sessions__starts_at"),
+            # The name the Instructor cell shows (Member.display_name: preferred, else legal), so
+            # sorting that column matches what the reader sees. NULL for instructorless classes.
+            instructor_name=Coalesce(
+                NullIf("instructor__preferred_name", Value("")),
+                "instructor__full_legal_name",
+            ),
             _group_rep_pk=Subquery(_group_rep_pk),
             group_size=Subquery(_group_size, output_field=IntegerField()),
         )

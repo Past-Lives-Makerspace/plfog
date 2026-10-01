@@ -776,7 +776,7 @@ def describe_instructor_list_markup():
     def it_uses_the_admin_table_styling_with_no_inline_styles(instructor_fixture, client):
         _lean(instructor_fixture, status=ClassOffering.Status.PUBLISHED)
         _lean(instructor_fixture, status=ClassOffering.Status.DRAFT)
-        ClassOfferingFactory(instructor=instructor_fixture, status=ClassOffering.Status.DRAFT, ready=True)
+        ready = ClassOfferingFactory(instructor=instructor_fixture, status=ClassOffering.Status.DRAFT, ready=True)
         _lean(instructor_fixture, status=ClassOffering.Status.ARCHIVED)
         client.force_login(instructor_fixture.user)
         html = client.get(reverse("classes:teach_dashboard")).content.decode()
@@ -784,4 +784,5 @@ def describe_instructor_list_markup():
         assert "style=" not in table
         assert '<td class="pl-class-list__actions">' in table
         assert '<tr class="pl-class-list__row--archived">' in table
-        assert "Submit for review" in table
+        # The ready draft gets the live submit form, not just the gated row's disabled button.
+        assert reverse("classes:teach_class_submit", kwargs={"pk": ready.pk}) in table

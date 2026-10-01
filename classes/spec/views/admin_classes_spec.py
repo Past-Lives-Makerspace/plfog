@@ -160,14 +160,22 @@ def describe_classes_sorting():
         assert _rows(client, "?sort=first_session&dir=asc") == ["early", "late", "undated"]
         assert _rows(client, "?sort=first_session&dir=desc") == ["late", "early", "undated"]
 
-    def it_sorts_by_instructor(admin_user, client, db):
+    def it_sorts_by_the_name_the_instructor_cell_shows(admin_user, client, db):
         # The header once named ``instructor__display_name``, a property no query can order by.
+        # The cell shows the preferred name when there is one, so the sort reads the same name:
+        # legal "Robert Jones" who goes by "Sam" sorts among the S's, and no instructor sorts last.
         from classes.factories import ClassOfferingFactory, InstructorFactory
 
         client.force_login(admin_user)
         ClassOfferingFactory(slug="by-zed", instructor=InstructorFactory(full_legal_name="Zed Last"))
         ClassOfferingFactory(slug="by-abe", instructor=InstructorFactory(full_legal_name="Abe First"))
-        assert _rows(client, "?sort=instructor__full_legal_name&dir=asc") == ["by-abe", "by-zed"]
+        ClassOfferingFactory(
+            slug="by-sam",
+            instructor=InstructorFactory(full_legal_name="Robert Jones", preferred_name="Sam"),
+        )
+        ClassOfferingFactory(slug="nobody", instructor=None)
+        assert _rows(client, "?sort=instructor_name&dir=asc") == ["by-abe", "by-sam", "by-zed", "nobody"]
+        assert _rows(client, "?sort=instructor_name&dir=desc") == ["by-zed", "by-sam", "by-abe", "nobody"]
 
     def it_falls_back_to_the_default_order_for_an_unknown_sort(admin_user, client, db):
         from classes.factories import ClassOfferingFactory
