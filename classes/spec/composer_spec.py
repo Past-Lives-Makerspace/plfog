@@ -111,6 +111,8 @@ def describe_step_for_field():
         assert step_for_field("title") == 1
         assert step_for_field("card_focus") == 2
         assert step_for_field("price_cents") == 1
+        assert step_for_field("flexible_starts_on") == 3
+        assert step_for_field("flexible_ends_on") == 3
         assert step_for_field("age_minimum") == 4
 
     def it_raises_on_an_unknown_field():
@@ -153,7 +155,7 @@ def describe_anchor_steps():
             has_gallery=False,
             description="",
             scheduling_model="fixed",
-            flexible_note="",
+            flexible_window_ended=False,
             has_future_session=False,
             capacity=0,
         )
@@ -262,7 +264,7 @@ def describe_step_marks():
             "has_gallery": True,
             "description": "A description long enough to count as a real one for readiness.",
             "scheduling_model": "fixed",
-            "flexible_note": "",
+            "flexible_window_ended": False,
             "has_future_session": True,
             "capacity": 6,
         }
@@ -301,7 +303,7 @@ def describe_first_unready_step():
             "has_gallery": True,
             "description": "A description long enough to count as a real one for readiness.",
             "scheduling_model": "fixed",
-            "flexible_note": "",
+            "flexible_window_ended": False,
             "has_future_session": True,
             "capacity": 6,
         }

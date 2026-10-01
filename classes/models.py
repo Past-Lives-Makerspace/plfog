@@ -235,6 +235,25 @@ LEGACY_ARCHIVE_GUARD_FRACTION = 0.5
 LEGACY_CMS_FEED_LABEL = "https://classes.pastlives.space/jsonapi/node/class"
 
 
+def _flexible_window_open() -> Q:
+    """A flexible class whose last day is unset or still to come, on the site's local date.
+
+    The queryset half of :attr:`ClassOffering.flexible_window_ended`: ``bookable()``,
+    ``upcoming_published()`` and the lifecycle annotation all read it, so the catalog, the
+    Upcoming facet and the Discord digest can never disagree about the day a class leaves.
+    Compares the date column to ``localdate()``, never to ``now()``.
+    """
+    today = timezone.localdate()
+    return Q(scheduling_model=ClassOffering.SchedulingModel.FLEXIBLE) & (
+        Q(flexible_ends_on__isnull=True) | Q(flexible_ends_on__gte=today)
+    )
+
+
+def _flexible_window_ended() -> Q:
+    """A flexible class whose last day is behind us: the day after, it reads Completed."""
+    return Q(scheduling_model=ClassOffering.SchedulingModel.FLEXIBLE, flexible_ends_on__lt=timezone.localdate())
+
+
 class ClassOfferingQuerySet(models.QuerySet["ClassOffering"]):
     def public(self) -> "ClassOfferingQuerySet":
         """Published classes visible in the public portal (excludes private).
@@ -281,12 +300,14 @@ class ClassOfferingQuerySet(models.QuerySet["ClassOffering"]):
     def bookable(self) -> "ClassOfferingQuerySet":
         """Public classes still open for sign-up, soonest first.
 
-        Published and non-private, and either flexibly scheduled or with a
-        *first* session still in the future. A dated class — single or series —
-        drops out the instant its first session begins: you can't join a series
-        part-way through, so a started series is never bookable. Flexible /
-        undated classes sort last. (Seat availability is separate — see
-        ``spots_remaining``.)
+        Published and non-private, and either flexibly scheduled with its window still
+        open or with a *first* session still in the future. A dated class — single or
+        series — drops out the instant its first session begins: you can't join a series
+        part-way through, so a started series is never bookable. A flexible class stays
+        while it has no last day or its last day is today or later on the site's local
+        date (:func:`_flexible_window_open`); whatever session rows it still carries are
+        never read. Flexible / undated classes sort last. (Seat availability is separate —
+        see ``spots_remaining``.)
         """
         from django.db.models import Min
 
@@ -294,7 +315,10 @@ class ClassOfferingQuerySet(models.QuerySet["ClassOffering"]):
         return (
             self.public()
             .annotate(first_session_at=Min("sessions__starts_at"))
-            .filter(Q(scheduling_model=ClassOffering.SchedulingModel.FLEXIBLE) | Q(first_session_at__gte=now))
+            .filter(
+                _flexible_window_open()
+                | Q(scheduling_model=ClassOffering.SchedulingModel.FIXED, first_session_at__gte=now)
+            )
             .order_by(F("first_session_at").asc(nulls_last=True), "title")
             .distinct()
         )
@@ -361,6 +385,8 @@ class ClassOfferingQuerySet(models.QuerySet["ClassOffering"]):
                     last_session_at__lt=now,
                     then=Value(5),
                 ),
+                # A flexible class reads its own last day off the row; no extra annotation needed.
+                When(_flexible_window_ended(), status=ClassOffering.Status.PUBLISHED, then=Value(5)),
                 When(status=ClassOffering.Status.PUBLISHED, then=Value(4)),
                 When(status=ClassOffering.Status.CANCELLED, then=Value(6)),
                 default=Value(7),
@@ -405,25 +431,29 @@ class ClassOfferingQuerySet(models.QuerySet["ClassOffering"]):
         return self.with_lifecycle_inputs().filter(status=ClassOffering.Status.DRAFT, bounced=True)  # type: ignore[misc]  # django-stubs can't see annotate() aliases
 
     def upcoming_published(self) -> "ClassOfferingQuerySet":
-        """Published classes that have not finished: flexible, undated, or with a session still to come."""
+        """Published classes that have not finished: flexible with an open window, undated, or with a session still to come."""
+        now = timezone.now()
+        fixed = Q(scheduling_model=ClassOffering.SchedulingModel.FIXED)
+        return (
+            self.with_lifecycle_inputs()
+            .filter(status=ClassOffering.Status.PUBLISHED)
+            .filter(
+                _flexible_window_open()
+                | (fixed & Q(last_session_at__isnull=True))
+                | (fixed & Q(last_session_at__gte=now))
+            )
+        )
+
+    def completed(self) -> "ClassOfferingQuerySet":
+        """Published classes that have ended: a dated class's last session, or a flexible class's last day."""
         now = timezone.now()
         return (
             self.with_lifecycle_inputs()
             .filter(status=ClassOffering.Status.PUBLISHED)
             .filter(
-                Q(scheduling_model=ClassOffering.SchedulingModel.FLEXIBLE)
-                | Q(last_session_at__isnull=True)
-                | Q(last_session_at__gte=now)
+                Q(scheduling_model=ClassOffering.SchedulingModel.FIXED, last_session_at__lt=now)
+                | _flexible_window_ended()
             )
-        )
-
-    def completed(self) -> "ClassOfferingQuerySet":
-        """Published, dated classes whose last session has ended."""
-        now = timezone.now()
-        return self.with_lifecycle_inputs().filter(  # type: ignore[misc]  # django-stubs can't see annotate() aliases
-            status=ClassOffering.Status.PUBLISHED,
-            scheduling_model=ClassOffering.SchedulingModel.FIXED,
-            last_session_at__lt=now,
         )
 
     def cancelled(self) -> "ClassOfferingQuerySet":
@@ -497,11 +527,12 @@ class ClassOfferingQuerySet(models.QuerySet["ClassOffering"]):
             | Q(category__guild__staff_memberships__member=member)
         ).distinct()
 
-    def spots_remaining_map(self) -> dict[int, int]:
+    def spots_remaining_map(self) -> dict[int, int | None]:
         """Map of ``{offering_pk: spots_remaining}`` for this queryset in one query.
 
         Mirrors the ``ClassOffering.spots_remaining`` property but batched, so the
-        catalog can show per-date seat counts without an N+1 of count queries.
+        catalog can show per-date seat counts without an N+1 of count queries. A flexible
+        class maps to ``None``, as the property answers: no seat cap, never full.
         """
         from django.db.models import Count, Q
 
@@ -510,8 +541,15 @@ class ClassOfferingQuerySet(models.QuerySet["ClassOffering"]):
                 "registrations",
                 filter=Q(registrations__status__in=CAPACITY_CONSUMING_REGISTRATION_STATUSES),
             )
-        ).values("pk", "capacity", "used")
-        return {row["pk"]: max(0, row["capacity"] - row["used"]) for row in rows}
+        ).values("pk", "capacity", "used", "scheduling_model")
+        return {
+            row["pk"]: (
+                None
+                if row["scheduling_model"] == ClassOffering.SchedulingModel.FLEXIBLE
+                else max(0, row["capacity"] - row["used"])
+            )
+            for row in rows
+        }
 
     def archive_missing_from_legacy_feed(self, seen_ids: Sequence[str]) -> int:
         """Archive legacy-CMS offerings absent from the feed, with a blast-radius guard.
@@ -696,13 +734,23 @@ class ReadinessItem:
     anchor: str
 
 
+def flexible_window_has_ended(ends_on: date_type | None) -> bool:
+    """True once a flexible class's last day is behind the site's local date.
+
+    The one rule behind :attr:`ClassOffering.flexible_window_ended` and the admin create
+    preflight, which reads the validated form before any row exists. A class whose last day
+    is today still runs; it leaves the catalog tomorrow.
+    """
+    return ends_on is not None and ends_on < timezone.localdate()
+
+
 def readiness_items(
     *,
     has_hero: bool,
     has_gallery: bool,
     description: str,
     scheduling_model: str,
-    flexible_note: str,
+    flexible_window_ended: bool,
     has_future_session: bool,
     capacity: int,
 ) -> list[ReadinessItem]:
@@ -712,11 +760,14 @@ def readiness_items(
     it from the validated form BEFORE anything is written, so an unready class is refused
     without leaving a hero file, gallery files, or activity rows behind. One function, one
     rule set, so the two can never disagree.
+
+    A flexible class needs no dates and no note: the class page says what Flexible means
+    on its own. Its one Dates rule is that the window, when it has a last day, is still open.
     """
     description_ok = description_length(description) >= READINESS_MIN_DESCRIPTION_CHARS
     if scheduling_model == "flexible":
-        dates_ok = bool(flexible_note.strip())
-        dates_hint = "Say how students pick a time."
+        dates_ok = not flexible_window_ended
+        dates_hint = "The last day has passed."
     else:
         dates_ok = has_future_session
         dates_hint = "Add at least one date."
@@ -888,6 +939,18 @@ class ClassOffering(HeroCropMixin, models.Model):
         help_text="Fixed scheduled sessions or flexible per-student scheduling.",
     )
     flexible_note = models.TextField(blank=True, help_text="Notes when scheduling_model=flexible.")
+    # Both nullable on purpose: the columns land while the previous release still serves, and
+    # its INSERTs omit them (STANDARDS.md section 10). Blank means "no window" on that end.
+    flexible_starts_on = models.DateField(
+        null=True,
+        blank=True,
+        help_text="First day a flexible class runs; blank when the window has no first day.",
+    )
+    flexible_ends_on = models.DateField(
+        null=True,
+        blank=True,
+        help_text="Last day a flexible class runs; it leaves the catalog the day after. Blank for no last day.",
+    )
     scheduling_type = models.CharField(
         max_length=20,
         choices=SchedulingType.choices,
@@ -1411,8 +1474,14 @@ class ClassOffering(HeroCropMixin, models.Model):
         :attr:`_guild_already_approved_this_schedule` compares against a stored
         fingerprint, and the empty string there means "this row predates the field" — it must
         never be able to match a real schedule.
+
+        A flexible class's schedule is its date window, so that goes into the digest first:
+        a window moved after the lead approved reopens the gate exactly as a retimed session
+        does. A fixed class digests only its sessions, as it always has.
         """
         digest = hashlib.sha256()
+        if self.is_flexible:
+            digest.update(f"window|{self.flexible_starts_on}|{self.flexible_ends_on}\n".encode())
         stamps = sorted(
             (session.starts_at.astimezone(UTC).isoformat(), session.ends_at.astimezone(UTC).isoformat())
             for session in self.sessions.all()
@@ -1979,9 +2048,11 @@ class ClassOffering(HeroCropMixin, models.Model):
         elsewhere) or no eligible waitlist row exists.
 
         Returns the notified registration so callers can introspect for
-        logging or tests.
+        logging or tests. A flexible class has no cap and so no waitlist to promote
+        from; it answers ``None`` without looking (#545).
         """
-        if self.spots_remaining <= 0:
+        spots = self.spots_remaining
+        if spots is None or spots <= 0:
             return None
         next_up = (
             self.registrations.filter(
@@ -2139,8 +2210,16 @@ class ClassOffering(HeroCropMixin, models.Model):
         return self.registrations.filter(status=RegistrationStatus.WAITLISTED).count()
 
     @property
-    def spots_remaining(self) -> int:
-        """Capacity minus current confirmed + pending registrations."""
+    def spots_remaining(self) -> int | None:
+        """Capacity minus current confirmed + pending registrations, or ``None`` for a flexible class.
+
+        A flexible class has no seat cap (#545): students book one at a time with the
+        instructor, so there is nothing to be full of and nothing to wait for. ``None`` is
+        that answer, and every consumer reads it as unlimited; the stored capacity is never
+        read for a flexible class.
+        """
+        if self.is_flexible:
+            return None
         return max(0, self.capacity - self.seats_taken)
 
     @property
@@ -2168,16 +2247,64 @@ class ClassOffering(HeroCropMixin, models.Model):
     def is_bookable(self) -> bool:
         """Whether sign-ups are still open on timing grounds.
 
-        Flexible classes are always bookable. A dated class — single or series —
-        is bookable only until its first session starts; you can't join after it
-        has begun. Seat availability is handled separately via
-        ``spots_remaining`` (a sold-out future class is still "bookable" here and
-        routes to the waitlist).
+        A flexible class is bookable until its last day has passed (and always, with no
+        last day). A dated class — single or series — is bookable only until its first
+        session starts; you can't join after it has begun. Seat availability is handled
+        separately via ``spots_remaining`` (a sold-out future class is still "bookable"
+        here and routes to the waitlist).
         """
         if self.scheduling_model == self.SchedulingModel.FLEXIBLE:
-            return True
+            return not self.flexible_window_ended
         earliest = self.earliest_session_at
         return earliest is not None and earliest >= timezone.now()
+
+    # --- Flexible scheduling ----------------------------------------------------
+
+    @property
+    def is_flexible(self) -> bool:
+        """Students book their day with the instructor instead of a scheduled session."""
+        return self.scheduling_model == self.SchedulingModel.FLEXIBLE
+
+    @property
+    def has_flexible_window(self) -> bool:
+        """A flexible class with a first day, a last day, or both."""
+        return self.is_flexible and (self.flexible_starts_on is not None or self.flexible_ends_on is not None)
+
+    @property
+    def flexible_window_label(self) -> str:
+        """The window as members read it, or "" for a class with none.
+
+        "Nov 2 to Dec 1, 2026" when both days are set (the year once when they share it),
+        "From Nov 2, 2026" with only a first day, "Through Dec 1, 2026" with only a last day.
+        The word "to" sits between two dates, never a dash.
+        """
+        if not self.is_flexible:
+            return ""
+        starts_on, ends_on = self.flexible_starts_on, self.flexible_ends_on
+        if starts_on is not None and ends_on is not None:
+            first = date_format(starts_on, "M j" if starts_on.year == ends_on.year else "M j, Y")
+            return f"{first} to {date_format(ends_on, 'M j, Y')}"
+        if starts_on is not None:
+            return f"From {date_format(starts_on, 'M j, Y')}"
+        if ends_on is not None:
+            return f"Through {date_format(ends_on, 'M j, Y')}"
+        return ""
+
+    @property
+    def flexible_window_ended(self) -> bool:
+        """The last day is set and behind us, on the site's local date."""
+        return self.is_flexible and flexible_window_has_ended(self.flexible_ends_on)
+
+    def apply_scheduling_model(self) -> None:
+        """Shed the session rows a flexible class cannot use.
+
+        Every composer save path calls this right after the session formset saves: a class
+        saved as Flexible drops every session it had, the rows that POST just wrote included,
+        so its page never renders a schedule. A class saved as Fixed keeps its sessions; its
+        window is already cleared by the form.
+        """
+        if self.is_flexible:
+            self.sessions.all().delete()
 
     @property
     def sale_is_active(self) -> bool:
@@ -2487,9 +2614,9 @@ class ClassOffering(HeroCropMixin, models.Model):
         Resolution order: ARCHIVED, CANCELLED, PENDING with an open guild-lead row
         (AWAITING_GUILD_LEAD), other PENDING (AWAITING_ADMIN), DRAFT with a bouncing row
         (CHANGES_REQUESTED), other DRAFT, PUBLISHED dated and finished (COMPLETED), other
-        PUBLISHED (UPCOMING). A flexible published class never completes on its own, and
-        a dated published class with no sessions reads Upcoming with a "No dates yet"
-        note while ``bookable()`` keeps it out of the catalog.
+        PUBLISHED (UPCOMING). A flexible published class completes the day after its last
+        day and never with no last day; a dated published class with no sessions reads
+        Upcoming with a "No dates yet" note while ``bookable()`` keeps it out of the catalog.
         """
         status = self.status
         if status == self.Status.ARCHIVED:
@@ -2504,6 +2631,8 @@ class ClassOffering(HeroCropMixin, models.Model):
             last = self._last_session_ends_at
             if last is not None and last < timezone.now():
                 return self.Lifecycle.COMPLETED
+        elif self.flexible_window_ended:
+            return self.Lifecycle.COMPLETED
         return self.Lifecycle.UPCOMING
 
     @property
@@ -2535,6 +2664,9 @@ class ClassOffering(HeroCropMixin, models.Model):
             excerpt = " ".join((row.notes or "").split())
             return f"{who} {verb}: {excerpt}" if excerpt else f"{who} {verb}."
         if lifecycle == self.Lifecycle.COMPLETED:
+            if self.is_flexible:
+                ends_on = self.flexible_ends_on
+                return f"Ended {date_format(ends_on, 'M j')}" if ends_on is not None else ""
             last = self._last_session_ends_at
             return f"Ended {date_format(localtime(last), 'M j')}" if last is not None else ""
         if (
@@ -2554,7 +2686,7 @@ class ClassOffering(HeroCropMixin, models.Model):
             has_gallery=self._has_gallery_photo,
             description=self.description,
             scheduling_model=self.scheduling_model,
-            flexible_note=self.flexible_note,
+            flexible_window_ended=self.flexible_window_ended,
             has_future_session=self._has_future_session,
             capacity=self.capacity,
         )

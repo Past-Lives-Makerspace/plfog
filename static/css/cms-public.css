@@ -482,6 +482,8 @@ html.dark .cp-page {
 .cp-page .cls-schedule__more{font-size:11px;color:var(--gold-text);font-weight:600;margin-top:1px}
 .cp-page .cls-schedule__tba{font-size:11px;color:var(--text3);font-style:italic}
 .cp-page .cls-schedule__flex{font-size:11px;color:var(--text3)}
+/* A flexible class's date window under the flex line on the catalog card (#545). */
+.cp-page .cls-schedule__window{font-size:12px;font-weight:600;color:var(--text);margin-top:2px}
 .cp-page .cls-schedule__pick{font-size:11px;color:var(--text3);font-weight:600;text-transform:uppercase;letter-spacing:.05em}
 .cp-page .cls-schedule__row--pick{text-decoration:none;border-radius:5px;margin:0 -6px;padding:3px 6px;transition:background .12s ease}
 .cp-page .cls-schedule__row--pick:hover{background:var(--bg3)}
@@ -937,6 +939,9 @@ a.cp-detail__cat-chip:hover { background: #f5ca6e; color: var(--color-navy); tex
   color: var(--text);
 }
 .cp-detail__flex-note p { margin-top: 8px; }
+/* The window leads the flexible block (#545); the first paragraph sits flush with the box. */
+.cp-detail__flex-note p:first-child { margin-top: 0; }
+.cp-detail__flex-window { font-size: 18px; }
 
 /* ── Info blocks ─────────────────────────────── */
 .cp-detail__info-block {

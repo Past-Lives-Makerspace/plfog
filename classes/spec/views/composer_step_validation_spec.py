@@ -546,3 +546,90 @@ def describe_the_wiring():
         html = composer.pages["edit"]
         step_four = html[html.index('data-composer-step="4"') : html.index('data-composer-step="5"')]
         assert step_four.count('@composer-reveal-field="open = true"') == 6
+
+
+def describe_the_flexible_window():
+    """Step 3 swaps the scheduler for an optional date window on the scheduling model select (#545).
+
+    Both blocks stay in the DOM: x-show on the root's ``schedulingModel``, never a removal, so the
+    Fixed e2e walk still finds ``#session-add-date`` and the step map stays the one list of fields.
+    """
+
+    def _step_three(html: str) -> str:
+        return html[html.index('data-composer-step="3"') : html.index('data-composer-step="4"')]
+
+    def it_renders_both_blocks_with_their_alpine_hooks_in_both_composers_and_modes(composer):
+        for mode, html in composer.pages.items():
+            step_three = _step_three(html)
+            fixed = step_three.split('data-schedule-block="fixed"')[1].split('data-schedule-block="flexible"')[0]
+            flexible = step_three.split('data-schedule-block="flexible"')[1]
+            assert "x-show=\"schedulingModel === 'fixed'\" x-cloak" in step_three, mode
+            assert "x-show=\"schedulingModel === 'flexible'\" x-cloak" in step_three, mode
+            # The scheduler, the cards and the Fixed intro sit in the Fixed block.
+            assert 'id="session-add-date"' in fixed and 'name="scheduling_type"' in fixed, mode
+            assert "Add a single date for a one off class" in fixed, mode
+            # The two days, the hint and the note sit in the Flexible block.
+            assert 'name="flexible_starts_on"' in flexible and 'name="flexible_ends_on"' in flexible, mode
+            assert "Optional Date Window" in flexible, mode
+            assert "Leave both blank for a class that runs any time." in flexible, mode
+            assert 'name="flexible_note"' in flexible, mode
+            assert ">Note for students</label>" in flexible, mode
+            # The select itself stays above both blocks, bound to the state the blocks read.
+            select = _by_name(_parse(html).controls[3], "scheduling_model")
+            assert select.attrs.get("x-model") == "schedulingModel", mode
+            assert step_three.index('name="scheduling_model"') < step_three.index('data-schedule-block="fixed"'), mode
+
+    def it_renders_the_days_as_optional_date_pickers_the_server_walk_may_read(composer):
+        # Named, so they post and the walk reads them; type=date with the scheduler's class (rule 14)
+        # and click handler; never required, never a time control (rule 20).
+        for mode, html in composer.pages.items():
+            controls = _parse(html).controls[3]
+            for name in ("flexible_starts_on", "flexible_ends_on"):
+                day = _by_name(controls, name)
+                assert day.kind == "date" and not day.required, (mode, name)
+                assert day.attrs.get("class") == "session-cal__input", (mode, name)
+                assert day.attrs.get("@click") == "(() => { try { $el.showPicker() } catch (e) {} })()", (mode, name)
+            assert not [c for c in controls if c.kind == "time"], mode
+
+    def it_seeds_the_state_from_the_form_so_the_right_block_paints_first(composer):
+        # The fixture's draft is Fixed; create mode starts at the model default.
+        for mode, html in composer.pages.items():
+            assert "schedulingModel: 'fixed'" in (_parse(html).x_data or ""), mode
+
+    def it_keeps_the_window_fields_on_step_three_of_the_map():
+        from classes.composer import step_for_field
+
+        assert step_for_field("flexible_starts_on") == 3
+        assert step_for_field("flexible_ends_on") == 3
+        assert REQUIRED_BY_STEP[3] == {"capacity", "scheduling_type"}
+
+
+def describe_the_seats_section_for_a_flexible_class():
+    """The capacity field hides under Flexible and the no seat cap note shows; the admin keeps the private fields (#545)."""
+
+    def _seats(html: str) -> str:
+        step_three = html[html.index('data-composer-step="3"') : html.index('data-composer-step="4"')]
+        return step_three[step_three.index('pl-compose-section__title">Seats</h3>') :]
+
+    def it_wraps_the_capacity_field_and_swaps_the_note_on_the_scheduling_model(composer):
+        for mode, html in composer.pages.items():
+            seats = _seats(html)
+            fixed = seats.split('data-seats-block="fixed"')[1].split('data-seats-block="flexible"')[0]
+            assert "x-show=\"schedulingModel === 'fixed'\" x-cloak" in fixed.split(">")[0], mode
+            assert 'name="capacity"' in fixed, mode
+            assert "How many can attend" in fixed, mode
+            flexible = seats.split('data-seats-block="flexible"')[1].split("</p>")[0]
+            assert "x-show=\"schedulingModel === 'flexible'\" x-cloak" in flexible, mode
+            assert "Flexible classes have no seat cap. Students book one at a time with you." in flexible, mode
+            # Still one capacity control, still required: hidden is not removed, and the server reads it for a Fixed class.
+            capacity = [c for c in _parse(html).controls[3] if c.name == "capacity"]
+            assert len(capacity) == 1 and capacity[0].required, mode
+
+    def it_keeps_the_admins_private_fields_outside_the_swap(composer):
+        for mode, html in composer.pages.items():
+            seats = _seats(html)
+            after_note = seats.split('data-seats-block="flexible"')[1]
+            if composer.form_class is ClassOfferingForm:
+                assert 'name="is_private"' in after_note and 'name="private_for_name"' in after_note, mode
+            else:
+                assert 'name="is_private"' not in after_note, mode

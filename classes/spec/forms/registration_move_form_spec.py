@@ -243,3 +243,37 @@ def describe_RegistrationMoveForm():
             form = RegistrationMoveForm(instructor=mine)
             assert form.any_target_price_differs(4000) is True
             assert form.any_target_price_differs(5000) is False
+
+
+def describe_moving_into_a_flexible_class():
+    def it_never_refuses_an_instructor_move_for_fullness():
+        # No seat cap (#545): the instructor scope's "full" guard reads None as unlimited.
+        from classes.factories import RegistrationFactory
+        from classes.models import Registration
+
+        mine = InstructorFactory(instructor_slug="mv-flex")
+        current = _bookable_for(mine, "ins-flex-cur")
+        flexible = ClassOfferingFactory(
+            slug="ins-flex",
+            instructor=mine,
+            status=ClassOffering.Status.PUBLISHED,
+            capacity=1,
+            scheduling_model=ClassOffering.SchedulingModel.FLEXIBLE,
+        )
+        for _ in range(2):
+            RegistrationFactory(class_offering=flexible, status=Registration.Status.CONFIRMED)
+        form = RegistrationMoveForm({"target": flexible.pk}, current=current, instructor=mine)
+        assert form.is_valid(), form.errors
+        assert form.cleaned_data["target"] == flexible
+
+    def it_still_refuses_a_full_fixed_class_for_an_instructor():
+        from classes.factories import RegistrationFactory
+        from classes.models import Registration
+
+        mine = InstructorFactory(instructor_slug="mv-fixed-full")
+        current = _bookable_for(mine, "ins-fixed-cur")
+        full = _bookable_for(mine, "ins-fixed-full", capacity=1)
+        RegistrationFactory(class_offering=full, status=Registration.Status.CONFIRMED)
+        form = RegistrationMoveForm({"target": full.pk}, current=current, instructor=mine)
+        assert not form.is_valid()
+        assert "That class is full." in str(form.errors)

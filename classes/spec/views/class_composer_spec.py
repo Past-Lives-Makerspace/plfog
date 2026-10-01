@@ -262,6 +262,8 @@ def _full_payload(category, **extra) -> dict:
         "scheduling_model": "flexible",
         "scheduling_type": "series_package",
         "flexible_note": "We will find a time together.",
+        "flexible_starts_on": "2026-11-02",
+        "flexible_ends_on": "2026-12-01",
         "video_url": VIDEO,
         "hero_crop": json.dumps({"x": 10, "y": 20, "w": 320, "h": 180}),
         "card_focus": json.dumps({"x": 30, "y": 70}),
@@ -294,6 +296,8 @@ def _assert_round_trip(offering: ClassOffering, category) -> None:
     assert offering.scheduling_model == "flexible"
     assert offering.scheduling_type == "series_package"
     assert offering.flexible_note == "We will find a time together."
+    assert offering.flexible_starts_on is not None and offering.flexible_starts_on.isoformat() == "2026-11-02"
+    assert offering.flexible_ends_on is not None and offering.flexible_ends_on.isoformat() == "2026-12-01"
     assert offering.video_url == VIDEO
     assert (offering.card_focus_x, offering.card_focus_y) == (30, 70)
 
@@ -863,6 +867,100 @@ def describe_teach_composer_post():
         assert resp.status_code == 302
         offering.refresh_from_db()
         assert offering.status == Status.PENDING
+
+
+def describe_the_flexible_window_through_the_teach_composer():
+    """A class saved as Flexible sheds its sessions and keeps its window; saved as Fixed it does the reverse (#545)."""
+
+    def _one_session_row() -> dict:
+        start = timezone.localtime(timezone.now() + timedelta(days=10)).replace(minute=0, second=0, microsecond=0)
+        return {
+            "sessions-TOTAL_FORMS": "1",
+            "sessions-0-starts_at": start.strftime("%Y-%m-%dT%H:%M"),
+            "sessions-0-ends_at": (start + timedelta(hours=2)).strftime("%Y-%m-%dT%H:%M"),
+        }
+
+    def it_sheds_the_sessions_a_flexible_class_had_and_the_ones_the_post_carried(instructor_fixture, client):
+        # ready=True gives the row one session: the shape of production class 665 before the repair.
+        offering = ClassOfferingFactory(instructor=instructor_fixture, status=Status.DRAFT, ready=True)
+        assert offering.sessions.count() == 1
+        client.force_login(instructor_fixture.user)
+        payload = _full_payload(CategoryFactory(), step="3", **_one_session_row())
+        resp = client.post(reverse("classes:teach_class_edit", kwargs={"pk": offering.pk}), payload)
+        assert resp.status_code == 302
+        offering.refresh_from_db()
+        assert offering.scheduling_model == "flexible"
+        assert offering.sessions.count() == 0
+        assert (offering.flexible_starts_on.isoformat(), offering.flexible_ends_on.isoformat()) == (
+            "2026-11-02",
+            "2026-12-01",
+        )
+
+    def it_sheds_posted_sessions_on_create_too(instructor_fixture, client):
+        client.force_login(instructor_fixture.user)
+        resp = client.post(
+            reverse("classes:teach_class_create"), _full_payload(CategoryFactory(), **_one_session_row())
+        )
+        assert resp.status_code == 302
+        created = ClassOffering.objects.get(title="Round Trip")
+        assert created.sessions.count() == 0
+        assert created.flexible_ends_on is not None
+
+    def it_clears_the_window_and_keeps_the_sessions_on_a_class_saved_as_fixed(instructor_fixture, client):
+        offering = ClassOfferingFactory(
+            instructor=instructor_fixture,
+            status=Status.DRAFT,
+            scheduling_model=ClassOffering.SchedulingModel.FLEXIBLE,
+            flexible_starts_on=timezone.localdate(),
+            flexible_ends_on=timezone.localdate() + timedelta(days=30),
+        )
+        client.force_login(instructor_fixture.user)
+        payload = _full_payload(
+            CategoryFactory(), scheduling_model="fixed", scheduling_type="single_session", **_one_session_row()
+        )
+        resp = client.post(reverse("classes:teach_class_edit", kwargs={"pk": offering.pk}), payload)
+        assert resp.status_code == 302
+        offering.refresh_from_db()
+        assert offering.scheduling_model == "fixed"
+        assert (offering.flexible_starts_on, offering.flexible_ends_on) == (None, None)
+        assert offering.sessions.count() == 1
+
+    def it_refuses_a_last_day_before_the_first_on_step_three_and_saves_nothing(instructor_fixture, client):
+        offering = ClassOfferingFactory(instructor=instructor_fixture, status=Status.DRAFT, title="Before", ready=True)
+        client.force_login(instructor_fixture.user)
+        payload = _full_payload(
+            CategoryFactory(), step="1", flexible_starts_on="2026-12-01", flexible_ends_on="2026-11-02"
+        )
+        resp = client.post(reverse("classes:teach_class_edit", kwargs={"pk": offering.pk}), payload)
+        assert resp.status_code == 200
+        html = resp.content.decode()
+        assert resp.context["initial_phase"] == 3
+        assert resp.context["error_steps"] == [3]
+        assert "Dates, Seats And Price: Last day" in html
+        step_three = html[html.index('data-composer-step="3"') : html.index('data-composer-step="4"')]
+        assert "The last day is before the first day." in step_three.split('name="flexible_ends_on"')[1]
+        # The window block paints first on the re-render: the bound form says flexible, not the row.
+        assert "schedulingModel: 'flexible'" in html
+        offering.refresh_from_db()
+        assert offering.title == "Before"
+        assert offering.scheduling_model == "fixed"
+        assert offering.sessions.count() == 1
+
+    def it_paints_the_window_block_first_on_a_reopened_flexible_draft(instructor_fixture, client):
+        offering = ClassOfferingFactory(
+            instructor=instructor_fixture, status=Status.DRAFT, scheduling_model=ClassOffering.SchedulingModel.FLEXIBLE
+        )
+        fixed = ClassOfferingFactory(instructor=instructor_fixture, status=Status.DRAFT)
+        client.force_login(instructor_fixture.user)
+        assert (
+            "schedulingModel: 'flexible'"
+            in client.get(reverse("classes:teach_class_edit", kwargs={"pk": offering.pk})).content.decode()
+        )
+        assert (
+            "schedulingModel: 'fixed'"
+            in client.get(reverse("classes:teach_class_edit", kwargs={"pk": fixed.pk})).content.decode()
+        )
+        assert "schedulingModel: 'fixed'" in client.get(reverse("classes:teach_class_create")).content.decode()
 
 
 def describe_the_submit_check_reads_the_posted_description():
@@ -2188,7 +2286,8 @@ def describe_a_session_saved_at_six_pm():
         resp = client.post(
             reverse("classes:teach_class_create"),
             {
-                **_full_payload(cat, step="3"),
+                # Fixed sessions: a class saved as Flexible sheds its rows (#545), and this one is about the clock.
+                **_full_payload(cat, step="3", scheduling_model="fixed"),
                 "sessions-TOTAL_FORMS": "1",
                 "sessions-0-id": "",
                 "sessions-0-starts_at": "2026-10-28T18:00",

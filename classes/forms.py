@@ -368,6 +368,64 @@ class _SchedulingTypeMixin:
         field.label = "How does this class run?"
 
 
+FLEXIBLE_WINDOW_ORDER_MESSAGE = "The last day is before the first day."
+
+
+def _window_day_widget() -> forms.DateInput:
+    """One day picker of a flexible class's window: a date, never a time (FRONTEND.md rule 20).
+
+    It wears the session scheduler's input class, which carries the rule 14 dark mode picker
+    fix, and the scheduler's click handler, so the whole field opens the picker. The ISO
+    format is what a native date input reads and writes.
+    """
+    return forms.DateInput(
+        attrs={
+            "type": "date",
+            "class": "session-cal__input",
+            "@click": "(() => { try { $el.showPicker() } catch (e) {} })()",
+        },
+        format="%Y-%m-%d",
+    )
+
+
+class _FlexibleWindowMixin:
+    """The optional date window of a flexible class, on both composer forms.
+
+    ``scheduling_model`` binds the composer's Alpine state so step 3 swaps the scheduler for
+    the window as the select changes; the two day fields and the note take their member
+    facing labels here. ``clean_flexible_window`` keeps the stored row honest: a last day
+    never precedes the first, and a class saved as Fixed sessions carries no window at all,
+    whatever the hidden block posted.
+    """
+
+    def setup_flexible_window_fields(self) -> None:
+        fields = self.fields  # type: ignore[attr-defined]
+        model = fields["scheduling_model"]
+        model.widget.attrs["x-model"] = "schedulingModel"
+        model.help_text = "Fixed sessions: you set the dates and times. Flexible: each student books a day with you."
+        fields["flexible_starts_on"].label = "First day"
+        fields["flexible_ends_on"].label = "Last day"
+        note = fields["flexible_note"]
+        note.label = "Note for students"
+        # The model field's help text is developer wording; the page carries the sentence that says
+        # what Flexible means, so the note is the instructor's extra.
+        note.help_text = (
+            "Optional. Hours you teach, what to bring to the first meeting, "
+            "anything students should know before they book."
+        )
+
+    def clean_flexible_window(self) -> None:
+        data = self.cleaned_data  # type: ignore[attr-defined]
+        # ``.get``: a field that failed its own validation is absent from cleaned_data.
+        if data.get("scheduling_model") == ClassOffering.SchedulingModel.FIXED:
+            data["flexible_starts_on"] = None
+            data["flexible_ends_on"] = None
+            return
+        starts_on, ends_on = data.get("flexible_starts_on"), data.get("flexible_ends_on")
+        if starts_on is not None and ends_on is not None and ends_on < starts_on:
+            self.add_error("flexible_ends_on", FLEXIBLE_WINDOW_ORDER_MESSAGE)  # type: ignore[attr-defined]
+
+
 class _RichDescriptionMixin:
     """The description is written in the rich-text editor and stored as its sanitized HTML.
 
@@ -389,6 +447,7 @@ class ClassOfferingForm(
     _PricingRulesMixin,
     _LiveSaleGuardMixin,
     _SchedulingTypeMixin,
+    _FlexibleWindowMixin,
     forms.ModelForm,
 ):
     """The admin composer form. The six ``sale_*`` fields live on :class:`ClassSaleForm`."""
@@ -413,6 +472,8 @@ class ClassOfferingForm(
             "scheduling_model",
             "scheduling_type",
             "flexible_note",
+            "flexible_starts_on",
+            "flexible_ends_on",
             "is_private",
             "private_for_name",
             "image",
@@ -420,8 +481,14 @@ class ClassOfferingForm(
         ]
         # Four rows, not the widget default of ten: the readiness minimum is 40 characters, so the
         # box only has to invite a short paragraph, and the live count sits right under it.
-        widgets = {"video_url": _video_url_widget(), "description": RichBodyEditorWidget(attrs={"rows": 4})}
-        help_texts = {"description": DESCRIPTION_HELP_TEXT}
+        widgets = {
+            "video_url": _video_url_widget(),
+            "description": RichBodyEditorWidget(attrs={"rows": 4}),
+            "flexible_starts_on": _window_day_widget(),
+            "flexible_ends_on": _window_day_widget(),
+        }
+        # The window's one hint sits under the pair on step 3, so neither day repeats it.
+        help_texts = {"description": DESCRIPTION_HELP_TEXT, "flexible_starts_on": "", "flexible_ends_on": ""}
 
     def __init__(self, *args, **kwargs) -> None:
         super().__init__(*args, **kwargs)
@@ -429,6 +496,7 @@ class ClassOfferingForm(
         self.add_hero_crop_field()
         self.add_card_focus_field()
         self.setup_scheduling_type_field()
+        self.setup_flexible_window_fields()
 
     def clean_video_url(self) -> str:
         return validate_video_url(self.cleaned_data.get("video_url", ""))
@@ -436,6 +504,7 @@ class ClassOfferingForm(
     def clean(self) -> dict:
         data = super().clean() or {}
         self.clean_price_against_live_sale()
+        self.clean_flexible_window()
         return data
 
     def save(self, commit: bool = True) -> ClassOffering:
@@ -456,6 +525,7 @@ class TeachClassOfferingForm(
     _PricingRulesMixin,
     _LiveSaleGuardMixin,
     _SchedulingTypeMixin,
+    _FlexibleWindowMixin,
     forms.ModelForm,
 ):
     """Class form for teaching members — no `instructor`, no `is_private`, slug auto-generated.
@@ -482,13 +552,21 @@ class TeachClassOfferingForm(
             "scheduling_model",
             "scheduling_type",
             "flexible_note",
+            "flexible_starts_on",
+            "flexible_ends_on",
             "image",
             "video_url",
         ]
         # Four rows, not the widget default of ten: the readiness minimum is 40 characters, so the
         # box only has to invite a short paragraph, and the live count sits right under it.
-        widgets = {"video_url": _video_url_widget(), "description": RichBodyEditorWidget(attrs={"rows": 4})}
-        help_texts = {"description": DESCRIPTION_HELP_TEXT}
+        widgets = {
+            "video_url": _video_url_widget(),
+            "description": RichBodyEditorWidget(attrs={"rows": 4}),
+            "flexible_starts_on": _window_day_widget(),
+            "flexible_ends_on": _window_day_widget(),
+        }
+        # The window's one hint sits under the pair on step 3, so neither day repeats it.
+        help_texts = {"description": DESCRIPTION_HELP_TEXT, "flexible_starts_on": "", "flexible_ends_on": ""}
 
     def __init__(self, *args, teaching_member: "Member | None" = None, **kwargs) -> None:
         self.teaching_member = teaching_member
@@ -497,6 +575,7 @@ class TeachClassOfferingForm(
         self.add_hero_crop_field()
         self.add_card_focus_field()
         self.setup_scheduling_type_field()
+        self.setup_flexible_window_fields()
 
     def clean_video_url(self) -> str:
         return validate_video_url(self.cleaned_data.get("video_url", ""))
@@ -504,6 +583,7 @@ class TeachClassOfferingForm(
     def clean(self) -> dict:
         data = super().clean() or {}
         self.clean_price_against_live_sale()
+        self.clean_flexible_window()
         return data
 
     def save(self, commit: bool = True) -> ClassOffering:
@@ -1267,7 +1347,9 @@ class RegistrationForm(forms.ModelForm):
 
     def clean(self) -> dict:
         data = super().clean() or {}
-        if not self.is_waitlist and not self.holds_seat and self.offering.spots_remaining <= 0:
+        # None is a flexible class: no seat cap, so it is never sold out (#545).
+        spots = self.offering.spots_remaining
+        if not self.is_waitlist and not self.holds_seat and spots is not None and spots <= 0:
             raise forms.ValidationError("This class is sold out.")
         if self.offering.requires_model_release and not data.get("accepts_model_release"):
             self.add_error("accepts_model_release", "Photo release acceptance is required for this class.")
@@ -1842,9 +1924,13 @@ class RegistrationMoveForm(forms.Form):
         )
 
     def clean_target(self) -> ClassOffering:
-        """Instructor moves can't overfill the destination; admin moves can (see the class docstring)."""
+        """Instructor moves can't overfill the destination; admin moves can (see the class docstring).
+
+        A flexible destination answers ``None`` for its spots: no cap, so never full (#545).
+        """
         target = cast(ClassOffering, self.cleaned_data["target"])
-        if self._instructor is not None and target.spots_remaining <= 0:
+        spots = target.spots_remaining
+        if self._instructor is not None and spots is not None and spots <= 0:
             raise ValidationError("That class is full.")
         return target
 

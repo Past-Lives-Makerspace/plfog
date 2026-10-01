@@ -12,7 +12,7 @@ for all of them, and the arrangements are exactly what these specs are about.
 
 from __future__ import annotations
 
-from datetime import timedelta
+from datetime import date, timedelta
 from typing import TYPE_CHECKING, Any, cast
 
 from django.contrib.auth import get_user_model
@@ -191,6 +191,58 @@ def describe_schedule_fingerprint():
         for offering in (first, second):
             ClassSessionFactory(class_offering=offering, starts_at=start, ends_at=start + timedelta(hours=2))
         assert first.schedule_fingerprint == second.schedule_fingerprint
+
+    def describe_a_flexible_class():
+        """Its schedule is its date window (#545): a moved window reopens the gate as a moved session does."""
+
+        def _flexible(**traits) -> ClassOffering:
+            return ClassOfferingFactory(scheduling_model=ClassOffering.SchedulingModel.FLEXIBLE, **traits)
+
+        def it_changes_when_the_first_day_moves(db):
+            offering = _flexible(flexible_starts_on=date(2026, 11, 2), flexible_ends_on=date(2026, 12, 1))
+            before = offering.schedule_fingerprint
+            offering.flexible_starts_on = date(2026, 11, 3)
+            offering.save(update_fields=["flexible_starts_on"])
+            assert offering.schedule_fingerprint != before
+
+        def it_changes_when_the_last_day_moves(db):
+            offering = _flexible(flexible_starts_on=date(2026, 11, 2), flexible_ends_on=date(2026, 12, 1))
+            before = offering.schedule_fingerprint
+            offering.flexible_ends_on = date(2026, 12, 2)
+            offering.save(update_fields=["flexible_ends_on"])
+            assert offering.schedule_fingerprint != before
+
+        def it_changes_when_a_window_is_set_on_a_class_that_had_none_and_when_cleared(db):
+            offering = _flexible()
+            open_ended = offering.schedule_fingerprint
+            offering.flexible_ends_on = date(2026, 12, 1)
+            offering.save(update_fields=["flexible_ends_on"])
+            assert offering.schedule_fingerprint != open_ended
+            offering.flexible_ends_on = None
+            offering.save(update_fields=["flexible_ends_on"])
+            assert offering.schedule_fingerprint == open_ended
+
+        def it_tells_a_first_day_from_a_last_day(db):
+            # The two ends are digested in their own slots, so "From Nov 2" never hashes as "Through Nov 2".
+            first_only = _flexible(flexible_starts_on=date(2026, 11, 2))
+            last_only = _flexible(flexible_ends_on=date(2026, 11, 2))
+            assert first_only.schedule_fingerprint != last_only.schedule_fingerprint
+
+        def it_matches_two_flexible_classes_that_share_a_window(db):
+            first = _flexible(flexible_starts_on=date(2026, 11, 2), flexible_ends_on=date(2026, 12, 1))
+            second = _flexible(flexible_starts_on=date(2026, 11, 2), flexible_ends_on=date(2026, 12, 1))
+            assert first.schedule_fingerprint == second.schedule_fingerprint
+            assert len(first.schedule_fingerprint) == 64
+
+        def it_leaves_a_fixed_class_digest_alone_whatever_the_window_columns_hold(db):
+            # The form clears the window on a Fixed save; the digest reads sessions only, so even a
+            # row with stale window columns hashes exactly as it always has.
+            start = timezone.now() + timedelta(days=4)
+            plain = ClassOfferingFactory()
+            stale = ClassOfferingFactory(flexible_starts_on=date(2026, 11, 2), flexible_ends_on=date(2026, 12, 1))
+            for offering in (plain, stale):
+                ClassSessionFactory(class_offering=offering, starts_at=start, ends_at=start + timedelta(hours=2))
+            assert plain.schedule_fingerprint == stale.schedule_fingerprint
 
 
 def describe_opening_a_guild_lead_gate():

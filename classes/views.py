@@ -130,6 +130,7 @@ from classes.models import (
     ReadinessItem,
     Registration,
     RegistrationQuestion,
+    flexible_window_has_ended,
     readiness_items,
 )
 from core.files import delete_if_unreferenced
@@ -389,11 +390,17 @@ def _class_detail_context(request: HttpRequest, offering: ClassOffering) -> dict
     from membership.permissions import can_edit_category as can_edit_category_perm
 
     now = timezone.now()
-    upcoming_sessions = list(offering.sessions.filter(starts_at__gte=now).order_by("starts_at"))
-    # A series is its full set of dates; a single class is its one date. Show every
-    # session for a series (so a started one still reads as the N-session series it
+    # A flexible class has no schedule to show, whatever session rows it still carries (a
+    # class saved before #545 may hold one standing in for its window), so the page never
+    # reads them. A series is its full set of dates; a single class is its one date. Show
+    # every session for a series (so a started one still reads as the N-session series it
     # is, with past dates marked) and just the dated session for a single.
-    schedule_sessions = list(offering.sessions.order_by("starts_at")) if offering.is_series else upcoming_sessions
+    if offering.is_flexible:
+        upcoming_sessions: list[Any] = []
+        schedule_sessions: list[Any] = []
+    else:
+        upcoming_sessions = list(offering.sessions.filter(starts_at__gte=now).order_by("starts_at"))
+        schedule_sessions = list(offering.sessions.order_by("starts_at")) if offering.is_series else upcoming_sessions
 
     # Other dates this same class is offered on, so the visitor can switch dates
     # without hunting through the catalog. Only runs you can still book are shown
@@ -444,6 +451,14 @@ def _class_detail_context(request: HttpRequest, offering: ClassOffering) -> dict
         "spots_remaining": offering.spots_remaining,
         "related_offerings": related_offerings,
         "sibling_offerings": sibling_offerings,
+        # The flexible block (#545): the template holds the copy, these hold the facts. The
+        # instructor's name is read off the row in the template, so a spec can anchor on it.
+        "is_flexible": offering.is_flexible,
+        "has_flexible_window": offering.has_flexible_window,
+        "flexible_heading": "Flexible Date Range" if offering.has_flexible_window else "Flexible Scheduling",
+        "flexible_window_label": offering.flexible_window_label,
+        "flexible_window_ended": offering.flexible_window_ended,
+        "flexible_ends_on": offering.flexible_ends_on,
     }
 
 
@@ -1038,8 +1053,11 @@ def register(request: HttpRequest, slug: str) -> HttpResponse:
     # full. A WAITLISTED row consumes no seat, so somebody already queued is still told a
     # sold-out class is sold out, and their re-submit is still a waitlist submit.
     holds_seat = existing is not None and existing.consumes_seat
+    # A flexible class answers None: no seat cap, so nothing to wait for, and ?waitlist=1 on
+    # one (a stale link) registers normally (#545).
+    spots = offering.spots_remaining
     is_waitlist = (
-        claim is None and not holds_seat and (request.GET.get("waitlist") == "1" or offering.spots_remaining <= 0)
+        claim is None and not holds_seat and spots is not None and (request.GET.get("waitlist") == "1" or spots <= 0)
     )
 
     form = RegistrationForm(
@@ -2223,6 +2241,7 @@ def teach_class_create(request: HttpRequest) -> HttpResponse:
         offering = form.save()
         formset.instance = offering
         formset.save()
+        offering.apply_scheduling_model()
         offering.finalize_recurring_slug()
         try:
             offering.add_gallery_images(request.FILES.getlist("gallery_images"))
@@ -2302,6 +2321,7 @@ def _instructor_composer(request: HttpRequest, pk: int) -> HttpResponse:
     if request.method == "POST" and form.is_valid() and formset.is_valid() and faq_formset.is_valid():
         offering = form.save()  # type: ignore[assignment]  # django-stubs infers an annotated row type for offering
         formset.save()
+        offering.apply_scheduling_model()
         faq_formset.save()
         _mark_composer_saved(request, offering)
         submit_now = request.POST.get("action") == "submit"
@@ -3101,6 +3121,8 @@ def _claim_email_will_fire(offering: ClassOffering) -> bool:
     un-notified WAITLISTED row exists. Computed once per page for the remove
     modals' conditional copy.
     """
+    if offering.is_flexible:
+        return False  # no cap, so promote_next_from_waitlist never fires (#545)
     held = offering.seats_taken
     if held - 1 >= offering.capacity:
         return False
@@ -3887,7 +3909,8 @@ def _create_form_readiness(form: ClassOfferingForm, session_formset: Any, galler
         has_gallery=bool(gallery_files),
         description=data.get("description") or "",
         scheduling_model=data["scheduling_model"],
-        flexible_note=data.get("flexible_note") or "",
+        # Cleared by the form on a Fixed class, so the rule reads only what a flexible class keeps.
+        flexible_window_ended=flexible_window_has_ended(data["flexible_ends_on"]),
         has_future_session=has_future_session,
         capacity=data.get("capacity") or 0,
     )
@@ -3945,6 +3968,7 @@ def admin_class_create(request: HttpRequest) -> HttpResponse:
             offering.save()
             session_formset.instance = offering
             session_formset.save()
+            offering.apply_scheduling_model()
             offering.finalize_recurring_slug()
             try:
                 offering.add_gallery_images(gallery_files)
@@ -4044,6 +4068,7 @@ def _admin_composer(request: HttpRequest, pk: int) -> HttpResponse:
     if request.method == "POST" and form.is_valid() and session_formset.is_valid() and faq_formset.is_valid():
         form.save()
         session_formset.save()
+        offering.apply_scheduling_model()
         faq_formset.save()
         _mark_composer_saved(request, offering)
         if request.POST.get("action") == "publish":

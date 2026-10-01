@@ -4,8 +4,9 @@ from __future__ import annotations
 
 import inspect
 import re
-from datetime import timedelta
+from datetime import date, timedelta
 from pathlib import Path
+from unittest import mock
 
 import pytest
 from django.core import mail
@@ -95,19 +96,57 @@ def describe_readiness():
         assert items["Dates"].ok is False
         assert items["Dates"].hint == "Add at least one date."
 
-    def it_passes_a_flexible_class_with_a_note_and_fails_one_without(db):
-        with_note = ClassOfferingFactory(
-            description=READY_DESCRIPTION,
-            scheduling_model=ClassOffering.SchedulingModel.FLEXIBLE,
-            flexible_note="Email me to pick a time.",
-        )
-        without = ClassOfferingFactory(
-            description=READY_DESCRIPTION, scheduling_model=ClassOffering.SchedulingModel.FLEXIBLE, flexible_note="  "
-        )
-        assert with_note.is_ready is True
-        dates = {i.label: i for i in without.readiness()}["Dates"]
-        assert dates.ok is False
-        assert dates.hint == "Say how students pick a time."
+    def describe_a_flexible_class():
+        # No note, no window, no session: the class page says what Flexible means on its own
+        # (#545), so the note is the instructor's extra and the dates rule reads only the window.
+        def _flexible(**traits) -> ClassOffering:
+            traits.setdefault("flexible_note", "")
+            return ClassOfferingFactory(
+                description=READY_DESCRIPTION, scheduling_model=ClassOffering.SchedulingModel.FLEXIBLE, **traits
+            )
+
+        def _dates(offering: ClassOffering):
+            return {i.label: i for i in offering.readiness()}["Dates"]
+
+        def it_passes_with_no_note_and_no_window(db):
+            offering = _flexible()
+            assert offering.sessions.count() == 0
+            assert _dates(offering).ok is True
+            assert offering.is_ready is True
+
+        def it_passes_with_a_window_whose_last_day_is_today(db):
+            today = timezone.localdate()
+            assert _dates(_flexible(flexible_starts_on=today - timedelta(days=30), flexible_ends_on=today)).ok is True
+
+        def it_passes_with_only_a_first_day_however_old(db):
+            assert _dates(_flexible(flexible_starts_on=timezone.localdate() - timedelta(days=400))).ok is True
+
+        def it_fails_once_the_last_day_has_passed(db):
+            dates = _dates(_flexible(flexible_ends_on=timezone.localdate() - timedelta(days=1)))
+            assert dates.ok is False
+            assert dates.hint == "The last day has passed."
+            assert dates.anchor == "class-dates"
+
+        def it_reads_the_last_day_on_the_sites_local_date(db):
+            # Pinned to a date, so the rule is "before today" by the calendar, not "24 hours ago".
+            offering = _flexible(flexible_ends_on=date(2026, 12, 1))
+            with mock.patch("classes.models.timezone.localdate", return_value=date(2026, 12, 1)):
+                assert _dates(offering).ok is True
+            with mock.patch("classes.models.timezone.localdate", return_value=date(2026, 12, 2)):
+                assert _dates(offering).ok is False
+
+        def it_never_reads_the_note_or_the_sessions(db):
+            # A row shaped like production class 665: flexible, with a stale multi day session.
+            stale = _flexible(flexible_note="  ")
+            start = timezone.now() - timedelta(days=40)
+            ClassSessionFactory(class_offering=stale, starts_at=start, ends_at=start + timedelta(days=30))
+            assert _dates(stale).ok is True
+
+        def it_refuses_submit_naming_the_passed_last_day(db):
+            offering = _flexible(status=ClassOffering.Status.DRAFT, flexible_ends_on=date(2020, 1, 1))
+            with pytest.raises(ClassNotReadyError) as excinfo:
+                offering.submit_for_review()
+            assert excinfo.value.messages == ["Not ready to submit: The last day has passed."]
 
     def it_fails_capacity_under_one(db):
         offering = ClassOfferingFactory(ready=True, capacity=0)

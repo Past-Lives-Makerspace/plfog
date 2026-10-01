@@ -68,7 +68,7 @@ an admin reading a queue wants the glance.{% endcomment %}
         </tr>
         <tr>
             <td style="font-weight:600; color:var(--hub-text-muted);">Capacity</td>
-            <td>{{ seat_taken_count }}/{{ offering.capacity }} registered</td>
+            <td>{{ seat_taken_count }}{% if not offering.is_flexible %}/{{ offering.capacity }}{% endif %} registered{% if offering.is_flexible %} · no seat cap{% endif %}</td>
         </tr>
     </tbody>
 </table>
@@ -80,6 +80,10 @@ an admin reading a queue wants the glance.{% endcomment %}
         <tr><th colspan="2">Sessions</th></tr>
     </thead>
     <tbody>
+    {# A flexible class reads its window, whatever session rows it still carries. #}
+    {% if offering.is_flexible %}
+        <tr><td colspan="2" data-flexible-window>{% if offering.has_flexible_window %}{{ offering.flexible_window_label }}{% else %}Any time, arranged with each student{% endif %}</td></tr>
+    {% else %}
     {% for session in offering.sessions.all %}
         <tr>
             <td>{{ session.starts_at|date:"l, M j, Y" }} at {{ session.starts_at|time:"g:i A" }}</td>
@@ -88,6 +92,7 @@ an admin reading a queue wants the glance.{% endcomment %}
     {% empty %}
         <tr><td colspan="2" style="color:var(--hub-text-muted);">No sessions scheduled yet.</td></tr>
     {% endfor %}
+    {% endif %}
     </tbody>
 </table>
 </div>

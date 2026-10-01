@@ -95,12 +95,47 @@ def describe_lifecycle():
         assert offering.lifecycle == Lifecycle.COMPLETED
         assert offering.lifecycle_note.startswith("Ended ")
 
-    def it_keeps_a_flexible_published_class_upcoming_forever(db):
-        offering = ClassOfferingFactory(
-            status=Status.PUBLISHED, scheduling_model=ClassOffering.SchedulingModel.FLEXIBLE, flexible_note="Email me"
-        )
-        _session(offering, -30)
-        assert offering.lifecycle == Lifecycle.UPCOMING
+    def describe_a_flexible_published_class():
+        """It completes the day after its last day, on the site's local date, and never without one (#545)."""
+
+        def _flexible(**traits) -> ClassOffering:
+            return ClassOfferingFactory(
+                status=Status.PUBLISHED, scheduling_model=ClassOffering.SchedulingModel.FLEXIBLE, **traits
+            )
+
+        def it_stays_upcoming_forever_with_no_last_day_whatever_sessions_it_carries(db):
+            offering = _flexible(flexible_note="Email me")
+            _session(offering, -30)
+            assert offering.lifecycle == Lifecycle.UPCOMING
+            assert offering.lifecycle_note == ""
+
+        def it_is_upcoming_on_its_last_day_and_completed_the_day_after(db):
+            today = timezone.localdate()
+            assert _flexible(flexible_ends_on=today).lifecycle == Lifecycle.UPCOMING
+            over = _flexible(flexible_ends_on=today - timedelta(days=1))
+            assert over.lifecycle == Lifecycle.COMPLETED
+            assert over.lifecycle_label == "Completed"
+
+        def it_notes_the_last_day_once_completed(db):
+            from datetime import date
+            from unittest import mock
+
+            offering = _flexible(flexible_starts_on=date(2026, 11, 2), flexible_ends_on=date(2026, 12, 1))
+            with mock.patch("classes.models.timezone.localdate", return_value=date(2026, 12, 1)):
+                assert offering.lifecycle == Lifecycle.UPCOMING
+                assert offering.lifecycle_note == ""
+            with mock.patch("classes.models.timezone.localdate", return_value=date(2026, 12, 2)):
+                assert offering.lifecycle == Lifecycle.COMPLETED
+                assert offering.lifecycle_note == "Ended Dec 1"
+
+        def it_never_reads_a_future_session_on_an_ended_window(db):
+            over = _flexible(flexible_ends_on=timezone.localdate() - timedelta(days=1))
+            _session(over, 5)
+            assert over.lifecycle == Lifecycle.COMPLETED
+            row = ClassOffering.objects.with_lifecycle_inputs().get(pk=over.pk)
+            assert row.lifecycle == Lifecycle.COMPLETED
+            assert row in ClassOffering.objects.completed()
+            assert row not in ClassOffering.objects.upcoming_published()
 
     def it_reads_upcoming_with_the_no_dates_note_for_a_dated_class_with_zero_sessions(db):
         offering = ClassOfferingFactory(status=Status.PUBLISHED)
@@ -171,6 +206,16 @@ def describe_lifecycle():
                 "upcoming": ClassOfferingFactory(status=Status.PUBLISHED),
                 "completed": ClassOfferingFactory(status=Status.PUBLISHED),
                 "undated": ClassOfferingFactory(status=Status.PUBLISHED),
+                "flexible_open": ClassOfferingFactory(
+                    status=Status.PUBLISHED,
+                    scheduling_model=ClassOffering.SchedulingModel.FLEXIBLE,
+                    flexible_ends_on=timezone.localdate(),
+                ),
+                "flexible_over": ClassOfferingFactory(
+                    status=Status.PUBLISHED,
+                    scheduling_model=ClassOffering.SchedulingModel.FLEXIBLE,
+                    flexible_ends_on=timezone.localdate() - timedelta(days=1),
+                ),
             }
             ClassApproval.objects.create(class_offering=rows["guild"], role=ClassApproval.Role.GUILD_LEAD)
             _bounce(rows["bounced"], ClassApproval.Role.ADMIN, ClassApproval.Decision.CHANGES_REQUESTED)
@@ -199,6 +244,8 @@ def describe_lifecycle():
                 Lifecycle.AWAITING_ADMIN,
                 Lifecycle.UPCOMING,
                 Lifecycle.UPCOMING,
+                Lifecycle.UPCOMING,
+                Lifecycle.COMPLETED,
                 Lifecycle.COMPLETED,
                 Lifecycle.CANCELLED,
                 Lifecycle.ARCHIVED,
@@ -218,8 +265,17 @@ def describe_lifecycle():
             upcoming = ClassOfferingFactory(status=Status.PUBLISHED)
             _session(upcoming, 3)
             flexible = ClassOfferingFactory(
-                status=Status.PUBLISHED, scheduling_model=ClassOffering.SchedulingModel.FLEXIBLE
+                status=Status.PUBLISHED,
+                scheduling_model=ClassOffering.SchedulingModel.FLEXIBLE,
+                flexible_ends_on=timezone.localdate(),
             )
+            # Its last day was yesterday; the future session it still carries is never read (#545).
+            flexible_over = ClassOfferingFactory(
+                status=Status.PUBLISHED,
+                scheduling_model=ClassOffering.SchedulingModel.FLEXIBLE,
+                flexible_ends_on=timezone.localdate() - timedelta(days=1),
+            )
+            _session(flexible_over, 3)
             undated = ClassOfferingFactory(status=Status.PUBLISHED)
             completed = ClassOfferingFactory(status=Status.PUBLISHED)
             _session(completed, -3)
@@ -233,6 +289,7 @@ def describe_lifecycle():
                 "draft": draft,
                 "upcoming": upcoming,
                 "flexible": flexible,
+                "flexible_over": flexible_over,
                 "undated": undated,
                 "completed": completed,
                 "cancelled": cancelled,
@@ -255,8 +312,9 @@ def describe_lifecycle():
                 rows["undated"],
             }
 
-        def it_completed_lists_only_finished_dated_classes(rows):
-            assert list(ClassOffering.objects.completed()) == [rows["completed"]]
+        def it_completed_lists_finished_dated_classes_and_flexible_ones_past_their_last_day(rows):
+            assert set(ClassOffering.objects.completed()) == {rows["completed"], rows["flexible_over"]}
+            assert rows["flexible_over"] not in ClassOffering.objects.upcoming_published()
 
         def it_cancelled_lists_cancelled_classes(rows):
             assert list(ClassOffering.objects.cancelled()) == [rows["cancelled"]]
@@ -264,14 +322,14 @@ def describe_lifecycle():
         def it_facets_map_to_the_queryset_methods_with_counts(rows):
             base = ClassOffering.objects.all()
             chips = {row.key: row for row in facet_rows(ADMIN_FACETS, base, ADMIN_FACETS[0], lambda key: f"?s={key}")}
-            assert chips[""].count == 11
+            assert chips[""].count == 12
             assert chips["needs_review"].count == 3
             assert chips["awaiting_guild_lead"].count == 1
             assert chips["awaiting_admin"].count == 2
             assert chips["draft"].count == 1
             assert chips["changes_requested"].count == 1
             assert chips["upcoming"].count == 3
-            assert chips["completed"].count == 1
+            assert chips["completed"].count == 2
             assert chips["cancelled"].count == 1
             assert chips["archived"].count == 1
             assert chips[""].is_selected is True

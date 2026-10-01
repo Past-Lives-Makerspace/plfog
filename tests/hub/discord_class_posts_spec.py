@@ -275,3 +275,50 @@ def describe_announce_new_classes():
         assert route.call_count == calendar_posts.ANNOUNCE_CAP
         assert ClassOffering.objects.filter(channel_announced_at__isnull=True).count() == 0  # overflow stamped
         assert dcp.announce_new_classes() == 0  # nothing left to drip out later
+
+
+def describe_a_flexible_class_with_a_date_window():
+    """The digest and the announcer follow bookable(): listed through the last day, gone the day after (#545)."""
+
+    def it_keeps_the_class_in_the_digest_on_its_last_day_and_drops_it_the_day_after():
+        from datetime import date
+        from unittest import mock
+
+        _flexible_class("Open Forge", flexible_starts_on=date(2026, 11, 2), flexible_ends_on=date(2026, 12, 1))
+        with mock.patch("classes.models.timezone.localdate", return_value=date(2026, 12, 1)):
+            description = dcp.build_weekly_classes_digest_embeds(timezone.now())[0]["description"]
+        assert "**Flexible scheduling — book anytime**" in description
+        assert "• Nov 2 to Dec 1, 2026 — [Open Forge]" in description
+        with mock.patch("classes.models.timezone.localdate", return_value=date(2026, 12, 2)):
+            assert dcp.build_weekly_classes_digest_embeds(timezone.now()) == []
+
+    def it_lists_a_class_with_no_window_as_before():
+        flexible = _flexible_class("Open Studio Ceramics")
+        description = dcp.build_weekly_classes_digest_embeds(timezone.now())[0]["description"]
+        assert f"• [Open Studio Ceramics]({flexible.public_url})" in description
+
+    @respx.mock
+    def it_announces_the_window_on_the_when_line(settings):
+        from datetime import date
+
+        settings.DISCORD_BOT_TOKEN = "tok"
+        route = respx.post(_MESSAGES_URL).mock(return_value=httpx.Response(200, json={}))
+        _enable_posts()
+        _flexible_class("Open Forge", flexible_starts_on=date(2026, 11, 2), flexible_ends_on=date(2026, 12, 1))
+
+        assert dcp.announce_new_classes() == 1
+        assert (
+            "Flexible scheduling — arrange with the instructor · Nov 2 to Dec 1, 2026"
+            in _sent_embeds(route)[0]["description"]
+        )
+
+    @respx.mock
+    def it_never_announces_a_class_whose_window_has_ended(settings):
+        from datetime import date
+
+        settings.DISCORD_BOT_TOKEN = "tok"
+        respx.post(_MESSAGES_URL).mock(return_value=httpx.Response(200, json={}))
+        _enable_posts()
+        _flexible_class("Over", flexible_ends_on=date(2020, 1, 1))
+
+        assert dcp.announce_new_classes() == 0
