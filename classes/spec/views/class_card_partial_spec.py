@@ -98,6 +98,19 @@ def describe_class_card_media():
         assert "_legacy-image" not in html
         assert f'src="{offering.image.url}"' in html
 
+    def it_shows_the_copy_cut_to_the_crop_box_over_the_upload():
+        # Issue #547: the card, the related classes strip and the composer's frames all
+        # render this partial, so one assertion covers what every one of them shows.
+        offering = _published(
+            image__width=1000, image__height=600, hero_crop_x=100, hero_crop_y=50, hero_crop_w=400, hero_crop_h=225
+        )
+        html = _media(offering, preview=True, live_position="objectPosition")
+        assert f'src="{offering.hero_cropped.url}"' in html
+        assert "hero-crops/" in offering.hero_cropped.url
+        assert offering.image.url not in html
+        # The card's position rule still applies, now within the cropped photo.
+        assert f'style="object-position: {offering.card_object_position};"' in html
+
     def it_renders_a_live_source_in_place_of_the_fallback_when_the_class_has_no_photo():
         """The composer mirrors the hero field's local preview through live_src before a save."""
         category = CategoryFactory(name="No Logo Here")

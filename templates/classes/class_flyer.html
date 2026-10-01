@@ -17,10 +17,10 @@
 </header>
 
 <main class="pl-flyer">
-  {# 1 · Hero band — the class's own focal-cropped photo, else the legacy CMS image, else a graceful initial #}
+  {# 1 · Hero band — the class's own photo (the copy cut to its crop box when it has one), else the legacy CMS image, else a graceful initial #}
   <div class="pl-flyer__hero">
     {% if offering.image %}
-      <img class="pl-flyer__hero-img" src="{{ offering.image.url }}" alt="{{ offering.title }}"
+      <img class="pl-flyer__hero-img" src="{{ offering.hero_image_url }}" alt="{{ offering.title }}"
            style="object-position: {{ offering.hero_object_position }};">
     {% elif offering.legacy_image_url %}
       <img class="pl-flyer__hero-img" src="{% url 'classes:legacy_image' %}?url={{ offering.legacy_image_url|urlencode }}" alt="{{ offering.title }}"

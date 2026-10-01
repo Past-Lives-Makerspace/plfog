@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import re
+
 import pytest
 from django.urls import reverse
 
@@ -78,6 +80,28 @@ def describe_class_preview():
         # The category id is in the context too, for the category hero branch the public page shares.
         response = client.get(reverse("classes:class_preview", kwargs={"pk": draft.pk}))
         assert response.context["category_ct_id"] == ContentType.objects.get_for_model(Category).pk
+
+    def it_shows_the_cropped_copy_on_the_banner(instructor_fixture, client):
+        # Issue #547: the page preview is the public page, so it shows the copy cut to the
+        # composer's crop box, not the whole photo slid to the box's centre.
+        draft = ClassOfferingFactory(
+            instructor=instructor_fixture,
+            slug="cropped-preview",
+            status=ClassOffering.Status.DRAFT,
+            image__width=1000,
+            image__height=600,
+            hero_crop_x=100,
+            hero_crop_y=50,
+            hero_crop_w=400,
+            hero_crop_h=225,
+        )
+        client.force_login(instructor_fixture.user)
+        body = client.get(reverse("classes:class_preview", kwargs={"pk": draft.pk})).content.decode()
+        banner = re.search(r'<img class="cp-detail__hero-img"[^>]*>', body)
+        assert banner is not None, "no banner rendered"
+        assert f'src="{draft.hero_cropped.url}"' in banner.group(0)
+        assert "hero-crops/" in draft.hero_cropped.url
+        assert draft.image.url not in banner.group(0)
 
     def it_redirects_anonymous_to_login(db, client):
         offering = ClassOfferingFactory(slug="any", status=ClassOffering.Status.DRAFT)

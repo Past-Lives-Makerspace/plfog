@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from datetime import timedelta
 
 import pytest
@@ -1003,6 +1004,61 @@ def describe_detail_hero_fallback():
         assert resp.status_code == 200
         assert "cp-detail__hero-logo" in resp.content.decode()
         assert "img/favicon.png" in resp.content.decode()
+
+
+def _banner_src(body: str) -> str:
+    """The src of the class page banner, the one img.cp-detail__hero-img."""
+    tag = re.search(r'<img class="cp-detail__hero-img"[^>]*>', body)
+    assert tag is not None, "no banner rendered"
+    src = re.search(r'src="([^"]*)"', tag.group(0))
+    assert src is not None, tag.group(0)
+    return src.group(1)
+
+
+def describe_detail_hero_crop():
+    """Issue #547: the banner shows the copy cut to the composer's crop box, else the upload."""
+
+    def it_shows_the_cropped_copy_on_the_banner(client, db):
+        offering = ClassOfferingFactory(
+            status=ClassOffering.Status.PUBLISHED,
+            image__width=1000,
+            image__height=600,
+            hero_crop_x=100,
+            hero_crop_y=50,
+            hero_crop_w=400,
+            hero_crop_h=225,
+        )
+        assert "hero-crops/" in offering.hero_cropped.url
+        body = client.get(reverse("classes:public_class_detail", kwargs={"slug": offering.slug})).content.decode()
+        assert _banner_src(body) == offering.hero_cropped.url
+        # The related classes strip and the card share the accessor; the original is nowhere.
+        assert offering.image.url not in body
+
+    def it_shows_the_upload_on_the_banner_without_a_box(client, db):
+        offering = ClassOfferingFactory(status=ClassOffering.Status.PUBLISHED, image__width=1000, image__height=600)
+        assert not offering.hero_cropped
+        body = client.get(reverse("classes:public_class_detail", kwargs={"slug": offering.slug})).content.decode()
+        assert _banner_src(body) == offering.image.url
+
+    def it_shows_the_cropped_copy_on_a_related_class_card(client, db):
+        shared = CategoryFactory(name="Crop Related")
+        ClassOfferingFactory(status=ClassOffering.Status.PUBLISHED, slug="crop-host", category=shared)
+        related = ClassOfferingFactory(
+            status=ClassOffering.Status.PUBLISHED,
+            slug="crop-related",
+            category=shared,
+            image__width=1000,
+            image__height=600,
+            hero_crop_x=0,
+            hero_crop_y=0,
+            hero_crop_w=400,
+            hero_crop_h=225,
+        )
+        start = timezone.now() + timedelta(days=7)
+        ClassSessionFactory(class_offering=related, starts_at=start, ends_at=start + timedelta(hours=2))
+        body = client.get(reverse("classes:public_class_detail", kwargs={"slug": "crop-host"})).content.decode()
+        assert f'src="{related.hero_cropped.url}"' in body
+        assert related.image.url not in body
 
 
 def describe_all_guild_types_show():

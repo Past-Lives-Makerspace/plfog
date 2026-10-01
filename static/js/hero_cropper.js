@@ -45,7 +45,9 @@
     /* Dispatched on window with {position: "50.0% 68.8%"}, the crop box's centre as a
      * percentage of the source image, the same shape as hero_object_position. The card
      * focus component (card_focus.js) follows it, so the card frames move with the crop
-     * before any save (issue #536). */
+     * before any save (issue #536). Only a drag announces: on ready the frames already
+     * sit where the server put them, the copy cut to the saved box, centred (issue #547),
+     * or the box's centre on a photo not yet cut. */
     var CROP_EVENT = "hero-crop";
 
     function loadStylesheet(href) {
@@ -147,9 +149,8 @@
             if (preview) preview.classList.remove("cropper-hidden");
         }
 
-        /* Tell the page where the crop box's centre sits, on ready (the saved or the
-         * automatic box) and after every drag. Nothing to say until the image has pixels
-         * and the box has a size. */
+        /* Tell the page where the crop box's centre sits after a drag. Nothing to say
+         * until the image has pixels and the box has a size. */
         function announceCentre() {
             if (!instance) return;
             var box = instance.getData(true);
@@ -183,19 +184,18 @@
                 checkCrossOrigin: false,
                 checkOrientation: false,
                 ready: function () {
-                    // Restore a saved crop; write nothing for an untouched one.
+                    // Restore a saved crop; write nothing for an untouched one, and announce
+                    // nothing either way. The card frames were rendered by the server at the
+                    // position the catalog shows: a saved box is cut into a copy the frames
+                    // show centred (issue #547), so its centre on the original would pull
+                    // them off it; and the automatic box Cropper draws for a focal point set
+                    // with the Adjust tool (w 0, x and y as percentages; the composer seeds
+                    // hero_crop empty for it) is nobody's choice. Only a drag (cropend) moves them.
                     if (initial && initial.w && initial.h) {
                         instance.setData({
                             x: initial.x, y: initial.y,
                             width: initial.w, height: initial.h,
                         });
-                        // Only a restored box is worth announcing. A hero placed with the
-                        // Adjust tool is a focal point (w 0, x and y as percentages) and the
-                        // composer seeds hero_crop empty for it, so the box here would be
-                        // Cropper's automatic one, nobody's choice: its centre would pull the
-                        // card frames off the saved focal point the real card keeps. The
-                        // server's banner stays right until the host drags (cropend).
-                        announceCentre();
                     }
                 },
                 cropend: function () {

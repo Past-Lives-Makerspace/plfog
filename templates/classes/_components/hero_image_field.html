@@ -3,9 +3,12 @@ Hero/banner image input — AJAX upload with instant preview and optional croppe
 
 Params:
   field              — bound ImageField form field
-  current_image_url  — the URL of the photo the class already has (offering.hero_image_url:
+  current_image_url  — the URL of the photo the class already has (offering.hero_source_url:
                        the uploaded file, or an imported legacy photo through the same
-                       origin proxy), "" when it has none
+                       origin proxy), "" when it has none. Always the ORIGINAL, never the
+                       cropped copy (offering.hero_image_url) the public pages show: the
+                       crop box is stored in the original's pixels, and a box drawn on the
+                       copy would crop the crop.
   crop_field         — bound hidden hero_crop CharField (optional; enables cropper)
   offering           — the ClassOffering instance (needed for AJAX upload URL)
 

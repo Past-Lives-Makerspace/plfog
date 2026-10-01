@@ -188,20 +188,22 @@ def describe_hero_cropper():
         offering.refresh_from_db()
         saved = (offering.hero_crop_x, offering.hero_crop_y, offering.hero_crop_w, offering.hero_crop_h)
         assert saved == (crop["x"], crop["y"], crop["w"], crop["h"])
+        # The saved box is cut into a copy (#547), and every card shows that copy centred.
+        assert offering.hero_cropped
         position = offering.hero_object_position
-        assert position != "50% 50%"
+        assert position == "50% 50%"
 
         # Back on the Photos step: the frame restores the saved crop, and every card frame
-        # (two on this step, the phone one on the Review step) shows the photo at the crop's centre,
-        # exactly what the catalog will render.
+        # (two on this step, the phone one on the Review step) shows the cropped copy, centred,
+        # exactly what the catalog will render. The cropper announces nothing on ready, so
+        # the box's centre on the original never pulls the frames off it.
         expect(page.locator(FRAME)).to_be_visible()
         assert json.loads(page.locator(CROP_INPUT).input_value()) == crop
         restored = page.evaluate(f"document.querySelector('{PREVIEW}').cropper.getData(true)")
         assert restored["y"] == pytest.approx(crop["y"], abs=2)
         assert restored["height"] == pytest.approx(crop["h"], abs=2)
-        # The Review step (6) binds the server's string ("50.0% 68.8%"); step 2 binds through
-        # card_focus.js, which reads it back to whole percentages ("50% 69%"). Same focal
-        # point within a third of a pixel at card size, so compare the computed position.
+        # The Review step (6) binds the server's string; step 2 binds through card_focus.js,
+        # which reads it back to whole percentages. Compare the computed position.
         centre = _percentages(position)
         for step, frames in ((2, 2), (6, 1)):
             card_photos = page.locator(f'[data-composer-step="{step}"] {CARD_PHOTOS}')
@@ -209,6 +211,33 @@ def describe_hero_cropper():
             for photo in card_photos.all():
                 shown = _percentages(photo.evaluate("el => getComputedStyle(el).objectPosition"))
                 assert shown == pytest.approx(centre, abs=0.5), (step, shown, centre)
+
+    def it_shows_the_saved_box_as_the_hero_on_the_page_preview(live_server, page, login_via_code, serve_media):
+        # Issue #547: saving a box renders a copy cut to it (ClassOffering.hero_cropped), and
+        # the page preview's banner shows that copy. The composer keeps its cropper on the
+        # original, so the box can be moved again, while its card frames show the copy.
+        offering = _seed_draft_with_square_photo(_seed_instructor())
+        login_via_code(EMAIL)
+        _open_photos_step(page, live_server, "classes:teach_class_edit", pk=offering.pk)
+        expect(page.locator(FRAME)).to_be_visible()
+        _wait_ready(page)
+        _drag_frame_down(page, 60)
+        crop = json.loads(page.locator(CROP_INPUT).input_value())
+
+        page.locator('#composer-form button[type="submit"]').click()
+        page.wait_for_url(re.compile(r"step=2"))
+
+        offering.refresh_from_db()
+        assert "hero-crops/" in offering.hero_cropped.name
+        with offering.hero_cropped.open("rb") as handle:
+            assert Image.open(handle).size == (crop["w"], crop["h"])
+        expect(page.locator(PREVIEW)).to_have_attribute("src", offering.image.url)
+        expect(page.locator(CARD_PHOTOS).first).to_have_attribute("src", offering.hero_cropped.url)
+
+        page.goto(f"{live_server.url}{reverse('classes:class_preview', kwargs={'pk': offering.pk})}")
+        hero = page.locator(".cp-detail__hero-img")
+        expect(hero).to_have_attribute("src", re.compile(r"hero-crops/"))
+        expect(hero).to_have_attribute("src", offering.hero_cropped.url)
 
     def it_moves_the_card_frames_with_the_crop_before_any_save(live_server, page, login_via_code, serve_media):
         # Issue #536, item 4: the cropper announces the crop's centre (hero-crop on window) after
@@ -244,7 +273,8 @@ def describe_hero_cropper():
         # percentages) and the composer seeds hero_crop empty for it, so Cropper mounts its
         # automatic box. That box is nobody's choice: announcing its centre on ready pulled
         # the frames off the saved focal point while the real card stayed on it (PR #539
-        # review). Ready announces only a restored box; a real drag still moves the frames.
+        # review). Ready announces nothing (since #547 a restored box's copy is centred by
+        # the server too); a real drag still moves the frames.
         offering = cast(
             ClassOffering,
             ClassOfferingFactory(

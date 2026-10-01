@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import re
+
 import pytest
 from django.test import override_settings
 from django.urls import reverse
@@ -119,6 +121,26 @@ def describe_class_review_preview():
     def it_returns_404_with_invalid_token(client, db):
         response = client.get(reverse("classes:class_review_preview", kwargs={"token": "not-a-real-token"}))
         assert response.status_code == 404
+
+    def it_shows_the_cropped_copy_on_the_banner(client, db):
+        # Issue #547: a reviewer sees the banner members will, the copy cut to the crop box.
+        offering = ClassOfferingFactory(
+            ready=True,
+            slug="prev-cropped",
+            status=ClassOffering.Status.PENDING,
+            image__width=1000,
+            image__height=600,
+            hero_crop_x=100,
+            hero_crop_y=50,
+            hero_crop_w=400,
+            hero_crop_h=225,
+        )
+        row = ClassApproval.objects.create(class_offering=offering, role=ClassApproval.Role.ADMIN)
+        body = client.get(reverse("classes:class_review_preview", kwargs={"token": row.token})).content.decode()
+        banner = re.search(r'<img class="cp-detail__hero-img"[^>]*>', body)
+        assert banner is not None, "no banner rendered"
+        assert f'src="{offering.hero_cropped.url}"' in banner.group(0)
+        assert "hero-crops/" in offering.hero_cropped.url
 
     def it_is_framable_same_origin(client, db):
         offering = ClassOfferingFactory(ready=True, slug="prev-frame", status=ClassOffering.Status.PENDING)

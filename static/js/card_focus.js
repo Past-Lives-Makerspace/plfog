@@ -80,9 +80,9 @@
             },
 
             /* The cropper announces the crop's centre (hero-crop on window, hero_cropper.js)
-             * on ready and after every drag. Track it as the banner and, while the host has
-             * not moved the sliders, follow it and announce, so the frames on this step and
-             * the Review step move with the crop before any save (issue #536). */
+             * after every drag. Track it as the banner and, while the host has not moved
+             * the sliders, follow it and announce, so the frames on this step and the
+             * Review step move with the crop before any save (issue #536). */
             followBanner(position) {
                 const banner = parsePosition(position);
                 this.bannerX = banner.x;
