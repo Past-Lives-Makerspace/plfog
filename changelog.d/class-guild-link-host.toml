@@ -1,0 +1,6 @@
+bump = "patch"
+date = "2026-10-01"
+title = "Guild links on class pages work again"
+changes = [
+  "On a class page, the \"About our guilds\" link now opens the guild's page on guilds.pastlives.space instead of a page that was not found.",
+]
