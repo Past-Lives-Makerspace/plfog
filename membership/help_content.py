@@ -86,7 +86,7 @@ guilds, the class catalog, the community calendar, guild voting, and your accoun
 Use the menu on the left to get around:
 
 - Home: your dashboard and recent activity.
-- Class Catalog: every class and workshop you can sign up for.
+- Class Catalog: every class you can sign up for.
 - Calendar: everything happening at the space, in one place.
 - Spaces: the floor plan and every studio and shared area.
 - Guild Voting: rank the guilds you want the monthly funding pool to support.
@@ -166,7 +166,7 @@ Log in and you land on **Home**. It shows:
 The left sidebar is the map:
 
 - **Home** — your dashboard.
-- **Class Catalog** — every class and workshop you can sign up for.
+- **Class Catalog** — every class you can sign up for.
 - **Calendar** — everything happening at the space, in one place.
 - **Spaces** — the floor map and every studio and shared area.
 - **Guild Voting** — rank the guilds you want the monthly funding pool to support.
@@ -485,7 +485,7 @@ Classes at Past Lives are open to everyone — you don't need to be a member or 
 ### Find a Class {#class-find}
 
 1. Open **Class Catalog** in the left menu, or go straight to [/classes/](/classes/).
-2. Narrow things down with the **Guild Type** and **When** dropdowns, or open **Filters** for price range, instructor, and upcoming dates.
+2. Narrow things down with the **Class Type** and **When** dropdowns, or open **Filters** for price range, instructor, and upcoming dates.
 3. Click a class to see its description, dates, price, and how many spots are left.
 
 ![The class catalog — every upcoming class, with filters across the top.](/static/help/taking-a-class/01-class-catalog.png)
@@ -625,7 +625,7 @@ Each guild also has its own calendar, on the **Guild Calendar** tab of its guild
         "sort_order": 20,
         "related": ["community-calendar", "announcements"],
         "body": """\
-Got a workshop, meetup, or hangout in mind? Any member can propose an event for the Calendar.
+Got a meetup or hangout in mind? Any member can propose an event for the Calendar.
 
 ### Propose It {#event-propose}
 
@@ -810,7 +810,7 @@ The guided tour points at the real buttons, right on the teaching portal, in abo
 
 **Create and publish:**
 
-- **Create a class** — a private draft with your title, description, dates, price, and photos. See [Host a Workshop](/help/teaching/become-an-instructor/).
+- **Create a class** — a private draft with your title, description, dates, price, and photos. See [Host a Class](/help/teaching/become-an-instructor/).
 - **Submit it for review** — a guild lead (when your category has one) and an admin check it before it goes live. Same guide.
 - **Preview as a student** — see the public page exactly as a student will, at any point while you work.
 - **Offer it again on new dates** — one click copies a class into a new draft so you can run it again; the two link to each other on the public page. See [Run Your Class](/help/teaching/run-your-class/).
@@ -850,17 +850,17 @@ All four are covered in [Run Your Class](/help/teaching/run-your-class/).
     {
         "slug": "become-an-instructor",
         "category": "teaching",
-        "title": "Host a Workshop",
+        "title": "Host a Class",
         "sort_order": 20,
         "related": ["run-your-class", "taking-a-class"],
         "body": """\
-Got something to share? Past Lives instructors come from our membership base. If you have a workshop or a class in mind, the first step is to talk to your guild lead or email [lee@pastlives.space](mailto:lee@pastlives.space).
+Got something to share? Past Lives instructors come from our membership base. If you have a class in mind, the first step is to talk to your guild lead or email [lee@pastlives.space](mailto:lee@pastlives.space).
 
 <!-- Video slot: paste a Loom embed here — see docs/HELP_AUTHORING.md, Video Walkthroughs. -->
 
 ### Say You're Interested {#teach-become-instructor}
 
-Click **Host a Workshop** in the left menu and you land on [Host a Workshop](/classes/teach/why/). It shows what you get, links a real example workshop page, and carries the **I'm Interested** button. Tell us what you would like to host, in a sentence or two, and send it.
+Click **Host a Class** in the left menu and you land on [Host a Class](/classes/teach/why/). It shows what you get, links a real example class page, and carries the **I'm Interested** button. Tell us what you would like to host, in a sentence or two, and send it.
 
 An admin reads every note and usually gets to them within a week. You get an email either way, and you can open that page any time to see where things stand. If the answer is no, the admin leaves a note saying why, and you are welcome to say you're interested again whenever you like.
 
@@ -879,7 +879,7 @@ Three ways in:
 ### Create Your Draft {#teach-create-class}
 
 1. In the portal, open the **Classes** tab and click **+ New Class** (your first time, the button says **+ Create your first class**).
-2. The form is six steps. Step 1 is the basics: title, guild type, and description.
+2. The form is six steps. Step 1 is the basics: title, class type, and description.
 3. Step 2 is photos. Add a hero image and at least one gallery photo; a class needs both before it can be submitted. Pick the important part of the photo for the class page banner and again for the catalog card.
 4. Step 3 is dates, seats, and price. A class can be one session or a series; add every date. Or pick Flexible when each student books their day with you after registering, and set an optional first and last day. A flexible class has no seat cap.
 5. Step 4 holds the optional details students read to prepare. Step 5 is discounts. If the studio lets instructors have discount codes, you see the site wide codes that already apply, the codes on this class, and a **Request a Code** button (an admin approves the code before it exists). Otherwise the step says admins manage codes. Step 6 is the review: a checklist, a preview of your page and card, and the **Submit for Review** button.
@@ -908,7 +908,7 @@ Reviewers see your class exactly as a student would, in a full preview of the pu
 - **Pending**: submitted, waiting on review. You can still edit it.
 - **Published**: live in the catalog and open for sign-ups.
 
-Once a class is published, the words stay yours: the description, prep notes, materials, safety notes, the guardian note, the flexible scheduling note and the video are all still editable from the manage page, and so is putting the class on sale. The title, guild type, dates, price, capacity and scheduling model are locked once people can book on them; use **Request a change** on the manage page and an admin makes that edit. Archived classes are read only.""",
+Once a class is published, the words stay yours: the description, prep notes, materials, safety notes, the guardian note, the flexible scheduling note and the video are all still editable from the manage page, and so is putting the class on sale. The title, class type, dates, price, capacity and scheduling model are locked once people can book on them; use **Request a change** on the manage page and an admin makes that edit. Archived classes are read only.""",
         "screenshots": [
             {
                 "file": "01-teaching-portal.png",
@@ -928,7 +928,7 @@ Once a class is published, the words stay yours: the description, prep notes, ma
     },
     {
         # UNLISTED (§10.6): renders inside the "Read the Hosting Guide" disclosure
-        # on the Host a Workshop page (/classes/teach/why/) and resolves at its own
+        # on the Host a Class page (/classes/teach/why/) and resolves at its own
         # /help/ URL, but never appears on the landing, category pages, or search.
         "slug": "instructor-orientation",
         "category": None,
@@ -936,7 +936,7 @@ Once a class is published, the words stay yours: the description, prep notes, ma
         "sort_order": 0,
         "related": [],
         "body": """\
-Past Lives instructors come from our membership base. This is what we expect from an instructor, how class review works, and the bar a class has to clear. Read it before you say you're interested. (Have a workshop in mind but haven't talked to anyone yet? Start with your guild lead, or email lee@pastlives.space.)
+Past Lives instructors come from our membership base. This is what we expect from an instructor, how class review works, and the bar a class has to clear. Read it before you say you're interested. (Have a class in mind but haven't talked to anyone yet? Start with your guild lead, or email lee@pastlives.space.)
 
 ## What We Expect From Instructors {#what-we-expect}
 

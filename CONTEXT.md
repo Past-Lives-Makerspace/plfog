@@ -1,6 +1,6 @@
 # Past Lives Makerspace (plfog)
 
-Membership, guild, and class/workshop management for Past Lives Makerspace (Portland, OR). Two surfaces share one codebase: the **FOG hub** (member hub) and the **book CMS** (public class catalog + booking).
+Membership, guild, and class management for Past Lives Makerspace (Portland, OR). Two surfaces share one codebase: the **FOG hub** (member hub) and the **book CMS** (public class catalog + booking).
 
 ## Language
 
@@ -26,7 +26,7 @@ _Avoid_: onboarding wizard, onboarding questions, onboarding form.
 
 **Class offering**:
 One scheduled instance of a class (`classes.ClassOffering`) — a specific run with its own date(s), capacity, and slug. A class taught repeatedly produces many offerings ("runs") over time; each is a distinct offering with a distinct URL.
-_Avoid_: using bare "class" for both the abstract class and a single dated run — a run is an offering.
+_Avoid_: using bare "class" for both the abstract class and a single dated run — a run is an offering. Never "workshop" in user-facing copy: everything a member hosts or books is a class ("Host a Class", not "Host a Workshop").
 
 **Contact**:
 A labeled contact method on a Member — `{label, value}` (e.g. "Booking email" → an address) with per-surface placement toggles (show in the member directory and/or on the instructor page). One list per Member; absorbs the old fixed website/social/other-contact fields. `phone` and `discord` remain first-class fields, not Contacts.
@@ -50,12 +50,12 @@ _Avoid_: treating the pair as duplicates; "Discord event" unqualified.
 
 **Guild** (hub):
 A member-run interest group within the makerspace (woodshop, blacksmithing, etc.), with leads, staff, and a public page. The real `membership.Guild`.
-_Avoid_: using bare "guild" for a class catalog category — that is a **Guild Type** (see below).
+_Avoid_: using bare "guild" for a class catalog category — that is a **Class Type** (see below).
 
 **Private guild** (removed concept):
 There is no such thing — every active Guild is visible on every surface (hub, public guilds site, Discord). The `is_public` flag was stripped in v22 as unused (0 of 15 guilds ever set it); "hide a guild" is `is_active` off, which removes it everywhere.
 _Avoid_: private guild, hidden guild, gating anything on guild visibility.
 
-**Guild Type**:
-The catalog category a class belongs to (the `classes.Category` model). User-facing copy calls it a "Guild Type" — not "category" or bare "Guild". A Guild Type may link to a hub Guild to route a submitted class's approval to that Guild's Lead, but a Guild Type (catalog category) and a Guild (member group) are distinct.
-_Avoid_: category (in user-facing copy), class type, bare "guild".
+**Class Type**:
+The catalog category a class belongs to (the `classes.Category` model). User-facing copy calls it a "Class Type" — not "category" or bare "Guild". A Class Type may link to a hub Guild to route a submitted class's approval to that Guild's Lead, but a Class Type (catalog category) and a Guild (member group) are distinct.
+_Avoid_: category (in user-facing copy), Guild Type (the name until October 2026), bare "guild".

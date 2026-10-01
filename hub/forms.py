@@ -1367,7 +1367,7 @@ class CalendarFeedForm(forms.ModelForm):
         model = CalendarFeed
         fields = ["name", "ical_url", "color"]
         widgets = {
-            "name": forms.TextInput(attrs={"placeholder": "e.g. Workshops"}),
+            "name": forms.TextInput(attrs={"placeholder": "e.g. Classes"}),
             "ical_url": forms.URLInput(attrs={"placeholder": "https://calendar.google.com/calendar/ical/..."}),
             "color": forms.TextInput(attrs={"type": "color"}),
         }

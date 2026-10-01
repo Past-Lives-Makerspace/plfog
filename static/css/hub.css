@@ -149,7 +149,7 @@ img {
     --pl-lifecycle-live: var(--color-success);
     --pl-lifecycle-cancelled: var(--color-error);
     --pl-lifecycle-live-contrast: var(--color-navy);
-    /* The guild's share of the money split (Host a Workshop): the live green with
+    /* The guild's share of the money split (Host a Class): the live green with
        navy text on Obsidian; the light block flips the text to cream over its
        darker green. Gold / blue / green, one triad in both themes. */
     --pl-split-guild-bg: var(--pl-lifecycle-live);
@@ -2886,7 +2886,7 @@ a:hover { color: var(--hub-link-hover); }
 
 /* ========================================
    Public Top Bar (anonymous visitors)
-   Used on Classes & Workshops, register, etc. when no user is logged in.
+   Used on Classes, register, etc. when no user is logged in.
    ======================================== */
 .pl-public-topbar {
     position: sticky;
@@ -7302,8 +7302,8 @@ mark { background: color-mix(in srgb, var(--color-tuscan-yellow) 30%, transparen
     }
 }
 
-/* ── Host a Workshop (.pl-teach-*) ──────────────────────────────────────
-   The page inviting members to host a workshop. One centered column of
+/* ── Host a Class (.pl-teach-*) ──────────────────────────────────────
+   The page inviting members to host a class. One centered column of
    hub-cards: a state banner, a gradient hero, a feature grid, a live catalog
    card, the steps, the asks, the questions, the guide, and the interest card.
    The steps, asks and questions are admin-edited rich text (or older Markdown)

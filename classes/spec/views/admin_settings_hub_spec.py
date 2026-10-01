@@ -38,10 +38,10 @@ def describe_admin_settings_hub():
         assert "Liability text, photo release text, and reminder timing." in content
         assert "Teaching Marketing Page</h3>" in content
         assert (
-            "The page a member sees under Host a Workshop until an admin says yes. Every word of it, plus the money split."
+            "The page a member sees under Host a Class until an admin says yes. Every word of it, plus the money split."
             in content
         )
-        assert "Host a Workshop</h3>" not in content
+        assert "Host a Class</h3>" not in content
         waivers_tile = content.split("Waivers &amp; Reminders</h3>")[0].rsplit("<a ", 1)[1]
         assert reverse("classes:admin_settings") in waivers_tile
         teaching_tile = content.split("Teaching Marketing Page</h3>")[0].rsplit("<a ", 1)[1]

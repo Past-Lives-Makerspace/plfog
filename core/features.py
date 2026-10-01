@@ -81,9 +81,9 @@ FEATURES: list[Feature] = [
     ),
     Feature(
         key="teach",
-        name="Host a Workshop",
+        name="Host a Class",
         off_description=(
-            "Takes the Host a Workshop invitation out of the sidebar for members who cannot teach "
+            "Takes the Host a Class invitation out of the sidebar for members who cannot teach "
             "yet. Instructors keep their Teaching entry either way."
         ),
     ),

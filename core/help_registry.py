@@ -55,7 +55,7 @@ HELP_KEYS: dict[str, HelpKeyEntry] = {
         "anchor": "teach-create-class",
     },
     "teach.become-instructor": {
-        "title": "Host a workshop",
+        "title": "Host a class",
         "short_text": (
             "Tell us what you would like to host and an admin reads every note. "
             "Once they say yes the teaching portal opens; every class is still reviewed before it publishes."
@@ -669,9 +669,7 @@ HELP_KEYS: dict[str, HelpKeyEntry] = {
     # exists, so url_for degrades to /help/.
     "catalog.filter": {
         "title": "Filter the catalog",
-        "short_text": (
-            "Every class and workshop lives here. Filter by guild or date, then open one to see the details."
-        ),
+        "short_text": ("Every class lives here. Filter by guild or date, then open one to see the details."),
         "article_slug": None,
         "anchor": None,
     },

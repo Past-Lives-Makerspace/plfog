@@ -218,7 +218,7 @@ def _event_slides(config: SiteConfiguration, default: int) -> list[SignageSlideV
 
 
 def _class_slides(config: SiteConfiguration, default: int) -> list[SignageSlideVM]:
-    """One slide per class or workshop starting in the next :data:`SIGNAGE_CLASS_DAYS` days.
+    """One slide per class starting in the next :data:`SIGNAGE_CLASS_DAYS` days.
 
     ``upcoming_public()`` already enforces published + non-private + the demo gate, so a
     private or draft class can never reach a wall. A multi-session class contributes one
@@ -447,9 +447,9 @@ def _directory_slide(config: SiteConfiguration, default: int) -> list[SignageSli
 
 
 def _teach_slide(config: SiteConfiguration, default: int) -> list[SignageSlideVM]:
-    """The Host a Workshop invitation, in the copy admins already edit.
+    """The Host a Class invitation, in the copy admins already edit.
 
-    Reuses the Host a Workshop page's own CTA fields (falling back to its title/lead) so
+    Reuses the Host a Class page's own CTA fields (falling back to its title/lead) so
     there is no second place to keep the same sentence current. Empty when an admin has
     blanked both pairs.
     """
@@ -479,7 +479,7 @@ def _tour_slide(config: SiteConfiguration, default: int) -> list[SignageSlideVM]
 
     The only generated slide whose URL is not an internal ``reverse()``: tours are booked on
     the marketing site, so the destination is an admin-editable field rather than a constant.
-    Empty when an admin has blanked it, the same way a blanked Host a Workshop CTA drops out.
+    Empty when an admin has blanked it, the same way a blanked Host a Class CTA drops out.
     """
     url = config.signage_tour_url
     if not url:

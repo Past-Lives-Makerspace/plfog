@@ -1,0 +1,8 @@
+bump = "patch"
+date = "2026-10-01"
+title = "Everything is a class now"
+changes = [
+  "Host a Workshop is now Host a Class, in the sidebar, on the page itself and in the emails about hosting.",
+  "Guild Types are now Class Types, on the class catalog filter, the class editor and the admin settings.",
+  "The rest of the app says class wherever it used to say workshop.",
+]

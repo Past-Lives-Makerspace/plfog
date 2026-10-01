@@ -39,7 +39,7 @@ Start the dev server first (Docker Compose). Target the dev surfaces, **not**
 localhost (localhost is out of `ALLOWED_HOSTS` in dev):
 
 - `http://pastlives.test:8000` — members / FOG hub
-- `http://book.pastlives.test:8000` — public classes & workshops (CMS)
+- `http://book.pastlives.test:8000` — public classes (CMS)
 
 These hostnames need a hosts-file entry the WSL-side Chromium can resolve.
 Findings worth keeping become new specs in layer 1.

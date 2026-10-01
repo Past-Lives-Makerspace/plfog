@@ -1190,8 +1190,8 @@ _NEW_EVENTS: list[EventType] = [
         activity_kind=None,
     ),
     # instructor_application_received — a member asked to teach. Routed to CLASS_APPROVERS
-    # (the CMS Administrators) rather than every admin: deciding who may host a workshop is
-    # the same duty as reviewing the workshops themselves, so it belongs to the people who
+    # (the CMS Administrators) rather than every admin: deciding who may host a class is
+    # the same duty as reviewing the classes themselves, so it belongs to the people who
     # already hold that duty and sits in the same queue they already watch. This was
     # FOG_ADMINS at first, on the reasoning that a capability nobody holds would notify
     # nobody; the capability is now widely held and the queue is the CMS Administrators'
@@ -1213,7 +1213,7 @@ _NEW_EVENTS: list[EventType] = [
     # notification preferences page), so they read as the invitation, not a job.
     EventType(
         key=INSTRUCTOR_APPLICATION_APPROVED,
-        label="You can host workshops",
+        label="You can host classes",
         description="An admin said yes to a member's note about hosting and opened the teaching portal.",
         category="Classes",
         recipient=Recipients.SINGLE_USER,
@@ -1224,7 +1224,7 @@ _NEW_EVENTS: list[EventType] = [
     # with a way back to the page that explains hosting and lets them say so again.
     EventType(
         key=INSTRUCTOR_APPLICATION_DECLINED,
-        label="About hosting a workshop",
+        label="About hosting a class",
         description="An admin said not right now to a member's note about hosting, with a reason.",
         category="Classes",
         recipient=Recipients.SINGLE_USER,

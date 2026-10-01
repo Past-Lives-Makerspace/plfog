@@ -61,7 +61,7 @@ def describe_teach_entry():
         nav = _sidebar(client)
         assert 'data-nav="teach"' in nav
         label = _teach_label(nav)
-        assert ">HostaWorkshop" in label  # whitespace-squeezed "Host a Workshop"
+        assert ">HostaClass" in label  # whitespace-squeezed "Host a Class"
         assert ">Teaching" not in label
         assert reverse("classes:teach_overview") in nav
 
@@ -69,7 +69,7 @@ def describe_teach_entry():
         client.force_login(admin_user)
         nav = _sidebar(client)
         assert 'data-nav="teach"' in nav
-        assert ">HostaWorkshop" in _teach_label(nav)
+        assert ">HostaClass" in _teach_label(nav)
 
     def it_reads_teaching_and_opens_the_portal_once_unlocked(plain_user, client):
         _unlock(plain_user)
@@ -77,7 +77,7 @@ def describe_teach_entry():
         nav = _sidebar(client)
         label = _teach_label(nav)
         assert ">Teaching" in label
-        assert ">HostaWorkshop" not in label
+        assert ">HostaClass" not in label
         assert reverse("classes:teach_overview") in nav
         assert "Teach a Class" not in nav
 
@@ -201,7 +201,7 @@ def describe_context_processor():
         # The entry is present before the grant; the grant flips ``can_create_classes``
         # and the label with it.
         assert ctx["teach_nav"] == {
-            "label": "Host a Workshop",
+            "label": "Host a Class",
             "url": reverse("classes:teach_overview"),
             "is_active": True,
             # The same answer as a CSS class, so the entry can be handed to the shared
@@ -251,9 +251,9 @@ def _turn_host_a_workshop(on: bool) -> None:
 
 
 def describe_host_a_workshop_switch():
-    """Site Settings → Features → Host a Workshop.
+    """Site Settings → Features → Host a Class.
 
-    Visibility only, and only over the branch that reads "Host a Workshop". Gating the
+    Visibility only, and only over the branch that reads "Host a Class". Gating the
     instructor's branch too would lock every instructor out of the teaching portal, which is
     not what a visibility switch is for — so the switch never touches the "Teaching" label.
     """
@@ -262,7 +262,7 @@ def describe_host_a_workshop_switch():
         _turn_host_a_workshop(True)
         request = rf.get("/")
         request.user = plain_user
-        assert hub_sidebar(request)["teach_nav"]["label"] == "Host a Workshop"
+        assert hub_sidebar(request)["teach_nav"]["label"] == "Host a Class"
 
     def it_marks_the_invitation_as_the_branch_the_switch_hides(plain_user, rf):
         # The switch is applied in the sidebar template, against the ``features.teach`` state

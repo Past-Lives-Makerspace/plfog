@@ -99,11 +99,11 @@ def describe_public_list():
         assert '<div class="hs-n">1</div><div class="hs-l">Class</div>' in body
 
     def it_labels_the_grouping_as_guilds_not_categories(published_class, client):
-        # The "Categories → Guild Types" relabel: hero stat label and filter copy read "Guild Type(s)".
+        # The "Categories → Class Types" relabel: hero stat label and filter copy read "Class Type(s)".
         response = client.get(reverse("classes:public_list"))
         body = response.content.decode()
-        assert '<div class="hs-l">Guild Types</div>' in body
-        assert "All Guild Types" in body
+        assert '<div class="hs-l">Class Types</div>' in body
+        assert "All Class Types" in body
         assert '<div class="hs-l">Categories</div>' not in body
         assert "All categories" not in body
 
@@ -174,13 +174,13 @@ def describe_public_list():
 
         def it_keeps_flexible_classes_in_every_window(db, client):
             ClassOfferingFactory(
-                title="Anytime Workshop",
+                title="Anytime Class",
                 slug="anytime-workshop",
                 status=ClassOffering.Status.PUBLISHED,
                 scheduling_model=ClassOffering.SchedulingModel.FLEXIBLE,
             )
             response = client.get(reverse("classes:public_list") + "?within=30")
-            assert b"Anytime Workshop" in response.content
+            assert b"Anytime Class" in response.content
 
         def it_ignores_an_unknown_within_value(windowed_classes, client):
             response = client.get(reverse("classes:public_list") + "?within=abc")
@@ -354,7 +354,7 @@ def describe_public_list():
         category = CategoryFactory()
         instructor = InstructorFactory()
         ClassOfferingFactory(
-            title="Flexible Workshop",
+            title="Flexible Class",
             slug="flexible-workshop",
             category=category,
             instructor=instructor,
@@ -363,7 +363,7 @@ def describe_public_list():
         )
         response = client.get(reverse("classes:public_list"))
         assert response.status_code == 200
-        assert b"Flexible Workshop" in response.content
+        assert b"Flexible Class" in response.content
 
     def it_filters_to_selected_category(published_class, client):
         other_cat = CategoryFactory(name="Blacksmithing", slug="blacksmithing")
@@ -445,7 +445,7 @@ def describe_public_list():
         cat = CategoryFactory()
         inst = InstructorFactory()
         legacy_free = ClassOfferingFactory(
-            title="Free Workshop",
+            title="Free Class",
             slug="free-workshop",
             category=cat,
             instructor=inst,
@@ -453,7 +453,7 @@ def describe_public_list():
             price_cents=0,
         )
         paid = ClassOfferingFactory(
-            title="Paid Workshop",
+            title="Paid Class",
             slug="paid-workshop",
             category=cat,
             instructor=inst,
@@ -471,8 +471,8 @@ def describe_public_list():
             ends_at=timezone.now() + timedelta(days=2, hours=2),
         )
         response = client.get(reverse("classes:public_list") + "?free=1")
-        assert b"Free Workshop" in response.content
-        assert b"Paid Workshop" in response.content
+        assert b"Free Class" in response.content
+        assert b"Paid Class" in response.content
         # The changelog modal (rendered on every page) mentions "Free classes" in old
         # entries, so the assertions target the control's markup, not the bare phrase.
         assert b'name="free"' not in response.content
@@ -1049,7 +1049,7 @@ def describe_detail_hero_crop():
 
 
 def describe_all_guild_types_show():
-    """Every guild type (Category) appears in the catalog, even with zero bookable classes."""
+    """Every class type (Category) appears in the catalog, even with zero bookable classes."""
 
     def it_lists_a_guild_type_with_no_bookable_classes(db, client):
         stocked = CategoryFactory(name="Ceramics", slug="ceramics")
@@ -1081,7 +1081,7 @@ def describe_all_guild_types_show():
         assert response.context["total_categories"] == 3
 
     def it_hides_demo_guild_types_when_demo_is_off(db, client):
-        # Listing all categories must not undo the demo gate: [DEMO] guild types stay
+        # Listing all categories must not undo the demo gate: [DEMO] class types stay
         # hidden on prod when display_demo_classes is off.
         from core.models import SiteConfiguration
 

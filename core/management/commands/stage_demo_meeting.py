@@ -9,7 +9,7 @@ Builds the accounts and class content one live walkthrough needs:
   seats, and a submit-ready DRAFT.
 * ``counciltreasurer+admin@`` — holds the CLASS_APPROVER capability, which is what
   routes both the admin sign-off email and the "someone wants to host a
-  workshop" request to it. Neither follows the admin role.
+  class" request to it. Neither follows the admin role.
 * ``counciltreasurer+guildlead@`` — a plain member who leads the Cartographers
   Guild (no admin tier), so the guild-lead review stage is honestly a guild lead.
 
@@ -49,12 +49,12 @@ PACIFIC = ZoneInfo("America/Los_Angeles")
 
 #: Every staged class lives under this category so the guild-lead review stage routes
 #: to the Cartographers Guild lead (the ``+guildlead`` persona). The row is created by
-#: staging and dropped by ``--remove``: a demo-only guild type has no business sitting
-#: in the composer's Guild Type dropdown between demos, where instructors would see it
+#: staging and dropped by ``--remove``: a demo-only class type has no business sitting
+#: in the composer's Class Type dropdown between demos, where instructors would see it
 #: alongside the real guilds.
 CATEGORY_SLUG = "demo-cart-category"
 CATEGORY_NAME = "[DEMO] Cartography"
-#: Sorts below every real guild type (they all sit at 0 and order by name).
+#: Sorts below every real class type (they all sit at 0 and order by name).
 CATEGORY_SORT_ORDER = 900
 GUILD_SLUG = "cartographers-guild"
 
@@ -172,7 +172,7 @@ class Command(BaseCommand):
         self.stdout.write(self.style.SUCCESS("Removed the staged classes."))
 
     def _remove_category(self) -> None:
-        """Drop the demo guild type, unless something else was filed under it.
+        """Drop the demo class type, unless something else was filed under it.
 
         A class outside ``STAGED_SLUGS`` pointing here means someone re-filed real
         content into it; ``category`` is PROTECT, so deleting would raise anyway.
@@ -183,10 +183,10 @@ class Command(BaseCommand):
             return
         holdouts = category.classes.count()
         if holdouts:
-            self.stdout.write(f"  kept guild type {category.name}: {holdouts} class(es) still filed under it")
+            self.stdout.write(f"  kept class type {category.name}: {holdouts} class(es) still filed under it")
             return
         category.delete()
-        self.stdout.write(f"  removed guild type {CATEGORY_NAME}")
+        self.stdout.write(f"  removed class type {CATEGORY_NAME}")
 
     # --- staging ------------------------------------------------------------
 
@@ -201,7 +201,7 @@ class Command(BaseCommand):
                 defaults={"name": CATEGORY_NAME, "sort_order": CATEGORY_SORT_ORDER, "guild": guild},
             )
             if created:
-                self.stdout.write(f"  created guild type {category.name}")
+                self.stdout.write(f"  created class type {category.name}")
 
             member = self._reset_member_persona()
             instructor = self._ensure_instructor_persona(guild)

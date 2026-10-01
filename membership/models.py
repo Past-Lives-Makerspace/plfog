@@ -3003,7 +3003,7 @@ class AdminCapability(models.Model):
     DESCRIPTIONS: dict[str, str] = {
         Capability.CLASS_APPROVER: (
             "Approves and publishes classes for every guild. Gets the class-review emails, and the "
-            "requests from members who want to host a workshop."
+            "requests from members who want to host a class."
         ),
         Capability.SPACE_APPROVER: "Reviews space and cubby requests, and gets those request emails.",
         Capability.DISCOUNT_APPROVER: "Approves discount codes, and gets discount-request emails.",
@@ -3500,7 +3500,7 @@ class LeadershipPage(models.Model):
     """Singleton (pk=1) wording for the Leadership Directory page: the hero above the tabs.
 
     The page title and lead line, with their defaults here and in the migration so no site
-    renders a blank hero (the Host a Workshop precedent). Load the one row via :meth:`load`,
+    renders a blank hero (the Host a Class precedent). Load the one row via :meth:`load`,
     exactly like ``OrgInfoPage``. Who is on the page is not here: each :class:`LeadershipTab`
     carries its own title and intro, its people are :class:`LeadershipListing` rows, and the
     Guild Leads tab is read from each guild.

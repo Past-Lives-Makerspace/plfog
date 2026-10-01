@@ -777,7 +777,7 @@ def describe_resubmitting_after_a_lead_approved():
 
     def describe_when_the_class_moved_to_another_guild():
         def it_asks_the_new_guild_and_never_credits_the_old_one(db, settings, admin_user):
-            """The instructor can change "Guild Type" on their own composer while a bounced
+            """The instructor can change "Class Type" on their own composer while a bounced
             class is a draft, so guild 1's approval must not stand in for guild 2's.
             """
             from membership.models import Member

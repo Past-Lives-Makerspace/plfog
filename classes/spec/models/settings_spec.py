@@ -1,4 +1,4 @@
-"""BDD specs for ClassSettings singleton, including the Host a Workshop page's copy."""
+"""BDD specs for ClassSettings singleton, including the Host a Class page's copy."""
 
 from __future__ import annotations
 
@@ -60,13 +60,13 @@ def describe_ClassSettings():
         assert str(ClassSettings.load()) == "Class Settings"
 
     def describe_teach_page_defaults():
-        """A fresh row carries the whole Host a Workshop page; no seed command, no data migration."""
+        """A fresh row carries the whole Host a Class page; no seed command, no data migration."""
 
         def it_carries_the_hero_and_bottom_card_copy(db):
             settings = ClassSettings.load()
             assert settings.teach_page_title == DEFAULT_TEACH_PAGE_TITLE == "Share What You Love"
             assert settings.teach_page_lead == DEFAULT_TEACH_PAGE_LEAD
-            assert settings.teach_page_lead.startswith("Run a workshop or a class for the people already in the shop.")
+            assert settings.teach_page_lead.startswith("Run a class for the people already in the shop.")
             assert settings.teach_page_cta_title == DEFAULT_TEACH_PAGE_CTA_TITLE == "Got Something to Share?"
             assert settings.teach_page_cta_line == DEFAULT_TEACH_PAGE_CTA_LINE
             assert settings.teach_page_cta_line == "Tell us what you have in mind and an admin will take it from there."
@@ -97,7 +97,7 @@ def describe_ClassSettings():
             assert cards[0] == FeatureCard(
                 title="A Page Worth Sharing",
                 description=(
-                    "Your workshop gets its own page with a wide banner photo, a gallery, the schedule, "
+                    "Your class gets its own page with a wide banner photo, a gallery, the schedule, "
                     "your bio, and a sign up panel that follows the reader down the page."
                 ),
                 icon="page",
