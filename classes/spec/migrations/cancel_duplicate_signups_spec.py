@@ -19,6 +19,7 @@ from typing import Any
 import pytest
 from django.db import connection
 from django.db.migrations.executor import MigrationExecutor
+from django.db.migrations.loader import MigrationLoader
 from django.utils import timezone
 
 from classes.factories import ClassOfferingFactory
@@ -26,7 +27,10 @@ from classes.factories import ClassOfferingFactory
 _APP = "classes"
 _BEFORE = "0064_video_provider_help_text"
 _AFTER = "0065_cancel_duplicate_signups"
-_HEAD = "0066_registration_uq_registration_seat_email"
+# The real head, read from the migration files (no connection: nothing may touch the DB at
+# import): a name pinned here goes stale with the next migration that adds a ClassOffering
+# column, and the factory in the following test then writes to a table that lacks it.
+_HEAD = MigrationLoader(None).graph.leaf_nodes(_APP)[0][1]
 
 _migration = import_module(f"classes.migrations.{_AFTER}")
 MARKER = _migration.MARKER
