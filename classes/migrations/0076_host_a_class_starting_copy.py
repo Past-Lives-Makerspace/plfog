@@ -5,6 +5,10 @@ starting copy, word for word, is rewritten. Reversing puts the old copy back the
 The strings are frozen here so later edits to the model defaults cannot change history.
 """
 
+from __future__ import annotations
+
+from typing import Any
+
 from django.db import migrations
 
 #: field name -> (old starting copy, new starting copy)
@@ -64,17 +68,17 @@ COPY_FIELDS = {
 }
 
 
-def _swap(apps, frm: int, to: int) -> None:
+def _swap(apps: Any, frm: int, to: int) -> None:
     ClassSettings = apps.get_model("classes", "ClassSettings")
     for field, texts in COPY_FIELDS.items():
         ClassSettings.objects.filter(**{field: texts[frm]}).update(**{field: texts[to]})
 
 
-def forwards(apps, schema_editor):
+def forwards(apps: Any, schema_editor: Any) -> None:
     _swap(apps, 0, 1)
 
 
-def backwards(apps, schema_editor):
+def backwards(apps: Any, schema_editor: Any) -> None:
     _swap(apps, 1, 0)
 
 

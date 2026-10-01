@@ -7,6 +7,7 @@ against the 0075 state, and each test restores the schema to head in a ``finally
 from __future__ import annotations
 
 from importlib import import_module
+from typing import Any
 
 import pytest
 from django.db import connection
@@ -27,13 +28,13 @@ CUSTOM = {
 }
 
 
-def _migrate(target: str):
+def _migrate(target: str) -> Any:
     executor = MigrationExecutor(connection)
     executor.migrate([(_APP, target)])
     return executor.loader.project_state([(_APP, target)]).apps
 
 
-def _make_settings(apps, **kwargs):
+def _make_settings(apps: Any, **kwargs: Any) -> None:
     ClassSettings = apps.get_model(_APP, "ClassSettings")
     ClassSettings.objects.update_or_create(
         pk=1,
@@ -41,7 +42,7 @@ def _make_settings(apps, **kwargs):
     )
 
 
-def _settings(apps):
+def _settings(apps: Any) -> Any:
     return apps.get_model(_APP, "ClassSettings").objects.get(pk=1)
 
 
