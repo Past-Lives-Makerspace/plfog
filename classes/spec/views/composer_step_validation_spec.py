@@ -53,9 +53,9 @@ REQUIRED_BY_STEP = {
     5: set(),
     6: set(),
 }
-# The admin's composer renders one rule more: the member discount is the admin's to set (#369),
-# required on their form and a read-only note on the instructor's.
-ADMIN_REQUIRED_BY_STEP = {**REQUIRED_BY_STEP, 3: REQUIRED_BY_STEP[3] | {"member_discount_pct"}}
+# The admin's composer adds only optional fields (instructor, is_private, private_for_name),
+# so it renders the same required set as the instructor's.
+ADMIN_REQUIRED_BY_STEP = REQUIRED_BY_STEP
 VOID_TAGS = {"input", "img", "br", "hr", "link", "meta", "source", "wbr"}
 CONTROL_TAGS = {"input", "select", "textarea"}
 # The gallery minimum (#424): the hook the client counts cards inside, the refusal it shows
@@ -261,12 +261,11 @@ def describe_required_parity_between_the_panes_and_the_form():
             assert set().union(*rendered_by_step.values()) == server, mode
             assert rendered_by_step == composer.required_by_step, mode
 
-    def it_requires_the_same_things_of_both_composers_but_the_member_discount():
-        # The admin only fields instructor, is_private and private_for_name are all optional;
-        # member_discount_pct is the one the admin's form requires and the instructor's lacks
-        # (#369). Otherwise the client enforces one rule set whichever portal rendered the page.
+    def it_requires_the_same_things_of_both_composers():
+        # The admin only fields instructor, is_private and private_for_name are all optional, so
+        # the client enforces one rule set whichever portal rendered the page.
         admin, teach = _server_required(ClassOfferingForm()), _server_required(TeachClassOfferingForm())
-        assert admin - teach == {"member_discount_pct"} and teach <= admin
+        assert admin == teach
         assert admin == set().union(*ADMIN_REQUIRED_BY_STEP.values())
         assert teach == set().union(*REQUIRED_BY_STEP.values())
 
@@ -319,20 +318,14 @@ def describe_what_next_never_blocks_on():
                 # on a type=date control) from holding Next on a step no save could refuse.
                 assert "name" not in helper.attrs, (mode, control_id)
 
-    def it_leaves_the_price_floor_and_the_discount_cap_to_the_server(composer):
-        # Deliberate: the $1.00 floor and the 100% cap live in _PricingRulesMixin.clean_*, not in
-        # the rendered min/max, so the client refuses only what every browser can read from the
+    def it_leaves_the_price_floor_to_the_server(composer):
+        # Deliberate: the $1.00 floor lives in _PricingRulesMixin.clean_price_cents, not in the
+        # rendered min, so the client refuses only what every browser can read from the
         # attributes (a blank) and the server keeps the last word on the amount.
         for mode, html in composer.pages.items():
             controls = _parse(html).controls
             price = _by_name(controls[1], "price_cents")
             assert price.required and price.attrs.get("min") == "0" and price.attrs.get("step") == "0.01", mode
-            if composer.form_class is not ClassOfferingForm:
-                # The instructor's composer has no discount control to gate (#369).
-                assert all(c.name != "member_discount_pct" for c in controls[3]), mode
-                continue
-            discount = _by_name(controls[3], "member_discount_pct")
-            assert discount.required and discount.attrs.get("min") == "0" and "max" not in discount.attrs, mode
 
     def it_never_refuses_a_youtube_link_typed_without_a_scheme(composer):
         # <input type="url"> demands a scheme; the server does not. forms.URLField normalises

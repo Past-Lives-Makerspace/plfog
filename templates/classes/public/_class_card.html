@@ -103,8 +103,6 @@ which the composer's card preview frames include on their own.
         {% else %}
           <span class="cls-price">{{ offering.price_cents|cents_as_price }}</span>
         {% endif %}
-        {% member_price_cents offering.sale_price_cents offering.member_discount_pct as mp %}
-        {% if mp %}<span class="cls-price-member">({{ mp|cents_as_price }} for Past Lives Members)</span>{% endif %}
       </div>
       {% if group.is_multi %}
         <span class="cls-spots cls-spots--dates">{% if offering.scheduling_type == 'series_package' %}{{ group.date_count }} option{{ group.date_count|pluralize }}{% else %}{{ group.date_count }} dates{% endif %}</span>

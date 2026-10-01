@@ -74,9 +74,6 @@
       <section class="pl-flyer__block">
         <h2 class="pl-flyer__block-title">Price</h2>
         <p class="pl-flyer__line"><strong>{{ offering.price_cents|cents_as_price }}</strong></p>
-        {% if offering.member_price_cents %}
-          <p class="pl-flyer__line">{{ offering.member_price_cents|cents_as_price }} for Past Lives members</p>
-        {% endif %}
       </section>
 
       {# 6 · Where — the studio venue #}

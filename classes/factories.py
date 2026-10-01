@@ -98,7 +98,6 @@ class ClassOfferingFactory(DjangoModelFactory):
     instructor = factory.SubFactory(InstructorFactory)
     description = "A hands-on class."
     price_cents = 5000
-    member_discount_pct = 10
     capacity = 6
     status = models.ClassOffering.Status.DRAFT
     scheduling_type = models.ClassOffering.SchedulingType.SINGLE_SESSION

@@ -89,7 +89,7 @@ A Page Worth Sharing: Your workshop gets its own page with a wide banner photo, 
 Your Words, Your Photos: Write it the way you would say it. Add a banner and as many gallery shots as you like, and choose which part of each photo shows.
 Sign Ups That Run Themselves: When it fills up, people join a waitlist. The moment a seat opens, the next person is offered it and held for three days.
 Everyone On One Screen: See who is coming, mark someone as paid, move a person to another date, and email the whole group without leaving the page.
-Paid Or On Sale: Set a price with a member discount, or put it on sale and the new price shows up everywhere on its own.
+Paid Or On Sale: Set a price, or put it on sale and the new price shows up everywhere on its own.
 Run It Again In One Click: Went well? Make a copy with new dates and keep everything else exactly as it was."""
 
 # The three prose sections are stored as the HTML the rich editor saves (what Quill
@@ -122,8 +122,7 @@ DEFAULT_TEACH_PAGE_FAQ = (
     "<h3>How Long Until I Hear Back?</h3>"
     "<p>An admin usually gets to it within a week. You can check this page any time to see where things stand.</p>"
     "<h3>Can I Charge for It?</h3>"
-    "<p>Yes. You set the price and an optional member discount when you build the page. Every class costs at least "
-    "$1.00.</p>"
+    "<p>Yes. You set the price when you build the page. Every class costs at least $1.00.</p>"
     "<h3>What If Nobody Signs Up?</h3>"
     "<p>You can cancel from your dashboard and everyone who signed up is told automatically. Nothing is stuck.</p>"
 )
@@ -903,7 +902,6 @@ class ClassOffering(HeroCropMixin, models.Model):
     age_minimum = models.PositiveIntegerField(null=True, blank=True, help_text="Minimum age.")
     age_guardian_note = models.TextField(blank=True, help_text="Notes about minors / guardians.")
     price_cents = models.PositiveIntegerField(help_text="Full price in cents.")
-    member_discount_pct = models.PositiveIntegerField(default=10, help_text="Auto-applied for verified members.")
     sale_enabled = models.BooleanField(
         default=False, help_text="When on, this class shows a sale banner and charges the sale price."
     )
@@ -2307,17 +2305,6 @@ class ClassOffering(HeroCropMixin, models.Model):
         """
         if self.is_flexible:
             self.sessions.all().delete()
-
-    @property
-    def member_price_cents(self) -> int | None:
-        """Discounted price in cents for verified members.
-
-        Returns ``None`` when this offering has no member discount, so callers
-        can treat ``None`` as "no separate member price to show".
-        """
-        if not self.member_discount_pct:
-            return None
-        return int(self.price_cents * (100 - self.member_discount_pct) / 100)
 
     @property
     def sale_is_active(self) -> bool:
@@ -4471,17 +4458,15 @@ class Registration(models.Model):
     def compute_promote_price_cents(self) -> int:
         """What this registrant owes if promoted now — mirrors the register form's price engine.
 
-        Uses STORED state (the offering's sale price, this registration's linked
-        member, and any discount code stored at waitlist join): sale price first,
-        then the member percentage, then the code — unless an active sale blocks
-        codes (``sale_allow_discount_codes`` off), in which case the stored code is
-        ignored exactly as the form would have refused it. The code is applied as
-        stored, with no re-validation — the person entered it in good faith.
+        Uses STORED state (the offering's sale price and any discount code stored
+        at waitlist join): sale price first, then the code — unless an active sale
+        blocks codes (``sale_allow_discount_codes`` off), in which case the stored
+        code is ignored exactly as the form would have refused it. The code is
+        applied as stored, with no re-validation — the person entered it in good
+        faith. The linked member never changes the price.
         """
         offering = self.class_offering
         price = offering.sale_price_cents
-        if self.member is not None and offering.member_discount_pct:
-            price = int(price * (100 - offering.member_discount_pct) / 100)
         sale_blocks_codes = offering.sale_is_active and not offering.sale_allow_discount_codes
         if self.discount_code is not None and not sale_blocks_codes:
             price = self.discount_code.apply_to(price)
@@ -5201,9 +5186,6 @@ class ClassSettings(models.Model):
     liability_waiver_text = models.TextField(help_text="Full liability waiver text shown to all registrants.")
     model_release_waiver_text = models.TextField(
         help_text="Full model-release waiver text shown when a class requires it."
-    )
-    default_member_discount_pct = models.PositiveIntegerField(
-        default=10, help_text="Percent discount auto-applied to registrations from verified Members (0 = no discount)."
     )
     reminder_hours_before = models.PositiveIntegerField(
         default=24, help_text="Hours before a class session to send the reminder email."

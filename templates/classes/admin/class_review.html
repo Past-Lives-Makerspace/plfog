@@ -31,7 +31,6 @@
   <h2 style="font-size:1.1rem;margin:1.5rem 0 0.5rem;">Class Details</h2>
   <dl class="pl-review-details">
     <dt>Price</dt><dd>{{ offering.price_cents|cents_as_price }}</dd>
-    {% if offering.member_discount_pct %}<dt>Member discount</dt><dd>{{ offering.member_discount_pct }}%</dd>{% endif %}
     <dt>Capacity</dt><dd>{% if offering.is_flexible %}No seat cap{% else %}{{ offering.capacity }}{% endif %}</dd>
     <dt>Sessions</dt>
     <dd>

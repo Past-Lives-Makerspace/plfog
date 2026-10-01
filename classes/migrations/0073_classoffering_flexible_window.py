@@ -5,7 +5,7 @@ from django.db import migrations, models
 
 class Migration(migrations.Migration):
     dependencies = [
-        ("classes", "0071_classoffering_hero_cropped"),
+        ("classes", "0072_remove_member_discount"),
     ]
 
     operations = [

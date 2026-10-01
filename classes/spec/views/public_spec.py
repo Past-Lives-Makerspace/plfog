@@ -420,38 +420,24 @@ def describe_public_list():
         assert b"Intro to Wheel Throwing" not in response.content
         assert b"Cheap Class" in response.content
 
-    def it_filters_members_only(db, client):
+    def it_ignores_the_retired_members_only_filter(db, client):
+        # The automatic member discount is gone, so a bookmarked ``?members_only=1`` narrows
+        # nothing: every browsable class lists, and the form has no control for it.
         cat = CategoryFactory()
         inst = InstructorFactory()
-        members_only = ClassOfferingFactory(
-            title="Members Class",
-            slug="members-class",
-            category=cat,
-            instructor=inst,
-            status=ClassOffering.Status.PUBLISHED,
-            member_discount_pct=15,
-        )
-        no_discount = ClassOfferingFactory(
-            title="Open Class",
-            slug="open-class",
-            category=cat,
-            instructor=inst,
-            status=ClassOffering.Status.PUBLISHED,
-            member_discount_pct=0,
-        )
-        ClassSessionFactory(
-            class_offering=members_only,
-            starts_at=timezone.now() + timedelta(days=1),
-            ends_at=timezone.now() + timedelta(days=1, hours=2),
-        )
-        ClassSessionFactory(
-            class_offering=no_discount,
-            starts_at=timezone.now() + timedelta(days=2),
-            ends_at=timezone.now() + timedelta(days=2, hours=2),
-        )
+        for title, slug, days in (("Anvil Class", "anvil-class", 1), ("Bellows Class", "bellows-class", 2)):
+            offering = ClassOfferingFactory(
+                title=title, slug=slug, category=cat, instructor=inst, status=ClassOffering.Status.PUBLISHED
+            )
+            ClassSessionFactory(
+                class_offering=offering,
+                starts_at=timezone.now() + timedelta(days=days),
+                ends_at=timezone.now() + timedelta(days=days, hours=2),
+            )
         response = client.get(reverse("classes:public_list") + "?members_only=1")
-        assert b"Members Class" in response.content
-        assert b"Open Class" not in response.content
+        assert b"Anvil Class" in response.content
+        assert b"Bellows Class" in response.content
+        assert b'name="members_only"' not in response.content
 
     def it_ignores_the_retired_free_filter(db, client):
         # #389: every class has a price now, so ``?free=1`` filters nothing and the
@@ -1381,3 +1367,43 @@ def describe_the_rail_and_the_card_of_a_flexible_class():
         fixed_row = next(row for row in rows[1:] if "grouped-forge-1" in row)
         assert 'class="cls-spots' not in flexible_row
         assert 'class="cls-spots ok"' in fixed_row
+
+def describe_sale_markup():
+    """The Sale feature's public markup: badge and struck price on the card, banner and struck rail price."""
+
+    @pytest.fixture
+    def sale_class(published_class):
+        published_class.price_cents = 5000
+        published_class.sale_enabled = True
+        published_class.sale_kind = ClassOffering.SaleKind.PERCENT
+        published_class.sale_percent = 20  # $50 -> $40
+        published_class.sale_banner_text = "Summer blowout!"
+        published_class.save()
+        return published_class
+
+    def it_renders_the_sale_badge_and_struck_price_on_the_catalog_card(sale_class, client):
+        body = client.get(reverse("classes:public_list")).content.decode()
+        assert '<span class="badge sale">Sale</span>' in body
+        assert '<span class="cls-price--was">$50</span>' in body
+        assert '<span class="cls-price">$40</span>' in body
+
+    def it_renders_the_sale_banner_and_struck_rail_price_on_the_detail_page(sale_class, client):
+        url = reverse("classes:public_class_detail", kwargs={"slug": sale_class.slug})
+        body = client.get(url).content.decode()
+        assert 'class="cp-detail__sale-banner"' in body
+        assert "Summer blowout!" in body
+        assert "20% off" in body
+        assert '<div class="cp-detail__price--was">$50</div>' in body
+        assert '<div class="cp-detail__price">$40</div>' in body
+
+    def it_renders_the_struck_original_in_the_register_summary(sale_class, client):
+        body = client.get(reverse("classes:register", kwargs={"slug": sale_class.slug})).content.decode()
+        assert '<span class="reg-was">$50</span> $40' in body
+
+    def it_hides_all_sale_markup_when_no_sale_is_active(published_class, client):
+        body = client.get(reverse("classes:public_list")).content.decode()
+        assert "badge sale" not in body
+        assert "cls-price--was" not in body
+        url = reverse("classes:public_class_detail", kwargs={"slug": published_class.slug})
+        detail = client.get(url).content.decode()
+        assert "cp-detail__sale-banner" not in detail

@@ -32,7 +32,7 @@ def describe_promote_from_waitlist():
         assert reg.confirmed_at is not None
 
     def it_stamps_the_base_price(db):
-        reg = _waitlisted(class_offering=ClassOfferingFactory(price_cents=5000, member_discount_pct=0))
+        reg = _waitlisted(class_offering=ClassOfferingFactory(price_cents=5000))
         reg.promote_from_waitlist(actor=None)
         reg.refresh_from_db()
         assert reg.payment_due_cents == 5000
@@ -40,7 +40,6 @@ def describe_promote_from_waitlist():
     def it_stamps_the_sale_price(db):
         offering = ClassOfferingFactory(
             price_cents=5000,
-            member_discount_pct=0,
             sale_enabled=True,
             sale_kind=ClassOffering.SaleKind.PERCENT,
             sale_percent=20,
@@ -50,15 +49,16 @@ def describe_promote_from_waitlist():
         reg.refresh_from_db()
         assert reg.payment_due_cents == 4000
 
-    def it_applies_the_member_discount_for_a_linked_member(db):
-        offering = ClassOfferingFactory(price_cents=5000, member_discount_pct=10)
+    def it_stamps_the_full_price_for_a_linked_member(db):
+        # The linked member row never changes the price; a member types a code instead.
+        offering = ClassOfferingFactory(price_cents=5000)
         reg = _waitlisted(class_offering=offering, member=_member())
         reg.promote_from_waitlist(actor=None)
         reg.refresh_from_db()
-        assert reg.payment_due_cents == 4500
+        assert reg.payment_due_cents == 5000
 
     def it_applies_a_stored_discount_code(db):
-        offering = ClassOfferingFactory(price_cents=5000, member_discount_pct=0)
+        offering = ClassOfferingFactory(price_cents=5000)
         code = DiscountCodeFactory(discount_pct=50)
         reg = _waitlisted(class_offering=offering, discount_code=code)
         reg.promote_from_waitlist(actor=None)
@@ -66,13 +66,13 @@ def describe_promote_from_waitlist():
         assert reg.payment_due_cents == 2500
 
     def it_stamps_zero_for_a_free_class(db):
-        reg = _waitlisted(class_offering=ClassOfferingFactory(price_cents=0, member_discount_pct=0))
+        reg = _waitlisted(class_offering=ClassOfferingFactory(price_cents=0))
         reg.promote_from_waitlist(actor=None)
         reg.refresh_from_db()
         assert reg.payment_due_cents == 0
 
     def it_logs_waitlist_promoted_not_registration_confirmed(db, admin_user):
-        reg = _waitlisted(class_offering=ClassOfferingFactory(price_cents=5000, member_discount_pct=0))
+        reg = _waitlisted(class_offering=ClassOfferingFactory(price_cents=5000))
         reg.promote_from_waitlist(actor=admin_user)
         promoted = CmsActivity.objects.filter(kind=CmsActivity.Kind.WAITLIST_PROMOTED, registration=reg)
         assert promoted.count() == 1
@@ -117,7 +117,7 @@ def describe_promote_from_waitlist():
     def it_guards_on_a_locked_refetch_so_concurrent_promotes_cannot_both_pass(db):
         # A second staff member's stale in-memory copy still reads WAITLISTED;
         # the select_for_update refetch inside promote sees the flipped row.
-        reg = _waitlisted(class_offering=ClassOfferingFactory(price_cents=5000, member_discount_pct=0))
+        reg = _waitlisted(class_offering=ClassOfferingFactory(price_cents=5000))
         stale = Registration.objects.get(pk=reg.pk)
         reg.promote_from_waitlist(actor=None)
         assert stale.status == Registration.Status.WAITLISTED  # the stale copy would pass an in-memory guard
@@ -277,10 +277,9 @@ def describe_remove_by_staff():
 
 
 def describe_compute_promote_price_cents():
-    def it_orders_sale_then_member_then_code(db):
+    def it_orders_sale_then_code_with_no_member_step(db):
         offering = ClassOfferingFactory(
             price_cents=10000,
-            member_discount_pct=10,
             sale_enabled=True,
             sale_kind=ClassOffering.SaleKind.PERCENT,
             sale_percent=20,
@@ -288,13 +287,12 @@ def describe_compute_promote_price_cents():
         )
         code = DiscountCodeFactory(discount_pct=50)
         reg = _waitlisted(class_offering=offering, member=_member(), discount_code=code)
-        # 10000 → sale 20% → 8000 → member 10% → 7200 → code 50% → 3600
-        assert reg.compute_promote_price_cents() == 3600
+        # 10000 → sale 20% → 8000 → code 50% → 4000; the linked member changes nothing
+        assert reg.compute_promote_price_cents() == 4000
 
     def it_ignores_the_stored_code_when_the_sale_blocks_codes(db):
         offering = ClassOfferingFactory(
             price_cents=10000,
-            member_discount_pct=0,
             sale_enabled=True,
             sale_kind=ClassOffering.SaleKind.PERCENT,
             sale_percent=20,
@@ -305,13 +303,13 @@ def describe_compute_promote_price_cents():
         assert reg.compute_promote_price_cents() == 8000
 
     def it_returns_zero_for_a_hundred_percent_code_with_no_blocking_sale(db):
-        offering = ClassOfferingFactory(price_cents=5000, member_discount_pct=0)
+        offering = ClassOfferingFactory(price_cents=5000)
         code = DiscountCodeFactory(discount_pct=100)
         reg = _waitlisted(class_offering=offering, discount_code=code)
         assert reg.compute_promote_price_cents() == 0
 
     def it_floors_at_zero_for_a_fixed_code_bigger_than_the_price(db):
-        offering = ClassOfferingFactory(price_cents=1000, member_discount_pct=0)
+        offering = ClassOfferingFactory(price_cents=1000)
         code = DiscountCodeFactory(discount_pct=None, discount_fixed_cents=5000)
         reg = _waitlisted(class_offering=offering, discount_code=code)
         assert reg.compute_promote_price_cents() == 0

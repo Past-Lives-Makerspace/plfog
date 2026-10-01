@@ -8,6 +8,6 @@
 {% review_pipeline offering %}
 {% include "membership/emails/_button.html" with href=review_url label="Open review page" %}
 <p style="margin: 16px 0 0; font-size: 12px; color: #55697a; line-height: 1.6;">Or paste this URL into your browser:<br><span style="color: #33424f; word-break: break-all;">{{ review_url }}</span></p>
-<p style="margin: 16px 0 0; font-size: 13px; color: #55697a; line-height: 1.6;">Price {{ offering.price_cents|cents_as_price }} · Capacity {{ offering.capacity }}{% if offering.member_discount_pct %} · {{ offering.member_discount_pct }}% member discount{% endif %}</p>
+<p style="margin: 16px 0 0; font-size: 13px; color: #55697a; line-height: 1.6;">Price {{ offering.price_cents|cents_as_price }} · Capacity {{ offering.capacity }}</p>
 <p style="margin: 24px 0 0; padding-top: 16px; border-top: 1px solid rgba(13, 72, 118, 0.12); font-size: 12px; color: #55697a; line-height: 1.6;">You're getting this because your address is configured as a class reviewer at Past Lives Makerspace.</p>
 {% endblock %}

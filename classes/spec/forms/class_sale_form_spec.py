@@ -109,7 +109,7 @@ def describe_ClassSaleForm():
             # Only legacy rows are priced at $0 now, and the page never offers the modal on one; a
             # crafted POST still gets the mixin's check, surfaced at the form level because the
             # modal has no price field to hang it on.
-            zero = ClassOfferingFactory(price_cents=0, member_discount_pct=0)
+            zero = ClassOfferingFactory(price_cents=0)
             form = _form(zero, sale_kind="percent", sale_percent="20")
             assert not form.is_valid()
             assert "price_cents" not in form.errors

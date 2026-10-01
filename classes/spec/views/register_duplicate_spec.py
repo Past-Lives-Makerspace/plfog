@@ -43,7 +43,6 @@ def paid_offering(db):
         instructor=InstructorFactory(),
         status=ClassOffering.Status.PUBLISHED,
         price_cents=10000,
-        member_discount_pct=0,
         capacity=4,
     )
     ClassSessionFactory(
@@ -63,7 +62,6 @@ def free_offering(db):
         instructor=InstructorFactory(),
         status=ClassOffering.Status.PUBLISHED,
         price_cents=0,
-        member_discount_pct=0,
         capacity=4,
     )
     ClassSessionFactory(
@@ -531,7 +529,6 @@ def describe_resuming_on_a_class_with_no_seats_left():
             instructor=InstructorFactory(),
             status=ClassOffering.Status.PUBLISHED,
             price_cents=10000,
-            member_discount_pct=0,
             capacity=1,
         )
         ClassSessionFactory(

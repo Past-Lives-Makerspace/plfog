@@ -412,7 +412,6 @@ class Command(BaseCommand):
         price_cents: int,
         capacity: int,
         session_start,
-        member_discount_pct: int = 10,
         description: str = "Seeded demo class. Safe to delete via `manage.py demo_data --remove`.",
     ) -> ClassOffering:
         offering, _ = ClassOffering.objects.update_or_create(
@@ -423,7 +422,6 @@ class Command(BaseCommand):
                 "instructor": instructor,
                 "description": description,
                 "price_cents": price_cents,
-                "member_discount_pct": member_discount_pct,
                 "capacity": capacity,
                 "status": ClassOffering.Status.PUBLISHED,
                 "published_at": timezone.now(),
@@ -740,7 +738,6 @@ class Command(BaseCommand):
                 "created_by": instructor,
                 "description": DESC_PENDING,
                 "price_cents": 6500,
-                "member_discount_pct": 10,
                 "capacity": 6,
                 "status": ClassOffering.Status.PENDING,
             },

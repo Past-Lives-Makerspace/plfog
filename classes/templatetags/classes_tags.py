@@ -190,14 +190,6 @@ def initials(name: str | None) -> str:
 
 
 @register.simple_tag
-def member_price_cents(price_cents: int, discount_pct: int) -> int | None:
-    """Return the discounted member price in cents, or None if no discount."""
-    if not discount_pct:
-        return None
-    return int(int(price_cents) * (100 - int(discount_pct)) / 100)
-
-
-@register.simple_tag
 def classes_settings():
     """Load the ClassSettings singleton for use in templates."""
     from classes.models import ClassSettings

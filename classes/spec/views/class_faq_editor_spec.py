@@ -35,7 +35,6 @@ def _edit_payload(offering: ClassOffering, **faq_fields: str) -> dict:
         "category": offering.category.pk,
         "instructor": offering.instructor.pk,
         "price_cents": f"{offering.price_cents / 100:.2f}",
-        "member_discount_pct": offering.member_discount_pct,
         "capacity": offering.capacity,
         "scheduling_model": offering.scheduling_model,
         "sale_kind": "percent",

@@ -491,7 +491,6 @@ html.dark .cp-page {
 .cp-page .cls-spots--dates{color:var(--gold-text);text-transform:none;letter-spacing:0}
 .cp-page .cls-footer{display:flex;align-items:baseline;justify-content:space-between;gap:8px;margin-top:auto;padding-top:8px;border-top:1px solid var(--border)}
 .cp-page .cls-price{font-size:18px;font-weight:900;color:var(--gold-text);font-family:var(--heading)}
-.cp-page .cls-price-member{font-size:10px;color:var(--text3);margin-left:4px;font-family:var(--font);font-weight:400}
 .cp-page .cls-spots{font-size:11px;font-weight:700}
 .cp-page .cls-spots.ok{color:var(--green)}
 .cp-page .cls-spots.low{color:var(--red)}
@@ -1098,15 +1097,6 @@ a.cp-detail__cat-chip:hover { background: #f5ca6e; color: var(--color-navy); tex
   font-size: 13px;
   font-weight: 700;
   color: var(--gold-text);
-}
-.cp-detail__price-member {
-  font-size: 14px;
-  color: var(--text2);
-  font-weight: 600;
-}
-.cp-detail__price-member span {
-  color: var(--text3);
-  font-weight: 400;
 }
 .cp-detail__spots {
   padding: 12px 0 16px;
