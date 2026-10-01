@@ -1,0 +1,9 @@
+bump = "patch"
+date = "2026-09-30"
+title = "Manage Classes finds every date of a class"
+changes = [
+  "Manage Classes no longer hides a class's upcoming dates behind an old one. Search, Upcoming and Drafts now find every date.",
+  "The \"N dates\" tag on a class lists those dates one per row, so you can open or take down the exact one you mean.",
+  "Renaming one date of a class while moving it to another guild moves only that date. Its other dates stay where they were instead of landing on the wrong card in the catalog.",
+  "Class approval emails to admins now ask for \"Admin sign-off\" instead of \"executive validation\".",
+]

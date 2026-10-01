@@ -77,13 +77,19 @@ def facet_rows(
     base: "ClassOfferingQuerySet",
     selected: Facet,
     url_for: Callable[[str], str],
+    count: "Callable[[ClassOfferingQuerySet], int] | None" = None,
 ) -> list[FacetRow]:
-    """Render every chip with its count against ``base`` (one count query per chip)."""
+    """Render every chip with its count against ``base`` (one count query per chip).
+
+    ``count`` replaces the plain row count for a list that shows something other than one row
+    per offering (Manage Classes shows one row per class).
+    """
+    counter = count if count is not None else (lambda qs: qs.count())
     return [
         FacetRow(
             url=url_for(facet.key),
             label=facet.label,
-            count=facet.apply(base).count(),
+            count=counter(facet.apply(base)),
             is_selected=facet.key == selected.key,
             key=facet.key,
         )

@@ -1245,3 +1245,99 @@ def describe_the_seat_cell_for_a_flexible_class():
 
         assert _seat_cell("Open Forge") == "2"
         assert _seat_cell("Fixed Forge") == "2/6"
+
+
+def describe_grouped_classes():
+    """Runs of one class (same title and category) share a row; the row never hides a run.
+
+    Production, 2026-09-30: Glen's Blacksmithing 101 group held runs back to June 2024, and
+    the list picked the oldest of them as the group's only row. The Oct 3 run was missing
+    from Upcoming, Drafts and search, so the admin trying to take it down could not find it.
+    """
+
+    def _run(category, slug: str, days: int, **kwargs):
+        from datetime import timedelta
+
+        from django.utils import timezone
+
+        from classes.factories import ClassOfferingFactory, ClassSessionFactory
+        from classes.models import ClassOffering
+
+        kwargs.setdefault("status", ClassOffering.Status.PUBLISHED)
+        offering = ClassOfferingFactory(title="Forge 101 with Glen", slug=slug, category=category, **kwargs)
+        ClassSessionFactory(class_offering=offering, starts_at=timezone.now() + timedelta(days=days))
+        return offering
+
+    def _row_pks(client, query: str) -> list[int]:
+        response = client.get(reverse("classes:admin_classes") + query)
+        assert response.status_code == 200
+        return [c.pk for c in response.context["page"]]
+
+    def it_lists_an_upcoming_run_whose_group_began_years_ago(admin_user, client, db):
+        from classes.factories import CategoryFactory
+
+        client.force_login(admin_user)
+        category = CategoryFactory()
+        _run(category, "forge-2024", days=-480)
+        upcoming = _run(category, "forge-oct", days=3)
+        assert _row_pks(client, "?status=upcoming") == [upcoming.pk]
+
+    def it_finds_the_next_run_by_search_rather_than_the_oldest(admin_user, client, db):
+        from classes.factories import CategoryFactory
+
+        client.force_login(admin_user)
+        category = CategoryFactory()
+        _run(category, "forge-2024", days=-480)
+        later = _run(category, "forge-dec", days=60)
+        sooner = _run(category, "forge-oct", days=3)
+        assert _row_pks(client, "?q=Glen") == [sooner.pk]
+        assert later.pk not in _row_pks(client, "?q=Glen")
+
+    def it_lists_a_draft_run_of_a_published_class(admin_user, client, db):
+        from classes.factories import CategoryFactory
+        from classes.models import ClassOffering
+
+        client.force_login(admin_user)
+        category = CategoryFactory()
+        _run(category, "forge-oct", days=3)
+        draft = _run(category, "forge-nov", days=30, status=ClassOffering.Status.DRAFT)
+        assert _row_pks(client, "?status=draft") == [draft.pk]
+
+    def it_links_the_date_count_to_every_run_of_the_class(admin_user, client, db):
+        from datetime import timedelta
+
+        from django.utils import timezone
+
+        from classes.factories import CategoryFactory, ClassOfferingFactory, ClassSessionFactory
+        from classes.models import ClassOffering
+
+        client.force_login(admin_user)
+        category = CategoryFactory()
+        oldest = _run(category, "forge-2024", days=-480)
+        sooner = _run(category, "forge-oct", days=3)
+        later = _run(category, "forge-dec", days=60)
+        weaving = ClassOfferingFactory(title="Unrelated Weaving", slug="weaving", status=ClassOffering.Status.PUBLISHED)
+        ClassSessionFactory(class_offering=weaving, starts_at=timezone.now() + timedelta(days=5))
+
+        html = client.get(reverse("classes:admin_classes") + "?status=upcoming").content.decode()
+        expand = f"?status=upcoming&amp;group={sooner.grouping_key.replace(':', '%3A')}"
+        assert f'href="{expand}"' in html
+        assert ">2 dates</a>" in html
+
+        rows = _row_pks(client, f"?status=upcoming&group={sooner.grouping_key}")
+        assert sorted(rows) == sorted([sooner.pk, later.pk])
+        assert sorted(_row_pks(client, f"?group={sooner.grouping_key}")) == sorted([oldest.pk, sooner.pk, later.pk])
+        html = client.get(reverse("classes:admin_classes") + f"?group={sooner.grouping_key}").content.decode()
+        assert 'href="?">Show one row per class</a>' in html
+
+    def it_counts_classes_not_dates_on_the_tab_chips(admin_user, client, db):
+        from classes.factories import CategoryFactory
+
+        client.force_login(admin_user)
+        category = CategoryFactory()
+        for slug, days in (("forge-oct", 3), ("forge-nov", 30), ("forge-dec", 60)):
+            _run(category, slug, days=days, instructor=admin_user.member)
+        response = client.get(reverse("classes:admin_classes") + "?status=upcoming")
+        counts = {label: count for _url, label, count, _selected in response.context["status_filters"]}
+        assert counts["Upcoming"] == len(response.context["page"]) == 1
+        assert response.context["mine_count"] == 1

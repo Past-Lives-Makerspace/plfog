@@ -281,7 +281,7 @@ def admin_validation_request_context(data: SampleData) -> dict[str, Any]:
 
     row = data.approval_pending
     return {
-        "subject": f"Executive validation needed: {data.offering.title}",
+        "subject": f"Admin sign-off needed: {data.offering.title}",
         "template_context": {
             "offering": data.offering,
             "approval": row,

@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 import logging
 from collections.abc import Iterable
-from datetime import timedelta
+from datetime import datetime, timedelta
 from functools import wraps
 from typing import TYPE_CHECKING, Any, Callable, TypedDict, cast
 
@@ -20,15 +20,12 @@ from django.core.paginator import Paginator
 from django.db import IntegrityError, transaction
 from django.db.models import (
     Count,
-    F,
-    IntegerField,
     Max,
     Min,
     OuterRef,
     Prefetch,
     Q,
     QuerySet,
-    Subquery,
     Sum,
     Value,
     prefetch_related_objects,
@@ -88,10 +85,10 @@ from classes.composer import (
     first_unready_step,
     step_marks,
 )
-from classes.grouping import CatalogGroup, grouped_catalog
+from classes.grouping import CatalogGroup, admin_group_rows, grouped_catalog
 from classes.lifecycle import ADMIN_FACETS, INSTRUCTOR_FACETS, facet_rows, resolve_facet
 from classes.questions import prefill_answers
-from classes.table import prepare_table
+from classes.table import prepare_table, table_search
 from classes.forms import (
     CategoryForm,
     ClassCancelForm,
@@ -3768,31 +3765,31 @@ ADMIN_CLASSES_SORTABLE = frozenset(
 )
 
 
+def _admin_class_rows(qs: Any, group_filter: str, q: str, search_fields: list[str]) -> tuple[Any, dict[str, int]]:
+    """Manage Classes' rows and each listed group's run count.
+
+    One row per class, chosen by :func:`classes.grouping.admin_group_rows` among the runs
+    that pass the filters and the search; or, when ``group_filter`` names a grouping key,
+    every run of that one class and no counts.
+    """
+    if group_filter:
+        return qs.filter(grouping_key=group_filter), {}
+    shown_pks, group_sizes = admin_group_rows(table_search(qs, q, search_fields), timezone.now())
+    return qs.filter(pk__in=shown_pks), group_sizes
+
+
+def _admin_class_count(offerings: Any, now: datetime) -> int:
+    """How many Manage Classes rows ``offerings`` makes: one per class, as the list shows them."""
+    return len(admin_group_rows(offerings, now)[0])
+
+
 @classes_review_access_required
 def admin_classes(request: HttpRequest) -> HttpResponse:
     facet = resolve_facet(ADMIN_FACETS, request.GET.get("status", "").strip())
     status_filter = facet.key
     instructor_filter = request.GET.get("instructor", "").strip()
-
-    # For grouped classes (same title+category on multiple dates), show only the
-    # lowest-pk representative. Solo classes (blank grouping_key) always show.
-    _group_rep_pk = (
-        ClassOffering.objects.filter(
-            grouping_key=OuterRef("grouping_key"),
-            grouping_key__gt="",
-        )
-        .order_by("pk")
-        .values("pk")[:1]
-    )
-    _group_size = (
-        ClassOffering.objects.filter(
-            grouping_key=OuterRef("grouping_key"),
-            grouping_key__gt="",
-        )
-        .values("grouping_key")
-        .annotate(_c=Count("pk"))
-        .values("_c")
-    )
+    # ``group`` lists every run of one class (the row's "N dates" link) instead of one row per class.
+    group_filter = request.GET.get("group", "").strip()
 
     base = (
         ClassOffering.objects.select_related("instructor", "category__guild")
@@ -3815,10 +3812,7 @@ def admin_classes(request: HttpRequest) -> HttpResponse:
                 NullIf("instructor__preferred_name", Value("")),
                 "instructor__full_legal_name",
             ),
-            _group_rep_pk=Subquery(_group_rep_pk),
-            group_size=Subquery(_group_size, output_field=IntegerField()),
         )
-        .filter(Q(grouping_key="") | Q(pk=F("_group_rep_pk")))
     )
     qs = facet.apply(base)  # type: ignore[arg-type]  # annotated queryset keeps its aliases
     if instructor_filter:
@@ -3835,8 +3829,10 @@ def admin_classes(request: HttpRequest) -> HttpResponse:
         qs = qs.hosted_by(own_member) if own_member is not None else qs.none()  # type: ignore[assignment]
 
     # mine_count is global — all statuses, ignoring q and the Instructor dropdown —
-    # to match how the facet-chip counts ignore the search box and each other.
-    mine_count = base.hosted_by(own_member).count() if own_member is not None else 0
+    # to match how the facet-chip counts ignore the search box and each other. Both count
+    # classes, as the list shows them, not each run of a class.
+    now = timezone.now()
+    mine_count = _admin_class_count(base.hosted_by(own_member), now) if own_member is not None else 0
 
     # Every view-computed URL starts from a normalized copy of the GET params: a
     # bogus mine value (anything but "1") is stripped, not echoed, so cruft never
@@ -3855,7 +3851,7 @@ def admin_classes(request: HttpRequest) -> HttpResponse:
 
     mine_toggle_url = _url_without("mine") if mine_active else _url_without(mine="1")
     # Lifecycle facet chips (All, Needs review, With guild lead, ...), each counted
-    # against the ungrouped base so the numbers ignore the search box and each other.
+    # against the unsearched base so the numbers ignore the search box and each other.
     status_filters = [
         (row.url, row.label, row.count, row.is_selected)
         for row in facet_rows(
@@ -3863,6 +3859,7 @@ def admin_classes(request: HttpRequest) -> HttpResponse:
             base,  # type: ignore[arg-type]  # annotated queryset keeps its aliases
             facet,
             lambda key: "?" + _url_without("status", **({"status": key} if key else {})),
+            count=lambda offerings: _admin_class_count(offerings, now),
         )
     ]
     search_clear_url = _url_without("q")
@@ -3873,17 +3870,26 @@ def admin_classes(request: HttpRequest) -> HttpResponse:
     mine_clear_url = _url_without("mine")
     instructor_clear_url = _url_without("instructor")
 
+    # Runs of one class (same title and category) share a row, picked only after every filter
+    # and the search have applied, so no run is ever hidden behind one the filters exclude.
+    search_fields = ["title", "instructor__full_legal_name", "instructor__preferred_name", "category__name"]
+    qs, group_sizes = _admin_class_rows(qs, group_filter, request.GET.get("q", "").strip(), search_fields)
+
     from membership.models import Member as MemberModel
 
     instructors = MemberModel.objects.filter(instructor_slug__gt="").order_by("full_legal_name")
     table = prepare_table(
         request,
         qs,
-        search_fields=["title", "instructor__full_legal_name", "instructor__preferred_name", "category__name"],
+        search_fields=search_fields,
         default_sort="created_at",
         default_dir="desc",
         sortable=ADMIN_CLASSES_SORTABLE,
     )
+    for row in table["page"]:
+        if row.grouping_key in group_sizes:
+            row.group_size = group_sizes[row.grouping_key]
+            row.group_url = "?" + _url_without(group=row.grouping_key)
     return render(
         request,
         "classes/admin/classes_list.html",
@@ -3901,6 +3907,8 @@ def admin_classes(request: HttpRequest) -> HttpResponse:
             "instructor_clear_url": instructor_clear_url,
             "search_preserved_fields": search_preserved_fields,
             "search_clear_url": search_clear_url,
+            "selected_group": group_filter,
+            "group_clear_url": _url_without("group"),
             **table,
         },
     )

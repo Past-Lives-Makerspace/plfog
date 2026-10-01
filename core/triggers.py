@@ -97,7 +97,7 @@ TRIGGERS: list[Trigger] = [
     ),
     Trigger(
         "class_validation_requested",
-        "Class needs executive validation",
+        "Class needs admin sign-off",
         "A guild lead approved a class; it needs admin sign-off to publish.",
         "Teaching",
         Audience.STAFF_ONLY,

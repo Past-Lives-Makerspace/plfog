@@ -3615,6 +3615,30 @@ html:not(.dark) .admin-table-wrap thead {
     overflow-wrap: anywhere;
 }
 
+/* Manage Classes: runs of one class share a row; the "N dates" pill lists every run, and
+   the note above the table says when the list is showing one class's runs. */
+.pl-class-list__dates-link {
+    margin-left: 0.4rem;
+    font-size: 0.75rem;
+    font-weight: 600;
+    padding: 0.1rem 0.45rem;
+    border-radius: 9999px;
+    background: rgba(238, 180, 75, 0.15);
+    color: var(--hub-link);
+    text-decoration: none;
+}
+
+.pl-class-list__dates-link:hover,
+.pl-class-list__dates-link:focus-visible {
+    background: rgba(238, 180, 75, 0.3);
+}
+
+.pl-class-list__group-note {
+    margin: 0.75rem 0 0;
+    font-size: 0.875rem;
+    color: var(--hub-text-muted);
+}
+
 /* My Classes (#544): the Date(s) range stays on one line, the placeholder for an undated
    class reads as muted, and an archived row fades like the admin list's. */
 .admin-table-wrap td.pl-class-list__dates {

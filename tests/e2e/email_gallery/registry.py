@@ -389,11 +389,11 @@ STRUCTURAL_EMAILS: list[GalleryEmail] = [
     ),
     GalleryEmail(
         key="admin_validation_request",
-        name="Executive validation request",
+        name="Admin sign-off request",
         section="Teaching",
         renderer=Renderer.SHELL_TEMPLATE,
         trigger_note=(
-            "Sent when a guild lead approves a class and the admin (executive) gate opens. "
+            "Sent when a guild lead approves a class and the admin sign-off gate opens. "
             "Goes to the CMS Administrators (CLASS_APPROVER holders), with a tokenized review link."
         ),
         edit_pointer=_tpl("classes/emails", "admin_validation_request"),

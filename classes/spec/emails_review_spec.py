@@ -257,8 +257,8 @@ def describe_send_guild_lead_review_reminder():
 
 
 def describe_send_admin_validation_request():
-    def it_emails_class_administrators_with_executive_validation_wording(db, settings):
-        """Stage two: the CMS Administrators get the executive-validation request after a lead approves."""
+    def it_emails_class_administrators_asking_for_admin_sign_off(db, settings):
+        """Stage two: the CMS Administrators get the admin sign-off request after a lead approves."""
         _class_admin("classadmin@example.com")
         cat = CategoryFactory(guild=_guild_led_by(MemberFactory(_pre_signup_email="emailguildlead@example.com")))
         offering = ClassOfferingFactory(category=cat, status=ClassOffering.Status.PENDING)
@@ -269,8 +269,8 @@ def describe_send_admin_validation_request():
         assert len(mail.outbox) == 1
         email = mail.outbox[0]
         assert email.to == ["classadmin@example.com"]
-        assert "validation" in email.subject.lower()
-        assert "executive validation" in email.body.lower()
+        assert email.subject == f"Admin sign-off needed: {offering.title}"
+        assert "request admin sign-off" in email.body.lower()
         assert f"/classes/review/{row.token}/" in email.body
 
     def it_does_nothing_when_there_are_no_class_administrators(db):

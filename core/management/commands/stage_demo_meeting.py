@@ -8,7 +8,7 @@ Builds the accounts and class content one live walkthrough needs:
   owning three classes: a FULL paid class with a waitlist, a paid class with open
   seats, and a submit-ready DRAFT.
 * ``counciltreasurer+admin@`` — holds the CLASS_APPROVER capability, which is what
-  routes both the executive-validation email and the "someone wants to host a
+  routes both the admin sign-off email and the "someone wants to host a
   workshop" request to it. Neither follows the admin role.
 * ``counciltreasurer+guildlead@`` — a plain member who leads the Cartographers
   Guild (no admin tier), so the guild-lead review stage is honestly a guild lead.

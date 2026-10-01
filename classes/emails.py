@@ -406,7 +406,7 @@ def send_admin_review_request(offering: "ClassOffering", approval: "ClassApprova
 
 
 def send_admin_validation_request(offering: "ClassOffering", approval: "ClassApproval") -> None:
-    """Stage two: emit the executive-validation request after a guild-lead approval.
+    """Stage two: emit the admin sign-off request after a guild-lead approval.
 
     Fired from ``ClassOffering._escalate_to_admin`` when a Guild Lead approves and the
     Admin gate opens. One ``class_validation_requested`` event: the structural
@@ -434,12 +434,12 @@ def send_admin_validation_request(offering: "ClassOffering", approval: "ClassApp
         "class_validation_requested",
         target=offering,
         context={},
-        subject=f"Executive validation needed: {offering.title}",
+        subject=f"Admin sign-off needed: {offering.title}",
         text_template="classes/emails/admin_validation_request.txt",
         html_template="classes/emails/admin_validation_request.html",
         template_context=template_context,
-        in_app_title="A class needs executive validation",
-        in_app_body=f"{lead_name} and {instructor_name} request executive validation to publish this class.",
+        in_app_title="A class needs admin sign-off",
+        in_app_body=f"{lead_name} and {instructor_name} request admin sign-off to publish this class.",
         # The tokenized review page — /classes/admin/ is gated admin-only, so a
         # CMS Administrator clicking the bell row would have hit a 403 there.
         url=review_path,

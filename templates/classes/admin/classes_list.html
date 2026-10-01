@@ -34,6 +34,7 @@
         {% if selected_status %}<input type="hidden" name="status" value="{{ selected_status }}">{% endif %}
         {% if mine_active %}<input type="hidden" name="mine" value="1">{% endif %}
         {% if q %}<input type="hidden" name="q" value="{{ q }}">{% endif %}
+        {% if selected_group %}<input type="hidden" name="group" value="{{ selected_group }}">{% endif %}
         {% if sort %}<input type="hidden" name="sort" value="{{ sort }}">{% endif %}
         {% if sort_dir %}<input type="hidden" name="dir" value="{{ sort_dir }}">{% endif %}
         <select name="instructor" onchange="this.form.submit()" style="font-size:0.875rem;padding:0.25rem 0.5rem;background:var(--hub-card-bg,#0c2236);color:var(--hub-text,#f4efdd);border:1px solid var(--hub-border);border-radius:4px;">
@@ -45,6 +46,9 @@
         {% if selected_instructor %}<a href="?{{ instructor_clear_url }}" class="hub-btn hub-btn--sm hub-btn--ghost">✕ Clear</a>{% endif %}
     </form>
 </div>
+{% endif %}
+{% if selected_group %}
+<p class="pl-class-list__group-note">Showing each date of one class. <a href="?{{ group_clear_url }}">Show one row per class</a></p>
 {% endif %}
 <div class="admin-table-wrap">
 <table>
@@ -69,7 +73,8 @@
             <td>{{ c.category.name }}</td>
             <td style="white-space:nowrap;">
               {% if c.is_flexible %}{% firstof c.flexible_window_label "Flexible" %}{% elif c.first_session %}{{ c.first_session|date:"M j" }}{% if c.last_session != c.first_session %} – {{ c.last_session|date:"M j" }}{% endif %}, {{ c.last_session|date:"Y" }}{% else %}<span style="color:var(--hub-text-muted);">—</span>{% endif %}
-              {% if c.group_size and c.group_size > 1 %}<span style="margin-left:0.4rem;font-size:0.75rem;font-weight:600;padding:0.1rem 0.45rem;border-radius:9999px;background:rgba(238,180,75,0.15);color:#EEB44B;">{{ c.group_size }} dates</span>{% endif %}
+              {# Runs of one class share this row; the count opens every one of them. #}
+              {% if c.group_size and c.group_size > 1 %}<a class="pl-class-list__dates-link" href="{{ c.group_url }}">{{ c.group_size }} dates</a>{% endif %}
             </td>
             <td>{% include "classes/_components/lifecycle_badge.html" with offering=c show_note=True %}</td>
             <td>{{ c.registration_count }}{% if not c.is_flexible %}/{{ c.capacity }}{% endif %}</td>
