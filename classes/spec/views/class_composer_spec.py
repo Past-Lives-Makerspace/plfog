@@ -249,6 +249,7 @@ def _full_payload(category, **extra) -> dict:
     """Every field on the teach form, each with a value the round trip can recognise."""
     payload = {
         "title": "Round Trip",
+        "subtitle": "Round Trip Subtitle",
         "category": category.pk,
         "description": READY_DESCRIPTION,
         "prerequisites": "Bring patience.",
@@ -283,6 +284,7 @@ def _admin_payload(category, inst, **extra) -> dict:
 
 def _assert_round_trip(offering: ClassOffering, category) -> None:
     assert offering.title == "Round Trip"
+    assert offering.subtitle == "Round Trip Subtitle"
     assert offering.category_id == category.pk
     assert offering.description == READY_DESCRIPTION
     assert offering.prerequisites == "Bring patience."

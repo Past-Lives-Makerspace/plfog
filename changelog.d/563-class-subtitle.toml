@@ -1,0 +1,7 @@
+bump = "minor"
+date = "2026-10-01"
+title = "Classes can have a subtitle"
+changes = [
+  "A class can now carry a short subtitle, shown in its own italic type between the class name and the instructor's name at the top of the class page.",
+  "Add it on the first step of the class composer, right under the title. Instructors can also change it on a class that is already live.",
+]

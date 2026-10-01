@@ -53,8 +53,9 @@
         {% endfor %}
     </ul>
     {% endif %}
+    {# The subtitle is one short line, open like on the composer; it leads the form so it sits above the description. #}
     {% for field in form %}
-        {% if field.name == 'video_url' %}
+        {% if field.name == 'video_url' or field.name == 'subtitle' %}
             {% include "components/form_field.html" with field=field %}
         {% else %}
             {% include "classes/_components/collapsible_field.html" with field=field %}
