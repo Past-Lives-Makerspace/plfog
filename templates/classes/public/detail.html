@@ -101,6 +101,9 @@
         {% endif %}
         {{ offering.title|strip_date_suffix }}
       </h1>
+      {% if offering.subtitle %}
+      <p class="cp-detail__subtitle">{{ offering.subtitle }}</p>
+      {% endif %}
       {% if offering.instructor %}
       <div class="cp-detail__byline">
         with {% if offering.instructor.instructor_slug %}<a href="{% url 'classes:public_instructor' slug=offering.instructor.instructor_slug %}">{{ offering.instructor.display_name }}</a>{% else %}{{ offering.instructor.display_name }}{% endif %}

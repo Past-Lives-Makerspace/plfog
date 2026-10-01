@@ -754,6 +754,20 @@ a.cp-detail__cat-chip:hover { background: #f5ca6e; color: var(--color-navy); tex
   color: var(--color-cream);
   text-shadow: 0 2px 24px rgba(0,0,0,0.40);
 }
+/* The optional second line under the title (#563): the title's face in italic at 500 (the one
+   italic weight base_public.html loads), lighter and smaller, so title, subtitle and byline read
+   as one block. Always on the navy hero overlay, so cream in both themes. */
+.cp-detail__subtitle {
+  font-family: var(--heading);
+  font-style: italic;
+  font-weight: 500;
+  font-size: clamp(18px, 2.4vw, 28px);
+  line-height: 1.2;
+  margin: 0 0 8px;
+  color: var(--color-cream);
+  text-shadow: 0 2px 18px rgba(0,0,0,0.40);
+  overflow-wrap: break-word;
+}
 .cp-detail__byline {
   font-size: 17px;
   color: var(--color-cream);

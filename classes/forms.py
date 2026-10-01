@@ -89,6 +89,8 @@ PRICE_HELP_TEXT = "In dollars, e.g. 80.00 for $80. Every class costs at least $1
 # Under the description box on both composers (#425): the readiness minimum, from the one constant
 # the rule reads, so the hint can never name a number the checklist would then contradict.
 DESCRIPTION_HELP_TEXT = f"At least {READINESS_MIN_DESCRIPTION_CHARS} characters. Say what students make and take home."
+# Under the Subtitle box on both composers and the live class edit page (#563).
+SUBTITLE_HELP_TEXT = "Optional. A short line under the title, like Pick Your October Time."
 
 
 class CentsAsDollarsField(forms.DecimalField):
@@ -458,6 +460,7 @@ class ClassOfferingForm(
         model = ClassOffering
         fields = [
             "title",
+            "subtitle",
             "category",
             "instructor",
             "description",
@@ -488,7 +491,12 @@ class ClassOfferingForm(
             "flexible_ends_on": _window_day_widget(),
         }
         # The window's one hint sits under the pair on step 3, so neither day repeats it.
-        help_texts = {"description": DESCRIPTION_HELP_TEXT, "flexible_starts_on": "", "flexible_ends_on": ""}
+        help_texts = {
+            "subtitle": SUBTITLE_HELP_TEXT,
+            "description": DESCRIPTION_HELP_TEXT,
+            "flexible_starts_on": "",
+            "flexible_ends_on": "",
+        }
 
     def __init__(self, *args, **kwargs) -> None:
         super().__init__(*args, **kwargs)
@@ -539,6 +547,7 @@ class TeachClassOfferingForm(
         model = ClassOffering
         fields = [
             "title",
+            "subtitle",
             "category",
             "description",
             "prerequisites",
@@ -566,7 +575,12 @@ class TeachClassOfferingForm(
             "flexible_ends_on": _window_day_widget(),
         }
         # The window's one hint sits under the pair on step 3, so neither day repeats it.
-        help_texts = {"description": DESCRIPTION_HELP_TEXT, "flexible_starts_on": "", "flexible_ends_on": ""}
+        help_texts = {
+            "subtitle": SUBTITLE_HELP_TEXT,
+            "description": DESCRIPTION_HELP_TEXT,
+            "flexible_starts_on": "",
+            "flexible_ends_on": "",
+        }
 
     def __init__(self, *args, teaching_member: "Member | None" = None, **kwargs) -> None:
         self.teaching_member = teaching_member
@@ -822,10 +836,12 @@ class CategoryForm(forms.ModelForm):
 class TeachPublishedClassForm(_RichDescriptionMixin, forms.ModelForm):
     """Light edits an instructor may make to a LIVE class without re-review.
 
-    Only fields that do not change what registrants booked on: description, prep notes,
-    materials, safety, guardian note, the flexible-scheduling note, and the video. Title,
-    guild type, price, capacity, dates, and scheduling model stay admin-only after publish
-    (the instructor asks through :class:`ClassChangeRequestForm`). A sale is not one of
+    Only fields that do not change what registrants booked on: the subtitle (#563), description,
+    prep notes, materials, safety, guardian note, the flexible-scheduling note, and the video.
+    The subtitle leads ``Meta.fields`` because the template renders them in this order, and it
+    belongs above the description. Title, guild type, price, capacity, dates, and scheduling
+    model stay admin-only after publish (the instructor asks through
+    :class:`ClassChangeRequestForm`). A sale is not one of
     those: the instructor sets, changes, or ends one on a live class from the manage page's
     sale modal (:class:`ClassSaleForm`). A crafted POST carrying locked fields is simply
     ignored: a ModelForm saves only its declared fields.
@@ -834,6 +850,7 @@ class TeachPublishedClassForm(_RichDescriptionMixin, forms.ModelForm):
     class Meta:
         model = ClassOffering
         fields = [
+            "subtitle",
             "description",
             "prerequisites",
             "materials_included",
@@ -844,6 +861,7 @@ class TeachPublishedClassForm(_RichDescriptionMixin, forms.ModelForm):
             "video_url",
         ]
         widgets = {"video_url": _video_url_widget(), "description": RichBodyEditorWidget(attrs={"rows": 4})}
+        help_texts = {"subtitle": SUBTITLE_HELP_TEXT}
 
     def clean_video_url(self) -> str:
         return validate_video_url(self.cleaned_data.get("video_url", ""))

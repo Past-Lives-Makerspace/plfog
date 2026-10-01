@@ -40,7 +40,7 @@ COMPOSER_STEPS: tuple[ComposerStep, ...] = (
         heading="The Basics",
         # price_cents is NOT NULL with no default and required on the form, so the price must
         # be on the first step for a Save Draft from step 1 to succeed.
-        fields=("title", "category", "instructor", "description", "price_cents"),
+        fields=("title", "subtitle", "category", "instructor", "description", "price_cents"),
         readiness_labels=("Description",),
     ),
     ComposerStep(

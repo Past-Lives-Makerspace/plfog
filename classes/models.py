@@ -891,6 +891,15 @@ class ClassOffering(HeroCropMixin, models.Model):
         SERIES_PACKAGE = "series_package", "Series Package"
 
     title = models.CharField(max_length=255, help_text="Public class title.")
+    # db_default as well as default: the migration applies while the previous release still
+    # serves, and its INSERTs omit this column (STANDARDS.md section 10).
+    subtitle = models.CharField(
+        max_length=150,
+        blank=True,
+        default="",
+        db_default="",
+        help_text="Optional plain line shown under the title in the class page hero. Blank shows nothing.",
+    )
     slug = models.SlugField(max_length=255, unique=True, help_text="URL slug.")
     category = models.ForeignKey(
         Category, on_delete=models.PROTECT, related_name="classes", help_text="Guild grouping."

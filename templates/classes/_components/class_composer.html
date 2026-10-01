@@ -243,6 +243,7 @@ Do not merge them.
       <h2 class="pl-composer__heading">The Basics</h2>
       <p class="pl-compose-section__note">What the class is and which guild it belongs to. The description is the first thing a member reads.</p>
       {% include "components/form_field.html" with field=form.title %}
+      {% include "components/form_field.html" with field=form.subtitle %}
       {% include "components/form_field.html" with field=form.category %}
       {% if is_admin %}{% include "components/form_field.html" with field=form.instructor %}{% endif %}
       {% include "components/form_field.html" with field=form.description %}
