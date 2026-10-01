@@ -128,6 +128,77 @@ def describe_classes_date_column():
         assert row.registration_count == 2
 
 
+def describe_classes_sorting():
+    def _rows(client, query: str) -> list[str]:
+        response = client.get(reverse("classes:admin_classes") + query)
+        assert response.status_code == 200
+        return [c.slug for c in response.context["page"]]
+
+    def it_sorts_by_title_both_ways(admin_user, client, db):
+        from classes.factories import ClassOfferingFactory
+
+        client.force_login(admin_user)
+        ClassOfferingFactory(title="Bravo", slug="bravo")
+        ClassOfferingFactory(title="Alpha", slug="alpha")
+        assert _rows(client, "?sort=title&dir=asc") == ["alpha", "bravo"]
+        assert _rows(client, "?sort=title&dir=desc") == ["bravo", "alpha"]
+
+    def it_sorts_dates_with_undated_classes_last_either_way(admin_user, client, db):
+        from datetime import timedelta
+
+        from django.utils import timezone
+
+        from classes.factories import ClassOfferingFactory, ClassSessionFactory
+
+        client.force_login(admin_user)
+        now = timezone.now()
+        early = ClassOfferingFactory(title="Early", slug="early")
+        ClassSessionFactory(class_offering=early, starts_at=now + timedelta(days=1))
+        late = ClassOfferingFactory(title="Late", slug="late")
+        ClassSessionFactory(class_offering=late, starts_at=now + timedelta(days=30))
+        ClassOfferingFactory(title="Undated", slug="undated")
+        assert _rows(client, "?sort=first_session&dir=asc") == ["early", "late", "undated"]
+        assert _rows(client, "?sort=first_session&dir=desc") == ["late", "early", "undated"]
+
+    def it_sorts_by_the_name_the_instructor_cell_shows(admin_user, client, db):
+        # The header once named ``instructor__display_name``, a property no query can order by.
+        # The cell shows the preferred name when there is one, so the sort reads the same name:
+        # legal "Robert Jones" who goes by "Sam" sorts among the S's, and no instructor sorts last.
+        from classes.factories import ClassOfferingFactory, InstructorFactory
+
+        client.force_login(admin_user)
+        ClassOfferingFactory(slug="by-zed", instructor=InstructorFactory(full_legal_name="Zed Last"))
+        ClassOfferingFactory(slug="by-abe", instructor=InstructorFactory(full_legal_name="Abe First"))
+        ClassOfferingFactory(
+            slug="by-sam",
+            instructor=InstructorFactory(full_legal_name="Robert Jones", preferred_name="Sam"),
+        )
+        ClassOfferingFactory(slug="nobody", instructor=None)
+        assert _rows(client, "?sort=instructor_name&dir=asc") == ["by-abe", "by-sam", "by-zed", "nobody"]
+        assert _rows(client, "?sort=instructor_name&dir=desc") == ["by-zed", "by-sam", "by-abe", "nobody"]
+
+    def it_falls_back_to_the_default_order_for_an_unknown_sort(admin_user, client, db):
+        from classes.factories import ClassOfferingFactory
+
+        client.force_login(admin_user)
+        ClassOfferingFactory(slug="first-made")
+        ClassOfferingFactory(slug="second-made")
+        response = client.get(reverse("classes:admin_classes") + "?sort=nonsense")
+        assert response.status_code == 200
+        assert response.context["sort"] == "created_at"
+        assert [c.slug for c in response.context["page"]] == ["second-made", "first-made"]
+
+    def it_marks_the_sorted_header_and_glyphs_every_other(admin_user, client, db):
+        from classes.factories import ClassOfferingFactory
+
+        client.force_login(admin_user)
+        ClassOfferingFactory()
+        html = client.get(reverse("classes:admin_classes") + "?sort=title&dir=desc").content.decode()
+        assert html.count("aria-sort=") == 1
+        assert '<th aria-sort="descending">' in html
+        assert html.count('class="pl-sort-header__glyph"') == 6
+
+
 def describe_delete_class():
     def it_deletes_a_draft_with_no_registrations(admin_user, client, db):
         from classes.factories import ClassOfferingFactory

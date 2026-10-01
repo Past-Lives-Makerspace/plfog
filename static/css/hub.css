@@ -3577,6 +3577,31 @@ html:not(.dark) .admin-table-wrap thead {
     text-decoration: none;
 }
 
+/* Sortable header (components/table_sort_header.html): every column shows a glyph so the
+   header reads as a control, not as static text (#544). Inactive columns carry a muted
+   double arrow; the active column carries the up or down arrow at full strength. The
+   underline sits on the label alone: a decoration on the inline-flex link would propagate
+   under the glyph too. Scoped like the base link rule above so it outranks its
+   color: inherit. */
+.admin-table-wrap thead th a.pl-sort-header--active {
+    color: var(--hub-text);
+}
+
+.pl-sort-header:hover .pl-sort-header__label {
+    text-decoration: underline;
+    text-underline-offset: 0.2em;
+}
+
+.pl-sort-header__glyph {
+    font-size: 0.7rem;
+    line-height: 1;
+    opacity: 0.45;
+}
+
+.pl-sort-header--active .pl-sort-header__glyph {
+    opacity: 1;
+}
+
 .admin-table-wrap tbody td {
     padding: 0.6rem 0.75rem;
     font-size: 0.875rem;
@@ -3588,6 +3613,20 @@ html:not(.dark) .admin-table-wrap thead {
 .admin-table-wrap td.pl-class-list__title {
     min-width: 14rem;
     overflow-wrap: anywhere;
+}
+
+/* My Classes (#544): the Date(s) range stays on one line, the placeholder for an undated
+   class reads as muted, and an archived row fades like the admin list's. */
+.admin-table-wrap td.pl-class-list__dates {
+    white-space: nowrap;
+}
+
+.pl-class-list__no-dates {
+    color: var(--hub-text-muted);
+}
+
+.admin-table-wrap tr.pl-class-list__row--archived {
+    opacity: 0.55;
 }
 
 .admin-table-wrap tbody tr {
@@ -5544,6 +5583,25 @@ mark { background: color-mix(in srgb, var(--color-tuscan-yellow) 30%, transparen
 .pl-submit-gate--end {
     align-items: flex-end;
     text-align: right;
+}
+/* The My Classes actions cell (#544): buttons right aligned, wrapping onto a second line
+   when the row is narrow, never nowrap, because the submit gate's reason lives here and
+   has to read as a sentence, not a sliver one word wide. */
+/* The flex layout sits on an inner wrapper, never on the <td>: a cell that is itself
+   display: flex leaves the table's column sizing and gets pushed past the frame. The gate
+   bends between 8rem and 11rem so the column fits beside five others at 1280px and the
+   reason still reads as a sentence. */
+.pl-class-list__actions-inner {
+    display: flex;
+    gap: 0.375rem;
+    justify-content: flex-end;
+    align-items: flex-start;
+    flex-wrap: wrap;
+}
+.pl-class-list__actions .pl-submit-gate {
+    flex: 1 1 8rem;
+    min-width: 8rem;
+    max-width: 11rem;
 }
 /* The sale modal body (classes/_components/sale_form.html). */
 .pl-sale-form__intro { margin: 0 0 1rem; }

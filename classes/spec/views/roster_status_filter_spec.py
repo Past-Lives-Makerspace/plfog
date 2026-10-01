@@ -282,7 +282,7 @@ def describe_the_class_lists():
         _seats(offering, Registration.Status.CANCELLED, 2)
         _seats(offering, Registration.Status.WAITLISTED, 3)
         response = client.get(reverse("classes:teach_dashboard"))
-        row = next(c for c in response.context["classes"] if c.pk == offering.pk)
+        row = next(c for c in response.context["page"] if c.pk == offering.pk)
         assert row.registration_count == 10
         assert "10/12" in response.content.decode()
 

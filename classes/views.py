@@ -30,9 +30,10 @@ from django.db.models import (
     QuerySet,
     Subquery,
     Sum,
+    Value,
     prefetch_related_objects,
 )
-from django.db.models.functions import TruncDate
+from django.db.models.functions import Coalesce, NullIf, TruncDate
 from django.http import (
     Http404,
     HttpRequest,
@@ -40,6 +41,7 @@ from django.http import (
     HttpResponseBadRequest,
     HttpResponseForbidden,
     JsonResponse,
+    QueryDict,
     StreamingHttpResponse,
 )
 from django.shortcuts import get_object_or_404, redirect, render
@@ -1783,9 +1785,17 @@ def _guild_lead_review_queue(member: Member) -> list[dict]:
     return queue
 
 
+# The My Classes headers (templates/classes/teach/classes_list.html); any other ``sort`` falls
+# back to newest created first.
+TEACH_CLASSES_SORTABLE = frozenset(
+    {"title", "category__name", "first_session", "lifecycle_order", "registration_count"}
+)
+
+
 @teaching_member_required
 def teach_dashboard(request: HttpRequest) -> HttpResponse:
-    """My classes — list view for the logged-in teaching member, faceted by lifecycle."""
+    """My classes — list view for the logged-in teaching member, faceted by lifecycle, sortable
+    by its headers and paginated like the admin list."""
     teaching_member: Member = request.teaching_member  # type: ignore[attr-defined]
     base = (
         ClassOffering.objects.for_instructor(teaching_member)
@@ -1809,18 +1819,44 @@ def teach_dashboard(request: HttpRequest) -> HttpResponse:
         )
     )
     facet = resolve_facet(INSTRUCTOR_FACETS, request.GET.get("facet", "").strip())
-    classes = facet.apply(base).order_by("-created_at")  # type: ignore[arg-type]  # annotated queryset keeps its aliases
-    facets = facet_rows(INSTRUCTOR_FACETS, base, facet, lambda key: f"?facet={key}" if key else "?")  # type: ignore[arg-type]
+    # The Date(s) column and its sort, the same annotations the admin list reads. They go on
+    # the faceted rows only, so the chip counts over ``base`` stay plain counts.
+    qs = facet.apply(base).annotate(  # type: ignore[arg-type]  # annotated queryset keeps its aliases
+        first_session=Min("sessions__starts_at"),
+        last_session=Max("sessions__starts_at"),
+    )
+    table = prepare_table(
+        request,
+        qs,
+        search_fields=[],
+        default_sort="created_at",
+        default_dir="desc",
+        sortable=TEACH_CLASSES_SORTABLE,
+    )
+    # Every link the page builds (facet chips, headers, page links) starts from the table's
+    # normalized params plus the resolved facet, so sorting keeps the facet, a chip keeps the
+    # sort, and a junk facet is never echoed.
+    params = QueryDict(table["base_params"], mutable=True)
+    params.pop("facet", None)
+
+    def _params_with_facet(key: str) -> str:
+        chip = params.copy()
+        if key:
+            chip["facet"] = key
+        return chip.urlencode()
+
+    table["base_params"] = _params_with_facet(facet.key)
+    facets = facet_rows(INSTRUCTOR_FACETS, base, facet, lambda key: f"?{_params_with_facet(key)}")  # type: ignore[arg-type]
     return render(
         request,
         "classes/teach/classes_list.html",
         {
             "active_tab": "my_classes",
             "instructor": teaching_member,
-            "classes": classes,
             "facets": facets,
             "selected_facet": facet,
             "has_any_classes": base.exists(),
+            **table,
         },
     )
 
@@ -3715,6 +3751,20 @@ def _with_guild_leads_queue(now: Any) -> list[_GuildLeadQueueRow]:
     return queue
 
 
+# The Manage Classes headers (templates/classes/admin/classes_list.html); any other ``sort``
+# falls back to newest created first.
+ADMIN_CLASSES_SORTABLE = frozenset(
+    {
+        "title",
+        "instructor_name",
+        "category__name",
+        "first_session",
+        "lifecycle_order",
+        "registration_count",
+    }
+)
+
+
 @classes_review_access_required
 def admin_classes(request: HttpRequest) -> HttpResponse:
     facet = resolve_facet(ADMIN_FACETS, request.GET.get("status", "").strip())
@@ -3756,6 +3806,12 @@ def admin_classes(request: HttpRequest) -> HttpResponse:
             ),
             first_session=Min("sessions__starts_at"),
             last_session=Max("sessions__starts_at"),
+            # The name the Instructor cell shows (Member.display_name: preferred, else legal), so
+            # sorting that column matches what the reader sees. NULL for instructorless classes.
+            instructor_name=Coalesce(
+                NullIf("instructor__preferred_name", Value("")),
+                "instructor__full_legal_name",
+            ),
             _group_rep_pk=Subquery(_group_rep_pk),
             group_size=Subquery(_group_size, output_field=IntegerField()),
         )
@@ -3823,6 +3879,7 @@ def admin_classes(request: HttpRequest) -> HttpResponse:
         search_fields=["title", "instructor__full_legal_name", "instructor__preferred_name", "category__name"],
         default_sort="created_at",
         default_dir="desc",
+        sortable=ADMIN_CLASSES_SORTABLE,
     )
     return render(
         request,
