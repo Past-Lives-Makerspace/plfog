@@ -1060,9 +1060,10 @@ class RegistrationForm(forms.ModelForm):
     """Public registration form — collects registrant + waiver signatures.
 
     One price engine (:meth:`_price_cents`) serves the quote on the page and the charge at
-    checkout: sale price, then the code. The ``member`` argument links the registration to
-    the Member row and never changes the price. On save, creates the Registration plus
-    signed Waiver records.
+    checkout: sale price, then the code. ``member`` is accepted for callers that already
+    resolved one and is not read by the form: the price does not depend on it, and the saved
+    row links itself to the Member by email. On save, creates the Registration plus signed
+    Waiver records.
     """
 
     discount_code = forms.CharField(

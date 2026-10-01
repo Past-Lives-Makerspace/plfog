@@ -527,17 +527,6 @@ def _client_ip(request: HttpRequest) -> str:
     return request.META.get("REMOTE_ADDR", "")
 
 
-def _member_for_email(email: str) -> "Member | None":
-    """Verified Member matching this email, or None.
-
-    Thin wrapper over the shared :func:`membership.selectors.member_for_verified_email`
-    selector (the Discord link flow uses the same lookup); behavior is unchanged.
-    """
-    from membership.selectors import member_for_verified_email
-
-    return member_for_verified_email(email)
-
-
 def _registration_initial_for_user(user: "AbstractBaseUser | AnonymousUser | None") -> dict[str, str]:
     """Pre-fill values pulled from the logged-in user's Member record."""
     if not user or not user.is_authenticated:
@@ -1026,11 +1015,9 @@ def register(request: HttpRequest, slug: str) -> HttpResponse:
         )
         return redirect("classes:public_class_detail", slug=offering.slug)
 
-    # Two-pass form: first POST validates email so we can detect a member
-    # before computing price, then re-binds to surface the discounted total.
-    # This runs first because who they are decides which form they get.
+    # The email runs first because who they are decides which form they get: a seat they
+    # already hold, a claim link, or a fresh signup.
     bound_email, custom_answers_initial, answers_prefilled, initial = _register_prefill(request)
-    member = _member_for_email(bound_email) if bound_email else None
 
     # Waitlist intent: ?waitlist=1 (offered when the class is sold out) routes
     # to the no-charge waitlist branch below. Forced on automatically when the
@@ -1059,7 +1046,6 @@ def register(request: HttpRequest, slug: str) -> HttpResponse:
         request.POST or None,
         offering=offering,
         settings_obj=settings_obj,
-        member=member,
         client_ip=_client_ip(request),
         initial=initial,
         is_waitlist=is_waitlist,

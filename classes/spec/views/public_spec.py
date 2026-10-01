@@ -1125,3 +1125,44 @@ def describe_detail_guild_card():
         )
         resp = client.get(reverse("classes:public_class_detail", kwargs={"slug": offering.slug}))
         assert "offered in partnership with the Glass Guild" in resp.content.decode()
+
+
+def describe_sale_markup():
+    """The Sale feature's public markup: badge and struck price on the card, banner and struck rail price."""
+
+    @pytest.fixture
+    def sale_class(published_class):
+        published_class.price_cents = 5000
+        published_class.sale_enabled = True
+        published_class.sale_kind = ClassOffering.SaleKind.PERCENT
+        published_class.sale_percent = 20  # $50 -> $40
+        published_class.sale_banner_text = "Summer blowout!"
+        published_class.save()
+        return published_class
+
+    def it_renders_the_sale_badge_and_struck_price_on_the_catalog_card(sale_class, client):
+        body = client.get(reverse("classes:public_list")).content.decode()
+        assert '<span class="badge sale">Sale</span>' in body
+        assert '<span class="cls-price--was">$50</span>' in body
+        assert '<span class="cls-price">$40</span>' in body
+
+    def it_renders_the_sale_banner_and_struck_rail_price_on_the_detail_page(sale_class, client):
+        url = reverse("classes:public_class_detail", kwargs={"slug": sale_class.slug})
+        body = client.get(url).content.decode()
+        assert 'class="cp-detail__sale-banner"' in body
+        assert "Summer blowout!" in body
+        assert "20% off" in body
+        assert '<div class="cp-detail__price--was">$50</div>' in body
+        assert '<div class="cp-detail__price">$40</div>' in body
+
+    def it_renders_the_struck_original_in_the_register_summary(sale_class, client):
+        body = client.get(reverse("classes:register", kwargs={"slug": sale_class.slug})).content.decode()
+        assert '<span class="reg-was">$50</span> $40' in body
+
+    def it_hides_all_sale_markup_when_no_sale_is_active(published_class, client):
+        body = client.get(reverse("classes:public_list")).content.decode()
+        assert "badge sale" not in body
+        assert "cls-price--was" not in body
+        url = reverse("classes:public_class_detail", kwargs={"slug": published_class.slug})
+        detail = client.get(url).content.decode()
+        assert "cp-detail__sale-banner" not in detail

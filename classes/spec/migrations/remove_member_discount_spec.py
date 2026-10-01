@@ -13,11 +13,13 @@ from importlib import import_module
 import pytest
 from django.db import connection
 from django.db.migrations.executor import MigrationExecutor
+from django.db.migrations.loader import MigrationLoader
 
 _APP = "classes"
 _BEFORE = "0070_classimage_legacy_source_url"
 _AFTER = "0071_remove_member_discount"
-_HEAD = "0071_remove_member_discount"
+# The real head off the graph: a pinned name goes stale the day a later migration drops a column.
+_HEAD = MigrationLoader(None).graph.leaf_nodes(_APP)[0][1]
 
 _migration = import_module(f"classes.migrations.{_AFTER}")
 COPY_FIELDS = _migration.COPY_FIELDS
