@@ -1,0 +1,8 @@
+bump = "patch"
+date = "2026-10-01"
+title = "Add one event to your own calendar again"
+changes = [
+  "An event page's Add to calendar is back for members: pick Google Calendar to add just that event, or Apple Calendar or Outlook for the calendar file.",
+  "Inside the Past Lives app, Add to calendar offers Google Calendar.",
+  "Subscribing to every makerspace event stays on the Community Calendar.",
+]

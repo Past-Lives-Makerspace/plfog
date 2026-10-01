@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
-from datetime import timedelta
+from datetime import UTC, datetime, timedelta
+from urllib.parse import parse_qs, urlsplit
+from zoneinfo import ZoneInfo
 
 import pytest
 from django.utils import timezone
@@ -14,10 +16,12 @@ from hub.calendar_entries import (
     CalendarEntry,
     calendar_subscribe_links,
     google_calendar_add_url,
+    google_calendar_event_url,
     google_calendar_subscribe_url,
     google_target_feed_keys,
 )
-from tests.membership.factories import GuildFactory
+from membership.models import CommunityEvent
+from tests.membership.factories import CommunityEventFactory, GuildFactory
 
 
 def describe_google_calendar_subscribe_url():
@@ -224,3 +228,53 @@ def describe_calendar_subscribe_links():
             "public"
         ]
         assert calendar_subscribe_links(_configure("", "")) == []
+
+
+@pytest.mark.django_db
+def describe_google_calendar_event_url():
+    def _params(url: str) -> dict[str, str]:
+        parts = urlsplit(url)
+        assert f"{parts.scheme}://{parts.netloc}{parts.path}" == "https://calendar.google.com/calendar/render"
+        return {key: values[0] for key, values in parse_qs(parts.query).items()}
+
+    def it_fills_in_one_event_with_its_times_in_utc():
+        pacific = ZoneInfo("America/Los_Angeles")
+        event = CommunityEventFactory(
+            community=True,
+            title="Potluck & Pins",
+            location="Common Area",
+            description="Bring a dish.",
+            starts_at=datetime(2026, 10, 10, 18, 0, tzinfo=pacific),
+            ends_at=datetime(2026, 10, 10, 20, 30, tzinfo=pacific),
+        )
+        params = _params(google_calendar_event_url(event, "https://pastlives.space/events/1/"))
+        assert params == {
+            "action": "TEMPLATE",
+            "text": "Potluck & Pins",
+            "dates": "20261011T010000Z/20261011T033000Z",
+            "details": "Bring a dish.\n\nhttps://pastlives.space/events/1/",
+            "location": "Common Area",
+        }
+
+    def it_lists_the_video_link_before_the_page_link_in_the_details():
+        event = CommunityEventFactory(community=True, description="", video_url="https://meet.google.com/abc")
+        params = _params(google_calendar_event_url(event, "https://pastlives.space/events/1/"))
+        assert params["details"] == "https://meet.google.com/abc\n\nhttps://pastlives.space/events/1/"
+
+    def it_leaves_out_what_the_event_does_not_have():
+        event = CommunityEventFactory(community=True, description="", location="", video_url="")
+        params = _params(google_calendar_event_url(event))
+        assert set(params) == {"action", "text", "dates"}
+
+    def it_trims_a_long_description_so_the_link_stays_usable():
+        event = CommunityEventFactory(community=True, description="x" * 5000)
+        assert len(_params(google_calendar_event_url(event))["details"]) == 1500
+
+    def it_carries_the_series_rule_for_a_recurring_event():
+        event = CommunityEventFactory(
+            community=True,
+            recurrence=CommunityEvent.Recurrence.WEEKLY,
+            starts_at=datetime(2026, 10, 6, 1, 0, tzinfo=UTC),
+            ends_at=datetime(2026, 10, 6, 3, 0, tzinfo=UTC),
+        )
+        assert _params(google_calendar_event_url(event))["recur"] == f"RRULE:{event.ical_rrule()}"

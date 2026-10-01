@@ -560,7 +560,7 @@ The Calendar puts everything happening at the space in one place: guild meetings
 1. Click **Calendar** in the left menu.
 2. Use the **Week** / **Month** toggle to switch views, and the arrows to move through time.
 3. The **Events** tab next to **Calendar** shows the same events as a plain list.
-4. Click any event to open its page — the details, plus an **Add to calendar** button that downloads a calendar file for just that event.
+4. Click any event to open its page — the details, plus an **Add to calendar** menu that puts just that event in Google Calendar, or in Apple Calendar or Outlook.
 
 ![The Calendar — Week and Month views, with the Events tab beside them.](/static/help/community-calendar/01-calendar-page.png)
 

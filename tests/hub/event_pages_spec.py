@@ -6,6 +6,7 @@ from __future__ import annotations
 
 from datetime import timedelta
 from unittest.mock import patch
+from urllib.parse import quote_plus
 
 import httpx
 import pytest
@@ -175,10 +176,7 @@ def describe_event_detail():
             'class="hub-btn hub-btn--primary" href="https://meet.google.com/abc-defg-hij"'
             ' target="_blank" rel="noopener noreferrer">Join online</a>' in content
         )
-        assert (
-            f'class="hub-btn hub-btn--ghost" href="{reverse("hub_event_ics", args=[event.pk])}" hx-boost="false" data-pl-download>'
-            "Add to calendar</a>" in content
-        )
+        assert 'class="hub-btn hub-btn--ghost" @click' in content
 
     def it_omits_join_online_and_keeps_add_to_calendar_primary_when_video_url_is_blank(client: Client):
         event = CommunityEventFactory(community=True, video_url="")
@@ -188,10 +186,7 @@ def describe_event_detail():
         # changelog widget (rendered in every hub page's context) can legitimately mention
         # "Join online" in this feature's own release notes.
         assert 'target="_blank" rel="noopener noreferrer">Join online</a>' not in content
-        assert (
-            f'class="hub-btn hub-btn--primary" href="{reverse("hub_event_ics", args=[event.pk])}" hx-boost="false" data-pl-download>'
-            "Add to calendar</a>" in content
-        )
+        assert 'class="hub-btn hub-btn--primary" @click' in content
 
     def it_shows_the_edit_button_to_a_guild_lead(client: Client):
         user = _user_with_role("evt_editor")
@@ -412,58 +407,45 @@ def describe_event_rsvp_post():
         assert "/accounts/login/" in resp.headers["Location"] or "login" in resp.headers["Location"]
 
 
-def describe_event_page_subscribe_menu():
-    """A signed-in member gets the calendar subscription in place of the one-time .ics."""
+def describe_event_page_add_to_calendar_menu():
+    """Add to calendar puts this one event in the viewer's calendar, never the whole calendar."""
 
     # Assert on markup, never bare copy: the site-wide changelog widget on every hub page can
-    # legitimately say "Add to calendar" or "Apple Calendar" in this feature's own release note.
-    ADD_TO_CALENDAR = ">Add to calendar</a>"
-    APPLE_HEADING = 'pl-calendar-export__heading">Apple Calendar</p>'
-    WEBCAL = "webcal://calendar.google.com/calendar/ical/memid%40group.calendar.google.com/public/basic.ics"
-    GOOGLE = "https://calendar.google.com/calendar/r?cid=memid%40group.calendar.google.com"
+    # legitimately say "Subscribe" or "Google Calendar" in a release note.
+    GOOGLE_ITEM = 'class="pl-calendar-export__item" target="_blank" rel="noopener">Google Calendar</a>'
+    ICS_ITEM = 'hx-boost="false" data-pl-download>Apple Calendar or Outlook (.ics)</a>'
+    SUBSCRIBE_NOTE = "Subscribe once and your calendar app stays up to date."
 
-    def _configure(member_id: str = "memid@group.calendar.google.com", public_id: str = "") -> None:
+    def _configure_calendars() -> None:
         config = SiteConfiguration.load()
-        config.member_google_calendar_id = member_id
-        config.public_google_calendar_id = public_id
+        config.member_google_calendar_id = "memid@group.calendar.google.com"
+        config.public_google_calendar_id = "pubid@group.calendar.google.com"
         config.save()
 
-    def it_offers_a_member_both_link_forms_and_no_one_time_download(client: Client):
-        _configure()
-        _user_with_role("sub_member")
-        client.login(username="sub_member", password="pass")
+    def _body(client: Client, event: CommunityEvent) -> str:
+        return client.get(reverse("hub_event_detail", args=[event.pk])).content.decode()
+
+    def it_offers_a_signed_in_member_this_one_event_and_no_subscription(client: Client):
+        _configure_calendars()
+        _user_with_role("add_member")
+        client.login(username="add_member", password="pass")
         event = CommunityEventFactory(community=True, title="Potluck")
-        body = client.get(reverse("hub_event_detail", args=[event.pk])).content.decode()
-        assert APPLE_HEADING in body and 'pl-calendar-export__heading">Google Calendar</p>' in body
-        assert WEBCAL in body and GOOGLE in body
-        assert ADD_TO_CALENDAR not in body
-        assert reverse("hub_event_ics", args=[event.pk]) not in body
-        # The event page never offers the whole-calendar export; that stays on the calendar page.
+        body = _body(client, event)
+        assert GOOGLE_ITEM in body and ICS_ITEM in body
+        assert "https://calendar.google.com/calendar/render?action=TEMPLATE&amp;text=Potluck" in body
+        assert f'href="{reverse("hub_event_ics", args=[event.pk])}"' in body
+        assert "webcal://" not in body and "calendar/r?cid=" not in body
+        assert SUBSCRIBE_NOTE not in body
         assert reverse("hub_calendar_export_ics") not in body
 
-    def it_keeps_the_primary_slot_for_subscribe_and_demotes_it_beside_join_online(client: Client):
-        _configure()
-        _user_with_role("sub_member2")
-        client.login(username="sub_member2", password="pass")
-        plain = CommunityEventFactory(community=True, video_url="")
-        body = client.get(reverse("hub_event_detail", args=[plain.pk])).content.decode()
-        assert 'class="hub-btn hub-btn--primary" @click' in body
-        online = CommunityEventFactory(community=True, video_url="https://meet.google.com/abc-defg-hij")
-        body = client.get(reverse("hub_event_detail", args=[online.pk])).content.decode()
-        assert 'class="hub-btn hub-btn--ghost" @click' in body
+    def it_offers_an_anonymous_scanner_the_same_menu(client: Client):
+        _configure_calendars()
+        event = CommunityEventFactory(community=True, title="Potluck")
+        body = _body(client, event)
+        assert GOOGLE_ITEM in body and ICS_ITEM in body
+        assert "webcal://" not in body
 
-    def it_falls_back_to_add_to_calendar_when_no_calendar_is_configured(client: Client):
-        _configure(member_id="", public_id="")
-        _user_with_role("sub_member3")
-        client.login(username="sub_member3", password="pass")
+    def it_links_the_google_entry_back_to_the_event_page(client: Client):
         event = CommunityEventFactory(community=True)
-        body = client.get(reverse("hub_event_detail", args=[event.pk])).content.decode()
-        assert ADD_TO_CALENDAR in body
-        assert APPLE_HEADING not in body
-
-    def it_never_offers_subscribe_to_an_anonymous_scanner(client: Client):
-        _configure()
-        event = CommunityEventFactory(community=True)
-        body = client.get(reverse("hub_event_detail", args=[event.pk])).content.decode()
-        assert ADD_TO_CALENDAR in body
-        assert APPLE_HEADING not in body and WEBCAL not in body
+        page = "http://testserver" + reverse("hub_event_detail", args=[event.pk])
+        assert f"details={quote_plus(page)}" in _body(client, event)
