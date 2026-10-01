@@ -68,6 +68,7 @@ which the composer's card preview frames include on their own.
         {% endif %}
       {% elif offering.scheduling_model == 'flexible' %}
         <div class="cls-schedule__flex">Flexible: schedule with the instructor</div>
+        {% if offering.has_flexible_window %}<div class="cls-schedule__window">{{ offering.flexible_window_label }}</div>{% endif %}
       {% else %}
         {% with sessions=offering.sessions.all|upcoming_sessions %}
           {% if sessions %}
@@ -107,6 +108,8 @@ which the composer's card preview frames include on their own.
       </div>
       {% if group.is_multi %}
         <span class="cls-spots cls-spots--dates">{% if offering.scheduling_type == 'series_package' %}{{ group.date_count }} option{{ group.date_count|pluralize }}{% else %}{{ group.date_count }} dates{% endif %}</span>
+      {% elif offering.scheduling_model == 'flexible' %}
+        {# No seat cap (#545): no seat pill. #}
       {% else %}
         {% with spots=offering.spots_remaining %}
           <span class="cls-spots {{ spots|spots_class }}">

@@ -95,12 +95,14 @@ def _digest_blocks(now: datetime) -> list[str]:
         lines = [_class_line(s.class_offering, time_prefix=f"{_time_of(s.starts_at)} — ") for s in day_sessions]
         blocks.append("\n".join([header, *lines]))
 
+    # bookable() is the one rule: a flexible class is listed through its last day on the
+    # site's local date and gone the day after, exactly as the catalog has it (#545).
     flexible = (
         ClassOffering.objects.bookable()
         .filter(scheduling_model=ClassOffering.SchedulingModel.FLEXIBLE)
         .select_related("instructor")
     )
-    flexible_lines = [_class_line(offering) for offering in flexible]
+    flexible_lines = [_class_line(offering, time_prefix=_window_prefix(offering)) for offering in flexible]
     if flexible_lines:
         blocks.append("\n".join([_FLEXIBLE_HEADER, *flexible_lines]))
     return blocks
@@ -151,8 +153,14 @@ def post_weekly_classes_digest() -> int:
     return len(embeds)
 
 
+def _window_prefix(offering: ClassOffering) -> str:
+    """A flexible class's date window as a line prefix ("Nov 2 to Dec 1, 2026 — "), or "" with no window."""
+    label = offering.flexible_window_label
+    return f"{label} — " if label else ""
+
+
 def _class_when(offering: ClassOffering) -> str:
-    """The announcement's date line: the next upcoming session, or the flexible note.
+    """The announcement's date line: the next upcoming session, or the flexible line with its window.
 
     ``bookable()`` guarantees a FIXED offering's first session is still upcoming, so the
     earliest session IS the next one.
@@ -160,7 +168,8 @@ def _class_when(offering: ClassOffering) -> str:
     from classes.models import ClassOffering as CO
 
     if offering.scheduling_model == CO.SchedulingModel.FLEXIBLE:
-        return _FLEXIBLE_WHEN
+        label = offering.flexible_window_label
+        return f"{_FLEXIBLE_WHEN} · {label}" if label else _FLEXIBLE_WHEN
     first = offering.sessions.order_by("starts_at").first()
     if first is None:  # defensive: bookable() excludes session-less FIXED offerings
         return _FLEXIBLE_WHEN

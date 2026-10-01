@@ -1184,3 +1184,41 @@ def describe_the_flexible_window_through_the_admin_composer():
         assert resp.context["initial_phase"] == 3
         assert "The last day has passed." in resp.content.decode()
         assert not ClassOffering.objects.filter(title="Window Class").exists()
+
+
+def describe_the_dates_cell_for_a_flexible_class():
+    """The Date(s) cell reads the window, or "Flexible" when open ended, never the session rows (#545)."""
+
+    def it_shows_the_window_or_flexible(admin_user, client, db):
+        from datetime import date, timedelta
+
+        from django.utils import timezone
+
+        from classes.factories import ClassOfferingFactory, ClassSessionFactory
+        from classes.models import ClassOffering
+
+        client.force_login(admin_user)
+        windowed = ClassOfferingFactory(
+            title="Windowed",
+            slug="windowed",
+            status=ClassOffering.Status.PUBLISHED,
+            scheduling_model=ClassOffering.SchedulingModel.FLEXIBLE,
+            flexible_starts_on=date(2026, 11, 2),
+            flexible_ends_on=date(2026, 12, 1),
+        )
+        start = timezone.now() + timedelta(days=2)
+        ClassSessionFactory(class_offering=windowed, starts_at=start, ends_at=start + timedelta(hours=703))
+        ClassOfferingFactory(
+            title="Open Ended",
+            slug="open-ended",
+            status=ClassOffering.Status.PUBLISHED,
+            scheduling_model=ClassOffering.SchedulingModel.FLEXIBLE,
+        )
+        html = client.get(reverse("classes:admin_classes")).content.decode()
+
+        def _dates_cell(title: str) -> str:
+            row = next(row for row in html.split("<tr") if f">{title}<" in row)
+            return " ".join(row.split('<td style="white-space:nowrap;">')[1].split("</td>")[0].split())
+
+        assert _dates_cell("Windowed") == "Nov 2 to Dec 1, 2026"
+        assert _dates_cell("Open Ended") == "Flexible"

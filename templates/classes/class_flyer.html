@@ -48,7 +48,11 @@
       <section class="pl-flyer__block">
         <h2 class="pl-flyer__block-title">When</h2>
         {% with sessions=offering.sessions.all %}
-          {% if sessions %}
+          {# A flexible class reads its window, whatever session rows it still carries. #}
+          {% if offering.is_flexible %}
+            <p class="pl-flyer__line">Flexible — arrange dates directly with the instructor.</p>
+            {% if offering.has_flexible_window %}<p class="pl-flyer__line"><strong>{{ offering.flexible_window_label }}</strong></p>{% endif %}
+          {% elif sessions %}
             {% if offering.is_series %}
               <p class="pl-flyer__line">Series · {{ sessions|length }} session{{ sessions|length|pluralize }}</p>
               {% for session in sessions %}
@@ -60,8 +64,6 @@
                 <p class="pl-flyer__line">{{ session|session_time_range }}</p>
               {% endwith %}
             {% endif %}
-          {% elif offering.scheduling_model == 'flexible' %}
-            <p class="pl-flyer__line">Flexible — arrange dates directly with the instructor.</p>
           {% else %}
             <p class="pl-flyer__line">Dates to be announced.</p>
           {% endif %}

@@ -3,7 +3,8 @@
 from __future__ import annotations
 
 import re
-from datetime import timedelta
+from datetime import date, timedelta
+from unittest import mock
 
 import pytest
 from django.test import override_settings
@@ -1195,3 +1196,114 @@ def describe_detail_guild_card():
         )
         resp = client.get(reverse("classes:public_class_detail", kwargs={"slug": offering.slug}))
         assert "offered in partnership with the Glass Guild" in resp.content.decode()
+
+
+def describe_a_flexible_class_page():
+    """A flexible class explains itself (#545): the window, how booking works, never a Schedule.
+
+    Positive anchors are markup (data-flexible-section, the pill class) and factory strings
+    (the instructor's name, the window dates); negative ones are the Schedule's own markup.
+    """
+
+    def _flexible(**traits) -> ClassOffering:
+        # One Billy per spec: the slug is unique, and several specs build more than one class.
+        billy = Member.objects.filter(instructor_slug="billy").first()
+        traits.setdefault(
+            "instructor", billy or InstructorFactory(full_legal_name="Billy Anvil", instructor_slug="billy")
+        )
+        return ClassOfferingFactory(
+            status=ClassOffering.Status.PUBLISHED, scheduling_model=ClassOffering.SchedulingModel.FLEXIBLE, **traits
+        )
+
+    def _page(client, offering: ClassOffering) -> str:
+        response = client.get(reverse("classes:public_class_detail", kwargs={"slug": offering.slug}))
+        assert response.status_code == 200
+        return response.content.decode()
+
+    def _section(html: str) -> str:
+        return html.split('<section class="cp-detail__section" data-flexible-section>')[1].split("</section>")[0]
+
+    def it_shows_the_window_in_bold_and_the_booking_sentence_naming_the_instructor(db, client):
+        offering = _flexible(flexible_starts_on=date(2026, 11, 2), flexible_ends_on=date(2026, 12, 1))
+        section = _section(_page(client, offering))
+        assert '<h2 class="cp-detail__h2">Flexible Date Range</h2>' in section
+        assert "<strong>Nov 2 to Dec 1, 2026</strong>" in section
+        assert "with Billy Anvil and pick a day inside this window that works for both of you." in section
+
+    def it_renders_each_window_shape(db, client):
+        shapes = [
+            ({"flexible_starts_on": date(2026, 11, 2)}, "From Nov 2, 2026"),
+            ({"flexible_ends_on": date(2026, 12, 1)}, "Through Dec 1, 2026"),
+            (
+                {"flexible_starts_on": date(2026, 12, 20), "flexible_ends_on": date(2027, 1, 10)},
+                "Dec 20, 2026 to Jan 10, 2027",
+            ),
+        ]
+        for traits, label in shapes:
+            section = _section(_page(client, _flexible(**traits)))
+            assert f"<strong>{label}</strong>" in section, traits
+            assert "Flexible Date Range" in section, traits
+            assert "inside this window" in section, traits
+
+    def it_reads_flexible_scheduling_with_no_window_and_no_window_words(db, client):
+        section = _section(_page(client, _flexible()))
+        assert '<h2 class="cp-detail__h2">Flexible Scheduling</h2>' in section
+        assert "cp-detail__flex-window" not in section
+        assert "with Billy Anvil and pick a day that works for both of you." in section
+        assert "inside this window" not in section
+
+    def it_shows_the_instructors_note_after_the_sentence_when_there_is_one(db, client):
+        section = _section(_page(client, _flexible(flexible_note="Weekday mornings only.")))
+        assert "cp-detail__flex-instructor-note" in section
+        assert section.index("Billy Anvil") < section.index("Weekday mornings only.")
+        assert "cp-detail__flex-instructor-note" not in _section(_page(client, _flexible(slug="quiet")))
+
+    def it_never_renders_the_schedule_for_a_class_still_carrying_a_month_long_session(db, client):
+        # The shape of production class 665: a flexible class with one 703 hour session row.
+        offering = _flexible(slug="billy-november")
+        start = timezone.now() + timedelta(days=2)
+        ClassSessionFactory(class_offering=offering, starts_at=start, ends_at=start + timedelta(hours=703))
+        html = _page(client, offering)
+        assert "data-flexible-section" in html
+        assert "cp-detail__sessions" not in html
+        assert "cp-detail__h2-sub" not in html
+        assert "h total" not in html
+        assert 'cp-detail__next-pill">Next session' not in html
+        assert 'cp-detail__next-pill cp-detail__next-pill--flex">Flexible scheduling' in html
+        assert "<strong>1</strong> session" not in html
+
+    def it_offers_register_now_through_the_last_day(db, client):
+        today = timezone.localdate()
+        html = _page(client, _flexible(flexible_starts_on=today - timedelta(days=10), flexible_ends_on=today))
+        assert 'data-help-key="class.register"' in html
+        assert "data-flexible-closed" not in html
+        assert 'cp-detail__spots--full">Registration closed' not in html
+
+    def it_closes_registration_the_day_after_the_last_day_naming_the_date(db, client):
+        offering = _flexible(flexible_starts_on=date(2026, 11, 2), flexible_ends_on=date(2026, 12, 1))
+        with mock.patch("classes.models.timezone.localdate", return_value=date(2026, 12, 2)):
+            html = _page(client, offering)
+        assert 'cp-detail__spots--full">Registration closed' in html
+        assert "data-flexible-closed>This class's booking window ended Dec 1, 2026.</div>" in html
+        assert 'data-help-key="class.register"' not in html
+        assert "has already started" not in html.split("data-flexible-closed")[1].split("</div>")[0]
+
+    def it_shows_the_window_under_the_flex_line_on_the_catalog_card(db, client):
+        _flexible(
+            title="Open Forge",
+            slug="open-forge",
+            flexible_starts_on=date(2026, 11, 2),
+            flexible_ends_on=date(2026, 12, 1),
+        )
+        _flexible(title="Any Time Forge", slug="any-time-forge")
+        html = client.get(reverse("classes:public_list")).content.decode()
+        assert html.count('<div class="cls-schedule__flex">Flexible: schedule with the instructor</div>') == 2
+        assert html.count('<div class="cls-schedule__window">') == 1
+        assert '<div class="cls-schedule__window">Nov 2 to Dec 1, 2026</div>' in html
+
+    def it_leaves_the_catalog_the_day_after_the_last_day(db, client):
+        _flexible(title="Open Forge", slug="open-forge", flexible_ends_on=date(2026, 12, 1))
+        with mock.patch("classes.models.timezone.localdate", return_value=date(2026, 12, 1)):
+            assert b"Open Forge" in client.get(reverse("classes:public_list")).content
+        with mock.patch("classes.models.timezone.localdate", return_value=date(2026, 12, 2)):
+            assert b"Open Forge" not in client.get(reverse("classes:public_list")).content

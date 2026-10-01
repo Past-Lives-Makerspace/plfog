@@ -25,9 +25,9 @@
         <tr{% if offering.status == 'archived' %} class="pl-class-list__row--archived"{% endif %}>
             <td class="pl-class-list__title"><a href="{% url 'classes:teach_class_detail' pk=offering.pk %}">{{ offering.title }}</a></td>
             <td>{{ offering.category.name }}</td>
-            <td class="pl-class-list__dates">{% if offering.first_session %}{{ offering.first_session|date:"M j" }}{% if offering.last_session != offering.first_session %} – {{ offering.last_session|date:"M j" }}{% endif %}, {{ offering.last_session|date:"Y" }}{% else %}<span class="pl-class-list__no-dates">—</span>{% endif %}</td>
+            <td class="pl-class-list__dates">{% if offering.is_flexible %}{% firstof offering.flexible_window_label "Flexible" %}{% elif offering.first_session %}{{ offering.first_session|date:"M j" }}{% if offering.last_session != offering.first_session %} – {{ offering.last_session|date:"M j" }}{% endif %}, {{ offering.last_session|date:"Y" }}{% else %}<span class="pl-class-list__no-dates">—</span>{% endif %}</td>
             <td>{% include "classes/_components/lifecycle_badge.html" with offering=offering show_note=True %}</td>
-            <td>{{ offering.registration_count }}/{{ offering.capacity }}</td>
+            <td>{{ offering.registration_count }}{% if not offering.is_flexible %}/{{ offering.capacity }}{% endif %}</td>
             <td class="pl-class-list__actions">
                 <div class="pl-class-list__actions-inner">
                 {% if offering.status == 'draft' or offering.status == 'pending' %}

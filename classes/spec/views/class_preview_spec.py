@@ -257,3 +257,55 @@ def describe_page_parity_in_preview():
         client.force_login(admin_user)
         body = client.get(reverse("classes:class_preview", kwargs={"pk": offering.pk})).content.decode()
         assert "anvil-basics" in body
+
+
+def describe_a_flexible_class_in_preview():
+    """Both previews render the public page's context, so a flexible class reads the same there (#545)."""
+
+    def it_shows_the_flexible_block_and_never_the_schedule_of_a_class_still_carrying_a_session(
+        admin_user, instructor_fixture, client
+    ):
+        from datetime import date, timedelta
+
+        from django.utils import timezone
+
+        from classes.factories import ClassSessionFactory
+
+        offering = ClassOfferingFactory(
+            instructor=instructor_fixture,
+            slug="pick-your-november-time",
+            status=ClassOffering.Status.DRAFT,
+            scheduling_model=ClassOffering.SchedulingModel.FLEXIBLE,
+            flexible_starts_on=date(2026, 11, 2),
+            flexible_ends_on=date(2026, 12, 1),
+        )
+        start = timezone.now() + timedelta(days=2)
+        ClassSessionFactory(class_offering=offering, starts_at=start, ends_at=start + timedelta(hours=703))
+        client.force_login(admin_user)
+        body = client.get(reverse("classes:class_preview", kwargs={"pk": offering.pk})).content.decode()
+        assert "data-flexible-section" in body
+        assert "<strong>Nov 2 to Dec 1, 2026</strong>" in body
+        assert "cp-detail__sessions" not in body
+        assert "cp-detail__h2-sub" not in body
+        assert "h total" not in body
+        assert 'cp-detail__next-pill">Next session' not in body
+        assert 'cp-detail__next-pill--flex">Flexible scheduling' in body
+        assert 'data-help-key="class.register"' in body
+
+    def it_closes_the_preview_rail_after_the_last_day(admin_user, instructor_fixture, client):
+        from datetime import date
+        from unittest import mock
+
+        offering = ClassOfferingFactory(
+            instructor=instructor_fixture,
+            slug="window-over",
+            status=ClassOffering.Status.PUBLISHED,
+            scheduling_model=ClassOffering.SchedulingModel.FLEXIBLE,
+            flexible_ends_on=date(2026, 12, 1),
+        )
+        client.force_login(admin_user)
+        with mock.patch("classes.models.timezone.localdate", return_value=date(2026, 12, 2)):
+            body = client.get(reverse("classes:class_preview", kwargs={"pk": offering.pk})).content.decode()
+        assert 'cp-detail__spots--full">Registration closed' in body
+        assert "data-flexible-closed" in body
+        assert 'data-help-key="class.register"' not in body

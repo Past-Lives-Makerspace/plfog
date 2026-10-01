@@ -138,6 +138,27 @@ def describe_class_flyer():
             body = client.get(reverse("classes:class_flyer", args=[offering.pk])).content.decode()
             assert "Flexible — arrange dates directly with the instructor." in body
 
+        def it_adds_the_window_to_the_flexible_line_when_set(admin_user, client, db):
+            from datetime import date, timedelta
+
+            from django.utils import timezone
+
+            from classes.factories import ClassSessionFactory
+
+            offering = ClassOfferingFactory(
+                scheduling_model=ClassOffering.SchedulingModel.FLEXIBLE,
+                flexible_starts_on=date(2026, 11, 2),
+                flexible_ends_on=date(2026, 12, 1),
+            )
+            # A session row still on the class (the pre #545 shape) is never read on the flyer.
+            start = timezone.now() + timedelta(days=2)
+            ClassSessionFactory(class_offering=offering, starts_at=start, ends_at=start + timedelta(hours=703))
+            client.force_login(admin_user)
+            body = client.get(reverse("classes:class_flyer", args=[offering.pk])).content.decode()
+            assert "Flexible — arrange dates directly with the instructor." in body
+            assert '<p class="pl-flyer__line"><strong>Nov 2 to Dec 1, 2026</strong></p>' in body
+            assert "Series ·" not in body and date_filter(localtime(start), "l, F j, Y") not in body
+
         def it_shows_tba_when_no_sessions_and_not_flexible(admin_user, client, db):
             offering = ClassOfferingFactory(scheduling_model=ClassOffering.SchedulingModel.FIXED)
             client.force_login(admin_user)

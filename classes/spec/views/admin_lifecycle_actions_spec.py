@@ -604,7 +604,8 @@ def describe_admin_class_create_publish_path():
         activity_before = CmsActivity.objects.count()
         site_before = SiteActivity.objects.count()
         client.force_login(admin_user)
-        # Photos present, but the description is short and a flexible class has no note.
+        # Photos present, but the description is short and the flexible class's last day has passed
+        # (#545: a flexible class needs no note, and its one Dates rule is an open window).
         resp = client.post(
             reverse("classes:admin_class_create"),
             _payload(
@@ -612,6 +613,8 @@ def describe_admin_class_create_publish_path():
                 InstructorFactory(),
                 image=_real_png(),
                 gallery_images=[_fake_png("g.png")],
+                flexible_starts_on="2020-01-01",
+                flexible_ends_on="2020-01-31",
             ),
         )
         assert resp.status_code == 200
@@ -619,7 +622,7 @@ def describe_admin_class_create_publish_path():
         html = resp.content.decode()
         assert "Still Missing" in html and "Not ready to publish yet." in html
         assert f"goToField('id_description')\">{READINESS_DESCRIPTION_HINT}</button>" in html
-        assert "goToField('class-dates')\">Say how students pick a time.</button>" in html
+        assert "goToField('class-dates')\">The last day has passed.</button>" in html
         assert "Some Things Need Fixing" not in html
         assert not ClassOffering.objects.filter(title="Direct Publish").exists()
         assert _stored_class_images() == files_before

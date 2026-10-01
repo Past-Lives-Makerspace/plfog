@@ -773,6 +773,26 @@ def describe_instructor_list_markup():
         assert '<td class="pl-class-list__dates">Nov 3, 2026</td>' in html
         assert html.count('<span class="pl-class-list__no-dates">') == 1
 
+    def it_shows_the_window_or_flexible_for_a_flexible_class(instructor_fixture, client):
+        # The window, or "Flexible" when open ended; never the session rows the class still carries (#545).
+        from datetime import date
+
+        windowed = _lean(
+            instructor_fixture,
+            slug="windowed",
+            scheduling_model=ClassOffering.SchedulingModel.FLEXIBLE,
+            flexible_starts_on=date(2026, 11, 2),
+            flexible_ends_on=date(2026, 12, 1),
+        )
+        ClassSessionFactory(class_offering=windowed, starts_at=datetime(2026, 10, 10, 20, tzinfo=dt_timezone.utc))
+        _lean(instructor_fixture, slug="open-ended", scheduling_model=ClassOffering.SchedulingModel.FLEXIBLE)
+        client.force_login(instructor_fixture.user)
+        html = client.get(reverse("classes:teach_dashboard")).content.decode()
+        assert '<td class="pl-class-list__dates">Nov 2 to Dec 1, 2026</td>' in html
+        assert '<td class="pl-class-list__dates">Flexible</td>' in html
+        assert "Oct 10" not in html
+        assert html.count('<span class="pl-class-list__no-dates">') == 0
+
     def it_uses_the_admin_table_styling_with_no_inline_styles(instructor_fixture, client):
         _lean(instructor_fixture, status=ClassOffering.Status.PUBLISHED)
         _lean(instructor_fixture, status=ClassOffering.Status.DRAFT)

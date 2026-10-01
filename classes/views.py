@@ -399,11 +399,17 @@ def _class_detail_context(request: HttpRequest, offering: ClassOffering) -> dict
     # matches what compute_final_price_cents will actually charge.
     member_price_cents = compute_member_price_cents(offering.sale_price_cents, offering.member_discount_pct)
     now = timezone.now()
-    upcoming_sessions = list(offering.sessions.filter(starts_at__gte=now).order_by("starts_at"))
-    # A series is its full set of dates; a single class is its one date. Show every
-    # session for a series (so a started one still reads as the N-session series it
+    # A flexible class has no schedule to show, whatever session rows it still carries (a
+    # class saved before #545 may hold one standing in for its window), so the page never
+    # reads them. A series is its full set of dates; a single class is its one date. Show
+    # every session for a series (so a started one still reads as the N-session series it
     # is, with past dates marked) and just the dated session for a single.
-    schedule_sessions = list(offering.sessions.order_by("starts_at")) if offering.is_series else upcoming_sessions
+    if offering.is_flexible:
+        upcoming_sessions: list[Any] = []
+        schedule_sessions: list[Any] = []
+    else:
+        upcoming_sessions = list(offering.sessions.filter(starts_at__gte=now).order_by("starts_at"))
+        schedule_sessions = list(offering.sessions.order_by("starts_at")) if offering.is_series else upcoming_sessions
 
     # Other dates this same class is offered on, so the visitor can switch dates
     # without hunting through the catalog. Only runs you can still book are shown
@@ -455,6 +461,14 @@ def _class_detail_context(request: HttpRequest, offering: ClassOffering) -> dict
         "spots_remaining": offering.spots_remaining,
         "related_offerings": related_offerings,
         "sibling_offerings": sibling_offerings,
+        # The flexible block (#545): the template holds the copy, these hold the facts. The
+        # instructor's name is read off the row in the template, so a spec can anchor on it.
+        "is_flexible": offering.is_flexible,
+        "has_flexible_window": offering.has_flexible_window,
+        "flexible_heading": "Flexible Date Range" if offering.has_flexible_window else "Flexible Scheduling",
+        "flexible_window_label": offering.flexible_window_label,
+        "flexible_window_ended": offering.flexible_window_ended,
+        "flexible_ends_on": offering.flexible_ends_on,
     }
 
 
@@ -1070,8 +1084,11 @@ def register(request: HttpRequest, slug: str) -> HttpResponse:
     # full. A WAITLISTED row consumes no seat, so somebody already queued is still told a
     # sold-out class is sold out, and their re-submit is still a waitlist submit.
     holds_seat = existing is not None and existing.consumes_seat
+    # A flexible class answers None: no seat cap, so nothing to wait for, and ?waitlist=1 on
+    # one (a stale link) registers normally (#545).
+    spots = offering.spots_remaining
     is_waitlist = (
-        claim is None and not holds_seat and (request.GET.get("waitlist") == "1" or offering.spots_remaining <= 0)
+        claim is None and not holds_seat and spots is not None and (request.GET.get("waitlist") == "1" or spots <= 0)
     )
 
     form = RegistrationForm(
@@ -3136,6 +3153,8 @@ def _claim_email_will_fire(offering: ClassOffering) -> bool:
     un-notified WAITLISTED row exists. Computed once per page for the remove
     modals' conditional copy.
     """
+    if offering.is_flexible:
+        return False  # no cap, so promote_next_from_waitlist never fires (#545)
     held = offering.seats_taken
     if held - 1 >= offering.capacity:
         return False
