@@ -55,15 +55,6 @@ def describe_ClassOffering():
             c.refresh_from_db()
             assert c.status == ClassOffering.Status.ARCHIVED
 
-    def describe_member_price_cents():
-        def it_returns_discounted_cents_when_there_is_a_member_discount(db):
-            c = ClassOfferingFactory(price_cents=10_000, member_discount_pct=10)
-            assert c.member_price_cents == 9_000
-
-        def it_returns_none_when_there_is_no_member_discount(db):
-            c = ClassOfferingFactory(price_cents=10_000, member_discount_pct=0)
-            assert c.member_price_cents is None
-
     def describe_sale_is_active():
         def it_is_true_when_enabled_paid_and_percent_set(db):
             c = ClassOfferingFactory(sale_enabled=True, sale_kind=ClassOffering.SaleKind.PERCENT, sale_percent=20)

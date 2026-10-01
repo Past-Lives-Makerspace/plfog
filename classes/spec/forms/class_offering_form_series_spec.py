@@ -25,7 +25,6 @@ def _admin_post_data(**overrides) -> dict:
         "age_minimum": "",
         "age_guardian_note": "",
         "price_cents": "100.00",
-        "member_discount_pct": "10",
         "capacity": "6",
         "scheduling_model": ClassOffering.SchedulingModel.FIXED,
         "sale_kind": "percent",

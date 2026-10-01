@@ -78,7 +78,6 @@ def free_offering(db):
         instructor=InstructorFactory(),
         status=ClassOffering.Status.PUBLISHED,
         price_cents=0,
-        member_discount_pct=0,
         capacity=4,
     )
     ClassSessionFactory(

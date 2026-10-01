@@ -331,7 +331,7 @@ def describe_a_save_the_server_refuses():
         _wait_for_kept_value(page, create_key, "video_url", VIDEO)
 
         # Only what was actually filled in. The server's own defaults for the fields nobody
-        # touched (the seats, the member discount, how it is scheduled) are rendered on this
+        # touched (the seats, how it is scheduled) are rendered on this
         # page too, and treating the whole page as changed would sweep them into the copy.
         assert set(_stored(page)["values"]) == {"title", "category", "description", "price_cents", "video_url"}
 

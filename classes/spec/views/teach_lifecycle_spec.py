@@ -63,7 +63,6 @@ def _edit_payload(offering, cat) -> dict:
         "safety_requirements": "",
         "age_guardian_note": "",
         "price_cents": offering.price_cents,
-        "member_discount_pct": offering.member_discount_pct,
         "capacity": offering.capacity,
         "scheduling_model": "flexible",
         "sale_kind": "percent",
@@ -309,9 +308,7 @@ def describe_honest_submit_messages():
         cat = _guilded_category("Metal")
         buf = BytesIO()
         Image.new("RGB", (4, 4), (10, 20, 30)).save(buf, "PNG")
-        payload = _edit_payload(
-            ClassOfferingFactory.build(title="Anvil", price_cents=5000, member_discount_pct=10, capacity=6), cat
-        )
+        payload = _edit_payload(ClassOfferingFactory.build(title="Anvil", price_cents=5000, capacity=6), cat)
         payload["image"] = SimpleUploadedFile("hero.png", buf.getvalue(), content_type="image/png")
         payload["gallery_images"] = [SimpleUploadedFile("g.png", buf.getvalue(), content_type="image/png")]
         client.force_login(instructor_fixture.user)

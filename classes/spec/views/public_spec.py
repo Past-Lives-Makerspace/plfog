@@ -418,38 +418,24 @@ def describe_public_list():
         assert b"Intro to Wheel Throwing" not in response.content
         assert b"Cheap Class" in response.content
 
-    def it_filters_members_only(db, client):
+    def it_ignores_the_retired_members_only_filter(db, client):
+        # The automatic member discount is gone, so a bookmarked ``?members_only=1`` narrows
+        # nothing: every browsable class lists, and the form has no control for it.
         cat = CategoryFactory()
         inst = InstructorFactory()
-        members_only = ClassOfferingFactory(
-            title="Members Class",
-            slug="members-class",
-            category=cat,
-            instructor=inst,
-            status=ClassOffering.Status.PUBLISHED,
-            member_discount_pct=15,
-        )
-        no_discount = ClassOfferingFactory(
-            title="Open Class",
-            slug="open-class",
-            category=cat,
-            instructor=inst,
-            status=ClassOffering.Status.PUBLISHED,
-            member_discount_pct=0,
-        )
-        ClassSessionFactory(
-            class_offering=members_only,
-            starts_at=timezone.now() + timedelta(days=1),
-            ends_at=timezone.now() + timedelta(days=1, hours=2),
-        )
-        ClassSessionFactory(
-            class_offering=no_discount,
-            starts_at=timezone.now() + timedelta(days=2),
-            ends_at=timezone.now() + timedelta(days=2, hours=2),
-        )
+        for title, slug, days in (("Anvil Class", "anvil-class", 1), ("Bellows Class", "bellows-class", 2)):
+            offering = ClassOfferingFactory(
+                title=title, slug=slug, category=cat, instructor=inst, status=ClassOffering.Status.PUBLISHED
+            )
+            ClassSessionFactory(
+                class_offering=offering,
+                starts_at=timezone.now() + timedelta(days=days),
+                ends_at=timezone.now() + timedelta(days=days, hours=2),
+            )
         response = client.get(reverse("classes:public_list") + "?members_only=1")
-        assert b"Members Class" in response.content
-        assert b"Open Class" not in response.content
+        assert b"Anvil Class" in response.content
+        assert b"Bellows Class" in response.content
+        assert b'name="members_only"' not in response.content
 
     def it_ignores_the_retired_free_filter(db, client):
         # #389: every class has a price now, so ``?free=1`` filters nothing and the

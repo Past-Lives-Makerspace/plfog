@@ -92,7 +92,6 @@ from classes.grouping import CatalogGroup, grouped_catalog
 from classes.lifecycle import ADMIN_FACETS, INSTRUCTOR_FACETS, facet_rows, resolve_facet
 from classes.questions import prefill_answers
 from classes.table import prepare_table
-from classes.templatetags.classes_tags import member_price_cents as compute_member_price_cents
 from classes.forms import (
     CategoryForm,
     ClassCancelForm,
@@ -216,8 +215,6 @@ def _apply_browse_filters(qs: Any, request: HttpRequest) -> Any:
     if max_price > 0:
         qs = qs.filter(price_cents__lte=max_price)
 
-    if request.GET.get("members_only") == "1":
-        qs = qs.filter(member_discount_pct__gt=0)
     if request.GET.get("upcoming") == "1":
         qs = qs.exclude(first_session_at__isnull=True)
 
@@ -252,7 +249,6 @@ def public_list(request: HttpRequest) -> HttpResponse:
     selected_guild_slug = request.GET.get("guild", "").strip()
     selected_guild = Guild.objects.filter(slug=selected_guild_slug).first() if selected_guild_slug else None
     selected_instructor_slugs = [s for s in request.GET.getlist("instructor") if s]
-    members_only = request.GET.get("members_only") == "1"
     upcoming_only = request.GET.get("upcoming") == "1"
     selected_within = request.GET.get("within", "all")
     selected_within_days = WITHIN_DAYS.get(selected_within)
@@ -320,7 +316,6 @@ def public_list(request: HttpRequest) -> HttpResponse:
             selected_instructor_slugs,
             request.GET.get("min_price"),
             request.GET.get("max_price"),
-            members_only,
             upcoming_only,
         )
         if v
@@ -343,7 +338,6 @@ def public_list(request: HttpRequest) -> HttpResponse:
         "instructors_for_filter": instructors_for_filter,
         "min_price": request.GET.get("min_price", ""),
         "max_price": request.GET.get("max_price", ""),
-        "members_only": members_only,
         "upcoming_only": upcoming_only,
         "selected_within": selected_within,
         "selected_within_days": selected_within_days,
@@ -394,9 +388,6 @@ def _class_detail_context(request: HttpRequest, offering: ClassOffering) -> dict
     """
     from membership.permissions import can_edit_category as can_edit_category_perm
 
-    # Member price reads off the SALE base so every quoted member number
-    # matches what compute_final_price_cents will actually charge.
-    member_price_cents = compute_member_price_cents(offering.sale_price_cents, offering.member_discount_pct)
     now = timezone.now()
     upcoming_sessions = list(offering.sessions.filter(starts_at__gte=now).order_by("starts_at"))
     # A series is its full set of dates; a single class is its one date. Show every
@@ -450,7 +441,6 @@ def _class_detail_context(request: HttpRequest, offering: ClassOffering) -> dict
         # which is how every preview once read "Registration closed".
         "is_bookable": offering.is_bookable,
         "now": now,
-        "member_price_cents": member_price_cents,
         "spots_remaining": offering.spots_remaining,
         "related_offerings": related_offerings,
         "sibling_offerings": sibling_offerings,
@@ -588,10 +578,9 @@ def _register_prefill(request: HttpRequest) -> tuple[str, dict[int, str], bool, 
     submitted data. On GET it is ``?email=`` (sent by the price summary's HTMX refresh, which
     also lets a returning guest's saved answers pre-fill) or, failing that, the logged-in
     user's own address, so a member's first render already quotes their price. The refresh
-    carries the member-discount toggle and the code box as they stand, and those ride into
-    the initial too. Returns ``(bound_email, custom_answers_initial, answers_prefilled,
-    field_initial)`` — the field initial pre-fills standard fields from the logged-in user's
-    Member record (GET only).
+    carries the code box as it stands, and that rides into the initial too. Returns
+    ``(bound_email, custom_answers_initial, answers_prefilled, field_initial)`` — the field
+    initial pre-fills standard fields from the logged-in user's Member record (GET only).
     """
     field_initial: dict[str, Any] = {}
     if request.method == "POST":
@@ -601,13 +590,6 @@ def _register_prefill(request: HttpRequest) -> tuple[str, dict[int, str], bool, 
         bound_email = (request.GET["email"] if "email" in request.GET else field_initial.get("email", "")).strip()
         if bound_email:
             field_initial["email"] = bound_email
-        if "apply_member_discount" in request.GET:
-            # Sent only when the toggle was on the page: its hidden twin always carries "" and the
-            # box adds "on" when checked. Order is not reliable (htmx serialises the element that
-            # fired before its hx-include siblings), so look for "on" anywhere rather than last.
-            # A page that had no toggle (a non-member's email, until now) sends nothing and keeps
-            # the default: on.
-            field_initial["apply_member_discount"] = "on" in request.GET.getlist("apply_member_discount")
         if "discount_code" in request.GET:
             field_initial["discount_code"] = request.GET["discount_code"]
     custom_answers_initial, answers_prefilled = prefill_answers(request.user, bound_email)
@@ -1010,8 +992,8 @@ def _start_registration_payment(
 def register(request: HttpRequest, slug: str) -> HttpResponse:
     """Public registration form — collects info, signs waivers, kicks off Stripe Checkout.
 
-    A total of $0 after discounts (a 100% code, a 100% member discount, or a legacy
-    $0 row) confirms immediately and skips Stripe. Anything else redirects to a
+    A total of $0 after discounts (a 100% code or a legacy $0 row) confirms
+    immediately and skips Stripe. Anything else redirects to a
     Stripe Checkout Session; the webhook handler flips the registration to
     CONFIRMED on success.
     """

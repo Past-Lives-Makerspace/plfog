@@ -38,7 +38,6 @@ def _teach_data(**overrides) -> dict:
         "category": str(CategoryFactory().pk),
         "description": "Hands-on intro.",
         "price_cents": "100.00",
-        "member_discount_pct": "10",
         "capacity": "6",
         "scheduling_model": ClassOffering.SchedulingModel.FIXED,
         "scheduling_type": ClassOffering.SchedulingType.SINGLE_SESSION,
@@ -112,7 +111,6 @@ def describe_step_for_field():
         assert step_for_field("title") == 1
         assert step_for_field("card_focus") == 2
         assert step_for_field("price_cents") == 1
-        assert step_for_field("member_discount_pct") == 3
         assert step_for_field("age_minimum") == 4
 
     def it_raises_on_an_unknown_field():

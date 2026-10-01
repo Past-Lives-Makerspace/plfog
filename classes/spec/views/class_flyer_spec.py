@@ -132,12 +132,11 @@ def describe_class_flyer():
             body = client.get(reverse("classes:class_flyer", args=[free_offering.pk])).content.decode()
             assert "<strong>Free</strong>" in body
 
-        def it_shows_the_price_and_member_price_for_a_paid_class(admin_user, client, db):
-            offering = ClassOfferingFactory(price_cents=5000, member_discount_pct=10)
+        def it_shows_the_price_for_a_paid_class(admin_user, client, db):
+            offering = ClassOfferingFactory(price_cents=5000)
             client.force_login(admin_user)
             body = client.get(reverse("classes:class_flyer", args=[offering.pk])).content.decode()
             assert "<strong>$50</strong>" in body
-            assert "$45 for Past Lives members" in body
 
     def describe_edit_page_link():
         def it_links_the_flyer_from_the_admin_edit_page(admin_user, client, free_offering, db):

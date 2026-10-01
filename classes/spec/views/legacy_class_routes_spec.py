@@ -162,7 +162,6 @@ def describe_a_post_to_a_legacy_path():
                 "age_minimum": "16",
                 "age_guardian_note": "",
                 "price_cents": "80.00",
-                "member_discount_pct": "10",
                 "capacity": "8",
                 "scheduling_model": "fixed",
                 "scheduling_type": "single_session",

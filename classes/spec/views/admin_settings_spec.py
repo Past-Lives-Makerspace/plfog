@@ -31,7 +31,6 @@ def _general_post(**overrides: object) -> dict[str, object]:
     return {
         "liability_waiver_text": "LIABILITY",
         "model_release_waiver_text": "MODEL RELEASE",
-        "default_member_discount_pct": 10,
         "reminder_hours_before": 24,
         "confirmation_email_footer": "",
         **overrides,
@@ -66,7 +65,6 @@ def describe_admin_settings():
         for name in (
             "liability_waiver_text",
             "model_release_waiver_text",
-            "default_member_discount_pct",
             "reminder_hours_before",
             "instructor_approval_required",
             "confirmation_email_footer",
@@ -86,13 +84,11 @@ def describe_admin_settings():
             _general_post(
                 liability_waiver_text="NEW LIABILITY TEXT",
                 model_release_waiver_text="NEW MODEL RELEASE",
-                default_member_discount_pct=15,
                 reminder_hours_before=48,
             ),
         )
         assert response.status_code == 302
         settings_obj = ClassSettings.load()
-        assert settings_obj.default_member_discount_pct == 15
         assert settings_obj.reminder_hours_before == 48
         assert settings_obj.liability_waiver_text == "NEW LIABILITY TEXT"
 

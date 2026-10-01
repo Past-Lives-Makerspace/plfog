@@ -13,11 +13,13 @@ from importlib import import_module
 import pytest
 from django.db import connection
 from django.db.migrations.executor import MigrationExecutor
+from django.db.migrations.loader import MigrationLoader
 
 _APP = "classes"
 _BEFORE = "0061_teach_page_money_split_and_rich_text"
 _AFTER = "0062_convert_teach_page_markdown"
-_HEAD = "0063_teach_page_no_free_option"
+# The real head, read off the graph, so the DB this leaves behind matches the current models.
+_HEAD = MigrationLoader(None).graph.leaf_nodes(_APP)[0][1]
 
 _migration = import_module(f"classes.migrations.{_AFTER}")
 PROSE_FIELDS = _migration.PROSE_FIELDS

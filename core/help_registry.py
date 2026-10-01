@@ -155,8 +155,8 @@ HELP_KEYS: dict[str, HelpKeyEntry] = {
     "class.register": {
         "title": "Register for a class",
         "short_text": (
-            "Sign up from the class page. No account needed. You pay through a secure checkout, and your "
-            "member email applies member pricing automatically. A total of $0 after discounts confirms right away."
+            "Sign up from the class page. No account needed. You pay through a secure checkout. Have a "
+            "discount code? Type it in the box on the form. A total of $0 after discounts confirms right away."
         ),
         "article_slug": "taking-a-class",
         "anchor": "class-register",
@@ -511,8 +511,8 @@ HELP_KEYS: dict[str, HelpKeyEntry] = {
     "teach.class-pricing": {
         "title": "Pricing & discounts",
         "short_text": (
-            "Set the member discount and optional sale pricing. Members get member pricing "
-            "automatically when they register with their member email."
+            "Set the full price here. Put the class on sale later from Manage Class. "
+            "Students type any discount code at checkout."
         ),
         "article_slug": None,
         "anchor": None,

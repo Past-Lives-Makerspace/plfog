@@ -483,7 +483,7 @@ Classes at Past Lives are open to everyone — you don't need to be a member or 
 ### Find a Class {#class-find}
 
 1. Open **Class Catalog** in the left menu, or go straight to [/classes/](/classes/).
-2. Narrow things down with the **Guild Type** and **When** dropdowns, or open **Filters** for price range, instructor, and member discounts.
+2. Narrow things down with the **Guild Type** and **When** dropdowns, or open **Filters** for price range, instructor, and upcoming dates.
 3. Click a class to see its description, dates, price, and how many spots are left.
 
 ![The class catalog — every upcoming class, with filters across the top.](/static/help/taking-a-class/01-class-catalog.png)
@@ -500,7 +500,6 @@ Classes at Past Lives are open to everyone — you don't need to be a member or 
 
 Good to know:
 
-- **Member pricing is automatic.** Register with the email on your Past Lives account and the member price is applied for you — no code needed.
 - **Discount codes** go in the **Discount code (optional)** box on the registration form. If a class is on sale, the sale price may not combine with codes — the form tells you when that's the case.
 - **You can't join a class after it has started.** That includes joining a series partway through.
 
@@ -961,7 +960,7 @@ Before a class can be submitted it needs:
 
 - **At least two photos** — its own hero image and at least one gallery photo. Classes with real photos of the work get real sign-ups.
 - **A description that answers the basics** — what students will make or learn, what's provided, and what (if anything) to bring.
-- **Fair pricing** — cover your materials and time. If you set a member discount, members get it automatically when they register with their member email.""",
+- **Fair pricing** — cover your materials and time. Students type any discount code at checkout, so the price you set is the price.""",
         "screenshots": [],
     },
     {

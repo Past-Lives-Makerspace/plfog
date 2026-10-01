@@ -447,13 +447,6 @@
   font-family: var(--heading); font-weight: 800;
   color: var(--gold); font-size: 17px;
 }
-.bk-rec-amount.is-discount::before {
-  content:'member'; display:block;
-  font-family: var(--font); font-weight: 700; font-size: 8px;
-  letter-spacing: .14em; text-transform: uppercase;
-  color: var(--gold); opacity:.7;
-  margin-bottom:-2px;
-}
 .bk-rec-action {
   text-align:right;
   font-size: 10px; font-weight: 700; text-transform: uppercase;

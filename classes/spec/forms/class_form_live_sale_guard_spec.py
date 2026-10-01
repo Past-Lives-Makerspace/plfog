@@ -31,7 +31,6 @@ def _data(offering: ClassOffering, **overrides) -> dict:
         "age_minimum": "",
         "age_guardian_note": "",
         "price_cents": f"{offering.price_cents / 100:.2f}",
-        "member_discount_pct": str(offering.member_discount_pct),
         "capacity": str(offering.capacity),
         "scheduling_model": offering.scheduling_model,
         "scheduling_type": offering.scheduling_type,

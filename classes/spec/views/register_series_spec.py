@@ -33,7 +33,6 @@ def series_offering(db):
         instructor=InstructorFactory(),
         status=ClassOffering.Status.PUBLISHED,
         price_cents=15000,
-        member_discount_pct=0,
         capacity=6,
         session_count=3,
     )
@@ -186,7 +185,6 @@ def describe_single_session_checkout_unchanged():
             slug="one-off-welding",
             status=ClassOffering.Status.PUBLISHED,
             price_cents=8000,
-            member_discount_pct=0,
             capacity=4,
         )
         ClassSessionFactory(
