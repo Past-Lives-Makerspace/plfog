@@ -41,7 +41,6 @@ def describe_ClassSettings():
 
         def it_has_sensible_defaults(db):
             settings = ClassSettings.load()
-            assert settings.default_member_discount_pct == 10
             assert settings.reminder_hours_before == 24
             assert settings.instructor_approval_required is True
 

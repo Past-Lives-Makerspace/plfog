@@ -376,9 +376,6 @@
           {% else %}
             <div class="cp-detail__price">{{ offering.price_cents|cents_as_price }}</div>
           {% endif %}
-          {% if member_price_cents %}
-            <div class="cp-detail__price-member">{{ member_price_cents|cents_as_price }} <span>for Past Lives Members</span></div>
-          {% endif %}
         </div>
         {% if not is_bookable %}
           <div class="cp-detail__spots cp-detail__spots--full">Registration closed</div>

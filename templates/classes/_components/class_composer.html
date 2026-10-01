@@ -249,7 +249,7 @@ Do not merge them.
       {% comment %}The price lives here, not on step 3: it is the one field a draft row cannot be saved without, so a Save Draft from step 1 has to carry it.{% endcomment %}
       <div class="pl-compose-section" data-help-key="teach.class-pricing">
         <h3 class="pl-compose-section__title">What It Costs</h3>
-        <p class="pl-compose-section__note">Set the full price. Every class costs at least $1.00. The member discount is on step 3.</p>
+        <p class="pl-compose-section__note">Set the full price. Every class costs at least $1.00.</p>
         {% include "components/form_field.html" with field=form.price_cents %}
       </div>
     </div>
@@ -303,16 +303,12 @@ Do not merge them.
         {% include "classes/_components/collapsible_field.html" with field=form.flexible_note %}
       </div>
       <div class="pl-compose-section">
-        <h3 class="pl-compose-section__title">Seats And Member Discount</h3>
-        <p class="pl-compose-section__note">How many can attend, and the discount members get on top of the price from step 1.</p>
+        <h3 class="pl-compose-section__title">Seats</h3>
+        <p class="pl-compose-section__note">How many can attend.</p>
         {% include "components/form_field.html" with field=form.capacity %}
         {% if is_admin %}
-          {% include "components/form_field.html" with field=form.member_discount_pct %}
           {% include "components/form_field.html" with field=form.is_private %}
           {% include "components/form_field.html" with field=form.private_for_name %}
-        {% else %}
-          {# The discount is the admin's to set; the instructor reads it off the saved row (the studio default on a new class). #}
-          <p class="pl-compose-section__note" id="member-discount-note">Members get {{ form.instance.member_discount_pct }}% off.{% if form.instance.price_cents %}{% member_price_cents form.instance.price_cents form.instance.member_discount_pct as mp %}{% if mp %} That makes the member price {{ mp|cents_as_price }}.{% endif %}{% endif %}</p>
         {% endif %}
       </div>
     </div>

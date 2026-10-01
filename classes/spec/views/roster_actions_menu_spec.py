@@ -235,7 +235,7 @@ def describe_waitlist_row_menu():
 
     def it_renders_no_kebab_on_a_promoted_stub_row(admin_user, client):
         client.force_login(admin_user)
-        offering = ClassOfferingFactory(price_cents=0, member_discount_pct=0, capacity=5)
+        offering = ClassOfferingFactory(price_cents=0, capacity=5)
         reg = RegistrationFactory(class_offering=offering, status=Registration.Status.WAITLISTED)
         swap = client.post(reverse("classes:registration_promote", args=[reg.pk]), headers=HTMX).content.decode()
         assert f'id="wl-row-{reg.pk}"' in swap

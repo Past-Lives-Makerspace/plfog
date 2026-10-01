@@ -10,7 +10,7 @@ Context: reg (WAITLISTED registration), offering, spots_remaining.
 {% with due=reg.compute_promote_price_cents %}
 <p style="margin:0 0 1rem;">
     {% if due > 0 %}
-        {{ reg.first_name }} takes a seat immediately. This class costs <strong>{{ due|cents_as_dollars }}</strong> for them{% if reg.member and offering.member_discount_pct %} (member discount applied){% endif %}.
+        {{ reg.first_name }} takes a seat immediately. This class costs <strong>{{ due|cents_as_dollars }}</strong> for them.
         You'll choose whether to send a payment link next. No payment is required to hold the seat.
     {% else %}
         {{ reg.first_name }} takes a seat immediately and gets a confirmation email.

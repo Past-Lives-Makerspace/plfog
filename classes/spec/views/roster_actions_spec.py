@@ -106,7 +106,7 @@ def describe_gating():
 def describe_promote_endpoint():
     def it_takes_the_paid_path_with_the_followup_trigger(admin_user, client, mailoutbox):
         client.force_login(admin_user)
-        offering = ClassOfferingFactory(price_cents=4500, member_discount_pct=0)
+        offering = ClassOfferingFactory(price_cents=4500)
         reg = _waitlisted(offering)
         response = client.post(reverse("classes:registration_promote", args=[reg.pk]), headers=HTMX)
         assert response.status_code == 200
@@ -117,7 +117,7 @@ def describe_promote_endpoint():
 
     def it_takes_the_free_path_for_a_free_class(admin_user, client, mailoutbox):
         client.force_login(admin_user)
-        reg = _waitlisted(ClassOfferingFactory(price_cents=0, member_discount_pct=0))
+        reg = _waitlisted(ClassOfferingFactory(price_cents=0))
         response = client.post(reverse("classes:registration_promote", args=[reg.pk]), headers=HTMX)
         triggers = json.loads(response["HX-Trigger"])
         assert "promote-followup" not in triggers
@@ -126,7 +126,7 @@ def describe_promote_endpoint():
 
     def it_branches_on_computed_due_not_sticker_price(admin_user, client, mailoutbox):
         client.force_login(admin_user)
-        offering = ClassOfferingFactory(price_cents=4500, member_discount_pct=0)
+        offering = ClassOfferingFactory(price_cents=4500)
         reg = _waitlisted(offering, discount_code=DiscountCodeFactory(discount_pct=100))
         response = client.post(reverse("classes:registration_promote", args=[reg.pk]), headers=HTMX)
         triggers = json.loads(response["HX-Trigger"])
@@ -353,7 +353,7 @@ def describe_mark_paid_and_remove_endpoints():
 def describe_waitlist_tab():
     def it_renders_the_action_buttons_and_promote_modal_amount(client):
         member = _login_instructor(client, "wl1@example.com", "wl1")
-        offering = ClassOfferingFactory(instructor=member, price_cents=4500, member_discount_pct=0, capacity=5)
+        offering = ClassOfferingFactory(instructor=member, price_cents=4500, capacity=5)
         _waitlisted(offering, first_name="Jane")
         content = client.get(reverse("classes:teach_class_waitlist", args=[offering.pk])).content.decode()
         assert "Add to Class" in content
@@ -362,7 +362,7 @@ def describe_waitlist_tab():
 
     def it_uses_the_free_copy_for_a_hundred_percent_code(client):
         member = _login_instructor(client, "wl2@example.com", "wl2")
-        offering = ClassOfferingFactory(instructor=member, price_cents=4500, member_discount_pct=0, capacity=5)
+        offering = ClassOfferingFactory(instructor=member, price_cents=4500, capacity=5)
         _waitlisted(offering, discount_code=DiscountCodeFactory(discount_pct=100))
         content = client.get(reverse("classes:teach_class_waitlist", args=[offering.pk])).content.decode()
         assert "gets a confirmation email" in content
@@ -382,7 +382,7 @@ def describe_waitlist_tab():
         # waitlist row and the post-promote stub carry it, so the follow-up loads
         # whether the HX-Trigger event fires before or after the swap settles.
         client.force_login(admin_user)
-        offering = ClassOfferingFactory(price_cents=4500, member_discount_pct=0, capacity=5)
+        offering = ClassOfferingFactory(price_cents=4500, capacity=5)
         reg = _waitlisted(offering)
         followup_url = reverse("classes:registration_promote_followup", args=[reg.pk])
         page = client.get(reverse("classes:teach_class_waitlist", args=[offering.pk])).content.decode()

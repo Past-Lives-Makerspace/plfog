@@ -94,9 +94,7 @@ def describe_teach_manage_class_page():
         assert "Sale: $15 off" in html
 
     def it_says_a_zero_priced_class_cannot_go_on_sale(instructor_fixture, client):
-        offering = ClassOfferingFactory(
-            instructor=instructor_fixture, status=Status.DRAFT, price_cents=0, member_discount_pct=0
-        )
+        offering = ClassOfferingFactory(instructor=instructor_fixture, status=Status.DRAFT, price_cents=0)
         client.force_login(instructor_fixture.user)
         html = client.get(reverse("classes:teach_class_detail", kwargs={"pk": offering.pk})).content.decode()
         assert "A class priced at $0 cannot go on sale." in html
@@ -181,9 +179,7 @@ def describe_teach_class_sale():
         assert offering.sale_enabled is False
 
     def it_refuses_a_crafted_sale_on_a_zero_priced_class(instructor_fixture, client):
-        offering = ClassOfferingFactory(
-            instructor=instructor_fixture, status=Status.DRAFT, price_cents=0, member_discount_pct=0
-        )
+        offering = ClassOfferingFactory(instructor=instructor_fixture, status=Status.DRAFT, price_cents=0)
         client.force_login(instructor_fixture.user)
         resp = client.post(reverse("classes:teach_class_sale", kwargs={"pk": offering.pk}), _on())
         assert resp.status_code == 200

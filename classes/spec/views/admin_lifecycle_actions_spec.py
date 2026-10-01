@@ -74,7 +74,6 @@ def _payload(cat, inst, **extra) -> dict:
         "category": cat.pk,
         "instructor": inst.pk,
         "price_cents": "50.00",
-        "member_discount_pct": 10,
         "capacity": 6,
         "scheduling_model": "flexible",
         "sale_kind": "percent",

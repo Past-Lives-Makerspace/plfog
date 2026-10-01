@@ -12,7 +12,6 @@ from classes.templatetags.classes_tags import (
     cents_as_price,
     duration_words,
     initials,
-    member_price_cents,
     recurrence_label,
     session_duration_words,
     session_time_range,
@@ -320,27 +319,6 @@ def describe_initials():
 
     def it_handles_single_word_name():
         assert initials("Prince") == "P"
-
-
-# ---------------------------------------------------------------------------
-# member_price_cents (simple_tag — called as a function)
-# ---------------------------------------------------------------------------
-
-
-def describe_member_price_cents():
-    def it_returns_none_when_discount_is_zero():
-        assert member_price_cents(5000, 0) == None  # noqa: E711
-
-    def it_applies_discount_and_returns_discounted_cents():
-        # 5000 cents * (100 - 10) / 100 = 4500
-        assert member_price_cents(5000, 10) == 4500
-
-    def it_returns_zero_for_100_percent_discount():
-        assert member_price_cents(5000, 100) == 0
-
-    def it_truncates_fractional_cents():
-        # 1000 cents * 90% = 999.something → int truncates
-        assert member_price_cents(1000, 10) == 900
 
 
 # ---------------------------------------------------------------------------

@@ -89,8 +89,6 @@ PRICE_HELP_TEXT = "In dollars, e.g. 80.00 for $80. Every class costs at least $1
 # Under the description box on both composers (#425): the readiness minimum, from the one constant
 # the rule reads, so the hint can never name a number the checklist would then contradict.
 DESCRIPTION_HELP_TEXT = f"At least {READINESS_MIN_DESCRIPTION_CHARS} characters. Say what students make and take home."
-MAX_MEMBER_DISCOUNT_PCT = 100  # A percentage; the model field only bounds it below.
-MEMBER_DISCOUNT_RANGE_MESSAGE = "Member discount must be between 0 and 100."
 
 
 class CentsAsDollarsField(forms.DecimalField):
@@ -232,8 +230,7 @@ class _PricingRulesMixin:
     option: a $0 total is something a discount reaches at registration, never a price an
     instructor or admin can set. ``price_cents`` is a required field, so a blank is refused
     by Django before this runs; this refuses anything typed under the floor, on the price
-    field, in plain words. The member discount is a percentage, so it is capped at 100 here
-    (the model field only bounds it below). Django finds ``clean_<field>`` through the MRO.
+    field, in plain words. Django finds ``clean_<field>`` through the MRO.
     """
 
     def clean_price_cents(self) -> int:
@@ -241,12 +238,6 @@ class _PricingRulesMixin:
         if price < MIN_PAID_PRICE_CENTS:
             raise forms.ValidationError(PRICE_FLOOR_MESSAGE)
         return price
-
-    def clean_member_discount_pct(self) -> int:
-        pct: int = self.cleaned_data["member_discount_pct"]  # type: ignore[attr-defined]
-        if pct > MAX_MEMBER_DISCOUNT_PCT:
-            raise forms.ValidationError(MEMBER_DISCOUNT_RANGE_MESSAGE)
-        return pct
 
 
 class _SaleMixin:
@@ -418,7 +409,6 @@ class ClassOfferingForm(
             "age_minimum",
             "age_guardian_note",
             "price_cents",
-            "member_discount_pct",
             "capacity",
             "scheduling_model",
             "scheduling_type",
@@ -435,12 +425,7 @@ class ClassOfferingForm(
 
     def __init__(self, *args, **kwargs) -> None:
         super().__init__(*args, **kwargs)
-        self.fields["member_discount_pct"].label = "Member discount (%)"
         self.fields["category"].label = "Guild Type"
-        if self.instance.pk is None:
-            # A new class starts at the studio's default. ModelForm seeds self.initial from the
-            # row, so the model default would win over field.initial; this is the value that shows.
-            self.initial["member_discount_pct"] = ClassSettings.load().default_member_discount_pct
         self.add_hero_crop_field()
         self.add_card_focus_field()
         self.setup_scheduling_type_field()
@@ -476,8 +461,6 @@ class TeachClassOfferingForm(
     """Class form for teaching members — no `instructor`, no `is_private`, slug auto-generated.
 
     The six ``sale_*`` fields live on :class:`ClassSaleForm` (the Manage Class sale modal).
-    ``member_discount_pct`` is not here either: the discount is the admin's to set (#369). A
-    new class takes the studio default; an existing one keeps what it has, whatever a POST says.
     """
 
     price_cents = CentsAsDollarsField(label="Price", help_text=PRICE_HELP_TEXT)
@@ -511,9 +494,6 @@ class TeachClassOfferingForm(
         self.teaching_member = teaching_member
         super().__init__(*args, **kwargs)
         self.fields["category"].label = "Guild Type"
-        if self.instance.pk is None:
-            # The field is off the form, so construct_instance leaves this alone and save() writes it.
-            self.instance.member_discount_pct = ClassSettings.load().default_member_discount_pct
         self.add_hero_crop_field()
         self.add_card_focus_field()
         self.setup_scheduling_type_field()
@@ -1080,8 +1060,10 @@ class RegistrationForm(forms.ModelForm):
     """Public registration form — collects registrant + waiver signatures.
 
     One price engine (:meth:`_price_cents`) serves the quote on the page and the charge at
-    checkout: sale price, then the member discount unless the member turned it off, then the
-    code. On save, creates the Registration plus signed Waiver records.
+    checkout: sale price, then the code. ``member`` is accepted for callers that already
+    resolved one and is not read by the form: the price does not depend on it, and the saved
+    row links itself to the Member by email. On save, creates the Registration plus signed
+    Waiver records.
     """
 
     discount_code = forms.CharField(
@@ -1094,15 +1076,6 @@ class RegistrationForm(forms.ModelForm):
                 "oninput": "this.value = this.value.toUpperCase()",
             }
         ),
-    )
-    apply_member_discount = forms.BooleanField(
-        required=False,
-        initial=True,
-        label="Apply my member discount",
-        help_text="Turn this off to pay full price and give the difference to the space.",
-        # Rendered inside the price summary, which sits above the <form>; the form owner
-        # attribute is what carries the box into the POST from there.
-        widget=forms.CheckboxInput(attrs={"form": "reg-form"}),
     )
     liability_signature = forms.CharField(
         max_length=255,
@@ -1202,10 +1175,6 @@ class RegistrationForm(forms.ModelForm):
             # Waitlist signups don't transact money so the discount field is
             # noise on the form. Drop it so the registrant isn't confused.
             self.fields.pop("discount_code", None)
-        if member is None or is_waitlist:
-            # Declining the discount is a member's choice on a paid signup. A non-member has
-            # nothing to decline, and a promoted waitlister always gets it (D5 in the spec).
-            self.fields.pop("apply_member_discount")
         # A non-stacking sale can't be combined with discount codes — drop the
         # code box entirely so the buyer is told up-front on the page, never
         # rejected after submit.
@@ -1226,9 +1195,9 @@ class RegistrationForm(forms.ModelForm):
                 self.auto_applied_discount = applied
 
     def _wire_price_refresh(self) -> None:
-        """Re-fetch the price summary when the email, the toggle or the code box changes.
+        """Re-fetch the price summary when the email or the code box changes.
 
-        The quote is for those three as they stand, so each carries the same ``hx-get`` back
+        The quote is for those two as they stand, so each carries the same ``hx-get`` back
         to this page; the summary is swapped in and the button label out of band. A returning
         guest's saved answers ride the same refresh when the class asks questions: they can't
         pre-fill server-side until the email is known.
@@ -1244,13 +1213,13 @@ class RegistrationForm(forms.ModelForm):
         refresh_attrs = {
             "hx-get": url,
             "hx-trigger": "change",
-            "hx-include": "[name=email],[name=apply_member_discount],[name=discount_code]",
+            "hx-include": "[name=email],[name=discount_code]",
             "hx-target": "#reg-price-summary",
             "hx-select": "#reg-price-summary",
             "hx-swap": "outerHTML",
             "hx-select-oob": select_oob,
         }
-        for name in ("email", "apply_member_discount", "discount_code"):
+        for name in ("email", "discount_code"):
             if name in self.fields:
                 self.fields[name].widget.attrs.update(refresh_attrs)
 
@@ -1265,11 +1234,11 @@ class RegistrationForm(forms.ModelForm):
     def _find_auto_apply_discount(self) -> DiscountCode | None:
         """Pick the class-scoped auto-apply code that yields the lowest final price.
 
-        The base is the price before any code with the toggle honoured, so the cheapest
-        code is chosen against the price actually paid. Defers the choice to the
-        DiscountCode manager; ``None`` when no qualifying auto-apply code exists.
+        The base is the price before any code, so the cheapest code is chosen against the
+        price actually paid. Defers the choice to the DiscountCode manager; ``None`` when no
+        qualifying auto-apply code exists.
         """
-        base = self._price_cents(apply_member=self._toggle_as_shown(), code=None)
+        base = self._price_cents(code=None)
         return DiscountCode.objects.best_auto_apply_for(self.offering, base)
 
     def _code_for(self, raw: str) -> DiscountCode | None:
@@ -1321,55 +1290,20 @@ class RegistrationForm(forms.ModelForm):
         """
         return self._validated_discount
 
-    @property
-    def member_discount_pct(self) -> int:
-        """The percentage this registrant could take: only when the email matches a verified member."""
-        if self.member is None:
-            return 0
-        return self.offering.member_discount_pct or 0
-
-    def _price_cents(self, *, apply_member: bool, code: DiscountCode | None) -> int:
-        """The one price engine: sale first, the member percentage when applied, the code last.
+    def _price_cents(self, *, code: DiscountCode | None) -> int:
+        """The one price engine: sale first, the code last, floor at zero.
 
         The quote on the page and the charge at checkout both come through here, so the
         number a registrant reads is the number Stripe is handed.
         """
         price = self.offering.sale_price_cents  # == price_cents when no sale
-        if apply_member and self.member_discount_pct:
-            price = int(price * (100 - self.member_discount_pct) / 100)
         if code is not None and not self.sale_blocks_codes:  # coupon last, unless the sale blocks it
             price = code.apply_to(price)
         return max(0, price)
 
-    def clean_apply_member_discount(self) -> bool:
-        """A POST with no toggle key at all keeps the discount: the box was never on the page.
-
-        That happens when a member's email is typed and the form is submitted before (or
-        without) the refresh that puts the box there. A decline is always explicit, because
-        the hidden twin posts "" for an unticked box. Same rule as :meth:`_toggle_as_shown`,
-        so the quote and the charge cannot disagree.
-        """
-        if self._toggle_absent_from_post():
-            return True
-        return bool(self.cleaned_data["apply_member_discount"])
-
     def compute_final_price_cents(self) -> int:
         """What this validated submission is charged."""
-        if "apply_member_discount" in self.fields:
-            apply_member: bool = self.cleaned_data["apply_member_discount"]
-        else:
-            apply_member = True  # no toggle to turn off: a non-member, or a waitlist signup
-        return self._price_cents(apply_member=apply_member, code=self._validated_discount)
-
-    def _toggle_absent_from_post(self) -> bool:
-        """True when this is a POST that never carried the toggle, hidden twin included."""
-        return self.is_bound and "apply_member_discount" not in self.data
-
-    def _toggle_as_shown(self) -> bool:
-        """The toggle as the page renders it: the POST when bound, else the initial; on when there is none."""
-        if "apply_member_discount" not in self.fields or self._toggle_absent_from_post():
-            return True
-        return bool(self["apply_member_discount"].value())
+        return self._price_cents(code=self._validated_discount)
 
     def _code_as_shown(self) -> DiscountCode | None:
         """The code box as the page renders it, looked up leniently: blank or unusable quotes no code."""
@@ -1384,16 +1318,11 @@ class RegistrationForm(forms.ModelForm):
     def quoted_price_cents(self) -> int:
         """The number on the summary and the button: what this page, as it stands, would charge.
 
-        Reads the toggle and the code box as they render (the POST when bound, else the
-        initial, which on first render is the auto-applied code). Never raises: a blank or
-        unrecognised code quotes no code, which is what a submit with it would charge.
+        Reads the code box as it renders (the POST when bound, else the initial, which on
+        first render is the auto-applied code). Never raises: a blank or unrecognised code
+        quotes no code, which is what a submit with it would charge.
         """
-        return self._price_cents(apply_member=self._toggle_as_shown(), code=self._code_as_shown())
-
-    @property
-    def quotes_member_discount(self) -> bool:
-        """Whether the quoted price carries the member discount: the summary's one extra line."""
-        return bool(self.member_discount_pct) and self._toggle_as_shown()
+        return self._price_cents(code=self._code_as_shown())
 
     def save(self, commit: bool = True) -> Registration:
         registration: Registration = super().save(commit=False)
@@ -1472,7 +1401,6 @@ class ClassSettingsForm(forms.ModelForm):
         fields = [
             "liability_waiver_text",
             "model_release_waiver_text",
-            "default_member_discount_pct",
             "reminder_hours_before",
             "instructor_approval_required",
             "confirmation_email_footer",
