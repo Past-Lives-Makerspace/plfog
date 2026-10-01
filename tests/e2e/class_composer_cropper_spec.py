@@ -131,6 +131,35 @@ def _width(page, selector: str) -> float:
     return box["width"]
 
 
+def _boxed_geometry(photo) -> tuple[float, float, float, float]:
+    """A boxed frame photo: its frame's width and height, the photo's laid out width, and its left offset in the frame."""
+    return tuple(
+        photo.evaluate(
+            "el => { const frame = el.closest('.cls-media').getBoundingClientRect();"
+            " const img = el.getBoundingClientRect();"
+            " return [frame.width, frame.height, img.width, img.left - frame.left]; }"
+        )
+    )
+
+
+def _expected_left(crop: dict, frame_w: float, scale: float, focus_x: float = 50) -> float:
+    """Where card_focus.js puts a boxed photo's left edge: the box's left edge meets the frame's,
+    less the share of the box's overflow the card focus (50% while the sliders are untouched) picks.
+    Zero when the scaled box is exactly the frame's width, so a sign check is not enough."""
+    return -(crop["x"] * scale) - (crop["w"] * scale - frame_w) * focus_x / 100
+
+
+def _boxed_offsets(photo) -> tuple[float, float]:
+    """A boxed frame photo's left and top offsets inside its frame."""
+    return tuple(
+        photo.evaluate(
+            "el => { const frame = el.closest('.cls-media').getBoundingClientRect();"
+            " const img = el.getBoundingClientRect();"
+            " return [img.left - frame.left, img.top - frame.top]; }"
+        )
+    )
+
+
 def _wait_ready(page) -> None:
     """Block until the cropper on the current preview img has built its frame."""
     page.wait_for_function(
@@ -270,22 +299,52 @@ def describe_hero_cropper():
         # The photo is 1200x1200: the crop's centre as a percentage of the source image.
         centre = ((crop["x"] + crop["w"] / 2) / 1200 * 100, (crop["y"] + crop["h"] / 2) / 1200 * 100)
         assert centre[1] > 55, centre  # the drag moved the box well below the middle
+        natural_w = page.locator(PREVIEW).evaluate("el => el.naturalWidth")
+        assert natural_w == 1200
         page.evaluate("() => new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r)))")
 
+        # Every frame shows the box region, cover fitted, exactly what the saved copy will show:
+        # the original, scaled so the box covers the frame and shifted so the box's top left
+        # meets the frame's. The Review step's frame has no size until that step is on screen.
+        expect(page.locator("[data-card-focus-input]")).to_have_value("")  # the sliders were never touched
         for step, frames in ((2, 2), (6, 1)):
+            if step == 6:
+                page.locator('[data-step-tab="6"]').click()
             card_photos = page.locator(f'[data-composer-step="{step}"] {CARD_PHOTOS}')
             expect(card_photos).to_have_count(frames)
             for photo in card_photos.all():
+                expect(photo).to_be_visible()
                 expect(photo).to_have_attribute("src", offering.image.url)
                 expect(photo).not_to_have_attribute("data-hero-source", re.compile(r".*"))
-                shown = _percentages(photo.evaluate("el => getComputedStyle(el).objectPosition"))
-                assert shown == pytest.approx(centre, abs=0.6), (step, shown, centre)
-        # Nothing was saved: the row keeps its box and its copy, and the sliders were never touched.
+                expect(photo).to_have_class(re.compile(r"pl-card-focus__img--boxed"))
+                frame_w, frame_h, shown_w, left = _boxed_geometry(photo)
+                scale = max(frame_w / crop["w"], frame_h / crop["h"])
+                assert shown_w == pytest.approx(natural_w * scale, abs=1), (step, shown_w, natural_w * scale)
+                assert left == pytest.approx(_expected_left(crop, frame_w, scale), abs=1), (step, left)
+
+        # The card focus sliders choose which part of the box shows: moving Up and down shifts
+        # the photo inside the frame. The phone frame is the wide one, so there the box is
+        # fitted to the frame's width and overflows it vertically; in the laptop frame this
+        # box fits the height and the slider has nothing to shift.
+        page.locator('[data-step-tab="2"]').click()
+        photo = page.locator(f'[data-composer-step="2"] {CARD_PHOTOS}').last
+        expect(photo).to_be_visible()
+        top_before = _boxed_offsets(photo)[1]
+        page.locator('[data-composer-step="2"] .pl-card-focus__range').first.evaluate(
+            "el => { el.value = 90; el.dispatchEvent(new Event('input', { bubbles: true })); }"
+        )
+        page.wait_for_function(
+            f"before => {{ const imgs = document.querySelectorAll('[data-composer-step=\"2\"] {CARD_PHOTOS}');"
+            " const img = imgs[imgs.length - 1];"
+            " return img.getBoundingClientRect().top - img.closest('.cls-media').getBoundingClientRect().top !== before; }",
+            arg=top_before,
+        )
+        assert _boxed_offsets(photo)[1] < top_before
+        # Nothing was saved: the row keeps its box and its copy.
         copy = offering.hero_cropped.name
         offering.refresh_from_db()
         assert offering.hero_crop_box == tuple(CENTRED_BOX.values())
         assert offering.hero_cropped.name == copy
-        expect(page.locator("[data-card-focus-input]")).to_have_value("")
 
     def it_keeps_the_frames_on_a_saved_focal_point_until_the_host_drags(live_server, page, login_via_code, serve_media):
         # A hero placed with the Adjust tool is a focal point (hero_crop_w 0, x and y as
@@ -324,15 +383,17 @@ def describe_hero_cropper():
                 shown = _percentages(photo.evaluate("el => getComputedStyle(el).objectPosition"))
                 assert shown == (30.0, 80.0), (step, shown)
 
-        # A drag is a real crop: now the frames follow it.
+        # A drag is a real crop: now the frames on this step show the box region, cover fitted
+        # (the Review step's frame is laid out when that step shows).
         _drag_frame_down(page, 60)
         crop = json.loads(page.locator(CROP_INPUT).input_value())
-        centre = ((crop["x"] + crop["w"] / 2) / 1200 * 100, (crop["y"] + crop["h"] / 2) / 1200 * 100)
         page.evaluate("() => new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r)))")
-        for step in (2, 6):
-            for photo in page.locator(f'[data-composer-step="{step}"] {CARD_PHOTOS}').all():
-                shown = _percentages(photo.evaluate("el => getComputedStyle(el).objectPosition"))
-                assert shown == pytest.approx(centre, abs=0.6), (step, shown, centre)
+        for photo in page.locator(f'[data-composer-step="2"] {CARD_PHOTOS}').all():
+            expect(photo).to_have_class(re.compile(r"pl-card-focus__img--boxed"))
+            frame_w, frame_h, shown_w, left = _boxed_geometry(photo)
+            scale = max(frame_w / crop["w"], frame_h / crop["h"])
+            assert shown_w == pytest.approx(1200 * scale, abs=1)
+            assert left == pytest.approx(_expected_left(crop, frame_w, scale), abs=1), left
 
     def it_frames_a_freshly_uploaded_photo_on_a_saved_class(live_server, page, login_via_code, serve_media, tmp_path):
         # Seeded with a box, so the class has a cropped copy and its card frames show it (#547).
