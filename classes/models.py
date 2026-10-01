@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import hashlib
+import io
 import logging
 import re
 import secrets
@@ -10,10 +11,12 @@ from collections.abc import Callable, Iterable, Sequence
 from dataclasses import dataclass
 from datetime import UTC, date as date_type, datetime, timedelta
 from html import unescape
+from pathlib import Path
 from typing import TYPE_CHECKING, Any, NamedTuple, cast
 
 from django.conf import settings
 from django.core.exceptions import ValidationError
+from django.core.files.base import ContentFile
 from django.core.validators import MaxValueValidator
 from django.db import IntegrityError, models, transaction
 from django.db.models import Case, CheckConstraint, Exists, F, IntegerField, Max, OuterRef, Q, Value, When
@@ -22,6 +25,7 @@ from django.utils.formats import date_format
 from django.utils.html import strip_tags
 from django.utils.safestring import SafeString, mark_safe
 from django.utils.timezone import localtime
+from PIL import Image, ImageOps, UnidentifiedImageError
 
 from core.files import delete_orphan_on_replace
 from core.html_sanitize import is_editor_html, rich_body_to_text, rich_html_to_text
@@ -216,6 +220,10 @@ class Category(HeroCropMixin, models.Model):
 # content-addressed (see core.images.store_content_addressed) so the same picture used by
 # many offerings is stored exactly once.
 CLASS_IMAGE_PREFIX = "classes/images/"
+
+# The four columns the composer's crop box (or the Adjust tool's focal point) lives in.
+# ``ClassOffering.save()`` reads them from the stored row to tell whether the box moved.
+HERO_CROP_FIELDS = ("hero_crop_x", "hero_crop_y", "hero_crop_w", "hero_crop_h")
 
 # Ceiling on how much of the live legacy catalog a single sync run may archive. Above
 # this, ``ClassOfferingQuerySet.archive_missing_from_legacy_feed`` refuses to act and logs
@@ -899,9 +907,140 @@ class ClassOffering(HeroCropMixin, models.Model):
         validators=[validate_image_size],
         help_text="Hero image.",
     )
+    hero_cropped = models.ImageField(
+        upload_to="classes/hero-crops/",
+        # Nullable on purpose: the column lands while the previous release still serves,
+        # and its INSERTs omit it (STANDARDS.md section 10). Code writes "" when cleared.
+        null=True,
+        blank=True,
+        help_text=(
+            "The hero image cut to the composer's crop box. Rendered by save() whenever the box or the "
+            "image changes and shown in place of the image wherever the class's own photo appears; "
+            "empty when there is no box."
+        ),
+    )
 
     def get_hero_image_field_name(self) -> str:
         return "image"
+
+    @property
+    def hero_crop_box(self) -> tuple[int | None, int | None, int | None, int | None]:
+        """The four crop columns as one value, so a row can be compared with its stored state."""
+        return (self.hero_crop_x, self.hero_crop_y, self.hero_crop_w, self.hero_crop_h)
+
+    @property
+    def hero_object_position(self) -> str:
+        """CSS ``object-position`` for the photo :attr:`hero_image_url` returns.
+
+        With a cropped copy the copy IS the box, so it sits at its centre: the box centre
+        the mixin computes is a point on the source, and on any frame that is not 16:9 it
+        would drag the visible region off what the instructor framed. Without a copy the
+        mixin's answer stands: the box centre on the original, a focal point, or the default.
+        """
+        if self.hero_cropped:
+            return "50% 50%"
+        return super().hero_object_position
+
+    def focal_point_on_source(self, x_pct: int, y_pct: int) -> tuple[int, int]:
+        """A focal point picked on the cropped copy, mapped into the original's coordinates.
+
+        The class page shows the copy and the Adjust tool's save drops it, so a point picked
+        on the copy has to be re-expressed on the original the page then shows, or the
+        banner jumps. Through the box: the copy is the box, so a point P percent across it
+        sits at ``hero_crop_x + P% of hero_crop_w`` on the source, read as a percentage of
+        the source width; likewise for y. Clamped to 0..100. Unchanged when there is no
+        copy, no box, or the source dimensions cannot be read.
+        """
+        if not (self.hero_cropped and self.hero_crop_w and self.hero_crop_h):
+            return x_pct, y_pct
+        try:
+            src_w, src_h = self.image.width, self.image.height
+        except (FileNotFoundError, ValueError, AttributeError, OSError):
+            return x_pct, y_pct
+        if not (src_w and src_h):
+            return x_pct, y_pct
+        x = round(((self.hero_crop_x or 0) + x_pct / 100 * self.hero_crop_w) / src_w * 100)
+        y = round(((self.hero_crop_y or 0) + y_pct / 100 * self.hero_crop_h) / src_h * 100)
+        return min(max(x, 0), 100), min(max(y, 0), 100)
+
+    def _hero_source_bytes(self) -> bytes:
+        """The uploaded hero file's bytes, whether it is a fresh upload or already in storage.
+
+        Opens and closes the way ``ImageField.width`` does: a file that was closed (one
+        loaded from storage) is closed again afterwards, and one that was open (an upload
+        on its way to storage) is left open for the write that follows.
+        """
+        was_closed = self.image.closed
+        self.image.open("rb")
+        try:
+            return self.image.read()
+        finally:
+            if was_closed:
+                self.image.close()
+
+    def render_hero_crop(self) -> None:
+        """Cut ``hero_cropped``, the hero image inside the crop box, or clear it.
+
+        The composer stores the box as pixels on the uploaded file, so this cuts exactly
+        that rectangle (clamped to the image's edges) with Pillow, keeps the source
+        format (JPEG at quality 88, PNG as is, anything else as JPEG) and stores the
+        result through the field's storage under ``classes/hero-crops/``, so the same
+        code serves the local filesystem and R2. With no uploaded image, no real box (the
+        Adjust tool's focal point has width and height 0), a box that lies off the image
+        or a file Pillow cannot read, the copy is cleared instead: every surface then
+        shows the original again. Writes storage only; the caller saves the row.
+        """
+        if not (self.image and self.hero_crop_w and self.hero_crop_h):
+            self.hero_cropped = ""
+            return
+        try:
+            opened = Image.open(io.BytesIO(self._hero_source_bytes()))
+            source_format = opened.format
+            img: Image.Image = ImageOps.exif_transpose(opened) or opened
+        except (UnidentifiedImageError, OSError, ValueError) as exc:
+            logger.warning("hero crop skipped for ClassOffering %s: %s", self.pk, exc)
+            self.hero_cropped = ""
+            return
+        src_w, src_h = img.size
+        left = min(self.hero_crop_x or 0, src_w)
+        top = min(self.hero_crop_y or 0, src_h)
+        right = min(left + self.hero_crop_w, src_w)
+        bottom = min(top + self.hero_crop_h, src_h)
+        if right <= left or bottom <= top:
+            self.hero_cropped = ""
+            return
+        cropped = img.crop((left, top, right, bottom))
+        buffer = io.BytesIO()
+        if source_format == "PNG":
+            cropped.save(buffer, format="PNG")
+            ext = "png"
+        else:
+            if cropped.mode != "RGB":
+                cropped = cropped.convert("RGB")
+            cropped.save(buffer, format="JPEG", quality=88, optimize=True)
+            ext = "jpg"
+        assert self.image.name  # a truthy FieldFile is one with a name, checked above
+        name = f"{Path(self.image.name).stem}-crop.{ext}"
+        self.hero_cropped.save(name, ContentFile(buffer.getvalue()), save=False)
+
+    def _sync_hero_crop_copy(self, old: ClassOffering | None, image_changed: bool) -> bool:
+        """Cut or drop the cropped copy when the box or the image changed; True when it did.
+
+        Called from ``save()`` once the box has followed any downsize. The copy follows the
+        box and the image, and only them, so an ordinary save never touches storage. A new
+        image clears the box, so the copy goes with it; a box that moved is cut again; a
+        focal point (no box) drops the copy. The old copy's file is removed the way a
+        replaced upload's is. A new row renders when it arrives with a box.
+        """
+        if old is None:
+            box_changed = bool(self.hero_crop_w and self.hero_crop_h)
+        else:
+            box_changed = self.hero_crop_box != old.hero_crop_box
+        if not (image_changed or box_changed):
+            return False
+        self.render_hero_crop()
+        delete_orphan_on_replace(self, "hero_cropped")
+        return True
 
     # The catalog card is a 150px strip, not the 16:9 banner, so it gets its own focal
     # point. Null on both means "follow the banner" (see ``card_object_position``), which
@@ -1150,14 +1289,20 @@ class ClassOffering(HeroCropMixin, models.Model):
         delete_orphan_on_replace(self, "image")
         creating = self._state.adding
         old = None
+        image_changed = False
         # If the hero image is changing, also clear the stale crop box.
         if self.pk:
             try:
-                old = type(self)._default_manager.only("image", "grouping_key", "category_id").get(pk=self.pk)
+                old = (
+                    type(self)
+                    ._default_manager.only("image", "grouping_key", "category_id", *HERO_CROP_FIELDS)
+                    .get(pk=self.pk)
+                )
             except type(self).DoesNotExist:
                 old = None
             new_name = getattr(self.image, "name", "") or ""
             old_name = getattr(getattr(old, "image", None), "name", "") or ""
+            image_changed = old is not None and old_name != new_name
             if old is not None and old_name and old_name != new_name:
                 self.hero_crop_x = None
                 self.hero_crop_y = None
@@ -1167,6 +1312,7 @@ class ClassOffering(HeroCropMixin, models.Model):
         # The composer's create mode crops the photo the browser showed, the original
         # file; once that upload is downsized to the cap, the box shrinks with it.
         self.scale_hero_crop(scale)
+        copy_changed = self._sync_hero_crop_copy(old, image_changed)
 
         # Keep the catalog grouping key in sync with the title/category so every
         # run of the same class — single one-offs AND multi-session series alike —
@@ -1182,6 +1328,9 @@ class ClassOffering(HeroCropMixin, models.Model):
         update_fields = kwargs.get("update_fields")
         if update_fields is not None and {"title", "category", "category_id"} & set(update_fields):
             kwargs["update_fields"] = [*update_fields, "grouping_key"]
+        # The Adjust tool saves only the four crop columns; the copy it cleared must land too.
+        if update_fields is not None and copy_changed:
+            kwargs["update_fields"] = [*kwargs["update_fields"], "hero_cropped"]
 
         super().save(*args, **kwargs)
 
@@ -2100,14 +2249,15 @@ class ClassOffering(HeroCropMixin, models.Model):
         return rich_body_to_text(self.description or "")
 
     @property
-    def hero_image_url(self) -> str:
-        """The class's own hero photo as a URL, or "" when it has none.
+    def hero_source_url(self) -> str:
+        """The class's own hero photo before any crop, as a URL, or "" when it has none.
 
         The uploaded file wins; otherwise a photo imported from the legacy class site is
         served through the ``classes:legacy_image`` proxy (same origin, so the cropper and
-        the card frames can use it). The category fallback is deliberately NOT here: this
-        is the photo the class itself owns, which is what the editor and the readiness
-        checklist ask about.
+        the card frames can use it). The composer's cropper mounts on this, never on the
+        cropped copy, because the box is stored in this file's pixels. The category
+        fallback is deliberately NOT here: this is the photo the class itself owns, which
+        is what the editor and the readiness checklist ask about.
         """
         from urllib.parse import urlencode
 
@@ -2118,6 +2268,18 @@ class ClassOffering(HeroCropMixin, models.Model):
         if self.legacy_image_url:
             return f"{reverse('classes:legacy_image')}?{urlencode({'url': self.legacy_image_url})}"
         return ""
+
+    @property
+    def hero_image_url(self) -> str:
+        """The class's own hero photo as every surface shows it, or "" when it has none.
+
+        The copy cut to the crop box (:meth:`render_hero_crop`) wins, so the banner, the
+        catalog card, the flyer and the composer's card frames all show what was inside
+        the box; otherwise :attr:`hero_source_url`, the original or the imported photo.
+        """
+        if self.hero_cropped:
+            return self.hero_cropped.url
+        return self.hero_source_url
 
     @property
     def is_demo(self) -> bool:

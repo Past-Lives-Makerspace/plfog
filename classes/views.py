@@ -3908,12 +3908,15 @@ def _discard_half_created_offering(offering: ClassOffering) -> None:
         gallery_image.delete()
         delete_if_unreferenced(ClassImage, "image", name)
     hero_name = offering.image.name if offering.image else ""
+    # A create that arrived with a crop box already cut its copy (ClassOffering.save).
+    copy_name = offering.hero_cropped.name or ""
     SiteActivity.objects.filter(
         target_ct=ContentType.objects.get_for_model(ClassOffering), target_id=offering.pk
     ).delete()
     CmsActivity.objects.filter(class_offering=offering).delete()
     offering.delete()
     delete_if_unreferenced(ClassOffering, "image", hero_name)
+    delete_if_unreferenced(ClassOffering, "hero_cropped", copy_name)
 
 
 @classes_admin_access_required

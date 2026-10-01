@@ -314,11 +314,12 @@ def _assert_crop_followed_the_downsize(offering: ClassOffering) -> None:
 
     A 16:9 frame on the left half of a 16:9 photo covers the top half of that half, so its
     centre sits a quarter in and a quarter down. Unscaled, the box would cover the whole
-    stored photo and read 50.0% 50.0%.
+    stored photo. The banner itself reads 50% 50% either way, because the copy cut on save
+    is the box (#547); the stored box is the proof.
     """
     assert (offering.image.width, offering.image.height) == (2400, 1350)
     assert (offering.hero_crop_x, offering.hero_crop_y, offering.hero_crop_w, offering.hero_crop_h) == (0, 0, 1200, 675)
-    assert offering.hero_object_position == "25.0% 25.0%"
+    assert offering.hero_object_position == "50% 50%"
 
 
 def describe_the_step_map_matches_the_payload():
@@ -368,6 +369,23 @@ def describe_teach_composer_get():
             field = html.split("data-hero-image-field")[1].split("</script>")[0]
             assert 'id="hero-preview"' in field, mode
             assert field.index("cropInput.value = ''") < field.index("window.initHeroCropper()"), mode
+
+    def it_points_the_card_frames_at_a_freshly_uploaded_photo(instructor_fixture, client):
+        # Issue #547: the instant upload on a saved class replaces the original and its copy on
+        # the server, while the frames still show the copy with the deleted original behind
+        # data-hero-source. The handler points every such frame at the new file and drops the
+        # attribute, after forgetting the crop and before the cropper remounts.
+        client.force_login(instructor_fixture.user)
+        offering = ClassOfferingFactory(instructor=instructor_fixture, status=Status.DRAFT)
+        html = client.get(reverse("classes:teach_class_edit", kwargs={"pk": offering.pk})).content.decode()
+        field = html.split("data-hero-image-field")[1].split("</script>")[0]
+        assert "querySelectorAll('img[data-hero-source]')" in field
+        assert (
+            field.index("cropInput.value = ''")
+            < field.index("img.setAttribute('src', data.url)")
+            < field.index("img.removeAttribute('data-hero-source')")
+            < field.index("window.initHeroCropper()")
+        )
 
     def it_puts_the_price_on_the_first_step(instructor_fixture, client):
         client.force_login(instructor_fixture.user)
@@ -468,6 +486,34 @@ def describe_teach_composer_get():
         html = client.get(reverse("classes:teach_class_edit", kwargs={"pk": offering.pk})).content.decode()
         assert "data-hero-cropper-preview" in _hero_preview_img(html)
         assert not _crop_hint_tag(html).endswith(" hidden>")
+
+    def it_mounts_the_cropper_on_the_original_while_the_card_frames_show_the_copy(instructor_fixture, client):
+        # Issue #547: the box is stored in the original's pixels, so the cropper must draw
+        # on the original; a box drawn on the cropped copy would crop the crop. The card
+        # frames beside it render the public partial, so they show the copy, as the catalog does.
+        offering = ClassOfferingFactory(
+            instructor=instructor_fixture,
+            status=Status.DRAFT,
+            image__width=1000,
+            image__height=600,
+            hero_crop_x=100,
+            hero_crop_y=50,
+            hero_crop_w=400,
+            hero_crop_h=225,
+        )
+        assert "hero-crops/" in offering.hero_cropped.url
+        client.force_login(instructor_fixture.user)
+        html = client.get(reverse("classes:teach_class_edit", kwargs={"pk": offering.pk})).content.decode()
+        hero = _hero_preview_img(html)
+        assert "data-hero-cropper-preview" in hero
+        src = re.search(r'src="([^"]*)"', hero)
+        assert src is not None, "no src on the hero preview"
+        assert unescape(src.group(1)) == offering.image.url
+        assert offering.hero_cropped.url not in hero
+        assert f'src="{offering.hero_cropped.url}"' in html
+        # Every frame showing the copy (two on Photos, the phone one on Review) carries the
+        # original for card_focus.js to swap in when a new box is dragged.
+        assert html.count(f'data-hero-source="{offering.image.url}"') == 3
 
     def it_shows_the_crop_hint_before_the_first_save(instructor_fixture, client):
         client.force_login(instructor_fixture.user)

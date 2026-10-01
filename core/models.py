@@ -108,6 +108,15 @@ class HeroCropMixin(models.Model):
         cy = (self.hero_crop_y or 0) + self.hero_crop_h / 2
         return f"{(cx / src_w) * 100:.1f}% {(cy / src_h) * 100:.1f}%"
 
+    def focal_point_on_source(self, x_pct: int, y_pct: int) -> tuple[int, int]:
+        """A focal point picked on the photo the page shows, in the stored file's coordinates.
+
+        The Adjust tool reads its point as percentages of the photo on screen. Here that
+        photo is the stored file itself, so the point comes back unchanged; a model whose
+        page shows a derived picture (a class and its cropped copy) overrides this.
+        """
+        return x_pct, y_pct
+
 
 class PushSubscription(models.Model):
     """Stores Web Push subscription data for a user."""

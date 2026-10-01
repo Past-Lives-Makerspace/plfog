@@ -1,0 +1,7 @@
+bump = "patch"
+date = "2026-09-30"
+title = "The class photo crop box now crops"
+changes = [
+  "Drag the box on the composer's Photos step and the class page banner, the catalog card and the flyer show the part of the photo inside it. Before, the box only chose which part of the whole photo the banner centred on.",
+  "Moving the banner with the Adjust tool on the class page still works on a cropped class: the point you pick is carried back to the full photo.",
+]

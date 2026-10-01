@@ -81,7 +81,25 @@ def describe_class_flyer():
             client.force_login(admin_user)
             body = client.get(reverse("classes:class_flyer", args=[free_offering.pk])).content.decode()
             assert "pl-flyer__hero-img" in body
+            assert f'src="{free_offering.image.url}"' in body
             assert "pl-flyer__hero-placeholder" not in body
+
+        def it_renders_the_copy_cut_to_the_crop_box_when_the_class_has_one(admin_user, client, db):
+            # Issue #547: the flyer shows what was inside the composer's box, like the banner.
+            offering = ClassOfferingFactory(
+                image__width=1000,
+                image__height=600,
+                hero_crop_x=100,
+                hero_crop_y=50,
+                hero_crop_w=400,
+                hero_crop_h=225,
+            )
+            client.force_login(admin_user)
+            body = client.get(reverse("classes:class_flyer", args=[offering.pk])).content.decode()
+            assert "pl-flyer__hero-img" in body
+            assert f'src="{offering.hero_cropped.url}"' in body
+            assert "hero-crops/" in offering.hero_cropped.url
+            assert offering.image.url not in body
 
         def it_falls_back_to_the_legacy_image_url(admin_user, client, db):
             offering = ClassOfferingFactory(image="", legacy_image_url="https://legacy.example/hero.jpg")

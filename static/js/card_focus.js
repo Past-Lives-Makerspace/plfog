@@ -80,10 +80,11 @@
             },
 
             /* The cropper announces the crop's centre (hero-crop on window, hero_cropper.js)
-             * on ready and after every drag. Track it as the banner and, while the host has
-             * not moved the sliders, follow it and announce, so the frames on this step and
-             * the Review step move with the crop before any save (issue #536). */
+             * after every drag. Track it as the banner and, while the host has not moved
+             * the sliders, follow it and announce, so the frames on this step and the
+             * Review step move with the crop before any save (issue #536). */
             followBanner(position) {
+                this.previewOnSource();
                 const banner = parsePosition(position);
                 this.bannerX = banner.x;
                 this.bannerY = banner.y;
@@ -91,6 +92,23 @@
                 this.posX = banner.x;
                 this.posY = banner.y;
                 this.announce();
+            },
+
+            /* A class that already has a cropped copy shows that copy in the frames, and a
+             * drag frames a NEW box measured on the ORIGINAL: its centre means nothing on the
+             * old copy, which would just slide by a number taken off a different image. Each
+             * frame img that shows a copy carries the original's URL in data-hero-source
+             * (_class_card_media.html): the first drag swaps every such frame, the two on this
+             * step and the phone frame on the Review step (the composer root mirrors our
+             * position there, so the whole document is swept), to the original before the
+             * centre lands. The attribute goes with the swap, so later drags find nothing to
+             * do, and a save renders the new copy, centred, again. A class with no copy yet
+             * already shows the original and carries no attribute (issue #547). */
+            previewOnSource() {
+                document.querySelectorAll("img[data-hero-source]").forEach((img) => {
+                    img.setAttribute("src", img.getAttribute("data-hero-source"));
+                    img.removeAttribute("data-hero-source");
+                });
             },
 
             /* A freshly picked hero (no pk yet) only exists as a data URL in the hero

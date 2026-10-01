@@ -1,6 +1,7 @@
 import pytest
 from django.contrib.contenttypes.models import ContentType
 from django.contrib.auth.models import User
+from django.core.files.storage import default_storage
 from tests.membership.factories import GuildFactory
 from classes.factories import ClassOfferingFactory, CategoryFactory
 
@@ -64,6 +65,57 @@ def describe_hub_hero_adjust():
         assert response.status_code == 200
         offering.refresh_from_db()
         assert offering.hero_crop_x == 5
+
+    def it_drops_the_cropped_copy_when_a_class_banner_is_adjusted(client):
+        # Issue #547: Adjust writes a focal point (w and h 0), which is "no box", so the copy
+        # cut to the composer's box goes, file and all, and the original shows at that point.
+        member = login_member(client, "u13")
+        offering = ClassOfferingFactory(
+            instructor=member,
+            image__width=1000,
+            image__height=600,
+            hero_crop_x=0,
+            hero_crop_y=0,
+            hero_crop_w=400,
+            hero_crop_h=225,
+        )
+        copy = offering.hero_cropped.name
+        assert default_storage.exists(copy)
+        ct = ContentType.objects.get_for_model(offering)
+        data = {"content_type_id": ct.id, "object_id": offering.id, "crop": {"x": 50, "y": 50, "w": 0, "h": 0}}
+        response = client.post("/hero-adjust/", data, content_type="application/json")
+        assert response.status_code == 200
+        # The point was picked on the copy, which is the box, so it is stored on the original
+        # the page shows next: the box's centre, 200 of 1000 across and 112.5 of 600 down.
+        assert response.json()["object_position"] == "20% 19%"
+        offering.refresh_from_db()
+        assert (offering.hero_crop_x, offering.hero_crop_y, offering.hero_crop_w, offering.hero_crop_h) == (
+            20,
+            19,
+            0,
+            0,
+        )
+        assert not offering.hero_cropped
+        assert not default_storage.exists(copy)
+        assert offering.hero_image_url == offering.image.url
+
+    def it_stores_a_category_focal_point_as_posted(client):
+        # Only a class page shows a cropped copy; every other model's page shows the stored
+        # file itself, so a focal point picked on it is stored as it came.
+        login_member(client, "u14", view_as="admin")
+        category = CategoryFactory(guild=None)
+        ct = ContentType.objects.get_for_model(category)
+        data = {"content_type_id": ct.id, "object_id": category.id, "crop": {"x": 30, "y": 70, "w": 0, "h": 0}}
+        response = client.post("/hero-adjust/", data, content_type="application/json")
+        assert response.status_code == 200
+        assert response.json()["object_position"] == "30% 70%"
+        category.refresh_from_db()
+        assert (category.hero_crop_x, category.hero_crop_y, category.hero_crop_w, category.hero_crop_h) == (
+            30,
+            70,
+            0,
+            0,
+        )
 
     def it_allows_admin_for_category(client):
         login_member(client, "u7", view_as="admin")

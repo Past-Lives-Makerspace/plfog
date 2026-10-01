@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
+import json
 from io import BytesIO
 
+from django.core.files.storage import default_storage
 from django.core.files.uploadedfile import SimpleUploadedFile
 from django.urls import reverse
 from PIL import Image
@@ -539,6 +541,70 @@ def describe_create_class():
         assert response.status_code == 200
         assert "at most 10 images" in response.content.decode().lower()
         assert not ClassOffering.objects.filter(slug="too-many-photos").exists()
+
+    def it_discards_the_cropped_copy_with_the_hero_when_the_gallery_is_refused(admin_user, client, db):
+        # Issue #547: a create that arrives with a crop box cuts its copy in the same save.
+        # A refused gallery rolls back the row, the hero file and that copy, so the bucket
+        # holds exactly what it held before the post.
+        from classes.factories import CategoryFactory, InstructorFactory
+        from classes.factories import READY_DESCRIPTION
+        from classes.models import ClassOffering
+
+        def _stored(prefix: str) -> set[str]:
+            try:
+                return set(default_storage.listdir(prefix)[1])
+            except FileNotFoundError:
+                return set()
+
+        client.force_login(admin_user)
+        cat = CategoryFactory()
+        inst = InstructorFactory()
+        heroes_before, copies_before = _stored("classes/images"), _stored("classes/hero-crops")
+        response = client.post(
+            reverse("classes:admin_class_create"),
+            {
+                "title": "Cropped Then Refused",
+                "slug": "cropped-then-refused",
+                "category": cat.pk,
+                "instructor": inst.pk,
+                "price_cents": "50.00",
+                "member_discount_pct": 10,
+                "capacity": 6,
+                "scheduling_model": "flexible",
+                "sale_kind": "percent",
+                "scheduling_type": "single_session",
+                "description": READY_DESCRIPTION,
+                "image": _real_image_file(),
+                # The top half of the 4 by 4 hero: a real box, so save() renders a copy.
+                "hero_crop": json.dumps({"x": 0, "y": 0, "w": 4, "h": 2}),
+                "prerequisites": "",
+                "materials_included": "",
+                "materials_to_bring": "",
+                "safety_requirements": "",
+                "age_guardian_note": "",
+                "flexible_note": "We will pick a time together.",
+                "private_for_name": "",
+                "recurring_pattern": "",
+                "sessions-TOTAL_FORMS": "0",
+                "sessions-INITIAL_FORMS": "0",
+                "sessions-MIN_NUM_FORMS": "0",
+                "sessions-MAX_NUM_FORMS": "1000",
+                "faq-TOTAL_FORMS": "0",
+                "faq-INITIAL_FORMS": "0",
+                "faq-MIN_NUM_FORMS": "0",
+                "faq-MAX_NUM_FORMS": "1000",
+                "images-TOTAL_FORMS": "0",
+                "images-INITIAL_FORMS": "0",
+                "images-MIN_NUM_FORMS": "0",
+                "images-MAX_NUM_FORMS": "1000",
+                "gallery_images": [_image_file(f"{i}.png") for i in range(11)],
+            },
+        )
+        assert response.status_code == 200
+        assert "at most 10 images" in response.content.decode().lower()
+        assert not ClassOffering.objects.filter(slug="cropped-then-refused").exists()
+        assert _stored("classes/images") == heroes_before
+        assert _stored("classes/hero-crops") == copies_before
 
 
 def describe_edit_class():

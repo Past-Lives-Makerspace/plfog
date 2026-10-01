@@ -41,8 +41,9 @@
           {% endif %}>
   <header class="cp-detail__hero">
     {% if offering.image %}
+      {# hero_image_url is the copy cut to the composer's crop box when there is one, else the upload. #}
       <img class="cp-detail__hero-img"
-           src="{{ offering.image.url }}"
+           src="{{ offering.hero_image_url }}"
            alt="{{ offering.title }}"
            {% if can_edit_offering %}
            x-ref="heroImg"
