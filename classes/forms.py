@@ -1369,7 +1369,9 @@ class RegistrationForm(forms.ModelForm):
 
     def clean(self) -> dict:
         data = super().clean() or {}
-        if not self.is_waitlist and not self.holds_seat and self.offering.spots_remaining <= 0:
+        # None is a flexible class: no seat cap, so it is never sold out (#545).
+        spots = self.offering.spots_remaining
+        if not self.is_waitlist and not self.holds_seat and spots is not None and spots <= 0:
             raise forms.ValidationError("This class is sold out.")
         if self.offering.requires_model_release and not data.get("accepts_model_release"):
             self.add_error("accepts_model_release", "Photo release acceptance is required for this class.")
@@ -1985,9 +1987,13 @@ class RegistrationMoveForm(forms.Form):
         )
 
     def clean_target(self) -> ClassOffering:
-        """Instructor moves can't overfill the destination; admin moves can (see the class docstring)."""
+        """Instructor moves can't overfill the destination; admin moves can (see the class docstring).
+
+        A flexible destination answers ``None`` for its spots: no cap, so never full (#545).
+        """
         target = cast(ClassOffering, self.cleaned_data["target"])
-        if self._instructor is not None and target.spots_remaining <= 0:
+        spots = target.spots_remaining
+        if self._instructor is not None and spots is not None and spots <= 0:
             raise ValidationError("That class is full.")
         return target
 

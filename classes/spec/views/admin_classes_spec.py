@@ -1222,3 +1222,33 @@ def describe_the_dates_cell_for_a_flexible_class():
 
         assert _dates_cell("Windowed") == "Nov 2 to Dec 1, 2026"
         assert _dates_cell("Open Ended") == "Flexible"
+
+
+def describe_the_seat_cell_for_a_flexible_class():
+    def it_shows_the_registration_count_alone(admin_user, client, db):
+        # No seat cap (#545): "2", never "2/1"; a fixed class keeps "N/capacity".
+        from classes.factories import ClassOfferingFactory, RegistrationFactory
+        from classes.models import ClassOffering, Registration
+
+        client.force_login(admin_user)
+        flexible = ClassOfferingFactory(
+            title="Open Forge",
+            slug="open-forge",
+            status=ClassOffering.Status.PUBLISHED,
+            scheduling_model=ClassOffering.SchedulingModel.FLEXIBLE,
+            capacity=1,
+        )
+        fixed = ClassOfferingFactory(
+            title="Fixed Forge", slug="fixed-forge", status=ClassOffering.Status.PUBLISHED, capacity=6
+        )
+        for offering in (flexible, fixed):
+            for _ in range(2):
+                RegistrationFactory(class_offering=offering, status=Registration.Status.CONFIRMED)
+        html = client.get(reverse("classes:admin_classes")).content.decode()
+
+        def _seat_cell(title: str) -> str:
+            row = next(row for row in html.split("<tr") if f">{title}<" in row)
+            return row.split("</td>")[-2].rsplit("<td>", 1)[1].strip()
+
+        assert _seat_cell("Open Forge") == "2"
+        assert _seat_cell("Fixed Forge") == "2/6"

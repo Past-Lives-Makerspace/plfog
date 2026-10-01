@@ -49,7 +49,7 @@
                       {% if first %} · {{ first|date:"D, M j" }}{% endif %}
                     {% endwith %}
                   {% endif %}
-                  · {{ offering.spots_remaining }} spots left
+                  {% with spots=offering.spots_remaining %}{% if spots is not None %}· {{ spots }} spots left{% endif %}{% endwith %}
                 </div>
               </a>
             {% endfor %}

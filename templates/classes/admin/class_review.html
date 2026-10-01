@@ -32,7 +32,7 @@
   <dl class="pl-review-details">
     <dt>Price</dt><dd>{{ offering.price_cents|cents_as_price }}</dd>
     {% if offering.member_discount_pct %}<dt>Member discount</dt><dd>{{ offering.member_discount_pct }}%</dd>{% endif %}
-    <dt>Capacity</dt><dd>{{ offering.capacity }}</dd>
+    <dt>Capacity</dt><dd>{% if offering.is_flexible %}No seat cap{% else %}{{ offering.capacity }}{% endif %}</dd>
     <dt>Sessions</dt>
     <dd>
       {% if upcoming_sessions %}

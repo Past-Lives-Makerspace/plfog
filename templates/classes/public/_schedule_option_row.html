@@ -19,7 +19,10 @@ with `.spots_left` annotated).
       <span class="cls-schedule__time">{{ session|session_time_range }}</span>
     {% endwith %}
   {% endif %}
+  {# None is a flexible run: no seat cap, no pill (#545). #}
+  {% if member.spots_left is not None %}
   <span class="cls-spots {{ member.spots_left|spots_class }}">
     {% if member.spots_left == 0 %}Full{% elif member.spots_left <= 3 %}{{ member.spots_left }} left{% else %}{{ member.spots_left }} spots{% endif %}
   </span>
+  {% endif %}
 </a>

@@ -68,7 +68,7 @@ an admin reading a queue wants the glance.{% endcomment %}
         </tr>
         <tr>
             <td style="font-weight:600; color:var(--hub-text-muted);">Capacity</td>
-            <td>{{ seat_taken_count }}/{{ offering.capacity }} registered</td>
+            <td>{{ seat_taken_count }}{% if not offering.is_flexible %}/{{ offering.capacity }}{% endif %} registered{% if offering.is_flexible %} · no seat cap{% endif %}</td>
         </tr>
     </tbody>
 </table>

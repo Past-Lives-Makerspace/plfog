@@ -609,3 +609,26 @@ def describe_the_member_discount_toggle():
             RegistrationQuestion.objects.create(prompt="Allergies?", sort_order=1)
             form = RegistrationForm(offering=offering, settings_obj=settings_obj)
             assert form.fields["email"].widget.attrs["hx-select-oob"] == "#reg-submit-label,#custom-questions-block"
+
+
+def describe_the_sold_out_guard_on_a_flexible_class():
+    def it_never_refuses_for_fullness(settings_obj):
+        # No seat cap (#545): three seats taken on a capacity of 1 still validates.
+        offering = ClassOfferingFactory(
+            status=ClassOffering.Status.PUBLISHED,
+            price_cents=10000,
+            capacity=1,
+            scheduling_model=ClassOffering.SchedulingModel.FLEXIBLE,
+        )
+        for _ in range(3):
+            RegistrationFactory(class_offering=offering, status=Registration.Status.CONFIRMED)
+        form = RegistrationForm(data=_post_data(), offering=offering, settings_obj=settings_obj)
+        assert form.is_valid(), form.errors
+        assert "sold out" not in str(form.errors).lower()
+
+    def it_still_refuses_a_sold_out_fixed_class(offering, settings_obj):
+        for _ in range(offering.capacity):
+            RegistrationFactory(class_offering=offering, status=Registration.Status.CONFIRMED)
+        form = RegistrationForm(data=_post_data(), offering=offering, settings_obj=settings_obj)
+        assert not form.is_valid()
+        assert "sold out" in str(form.errors).lower()

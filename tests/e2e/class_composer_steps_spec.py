@@ -15,7 +15,7 @@ Alpine root in ``templates/classes/_components/class_composer.html``. Run with
 from __future__ import annotations
 
 import re
-from datetime import timedelta
+from datetime import date, timedelta
 from pathlib import Path
 from typing import cast
 
@@ -248,6 +248,77 @@ def describe_next():
         _settle(page)
 
         expect(_step(page, 2)).to_be_visible()
+
+
+def describe_a_flexible_class():
+    def it_swaps_the_scheduler_for_the_window_on_step_three_and_shows_the_window_on_the_preview(
+        live_server, page, login_via_code
+    ):
+        # Issue #545: the scheduling model select swaps step 3's blocks in the browser (x-show on the
+        # composer root's schedulingModel), so only a browser can see the swap. The ready draft is Fixed
+        # with one session; picking Flexible hides the scheduler and the capacity field, the window
+        # saves, the session is shed, and the page preview reads the window with no Schedule.
+        offering = _seed_ready_draft(_seed_instructor())
+        assert offering.sessions.count() == 1
+        login_via_code(EMAIL)
+        _open_edit(page, live_server, offering)
+        _tab(page, 3).click()
+        expect(_step(page, 3)).to_be_visible()
+        expect(page.locator("#session-add-date")).to_be_visible()
+        expect(page.locator("#id_flexible_starts_on")).to_be_hidden()
+        expect(page.locator("#id_capacity")).to_be_visible()
+
+        page.locator("#id_scheduling_model").select_option("flexible")
+        _settle(page)
+
+        expect(page.locator("#session-add-date")).to_be_hidden()
+        expect(page.locator("#id_flexible_starts_on")).to_be_visible()
+        expect(page.locator("#id_flexible_ends_on")).to_be_visible()
+        expect(page.locator("#id_capacity")).to_be_hidden()
+        expect(page.locator('[data-seats-block="flexible"]')).to_be_visible()
+        # The scheduler is hidden, never removed: its hidden session inputs still post and the server sheds them.
+        expect(page.locator("#session-add-date")).to_have_count(1)
+
+        page.fill("#id_flexible_starts_on", "2026-11-02")
+        page.fill("#id_flexible_ends_on", "2026-12-01")
+        page.locator(SAVE_DRAFT).click()
+
+        page.wait_for_url(re.compile(r"step=3"))
+        offering.refresh_from_db()
+        assert offering.scheduling_model == ClassOffering.SchedulingModel.FLEXIBLE
+        assert (offering.flexible_starts_on, offering.flexible_ends_on) == (date(2026, 11, 2), date(2026, 12, 1))
+        assert offering.sessions.count() == 0
+        # The reopened draft paints the window block first, from the form.
+        expect(page.locator("#id_flexible_starts_on")).to_be_visible()
+        expect(page.locator("#session-add-date")).to_be_hidden()
+
+        page.goto(f"{live_server.url}{reverse('classes:class_preview', kwargs={'pk': offering.pk})}")
+
+        section = page.locator("[data-flexible-section]")
+        expect(section).to_be_visible()
+        expect(section).to_contain_text("Flexible Date Range")
+        expect(section).to_contain_text("Nov 2 to Dec 1, 2026")
+        expect(section).to_contain_text("Steps Teacher")
+        expect(page.locator(".cp-detail__sessions")).to_have_count(0)
+        expect(page.locator(".cp-detail__main")).not_to_contain_text("h total")
+        expect(page.locator(".cp-detail__next-pill--flex")).to_have_text("Flexible scheduling")
+
+    def it_shows_the_scheduler_again_when_fixed_sessions_is_picked_back(live_server, page, login_via_code):
+        offering = _seed_ready_draft(_seed_instructor(), scheduling_model=ClassOffering.SchedulingModel.FLEXIBLE)
+        login_via_code(EMAIL)
+        _open_edit(page, live_server, offering)
+        _tab(page, 3).click()
+        expect(_step(page, 3)).to_be_visible()
+        expect(page.locator("#id_flexible_starts_on")).to_be_visible()
+        expect(page.locator("#session-add-date")).to_be_hidden()
+
+        page.locator("#id_scheduling_model").select_option("fixed")
+        _settle(page)
+
+        expect(page.locator("#session-add-date")).to_be_visible()
+        expect(page.locator("#id_capacity")).to_be_visible()
+        expect(page.locator("#id_flexible_starts_on")).to_be_hidden()
+        expect(page.locator('[data-seats-block="flexible"]')).to_be_hidden()
 
 
 def describe_the_description_count():

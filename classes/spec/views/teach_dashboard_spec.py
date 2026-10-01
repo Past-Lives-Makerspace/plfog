@@ -806,3 +806,22 @@ def describe_instructor_list_markup():
         assert '<tr class="pl-class-list__row--archived">' in table
         # The ready draft gets the live submit form, not just the gated row's disabled button.
         assert reverse("classes:teach_class_submit", kwargs={"pk": ready.pk}) in table
+
+
+def describe_the_seat_cell_for_a_flexible_class():
+    def it_shows_the_registration_count_alone(instructor_fixture, client):
+        # No seat cap (#545): "2", never "2/1"; a fixed class keeps "N/capacity".
+        from classes.models import Registration
+
+        flexible = _lean(
+            instructor_fixture, slug="open-forge", scheduling_model=ClassOffering.SchedulingModel.FLEXIBLE, capacity=1
+        )
+        fixed = _lean(instructor_fixture, slug="fixed-forge", capacity=6)
+        for offering in (flexible, fixed):
+            for _ in range(2):
+                RegistrationFactory(class_offering=offering, status=Registration.Status.CONFIRMED)
+        client.force_login(instructor_fixture.user)
+        html = client.get(reverse("classes:teach_dashboard")).content.decode()
+        assert "<td>2</td>" in html
+        assert "<td>2/6</td>" in html
+        assert "<td>2/1</td>" not in html

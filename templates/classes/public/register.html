@@ -51,7 +51,8 @@
             <div class="reg-help">{{ form.apply_member_discount.help_text }}</div>
             {% endif %}
           </div>
-          {% if spots_remaining <= 3 %}<div style="font-size:11px;color:var(--red);margin-top:6px">Only {{ spots_remaining }} spot{{ spots_remaining|pluralize }} left</div>{% endif %}
+          {# None is a flexible class: no seat cap, no seat line (#545). #}
+          {% if spots_remaining is not None and spots_remaining <= 3 %}<div style="font-size:11px;color:var(--red);margin-top:6px">Only {{ spots_remaining }} spot{{ spots_remaining|pluralize }} left</div>{% endif %}
         </div>
 
         {% if run_options|length > 1 %}
@@ -60,7 +61,7 @@
           <select id="reg-run-select" onchange="if (this.value) location.assign(this.value)">
             {% for run in run_options %}
               {% with ses=run.sessions.all|upcoming_sessions %}
-              <option value="{% url 'classes:register' slug=run.slug %}"{% if run.pk == offering.pk %} selected{% endif %}>{{ ses|session_date_range }}{% if run.is_series %} · {{ ses|length }} sessions{% endif %} · {% if run.spots_left == 0 %}waitlist{% else %}{{ run.spots_left }} left{% endif %}</option>
+              <option value="{% url 'classes:register' slug=run.slug %}"{% if run.pk == offering.pk %} selected{% endif %}>{{ ses|session_date_range }}{% if run.is_series %} · {{ ses|length }} sessions{% endif %}{% if run.spots_left is not None %} · {% if run.spots_left == 0 %}waitlist{% else %}{{ run.spots_left }} left{% endif %}{% endif %}</option>
               {% endwith %}
             {% endfor %}
           </select>

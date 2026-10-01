@@ -1307,3 +1307,77 @@ def describe_a_flexible_class_page():
             assert b"Open Forge" in client.get(reverse("classes:public_list")).content
         with mock.patch("classes.models.timezone.localdate", return_value=date(2026, 12, 2)):
             assert b"Open Forge" not in client.get(reverse("classes:public_list")).content
+
+
+def describe_the_rail_and_the_card_of_a_flexible_class():
+    """No seat cap (#545): no count, no max class size, no waitlist; Register now however many hold a seat."""
+
+    def _flexible(**traits) -> ClassOffering:
+        return ClassOfferingFactory(
+            status=ClassOffering.Status.PUBLISHED, scheduling_model=ClassOffering.SchedulingModel.FLEXIBLE, **traits
+        )
+
+    def _rail(html: str) -> str:
+        return html.split('<div class="cp-detail__rail-card">')[1].split("</ul>")[0]
+
+    def it_offers_register_now_past_the_stored_capacity_with_no_seat_math(db, client):
+        from classes.factories import RegistrationFactory
+        from classes.models import Registration
+
+        offering = _flexible(slug="open-forge", capacity=1)
+        for _ in range(3):
+            RegistrationFactory(class_offering=offering, status=Registration.Status.CONFIRMED)
+        html = client.get(reverse("classes:public_class_detail", kwargs={"slug": offering.slug})).content.decode()
+        rail = _rail(html)
+        assert 'data-help-key="class.register"' in rail
+        assert "cp-detail__spots" not in rail
+        assert "max class size" not in rail
+        assert "?waitlist=1" not in rail
+        assert "cp-detail__cta--waitlist" not in rail
+        assert "<strong>1</strong> session" not in rail
+
+    def it_keeps_the_seat_math_on_a_fixed_class(published_class, client):
+        html = client.get(
+            reverse("classes:public_class_detail", kwargs={"slug": published_class.slug})
+        ).content.decode()
+        rail = _rail(html)
+        assert "cp-detail__spots--ok" in rail
+        assert f"<strong>{published_class.capacity}</strong> max class size" in rail
+
+    def it_shows_no_seat_pill_on_the_catalog_card(db, client):
+        from classes.factories import RegistrationFactory
+        from classes.models import Registration
+
+        offering = _flexible(title="Open Forge", slug="open-forge", capacity=1)
+        RegistrationFactory(class_offering=offering, status=Registration.Status.CONFIRMED)
+        fixed = ClassOfferingFactory(title="Fixed Forge", slug="fixed-forge", status=ClassOffering.Status.PUBLISHED)
+        ClassSessionFactory(class_offering=fixed, starts_at=timezone.now() + timedelta(days=3))
+        html = client.get(reverse("classes:public_list")).content.decode()
+        cards = html.split('<div class="cls-card"')
+        flexible_card = next(card for card in cards if "Open Forge" in card)
+        fixed_card = next(card for card in cards if "Fixed Forge" in card)
+        assert 'class="cls-spots' not in flexible_card
+        assert "Sold out" not in flexible_card
+        assert 'class="cls-spots ok"' in fixed_card
+
+    def it_shows_no_seat_pill_on_a_flexible_date_option_row(db, client):
+        # Two runs of one class, grouped on the card: the flexible option row carries no pill.
+        instructor = InstructorFactory(full_legal_name="Group Lead", instructor_slug="group-lead")
+        category = CategoryFactory(name="Forge", slug="forge")
+        fixed = ClassOfferingFactory(
+            title="Grouped Forge",
+            slug="grouped-forge-1",
+            status=ClassOffering.Status.PUBLISHED,
+            instructor=instructor,
+            category=category,
+        )
+        ClassSessionFactory(class_offering=fixed, starts_at=timezone.now() + timedelta(days=3))
+        _flexible(title="Grouped Forge", slug="grouped-forge-2", instructor=instructor, category=category, capacity=1)
+        html = client.get(reverse("classes:public_list")).content.decode()
+        # Each row clipped at its own closing tag, so the last one never swallows the card footer's pill.
+        rows = [row.split("</a>")[0] for row in html.split('<a class="cls-schedule__row cls-schedule__row--pick"')]
+        assert len(rows) == 3
+        flexible_row = next(row for row in rows[1:] if "grouped-forge-2" in row)
+        fixed_row = next(row for row in rows[1:] if "grouped-forge-1" in row)
+        assert 'class="cls-spots' not in flexible_row
+        assert 'class="cls-spots ok"' in fixed_row

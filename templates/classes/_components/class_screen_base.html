@@ -33,7 +33,7 @@ count get it here, off `tab.key`.{% endcomment %}
             {% if offering.instructor %}<span class="pl-class-meta__item">{{ offering.instructor.display_name }}</span>{% endif %}
             <span class="pl-class-meta__item">{{ offering.category.name }}</span>
             <span class="pl-class-meta__item">{{ offering.price_cents|cents_as_price }}</span>
-            <span class="pl-class-meta__item">{{ seat_taken_count }} / {{ offering.capacity }} registered</span>
+            <span class="pl-class-meta__item">{{ seat_taken_count }}{% if not offering.is_flexible %} / {{ offering.capacity }}{% endif %} registered</span>
             {% with first_session=offering.sessions.all|first %}{% if first_session %}<span class="pl-class-meta__item">Starts {{ first_session.starts_at|date:"M j" }}</span>{% endif %}{% endwith %}
         </div>
     </div>

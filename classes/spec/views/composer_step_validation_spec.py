@@ -609,3 +609,34 @@ def describe_the_flexible_window():
         assert step_for_field("flexible_starts_on") == 3
         assert step_for_field("flexible_ends_on") == 3
         assert REQUIRED_BY_STEP[3] == {"capacity", "scheduling_type"}
+
+
+def describe_the_seats_section_for_a_flexible_class():
+    """The capacity field hides under Flexible and the no seat cap note shows; the admin keeps the discount and private fields (#545)."""
+
+    def _seats(html: str) -> str:
+        step_three = html[html.index('data-composer-step="3"') : html.index('data-composer-step="4"')]
+        return step_three[step_three.index("Seats And Member Discount") :]
+
+    def it_wraps_the_capacity_field_and_swaps_the_note_on_the_scheduling_model(composer):
+        for mode, html in composer.pages.items():
+            seats = _seats(html)
+            fixed = seats.split('data-seats-block="fixed"')[1].split('data-seats-block="flexible"')[0]
+            assert "x-show=\"schedulingModel === 'fixed'\" x-cloak" in fixed.split(">")[0], mode
+            assert 'name="capacity"' in fixed, mode
+            assert "How many can attend" in fixed, mode
+            flexible = seats.split('data-seats-block="flexible"')[1].split("</p>")[0]
+            assert "x-show=\"schedulingModel === 'flexible'\" x-cloak" in flexible, mode
+            assert "Flexible classes have no seat cap. Students book one at a time with you." in flexible, mode
+            # Still one capacity control, still required: hidden is not removed, and the server reads it for a Fixed class.
+            capacity = [c for c in _parse(html).controls[3] if c.name == "capacity"]
+            assert len(capacity) == 1 and capacity[0].required, mode
+
+    def it_keeps_the_admins_discount_and_private_fields_outside_the_swap(composer):
+        for mode, html in composer.pages.items():
+            seats = _seats(html)
+            after_note = seats.split('data-seats-block="flexible"')[1]
+            if composer.form_class is ClassOfferingForm:
+                assert 'name="member_discount_pct"' in after_note and 'name="is_private"' in after_note, mode
+            else:
+                assert 'id="member-discount-note"' in after_note, mode

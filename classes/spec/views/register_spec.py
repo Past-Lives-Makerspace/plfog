@@ -662,3 +662,71 @@ def describe_the_member_discount_at_checkout():
         body = client.get(reverse("classes:register", kwargs={"slug": paid_offering.slug})).content.decode()
         assert 'name="apply_member_discount"' not in body
         assert 'name="discount_code"' not in body
+
+
+def describe_registering_for_a_flexible_class():
+    """No seat cap (#545): past the stored capacity still registers, and ?waitlist=1 registers normally."""
+
+    @pytest.fixture
+    def flexible_offering(db):
+        offering = ClassOfferingFactory(
+            title="Open Forge",
+            slug="open-forge",
+            category=CategoryFactory(),
+            instructor=InstructorFactory(),
+            status=ClassOffering.Status.PUBLISHED,
+            price_cents=0,
+            member_discount_pct=0,
+            capacity=1,
+            scheduling_model=ClassOffering.SchedulingModel.FLEXIBLE,
+        )
+        RegistrationFactory(class_offering=offering, status=Registration.Status.CONFIRMED)
+        return offering
+
+    def it_confirms_a_registration_past_the_stored_capacity(flexible_offering, client):
+        url = reverse("classes:register", kwargs={"slug": flexible_offering.slug})
+        page = client.get(url)
+        assert page.status_code == 200
+        assert page.context["is_waitlist"] is False
+        assert page.context["spots_remaining"] is None
+        response = client.post(url, data=_post_data())
+        assert response.status_code == 302
+        registration = Registration.objects.get(email="sam@example.com", class_offering=flexible_offering)
+        assert registration.status == Registration.Status.CONFIRMED
+        assert flexible_offering.seats_taken == 2
+
+    @patch("billing.stripe_utils.create_class_checkout_session")
+    def it_starts_payment_for_a_paid_flexible_class_instead_of_the_waitlist(mock_checkout, flexible_offering, client):
+        mock_checkout.return_value = {"id": "cs_test_flex", "url": "https://checkout.stripe.com/c/pay/cs_test_flex"}
+        flexible_offering.price_cents = 10000
+        flexible_offering.save(update_fields=["price_cents"])
+        response = client.post(reverse("classes:register", kwargs={"slug": flexible_offering.slug}), data=_post_data())
+        assert response.status_code == 302
+        assert response.url == "https://checkout.stripe.com/c/pay/cs_test_flex"
+        registration = Registration.objects.get(email="sam@example.com", class_offering=flexible_offering)
+        assert registration.status == Registration.Status.PENDING
+
+    def it_registers_normally_on_a_stale_waitlist_link(flexible_offering, client):
+        url = reverse("classes:register", kwargs={"slug": flexible_offering.slug}) + "?waitlist=1"
+        assert client.get(url).context["is_waitlist"] is False
+        response = client.post(url, data=_post_data())
+        assert response.status_code == 302
+        registration = Registration.objects.get(email="sam@example.com", class_offering=flexible_offering)
+        assert registration.status == Registration.Status.CONFIRMED
+        assert not CmsActivity.objects.filter(kind=CmsActivity.Kind.WAITLIST_JOINED, registration=registration).exists()
+
+    def it_closes_after_the_last_day(flexible_offering, client):
+        flexible_offering.flexible_ends_on = timezone.localdate() - timedelta(days=1)
+        flexible_offering.save(update_fields=["flexible_ends_on"])
+        response = client.post(reverse("classes:register", kwargs={"slug": flexible_offering.slug}), data=_post_data())
+        assert response.status_code == 302
+        assert response.url == reverse("classes:public_class_detail", kwargs={"slug": flexible_offering.slug})
+        assert not Registration.objects.filter(email="sam@example.com").exists()
+
+    def it_still_waitlists_a_sold_out_fixed_class(paid_offering, client):
+        # The Fixed path is untouched: the existing describe_register_view cases above pin it in full.
+        for _ in range(paid_offering.capacity):
+            RegistrationFactory(class_offering=paid_offering, status=Registration.Status.CONFIRMED)
+        assert (
+            client.get(reverse("classes:register", kwargs={"slug": paid_offering.slug})).context["is_waitlist"] is True
+        )
