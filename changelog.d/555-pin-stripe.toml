@@ -1,7 +1,2 @@
 bump = "patch"
 audience = "internal"
-date = "2026-09-30"
-title = "stripe pinned below 16"
-changes = [
-  "requirements.txt holds stripe below 16.0.0, whose release moved the pinned API version, made path parameters positional only and failed CI's mypy on billing. Lift it on purpose with the billing calls checked.",
-]
