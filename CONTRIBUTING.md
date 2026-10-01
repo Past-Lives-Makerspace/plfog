@@ -24,7 +24,7 @@ Rules marked ✓ are checked by `.github/workflows/pr-description.yml`, which re
 - ✓ The summary is present and at most 160 characters; the Area line and all four sections are present; Solution has 2 to 4 bullets.
 - ✓ At most 300 words.
 - ✓ A PR naming its part in `### Problem` ("part 3 of 3") says `Closes #N` there when it is the last part, and does not when it is an earlier one.
-- ✓ A PR touching `templates/`, `static/css/` or `static/js/` adds a screenshot or mockup under [`mockups/screenshots/`](mockups/screenshots/README.md) and shows it. When such a change shows nothing (a comment, a refactor), add the `no-screenshots` label.
+- ✓ A PR touching `templates/`, `static/css/` or `static/js/` adds a screenshot or mockup under [`mockups/screenshots/`](mockups/screenshots/README.md) and shows it in the description. Embed it by its raw URL on the branch, `![what it shows](https://raw.githubusercontent.com/Past-Lives-Makerspace/plfog/<branch>/mockups/screenshots/<file>.png)`: a relative link renders in the repo but shows a broken image in a PR description, and the check fails it. When such a change shows nothing (a comment, a refactor), add the `no-screenshots` label.
 - ✓ (warning) About 400 changed lines of code or fewer. Docs, migrations, lock files, images and changelog fragments do not count.
 - Every PR also adds a changelog fragment (`changelog.d/README.md`).
 

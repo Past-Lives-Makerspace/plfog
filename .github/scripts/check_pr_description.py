@@ -4,7 +4,8 @@ The review bot reads the diff and never the description, so nothing else holds a
 format a non-technical reader relies on: a summary of at most 160 characters, the four-part
 Problem / Solution / Impact / Verification skeleton, and at most 300 words. It also fails a PR
 that changes what members see (templates, CSS, front-end JS) without adding a screenshot or
-mockup under ``mockups/``, and warns, without failing, when more than 400 lines of code change.
+mockup under ``mockups/`` or shows it with a link that would not render, and warns, without
+failing, when more than 400 lines of code change.
 
 A split issue closes on its last part, never before. GitHub closes an issue when any merged PR
 carries a closing keyword for it, so the Problem section of the last part must say ``Closes #N`` and
@@ -47,6 +48,11 @@ _BULLET = re.compile(r"^(?:[-*]|\d+\.)[ \t]+\S", re.MULTILINE)
 _PART = re.compile(r"\bpart\s+(\d+)\s+of\s+(\d+)\b", re.IGNORECASE)
 #: GitHub's closing keywords, colon optional: https://docs.github.com/articles/closing-issues-using-keywords
 _CLOSES = re.compile(r"\b(?:close[sd]?|fix(?:e[sd])?|resolve[sd]?):?\s+#\d+", re.IGNORECASE)
+#: A Markdown image and its target. A PR description renders only absolute targets: a relative
+#: path such as ``mockups/screenshots/x.png`` resolves against the pull request URL and shows a
+#: broken image, however correct it looks in the repo's own Markdown.
+_IMAGE = re.compile(r"!\[[^\]]*\]\(\s*<?([^)\s>]+)")
+_RAW_URL = "https://raw.githubusercontent.com/Past-Lives-Makerspace/plfog/<branch>/mockups/screenshots/<file>"
 
 
 def _sections(body: str) -> dict[str, str]:
@@ -86,6 +92,28 @@ def part_error(problem: str) -> str | None:
     return None
 
 
+def picture_link_errors(text: str) -> list[str]:
+    """One error per image whose target would not render in a PR description.
+
+    Only an absolute ``http(s)`` target renders there: the raw file on the branch, or an upload
+    GitHub hosted. A relative path is what the repo's own Markdown would use, and it was the
+    rule here until PR #542 shipped two broken images.
+    """
+    errors: list[str] = []
+    for target in _IMAGE.findall(text):
+        if not target.lower().startswith(("http://", "https://")):
+            errors.append(
+                f"The image `{target}` is a relative link, which shows as a broken image in a PR "
+                f"description. Link the raw file on the branch instead: `{_RAW_URL}`."
+            )
+    return errors
+
+
+def shows_a_picture(text: str) -> bool:
+    """True when the description embeds at least one image."""
+    return _IMAGE.search(text) is not None
+
+
 def description_errors(body: str) -> list[str]:
     """Every way ``body`` breaks the pull request format, in reading order."""
     text = _COMMENT.sub("", body)
@@ -112,6 +140,8 @@ def description_errors(body: str) -> list[str]:
     part = part_error(sections.get("Problem", ""))
     if part:
         errors.append(part)
+
+    errors.extend(picture_link_errors(text))
 
     words = word_count(body)
     if words > MAX_WORDS:
@@ -162,12 +192,18 @@ def main() -> None:
 
     changed = _git("diff", "--name-only", span).split()
     added = _git("diff", "--name-only", "--diff-filter=A", span).split()
-    if needs_pictures(changed) and not adds_pictures(added) and SKIP_PICTURES_LABEL not in labels:
-        errors.append(
-            "This PR changes templates, CSS or front-end JS but adds no screenshot or mockup under "
-            f"`mockups/screenshots/`. Add one and show it in the description, or add the "
-            f"`{SKIP_PICTURES_LABEL}` label if nothing visible changes."
-        )
+    if needs_pictures(changed) and SKIP_PICTURES_LABEL not in labels:
+        if not adds_pictures(added):
+            errors.append(
+                "This PR changes templates, CSS or front-end JS but adds no screenshot or mockup under "
+                f"`mockups/screenshots/`. Add one and show it in the description, or add the "
+                f"`{SKIP_PICTURES_LABEL}` label if nothing visible changes."
+            )
+        elif not shows_a_picture(_COMMENT.sub("", body)):
+            errors.append(
+                "This PR adds a screenshot but the description does not show it. Embed it as "
+                f"`![what it shows]({_RAW_URL})`."
+            )
 
     lines = counted_lines(_git("diff", "--numstat", span))
     if lines > TARGET_LINES:
