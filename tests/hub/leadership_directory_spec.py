@@ -35,6 +35,7 @@ from membership.models import EXAMPLE_GUILD_SLUG, LeadershipListing, LeadershipP
 from tests.membership.factories import (
     GuildFactory,
     GuildStaffMembershipFactory,
+    LeadershipBadgeFactory,
     LeadershipListingFactory,
     LeadershipRoleFactory,
     LeadershipTabFactory,
@@ -311,9 +312,10 @@ def describe_leadership_directory():
         assert b'<p class="pl-leadership__intro">Who keeps the lights on.</p>' in _pane(body, with_intro)
         assert b"pl-leadership__intro" not in _pane(body, without)
 
-    def it_keeps_its_query_count_flat_as_tabs_people_and_lines_grow(client: Client):
-        """No N+1: one query for the tabs, one for the cards with members, one for the lines."""
+    def it_keeps_its_query_count_flat_as_tabs_people_lines_and_badges_grow(client: Client):
+        """No N+1: one query for the tabs, one for the cards with members, one for the lines, one for the badges."""
         _login(client)
+        badge = LeadershipBadgeFactory()
 
         def count() -> int:
             with CaptureQueriesContext(connection) as queries:
@@ -321,7 +323,9 @@ def describe_leadership_directory():
             return len(queries.captured_queries)
 
         tab = LeadershipTabFactory()
-        LeadershipRoleFactory(listing=LeadershipListingFactory(tab=tab))
+        first = LeadershipListingFactory(tab=tab)
+        LeadershipRoleFactory(listing=first)
+        badge.give(first.member)
         _guild_leads()
         GuildStaffMembershipFactory(guild=GuildFactory(name="Only Guild", guild_lead=MemberFactory()))
         count()  # the first request after login warms the session and the site settings
@@ -332,10 +336,64 @@ def describe_leadership_directory():
                 listing = LeadershipListingFactory(tab=more)
                 LeadershipRoleFactory(listing=listing)
                 LeadershipRoleFactory(listing=listing)
+                badge.give(listing.member)
+                LeadershipBadgeFactory().give(listing.member)
         for name in ("Second Guild", "Third Guild"):
             guild = GuildFactory(name=name, guild_lead=MemberFactory())
             GuildStaffMembershipFactory(guild=guild)
         assert count() == small
+
+
+def describe_badges_on_cards():
+    """#571: a member's badges as pills under the name plate on every People tab card they have."""
+
+    def _card(body: bytes, name: str) -> bytes:
+        start = body.rindex(b'<article class="pl-leader-card">', 0, body.index(name.encode()))
+        return body[start : body.index(b"</article>", start)]
+
+    def it_shows_the_badges_under_the_name_plate_in_the_order_they_were_made(client: Client):
+        tab = LeadershipTabFactory()
+        member = LeadershipListingFactory(tab=tab, member=MemberFactory(full_legal_name="Dixie Doorman")).member
+        elevator = LeadershipBadgeFactory(label="Elevator Certified", color="#FFE066")
+        forklift = LeadershipBadgeFactory(label="Forklift Trained", color="#092E4C")
+        forklift.give(member)
+        elevator.give(member)
+        card = _card(_page(client), "Dixie Doorman")
+        plate, badges, body = (
+            card.index(b"pl-leader-card__plate"),
+            card.index(b'<ul class="pl-leader-card__badges"'),
+            card.index(b"pl-leader-card__body"),
+        )
+        assert plate < badges < body
+        light = (
+            b'<li class="pl-leader-badge" style="background-color: #FFE066; color: #000000;">Elevator Certified</li>'
+        )
+        dark = b'<li class="pl-leader-badge" style="background-color: #092E4C; color: #FFFFFF;">Forklift Trained</li>'
+        assert card.index(light) < card.index(dark)
+
+    def it_shows_a_badge_on_every_card_the_member_has(client: Client):
+        member = MemberFactory(full_legal_name="Morlock Mender")
+        first = LeadershipListingFactory(member=member)
+        second = LeadershipListingFactory(member=member)
+        LeadershipBadgeFactory(label="Elevator Certified").give(member)
+        body = _page(client)
+        for listing in (first, second):
+            assert b">Elevator Certified</li>" in _pane(body, listing.tab)
+
+    def it_renders_a_card_with_no_badges_as_before(client: Client):
+        LeadershipListingFactory(member=MemberFactory(full_legal_name="Plain Pat"))
+        LeadershipBadgeFactory(label="Held By Nobody")
+        card = _card(_page(client), "Plain Pat")
+        assert b"pl-leader-card__badges" not in card
+        assert b"Held By Nobody" not in card
+        assert re.search(rb'</h3>\s*<div class="pl-leader-card__body">', card)
+
+    def it_keeps_badges_off_the_guild_cards(client: Client):
+        lead = MemberFactory(full_legal_name="Guild Gus")
+        GuildFactory(name="Only Guild", guild_lead=lead)
+        LeadershipBadgeFactory(label="Elevator Certified").give(lead)
+        tab = _guild_leads()
+        assert b"pl-leader-card__badges" not in _pane(_page(client), tab)
 
 
 def describe_guild_leads_tab():

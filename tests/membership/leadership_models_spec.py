@@ -1,7 +1,8 @@
 """BDD specs for the Leadership Directory data (#464, tabs #564).
 
 The page wording singleton, the tabs (People tabs admins add, and the one Guild Leads tab),
-the cards on each tab and their role lines, plus the two small helpers the page reads:
+the cards on each tab and their role lines, the badges admins give people (#571), plus the two
+small helpers the page reads:
 ``Member.discord_profile_url`` and ``Guild.co_leads``.
 
 The data migration makes two tabs in every migrated test database, so each spec here starts
@@ -13,12 +14,15 @@ from __future__ import annotations
 from datetime import timedelta
 
 import pytest
-from django.db import IntegrityError, transaction
+from django.core.exceptions import ValidationError
+from django.db import IntegrityError, connection, transaction
+from django.test.utils import CaptureQueriesContext
 from django.utils import timezone
 
 from membership.models import (
     Guild,
     GuildStaffMembership,
+    LeadershipBadge,
     LeadershipListing,
     LeadershipPage,
     LeadershipRole,
@@ -29,6 +33,7 @@ from membership.models import (
 from tests.membership.factories import (
     GuildFactory,
     GuildStaffMembershipFactory,
+    LeadershipBadgeFactory,
     LeadershipListingFactory,
     LeadershipRoleFactory,
     LeadershipTabFactory,
@@ -146,18 +151,29 @@ def describe_LeadershipTab():
             ]
 
     def describe_with_listed():
-        def it_loads_listed_cards_members_and_lines_in_three_queries(django_assert_num_queries):
+        def it_loads_listed_cards_members_lines_and_badges_in_four_queries(django_assert_num_queries):
             first = LeadershipTabFactory()
             second = LeadershipTabFactory()
-            LeadershipRoleFactory(listing=LeadershipListingFactory(tab=first), title="Founder")
+            founder = LeadershipListingFactory(tab=first)
+            LeadershipRoleFactory(listing=founder, title="Founder")
             LeadershipListingFactory(tab=first, is_listed=False)
             LeadershipRoleFactory(listing=LeadershipListingFactory(tab=second), title="Advisor")
-            with django_assert_num_queries(3):
+            earlier = LeadershipBadgeFactory(label="Earlier Badge")
+            later = LeadershipBadgeFactory(label="Later Badge")
+            later.give(founder.member)
+            earlier.give(founder.member)
+            with django_assert_num_queries(4):
                 tabs = list(LeadershipTab.objects.with_listed())
                 lines = [[[role.title for role in row.roles.all()] for row in tab.listed_listings] for tab in tabs]
                 names = [[row.member.display_name for row in tab.listed_listings] for tab in tabs]
+                badges = [
+                    [[badge.label for badge in row.member.leadership_badges.all()] for row in tab.listed_listings]
+                    for tab in tabs
+                ]
             assert lines == [[["Founder"]], [["Advisor"]]]
             assert all(len(per_tab) == 1 for per_tab in names)
+            # In the order the badges were made (by id), whatever order they were given in.
+            assert badges == [[["Earlier Badge", "Later Badge"]], [[]]]
 
     def describe_for_directory():
         def it_leaves_an_empty_people_tab_out_of_the_member_view():
@@ -477,3 +493,106 @@ def describe_Member_leadership_candidates():
         LeadershipListingFactory(tab=tab, member=member, is_listed=False)
         LeadershipListingFactory(member=member, is_listed=True)
         assert member in Member.objects.leadership_candidates(tab)
+
+
+def describe_LeadershipBadge():
+    def it_reads_as_its_label():
+        assert str(LeadershipBadgeFactory(label="Elevator Certified")) == "Elevator Certified"
+
+    def it_lists_in_the_order_the_badges_were_made():
+        first = LeadershipBadgeFactory(label="Zed First")
+        second = LeadershipBadgeFactory(label="Ada Second")
+        assert list(LeadershipBadge.objects.all()) == [first, second]
+
+    def it_defaults_to_the_brand_gold():
+        assert LeadershipBadge(label="New").color == "#EEB44B"
+
+    def it_refuses_a_color_that_is_not_a_six_digit_hex_code():
+        for bad in ("red", "#FFF", "FFE066", "#GGGGGG", "#FFE0666"):
+            with pytest.raises(ValidationError):
+                LeadershipBadge(label="Bad", color=bad).full_clean()
+        LeadershipBadge(label="Good", color="#ffe066").full_clean()
+
+    def it_requires_a_label():
+        with pytest.raises(ValidationError):
+            LeadershipBadge(label="", color="#092E4C").full_clean()
+
+    def describe_text_color():
+        def it_is_black_on_a_light_color_and_white_on_a_dark_one():
+            assert LeadershipBadge(color="#FFE066").text_color == "#000000"
+            assert LeadershipBadge(color="#092E4C").text_color == "#FFFFFF"
+
+        def it_reads_lowercase_hex_and_the_extremes():
+            assert LeadershipBadge(color="#ffffff").text_color == "#000000"
+            assert LeadershipBadge(color="#000000").text_color == "#FFFFFF"
+
+        def it_picks_by_wcag_contrast_not_by_a_flat_brightness_cut():
+            """Pure red and pure blue: luminance weighs green most, so red takes black and blue takes white."""
+            assert LeadershipBadge(color="#FF0000").text_color == "#000000"
+            assert LeadershipBadge(color="#0000FF").text_color == "#FFFFFF"
+            # The linear segment of the sRGB curve (a channel at or under 0.04045) still decides right.
+            assert LeadershipBadge(color="#0A0A0A").text_color == "#FFFFFF"
+
+        def it_switches_where_the_two_contrasts_cross():
+            """Mid gray #757575 sits just under the crossover and takes white; #767676 just over takes black."""
+            assert LeadershipBadge(color="#757575").text_color == "#FFFFFF"
+            assert LeadershipBadge(color="#767676").text_color == "#000000"
+
+    def describe_give_and_take():
+        def it_gives_once_and_takes_back():
+            badge = LeadershipBadgeFactory()
+            member = MemberFactory()
+            badge.give(member)
+            badge.give(member)
+            assert list(member.leadership_badges.all()) == [badge]
+            badge.take(member)
+            badge.take(member)
+            assert list(member.leadership_badges.all()) == []
+
+        def it_belongs_to_the_member_so_every_card_they_have_carries_it():
+            badge = LeadershipBadgeFactory()
+            member = MemberFactory()
+            LeadershipListingFactory(member=member)
+            LeadershipListingFactory(member=member)
+            badge.give(member)
+            tabs = list(LeadershipTab.objects.with_listed())
+            assert [[list(row.member.leadership_badges.all()) for row in tab.listed_listings] for tab in tabs] == [
+                [[badge]],
+                [[badge]],
+            ]
+
+        def it_leaves_the_member_row_alone():
+            """The link is the badge's own table, so the Airtable managed Member row is never written."""
+            badge = LeadershipBadgeFactory()
+            member = MemberFactory()
+            with CaptureQueriesContext(connection) as queries:
+                badge.give(member)
+                badge.take(member)
+            table = Member._meta.db_table
+            assert queries.captured_queries
+            assert not [q["sql"] for q in queries.captured_queries if f'UPDATE "{table}"' in q["sql"]]
+
+    def describe_with_holder_counts():
+        def it_counts_each_badges_holders_in_one_query(django_assert_num_queries):
+            held = LeadershipBadgeFactory()
+            LeadershipBadgeFactory()
+            for _ in range(3):
+                held.give(MemberFactory())
+            with django_assert_num_queries(1):
+                counts = [badge.holder_count for badge in LeadershipBadge.objects.with_holder_counts()]
+            assert counts == [3, 0]
+
+        def it_keeps_the_order_the_badges_were_made():
+            # A grouped query drops Meta.ordering, and PostgreSQL then returns rows in any order.
+            first, second = LeadershipBadgeFactory(), LeadershipBadgeFactory()
+            badges = LeadershipBadge.objects.with_holder_counts()
+            assert badges.query.order_by == ("id",)
+            assert list(badges) == [first, second]
+
+    def it_goes_from_every_member_when_deleted():
+        badge = LeadershipBadgeFactory()
+        member = MemberFactory()
+        badge.give(member)
+        badge.delete()
+        assert Member.objects.filter(pk=member.pk).exists()
+        assert list(member.leadership_badges.all()) == []

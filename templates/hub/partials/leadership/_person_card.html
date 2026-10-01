@@ -1,11 +1,14 @@
 {% load hub_tags %}
 {% comment %}
 One person's card on a People tab of the Leadership Directory (#464, #564): the Plate
-treatment. ``listing`` is a LeadershipListing with its member and its role lines loaded
+treatment. ``listing`` is a LeadershipListing with its member, role lines and badges loaded
 (LeadershipTabQuerySet.with_listed). The portrait is a round medallion in a gold ring,
 cropped to its centre square like the Member Directory circle; a member with no visible
 photo gets their initials in the same ring. Each role line has its own title and, when it
-has one, its own email row; the member's Discord row closes the card.
+has one, its own email row; the member's Discord row closes the card. The member's badges
+(#571) sit under the name plate as pills, in the order they were made; the color is inline
+because each badge has its own, and the text is the black or white that reads on it. A member
+with no badges gets no list.
 {% endcomment %}
 {% with member=listing.member %}
 <article class="pl-leader-card">
@@ -24,6 +27,15 @@ has one, its own email row; the member's Discord row closes the card.
         <span class="pl-leader-card__pronouns">{{ member.pronouns }}</span>
         {% endif %}
     </h3>
+    {% with badges=member.leadership_badges.all %}
+    {% if badges %}
+    <ul class="pl-leader-card__badges" aria-label="Badges">
+        {% for badge in badges %}
+        <li class="pl-leader-badge" style="background-color: {{ badge.color }}; color: {{ badge.text_color }};">{{ badge.label }}</li>
+        {% endfor %}
+    </ul>
+    {% endif %}
+    {% endwith %}
     <div class="pl-leader-card__body">
         {% for role in listing.roles.all %}
         <div class="pl-leader-card__role">

@@ -758,6 +758,31 @@ urlpatterns = [
         leadership_views.admin_leadership_role_delete,
         name="hub_admin_leadership_role_delete",
     ),
+    path(
+        "manage/leadership/badges/add/",
+        leadership_views.admin_leadership_badge_add,
+        name="hub_admin_leadership_badge_add",
+    ),
+    path(
+        "manage/leadership/badges/<int:pk>/save/",
+        leadership_views.admin_leadership_badge_save,
+        name="hub_admin_leadership_badge_save",
+    ),
+    path(
+        "manage/leadership/badges/<int:pk>/delete/",
+        leadership_views.admin_leadership_badge_delete,
+        name="hub_admin_leadership_badge_delete",
+    ),
+    path(
+        "manage/leadership/badges/<int:pk>/give/<int:member_pk>/",
+        leadership_views.admin_leadership_badge_give,
+        name="hub_admin_leadership_badge_give",
+    ),
+    path(
+        "manage/leadership/badges/<int:pk>/take/<int:member_pk>/",
+        leadership_views.admin_leadership_badge_take,
+        name="hub_admin_leadership_badge_take",
+    ),
     # --- Notification copy catalogue (design §2.3 + §2.4, Decision 6) ---
     path("manage/notifications/", notification_views.catalogue, name="hub_admin_notifications"),
     path(

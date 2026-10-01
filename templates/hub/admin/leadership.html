@@ -11,7 +11,8 @@
 The Leadership Directory editor (#476; tabs and auto save, #564). Every edit saves by itself
 and there is no Save button: typed fields when they change and after a short pause in typing,
 order on a drop or an arrow, removals at once. The save state pill is the meeting workspace's
-(Saving, Saved, Couldn't save). The page wording sits above the tab strip; each tab has a pane
+(Saving, Saved, Couldn't save). The page wording and the Badges section (#571) sit above the
+tab strip; each tab has a pane
 (hub/admin/_leadership_pane.html). The two modals, Add a Tab and Add a Person, keep their Add
 buttons because they create something; they and Delete tab are plain POSTs that come back here
 with a toast. The script below posts one field, one order or one removal per request, all
@@ -41,6 +42,19 @@ save of that line runs, and a line is never added twice.
     {% endfor %}
   </section>
 
+  <section class="hub-card pl-leadership-admin__card" data-badges>
+    <div class="pl-leadership-admin__section-head">
+      <h2 class="hub-detail-label pl-leadership-admin__title">Badges</h2>
+      <button type="button" class="hub-btn hub-btn--sm" @click="$dispatch('open-modal', 'leadership-badge-add')">+ Add a badge</button>
+    </div>
+    <p class="hub-text-muted pl-leadership-admin__hint">Colored badges such as Elevator Certified. Give one to someone with its toggle on their row in a tab below; it shows on every card they have.</p>
+    {% for entry in editor.badges %}
+      {% include "hub/admin/_leadership_badge_row.html" %}
+    {% empty %}
+      <p class="pl-leadership-admin__empty">No badges yet.</p>
+    {% endfor %}
+  </section>
+
   <section class="hub-card pl-leadership-admin__card">
     <div class="pl-leadership-admin__strip">
       <nav class="pl-tabs" role="tablist" aria-label="Leadership tabs" data-tab-strip data-order-url="{% url 'hub_admin_leadership_tab_order' %}">
@@ -64,6 +78,14 @@ save of that line runs, and a line is never added twice.
   {% if editor.tab_add_form.errors %}
   <div x-data x-init="$dispatch('open-modal', 'leadership-tab-add')"></div>
   {% endif %}
+  {% include "components/modal.html" with modal_id="leadership-badge-add" modal_title="Add a Badge" modal_size="sm" modal_body_include="hub/admin/_leadership_badge_add_form.html" %}
+  {% if editor.badge_add_form.errors %}
+  <div x-data x-init="$dispatch('open-modal', 'leadership-badge-add')"></div>
+  {% endif %}
+  {% for entry in editor.badges %}
+    {% url 'hub_admin_leadership_badge_delete' entry.badge.pk as badge_delete_url %}
+    {% include "components/confirm_modal.html" with confirm_id=entry.delete_confirm_id confirm_title="Delete this badge?" confirm_body_include="hub/admin/_leadership_badge_delete_body.html" confirm_action_url=badge_delete_url confirm_button_text="Delete badge" %}
+  {% endfor %}
   {% for pane in editor.panes %}
     {% if pane.add_form %}
       {% include "components/modal.html" with modal_id=pane.add_modal_id modal_title="Add a Person" modal_size="sm" modal_body_include="hub/admin/_leadership_add_form.html" %}
@@ -92,7 +114,8 @@ save of that line runs, and a line is never added twice.
     if (!list) {
       list = document.createElement('ul');
       list.className = 'pl-field-errors';
-      input.insertAdjacentElement('afterend', list);
+      // A color's hex input sits inside the picker's row; its error goes under the picker.
+      (input.closest('.pl-color-picker') || input).insertAdjacentElement('afterend', list);
     }
     list.textContent = '';
     (messages || []).forEach(function (message) {
@@ -107,6 +130,19 @@ save of that line runs, and a line is never added twice.
     var group = input.closest('.pl-form-group');
     var list = group && group.querySelector('.pl-field-errors');
     if (list) list.remove();
+  }
+
+  var HEX = /^#[0-9A-Fa-f]{6}$/;
+
+  // Black or white, whichever contrasts more with the badge color: LeadershipBadge.text_color's
+  // WCAG relative luminance, so the preview reads exactly as the card will.
+  function badgeTextColor(hex) {
+    var linear = [1, 3, 5].map(function (i) {
+      var c = parseInt(hex.substr(i, 2), 16) / 255;
+      return c <= 0.04045 ? c / 12.92 : Math.pow((c + 0.055) / 1.055, 2.4);
+    });
+    var luminance = 0.2126 * linear[0] + 0.7152 * linear[1] + 0.0722 * linear[2];
+    return (luminance + 0.05) / 0.05 >= 1.05 / (luminance + 0.05) ? '#000000' : '#FFFFFF';
   }
 
   function toast(message, type) {
@@ -219,17 +255,24 @@ save of that line runs, and a line is never added twice.
         // --- Typed fields: after a pause in typing, and at once when the field changes ---
         // A required field left blank waits for the change (blur): mid typing, a cleared title
         // is a field being retyped, not a value to refuse and snap back.
+        // A badge's color likewise waits for the change unless it is already a whole hex code,
+        // so "#FFE" on the way to "#FFE066" is never refused.
         onInput(input) {
           if (!input.dataset || input.dataset.autosave === undefined) return;
           var self = this;
-          self.relabel(input);
+          self.follow(input);
           clearTimeout(timers.get(input));
           timers.set(input, setTimeout(function () {
             if (input.required && !input.value.trim()) return;
+            if (input.dataset.autosave === 'color' && !HEX.test(input.value)) return;
             self.enqueue(function () { return self.saveInput(input); });
           }, 800));
         },
         onChange(input) {
+          if (input.matches && input.matches('[data-badge-toggle]')) {
+            this.toggleBadge(input);
+            return;
+          }
           if (!input.dataset || input.dataset.autosave === undefined) return;
           var self = this;
           clearTimeout(timers.get(input));
@@ -253,11 +296,19 @@ save of that line runs, and a line is never added twice.
             var refused = await response.json();
             showError(input, refused.errors[field]);
             input.value = lastSaved(input);
-            this.relabel(input);
+            // A color picker's swatch follows its hex input's own input listener. The event does
+            // not bubble, so the editor's listener on the root never sees it and nothing re-saves.
+            input.dispatchEvent(new Event('input'));
+            this.follow(input);
             this.state = 'saved';
           } else {
             this.gone(response, box);
           }
+        },
+        // What shows a typed value elsewhere on the page follows it: a tab's strip label, a badge's pills.
+        follow(input) {
+          this.relabel(input);
+          this.paintBadge(input);
         },
         // The tab strip's label follows the tab's title as it is typed, and its last good value.
         relabel(input) {
@@ -265,6 +316,62 @@ save of that line runs, and a line is never added twice.
           if (!fields || input.dataset.autosave !== 'title') return;
           var button = root.querySelector('[data-tab-strip] [data-tab-id="' + fields.dataset.tabFields + '"]');
           button.textContent = input.value.trim() || lastSaved(input);
+        },
+
+        // --- Badges (#571) ---
+        // Every pill of a badge (its preview and its toggles on each person row) shows the label
+        // and color as typed or picked; a blank label or a partial hex code shows the last saved one.
+        paintBadge(input) {
+          var fields = input.closest('[data-badge-fields]');
+          if (!fields) return;
+          var label = fields.querySelector('[data-autosave="label"]');
+          var color = fields.querySelector('[data-autosave="color"]');
+          var text = label.value.trim() || lastSaved(label);
+          var hex = HEX.test(color.value) ? color.value : lastSaved(color);
+          root.querySelectorAll('[data-badge-pill="' + fields.dataset.badgeFields + '"]').forEach(function (pill) {
+            pill.textContent = text;
+            pill.style.backgroundColor = hex;
+            pill.style.color = badgeTextColor(hex);
+          });
+        },
+        // A badge is the member's, not the card's: every toggle of this badge for this member, on
+        // every tab, flips with this one. The answer's holder count rewrites the Delete confirm.
+        toggleBadge(input) {
+          var self = this;
+          var held = input.checked;
+          var twins = root.querySelectorAll('[data-badge-toggle][data-badge-id="' + input.dataset.badgeId + '"][data-member-id="' + input.dataset.memberId + '"]');
+          twins.forEach(function (twin) { twin.checked = held; });
+          function revert() {
+            twins.forEach(function (twin) { twin.checked = !held; });
+          }
+          self.enqueue(async function () {
+            var response;
+            try {
+              response = await self.post(held ? input.dataset.giveUrl : input.dataset.takeUrl, {});
+            } catch (error) {
+              // Offline or a dropped connection: nothing was saved, so every pane's toggle goes
+              // back, and the rethrow lets the queue show Couldn't save.
+              revert();
+              throw error;
+            }
+            if (response.ok) {
+              var saved = await response.json();
+              // The confirm is teleported to <body>, outside the editor's root.
+              document.querySelectorAll('[data-badge-delete-message="' + saved.badge + '"]').forEach(function (message) {
+                message.textContent = saved.delete_message;
+              });
+              self.done();
+              return;
+            }
+            if (response.status === 404) {
+              toast('That was removed in another window. Reloading to show the latest.', 'error');
+              setTimeout(function () { window.location.reload(); }, 1500);
+              self.state = 'saved';
+              return;
+            }
+            revert();
+            self.state = 'error';
+          });
         },
 
         // --- Role lines ---

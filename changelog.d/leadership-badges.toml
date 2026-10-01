@@ -1,0 +1,7 @@
+bump = "minor"
+date = "2026-10-01"
+title = "Leadership Directory cards can carry badges"
+changes = [
+  "People on the Leadership Directory can now show colored badges on their cards, such as Elevator Certified, so you can see at a glance who can help with what.",
+  "Admins make each badge with its own words and color, and give it to people from the Leadership Directory editor.",
+]

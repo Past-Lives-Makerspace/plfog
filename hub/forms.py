@@ -45,6 +45,7 @@ from membership.models import (
     GuildMeetingNoteAttachment,
     GuildOrientationSettings,
     HelpCategory,
+    LeadershipBadge,
     LeadershipListing,
     LeadershipPage,
     LeadershipRole,
@@ -936,7 +937,7 @@ class LeadershipAutosaveForm(forms.ModelForm):
 
     @classmethod
     def for_field(
-        cls, field: str, value: str, instance: LeadershipPage | LeadershipTab | LeadershipRole
+        cls, field: str, value: str, instance: LeadershipPage | LeadershipTab | LeadershipRole | LeadershipBadge
     ) -> Self | None:
         """This form over ``field`` alone, bound to ``value`` for ``instance``; None for a field it does not edit."""
         if field not in cast(list[str], cls._meta.fields):
@@ -1054,12 +1055,75 @@ class LeadershipAddForm(forms.Form):
         return self.tab.list_member(self.cleaned_data["member"], self.cleaned_data["title"], self.cleaned_data["email"])
 
 
+class LeadershipBadgeForm(LeadershipAutosaveForm):
+    """A badge's label and color in the editor's Badges section, each saved as it changes (#571).
+
+    The label is required and the color must be a six digit hex code (the model's
+    ``validate_hex_color``); a refused value answers 422 and the editor puts the field back.
+    """
+
+    class Meta:
+        model = LeadershipBadge
+        fields = ["label", "color"]
+        widgets = {"label": forms.TextInput(attrs={"placeholder": "e.g. Elevator Certified"})}
+        labels = {"label": "Badge label", "color": "Color"}
+
+
+class LeadershipBadgeAddForm(forms.ModelForm):
+    """The Add a Badge modal: a label and a color for a new badge, which nobody holds yet."""
+
+    class Meta:
+        model = LeadershipBadge
+        fields = ["label", "color"]
+        widgets = {
+            "label": forms.TextInput(attrs={"placeholder": "e.g. Elevator Certified"}),
+            "color": forms.TextInput(attrs={"type": "color"}),
+        }
+        labels = {"label": "Label", "color": "Color"}
+
+
+def badge_delete_message(holders: int) -> str:
+    """The Delete badge confirm's body: how many people hold the badge, all of whose cards lose it at once."""
+    if holders == 0:
+        return "Nobody holds this badge, so only the badge goes."
+    who = "1 person holds it" if holders == 1 else f"{holders} people hold it"
+    return f"{who}. It comes off all of their cards at once."
+
+
+@dataclass
+class LeadershipBadgeToggle:
+    """One badge's toggle on a person row in the editor: on when the row's member holds it."""
+
+    badge: LeadershipBadge
+    held: bool
+
+
 @dataclass
 class LeadershipEditorPerson:
-    """One card on a People tab in the editor: the listing and a form per role line."""
+    """One card on a People tab in the editor: the listing, a form per role line, and a toggle per badge."""
 
     listing: LeadershipListing
     role_forms: list[LeadershipRoleForm]
+    badges: list[LeadershipBadgeToggle]
+
+
+@dataclass
+class LeadershipEditorBadge:
+    """One badge in the editor's Badges section: its form and how many members hold it."""
+
+    badge: LeadershipBadge
+    form: LeadershipBadgeForm
+    holders: int
+
+    @property
+    def delete_confirm_id(self) -> str:
+        """The DOM id of this badge's Delete confirm modal."""
+        return f"leadership-badge-delete-{self.badge.pk}"
+
+    @property
+    def delete_message(self) -> str:
+        """The Delete confirm's body, naming how many people hold the badge."""
+        return badge_delete_message(self.holders)
 
 
 @dataclass
@@ -1113,13 +1177,15 @@ class LeadershipEditorPane:
 
 
 class LeadershipEditor:
-    """The Leadership Directory admin: the page wording, then one pane per tab in admin order.
+    """The Leadership Directory admin: the page wording, the badges, then one pane per tab in admin order.
 
-    Three queries for the tabs, their listed cards and their role lines, one for the hidden
-    card counts, then one picker query per People tab. ``requested`` is ``?tab=``.
+    One query for the badges with their holder counts, four for the tabs, their listed
+    cards, their role lines and their members' badges, one for the hidden card counts, then
+    one picker query per People tab. ``requested`` is ``?tab=``.
     ``add_member`` is ``?add=<member id>``, the member edit page's link, which opens Add a person with that member chosen on the
-    first People tab they are not on. ``add_form`` and ``tab_add_form`` are refused bound
-    forms to re-render with their errors and their modal open; a refused add opens its tab.
+    first People tab they are not on. ``add_form``, ``tab_add_form`` and ``badge_add_form``
+    are refused bound forms to re-render with their errors and their modal open; a refused
+    add opens its tab.
     """
 
     def __init__(
@@ -1129,19 +1195,33 @@ class LeadershipEditor:
         add_member: str | None = None,
         add_form: LeadershipAddForm | None = None,
         tab_add_form: LeadershipTabAddForm | None = None,
+        badge_add_form: LeadershipBadgeAddForm | None = None,
     ) -> None:
         self.page_form = LeadershipPageForm(instance=LeadershipPage.load())
         self.tab_add_form = tab_add_form or LeadershipTabAddForm(prefix="newtab")
+        self.badge_add_form = badge_add_form or LeadershipBadgeAddForm(prefix="newbadge")
         # The "+ Add a role" template; the script swaps __prefix__ for a fresh key per line.
         self.new_role_form = LeadershipRoleForm(prefix="role-__prefix__")
+        self.badges = [
+            LeadershipEditorBadge(
+                badge=badge,
+                form=LeadershipBadgeForm(instance=badge, prefix=f"badge-{badge.pk}"),
+                holders=badge.holder_count,
+            )
+            for badge in LeadershipBadge.objects.with_holder_counts()
+        ]
         tabs = list(LeadershipTab.objects.with_listed())
         hidden = LeadershipListing.objects.hidden_counts_by_tab()
         self.panes = [self._pane(tab, hidden[tab.pk]) for tab in tabs]
         target = self._add_target(add_form, add_member)
         self.open_tab = target.tab if target else LeadershipTab.pick(tabs, requested)
 
-    @staticmethod
-    def _pane(tab: LeadershipTab, hidden: int) -> LeadershipEditorPane:
+    def _toggles(self, listing: LeadershipListing) -> list[LeadershipBadgeToggle]:
+        """A toggle per badge for the listing's member, on for each badge they hold (read from the prefetch)."""
+        held = {badge.pk for badge in listing.member.leadership_badges.all()}
+        return [LeadershipBadgeToggle(badge=entry.badge, held=entry.badge.pk in held) for entry in self.badges]
+
+    def _pane(self, tab: LeadershipTab, hidden: int) -> LeadershipEditorPane:
         form = LeadershipTabForm(instance=tab, prefix=f"tab-{tab.pk}")
         if tab.is_guild_leads:
             return LeadershipEditorPane(tab=tab, form=form, people=[], add_form=None)
@@ -1151,6 +1231,7 @@ class LeadershipEditor:
                 role_forms=[
                     LeadershipRoleForm(instance=role, prefix=f"role-{role.pk}") for role in listing.roles.all()
                 ],
+                badges=self._toggles(listing),
             )
             for listing in tab.listed_listings
         ]

@@ -4,7 +4,9 @@ One person on a People tab in the Leadership Directory editor (#564). ``person``
 LeadershipEditorPerson. The row reuses the Slideshow row classes: a grip for drag on desktop and
 up and down arrows on touch, either of which saves the tab's order at once. Remove from tab
 hides the card at once and keeps its lines, so Add a person on this tab brings them back. The
-role lines sit open under the name, each saving by itself.
+role lines sit open under the name, each saving by itself. Under them, a toggle per badge (#571)
+gives or takes it from the member at once; the badge is the member's, so the script keeps the
+same member's toggles on other tabs in step.
 {% endcomment %}
 {% with listing=person.listing member=person.listing.member %}
 <div class="hub-card pl-slideshow-row pl-slide-card pl-roster-row" data-listing-id="{{ listing.pk }}" data-remove-url="{% url 'hub_admin_leadership_person_remove' listing.pk %}">
@@ -32,5 +34,20 @@ role lines sit open under the name, each saving by itself.
     </div>
     <button type="button" class="hub-btn hub-btn--sm pl-leadership__add" data-add-role>+ Add a role</button>
   </div>
+  {% if person.badges %}
+  <div class="pl-roster-row__badges" role="group" aria-label="Badges for {{ member.display_name }}">
+    {% for toggle in person.badges %}
+    <label class="pl-badge-toggle">
+      <span class="pl-toggle pl-toggle--sm">
+        <input type="checkbox" data-badge-toggle data-badge-id="{{ toggle.badge.pk }}" data-member-id="{{ member.pk }}"
+               data-give-url="{% url 'hub_admin_leadership_badge_give' toggle.badge.pk member.pk %}"
+               data-take-url="{% url 'hub_admin_leadership_badge_take' toggle.badge.pk member.pk %}"{% if toggle.held %} checked{% endif %}>
+        <span class="pl-toggle__slider"></span>
+      </span>
+      <span class="pl-leader-badge" data-badge-pill="{{ toggle.badge.pk }}" style="background-color: {{ toggle.badge.color }}; color: {{ toggle.badge.text_color }};">{{ toggle.badge.label }}</span>
+    </label>
+    {% endfor %}
+  </div>
+  {% endif %}
 </div>
 {% endwith %}
