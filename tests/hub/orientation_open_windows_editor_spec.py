@@ -13,6 +13,7 @@ from django.test import Client
 from django.urls import reverse
 from django.utils import timezone
 
+from hub.forms import OrientationSlotForm
 from membership import orientations
 from membership.models import (
     GuildStaffMembership,
@@ -357,6 +358,18 @@ def describe_add_a_one_off_open_window():
             ),
         )
         assert OrientationSlot.objects.get(guild=guild).seats == 4
+
+    def it_saves_a_fixed_one_off_straight_from_the_form():
+        # The view saves with commit=False to stamp guild and source; a direct save commits.
+        _user, guild = _lead("oo9")
+        form = OrientationSlotForm(
+            _oneoff(guild, booking_style="fixed", orientation_type=str(guild.orientation_types.first().pk)),
+            guild=guild,
+            instance=OrientationSlot(guild=guild, source=OrientationSlot.Source.MANUAL),
+        )
+        assert form.is_valid(), form.errors
+        slot = form.save()
+        assert OrientationSlot.objects.get(pk=slot.pk).ends_at - slot.starts_at == timedelta(minutes=60)
 
 
 def describe_one_off_overlap_with_the_persons_calendar():

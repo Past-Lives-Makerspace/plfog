@@ -774,7 +774,7 @@ confirm modal carries its own POST form, and template content can't nest a form.
           {% else %}
           {% include "components/form_field.html" with field=slot_form.orienter %}
           {% endif %}
-          <p class="pl-hours-row__hint" x-show="style === 'open'">Members pick an orientation and any 15 minute start that fits inside this window. Each booking takes that time off the window. Leave Orientation at Any orientation to offer every one of the guild's.</p>
+          <p class="pl-hours-row__hint" x-show="style === 'open'">Members pick an orientation and any 15 minute start that fits inside this window. Each booking takes that time off the window.</p>
           <div class="pl-oneoff__actions">
             <button type="button" class="hub-btn hub-btn--sm hub-btn--ghost" @click="showAddSlot = false">Cancel</button>
             <button type="submit" class="pl-btn pl-btn--primary">Save</button>

@@ -34,7 +34,7 @@ them for an open row.
   </div>
   <p class="pl-hours-row__hint" x-show="style === 'fixed'">Leave slot length blank to offer the whole window as one slot.</p>
   {% if offer_open %}
-  <p class="pl-hours-row__hint" x-show="style === 'open'">Members pick an orientation and any 15 minute start that fits inside these hours. Each booking takes that time off the window. Leave Orientation at Any orientation to offer every one of the guild's.</p>
+  <p class="pl-hours-row__hint" x-show="style === 'open'">Members pick an orientation and any 15 minute start that fits inside these hours. Each booking takes that time off the window.</p>
   {% endif %}
   {% include "components/form_field.html" with field=rule.is_active %}
   {% if rule.instance.pk %}
