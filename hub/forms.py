@@ -2546,10 +2546,12 @@ class OrientationAvailabilityForm(forms.ModelForm):
         equipment: Equipment | None = None,
         orienter: Member | None = None,
         allow_open: bool = False,
+        sibling_pks: frozenset[int] = frozenset(),
         **kwargs: Any,
     ) -> None:
         super().__init__(*args, **kwargs)
         self.allow_open = allow_open
+        self.instance.overlap_skip_pks = sibling_pks
         if guild is None and equipment is None and self.instance is not None and self.instance.guild_id is not None:
             guild = self.instance.guild
         if orienter is not None and self.instance is not None and self.instance.orienter_id is None:
@@ -2626,8 +2628,63 @@ class OrientationAvailabilityForm(forms.ModelForm):
         return cleaned
 
 
+class _OrientationAvailabilityBaseFormSet(forms.BaseInlineFormSet):
+    """One person's hours, saved together: the overlap rule runs on what was submitted (#532).
+
+    Each row's own check skips the rows this save resubmits, since their stored hours are
+    about to be replaced (a row deleted or moved here must not block another), and
+    :meth:`clean` then compares the submitted rows with each other, which the database
+    check cannot see before save.
+    """
+
+    def get_form_kwargs(self, index: int | None) -> dict[str, Any]:
+        kwargs = super().get_form_kwargs(index)
+        kwargs["sibling_pks"] = self._submitted_pks()
+        return kwargs
+
+    def _submitted_pks(self) -> frozenset[int]:
+        """The stored rows this POST carries. A row left out of the POST keeps its stored hours, so it stays checked."""
+        if not self.is_bound:
+            return frozenset()
+        posted = {
+            int(raw)
+            for index in range(self.initial_form_count())
+            if (raw := str(self.data.get(f"{self.add_prefix(index)}-id", ""))).isdigit()
+        }
+        return frozenset(row.pk for row in self.get_queryset() if row.pk in posted)
+
+    def clean(self) -> None:
+        super().clean()
+        if any(self.errors):
+            return
+        rows = [
+            form.instance
+            for form in self.forms
+            if form.cleaned_data and not form.cleaned_data.get("DELETE") and form.instance.is_active
+        ]
+        for index, row in enumerate(rows):
+            for other in rows[index + 1 :]:
+                if (
+                    row.orienter_id is not None
+                    and row.orienter_id == other.orienter_id
+                    and row.weekday == other.weekday
+                    and (row.is_open or other.is_open)
+                    and row.start_time < other.end_time
+                    and other.start_time < row.end_time
+                ):
+                    raise forms.ValidationError(
+                        f"Two of these rows overlap on {row.get_weekday_display()}. "
+                        "One person can be booked one way at a time."
+                    )
+
+
 OrientationAvailabilityFormSet = forms.inlineformset_factory(
-    Guild, OrientationAvailability, form=OrientationAvailabilityForm, extra=0, can_delete=True
+    Guild,
+    OrientationAvailability,
+    form=OrientationAvailabilityForm,
+    formset=_OrientationAvailabilityBaseFormSet,
+    extra=0,
+    can_delete=True,
 )
 
 # The equipment twin: no parent FK to inline on (an equipment rule has guild=None and is

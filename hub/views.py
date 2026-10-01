@@ -1356,7 +1356,9 @@ def guild_orientation_types_save(request: HttpRequest, pk: int) -> HttpResponse:
     return render(request, "hub/guild_edit.html", ctx)
 
 
-def _hours_save_message(*, deleted_rules: int, removed: int, kept: int, shared_farewell: str | None = None) -> str:
+def _hours_save_message(
+    *, deleted_rules: int, removed: int, kept: int, shared_farewell: str | None = None, card: str = "Upcoming Times"
+) -> str:
     """The success flash for an hours save — with real retirement counts on a delete or a pause.
 
     Owner-neutral: leads with "Hours deleted." when a rule went, "Hours saved."
@@ -1374,9 +1376,7 @@ def _hours_save_message(*, deleted_rules: int, removed: int, kept: int, shared_f
         parts.append(f"Removed {removed} upcoming open slot{'' if removed == 1 else 's'}.")
     if kept:
         pronoun = "it" if kept == 1 else "them"
-        parts.append(
-            f"{kept} booked slot{'' if kept == 1 else 's'} kept. Cancel {pronoun} from the Upcoming Times card."
-        )
+        parts.append(f"{kept} booked slot{'' if kept == 1 else 's'} kept. Cancel {pronoun} from the {card} card.")
     return " ".join(parts)
 
 
@@ -1540,12 +1540,27 @@ def _flipped_off(rule_form: Any) -> bool:
     return "is_active" in rule_form.changed_data and not rule_form.cleaned_data["is_active"]
 
 
+def _restyled(rule_form: Any) -> bool:
+    """True for a saved rule whose How members book choice just changed (never a delete or a new row)."""
+    if not rule_form.instance.pk or not rule_form.cleaned_data or rule_form.cleaned_data.get("DELETE"):
+        return False
+    # Compared on the cleaned value, not changed_data: the shared rows never post the field,
+    # and a blank that cleans to fixed would otherwise read as a change and retire twice.
+    return rule_form.cleaned_data.get("booking_style") != rule_form.initial.get("booking_style")
+
+
 def _apply_hours_formset(formset: Any, *, target: Any) -> tuple[int, int, int]:
     """Apply a valid hours formset: retire deleted rules, stamp + save the kept rows.
 
     A saved rule whose Active toggle flipped from on to off also retires its future
     open generated slots (booked ones stay, capped), so a pause is as honest as a
     delete; the ``bookable()`` rule gate stops new bookings on the kept slots.
+
+    A rule whose booking style changed retires the old shape first (#532): generation
+    only ever tidies the current style, so a fixed row turned open would otherwise keep
+    its fixed slots bookable under the new windows, and the reverse would keep the
+    windows. The stored row is read back because validation already restyled the
+    instance, and :func:`retire_open_slots` dispatches on the style it is handed.
 
     Returns ``(deleted_rules, open_slots_removed, kept_with_bookings)`` for the flash.
     """
@@ -1558,6 +1573,12 @@ def _apply_hours_formset(formset: Any, *, target: Any) -> tuple[int, int, int]:
             removed += rule_removed
             kept += rule_kept
             deleted_rules += 1
+    for rule_form in formset.forms:
+        if _restyled(rule_form):
+            stored = type(rule_form.instance).objects.get(pk=rule_form.instance.pk)
+            rule_removed, rule_kept = orientations.retire_open_slots(stored)
+            removed += rule_removed
+            kept += rule_kept
     paused = [rule_form.instance for rule_form in formset.forms if _flipped_off(rule_form)]
     for rule in formset.save(commit=False):
         if rule.orienter_id is None and target is not None:

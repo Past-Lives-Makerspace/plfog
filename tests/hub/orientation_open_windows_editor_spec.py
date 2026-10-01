@@ -6,7 +6,7 @@ cancelling a window from the tab."""
 from __future__ import annotations
 
 import re
-from datetime import timedelta
+from datetime import time, timedelta
 
 import pytest
 from django.contrib.auth.models import User
@@ -125,6 +125,153 @@ def describe_edit_hours_modal_choice():
         content = client.get(_tab(guild)).content.decode()
         assert "guild_rules-0-weekday" in content
         assert "guild_rules-0-booking_style" not in content
+
+
+def _two_rows(orienter: Member, first: dict[str, str], second: dict[str, str], *, initial: int = 0) -> dict[str, str]:
+    """A modal POST carrying two rows; ``initial`` counts the leading rows that already exist."""
+    data = _modal_payload(orienter, **{"modal_rules-TOTAL_FORMS": "2", "modal_rules-INITIAL_FORMS": str(initial)})
+    for index, row in enumerate((first, second)):
+        base = {
+            "booking_style": "open",
+            "orientation_type": "",
+            "weekday": _weekday_ahead(3),
+            "start_time": "11:00",
+            "end_time": "18:00",
+            "seats": "4",
+            "slot_minutes": "",
+            "is_active": "on",
+        }
+        base.update(row)
+        data.update({f"modal_rules-{index}-{key}": value for key, value in base.items()})
+    return data
+
+
+def describe_changing_a_rows_style():
+    def it_retires_the_fixed_slots_when_a_row_turns_open(client: Client):
+        user, guild = _lead("fl1")
+        amber = _staffer(guild)
+        rule = OrientationAvailabilityFactory(
+            guild=guild,
+            orienter=amber,
+            orientation_type=guild.orientation_types.first(),
+            weekday=int(_weekday_ahead(3)),
+        )
+        orientations.generate_slots(guild=guild)
+        assert rule.slots.filter(is_cancelled=False).count() == 8
+        client.login(username="fl1", password="pass")
+        client.post(
+            reverse("hub_guild_orientation_hours_save", args=[guild.pk]),
+            _modal_payload(amber, **{"modal_rules-INITIAL_FORMS": "1", "modal_rules-0-id": str(rule.pk)}),
+            HTTP_HX_REQUEST="true",
+        )
+        rule.refresh_from_db()
+        assert rule.is_open
+        assert not OrientationSlot.objects.filter(availability=rule, is_cancelled=False).exists()
+        assert rule.windows.filter(is_cancelled=False).count() == 8
+
+    def it_retires_the_windows_when_a_row_turns_fixed(client: Client):
+        user, guild = _lead("fl2")
+        amber = _staffer(guild)
+        rule = OrientationAvailabilityFactory(
+            guild=guild, orienter=amber, booking_style=OPEN, orientation_type=None, weekday=int(_weekday_ahead(3))
+        )
+        orientations.generate_slots(guild=guild)
+        assert rule.windows.count() == 8
+        client.login(username="fl2", password="pass")
+        client.post(
+            reverse("hub_guild_orientation_hours_save", args=[guild.pk]),
+            _modal_payload(
+                amber,
+                **{
+                    "modal_rules-INITIAL_FORMS": "1",
+                    "modal_rules-0-id": str(rule.pk),
+                    "modal_rules-0-booking_style": "fixed",
+                    "modal_rules-0-orientation_type": str(guild.orientation_types.first().pk),
+                },
+            ),
+            HTTP_HX_REQUEST="true",
+        )
+        rule.refresh_from_db()
+        assert not rule.is_open
+        assert not rule.windows.filter(is_cancelled=False).exists()
+        assert rule.slots.filter(is_cancelled=False).count() > 0
+
+
+def describe_rows_in_one_save():
+    def it_refuses_two_new_open_rows_that_overlap(client: Client):
+        user, guild = _lead("rs1")
+        amber = _staffer(guild)
+        client.login(username="rs1", password="pass")
+        response = client.post(
+            reverse("hub_guild_orientation_hours_save", args=[guild.pk]),
+            _two_rows(amber, {}, {"start_time": "12:00", "end_time": "15:00"}),
+            HTTP_HX_REQUEST="true",
+        )
+        assert response.status_code == 200
+        assert "Two of these rows overlap" in response.content.decode()
+        assert not OrientationAvailability.objects.filter(guild=guild).exists()
+
+    def it_lets_two_fixed_rows_overlap(client: Client):
+        user, guild = _lead("rs2")
+        amber = _staffer(guild)
+        type_pk = str(guild.orientation_types.first().pk)
+        fixed = {"booking_style": "fixed", "orientation_type": type_pk, "slot_minutes": "60"}
+        client.login(username="rs2", password="pass")
+        response = client.post(
+            reverse("hub_guild_orientation_hours_save", args=[guild.pk]),
+            _two_rows(amber, fixed, {**fixed, "start_time": "12:00", "end_time": "15:00"}),
+            HTTP_HX_REQUEST="true",
+        )
+        assert response.status_code == 204
+        assert OrientationAvailability.objects.filter(guild=guild).count() == 2
+
+    def it_lets_a_deleted_open_row_make_room_for_a_fixed_one(client: Client):
+        user, guild = _lead("rs3")
+        amber = _staffer(guild)
+        rule = OrientationAvailabilityFactory(
+            guild=guild, orienter=amber, booking_style=OPEN, orientation_type=None, weekday=int(_weekday_ahead(3))
+        )
+        type_pk = str(guild.orientation_types.first().pk)
+        client.login(username="rs3", password="pass")
+        response = client.post(
+            reverse("hub_guild_orientation_hours_save", args=[guild.pk]),
+            _two_rows(
+                amber,
+                {"id": str(rule.pk), "DELETE": "on"},
+                {"booking_style": "fixed", "orientation_type": type_pk, "slot_minutes": "60"},
+                initial=1,
+            ),
+            HTTP_HX_REQUEST="true",
+        )
+        assert response.status_code == 204
+        assert not OrientationAvailability.objects.filter(pk=rule.pk).exists()
+        assert OrientationAvailability.objects.get(guild=guild).booking_style == "fixed"
+
+    def it_still_checks_a_stored_row_the_post_left_out(client: Client):
+        user, guild = _lead("rs4")
+        amber = _staffer(guild)
+        OrientationAvailabilityFactory(
+            guild=guild,
+            orienter=amber,
+            booking_style=OPEN,
+            orientation_type=None,
+            weekday=int(_weekday_ahead(3)),
+            start_time=time(12),
+            end_time=time(15),
+        )
+        type_pk = str(guild.orientation_types.first().pk)
+        client.login(username="rs4", password="pass")
+        response = client.post(
+            reverse("hub_guild_orientation_hours_save", args=[guild.pk]),
+            _modal_payload(
+                amber,
+                **{"modal_rules-0-booking_style": "fixed", "modal_rules-0-orientation_type": type_pk},
+            ),
+            HTTP_HX_REQUEST="true",
+        )
+        assert response.status_code == 200
+        assert "One person can be booked one way at a time." in response.content.decode()
+        assert OrientationAvailability.objects.filter(guild=guild).count() == 1
 
 
 def describe_saving_an_open_row():
@@ -469,3 +616,13 @@ def describe_window_cancel_from_the_tab():
         assert response["Location"] == _tab(guild)
         window.refresh_from_db()
         assert window.is_cancelled is True
+
+
+def describe_the_kept_slots_message():
+    def it_names_the_card_the_page_shows():
+        from hub.views import _hours_save_message
+
+        guild_message = _hours_save_message(deleted_rules=1, removed=0, kept=1)
+        equipment_message = _hours_save_message(deleted_rules=1, removed=0, kept=1, card="Upcoming Slots")
+        assert "from the Upcoming Times card." in guild_message
+        assert "from the Upcoming Slots card." in equipment_message
