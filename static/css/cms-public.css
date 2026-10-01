@@ -658,10 +658,13 @@ html.dark .cp-page {
 }
 
 /* ── Hero ──────────────────────────────────────── */
+/* min-height, not height: the content sits at the bottom, so a fixed box pushed the category
+   row out of the top once a long title or subtitle wrapped on a phone (#563). Short content
+   leaves the box at exactly this size; the image is absolutely inset, so it covers any height. */
 .cp-detail__hero {
   position: relative;
   width: 100%;
-  height: clamp(280px, 42vw, 520px);
+  min-height: clamp(280px, 42vw, 520px);
   background: var(--bg4);
   overflow: hidden;
   display: flex;
