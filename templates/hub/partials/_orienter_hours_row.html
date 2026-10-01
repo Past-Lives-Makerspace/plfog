@@ -4,7 +4,8 @@ hours button clones. Context: rule (an OrientationAvailabilityForm), offer_open 
 members book; a guild staffer's own rows), target (the person, or None for shared rows).
 
 The row's Alpine state is its booking style. The fixed only fields (Seats, Slot length,
-Break) and the two hints follow it in place; their layout lives in classes so x-show can
+Break) and the two hints follow it in place. Labels and the absence of per field hints follow
+the approved mockup (mockups/532-orientation-open-windows.html, 03); their layout lives in classes so x-show can
 toggle display (FRONTEND.md rule 12). Hidden fields still POST, and the form's clean drops
 them for an open row.
 {% endcomment %}
@@ -18,25 +19,25 @@ them for an open row.
   {% if rule.booking_style.errors %}<ul class="pl-field-errors">{% for error in rule.booking_style.errors %}<li class="pl-field-error">{{ error }}</li>{% endfor %}</ul>{% endif %}
   {% endif %}
   <div class="pl-hours-row__line">
-    <div>{% include "components/form_field.html" with field=rule.orientation_type %}</div>
-    <div>{% include "components/form_field.html" with field=rule.weekday %}</div>
-    <div class="pl-hours-row__narrow">{% include "components/form_field.html" with field=rule.start_time %}</div>
-    <div class="pl-hours-row__narrow">{% include "components/form_field.html" with field=rule.end_time %}</div>
-    <div class="pl-hours-row__narrow" x-show="style === 'fixed'">{% include "components/form_field.html" with field=rule.seats %}</div>
+    <div>{% include "components/form_field.html" with field=rule.orientation_type field_hint_off=True %}</div>
+    <div>{% include "components/form_field.html" with field=rule.weekday field_label="Day" field_hint_off=True %}</div>
+    <div class="pl-hours-row__narrow">{% include "components/form_field.html" with field=rule.start_time field_label="From" field_hint_off=True %}</div>
+    <div class="pl-hours-row__narrow">{% include "components/form_field.html" with field=rule.end_time field_label="Until" field_hint_off=True %}</div>
+    <div class="pl-hours-row__narrow" x-show="style === 'fixed'">{% include "components/form_field.html" with field=rule.seats field_hint_off=True %}</div>
   </div>
   <div class="pl-hours-row__line">
-    <div>{% include "components/form_field.html" with field=rule.cadence %}</div>
-    <div>{% include "components/form_field.html" with field=rule.anchor_date %}</div>
+    <div>{% include "components/form_field.html" with field=rule.cadence field_hint_off=True %}</div>
+    <div>{% include "components/form_field.html" with field=rule.anchor_date field_hint_off=True %}</div>
   </div>
   <div class="pl-hours-row__line" x-show="style === 'fixed'">
-    <div>{% include "components/form_field.html" with field=rule.slot_minutes %}</div>
-    <div>{% include "components/form_field.html" with field=rule.buffer_minutes %}</div>
+    <div>{% include "components/form_field.html" with field=rule.slot_minutes field_hint_off=True %}</div>
+    <div>{% include "components/form_field.html" with field=rule.buffer_minutes field_hint_off=True %}</div>
   </div>
   <p class="pl-hours-row__hint" x-show="style === 'fixed'">Leave slot length blank to offer the whole window as one slot.</p>
   {% if offer_open %}
   <p class="pl-hours-row__hint" x-show="style === 'open'">Members pick an orientation and any 15 minute start that fits inside these hours. Each booking takes that time off the window.</p>
   {% endif %}
-  {% include "components/form_field.html" with field=rule.is_active %}
+  {% include "components/form_field.html" with field=rule.is_active field_label="Active" field_hint_off=True %}
   {% if rule.instance.pk %}
     {# Delete confirms first (it retires future open slots or windows), then flips DELETE and submits the modal form. #}
     <div hidden>{{ rule.DELETE }}</div>

@@ -759,20 +759,23 @@ confirm modal carries its own POST form, and template content can't nest a form.
             <span class="pl-booking-style__label">How members book</span>
             {% for radio in slot_form.booking_style %}<label class="pl-chip" for="{{ radio.id_for_label }}">{{ radio.tag }} {{ radio.choice_label }}</label>{% endfor %}
           </div>
-          {% include "components/form_field.html" with field=slot_form.orientation_type %}
           <div class="pl-hours-row__line">
-            <div>{% include "components/form_field.html" with field=slot_form.date %}</div>
-            <div class="pl-hours-row__narrow">{% include "components/form_field.html" with field=slot_form.start_time %}</div>
-            <div class="pl-hours-row__narrow" x-show="style === 'fixed'">{% include "components/form_field.html" with field=slot_form.duration_minutes %}</div>
-            <div class="pl-hours-row__narrow" x-show="style === 'fixed'">{% include "components/form_field.html" with field=slot_form.seats %}</div>
-            <div class="pl-hours-row__narrow" x-show="style === 'open'">{% include "components/form_field.html" with field=slot_form.end_time %}</div>
+            <div>{% include "components/form_field.html" with field=slot_form.orientation_type field_hint_off=True %}</div>
+            <div>{% include "components/form_field.html" with field=slot_form.date field_hint_off=True %}</div>
+            <div class="pl-hours-row__narrow">{% include "components/form_field.html" with field=slot_form.start_time field_label="From" field_hint_off=True %}</div>
+            <div class="pl-hours-row__narrow" x-show="style === 'fixed'">{% include "components/form_field.html" with field=slot_form.duration_minutes field_hint_off=True %}</div>
+            <div class="pl-hours-row__narrow" x-show="style === 'fixed'">{% include "components/form_field.html" with field=slot_form.seats field_hint_off=True %}</div>
+            <div class="pl-hours-row__narrow" x-show="style === 'open'">{% include "components/form_field.html" with field=slot_form.end_time field_label="Until" field_hint_off=True %}</div>
           </div>
-          {% include "components/form_field.html" with field=slot_form.location %}
           {% if slot_form_locked %}
+          {% include "components/form_field.html" with field=slot_form.location field_hint_off=True %}
           {{ slot_form.orienter }}
           <p class="pl-hours-row__hint">Runs with: you</p>
           {% else %}
-          {% include "components/form_field.html" with field=slot_form.orienter %}
+          <div class="pl-hours-row__line">
+            <div>{% include "components/form_field.html" with field=slot_form.location field_hint_off=True %}</div>
+            <div>{% include "components/form_field.html" with field=slot_form.orienter field_hint_off=True %}</div>
+          </div>
           {% endif %}
           <p class="pl-hours-row__hint" x-show="style === 'open'">Members pick an orientation and any 15 minute start that fits inside this window. Each booking takes that time off the window.</p>
           <div class="pl-oneoff__actions">

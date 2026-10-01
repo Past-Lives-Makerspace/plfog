@@ -5,6 +5,7 @@ cancelling a window from the tab."""
 
 from __future__ import annotations
 
+import re
 from datetime import timedelta
 
 import pytest
@@ -99,6 +100,23 @@ def describe_edit_hours_modal_choice():
         assert 'x-model="style"' in content
         assert "Any orientation" in content  # the type select's empty choice
         assert "x-show=\"style === 'fixed'\"" in content
+
+    def it_draws_the_rows_as_the_mockup_does(client: Client):
+        user, guild = _lead("ch3")
+        amber = _staffer(guild)
+        OrientationAvailabilityFactory(guild=guild, orienter=amber, orientation_type=guild.orientation_types.first())
+        client.login(username="ch3", password="pass")
+        content = client.get(
+            f"{reverse('hub_guild_orientation_hours_form', args=[guild.pk])}?orienter={amber.pk}"
+        ).content.decode()
+        for label in ("Day", "From", "Until", "Active"):
+            assert re.search(rf">\s*{label}\s*<", content), label
+        assert "pl-field-hint" not in content
+        assert "Generate slots from this rule." not in content
+        assert (
+            '<option value="{}" selected>Print Studio Orientation</option>'.format(guild.orientation_types.first().pk)
+            in content
+        )
 
     def it_keeps_the_legacy_shared_rows_fixed(client: Client):
         user, guild = _lead("ch2")
@@ -239,6 +257,16 @@ def describe_upcoming_times_card():
         assert "open window · recurring" in content
         assert "nothing booked yet" in content
         assert rule.windows.count() == 8
+
+    def it_lays_the_one_off_form_out_as_the_mockup_does(client: Client):
+        user, guild = _lead("ut4")
+        client.login(username="ut4", password="pass")
+        content = client.get(_tab(guild)).content.decode()
+        oneoff = content[content.index('class="pl-oneoff"') :]
+        oneoff = oneoff[: oneoff.index("</form>")]
+        assert re.search(r">\s*From\s*<", oneoff) and re.search(r">\s*Until\s*<", oneoff)
+        assert "pl-field-hint" not in oneoff
+        assert ">Print Studio Orientation</option>" in oneoff
 
     def it_shows_the_empty_state(client: Client):
         user, guild = _lead("ut3")

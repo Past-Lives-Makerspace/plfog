@@ -17,7 +17,7 @@ Each row is hub/partials/_orienter_hours_row.html, bound rows and the cloned emp
 {% endcomment %}
 {% if target %}
 <h2 class="hub-detail-label" style="margin-top:0; margin-bottom:0.25rem;">Editing {{ target.display_name }}'s Hours</h2>
-<p class="hub-text-muted" style="font-size:0.8125rem; margin-bottom:1rem;">Recurring hours when {{ target.display_name }} can give orientations, weekly, every other week, or monthly and beyond.{% if offer_open %} Each row is either fixed start times or any time in the window.{% else %} We turn them into bookable slots automatically.{% endif %} Members book them by name.</p>
+<p class="hub-text-muted" style="font-size:0.8125rem; margin-bottom:1rem;">Recurring hours when {{ target.display_name }} can give orientations, weekly, every other week, or monthly and beyond.{% if not offer_open %} We turn them into bookable slots automatically.{% endif %} Members book them by name.</p>
 {% else %}
 <h2 class="hub-detail-label" style="margin-top:0; margin-bottom:0.25rem;">Editing Shared Hours</h2>
 <p class="hub-text-muted" style="font-size:0.8125rem; margin-bottom:1rem;">Shared weekly windows any manager can run. Keep, edit, or retire them; new recurring hours belong to a person.</p>

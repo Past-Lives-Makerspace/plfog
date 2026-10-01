@@ -4192,7 +4192,7 @@ mark { background: color-mix(in srgb, var(--color-tuscan-yellow) 30%, transparen
 .pl-booking-style { display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap; margin-bottom: 0.75rem; }
 .pl-booking-style__label { font-size: 0.8125rem; font-weight: 600; color: var(--hub-text-muted); margin-right: 0.25rem; }
 .pl-hours-row { padding: 1rem; background: var(--hub-surface); border: 1px solid var(--hub-border); border-radius: 10px; }
-.pl-hours-row__line { display: flex; gap: 0.75rem; flex-wrap: wrap; }
+.pl-hours-row__line { display: flex; gap: 0.75rem; flex-wrap: wrap; margin-bottom: 1rem; }
 .pl-hours-row__line > * { flex: 1; min-width: 120px; }
 .pl-hours-row__line > .pl-hours-row__narrow { min-width: 90px; }
 .pl-hours-row__hint { font-size: 0.8125rem; color: var(--hub-text-muted); margin: 0 0 0.5rem; }

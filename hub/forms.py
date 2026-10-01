@@ -2447,6 +2447,13 @@ def _append_duration_choice(field: forms.Field, minutes: int) -> None:
         choice_field.choices = [*choices, (key, _duration_choice_label(minutes))]
 
 
+class _OrientationTypeNameField(forms.ModelChoiceField):
+    """An orientation picker labeled by name alone; the guild is the page it sits on (#532)."""
+
+    def label_from_instance(self, obj: Any) -> str:
+        return str(obj.name)
+
+
 class OrientationAvailabilityForm(forms.ModelForm):
     """A single recurring orientation-availability row, for a guild or an equipment owner.
 
@@ -2530,6 +2537,7 @@ class OrientationAvailabilityForm(forms.ModelForm):
             "is_active",
         ]
         labels = {"orientation_type": "Orientation"}
+        field_classes = {"orientation_type": _OrientationTypeNameField}
 
     def __init__(
         self,
@@ -2663,7 +2671,7 @@ class OrientationSlotForm(forms.ModelForm):
     duration_minutes = forms.TypedChoiceField(
         coerce=int, required=False, choices=_SLOT_DURATION_CHOICES, initial="60", label="Duration"
     )
-    orientation_type = forms.ModelChoiceField(
+    orientation_type = _OrientationTypeNameField(
         queryset=OrientationType.objects.none(),
         required=False,
         label="Orientation",
