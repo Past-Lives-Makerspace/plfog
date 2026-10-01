@@ -19,6 +19,7 @@ from urllib.parse import quote
 from django.utils import timezone
 
 if TYPE_CHECKING:
+    from core.models import SiteConfiguration
     from membership.models import CommunityEvent, Guild
 
 # Offsets keep synthetic pks clear of real CalendarEvent pks so the shared
@@ -174,7 +175,7 @@ def community_event_entries(fetch_from: date, fetch_to: date, guild: Guild | Non
         qs = qs.for_guild(guild)
 
     # Site-wide entries adopt the feed chip matching their Google target, so the
-    # main Calendar legend needs no separate "Community events" chip. Guild-scoped
+    # main Calendar legend needs no separate chip of its own. Guild-scoped
     # entries stay unmapped — the guild calendar keeps its own generic chip.
     feed_keys = google_target_feed_keys() if guild is None else {}
 
@@ -269,3 +270,42 @@ def google_calendar_subscribe_url(calendar_id: str) -> str:
     if not calendar_id:
         return ""
     return f"webcal://calendar.google.com/calendar/ical/{quote(calendar_id, safe='')}/public/basic.ics"
+
+
+def google_calendar_add_url(calendar_id: str) -> str:
+    """Google Calendar's own "add this calendar" link for a public calendar.
+
+    Android has no handler for ``webcal://``, in Chrome or in the app, and Google Calendar
+    on the desktop does not open one either. This link opens the Google Calendar app or
+    site with the calendar ready to add, and being a plain ``https`` URL on another host,
+    the native shells hand it to the system. Returns an empty string when no calendar id
+    is configured, so the template can hide the link.
+    """
+    if not calendar_id:
+        return ""
+    return f"https://calendar.google.com/calendar/r?cid={quote(calendar_id, safe='')}"
+
+
+def calendar_subscribe_links(config: SiteConfiguration) -> list[dict[str, str]]:
+    """The Subscribe menu's rows: each configured Google calendar with both link forms.
+
+    An event is pushed to exactly one of the two calendars (``CommunityEvent.google_calendar_target``),
+    so a member who wants everything subscribes to both. The menu groups the rows by calendar
+    app (Apple Calendar via ``webcal``, Google Calendar via its add link), because that is the
+    choice a member actually makes. A calendar with no id configured has no row.
+    """
+    rows = []
+    for key, label, calendar_id in (
+        ("member", "Member calendar", config.member_google_calendar_id),
+        ("public", "Public calendar", config.public_google_calendar_id),
+    ):
+        if calendar_id:
+            rows.append(
+                {
+                    "key": key,
+                    "label": label,
+                    "webcal_url": google_calendar_subscribe_url(calendar_id),
+                    "google_url": google_calendar_add_url(calendar_id),
+                }
+            )
+    return rows

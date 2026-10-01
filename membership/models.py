@@ -11,7 +11,7 @@ from datetime import time as time_type
 from datetime import timedelta
 from decimal import Decimal
 from html import unescape
-from typing import TYPE_CHECKING, Any, NamedTuple, Self, cast
+from typing import Any, ClassVar, NamedTuple, Self, TYPE_CHECKING, cast
 
 from django.conf import settings
 from django.contrib.contenttypes.fields import GenericForeignKey, GenericRelation
@@ -53,7 +53,7 @@ if TYPE_CHECKING:
     from django.contrib.auth.models import User
     from django.http import HttpRequest
 
-    from billing.models import PaymentRefund
+    from billing.models import LateCancellationFee, PaymentRefund
     from classes.models import ClassOffering
     from core.events.channels import Channel, Message
     from core.events.emit import EmitResult
@@ -188,6 +188,79 @@ class MembershipPlan(models.Model):
 class MemberQuerySet(models.QuerySet):
     def active(self) -> MemberQuerySet:
         return self.filter(status=Member.Status.ACTIVE)
+
+    def accepted_agreement(self) -> MemberQuerySet:
+        """Members who have accepted the member agreement, at any version.
+
+        ``.distinct()`` is load-bearing. A member may now hold several acceptances, and the join
+        this filter builds returns one row per acceptance — so without it a member who accepted
+        twice is counted twice, and any total drawn from this queryset is silently wrong.
+        """
+        return self.filter(member_agreement_acceptances__isnull=False).distinct()
+
+    def accepted_current_agreement(self) -> MemberQuerySet:
+        """Members who have accepted the agreement **as it stands now** — the complement of
+        :meth:`owes_agreement` among active members.
+
+        The symmetric half of that filter, and it has to exist for the same reason: fixing one side
+        alone is worse than fixing neither. With a version set, `accepted_agreement` counts anyone
+        holding any acceptance, so a member who accepted v1.0.0 would appear in BOTH the "Accepted"
+        and "Missing" filters at once, and the "N of M have accepted" figure on Site Settings would
+        report a re-consent as already done (PastLivesReviewBot, #493).
+
+        With no version configured it defers to `accepted_agreement`, so the one-time behaviour is
+        untouched.
+        """
+        from core.models import SiteConfiguration
+
+        version = SiteConfiguration.load().member_agreement_version
+        if not version:
+            return self.accepted_agreement()
+        # .distinct() for the same reason accepted_agreement needs it: the constraint that allowed
+        # one acceptance per member is gone, so this join can return a member more than once.
+        return self.filter(member_agreement_acceptances__document_version=version).distinct()
+
+    def missing_agreement(self) -> MemberQuerySet:
+        """Members who have never accepted the member agreement, at any version.
+
+        Safe without ``.distinct()`` — the isnull=True side of the join yields at most one row
+        per member by construction — but it is not the same question as "needs to accept now",
+        which depends on the released version. Use ``Member.needs_member_agreement`` for that.
+        """
+        return self.filter(member_agreement_acceptances__isnull=True)
+
+    def owes_agreement(self) -> MemberQuerySet:
+        """Members who need to accept the agreement **as it stands now**.
+
+        This is the question an admin filtering for "missing" actually means, and it is not the
+        one :meth:`missing_agreement` answers. That one asks "has this member ever accepted
+        anything?", which stops being the same question the moment a version is released: a member
+        who accepted v1.0.0 has an acceptance row, so `missing_agreement` passes over them while
+        they are being re-prompted on every page load (PastLivesReviewBot, #493).
+
+        With no version configured the two agree, and deliberately so — that is the one-time
+        behaviour, where any acceptance settles it forever.
+
+        Mirrors :attr:`Member.needs_member_agreement` so the list an admin reads and the gate a
+        member hits cannot disagree; a report that contradicts the product is worse than no report.
+        """
+        from core.models import SiteConfiguration
+
+        version = SiteConfiguration.load().member_agreement_version
+        if not version:
+            return self.missing_agreement()
+        # exclude() across a multi-valued relation builds a NOT IN subquery, so it means "has no
+        # acceptance of this version" rather than "has an acceptance that is not this version" —
+        # which is the difference between a correct list and its near-inverse.
+        return self.exclude(member_agreement_acceptances__document_version=version)
+
+    def leadership_candidates(self) -> MemberQuerySet:
+        """Members an admin may add to the Leadership Directory: everyone not on it, by name.
+
+        A member taken off the page keeps an unlisted row, so they are offered again and
+        :meth:`LeadershipListingQuerySet.list_member` relists them with the lines they had.
+        """
+        return self.exclude(leadership_listing__is_listed=True).order_by("full_legal_name")
 
     def paying(self) -> MemberQuerySet:
         """Only standard members count as paying."""
@@ -428,6 +501,18 @@ class Member(models.Model):
         APPROVED = "approved", "Approved"
         DECLINED = "declined", "Declined"
 
+    class TeachingContactMethod(models.TextChoices):
+        """How a member asked to be reached about their teaching application.
+
+        Stored on :attr:`Member.teaching_contact_method` beside the detail the member
+        gave for it (an address or a number). "Text message" is a preference the admin
+        acts on by hand; nothing here sends an SMS.
+        """
+
+        EMAIL = "email", "Email"
+        TEXT = "text", "Text message"
+        PHONE = "phone", "Phone call"
+
     class EmailGap(models.TextChoices):
         """Why a member has no usable email (labels only; no field stores this).
 
@@ -537,10 +622,10 @@ class Member(models.Model):
     cancellation_date = models.DateField(null=True, blank=True)
     committed_until = models.DateField(null=True, blank=True)
     show_in_directory = models.BooleanField(
-        default=True,
+        default=False,
         help_text=(
-            "Whether this member appears in the public member directory. New members are listed by "
-            "default; they can opt out any time in profile settings."
+            "Whether this member appears in the member directory. New members are hidden by "
+            "default; they can opt in any time in profile settings."
         ),
     )
     hide_from_directory = models.BooleanField(
@@ -658,6 +743,22 @@ class Member(models.Model):
         default="",
         help_text="What the member said they want to teach, in their own words.",
     )
+    teaching_contact_method = models.CharField(
+        max_length=10,
+        choices=TeachingContactMethod.choices,
+        blank=True,
+        default="",
+        help_text=(
+            "How the member asked to be reached about their teaching application: email, text message "
+            "or phone call. Blank for an application filed before the question was asked."
+        ),
+    )
+    teaching_contact_detail = models.CharField(
+        max_length=254,
+        blank=True,
+        default="",
+        help_text="The email address or phone number the member gave for that method, exactly as they typed it.",
+    )
     teaching_decided_at = models.DateTimeField(
         null=True,
         blank=True,
@@ -722,6 +823,15 @@ class Member(models.Model):
         return bool(self.discord_user_id)
 
     @property
+    def discord_profile_url(self) -> str:
+        """Link to this member's Discord profile, or "" until they have linked Discord.
+
+        Built from the verified ``discord_user_id`` only. A typed ``discord_handle`` is free
+        text and cannot become a link, so callers show it as plain text instead.
+        """
+        return f"https://discord.com/users/{self.discord_user_id}" if self.discord_user_id else ""
+
+    @property
     def has_started_profile(self) -> bool:
         """Whether the member has customized any part of their profile yet.
 
@@ -750,9 +860,9 @@ class Member(models.Model):
             ("Pronouns", bool(self.pronouns)),
             ("Discord link", bool(self.discord_is_linked or self.discord_handle)),
         ]
-        # The directory-listing preference is an opt-out, not a "content" signal — it's part
+        # The directory-listing preference is an opt-in, not a "content" signal — it's part
         # of the completeness percent/checklist but is EXCLUDED from ``essentials_complete``
-        # (the onboarding gate), so opting out never blocks onboarding.
+        # (the onboarding gate), so staying hidden never blocks onboarding.
         checks: list[tuple[str, bool]] = [*content_checks, ("Directory listing", bool(self.show_in_directory))]
         missing = [label for label, ok in checks if not ok]
         filled = len(checks) - len(missing)
@@ -801,6 +911,31 @@ class Member(models.Model):
         one subscription (a :class:`GuildMembership` row, however it was created).
         """
         return self.guild_updates_prompt_answered_at is not None or self.joined_guilds.exists()
+
+    @property
+    def needs_member_agreement(self) -> bool:
+        from core.models import SiteConfiguration
+
+        config = SiteConfiguration.load()
+        if not config or not config.member_agreement_required or not config.member_agreement_url:
+            return False
+        if self.status != self.Status.ACTIVE:
+            return False
+        # No released version configured: the original behaviour, unchanged. Anyone who has ever
+        # accepted is never asked again. Setting a version is what turns re-consent on, so this
+        # ships without re-prompting a single member until someone deliberately decides to.
+        if not config.member_agreement_version:
+            return not self.member_agreement_acceptances.exists()
+        return not self.member_agreement_acceptances.filter(document_version=config.member_agreement_version).exists()
+
+    @property
+    def agreement_acceptance(self) -> MemberAgreementAcceptance | None:
+        """The member's most recent acceptance record for the member agreement, if any.
+
+        Explicitly ordered. While one acceptance per member was enforced by a unique constraint,
+        an unordered ``.first()`` was unambiguous; with a history it would return an arbitrary row.
+        """
+        return self.member_agreement_acceptances.order_by("-accepted_at").first()
 
     @property
     def needs_guild_updates_prompt(self) -> bool:
@@ -1303,20 +1438,39 @@ class Member(models.Model):
             return states.PENDING
         return states.NONE
 
-    def apply_to_teach(self, note: str) -> None:
+    @property
+    def teaching_contact_method_label(self) -> str:
+        """The contact method as lower case prose ("text message"), or "" when never asked.
+
+        The notification to the admins and the queue row both say "Contact them at
+        503 555 0100 (text message)"; an application filed before the question existed
+        has no method and reads as "".
+        """
+        if not self.teaching_contact_method:
+            return ""
+        return str(self.TeachingContactMethod(self.teaching_contact_method).label).lower()
+
+    def apply_to_teach(self, note: str, *, contact_method: str, contact_detail: str) -> None:
         """Record this member's ask to teach and put it in front of the admins.
 
         Teaching is not self-service: this only files the request. An admin turns the
         Instructor permission on (``grant_teaching``) to actually open the portal.
         Re-applying after a decline is deliberate and clears the old decline, so the
         member is back in the queue with a clean slate rather than reading a stale no.
+        The contact fields tell the admin how to get in touch; a new application
+        overwrites the previous pair.
 
         Args:
             note: What they want to teach, in their own words. Required.
+            contact_method: A :class:`TeachingContactMethod` value: how they want to be
+                reached. Required.
+            contact_detail: The email address or phone number for that method, stored
+                as typed. Required; the form has already checked its shape.
 
         Raises:
-            ValueError: If the member is not ACTIVE, if ``note`` is blank, or if they
-                already have an application waiting on an admin.
+            ValueError: If the member is not ACTIVE, if ``note``, ``contact_method`` or
+                ``contact_detail`` is blank, if ``contact_method`` is not a known method,
+                or if they already have an application waiting on an admin.
         """
         from core.events.emit import emit
         from core.models import SiteActivity
@@ -1326,6 +1480,12 @@ class Member(models.Model):
         note = note.strip()
         if not note:
             raise ValueError("A teaching application needs a note saying what they want to teach")
+        if not contact_method:
+            raise ValueError("A teaching application needs to say how the member wants to be reached")
+        method = self.TeachingContactMethod(contact_method)  # an unknown method raises ValueError
+        contact_detail = contact_detail.strip()
+        if not contact_detail:
+            raise ValueError("A teaching application needs an email address or phone number to reach the member at")
         if self.teaching_application_state == self.TeachingApplicationState.PENDING:
             raise ValueError(f"Member {self.pk} already has a teaching application waiting on an admin")
         if self.can_create_classes:
@@ -1334,12 +1494,16 @@ class Member(models.Model):
             raise ValueError(f"Member {self.pk} can already teach and has nothing to apply for")
         self.teaching_applied_at = timezone.now()
         self.teaching_application_note = note
+        self.teaching_contact_method = method
+        self.teaching_contact_detail = contact_detail
         self.teaching_decided_at = None
         self.teaching_decline_reason = ""
         self.save(
             update_fields=[
                 "teaching_applied_at",
                 "teaching_application_note",
+                "teaching_contact_method",
+                "teaching_contact_detail",
                 "teaching_decided_at",
                 "teaching_decline_reason",
             ]
@@ -1353,6 +1517,8 @@ class Member(models.Model):
             context={
                 "member_name": self.display_name,
                 "application_note": note,
+                "contact_method": self.teaching_contact_method_label,
+                "contact_detail": contact_detail,
                 "review_url": review_url,
             },
             url=review_url,
@@ -1578,19 +1744,39 @@ class Member(models.Model):
                 target=self,
             )
 
+    def completed_orientation_type_ids(self, orientation_types: Iterable[OrientationType] | None = None) -> set[int]:
+        """Pks of every orientation type this member has completed, by booking or by admin record.
+
+        The one truth behind :meth:`is_oriented_for`, :meth:`is_oriented_for_type` and the
+        bulk readers (the guild page, the equipment index): a completed booking
+        (``is_completed=True``) and an :class:`OrientationRecord` an admin entered by hand
+        (issue #465) count the same everywhere. ``orientation_types`` narrows both reads
+        to those types (a list, or a queryset used as a subquery). Two queries either
+        way, never one per type.
+        """
+        bookings = self.orientation_bookings.filter(is_completed=True)
+        records = self.orientation_records.all()
+        if orientation_types is not None:
+            bookings = bookings.filter(orientation_type__in=orientation_types)
+            records = records.filter(orientation_type__in=orientation_types)
+        return set(bookings.values_list("orientation_type_id", flat=True)) | set(
+            records.values_list("orientation_type_id", flat=True)
+        )
+
     def is_oriented_for(self, guild: Guild) -> bool:
-        """True when the member has a completed orientation of ANY type for this guild.
+        """True when the member has completed an orientation of ANY type this guild owns.
 
         Deliberately guild-scoped (issue #282): guild join gating and every existing
         call site keep their meaning — completing any one of a guild's orientation
         types makes the member "oriented for the guild". Use
-        :meth:`is_oriented_for_type` for the per-type check.
+        :meth:`is_oriented_for_type` for the per-type check. Reads through
+        :meth:`completed_orientation_type_ids`, so a hand-entered record counts too.
         """
-        return self.orientation_bookings.filter(guild=guild, is_completed=True).exists()
+        return bool(self.completed_orientation_type_ids(guild.orientation_types.all()))
 
     def is_oriented_for_type(self, orientation_type: OrientationType) -> bool:
-        """True when the member has a completed orientation of this specific type."""
-        return self.orientation_bookings.filter(orientation_type=orientation_type, is_completed=True).exists()
+        """True when the member has completed this specific type, by booking or by record."""
+        return orientation_type.pk in self.completed_orientation_type_ids([orientation_type])
 
     def active_orientation_for(self, guild: Guild) -> OrientationBooking | None:
         """The member's live (requested or confirmed) orientation booking for this guild, if any.
@@ -1632,6 +1818,31 @@ class Member(models.Model):
         if self.hide_from_directory:
             return False
         return self.is_fog_admin or self.is_guild_officer or self.is_guild_lead or self.is_instructor
+
+    def accept_member_agreement(self, request: HttpRequest, agreement_url: str) -> None:
+        """Mark this member as having accepted the member agreement.
+
+        Captures what the record needs to be worth something later: the version they accepted,
+        a hash of the document as it stood at that moment, the browser they used, and the IP.
+        """
+        from core.models import SiteActivity, SiteConfiguration
+        from membership.services.consent import fingerprint_agreement
+
+        x_forwarded_for = request.META.get("HTTP_X_FORWARDED_FOR")
+        ip = x_forwarded_for.split(",")[0] if x_forwarded_for else request.META["REMOTE_ADDR"]
+        digest, length = fingerprint_agreement(agreement_url)
+        MemberAgreementAcceptance.objects.create(
+            member=self,
+            agreement_url=agreement_url,
+            document_version=SiteConfiguration.load().member_agreement_version,
+            content_sha256=digest,
+            content_length=length,
+            # Truncated rather than rejected: a nonsense User-Agent is still corroboration, and
+            # nobody should be locked out of the hub because their browser sent a long header.
+            user_agent=request.META.get("HTTP_USER_AGENT", "")[:1000],
+            ip_address=ip,
+        )
+        SiteActivity.log(SiteActivity.Kind.ACCEPTED_MEMBER_AGREEMENT, actor=request.user)
 
     ADMIN_ROLE_INSTRUCTOR = "instructor"
     ADMIN_ROLE_GUEST = "guest"
@@ -2304,9 +2515,9 @@ class Guild(HeroCropMixin, models.Model):
 
     @property
     def vanity_url(self) -> str:
-        """Absolute, human-typable share URL, e.g. https://pastlives.app/g/ceramics/.
+        """Absolute, human-typable share URL, e.g. https://members.pastlives.space/g/ceramics/.
 
-        Lives on the member host and 301-redirects to the public guest guild page. It is
+        Lives on the member host and 302-redirects to the public guest guild page. It is
         the single source of truth for what the QR encodes and the flyer prints.
         """
         from django.urls import reverse
@@ -2571,6 +2782,19 @@ class Guild(HeroCropMixin, models.Model):
                 members.append(staff.member)
                 seen.add(staff.member_id)
         return members
+
+    @property
+    def co_leads(self) -> list[Member]:
+        """Members holding the Co-Lead staff role, without repeating the lead.
+
+        Reads ``staff_memberships.all()`` so a view's ``prefetch_related("staff_memberships__member")``
+        is honoured; a lead who also holds a Co-Lead row is not listed twice.
+        """
+        return [
+            staff.member
+            for staff in self.staff_memberships.all()
+            if staff.role == GuildStaffMembership.Role.CO_LEAD and staff.member_id != self.guild_lead_id
+        ]
 
     def first_active_orientation_type(self) -> OrientationType | None:
         """This guild's first active orientation type by sort order, or ``None``.
@@ -3265,6 +3489,168 @@ class OrgLink(models.Model):
 
     def __str__(self) -> str:
         return f"{self.label} (Space & Org Info)"
+
+
+class LeadershipPage(models.Model):
+    """Singleton (pk=1) wording for the Leadership Directory page: the hero and both section headers.
+
+    Every word an admin might want to change, with its default here and in the migration so
+    no site renders a blank hero (the Host a Workshop precedent). Load the one row via
+    :meth:`load`, exactly like ``OrgInfoPage``. Who is on the page is not here: the curated
+    team is :class:`LeadershipListing`, and the Guild Leaders section is read from each guild.
+    """
+
+    hero_title = models.CharField(max_length=120, default="Leadership Directory", help_text="The page heading.")
+    hero_lead = models.TextField(
+        blank=True,
+        default="Who runs Past Lives, who leads each guild, and how to reach them.",
+        help_text="A sentence or two under the heading. Blank hides the line.",
+    )
+    team_heading = models.CharField(
+        max_length=120,
+        default="Leadership & Admin Team",
+        help_text="Heading of the curated section, ordered by admins.",
+    )
+    team_intro = models.TextField(
+        blank=True,
+        default="The people who keep the makerspace running, and how to reach each of them.",
+        help_text="Intro line under the team heading. Blank hides the line.",
+    )
+    guilds_heading = models.CharField(
+        max_length=120,
+        default="Guild Leaders",
+        help_text="Heading of the section built from each guild's lead and co-leads.",
+    )
+    guilds_intro = models.TextField(
+        blank=True,
+        default="Every active guild and who leads it, straight from the guild's own settings.",
+        help_text="Intro line under the guilds heading. Blank hides the line.",
+    )
+
+    class Meta:
+        verbose_name = "Leadership Directory page"
+        verbose_name_plural = "Leadership Directory page"
+
+    def __str__(self) -> str:
+        return "Leadership Directory"
+
+    def save(self, *args: Any, **kwargs: Any) -> None:
+        self.pk = 1
+        super().save(*args, **kwargs)
+
+    @classmethod
+    def load(cls) -> LeadershipPage:
+        """Load the singleton row, creating it with the default wording if needed."""
+        obj, _created = cls.objects.get_or_create(pk=1)
+        return obj
+
+
+class LeadershipListingQuerySet(models.QuerySet["LeadershipListing"]):
+    """Queries over the curated Leadership & Admin Team roster."""
+
+    def listed(self) -> LeadershipListingQuerySet:
+        """The rows on the page, in admin order, with each member and their role lines loaded."""
+        return (
+            self.filter(is_listed=True).select_related("member").prefetch_related("roles").order_by("sort_order", "id")
+        )
+
+    def last_updated(self) -> datetime_type | None:
+        """When the roster last changed: the newest listing or role save, or None with no rows.
+
+        One aggregate over both tables. Page wording edits do not count; the page's
+        "Updated" line is about who is on it.
+        """
+        stamps = self.aggregate(listing=Max("updated_at"), role=Max("roles__updated_at"))
+        found = [stamp for stamp in stamps.values() if stamp is not None]
+        return max(found) if found else None
+
+    def for_member(self, member: Member) -> LeadershipListing:
+        """The member's listing row, or an unsaved stand-in when they have none.
+
+        The stand-in lets the Details tab bind its toggle and role formset without writing
+        a row; nothing is saved until the toggle or a role line changes.
+        """
+        return self.filter(member=member).first() or LeadershipListing(member=member)
+
+    def list_member(self, member: Member, title: str, email: str) -> LeadershipListing:
+        """Put a member on the page, last, with a role line; a member taken off earlier is relisted.
+
+        One row per member, so this creates or relists in one ``update_or_create``. A relisted
+        member keeps the lines they had, and the typed title is added only when they do not
+        already hold it, so adding someone back never doubles a line.
+        """
+        last = self.listed().aggregate(last=Max("sort_order"))["last"]
+        sort_order = 0 if last is None else last + 1
+        with transaction.atomic():
+            listing, _created = self.update_or_create(
+                member=member, defaults={"is_listed": True, "sort_order": sort_order}
+            )
+            if not listing.roles.filter(title=title).exists():
+                listing.roles.create(title=title, email=email, sort_order=listing.roles.count())
+        return listing
+
+
+class LeadershipListing(models.Model):
+    """A member's place on the Leadership & Admin Team section of the Leadership Directory.
+
+    The toggle, the order and the timestamp live here rather than on the Airtable managed
+    :class:`Member`: a person is on the page because their profile is flagged, never because
+    they were typed in. Photo, name and pronouns come from the member; the title and contact
+    lines are :class:`LeadershipRole` rows.
+    """
+
+    member = models.OneToOneField(
+        Member,
+        on_delete=models.CASCADE,
+        related_name="leadership_listing",
+        help_text="The member this card shows. Photo, name and pronouns come from their profile.",
+    )
+    is_listed = models.BooleanField(
+        default=False,
+        help_text="Show this member on the Leadership Directory. Off hides the card and keeps the role lines.",
+    )
+    sort_order = models.PositiveIntegerField(default=0, help_text="Ascending; lower shows first.")
+    updated_at = models.DateTimeField(
+        auto_now=True, help_text="When this listing last changed. The page's Updated line reads the newest."
+    )
+
+    objects = LeadershipListingQuerySet.as_manager()
+
+    class Meta:
+        ordering = ["sort_order", "id"]
+
+    def __str__(self) -> str:
+        state = "listed" if self.is_listed else "unlisted"
+        return f"{self.member.display_name} ({state})"
+
+
+class LeadershipRole(models.Model):
+    """One role line on a leadership card: a title and, when there is one, that role's email.
+
+    A person with two roles has two rows, each with its own address. A per-member child
+    list like ``MemberContact``, edited as a formset beside the listing toggle.
+    """
+
+    listing = models.ForeignKey(
+        LeadershipListing,
+        on_delete=models.CASCADE,
+        related_name="roles",
+        help_text="The listing this role line belongs to.",
+    )
+    title = models.CharField(max_length=120, help_text="The role as shown on the card, e.g. 'Member Liaison'.")
+    email = models.EmailField(
+        blank=True, default="", help_text="Contact address for this role. Blank shows no email line."
+    )
+    sort_order = models.PositiveIntegerField(default=0, help_text="Ascending; lower shows first.")
+    updated_at = models.DateTimeField(
+        auto_now=True, help_text="When this role line last changed. The page's Updated line reads the newest."
+    )
+
+    class Meta:
+        ordering = ["sort_order", "id"]
+
+    def __str__(self) -> str:
+        return f"{self.title} ({self.listing.member.display_name})"
 
 
 class HelpCategoryQuerySet(models.QuerySet):
@@ -4207,6 +4593,9 @@ def resolve_channel_webhook(channel: str, guild: "Guild | None" = None) -> str:
     """
     from core.models import SiteConfiguration
 
+    # Staging holds a copy of production's webhooks; the picker must resolve to "no post".
+    if settings.IS_STAGING:
+        return ""
     channels = GuildAnnouncement.DiscordChannel
     if channel == channels.GUILD:
         return (guild.discord_webhook_url or "").strip() if guild is not None else ""
@@ -5150,12 +5539,19 @@ class CommunityEventQuerySet(models.QuerySet):
         return self.filter(guild__isnull=True)
 
     def for_member(self, member: "Member") -> CommunityEventQuerySet:
-        """Site-wide events plus events from the guilds this member has joined.
+        """Makerspace-wide events plus the meetings of the guilds this member has joined.
 
-        The personalized home feed: a member sees every makerspace-wide community/lead
-        event and the meetings of guilds they belong to, but not other guilds' meetings.
+        The personalized home feed. A guild's *own* gatherings — its meetings and its
+        standing studio hours — reach only its members; everything else is makerspace
+        business and reaches everyone, including a guild-hosted event open to all
+        (``community`` with a guild attached). The audience field is deliberately not
+        consulted: it picks a Google calendar, not who may see the event.
+
+        ``distinct()`` because the guild-membership join multiplies rows, and a member of
+        the hosting guild now matches both sides of the OR.
         """
-        return self.filter(Q(guild__isnull=True) | Q(guild__memberships__member=member))
+        guild_scoped = [CommunityEvent.EventType.GUILD_MEETING, CommunityEvent.EventType.STUDIO_HOURS]
+        return self.filter(~Q(event_type__in=guild_scoped) | Q(guild__memberships__member=member)).distinct()
 
     def published(self) -> CommunityEventQuerySet:
         """Only events live on the calendar (eligible to push to Google)."""
@@ -5232,7 +5628,7 @@ class CommunityEvent(models.Model):
     class EventType(models.TextChoices):
         GUILD_MEETING = "guild_meeting", "Guild meeting / event"
         LEAD_MEETING = "lead_meeting", "Guild Lead Meeting"
-        COMMUNITY = "community", "Community event"
+        COMMUNITY = "community", "Event"
         STUDIO_HOURS = "studio_hours", "Studio hours"
 
     class Recurrence(models.TextChoices):
@@ -5265,6 +5661,13 @@ class CommunityEvent(models.Model):
         MEMBER = "member", "Member calendar"  # members-only makerspace calendar (the former "General")
         PUBLIC = "public", "Public calendar"  # the outward-facing calendar anyone can see
 
+    # Types that name themselves on the badge instead of being labelled by audience. The
+    # cross-guild Guild Lead Meeting is a recognisable thing in its own right, and studio
+    # hours are ambient standing hours rather than a happening (CONTEXT.md) — badging either
+    # of them "Public event" would misdescribe what a member is looking at. Drives
+    # ``badge_label``, so this list is the only place the exceptions live.
+    SELF_NAMING_TYPES: tuple[str, ...] = (EventType.LEAD_MEETING, EventType.STUDIO_HOURS)
+
     # Months between occurrences for each recurring choice (semi-monthly walks
     # monthly but emits two dates per month — see ``occurrences_in``).
     _MONTH_INTERVALS: dict[str, int] = {
@@ -5274,13 +5677,6 @@ class CommunityEvent(models.Model):
         Recurrence.EVERY_3_MONTHS.value: 3,
         Recurrence.EVERY_6_MONTHS.value: 6,
         Recurrence.YEARLY.value: 12,
-    }
-
-    # Maps an event type to the registry event key its announcement fires.
-    _ANNOUNCE_EVENT: dict[str, str] = {
-        EventType.GUILD_MEETING: "event.guild_published",
-        EventType.LEAD_MEETING: "event.lead_meeting_published",
-        EventType.COMMUNITY: "event.community_published",
     }
 
     # (toggle field, days-before) pairs for the opt-in reminder pings. One place to add
@@ -5300,7 +5696,7 @@ class CommunityEvent(models.Model):
         blank=True,
         on_delete=models.CASCADE,
         related_name="events",
-        help_text="The guild this belongs to. Leave blank for a site-wide community or leadership event.",
+        help_text="The guild this belongs to. Leave blank for a makerspace wide or leadership event.",
     )
     starts_at = models.DateTimeField(help_text="When the event starts.")
     ends_at = models.DateTimeField(help_text="When the event ends.")
@@ -5322,6 +5718,15 @@ class CommunityEvent(models.Model):
         ),
     )
     description = models.TextField(blank=True, default="", help_text="Optional details for members.")
+    photo = models.ImageField(
+        upload_to="events/photos/",
+        blank=True,
+        validators=[validate_image_size],
+        help_text=(
+            "Optional photo. It fronts the event page, rides along on the Discord announcement, "
+            "and becomes the cover image in Discord's own Events tab."
+        ),
+    )
     recurrence = models.CharField(
         max_length=20,
         choices=Recurrence.choices,
@@ -5512,9 +5917,13 @@ class CommunityEvent(models.Model):
                 name="ck_communityevent_end_after_start",
             ),
             models.CheckConstraint(
+                # A guild's own gatherings need a guild; the cross-guild Guild Lead Meeting
+                # must not have one; a general event is free either way, because a guild may
+                # now host something open to the whole makerspace (#505).
                 condition=(
                     (Q(event_type__in=["guild_meeting", "studio_hours"]) & Q(guild__isnull=False))
-                    | (~Q(event_type__in=["guild_meeting", "studio_hours"]) & Q(guild__isnull=True))
+                    | (Q(event_type="lead_meeting") & Q(guild__isnull=True))
+                    | Q(event_type="community")
                 ),
                 name="ck_communityevent_guild_matches_type",
             ),
@@ -5528,6 +5937,20 @@ class CommunityEvent(models.Model):
     def __str__(self) -> str:
         where = self.guild.name if self.guild is not None else "Site-wide"
         return f"{self.title} — {where} ({self.starts_at:%Y-%m-%d %H:%M})"
+
+    def save(self, *args: Any, **kwargs: Any) -> None:
+        """Normalize a freshly uploaded photo and clean up the one it replaced.
+
+        The photo work is skipped for a targeted ``update_fields`` save that does not name
+        it, which is most of this model's saves: the sync bookkeeping rewrites a handful of
+        columns after every Google and Discord push, and ``delete_orphan_on_replace`` costs a
+        query per call. An ordinary full save (a form, a new row) still checks both.
+        """
+        update_fields = kwargs.get("update_fields")
+        if update_fields is None or "photo" in update_fields:
+            delete_orphan_on_replace(self, "photo")
+            normalize_field_if_uploaded(self, "photo", settings.IMAGE_MAX_LONG_EDGE_HERO)
+        super().save(*args, **kwargs)
 
     # --- Recurrence (virtual expansion, reusing _nth_weekday) -----------------
 
@@ -5654,7 +6077,7 @@ class CommunityEvent(models.Model):
         lines = [
             "BEGIN:VCALENDAR",
             "VERSION:2.0",
-            "PRODID:-//Past Lives Makerspace//Community Calendar//EN",
+            "PRODID:-//Past Lives Makerspace//Calendar//EN",
             "CALSCALE:GREGORIAN",
             "METHOD:PUBLISH",
             *self.ics_vevent_lines(),
@@ -5667,6 +6090,25 @@ class CommunityEvent(models.Model):
     @property
     def is_site_wide(self) -> bool:
         return self.guild_id is None
+
+    @property
+    def badge_label(self) -> str:
+        """The one phrase members read about what this row is.
+
+        The single source of truth for the badge on the Community Calendar's Events tab and
+        on the public event page, so neither template branches on the stored type itself.
+
+        A type in :attr:`SELF_NAMING_TYPES` says its own name. Everything else badges who it
+        is *for*, because the rest of ``event_type`` is plumbing (it routes the announcement
+        and scopes a guild's own meetings) that no member should have to decode. "Member" and
+        "Public" name which of the two open Google calendars it lands on, never who is
+        allowed to look at it.
+        """
+        if self.event_type in self.SELF_NAMING_TYPES:
+            return str(self.EventType(self.event_type).label)
+        if self.google_calendar_target == self.GoogleCalendarTarget.MEMBER:
+            return "Member event"
+        return "Public event"
 
     @property
     def when_display(self) -> str:
@@ -5714,6 +6156,23 @@ class CommunityEvent(models.Model):
         return f"{settings.MEMBER_BASE_URL}{reverse('hub_event_detail', args=[self.pk])}"
 
     @property
+    def photo_url(self) -> str:
+        """The photo as an absolute URL, or ``""`` when the event has none.
+
+        Discord fetches the picture itself, from its own servers, so a storage-relative
+        ``/media/...`` path is no use to it. Object storage already returns an absolute URL
+        (the deployed config); anything relative is made absolute against
+        ``MEMBER_BASE_URL``, exactly as :attr:`public_url` does. In local development that
+        points at localhost, which Discord cannot reach, and the push degrades to no picture.
+        """
+        if not self.photo:
+            return ""
+        url = self.photo.url
+        if url.startswith(("http://", "https://")):
+            return url
+        return f"{settings.MEMBER_BASE_URL}{url}"
+
+    @property
     def qr_url(self) -> str:
         """The URL the QR encodes — the public page directly.
 
@@ -5757,6 +6216,30 @@ class CommunityEvent(models.Model):
             "event_url": self.absolute_url,
         }
 
+    def announce_event_key(self) -> str:
+        """The registry key this event's launch announcement fires.
+
+        The **guild decides the audience, not the type**: a guild's gathering — its own
+        meeting or an open house it hosts for everyone — reaches that guild's members,
+        and a guild-less event reaches every active member. The cross-guild Guild Lead
+        Meeting keeps its own leadership key. One place, so the web composer and the
+        Discord ``/create`` path can never drift.
+
+        Raises:
+            ValueError: For a STUDIO_HOURS row. Ambient standing hours are never announced
+                and both callers return early on them, so reaching here means a new caller
+                skipped that guard. The dict this replaced raised ``KeyError`` on the same
+                input; answering "the guild's members" instead would quietly email people
+                about hours that are not an event.
+        """
+        if self.event_type == self.EventType.STUDIO_HOURS:
+            raise ValueError("Studio hours are ambient standing hours and are never announced.")
+        if self.event_type == self.EventType.LEAD_MEETING:
+            return "event.lead_meeting_published"
+        if self.guild_id is not None:
+            return "event.guild_published"
+        return "event.community_published"
+
     def announce(self, *, actor: User | None = None) -> None:
         """Post the launch announcement (in-app + Discord). Idempotent via ``period``.
 
@@ -5765,15 +6248,15 @@ class CommunityEvent(models.Model):
         events carry ``guild=None`` and route centrally only.
 
         STUDIO_HOURS rows are ambient standing hours, not an event to ping members about,
-        so they never announce (they are also absent from ``_ANNOUNCE_EVENT``) — this guard
-        makes ``publish()`` a safe no-op for the announce step on a studio-hours row.
+        so they never announce — this guard makes ``publish()`` a safe no-op for the
+        announce step on a studio-hours row.
         """
         if self.event_type == self.EventType.STUDIO_HOURS:
             return
         from core.events.emit import emit
 
         emit(
-            self._ANNOUNCE_EVENT[self.event_type],
+            self.announce_event_key(),
             actor=actor,
             target=self,
             context=self._announce_context(),
@@ -5817,7 +6300,7 @@ class CommunityEvent(models.Model):
         from core.events.emit import emit
         from core.events.registry import Channel, Recipients
 
-        event_key = self._ANNOUNCE_EVENT[self.event_type]
+        event_key = self.announce_event_key()
         if audience == "guild_members":
             recipients = (
                 resolvers.resolve(Recipients.GUILD_MEMBERS, {"guild": self.guild}) if self.guild is not None else []
@@ -5963,22 +6446,27 @@ class CommunityEvent(models.Model):
 
         remove_community_event(self)
 
-    def propose(self, *, by: User, guild: Guild | None, policy: str, editing: bool) -> bool:
+    def propose(
+        self, *, by: User, guild: Guild | None, policy: str, editing: bool, event_type: str | None = None
+    ) -> bool:
         """Route a member-proposed event to publication or the review queue.
 
         Owns the member-facing create/resubmit logic that the "Propose an event" view used
-        to carry inline: derive ``event_type`` from the guild, attribute a brand-new
-        proposal to ``by``, then branch on the site's member-event ``policy`` — an OPEN
-        policy publishes a new proposal immediately (announce + Google push), any other
-        policy enters the review queue. An edit always re-submits for review (a
-        changes-requested proposal returns to Pending). The instance must already carry the
-        form's field values (title/time/etc.); the caller enforces the DISABLED policy gate.
+        to carry inline: settle ``event_type``, attribute a brand-new proposal to ``by``,
+        then branch on the site's member-event ``policy`` — an OPEN policy publishes a new
+        proposal immediately (announce + Google push), any other policy enters the review
+        queue. An edit always re-submits for review (a changes-requested proposal returns
+        to Pending). The instance must already carry the form's field values
+        (title/time/etc.); the caller enforces the DISABLED policy gate.
 
         Args:
             by: The proposing member's user (the create actor + review submitter).
-            guild: The target guild, or ``None`` for a site-wide community event.
+            guild: The target guild, or ``None`` for a makerspace-wide event.
             policy: The current ``SiteConfiguration.member_event_policy`` value.
             editing: True when resubmitting an owned Pending/changes-requested proposal.
+            event_type: The kind the proposer's form settled on. Omit it and the guild
+                derives it the old way (guild → guild meeting, none → general event),
+                which is still what the Discord ``/create`` path does.
 
         Returns:
             True if the event went live immediately, False if it was queued for review.
@@ -5986,7 +6474,10 @@ class CommunityEvent(models.Model):
         from core.models import SiteConfiguration
 
         self.guild = guild
-        self.event_type = self.EventType.GUILD_MEETING if guild is not None else self.EventType.COMMUNITY
+        if event_type is not None:
+            self.event_type = event_type
+        else:
+            self.event_type = self.EventType.GUILD_MEETING if guild is not None else self.EventType.COMMUNITY
         if not editing:
             self.created_by = by
         if not editing and policy == SiteConfiguration.MemberEventPolicy.OPEN:
@@ -6296,6 +6787,12 @@ class CommunityEvent(models.Model):
             if len(description) > _DISCORD_DESCRIPTION_MAX:
                 description = description[:_DISCORD_DESCRIPTION_MAX].rstrip() + "… more on the event page"
             embed["description"] = description
+        # Discord fetches the picture itself, so an unreachable URL costs nothing but a
+        # plain card: the key is simply absent when there is no photo, and Discord drops an
+        # image it cannot load rather than refusing the message.
+        photo_url = self.photo_url
+        if photo_url:
+            embed["image"] = {"url": photo_url}
         return embed
 
     def discord_announcement_components(self) -> list[dict[str, Any]]:
@@ -6506,7 +7003,7 @@ class CommunityEventDraft(models.Model):
         blank=True,
         on_delete=models.CASCADE,
         related_name="community_event_drafts",
-        help_text="The resolved target guild — NULL means a site-wide community event.",
+        help_text="The resolved target guild — NULL means a makerspace wide event.",
     )
     title = models.CharField(max_length=200, help_text="The event name, mirroring CommunityEvent.title.")
     starts_at = models.DateTimeField(help_text="Form-cleaned aware start (validated before the draft is written).")
@@ -6525,6 +7022,15 @@ class CommunityEventDraft(models.Model):
         choices=CommunityEvent.GoogleCalendarTarget.choices,
         default=CommunityEvent.GoogleCalendarTarget.PUBLIC,
         help_text="Which Google calendar the published event posts to. Public is the norm; members-only is the exception.",
+    )
+    event_type = models.CharField(
+        max_length=20,
+        choices=CommunityEvent.EventType.choices,
+        default=CommunityEvent.EventType.COMMUNITY,
+        help_text=(
+            "The kind the preview card's What-it-is select settled on. A guild-less draft has "
+            "only one available, so the select asks the audience alone and this stays a plain event."
+        ),
     )
     email_choice = models.CharField(
         max_length=20,
@@ -8962,6 +9468,13 @@ class GuildOrientationSettings(models.Model):
             "booking here. An orientation type can set its own link to override this one."
         ),
     )
+    late_cancel_fee_cents = models.PositiveIntegerField(
+        default=0,
+        help_text=(
+            "Fee for cancelling a confirmed orientation inside the site's cancellation notice window, "
+            "in cents. 0 = no fee (the default). Applies only while Site Settings charges late fees."
+        ),
+    )
     thankyou_email_enabled = models.BooleanField(
         default=True,
         help_text=(
@@ -8973,7 +9486,7 @@ class GuildOrientationSettings(models.Model):
         max_length=200, blank=True, default="", help_text="Subject line of the thank-you email."
     )
     thankyou_email_body = models.TextField(
-        blank=True, default="", help_text="Body of the thank-you email (plain text, line breaks preserved)."
+        blank=True, default="", help_text="Body of the thank-you email. Leave it blank to send the standard message."
     )
     thankyou_email_updated_at = models.DateTimeField(
         null=True, blank=True, help_text="When the thank-you email was last edited."
@@ -8989,7 +9502,9 @@ class GuildOrientationSettings(models.Model):
         max_length=200, blank=True, default="", help_text="Subject line of the welcome email."
     )
     welcome_email_body = models.TextField(
-        blank=True, default="", help_text="Body of the welcome email (your personal note; line breaks preserved)."
+        blank=True,
+        default="",
+        help_text="Body of the welcome email, your personal note. Leave it blank to send the standard message.",
     )
     welcome_email_updated_at = models.DateTimeField(
         null=True, blank=True, help_text="When the welcome email was last edited."
@@ -9262,7 +9777,7 @@ class OrientationAvailabilityQuerySet(models.QuerySet):
 
 
 class OrientationAvailability(models.Model):
-    """A weekly recurring window during which a guild or a piece of equipment offers orientations.
+    """A recurring window (weekly or every other week) in which a guild or a piece of equipment offers orientations.
 
     The slot-generation job materializes concrete ``OrientationSlot`` rows from
     each active rule across a rolling window. A rule with an ``orienter`` is one
@@ -9270,9 +9785,25 @@ class OrientationAvailability(models.Model):
     ("any orienter"). The owner of record is ``orientation_type`` (guild XOR
     equipment); ``guild`` is denormalized and empty for an equipment rule.
 
+    ``cadence`` sets how often the window recurs. ``anchor_date`` is the first day
+    the rule runs, and nothing is generated before it on any cadence. Weekly needs
+    nothing more, and may leave it blank to run from now. Every other cadence also
+    counts its rhythm from ``anchor_date``: every other week in Monday-based weeks,
+    and the month-based cadences on the anchor's weekday ordinal of its month (the
+    2nd Tuesday). See :meth:`occurs_on`.
+
     ``slot_minutes`` decides the window's shape: empty keeps the legacy one slot
     spanning the whole window; set, each occurrence is carved into slots that long,
     ``buffer_minutes`` apart (see :meth:`carve_spans`).
+
+    ``booking_style`` says how members book what the row yields (issue #532). A
+    ``fixed`` row materializes ``OrientationSlot`` rows as above. An ``open`` row
+    materializes one :class:`OrientationAvailabilityBlock` (an open window) per
+    occurrence instead: members pick an orientation and any 15 minute start that
+    fits, one member at a time, so seats, slot length and break do not apply. An
+    open row may leave ``orientation_type`` empty, meaning any of the guild's active
+    orientations; that is the one shape allowed a NULL type, and only on a personal,
+    guild owned row (``ck_orientavail_any_type_open``).
     """
 
     class Weekday(models.IntegerChoices):
@@ -9284,6 +9815,28 @@ class OrientationAvailability(models.Model):
         SATURDAY = 5, "Saturday"
         SUNDAY = 6, "Sunday"
 
+    class Cadence(models.TextChoices):
+        WEEKLY = "weekly", "Every week"
+        FORTNIGHTLY = "fortnightly", "Every other week"
+        MONTHLY = "monthly", "Every month"
+        EVERY_2_MONTHS = "every_2_months", "Every 2 months"
+        EVERY_3_MONTHS = "every_3_months", "Every 3 months"
+        EVERY_6_MONTHS = "every_6_months", "Every 6 months"
+        YEARLY = "yearly", "Every year"
+
+    class BookingStyle(models.TextChoices):
+        FIXED = "fixed", "Fixed start times"
+        OPEN = "open", "Any time in the window"
+
+    # Whole months between occurrences, for the month-based cadences only.
+    MONTHS_BY_CADENCE: ClassVar[dict[str, int]] = {
+        Cadence.MONTHLY: 1,
+        Cadence.EVERY_2_MONTHS: 2,
+        Cadence.EVERY_3_MONTHS: 3,
+        Cadence.EVERY_6_MONTHS: 6,
+        Cadence.YEARLY: 12,
+    }
+
     guild = models.ForeignKey(
         Guild,
         null=True,
@@ -9294,9 +9847,14 @@ class OrientationAvailability(models.Model):
     )
     orientation_type = models.ForeignKey(
         OrientationType,
+        null=True,
+        blank=True,
         on_delete=models.CASCADE,
         related_name="rules",
-        help_text="The orientation type slots generated from this rule are for.",
+        help_text=(
+            "The orientation type this row's times are for. Empty means any of the guild's active "
+            "orientations, which only an open personal row may say."
+        ),
     )
     orienter = models.ForeignKey(
         Member,
@@ -9309,8 +9867,31 @@ class OrientationAvailability(models.Model):
             "Empty means any orienter (legacy guild hours)."
         ),
     )
+    booking_style = models.CharField(
+        max_length=8,
+        choices=BookingStyle.choices,
+        default=BookingStyle.FIXED,
+        help_text=(
+            "How members book this row's times. Fixed start times materialize slots with seats; any time in "
+            "the window materializes open windows members pick a start inside, one member at a time."
+        ),
+    )
     weekday = models.PositiveSmallIntegerField(
         choices=Weekday.choices, help_text="Day of week this rule recurs on (0=Mon … 6=Sun)."
+    )
+    cadence = models.CharField(
+        max_length=16,
+        choices=Cadence.choices,
+        default=Cadence.WEEKLY,
+        help_text="How often this window recurs. Every cadence but weekly counts from anchor_date.",
+    )
+    anchor_date = models.DateField(
+        null=True,
+        blank=True,
+        help_text=(
+            "The first day this rule runs, and the floor on every cadence. Required for every cadence "
+            "but weekly, which may leave it blank and then runs from now."
+        ),
     )
     start_time = models.TimeField(help_text="When the orientation window starts.")
     end_time = models.TimeField(help_text="When the orientation window ends.")
@@ -9345,12 +9926,116 @@ class OrientationAvailability(models.Model):
                 condition=Q(slot_minutes__isnull=True) | Q(slot_minutes__gt=0),
                 name="ck_orientavail_slot_positive",
             ),
+            # Any orientation (a NULL type) is one shape only: an open, personal, guild owned row.
+            models.CheckConstraint(
+                condition=Q(orientation_type__isnull=False)
+                | Q(booking_style="open", guild__isnull=False, orienter__isnull=False),
+                name="ck_orientavail_any_type_open",
+            ),
         ]
 
     def __str__(self) -> str:
         who = self.orienter.display_name if self.orienter is not None else "any orienter"
-        owner_name = self.orientation_type.owner_name
-        return f"{owner_name} orientation: {self.get_weekday_display()} {self.start_time:%H:%M} ({who})"
+        return f"{self.owner_name} orientation: {self.cadence_display} {self.start_time:%H:%M} ({who})"
+
+    @property
+    def is_open(self) -> bool:
+        """True when members book any time in the window rather than a fixed start."""
+        return self.booking_style == self.BookingStyle.OPEN
+
+    @property
+    def owner_name(self) -> str:
+        """The owning guild's or equipment's name: through the type, or the guild for an Any orientation row."""
+        if self.orientation_type is not None:
+            return self.orientation_type.owner_name
+        return cast(Guild, self.guild).name
+
+    @property
+    def type_display(self) -> str:
+        """The orientation this row is for, or "Any orientation" for an open row with no type."""
+        if self.orientation_type is not None:
+            return self.orientation_type.name
+        return "Any orientation"
+
+    @property
+    def style_display(self) -> str:
+        """The booking style in the lower case words a schedule line uses."""
+        return "any time in the window" if self.is_open else "fixed start times"
+
+    @property
+    def cadence_display(self) -> str:
+        """The rule's cadence in plain words.
+
+        "Every Tuesday", "Every other Tuesday", "Every month on the 2nd Tuesday",
+        "Every 3 months on the 2nd Tuesday", "Every year on the 2nd Tuesday of September".
+        A month-based rule with no anchor (which ``clean`` refuses) falls back to its
+        bare cadence label rather than failing a page render.
+        """
+        weekday = self.get_weekday_display()
+        if self.cadence == self.Cadence.WEEKLY:
+            return f"Every {weekday}"
+        if self.cadence == self.Cadence.FORTNIGHTLY:
+            return f"Every other {weekday}"
+        if self.anchor_date is None:
+            return str(self.get_cadence_display())
+        ordinal = ("1st", "2nd", "3rd", "4th", "5th")[(self.anchor_date.day - 1) // 7]
+        if self.cadence == self.Cadence.YEARLY:
+            return f"Every year on the {ordinal} {weekday} of {self.anchor_date:%B}"
+        return f"{self.get_cadence_display()} on the {ordinal} {weekday}"
+
+    @property
+    def starts_on_note(self) -> str:
+        """The rule's start date as a phrase, for as long as it is still ahead.
+
+        Sits after :attr:`cadence_display` on a rule line: "Every Sunday from Oct 4".
+        A rule with no start date, or one whose start date is today or past, says
+        nothing, so the date only shows while it still changes what a reader expects.
+
+        Returns:
+            ``"from <Mon> <D>"``, or ``""`` when there is nothing ahead to say.
+        """
+        if self.anchor_date is None or self.anchor_date <= timezone.localdate():
+            return ""
+        return f"from {self.anchor_date:%b} {self.anchor_date.day}"
+
+    def occurs_on(self, day: date_type) -> bool:
+        """Whether this rule yields a window on ``day``.
+
+        The weekday must match, and ``anchor_date`` is a floor on every cadence: nothing
+        runs before the day the rule starts, weekly included. A weekly rule then always
+        occurs, and one with no anchor runs from now. Every other cadence also counts its
+        rhythm from ``anchor_date``: every other week runs in alternate Monday-based weeks
+        from the anchor's week (the anchor's own weekday does not matter); the month-based
+        cadences run on the anchor's weekday ordinal of the month (the 2nd Tuesday)
+        whenever the whole months since the anchor's month divide by the cadence's month
+        count. A month with no 5th such weekday gets nothing.
+
+        Args:
+            day: The calendar day to test.
+
+        Returns:
+            Whether the rule yields a window on that day.
+
+        Raises:
+            ValueError: A rule on any cadence but weekly with no ``anchor_date``. The
+                hours form and ``clean`` refuse to save one, so this is a data error.
+        """
+        if day.weekday() != self.weekday:
+            return False
+        if self.anchor_date is not None and day < self.anchor_date:
+            return False
+        if self.cadence == self.Cadence.WEEKLY:
+            return True
+        if self.anchor_date is None:
+            raise ValueError(f"OrientationAvailability {self.pk} recurs {self.cadence} but has no anchor_date.")
+        if self.cadence == self.Cadence.FORTNIGHTLY:
+            monday = day - timedelta(days=day.weekday())
+            anchor_monday = self.anchor_date - timedelta(days=self.anchor_date.weekday())
+            return ((monday - anchor_monday).days // 7) % 2 == 0
+        if (day.day - 1) // 7 != (self.anchor_date.day - 1) // 7:
+            return False
+        months_apart = (day.year - self.anchor_date.year) * 12 + (day.month - self.anchor_date.month)
+        return months_apart % self.MONTHS_BY_CADENCE[self.cadence] == 0
 
     def clean(self) -> None:
         """Half hour grid guard for a carved window (the auto-registered Django admin runs this too).
@@ -9363,21 +10048,77 @@ class OrientationAvailability(models.Model):
         from django.core.exceptions import ValidationError
 
         super().clean()
-        if self.slot_minutes is None:
-            return
         errors: dict[str, str] = {}
-        for field in ("start_time", "end_time"):
-            value = getattr(self, field)
-            if value is not None and (value.minute % 30 != 0 or value.second or value.microsecond):
-                errors[field] = "Orientation hours line up on half hour marks, e.g. 9:00 or 9:30."
+        # A rule on any cadence but weekly with no anchor cannot say which days are its
+        # own, and occurs_on raises on it, which would abort slot generation for every
+        # owner in the run. The hub form refuses it; this is the same refusal for the admin.
+        if self.cadence != self.Cadence.WEEKLY:
+            if self.anchor_date is None:
+                errors["anchor_date"] = "Pick the day these hours start."
+            elif self.anchor_date.weekday() != self.weekday:
+                # The start day is "the first day these hours run", and for a month based rule
+                # its place in the month is the rule. A start day on another weekday would
+                # silently mean a different Tuesday than the one the lead picked.
+                errors["anchor_date"] = (
+                    f"The start day must be a {self.get_weekday_display()}, the day these hours run."
+                )
+        if self.slot_minutes is not None:
+            for field in ("start_time", "end_time"):
+                value = getattr(self, field)
+                if value is not None and (value.minute % 30 != 0 or value.second or value.microsecond):
+                    errors[field] = "Orientation hours line up on half hour marks, e.g. 9:00 or 9:30."
+        errors.update(self._style_errors())
+        clash = self.overlapping_rule()
+        if clash is not None:
+            errors["start_time"] = (
+                f"These hours overlap your {clash.get_weekday_display()} "
+                f"{clash.start_time:%-I:%M %p}–{clash.end_time:%-I:%M %p} hours. "
+                "One person can be booked one way at a time."
+            )
         if errors:
             raise ValidationError(errors)
+
+    def _style_errors(self) -> dict[str, str]:
+        """The booking style's own shape rules: what an open row needs, and what a fixed row must have."""
+        errors: dict[str, str] = {}
+        if self.is_open:
+            if self.orienter_id is None:
+                errors["booking_style"] = "An open window needs a person."
+            if self.slot_minutes is not None:
+                errors["slot_minutes"] = "An open window has no slot length. Members pick any start that fits."
+        elif self.orientation_type_id is None:
+            errors["orientation_type"] = "Pick an orientation."
+        return errors
+
+    def overlapping_rule(self) -> OrientationAvailability | None:
+        """The orienter's other active row this one may not overlap, or None.
+
+        One person, one calendar (issue #532): an open window promises the whole span,
+        so it may not share a weekday and hours with any other row of the same person,
+        in any guild, and no other row may overlap an open one. Two fixed rows may
+        overlap: the Events Guild publishes two orientations over the same hours on
+        purpose. The check is by weekday alone, so two cadences that never fall on the
+        same date still clash; that is the conservative reading. Shared rows (no
+        orienter), paused rows and a row with no times yet take no part.
+        """
+        if self.orienter_id is None or not self.is_active or self.start_time is None or self.end_time is None:
+            return None
+        others = OrientationAvailability.objects.filter(
+            orienter_id=self.orienter_id,
+            weekday=self.weekday,
+            is_active=True,
+            start_time__lt=self.end_time,
+            end_time__gt=self.start_time,
+        ).exclude(pk=self.pk)
+        if not self.is_open:
+            others = others.filter(booking_style=self.BookingStyle.OPEN)
+        return others.order_by("start_time").first()
 
     def carve_spans(self, day: date_type) -> list[tuple[datetime_type, datetime_type]]:
         """Aware local ``(start, end)`` spans this window yields on ``day`` (already known to be its weekday).
 
         ``slot_minutes`` empty yields one span covering the whole window (the legacy
-        shape). Otherwise the window is stepped from ``start_time`` by
+        shape), and so does an open row. Otherwise the window is stepped from ``start_time`` by
         ``slot_minutes + buffer_minutes`` for as long as a whole slot still fits before
         ``end_time``. Stepping happens on local wall clock time and each instant is made
         aware individually, so a DST day never shifts the whole grid (the
@@ -9385,7 +10126,8 @@ class OrientationAvailability(models.Model):
         """
         window_start = datetime_type.combine(day, self.start_time)
         window_end = datetime_type.combine(day, self.end_time)
-        if self.slot_minutes is None:
+        if self.slot_minutes is None or self.is_open:
+            # An open row is always one window, whatever a stray slot_minutes says (clean refuses one).
             return [(timezone.make_aware(window_start), timezone.make_aware(window_end))]
         length = timedelta(minutes=self.slot_minutes)
         step = length + timedelta(minutes=self.buffer_minutes)
@@ -9408,22 +10150,27 @@ class OrientationAvailabilityBlockQuerySet(models.QuerySet):
 
 
 class OrientationAvailabilityBlock(models.Model):
-    """A one-off window of an orienter's available time that members book INTO (issue #283).
+    """An open window of an orienter's time that members book INTO (issues #283 and #532).
 
-    Unlike a fixed whole-window slot, a block is a flexible span: a member picks an
-    orientation type, then any 15-minute-aligned start inside the block that leaves
+    Unlike a fixed whole-window slot, a window is a flexible span: a member picks an
+    orientation type, then any 15-minute-aligned start inside the window that leaves
     room for the type's duration. Booking carves out a 1-seat ``FROM_BLOCK``
-    :class:`OrientationSlot` and rides the normal booking pipeline; the block row is
-    never physically split — free intervals are computed live as the block minus its
-    seat-holding segments, so cancellations and expired payment holds free their
-    segment automatically.
+    :class:`OrientationSlot` and rides the normal booking pipeline; the window row is
+    never physically split — free intervals are computed live as the window minus its
+    occupied segments, so cancellations and expired payment holds free their segment
+    automatically. Occupied means this window's own carved slots plus every other
+    seat holding slot of the same orienter over the span, in any guild: one person,
+    one calendar.
 
-    Blocks are type-agnostic (any of the guild's active types may book in) and are
-    posted one-off from the orientations dashboard. Deliberately NOT auto-generated
-    from weekly recurring rules — that stays a possible future mode (YAGNI for now).
-    Shrinking/editing a block is not supported either: edit = cancel + repost, which
-    keeps the model simple. Cancelling stops NEW bookings only; existing bookings
-    live on their own slots and are handled by the per-slot cancel tools.
+    A window is materialized by the slot generation job from an
+    :class:`OrientationAvailability` row set to any time in the window
+    (``availability`` set, keyed by row and start), or posted as a one off
+    (``availability`` empty). ``orientation_type`` empty means any of the guild's
+    active types may book in; set, only that one may. Shrinking/editing a window is
+    not supported: edit = cancel + repost, which keeps the model simple. Cancelling
+    stops NEW bookings only; existing bookings live on their own slots and are
+    handled by the per-slot cancel tools. In member and lead facing copy this is an
+    "open window"; the class keeps its name.
     """
 
     guild = models.ForeignKey(
@@ -9434,6 +10181,22 @@ class OrientationAvailabilityBlock(models.Model):
         on_delete=models.CASCADE,
         related_name="orientation_blocks_offered",
         help_text="The staff member available during this window. Required — a block is one person's posted time.",
+    )
+    availability = models.ForeignKey(
+        OrientationAvailability,
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="windows",
+        help_text="The recurring hours row that generated this window, if any. Empty for a one off.",
+    )
+    orientation_type = models.ForeignKey(
+        OrientationType,
+        null=True,
+        blank=True,
+        on_delete=models.CASCADE,
+        related_name="windows",
+        help_text="Only this orientation may book into the window. Empty means any of the guild's active orientations.",
     )
     starts_at = models.DateTimeField(help_text="When the availability window opens.")
     ends_at = models.DateTimeField(help_text="When the availability window closes.")
@@ -9454,22 +10217,45 @@ class OrientationAvailabilityBlock(models.Model):
                 condition=Q(ends_at__gt=models.F("starts_at")),
                 name="ck_orientationblock_end_after_start",
             ),
+            # Generation is idempotent on (row, start), exactly like a slot.
+            models.UniqueConstraint(
+                fields=["availability", "starts_at"],
+                condition=Q(availability__isnull=False),
+                name="uq_orientblock_rule_start",
+            ),
         ]
 
     def __str__(self) -> str:
         return f"{self.guild.name} block: {self.starts_at:%Y-%m-%d %H:%M}–{self.ends_at:%H:%M} ({self.orienter})"
 
+    @property
+    def type_display(self) -> str:
+        """The orientation this window is for, or "Any orientation"."""
+        if self.orientation_type is not None:
+            return self.orientation_type.name
+        return "Any orientation"
+
+    def admits(self, orientation_type: OrientationType) -> bool:
+        """Whether ``orientation_type`` may book into this window: any type, or the one it is for."""
+        return self.orientation_type_id is None or self.orientation_type_id == orientation_type.pk
+
     SNAP_MINUTES = 15
 
     def _busy_spans(self) -> list[tuple[datetime_type, datetime_type]]:
-        """Merged occupied segments: this block's live carved-out slot spans, sorted.
+        """Merged occupied segments: this window's live carved-out slots plus the orienter's other busy time.
 
-        A slot occupies its span while it is uncancelled and either holds a seat
+        A carved slot occupies its span while it is uncancelled and either holds a seat
         (``PENDING_PAYMENT | REQUESTED | CONFIRMED`` booking) or has no bookings yet —
         the momentary gap between the segment being carved out and its booking row
         landing. A slot whose bookings all resolved (cancelled / declined / released
         hold) frees its segment, as does a cancelled slot; orphan bookingless slots
         are deleted by the failure paths.
+
+        One person, one calendar (issue #532): the orienter's seat holding slots
+        anywhere else over this span, a fixed slot, a one off or another window's
+        segment, in any guild, occupy this window too, so two members can never book
+        the same person at once. An empty fixed slot does not: nobody is committed to it
+        yet, and the hours editor refuses the recurring overlap at save time.
         """
         seat_holding = [
             OrientationBooking.Status.PENDING_PAYMENT,
@@ -9483,11 +10269,16 @@ class OrientationAvailabilityBlock(models.Model):
                 booking_count=Count("bookings"),
             )
             .filter(Q(holder_count__gt=0) | Q(booking_count=0))
-            .order_by("starts_at")
+            .values_list("starts_at", "ends_at")
+        )
+        elsewhere = (
+            OrientationSlot.objects.holding_seats()
+            .filter(orienter_id=self.orienter_id, starts_at__lt=self.ends_at, ends_at__gt=self.starts_at)
+            .exclude(block_id=self.pk)
+            .values_list("starts_at", "ends_at")
         )
         merged: list[tuple[datetime_type, datetime_type]] = []
-        for slot in occupied:
-            start, end = slot.starts_at, slot.ends_at
+        for start, end in sorted([*occupied, *elsewhere]):
             if merged and start <= merged[-1][1]:
                 merged[-1] = (merged[-1][0], max(merged[-1][1], end))
             else:
@@ -9509,8 +10300,11 @@ class OrientationAvailabilityBlock(models.Model):
         return free
 
     def valid_starts_for(self, orientation_type: OrientationType) -> list[datetime_type]:
-        """Future 15-minute-aligned starts (measured from the block start) that fit the type's duration."""
-        if self.is_cancelled:
+        """Future 15-minute-aligned starts (measured from the block start) that fit the type's duration.
+
+        A cancelled window, or one for another orientation only, offers none.
+        """
+        if self.is_cancelled or not self.admits(orientation_type):
             return []
         duration = timedelta(minutes=orientation_type.duration_minutes)
         step = timedelta(minutes=self.SNAP_MINUTES)
@@ -9543,6 +10337,8 @@ class OrientationAvailabilityBlock(models.Model):
             raise OrientationError("That availability window was cancelled. Please pick another time.")
         if orientation_type.guild_id != self.guild_id or not orientation_type.is_active:
             raise OrientationError("That orientation isn't offered right now.")
+        if not self.admits(orientation_type):
+            raise OrientationError(f"That window is for {cast(OrientationType, self.orientation_type).name} only.")
         if starts_at <= timezone.now():
             raise OrientationError("That time's already past. Please pick a future time.")
         offset = starts_at - self.starts_at
@@ -9573,6 +10369,20 @@ class OrientationAvailabilityBlock(models.Model):
         """Call off the window — stops NEW bookings only; existing carved-out slots live on."""
         self.is_cancelled = True
         self.save(update_fields=["is_cancelled"])
+
+    def mark_retired(self) -> None:
+        """Cancel a generated window its hours no longer justify AND detach it from its row, in one save.
+
+        The window stops taking bookings; its booked segments live on their own slots.
+        With ``availability`` cleared it no longer owns the ``(row, start)`` key, so the
+        row regenerates a fresh window at that time once it is live again, and that
+        fresh window sees the old segments as busy through the orienter wide check. A
+        manager's deliberate :meth:`cancel` stays attached and dead on purpose, so the
+        time is never quietly re-offered.
+        """
+        self.is_cancelled = True
+        self.availability = None
+        self.save(update_fields=["is_cancelled", "availability"])
 
 
 class OrientationSlotQuerySet(models.QuerySet):
@@ -9954,6 +10764,13 @@ class OrientationSlot(models.Model):
             raise OrientationError("This orientation slot is not available to book.")
         if member.is_oriented_for_type(self.orientation_type):
             raise OrientationError("You've already completed this orientation.")
+        # The block until paid (#456): an unpaid late cancellation fee closes every member
+        # road into a new booking. A staffer seating someone by hand is not blocked by it.
+        if not by_staff:
+            from billing.late_fees import unpaid_fee_for
+
+            if unpaid_fee_for(member) is not None:
+                raise OrientationError("Pay your late cancellation fee to book again.")
         if member.pending_payment_orientation_for_type(self.orientation_type) is not None:
             raise OrientationError(
                 "You already have a checkout in progress for this orientation. Resume or cancel it first."
@@ -10288,6 +11105,131 @@ class OrientationBooking(models.Model):
         from billing.refunds import issue_refund
 
         return issue_refund(self, amount_cents=amount_cents, reason=reason, actor=actor)
+
+
+class OrientationRecordQuerySet(models.QuerySet):
+    def for_guild(self, guild_id: int) -> OrientationRecordQuerySet:
+        """Records whose orientation type belongs to this guild (the dashboard's guild filter)."""
+        return self.filter(orientation_type__guild_id=guild_id)
+
+    def with_related(self) -> OrientationRecordQuerySet:
+        """Everything a listing row reads (people, owner, the recording admin's member) in one query."""
+        return self.select_related(
+            "member",
+            "oriented_by",
+            "recorded_by",
+            "recorded_by__member",
+            "orientation_type__guild",
+            "orientation_type__equipment",
+        )
+
+
+class OrientationRecord(models.Model):
+    """An orientation an admin recorded by hand, outside the booking flow (issue #465).
+
+    A booking that completes is one road to "oriented"; this is the other, for an
+    orientation that happened off the books (before the app, in person, on another
+    form). :meth:`Member.completed_orientation_type_ids` reads both tables, so every
+    gate in the app treats a record and a completed booking the same. One record per
+    member per type. A record never touches a booking and a booking never touches a
+    record. Recording and removal are silent: no email, no Discord, one
+    :class:`core.models.SiteActivity` row each.
+    """
+
+    member = models.ForeignKey(
+        Member, on_delete=models.CASCADE, related_name="orientation_records", help_text="Who was oriented."
+    )
+    orientation_type = models.ForeignKey(
+        OrientationType,
+        on_delete=models.PROTECT,
+        related_name="records",
+        help_text="The orientation they completed. PROTECT: a type with recorded history cannot be deleted.",
+    )
+    completed_on = models.DateField(help_text="The day the orientation happened.")
+    oriented_by = models.ForeignKey(
+        Member,
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="orientation_records_given",
+        help_text="Who ran the orientation, when known.",
+    )
+    recorded_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="+",
+        help_text="The admin who entered this record.",
+    )
+    note = models.TextField(
+        blank=True, default="", help_text="Optional note from the admin, e.g. where or how the orientation happened."
+    )
+    created_at = models.DateTimeField(auto_now_add=True, help_text="When the record was entered.")
+
+    objects = OrientationRecordQuerySet.as_manager()
+
+    class Meta:
+        ordering = ["-completed_on", "-created_at"]
+        constraints = [
+            models.UniqueConstraint(fields=["member", "orientation_type"], name="uq_orientationrecord_member_type"),
+        ]
+
+    def __str__(self) -> str:
+        return f"{self.member.display_name} — {self.orientation_type} (recorded, {self.completed_on:%Y-%m-%d})"
+
+    @property
+    def recorded_by_name(self) -> str:
+        """Who entered the record, as the app names people: their member name, else their email."""
+        user = self.recorded_by
+        if user is None:
+            return "Unknown"
+        # A superuser acting without a linked Member (emergency access) has no member row;
+        # the reverse one-to-one raises an AttributeError subclass, which getattr absorbs.
+        member = getattr(user, "member", None)
+        if member is None:
+            return user.email
+        return cast(Member, member).display_name
+
+    def activity_payload(self) -> dict[str, str]:
+        """The activity feed's per-kind detail: the type and its owner, by name."""
+        return {"orientation_type": self.orientation_type.name, "owner": self.orientation_type.owner_name}
+
+    @classmethod
+    def record(
+        cls,
+        member: Member,
+        orientation_type: OrientationType,
+        *,
+        completed_on: date_type,
+        oriented_by: Member | None = None,
+        note: str = "",
+        recorded_by: User | None = None,
+    ) -> OrientationRecord:
+        """Enter one hand-recorded orientation and log it. Silent otherwise: no email, no Discord."""
+        from core.models import SiteActivity
+
+        record = cls.objects.create(
+            member=member,
+            orientation_type=orientation_type,
+            completed_on=completed_on,
+            oriented_by=oriented_by,
+            note=note,
+            recorded_by=recorded_by,
+        )
+        SiteActivity.log(
+            SiteActivity.Kind.ORIENTATION_RECORDED, actor=recorded_by, target=member, payload=record.activity_payload()
+        )
+        return record
+
+    def remove(self, *, removed_by: User | None) -> None:
+        """Delete this record and log it. Never touches a booking."""
+        from core.models import SiteActivity
+
+        member = self.member
+        payload = self.activity_payload()
+        self.delete()
+        SiteActivity.log(SiteActivity.Kind.ORIENTATION_RECORD_REMOVED, actor=removed_by, target=member, payload=payload)
 
 
 # ── Signage slideshow ─────────────────────────────────────────────────────────
@@ -11227,6 +12169,7 @@ class Equipment(HeroCropMixin, models.Model):
         """
 
         OK = "ok", "You're all set"
+        NEEDS_FEE = "needs_fee", "Pay your late cancellation fee to book again"
         NEEDS_ORIENTATION = "needs_orientation", "Orientation needed"
         NEEDS_GUILD = "needs_guild", "Guild members only"
         INACTIVE_MEMBER = "inactive_member", "Membership inactive"
@@ -11308,6 +12251,13 @@ class Equipment(HeroCropMixin, models.Model):
     )
     max_active_reservations_per_member = models.PositiveSmallIntegerField(
         default=2, help_text="How many upcoming reservations one member can hold on this equipment at once."
+    )
+    late_cancel_fee_cents = models.PositiveIntegerField(
+        default=0,
+        help_text=(
+            "Fee for cancelling a reservation or an owned orientation inside the site's cancellation notice "
+            "window, in cents. 0 = no fee (the default). Applies only while Site Settings charges late fees."
+        ),
     )
     is_closed = models.BooleanField(
         default=False,
@@ -11426,17 +12376,25 @@ class Equipment(HeroCropMixin, models.Model):
         *,
         oriented_type_ids: set[int] | None = None,
         member_guild_ids: set[int] | None = None,
+        has_unpaid_fee: bool | None = None,
     ) -> str:
         """The one :class:`AccessState` between ``member`` and this equipment.
 
         Drives both the index card badge and the detail-page requirements banner.
-        The two optional sets are the bulk-caller optimization for the index page —
-        pass the member's completed orientation-type pks and joined-guild pks so a
-        page of cards costs two queries, not two per card. Omit both and the checks
-        query per call.
+        The optional arguments are the bulk-caller optimization for the index page —
+        pass the member's completed orientation-type pks, joined-guild pks and whether
+        they owe a late cancellation fee (#456) so a page of cards costs three queries,
+        not three per card. Omit them and the checks query per call. An unpaid fee wins
+        over every other gap: it blocks booking whatever else is met.
         """
         if member is None or member.status != Member.Status.ACTIVE:
             return self.AccessState.INACTIVE_MEMBER
+        if has_unpaid_fee is None:
+            from billing.late_fees import unpaid_fee_for
+
+            has_unpaid_fee = unpaid_fee_for(member) is not None
+        if has_unpaid_fee:
+            return self.AccessState.NEEDS_FEE
         required_orientation = self.required_orientation
         if required_orientation is not None:
             if oriented_type_ids is not None:
@@ -11478,6 +12436,12 @@ class Equipment(HeroCropMixin, models.Model):
             and not member.guild_memberships.filter(guild_id=guild.pk).exists()
         ):
             blockers.append(f"Only {guild.name} members can book this.")
+        # The block until paid (#456): the same sentence ensure_bookable_for raises, with the amount.
+        from billing.late_fees import unpaid_fee_for
+
+        unpaid_fee = unpaid_fee_for(member)
+        if unpaid_fee is not None:
+            blockers.append(f"Pay your {unpaid_fee.amount_display} late cancellation fee to book again.")
         if self.is_closed:
             blockers.append(self.closed_message or "Closed for now.")
         return blockers
@@ -11891,6 +12855,11 @@ class EquipmentReservation(models.Model):
     by ``reserve()`` re-validating under ``select_for_update`` on the Equipment row.
     """
 
+    # View-attached (#456): the cancel modal's fee line, set by the schedule builder on the
+    # member's own rows only while a cancel right now would be late. Defaults to "" so a
+    # renderer that never set it cannot raise in the template.
+    late_cancel_warning: str = ""
+
     class Status(models.TextChoices):
         CONFIRMED = "confirmed", "Confirmed"
         CANCELLED = "cancelled", "Cancelled"
@@ -11956,15 +12925,20 @@ class EquipmentReservation(models.Model):
             and self.cancelled_by_id != self.member_id
         )
 
-    def cancel(self, actor: Member, *, reason: str = "", as_manager: bool = False) -> None:
+    def cancel(self, actor: Member, *, reason: str = "", as_manager: bool = False) -> LateCancellationFee | None:
         """Cancel this reservation as ``actor`` — the member themselves, or a manager.
 
-        Self cancel: future reservations only, no reason needed, notifies nobody (no
-        approver exists to care). Manager cancel: also allowed while in progress,
-        requires a reason the member will see, and notifies the member. A manager
-        cancelling THEIR OWN row from the manage tab passes ``as_manager=True`` —
-        the manager guards apply (reason honored, in-progress allowed) but nobody is
-        notified, because the member IS the actor.
+        Self cancel: future reservations only, no reason needed, the member gets their own
+        "you cancelled" email, and a cancel inside the notice window creates the late
+        cancellation fee (#456) in the same transaction as the cancel. Manager cancel: also
+        allowed while in progress, requires a reason the member will see, notifies the
+        member, and never charges. A manager cancelling THEIR OWN row from the manage tab
+        passes ``as_manager=True`` — the manager guards apply (reason honored, in-progress
+        allowed), nobody is notified because the member IS the actor, and nothing charges.
+
+        Returns:
+            The :class:`~billing.models.LateCancellationFee` a late self cancel created (or
+            already carried), else ``None``; the view sends the member to pay it.
 
         Raises:
             EquipmentError: When already cancelled, already started (self cancel),
@@ -11978,24 +12952,52 @@ class EquipmentReservation(models.Model):
         is_own_row = actor.pk == self.member_id
         acting_as_manager = as_manager or not is_own_row
         cleaned_reason = reason.strip()
+        self._ensure_cancel_allowed(actor, acting_as_manager=acting_as_manager, reason=cleaned_reason, now=now)
+        fee: LateCancellationFee | None = None
+        with transaction.atomic():
+            # A conditional update keyed on status, not a save: two requests that both loaded
+            # this row as CONFIRMED (two tabs, a double POST, a network retry) both pass the
+            # guards above, and a plain save would let both of them charge the fee. Only the
+            # request that flips the row owns the cancel; the other is told it was already
+            # done. The fee lands in the same transaction, so a cancel that does not commit
+            # charges nothing.
+            flipped = EquipmentReservation.objects.filter(pk=self.pk, status=self.Status.CONFIRMED).update(
+                status=self.Status.CANCELLED,
+                cancelled_by=actor,
+                cancelled_reason=cleaned_reason,
+                cancelled_at=now,
+            )
+            if not flipped:
+                raise EquipmentError("This reservation was already cancelled.")
+            self.status = self.Status.CANCELLED
+            self.cancelled_by = actor
+            self.cancelled_reason = cleaned_reason
+            self.cancelled_at = now
+            if not acting_as_manager:
+                from billing.late_fees import charge_if_late
+
+                fee = charge_if_late(self, now=now)
+        from membership import equipment as equipment_service
+
+        if not acting_as_manager:
+            equipment_service.notify_self_cancelled(self, fee)
+        elif not is_own_row:
+            equipment_service.notify_manager_cancelled(self)
+        return fee
+
+    def _ensure_cancel_allowed(
+        self, actor: Member, *, acting_as_manager: bool, reason: str, now: datetime_type
+    ) -> None:
+        """The :meth:`cancel` guards: who may cancel, the reason a manager owes, and the timing."""
         if acting_as_manager:
             if not actor.can_manage_equipment(self.equipment):
                 raise EquipmentError("Only the reserving member or an equipment manager can cancel this.")
-            if not cleaned_reason:
+            if not reason:
                 raise ValueError("A manager cancel needs a reason the member will see.")
             if self.ends_at <= now:
                 raise EquipmentError("This reservation already ended.")
         elif self.starts_at <= now:
             raise EquipmentError("This reservation already started. Ask a manager if it needs cancelling.")
-        self.status = self.Status.CANCELLED
-        self.cancelled_by = actor
-        self.cancelled_reason = cleaned_reason
-        self.cancelled_at = now
-        self.save(update_fields=["status", "cancelled_by", "cancelled_reason", "cancelled_at"])
-        if acting_as_manager and not is_own_row:
-            from membership import equipment as equipment_service
-
-            equipment_service.notify_manager_cancelled(self)
 
 
 # ---------------------------------------------------------------------------------------
@@ -13689,6 +14691,7 @@ _WIKI_BODY_MAX_CHARS = 60_000
 # a method so a missing state is a loud KeyError rather than a silently blank line.
 _WIKI_ACCESS_LINES: dict[str, str] = {
     "ok": "You are set up for this tool.",
+    "needs_fee": "Pay your late cancellation fee to book again.",
     "needs_orientation": "Orientation needed before you use this.",
     "needs_guild": "You need to join the guild before you use this.",
     "inactive_member": "Your membership needs to be active to use this.",
@@ -14863,3 +15866,74 @@ class WikiSearchMiss(models.Model):
 
     def __str__(self) -> str:
         return f"'{self.query}' found nothing ({self.created_at:%b %d})"
+
+
+class MemberAgreementAcceptance(models.Model):
+    """A record that a member accepted the Member Agreement.
+
+    Rows are never deleted, and there is one per acceptance rather than one per member, so the
+    history survives a re-release.
+
+    WHAT THIS IS AND IS NOT. A click-accept here is evidence of consent, not a signature. It is
+    an interim measure: once PLM's self-hosted DocuSeal is built out properly, members should be
+    asked to sign the Member Agreement for real, and this record becomes the lighter-weight thing
+    it is good at — re-consent to a revised Code of Conduct, say, where a full signing ceremony
+    would be overkill.
+
+    WHAT MAKES A RECORD WORTH HAVING. In a dispute the questions are who agreed, when, and to
+    WHAT. The first two were already answered. The third was not: this model used to store only
+    ``agreement_url``, and a URL is not text — when the document behind it changes, the record
+    silently stops describing what the member actually saw. ``document_version`` and
+    ``content_sha256`` answer it, by pinning the version and a fingerprint of the bytes that were
+    at that URL at the moment they clicked.
+    """
+
+    member = models.ForeignKey(
+        "membership.Member",
+        on_delete=models.CASCADE,
+        related_name="member_agreement_acceptances",
+        help_text="The member who accepted the agreement.",
+    )
+    accepted_at = models.DateTimeField(auto_now_add=True, help_text="When the member accepted the agreement.")
+    agreement_url = models.URLField(
+        blank=True,
+        help_text="The URL of the agreement the member read, as configured at the time.",
+    )
+    document_version = models.CharField(
+        max_length=40,
+        blank=True,
+        default="",
+        help_text=(
+            "The released version accepted, from Site Settings at the time. Blank on rows written "
+            "before versions were recorded — blank means unknown, never 'the current one'."
+        ),
+    )
+    content_sha256 = models.CharField(
+        max_length=64,
+        blank=True,
+        default="",
+        help_text=(
+            "SHA-256 of the document fetched from agreement_url as they accepted. Proves the text "
+            "has not changed since. Blank if the fetch failed — accepting is never blocked on it."
+        ),
+    )
+    content_length = models.PositiveIntegerField(
+        null=True,
+        blank=True,
+        help_text="Size in bytes of the document that was hashed. A cheap second check on the hash.",
+    )
+    user_agent = models.TextField(
+        blank=True,
+        default="",
+        help_text="The browser and device they accepted from, as reported. Corroborates the IP.",
+    )
+    ip_address = models.GenericIPAddressField(null=True, blank=True, help_text="The IP they accepted from.")
+
+    class Meta:
+        # Deliberately NOT unique on member. One row per acceptance: a member who accepts v1.0.0
+        # and later v2.0.0 has two, and the older row is what says what they agreed to back then.
+        indexes = [models.Index(fields=["member", "-accepted_at"], name="member_agr_accept_idx")]
+
+    def __str__(self) -> str:
+        version = f" v{self.document_version}" if self.document_version else ""
+        return f"{self.member.display_name} accepted{version} at {self.accepted_at.date()}"

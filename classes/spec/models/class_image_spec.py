@@ -7,15 +7,16 @@ from io import BytesIO
 import pytest
 from django.core.exceptions import ValidationError
 from django.core.files.uploadedfile import SimpleUploadedFile
+from PIL import Image
 
 from classes.factories import CategoryFactory, ClassImageFactory, ClassOfferingFactory
 from classes.models import MAX_GALLERY_IMAGES, ClassImage
 
 
 def _image_file(name: str = "shot.png") -> SimpleUploadedFile:
-    # Minimal PNG: an 8-byte signature is enough for Django's ImageField when
-    # PIL isn't validating (tests run with validators that only check size).
-    buf = BytesIO(b"\x89PNG\r\n\x1a\n" + b"\x00" * 64)
+    # A real PNG: the gallery refuses bytes Pillow cannot open (#498).
+    buf = BytesIO()
+    Image.new("RGB", (8, 8)).save(buf, "PNG")
     return SimpleUploadedFile(name, buf.getvalue(), content_type="image/png")
 
 
@@ -63,6 +64,15 @@ def describe_ClassImage():
 
 
 def describe_add_gallery_images():
+    def it_refuses_the_whole_batch_when_one_file_is_not_an_image(db):
+        offering = ClassOfferingFactory()
+        before = ClassImage.objects.filter(class_offering=offering).count()
+        text = SimpleUploadedFile("notes.png", b"just some notes", content_type="image/png")
+
+        with pytest.raises(ValidationError, match="not a photo we can open"):
+            offering.add_gallery_images([_image_file("a.png"), text])
+        assert ClassImage.objects.filter(class_offering=offering).count() == before
+
     def it_creates_rows_for_each_file(db):
         offering = ClassOfferingFactory(gallery=0)
         offering.add_gallery_images([_image_file("a.png"), _image_file("b.png")])

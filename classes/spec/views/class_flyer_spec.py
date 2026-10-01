@@ -81,7 +81,25 @@ def describe_class_flyer():
             client.force_login(admin_user)
             body = client.get(reverse("classes:class_flyer", args=[free_offering.pk])).content.decode()
             assert "pl-flyer__hero-img" in body
+            assert f'src="{free_offering.image.url}"' in body
             assert "pl-flyer__hero-placeholder" not in body
+
+        def it_renders_the_copy_cut_to_the_crop_box_when_the_class_has_one(admin_user, client, db):
+            # Issue #547: the flyer shows what was inside the composer's box, like the banner.
+            offering = ClassOfferingFactory(
+                image__width=1000,
+                image__height=600,
+                hero_crop_x=100,
+                hero_crop_y=50,
+                hero_crop_w=400,
+                hero_crop_h=225,
+            )
+            client.force_login(admin_user)
+            body = client.get(reverse("classes:class_flyer", args=[offering.pk])).content.decode()
+            assert "pl-flyer__hero-img" in body
+            assert f'src="{offering.hero_cropped.url}"' in body
+            assert "hero-crops/" in offering.hero_cropped.url
+            assert offering.image.url not in body
 
         def it_falls_back_to_the_legacy_image_url(admin_user, client, db):
             offering = ClassOfferingFactory(image="", legacy_image_url="https://legacy.example/hero.jpg")
@@ -120,6 +138,27 @@ def describe_class_flyer():
             body = client.get(reverse("classes:class_flyer", args=[offering.pk])).content.decode()
             assert "Flexible — arrange dates directly with the instructor." in body
 
+        def it_adds_the_window_to_the_flexible_line_when_set(admin_user, client, db):
+            from datetime import date, timedelta
+
+            from django.utils import timezone
+
+            from classes.factories import ClassSessionFactory
+
+            offering = ClassOfferingFactory(
+                scheduling_model=ClassOffering.SchedulingModel.FLEXIBLE,
+                flexible_starts_on=date(2026, 11, 2),
+                flexible_ends_on=date(2026, 12, 1),
+            )
+            # A session row still on the class (the pre #545 shape) is never read on the flyer.
+            start = timezone.now() + timedelta(days=2)
+            ClassSessionFactory(class_offering=offering, starts_at=start, ends_at=start + timedelta(hours=703))
+            client.force_login(admin_user)
+            body = client.get(reverse("classes:class_flyer", args=[offering.pk])).content.decode()
+            assert "Flexible — arrange dates directly with the instructor." in body
+            assert '<p class="pl-flyer__line"><strong>Nov 2 to Dec 1, 2026</strong></p>' in body
+            assert "Series ·" not in body and date_filter(localtime(start), "l, F j, Y") not in body
+
         def it_shows_tba_when_no_sessions_and_not_flexible(admin_user, client, db):
             offering = ClassOfferingFactory(scheduling_model=ClassOffering.SchedulingModel.FIXED)
             client.force_login(admin_user)
@@ -132,17 +171,16 @@ def describe_class_flyer():
             body = client.get(reverse("classes:class_flyer", args=[free_offering.pk])).content.decode()
             assert "<strong>Free</strong>" in body
 
-        def it_shows_the_price_and_member_price_for_a_paid_class(admin_user, client, db):
-            offering = ClassOfferingFactory(price_cents=5000, member_discount_pct=10)
+        def it_shows_the_price_for_a_paid_class(admin_user, client, db):
+            offering = ClassOfferingFactory(price_cents=5000)
             client.force_login(admin_user)
             body = client.get(reverse("classes:class_flyer", args=[offering.pk])).content.decode()
             assert "<strong>$50</strong>" in body
-            assert "$45 for Past Lives members" in body
 
     def describe_edit_page_link():
         def it_links_the_flyer_from_the_admin_edit_page(admin_user, client, free_offering, db):
             client.force_login(admin_user)
-            body = client.get(reverse("classes:admin_class_edit", args=[free_offering.pk])).content.decode()
+            body = client.get(reverse("classes:teach_class_edit", args=[free_offering.pk])).content.decode()
             assert reverse("classes:class_flyer", args=[free_offering.pk]) in body
             assert "Open printable flyer" in body
 
@@ -253,7 +291,7 @@ def describe_share_card():
 
     def _admin_edit(client, user, offering):
         client.force_login(user)
-        resp = client.get(reverse("classes:admin_class_edit", args=[offering.pk]))
+        resp = client.get(reverse("classes:teach_class_edit", args=[offering.pk]))
         assert resp.status_code == 200
         return resp.content.decode()
 

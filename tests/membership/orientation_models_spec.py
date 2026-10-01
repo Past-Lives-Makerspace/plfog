@@ -563,6 +563,40 @@ def describe_per_type_orientation():
                 slot.book(MemberFactory())
 
 
+def describe_late_fee_block():
+    """An unpaid late cancellation fee closes every member road into a booking; staff bypass it (#456)."""
+
+    def _blocked_member():
+        from tests.billing.factories import LateCancellationFeeFactory
+
+        member = MemberFactory()
+        fee = LateCancellationFeeFactory(
+            orientation_booking=OrientationBookingFactory(member=member, status="cancelled")
+        )
+        return member, fee
+
+    def it_refuses_a_booking_while_a_fee_is_unpaid():
+        member, _fee = _blocked_member()
+        slot = OrientationSlotFactory()
+        with pytest.raises(OrientationError, match="Pay your late cancellation fee to book again."):
+            slot.book(member)
+        assert not slot.bookings.exists()
+
+    def it_lets_staff_seat_the_member_anyway():
+        member, _fee = _blocked_member()
+        booking = OrientationSlotFactory().book(member, by_staff=True)
+        assert booking.status == OrientationBooking.Status.REQUESTED
+
+    def it_lifts_once_the_fee_is_paid():
+        from billing.models import LateCancellationFee
+
+        member, fee = _blocked_member()
+        fee.status = LateCancellationFee.Status.PAID
+        fee.save(update_fields=["status"])
+        booking = OrientationSlotFactory().book(member)
+        assert booking.status == OrientationBooking.Status.REQUESTED
+
+
 def describe_equipment_owned_types():
     """Equipment as a second OrientationType owner — constraints, helpers, gates."""
 

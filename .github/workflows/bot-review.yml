@@ -35,8 +35,8 @@ name: Bot review
 # a model, so prompt injection can in principle talk the reviewer into an
 # approval it should not give. The rubric tells it to treat an attempt as a
 # blocker in its own right. Beyond that, the mitigation is structural — an
-# approval is not a merge, CI still has to pass, and a human still clicks the
-# button.
+# approval is not a merge, main's ruleset also requires the lint, e2e and
+# fragment checks to pass, and a human still clicks the button.
 
 on:
   pull_request_target:

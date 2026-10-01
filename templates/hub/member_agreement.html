@@ -1,0 +1,50 @@
+{% extends "hub/base.html" %}
+{% load static %}
+{% block title %}Member Agreement - Past Lives Makerspace{% endblock %}
+{% block extra_head %}
+{{ block.super }}
+<link rel="stylesheet" href="{% static 'css/member-agreement.css' %}">
+{% endblock %}
+
+{% block content %}
+<!-- This is a full page, not a dismissible modal, so it does not use components/modal.html -->
+<div class="pl-modal-backdrop">
+  <div class="pl-modal pl-modal--md" tabindex="-1" x-init="$el.focus()">
+    <div class="pl-modal__header">
+      <h1 class="pl-modal__title">Member Agreement</h1>
+    </div>
+    
+    <div class="pl-modal__body">
+      <p class="pl-agreement-intro">Please read and accept the Member Agreement to continue.</p>
+      
+      <p class="pl-agreement-intro">
+        <a id="member-agreement-document" href="{{ agreement_url }}" target="_blank" rel="noopener" hx-boost="false">Read the Member Agreement (opens in a new tab)</a>.
+        Return to this tab to accept it.
+      </p>
+      
+      <form method="post" action="{% url 'hub_member_agreement' %}" x-data="{ agreed: false }">
+        {% csrf_token %}
+        {% if next %}
+          <input type="hidden" name="next" value="{{ next }}">
+        {% endif %}
+        
+        <div class="pl-agreement-checkbox">
+          {% include "components/form_field.html" with field=form.agree %}
+        </div>
+        
+        <button type="submit" class="pl-btn pl-btn--primary pl-btn--block" x-bind:disabled="!agreed">
+          Agree
+        </button>
+      </form>
+      
+      <div class="u-text-center pl-btn--spaced">
+        <form method="post" action="{% url 'account_logout' %}">
+          {% csrf_token %}
+          <button type="submit" class="pl-btn pl-btn--quiet">Sign out</button>
+        </form>
+      </div>
+    </div>
+  </div>
+</div>
+
+{% endblock %}

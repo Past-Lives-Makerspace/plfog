@@ -121,7 +121,7 @@ def describe_filing_a_report():
             assert WikiReport.objects.filter(page=page).count() == 2
 
     def it_takes_an_active_membership(client: Client):
-        login(client, "rep_lapsed", status=Member.Status.FORMER)
+        login(client, "rep_lapsed", status=Member.Status.INVITED)
         page = WikiPageFactory()
         assert client.post(_report_url(page), {"reason": "Something is wrong here."}).status_code == 403
 

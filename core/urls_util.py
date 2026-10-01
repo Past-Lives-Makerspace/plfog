@@ -13,5 +13,5 @@ def book_absolute_url(path: str) -> str:
     (e.g. billing's refund engine) don't reach into a private cross-app helper;
     ``classes.emails`` delegates here.
     """
-    base = getattr(settings, "BOOK_BASE_URL", "https://book.pastlives.space").rstrip("/")
+    base = getattr(settings, "BOOK_BASE_URL", "https://classes.pastlives.space").rstrip("/")
     return f"{base}{path}"

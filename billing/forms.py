@@ -605,3 +605,56 @@ class OrientationRefundForm(forms.Form):
     def amount_cents(self) -> int:
         """The validated refund amount in cents — what ``issue_refund`` takes."""
         return int(self.cleaned_data["amount"] * 100)
+
+
+class LateFeeRefundForm(forms.Form):
+    """Validates the late fee refund modal (#456, part 3); amount bounds live here, not in the view.
+
+    Mirrors :class:`OrientationRefundForm` against the fee's refundable remainder:
+    ``amount`` pre-fills with the full remainder (full refund is the default), ``reason``
+    is an internal note the payer never sees.
+    """
+
+    amount = forms.DecimalField(max_digits=8, decimal_places=2)
+    reason = forms.CharField(required=False, widget=forms.TextInput)
+
+    def __init__(self, *args: Any, fee: Any, **kwargs: Any) -> None:
+        self.fee = fee
+        refundable = (Decimal(fee.refundable_cents) / 100).quantize(Decimal("0.01"))
+        kwargs.setdefault("initial", {})
+        kwargs["initial"].setdefault("amount", refundable)
+        super().__init__(*args, **kwargs)
+        self.fields["amount"].label = "Amount"
+        self.fields["amount"].help_text = f"Up to ${refundable:.2f}. Edit for a partial refund."
+        self.fields["reason"].label = "Reason"
+        self.fields["reason"].help_text = "Internal note. The payer never sees this."
+
+    def clean_amount(self) -> Decimal:
+        amount: Decimal = self.cleaned_data["amount"]
+        refundable = Decimal(self.fee.refundable_cents) / 100
+        if not Decimal("0.01") <= amount <= refundable:
+            raise forms.ValidationError(f"Enter an amount between $0.01 and ${refundable:.2f}.")
+        return amount
+
+    @property
+    def amount_cents(self) -> int:
+        """The validated refund amount in cents, what ``issue_refund`` takes."""
+        return int(self.cleaned_data["amount"] * 100)
+
+
+class LateFeeWaiveForm(forms.Form):
+    """The Waive modal (#456, part 3): one required reason, kept on the fee for the record.
+
+    The prefix is the fee's own, so the equipment manage tab can render one modal per fee
+    without two fields sharing an id; the view builds the bound form the same way.
+    """
+
+    reason = forms.CharField(max_length=300, widget=forms.TextInput)
+
+    def __init__(self, *args: Any, fee: Any, **kwargs: Any) -> None:
+        kwargs.setdefault("prefix", f"waive-{fee.pk}")
+        super().__init__(*args, **kwargs)
+        self.fields["reason"].label = "Reason"
+        self.fields[
+            "reason"
+        ].help_text = "Kept with the fee for the record. The member is told the fee was waived, not why."

@@ -12,7 +12,6 @@ from classes.templatetags.classes_tags import (
     cents_as_price,
     duration_words,
     initials,
-    member_price_cents,
     recurrence_label,
     session_duration_words,
     session_time_range,
@@ -54,6 +53,46 @@ def describe_sort_header():
         result = sort_header("Title", "title", "created_at", "asc", "q=foo&status=active")
         assert "q=foo" in result["href"]
         assert "status=active" in result["href"]
+
+    def it_names_the_aria_sort_for_the_active_column():
+        assert sort_header("Title", "title", "title", "asc", "")["aria_sort"] == "ascending"
+        assert sort_header("Title", "title", "title", "desc", "")["aria_sort"] == "descending"
+
+    def it_treats_any_direction_but_desc_as_ascending():
+        # The ordering reads "desc" and nothing else, so the announced direction matches it.
+        assert sort_header("Title", "title", "title", "sideways", "")["aria_sort"] == "ascending"
+
+    def it_leaves_aria_sort_empty_when_not_active():
+        assert sort_header("Title", "title", "created_at", "asc", "")["aria_sort"] == ""
+
+
+def describe_sort_header_rendering():
+    def _render(current_sort: str, current_dir: str) -> str:
+        from django.template import Context, Template
+
+        template = Template('{% load classes_tags %}{% sort_header "Title" "title" sort sort_dir base_params %}')
+        return template.render(Context({"sort": current_sort, "sort_dir": current_dir, "base_params": ""}))
+
+    def it_renders_a_muted_double_arrow_on_an_inactive_header():
+        html = _render("created_at", "desc")
+        assert 'class="pl-sort-header"' in html
+        assert '<span class="pl-sort-header__glyph" aria-hidden="true">&#8597;</span>' in html
+        assert "aria-sort" not in html
+
+    def it_renders_an_up_arrow_and_aria_sort_when_ascending():
+        html = _render("title", "asc")
+        assert '<th aria-sort="ascending">' in html
+        assert 'class="pl-sort-header pl-sort-header--active"' in html
+        assert '<span class="pl-sort-header__glyph" aria-hidden="true">&#9650;</span>' in html
+
+    def it_renders_a_down_arrow_and_aria_sort_when_descending():
+        html = _render("title", "desc")
+        assert '<th aria-sort="descending">' in html
+        assert '<span class="pl-sort-header__glyph" aria-hidden="true">&#9660;</span>' in html
+
+    def it_wraps_the_label_so_the_hover_underline_skips_the_glyph():
+        html = _render("created_at", "desc")
+        assert '<span class="pl-sort-header__label">Title</span>' in html
 
 
 # ---------------------------------------------------------------------------
@@ -280,27 +319,6 @@ def describe_initials():
 
     def it_handles_single_word_name():
         assert initials("Prince") == "P"
-
-
-# ---------------------------------------------------------------------------
-# member_price_cents (simple_tag — called as a function)
-# ---------------------------------------------------------------------------
-
-
-def describe_member_price_cents():
-    def it_returns_none_when_discount_is_zero():
-        assert member_price_cents(5000, 0) == None  # noqa: E711
-
-    def it_applies_discount_and_returns_discounted_cents():
-        # 5000 cents * (100 - 10) / 100 = 4500
-        assert member_price_cents(5000, 10) == 4500
-
-    def it_returns_zero_for_100_percent_discount():
-        assert member_price_cents(5000, 100) == 0
-
-    def it_truncates_fractional_cents():
-        # 1000 cents * 90% = 999.something → int truncates
-        assert member_price_cents(1000, 10) == 900
 
 
 # ---------------------------------------------------------------------------

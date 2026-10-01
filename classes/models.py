@@ -2,17 +2,21 @@
 
 from __future__ import annotations
 
+import hashlib
+import io
 import logging
 import re
 import secrets
 from collections.abc import Callable, Iterable, Sequence
 from dataclasses import dataclass
-from datetime import date as date_type, datetime
+from datetime import UTC, date as date_type, datetime, timedelta
 from html import unescape
+from pathlib import Path
 from typing import TYPE_CHECKING, Any, NamedTuple, cast
 
 from django.conf import settings
 from django.core.exceptions import ValidationError
+from django.core.files.base import ContentFile
 from django.core.validators import MaxValueValidator
 from django.db import IntegrityError, models, transaction
 from django.db.models import Case, CheckConstraint, Exists, F, IntegerField, Max, OuterRef, Q, Value, When
@@ -21,15 +25,19 @@ from django.utils.formats import date_format
 from django.utils.html import strip_tags
 from django.utils.safestring import SafeString, mark_safe
 from django.utils.timezone import localtime
+from PIL import Image, ImageOps, UnidentifiedImageError
 
 from core.files import delete_orphan_on_replace
+from core.html_sanitize import is_editor_html, rich_body_to_text, rich_html_to_text
 from core.images import normalize_field_if_uploaded
 from core.models import HeroCropMixin
-from core.validators import validate_image_size
+from core.validators import validate_image_content, validate_image_size
 
 if TYPE_CHECKING:
     from django.contrib.auth.models import AbstractBaseUser, AnonymousUser, User
     from django.core.files.uploadedfile import UploadedFile
+
+    from django.forms import ModelForm
 
     from billing.models import PaymentRefund
     from membership.models import Member
@@ -81,7 +89,7 @@ A Page Worth Sharing: Your workshop gets its own page with a wide banner photo, 
 Your Words, Your Photos: Write it the way you would say it. Add a banner and as many gallery shots as you like, and choose which part of each photo shows.
 Sign Ups That Run Themselves: When it fills up, people join a waitlist. The moment a seat opens, the next person is offered it and held for three days.
 Everyone On One Screen: See who is coming, mark someone as paid, move a person to another date, and email the whole group without leaving the page.
-Paid Or On Sale: Set a price with a member discount, or put it on sale and the new price shows up everywhere on its own.
+Paid Or On Sale: Set a price, or put it on sale and the new price shows up everywhere on its own.
 Run It Again In One Click: Went well? Make a copy with new dates and keep everything else exactly as it was."""
 
 # The three prose sections are stored as the HTML the rich editor saves (what Quill
@@ -114,8 +122,7 @@ DEFAULT_TEACH_PAGE_FAQ = (
     "<h3>How Long Until I Hear Back?</h3>"
     "<p>An admin usually gets to it within a week. You can check this page any time to see where things stand.</p>"
     "<h3>Can I Charge for It?</h3>"
-    "<p>Yes. You set the price and an optional member discount when you build the page. Every class costs at least "
-    "$1.00.</p>"
+    "<p>Yes. You set the price when you build the page. Every class costs at least $1.00.</p>"
     "<h3>What If Nobody Signs Up?</h3>"
     "<p>You can cancel from your dashboard and everyone who signed up is told automatically. Nothing is stuck.</p>"
 )
@@ -214,6 +221,10 @@ class Category(HeroCropMixin, models.Model):
 # many offerings is stored exactly once.
 CLASS_IMAGE_PREFIX = "classes/images/"
 
+# The four columns the composer's crop box (or the Adjust tool's focal point) lives in.
+# ``ClassOffering.save()`` reads them from the stored row to tell whether the box moved.
+HERO_CROP_FIELDS = ("hero_crop_x", "hero_crop_y", "hero_crop_w", "hero_crop_h")
+
 # Ceiling on how much of the live legacy catalog a single sync run may archive. Above
 # this, ``ClassOfferingQuerySet.archive_missing_from_legacy_feed`` refuses to act and logs
 # instead — a feed that suddenly lists almost nothing is far likelier to be broken than to
@@ -222,6 +233,25 @@ LEGACY_ARCHIVE_GUARD_FRACTION = 0.5
 
 # Human-readable pointer used in the guard's log line.
 LEGACY_CMS_FEED_LABEL = "https://classes.pastlives.space/jsonapi/node/class"
+
+
+def _flexible_window_open() -> Q:
+    """A flexible class whose last day is unset or still to come, on the site's local date.
+
+    The queryset half of :attr:`ClassOffering.flexible_window_ended`: ``bookable()``,
+    ``upcoming_published()`` and the lifecycle annotation all read it, so the catalog, the
+    Upcoming facet and the Discord digest can never disagree about the day a class leaves.
+    Compares the date column to ``localdate()``, never to ``now()``.
+    """
+    today = timezone.localdate()
+    return Q(scheduling_model=ClassOffering.SchedulingModel.FLEXIBLE) & (
+        Q(flexible_ends_on__isnull=True) | Q(flexible_ends_on__gte=today)
+    )
+
+
+def _flexible_window_ended() -> Q:
+    """A flexible class whose last day is behind us: the day after, it reads Completed."""
+    return Q(scheduling_model=ClassOffering.SchedulingModel.FLEXIBLE, flexible_ends_on__lt=timezone.localdate())
 
 
 class ClassOfferingQuerySet(models.QuerySet["ClassOffering"]):
@@ -267,15 +297,26 @@ class ClassOfferingQuerySet(models.QuerySet["ClassOffering"]):
             applied += 1
         return applied
 
+    def for_legacy_alias(self, alias: str) -> "ClassOffering | None":
+        """The imported offering whose old classes.pastlives.space page was ``/class/<alias>``.
+
+        The import set each imported offering's slug to its Drupal path alias, with ``-legacy``
+        appended when the alias was already taken. ``None`` when nothing here came from that
+        page, or its slug has been changed since.
+        """
+        return self.exclude(legacy_cms_id="").filter(slug__in=[alias, f"{alias}-legacy"]).order_by("pk").first()
+
     def bookable(self) -> "ClassOfferingQuerySet":
         """Public classes still open for sign-up, soonest first.
 
-        Published and non-private, and either flexibly scheduled or with a
-        *first* session still in the future. A dated class — single or series —
-        drops out the instant its first session begins: you can't join a series
-        part-way through, so a started series is never bookable. Flexible /
-        undated classes sort last. (Seat availability is separate — see
-        ``spots_remaining``.)
+        Published and non-private, and either flexibly scheduled with its window still
+        open or with a *first* session still in the future. A dated class — single or
+        series — drops out the instant its first session begins: you can't join a series
+        part-way through, so a started series is never bookable. A flexible class stays
+        while it has no last day or its last day is today or later on the site's local
+        date (:func:`_flexible_window_open`); whatever session rows it still carries are
+        never read. Flexible / undated classes sort last. (Seat availability is separate —
+        see ``spots_remaining``.)
         """
         from django.db.models import Min
 
@@ -283,7 +324,10 @@ class ClassOfferingQuerySet(models.QuerySet["ClassOffering"]):
         return (
             self.public()
             .annotate(first_session_at=Min("sessions__starts_at"))
-            .filter(Q(scheduling_model=ClassOffering.SchedulingModel.FLEXIBLE) | Q(first_session_at__gte=now))
+            .filter(
+                _flexible_window_open()
+                | Q(scheduling_model=ClassOffering.SchedulingModel.FIXED, first_session_at__gte=now)
+            )
             .order_by(F("first_session_at").asc(nulls_last=True), "title")
             .distinct()
         )
@@ -350,6 +394,8 @@ class ClassOfferingQuerySet(models.QuerySet["ClassOffering"]):
                     last_session_at__lt=now,
                     then=Value(5),
                 ),
+                # A flexible class reads its own last day off the row; no extra annotation needed.
+                When(_flexible_window_ended(), status=ClassOffering.Status.PUBLISHED, then=Value(5)),
                 When(status=ClassOffering.Status.PUBLISHED, then=Value(4)),
                 When(status=ClassOffering.Status.CANCELLED, then=Value(6)),
                 default=Value(7),
@@ -394,25 +440,29 @@ class ClassOfferingQuerySet(models.QuerySet["ClassOffering"]):
         return self.with_lifecycle_inputs().filter(status=ClassOffering.Status.DRAFT, bounced=True)  # type: ignore[misc]  # django-stubs can't see annotate() aliases
 
     def upcoming_published(self) -> "ClassOfferingQuerySet":
-        """Published classes that have not finished: flexible, undated, or with a session still to come."""
+        """Published classes that have not finished: flexible with an open window, undated, or with a session still to come."""
+        now = timezone.now()
+        fixed = Q(scheduling_model=ClassOffering.SchedulingModel.FIXED)
+        return (
+            self.with_lifecycle_inputs()
+            .filter(status=ClassOffering.Status.PUBLISHED)
+            .filter(
+                _flexible_window_open()
+                | (fixed & Q(last_session_at__isnull=True))
+                | (fixed & Q(last_session_at__gte=now))
+            )
+        )
+
+    def completed(self) -> "ClassOfferingQuerySet":
+        """Published classes that have ended: a dated class's last session, or a flexible class's last day."""
         now = timezone.now()
         return (
             self.with_lifecycle_inputs()
             .filter(status=ClassOffering.Status.PUBLISHED)
             .filter(
-                Q(scheduling_model=ClassOffering.SchedulingModel.FLEXIBLE)
-                | Q(last_session_at__isnull=True)
-                | Q(last_session_at__gte=now)
+                Q(scheduling_model=ClassOffering.SchedulingModel.FIXED, last_session_at__lt=now)
+                | _flexible_window_ended()
             )
-        )
-
-    def completed(self) -> "ClassOfferingQuerySet":
-        """Published, dated classes whose last session has ended."""
-        now = timezone.now()
-        return self.with_lifecycle_inputs().filter(  # type: ignore[misc]  # django-stubs can't see annotate() aliases
-            status=ClassOffering.Status.PUBLISHED,
-            scheduling_model=ClassOffering.SchedulingModel.FIXED,
-            last_session_at__lt=now,
         )
 
     def cancelled(self) -> "ClassOfferingQuerySet":
@@ -440,10 +490,20 @@ class ClassOfferingQuerySet(models.QuerySet["ClassOffering"]):
         until an admin publishes or bounces it, instead of silently vanishing.
         Each ``.filter()`` call joins ``approvals`` separately on purpose: one
         approved ``guild_lead`` row AND one undecided ``admin`` row must exist.
+
+        The approved row must also have been opened for the guild the class is filed under
+        now, matching :meth:`ClassOffering._guild_lead_row_speaks_here`. A class that
+        collected its sign-off in another guild would otherwise sit on this dashboard under
+        the heading "your guild approved this", above a pipeline correctly showing that it
+        had not.
         """
         return (
             self.filter(status="pending", category__guild__in=member.staffed_guilds)
-            .filter(approvals__role="guild_lead", approvals__decision="approved")
+            .filter(
+                approvals__role="guild_lead",
+                approvals__decision="approved",
+                approvals__opened_for_guild=F("category__guild"),
+            )
             .filter(approvals__role="admin", approvals__decision="")
             .distinct()
         )
@@ -476,21 +536,29 @@ class ClassOfferingQuerySet(models.QuerySet["ClassOffering"]):
             | Q(category__guild__staff_memberships__member=member)
         ).distinct()
 
-    def spots_remaining_map(self) -> dict[int, int]:
+    def spots_remaining_map(self) -> dict[int, int | None]:
         """Map of ``{offering_pk: spots_remaining}`` for this queryset in one query.
 
         Mirrors the ``ClassOffering.spots_remaining`` property but batched, so the
-        catalog can show per-date seat counts without an N+1 of count queries.
+        catalog can show per-date seat counts without an N+1 of count queries. A flexible
+        class maps to ``None``, as the property answers: no seat cap, never full.
         """
         from django.db.models import Count, Q
 
         rows = self.annotate(
             used=Count(
                 "registrations",
-                filter=Q(registrations__status__in=[Registration.Status.CONFIRMED, Registration.Status.PENDING]),
+                filter=Q(registrations__status__in=CAPACITY_CONSUMING_REGISTRATION_STATUSES),
             )
-        ).values("pk", "capacity", "used")
-        return {row["pk"]: max(0, row["capacity"] - row["used"]) for row in rows}
+        ).values("pk", "capacity", "used", "scheduling_model")
+        return {
+            row["pk"]: (
+                None
+                if row["scheduling_model"] == ClassOffering.SchedulingModel.FLEXIBLE
+                else max(0, row["capacity"] - row["used"])
+            )
+            for row in rows
+        }
 
     def archive_missing_from_legacy_feed(self, seen_ids: Sequence[str]) -> int:
         """Archive legacy-CMS offerings absent from the feed, with a blast-radius guard.
@@ -636,8 +704,30 @@ DEFAULT_SALE_BANNER_TEXT = "🔥 Limited-time sale — save on this class while 
 # rows reads "Changes requested" everywhere instead of masquerading as a fresh draft.
 _BOUNCE_DECISIONS: tuple[str, ...] = ("changes_requested", "denied")
 
-# The shortest description that counts as "a real description" for readiness.
+# The shortest description that counts as "a real description" for readiness. Every string that
+# names the number to a member (the checklist hint, the field's help text, the composer's live
+# count) is built from this constant, so none of them can drift from the rule.
 READINESS_MIN_DESCRIPTION_CHARS = 40
+READINESS_DESCRIPTION_HINT = f"Write at least {READINESS_MIN_DESCRIPTION_CHARS} characters about the class."
+
+
+def description_length(text: str) -> int:
+    """How many characters a description counts for: what a member reads on the class page.
+
+    Editor HTML (a block tag is what marks it) counts its text alone: the tags are the editor's,
+    not the member's, and a ``<`` the instructor typed reached us as ``&lt;`` and is unescaped back
+    before counting. Plain text counts as typed, brackets and all, because the page renders it
+    escaped and a typed ``<safety glasses>`` is on screen in full (issue #425: ``strip_tags`` used
+    to read it as markup and refuse a description that was long enough). Either way whitespace
+    runs collapse to one space and the ends are trimmed, because the page shows a run of blank
+    lines as one break and a browser shows a run of spaces as one.
+    ``static/js/composer_description_count.js`` mirrors this rule for the live count, reading the
+    editor's own text, and ``classes/spec/models/class_readiness_spec.py`` pins that the two carry
+    the same expression.
+    """
+    if is_editor_html(text):
+        text = rich_html_to_text(text)
+    return len(" ".join(text.split()))
 
 
 @dataclass(frozen=True)
@@ -653,13 +743,23 @@ class ReadinessItem:
     anchor: str
 
 
+def flexible_window_has_ended(ends_on: date_type | None) -> bool:
+    """True once a flexible class's last day is behind the site's local date.
+
+    The one rule behind :attr:`ClassOffering.flexible_window_ended` and the admin create
+    preflight, which reads the validated form before any row exists. A class whose last day
+    is today still runs; it leaves the catalog tomorrow.
+    """
+    return ends_on is not None and ends_on < timezone.localdate()
+
+
 def readiness_items(
     *,
     has_hero: bool,
     has_gallery: bool,
     description: str,
     scheduling_model: str,
-    flexible_note: str,
+    flexible_window_ended: bool,
     has_future_session: bool,
     capacity: int,
 ) -> list[ReadinessItem]:
@@ -669,18 +769,21 @@ def readiness_items(
     it from the validated form BEFORE anything is written, so an unready class is refused
     without leaving a hero file, gallery files, or activity rows behind. One function, one
     rule set, so the two can never disagree.
+
+    A flexible class needs no dates and no note: the class page says what Flexible means
+    on its own. Its one Dates rule is that the window, when it has a last day, is still open.
     """
-    description_ok = len(" ".join(strip_tags(description or "").split())) >= READINESS_MIN_DESCRIPTION_CHARS
+    description_ok = description_length(description) >= READINESS_MIN_DESCRIPTION_CHARS
     if scheduling_model == "flexible":
-        dates_ok = bool(flexible_note.strip())
-        dates_hint = "Say how students pick a time."
+        dates_ok = not flexible_window_ended
+        dates_hint = "The last day has passed."
     else:
         dates_ok = has_future_session
         dates_hint = "Add at least one date."
     return [
         ReadinessItem(has_hero, "Hero photo", "Add a hero photo.", "hero-preview"),
         ReadinessItem(has_gallery, "Gallery photo", "Add one gallery photo.", "gallery-manager"),
-        ReadinessItem(description_ok, "Description", "Write a short description.", "id_description"),
+        ReadinessItem(description_ok, "Description", READINESS_DESCRIPTION_HINT, "id_description"),
         ReadinessItem(dates_ok, "Dates", dates_hint, "class-dates"),
         ReadinessItem(capacity >= 1, "Capacity", "Set how many can attend.", "id_capacity"),
     ]
@@ -808,7 +911,6 @@ class ClassOffering(HeroCropMixin, models.Model):
     age_minimum = models.PositiveIntegerField(null=True, blank=True, help_text="Minimum age.")
     age_guardian_note = models.TextField(blank=True, help_text="Notes about minors / guardians.")
     price_cents = models.PositiveIntegerField(help_text="Full price in cents.")
-    member_discount_pct = models.PositiveIntegerField(default=10, help_text="Auto-applied for verified members.")
     sale_enabled = models.BooleanField(
         default=False, help_text="When on, this class shows a sale banner and charges the sale price."
     )
@@ -846,6 +948,18 @@ class ClassOffering(HeroCropMixin, models.Model):
         help_text="Fixed scheduled sessions or flexible per-student scheduling.",
     )
     flexible_note = models.TextField(blank=True, help_text="Notes when scheduling_model=flexible.")
+    # Both nullable on purpose: the columns land while the previous release still serves, and
+    # its INSERTs omit them (STANDARDS.md section 10). Blank means "no window" on that end.
+    flexible_starts_on = models.DateField(
+        null=True,
+        blank=True,
+        help_text="First day a flexible class runs; blank when the window has no first day.",
+    )
+    flexible_ends_on = models.DateField(
+        null=True,
+        blank=True,
+        help_text="Last day a flexible class runs; it leaves the catalog the day after. Blank for no last day.",
+    )
     scheduling_type = models.CharField(
         max_length=20,
         choices=SchedulingType.choices,
@@ -865,9 +979,140 @@ class ClassOffering(HeroCropMixin, models.Model):
         validators=[validate_image_size],
         help_text="Hero image.",
     )
+    hero_cropped = models.ImageField(
+        upload_to="classes/hero-crops/",
+        # Nullable on purpose: the column lands while the previous release still serves,
+        # and its INSERTs omit it (STANDARDS.md section 10). Code writes "" when cleared.
+        null=True,
+        blank=True,
+        help_text=(
+            "The hero image cut to the composer's crop box. Rendered by save() whenever the box or the "
+            "image changes and shown in place of the image wherever the class's own photo appears; "
+            "empty when there is no box."
+        ),
+    )
 
     def get_hero_image_field_name(self) -> str:
         return "image"
+
+    @property
+    def hero_crop_box(self) -> tuple[int | None, int | None, int | None, int | None]:
+        """The four crop columns as one value, so a row can be compared with its stored state."""
+        return (self.hero_crop_x, self.hero_crop_y, self.hero_crop_w, self.hero_crop_h)
+
+    @property
+    def hero_object_position(self) -> str:
+        """CSS ``object-position`` for the photo :attr:`hero_image_url` returns.
+
+        With a cropped copy the copy IS the box, so it sits at its centre: the box centre
+        the mixin computes is a point on the source, and on any frame that is not 16:9 it
+        would drag the visible region off what the instructor framed. Without a copy the
+        mixin's answer stands: the box centre on the original, a focal point, or the default.
+        """
+        if self.hero_cropped:
+            return "50% 50%"
+        return super().hero_object_position
+
+    def focal_point_on_source(self, x_pct: int, y_pct: int) -> tuple[int, int]:
+        """A focal point picked on the cropped copy, mapped into the original's coordinates.
+
+        The class page shows the copy and the Adjust tool's save drops it, so a point picked
+        on the copy has to be re-expressed on the original the page then shows, or the
+        banner jumps. Through the box: the copy is the box, so a point P percent across it
+        sits at ``hero_crop_x + P% of hero_crop_w`` on the source, read as a percentage of
+        the source width; likewise for y. Clamped to 0..100. Unchanged when there is no
+        copy, no box, or the source dimensions cannot be read.
+        """
+        if not (self.hero_cropped and self.hero_crop_w and self.hero_crop_h):
+            return x_pct, y_pct
+        try:
+            src_w, src_h = self.image.width, self.image.height
+        except (FileNotFoundError, ValueError, AttributeError, OSError):
+            return x_pct, y_pct
+        if not (src_w and src_h):
+            return x_pct, y_pct
+        x = round(((self.hero_crop_x or 0) + x_pct / 100 * self.hero_crop_w) / src_w * 100)
+        y = round(((self.hero_crop_y or 0) + y_pct / 100 * self.hero_crop_h) / src_h * 100)
+        return min(max(x, 0), 100), min(max(y, 0), 100)
+
+    def _hero_source_bytes(self) -> bytes:
+        """The uploaded hero file's bytes, whether it is a fresh upload or already in storage.
+
+        Opens and closes the way ``ImageField.width`` does: a file that was closed (one
+        loaded from storage) is closed again afterwards, and one that was open (an upload
+        on its way to storage) is left open for the write that follows.
+        """
+        was_closed = self.image.closed
+        self.image.open("rb")
+        try:
+            return self.image.read()
+        finally:
+            if was_closed:
+                self.image.close()
+
+    def render_hero_crop(self) -> None:
+        """Cut ``hero_cropped``, the hero image inside the crop box, or clear it.
+
+        The composer stores the box as pixels on the uploaded file, so this cuts exactly
+        that rectangle (clamped to the image's edges) with Pillow, keeps the source
+        format (JPEG at quality 88, PNG as is, anything else as JPEG) and stores the
+        result through the field's storage under ``classes/hero-crops/``, so the same
+        code serves the local filesystem and R2. With no uploaded image, no real box (the
+        Adjust tool's focal point has width and height 0), a box that lies off the image
+        or a file Pillow cannot read, the copy is cleared instead: every surface then
+        shows the original again. Writes storage only; the caller saves the row.
+        """
+        if not (self.image and self.hero_crop_w and self.hero_crop_h):
+            self.hero_cropped = ""
+            return
+        try:
+            opened = Image.open(io.BytesIO(self._hero_source_bytes()))
+            source_format = opened.format
+            img: Image.Image = ImageOps.exif_transpose(opened) or opened
+        except (UnidentifiedImageError, OSError, ValueError) as exc:
+            logger.warning("hero crop skipped for ClassOffering %s: %s", self.pk, exc)
+            self.hero_cropped = ""
+            return
+        src_w, src_h = img.size
+        left = min(self.hero_crop_x or 0, src_w)
+        top = min(self.hero_crop_y or 0, src_h)
+        right = min(left + self.hero_crop_w, src_w)
+        bottom = min(top + self.hero_crop_h, src_h)
+        if right <= left or bottom <= top:
+            self.hero_cropped = ""
+            return
+        cropped = img.crop((left, top, right, bottom))
+        buffer = io.BytesIO()
+        if source_format == "PNG":
+            cropped.save(buffer, format="PNG")
+            ext = "png"
+        else:
+            if cropped.mode != "RGB":
+                cropped = cropped.convert("RGB")
+            cropped.save(buffer, format="JPEG", quality=88, optimize=True)
+            ext = "jpg"
+        assert self.image.name  # a truthy FieldFile is one with a name, checked above
+        name = f"{Path(self.image.name).stem}-crop.{ext}"
+        self.hero_cropped.save(name, ContentFile(buffer.getvalue()), save=False)
+
+    def _sync_hero_crop_copy(self, old: ClassOffering | None, image_changed: bool) -> bool:
+        """Cut or drop the cropped copy when the box or the image changed; True when it did.
+
+        Called from ``save()`` once the box has followed any downsize. The copy follows the
+        box and the image, and only them, so an ordinary save never touches storage. A new
+        image clears the box, so the copy goes with it; a box that moved is cut again; a
+        focal point (no box) drops the copy. The old copy's file is removed the way a
+        replaced upload's is. A new row renders when it arrives with a box.
+        """
+        if old is None:
+            box_changed = bool(self.hero_crop_w and self.hero_crop_h)
+        else:
+            box_changed = self.hero_crop_box != old.hero_crop_box
+        if not (image_changed or box_changed):
+            return False
+        self.render_hero_crop()
+        delete_orphan_on_replace(self, "hero_cropped")
+        return True
 
     # The catalog card is a 150px strip, not the 16:9 banner, so it gets its own focal
     # point. Null on both means "follow the banner" (see ``card_object_position``), which
@@ -1012,20 +1257,6 @@ class ClassOffering(HeroCropMixin, models.Model):
         return _absolute_url(reverse("classes:public_class_detail", kwargs={"slug": self.slug}))
 
     @property
-    def legacy_public_url(self) -> str:
-        """This class's page on the legacy Drupal site, or ``""`` for locally-authored offerings.
-
-        The import derives ``slug`` from the Drupal path alias (``/class/<alias>``), appending a
-        ``-legacy`` suffix only when that alias collides with an existing local slug — so stripping
-        the suffix recovers the alias.
-        """
-        from classes.import_service import LEGACY_CMS_BASE
-
-        if not self.legacy_cms_id:
-            return ""
-        return f"{LEGACY_CMS_BASE}/class/{self.slug.removesuffix('-legacy')}"
-
-    @property
     def qr_url(self) -> str:
         """Stable, slug-independent permalink the QR encodes — it redirects to the current
         public page, so a printed QR keeps working even after the class's slug changes."""
@@ -1116,14 +1347,20 @@ class ClassOffering(HeroCropMixin, models.Model):
         delete_orphan_on_replace(self, "image")
         creating = self._state.adding
         old = None
+        image_changed = False
         # If the hero image is changing, also clear the stale crop box.
         if self.pk:
             try:
-                old = type(self)._default_manager.only("image", "grouping_key", "category_id").get(pk=self.pk)
+                old = (
+                    type(self)
+                    ._default_manager.only("image", "grouping_key", "category_id", *HERO_CROP_FIELDS)
+                    .get(pk=self.pk)
+                )
             except type(self).DoesNotExist:
                 old = None
             new_name = getattr(self.image, "name", "") or ""
             old_name = getattr(getattr(old, "image", None), "name", "") or ""
+            image_changed = old is not None and old_name != new_name
             if old is not None and old_name and old_name != new_name:
                 self.hero_crop_x = None
                 self.hero_crop_y = None
@@ -1133,6 +1370,7 @@ class ClassOffering(HeroCropMixin, models.Model):
         # The composer's create mode crops the photo the browser showed, the original
         # file; once that upload is downsized to the cap, the box shrinks with it.
         self.scale_hero_crop(scale)
+        copy_changed = self._sync_hero_crop_copy(old, image_changed)
 
         # Keep the catalog grouping key in sync with the title/category so every
         # run of the same class — single one-offs AND multi-session series alike —
@@ -1148,12 +1386,35 @@ class ClassOffering(HeroCropMixin, models.Model):
         update_fields = kwargs.get("update_fields")
         if update_fields is not None and {"title", "category", "category_id"} & set(update_fields):
             kwargs["update_fields"] = [*update_fields, "grouping_key"]
+        # The Adjust tool saves only the four crop columns; the copy it cleared must land too.
+        if update_fields is not None and copy_changed:
+            kwargs["update_fields"] = [*kwargs["update_fields"], "hero_cropped"]
 
         super().save(*args, **kwargs)
 
+        # ``update_fields`` that omits the category writes no category, however dirty the
+        # in-memory instance is, so acting on the difference would repoint a gate the
+        # database never moved and mail a lead about a class still filed elsewhere.
+        category_written = update_fields is None or bool({"category", "category_id"} & set(update_fields))
+        if old is not None and old.category_id != self.category_id and category_written:
+            self._repoint_open_guild_lead_gate()
+
         # When a grouped class moves to a new category, sync siblings so the
-        # group stays coherent (same grouping_key across all dates).
-        if old is not None and old.category_id != self.category_id and old.grouping_key:
+        # group stays coherent (same grouping_key across all dates). Guarded by
+        # ``category_written`` for the same reason as the reopen above, and the cost of
+        # missing it is higher here: on a save that leaves the category where it was, this
+        # would carry every sibling off to a category the class itself never moved to,
+        # splitting the group it exists to keep together. A save that also renames the
+        # class out of its group moves it alone: its old runs keep their name and category,
+        # and stamping the new name's key on them would file them on the wrong catalog card.
+        # (``old`` loads only a few columns, so its title would read back the new one.)
+        if (
+            old is not None
+            and old.category_id != self.category_id
+            and category_written
+            and old.grouping_key
+            and grouping_key_for(self.title, old.category_id) == old.grouping_key
+        ):
             type(self)._default_manager.filter(
                 grouping_key=old.grouping_key,
             ).exclude(pk=self.pk).update(
@@ -1203,6 +1464,71 @@ class ClassOffering(HeroCropMixin, models.Model):
             roles.append(ClassApproval.Role.GUILD_LEAD)
         return roles
 
+    @property
+    def schedule_fingerprint(self) -> str:
+        """A digest of this class's session schedule: the thing a guild lead signs off on.
+
+        ``sha256`` over every session's start and end, normalised to UTC and sorted, so the
+        same set of dates always hashes the same whatever order the rows come back in.
+        Reordering ``sort_order`` alone is therefore not a schedule change; adding, removing
+        or retiming a session is.
+
+        A class with no sessions still gets a real digest (the hash of the empty set), never
+        the empty string. That distinction is load bearing:
+        :attr:`_guild_already_approved_this_schedule` compares against a stored
+        fingerprint, and the empty string there means "this row predates the field" — it must
+        never be able to match a real schedule.
+
+        A flexible class's schedule is its date window, so that goes into the digest first:
+        a window moved after the lead approved reopens the gate exactly as a retimed session
+        does. A fixed class digests only its sessions, as it always has.
+        """
+        digest = hashlib.sha256()
+        if self.is_flexible:
+            digest.update(f"window|{self.flexible_starts_on}|{self.flexible_ends_on}\n".encode())
+        stamps = sorted(
+            (session.starts_at.astimezone(UTC).isoformat(), session.ends_at.astimezone(UTC).isoformat())
+            for session in self.sessions.all()
+        )
+        for starts_at, ends_at in stamps:
+            digest.update(f"{starts_at}|{ends_at}\n".encode())
+        return digest.hexdigest()
+
+    @property
+    def _guild_already_approved_this_schedule(self) -> bool:
+        """Has **this class's current guild** already approved the dates it currently holds?
+
+        Both halves are required, and each guards a different way the class can change
+        between rounds:
+
+        * the dates, via ``approved_schedule_fingerprint``; and
+        * the guild, via ``opened_for_guild``. ``category`` is an instructor-editable
+          field on the composer (labelled "Guild Type") and a draft is editable, so "wrong
+          guild, re-file this under Woodshop" is an ordinary reason to bounce a class. A
+          row approved by guild 1 says nothing about guild 2, whose lead has never seen the
+          class.
+
+        The unit is the **guild, not the person**. A guild whose lead has since been
+        replaced has still approved these dates, so the new lead is not re-asked; that is
+        deliberate. The statement the row carries is "this guild signed off on this
+        schedule", and a change of officer does not retract it.
+
+        A row stamped before either field existed carries the empty string and a null
+        guild, and neither can match (:attr:`schedule_fingerprint` is never empty, and
+        ``opened_for_guild_id=None`` is never asked for here because a null ``guild_id``
+        short-circuits first), so such a row re-asks — the safe direction.
+        """
+        guild_id = self.category.guild_id
+        return (
+            guild_id is not None
+            and self.approvals.filter(
+                role=ClassApproval.Role.GUILD_LEAD,
+                decision=ClassApproval.Decision.APPROVED,
+                approved_schedule_fingerprint=self.schedule_fingerprint,
+                opened_for_guild_id=guild_id,
+            ).exists()
+        )
+
     def submit_for_review(self) -> list["ClassApproval"]:
         """Move from DRAFT to PENDING and open only the first-stage review gate.
 
@@ -1225,9 +1551,14 @@ class ClassOffering(HeroCropMixin, models.Model):
             raise ClassNotReadyError(items, "submit")
         self.status = self.Status.PENDING
         self.save(update_fields=["status", "updated_at"])
-        # Clear out any stale approval rows from a prior submission cycle, then
-        # open only the first-stage gate for this fresh round.
-        self.approvals.all().delete()
+        # A resubmission is the same class coming back, not a new one. Two kinds of row
+        # must not survive it: an undecided gate from the last round (nobody is waiting on
+        # that any more) and the bounce that sent the class back — ``_is_bounced``, the
+        # ``bounced`` annotation, ``lifecycle`` and ``latest_bounce_row`` all read a bounce
+        # row as "changes requested", so a spent one would leave a class that is plainly in
+        # review reading as bounced everywhere. APPROVED rows stay: a reviewer who already
+        # signed off should not be asked twice (see ``_create_first_stage_approval``).
+        self.approvals.filter(Q(decision="") | Q(decision__in=_BOUNCE_DECISIONS)).delete()
         row = self._create_first_stage_approval()
         from classes import activity
 
@@ -1239,14 +1570,74 @@ class ClassOffering(HeroCropMixin, models.Model):
         self._notify_first_stage_reviewer(row)
         return [row]
 
+    def _repoint_open_guild_lead_gate(self) -> None:
+        """Re-ask the right guild when a class under review is re-filed under another one.
+
+        A gate is an invitation to one guild's lead, and the emailed link is how they
+        accept it. Re-filing a PENDING class hands that invitation to a guild that was
+        never sent it: :meth:`ClassOfferingQuerySet.awaiting_guild_lead` scopes by the
+        class's *current* guild, so the new guild's staff pick the class up and are handed
+        the old guild's token. Whichever way the guild is stamped, one of the two parties
+        ends up misrepresented, so the fix is not to stamp it more cleverly but to stop the
+        invitation outliving the question. The stale gate is closed and a fresh one opened
+        for the guild the class now sits in, whose lead is told.
+
+        Deliberately silent in three cases. A class that is not PENDING has no gate anyone
+        is waiting on. A move inside one guild (Forge Basics to Forge Advanced) does not
+        change who was asked. And a gate already decided is history, not an invitation: the
+        approval a guild gave stands on its own row and is read back through
+        :meth:`_guild_lead_row_speaks_here`.
+
+        The invariant it restores, in one line: a class under review holds an open guild
+        lead gate for the guild it is filed under exactly when it needs one. Both halves
+        matter. A class carried *out* of a guild leaves a gate behind that the new guild's
+        staff would be handed; a class carried *into* one, by the admin guild tagging
+        screen, arrives needing a gate it has never had, and without this would sit with
+        its guild step permanently unreached while an admin publishes it unasked.
+
+        Reopening runs the first-stage choice again rather than assuming a guild lead is
+        wanted, so a class re-filed under a guildless category, or under a guild that has
+        already approved these dates, resumes at the Admin gate exactly as a fresh
+        submission would, and does not mint a second admin gate when one is already open.
+
+        The notification is sent inline rather than on commit. No caller wraps a category
+        changing save in ``atomic``, so there is nothing to roll back behind it today; a
+        caller that starts to should move this to ``transaction.on_commit`` rather than
+        leave a live link pointing at a row that never existed.
+        """
+        if self.status != self.Status.PENDING:
+            return
+        guild_id = self.category.guild_id
+        open_gates = list(self.approvals.filter(role=ClassApproval.Role.GUILD_LEAD, decision=""))
+        wanted = (
+            ClassApproval.Role.GUILD_LEAD in self.required_review_roles
+            and not self._guild_already_approved_this_schedule
+        )
+        speaks_here = [gate for gate in open_gates if gate.opened_for_guild_id == guild_id]
+        if open_gates == speaks_here and bool(speaks_here) == wanted:
+            return
+        self.approvals.filter(role=ClassApproval.Role.GUILD_LEAD, decision="").delete()
+        if not wanted and self.approvals.filter(role=ClassApproval.Role.ADMIN, decision="").exists():
+            return
+        self._notify_first_stage_reviewer(self._create_first_stage_approval())
+
     def _create_first_stage_approval(self) -> "ClassApproval":
         """Create the single approval row that opens stage one of review.
 
-        Guild Lead when the category's guild has a lead; Admin otherwise.
+        Guild Lead when the category's guild has a lead; Admin otherwise — except when that
+        guild already approved the dates this class currently holds, on an earlier round of
+        the same review. A guild lead's job is the schedule and the space, so an edit that
+        left both the dates and the guild alone is not theirs to re-approve and review
+        resumes at the Admin gate. Change a session time or move the class to another
+        guild and they are asked again.
+
+        Both facts are read every time rather than short-circuited, so a class with no
+        guild still exercises the "nobody has approved this" answer.
         """
-        roles = self.required_review_roles
+        guild_lead_required = ClassApproval.Role.GUILD_LEAD in self.required_review_roles
+        already_satisfied = self._guild_already_approved_this_schedule
         first_role = (
-            ClassApproval.Role.GUILD_LEAD if ClassApproval.Role.GUILD_LEAD in roles else ClassApproval.Role.ADMIN
+            ClassApproval.Role.GUILD_LEAD if guild_lead_required and not already_satisfied else ClassApproval.Role.ADMIN
         )
         return ClassApproval.objects.create(class_offering=self, role=first_role)
 
@@ -1412,6 +1803,14 @@ class ClassOffering(HeroCropMixin, models.Model):
         from classes.emails import _absolute_url
         from core.events.emit import emit
 
+        # The LEGACY name on purpose, and it must stay that way. This URL is stamped into a
+        # persisted ``Notification.url`` / ``EventDelivery.url`` CharField at creation and into
+        # an email nobody can recall, so it outlives the deploy that wrote it. Reversed to the
+        # merged name, every notice minted while this change is live would carry
+        # /classes/teach/classes/<pk>/… — and after a revert that path is instructor-scoped, so
+        # the admin it was addressed to taps it out of the push tray and gets the marketing
+        # page or a 404. The legacy name costs one 302 hop while live and resolves natively
+        # after a revert.
         registrations_path = reverse("classes:admin_class_registrations", kwargs={"pk": self.pk})
         emit(
             "class_cancelled_admin_notice",
@@ -1479,6 +1878,8 @@ class ClassOffering(HeroCropMixin, models.Model):
             actor=actor,
             payload={"note": note[:200]},
         )
+        # The legacy name, for the same reason as ``registrations_path`` above: this one is
+        # stamped into a persisted notification URL and an unrecallable email.
         edit_path = reverse("classes:admin_class_edit", kwargs={"pk": self.pk})
         emit(
             "class_change_requested",
@@ -1575,19 +1976,29 @@ class ClassOffering(HeroCropMixin, models.Model):
     @property
     def active_registration_count(self) -> int:
         """Registrations still on the books: confirmed, pending payment, or waitlisted."""
-        return self.registrations.filter(
-            status__in=[
-                Registration.Status.CONFIRMED,
-                Registration.Status.PENDING,
-                Registration.Status.WAITLISTED,
-            ]
-        ).count()
+        return self.registrations.seat_holding().count()
+
+    def live_registration_for_email(self, email: str) -> "Registration | None":
+        """The seat-holding registration this email already holds for this class, if any.
+
+        One row at most: ``uq_registration_seat_email`` makes a second one
+        impossible. The ordering still matters for the moment between a race's two
+        inserts, when the loser has not yet been rejected — the earliest row is the
+        one that keeps the seat.
+
+        Args:
+            email: The address as the registrant typed it on the form.
+
+        Returns:
+            The existing registration, or ``None`` when this email is free to sign up.
+        """
+        return self.registrations.seat_holding().filter(email=email).order_by("registered_at").first()
 
     @property
     def paid_registration_count(self) -> int:
         """Active registrations that have paid something, so a cancel can name the refund work."""
         return self.registrations.filter(
-            status__in=[Registration.Status.CONFIRMED, Registration.Status.PENDING],
+            status__in=CAPACITY_CONSUMING_REGISTRATION_STATUSES,
             amount_paid_cents__gt=0,
         ).count()
 
@@ -1641,9 +2052,11 @@ class ClassOffering(HeroCropMixin, models.Model):
         elsewhere) or no eligible waitlist row exists.
 
         Returns the notified registration so callers can introspect for
-        logging or tests.
+        logging or tests. A flexible class has no cap and so no waitlist to promote
+        from; it answers ``None`` without looking (#545).
         """
-        if self.spots_remaining <= 0:
+        spots = self.spots_remaining
+        if spots is None or spots <= 0:
             return None
         next_up = (
             self.registrations.filter(
@@ -1684,9 +2097,10 @@ class ClassOffering(HeroCropMixin, models.Model):
         APPROVED by a guild lead: escalate to the admin gate without
         publishing — publication always waits for the admin.
         CHANGES_REQUESTED / DENIED: bounce back to DRAFT so the instructor
-        can edit and resubmit. Per the locked decision in PLAN.md §14,
-        a guild-lead denial is recoverable (returns to DRAFT) rather than
-        archival; admin-level archival is a separate explicit action.
+        can edit and resubmit. Per the locked decision in the CMS round 2
+        plan (PLAN.md §14, now in git history), a guild-lead denial is
+        recoverable (returns to DRAFT) rather than archival; admin-level
+        archival is a separate explicit action.
         """
         from classes import activity
 
@@ -1699,7 +2113,7 @@ class ClassOffering(HeroCropMixin, models.Model):
             )
             # Stage-1 → Stage-2 escalation: a Guild Lead's approval opens the
             # Admin gate (if admin review is still required and not yet open)
-            # and notifies staff for executive validation. We do not publish on
+            # and notifies staff for admin sign-off. We do not publish on
             # this branch — publication waits for the admin to sign off.
             if (
                 row.role == ClassApproval.Role.GUILD_LEAD
@@ -1748,7 +2162,7 @@ class ClassOffering(HeroCropMixin, models.Model):
     def _escalate_to_admin(self, admin_row: "ClassApproval", *, guild_lead: "User | None") -> None:
         """Fire the stage-two admin escalation after a Guild Lead approves.
 
-        Emits the executive-validation request as one ``class_validation_requested``
+        Emits the admin sign-off request as one ``class_validation_requested``
         event (admin email + FOG_ADMINS in-app) via
         :func:`classes.emails.send_admin_validation_request`. The Guild Lead is named
         in the copy so admins know who already vouched for the class.
@@ -1762,24 +2176,55 @@ class ClassOffering(HeroCropMixin, models.Model):
 
         Raises:
             ValidationError: If adding ``files`` would push the offering over
-                ``MAX_GALLERY_IMAGES``. The batch is rejected whole — no rows are
-                created — so the caller can surface one clear message.
+                ``MAX_GALLERY_IMAGES``, or any file is not an image. The batch is
+                rejected whole — no rows are created — so the caller can surface one
+                clear message.
         """
         from django.core.exceptions import ValidationError
 
         current = self.gallery_images.count()
         if current + len(files) > MAX_GALLERY_IMAGES:
             raise ValidationError(f"A class can have at most {MAX_GALLERY_IMAGES} images.")
+        for img_file in files:
+            validate_image_content(img_file)
         for offset, img_file in enumerate(files):
             ClassImage.objects.create(class_offering=self, image=img_file, sort_order=current + offset)
 
     @property
-    def spots_remaining(self) -> int:
-        """Capacity minus current confirmed + pending registrations."""
-        used = self.registrations.filter(
-            status__in=[Registration.Status.CONFIRMED, Registration.Status.PENDING]
-        ).count()
-        return max(0, self.capacity - used)
+    def seats_taken(self) -> int:
+        """How many of this class's seats are spoken for.
+
+        The one answer to "how full is it", so that every surface rendering
+        ``N/capacity`` renders the same N. Narrower than
+        ``active_registration_count``, deliberately: a waitlisted person is still on
+        the books but holds no seat, so counting them against capacity would make a
+        class with room read as full.
+        """
+        return self.registrations.filter(status__in=CAPACITY_CONSUMING_REGISTRATION_STATUSES).count()
+
+    @property
+    def waitlisted_count(self) -> int:
+        """How many people are queued for a seat they do not yet hold.
+
+        The twin of :attr:`seats_taken`, and never added to it. Two numbers that each say
+        what they count can be rendered side by side ("10 registered, 3 waitlisted")
+        without either one claiming to be the other. A single total of the two is the
+        number that made the cross-class header disagree with every per-class surface.
+        """
+        return self.registrations.filter(status=RegistrationStatus.WAITLISTED).count()
+
+    @property
+    def spots_remaining(self) -> int | None:
+        """Capacity minus current confirmed + pending registrations, or ``None`` for a flexible class.
+
+        A flexible class has no seat cap (#545): students book one at a time with the
+        instructor, so there is nothing to be full of and nothing to wait for. ``None`` is
+        that answer, and every consumer reads it as unlimited; the stored capacity is never
+        read for a flexible class.
+        """
+        if self.is_flexible:
+            return None
+        return max(0, self.capacity - self.seats_taken)
 
     @property
     def is_series(self) -> bool:
@@ -1806,27 +2251,64 @@ class ClassOffering(HeroCropMixin, models.Model):
     def is_bookable(self) -> bool:
         """Whether sign-ups are still open on timing grounds.
 
-        Flexible classes are always bookable. A dated class — single or series —
-        is bookable only until its first session starts; you can't join after it
-        has begun. Seat availability is handled separately via
-        ``spots_remaining`` (a sold-out future class is still "bookable" here and
-        routes to the waitlist).
+        A flexible class is bookable until its last day has passed (and always, with no
+        last day). A dated class — single or series — is bookable only until its first
+        session starts; you can't join after it has begun. Seat availability is handled
+        separately via ``spots_remaining`` (a sold-out future class is still "bookable"
+        here and routes to the waitlist).
         """
         if self.scheduling_model == self.SchedulingModel.FLEXIBLE:
-            return True
+            return not self.flexible_window_ended
         earliest = self.earliest_session_at
         return earliest is not None and earliest >= timezone.now()
 
-    @property
-    def member_price_cents(self) -> int | None:
-        """Discounted price in cents for verified members.
+    # --- Flexible scheduling ----------------------------------------------------
 
-        Returns ``None`` when this offering has no member discount, so callers
-        can treat ``None`` as "no separate member price to show".
+    @property
+    def is_flexible(self) -> bool:
+        """Students book their day with the instructor instead of a scheduled session."""
+        return self.scheduling_model == self.SchedulingModel.FLEXIBLE
+
+    @property
+    def has_flexible_window(self) -> bool:
+        """A flexible class with a first day, a last day, or both."""
+        return self.is_flexible and (self.flexible_starts_on is not None or self.flexible_ends_on is not None)
+
+    @property
+    def flexible_window_label(self) -> str:
+        """The window as members read it, or "" for a class with none.
+
+        "Nov 2 to Dec 1, 2026" when both days are set (the year once when they share it),
+        "From Nov 2, 2026" with only a first day, "Through Dec 1, 2026" with only a last day.
+        The word "to" sits between two dates, never a dash.
         """
-        if not self.member_discount_pct:
-            return None
-        return int(self.price_cents * (100 - self.member_discount_pct) / 100)
+        if not self.is_flexible:
+            return ""
+        starts_on, ends_on = self.flexible_starts_on, self.flexible_ends_on
+        if starts_on is not None and ends_on is not None:
+            first = date_format(starts_on, "M j" if starts_on.year == ends_on.year else "M j, Y")
+            return f"{first} to {date_format(ends_on, 'M j, Y')}"
+        if starts_on is not None:
+            return f"From {date_format(starts_on, 'M j, Y')}"
+        if ends_on is not None:
+            return f"Through {date_format(ends_on, 'M j, Y')}"
+        return ""
+
+    @property
+    def flexible_window_ended(self) -> bool:
+        """The last day is set and behind us, on the site's local date."""
+        return self.is_flexible and flexible_window_has_ended(self.flexible_ends_on)
+
+    def apply_scheduling_model(self) -> None:
+        """Shed the session rows a flexible class cannot use.
+
+        Every composer save path calls this right after the session formset saves: a class
+        saved as Flexible drops every session it had, the rows that POST just wrote included,
+        so its page never renders a schedule. A class saved as Fixed keeps its sessions; its
+        window is already cleared by the form.
+        """
+        if self.is_flexible:
+            self.sessions.all().delete()
 
     @property
     def sale_is_active(self) -> bool:
@@ -1883,14 +2365,30 @@ class ClassOffering(HeroCropMixin, models.Model):
         return self.sale_banner_text.strip() or DEFAULT_SALE_BANNER_TEXT
 
     @property
-    def hero_image_url(self) -> str:
-        """The class's own hero photo as a URL, or "" when it has none.
+    def has_imported_photo_only(self) -> bool:
+        """True when the class's only photo is one imported from the legacy class site.
+
+        The composer's crop box cannot position such a photo (the saved box is read
+        against an uploaded file's dimensions), so the editor withholds it and points at
+        Adjust on the preview instead, and the form does not pre-fill a saved box.
+        """
+        return bool(self.legacy_image_url) and not self.image.name
+
+    @property
+    def description_text(self) -> str:
+        """The description as plain text, for a feed or a tag: editor HTML flattened, legacy text as is."""
+        return rich_body_to_text(self.description or "")
+
+    @property
+    def hero_source_url(self) -> str:
+        """The class's own hero photo before any crop, as a URL, or "" when it has none.
 
         The uploaded file wins; otherwise a photo imported from the legacy class site is
         served through the ``classes:legacy_image`` proxy (same origin, so the cropper and
-        the card frames can use it). The category fallback is deliberately NOT here: this
-        is the photo the class itself owns, which is what the editor and the readiness
-        checklist ask about.
+        the card frames can use it). The composer's cropper mounts on this, never on the
+        cropped copy, because the box is stored in this file's pixels. The category
+        fallback is deliberately NOT here: this is the photo the class itself owns, which
+        is what the editor and the readiness checklist ask about.
         """
         from urllib.parse import urlencode
 
@@ -1901,6 +2399,18 @@ class ClassOffering(HeroCropMixin, models.Model):
         if self.legacy_image_url:
             return f"{reverse('classes:legacy_image')}?{urlencode({'url': self.legacy_image_url})}"
         return ""
+
+    @property
+    def hero_image_url(self) -> str:
+        """The class's own hero photo as every surface shows it, or "" when it has none.
+
+        The copy cut to the crop box (:meth:`render_hero_crop`) wins, so the banner, the
+        catalog card, the flyer and the composer's card frames all show what was inside
+        the box; otherwise :attr:`hero_source_url`, the original or the imported photo.
+        """
+        if self.hero_cropped:
+            return self.hero_cropped.url
+        return self.hero_source_url
 
     @property
     def is_demo(self) -> bool:
@@ -1941,7 +2451,7 @@ class ClassOffering(HeroCropMixin, models.Model):
     def gallery_display_images(self) -> list[dict]:
         """Gallery rows only — no hero and no category fallback.
 
-        Feeds the gallery block under the public detail page's booking rail, which
+        Feeds the gallery block above the public detail page's booking card, which
         should render nothing at all when the class has no gallery shots of its own
         (the hero already leads the page).
         """
@@ -2005,6 +2515,66 @@ class ClassOffering(HeroCropMixin, models.Model):
         return self.approvals.filter(role=ClassApproval.Role.GUILD_LEAD, decision="").exists()
 
     @property
+    def open_guild_lead_approval(self) -> ClassApproval | None:
+        """This class's undecided ``GUILD_LEAD`` approval row, or None.
+
+        The row carries the token a guild lead follows to review the class without admin
+        access, so both review queues — the teaching dashboard's and the guild page's —
+        need the row itself rather than the existence check ``_has_open_guild_gate``
+        makes. Read from ``approvals.all()`` so a caller that prefetched pays no query.
+        """
+        return next(
+            (a for a in self.approvals.all() if a.role == ClassApproval.Role.GUILD_LEAD and not a.decision),
+            None,
+        )
+
+    def _guild_lead_row_speaks_here(self, row: "ClassApproval") -> bool:
+        """Does this guild-lead row say anything about the guild the class is filed under now?
+
+        A **decided** row is a statement by one guild, so it counts only for the guild it
+        was opened for. Move a class to a second guild and back and there are two approved
+        rows standing; reading the newest would credit the second guild's lead on the first
+        guild's pipeline, naming a person that guild's staff have never met. Stamping the
+        guild is what makes that answerable, and this is where the answer is read.
+
+        An **undecided** row is not a statement, it is the live gate, so it counts wherever
+        the class currently sits. Filtering it the same way would leave a moved class with
+        no open step on any pipeline while its gate is demonstrably open.
+
+        A decided row carrying no guild speaks for nobody. Reading it as "speaks here"
+        would be kinder to rows that predate the field, but ``opened_for_guild`` is
+        ``SET_NULL``, so deleting a guild blanks the stamp on rows that were decided years
+        after it shipped. Null cannot mean "from before we checked" while it also means
+        "the guild that approved this is gone", and of the two readings only one is safe.
+        The cost is that pre-migration rows lose their pipeline credit, which is a label on
+        a strip, not a gate.
+        """
+        return not row.decision or (
+            row.opened_for_guild_id is not None and row.opened_for_guild_id == self.category.guild_id
+        )
+
+    @property
+    def guild_lead_approved_at(self) -> datetime | None:
+        """When this class's guild-lead gate was approved, or None if it has not been.
+
+        The other half of :attr:`open_guild_lead_approval`: once the lead has decided, the
+        guild page shows when, on the row that is now waiting on an admin. Scoped to the
+        guild the class is filed under now, so a guild reads its own sign-off and not one
+        the class collected elsewhere.
+        """
+        row = next(
+            (
+                a
+                for a in self.approvals.all()
+                if a.role == ClassApproval.Role.GUILD_LEAD
+                and a.decision == ClassApproval.Decision.APPROVED
+                and self._guild_lead_row_speaks_here(a)
+            ),
+            None,
+        )
+        return row.decided_at if row is not None else None
+
+    @property
     def _is_bounced(self) -> bool:
         annotated = getattr(self, "bounced", None)
         if annotated is not None:
@@ -2048,9 +2618,9 @@ class ClassOffering(HeroCropMixin, models.Model):
         Resolution order: ARCHIVED, CANCELLED, PENDING with an open guild-lead row
         (AWAITING_GUILD_LEAD), other PENDING (AWAITING_ADMIN), DRAFT with a bouncing row
         (CHANGES_REQUESTED), other DRAFT, PUBLISHED dated and finished (COMPLETED), other
-        PUBLISHED (UPCOMING). A flexible published class never completes on its own, and
-        a dated published class with no sessions reads Upcoming with a "No dates yet"
-        note while ``bookable()`` keeps it out of the catalog.
+        PUBLISHED (UPCOMING). A flexible published class completes the day after its last
+        day and never with no last day; a dated published class with no sessions reads
+        Upcoming with a "No dates yet" note while ``bookable()`` keeps it out of the catalog.
         """
         status = self.status
         if status == self.Status.ARCHIVED:
@@ -2065,6 +2635,8 @@ class ClassOffering(HeroCropMixin, models.Model):
             last = self._last_session_ends_at
             if last is not None and last < timezone.now():
                 return self.Lifecycle.COMPLETED
+        elif self.flexible_window_ended:
+            return self.Lifecycle.COMPLETED
         return self.Lifecycle.UPCOMING
 
     @property
@@ -2096,6 +2668,9 @@ class ClassOffering(HeroCropMixin, models.Model):
             excerpt = " ".join((row.notes or "").split())
             return f"{who} {verb}: {excerpt}" if excerpt else f"{who} {verb}."
         if lifecycle == self.Lifecycle.COMPLETED:
+            if self.is_flexible:
+                ends_on = self.flexible_ends_on
+                return f"Ended {date_format(ends_on, 'M j')}" if ends_on is not None else ""
             last = self._last_session_ends_at
             return f"Ended {date_format(localtime(last), 'M j')}" if last is not None else ""
         if (
@@ -2115,7 +2690,7 @@ class ClassOffering(HeroCropMixin, models.Model):
             has_gallery=self._has_gallery_photo,
             description=self.description,
             scheduling_model=self.scheduling_model,
-            flexible_note=self.flexible_note,
+            flexible_window_ended=self.flexible_window_ended,
             has_future_session=self._has_future_session,
             capacity=self.capacity,
         )
@@ -2174,10 +2749,11 @@ class ClassOffering(HeroCropMixin, models.Model):
     def review_pipeline(self) -> ReviewPipeline:
         """The review pipeline strip: Submitted, Guild lead (when required), Admin, Live.
 
-        Reads only this cycle's approval rows (``submit_for_review`` clears rows on
-        resubmit) and never errors on any status: cancelled and archived classes render
-        their last known strip under a muted headline, and legacy rows from an old
-        cycle are read as they are.
+        Reads the rows a resubmission left standing: ``submit_for_review`` drops the
+        undecided and bounced ones and keeps the APPROVED ones, so a second round shows
+        the guild lead's earlier sign-off as done rather than resetting the strip. Never
+        errors on any status: cancelled and archived classes render their last known strip
+        under a muted headline, and legacy rows from an old cycle are read as they are.
         """
         status = self.status
         is_pending = status == self.Status.PENDING
@@ -2185,7 +2761,11 @@ class ClassOffering(HeroCropMixin, models.Model):
         muted = status in (self.Status.CANCELLED, self.Status.ARCHIVED)
         was_live = status == self.Status.PUBLISHED or (muted and self.published_at is not None)
         rows = sorted(self.approvals.all(), key=lambda row: row.created_at)
-        latest_by_role: dict[str, ClassApproval] = {row.role: row for row in rows}
+        latest_by_role: dict[str, ClassApproval] = {
+            row.role: row
+            for row in rows
+            if row.role != ClassApproval.Role.GUILD_LEAD or self._guild_lead_row_speaks_here(row)
+        }
         bounce = self.latest_bounce_row
         bounced = is_draft and bounce is not None
         guild_row = latest_by_role.get(ClassApproval.Role.GUILD_LEAD)
@@ -2361,7 +2941,7 @@ class ClassOffering(HeroCropMixin, models.Model):
         """
         from classes.templatetags.classes_tags import strip_date_suffix
 
-        raw = " ".join(strip_tags(self.description or "").split())
+        raw = " ".join(self.description_text.split())
         if not raw:
             base = strip_date_suffix(self.title).strip()
             raw = f"{base} at Past Lives Makerspace in Portland, OR. {self.category.name} class — register online."
@@ -2395,12 +2975,19 @@ class ClassOffering(HeroCropMixin, models.Model):
         _save_with_unique_slug(self, base, exclude_pk=self.pk, save=lambda: self.save(update_fields=["slug"]))
 
     def duplicate(self) -> "ClassOffering":
-        """Clone this offering as a fresh draft with a unique slug and title."""
+        """Clone this offering as a fresh draft with a unique slug and title.
+
+        The row's own columns come across with the new pk, the hero included; the gallery
+        and the FAQ rows are copied afterwards (:meth:`_copy_photos_and_faqs_from`), because
+        a fresh pk has no related rows and a copy with an empty gallery cannot be submitted.
+        """
+        source_pk = self.pk
         base_slug = f"{self.slug}-copy"
         self.pk = None
         self.title = f"{self.title} (copy)"
         self._reset_lifecycle_for_clone()
         _save_with_unique_slug(self, base_slug, exclude_pk=None, save=self.save)
+        self._copy_photos_and_faqs_from(source_pk)
         return self
 
     def _reset_lifecycle_for_clone(self) -> None:
@@ -2412,6 +2999,30 @@ class ClassOffering(HeroCropMixin, models.Model):
         self.cancelled_by = None
         self.cancellation_reason = ""
 
+    def _copy_photos_and_faqs_from(self, source_pk: int) -> None:
+        """Re-point the source's gallery and FAQ rows at this freshly saved clone.
+
+        The one place both clone paths copy what hangs off the row, so the two cannot drift.
+        Sessions are deliberately not here: a run starts undated by design.
+
+        The copied gallery rows carry the SAME storage key as the source's, exactly as the
+        hero column already does. No file is read or written, and nothing here goes through
+        ``ClassImage.save`` (no re-normalising, no orphan sweep) or ``clean`` (the source
+        already sits under ``MAX_GALLERY_IMAGES``). Shared keys are why every gallery delete
+        goes through ``core.files.delete_if_unreferenced``: the file leaves storage only once
+        no row points at it.
+        """
+        ClassImage.objects.bulk_create(
+            ClassImage(
+                class_offering=self, image=image.image.name, alt_text=image.alt_text, sort_order=image.sort_order
+            )
+            for image in ClassImage.objects.filter(class_offering_id=source_pk).order_by("sort_order", "created_at")
+        )
+        ClassFaq.objects.bulk_create(
+            ClassFaq(class_offering=self, question=faq.question, answer=faq.answer, sort_order=faq.sort_order)
+            for faq in ClassFaq.objects.filter(class_offering_id=source_pk).order_by("sort_order", "pk")
+        )
+
     def duplicate_as_new_run(self) -> "ClassOffering":
         """Clone as a fresh draft "run" of the SAME class on a new set of dates.
 
@@ -2420,15 +3031,19 @@ class ClassOffering(HeroCropMixin, models.Model):
         card — it becomes another date-set option rather than a separate class.
         The clone starts with no sessions (a new pk has no related rows yet) so
         the instructor/admin fills in fresh dates, and as a DRAFT so it isn't
-        public until reviewed/published. ``legacy_cms_id`` is cleared: a
+        public until reviewed/published. The gallery and the FAQs do come across
+        (:meth:`_copy_photos_and_faqs_from`): "keep everything else exactly as it
+        was" is the promise on the Teach page. ``legacy_cms_id`` is cleared: a
         hand-added run is locally authored, not a synced legacy node, and the
         partial unique constraint would otherwise reject the duplicate.
         """
+        source_pk = self.pk
         base_slug = f"{self.slug}-run"
         self.pk = None
         self._reset_lifecycle_for_clone()
         self.legacy_cms_id = ""
         _save_with_unique_slug(self, base_slug, exclude_pk=None, save=self.save)
+        self._copy_photos_and_faqs_from(source_pk)
         return self
 
 
@@ -2500,6 +3115,28 @@ class ClassApproval(models.Model):
         db_index=True,
         help_text="Random token used in the emailed /classes/review/<token>/ link.",
     )
+    approved_schedule_fingerprint = models.CharField(
+        max_length=64,
+        blank=True,
+        default="",
+        help_text=(
+            "Hash of the session schedule this row approved; lets a later submission tell whether "
+            "the dates changed since. Stamped only when a guild lead approves; empty means never stamped."
+        ),
+    )
+    opened_for_guild = models.ForeignKey(
+        "membership.Guild",
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="approvals_granted",
+        help_text=(
+            "The guild whose lead this gate was opened for, stamped when the row is created. A guild "
+            "lead's authority comes from the guild that was asked, so this is fixed at the moment of "
+            "asking and never moves; a class re-filed under another guild stops matching and that "
+            "guild's lead is asked. Null on admin rows and on rows predating the field."
+        ),
+    )
     created_at = models.DateTimeField(auto_now_add=True, help_text="When the review was requested.")
     decided_at = models.DateTimeField(null=True, blank=True, help_text="When the reviewer acted.")
 
@@ -2516,8 +3153,25 @@ class ClassApproval(models.Model):
         return f"{self.get_role_display()} review of {self.class_offering_id}: {state}"
 
     def save(self, *args, **kwargs) -> None:
+        """Mint the token, and stamp a guild-lead gate with the guild it is being opened for.
+
+        The guild is recorded at creation rather than at decision, because it records
+        *whose* gate this is, and that is settled the moment the class is asked: the row is
+        minted against a guild, and the review link goes to that guild's lead. The class's
+        category is editable while the class sits PENDING, so reading the guild back at
+        decision time would let an instructor re-point an open gate at another guild and
+        collect a stranger's approval on its behalf. Stamped here, a re-filed class simply
+        stops matching, and the new guild's lead is asked.
+
+        ``_create_first_stage_approval`` is the only site that mints one of these today, and
+        ``_repoint_open_guild_lead_gate`` reaches it by a second route. It lives here rather
+        than there so that a third route cannot forget it. A caller that passes an explicit
+        guild is honoured rather than corrected; this fills a blank, it does not police one.
+        """
         if not self.token:
             self.token = secrets.token_urlsafe(32)
+        if self._state.adding and self.role == self.Role.GUILD_LEAD and self.opened_for_guild_id is None:
+            self.opened_for_guild_id = self.class_offering.category.guild_id
         super().save(*args, **kwargs)
 
     def decide(self, decision: str, user=None, notes: str = "") -> None:
@@ -2530,6 +3184,32 @@ class ClassApproval(models.Model):
         choke point for every decision path (tokenized page, admin review page,
         quick-approve); the review view renders a friendly not-awaiting-review
         state before a user can ever reach this error.
+
+        A guild lead's APPROVAL also stamps ``approved_schedule_fingerprint`` with the
+        schedule they just signed off on, which is what lets the instructor's next
+        submission tell a copy edit (the lead is not asked again) from a date change (they
+        are). No other role or decision stamps it: only a guild lead's approval is a
+        statement about the dates.
+
+        The schedule is stamped here and the guild in ``save``, and the asymmetry is worth
+        stating plainly rather than dressing up. The guild is *who had the authority to be
+        asked*, settled when the gate opened and the link was sent, and nothing after that
+        may move it. The schedule is *what was approved*, and this is the closest the code
+        currently gets to that: it is the schedule at the moment of the POST, which is not
+        the same thing as the schedule the reviewer read.
+
+        Two gaps, both #446:
+
+        * The page renders at one moment and the decision posts at another, and a PENDING
+          class stays editable in between, so an instructor can retime between the two.
+        * ``class_review`` renders ``upcoming_sessions`` only, while
+          :attr:`ClassOffering.schedule_fingerprint` digests every session, so a past
+          session is stamped and never shown.
+
+        Recording what the reviewer actually saw means carrying the rendered fingerprint
+        through the form and refusing a decision that no longer matches it. That is a real
+        fix and it belongs with #446, not smuggled in here. The stamp is only ever read to
+        decide whether to *re-ask*, and both gaps err toward re-asking.
         """
         if decision not in {
             self.Decision.APPROVED,
@@ -2550,7 +3230,15 @@ class ClassApproval(models.Model):
         self.decided_by = user
         self.notes = notes
         self.decided_at = timezone.now()
-        self.save(update_fields=["decision", "decided_by", "notes", "decided_at"])
+        update_fields = ["decision", "decided_by", "notes", "decided_at"]
+        if (
+            decision == self.Decision.APPROVED
+            and self.role == self.Role.GUILD_LEAD
+            and self.opened_for_guild_id == self.class_offering.category.guild_id
+        ):
+            self.approved_schedule_fingerprint = self.class_offering.schedule_fingerprint
+            update_fields.append("approved_schedule_fingerprint")
+        self.save(update_fields=update_fields)
         self.class_offering.on_review_decision_recorded(self)
 
 
@@ -2580,10 +3268,26 @@ class ClassImage(models.Model):
         help_text="Short description of the image for accessibility.",
     )
     sort_order = models.PositiveIntegerField(default=0, help_text="Ascending; lower shows first.")
+    legacy_source_url = models.URLField(
+        max_length=500,
+        blank=True,
+        default="",
+        help_text=(
+            "The classes.pastlives.space file this row was imported from, or blank for an upload. "
+            "The nightly gallery import skips a file its class already holds under this URL."
+        ),
+    )
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:
         ordering = ["sort_order", "created_at"]
+        indexes = [
+            models.Index(
+                fields=["legacy_source_url"],
+                condition=models.Q(legacy_source_url__gt=""),
+                name="ix_classimage_legacy_src",
+            ),
+        ]
 
     def __str__(self) -> str:
         return f"Image #{self.pk} for {self.class_offering.title}"
@@ -2754,6 +3458,15 @@ class ClassSession(models.Model):
 
 
 class DiscountCodeQuerySet(models.QuerySet["DiscountCode"]):
+    def site_wide_live(self) -> "DiscountCodeQuerySet":
+        """The codes anyone can type at checkout on any class: no class scope, active and approved, by code.
+
+        The date window and the use cap stay with :meth:`DiscountCode.is_currently_valid` at
+        redemption; a code outside its window is still worth listing, dates and all, which is
+        what the composer's Discounts step does (#428).
+        """
+        return self.filter(class_offering__isnull=True, is_active=True, is_approved=True).order_by("code")
+
     def best_auto_apply_for(self, offering: "ClassOffering", base_price_cents: int) -> "DiscountCode | None":
         """The class-scoped auto-apply code that drops ``base_price_cents`` furthest.
 
@@ -2871,18 +3584,23 @@ class DiscountCode(models.Model):
                 actor=self.created_by,
                 payload={"code": self.code, "auto_apply": self.auto_apply},
             )
-            from core.events.emit import emit
+            # A code born approved (DiscountCodeRequest.approve) needs no approval ping; every other new code still gets one.
+            if not self.is_approved:
+                from django.urls import reverse
 
-            emit(
-                "discount_code.requested",
-                actor=self.created_by,
-                target=self,
-                context={},
-                title="A discount code needs approval",
-                body=f"The discount code {self.code} was created and needs approval before it can be used.",
-                url="/classes/admin/discount-codes/",
-                period=f"discount:{self.pk}:requested",
-            )
+                from core.events.emit import emit
+
+                emit(
+                    "discount_code.requested",
+                    actor=self.created_by,
+                    target=self,
+                    context={},
+                    title="A discount code needs approval",
+                    body=f"The discount code {self.code} was created and needs approval before it can be used.",
+                    # Absolute: the email channel uses this verbatim, and a bare path is dead in mail.
+                    url=f"{settings.MEMBER_BASE_URL}{reverse('classes:admin_discount_codes')}",
+                    period=f"discount:{self.pk}:requested",
+                )
 
     def apply_to(self, price_cents: int) -> int:
         if self.discount_pct is not None:
@@ -2985,6 +3703,255 @@ class DiscountCode(models.Model):
         self.save(update_fields=["is_approved"])
 
 
+class DiscountCodeRequestQuerySet(models.QuerySet["DiscountCodeRequest"]):
+    def pending(self) -> DiscountCodeRequestQuerySet:
+        """Requests still waiting for an admin's decision, newest first."""
+        return self.filter(status=DiscountCodeRequest.Status.PENDING)
+
+
+class DiscountCodeRequestAlreadyDecided(Exception):
+    """Raised when approve() or decline() is called on a request that is no longer pending."""
+
+
+class DiscountCodeRequest(models.Model):
+    """An instructor's ask for a class discount code, decided by an admin.
+
+    Under approval mode (both instructor discount code settings on) an instructor cannot
+    create a :class:`DiscountCode`; they file one of these instead. :meth:`approve` is the
+    only place a code is born from a request, and it is born approved. :meth:`decline`
+    records the admin's note and tells the instructor. A new request pings the Discount Code
+    Administrators the way a new unapproved code does; both decisions notify the requester
+    through the same spine, so the instructor hears back wherever they hear everything else.
+    """
+
+    class Status(models.TextChoices):
+        PENDING = "pending", "Pending"
+        APPROVED = "approved", "Approved"
+        DECLINED = "declined", "Declined"
+
+    class_offering = models.ForeignKey(
+        "ClassOffering",
+        on_delete=models.CASCADE,
+        related_name="discount_code_requests",
+        help_text="The class the code is for. The approved code is scoped to it.",
+    )
+    requested_by = models.ForeignKey(
+        "membership.Member",
+        on_delete=models.PROTECT,
+        related_name="discount_code_requests",
+        help_text="The instructor who asked. Protected: a request is an audit line that means nothing without its requester.",
+    )
+    code = models.CharField(
+        max_length=40,
+        help_text=(
+            "The code the instructor asked for, uppercased on save. Not unique here: uniqueness is "
+            "enforced on the DiscountCode an approval creates."
+        ),
+    )
+    discount_pct = models.PositiveIntegerField(null=True, blank=True, help_text="Percent off (0 to 100).")
+    discount_fixed_cents = models.PositiveIntegerField(null=True, blank=True, help_text="Flat cents off.")
+    valid_from = models.DateField(null=True, blank=True, help_text="First date the code should be valid.")
+    valid_until = models.DateField(null=True, blank=True, help_text="Last date the code should be valid.")
+    max_uses = models.PositiveIntegerField(null=True, blank=True, help_text="Cap total uses. Blank means unlimited.")
+    reason = models.TextField(help_text="Why the instructor wants this code; shown to the admin who decides.")
+    status = models.CharField(
+        max_length=10,
+        choices=Status.choices,
+        default=Status.PENDING,
+        help_text="Pending until an admin approves or declines it.",
+    )
+    decided_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="+",
+        help_text="The admin who approved or declined it. Null while pending.",
+    )
+    decision_note = models.TextField(
+        blank=True, default="", help_text="The admin's note; required on a decline, shown to the instructor."
+    )
+    discount_code = models.OneToOneField(
+        "DiscountCode",
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="request",
+        help_text="The code an approval created. Null until approved, and again if that code is later deleted.",
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+    decided_at = models.DateTimeField(null=True, blank=True, help_text="When the admin decided. Null while pending.")
+
+    objects = DiscountCodeRequestQuerySet.as_manager()
+
+    class Meta:
+        ordering = ["-created_at"]
+        constraints = [
+            CheckConstraint(
+                condition=(Q(discount_pct__isnull=False) | Q(discount_fixed_cents__isnull=False)),
+                name="discount_request_has_value",
+                # ModelForm validation surfaces this as the request form's one non-field error.
+                violation_error_message="Set a percent off or a fixed amount off.",
+            ),
+        ]
+
+    def __str__(self) -> str:
+        return f"{self.code} for {self.class_offering.title} ({self.get_status_display()})"
+
+    def save(self, *args, **kwargs) -> None:
+        creating = self._state.adding
+        self.code = self.code.strip().upper()
+        super().save(*args, **kwargs)
+        if creating:
+            from django.urls import reverse
+
+            from core.events.emit import emit
+
+            # The link is the review page itself, so a Discount Code Administrator who is not
+            # an admin (and so cannot open the queue) can still act from the notification.
+            review_url = reverse("classes:admin_discount_code_request_review", kwargs={"pk": self.pk})
+            emit(
+                "discount_code.requested",
+                actor=self.requested_by.user,
+                target=self,
+                context={},
+                title="A discount code was requested",
+                body=(
+                    f"{self.requested_by.display_name} asked for the code {self.code} on "
+                    f"{self.class_offering.title}. Review it in Classes admin."
+                ),
+                url=f"{settings.MEMBER_BASE_URL}{review_url}",
+                period=f"discount_request:{self.pk}:requested",
+            )
+
+    def prefill(self) -> dict[str, Any]:
+        """The ``initial`` for a ``DiscountCodeForm`` on the review page.
+
+        The request's values are the admin's starting point; ``description`` carries the
+        instructor's reason so the admin's code list still says why the code exists.
+        """
+        return {
+            "code": self.code,
+            "discount_pct": self.discount_pct,
+            "discount_fixed_cents": self.discount_fixed_cents,
+            "valid_from": self.valid_from,
+            "valid_until": self.valid_until,
+            "max_uses": self.max_uses,
+            "is_active": True,
+            "description": self.reason[:255],
+        }
+
+    def approve(self, user: User, form: ModelForm[DiscountCode]) -> DiscountCode:
+        """Create the code from ``form`` and mark this request approved.
+
+        ``form`` is a valid ``classes.forms.DiscountCodeForm`` (the view validated it), so
+        the admin may have adjusted the requested values first. It is typed as the generic
+        ``ModelForm[DiscountCode]`` on purpose: naming ``DiscountCodeForm`` here, even under
+        ``TYPE_CHECKING``, pulls ``classes.forms`` into every mypy build that reaches this
+        module. The code is scoped to the request's class, credited to the requester and born
+        approved; the rule has one home here even though the view also hands ``scoped_to``
+        and ``created_by`` to the form.
+
+        Args:
+            user: The admin deciding.
+            form: The validated code form.
+
+        Returns:
+            The new, approved :class:`DiscountCode`.
+
+        Raises:
+            DiscountCodeRequestAlreadyDecided: When this request is no longer pending.
+        """
+        with transaction.atomic():
+            self._lock_while_pending()
+            code = form.save(commit=False)
+            code.class_offering = self.class_offering
+            code.created_by = self.requested_by.user
+            code.is_approved = True
+            code.save()
+            form.save_m2m()
+            self.discount_code = code
+            self.status = self.Status.APPROVED
+            self.decided_by = user
+            self.decided_at = timezone.now()
+            self.save(update_fields=["discount_code", "status", "decided_by", "decided_at"])
+        self._emit_decision(
+            "discount_code.request_approved",
+            title=f"Your discount code {code.code} was approved",
+            body=f"{code.code} is ready to use on {self.class_offering.title}.",
+        )
+        return code
+
+    def decline(self, user: User, note: str) -> None:
+        """Refuse this request with ``note`` and tell the instructor why.
+
+        The decline form is the first gate on the note and this is the last, as
+        ``GuildAnnouncement.decline`` does.
+
+        Args:
+            user: The admin deciding.
+            note: Why, in the admin's words; the instructor reads it.
+
+        Raises:
+            DiscountCodeRequestAlreadyDecided: When this request is no longer pending.
+            ValueError: When ``note`` is blank.
+        """
+        with transaction.atomic():
+            self._lock_while_pending()
+            if not note.strip():
+                raise ValueError("A decline needs a note so the instructor knows why.")
+            self.decision_note = note.strip()
+            self.status = self.Status.DECLINED
+            self.decided_by = user
+            self.decided_at = timezone.now()
+            self.save(update_fields=["decision_note", "status", "decided_by", "decided_at"])
+        self._emit_decision(
+            "discount_code.request_declined",
+            title=f"Your discount code request {self.code} was declined",
+            body=f"An admin declined {self.code} for {self.class_offering.title}: {self.decision_note}",
+        )
+
+    def _lock_while_pending(self) -> None:
+        """Re-read this row under a row lock and refuse unless it is still pending.
+
+        Called inside the caller's ``transaction.atomic()``. Two admins deciding at once
+        serialize on the lock: the second re-read sees the first decision and raises, so a
+        request yields one decision and never two codes (the ``Registration`` release paths
+        use the same shape). SQLite has no row locks, so there the re-read alone is what
+        catches a stale in-memory copy.
+
+        Raises:
+            DiscountCodeRequestAlreadyDecided: When the stored row is no longer pending.
+        """
+        current = type(self)._default_manager.select_for_update().get(pk=self.pk)
+        if current.status != self.Status.PENDING:
+            raise DiscountCodeRequestAlreadyDecided(
+                f"Request {self.pk} was already {current.get_status_display().lower()}."
+            )
+
+    def _emit_decision(self, event_key: str, *, title: str, body: str) -> None:
+        """Tell the requesting instructor about a decision, linking their class's Discount Codes tab.
+
+        ``resolvers.instructor`` reads ``context["instructor"]`` and drops a Member with no
+        usable User, so a request from a userless member simply notifies nobody.
+        """
+        from django.urls import reverse
+
+        from core.events.emit import emit
+
+        tab_url = reverse("classes:teach_class_discount_codes", kwargs={"pk": self.class_offering_id})
+        emit(
+            event_key,
+            actor=self.decided_by,
+            target=self,
+            context={"instructor": self.requested_by},
+            title=title,
+            body=body,
+            url=f"{settings.MEMBER_BASE_URL}{tab_url}",
+            period=f"discount_request:{self.pk}:{self.status}",
+        )
+
+
 class Waiver(models.Model):
     class Kind(models.TextChoices):
         LIABILITY = "liability", "Liability"
@@ -3012,6 +3979,163 @@ class Waiver(models.Model):
         return f"{self.get_kind_display()} for registration {self.registration_id}"
 
 
+class RegistrationStatus(models.TextChoices):
+    """Registration lifecycle. Lives at module level so ``Registration.Meta`` can read it.
+
+    A nested class body cannot see the names of the class body enclosing it, so a
+    ``Status`` defined inside ``Registration`` is invisible to ``Registration.Meta``
+    — and the seat-uniqueness constraint has to name its statuses there. Exposed as
+    ``Registration.Status`` below, which is how the rest of the app spells it.
+    """
+
+    PENDING = "pending", "Pending payment"
+    CONFIRMED = "confirmed", "Confirmed"
+    WAITLISTED = "waitlisted", "Waitlisted"
+    CANCELLED = "cancelled", "Cancelled"
+    REFUNDED = "refunded", "Refunded"
+
+
+SEAT_HOLDING_REGISTRATION_STATUSES = (
+    RegistrationStatus.CONFIRMED,
+    RegistrationStatus.PENDING,
+    RegistrationStatus.WAITLISTED,
+)
+"""Statuses that still occupy a place in a class: paid, part-way through paying, or queued.
+
+The one definition behind ``RegistrationQuerySet.seat_holding``, ``ClassOffering``'s
+seat math, and the ``uq_registration_seat_email`` constraint. CANCELLED and
+REFUNDED are absent on purpose: someone who cancels is free to sign up again.
+"""
+
+
+CAPACITY_CONSUMING_REGISTRATION_STATUSES = (
+    RegistrationStatus.CONFIRMED,
+    RegistrationStatus.PENDING,
+)
+"""Statuses that take a seat out of the room: paid, or part-way through paying.
+
+Narrower than ``SEAT_HOLDING_REGISTRATION_STATUSES`` by exactly one status. A
+WAITLISTED row holds a place in the queue and no seat, which is why it does not count
+against ``capacity`` and why a waitlisted person can still be told a class is sold out.
+"""
+
+
+ABANDONED_HOLD_SWEEP_AGE = timedelta(hours=2)
+"""How old a PENDING signup must be before the sweep will look at its checkout at all.
+
+Strictly longer than ``billing.stripe_utils.CLASS_CHECKOUT_SESSION_LIFETIME`` (1 h), which
+is the whole point: inside that hour the registrant may still be paying, and a resumed
+signup mints a fresh session on the same row without touching ``registered_at``, so age
+alone is never permission to cancel. Past the threshold the sweep still asks Stripe and
+still leaves a live session alone — the age only decides who gets asked about.
+"""
+
+# Stamped on a signup whose checkout ran out before it was paid. Read by staff in the
+# activity feed, so it says what happened rather than naming a webhook.
+EXPIRED_HOLD_CANCEL_REASON = "The checkout for this signup expired before it was paid."
+# Same event, reached through Stripe's delayed-notification failure rather than a timeout.
+FAILED_PAYMENT_CANCEL_REASON = "The delayed payment for this signup did not go through."
+
+
+class RegistrationQuerySet(models.QuerySet["Registration"]):
+    def seat_holding(self) -> "RegistrationQuerySet":
+        """Rows still occupying a place: confirmed, pending payment, or waitlisted."""
+        return self.filter(status__in=SEAT_HOLDING_REGISTRATION_STATUSES)
+
+    def abandoned_holds(self, *, now: datetime | None = None) -> "RegistrationQuerySet":
+        """PENDING rows older than :data:`ABANDONED_HOLD_SWEEP_AGE` — candidates, not verdicts.
+
+        Age is the cheap filter that decides which rows are worth a Stripe round trip.
+        Whether a candidate actually loses its seat is decided by what Stripe says about
+        its session, in :meth:`release_abandoned_holds`.
+        """
+        cutoff = (now or timezone.now()) - ABANDONED_HOLD_SWEEP_AGE
+        return self.filter(status=RegistrationStatus.PENDING, registered_at__lt=cutoff)
+
+    def release_abandoned_holds(self, *, now: datetime | None = None) -> tuple[int, int]:
+        """Sweep abandoned class checkouts — Stripe-verified, never on age alone.
+
+        The backstop behind ``checkout.session.expired``: a webhook that never arrived,
+        an endpoint that was down, or a row that predates the expiry being set at all
+        (production is carrying 14 of those). For each candidate, Stripe's answer decides:
+
+        * **paid** → the webhook was lost. Confirm the row through the same code path the
+          webhook uses, so the fan-out, the idempotency and the orphan handling are
+          identical. This is the recovery half, and it is why the sweep asks before it acts.
+        * **open** → somebody is mid-checkout on a session #419 re-minted on this row.
+          Left alone. ``registered_at`` says the row is old; the session says the person
+          is not.
+        * **complete but unpaid** → a delayed-notification payment (ACH and friends) that
+          Stripe has not settled yet. Left alone; ``async_payment_succeeded`` /
+          ``async_payment_failed`` own that row's ending.
+        * **expired**, no session id ever stored, or an id Stripe does not recognise → the
+          seat is released by cancelling the row. Never deleted: it carries the signed
+          waiver, the custom answers and its audit trail.
+        * **Stripe unreachable** → skipped and logged. The next tick retries; an
+          unanswerable question is not permission to take somebody's seat.
+
+        That last rule is about Stripe declining to answer, and it is worth keeping apart
+        from Stripe answering "no such session", which is what ``resource_missing`` is.
+        Treating the two the same is how this sweep first shipped, and in production every
+        one of its candidates was an id from before the keys moved to live: eleven seats it
+        re-asked about every tick, forever, and released none of.
+
+        Known and deliberately not closed here: ``registered_at`` is the wrong clock for a row
+        whose hold started later than its creation. ``_claim_waitlist_spot`` flips a waitlister
+        to PENDING and saves before minting the session, so for the length of that Stripe call
+        a month-old row is a candidate with no session id, and the session-less branch above
+        would cancel the seat the member was just told had opened. The window is one network
+        call against a fifteen-minute tick. It is not closed by rewriting ``registered_at`` on
+        claim, because that field is ``auto_now_add`` creation time that the roster displays
+        and ``waitlist_position`` compares against; and not by a dedicated hold timestamp,
+        because that is a schema change and its own ticket. The webhook half of the same race
+        **is** closed, in ``_release_seat_for_session``.
+
+        Returns:
+            ``(released, recovered)`` — seats cancelled, and lost-webhook payments confirmed.
+        """
+        from billing import stripe_utils
+
+        released = 0
+        recovered = 0
+        for registration in self.abandoned_holds(now=now).select_related("class_offering"):
+            # No stored session means none was ever attached (a crash between minting and
+            # saving): nothing to verify, and nothing that could still be paid.
+            if registration.stripe_session_id:
+                session = None
+                try:
+                    session = stripe_utils.retrieve_checkout_session(session_id=registration.stripe_session_id)
+                except stripe_utils.CheckoutSessionNotFound:
+                    # Stripe answered: there is no such session. Falls through to the
+                    # release below, the same ending as a row that never stored an id at
+                    # all, because that is what this row now is — an id nothing can verify
+                    # and nothing can ever report as paid. Retrying it forever is what kept
+                    # these seats held.
+                    logger.warning(
+                        "Class hold sweep: Stripe has no session %s for registration %s; releasing the seat.",
+                        registration.stripe_session_id,
+                        registration.pk,
+                    )
+                except Exception:
+                    logger.exception(
+                        "Class hold sweep: could not verify session for registration %s; retrying next tick.",
+                        registration.pk,
+                    )
+                    continue
+                if session is not None:
+                    if session["payment_status"] == "paid":
+                        from classes.webhook_handlers import apply_paid_class_session
+
+                        if apply_paid_class_session(registration.pk, session) == "confirmed":
+                            recovered += 1
+                        continue
+                    if session["status"] in ("open", "complete"):
+                        continue
+            if registration.release_hold(reason=EXPIRED_HOLD_CANCEL_REASON):
+                released += 1
+        return released, recovered
+
+
 class Registration(models.Model):
     # Transient (non-persisted) attribute a view sets before a status-changing
     # save() to attribute a confirm/refund action in the audit feed. Unset on a
@@ -3022,12 +4146,7 @@ class Registration(models.Model):
     # payment-flavored REGISTRATION_CONFIRMED. Unset elsewhere — read via getattr.
     _promoting: bool
 
-    class Status(models.TextChoices):
-        PENDING = "pending", "Pending payment"
-        CONFIRMED = "confirmed", "Confirmed"
-        WAITLISTED = "waitlisted", "Waitlisted"
-        CANCELLED = "cancelled", "Cancelled"
-        REFUNDED = "refunded", "Refunded"
+    Status = RegistrationStatus
 
     class_offering = models.ForeignKey(
         ClassOffering,
@@ -3128,12 +4247,34 @@ class Registration(models.Model):
     confirmed_at = models.DateTimeField(null=True, blank=True, help_text="When payment confirmed, if any.")
     cancelled_at = models.DateTimeField(null=True, blank=True, help_text="When this registration was cancelled.")
 
+    objects = RegistrationQuerySet.as_manager()
+
     class Meta:
         ordering = ["-registered_at"]
         indexes = [
             models.Index(fields=["email"]),
             models.Index(fields=["class_offering", "status"]),
         ]
+        constraints = [
+            # One seat per person per class. The double-click that used to create a
+            # second row (and eat a second seat) now cannot reach the table at all.
+            # Conditional so a cancelled or refunded registrant can sign up again.
+            models.UniqueConstraint(
+                fields=["class_offering", "email"],
+                condition=models.Q(status__in=SEAT_HOLDING_REGISTRATION_STATUSES),
+                name="uq_registration_seat_email",
+            ),
+        ]
+
+    @property
+    def consumes_seat(self) -> bool:
+        """Whether this row is one of the ones taking a seat out of the room right now.
+
+        The register view asks so it can tell a registrant apart from a stranger when a
+        class reads as full: if the row filling the last seat is this person's own, the
+        class is not sold out to them and their signup is not a waitlist signup.
+        """
+        return self.status in CAPACITY_CONSUMING_REGISTRATION_STATUSES
 
     def __str__(self) -> str:
         return f"{self.email} → {self.class_offering.title}"
@@ -3321,17 +4462,15 @@ class Registration(models.Model):
     def compute_promote_price_cents(self) -> int:
         """What this registrant owes if promoted now — mirrors the register form's price engine.
 
-        Uses STORED state (the offering's sale price, this registration's linked
-        member, and any discount code stored at waitlist join): sale price first,
-        then the member percentage, then the code — unless an active sale blocks
-        codes (``sale_allow_discount_codes`` off), in which case the stored code is
-        ignored exactly as the form would have refused it. The code is applied as
-        stored, with no re-validation — the person entered it in good faith.
+        Uses STORED state (the offering's sale price and any discount code stored
+        at waitlist join): sale price first, then the code — unless an active sale
+        blocks codes (``sale_allow_discount_codes`` off), in which case the stored
+        code is ignored exactly as the form would have refused it. The code is
+        applied as stored, with no re-validation — the person entered it in good
+        faith. The linked member never changes the price.
         """
         offering = self.class_offering
         price = offering.sale_price_cents
-        if self.member is not None and offering.member_discount_pct:
-            price = int(price * (100 - offering.member_discount_pct) / 100)
         sale_blocks_codes = offering.sale_is_active and not offering.sale_allow_discount_codes
         if self.discount_code is not None and not sale_blocks_codes:
             price = self.discount_code.apply_to(price)
@@ -3369,6 +4508,110 @@ class Registration(models.Model):
                 self.save(update_fields=["payment_due_cents", "status", "confirmed_at"])
             finally:
                 self._promoting = False
+
+    def confirm_pending_payment(self, actor: "User | None") -> None:
+        """Staff-confirm a signup stuck at PENDING, with what it owes still owed.
+
+        The exit from a dead end. A signup that started a checkout and never finished it
+        cannot be marked paid, cannot be sent a payment link and cannot be promoted,
+        because every one of those tools guards on ``is_unpaid``, which needs CONFIRMED.
+        The only staff move used to be cancel, which is the wrong answer for somebody
+        standing at the front desk with cash.
+
+        Confirms with the balance intact rather than as paid, so the ledger stays honest:
+        no money has moved. ``amount_paid_cents`` is **zeroed** on the way through, because
+        on a PENDING row it is not a payment at all — ``classes/views.py`` stamps it with
+        the session's price when the Checkout Session is minted. Read as the quote it is,
+        it becomes ``payment_due_cents``; read as money, it would silently mark the seat
+        paid for and settle a balance nobody collected. ``stripe_payment_id`` is what a
+        real charge looks like, and a PENDING row has none.
+
+        **Expires the row's Checkout Session first.** The hosted page is still payable, and
+        this reaper is what makes that the normal case rather than a curiosity: before it, a
+        stuck PENDING row sat behind a session that had been dead for days, so by the time a
+        staffer saw it there was nothing left to pay. Now a PENDING row survives about an hour
+        before the expiry releases it, so nearly every one a staffer can still act on has a
+        live tab attached. Leaving it open means the member pays the $50 in that tab, the
+        webhook finds a CONFIRMED row and orphans the payment, the balance stays owed, and the
+        roster goes on offering Mark as Paid and Send Payment Link until somebody collects the
+        same $50 twice. Best-effort, in the same shape as the resume path and the orientation
+        hold release: Stripe refusing (the session is already expired or complete, or Stripe is
+        down) must not block a confirm a staff member is standing there waiting on.
+
+        Sends no email itself — the caller sends the confirmation, exactly as
+        ``promote_from_waitlist`` leaves that choice to its caller.
+
+        Raises:
+            RegistrationStateError: If this registration is not PENDING (already
+                confirmed by a webhook that landed first, already cancelled by the
+                expiry sweep, or a double-clicked button).
+        """
+        from classes.exceptions import RegistrationStateError
+
+        with transaction.atomic():
+            # Guard on a locked refetch, not the in-memory copy: the payment webhook and
+            # the expiry release take the same lock, so a staff confirm racing either of
+            # them loses cleanly instead of overwriting the result.
+            current = type(self)._default_manager.select_for_update().get(pk=self.pk)
+            if current.status != self.Status.PENDING:
+                raise RegistrationStateError("Only a signup still waiting on payment can be confirmed by hand.")
+            # After the guard, so a confirm that is about to be refused never kills a live
+            # checkout the winning path still needs.
+            current.expire_checkout_session_best_effort()
+            self.payment_due_cents = current.payment_due_cents or current.amount_paid_cents
+            self.amount_paid_cents = 0
+            self.status = self.Status.CONFIRMED
+            self.confirmed_at = timezone.now()
+            self._acting_user = actor
+            self.save(
+                update_fields=["payment_due_cents", "amount_paid_cents", "status", "confirmed_at"],
+            )
+
+    def expire_checkout_session_best_effort(self) -> None:
+        """Close this row's hosted Checkout page so an open tab cannot still pay for it.
+
+        Best-effort by design, the same shape as the orientation hold release and the resume
+        path: Stripe may refuse (the session is already expired, or already complete, and only
+        an ``open`` one can be expired) or be unreachable, and neither is a reason to fail the
+        state change the caller has already decided on. A row with no session has nothing to
+        close. The session's own ``expires_at`` is the backstop either way.
+        """
+        from billing import stripe_utils
+
+        if not self.stripe_session_id:
+            return
+        try:
+            stripe_utils.expire_checkout_session(session_id=self.stripe_session_id)
+        except Exception:
+            logger.info("Could not expire the Checkout session for registration %s (best effort).", self.pk)
+
+    def release_hold(self, *, reason: str) -> bool:
+        """Free the seat an unfinished checkout is holding — by cancelling, never deleting.
+
+        The orientation flow deletes its abandoned holds, and that is right there: an
+        orientation hold is a row with nothing on it but a timestamp. A registration is
+        not. It carries a signed waiver, the answers to the class's custom questions and
+        its own audit trail, and #419 settled that throwing those away is not an
+        acceptable way to free a seat. Cancelling frees exactly the same seat —
+        ``uq_registration_seat_email`` stops counting a CANCELLED row, so the registrant
+        whose checkout ran out is free to sign up again — and keeps the record of what
+        happened.
+
+        Returns:
+            ``True`` when this call is what released the seat. ``False`` when the row had
+            already left PENDING — a payment webhook that landed first, a staff confirm, a
+            second delivery of the same Stripe event, or the sweep and the webhook arriving
+            together. Every release path is idempotent on that answer.
+        """
+        with transaction.atomic():
+            locked = (
+                type(self)._default_manager.select_for_update().filter(pk=self.pk, status=self.Status.PENDING).first()
+            )
+            if locked is None:
+                return False
+            self.status = self.Status.PENDING  # the locked row says so, whatever this copy held
+            self.cancel(reason=reason)
+        return True
 
     def mark_paid(self, actor: "User | None", note: str = "") -> None:
         """Settle an unpaid promoted registration by hand (cash, comped, check).
@@ -3574,7 +4817,11 @@ class Registration(models.Model):
 
         No price reconciliation: ``amount_paid_cents`` is unchanged. The source
         class's waitlist is promoted if this registration was holding a spot
-        there. Raises ``ValueError`` if ``target`` is the current class.
+        there. Raises ``ValueError`` if ``target`` is the current class, or if
+        moving a seat-holding row there would give this person two seats in the
+        same class — ``uq_registration_seat_email`` would reject that write, and a
+        staff action deserves a sentence rather than a 500. A cancelled row moves
+        freely: it holds no seat, so it collides with nothing.
 
         The registrant is emailed the move notice from here rather than from the two
         calling views (the teaching portal roster and the admin registrations tab), so
@@ -3584,11 +4831,23 @@ class Registration(models.Model):
         """
         if target.pk == self.class_offering_id:
             raise ValueError("Cannot move a registration to its current class.")
+        already_there = f"{self.first_name} {self.last_name} already has a signup for {target.title}."
+        if self.status in SEAT_HOLDING_REGISTRATION_STATUSES and target.live_registration_for_email(self.email):
+            raise ValueError(already_there)
         source = self.class_offering
         held_spot = self.status in (self.Status.CONFIRMED, self.Status.PENDING)
         should_notify = self.status in (self.Status.CONFIRMED, self.Status.PENDING, self.Status.WAITLISTED)
         self.class_offering = target
-        self.save(update_fields=["class_offering"])
+        try:
+            # Savepointed: the check above is a read, so two staff moving at once (or a
+            # move racing a public signup into the target) can both pass it. The
+            # constraint is what actually decides, and the loser gets the same sentence
+            # as the reader who lost, never a 500.
+            with transaction.atomic():
+                self.save(update_fields=["class_offering"])
+        except IntegrityError:
+            self.class_offering = source
+            raise ValueError(already_there) from None
         from classes import activity
 
         activity.log(
@@ -3931,9 +5190,6 @@ class ClassSettings(models.Model):
     liability_waiver_text = models.TextField(help_text="Full liability waiver text shown to all registrants.")
     model_release_waiver_text = models.TextField(
         help_text="Full model-release waiver text shown when a class requires it."
-    )
-    default_member_discount_pct = models.PositiveIntegerField(
-        default=10, help_text="Percent discount auto-applied to registrations from verified Members (0 = no discount)."
     )
     reminder_hours_before = models.PositiveIntegerField(
         default=24, help_text="Hours before a class session to send the reminder email."

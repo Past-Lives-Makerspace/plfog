@@ -17,10 +17,11 @@ from core.help_registry import HELP_KEYS, KEY_PATTERN
 TEMPLATES_DIR = Path(__file__).resolve().parent.parent.parent / "templates"
 # Excludes brace-bearing values: components/page_header.html renders a parametrized
 # data-help-key="{{ action_help_key }}" — the literal keys flow in at call sites via
-# the action_help_key= include param, which HELP_KEY_PARAM collects below, so a
+# the action_help_key= include param (and _calendar_subscribe.html's help_key= the same
+# way), which HELP_KEY_PARAM collects below, so a
 # typo'd key in an include still fails here.
 HELP_KEY_ATTR = re.compile(r'data-help-key="([^"{}]*)"')
-HELP_KEY_PARAM = re.compile(r'action_help_key="([^"{}]*)"')
+HELP_KEY_PARAM = re.compile(r'(?:action_)?help_key="([^"{}]*)"')
 
 
 def _referenced_keys() -> list[tuple[str, str]]:

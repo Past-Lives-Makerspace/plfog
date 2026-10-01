@@ -8,6 +8,7 @@ permission guard → form/model/service call → toast, redirect, or render.
 
 from __future__ import annotations
 
+import logging
 from collections.abc import Sequence
 from datetime import date, datetime, time, timedelta
 from typing import Any
@@ -15,7 +16,7 @@ from typing import Any
 from django.contrib import messages
 from django.contrib.auth.decorators import login_required
 from django.core.paginator import Paginator
-from django.db.models import Prefetch
+from django.db.models import Prefetch, Q
 from django.http import Http404, HttpRequest, HttpResponse
 from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse
@@ -47,26 +48,7 @@ from membership.models import (
 )
 from membership.permissions import can_create_equipment, can_manage_equipment
 
-
-def equipment_feature_required(view_func: Any) -> Any:
-    """404 every equipment view while the Site Settings toggle is off.
-
-    A disabled feature is fully dark — member pages, booking POSTs, and manage
-    surfaces alike; Site Settings is where it comes back. Mirrors the
-    ``help_page_enabled`` gate's early-check mechanism, answering 404 instead of a
-    redirect so crafted requests learn nothing.
-    """
-    from functools import wraps
-
-    @wraps(view_func)
-    def wrapper(request: HttpRequest, *args: Any, **kwargs: Any) -> HttpResponse:
-        from core.models import SiteConfiguration
-
-        if not SiteConfiguration.load().equipment_page_enabled:
-            raise Http404("The Equipment page is turned off.")
-        return view_func(request, *args, **kwargs)
-
-    return wrapper
+logger = logging.getLogger("hub")
 
 
 def _equipment_queryset() -> EquipmentQuerySet:
@@ -91,15 +73,17 @@ def _require_can_manage(request: HttpRequest, equipment: Equipment) -> HttpRespo
 
 
 def _member_access_sets(member: Member | None) -> tuple[set[int], set[int]]:
-    """The member's completed orientation-type pks and joined-guild pks, in two queries.
+    """The member's completed orientation-type pks and joined-guild pks, in a fixed three queries.
 
     The bulk input to :meth:`Equipment.access_state` so the index page never runs
-    per-card access queries. Empty sets for an unlinked viewer — every card then
-    reads "Membership inactive", which is the honest state.
+    per-card access queries. Completed types come from the one resolver, so a
+    hand-entered record (issue #465) opens a gate here exactly as a completed booking
+    does. Empty sets for an unlinked viewer — every card then reads "Membership
+    inactive", which is the honest state.
     """
     if member is None:
         return set(), set()
-    oriented = set(member.orientation_bookings.filter(is_completed=True).values_list("orientation_type_id", flat=True))
+    oriented = member.completed_orientation_type_ids()
     guilds = set(member.guild_memberships.values_list("guild_id", flat=True))
     return oriented, guilds
 
@@ -278,8 +262,13 @@ def _schedule_context(
             for start in starts
         }
 
+    from billing.late_fees import unpaid_fee_for
+    from membership.late_cancel import booking_sentence, cancel_sentence, policy_for_equipment
+
+    policy = policy_for_equipment(equipment)
     blockers = equipment.booking_blockers(member)
     my_reservations: list[EquipmentReservation] = []
+    unpaid_late_fee = None
     if member is not None:
         now = timezone.now()
         my_reservations = list(
@@ -287,6 +276,12 @@ def _schedule_context(
             .exclude(status=EquipmentReservation.Status.CANCELLED, cancelled_by=member)
             .order_by("starts_at")
         )
+        for reservation in my_reservations:
+            # The cancel modal's fee line, only while a cancel right now would be late (#456).
+            reservation.late_cancel_warning = (
+                cancel_sentence(policy) if policy.is_late(reservation.starts_at, now=now) else ""
+            )
+        unpaid_late_fee = unpaid_fee_for(member)
     return {
         "equipment": equipment,
         "week_offset": week_offset,
@@ -308,6 +303,10 @@ def _schedule_context(
         "my_reservations": my_reservations,
         "upcoming_reservations": list(equipment.reservations.upcoming().select_related("member")[:20]),
         "manages": manages,
+        # Under the Book a Time form and appended to its Reserve prompt; "" when no fee applies.
+        "late_cancel_sentence": booking_sentence(policy),
+        # The block until paid (#456): the requirements banner shows it with a Pay button.
+        "unpaid_late_fee": unpaid_late_fee,
     }
 
 
@@ -332,7 +331,6 @@ def _attach_running_orientations(equipment_list: Sequence[Equipment], *, now: da
 
 
 @login_required
-@equipment_feature_required
 def hub_equipment_index(request: HttpRequest) -> HttpResponse:
     """The Equipment directory — card grid with guild/kind/search filters and access badges."""
     member = _get_member(request)
@@ -363,10 +361,16 @@ def hub_equipment_index(request: HttpRequest) -> HttpResponse:
     equipment_list = list(filtered)
     _attach_running_orientations(equipment_list, now=now)
     oriented_ids, guild_ids = _member_access_sets(member)
+    # One fee lookup for the whole grid (#456): the block until paid is a per-member state.
+    from billing.late_fees import unpaid_fee_for
+
+    has_unpaid_fee = member is not None and unpaid_fee_for(member) is not None
     cards = [
         {
             "equipment": equipment,
-            "access_state": equipment.access_state(member, oriented_type_ids=oriented_ids, member_guild_ids=guild_ids),
+            "access_state": equipment.access_state(
+                member, oriented_type_ids=oriented_ids, member_guild_ids=guild_ids, has_unpaid_fee=has_unpaid_fee
+            ),
             "availability": equipment.availability_line(),
         }
         for equipment in equipment_list
@@ -390,7 +394,6 @@ def hub_equipment_index(request: HttpRequest) -> HttpResponse:
 
 
 @login_required
-@equipment_feature_required
 def hub_equipment_add(request: HttpRequest) -> HttpResponse:
     """Admin-gated create form — full admins and EQUIPMENT capability holders only."""
     if not can_create_equipment(request):
@@ -448,7 +451,6 @@ def _equipment_orientation_sections(equipment: Equipment, member: Member | None)
 
 
 @login_required
-@equipment_feature_required
 def hub_equipment_detail(request: HttpRequest, slug: str) -> HttpResponse:
     """The equipment mini-page — hero, requirements banner, Orientation section, schedule, About."""
     equipment = get_object_or_404(_equipment_queryset(), slug=slug)
@@ -456,7 +458,9 @@ def hub_equipment_detail(request: HttpRequest, slug: str) -> HttpResponse:
     if not equipment.is_active and not manages:
         raise Http404("This equipment has been retired.")
     member = _get_member(request)
-    access_state = equipment.access_state(member)
+    schedule = _schedule_context(equipment, member, manages=manages)
+    # The schedule builder already looked the fee up once; the banner state reads the same answer.
+    access_state = equipment.access_state(member, has_unpaid_fee=schedule["unpaid_late_fee"] is not None)
     orientation_type = equipment.required_orientation
     orientation_booking = None
     orientation_url = ""
@@ -474,7 +478,7 @@ def hub_equipment_detail(request: HttpRequest, slug: str) -> HttpResponse:
         "hub/equipment_detail.html",
         {
             **_get_hub_context(request),
-            **_schedule_context(equipment, member, manages=manages),
+            **schedule,
             "equipment": equipment,
             "access_state": access_state,
             "orientation_booking": orientation_booking,
@@ -537,7 +541,6 @@ def _require_visible(request: HttpRequest, equipment: Equipment) -> None:
 
 
 @login_required
-@equipment_feature_required
 def hub_equipment_schedule(request: HttpRequest, slug: str) -> HttpResponse:
     """GET — the schedule partial (week strip + day timeline + booking form), HTMX-swapped."""
     equipment = get_object_or_404(_equipment_queryset(), slug=slug)
@@ -551,7 +554,6 @@ def hub_equipment_schedule(request: HttpRequest, slug: str) -> HttpResponse:
 
 
 @login_required
-@equipment_feature_required
 @require_POST
 def hub_equipment_reserve(request: HttpRequest, slug: str) -> HttpResponse:
     """POST — make an instant reservation; re-render the schedule partial with a toast.
@@ -591,7 +593,6 @@ def hub_equipment_reserve(request: HttpRequest, slug: str) -> HttpResponse:
 
 
 @login_required
-@equipment_feature_required
 @require_POST
 def hub_equipment_reservation_cancel(request: HttpRequest, slug: str, pk: int) -> HttpResponse:
     """POST — cancel a reservation: the member's own (no reason), or a manager's (reason required).
@@ -611,13 +612,30 @@ def hub_equipment_reservation_cancel(request: HttpRequest, slug: str, pk: int) -
         week_offset = _parse_week_value(request.POST.get("week", "0"))
         selected_day = _parse_day(request.POST.get("day", ""))
         try:
-            reservation.cancel(member)
+            fee = reservation.cancel(member)
         except EquipmentError as exc:
             response = _render_schedule(request, equipment, week_offset=week_offset, selected_day=selected_day)
             trigger_toast(response, str(exc), "error")
             return response
         response = _render_schedule(request, equipment, week_offset=week_offset, selected_day=selected_day)
-        trigger_toast(response, "Reservation cancelled.", "success")
+        if fee is None:
+            trigger_toast(response, "Reservation cancelled.", "success")
+            return response
+        # A late cancel (#456): straight to Stripe Checkout. The modal posts through htmx, and
+        # an XHR cannot follow a cross-origin 302, so the redirect rides the HX-Redirect header.
+        from billing import late_fees
+
+        try:
+            checkout_url = late_fees.start_fee_checkout(fee)
+        except Exception:
+            logger.exception("Late fee checkout failed for reservation %s.", reservation.pk)
+            trigger_toast(
+                response,
+                "Reservation cancelled. A late cancellation fee applies; use the Pay button to pay it.",
+                "info",
+            )
+            return response
+        response["HX-Redirect"] = checkout_url
         return response
     if not can_manage_equipment(request, equipment):
         return HttpResponse("Forbidden", status=403)
@@ -636,7 +654,6 @@ def hub_equipment_reservation_cancel(request: HttpRequest, slug: str, pk: int) -
 
 
 @login_required
-@equipment_feature_required
 @require_POST
 def hub_equipment_hours_save(request: HttpRequest, slug: str) -> HttpResponse:
     """POST — save the whole Hours & Limits tab: the hours formset plus closure + limits.
@@ -766,6 +783,33 @@ def _orientation_tab_context(request: HttpRequest, equipment: Equipment) -> dict
     }
 
 
+def _manage_late_fees(equipment: Equipment) -> list[tuple[Any, Any]]:
+    """The equipment's late cancellation fees (#456) newest first, each with its Waive form.
+
+    Its reservations' fees and its owned orientations' fees, in one query carrying what
+    each row's label and state read. The form per row has the fee's own prefix so N
+    modals on one page never share a field id. Everyone who can open the manage page may
+    waive every fee here: they all follow ``can_manage_equipment`` for this equipment.
+    """
+    from billing.forms import LateFeeWaiveForm
+    from billing.models import LateCancellationFee
+
+    fees = (
+        LateCancellationFee.objects.filter(
+            Q(reservation__equipment=equipment) | Q(orientation_booking__orientation_type__equipment=equipment)
+        )
+        .select_related(
+            "member",
+            "waived_by__member",
+            "reservation__equipment",
+            "orientation_booking__slot",
+            "orientation_booking__orientation_type",
+        )
+        .order_by("-created_at", "-pk")
+    )
+    return [(fee, LateFeeWaiveForm(fee=fee)) for fee in fees]
+
+
 def _render_manage(
     request: HttpRequest,
     equipment: Equipment,
@@ -811,13 +855,15 @@ def _render_manage(
             "manage_reservations": Paginator(equipment.reservations.upcoming().select_related("member"), 25).get_page(
                 request.GET.get("page", 1)
             ),
+            # The Reservations tab's late fee card (#456): the rows and where its Waive returns to.
+            "manage_late_fees": _manage_late_fees(equipment),
+            "manage_late_fees_next": f"{reverse('hub_equipment_manage', args=[equipment.slug])}?tab=reservations",
             "active_tab": active_tab,
         },
     )
 
 
 @login_required
-@equipment_feature_required
 def hub_equipment_manage(request: HttpRequest, slug: str) -> HttpResponse:
     """The manage panel — Details, Staff, Hours & Limits, and Reservations tabs."""
     equipment = get_object_or_404(_equipment_queryset(), slug=slug)
@@ -831,7 +877,6 @@ def hub_equipment_manage(request: HttpRequest, slug: str) -> HttpResponse:
 
 
 @login_required
-@equipment_feature_required
 @require_POST
 def hub_equipment_details_save(request: HttpRequest, slug: str) -> HttpResponse:
     """POST-only — save the manage panel's Details tab (the same form as the add page)."""
@@ -848,7 +893,6 @@ def hub_equipment_details_save(request: HttpRequest, slug: str) -> HttpResponse:
 
 
 @login_required
-@equipment_feature_required
 @require_POST
 def hub_equipment_photo_delete(request: HttpRequest, slug: str) -> HttpResponse:
     """POST-only — clear the equipment photo (the ``image_field`` component's delete endpoint)."""
@@ -863,7 +907,6 @@ def hub_equipment_photo_delete(request: HttpRequest, slug: str) -> HttpResponse:
 
 
 @login_required
-@equipment_feature_required
 @require_POST
 def hub_equipment_staff_add(request: HttpRequest, slug: str) -> HttpResponse:
     """POST-only — grant a member a manager role on this equipment."""
@@ -884,7 +927,6 @@ def hub_equipment_staff_add(request: HttpRequest, slug: str) -> HttpResponse:
 
 
 @login_required
-@equipment_feature_required
 @require_POST
 def hub_equipment_staff_remove(request: HttpRequest, slug: str, pk: int) -> HttpResponse:
     """POST-only — remove a member's manager role from this equipment."""
@@ -915,7 +957,6 @@ def hub_equipment_staff_remove(request: HttpRequest, slug: str, pk: int) -> Http
 
 
 @login_required
-@equipment_feature_required
 @require_POST
 def hub_equipment_orientation_types_save(request: HttpRequest, slug: str) -> HttpResponse:
     """POST — save the Orientation Types formset (create/edit/retire/delete).
@@ -954,7 +995,6 @@ def _hours_scope_queryset(equipment: Equipment, target: Member | None) -> Any:
 
 
 @login_required
-@equipment_feature_required
 def hub_equipment_orientation_hours_form(request: HttpRequest, slug: str) -> HttpResponse:
     """Return the Edit Hours modal's formset partial for one manager, or the shared rows (HTMX GET).
 
@@ -991,7 +1031,6 @@ _EQUIPMENT_SHARED_FAREWELL = (
 
 
 @login_required
-@equipment_feature_required
 @require_POST
 def hub_equipment_orientation_hours_save(request: HttpRequest, slug: str) -> HttpResponse:
     """Save one scope of recurring orientation hours from the Edit Hours modal (HTMX POST).
@@ -1047,7 +1086,6 @@ def hub_equipment_orientation_hours_save(request: HttpRequest, slug: str) -> Htt
 
 
 @login_required
-@equipment_feature_required
 @require_POST
 def hub_equipment_orientation_slot_add(request: HttpRequest, slug: str) -> HttpResponse:
     """POST — add a one time MANUAL orientation slot (guild None; Runs with a manager or any manager)."""
@@ -1075,7 +1113,6 @@ def hub_equipment_orientation_slot_add(request: HttpRequest, slug: str) -> HttpR
 
 
 @login_required
-@equipment_feature_required
 @require_POST
 def hub_equipment_orientation_slot_cancel(request: HttpRequest, slug: str, pk: int) -> HttpResponse:
     """POST — cancel an orientation slot: full per-booking cancel fan-out + hold release."""

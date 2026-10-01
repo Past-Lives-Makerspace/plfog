@@ -10,10 +10,10 @@ from django.contrib.auth.models import User
 from django.test import Client
 
 from billing.models import BillingSettings, TabCharge
-from core.models import SiteConfiguration
 from membership.models import AdminCapability
 from tests.billing.factories import BillingSettingsFactory, TabChargeFactory, TabEntryFactory, TabFactory
 from tests.membership.factories import MemberFactory
+from tests.features import hide
 
 pytestmark = pytest.mark.django_db
 
@@ -33,9 +33,7 @@ def _login_billing_approver(client: Client, username: str = "biller") -> User:
 
 
 def _disable_my_tab() -> None:
-    config = SiteConfiguration.load()
-    config.my_tab_enabled = False
-    config.save()
+    hide("my_tab")
 
 
 def describe_admin_tab_dashboard():

@@ -47,12 +47,14 @@ def describe_studio_hours_constraint():
         )
         assert event.pk is not None
 
-    def it_still_rejects_a_guild_on_a_community_event(db):
+    def it_still_rejects_a_guild_on_a_guild_lead_meeting(db):
+        # Studio hours relaxed nothing here, and neither did #505: the cross-guild leadership
+        # meeting the Meetings workspace writes is always makerspace-wide.
         guild = GuildFactory()
         with pytest.raises(IntegrityError), transaction.atomic():
             CommunityEvent.objects.create(
-                title="Community with guild",
-                event_type=CommunityEvent.EventType.COMMUNITY,
+                title="Lead meeting with guild",
+                event_type=CommunityEvent.EventType.LEAD_MEETING,
                 guild=guild,
                 starts_at=_aware(2026, 7, 11, 18),
                 ends_at=_aware(2026, 7, 11, 20),

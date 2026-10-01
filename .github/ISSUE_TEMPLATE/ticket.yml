@@ -1,0 +1,66 @@
+name: Ticket
+description: A feature, fix or chore for the plfog board. See CONTRIBUTING.md.
+body:
+  - type: textarea
+    id: story
+    attributes:
+      label: User story
+      description: 'When a person is involved: "As a [member / guild lead / instructor / admin], when [situation], I would like [X] to do [Y]. Currently, [X] does [Z]." Leave blank for tooling.'
+    validations:
+      required: false
+  - type: input
+    id: summary
+    attributes:
+      label: Summary
+      description: At most 160 characters, for someone who has never seen the code.
+    validations:
+      required: true
+  - type: textarea
+    id: goal
+    attributes:
+      label: Goal
+      description: Why this matters, in a sentence or two.
+    validations:
+      required: true
+  - type: textarea
+    id: current
+    attributes:
+      label: Current behavior
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+    validations:
+      required: true
+  - type: textarea
+    id: criteria
+    attributes:
+      label: Acceptance criteria
+      description: Each item observable and testable.
+      value: |
+        - [ ]
+    validations:
+      required: true
+  - type: textarea
+    id: area
+    attributes:
+      label: Area
+      description: 'The features and kinds of files involved, e.g. "notification settings: models, the settings page and its emails".'
+    validations:
+      required: true
+  - type: textarea
+    id: constraints
+    attributes:
+      label: Constraints
+      description: Limits the solution must respect (no migration, reuse the existing modal, must not email members).
+    validations:
+      required: false
+  - type: textarea
+    id: out_of_scope
+    attributes:
+      label: Out of scope
+      description: What someone could reasonably expect that this will not do.
+    validations:
+      required: false

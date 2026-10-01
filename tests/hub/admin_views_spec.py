@@ -7,15 +7,24 @@ from datetime import timedelta
 import pytest
 from allauth.account.models import EmailAddress
 from django.contrib.auth.models import User
+from django.template.defaultfilters import date as format_date
 from django.test import Client
 from django.urls import reverse
 from django.utils import timezone
 
 from core.models import Invite, SiteConfiguration
-from membership.models import Member
+from membership.models import Member, MemberAgreementAcceptance
 from tests.membership.factories import MemberFactory, MembershipPlanFactory
 
 pytestmark = pytest.mark.django_db
+
+# The Details form now carries the Leadership Directory role formset; a valid POST names it.
+_ROLES_MANAGEMENT = {
+    "roles-TOTAL_FORMS": "0",
+    "roles-INITIAL_FORMS": "0",
+    "roles-MIN_NUM_FORMS": "0",
+    "roles-MAX_NUM_FORMS": "1000",
+}
 
 
 def _create_superuser(client: Client, *, username: str = "admin") -> User:
@@ -229,6 +238,40 @@ def describe_admin_members():
         response = client.get(reverse("hub_admin_members") + "?status=all&role=admin")
         assert response.context["member_only_filter_active"] is True
         assert b"reg-hidden@pastlives.demo" not in response.content
+
+    def it_filters_by_accepted_agreement(client):
+        _create_superuser(client)
+        m1 = MemberFactory(user=None, full_legal_name="Agreed Person")
+        MemberFactory(user=None, full_legal_name="Unagreed Person")
+        MemberAgreementAcceptance.objects.create(member=m1, agreement_url="https://example.com", ip_address="127.0.0.1")
+
+        response = client.get(reverse("hub_admin_members") + "?agreement=accepted&status=all")
+        assert response.status_code == 200
+        assert response.context["agreement_filter"] == "accepted"
+        content = response.content.decode()
+        assert "Agreed Person" in content
+        assert "Unagreed Person" not in content
+
+    def it_filters_by_missing_agreement(client):
+        _create_superuser(client)
+        m1 = MemberFactory(user=None, full_legal_name="Agreed Person")
+        MemberFactory(user=None, full_legal_name="Unagreed Person")
+        MemberAgreementAcceptance.objects.create(member=m1, agreement_url="https://example.com", ip_address="127.0.0.1")
+
+        response = client.get(reverse("hub_admin_members") + "?agreement=missing&status=all")
+        assert response.status_code == 200
+        assert response.context["agreement_filter"] == "missing"
+        content = response.content.decode()
+        assert "Unagreed Person" in content
+        assert "Agreed Person" not in content
+
+    def it_hides_non_member_users_when_agreement_filter_is_active(client):
+        _create_superuser(client)
+        MembershipPlanFactory()
+        _create_nonmember_user(username="reg_agreement_hidden", email="reg-agreed@pastlives.demo")
+        response = client.get(reverse("hub_admin_members") + "?status=all&agreement=accepted")
+        assert response.context["member_only_filter_active"] is True
+        assert b"reg-agreed@pastlives.demo" not in response.content
 
     def it_paginates_over_the_member_and_user_union(client):
         admin = _create_superuser(client)
@@ -522,6 +565,7 @@ def describe_admin_member_edit_role_dispatch():
                 "member_type": Member.MemberType.STANDARD,
                 "role": "guest",
                 "show_in_directory": "on",
+                **_ROLES_MANAGEMENT,
             },
         )
         assert response.status_code == 302
@@ -585,6 +629,7 @@ def describe_admin_member_edit():
                 "member_type": Member.MemberType.STANDARD,
                 "role": Member.FogRole.MEMBER,
                 "show_in_directory": "on",
+                **_ROLES_MANAGEMENT,
             },
         )
         assert response.status_code == 302
@@ -624,6 +669,7 @@ def describe_admin_member_edit():
                 "member_type": Member.MemberType.STANDARD,
                 "role": Member.FogRole.MEMBER,
                 "show_in_directory": "on",
+                **_ROLES_MANAGEMENT,
                 "can_self_approve_discounts": "on",
             },
         )
@@ -648,6 +694,7 @@ def describe_admin_member_edit():
                 "member_type": Member.MemberType.STANDARD,
                 "role": Member.FogRole.MEMBER,
                 "show_in_directory": "on",
+                **_ROLES_MANAGEMENT,
             },
         )
         assert response.status_code == 302
@@ -668,6 +715,26 @@ def describe_admin_member_edit():
         response = client.get(reverse("hub_admin_member_edit", args=[99999]))
         assert response.status_code == 404
 
+    def it_shows_member_agreement_acceptance_date(client):
+        _create_superuser(client)
+        target = _create_member_user(username="agreedmember")
+        acceptance = MemberAgreementAcceptance.objects.create(
+            member=target.member, agreement_url="https://example.com", ip_address="127.0.0.1"
+        )
+        response = client.get(reverse("hub_admin_member_edit", args=[target.member.pk]))
+        assert response.status_code == 200
+        assert response.context["agreement"] == acceptance
+        expected_date = format_date(timezone.localtime(acceptance.accepted_at), "M j, Y")
+        assert f"accepted {expected_date}" in response.content.decode()
+
+    def it_shows_member_agreement_not_yet_accepted(client):
+        _create_superuser(client)
+        target = _create_member_user(username="unagreedmember")
+        response = client.get(reverse("hub_admin_member_edit", args=[target.member.pk]))
+        assert response.status_code == 200
+        assert response.context["agreement"] is None
+        assert "Not yet accepted" in response.content.decode()
+
 
 def describe_admin_site_settings():
     def it_requires_login(client):
@@ -686,6 +753,32 @@ def describe_admin_site_settings():
         assert response.status_code == 200
         assert b"Site Settings" in response.content
 
+    def it_shows_accepted_of_active_members_count(client):
+        _create_superuser(client)
+        m_active1 = MemberFactory(status=Member.Status.ACTIVE)
+        m_active2 = MemberFactory(status=Member.Status.ACTIVE)
+        MemberFactory(status=Member.Status.ACTIVE)
+        m_former = MemberFactory(status=Member.Status.FORMER)
+
+        MemberAgreementAcceptance.objects.create(
+            member=m_active1, agreement_url="https://example.com", ip_address="127.0.0.1"
+        )
+        MemberAgreementAcceptance.objects.create(
+            member=m_active2, agreement_url="https://example.com", ip_address="127.0.0.1"
+        )
+        MemberAgreementAcceptance.objects.create(
+            member=m_former, agreement_url="https://example.com", ip_address="127.0.0.1"
+        )
+
+        response = client.get(reverse("hub_admin_site_settings"))
+        assert response.status_code == 200
+        active_count = Member.objects.active().count()
+        accepted_count = Member.objects.active().accepted_agreement().count()
+        assert response.context["active_members_count"] == active_count
+        assert response.context["accepted_members_count"] == accepted_count
+        expected_text = f"{accepted_count} of {active_count} active members have accepted."
+        assert expected_text in response.content.decode()
+
     def it_saves_changes_and_redirects(client):
         _create_superuser(client)
         response = client.post(
@@ -694,6 +787,8 @@ def describe_admin_site_settings():
                 "org_name": "Past Lives Makerspace",
                 "registration_mode": SiteConfiguration.RegistrationMode.OPEN,
                 "member_event_policy": SiteConfiguration.MemberEventPolicy.APPROVAL,
+                "late_cancel_notice_hours": "24",
+                "late_cancel_grace_hours": "2",
                 "sync_classes_enabled": "",
                 "classes_calendar_color": "#abcdef",
                 "mailchimp_api_key": "",
@@ -708,6 +803,33 @@ def describe_admin_site_settings():
         assert response.status_code == 302
         config = SiteConfiguration.load()
         assert config.registration_mode == SiteConfiguration.RegistrationMode.OPEN
+
+    def it_saves_the_guided_tours_switch_from_the_features_tab(client):
+        _create_superuser(client)
+        base = {
+            "org_name": "Past Lives Makerspace",
+            "registration_mode": SiteConfiguration.RegistrationMode.OPEN,
+            "member_event_policy": SiteConfiguration.MemberEventPolicy.APPROVAL,
+            "late_cancel_notice_hours": "24",
+            "late_cancel_grace_hours": "2",
+            "classes_calendar_color": "#abcdef",
+            "feeds-TOTAL_FORMS": "0",
+            "feeds-INITIAL_FORMS": "0",
+            "feeds-MIN_NUM_FORMS": "0",
+            "feeds-MAX_NUM_FORMS": "1000",
+        }
+        assert SiteConfiguration.load().guided_tours_enabled is True
+
+        html = client.get(reverse("hub_admin_site_settings")).content.decode()
+        assert html.count('name="guided_tours_enabled"') == 1, "rendered once, on the Features tab only"
+
+        off = client.post(reverse("hub_admin_site_settings"), data=base)
+        assert off.status_code == 302
+        assert SiteConfiguration.load().guided_tours_enabled is False
+
+        on = client.post(reverse("hub_admin_site_settings"), data={**base, "guided_tours_enabled": "on"})
+        assert on.status_code == 302
+        assert SiteConfiguration.load().guided_tours_enabled is True
 
     def it_keeps_the_save_button_inside_the_settings_form(client):
         # Regression: the Sync Now control used to be its own nested <form>, which is invalid
@@ -749,6 +871,8 @@ def describe_admin_site_settings():
                 "org_name": "Past Lives Makerspace",
                 "registration_mode": SiteConfiguration.RegistrationMode.OPEN,
                 "member_event_policy": SiteConfiguration.MemberEventPolicy.APPROVAL,
+                "late_cancel_notice_hours": "24",
+                "late_cancel_grace_hours": "2",
                 "sync_classes_enabled": "",
                 "classes_calendar_color": "#abcdef",
                 "mailchimp_api_key": "",
@@ -776,6 +900,8 @@ def describe_admin_site_settings():
                 "org_name": "Past Lives Makerspace",
                 "registration_mode": SiteConfiguration.RegistrationMode.OPEN,
                 "member_event_policy": SiteConfiguration.MemberEventPolicy.APPROVAL,
+                "late_cancel_notice_hours": "24",
+                "late_cancel_grace_hours": "2",
                 "sync_classes_enabled": "",
                 "classes_calendar_color": "#abcdef",
                 "mailchimp_api_key": "",
@@ -804,6 +930,8 @@ def describe_admin_site_settings():
                 "org_name": "Past Lives Makerspace",
                 "registration_mode": SiteConfiguration.RegistrationMode.OPEN,
                 "member_event_policy": SiteConfiguration.MemberEventPolicy.APPROVAL,
+                "late_cancel_notice_hours": "24",
+                "late_cancel_grace_hours": "2",
                 "sync_classes_enabled": "",
                 "classes_calendar_color": "#abcdef",
                 "mailchimp_api_key": "",
@@ -857,6 +985,7 @@ def describe_admin_site_settings_legacy_cms():
         assert response.status_code == 200
         assert b"Instructor Discount Codes" in response.content
         assert b'id="id_instructor_discount_codes_enabled"' in response.content
+        assert b'id="id_instructor_discount_codes_need_approval"' in response.content
 
     def it_syncs_now_on_post_with_sync_now_action(client):
         from unittest.mock import patch
@@ -900,7 +1029,7 @@ def describe_admin_site_settings_features():
         response = client.get(reverse("hub_admin_site_settings") + "?tab=features")
         assert response.status_code == 200
         assert response.context["active_tab"] == "features"
-        assert b"Enable My Tab" in response.content
+        assert b"The one switch here that does more than the sidebar." in response.content  # the My Tab card
         assert b"Allow class registration" in response.content
 
     def _features_panel(response) -> bytes:
@@ -926,27 +1055,40 @@ def describe_admin_site_settings_features():
         assert response.status_code == 200
         panel = _features_panel(response)
         assert b"Show Help in the sidebar" in panel
-        assert b"Member wiki" in panel
-        assert b"Show old wiki link" in panel
 
-    def it_renders_the_member_wiki_toggle_in_the_features_panel(client):
-        # The flag the whole wiki round is gated on has to be a real toggle in Features,
-        # not a bare checkbox in General (spec A section 4.7, FRONTEND.md rule 3).
+    def it_renders_a_card_for_every_registry_feature(client):
+        # The three-state features are a registry list now, not one boolean each (#405).
+        # Each card carries the feature's name and the registry's "what off does" line, so
+        # adding a feature needs no change to this template or this spec.
+        from core.features import FEATURES
+
         _create_superuser(client)
         response = client.get(reverse("hub_admin_site_settings") + "?tab=features")
-        assert b'id="id_wiki_enabled"' in _features_panel(response)
+        panel = _features_panel(response)
+        for feature in FEATURES:
+            assert feature.name.encode() in panel, feature.key
+            assert feature.off_description[:40].encode() in panel, feature.key
+
+    def it_offers_all_three_states_and_a_message_box_per_feature(client):
+        from core.features import FEATURES
+
+        _create_superuser(client)
+        panel = _features_panel(client.get(reverse("hub_admin_site_settings") + "?tab=features"))
+        for index in range(len(FEATURES)):
+            assert f'name="features-{index}-state"'.encode() in panel
+            assert f'name="features-{index}-message"'.encode() in panel
+        assert panel.count(b'value="soon"') == len(FEATURES)
+        assert panel.count(b'value="hidden"') == len(FEATURES)
 
     def it_renders_the_feature_fields_only_once(client):
         # Excluded from the General loop — each control renders only in the Features panel.
         _create_superuser(client)
         response = client.get(reverse("hub_admin_site_settings"))
-        assert response.content.count(b'id="id_my_tab_enabled"') == 1
         assert response.content.count(b'id="id_class_registration_enabled"') == 1
         assert response.content.count(b'id="id_class_registration_disabled_note"') == 1
         assert response.content.count(b'id="id_help_page_enabled"') == 1
-        assert response.content.count(b'id="id_wiki_link_enabled"') == 1
-        assert response.content.count(b'id="id_wiki_enabled"') == 1
         assert response.content.count(b'id="id_instructor_discount_codes_enabled"') == 1
+        assert response.content.count(b'id="id_instructor_discount_codes_need_approval"') == 1
         assert response.content.count(b'id="id_guild_welcome_email_enabled"') == 1
 
     def it_saves_the_feature_switches(client):
@@ -957,6 +1099,8 @@ def describe_admin_site_settings_features():
                 "org_name": "Past Lives Makerspace",
                 "registration_mode": SiteConfiguration.RegistrationMode.OPEN,
                 "member_event_policy": SiteConfiguration.MemberEventPolicy.APPROVAL,
+                "late_cancel_notice_hours": "24",
+                "late_cancel_grace_hours": "2",
                 "sync_classes_enabled": "",
                 "classes_calendar_color": "#abcdef",
                 "mailchimp_api_key": "",
@@ -974,7 +1118,6 @@ def describe_admin_site_settings_features():
         assert response.status_code == 302
         assert "tab=features" in response["Location"]
         config = SiteConfiguration.load()
-        assert config.my_tab_enabled is False
         assert config.class_registration_enabled is False
         assert config.class_registration_disabled_note == "We'll be back soon."
 
@@ -986,12 +1129,13 @@ def describe_admin_site_settings_features():
                 "org_name": "Past Lives Makerspace",
                 "registration_mode": SiteConfiguration.RegistrationMode.OPEN,
                 "member_event_policy": SiteConfiguration.MemberEventPolicy.APPROVAL,
+                "late_cancel_notice_hours": "24",
+                "late_cancel_grace_hours": "2",
                 "sync_classes_enabled": "",
                 "classes_calendar_color": "#abcdef",
                 "mailchimp_api_key": "",
                 "mailchimp_list_id": "",
                 "google_analytics_measurement_id": "",
-                "my_tab_enabled": "on",
                 "class_registration_enabled": "on",
                 "class_registration_disabled_note": "",
                 "feeds-TOTAL_FORMS": "0",
@@ -1002,7 +1146,6 @@ def describe_admin_site_settings_features():
         )
         assert response.status_code == 302
         config = SiteConfiguration.load()
-        assert config.my_tab_enabled is True
         assert config.class_registration_enabled is True
 
     def it_saves_the_guild_welcome_email_switch_off_and_back_on(client):
@@ -1011,6 +1154,8 @@ def describe_admin_site_settings_features():
             "org_name": "Past Lives Makerspace",
             "registration_mode": SiteConfiguration.RegistrationMode.OPEN,
             "member_event_policy": SiteConfiguration.MemberEventPolicy.APPROVAL,
+            "late_cancel_notice_hours": "24",
+            "late_cancel_grace_hours": "2",
             "sync_classes_enabled": "",
             "classes_calendar_color": "#abcdef",
             "mailchimp_api_key": "",

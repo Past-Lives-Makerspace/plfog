@@ -11,9 +11,16 @@
 | `hub/` | Member-facing views (guild voting, directory, tab, profile, guild pages) |
 | `airtable_sync/` | Airtable bidirectional sync for members, spaces, leases, votes |
 | `plfog/` | Django project: settings, urls, wsgi, auto_admin, adapters |
-| `education/` | Placeholder (empty — migrations only) |
-| `outreach/` | Placeholder (empty — migrations only) |
-| `tools/` | Placeholder (empty — migrations only) |
+
+Those six plus `plfog/` are the whole of `INSTALLED_APPS` for this project. Other top-level directories are not Django apps:
+
+| Directory | What it is |
+|-----------|-----------|
+| `api/` | DRF permission classes (`IsFogAdmin`, `IsFogAdminOrReadOnly`) used by `membership/api_views.py`. Not an installed app. |
+| `mobile/` | The Capacitor shell that wraps the live site for the App Store and Google Play. Nothing in it renders UI; see `mobile/README.md`. |
+| `assets/` | One showcase hero image that `demo_data` seeds. Not served as static. |
+| `scripts/` | Developer and CI helpers: the pre-push hook source, screenshot capture, the email gallery build, demo seeding. |
+| `changelog/`, `changelog.d/` | The folded version and its unreleased fragments; see `AGENTS.md` § Versioning. |
 
 ## Key Models
 
@@ -57,6 +64,7 @@
 - `RegistrationQuestion` / `RegistrationAnswer` — custom per-class signup questions
 - `RegistrationReminder` — dedupe audit for scheduled reminder emails
 - `DiscountCode` (+ QuerySet) — per-class discount codes
+- `DiscountCodeRequest` (+ QuerySet) — an instructor's ask for a class code, approved or declined by an admin; approval creates the `DiscountCode`
 - `ClassImage` (gallery) · `Waiver` · `InstructorMessage` / `InstructorMessageRecipient` (instructor→registrant messaging)
 - `CmsActivity` — classes activity feed (mirrors to `core.SiteActivity`)
 - `ClassSettings` — singleton (pk=1); reminder timing, email footers, admin-notify emails
@@ -96,8 +104,13 @@
 /classes/my/<token>/            Registrant self-serve (manage / cancel)
 /classes/review/<token>/        Tokenized class review (guild lead / admin)
 /classes/teach/                 Instructor dashboard + class management
+/classes/teach/classes/<pk>/    The ONE per-class screen (Overview / Registrations / Waitlist /
+                                Discount Codes / Emails). Admin, CLASS_APPROVER reviewer,
+                                instructor and guild lead all land here; classes/access.py
+                                decides which tabs and actions each of them gets. The old
+                                /classes/admin/<pk>/... paths 302 onto it.
 /classes/admin/                 CMS admin (overview, classes, registrations, categories, discount codes, settings)
-/classes/admin/registrations/export/  Registrations CSV download
+/classes/admin/registrations/export/  Registrations CSV download (admins only)
 /account/                       Book CMS account area (classes.account)
 ```
 
@@ -125,7 +138,7 @@ tests/
 
 Factories: `classes/factories.py`, `tests/membership/factories.py`, `tests/billing/factories.py`.
 
-> `context_*` blocks are **not** collected — use `describe_*` for every nested block (see CLAUDE.md §7).
+> `context_*` blocks are **not** collected — use `describe_*` for every nested block (see STANDARDS.md §7).
 
 Root `conftest.py` provides:
 - `_disable_airtable_sync` (autouse) — sets `AIRTABLE_SYNC_ENABLED=False`
@@ -139,7 +152,8 @@ Root `conftest.py` provides:
 | Airtable | `airtable_sync/` | `AIRTABLE_API_KEY`, `AIRTABLE_BASE_ID`, `AIRTABLE_SYNC_ENABLED` |
 | allauth (email auth) | `plfog/` | `ACCOUNT_*` settings in `plfog/settings.py` |
 | Web Push | `core/` | `VAPID_PRIVATE_KEY`, `VAPID_PUBLIC_KEY`, `VAPID_ADMIN_EMAIL` |
-| Discord webhook | GitHub Actions only | `DISCORD_WEBHOOK_URL` secret in repo |
+| Discord (bot, slash commands, event mirroring, notification webhooks) | `core/events/discord.py`, `core/integrations/discord_events.py`, `hub/discord_commands.py` | `DISCORD_BOT_TOKEN`, `DISCORD_CLIENT_ID`, `DISCORD_CLIENT_SECRET`, `DISCORD_INTERACTIONS_PUBLIC_KEY`, `DISCORD_NOTIFY_WEBHOOK_URL` |
+| Release announcements to Discord | `.github/workflows/release.yml` | `DISCORD_WEBHOOK_URL` repo secret |
 
 ## Important Patterns
 
@@ -161,6 +175,5 @@ Every PR adds one fragment to `changelog.d/` declaring `bump = "patch" | "minor"
 ## Deployment
 
 - **Production**: Render.com (`DATABASE_URL` points to PostgreSQL)
-- **QA/Staging**: Hetzner VPS at `pastlives.plaza.codes`
-- **Local**: SQLite (default when `DATABASE_URL` unset)
-- See memory file `deployment.md` for Hetzner deploy commands
+- **Staging**: Hetzner VPS at `staging.pastlives.space` and `classes.staging.pastlives.space`, a contained clone of production that tracks `main` (`deploy/staging/README.md`)
+- **Local**: SQLite (default when `DATABASE_URL` unset); the canonical dev stack is `docker compose up -d` from the primary checkout (see `/spin-up`)

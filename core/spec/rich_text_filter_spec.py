@@ -27,3 +27,24 @@ def describe_rich_email_text_filter():
 
     def it_treats_none_as_blank():
         assert rich_email_text(None) == ""
+
+
+def describe_rich_body_filter():
+    def it_returns_safe_sanitized_html_for_a_page():
+        from core.templatetags.rich_text import rich_body
+
+        out = rich_body('<p onclick="x()">Hi <strong>there</strong></p><iframe src="x"></iframe>')
+        assert isinstance(out, SafeString)
+        assert out == "<p>Hi <strong>there</strong></p>"
+
+    def it_paragraph_izes_and_escapes_legacy_plain_text():
+        from core.templatetags.rich_text import rich_body
+
+        out = rich_body("Bring <safety glasses>.\n\nTake it home.")
+        assert isinstance(out, SafeString)
+        assert out == "<p>Bring &lt;safety glasses&gt;.</p><p>Take it home.</p>"
+
+    def it_treats_none_as_blank():
+        from core.templatetags.rich_text import rich_body
+
+        assert rich_body(None) == ""

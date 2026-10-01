@@ -73,7 +73,8 @@ urlpatterns = [
     path("guilds/voting/history/", views.snapshot_history, name="hub_snapshot_history"),
     path("guilds/voting/history/<int:pk>/", views.snapshot_detail, name="hub_snapshot_detail"),
     path("members/", views.member_directory, name="hub_member_directory"),
-    # Public guild directory — the guilds.pastlives.app front door (also reachable on FOG).
+    path("leadership/", views.leadership_directory, name="hub_leadership_directory"),
+    # Public guild directory — the guilds.pastlives.space front door (also reachable on FOG).
     path("guilds/", views.guild_directory, name="hub_guild_directory"),
     # Old numeric guild URLs (already shared in Discord/emails) 301 → the slug URL.
     path("guilds/<int:pk>/", views.guild_detail_redirect, name="hub_guild_detail_by_id"),
@@ -178,6 +179,17 @@ urlpatterns = [
         "orientation/checkout/<int:booking_pk>/resume/",
         views.orientation_checkout_resume,
         name="hub_orientation_checkout_resume",
+    ),
+    # Late cancellation fees (#456): the fee's own page with its Pay button (what emails
+    # link), the Pay POST that mints a Checkout, and the Stripe return and cancelled landings.
+    path("late-fees/<int:pk>/", views.hub_late_fee_detail, name="hub_late_fee_detail"),
+    path("late-fees/<int:pk>/pay/", views.hub_late_fee_pay, name="hub_late_fee_pay"),
+    path("late-fees/<int:pk>/waive/", views.hub_late_fee_waive, name="hub_late_fee_waive"),
+    path("late-fees/return/<str:token>/", views.hub_late_fee_return, name="hub_late_fee_return"),
+    path(
+        "late-fees/cancelled/<str:token>/",
+        views.hub_late_fee_checkout_cancelled,
+        name="hub_late_fee_checkout_cancelled",
     ),
     path("orientations/", views.orientations_dashboard, name="hub_orientations_dashboard"),
     path("orientations/export/", views.orientations_export, name="hub_orientations_export"),
@@ -501,6 +513,7 @@ urlpatterns = [
     ),
     path("welcome/dismiss/", views.welcome_dismiss, name="hub_welcome_dismiss"),
     path("welcome/guild-updates/", views.guild_updates_prompt, name="hub_guild_updates_prompt"),
+    path("agreement/", views.hub_member_agreement, name="hub_member_agreement"),
     # Guided tours (Spec C): the one state-recording endpoint — the offer card's
     # "No thanks" and the tour runtime's end-of-tour hook both POST here.
     path("tours/<slug:tour_key>/state/", views.tour_state, name="hub_tour_state"),
@@ -549,6 +562,8 @@ urlpatterns = [
     path("events/add/", views.event_edit, name="hub_event_add"),
     path("events/<int:event_pk>/edit/", views.event_edit, name="hub_event_edit"),
     path("events/<int:event_pk>/delete/", views.event_delete, name="hub_event_delete"),
+    # Shared by all three composers — the photo field's own delete endpoint.
+    path("events/<int:event_pk>/photo/delete/", views.event_photo_delete, name="hub_event_photo_delete"),
     # Member event proposals + reviewer queue.
     path("events/propose/", views.propose_event, name="hub_propose_event"),
     path("events/propose/<int:pk>/edit/", views.propose_event, name="hub_propose_event_edit"),
@@ -604,6 +619,16 @@ urlpatterns = [
         "manage/members/<int:pk>/teaching/",
         views.admin_member_teaching_set,
         name="hub_admin_member_teaching",
+    ),
+    path(
+        "manage/members/<int:pk>/orientations/record/",
+        views.admin_member_orientation_record,
+        name="hub_admin_member_orientation_record",
+    ),
+    path(
+        "manage/members/<int:pk>/orientations/<int:record_pk>/remove/",
+        views.admin_member_orientation_record_remove,
+        name="hub_admin_member_orientation_record_remove",
     ),
     path(
         "manage/members/<int:pk>/send-login-invite/",
@@ -671,6 +696,14 @@ urlpatterns = [
         "manage/site-settings/slideshow/slides/save/",
         views.admin_slideshow_slides_save,
         name="hub_admin_slideshow_slides_save",
+    ),
+    # The Leadership Directory admin (#476): the page, and the roster's two sibling forms.
+    path("manage/leadership/", views.hub_admin_leadership, name="hub_admin_leadership"),
+    path("manage/leadership/add/", views.admin_leadership_add, name="hub_admin_leadership_add"),
+    path(
+        "manage/leadership/roster/save/",
+        views.admin_leadership_roster_save,
+        name="hub_admin_leadership_roster_save",
     ),
     # --- Notification copy catalogue (design §2.3 + §2.4, Decision 6) ---
     path("manage/notifications/", notification_views.catalogue, name="hub_admin_notifications"),

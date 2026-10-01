@@ -25,7 +25,7 @@
         {% for offering, suggestion in rows %}
             <tr>
                 <td>
-                    <a href="{% url 'classes:admin_class_detail' pk=offering.pk %}" title="{{ offering.title }}"
+                    <a href="{% url 'classes:teach_class_detail' pk=offering.pk %}" title="{{ offering.title }}"
                        style="display:inline-block;max-width:28ch;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;vertical-align:bottom;">{{ offering.title }}</a>
                 </td>
                 <td>{{ offering.get_status_display }}</td>

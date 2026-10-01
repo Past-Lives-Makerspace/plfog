@@ -71,19 +71,17 @@ def _toast(response) -> str:
 
 
 def describe_equipment_feature_gate():
-    """Site Settings → equipment_page_enabled: off means fully dark (sidebar + 404s)."""
+    """Site Settings → Features → Equipment: not On takes it out of the sidebar, nothing more."""
 
     def _disable() -> None:
-        from core.models import SiteConfiguration
+        from tests.features import hide
 
-        config = SiteConfiguration.load()
-        config.equipment_page_enabled = False
-        config.save()
+        hide("equipment")
 
     def it_defaults_on_so_live_behavior_is_preserved(client: Client):
-        from core.models import SiteConfiguration
+        from core.features import is_on
 
-        assert SiteConfiguration.load().equipment_page_enabled is True
+        assert is_on("equipment") is True
         _login(client, "gate_default")
         assert client.get(reverse("hub_equipment_index")).status_code == 200
 
@@ -94,47 +92,35 @@ def describe_equipment_feature_gate():
         assert response.status_code == 200
         assert b'href="/equipment/"' not in response.content
 
-    def it_404s_every_equipment_view_when_disabled(client: Client):
-        user = _login(client, "gate_dark", fog_role=Member.FogRole.ADMIN)
-        equipment = _open_tool()
-        reservation = EquipmentReservationFactory(
-            equipment=equipment, member=user.member, starts_at=_at(_day(), 10), ends_at=_at(_day(), 11)
-        )
+    def it_keeps_every_equipment_view_reachable_when_hidden(client: Client):
+        """#405 made the switch cosmetic: it owns the sidebar, not the routes.
+
+        This used to assert 404 on every equipment view via ``equipment_feature_required``,
+        which is gone. A saved link keeps working in every state — intended, and explicitly not
+        a security boundary.
+        """
         _disable()
-        assert client.get(reverse("hub_equipment_index")).status_code == 404
-        assert client.get(reverse("hub_equipment_detail", args=[equipment.slug])).status_code == 404
-        assert client.get(reverse("hub_equipment_schedule", args=[equipment.slug])).status_code == 404
-        # Even the admin's manage surface is dark — Site Settings is where it comes back.
-        assert client.get(reverse("hub_equipment_manage", args=[equipment.slug])).status_code == 404
-        response = client.post(
-            reverse("hub_equipment_reserve", args=[equipment.slug]),
-            {"starts_at": _at(_day(), 12).isoformat(), "duration_minutes": 60, "purpose": "", "day": ""},
-        )
-        assert response.status_code == 404
-        assert equipment.reservations.confirmed().count() == 1  # nothing new booked
-        assert (
-            client.post(reverse("hub_equipment_reservation_cancel", args=[equipment.slug, reservation.pk])).status_code
-            == 404
-        )
+        _login(client, "gate_reachable")
+        assert client.get(reverse("hub_equipment_index")).status_code == 200
 
-    def it_round_trips_through_the_site_settings_form(client: Client):
-        from django.forms.models import model_to_dict
+    def it_round_trips_through_the_feature_switch_form(client: Client):
+        """The state now round-trips through the Features formset, not SiteSettingsForm."""
+        from core.features import is_on
+        from core.models import FeatureSwitch
+        from hub.forms import FeatureSwitchForm
 
-        from core.models import SiteConfiguration
-        from hub.forms import SiteSettingsForm
-
-        config = SiteConfiguration.load()
-        data = model_to_dict(config)
-        data["equipment_page_enabled"] = False
-        form = SiteSettingsForm(data, instance=config)
+        FeatureSwitch.objects.sync_registry()
+        row = FeatureSwitch.objects.get(feature_key="equipment")
+        form = FeatureSwitchForm({"state": "hidden", "message": ""}, instance=row)
         assert form.is_valid(), form.errors
         form.save()
-        assert SiteConfiguration.load().equipment_page_enabled is False
-        data["equipment_page_enabled"] = True
-        form = SiteSettingsForm(data, instance=SiteConfiguration.load())
+        assert is_on("equipment") is False
+        form = FeatureSwitchForm(
+            {"state": "on", "message": ""}, instance=FeatureSwitch.objects.get(feature_key="equipment")
+        )
         assert form.is_valid(), form.errors
         form.save()
-        assert SiteConfiguration.load().equipment_page_enabled is True
+        assert is_on("equipment") is True
 
 
 def describe_equipment_schedule():
@@ -847,7 +833,7 @@ def describe_index_availability_line():
         response = client.get(reverse("hub_equipment_index"))
         assert b"Closed. Back Tuesday." in response.content
 
-    def it_shows_available_now_inside_an_open_window(client: Client):
+    def it_shows_available_now_inside_an_open_window(client: Client, midday_now):
         _login(client, "idx_open")
         equipment = EquipmentFactory(name="Open Tool")
         EquipmentHoursFactory(
@@ -859,7 +845,7 @@ def describe_index_availability_line():
         response = client.get(reverse("hub_equipment_index"))
         assert b"Available now" in response.content
 
-    def it_shows_reserved_until_while_a_reservation_is_running(client: Client):
+    def it_shows_reserved_until_while_a_reservation_is_running(client: Client, midday_now):
         _login(client, "idx_busy")
         equipment = EquipmentFactory(name="Busy Tool")
         EquipmentHoursFactory(
@@ -1047,3 +1033,156 @@ def describe_orientation_spans_on_the_timeline():
         equipment = _open_tool()
         response = client.get(reverse("hub_equipment_schedule", args=[equipment.slug]), {"day": _day().isoformat()})
         assert "Orientations booked on this tool show here too." not in response.content.decode()
+
+
+def _late_fees(enabled: bool) -> None:
+    """Flip the site wide late cancellation fee switch (#456)."""
+    from core.models import SiteConfiguration
+
+    config = SiteConfiguration.load()
+    config.late_cancel_fees_enabled = enabled
+    config.save()
+
+
+def _limits_data(**overrides: str) -> dict[str, str]:
+    """A valid Hours & Limits save with no windows, the shape the tab posts."""
+    data = {
+        "hours-TOTAL_FORMS": "0",
+        "hours-INITIAL_FORMS": "0",
+        "hours-MIN_NUM_FORMS": "0",
+        "hours-MAX_NUM_FORMS": "1000",
+        "closed_message": "",
+        "min_duration_minutes": "30",
+        "max_duration_minutes": "240",
+        "max_advance_days": "30",
+        "max_active_reservations_per_member": "2",
+    }
+    data.update(overrides)
+    return data
+
+
+def describe_late_cancel_fee_on_the_schedule():
+    """The Book a Time form's policy line and the Reserve prompt (#456, part 1)."""
+
+    def _schedule(client: Client, equipment: Equipment) -> str:
+        response = client.get(reverse("hub_equipment_schedule", args=[equipment.slug]), {"day": _day().isoformat()})
+        assert response.status_code == 200
+        return response.content.decode()
+
+    def it_carries_the_sentence_under_the_form_and_in_the_reserve_prompt(client: Client):
+        _login(client, "lcf_sched_on")
+        _late_fees(True)
+        content = _schedule(client, _open_tool(late_cancel_fee_cents=3750))
+        assert "pl-equip-book-note" in content
+        # Once in the line under the form, once in the Reserve confirm prompt.
+        assert content.count("$37.50") == 2
+
+    def it_renders_neither_with_no_fee(client: Client):
+        _login(client, "lcf_sched_free")
+        _late_fees(True)
+        content = _schedule(client, _open_tool())
+        assert "Book a Time" in content
+        assert "pl-equip-book-note" not in content
+        assert "$37.50" not in content
+
+    def it_renders_neither_while_the_site_switch_is_off(client: Client):
+        _login(client, "lcf_sched_off")
+        _late_fees(False)
+        content = _schedule(client, _open_tool(late_cancel_fee_cents=3750))
+        assert "Book a Time" in content
+        assert "pl-equip-book-note" not in content
+        assert "$37.50" not in content
+
+    def _cancel_modal(content: str, reservation) -> str:
+        start = content.index(f"=== 'cancel-my-res-{reservation.pk}') open = true")
+        return content[start : content.index("</template>", start)]
+
+    def it_appends_the_fee_line_to_the_cancel_modal_only_for_a_late_cancel(client: Client):
+        """The member's cancel modal explains the fee only when a cancel right now would be late (#456, part 2)."""
+        user = _login(client, "lcf_sched_modal")
+        _late_fees(True)
+        equipment = _open_tool(late_cancel_fee_cents=3750)
+        soon = timezone.now() + timedelta(hours=3)
+        late = EquipmentReservationFactory(
+            equipment=equipment, member=user.member, starts_at=soon, ends_at=soon + timedelta(hours=1)
+        )
+        early = EquipmentReservationFactory(
+            equipment=equipment, member=user.member, starts_at=_at(_day(), 10), ends_at=_at(_day(), 11)
+        )
+        content = _schedule(client, equipment)
+        assert "so a $37.50 late cancellation fee applies" in _cancel_modal(content, late)
+        assert "late cancellation fee applies" not in _cancel_modal(content, early)
+
+    def it_leaves_the_cancel_modal_alone_while_the_site_switch_is_off(client: Client):
+        user = _login(client, "lcf_sched_modal_off")
+        _late_fees(False)
+        equipment = _open_tool(late_cancel_fee_cents=3750)
+        soon = timezone.now() + timedelta(hours=3)
+        late = EquipmentReservationFactory(
+            equipment=equipment, member=user.member, starts_at=soon, ends_at=soon + timedelta(hours=1)
+        )
+        assert "late cancellation fee applies" not in _cancel_modal(_schedule(client, equipment), late)
+
+
+def describe_late_cancel_fee_on_the_limits_card():
+    """EquipmentSettingsForm's fee in dollars, saved with the Hours & Limits tab (#456, part 1)."""
+
+    def _managed(client: Client, username: str, **kwargs) -> Equipment:
+        user = _login(client, username)
+        equipment = EquipmentFactory(**kwargs)
+        EquipmentStaffMembershipFactory(equipment=equipment, member=user.member)
+        return equipment
+
+    def _save_url(equipment: Equipment) -> str:
+        return reverse("hub_equipment_hours_save", args=[equipment.slug])
+
+    def it_saves_the_fee_in_dollars(client: Client):
+        equipment = _managed(client, "lcf_lim_save")
+        _late_fees(True)
+        response = client.post(_save_url(equipment), _limits_data(late_cancel_fee="15"))
+        assert response.status_code == 302
+        equipment.refresh_from_db()
+        assert equipment.late_cancel_fee_cents == 1500
+
+    def it_treats_blank_as_no_fee(client: Client):
+        equipment = _managed(client, "lcf_lim_blank", late_cancel_fee_cents=1500)
+        _late_fees(True)
+        response = client.post(_save_url(equipment), _limits_data(late_cancel_fee=""))
+        assert response.status_code == 302
+        equipment.refresh_from_db()
+        assert equipment.late_cancel_fee_cents == 0
+
+    def it_leaves_the_fee_alone_when_the_field_is_not_posted(client: Client):
+        # The Limits card hides the field while the site switch is off; that save must not wipe it.
+        equipment = _managed(client, "lcf_lim_absent", late_cancel_fee_cents=1500)
+        _late_fees(False)
+        response = client.post(_save_url(equipment), _limits_data())
+        assert response.status_code == 302
+        equipment.refresh_from_db()
+        assert equipment.late_cancel_fee_cents == 1500
+
+    def it_refuses_a_fee_over_five_hundred_dollars(client: Client):
+        equipment = _managed(client, "lcf_lim_cap")
+        _late_fees(True)
+        response = client.post(_save_url(equipment), _limits_data(late_cancel_fee="600"))
+        assert response.status_code == 200
+        assert "between $0 and $500" in response.content.decode()
+        equipment.refresh_from_db()
+        assert equipment.late_cancel_fee_cents == 0
+
+    def it_prefills_a_set_fee_in_dollars_and_leaves_free_equipment_blank():
+        from decimal import Decimal
+
+        from hub.forms import EquipmentSettingsForm
+
+        paid = EquipmentSettingsForm(instance=EquipmentFactory(late_cancel_fee_cents=1550))
+        assert paid.fields["late_cancel_fee"].initial == Decimal("15.50")
+        assert EquipmentSettingsForm(instance=EquipmentFactory()).fields["late_cancel_fee"].initial is None
+
+    def it_shows_the_field_only_while_the_site_charges_fees(client: Client):
+        equipment = _managed(client, "lcf_lim_gate")
+        url = f"{reverse('hub_equipment_manage', args=[equipment.slug])}?tab=hours"
+        _late_fees(False)
+        assert 'name="late_cancel_fee"' not in client.get(url).content.decode()
+        _late_fees(True)
+        assert 'name="late_cancel_fee"' in client.get(url).content.decode()

@@ -118,3 +118,52 @@ def describe_discord_copy_is_broadcast_safe():
             # "Hi {{ ..." catches a greeting built on ANY per-recipient placeholder,
             # not just member_name.
             assert "Hi {{" not in fragment, f"{event.key} greets a recipient in its Discord copy"
+
+
+def describe_instructor_application_received_copy():
+    """Issue #536: the admins hear how the member wants to be reached, in Felix's words."""
+
+    EVENT = "instructor_application_received"
+    OPENING = (
+        "{{ member_name }} wants to be an instructor. Contact them at {{ contact_detail }} ({{ contact_method }})."
+    )
+
+    def it_documents_the_contact_fields_with_sample_values():
+        assert placeholders_for(EVENT) == (
+            "member_name",
+            "application_note",
+            "contact_method",
+            "contact_detail",
+            "review_url",
+        )
+        sample = sample_context_for(EVENT)
+        assert sample["contact_method"] == "text message"
+        assert sample["contact_detail"] == "503 555 0100"
+
+    @pytest.mark.parametrize("channel", [Channel.IN_APP, Channel.EMAIL], ids=lambda c: c.value)
+    def it_says_who_wants_to_teach_and_how_to_reach_them(channel):
+        copy = default_copy_for(EVENT, channel)
+        assert copy.subject == "{{ member_name }} wants to be an instructor"
+        assert copy.body_text.startswith(OPENING)
+        # The opening, then the note in quotes. The email closes with the review link; the
+        # in-app notification carries that link as its own url, so its body does not print it.
+        assert copy.body_text.index(OPENING) < copy.body_text.index('"{{ application_note }}"')
+        if channel == Channel.EMAIL:
+            assert copy.body_text.index('"{{ application_note }}"') < copy.body_text.index("{{ review_url }}")
+        else:
+            assert "{{ review_url }}" not in copy.body_text
+
+    def it_renders_the_sample_as_the_words_on_the_ticket():
+        from core.events.rendering import render_text
+
+        body = render_text(default_copy_for(EVENT, Channel.EMAIL).body_text, sample_context_for(EVENT))
+        assert body.startswith("Robin Vale wants to be an instructor. Contact them at 503 555 0100 (text message).")
+        assert '"I would like to run a two hour intro to wheel throwing."' in body
+
+    def it_opens_the_email_html_with_the_linked_name_and_the_contact_line():
+        html = default_copy_for(EVENT, Channel.EMAIL).body_html
+        assert (
+            '<p><strong><a href="{{ review_url }}">{{ member_name }}</a></strong> wants to be an instructor. '
+            "Contact them at {{ contact_detail }} ({{ contact_method }}).</p>"
+            "<p>&ldquo;{{ application_note }}&rdquo;</p>"
+        ) in html

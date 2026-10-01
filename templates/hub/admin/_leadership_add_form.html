@@ -1,0 +1,19 @@
+{% comment %}
+Add a Person on the Leadership Directory admin (#476): the modal's body. A form of its own, so
+it never nests inside the roster form; included by components/modal.html with the page
+context, so a failed add re-renders its errors here and the page reopens the modal.
+{% endcomment %}
+<form method="post" action="{% url 'hub_admin_leadership_add' %}" class="pl-leadership-add">
+  {% csrf_token %}
+  <p class="pl-leadership-add__hint">
+    Their photo, name and pronouns come from their profile. They land last on the page with this role line;
+    add more lines from their row.
+  </p>
+  {% include "components/form_field.html" with field=add_form.member %}
+  {% include "components/form_field.html" with field=add_form.title %}
+  {% include "components/form_field.html" with field=add_form.email %}
+  <div class="pl-leadership-add__actions">
+    <button type="button" class="pl-btn pl-btn--secondary" @click="$dispatch('close-modal', 'leadership-add')">Cancel</button>
+    <button type="submit" class="pl-btn pl-btn--primary">Add</button>
+  </div>
+</form>

@@ -93,7 +93,7 @@ def describe_member_welcome_tour():
         expect(offer).not_to_be_visible()
         popover = page.locator(".driver-popover.pl-tour")
         expect(popover).to_be_visible()
-        expect(popover).to_contain_text("Welcome to the Member Portal")
+        expect(popover).to_contain_text("Everything in One Place")  # step 0 anchors to the sidebar
 
         _drive_to_completion(page)
 
@@ -114,7 +114,7 @@ def describe_member_welcome_tour():
         page.goto(f"{live_server.url}{reverse('hub_home')}?tour=member-welcome&step=1")
         popover = page.locator(".driver-popover.pl-tour")
         expect(popover).to_be_visible()
-        expect(popover).to_contain_text("Everything in One Place")  # step index 1
+        expect(popover).to_contain_text("Your Get Started List")  # step index 1
 
     def it_escapes_mid_tour_and_records_a_dismissal(live_server, page, login_via_code):
         email = "tour-escape@example.com"
@@ -139,30 +139,29 @@ def describe_member_welcome_tour():
         email = "tour-back@example.com"
         _seed_member_world()
         login_via_code(email)
-        page.goto(f"{live_server.url}{reverse('classes:public_list')}?tour=member-welcome&step=3")
+        page.goto(f"{live_server.url}{reverse('classes:public_list')}?tour=member-welcome&step=2")
         popover = page.locator(".driver-popover.pl-tour")
         popover.wait_for(state="visible", timeout=10000)
-        expect(popover).to_contain_text("Browse Classes")  # step index 3, on the catalog
+        expect(popover).to_contain_text("Browse Classes")  # step index 2, on the catalog
 
         popover.locator(".driver-popover-prev-btn").click()
         page.wait_for_url("**/home/**", timeout=10000)
         popover.wait_for(state="visible", timeout=10000)
-        expect(popover).to_contain_text("Your Get Started List")  # step index 2, back on home
+        expect(popover).to_contain_text("Your Get Started List")  # step index 1, back on home
 
 
 def _start_mid_tour(live_server, page, login_via_code, email: str):
-    """Land directly on step 1 — an element-anchored popover on hub home.
+    """Land directly on step 0 — the sidebar-anchored popover on hub home.
 
-    Step 0 is a *centered* popover whose Driver.js placement is not what these
-    tests exercise; starting on the sidebar-anchored step 1 (the same reliable
-    entry the resume test uses) keeps the popover on-screen and clickable.
+    Every step is element-anchored now (no centered leader), so the first step is
+    the reliable entry: it keeps the popover on-screen and clickable.
     """
     _seed_member_world()
     login_via_code(email)
-    page.goto(f"{live_server.url}{reverse('hub_home')}?tour=member-welcome&step=1")
+    page.goto(f"{live_server.url}{reverse('hub_home')}?tour=member-welcome&step=0")
     popover = page.locator(".driver-popover.pl-tour")
     popover.wait_for(state="visible", timeout=10000)
-    expect(popover).to_contain_text("Everything in One Place")  # step index 1
+    expect(popover).to_contain_text("Everything in One Place")  # step index 0
     return popover
 
 
@@ -231,9 +230,9 @@ def describe_pausing_a_tour():
         popover.locator(".pl-tour-pause-btn").click()
         expect(page.locator("#pl-tour-resume")).to_be_visible()
 
-        page.goto(f"{live_server.url}{reverse('classes:public_list')}?tour=member-welcome&step=3")
+        page.goto(f"{live_server.url}{reverse('classes:public_list')}?tour=member-welcome&step=2")
         popover.wait_for(state="visible", timeout=10000)
-        expect(popover).to_contain_text("Browse Classes")  # step index 3, on the catalog
+        expect(popover).to_contain_text("Browse Classes")  # step index 2, on the catalog
         expect(page.locator("#pl-tour-resume")).not_to_be_visible()
 
     def it_ends_a_paused_tour_from_the_pill(live_server, page, login_via_code):

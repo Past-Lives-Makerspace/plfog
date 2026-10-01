@@ -5,8 +5,10 @@ from __future__ import annotations
 import json
 from datetime import timedelta
 from io import BytesIO
+from unittest.mock import patch
 
 import pytest
+from django.core.files.storage import default_storage
 from django.core.files.uploadedfile import SimpleUploadedFile
 from django.urls import resolve, reverse
 from django.utils import timezone
@@ -119,6 +121,32 @@ def describe_instructor_gallery_endpoints():
         offering.refresh_from_db()
         assert offering.hero_crop_w is None
 
+    def it_drops_the_cropped_copy_along_with_the_box_when_the_hero_is_replaced(instructor_fixture, client):
+        # Issue #547: a new photo has no box yet, so the copy cut to the old one goes with it
+        # and the new photo shows whole; the response hands back the new original.
+        offering = ClassOfferingFactory(
+            instructor=instructor_fixture,
+            status=Status.DRAFT,
+            image__width=1000,
+            image__height=600,
+            hero_crop_x=0,
+            hero_crop_y=0,
+            hero_crop_w=400,
+            hero_crop_h=225,
+        )
+        copy = offering.hero_cropped.name
+        assert default_storage.exists(copy)
+        client.force_login(instructor_fixture.user)
+        resp = client.post(
+            reverse("classes:teach_class_hero_upload", kwargs={"pk": offering.pk}), {"image": _png("hero.png")}
+        )
+        assert resp.status_code == 200
+        offering.refresh_from_db()
+        assert not offering.hero_cropped
+        assert not default_storage.exists(copy)
+        assert offering.hero_crop_w is None
+        assert resp.json()["url"] == offering.image.url == offering.hero_image_url
+
     def it_lets_guild_staff_who_can_edit_the_class_manage_its_gallery(instructor_fixture, stranger, client):
         guild = GuildFactory(name="Gallery Guild")
         GuildStaffMembershipFactory(guild=guild, member=instructor_fixture)
@@ -158,14 +186,22 @@ def describe_instructor_gallery_endpoints():
         client.force_login(instructor_fixture.user)
         assert client.get(reverse("classes:teach_class_image_upload", kwargs={"pk": offering.pk})).status_code == 405
 
-    def it_keeps_the_admin_endpoints_admin_only(instructor_fixture, client):
+    def it_answers_the_old_admin_path_with_the_same_merged_endpoint(instructor_fixture, client):
+        # There is one image endpoint per action now. The admin path still resolves, and it
+        # asks the same question of the viewer as the teaching path does.
         offering = _own(instructor_fixture, Status.DRAFT)
         client.force_login(instructor_fixture.user)
-        resp = client.post(reverse("classes:admin_class_image_upload", kwargs={"pk": offering.pk}), {"image": _png()})
-        assert resp.status_code == 403
+        resp = client.post(reverse("classes:teach_class_image_upload", kwargs={"pk": offering.pk}), {"image": _png()})
+        assert resp.status_code == 200
+
+    def it_refuses_a_member_with_no_claim_on_the_class(member_user, client, db):
+        offering = ClassOfferingFactory(status=Status.DRAFT)
+        client.force_login(member_user)
+        resp = client.post(reverse("classes:teach_class_image_upload", kwargs={"pk": offering.pk}), {"image": _png()})
+        assert resp.status_code == 404
 
 
-def describe_edit_pages_point_at_the_instructor_endpoints():
+def describe_edit_pages_point_at_the_merged_image_endpoints():
     def it_wires_the_draft_edit_page(instructor_fixture, client):
         offering = _own(instructor_fixture, Status.DRAFT)
         client.force_login(instructor_fixture.user)
@@ -174,8 +210,12 @@ def describe_edit_pages_point_at_the_instructor_endpoints():
         assert f'data-reorder-url="{reverse("classes:teach_class_image_reorder", kwargs={"pk": offering.pk})}"' in html
         assert f'data-image-url-base="{_teach_image_base()}"' in html
         assert f'data-upload-url="{reverse("classes:teach_class_hero_upload", kwargs={"pk": offering.pk})}"' in html
+        # The old admin-scoped image paths are gone from the page: there is one set of image
+        # endpoints now, and the composer names it outright rather than falling back to a
+        # hardcoded /classes/admin/ default.
         assert "/classes/admin/images/" not in html
-        assert reverse("classes:admin_class_image_upload", kwargs={"pk": offering.pk}) not in html
+        assert f"/classes/admin/{offering.pk}/images/" not in html
+        assert f"/classes/admin/{offering.pk}/hero/" not in html
 
     def it_wires_the_published_edit_page(instructor_fixture, client):
         offering = _own(instructor_fixture, Status.PUBLISHED)
@@ -185,14 +225,16 @@ def describe_edit_pages_point_at_the_instructor_endpoints():
         assert f'data-image-url-base="{_teach_image_base()}"' in html
         assert "/classes/admin/images/" not in html
 
-    def it_keeps_the_admin_edit_page_on_the_admin_endpoints(admin_user, client):
+    def it_wires_the_admin_edit_page_to_the_same_merged_endpoints(admin_user, client):
+        # The gallery component reads these from context with no fallback now, so the admin
+        # composer has to ship them too — before the merge it relied on a hardcoded default.
         offering = ClassOfferingFactory(status=Status.DRAFT)
         client.force_login(admin_user)
-        html = client.get(reverse("classes:admin_class_edit", kwargs={"pk": offering.pk})).content.decode()
-        assert f'data-upload-url="{reverse("classes:admin_class_image_upload", kwargs={"pk": offering.pk})}"' in html
-        admin_base = reverse("classes:admin_class_image_delete", kwargs={"pk": 0}).removesuffix("0/delete/")
-        assert f'data-image-url-base="{admin_base}"' in html
-        assert f'data-upload-url="{reverse("classes:admin_class_hero_upload", kwargs={"pk": offering.pk})}"' in html
+        html = client.get(reverse("classes:teach_class_edit", kwargs={"pk": offering.pk})).content.decode()
+        assert f'data-upload-url="{reverse("classes:teach_class_image_upload", kwargs={"pk": offering.pk})}"' in html
+        assert f'data-reorder-url="{reverse("classes:teach_class_image_reorder", kwargs={"pk": offering.pk})}"' in html
+        assert f'data-image-url-base="{_teach_image_base()}"' in html
+        assert f'data-upload-url="{reverse("classes:teach_class_hero_upload", kwargs={"pk": offering.pk})}"' in html
 
 
 def describe_instructor_image_routes_validate_their_input():
@@ -219,6 +261,62 @@ def describe_instructor_image_routes_validate_their_input():
         resp = client.post(reverse("classes:teach_class_image_upload", kwargs={"pk": offering.pk}), {"image": big})
         assert resp.status_code == 400
         assert offering.gallery_images.count() == before
+
+    @pytest.mark.parametrize(
+        ("name", "content_type"), [("bad.txt", "text/plain"), ("bad.png", "image/png")], ids=["text", "renamed"]
+    )
+    def it_refuses_a_hero_upload_that_is_not_an_image(instructor_fixture, client, name, content_type):
+        offering = _own(instructor_fixture, Status.DRAFT)
+        was = offering.image.name
+        client.force_login(instructor_fixture.user)
+        with patch.object(ClassOffering._meta.get_field("image").storage, "save") as save:
+            resp = client.post(
+                reverse("classes:teach_class_hero_upload", kwargs={"pk": offering.pk}),
+                {"image": SimpleUploadedFile(name, b"just some notes", content_type=content_type)},
+            )
+        assert resp.status_code == 400
+        assert "not a photo we can open" in resp.json()["error"]
+        save.assert_not_called()
+        offering.refresh_from_db()
+        assert offering.image.name == was
+
+    @pytest.mark.parametrize(
+        ("name", "content_type"), [("bad.txt", "text/plain"), ("bad.png", "image/png")], ids=["text", "renamed"]
+    )
+    def it_refuses_a_gallery_upload_that_is_not_an_image(instructor_fixture, client, name, content_type):
+        offering = _own(instructor_fixture, Status.DRAFT)
+        before = offering.gallery_images.count()
+        client.force_login(instructor_fixture.user)
+        with patch.object(ClassImage._meta.get_field("image").storage, "save") as save:
+            resp = client.post(
+                reverse("classes:teach_class_image_upload", kwargs={"pk": offering.pk}),
+                {"image": SimpleUploadedFile(name, b"just some notes", content_type=content_type)},
+            )
+        assert resp.status_code == 400
+        assert "not a photo we can open" in resp.json()["error"]
+        save.assert_not_called()
+        assert offering.gallery_images.count() == before
+
+    @pytest.mark.parametrize(("fmt", "ext"), [("PNG", "png"), ("JPEG", "jpg"), ("WEBP", "webp"), ("HEIF", "heic")])
+    def it_still_takes_a_real_image_on_both_routes(instructor_fixture, client, fmt, ext):
+        from PIL import Image
+
+        import core.images  # noqa: F401  registers the HEIF encoder the HEIC case needs
+
+        def upload() -> SimpleUploadedFile:
+            buf = BytesIO()
+            Image.new("RGB", (4, 4), (10, 20, 30)).save(buf, fmt)
+            return SimpleUploadedFile(f"shot.{ext}", buf.getvalue())
+
+        offering = _own(instructor_fixture, Status.DRAFT)
+        client.force_login(instructor_fixture.user)
+        hero = client.post(reverse("classes:teach_class_hero_upload", kwargs={"pk": offering.pk}), {"image": upload()})
+        gallery = client.post(
+            reverse("classes:teach_class_image_upload", kwargs={"pk": offering.pk}), {"image": upload()}
+        )
+        assert hero.status_code == 200
+        assert gallery.status_code == 200
+        assert ClassImage.objects.filter(pk=gallery.json()["id"], class_offering=offering).exists()
 
     def it_rejects_alt_text_that_is_not_a_string(instructor_fixture, client):
         offering = _own(instructor_fixture, Status.DRAFT)

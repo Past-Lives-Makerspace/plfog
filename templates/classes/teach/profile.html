@@ -48,7 +48,7 @@ real Delete buttons that save the page (FRONTEND, Editable Lists).{% endcomment 
                 </div>
                 {% if f.instance.pk %}
                 <div style="display:none;">{{ f.DELETE }}</div>
-                <button type="button" class="pl-btn pl-btn--danger pl-btn--sm" style="margin-top:0.75rem;"
+                <button type="button" class="pl-btn pl-btn--danger pl-btn--sm pl-btn--spaced"
                         onclick="document.getElementById('{{ f.DELETE.id_for_label }}').checked = true; this.form.requestSubmit();">
                     Delete this link
                 </button>
@@ -76,7 +76,7 @@ real Delete buttons that save the page (FRONTEND, Editable Lists).{% endcomment 
                 {{ ef.id }}
                 {{ ef.sort_order }}
                 {{ ef.kind }}
-                <button type="button" class="pl-btn pl-btn--danger pl-btn--sm" style="margin-top:0.75rem;" onclick="this.closest('.hub-card').remove();">Remove</button>
+                <button type="button" class="pl-btn pl-btn--danger pl-btn--sm pl-btn--spaced" onclick="this.closest('.hub-card').remove();">Remove</button>
                 {% endwith %}
             </div>
         </template>

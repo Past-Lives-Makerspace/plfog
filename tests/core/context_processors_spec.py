@@ -78,10 +78,14 @@ def describe_feature_flags():
         rf = RequestFactory()
         request = rf.get("/")
         result = feature_flags(request)
-        assert result["my_tab_enabled"] is True
         assert result["class_registration_enabled"] is True
         assert result["guild_welcome_email_enabled"] is True
-        assert result["equipment_page_enabled"] is True
+        assert result["instructor_discount_codes_need_approval"] is True
+        assert result["late_cancel_fees_enabled"] is False
+        assert result["features"]["my_tab"].is_on
+        # Ships in today's behaviour: the six features that were live stay live, and the wiki
+        # keeps the off state it has always shipped with (see core/migrations/0087).
+        assert [key for key, view in result["features"].items() if not view.is_on] == ["wiki"]
         assert (
             result["class_registration_disabled_note"]
             == SiteConfiguration._meta.get_field("class_registration_disabled_note").default
@@ -89,31 +93,40 @@ def describe_feature_flags():
 
     def it_reflects_toggled_values():
         config = SiteConfiguration.load()
-        config.my_tab_enabled = False
         config.class_registration_enabled = False
         config.class_registration_disabled_note = "Call the studio."
         config.help_page_enabled = False
-        config.wiki_link_enabled = False
-        config.wiki_enabled = True
         config.instructor_discount_codes_enabled = True
+        config.instructor_discount_codes_need_approval = False
         config.guild_welcome_email_enabled = False
-        config.equipment_page_enabled = False
+        config.late_cancel_fees_enabled = True
         config.save()
 
         rf = RequestFactory()
         request = rf.get("/")
         result = feature_flags(request)
+        features = result.pop("features")
         assert result == {
-            "my_tab_enabled": False,
             "class_registration_enabled": False,
             "class_registration_disabled_note": "Call the studio.",
             "help_page_enabled": False,
-            "wiki_link_enabled": False,
-            "wiki_enabled": True,
             "instructor_discount_codes_enabled": True,
+            "instructor_discount_codes_need_approval": False,
             "guild_welcome_email_enabled": False,
-            "equipment_page_enabled": False,
+            "late_cancel_fees_enabled": True,
         }
+        # The three-state features travel in their own key, every one of them present. Compared
+        # against the registry rather than a hand-written list: the point of core.features is
+        # that adding a feature is one entry and nothing else, and a literal here made that
+        # false — it went stale the first time the list grew, which is how it was found.
+        #
+        # Keys and shape only. NOT state: on a fresh database wiki migrates to hidden, because
+        # the wiki_enabled boolean it inherits shipped default=False. Production reads on. The
+        # per-feature states are specced in tests/hub/nav_feature_flags_spec.py.
+        from core.features import FEATURES, FeatureView
+
+        assert sorted(features) == sorted(f.key for f in FEATURES)
+        assert all(isinstance(features[f.key], FeatureView) for f in FEATURES)
 
 
 def describe_brand():
@@ -130,7 +143,19 @@ def describe_brand():
             "brand_support_email": "info@pastlives.space",
             "brand_website_url": "https://pastlives.space",
             "brand_website_display": "pastlives.space",
+            "brand_google_play_url": "https://play.google.com/store/apps/details?id=app.pastlives.hub",
+            "brand_app_store_url": "https://apps.apple.com/us/app/past-lives-makerspace/id6796557084",
         }
+
+    def it_reflects_an_edited_app_store_url():
+        # #467: a listing change is a settings change, no deploy.
+        config = SiteConfiguration.load()
+        config.app_store_url = "https://apps.apple.com/app/id1234567890"
+        config.save()
+
+        rf = RequestFactory()
+        request = rf.get("/")
+        assert brand(request)["brand_app_store_url"] == "https://apps.apple.com/app/id1234567890"
 
     def it_reflects_an_edited_org_name():
         config = SiteConfiguration.load()
@@ -365,12 +390,12 @@ def describe_theme():
         assert theme(request) == {"theme_cookie_domain": ""}
 
     def it_exposes_the_configured_parent_domain(settings):
-        # Production scopes the theme cookie to the .pastlives.app registrable
-        # domain so the choice is shared across the hub and guilds surfaces.
-        settings.THEME_COOKIE_DOMAIN = ".pastlives.app"
+        # A parent domain such as .pastlives.space shares the theme cookie, and so
+        # the choice, across the hub and guilds surfaces.
+        settings.THEME_COOKIE_DOMAIN = ".pastlives.space"
         rf = RequestFactory()
         request = rf.get("/")
-        assert theme(request) == {"theme_cookie_domain": ".pastlives.app"}
+        assert theme(request) == {"theme_cookie_domain": ".pastlives.space"}
 
 
 def describe_notification_badge():

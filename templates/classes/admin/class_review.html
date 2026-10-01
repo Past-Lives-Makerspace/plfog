@@ -1,5 +1,5 @@
 {% extends "hub/base.html" %}
-{% load static classes_tags %}
+{% load static classes_tags rich_text %}
 
 {% block title %}Review: {{ offering.title }} — Past Lives{% endblock %}
 {% block public_topbar %}{% include "classes/_components/review_topbar.html" %}{% endblock public_topbar %}
@@ -31,8 +31,7 @@
   <h2 style="font-size:1.1rem;margin:1.5rem 0 0.5rem;">Class Details</h2>
   <dl class="pl-review-details">
     <dt>Price</dt><dd>{{ offering.price_cents|cents_as_price }}</dd>
-    {% if offering.member_discount_pct %}<dt>Member discount</dt><dd>{{ offering.member_discount_pct }}%</dd>{% endif %}
-    <dt>Capacity</dt><dd>{{ offering.capacity }}</dd>
+    <dt>Capacity</dt><dd>{% if offering.is_flexible %}No seat cap{% else %}{{ offering.capacity }}{% endif %}</dd>
     <dt>Sessions</dt>
     <dd>
       {% if upcoming_sessions %}
@@ -47,7 +46,7 @@
     </dd>
     {% if offering.description %}
       <dt>Description</dt>
-      <dd style="white-space:pre-wrap;">{{ offering.description }}</dd>
+      <dd class="pl-rich-body">{{ offering.description|rich_body }}</dd>
     {% endif %}
     {% if offering.prerequisites %}
       <dt>Prerequisites</dt>
@@ -124,8 +123,8 @@
       </fieldset>
       {% include "components/form_field.html" with field=form.notes %}
       <div style="display:flex;gap:0.75rem;flex-wrap:wrap;">
-        <button class="hub-btn hub-btn--primary" type="submit">Send Response</button>
-        <a class="hub-btn hub-btn--ghost" href="{% if is_tokenized %}{% url 'classes:public_class_detail' slug=offering.slug %}{% else %}{% url 'classes:admin_class_detail' pk=offering.pk %}{% endif %}">Cancel</a>
+        <button class="hub-btn hub-btn--primary" type="submit">Submit</button>
+        <a class="hub-btn hub-btn--ghost" href="{% if is_tokenized %}{% url 'classes:public_class_detail' slug=offering.slug %}{% else %}{% url 'classes:teach_class_detail' pk=offering.pk %}{% endif %}">Cancel</a>
       </div>
     </form>
   {% endif %}

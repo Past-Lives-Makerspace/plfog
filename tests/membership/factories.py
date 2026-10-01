@@ -32,6 +32,8 @@ from membership.models import (
     GuildOrientationSettings,
     GuildStaffMembership,
     HelpCategory,
+    LeadershipListing,
+    LeadershipRole,
     Lease,
     MapHotspot,
     Meeting,
@@ -50,6 +52,7 @@ from membership.models import (
     OrientationAvailability,
     OrientationAvailabilityBlock,
     OrientationBooking,
+    OrientationRecord,
     OrientationSlot,
     OrientationType,
     Skill,
@@ -96,6 +99,9 @@ class MemberFactory(factory.django.DjangoModelFactory):
     _pre_signup_email = factory.Sequence(lambda n: f"member{n}@example.com")
     status = Member.Status.ACTIVE
     join_date = date(2024, 1, 1)
+    # Directory-facing specs usually need a listed peer. This is a fixture convenience,
+    # not the product default: newly provisioned members start hidden.
+    show_in_directory = True
 
 
 class MemberEmailFactory(factory.django.DjangoModelFactory):
@@ -114,6 +120,23 @@ class MemberContactFactory(factory.django.DjangoModelFactory):
     label = factory.Sequence(lambda n: f"Contact {n}")
     value = "https://example.com"
     kind = MemberContact.Kind.OTHER
+
+
+class LeadershipListingFactory(factory.django.DjangoModelFactory):
+    class Meta:
+        model = LeadershipListing
+
+    member = factory.SubFactory(MemberFactory)
+    is_listed = True
+
+
+class LeadershipRoleFactory(factory.django.DjangoModelFactory):
+    class Meta:
+        model = LeadershipRole
+
+    listing = factory.SubFactory(LeadershipListingFactory)
+    title = factory.Sequence(lambda n: f"Role {n}")
+    email = ""
 
 
 class SpaceFactory(factory.django.DjangoModelFactory):
@@ -275,9 +298,10 @@ class UserFactory(factory.django.DjangoModelFactory):
 class CommunityEventFactory(factory.django.DjangoModelFactory):
     """A FOG-native community event. Defaults to a guild meeting (guild set).
 
-    Use the ``community`` / ``lead_meeting`` traits for the site-wide variants (which
-    null the guild to satisfy the type↔scope constraint); the ``pending`` / ``declined``
-    traits for member-proposal moderation states.
+    Use the ``community`` / ``lead_meeting`` traits for the makerspace-wide variants (which
+    null the guild; a lead meeting must have none), ``guild_hosted`` for a general event a
+    guild hosts (the fourth shape #505 opened up), and the ``pending`` / ``declined`` traits
+    for member-proposal moderation states.
     """
 
     class Meta:
@@ -293,6 +317,7 @@ class CommunityEventFactory(factory.django.DjangoModelFactory):
     class Params:
         guild_meeting = factory.Trait(event_type=CommunityEvent.EventType.GUILD_MEETING)
         community = factory.Trait(event_type=CommunityEvent.EventType.COMMUNITY, guild=None)
+        guild_hosted = factory.Trait(event_type=CommunityEvent.EventType.COMMUNITY)
         lead_meeting = factory.Trait(event_type=CommunityEvent.EventType.LEAD_MEETING, guild=None)
         studio_hours = factory.Trait(
             event_type=CommunityEvent.EventType.STUDIO_HOURS,
@@ -509,6 +534,12 @@ class OrientationAvailabilityFactory(factory.django.DjangoModelFactory):
             orientation_type=factory.SubFactory(OrientationTypeFactory, equipment_owned=True),
             slot_minutes=60,
         )
+        # An open row (#532): any time in the window, any orientation, one person's hours.
+        open_window = factory.Trait(
+            booking_style=OrientationAvailability.BookingStyle.OPEN,
+            orientation_type=None,
+            orienter=factory.SubFactory(MemberFactory),
+        )
 
     guild = factory.SubFactory(GuildFactory)
     orientation_type = factory.SubFactory(OrientationTypeFactory, guild=factory.SelfAttribute("..guild"))
@@ -527,6 +558,9 @@ class OrientationAvailabilityBlockFactory(factory.django.DjangoModelFactory):
 
     guild = factory.SubFactory(GuildFactory)
     orienter = factory.SubFactory(MemberFactory)
+    # A one off by default; generation sets availability, and a typed window sets orientation_type (#532).
+    availability = None
+    orientation_type = None
     # Minute-aligned like real blocks (the dashboard form posts half-hour times); the
     # picker's option values carry minute precision, so sub-minute starts can't round-trip.
     starts_at = factory.LazyFunction(lambda: (timezone.now() + timedelta(days=2)).replace(second=0, microsecond=0))
@@ -603,6 +637,21 @@ class OrientationBookingFactory(factory.django.DjangoModelFactory):
     slot = factory.SubFactory(OrientationSlotFactory)
     member = factory.SubFactory(MemberFactory)
     # guild is denormalized from the slot in OrientationBooking.save() (None for equipment-owned).
+
+
+class OrientationRecordFactory(factory.django.DjangoModelFactory):
+    """An orientation an admin recorded by hand (issue #465), on a guild-owned type by default.
+
+    Dated today. Pass ``orientation_type=OrientationTypeFactory(equipment_owned=True)``
+    for an equipment-owned one; nothing else differs between the two.
+    """
+
+    class Meta:
+        model = OrientationRecord
+
+    member = factory.SubFactory(MemberFactory)
+    orientation_type = factory.SubFactory(OrientationTypeFactory)
+    completed_on = factory.LazyFunction(timezone.localdate)
 
 
 class SkillCategoryFactory(factory.django.DjangoModelFactory):

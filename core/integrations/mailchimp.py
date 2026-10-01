@@ -68,6 +68,10 @@ class MailchimpClient:
 
         from core.models import SiteConfiguration
 
+        # Staging carries production's Site Settings, key included, and a signup there must
+        # not put anyone on the real audience: disabled before the database is consulted.
+        if settings.IS_STAGING:
+            return cls(config=None)
         site = SiteConfiguration.load()
         # Strip before testing truthiness: a stray space pasted into Site Settings
         # would otherwise count as "configured" and beat a valid env var.

@@ -31,7 +31,8 @@ real border, radius, and overflow, and .cls-media supplies the 150px height. The
 are derived in the CSS comment above .pl-card-focus__frame--laptop.
 {% endcomment %}
 <div class="cp-page pl-card-focus"
-     x-data="cardFocus({ initial: '{{ offering.card_object_position|default:'50% 50%'|escapejs }}', banner: '{{ offering.hero_object_position|default:'50% 50%'|escapejs }}' })">
+     x-data="cardFocus({ initial: '{{ offering.card_object_position|default:'50% 50%'|escapejs }}', banner: '{{ offering.hero_object_position|default:'50% 50%'|escapejs }}' })"
+     @hero-crop.window="followBanner($event.detail)">
   {{ form.card_focus }}
   {% if form.card_focus.errors %}
   <ul class="pl-field-errors">{% for error in form.card_focus.errors %}<li class="pl-field-error">{{ error }}</li>{% endfor %}</ul>

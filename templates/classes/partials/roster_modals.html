@@ -21,6 +21,12 @@ move_form (registrations tabs only, may be None) adds a move-student modal per r
         {% with remove_title="Remove "|add:full_name|add:" from This Class?" %}
         {% include "components/confirm_modal.html" with confirm_id="remove-reg-"|add:pk_str confirm_title=remove_title confirm_message="" confirm_body_include="classes/partials/remove_confirm_body.html" confirm_note_name="reason" confirm_note_label="Reason (internal, optional)" confirm_note_placeholder="Reason (internal, optional)" confirm_hx_post=remove_url confirm_hx_target="#reg-row-"|add:pk_str confirm_hx_vals='{"row":"reg"}' confirm_button_text="Remove" %}
         {% endwith %}
+        {% if reg.status == 'pending' %}
+        {% url 'classes:registration_confirm_pending' reg.pk as confirmpending_url %}
+        {% with confirmpending_title="Confirm "|add:full_name|add:" Without Payment?" %}
+        {% include "components/confirm_modal.html" with confirm_id="confirmpending-reg-"|add:pk_str confirm_title=confirmpending_title confirm_message="Their online checkout never finished. This puts them in the class with the balance still owed, so you can send a payment link or record a cash payment. Their confirmation email goes out now." confirm_hx_post=confirmpending_url confirm_hx_target="#reg-row-"|add:pk_str confirm_hx_vals='{"row":"reg"}' confirm_button_text="Confirm Signup" confirm_button_style="primary" %}
+        {% endwith %}
+        {% endif %}
         {% if reg.is_unpaid %}
         {% url 'classes:registration_mark_paid' reg.pk as markpaid_url %}
         {% with markpaid_title="Mark "|add:full_name|add:" as Paid?" %}

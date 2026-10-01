@@ -1,5 +1,11 @@
-<th>
-    <a href="{{ href }}">
-        {{ label }}{% if is_active %}<span style="font-size:0.7rem;">{% if direction == "asc" %}&#9650;{% else %}&#9660;{% endif %}</span>{% endif %}
+{% comment %}
+A sortable column header, rendered by {% sort_header label field sort sort_dir base_params %}
+(classes_tags). Every header shows a glyph so it reads as a control: a muted double arrow
+when the column is not the active sort, an up or down arrow when it is. The active column's
+<th> carries aria-sort; the glyph itself is decorative. Styled by .pl-sort-header in hub.css.
+{% endcomment %}
+<th{% if aria_sort %} aria-sort="{{ aria_sort }}"{% endif %}>
+    <a class="pl-sort-header{% if is_active %} pl-sort-header--active{% endif %}" href="{{ href }}">
+        <span class="pl-sort-header__label">{{ label }}</span><span class="pl-sort-header__glyph" aria-hidden="true">{% if aria_sort == "descending" %}&#9660;{% elif is_active %}&#9650;{% else %}&#8597;{% endif %}</span>
     </a>
 </th>

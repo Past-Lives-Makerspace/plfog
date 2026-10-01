@@ -36,6 +36,9 @@ NEXT = "#composer-form .pl-composer-bar button:has-text('Next')"
 SAVE_DRAFT = '#composer-form button[type="submit"]'
 TITLE = "A Forge of One's Own"
 DESCRIPTION = "Two evenings at the forge, starting from a cold anvil and a bar of mild steel."
+# The description is a rich-text editor: the person types into the Quill mount, and the named
+# textarea (#id_description, hidden) carries the editor's HTML, which is what the copy keeps.
+DESCRIPTION_EDITOR = '.pl-rte[data-rte-for="id_description"] .ql-editor'
 VIDEO = "https://www.youtube.com/watch?v=dQw4w9WgXcQ"
 # A URL the browser is happy with and the server refuses: video_url takes YouTube, Instagram
 # and Facebook links only, and the per step check reads the rendered constraint attributes,
@@ -63,7 +66,7 @@ def _settle_before_the_database_is_truncated(page, live_server, transactional_db
     """Let the browser go quiet before the teardown truncates the tables.
 
     Same hazard, and the same fix, as ``tests/e2e/class_composer_steps_spec.py``: these
-    scenarios save the form and load step 5's preview iframe, so one can end with a request
+    scenarios save the form and load the Review step's preview iframe, so one can end with a request
     still in flight, and the live server thread still holds that request's row locks when
     ``transactional_db`` truncates. The truncate loses, as a ``DeadlockDetected`` error with
     no assertion failure behind it. Depending on ``transactional_db`` is what orders this:
@@ -121,7 +124,7 @@ def _type_a_class(page, video: str = VIDEO) -> None:
     """Fill step 1 and step 2, so a restore has to reach across a pane that is not on screen."""
     page.locator("#id_title").fill(TITLE)
     page.locator("#id_category").select_option(index=1)
-    page.locator("#id_description").fill(DESCRIPTION)
+    page.locator(DESCRIPTION_EDITOR).fill(DESCRIPTION)
     page.locator("#id_price_cents").fill("80")
     page.locator(NEXT).click()
     _settle(page)
@@ -143,9 +146,22 @@ def _wait_for_kept_value(page, key: str, name: str, value: str) -> None:
     )
 
 
+def _wait_until_forgotten(page, key: str) -> None:
+    """Wait for the copy under that key to be gone, rather than read the store the instant the URL moves.
+
+    A save is a boosted submit (hub/base.html boosts the body), so the composer that arrives is a body
+    swap: htmx pushes the new URL during the swap and only then re-runs the composer's script tag, which
+    as an inserted ``<script src>`` executes on a later task. ``wait_for_url`` resolves on the push, so a
+    read of the store straight after it lands inside that gap and finds the copy still there. Measured:
+    on a fast machine the copy is present at the URL change every time and gone a moment later.
+    """
+    page.wait_for_function("(key) => window.localStorage.getItem(key) === null", arg=key)
+
+
 def _expect_the_class_is_back(page) -> None:
     expect(page.locator("#id_title")).to_have_value(TITLE)
-    expect(page.locator("#id_description")).to_have_value(DESCRIPTION)
+    expect(page.locator("#id_description")).to_have_value(f"<p>{DESCRIPTION}</p>")
+    expect(page.locator(DESCRIPTION_EDITOR)).to_have_text(DESCRIPTION)
     expect(page.locator("#id_price_cents")).to_have_value("80")
     expect(page.locator("#id_video_url")).to_have_value(VIDEO)
     assert page.locator("#id_category").input_value() != ""
@@ -213,7 +229,7 @@ def describe_a_refresh_mid_wizard():
         login_via_code(EMAIL)
         _open_create(page, live_server)
         page.locator("#id_title").fill(TITLE)
-        page.locator("#id_description").fill(DESCRIPTION)
+        page.locator(DESCRIPTION_EDITOR).fill(DESCRIPTION)
         _kept(page)
 
         record = _stored(page)
@@ -240,8 +256,8 @@ def describe_a_save():
         page.locator(SAVE_DRAFT).click()
         page.wait_for_url(re.compile(r"/edit/"))
 
+        _wait_until_forgotten(page, create_key)
         expect(page.locator(NOTICE)).to_be_hidden()
-        assert page.evaluate("(key) => window.localStorage.getItem(key)", create_key) is None
         _open_create(page, live_server)
         expect(page.locator(NOTICE)).to_be_hidden()
         expect(page.locator("#id_title")).to_have_value("")
@@ -250,12 +266,16 @@ def describe_a_save():
         offering = _seed_draft(_seed_instructor())
         login_via_code(EMAIL)
         _open_edit(page, live_server, offering)
+        edit_key = page.locator(ROOT).get_attribute("data-composer-draft-key")
         page.locator("#id_title").fill(TITLE)
         _kept(page)
 
         page.locator(SAVE_DRAFT).click()
         page.wait_for_url(re.compile(r"step="))
 
+        # The reload below would pass on a copy that matches the saved page, so the forget
+        # itself is what this scenario has to see.
+        _wait_until_forgotten(page, edit_key)
         expect(page.locator(NOTICE)).to_be_hidden()
         page.reload()
         expect(page.locator(NOTICE)).to_be_hidden()
@@ -311,7 +331,7 @@ def describe_a_save_the_server_refuses():
         _wait_for_kept_value(page, create_key, "video_url", VIDEO)
 
         # Only what was actually filled in. The server's own defaults for the fields nobody
-        # touched (the seats, the member discount, how it is scheduled) are rendered on this
+        # touched (the seats, how it is scheduled) are rendered on this
         # page too, and treating the whole page as changed would sweep them into the copy.
         assert set(_stored(page)["values"]) == {"title", "category", "description", "price_cents", "video_url"}
 
@@ -351,7 +371,9 @@ def describe_a_save_the_server_refuses():
         page.locator(RESTORE).click()
 
         expect(page.locator("#id_title")).to_have_value(TITLE)
-        expect(page.locator("#id_description")).to_have_value(ADMIN_DESCRIPTION)
+        # The admin wrote plain text; the editor holds it as the paragraph the page renders.
+        expect(page.locator("#id_description")).to_have_value(f"<p>{ADMIN_DESCRIPTION}</p>")
+        expect(page.locator(DESCRIPTION_EDITOR)).to_have_text(ADMIN_DESCRIPTION)
         _tab(page, 2).click()
         expect(page.locator("#id_video_url")).to_have_value(VIDEO)
 
@@ -461,6 +483,38 @@ def describe_a_browser_with_no_room_left():
         assert left_behind == previous
         expect(page.locator(BLOCKED)).to_be_visible()
         expect(page.locator(KEPT)).to_be_hidden()
+
+
+def describe_a_copy_from_before_the_two_composers_became_one():
+    def it_carries_the_old_key_forward_and_leaves_the_old_copy_where_it_was(live_server, page, login_via_code):
+        """The key dropped its portal segment when the admin and instructor composers merged.
+
+        A copy typed before that deploy sits under the old key, which nothing would look at
+        again, so the server stamps the old keys and boot copies the first live one forward.
+        A COPY: code rolled back to before the merge reads the old key, and must still find
+        the work there.
+        """
+        instructor = _seed_instructor()
+        CategoryFactory()
+        offering = _seed_draft(instructor)
+        login_via_code(EMAIL)
+        _open_edit(page, live_server, offering)
+        legacy = page.locator(ROOT).get_attribute("data-composer-draft-legacy-keys").split(" ")[-1]
+        assert legacy.endswith(f".teach.{offering.pk}")
+
+        page.evaluate(
+            """([key, title]) => window.localStorage.setItem(key, JSON.stringify({
+                v: 1, at: Date.now(), values: { title },
+            }))""",
+            [legacy, TITLE],
+        )
+        page.reload()
+
+        expect(page.locator(OFFER)).to_be_visible()
+        page.locator(RESTORE).click()
+        expect(page.locator("#id_title")).to_have_value(TITLE)
+        # Copied, not moved: the pre-merge key still holds it.
+        assert page.evaluate("(key) => window.localStorage.getItem(key)", legacy) is not None
 
 
 def describe_a_shared_browser():

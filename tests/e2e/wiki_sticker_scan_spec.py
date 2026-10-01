@@ -28,7 +28,7 @@ from django.core.management import call_command
 from django.urls import reverse
 from playwright.sync_api import expect
 
-from core.models import SiteConfiguration
+from tests.features import turn_on
 from membership.models import Member, WikiPage
 from tests.membership.factories import EquipmentFactory, GuildFactory, MembershipPlanFactory
 
@@ -48,9 +48,7 @@ def _seed_account(email: str) -> None:
 
 
 def _wiki_on() -> None:
-    config = SiteConfiguration.load()
-    config.wiki_enabled = True
-    config.save()
+    turn_on("wiki")
 
 
 def describe_scanning_a_machine_sticker():

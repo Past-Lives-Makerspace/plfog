@@ -71,7 +71,6 @@ def _create_payload(cat, **extra) -> dict:
         "safety_requirements": "",
         "age_guardian_note": "",
         "price_cents": 5000,
-        "member_discount_pct": 10,
         "capacity": 6,
         "scheduling_model": "flexible",
         "sale_kind": "percent",
@@ -107,7 +106,6 @@ def _edit_payload(offering, **extra) -> dict:
         "safety_requirements": "",
         "age_guardian_note": "",
         "price_cents": offering.price_cents,
-        "member_discount_pct": offering.member_discount_pct,
         "capacity": offering.capacity,
         "scheduling_model": "flexible",
         "sale_kind": "percent",
@@ -183,7 +181,7 @@ def describe_teach_class_create_photo_gate():
         client.force_login(instructor_fixture.user)
         response = client.post(
             reverse("classes:teach_class_create"),
-            _create_payload(cat, image=_real_image_file(), gallery_images=[_image_file("a.png")]),
+            _create_payload(cat, image=_real_image_file(), gallery_images=[_real_image_file("a.png")]),
         )
         assert response.status_code == 302
         offering = ClassOffering.objects.get(title="Gate Class")
@@ -198,7 +196,7 @@ def describe_teach_class_create_photo_gate():
             _create_payload(
                 cat,
                 image=_real_image_file(),
-                gallery_images=[_image_file("a.png"), _image_file("b.png"), _image_file("c.png")],
+                gallery_images=[_real_image_file("a.png"), _real_image_file("b.png"), _real_image_file("c.png")],
             ),
         )
         assert response.status_code == 302

@@ -33,33 +33,57 @@ def makerspace_wiki(request: HttpRequest) -> dict[str, str]:
     return {"makerspace_wiki_url": settings.MAKERSPACE_WIKI_URL}
 
 
+def knowledge_base(request: HttpRequest) -> dict[str, str]:
+    """Expose the Knowledge Base URL to the sidebar.
+
+    The KB is a separate application on a separate host, so there is no ``{% url %}`` for it and
+    the sidebar needs the absolute address. A blank setting leaves the entry pointing nowhere,
+    which is why the ``knowledge_base`` feature switch is what decides whether it is shown.
+    """
+    return {"knowledge_base_url": settings.KNOWLEDGE_BASE_URL}
+
+
 def theme(request: HttpRequest) -> dict[str, str]:
     """Expose the theme cookie's domain scope to base.html's early inline script.
 
     The script writes the light/dark choice to the ``pl_theme`` cookie so an
     explicit choice survives navigation across subdomains of the registrable
     domain. Empty string → a host-only cookie (correct for local dev like
-    ``pastlives.test``); production sets ``THEME_COOKIE_DOMAIN=.pastlives.app``
-    so the member hub and the guilds surface share the choice.
+    ``pastlives.test``); ``THEME_COOKIE_DOMAIN=.pastlives.space`` lets the
+    member hub and the guilds surface share the choice.
     """
     return {"theme_cookie_domain": settings.THEME_COOKIE_DOMAIN}
 
 
 def feature_flags(request: HttpRequest) -> dict[str, Any]:
-    """Expose the Site Settings → Features toggles site-wide (members + public)."""
-    from core.models import SiteConfiguration
+    """Expose the Site Settings → Features toggles site-wide (members + public).
+
+    ``features`` is every three-state member feature (``core.features``), keyed by feature
+    key: templates read ``features.voting.is_on`` / ``.is_soon`` / ``.is_hidden`` / ``.message``.
+    It costs ONE query for the whole registry, which is why ``as_context`` exists rather than a
+    lookup per key — a sidebar renders every key on every page in the app.
+
+    The switch applies to everyone, with no viewer-role branch: hiding a feature hides it from
+    the sidebar for whoever is looking, and (for every feature but My Tab, which is functional)
+    its pages stay reachable by URL. That is the whole mechanism.
+
+    The flat booleans below are the switches that stay flat by design (class registration, Help,
+    the demo toggles). ``wiki_enabled``, ``equipment_page_enabled``, ``host_a_workshop_enabled``
+    and the My Tab boolean used to be among them and are now ``features.wiki``,
+    ``features.equipment``, ``features.teach`` and ``features.my_tab``.
+    """
+    from core.models import FeatureSwitch, SiteConfiguration
 
     config = SiteConfiguration.load()
     return {
-        "my_tab_enabled": config.my_tab_enabled,
+        "features": FeatureSwitch.objects.as_context(),
         "class_registration_enabled": config.class_registration_enabled,
         "class_registration_disabled_note": config.class_registration_disabled_note,
         "help_page_enabled": config.help_page_enabled,
-        "wiki_link_enabled": config.wiki_link_enabled,
-        "wiki_enabled": config.wiki_enabled,
-        "equipment_page_enabled": config.equipment_page_enabled,
         "instructor_discount_codes_enabled": config.instructor_discount_codes_enabled,
+        "instructor_discount_codes_need_approval": config.instructor_discount_codes_need_approval,
         "guild_welcome_email_enabled": config.guild_welcome_email_enabled,
+        "late_cancel_fees_enabled": config.late_cancel_fees_enabled,
     }
 
 
@@ -70,7 +94,10 @@ def brand(request: HttpRequest) -> dict[str, str]:
     because that is what every config-backed processor in this module already does.
     ``brand_short_name`` / ``brand_legal_name`` fall back to the full name so a template never
     has to write the fallback, and ``brand_logo_url`` is empty when nothing is uploaded so the
-    templates can pick the static mark with ``{% firstof %}``.
+    templates can pick the static mark with ``{% firstof %}``. ``brand_google_play_url`` /
+    ``brand_app_store_url`` (#467) feed the "Get the app" badges on every page; a blank one
+    means that store is not launched yet. Emails read the same two fields through the
+    ``site_urls`` tags, because they render without a request.
     """
     from core.models import SiteConfiguration
 
@@ -85,6 +112,8 @@ def brand(request: HttpRequest) -> dict[str, str]:
         "brand_support_email": config.org_support_email,
         "brand_website_url": website,
         "brand_website_display": urlsplit(website).netloc or website,
+        "brand_google_play_url": config.google_play_url,
+        "brand_app_store_url": config.app_store_url,
     }
 
 
@@ -92,7 +121,7 @@ def surface(request: HttpRequest) -> dict[str, str | bool]:
     """Expose which surface the request arrived on so templates can branch chrome.
 
     ``surface`` is ``"public"`` on book.pastlives.space, ``"guilds"`` on
-    guilds.pastlives.app, ``"signage"`` on slideshow.pastlives.space, and
+    guilds.pastlives.space, ``"signage"`` on slideshow.pastlives.space, and
     ``"members"`` everywhere else (members host, local dev, Hetzner staging,
     Render preview). ``is_public_surface`` / ``is_guilds_surface`` /
     ``is_signage_surface`` are the convenience booleans templates branch on;
@@ -112,8 +141,8 @@ def surface(request: HttpRequest) -> dict[str, str | bool]:
         "is_guest_surface": is_public or is_guilds,
         "MEMBER_HOST": settings.MEMBER_HOST,
         "MEMBER_BASE_URL": getattr(settings, "MEMBER_BASE_URL", f"https://{settings.MEMBER_HOST}"),
-        "BOOK_BASE_URL": getattr(settings, "BOOK_BASE_URL", "https://book.pastlives.space"),
-        "GUILDS_BASE_URL": getattr(settings, "GUILDS_BASE_URL", "https://guilds.pastlives.app"),
+        "BOOK_BASE_URL": getattr(settings, "BOOK_BASE_URL", "https://classes.pastlives.space"),
+        "GUILDS_BASE_URL": getattr(settings, "GUILDS_BASE_URL", "https://guilds.pastlives.space"),
         "SIGNAGE_BASE_URL": getattr(settings, "SIGNAGE_BASE_URL", "https://slideshow.pastlives.space"),
         "guilds_page_base": "guilds/base_public.html" if is_guilds else "hub/base.html",
         "signage_page_base": "signage/base.html" if is_signage else "hub/base.html",
@@ -121,6 +150,16 @@ def surface(request: HttpRequest) -> dict[str, str | bool]:
             "guilds/base_public.html" if is_guilds else "classes/base_public.html" if is_public else "base.html"
         ),
     }
+
+
+def environment(request: HttpRequest) -> dict[str, str | bool]:
+    """Expose which deployment is rendering, so a staging page can say so on every screen.
+
+    ``IS_STAGING`` gates the fixed STAGING ribbon (``components/staging_ribbon.html``) and its
+    stylesheet link in the base templates; ``ENVIRONMENT`` is the name itself for anything
+    that wants to print it. Both come straight from settings, so there is nothing to cache.
+    """
+    return {"ENVIRONMENT": settings.ENVIRONMENT, "IS_STAGING": settings.IS_STAGING}
 
 
 def google_analytics(request: HttpRequest) -> dict[str, str]:

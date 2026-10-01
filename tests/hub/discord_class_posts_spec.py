@@ -74,11 +74,11 @@ def describe_build_weekly_classes_digest_embeds():
         assert offering.public_url.startswith("http")
         assert f"with {offering.instructor.display_name}" in description
 
-    def it_links_a_legacy_imported_class_to_its_drupal_page():
+    def it_links_a_class_imported_from_the_old_site_to_its_page_here():
         offering = _published_class("Intro to Welding", days=2, legacy_cms_id="node-abc", slug="intro-welding")
         description = dcp.build_weekly_classes_digest_embeds(timezone.now())[0]["description"]
-        assert "[Intro to Welding](https://classes.pastlives.space/class/intro-welding)" in description
-        assert offering.public_url not in description
+        assert f"[Intro to Welding]({offering.public_url})" in description
+        assert "/class/intro-welding" not in description
 
     def it_lists_bookable_flexible_classes_in_their_own_section():
         flexible = _flexible_class("Open Studio Ceramics")
@@ -86,13 +86,13 @@ def describe_build_weekly_classes_digest_embeds():
         assert "**Flexible scheduling — book anytime**" in description
         assert f"[Open Studio Ceramics]({flexible.public_url})" in description
 
-    def it_footers_with_a_browse_all_classes_link_to_the_legacy_site():
+    def it_footers_with_a_browse_all_classes_link_to_the_catalog(settings):
+        settings.BOOK_BASE_URL = "https://classes.example"
         _published_class("Intro to Welding", days=2)
-        from classes.import_service import LEGACY_CMS_BASE
 
         embed = dcp.build_weekly_classes_digest_embeds(timezone.now())[0]
-        assert f"[Browse all classes →]({LEGACY_CMS_BASE})" in embed["description"]
-        assert embed["url"] == LEGACY_CMS_BASE
+        assert "[Browse all classes →](https://classes.example/classes/)" in embed["description"]
+        assert embed["url"] == "https://classes.example/classes/"
 
     def it_excludes_private_draft_and_beyond_window_sessions():
         _published_class("Secret Workshop", days=2, is_private=True)
@@ -188,16 +188,16 @@ def describe_announce_new_classes():
         assert offering.channel_announced_at is not None
 
     @respx.mock
-    def it_links_a_legacy_imported_class_to_its_drupal_page(settings):
+    def it_links_a_class_imported_from_the_old_site_to_its_page_here(settings):
         settings.DISCORD_BOT_TOKEN = "tok"
         route = respx.post(_MESSAGES_URL).mock(return_value=httpx.Response(200, json={}))
         _enable_posts()
-        _published_class("Forge Basics", days=3, legacy_cms_id="node-abc", slug="forge-basics")
+        offering = _published_class("Forge Basics", days=3, legacy_cms_id="node-abc", slug="forge-basics")
 
         assert dcp.announce_new_classes() == 1
         embed = _sent_embeds(route)[0]
-        assert embed["url"] == "https://classes.pastlives.space/class/forge-basics"
-        assert "[Sign up →](https://classes.pastlives.space/class/forge-basics)" in embed["description"]
+        assert embed["url"] == offering.public_url
+        assert f"[Sign up →]({offering.public_url})" in embed["description"]
 
     @respx.mock
     def it_never_announces_the_same_class_twice(settings):
@@ -275,3 +275,50 @@ def describe_announce_new_classes():
         assert route.call_count == calendar_posts.ANNOUNCE_CAP
         assert ClassOffering.objects.filter(channel_announced_at__isnull=True).count() == 0  # overflow stamped
         assert dcp.announce_new_classes() == 0  # nothing left to drip out later
+
+
+def describe_a_flexible_class_with_a_date_window():
+    """The digest and the announcer follow bookable(): listed through the last day, gone the day after (#545)."""
+
+    def it_keeps_the_class_in_the_digest_on_its_last_day_and_drops_it_the_day_after():
+        from datetime import date
+        from unittest import mock
+
+        _flexible_class("Open Forge", flexible_starts_on=date(2026, 11, 2), flexible_ends_on=date(2026, 12, 1))
+        with mock.patch("classes.models.timezone.localdate", return_value=date(2026, 12, 1)):
+            description = dcp.build_weekly_classes_digest_embeds(timezone.now())[0]["description"]
+        assert "**Flexible scheduling — book anytime**" in description
+        assert "• Nov 2 to Dec 1, 2026 — [Open Forge]" in description
+        with mock.patch("classes.models.timezone.localdate", return_value=date(2026, 12, 2)):
+            assert dcp.build_weekly_classes_digest_embeds(timezone.now()) == []
+
+    def it_lists_a_class_with_no_window_as_before():
+        flexible = _flexible_class("Open Studio Ceramics")
+        description = dcp.build_weekly_classes_digest_embeds(timezone.now())[0]["description"]
+        assert f"• [Open Studio Ceramics]({flexible.public_url})" in description
+
+    @respx.mock
+    def it_announces_the_window_on_the_when_line(settings):
+        from datetime import date
+
+        settings.DISCORD_BOT_TOKEN = "tok"
+        route = respx.post(_MESSAGES_URL).mock(return_value=httpx.Response(200, json={}))
+        _enable_posts()
+        _flexible_class("Open Forge", flexible_starts_on=date(2026, 11, 2), flexible_ends_on=date(2026, 12, 1))
+
+        assert dcp.announce_new_classes() == 1
+        assert (
+            "Flexible scheduling — arrange with the instructor · Nov 2 to Dec 1, 2026"
+            in _sent_embeds(route)[0]["description"]
+        )
+
+    @respx.mock
+    def it_never_announces_a_class_whose_window_has_ended(settings):
+        from datetime import date
+
+        settings.DISCORD_BOT_TOKEN = "tok"
+        respx.post(_MESSAGES_URL).mock(return_value=httpx.Response(200, json={}))
+        _enable_posts()
+        _flexible_class("Over", flexible_ends_on=date(2020, 1, 1))
+
+        assert dcp.announce_new_classes() == 0

@@ -72,7 +72,7 @@ def describe_registrations_tab_email_handoff():
         from membership.models import Member
 
         user = UserFactory(username="former@example.com", email="former@example.com")
-        InstructorFactory(user=user, status=Member.Status.FORMER)
+        InstructorFactory(user=user, status=Member.Status.INVITED)
         client.force_login(user)
         response = client.post(reverse("classes:teach_registrations_email"), data={})
         assert response.status_code == 403

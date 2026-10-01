@@ -177,7 +177,7 @@ def describe_admin_move():
         reg = RegistrationFactory(class_offering=source, status=Registration.Status.CONFIRMED)
         response = client.post(_move_url(reg), {"target": target.pk})
         assert response.status_code == 302
-        assert response["Location"] == reverse("classes:admin_class_registrations", args=[source.pk])
+        assert response["Location"] == reverse("classes:teach_class_registrations", args=[source.pk])
         reg.refresh_from_db()
         assert reg.class_offering_id == target.pk
 
@@ -230,7 +230,7 @@ def describe_move_affordance():
         client.force_login(admin_user)
         source = ClassOfferingFactory(slug="mv-ui-adm")
         reg = RegistrationFactory(class_offering=source, status=Registration.Status.CONFIRMED)
-        content = client.get(reverse("classes:admin_class_registrations", args=[source.pk])).content.decode()
+        content = client.get(reverse("classes:teach_class_registrations", args=[source.pk])).content.decode()
         assert ">Move Student</button>" in menu_region(content, f"reg-row-{reg.pk}")
         assert f"move-reg-{reg.pk}" in content
 
@@ -284,5 +284,5 @@ def describe_price_note():
         source = ClassOfferingFactory(slug="mv-pa-src")
         ClassOfferingFactory(slug="mv-pa-dst", price_cents=6000)
         RegistrationFactory(class_offering=source, status=Registration.Status.CONFIRMED, amount_paid_cents=5000)
-        content = client.get(reverse("classes:admin_class_registrations", args=[source.pk])).content.decode()
+        content = client.get(reverse("classes:teach_class_registrations", args=[source.pk])).content.decode()
         assert PRICE_NOTE not in content

@@ -10,7 +10,7 @@ from django.core.exceptions import ValidationError
 from django.utils import timezone
 
 from classes.factories import ClassOfferingFactory, ClassSessionFactory, RegistrationFactory, UserFactory
-from classes.models import ClassApproval, ClassOffering, CmsActivity, Registration
+from classes.models import READINESS_DESCRIPTION_HINT, ClassApproval, ClassOffering, CmsActivity, Registration
 from core.models import Notification, SiteActivity
 
 Status = ClassOffering.Status
@@ -228,7 +228,7 @@ def describe_publish():
         offering = ClassOfferingFactory(status=Status.PENDING, description="Short")
         with pytest.raises(ValidationError) as excinfo:
             offering.publish(admin_user)
-        assert excinfo.value.messages == ["Not ready to publish: Write a short description. Add at least one date."]
+        assert excinfo.value.messages == [f"Not ready to publish: {READINESS_DESCRIPTION_HINT} Add at least one date."]
         offering.refresh_from_db()
         assert offering.status == Status.PENDING
         assert not CmsActivity.objects.filter(kind=CmsActivity.Kind.CLASS_PUBLISHED).exists()

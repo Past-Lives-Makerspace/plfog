@@ -1,4 +1,4 @@
-"""BDD specs for the public guild directory on the guilds surface (guilds.pastlives.app)."""
+"""BDD specs for the public guild directory on the guilds surface (guilds.pastlives.space)."""
 
 from __future__ import annotations
 
@@ -9,12 +9,12 @@ from tests.membership.factories import GuildFactory, MemberFactory, MembershipPl
 
 pytestmark = pytest.mark.django_db
 
-GUILDS_HOST = "guilds.pastlives.app"
+GUILDS_HOST = "guilds.pastlives.space"
 GUILDS_SETTINGS = dict(
-    ALLOWED_HOSTS=["guilds.pastlives.app", "members.pastlives.space", "book.pastlives.space", "testserver"],
-    GUILDS_HOSTS=["guilds.pastlives.app"],
-    GUILDS_BASE_URL="https://guilds.pastlives.app",
-    MEMBER_BASE_URL="https://members.pastlives.app",
+    ALLOWED_HOSTS=["guilds.pastlives.space", "members.pastlives.space", "book.pastlives.space", "testserver"],
+    GUILDS_HOSTS=["guilds.pastlives.space"],
+    GUILDS_BASE_URL="https://guilds.pastlives.space",
+    MEMBER_BASE_URL="https://members.pastlives.space",
     BOOK_BASE_URL="https://book.pastlives.space",
 )
 

@@ -3,6 +3,10 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Any
 
 from django import template
+from django.utils.html import conditional_escape
+from django.utils.safestring import SafeString, mark_safe
+
+from membership.logos import logo_prefix_for
 
 if TYPE_CHECKING:
     from django.db.models import QuerySet
@@ -48,6 +52,24 @@ def active_nav(context: dict[str, Any], *args: str | int) -> str:
     return ""
 
 
+@register.simple_tag(takes_context=True)
+def active_path(context: dict[str, Any], prefix: str) -> str:
+    """Return 'active' when the current path starts with ``prefix``.
+
+    The path-prefix companion to :func:`active_nav`, which can only match a reversible URL
+    exactly. A section whose inner pages carry a pk (``/meetings/12/``) cannot be reversed
+    without that pk, so its nav entry has always matched by prefix instead — this puts that
+    test behind ``as`` so it can be handed to an include, which an inline ``{% if %}`` cannot.
+
+    Examples:
+        {% active_path '/meetings/' as meetings_active %}
+    """
+    request = context.get("request")
+    if request is None:
+        return ""
+    return "active" if request.path.startswith(prefix) else ""
+
+
 @register.filter
 def get_item(dictionary: dict, key: str) -> Any:
     """Look up a key in a dict: {{ my_dict|get_item:key }}"""
@@ -63,6 +85,29 @@ def is_public(member: Any, field_name: str) -> bool:
     if member is None:
         return False
     return bool(member.is_public(field_name))
+
+
+@register.filter
+def initials(name: str) -> str:
+    """The first letter of the first two words of ``name``, upper-cased: "Lee Mendelsohn" → "LM".
+
+    ``Member.initials`` reads the linked auth user and is blank for a member with no login,
+    which a leadership card cannot show, so the cards work from the display name instead.
+    A token that is only punctuation ("Sam / Samuel Rook") is skipped, not counted.
+    """
+    words = [word for word in name.split() if word[0].isalnum()]
+    return "".join(word[0].upper() for word in words[:2])
+
+
+@register.filter
+def email_breaks(address: str) -> SafeString:
+    """``address`` with a line-break opportunity after its ``@``.
+
+    A leadership card is half a phone screen wide, and an address has no space to wrap on,
+    so without this the browser breaks it mid-word. With a ``<wbr>`` it wraps as ``name@``
+    over ``domain`` instead. The address is escaped first; only the ``<wbr>`` is trusted.
+    """
+    return mark_safe(conditional_escape(address).replace("@", "@<wbr>"))
 
 
 @register.simple_tag(takes_context=True)
@@ -89,27 +134,5 @@ def by_kind(contacts: Any, kind: str) -> list[Any]:
 
 @register.filter
 def guild_logo_prefix(name: str) -> str | None:
-    """Map a guild name string to its logo prefix."""
-    name = name.lower()
-    mapping = {
-        "art framing": "art_framing",
-        "ceramics": "ceramics",
-        "events": "events",
-        "food independence": "food_independence",
-        "garden": "garden",
-        "glass": "glass",
-        "jewelry": "jewelers",
-        "jeweler": "jewelers",
-        "leather": "leatherwork",
-        "metal": "metalworking",
-        "prison": "prison_outreach",
-        "tech": "tech",
-        "textile": "textiles",
-        "visual": "visual_arts",
-        "wood": "woodworking",
-        "writer": "writers",
-    }
-    for key, prefix in mapping.items():
-        if key in name:
-            return prefix
-    return None
+    """Map a guild name string to its logo prefix, through the one shared name map."""
+    return logo_prefix_for(name)

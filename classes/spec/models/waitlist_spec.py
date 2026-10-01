@@ -71,3 +71,21 @@ def describe_waitlist():
             Registration.objects.get(email="r1@example.com").cancel()
             third = Registration.objects.get(email="r3@example.com")
             assert third.waitlist_notified_at is not None
+
+
+def describe_promote_next_from_waitlist_on_a_flexible_class():
+    def it_promotes_nobody_and_notifies_no_one(db, mailoutbox):
+        # No cap, so nothing opens up (#545): a WAITLISTED row left over from before stays put.
+        from classes.models import ClassOffering
+
+        offering = ClassOfferingFactory(capacity=1, scheduling_model=ClassOffering.SchedulingModel.FLEXIBLE)
+        waiting = _make_reg(offering, Registration.Status.WAITLISTED, 2)
+        assert offering.promote_next_from_waitlist() is None
+        waiting.refresh_from_db()
+        assert waiting.waitlist_notified_at is None
+        assert mailoutbox == []
+
+    def it_still_fires_on_a_fixed_class_with_an_open_seat(db, mailoutbox):
+        offering = ClassOfferingFactory(capacity=1)
+        waiting = _make_reg(offering, Registration.Status.WAITLISTED, 2)
+        assert offering.promote_next_from_waitlist() == waiting

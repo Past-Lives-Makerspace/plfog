@@ -1,0 +1,6 @@
+bump = "patch"
+date = "2026-09-30"
+title = "A class page shows its guild's description the way it was written"
+changes = [
+  "The Supported by the Guild box on a class page ran the guild's whole description together as one block. Its paragraphs and bullet lines now show on their own lines, the same as on the guild's own page.",
+]

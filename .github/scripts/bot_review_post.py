@@ -23,6 +23,7 @@ from __future__ import annotations
 import json
 import os
 import pathlib
+import re
 import sys
 import urllib.error
 import urllib.request
@@ -38,6 +39,62 @@ _UNREADABLE = (
 )
 _NO_BODY = f"PastLivesReviewBot produced a verdict with no review text. **No approval has been given.** {_RETRY}"
 _UNKNOWN = "PastLivesReviewBot returned an unrecognised verdict, so **no approval has been given**. Its review follows."
+
+#: Fifty funny LGTM, ship it and thumbs up GIFs, each looked at before it was added (2026-09-19). The pull request number
+#: picks one, so a re-review of the same PR shows the same GIF.
+_LGTM_GIFS = (
+    "https://media.giphy.com/media/111ebonMs90YLu/giphy.gif",
+    "https://media.giphy.com/media/1ZkMDj88mQ1rO/giphy.gif",
+    "https://media.giphy.com/media/QyrysGo7Hz70I/giphy.gif",
+    "https://media.giphy.com/media/RIhNQOjGa39Ze/giphy.gif",
+    "https://media.giphy.com/media/SWeJXPJPvluIZQSk5j/giphy.gif",
+    "https://media.giphy.com/media/iXQ8SgaMQAgtq/giphy.gif",
+    "https://media.giphy.com/media/tIeCLkB8geYtW/giphy.gif",
+    "https://media.giphy.com/media/13zeE9qQNC5IKk/giphy.gif",
+    "https://media.giphy.com/media/143vPc6b08locw/giphy.gif",
+    "https://media.giphy.com/media/3kuSo744UIPJjcJUEn/giphy.gif",
+    "https://media.giphy.com/media/7Fjz4vLxl6WxbXfbMa/giphy.gif",
+    "https://media.giphy.com/media/8VrtCswiLDNnO/giphy.gif",
+    "https://media.giphy.com/media/9Ai5dIk8xvBm0/giphy.gif",
+    "https://media.giphy.com/media/9JyQbpKdPa1DeDAFyo/giphy.gif",
+    "https://media.giphy.com/media/9xt1MUZqkneFiWrAAD/giphy.gif",
+    "https://media.giphy.com/media/BEiR3vW16SYt2JosBT/giphy.gif",
+    "https://media.giphy.com/media/EPnMuQi2AV9nJup2Se/giphy.gif",
+    "https://media.giphy.com/media/F56tNEGsltde/giphy.gif",
+    "https://media.giphy.com/media/GVPhxSBr8gVy1yhxDN/giphy.gif",
+    "https://media.giphy.com/media/Hc8PMCBjo9BXa/giphy.gif",
+    "https://media.giphy.com/media/MZUfuJSlrbWPxqBRwx/giphy.gif",
+    "https://media.giphy.com/media/MeChHLiJhQ6vANKIGn/giphy.gif",
+    "https://media.giphy.com/media/Q54fw7cxrs9BzCkzQv/giphy.gif",
+    "https://media.giphy.com/media/QXJhYxcCaU1LJUHmU2/giphy.gif",
+    "https://media.giphy.com/media/S6wdJ27DLVfh9mA9dE/giphy.gif",
+    "https://media.giphy.com/media/SShJcu4ySty1G6MX9A/giphy.gif",
+    "https://media.giphy.com/media/VhWVAa7rUtT3xKX6Cd/giphy.gif",
+    "https://media.giphy.com/media/XdUMQuuiaAEkOUtezd/giphy.gif",
+    "https://media.giphy.com/media/YnHrhXDadyaF6q1yBW/giphy.gif",
+    "https://media.giphy.com/media/d31xcQedqXbduoyA/giphy.gif",
+    "https://media.giphy.com/media/fJ5veFeMaJd3UXGfc3/giphy.gif",
+    "https://media.giphy.com/media/g3k2ZBNe5F31kv5KR7/giphy.gif",
+    "https://media.giphy.com/media/h9TQwUxEla2nias5mi/giphy.gif",
+    "https://media.giphy.com/media/hpAMh2sBYpsmFhSRPl/giphy.gif",
+    "https://media.giphy.com/media/iBEW5Amz0ztza/giphy.gif",
+    "https://media.giphy.com/media/kBbbp1gMez273lheaf/giphy.gif",
+    "https://media.giphy.com/media/kigfYxdEa5s1ziA2h1/giphy.gif",
+    "https://media.giphy.com/media/l41lUjUgLLwWrz20w/giphy.gif",
+    "https://media.giphy.com/media/qX6rrmE39VCUB8MZyi/giphy.gif",
+    "https://media.giphy.com/media/qYGvebgOKGygdOgflY/giphy.gif",
+    "https://media.giphy.com/media/rq7jBVljy6Kw35PAEi/giphy.gif",
+    "https://media.giphy.com/media/sAPtuCkZzI59WvkMwg/giphy.gif",
+    "https://media.giphy.com/media/uUzyWtasBuVu9GUr1l/giphy.gif",
+    "https://media.giphy.com/media/wolgqFz9BgIiJmTEfz/giphy.gif",
+    "https://media.giphy.com/media/wtUTJUtDDKB36UN7X0/giphy.gif",
+    "https://media.giphy.com/media/xCgeEazpis53cUqoZY/giphy.gif",
+    "https://media.giphy.com/media/xDgaiJzfzQOLOERc7f/giphy.gif",
+    "https://media.giphy.com/media/xHMIDAy1qkzNS/giphy.gif",
+    "https://media.giphy.com/media/xUOxfg0ESyhKOv4Vva/giphy.gif",
+    "https://media.giphy.com/media/zczuaAkE8TDri/giphy.gif",
+)
+_LEADING_LGTM = re.compile(r"\ALGTM\W*\n+", re.IGNORECASE)
 
 
 def read_verdict(path: pathlib.Path) -> str | None:
@@ -93,6 +150,24 @@ def decide(raw: str | None) -> tuple[str, str, bool]:
     return "COMMENT", f"{_UNKNOWN}\n\n{body}", False
 
 
+def with_lgtm(body: str, pull_request: str) -> str:
+    """Open an approval with "LGTM" and a GIF.
+
+    Added here rather than asked of the model, so an approval always starts the same way and
+    the only image URLs ever posted are the ones in ``_LGTM_GIFS``. A leading "LGTM" line the
+    model wrote anyway is dropped so it does not appear twice.
+
+    Args:
+        body: The approval's review text.
+        pull_request: The pull request number, as a string; it picks the GIF.
+
+    Returns:
+        The body to post.
+    """
+    gif = _LGTM_GIFS[int(pull_request) % len(_LGTM_GIFS)]
+    return f"LGTM\n\n![LGTM]({gif})\n\n{_LEADING_LGTM.sub('', body)}"
+
+
 def post_review(repo: str, pull_request: str, token: str, event: str, body: str) -> None:
     """Submit the review to GitHub as whichever account owns the token.
 
@@ -138,6 +213,8 @@ def main() -> None:
     path = pathlib.Path(os.environ["VERDICT_FILE"])
 
     event, body, clean = decide(read_verdict(path))
+    if event == "APPROVE":
+        body = with_lgtm(body, pull_request)
     post_review(repo, pull_request, token, event, body)
     print(f"Posted a {event} review on #{pull_request}.")
 

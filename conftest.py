@@ -42,6 +42,23 @@ def _fake_stripe_keys(settings):
 
 
 @pytest.fixture
+def midday_now():
+    """Pin ``timezone.now`` to local noon of today, reading the wall clock once.
+
+    For a spec that builds "open today" hours from the local weekday and then asserts
+    against now: two reads either side of local midnight disagree on the day, and an
+    all day window ending at 23:59 is shut in the last minute. Noon is clear of both.
+    """
+    from unittest.mock import patch
+
+    from django.utils import timezone
+
+    noon = timezone.localtime().replace(hour=12, minute=0, second=0, microsecond=0)
+    with patch("django.utils.timezone.now", return_value=noon):
+        yield noon
+
+
+@pytest.fixture
 def configured_billing_stripe(db):
     """Populate BillingSettings.connect_* with fake values for tests that hit
     stripe_utils helpers without patching. Most tests patch `_get_stripe_client`

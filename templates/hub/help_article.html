@@ -32,7 +32,7 @@ alone. Admins previewing a draft get the Draft banner; members 404 instead.
 {% endif %}
 
 <div class="pl-guild-grid">
-    <main>
+    <div>
         {% if toc %}
         <nav class="pl-wiki-toc" aria-label="On this page">
             <h2 class="hub-detail-label">On this page</h2>
@@ -82,9 +82,9 @@ alone. Admins previewing a draft get the Draft banner; members 404 instead.
             {% endif %}
         </nav>
         {% endif %}
-    </main>
+    </div>
 
-    <aside>
+    <aside aria-label="Help sidebar">
         {% if article.category and has_other_siblings %}
         <div class="hub-card">
             <h3 class="hub-detail-label">In this category</h3>

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 from unittest.mock import patch
 
 import pytest
@@ -86,3 +87,31 @@ def describe_handle():
             call_command("airtable_pull")
         mock_pull.assert_not_called()
         assert not ScheduledTaskRun.objects.filter(task_key="airtable_pull").exists()
+
+
+@pytest.mark.django_db
+def describe_pull_members_with_an_unmapped_status():
+    def it_warns_naming_the_record_and_leaves_the_status_alone(caplog):
+        plan = MembershipPlanFactory()
+        existing = MemberFactory(
+            _pre_signup_email="lapsed@example.com", status=Member.Status.ACTIVE, membership_plan=plan
+        )
+        record = {
+            "id": "recLAPSED1",
+            "fields": {"Member Name": "Lee Lapsed", "Email": "lapsed@example.com", "Status": "Lapsed"},
+        }
+
+        with (
+            patch("airtable_sync.management.commands.airtable_pull.get_table") as get_table,
+            caplog.at_level(logging.WARNING, logger="airtable_sync.config"),
+        ):
+            get_table.return_value.all.return_value = [record]
+            Command()._pull_members(dry_run=False)
+
+        existing.refresh_from_db()
+        assert existing.status == Member.Status.ACTIVE
+        messages = [r.getMessage() for r in caplog.records if r.name == "airtable_sync.config"]
+        assert len(messages) == 1
+        assert "recLAPSED1" in messages[0]
+        assert "Lee Lapsed" in messages[0]
+        assert "'Lapsed'" in messages[0]

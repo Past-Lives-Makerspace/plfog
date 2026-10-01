@@ -10,5 +10,6 @@ We've attached an updated calendar invite. See you there!
 
 The {{ owner_page_label }}: {{ owner_url }}
 Can't make it? Cancel here: {{ cancel_url }}
-
+{% if cancellation_policy %}{{ cancellation_policy }}
+{% endif %}
 {% include "membership/emails/_footer.txt" %}

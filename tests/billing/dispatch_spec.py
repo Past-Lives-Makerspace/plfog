@@ -11,9 +11,10 @@ from django.db.models.signals import post_save
 from factory.django import mute_signals
 
 from billing.notifications import notify_admin_charge_failed, send_receipt
-from core.models import Notification, SiteConfiguration
+from core.models import Notification
 from tests.billing.factories import BillingSettingsFactory, TabChargeFactory, TabFactory, ProductFactory
 from tests.membership.factories import MemberFactory
+from tests.features import hide
 
 pytestmark = pytest.mark.django_db
 
@@ -142,9 +143,7 @@ def describe_tab_approaching_limit_dispatch():
         user = _user_for_member(member)
         tab = TabFactory(member=member, tab_limit=Decimal("100.00"))
         product = ProductFactory()
-        config = SiteConfiguration.load()
-        config.my_tab_enabled = False
-        config.save(update_fields=["my_tab_enabled"])
+        hide("my_tab")
 
         tab.add_entry(description="Should not notify", amount=Decimal("80.00"), product=product)
 
@@ -159,9 +158,7 @@ def describe_tab_entry_added_when_payments_disabled():
         tab = TabFactory(member=member)
         admin = User.objects.create_user(username="admin_disabled", email="admin_disabled@example.com")
         product = ProductFactory()
-        config = SiteConfiguration.load()
-        config.my_tab_enabled = False
-        config.save(update_fields=["my_tab_enabled"])
+        hide("my_tab")
 
         tab.add_entry(
             description="Should not notify",

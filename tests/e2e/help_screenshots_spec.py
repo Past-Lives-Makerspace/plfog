@@ -145,20 +145,19 @@ def _seed_help_extras(personas: dict[str, Member]) -> None:
     # GATED surfaces stay out of the pictures, not just the prose (§10.5 rule 4):
     # the flag defaults on, which would leak My Tab, the balance pill, and the
     # Buyables guild tab into every screenshot.
-    from core.models import SiteConfiguration
+    from tests.features import hide
 
-    config = SiteConfiguration.load()
-    config.my_tab_enabled = False
-    config.save(update_fields=["my_tab_enabled"])
+    hide("my_tab")
 
     ceramics = Guild.objects.get(name="Ceramics Guild")
     textiles = Guild.objects.get(name="Textiles Guild")
     woodshop = Guild.objects.get(name="Woodshop Guild")
 
-    # The running-a-guild ShotSpecs hardcode /guilds/1/… paths (and /guilds/1/
-    # form-action selectors); Ceramics is the first guild _seed_member_hub
-    # creates, so in this fresh capture DB it must be pk 1. Fail loudly here if
-    # that assumption ever breaks rather than 404ing every guild-lead shot.
+    # The running-a-guild and approving-classes ShotSpecs hardcode /guilds/1/…
+    # paths (and /guilds/1/ form-action selectors); Ceramics is the first guild
+    # _seed_member_hub creates, so in this fresh capture DB it must be pk 1. Fail
+    # loudly here if that assumption ever breaks rather than 404ing every
+    # guild-lead shot.
     assert ceramics.pk == 1, f"Ceramics Guild is pk {ceramics.pk}, not 1 — fix the /guilds/1/… ShotSpecs"
 
     # A guild with a lead and staff — the guild-lead persona's editable surface.
@@ -246,7 +245,8 @@ def _seed_help_extras(personas: dict[str, Member]) -> None:
     OrientationBookingFactory(slot=slot, member=requester)
 
     # A PENDING class in a Ceramics-linked category with the guild lead's review
-    # gate still undecided — the "Waiting on your review" teach-overview panel.
+    # gate still undecided — the "Waiting on Your Review" group of the Needs
+    # Attention section at the top of the Ceramics guild's settings page.
     pending = ClassOfferingFactory(
         title="Glaze Chemistry Basics",
         slug="glaze-chemistry-basics",

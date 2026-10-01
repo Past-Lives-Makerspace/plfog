@@ -1,4 +1,4 @@
-"""BDD specs for the five step class composer (teach and admin twins of one shared template)."""
+"""BDD specs for the multi step class composer (teach and admin twins of one shared template)."""
 
 from __future__ import annotations
 
@@ -10,13 +10,17 @@ from html import unescape
 from html.parser import HTMLParser
 
 import pytest
+from django.contrib.contenttypes.models import ContentType
 from django.contrib.messages import get_messages
 from django.core.files.uploadedfile import SimpleUploadedFile
+from django.http import HttpResponse
 from django.urls import reverse
 from django.utils import timezone
 from PIL import Image
 
+from classes.composer import STEP_COUNT
 from classes.factories import (
+    BRACKETED_DESCRIPTION,
     READY_DESCRIPTION,
     CategoryFactory,
     ClassOfferingFactory,
@@ -24,8 +28,16 @@ from classes.factories import (
     UserFactory,
 )
 from classes.forms import ClassOfferingForm, TeachClassOfferingForm
-from classes.models import ClassApproval, ClassOffering, CmsActivity
+from classes.models import READINESS_DESCRIPTION_HINT, ClassApproval, ClassOffering, CmsActivity
 from classes.views import COMPOSER_SAVED_LIMIT, COMPOSER_SAVED_SESSION_KEY, _mark_composer_saved
+from tests.membership.factories import GuildFactory, GuildStaffMembershipFactory
+
+# Issue #536: the Review step says the checklist reads the saved row and Submit saves first.
+SUBMIT_NOTE = (
+    "This list reads your saved draft. Submit saves your changes first, "
+    "so a date or description you have just added counts."
+)
+LIVE_SUBMIT = "confirmSubmit('submit-class')\">Submit for Review</button>"
 
 Status = ClassOffering.Status
 
@@ -180,6 +192,40 @@ def _still_missing(html: str) -> str:
     return html.partition(opener)[2].partition("</section>")[0]
 
 
+LEGACY_PHOTO = "https://classes.pastlives.space/sites/default/files/glen.jpg"
+
+IMPORTED_PHOTO_NOTE = (
+    "This photo came over from the old class site, so the crop box is off for it. "
+    "To choose which part shows on the banner, click Preview and use Adjust under the photo. "
+    "Upload a new photo to crop it here."
+)
+
+
+def _hero_preview_img(html: str) -> str:
+    """The opening tag of the photo inside #hero-preview, or "" when the preview is empty."""
+    preview = html.partition('id="hero-preview"')[2].partition("</div>")[0]
+    match = re.search(r"<img[^>]*>", preview)
+    return match.group(0) if match else ""
+
+
+def _legacy_note_text(html: str) -> str:
+    """The imported photo note's text with whitespace collapsed, or "" when none rendered."""
+    match = re.search(r'<p[^>]*id="hero-legacy-note"[^>]*>(.*?)</p>', html, re.DOTALL)
+    return " ".join(match.group(1).split()) if match else ""
+
+
+def _crop_hint_tag(html: str) -> str:
+    """The opening tag of the banner pane's crop hint."""
+    match = re.search(r'<p[^>]*id="hero-crop-hint"[^>]*>', html)
+    assert match is not None, "no crop hint rendered"
+    return match.group(0)
+
+
+def _hero_crop_value(html: str) -> str:
+    """The value the rendered hidden hero_crop input would post back."""
+    return _untouched_form_values(html)["hero_crop"]
+
+
 @pytest.fixture
 def instructor_fixture(db):
     user = UserFactory(username="composer-teacher@example.com")
@@ -212,11 +258,12 @@ def _full_payload(category, **extra) -> dict:
         "age_minimum": "16",
         "age_guardian_note": "Guardians welcome.",
         "price_cents": "80.00",
-        "member_discount_pct": "15",
         "capacity": "8",
         "scheduling_model": "flexible",
         "scheduling_type": "series_package",
         "flexible_note": "We will find a time together.",
+        "flexible_starts_on": "2026-11-02",
+        "flexible_ends_on": "2026-12-01",
         "video_url": VIDEO,
         "hero_crop": json.dumps({"x": 10, "y": 20, "w": 320, "h": 180}),
         "card_focus": json.dumps({"x": 30, "y": 70}),
@@ -245,11 +292,12 @@ def _assert_round_trip(offering: ClassOffering, category) -> None:
     assert offering.age_minimum == 16
     assert offering.age_guardian_note == "Guardians welcome."
     assert offering.price_cents == 8000
-    assert offering.member_discount_pct == 15
     assert offering.capacity == 8
     assert offering.scheduling_model == "flexible"
     assert offering.scheduling_type == "series_package"
     assert offering.flexible_note == "We will find a time together."
+    assert offering.flexible_starts_on is not None and offering.flexible_starts_on.isoformat() == "2026-11-02"
+    assert offering.flexible_ends_on is not None and offering.flexible_ends_on.isoformat() == "2026-12-01"
     assert offering.video_url == VIDEO
     assert (offering.card_focus_x, offering.card_focus_y) == (30, 70)
 
@@ -270,11 +318,12 @@ def _assert_crop_followed_the_downsize(offering: ClassOffering) -> None:
 
     A 16:9 frame on the left half of a 16:9 photo covers the top half of that half, so its
     centre sits a quarter in and a quarter down. Unscaled, the box would cover the whole
-    stored photo and read 50.0% 50.0%.
+    stored photo. The banner itself reads 50% 50% either way, because the copy cut on save
+    is the box (#547); the stored box is the proof.
     """
     assert (offering.image.width, offering.image.height) == (2400, 1350)
     assert (offering.hero_crop_x, offering.hero_crop_y, offering.hero_crop_w, offering.hero_crop_h) == (0, 0, 1200, 675)
-    assert offering.hero_object_position == "25.0% 25.0%"
+    assert offering.hero_object_position == "50% 50%"
 
 
 def describe_the_step_map_matches_the_payload():
@@ -293,9 +342,9 @@ def describe_teach_composer_get():
         # The guided tour reveals a hidden pane through this contract (static/js/pl_tour.js).
         client.force_login(instructor_fixture.user)
         html = client.get(reverse("classes:teach_class_create")).content.decode()
-        for n in range(1, 6):
+        for n in range(1, STEP_COUNT + 1):
             assert f'data-composer-step="{n}"' in html, n
-        assert html.count("data-composer-step=") == 5
+        assert html.count("data-composer-step=") == STEP_COUNT
         assert '@composer-goto-step.window="goTo($event.detail.step)"' in html
 
     def it_announces_every_step_reveal_for_widgets_that_measure_their_pane(instructor_fixture, client):
@@ -325,6 +374,37 @@ def describe_teach_composer_get():
             assert 'id="hero-preview"' in field, mode
             assert field.index("cropInput.value = ''") < field.index("window.initHeroCropper()"), mode
 
+    def it_points_the_card_frames_at_a_freshly_uploaded_photo(instructor_fixture, client):
+        # Issue #547: the instant upload on a saved class replaces the original and its copy on
+        # the server, while the frames still show the copy with the deleted original behind
+        # data-hero-source. The handler points every such frame at the new file and drops the
+        # attribute, after forgetting the crop and before the cropper remounts.
+        client.force_login(instructor_fixture.user)
+        offering = ClassOfferingFactory(instructor=instructor_fixture, status=Status.DRAFT)
+        html = client.get(reverse("classes:teach_class_edit", kwargs={"pk": offering.pk})).content.decode()
+        field = html.split("data-hero-image-field")[1].split("</script>")[0]
+        assert "querySelectorAll('img[data-hero-source]')" in field
+        assert (
+            field.index("cropInput.value = ''")
+            < field.index("img.setAttribute('src', data.url)")
+            < field.index("img.removeAttribute('data-hero-source')")
+            < field.index("window.initHeroCropper()")
+        )
+
+    def it_hands_the_whole_crop_announcement_to_the_card_frames(instructor_fixture, client):
+        # Issue #547 follow up: the cropper announces the box in natural pixels and the photo's
+        # size beside the centre, and card_focus.js lays the box out in every frame, the two on
+        # the Photos step and the phone one on the Review step, all under .pl-card-focus__frame.
+        offering = ClassOfferingFactory(instructor=instructor_fixture, status=Status.DRAFT)
+        client.force_login(instructor_fixture.user)
+        html = client.get(reverse("classes:teach_class_edit", kwargs={"pk": offering.pk})).content.decode()
+        assert '@hero-crop.window="followBanner($event.detail)"' in html
+        assert html.count('class="pl-card-focus__frame pl-card-focus__frame--laptop"') == 1
+        assert html.count('class="pl-card-focus__frame pl-card-focus__frame--phone"') == 2
+        # Both frame roots carry cp-page and pl-card-focus on one element: the boxed rule in
+        # hub.css is written as that compound.
+        assert html.count('class="cp-page pl-card-focus"') == 2
+
     def it_puts_the_price_on_the_first_step(instructor_fixture, client):
         client.force_login(instructor_fixture.user)
         html = client.get(reverse("classes:teach_class_create")).content.decode()
@@ -333,7 +413,7 @@ def describe_teach_composer_get():
         assert 'name="price_cents"' in step_one and 'name="is_free"' not in step_one
         assert 'data-help-key="teach.class-pricing"' in step_one
         step_three = html[html.index('data-composer-step="3"') : html.index('data-composer-step="4"')]
-        assert 'name="member_discount_pct"' in step_three and 'name="capacity"' in step_three
+        assert 'name="capacity"' in step_three
         assert 'name="price_cents"' not in step_three
 
     def it_leaves_validation_to_the_server(instructor_fixture, client):
@@ -346,11 +426,12 @@ def describe_teach_composer_get():
         html = client.get(reverse("classes:teach_class_create")).content.decode()
         assert re.search(r'<form[^>]*id="composer-form"[^>]*\bnovalidate\b', html)
 
-    def it_renders_the_five_tabs_and_lands_on_step_one(instructor_fixture, client):
+    def it_renders_every_tab_and_lands_on_step_one(instructor_fixture, client):
         client.force_login(instructor_fixture.user)
         html = client.get(reverse("classes:teach_class_create")).content.decode()
-        for label in ["1. Basics", "2. Photos", "3. Dates &amp; Price", "4. Details", "5. Review"]:
+        for label in ["1. Basics", "2. Photos", "3. Dates &amp; Price", "4. Details", "5. Discounts", "6. Review"]:
             assert label in html
+        assert html.count('data-step-tab="') == STEP_COUNT
         assert "phase: 1," in html
         assert "The Basics" in html and "Photos And Video" in html and "Dates, Seats And Price" in html
         assert "What Students Need To Know" in html and "Review And Submit" in html
@@ -390,26 +471,72 @@ def describe_teach_composer_get():
         assert "Add a photo above and the sliders appear." not in html
 
     def it_says_an_imported_photo_counts_on_the_photos_step(instructor_fixture, client):
-        """A legacy only class has its own hero: the note, the preview, and a ticked checklist."""
+        """A legacy only class has its own hero: the note, the preview, and a ticked checklist.
+
+        The crop box cannot position an imported photo, so the preview carries no cropper
+        hook, the box hint is hidden, and the note sends the editor to Adjust instead.
+        """
         offering = ClassOfferingFactory(
             instructor=instructor_fixture,
             status=Status.DRAFT,
             ready=True,
             image="",
-            legacy_image_url="https://classes.pastlives.space/sites/default/files/glen.jpg",
+            legacy_image_url=LEGACY_PHOTO,
         )
         client.force_login(instructor_fixture.user)
         html = client.get(reverse("classes:teach_class_edit", kwargs={"pk": offering.pk})).content.decode()
-        assert (
-            "This photo came over from the old class site. Everything here works the same. "
-            "Upload a new one to replace it." in html
-        )
-        hero = html.split('id="hero-preview"')[1].split("</div>")[0]
+        assert _legacy_note_text(html) == IMPORTED_PHOTO_NOTE
+        assert "Everything here works the same." not in html
+        hero = _hero_preview_img(html)
         assert "_legacy-image/?url=https%3A%2F%2Fclasses.pastlives.space" in hero
-        assert "data-hero-cropper-preview" in hero
+        src = re.search(r'src="([^"]*)"', hero)
+        assert src is not None, "no src on the hero preview"
+        assert unescape(src.group(1)) == offering.hero_image_url
+        assert "data-hero-cropper-preview" not in hero
+        assert _crop_hint_tag(html).endswith(" hidden>")
         assert "Replace image" in html
         assert "Add a hero photo." not in html
         assert html.count("pl-phase-tab--done") == 3
+
+    def it_offers_the_crop_box_on_an_uploaded_photo(instructor_fixture, client):
+        offering = ClassOfferingFactory(instructor=instructor_fixture, status=Status.DRAFT)
+        client.force_login(instructor_fixture.user)
+        html = client.get(reverse("classes:teach_class_edit", kwargs={"pk": offering.pk})).content.decode()
+        assert "data-hero-cropper-preview" in _hero_preview_img(html)
+        assert not _crop_hint_tag(html).endswith(" hidden>")
+
+    def it_mounts_the_cropper_on_the_original_while_the_card_frames_show_the_copy(instructor_fixture, client):
+        # Issue #547: the box is stored in the original's pixels, so the cropper must draw
+        # on the original; a box drawn on the cropped copy would crop the crop. The card
+        # frames beside it render the public partial, so they show the copy, as the catalog does.
+        offering = ClassOfferingFactory(
+            instructor=instructor_fixture,
+            status=Status.DRAFT,
+            image__width=1000,
+            image__height=600,
+            hero_crop_x=100,
+            hero_crop_y=50,
+            hero_crop_w=400,
+            hero_crop_h=225,
+        )
+        assert "hero-crops/" in offering.hero_cropped.url
+        client.force_login(instructor_fixture.user)
+        html = client.get(reverse("classes:teach_class_edit", kwargs={"pk": offering.pk})).content.decode()
+        hero = _hero_preview_img(html)
+        assert "data-hero-cropper-preview" in hero
+        src = re.search(r'src="([^"]*)"', hero)
+        assert src is not None, "no src on the hero preview"
+        assert unescape(src.group(1)) == offering.image.url
+        assert offering.hero_cropped.url not in hero
+        assert f'src="{offering.hero_cropped.url}"' in html
+        # Every frame showing the copy (two on Photos, the phone one on Review) carries the
+        # original for card_focus.js to swap in when a new box is dragged.
+        assert html.count(f'data-hero-source="{offering.image.url}"') == 3
+
+    def it_shows_the_crop_hint_before_the_first_save(instructor_fixture, client):
+        client.force_login(instructor_fixture.user)
+        html = client.get(reverse("classes:teach_class_create")).content.decode()
+        assert not _crop_hint_tag(html).endswith(" hidden>")
 
     def it_says_nothing_about_the_old_site_for_an_uploaded_photo(instructor_fixture, client):
         offering = ClassOfferingFactory(instructor=instructor_fixture, status=Status.DRAFT)
@@ -443,13 +570,22 @@ def describe_teach_composer_get():
         assert html.count("pl-phase-tab--done") == 3
         assert html.count("pl-phase-tab__mark") >= 3
 
-    def it_marks_nothing_on_an_unready_draft_and_disables_submit(instructor_fixture, client):
+    def it_marks_nothing_on_an_unready_draft_and_keeps_submit_live(instructor_fixture, client):
+        """Issue #536: the checklist reads the saved row, but Submit is live on every draft.
+
+        A date added in the scheduler exists only in the hidden formset inputs until a POST,
+        so a button gated on the saved row never noticed it and nothing said "save first".
+        The POST saves first and submit_for_review() refuses with the checklist instead.
+        """
         offering = ClassOfferingFactory(instructor=instructor_fixture, status=Status.DRAFT, image="", gallery=0)
         client.force_login(instructor_fixture.user)
         html = client.get(reverse("classes:teach_class_edit", kwargs={"pk": offering.pk})).content.decode()
         assert "pl-phase-tab--done" not in html
-        assert "Finish the checklist above first." in html
-        assert "disabled" in html.split("Finish the checklist above first.")[0].rsplit("<button", 1)[1]
+        assert LIVE_SUBMIT in html
+        assert "disabled" not in html.split(LIVE_SUBMIT)[0].rsplit("<button", 1)[1]
+        assert "Finish the checklist above first." not in html
+        assert SUBMIT_NOTE in html
+        assert html.index("Ready to Submit?") < html.index(SUBMIT_NOTE) < html.index("Add a hero photo.")
         # Readiness hints jump to their step instead of linking to a hidden anchor.
         assert "goToField('hero-preview')\">Add a hero photo.</button>" in html
         assert "goToField('gallery-manager')\">Add one gallery photo.</button>" in html
@@ -459,8 +595,8 @@ def describe_teach_composer_get():
         offering = ClassOfferingFactory(instructor=instructor_fixture, status=Status.DRAFT, ready=True)
         client.force_login(instructor_fixture.user)
         html = client.get(reverse("classes:teach_class_edit", kwargs={"pk": offering.pk})).content.decode()
-        assert "Finish the checklist above first." not in html
-        assert "confirmSubmit('submit-class')\">Submit for Review</button>" in html
+        assert LIVE_SUBMIT in html
+        assert "disabled" not in html.split(LIVE_SUBMIT)[0].rsplit("<button", 1)[1]
 
     def it_relabels_submit_on_a_bounced_class(instructor_fixture, client):
         offering = ClassOfferingFactory(instructor=instructor_fixture, status=Status.DRAFT, ready=True)
@@ -489,7 +625,7 @@ def describe_teach_composer_get():
         client.force_login(instructor_fixture.user)
         url = reverse("classes:teach_class_edit", kwargs={"pk": offering.pk})
         assert "phase: 3," in client.get(f"{url}?step=3").content.decode()
-        assert "phase: 5," in client.get(f"{url}?step=9").content.decode()
+        assert f"phase: {STEP_COUNT}," in client.get(f"{url}?step=9").content.decode()
         assert "phase: 1," in client.get(f"{url}?step=x").content.decode()
         assert "phase: 1," in client.get(url).content.decode()
 
@@ -549,6 +685,43 @@ def describe_teach_composer_post():
             180,
         )
         assert "Draft saved." in _messages(resp)
+
+    def it_keeps_an_adjust_focal_point_on_an_imported_photo_through_a_composer_save(instructor_fixture, client):
+        """A Save from a composer opened before an Adjust must not write the dead box back."""
+        offering = ClassOfferingFactory(
+            instructor=instructor_fixture,
+            status=Status.DRAFT,
+            image="",
+            legacy_image_url=LEGACY_PHOTO,
+            hero_crop_x=100,
+            hero_crop_y=50,
+            hero_crop_w=800,
+            hero_crop_h=450,
+            card_focus_x=None,
+            card_focus_y=None,
+        )
+        # The saved box is ignored on an imported photo: the bug as reported.
+        assert offering.card_object_position == "50% 50%"
+        client.force_login(instructor_fixture.user)
+        edit = reverse("classes:teach_class_edit", kwargs={"pk": offering.pk})
+        rendered_crop = _hero_crop_value(client.get(edit).content.decode())
+
+        adjust = client.post(
+            reverse("hub_hero_adjust"),
+            {
+                "content_type_id": ContentType.objects.get_for_model(ClassOffering).pk,
+                "object_id": offering.pk,
+                "crop": {"x": 30, "y": 70, "w": 0, "h": 0},
+            },
+            content_type="application/json",
+        )
+        assert adjust.status_code == 200
+
+        resp = client.post(edit, _full_payload(CategoryFactory(), hero_crop=rendered_crop, card_focus=""))
+        assert resp.status_code == 302
+        offering.refresh_from_db()
+        assert offering.hero_object_position == "30% 70%"
+        assert offering.card_object_position == "30% 70%"
 
     def it_shrinks_a_create_mode_crop_with_the_downsized_upload(instructor_fixture, client, settings):
         # Create mode crops the original file (the FileReader preview); save() then caps the long
@@ -623,17 +796,15 @@ def describe_teach_composer_post():
     def it_saves_a_draft_from_step_one_alone(instructor_fixture, client):
         # Title, guild type, description, and the price are the whole of step 1. Steps 2 to 4 are
         # untouched: the POST is exactly what a browser submits from the rendered page (every
-        # field with its default, parsed from the GET), plus step 1. capacity, scheduling_model,
-        # scheduling_type, and member_discount_pct are required form fields with model defaults,
-        # so they ride along as the composer renders them; a literal four field POST is not what
-        # a browser sends.
+        # field with its default, parsed from the GET), plus step 1. capacity, scheduling_model
+        # and scheduling_type are required form fields with model defaults, so they ride along
+        # as the composer renders them; a literal four field POST is not what a browser sends.
         cat = CategoryFactory()
         client.force_login(instructor_fixture.user)
         untouched = _untouched_form_values(client.get(reverse("classes:teach_class_create")).content.decode())
         assert untouched["capacity"] == "6"
         assert untouched["scheduling_model"] == "fixed"
         assert untouched["scheduling_type"] == "single_session"
-        assert untouched["member_discount_pct"] == "10"
         assert untouched["price_cents"] == ""
         resp = client.post(
             reverse("classes:teach_class_create"),
@@ -652,7 +823,6 @@ def describe_teach_composer_post():
         created = ClassOffering.objects.get(title="Step One Draft")
         assert created.status == Status.DRAFT
         assert created.price_cents == 4500
-        assert created.member_discount_pct == 10
         assert created.capacity == 6
         assert created.scheduling_model == "fixed"
         assert resp["Location"] == reverse("classes:teach_class_edit", kwargs={"pk": created.pk}) + "?step=1"
@@ -699,6 +869,158 @@ def describe_teach_composer_post():
         assert offering.status == Status.PENDING
 
 
+def describe_the_flexible_window_through_the_teach_composer():
+    """A class saved as Flexible sheds its sessions and keeps its window; saved as Fixed it does the reverse (#545)."""
+
+    def _one_session_row() -> dict:
+        start = timezone.localtime(timezone.now() + timedelta(days=10)).replace(minute=0, second=0, microsecond=0)
+        return {
+            "sessions-TOTAL_FORMS": "1",
+            "sessions-0-starts_at": start.strftime("%Y-%m-%dT%H:%M"),
+            "sessions-0-ends_at": (start + timedelta(hours=2)).strftime("%Y-%m-%dT%H:%M"),
+        }
+
+    def it_sheds_the_sessions_a_flexible_class_had_and_the_ones_the_post_carried(instructor_fixture, client):
+        # ready=True gives the row one session: the shape of production class 665 before the repair.
+        offering = ClassOfferingFactory(instructor=instructor_fixture, status=Status.DRAFT, ready=True)
+        assert offering.sessions.count() == 1
+        client.force_login(instructor_fixture.user)
+        payload = _full_payload(CategoryFactory(), step="3", **_one_session_row())
+        resp = client.post(reverse("classes:teach_class_edit", kwargs={"pk": offering.pk}), payload)
+        assert resp.status_code == 302
+        offering.refresh_from_db()
+        assert offering.scheduling_model == "flexible"
+        assert offering.sessions.count() == 0
+        assert (offering.flexible_starts_on.isoformat(), offering.flexible_ends_on.isoformat()) == (
+            "2026-11-02",
+            "2026-12-01",
+        )
+
+    def it_sheds_posted_sessions_on_create_too(instructor_fixture, client):
+        client.force_login(instructor_fixture.user)
+        resp = client.post(
+            reverse("classes:teach_class_create"), _full_payload(CategoryFactory(), **_one_session_row())
+        )
+        assert resp.status_code == 302
+        created = ClassOffering.objects.get(title="Round Trip")
+        assert created.sessions.count() == 0
+        assert created.flexible_ends_on is not None
+
+    def it_clears_the_window_and_keeps_the_sessions_on_a_class_saved_as_fixed(instructor_fixture, client):
+        offering = ClassOfferingFactory(
+            instructor=instructor_fixture,
+            status=Status.DRAFT,
+            scheduling_model=ClassOffering.SchedulingModel.FLEXIBLE,
+            flexible_starts_on=timezone.localdate(),
+            flexible_ends_on=timezone.localdate() + timedelta(days=30),
+        )
+        client.force_login(instructor_fixture.user)
+        payload = _full_payload(
+            CategoryFactory(), scheduling_model="fixed", scheduling_type="single_session", **_one_session_row()
+        )
+        resp = client.post(reverse("classes:teach_class_edit", kwargs={"pk": offering.pk}), payload)
+        assert resp.status_code == 302
+        offering.refresh_from_db()
+        assert offering.scheduling_model == "fixed"
+        assert (offering.flexible_starts_on, offering.flexible_ends_on) == (None, None)
+        assert offering.sessions.count() == 1
+
+    def it_refuses_a_last_day_before_the_first_on_step_three_and_saves_nothing(instructor_fixture, client):
+        offering = ClassOfferingFactory(instructor=instructor_fixture, status=Status.DRAFT, title="Before", ready=True)
+        client.force_login(instructor_fixture.user)
+        payload = _full_payload(
+            CategoryFactory(), step="1", flexible_starts_on="2026-12-01", flexible_ends_on="2026-11-02"
+        )
+        resp = client.post(reverse("classes:teach_class_edit", kwargs={"pk": offering.pk}), payload)
+        assert resp.status_code == 200
+        html = resp.content.decode()
+        assert resp.context["initial_phase"] == 3
+        assert resp.context["error_steps"] == [3]
+        assert "Dates, Seats And Price: Last day" in html
+        step_three = html[html.index('data-composer-step="3"') : html.index('data-composer-step="4"')]
+        assert "The last day is before the first day." in step_three.split('name="flexible_ends_on"')[1]
+        # The window block paints first on the re-render: the bound form says flexible, not the row.
+        assert "schedulingModel: 'flexible'" in html
+        offering.refresh_from_db()
+        assert offering.title == "Before"
+        assert offering.scheduling_model == "fixed"
+        assert offering.sessions.count() == 1
+
+    def it_paints_the_window_block_first_on_a_reopened_flexible_draft(instructor_fixture, client):
+        offering = ClassOfferingFactory(
+            instructor=instructor_fixture, status=Status.DRAFT, scheduling_model=ClassOffering.SchedulingModel.FLEXIBLE
+        )
+        fixed = ClassOfferingFactory(instructor=instructor_fixture, status=Status.DRAFT)
+        client.force_login(instructor_fixture.user)
+        assert (
+            "schedulingModel: 'flexible'"
+            in client.get(reverse("classes:teach_class_edit", kwargs={"pk": offering.pk})).content.decode()
+        )
+        assert (
+            "schedulingModel: 'fixed'"
+            in client.get(reverse("classes:teach_class_edit", kwargs={"pk": fixed.pk})).content.decode()
+        )
+        assert "schedulingModel: 'fixed'" in client.get(reverse("classes:teach_class_create")).content.decode()
+
+
+def describe_the_submit_check_reads_the_posted_description():
+    """Issue #425 named two candidate causes for a typed description being refused as too short.
+
+    Candidate 2, readiness read off something other than what was posted (the row as it stood, or
+    an editor that never synced), is ruled out here: the composer saves the POST and then checks
+    the saved row, so what was typed is what is measured, in both directions. Candidate 1, the
+    count itself dropping typed characters, is the one that reproduced
+    (classes/spec/models/class_readiness_spec.py) and is pinned at the view in the last spec.
+    """
+
+    def _submit(client, offering: ClassOffering, **extra: object) -> HttpResponse:
+        return client.post(
+            reverse("classes:teach_class_edit", kwargs={"pk": offering.pk}),
+            _full_payload(
+                offering.category, scheduling_model="fixed", scheduling_type="single_session", action="submit", **extra
+            ),
+        )
+
+    def it_submits_a_ready_description_posted_over_a_short_saved_one(instructor_fixture, client):
+        offering = ClassOfferingFactory(instructor=instructor_fixture, status=Status.DRAFT, ready=True)
+        offering.description = "Short"
+        offering.save(update_fields=["description"])
+        client.force_login(instructor_fixture.user)
+
+        resp = _submit(client, offering)
+
+        assert resp.status_code == 302
+        offering.refresh_from_db()
+        assert offering.status == Status.PENDING
+        assert offering.description == READY_DESCRIPTION
+
+    def it_refuses_a_short_description_posted_over_a_ready_saved_one(instructor_fixture, client):
+        # The row as it stood would have passed; the POST is what is checked, once it is saved.
+        offering = ClassOfferingFactory(instructor=instructor_fixture, status=Status.DRAFT, ready=True)
+        client.force_login(instructor_fixture.user)
+
+        resp = _submit(client, offering, description="Short")
+
+        edit = reverse("classes:teach_class_edit", kwargs={"pk": offering.pk})
+        assert resp["Location"] == f"{edit}?step=1&missing=1"
+        offering.refresh_from_db()
+        assert offering.status == Status.DRAFT
+        assert offering.description == "Short"
+        assert _messages(resp) == [f"Not ready to submit: {READINESS_DESCRIPTION_HINT}"]
+
+    def it_submits_a_description_typed_with_angle_brackets(instructor_fixture, client):
+        # Candidate 1 at the view: 63 typed characters, every one shown on the class page, go to review.
+        offering = ClassOfferingFactory(instructor=instructor_fixture, status=Status.DRAFT, ready=True)
+        client.force_login(instructor_fixture.user)
+
+        resp = _submit(client, offering, description=BRACKETED_DESCRIPTION)
+
+        assert resp.status_code == 302
+        offering.refresh_from_db()
+        assert offering.status == Status.PENDING
+        assert offering.description == BRACKETED_DESCRIPTION
+
+
 def describe_admin_composer():
     def it_switches_on_the_admin_only_fields_and_publish(admin_user, client, db):
         client.force_login(admin_user)
@@ -721,15 +1043,27 @@ def describe_admin_composer():
     def it_keeps_the_admin_discount_code_urls(admin_user, client, db):
         offering = ClassOfferingFactory(status=Status.DRAFT)
         client.force_login(admin_user)
-        html = client.get(reverse("classes:admin_class_edit", kwargs={"pk": offering.pk})).content.decode()
+        html = client.get(reverse("classes:teach_class_edit", kwargs={"pk": offering.pk})).content.decode()
         assert reverse("classes:admin_discount_code_create") in html
         assert reverse("classes:teach_discount_code_create") not in html
-        assert f'href="{reverse("classes:admin_class_detail", kwargs={"pk": offering.pk})}">Cancel</a>' in html
+        assert f'href="{reverse("classes:teach_class_detail", kwargs={"pk": offering.pk})}">Cancel</a>' in html
+
+    def it_withholds_the_crop_box_on_an_imported_photo(admin_user, client, db):
+        offering = ClassOfferingFactory(status=Status.DRAFT, image="", legacy_image_url=LEGACY_PHOTO)
+        client.force_login(admin_user)
+        html = client.get(reverse("classes:teach_class_edit", kwargs={"pk": offering.pk})).content.decode()
+        hero = _hero_preview_img(html)
+        src = re.search(r'src="([^"]*)"', hero)
+        assert src is not None, "no src on the hero preview"
+        assert unescape(src.group(1)) == offering.hero_image_url
+        assert "data-hero-cropper-preview" not in hero
+        assert _legacy_note_text(html) == IMPORTED_PHOTO_NOTE
+        assert _crop_hint_tag(html).endswith(" hidden>")
 
     def it_says_save_and_offers_no_publish_on_a_live_class(admin_user, client, db):
         offering = ClassOfferingFactory(status=Status.PUBLISHED)
         client.force_login(admin_user)
-        html = client.get(reverse("classes:admin_class_edit", kwargs={"pk": offering.pk})).content.decode()
+        html = client.get(reverse("classes:teach_class_edit", kwargs={"pk": offering.pk})).content.decode()
         assert ">Save</button>" in html
         assert "Save Draft" not in html
         assert "submit-class" not in html
@@ -742,7 +1076,7 @@ def describe_admin_composer():
         assert resp.status_code == 302
         created = ClassOffering.objects.get(title="Round Trip")
         assert created.status == Status.DRAFT
-        assert resp["Location"] == reverse("classes:admin_class_edit", kwargs={"pk": created.pk}) + "?step=2"
+        assert resp["Location"] == reverse("classes:teach_class_edit", kwargs={"pk": created.pk}) + "?step=2"
         assert created.instructor_id == inst.pk
         assert created.is_private is True
         assert created.private_for_name == "The Guild"
@@ -766,8 +1100,8 @@ def describe_admin_composer():
         cat = CategoryFactory()
         inst = InstructorFactory()
         client.force_login(admin_user)
-        resp = client.post(reverse("classes:admin_class_edit", kwargs={"pk": offering.pk}), _admin_payload(cat, inst))
-        assert resp["Location"] == reverse("classes:admin_class_edit", kwargs={"pk": offering.pk}) + "?step=4"
+        resp = client.post(reverse("classes:teach_class_edit", kwargs={"pk": offering.pk}), _admin_payload(cat, inst))
+        assert resp["Location"] == reverse("classes:teach_class_edit", kwargs={"pk": offering.pk}) + "?step=4"
         offering.refresh_from_db()
         _assert_round_trip(offering, cat)
         assert offering.instructor_id == inst.pk
@@ -778,14 +1112,14 @@ def describe_admin_composer():
         client.force_login(admin_user)
         payload = _admin_payload(offering.category, offering.instructor)
         payload.pop("step")
-        resp = client.post(reverse("classes:admin_class_edit", kwargs={"pk": offering.pk}), payload)
-        assert resp["Location"] == reverse("classes:admin_class_detail", kwargs={"pk": offering.pk})
+        resp = client.post(reverse("classes:teach_class_edit", kwargs={"pk": offering.pk}), payload)
+        assert resp["Location"] == reverse("classes:teach_class_detail", kwargs={"pk": offering.pk})
 
     def it_publishes_a_ready_draft_from_the_composer(admin_user, client, db):
         offering = ClassOfferingFactory(status=Status.DRAFT, ready=True)
         client.force_login(admin_user)
         resp = client.post(
-            reverse("classes:admin_class_edit", kwargs={"pk": offering.pk}),
+            reverse("classes:teach_class_edit", kwargs={"pk": offering.pk}),
             _admin_payload(
                 offering.category,
                 offering.instructor,
@@ -794,7 +1128,7 @@ def describe_admin_composer():
                 action="publish",
             ),
         )
-        assert resp["Location"] == reverse("classes:admin_class_detail", kwargs={"pk": offering.pk})
+        assert resp["Location"] == reverse("classes:teach_class_detail", kwargs={"pk": offering.pk})
         offering.refresh_from_db()
         assert offering.status == Status.PUBLISHED
         assert any("is published." in m for m in _messages(resp))
@@ -806,10 +1140,10 @@ def describe_admin_composer():
         offering = ClassOfferingFactory(status=Status.DRAFT, gallery=0)
         client.force_login(admin_user)
         resp = client.post(
-            reverse("classes:admin_class_edit", kwargs={"pk": offering.pk}),
+            reverse("classes:teach_class_edit", kwargs={"pk": offering.pk}),
             _admin_payload(offering.category, offering.instructor, action="publish", step="5"),
         )
-        edit = reverse("classes:admin_class_edit", kwargs={"pk": offering.pk})
+        edit = reverse("classes:teach_class_edit", kwargs={"pk": offering.pk})
         assert resp["Location"] == f"{edit}?step=2&missing=1"
         offering.refresh_from_db()
         assert offering.status == Status.DRAFT
@@ -819,13 +1153,13 @@ def describe_admin_composer():
         assert "phase: 2," in html
         notice = _still_missing(html)
         assert "Not ready to publish yet." in notice
-        assert "Add one gallery photo." in notice and "Write a short description." not in notice
+        assert "Add one gallery photo." in notice and READINESS_DESCRIPTION_HINT not in notice
 
     def it_lands_on_the_first_broken_step(admin_user, client, db):
         offering = ClassOfferingFactory(status=Status.DRAFT)
         client.force_login(admin_user)
         resp = client.post(
-            reverse("classes:admin_class_edit", kwargs={"pk": offering.pk}),
+            reverse("classes:teach_class_edit", kwargs={"pk": offering.pk}),
             _admin_payload(offering.category, offering.instructor, instructor="999999", capacity="", step="5"),
         )
         html = resp.content.decode()
@@ -839,7 +1173,7 @@ def describe_admin_composer():
         stamped = offering.published_at
         client.force_login(admin_user)
         resp = client.post(
-            reverse("classes:admin_class_edit", kwargs={"pk": offering.pk}),
+            reverse("classes:teach_class_edit", kwargs={"pk": offering.pk}),
             _admin_payload(
                 offering.category,
                 offering.instructor,
@@ -849,7 +1183,7 @@ def describe_admin_composer():
                 step="5",
             ),
         )
-        assert resp["Location"] == reverse("classes:admin_class_edit", kwargs={"pk": offering.pk}) + "?step=5"
+        assert resp["Location"] == reverse("classes:teach_class_edit", kwargs={"pk": offering.pk}) + "?step=5"
         assert "Only a draft can be published from here." in _messages(resp)
         offering.refresh_from_db()
         assert offering.status == Status.PUBLISHED
@@ -861,7 +1195,7 @@ def describe_admin_composer():
         row = ClassApproval.objects.create(class_offering=offering, role=ClassApproval.Role.GUILD_LEAD)
         client.force_login(admin_user)
         resp = client.post(
-            reverse("classes:admin_class_edit", kwargs={"pk": offering.pk}),
+            reverse("classes:teach_class_edit", kwargs={"pk": offering.pk}),
             _admin_payload(
                 offering.category,
                 offering.instructor,
@@ -924,7 +1258,7 @@ def describe_live_sale_guard_through_the_composers():
         offering = _on_fixed_sale()
         client.force_login(admin_user)
         resp = client.post(
-            reverse("classes:admin_class_edit", kwargs={"pk": offering.pk}),
+            reverse("classes:teach_class_edit", kwargs={"pk": offering.pk}),
             _admin_payload(offering.category, offering.instructor, price_cents="50.00"),
         )
         assert resp.status_code == 200
@@ -942,7 +1276,7 @@ def describe_live_sale_guard_through_the_composers():
         )
         client.force_login(admin_user)
         resp = client.post(
-            reverse("classes:admin_class_edit", kwargs={"pk": offering.pk}),
+            reverse("classes:teach_class_edit", kwargs={"pk": offering.pk}),
             _admin_payload(offering.category, offering.instructor, price_cents="1.00"),
         )
         assert resp.status_code == 200
@@ -954,7 +1288,7 @@ def describe_live_sale_guard_through_the_composers():
         offering = _on_fixed_sale()
         client.force_login(admin_user)
         resp = client.post(
-            reverse("classes:admin_class_edit", kwargs={"pk": offering.pk}),
+            reverse("classes:teach_class_edit", kwargs={"pk": offering.pk}),
             _admin_payload(offering.category, offering.instructor, price_cents="150.00"),
         )
         assert resp.status_code == 302
@@ -1035,7 +1369,7 @@ def describe_a_failed_save_with_a_whole_dollar_price():
         offering = ClassOfferingFactory(status=Status.DRAFT)
         client.force_login(admin_user)
         resp = client.post(
-            reverse("classes:admin_class_edit", kwargs={"pk": offering.pk}),
+            reverse("classes:teach_class_edit", kwargs={"pk": offering.pk}),
             _admin_payload(offering.category, offering.instructor, title="", price_cents="8000"),
         )
         assert resp.status_code == 200
@@ -1098,7 +1432,7 @@ def describe_the_price_floor_through_the_composers():
             url = (
                 reverse("classes:admin_class_create")
                 if mode == "create"
-                else reverse("classes:admin_class_edit", kwargs={"pk": saved.pk})
+                else reverse("classes:teach_class_edit", kwargs={"pk": saved.pk})
             )
 
         def post(price: str):
@@ -1154,7 +1488,7 @@ def describe_a_failed_save_with_a_blank_price_on_a_saved_draft():
         offering = ClassOfferingFactory(status=Status.DRAFT)
         client.force_login(admin_user)
         resp = client.post(
-            reverse("classes:admin_class_edit", kwargs={"pk": offering.pk}),
+            reverse("classes:teach_class_edit", kwargs={"pk": offering.pk}),
             _admin_payload(offering.category, offering.instructor, title="", price_cents=""),
         )
         assert resp.status_code == 200
@@ -1175,21 +1509,20 @@ def describe_a_failed_save_with_a_blank_price_on_a_saved_draft():
 
     def it_shows_the_saved_class_in_the_chrome_and_the_card_not_the_rejected_post(instructor_fixture, client):
         offering = ClassOfferingFactory(
-            instructor=instructor_fixture, status=Status.DRAFT, title="Before", price_cents=5000, member_discount_pct=10
+            instructor=instructor_fixture, status=Status.DRAFT, title="Before", price_cents=5000
         )
         client.force_login(instructor_fixture.user)
         resp = client.post(
             reverse("classes:teach_class_edit", kwargs={"pk": offering.pk}),
-            _full_payload(offering.category, title="", price_cents="", member_discount_pct="50"),
+            _full_payload(offering.category, title="", price_cents=""),
         )
         assert resp.status_code == 200
         html = resp.content.decode()
         # The heading and the card preview frames read the saved row, not the rejected POST.
         assert "Edit Class: Before" in html
-        assert "($45 for Past Lives Members)" in html
+        assert '<span class="cls-price">$50</span>' in html
         # The fields keep what was typed.
         assert _price_input_value(html) == ""
-        assert 'name="member_discount_pct"' in html and 'value="50"' in html
 
 
 # ── Issue #368 item 2: a refused submit lands where the gap is, with the reason visible ──
@@ -1227,13 +1560,39 @@ def describe_a_composer_submit_refused_for_readiness():
         assert "Some Things Need Fixing" not in html
         assert "errorSteps: []," in html
 
+    def it_names_only_the_photo_when_a_draft_still_has_no_hero(instructor_fixture, client):
+        """Issue #536, sharpened: Submit is live on every draft, so a draft missing its photo lands on step 2 naming only the photo."""
+        offering = ClassOfferingFactory(instructor=instructor_fixture, status=Status.DRAFT, ready=True, image="")
+        client.force_login(instructor_fixture.user)
+        resp = client.post(
+            reverse("classes:teach_class_edit", kwargs={"pk": offering.pk}),
+            _full_payload(
+                offering.category,
+                scheduling_model="fixed",
+                scheduling_type="single_session",
+                action="submit",
+                step="5",
+            ),
+        )
+        assert resp.status_code == 302
+        edit = reverse("classes:teach_class_edit", kwargs={"pk": offering.pk})
+        assert resp["Location"] == f"{edit}?step=2&missing=1"
+        assert "Not ready to submit: Add a hero photo." in _messages(resp)
+        offering.refresh_from_db()
+        assert offering.status == Status.DRAFT
+        notice = _still_missing(client.get(resp["Location"]).content.decode())
+        assert "goToField('hero-preview')\">Add a hero photo.</button>" in notice
+        assert "Add one gallery photo." not in notice
+        assert "Add at least one date." not in notice
+        assert notice.count("goToField(") == 1
+
     def it_lands_on_the_dates_step_when_the_only_session_slipped_into_the_past(instructor_fixture, client):
         offering = ClassOfferingFactory(instructor=instructor_fixture, status=Status.DRAFT, ready=True)
         session = offering.sessions.get()
         client.force_login(instructor_fixture.user)
-        # Rendered while the session was still ahead: Submit is enabled, the Dates item is ticked.
+        # Rendered while the session was still ahead: Submit is live, the Dates item is ticked.
         before = client.get(reverse("classes:teach_class_edit", kwargs={"pk": offering.pk})).content.decode()
-        assert "Finish the checklist above first." not in before
+        assert LIVE_SUBMIT in before
         # Time passes with the page open; nothing on screen changes.
         session.starts_at = timezone.now() - timedelta(minutes=1)
         session.ends_at = session.starts_at + timedelta(hours=2)
@@ -1253,7 +1612,7 @@ def describe_a_composer_submit_refused_for_readiness():
         assert "Not ready to submit: Add at least one date." in _messages(resp)
         after = client.get(resp["Location"]).content.decode()
         assert "phase: 3," in after
-        assert session.starts_at.strftime("%Y-%m-%dT%H:%M") in after
+        assert timezone.localtime(session.starts_at).strftime("%Y-%m-%dT%H:%M") in after
         assert "goToField('class-dates')\">Add at least one date.</button>" in _still_missing(after)
 
     def it_lands_on_the_photos_step_from_a_first_save_that_submits(instructor_fixture, client):
@@ -1271,7 +1630,7 @@ def describe_a_composer_submit_refused_for_readiness():
         offering = ClassOfferingFactory(status=Status.DRAFT, ready=True, gallery=0)
         client.force_login(admin_user)
         resp = client.post(
-            reverse("classes:admin_class_edit", kwargs={"pk": offering.pk}),
+            reverse("classes:teach_class_edit", kwargs={"pk": offering.pk}),
             _admin_payload(
                 offering.category,
                 offering.instructor,
@@ -1281,7 +1640,7 @@ def describe_a_composer_submit_refused_for_readiness():
                 step="5",
             ),
         )
-        edit = reverse("classes:admin_class_edit", kwargs={"pk": offering.pk})
+        edit = reverse("classes:teach_class_edit", kwargs={"pk": offering.pk})
         assert resp["Location"] == f"{edit}?step=2&missing=1"
         html = client.get(resp["Location"]).content.decode()
         assert "phase: 2," in html
@@ -1297,10 +1656,11 @@ def describe_a_composer_submit_refused_for_readiness():
     def it_shows_no_notice_when_the_class_became_ready_before_the_page_loaded(instructor_fixture, client):
         offering = ClassOfferingFactory(instructor=instructor_fixture, status=Status.DRAFT, ready=True)
         client.force_login(instructor_fixture.user)
-        url = reverse("classes:teach_class_edit", kwargs={"pk": offering.pk}) + "?step=5&missing=1"
+        # The URL _unready_redirect builds once every item is ok: the Review step, where the checklist lives.
+        url = reverse("classes:teach_class_edit", kwargs={"pk": offering.pk}) + f"?step={STEP_COUNT}&missing=1"
         html = client.get(url).content.decode()
         assert _still_missing(html) == ""
-        assert "phase: 5," in html
+        assert f"phase: {STEP_COUNT}," in html
 
 
 def describe_the_admin_create_readiness_preflight():
@@ -1322,7 +1682,7 @@ def describe_the_admin_create_readiness_preflight():
         assert "Still Missing" in notice
         assert "Not ready to publish yet." in notice
         assert "Add a hero photo." in notice and "Add one gallery photo." in notice
-        assert "Write a short description." not in notice
+        assert READINESS_DESCRIPTION_HINT not in notice
         assert not ClassOffering.objects.filter(title="Round Trip").exists()
 
     def it_keeps_every_typed_value_in_the_form(admin_user, client, db):
@@ -1400,6 +1760,245 @@ def describe_a_composer_post_to_a_class_cancelled_since_the_page_was_rendered():
         assert offering.title == "Before"
 
 
+_PUBLISHED_NOTICE = (
+    "This class was published after you opened this page, so nothing here was saved. "
+    "A live class is edited through a shorter form: the description, the photos, and what to bring. "
+    "To change the title, dates, price, or capacity, ask an admin. "
+    "Copy anything you want to keep, then press Cancel and open Edit again for the shorter form."
+)
+
+
+def _light_payload(**extra) -> dict:
+    """What ``classes/teach/class_form_published.html`` actually posts: light fields, no hidden inputs.
+
+    The absence of ``step`` is the point of this helper, so it carries no ``action`` and no
+    ``step``; it is what the published branch must keep saving.
+    """
+    payload = {
+        "description": READY_DESCRIPTION,
+        "prerequisites": "Bring patience.",
+        "materials_included": "All the wood.",
+        "materials_to_bring": "Gloves.",
+        "safety_requirements": "Eye protection.",
+        "age_guardian_note": "Guardians welcome.",
+        "flexible_note": "",
+        "video_url": "",
+        "faq-TOTAL_FORMS": "0",
+        "faq-INITIAL_FORMS": "0",
+        "faq-MIN_NUM_FORMS": "0",
+        "faq-MAX_NUM_FORMS": "1000",
+    }
+    payload.update(extra)
+    return payload
+
+
+def describe_a_composer_post_to_a_class_published_since_the_page_was_rendered():
+    """Issue #386: the cancelled race again, landing on the branch that serves the live class.
+
+    That branch takes two kinds of POST and the hidden ``step`` is what tells them apart, so
+    both rows are pinned here: the composer's POST saves nothing and comes back on screen, and
+    the published light-edit form's own POST saves and redirects exactly as it always has.
+    """
+
+    def _publish(offering) -> None:
+        offering.status = Status.PUBLISHED
+        offering.published_at = timezone.now()
+        offering.save(update_fields=["status", "published_at"])
+
+    def it_keeps_the_typed_work_on_screen_and_saves_nothing(instructor_fixture, client):
+        offering = ClassOfferingFactory(instructor=instructor_fixture, status=Status.DRAFT, title="Before")
+        description_before = offering.description
+        client.force_login(instructor_fixture.user)
+        _publish(offering)
+        resp = client.post(
+            reverse("classes:teach_class_edit", kwargs={"pk": offering.pk}),
+            _full_payload(offering.category, title="Typed after the render", action="submit", step="5"),
+        )
+        assert resp.status_code == 200
+        html = resp.content.decode()
+        assert 'value="Typed after the render"' in html
+        assert "Bring patience." in html
+        assert _PUBLISHED_NOTICE in html
+        assert "Edit Class: Before" in html
+        assert "phase: 5," in html
+        assert "Some Things Need Fixing" not in html
+        assert "Class updated." not in _messages(resp)
+        offering.refresh_from_db()
+        assert offering.title == "Before"
+        # The description is on BOTH forms, so it is the field that proves the light form did
+        # not quietly save a composer POST behind the notice.
+        assert offering.description == description_before
+        assert offering.status == Status.PUBLISHED
+
+    def it_treats_a_step_that_never_got_its_value_as_a_composer_post(instructor_fixture, client):
+        # The hidden step is Alpine bound, so a page whose script never ran posts it empty.
+        # An empty step is still the composer, and still must not fall through to the light form.
+        offering = ClassOfferingFactory(instructor=instructor_fixture, status=Status.DRAFT, title="Before")
+        client.force_login(instructor_fixture.user)
+        _publish(offering)
+        resp = client.post(
+            reverse("classes:teach_class_edit", kwargs={"pk": offering.pk}),
+            _full_payload(offering.category, title="Typed after the render", step=""),
+        )
+        assert resp.status_code == 200
+        assert _PUBLISHED_NOTICE in resp.content.decode()
+        offering.refresh_from_db()
+        assert offering.title == "Before"
+
+    def it_still_saves_the_published_light_edit_form(instructor_fixture, client):
+        offering = ClassOfferingFactory(instructor=instructor_fixture, status=Status.DRAFT, title="Before")
+        client.force_login(instructor_fixture.user)
+        _publish(offering)
+        resp = client.post(
+            reverse("classes:teach_class_edit", kwargs={"pk": offering.pk}),
+            _light_payload(materials_to_bring="An apron"),
+        )
+        assert resp.status_code == 302
+        assert resp.url == reverse("classes:teach_class_detail", kwargs={"pk": offering.pk})
+        assert "Class updated." in _messages(resp)
+        offering.refresh_from_db()
+        assert offering.materials_to_bring == "An apron"
+        assert offering.description == READY_DESCRIPTION
+        assert offering.title == "Before"
+
+    def it_still_renders_the_light_form_on_a_get(instructor_fixture, client):
+        offering = ClassOfferingFactory(instructor=instructor_fixture, status=Status.DRAFT, title="Before")
+        client.force_login(instructor_fixture.user)
+        _publish(offering)
+        html = client.get(reverse("classes:teach_class_edit", kwargs={"pk": offering.pk})).content.decode()
+        assert "This class is live." in html
+        assert _PUBLISHED_NOTICE not in html
+        assert 'name="step"' not in html
+
+    def it_sends_the_member_to_an_exit_that_is_not_another_post(instructor_fixture, client):
+        """The notice names Cancel, so Cancel has to reach the shorter form. Proved, not assumed.
+
+        The page is a POST response: reloading it re-sends the POST, which still carries ``step``
+        and lands right back on the notice. This walks the route the copy actually promises.
+        """
+        offering = ClassOfferingFactory(instructor=instructor_fixture, status=Status.DRAFT, title="Before")
+        client.force_login(instructor_fixture.user)
+        _publish(offering)
+        url = reverse("classes:teach_class_edit", kwargs={"pk": offering.pk})
+        payload = _full_payload(offering.category, title="Typed after the render", step="5")
+
+        first = client.post(url, payload)
+        assert _PUBLISHED_NOTICE in first.content.decode()
+        # Re-sending the same body is what a reload does, and it loops. This is why the copy
+        # cannot say "reload this page".
+        again = client.post(url, payload)
+        assert again.status_code == 200
+        assert _PUBLISHED_NOTICE in again.content.decode()
+        assert "This class is live." not in again.content.decode()
+
+        cancel_url = first.context["cancel_url"]
+        assert cancel_url == reverse("classes:teach_class_detail", kwargs={"pk": offering.pk})
+        landed = client.get(cancel_url)
+        assert landed.status_code == 200
+        # The class screen offers Edit under that exact label (classes/_components/class_screen_base.html),
+        # which is the word the notice uses.
+        assert landed.context["can_edit_now"] is True
+        assert f'href="{url}">Edit</a>' in landed.content.decode()
+        # And that Edit is a GET, which is the shorter form.
+        assert "This class is live." in client.get(url).content.decode()
+
+    def it_withholds_the_hero_uploader_that_would_still_write_to_the_live_class(instructor_fixture, client):
+        # The hero uploader posts to its own endpoint the instant a file is picked, and
+        # _edit_photos_or_404 closes only cancelled and archived classes, so on a published one
+        # it would change the public banner from a page headed "nothing here was saved".
+        offering = ClassOfferingFactory(instructor=instructor_fixture, status=Status.DRAFT, title="Before")
+        client.force_login(instructor_fixture.user)
+        _publish(offering)
+        html = client.post(
+            reverse("classes:teach_class_edit", kwargs={"pk": offering.pk}),
+            _full_payload(offering.category, title="Typed after the render", step="2"),
+        ).content.decode()
+        hero_upload = reverse("classes:teach_class_hero_upload", kwargs={"pk": offering.pk})
+        assert hero_upload not in html
+        assert "hero-upload-area" not in html
+        assert "The photo cannot be changed from this page." in html
+        # The gallery is untouched: the live-edit form offers it too, so it is not this page's to take.
+        assert reverse("classes:teach_class_image_upload", kwargs={"pk": offering.pk}) in html
+
+    def it_gives_guild_staff_a_cancel_that_is_not_a_dead_end(instructor_fixture, client):
+        # Guild staff are the other population that lands here, and the notice tells them to
+        # press Cancel, so Cancel has to resolve for them too. It did not: `_guild_access`
+        # withholds the Overview on someone else's class, and teach_class_detail 404s without it.
+        guild = GuildFactory(name="Race Guild")
+        GuildStaffMembershipFactory(guild=guild, member=instructor_fixture)
+        offering = ClassOfferingFactory(
+            instructor=InstructorFactory(instructor_slug="not-the-staffer"),
+            category=CategoryFactory(guild=guild),
+            status=Status.DRAFT,
+            title="Before",
+        )
+        client.force_login(instructor_fixture.user)
+        _publish(offering)
+        resp = client.post(
+            reverse("classes:teach_class_edit", kwargs={"pk": offering.pk}),
+            _full_payload(offering.category, title="Typed after the render", step="5"),
+        )
+        assert _PUBLISHED_NOTICE in resp.content.decode()
+        cancel_url = resp.context["cancel_url"]
+        assert cancel_url == reverse("classes:teach_dashboard")
+        assert client.get(cancel_url).status_code == 200
+
+    def it_leaves_the_cancelled_render_its_hero_uploader(instructor_fixture, client):
+        # The sibling path from #385 is deliberately unchanged; only the published caller withholds.
+        offering = ClassOfferingFactory(instructor=instructor_fixture, status=Status.CANCELLED, title="Before")
+        client.force_login(instructor_fixture.user)
+        html = client.post(
+            reverse("classes:teach_class_edit", kwargs={"pk": offering.pk}),
+            _full_payload(offering.category, title="Typed after the render", step="2"),
+        ).content.decode()
+        assert reverse("classes:teach_class_hero_upload", kwargs={"pk": offering.pk}) in html
+        assert "hero-upload-area" in html
+        assert "The photo cannot be changed from this page." not in html
+
+
+def describe_the_composers_cancel_link():
+    """Cancel has to resolve for every population the composer admits, not just the instructor.
+
+    It is one line in ``_composer_context``, but two different screens behind it: the class
+    screen for anyone who has an Overview, the dashboard for guild staff on someone else's
+    class, who under Ruling 12 do not. Pinned on the ordinary draft composer, because that is
+    where the route has always been reachable, not only on the published race page.
+    """
+
+    def it_sends_the_instructor_to_the_class_screen(instructor_fixture, client):
+        offering = ClassOfferingFactory(instructor=instructor_fixture, status=Status.DRAFT)
+        client.force_login(instructor_fixture.user)
+        resp = client.get(reverse("classes:teach_class_edit", kwargs={"pk": offering.pk}))
+        cancel_url = resp.context["cancel_url"]
+        assert cancel_url == reverse("classes:teach_class_detail", kwargs={"pk": offering.pk})
+        assert client.get(cancel_url).status_code == 200
+
+    def it_sends_guild_staff_to_the_dashboard_instead_of_an_overview_they_cannot_open(instructor_fixture, client):
+        guild = GuildFactory(name="Cancel Guild")
+        GuildStaffMembershipFactory(guild=guild, member=instructor_fixture)
+        offering = ClassOfferingFactory(
+            instructor=InstructorFactory(instructor_slug="someone-else"),
+            category=CategoryFactory(guild=guild),
+            status=Status.DRAFT,
+        )
+        client.force_login(instructor_fixture.user)
+        resp = client.get(reverse("classes:teach_class_edit", kwargs={"pk": offering.pk}))
+        assert resp.status_code == 200
+        cancel_url = resp.context["cancel_url"]
+        assert cancel_url == reverse("classes:teach_dashboard")
+        assert client.get(cancel_url).status_code == 200
+        # The screen it used to point at is genuinely closed to them; this is not a preference.
+        assert client.get(reverse("classes:teach_class_detail", kwargs={"pk": offering.pk})).status_code == 404
+
+    def it_sends_the_admin_to_the_class_screen(admin_user, client, db):
+        offering = ClassOfferingFactory(status=Status.DRAFT)
+        client.force_login(admin_user)
+        resp = client.get(reverse("classes:teach_class_edit", kwargs={"pk": offering.pk}))
+        cancel_url = resp.context["cancel_url"]
+        assert cancel_url == reverse("classes:teach_class_detail", kwargs={"pk": offering.pk})
+        assert client.get(cancel_url).status_code == 200
+
+
 def describe_the_missing_flag_on_a_class_that_is_no_longer_a_draft():
     # Only a draft can be refused, so only a draft shows the Still Missing notice: a bookmarked or
     # Back navigated landing URL on a class since submitted or published says nothing.
@@ -1415,7 +2014,7 @@ def describe_the_missing_flag_on_a_class_that_is_no_longer_a_draft():
     def it_renders_no_notice_on_a_published_class(admin_user, client, db):
         offering = ClassOfferingFactory(status=Status.PUBLISHED, gallery=0)
         client.force_login(admin_user)
-        url = reverse("classes:admin_class_edit", kwargs={"pk": offering.pk}) + "?step=2&missing=1"
+        url = reverse("classes:teach_class_edit", kwargs={"pk": offering.pk}) + "?step=2&missing=1"
         html = client.get(url).content.decode()
         assert _still_missing(html) == ""
         assert "Not ready to publish yet." not in html
@@ -1496,8 +2095,8 @@ def describe_the_composer_draft_notice():
         create = _draft_key(client.get(reverse("classes:teach_class_create")).content.decode())
         edit_url = reverse("classes:teach_class_edit", kwargs={"pk": offering.pk})
         edit = _draft_key(client.get(edit_url).content.decode())
-        assert create.endswith(".teach.new")
-        assert edit.endswith(f".teach.{offering.pk}")
+        assert create.endswith(".new")
+        assert edit.endswith(f".{offering.pk}")
 
     def it_keys_the_copy_by_person_so_a_shared_browser_never_leaks_one(instructor_fixture, client, db):
         other = InstructorFactory(user=UserFactory(username="second-teacher@example.com"))
@@ -1509,11 +2108,28 @@ def describe_the_composer_draft_notice():
         assert mine != theirs
         assert str(instructor_fixture.user.pk) in mine and str(other.user.pk) in theirs
 
-    def it_keys_the_copy_by_portal_so_the_two_composers_do_not_share_one(admin_user, client, db):
+    def it_keys_one_copy_per_class_now_that_the_two_composers_are_one_page(admin_user, client, db):
         offering = ClassOfferingFactory(status=Status.DRAFT)
         client.force_login(admin_user)
-        html = client.get(reverse("classes:admin_class_edit", kwargs={"pk": offering.pk})).content.decode()
-        assert _draft_key(html).endswith(f".admin.{offering.pk}")
+        html = client.get(reverse("classes:teach_class_edit", kwargs={"pk": offering.pk})).content.decode()
+        assert _draft_key(html).endswith(f".{offering.pk}")
+        assert ".admin." not in _draft_key(html)
+
+    def it_stamps_the_pre_merge_keys_so_a_draft_typed_before_the_merge_is_not_stranded(instructor_fixture, client):
+        # The composer used to keep a copy per portal. Those keys ride along in a data
+        # attribute and composer_draft.js copies the first one still holding something
+        # forward — a copy, so reverted code still finds its own.
+        offering = ClassOfferingFactory(instructor=instructor_fixture, status=Status.DRAFT)
+        client.force_login(instructor_fixture.user)
+        html = client.get(reverse("classes:teach_class_edit", kwargs={"pk": offering.pk})).content.decode()
+        legacy = re.search(r'data-composer-draft-legacy-keys="([^"]+)"', html)
+        assert legacy is not None, "the composer stamped no legacy keys"
+        keys = legacy.group(1).split(" ")
+        user_pk = instructor_fixture.user.pk
+        assert keys == [
+            f"plfog.composer.v1.{user_pk}.admin.{offering.pk}",
+            f"plfog.composer.v1.{user_pk}.teach.{offering.pk}",
+        ]
 
     def it_stamps_the_saved_signal_on_the_render_after_a_save_and_takes_it_back_off(instructor_fixture, client):
         # The redirect target is where the browser learns its copy is redundant: the database
@@ -1582,12 +2198,12 @@ def describe_the_composer_draft_notice():
         client.force_login(admin_user)
         for offering in (first, second):
             resp = client.post(
-                reverse("classes:admin_class_edit", kwargs={"pk": offering.pk}),
+                reverse("classes:teach_class_edit", kwargs={"pk": offering.pk}),
                 _admin_payload(offering.category, offering.instructor, step=""),
             )
-            assert resp["Location"] == reverse("classes:admin_class_detail", kwargs={"pk": offering.pk})
+            assert resp["Location"] == reverse("classes:teach_class_detail", kwargs={"pk": offering.pk})
         for offering in (first, second):
-            url = reverse("classes:admin_class_edit", kwargs={"pk": offering.pk})
+            url = reverse("classes:teach_class_edit", kwargs={"pk": offering.pk})
             assert 'data-composer-draft-saved="1"' in client.get(url).content.decode(), offering.pk
             assert "data-composer-draft-saved" not in client.get(url).content.decode(), offering.pk
 
@@ -1627,7 +2243,7 @@ def describe_the_composer_draft_notice():
 
         assert refused.status_code == 200
         # Not vacuous: the fields most likely to convert badly are all in here.
-        assert {"title", "description", "category", "price_cents", "member_discount_pct", "capacity"} <= set(baseline)
+        assert {"title", "description", "category", "price_cents", "capacity"} <= set(baseline)
         assert baseline["price_cents"] == rendered["price_cents"]
         assert {name: value for name, value in baseline.items() if name in rendered} == {
             name: value for name, value in rendered.items() if name in baseline
@@ -1652,3 +2268,42 @@ def describe_the_composer_draft_notice():
         assert baseline["title"] == ""
         assert baseline["description"] == ""
         assert baseline["capacity"] == str(TeachClassOfferingForm().fields["capacity"].initial)
+
+
+# ── A saved session comes back to the scheduler at the wall clock time the instructor picked ──
+
+
+def _scheduler_sessions(html: str) -> str:
+    match = re.search(r'x-data="sessionCalendar\((\[.*?\]), \d+\)"', html)
+    assert match, "scheduler not on the page"
+    return unescape(match.group(1))
+
+
+def describe_a_session_saved_at_six_pm():
+    def it_reloads_at_six_pm_not_shifted_to_utc(instructor_fixture, client):
+        cat = CategoryFactory()
+        client.force_login(instructor_fixture.user)
+        resp = client.post(
+            reverse("classes:teach_class_create"),
+            {
+                # Fixed sessions: a class saved as Flexible sheds its rows (#545), and this one is about the clock.
+                **_full_payload(cat, step="3", scheduling_model="fixed"),
+                "sessions-TOTAL_FORMS": "1",
+                "sessions-0-id": "",
+                "sessions-0-starts_at": "2026-10-28T18:00",
+                "sessions-0-ends_at": "2026-10-28T20:00",
+                "sessions-0-DELETE": "",
+            },
+        )
+        assert resp.status_code == 302
+        offering = ClassOffering.objects.get(title="Round Trip")
+        [session] = list(offering.sessions.all())
+        # Stored right: 6pm Pacific is 01:00 UTC the next day.
+        assert session.starts_at.isoformat() == "2026-10-29T01:00:00+00:00"
+
+        page = client.get(reverse("classes:teach_class_edit", kwargs={"pk": offering.pk}) + "?step=3")
+        sessions = _scheduler_sessions(page.content.decode())
+        # The scheduler reads and posts local wall clock times, so it must get 6pm back,
+        # not 01:00 UTC, or every save shifts the session seven hours later.
+        assert '"starts_at": "2026-10-28T18:00"' in sessions, sessions
+        assert '"ends_at": "2026-10-28T20:00"' in sessions, sessions

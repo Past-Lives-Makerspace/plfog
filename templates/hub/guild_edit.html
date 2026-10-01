@@ -11,6 +11,76 @@
   </span>
 </div>
 
+{% comment %}Needs Attention (ruling 10) — the guild's own class-review queue, the FIRST
+section on the page and ABOVE the settings form below, so no control here can ever post it.
+Every control is an anchor for the same reason; if this block is ever moved inside the form,
+keep it that way (or give each control type="button", as the tab strip below already does).
+
+A section, not a thirteenth tab: most guilds have nothing queued most days, and a tab would
+land those visits on a screen holding one line. The tab strip and its default are untouched.
+
+data-help-key="guild.approve-classes" rides this always-rendered wrapper rather than a group
+heading, so the Info View entry and the help screenshots still resolve on exactly the quiet
+day a lead goes looking for the help.
+
+A viewer who neither leads nor staffs this guild renders nothing at all — not the all-clear.
+Both queues are viewer-scoped, so an admin or guild officer on a guild they do not staff has
+two empty lists, and "all clear" would be a lie about a guild that does have work waiting.{% endcomment %}
+{% if guild_attention_visible %}
+<div class="cms-overview pl-guild-attention" data-help-key="guild.approve-classes">
+  {% if guild_attention_count %}
+  <section class="hub-card">
+    <h2 class="overview-title">Needs Attention <span class="overview-title__count">({{ guild_attention_count }})</span></h2>
+
+    {% if guild_attention_review %}
+    <div class="pl-attention-group">
+      <h3 class="overview-subtitle pl-attention-group__title">Waiting on Your Review <span class="overview-title__count">({{ guild_attention_review|length }})</span></h3>
+      <p class="pl-attention-group__hint">Classes requested under {{ guild.name }}, waiting on a lead or staff member here.</p>
+      {% for item in guild_attention_review %}
+      <div class="pl-attention-row">
+        {% if item.can_open %}
+        <a class="pl-attention-row__main" href="{% url 'classes:teach_class_edit' pk=item.offering.pk %}">{{ item.offering.title }}</a>
+        {% else %}
+        {# Editing needs the class screen's own gate; without it the title, Edit and View are all dead links. #}
+        <span class="pl-attention-row__main">{{ item.offering.title }}</span>
+        {% endif %}
+        <span class="pl-attention-row__sub">{% if item.offering.instructor %}{{ item.offering.instructor.display_name }} · {% endif %}submitted {{ item.submitted_at|date:"M j" }}</span>
+        <span class="pl-attention-row__actions">
+          {% if item.can_open %}<a class="hub-btn hub-btn--sm hub-btn--ghost" href="{% url 'classes:teach_class_edit' pk=item.offering.pk %}">Edit</a>{% endif %}
+          {# The tokenized review page is signed and needs no teaching access, so it stays for everyone. #}
+          <a class="hub-btn hub-btn--sm" href="{% url 'classes:class_review' token=item.token %}">Review</a>
+        </span>
+      </div>
+      {% endfor %}
+    </div>
+    {% endif %}
+
+    {% if guild_attention_awaiting_admin %}
+    <div class="pl-attention-group">
+      <h3 class="overview-subtitle pl-attention-group__title">Awaiting Admin Validation <span class="overview-title__count">({{ guild_attention_awaiting_admin|length }})</span></h3>
+      <p class="pl-attention-group__hint">{{ guild.name }} approved these. They go live once an admin signs off.</p>
+      {% for item in guild_attention_awaiting_admin %}
+      <div class="pl-attention-row">
+        {% if item.can_open %}
+        <a class="pl-attention-row__main" href="{% url 'classes:teach_class_edit' pk=item.offering.pk %}">{{ item.offering.title }}</a>
+        {% else %}
+        <span class="pl-attention-row__main">{{ item.offering.title }}</span>
+        {% endif %}
+        <span class="pl-attention-row__sub">{% if item.offering.instructor %}{{ item.offering.instructor.display_name }} · {% endif %}approved{% if item.approved_at %} {{ item.approved_at|date:"M j" }}{% endif %}</span>
+        <span class="pl-attention-row__actions">
+          {% if item.can_open %}<a class="hub-btn hub-btn--sm hub-btn--ghost" href="{% url 'classes:teach_class_edit' pk=item.offering.pk %}">View</a>{% endif %}
+        </span>
+      </div>
+      {% endfor %}
+    </div>
+    {% endif %}
+  </section>
+  {% else %}
+  {% include "classes/_components/needs_attention_clear.html" %}
+  {% endif %}
+</div>
+{% endif %}
+
 <div style="display:flex; border-bottom:1px solid var(--hub-border); gap:0; margin-bottom:1.5rem; flex-wrap:wrap;" data-help-key="guild.edit-tabs">
   <button type="button" class="vote-tab" :class="section === 'basic' ? 'vote-tab--active' : ''" @click="section = 'basic'">Basic Information</button>
   <button type="button" class="vote-tab" :class="section === 'meetings' ? 'vote-tab--active' : ''" @click="section = 'meetings'">Meetings</button>
@@ -150,7 +220,7 @@
           {% if sh.instance.pk %}
             {# Real delete button: flips the hidden DELETE field and saves the form so no work is lost. #}
             <div style="display:none;">{{ sh.DELETE }}</div>
-            <button type="button" class="pl-btn pl-btn--danger pl-btn--sm" style="margin-top:0.75rem;"
+            <button type="button" class="pl-btn pl-btn--danger pl-btn--sm pl-btn--spaced"
                     onclick="document.getElementById('{{ sh.DELETE.id_for_label }}').checked = true; this.form.requestSubmit();">
               Delete
             </button>
@@ -173,7 +243,7 @@
               <div style="flex:1; min-width:140px;">{% include "components/form_field.html" with field=esh.location %}</div>
             </div>
             {% include "components/form_field.html" with field=esh.note %}
-            <button type="button" class="pl-btn pl-btn--danger pl-btn--sm" style="margin-top:0.75rem;" onclick="this.closest('.hub-card').remove();">Remove</button>
+            <button type="button" class="pl-btn pl-btn--danger pl-btn--sm pl-btn--spaced" onclick="this.closest('.hub-card').remove();">Remove</button>
           {% endwith %}
         </div>
       </template>
@@ -215,8 +285,8 @@
       </p>
       <div style="display:flex; gap:0.75rem; flex-wrap:wrap;">
         <a href="{% url 'hub_guild_flyer' guild.pk %}" target="_blank" rel="noopener" class="pl-btn pl-btn--primary">Open printable flyer</a>
-        <a href="{% url 'hub_guild_qr' guild.pk 'svg' %}" class="pl-btn pl-btn--secondary">Download QR (SVG)</a>
-        <a href="{% url 'hub_guild_qr' guild.pk 'png' %}" class="pl-btn pl-btn--secondary">Download QR (PNG)</a>
+        <a href="{% url 'hub_guild_qr' guild.pk 'svg' %}" class="pl-btn pl-btn--secondary" hx-boost="false" data-pl-download>Download QR (SVG)</a>
+        <a href="{% url 'hub_guild_qr' guild.pk 'png' %}" class="pl-btn pl-btn--secondary" hx-boost="false" data-pl-download>Download QR (PNG)</a>
       </div>
     </div>
     <div class="pl-qr-preview" aria-hidden="true">{{ guild.qr_svg|safe }}</div>
@@ -236,7 +306,7 @@ on is_admin (the same effective-admin gate as the Danger Zone below), and the sa
     <h2 class="hub-detail-label" style="margin-top:0; margin-bottom:0.25rem;">Visibility</h2>
     <p class="hub-text-muted" style="font-size:0.8125rem; margin-bottom:1rem; max-width:46rem;">
       Turn a guild off to hide it while you get it ready, then back on to launch it. Hiding removes it
-      from the sidebar, the guild directory, the community calendar, and voting. The guild page and this
+      from the sidebar, the guild directory, the Calendar, and voting. The guild page and this
       settings page stay reachable by direct link, so an admin can always turn it back on.
     </p>
     {% include "components/form_field.html" with field=visibility_form.is_active %}
@@ -360,6 +430,9 @@ confirm modal carries its own POST form, and template content can't nest a form.
       {% include "components/form_field.html" with field=orientation_form.allow_custom_requests %}
       {% include "components/form_field.html" with field=orientation_form.info %}
       {% include "components/form_field.html" with field=orientation_form.external_signup_url %}
+      {% if late_cancel_fees_enabled %}
+      {% include "components/form_field.html" with field=orientation_form.late_cancel_fee %}
+      {% endif %}
       <p class="hub-text-muted" style="font-size:0.8125rem; margin:0.5rem 0 0;">Length, price, seats, and location are set per orientation in the Orientation Types card below.</p>
     </div>
 
@@ -412,7 +485,7 @@ confirm modal carries its own POST form, and template content can't nest a form.
             {% include "components/form_field.html" with field=t.is_active %}
             {% if t.instance.pk %}
               <div style="display:none;">{{ t.DELETE }}</div>
-              <button type="button" class="pl-btn pl-btn--danger pl-btn--sm" style="margin-top:0.75rem;"
+              <button type="button" class="pl-btn pl-btn--danger pl-btn--sm pl-btn--spaced"
                       onclick="document.getElementById('{{ t.DELETE.id_for_label }}').checked = true; this.form.requestSubmit();">
                 Delete
               </button>
@@ -442,7 +515,7 @@ confirm modal carries its own POST form, and template content can't nest a form.
             {% include "components/form_field.html" with field=ef.external_signup_url %}
             {% include "components/form_field.html" with field=ef.is_active %}
             {{ ef.id }}
-            <button type="button" class="pl-btn pl-btn--danger pl-btn--sm" style="margin-top:0.75rem;" onclick="this.closest('.hub-card').remove();">Remove</button>
+            <button type="button" class="pl-btn pl-btn--danger pl-btn--sm pl-btn--spaced" onclick="this.closest('.hub-card').remove();">Remove</button>
           {% endwith %}
         </div>
       </template>
@@ -519,7 +592,7 @@ confirm modal carries its own POST form, and template content can't nest a form.
       {% if staffer_rules %}
       <ul class="pl-orient-overview__rules">
         {% for r in staffer_rules %}
-        <li>{{ r.orientation_type.name }} · {{ r.get_weekday_display }} · {{ r.start_time|time:"g:i a" }}–{{ r.end_time|time:"g:i a" }} · {{ r.seats }} seat{{ r.seats|pluralize }}{% if not r.is_active %} <span class="hub-text-muted">paused</span>{% endif %}</li>
+        <li>{{ r.orientation_type.name }} · {{ r.cadence_display }}{% if r.starts_on_note %} {{ r.starts_on_note }}{% endif %} · {{ r.start_time|time:"g:i a" }}–{{ r.end_time|time:"g:i a" }} · {{ r.seats }} seat{{ r.seats|pluralize }}{% if not r.is_active %} <span class="hub-text-muted">paused</span>{% endif %}</li>
         {% endfor %}
       </ul>
       {% else %}
@@ -549,7 +622,7 @@ confirm modal carries its own POST form, and template content can't nest a form.
       </div>
       <ul class="pl-orient-overview__rules">
         {% for r in staffer_rules %}
-        <li>{{ r.orientation_type.name }} · {{ r.get_weekday_display }} · {{ r.start_time|time:"g:i a" }}–{{ r.end_time|time:"g:i a" }} · {{ r.seats }} seat{{ r.seats|pluralize }}{% if not r.is_active %} <span class="hub-text-muted">paused</span>{% endif %}</li>
+        <li>{{ r.orientation_type.name }} · {{ r.cadence_display }}{% if r.starts_on_note %} {{ r.starts_on_note }}{% endif %} · {{ r.start_time|time:"g:i a" }}–{{ r.end_time|time:"g:i a" }} · {{ r.seats }} seat{{ r.seats|pluralize }}{% if not r.is_active %} <span class="hub-text-muted">paused</span>{% endif %}</li>
         {% endfor %}
       </ul>
     </div>
@@ -585,7 +658,7 @@ confirm modal carries its own POST form, and template content can't nest a form.
           {% include "components/form_field.html" with field=rule.is_active %}
           {% if rule.instance.pk %}
             <div style="display:none;">{{ rule.DELETE }}</div>
-            <button type="button" class="pl-btn pl-btn--danger pl-btn--sm" style="margin-top:0.75rem;"
+            <button type="button" class="pl-btn pl-btn--danger pl-btn--sm pl-btn--spaced"
                     @click="$dispatch('open-confirm', 'guild-rule-del-{{ rule.instance.pk }}')">
               Delete
             </button>
@@ -608,7 +681,7 @@ confirm modal carries its own POST form, and template content can't nest a form.
     <p class="hub-text-muted" style="font-size:0.8125rem; margin-bottom:0.5rem;">These are shared guild hours any orienter can run. Only the guild lead can change them.</p>
     <ul class="pl-orient-overview__rules">
       {% for r in guild_rules_readonly %}
-      <li>{{ r.orientation_type.name }} · {{ r.get_weekday_display }} · {{ r.start_time|time:"g:i a" }}–{{ r.end_time|time:"g:i a" }} · {{ r.seats }} seat{{ r.seats|pluralize }}{% if not r.is_active %} <span class="hub-text-muted">paused</span>{% endif %}</li>
+      <li>{{ r.orientation_type.name }} · {{ r.cadence_display }}{% if r.starts_on_note %} {{ r.starts_on_note }}{% endif %} · {{ r.start_time|time:"g:i a" }}–{{ r.end_time|time:"g:i a" }} · {{ r.seats }} seat{{ r.seats|pluralize }}{% if not r.is_active %} <span class="hub-text-muted">paused</span>{% endif %}</li>
       {% endfor %}
     </ul>
   </div>
@@ -740,7 +813,7 @@ confirm modal carries its own POST form, and template content can't nest a form.
             {% endif %}
             {% if f.instance.pk %}
               <div style="display:none;">{{ f.DELETE }}</div>
-              <button type="button" class="pl-btn pl-btn--danger pl-btn--sm" style="margin-top:0.75rem;"
+              <button type="button" class="pl-btn pl-btn--danger pl-btn--sm pl-btn--spaced"
                       onclick="document.getElementById('{{ f.DELETE.id_for_label }}').checked = true; this.form.requestSubmit();">
                 Delete this question
               </button>
@@ -764,7 +837,7 @@ confirm modal carries its own POST form, and template content can't nest a form.
             {% include "components/form_field.html" with field=ef.document_url %}
             {{ ef.id }}
             {{ ef.sort_order }}
-            <button type="button" class="pl-btn pl-btn--danger pl-btn--sm" style="margin-top:0.75rem;" onclick="this.closest('.hub-card').remove();">Remove</button>
+            <button type="button" class="pl-btn pl-btn--danger pl-btn--sm pl-btn--spaced" onclick="this.closest('.hub-card').remove();">Remove</button>
           {% endwith %}
         </div>
       </template>
@@ -805,7 +878,7 @@ confirm modal carries its own POST form, and template content can't nest a form.
             </div>
             {% if f.instance.pk %}
               <div style="display:none;">{{ f.DELETE }}</div>
-              <button type="button" class="pl-btn pl-btn--danger pl-btn--sm" style="margin-top:0.75rem;"
+              <button type="button" class="pl-btn pl-btn--danger pl-btn--sm pl-btn--spaced"
                       onclick="document.getElementById('{{ f.DELETE.id_for_label }}').checked = true; this.form.requestSubmit();">
                 Delete this link
               </button>
@@ -828,7 +901,7 @@ confirm modal carries its own POST form, and template content can't nest a form.
             </div>
             {{ ef.id }}
             {{ ef.sort_order }}
-            <button type="button" class="pl-btn pl-btn--danger pl-btn--sm" style="margin-top:0.75rem;" onclick="this.closest('.hub-card').remove();">Remove</button>
+            <button type="button" class="pl-btn pl-btn--danger pl-btn--sm pl-btn--spaced" onclick="this.closest('.hub-card').remove();">Remove</button>
           {% endwith %}
         </div>
       </template>
@@ -904,7 +977,7 @@ confirm modal carries its own POST form, and template content can't nest a form.
             </div>
             {% if f.instance.pk %}
               <div style="display:none;">{{ f.DELETE }}</div>
-              <button type="button" class="pl-btn pl-btn--danger pl-btn--sm" style="margin-top:0.75rem;"
+              <button type="button" class="pl-btn pl-btn--danger pl-btn--sm pl-btn--spaced"
                       onclick="document.getElementById('{{ f.DELETE.id_for_label }}').checked = true; this.form.requestSubmit();">
                 Delete this address
               </button>
@@ -927,7 +1000,7 @@ confirm modal carries its own POST form, and template content can't nest a form.
             </div>
             {{ ef.id }}
             {{ ef.sort_order }}
-            <button type="button" class="pl-btn pl-btn--danger pl-btn--sm" style="margin-top:0.75rem;" onclick="this.closest('.hub-card').remove();">Remove</button>
+            <button type="button" class="pl-btn pl-btn--danger pl-btn--sm pl-btn--spaced" onclick="this.closest('.hub-card').remove();">Remove</button>
           {% endwith %}
         </div>
       </template>

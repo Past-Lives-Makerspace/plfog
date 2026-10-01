@@ -9,25 +9,40 @@ rest via templates/404.html). Add-to-calendar works logged-out.
 {% block content %}
 <div class="pl-event-detail">
   <div class="hub-card pl-event-detail__card">
-    <div class="pl-event-detail__kind">
-      {% if event.guild %}
-        <a href="{% url 'hub_guild_detail' event.guild.slug %}" class="pl-event-detail__guild">{{ event.guild.name }}</a>
-      {% else %}
-        <span class="pl-event-detail__type">{{ event.get_event_type_display }}</span>
+    {% comment %}
+    Whose it is, what it is called and when: one copy of the markup for both states. With a
+    photo the block sits over it (--photo turns on the overlay and the white text); without
+    one the wrapper does nothing and the card reads exactly as it did before the photo
+    existed. The photo is decorative here — the title beside it carries the meaning — so its
+    alt is empty rather than a guess at what the picture shows.
+    {% endcomment %}
+    <div class="pl-event-detail__hero{% if event.photo %} pl-event-detail__hero--photo{% endif %}">
+      {% if event.photo %}
+      <img class="pl-event-detail__hero-img" src="{{ event.photo.url }}" alt="">
+      <span class="pl-event-detail__hero-shade" aria-hidden="true"></span>
       {% endif %}
-      {% if is_recurring %}
-        <span class="pl-event-detail__badge">{{ event.get_recurrence_display }}</span>
-      {% endif %}
+      <div class="pl-event-detail__hero-text">
+        <div class="pl-event-detail__kind">
+          {% if event.guild %}
+            <a href="{% url 'hub_guild_detail' event.guild.slug %}" class="pl-event-detail__guild">{{ event.guild.name }}</a>
+          {% endif %}
+          {# One property decides this: who it is for, or its own name for a type that has one. #}
+          <span class="pl-event-detail__type">{{ event.badge_label }}</span>
+          {% if is_recurring %}
+            <span class="pl-event-detail__badge">{{ event.get_recurrence_display }}</span>
+          {% endif %}
+        </div>
+
+        <h1 class="hub-page-title pl-event-detail__title">{{ event.title }}</h1>
+
+        <p class="pl-event-detail__row">
+          <svg class="pl-event-detail__icon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <rect x="3" y="4" width="18" height="18" rx="2"/><path d="M16 2v4M8 2v4M3 10h18"/>
+          </svg>
+          <span>{{ event.when_display }}</span>
+        </p>
+      </div>
     </div>
-
-    <h1 class="hub-page-title pl-event-detail__title">{{ event.title }}</h1>
-
-    <p class="pl-event-detail__row">
-      <svg class="pl-event-detail__icon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-        <rect x="3" y="4" width="18" height="18" rx="2"/><path d="M16 2v4M8 2v4M3 10h18"/>
-      </svg>
-      <span>{{ event.when_display }}</span>
-    </p>
 
     {% if event.location %}
     <p class="pl-event-detail__row">
@@ -77,11 +92,27 @@ rest via templates/404.html). Add-to-calendar works logged-out.
     </div>
 
     <div class="pl-event-detail__actions">
+      {% comment %}
+      A signed-in member with a configured calendar gets the Subscribe menu in place of Add to
+      calendar: a downloaded .ics goes stale when the event moves, a subscription follows it,
+      and inside the native app a download does nothing at all. An anonymous scanner keeps
+      Add to calendar; their phone's browser handles the .ics. That anchor carries
+      hx-boost="false" and data-pl-download (FRONTEND.md rule 24): under the body's hx-boost,
+      htmx fetched it over XHR and swapped the raw calendar text into the body instead of
+      letting the browser download it, and in the native app the link is hidden. Only a real
+      click sees the first; tests/e2e/event_ics_download_spec.py drives one.
+      {% endcomment %}
       {% if event.video_url %}
       <a class="hub-btn hub-btn--primary" href="{{ event.video_url }}" target="_blank" rel="noopener noreferrer">Join online</a>
-      <a class="hub-btn hub-btn--ghost" href="{% url 'hub_event_ics' event.pk %}">Add to calendar</a>
+      {% endif %}
+      {% if calendar_subscribe_links and event.video_url %}
+        {% include "hub/partials/_calendar_subscribe.html" with subscribe_links=calendar_subscribe_links align="left" button_class="hub-btn hub-btn--ghost" %}
+      {% elif calendar_subscribe_links %}
+        {% include "hub/partials/_calendar_subscribe.html" with subscribe_links=calendar_subscribe_links align="left" button_class="hub-btn hub-btn--primary" %}
+      {% elif event.video_url %}
+      <a class="hub-btn hub-btn--ghost" href="{% url 'hub_event_ics' event.pk %}" hx-boost="false" data-pl-download>Add to calendar</a>
       {% else %}
-      <a class="hub-btn hub-btn--primary" href="{% url 'hub_event_ics' event.pk %}">Add to calendar</a>
+      <a class="hub-btn hub-btn--primary" href="{% url 'hub_event_ics' event.pk %}" hx-boost="false" data-pl-download>Add to calendar</a>
       {% endif %}
       {% if user.is_authenticated %}
         <a class="hub-btn hub-btn--ghost" href="{% url 'hub_community_calendar' %}">View the Calendar</a>

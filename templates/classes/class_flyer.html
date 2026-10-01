@@ -17,10 +17,10 @@
 </header>
 
 <main class="pl-flyer">
-  {# 1 · Hero band — the class's own focal-cropped photo, else the legacy CMS image, else a graceful initial #}
+  {# 1 · Hero band — the class's own photo (the copy cut to its crop box when it has one), else the legacy CMS image, else a graceful initial #}
   <div class="pl-flyer__hero">
     {% if offering.image %}
-      <img class="pl-flyer__hero-img" src="{{ offering.image.url }}" alt="{{ offering.title }}"
+      <img class="pl-flyer__hero-img" src="{{ offering.hero_image_url }}" alt="{{ offering.title }}"
            style="object-position: {{ offering.hero_object_position }};">
     {% elif offering.legacy_image_url %}
       <img class="pl-flyer__hero-img" src="{% url 'classes:legacy_image' %}?url={{ offering.legacy_image_url|urlencode }}" alt="{{ offering.title }}"
@@ -48,7 +48,11 @@
       <section class="pl-flyer__block">
         <h2 class="pl-flyer__block-title">When</h2>
         {% with sessions=offering.sessions.all %}
-          {% if sessions %}
+          {# A flexible class reads its window, whatever session rows it still carries. #}
+          {% if offering.is_flexible %}
+            <p class="pl-flyer__line">Flexible — arrange dates directly with the instructor.</p>
+            {% if offering.has_flexible_window %}<p class="pl-flyer__line"><strong>{{ offering.flexible_window_label }}</strong></p>{% endif %}
+          {% elif sessions %}
             {% if offering.is_series %}
               <p class="pl-flyer__line">Series · {{ sessions|length }} session{{ sessions|length|pluralize }}</p>
               {% for session in sessions %}
@@ -60,8 +64,6 @@
                 <p class="pl-flyer__line">{{ session|session_time_range }}</p>
               {% endwith %}
             {% endif %}
-          {% elif offering.scheduling_model == 'flexible' %}
-            <p class="pl-flyer__line">Flexible — arrange dates directly with the instructor.</p>
           {% else %}
             <p class="pl-flyer__line">Dates to be announced.</p>
           {% endif %}
@@ -72,9 +74,6 @@
       <section class="pl-flyer__block">
         <h2 class="pl-flyer__block-title">Price</h2>
         <p class="pl-flyer__line"><strong>{{ offering.price_cents|cents_as_price }}</strong></p>
-        {% if offering.member_price_cents %}
-          <p class="pl-flyer__line">{{ offering.member_price_cents|cents_as_price }} for Past Lives members</p>
-        {% endif %}
       </section>
 
       {# 6 · Where — the studio venue #}

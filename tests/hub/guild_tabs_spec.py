@@ -48,11 +48,9 @@ def describe_guild_tabs():
         assert body.index(panel) < body.index(b">Products<")
 
     def it_hides_the_buyables_tab_when_tab_payments_disabled(client: Client):
-        from core.models import SiteConfiguration
+        from tests.features import hide
 
-        config = SiteConfiguration.load()
-        config.my_tab_enabled = False
-        config.save()
+        hide("my_tab")
         _member("t_off")
         client.login(username="t_off", password="pw")
         guild = GuildFactory()

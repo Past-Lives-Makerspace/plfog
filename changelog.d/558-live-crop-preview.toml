@@ -1,0 +1,6 @@
+bump = "patch"
+date = "2026-09-30"
+title = "The composer's card previews zoom to the crop box as you drag it"
+changes = [
+  "On the Photos step, the two card previews beside the crop box and the phone preview on the Review step now show just the part of the photo inside the box, the way the saved card will. Before, they showed the whole photo and only followed the box's centre until you saved.",
+]

@@ -37,7 +37,6 @@ def get_or_create_instructor(slug: str, display_name: str, bio: str, social: str
 def get_or_create_offering(slug: str, **defaults) -> ClassOffering:
     defaults.setdefault("status", ClassOffering.Status.PUBLISHED)
     defaults.setdefault("published_at", timezone.now())
-    defaults.setdefault("member_discount_pct", 10)
     offering, _ = ClassOffering.objects.get_or_create(slug=slug, defaults=defaults)
     return offering
 
@@ -186,7 +185,6 @@ open_house = get_or_create_offering(
     prerequisites="None.",
     materials_included="None — bring closed-toe shoes.",
     price_cents=0,
-    member_discount_pct=0,
     capacity=12,
 )
 ensure_sessions(open_house, [2], duration_hours=0.75)

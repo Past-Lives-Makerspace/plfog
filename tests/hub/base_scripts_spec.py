@@ -33,6 +33,8 @@ HEAD_ORDER = (
     "js/pl_help.js",
     "js/alpine.min.js",
     "js/biometric-auth.js",
+    "js/app-store-badges.js",
+    "js/native-downloads.js",
 )
 
 

@@ -9,6 +9,10 @@ here, because the only callers are background jobs (the weekly calendar digest a
 Callers gate themselves on ``SiteConfiguration.discord_calendar_posts_enabled`` +
 ``discord_calendar_channel_id`` before calling; this module just posts and raises
 :class:`DiscordChannelError` on any failure so a scheduled run records FAILED loudly.
+
+The one exception is a blank bot token (unset, or ENVIRONMENT=staging, whose copied
+Site Settings still name the channels): every entry point here is then a logged no-op
+that returns its "nothing sent" value before any request is built.
 """
 
 from __future__ import annotations
@@ -18,7 +22,7 @@ from typing import Any
 
 import httpx
 
-from core.events.discord_dm import API_BASE, _auth_headers, bot_token
+from core.events.discord_dm import API_BASE, _auth_headers, bot_disabled, bot_token
 
 _TIMEOUT_SECONDS = 5.0
 _RATE_LIMIT_MAX_WAIT_SECONDS = 15.0
@@ -50,6 +54,8 @@ def post_channel_message(
     Discord's advertised ``Retry-After`` (bounded); a second 429, or an unusable/too-long
     ``Retry-After``, raises.
     """
+    if bot_disabled("channel post"):
+        return {}
     payload = _message_payload(embeds, content=content, components=components, allowed_mentions=allowed_mentions)
     return _send_payload("POST", f"{API_BASE}/channels/{channel_id}/messages", payload, len(embeds))
 
@@ -68,6 +74,8 @@ def edit_channel_message(
     untouched (the RSVP refresh), or pass ``[]`` to strip them (a cancelled event). Same
     fail-loudly contract and bounded single 429 retry as :func:`post_channel_message`.
     """
+    if bot_disabled("channel edit"):
+        return
     payload: dict[str, Any] = {"embeds": embeds}
     if components is not None:
         payload["components"] = components

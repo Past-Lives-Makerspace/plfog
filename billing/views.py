@@ -31,14 +31,30 @@ logger = logging.getLogger(__name__)
 _CHECKOUT_COMPLETED_HANDLERS = [
     classes_webhook_handlers.handle_checkout_session_completed,
     membership_webhook_handlers.handle_checkout_session_completed,
+    webhook_handlers.handle_late_fee_checkout_completed,
 ]
 _CHECKOUT_EXPIRED_HANDLERS = [
+    classes_webhook_handlers.handle_checkout_session_expired,
     membership_webhook_handlers.handle_checkout_session_expired,
+    webhook_handlers.handle_late_fee_checkout_expired,
+]
+# ``checkout.session.async_payment_failed`` fires for delayed-notification methods (bank
+# debits) whose money never arrives. Classes only: an orientation hold's release is written
+# against a session that was never completed, and an async failure is not that shape.
+_CHECKOUT_ASYNC_FAILED_HANDLERS = [
+    classes_webhook_handlers.handle_checkout_session_async_payment_failed,
 ]
 
 
 def _dispatch_checkout_completed(event: dict[str, Any]) -> None:
-    """Deliver ``checkout.session.completed`` to each registered kind-filtered handler."""
+    """Deliver ``checkout.session.completed`` to each registered kind-filtered handler.
+
+    Also the listener for ``checkout.session.async_payment_succeeded``: a delayed-notification
+    payment completes its session with ``payment_status`` of ``unpaid`` and settles later, so
+    the completed handler's own ``paid`` gate drops the first event and this is the one that
+    carries the money. The handlers are idempotent and gate on ``paid`` either way, so the
+    same fan-in serves both without either being able to confirm a seat twice.
+    """
     for handler in _CHECKOUT_COMPLETED_HANDLERS:
         handler(event)
 
@@ -46,6 +62,12 @@ def _dispatch_checkout_completed(event: dict[str, Any]) -> None:
 def _dispatch_checkout_expired(event: dict[str, Any]) -> None:
     """Deliver ``checkout.session.expired`` to each registered kind-filtered handler."""
     for handler in _CHECKOUT_EXPIRED_HANDLERS:
+        handler(event)
+
+
+def _dispatch_checkout_async_failed(event: dict[str, Any]) -> None:
+    """Deliver ``checkout.session.async_payment_failed`` to each registered handler."""
+    for handler in _CHECKOUT_ASYNC_FAILED_HANDLERS:
         handler(event)
 
 
@@ -58,6 +80,8 @@ _WEBHOOK_HANDLERS = {
     "payment_method.updated": webhook_handlers.handle_payment_method_updated,
     "charge.dispute.created": webhook_handlers.handle_charge_dispute_created,
     "checkout.session.completed": _dispatch_checkout_completed,
+    "checkout.session.async_payment_succeeded": _dispatch_checkout_completed,
+    "checkout.session.async_payment_failed": _dispatch_checkout_async_failed,
     "checkout.session.expired": _dispatch_checkout_expired,
     "charge.refunded": classes_webhook_handlers.handle_charge_refunded,
     "refund.updated": classes_webhook_handlers.handle_refund_updated,
@@ -67,9 +91,9 @@ _WEBHOOK_HANDLERS = {
 @login_required
 def setup_payment_method(request: HttpRequest) -> HttpResponse:
     """Page with Stripe Elements for adding/replacing a payment method."""
-    from core.models import SiteConfiguration
+    from core.features import is_on
 
-    if not SiteConfiguration.load().my_tab_enabled:
+    if not is_on("my_tab"):
         django_messages.info(request, "My Tab isn't available right now.")
         return redirect("home")
 
@@ -217,7 +241,7 @@ def _payments_panel_context(request: HttpRequest) -> dict[str, object]:
 def admin_tab_dashboard(request: HttpRequest) -> HttpResponse:
     """Admin payments dashboard — tabbed view of billing data.
 
-    The tab set is a function of ``(my_tab_enabled, role)``. With My Tab off, the
+    The tab set is a function of ``(My Tab feature is On, role)``. With My Tab off, the
     Overview and Open Tabs tabs (100% tab-ledger content) disappear and Payments
     becomes the first and default tab; the Settings and Stripe tabs stay admin-only
     in every state (they configure Stripe, which powers class and orientation
@@ -227,14 +251,14 @@ def admin_tab_dashboard(request: HttpRequest) -> HttpResponse:
 
     from billing.forms import BillingSettingsForm, ConnectPlatformSettingsForm, ReconciliationSettingsForm
     from billing.models import BillingSettings, Product
-    from core.models import SiteConfiguration
+    from core.features import is_on
     from membership.models import Guild
 
     view_as = request.view_as  # type: ignore[attr-defined]
     viewer_is_fog_admin = view_as.has_actual("admin")
 
     # Tab set as a function of (flag, role). Settings/Stripe stay admin-only in every state.
-    tabs_on = SiteConfiguration.load().my_tab_enabled
+    tabs_on = is_on("my_tab")
     default_tab = "overview" if tabs_on else "payments"
     allowed = {"overview", "open-tabs", "payments"} if tabs_on else {"payments"}
     if viewer_is_fog_admin:
@@ -514,6 +538,91 @@ def payment_orientation_refund(request: HttpRequest, booking_pk: int) -> HttpRes
     return response
 
 
+def _late_fee_for_refund(fee_pk: int) -> Any:
+    """The fee behind a refund modal, with what its label and receipt read, else 404."""
+    from django.shortcuts import get_object_or_404
+
+    from billing.models import LateCancellationFee
+
+    return get_object_or_404(
+        LateCancellationFee.objects.select_related(
+            "member",
+            "reservation__equipment",
+            "orientation_booking__slot",
+            "orientation_booking__orientation_type__guild",
+            "orientation_booking__orientation_type__equipment",
+        ),
+        pk=fee_pk,
+    )
+
+
+def _render_late_fee_refund_form(request: HttpRequest, fee: Any, form: Any) -> HttpResponse:
+    """Render the late fee refund modal body (#456): the retry confirm when the latest attempt failed.
+
+    Mirrors the orientation refund partial: the FAILED state's only action is Retry (the
+    failed row is the anchor); otherwise the editable amount/reason form.
+    """
+    from billing.models import PaymentRefund
+
+    failed_refund = None
+    if fee.refund_state == "failed":
+        failed_refund = fee.refunds.filter(status=PaymentRefund.Status.FAILED).first()
+    return render(
+        request,
+        "billing/partials/late_fee_refund_form.html",
+        {"fee": fee, "form": form, "failed_refund": failed_refund},
+    )
+
+
+@refund_authority_required
+def payment_late_fee_refund_form(request: HttpRequest, fee_pk: int) -> HttpResponse:
+    """GET partial: the late fee refund modal body, loaded via HTMX by the Payments panel."""
+    from billing.forms import LateFeeRefundForm
+
+    fee = _late_fee_for_refund(fee_pk)
+    return _render_late_fee_refund_form(request, fee, LateFeeRefundForm(fee=fee))
+
+
+@refund_authority_required
+@require_POST
+def payment_late_fee_refund(request: HttpRequest, fee_pk: int) -> HttpResponse:
+    """Issue a real Stripe refund for a late cancellation fee: 204 + toast + ``refund-done``.
+
+    Validation errors re-render the form partial in place. A Stripe rejection is loud: an
+    error toast carries Stripe's message and the modal stays open, re-rendered in the
+    failed state whose action is Retry. A full refund marks the fee refunded and lifts
+    nothing: it was paid, so no block existed.
+    """
+    from billing.exceptions import RefundError
+    from billing.forms import LateFeeRefundForm
+    from billing.models import PaymentRefund
+    from hub.toast import trigger_client_event, trigger_toast
+
+    fee = _late_fee_for_refund(fee_pk)
+    form = LateFeeRefundForm(request.POST, fee=fee)
+    if not form.is_valid():
+        return _render_late_fee_refund_form(request, fee, form)
+    try:
+        refund = fee.issue_refund(
+            amount_cents=form.amount_cents,
+            reason=form.cleaned_data["reason"],
+            actor=request.user,
+        )
+    except RefundError as exc:
+        fee.refresh_from_db()
+        response = _render_late_fee_refund_form(request, fee, LateFeeRefundForm(fee=fee))
+        trigger_toast(response, f"Refund failed: {exc}", "error")
+        return response
+    response = HttpResponse(status=204)
+    if refund.status == PaymentRefund.Status.SUCCEEDED:
+        trigger_toast(response, f"Refunded ${form.cleaned_data['amount']:.2f}.", "success")
+    else:
+        # Stripe accepted the refund but hasn't settled it; refund.updated will.
+        trigger_toast(response, "Refund sent. Stripe is processing it.", "success")
+    trigger_client_event(response, "refund-done")
+    return response
+
+
 @refund_authority_required
 @require_POST
 def payment_refund_retry(request: HttpRequest, refund_pk: int) -> HttpResponse:
@@ -558,14 +667,14 @@ def admin_add_tab_entry(request: HttpRequest) -> HttpResponse:
     from django.contrib import admin
 
     from billing.forms import CustomSplitFormSet
-    from core.models import SiteConfiguration
+    from core.features import is_on
     from membership.models import Guild
 
     # New tab charges make no sense with My Tab off — members cannot see or pay them and
     # bill_tabs skips the run. Gate the view server-side so a mid-session flag flip cannot
     # leave an already-open dashboard POSTing entries onto a frozen ledger. Covers both the
     # modal POST and the standalone add-entry page. (Flag on = structural no-op.)
-    if not SiteConfiguration.load().my_tab_enabled:
+    if not is_on("my_tab"):
         django_messages.info(request, "My Tab is off, so new tab charges can't be added right now.")
         return redirect("billing_admin_dashboard")
 

@@ -17,8 +17,28 @@ img {
 [x-cloak] { display: none !important; }
 
 /* Shared tab strip — one row, horizontally scrollable on phones instead of
-   wrapping to a second line. Used by guild pages, settings, and voting. */
+   wrapping to a second line. Used by guild pages, settings, and voting.
+
+   Ruling 24: the strip scrolls, and now it says so. The merged per-class strip is seven
+   tabs (eight with the instructor discount-codes flag on), and at 390px the last three sit
+   off-screen — with the scrollbar hidden, nothing on the page suggested they were there.
+   The right-edge fade appears only when there IS more to the right, with no script and no
+   extra markup: two background layers, a "fade" pinned to the element
+   (background-attachment: scroll) and an opaque "cover" the same size pinned to the
+   *content* (background-attachment: local). The cover sits at the content's right edge, so
+   while there is more to scroll it is off-screen, and the moment you reach the end it
+   slides over the fade and hides it. A strip that does not overflow has its content edge at
+   its element edge, so the cover covers the fade from the start and nothing is ever drawn.
+
+   The cover has to paint whatever the strip sits on — the page ground on most pages, a card
+   on voting and wiki review — so it reads --pl-tabs-bg rather than a colour, and both
+   values are theme tokens, so it works in Obsidian and Slate alike (FRONTEND.md rule 7).
+   Give --pl-tabs-bg a new value on any future container with its own background.
+
+   This is a SHARED component — guilds, settings, voting, the wiki, equipment manage and now
+   the per-class screen all render it — so this has site-wide reach. */
 .pl-tabs {
+    --pl-tabs-bg: var(--hub-bg);
     display: flex;
     gap: 0;
     border-bottom: 1px solid var(--hub-border);
@@ -26,7 +46,15 @@ img {
     overflow-x: auto;
     -webkit-overflow-scrolling: touch;
     scrollbar-width: none;
+    background-image:
+        linear-gradient(to left, var(--pl-tabs-bg), var(--pl-tabs-bg)),
+        linear-gradient(to left, var(--pl-tabs-bg), transparent);
+    background-position: right center, right center;
+    background-repeat: no-repeat;
+    background-size: 2.5rem 100%, 2.5rem 100%;
+    background-attachment: local, scroll;
 }
+.hub-card .pl-tabs { --pl-tabs-bg: var(--hub-card-bg); }
 .pl-tabs::-webkit-scrollbar { display: none; }
 .pl-tabs .vote-tab { flex: 0 0 auto; white-space: nowrap; }
 
@@ -64,6 +92,7 @@ img {
     --hub-surface: #13151d;       /* inset panels, tiles, table stripes */
     --hub-card-bg: #181b24;       /* cards & modals (sits above the page) */
     --hub-elevated: #20242f;      /* dropdowns, popovers, raised pills */
+    --hub-danger-text: #f87171;   /* field errors: 6.2:1 on the card */
     --hub-card-border: rgba(255, 255, 255, 0.07);
     --hub-border: rgba(255, 255, 255, 0.08);
     --hub-border-strong: rgba(255, 255, 255, 0.14);
@@ -81,6 +110,12 @@ img {
     --hub-sidebar-bg: #0d0f15;
     --hub-sidebar-text: #F4EFDD;
     --hub-sidebar-muted: rgba(244, 239, 221, 0.60);
+    /* A "Coming soon" nav entry (#405). Deliberately the SAME cream as a live entry, just
+       quieter — a de-emphasis on the sidebar's own scale, not a swap to the page text scale.
+       --hub-text-muted is a different hue here and byte-identical to --hub-sidebar-muted in
+       light mode, which made a Coming soon entry pixel-identical to a live one at rest.
+       6.40:1 live vs 3.47:1 here: visibly quieter, still above the 3:1 UI floor. */
+    --hub-sidebar-soon: rgba(244, 239, 221, 0.40);
     --hub-sidebar-hover: rgba(255, 255, 255, 0.06);
     --hub-sidebar-border: rgba(255, 255, 255, 0.08);
 
@@ -148,6 +183,7 @@ img {
     --hub-surface: #e6e9ee;
     --hub-card-bg: #ffffff;
     --hub-elevated: #ffffff;
+    --hub-danger-text: #b03030;   /* field errors: 6.3:1 on the white card */
     --hub-card-border: #dfe3ea;
     --hub-border: #e2e6ec;
     --hub-border-strong: #cfd5de;
@@ -164,6 +200,8 @@ img {
     --hub-sidebar-bg: #ffffff;
     --hub-sidebar-text: #1D1E1E;
     --hub-sidebar-muted: #5b6675;
+    /* Same de-emphasis on the light rail: 5.83:1 live vs 3.50:1 here. */
+    --hub-sidebar-soon: #7f8a9a;
     --hub-sidebar-hover: rgba(9, 46, 75, 0.06);
     --hub-sidebar-border: #e2e6ec;
 
@@ -343,6 +381,44 @@ a:hover { color: var(--hub-link-hover); }
     color: var(--color-tuscan-yellow);
 }
 
+/* "Coming soon" nav entry (#405): present but not yet. It must read as a feature that is on
+   its way, never as a broken or failed link — so it keeps the icon, the label and the exact
+   position it will occupy when it goes live, and gives up only the affordances of a link.
+   No hover background and no pointer cursor, because both promise a navigation that is not
+   coming. It is a <span> with .pl-help, so the bubble's hover/focus reveal is inherited
+   wholesale from that component and nothing here re-implements it. */
+/* Two classes, not one, and deliberately so: .pl-help is defined LATER in this file and sets
+   `display: inline-flex; justify-content: center` for a 1.1rem "?" icon. At equal specificity
+   it would win and centre the whole nav row. Qualifying with .pl-help outranks it and restores
+   the sidebar row's own left-aligned layout. (This shipped wrong once; the screenshot caught
+   an entry floating in the middle of the sidebar.) */
+.hub-sidebar__link--soon.pl-help {
+    color: var(--hub-sidebar-soon);
+    cursor: default;
+    display: flex;
+    justify-content: flex-start;
+    align-items: center;
+}
+
+.hub-sidebar__link--soon.pl-help:hover {
+    background-color: transparent;
+    color: var(--hub-sidebar-soon);
+}
+
+/* The icon rides the text colour. Every nav icon is stroke="currentColor", so this is
+   inherited rather than set — but .hub-sidebar__link.active svg overrides colour for the
+   active entry, which proves the icon is reachable by a rule, so pin the intent here. */
+.hub-sidebar__link--soon.pl-help svg {
+    color: inherit;
+}
+
+/* The bubble is anchored to a full-width row here rather than a 1.1rem "?" icon, so it hangs
+   under the entry it belongs to instead of the row's centre. */
+.hub-sidebar__link--soon .pl-help__bubble {
+    left: 0.75rem;
+    max-width: 240px;
+}
+
 .hub-sidebar__section-header {
     padding: 1.25rem 0.75rem 0.375rem;
     font-size: 0.6875rem;
@@ -372,6 +448,32 @@ a:hover { color: var(--hub-link-hover); }
 
 .hub-sidebar__section-toggle:hover {
     color: var(--hub-sidebar-text);
+}
+
+/* "Coming soon" section heading (#405, the Guilds block). Same de-emphasis as
+   .hub-sidebar__link--soon and the SAME --hub-sidebar-soon token, deliberately — a second
+   muted colour would mean two answers to one question. Qualified with .pl-help for the same
+   reason the link variant is: .pl-help is defined later in this file and would otherwise win
+   on display and justify-content and centre the heading. */
+.hub-sidebar__section-toggle--soon.pl-help {
+    color: var(--hub-sidebar-soon);
+    cursor: default;
+    display: flex;
+    justify-content: flex-start;
+    align-items: center;
+}
+
+.hub-sidebar__section-toggle--soon.pl-help:hover {
+    color: var(--hub-sidebar-soon);
+}
+
+.hub-sidebar__section-toggle--soon .pl-help__bubble {
+    /* Anchored under the heading rather than centred on it, matching the link variant. */
+    left: 0.75rem;
+    max-width: 240px;
+    /* The heading is uppercased and letter-spaced; .pl-help__bubble already resets both, but
+       it inherits text-align from this flex parent, so pin it back to prose. */
+    text-align: left;
 }
 
 .hub-sidebar__chevron {
@@ -1321,13 +1423,33 @@ a:hover { color: var(--hub-link-hover); }
     font-weight: 700;
     line-height: 1.2;
     letter-spacing: 0.02em;
-    /* Transparent 1px border on the base so bordered variants (success/danger/
-       ghost) and borderless ones (primary) share identical box math and render
-       the exact same height. box-sizing: border-box keeps the border inside. */
-    border: 1px solid transparent;
+    /* The base paints itself as a ghost button. It used to set a transparent 1px border
+       and no background at all, so a .hub-btn with no colour modifier fell through to the
+       browser's own chrome: the document sets no color-scheme, so a bare <button> came
+       back light-grey — louder than the green Approve beside it — and a bare <a> rendered
+       as naked text. There are ~80 bare usages across templates/, so THIS EDIT HAS
+       SITE-WIDE REACH: every one of them becomes a quiet outline button. Degrading to
+       ghost rather than to a neutral fill is deliberate — --hub-elevated and --hub-card-bg
+       are both #ffffff in Slate, so a filled base went white-on-white — and it adds no
+       fourth button style to the design system: these are .hub-btn--ghost's own values.
+       The border is still 1px, so bordered variants (success/danger/ghost) and borderless
+       ones (primary) keep identical box math and render the exact same height;
+       box-sizing: border-box keeps the border inside. The modifiers below win on source
+       order. */
+    background: transparent;
+    color: var(--hub-text-muted);
+    border: 1px solid var(--hub-border-strong);
     border-radius: 6px;
+    text-decoration: none;
     cursor: pointer;
     transition: background-color 0.15s ease, transform 0.1s ease;
+}
+
+/* Neutral grey hover, so it reads the same over both themes' grounds. Each colour
+   modifier re-declares its own :hover below and wins on source order. */
+.hub-btn:hover {
+    background: rgba(127, 127, 127, 0.1);
+    color: var(--hub-text);
 }
 
 .hub-btn:active { transform: translateY(1px); }
@@ -1342,6 +1464,9 @@ a:hover { color: var(--hub-link-hover); }
 .hub-btn--primary {
     background-color: var(--color-tuscan-yellow);
     color: var(--color-navy);
+    /* The only modifier that paints no border of its own: it relied on inheriting the
+       base's transparent border colour, which the ghost degrade above took away. */
+    border-color: transparent;
 }
 
 .hub-btn--primary:hover {
@@ -2734,6 +2859,19 @@ a:hover { color: var(--hub-link-hover); }
     color: var(--color-tuscan-yellow);
 }
 
+/* "Get the app" badges under the icon row (#467, templates/includes/app_store_badges.html; the
+   component itself is in components.css). Stacked, not inline: two badges at Apple's 40px floor
+   are wider than the 220px sidebar. */
+.pl-app-badges--tray {
+    align-items: center;
+    padding: 0 0.75rem 0.5rem;
+}
+
+.pl-app-badges--tray .pl-app-badges__links {
+    flex-direction: column;
+    gap: 0.375rem;
+}
+
 .sr-only {
     position: absolute;
     width: 1px;
@@ -3074,6 +3212,10 @@ a:hover { color: var(--hub-link-hover); }
     margin: 0; font-size: 0.75rem; color: var(--hub-text-muted); line-height: 1.45;
 }
 
+/* The directory and map are two separate choices. Keep the second card clear of the
+   directory card even if an enclosing form's flex gap is overridden elsewhere. */
+.pl-profile-master--map { margin-top: 1rem; }
+
 @media (max-width: 560px) {
     .pl-profile-master { grid-template-columns: 1fr; }
     .pl-profile-master__seg { justify-self: start; }
@@ -3085,6 +3227,7 @@ a:hover { color: var(--hub-link-hover); }
     grid-template-columns: minmax(0, 1fr) 320px;
     gap: 1.5rem;
     align-items: start;
+    margin-top: 0.5rem;
 }
 .pl-profile-edit__col { display: flex; flex-direction: column; gap: 1rem; }
 
@@ -3391,6 +3534,9 @@ a:hover { color: var(--hub-link-hover); }
     border: 1px solid var(--hub-border);
     border-radius: 8px;
     overflow: hidden;
+    /* A phone is narrower than six columns: the table scrolls sideways inside its
+       frame instead of losing every column past the second (#543). */
+    overflow-x: auto;
 }
 
 .admin-table-wrap table {
@@ -3431,9 +3577,80 @@ html:not(.dark) .admin-table-wrap thead {
     text-decoration: none;
 }
 
+/* Sortable header (components/table_sort_header.html): every column shows a glyph so the
+   header reads as a control, not as static text (#544). Inactive columns carry a muted
+   double arrow; the active column carries the up or down arrow at full strength. The
+   underline sits on the label alone: a decoration on the inline-flex link would propagate
+   under the glyph too. Scoped like the base link rule above so it outranks its
+   color: inherit. */
+.admin-table-wrap thead th a.pl-sort-header--active {
+    color: var(--hub-text);
+}
+
+.pl-sort-header:hover .pl-sort-header__label {
+    text-decoration: underline;
+    text-underline-offset: 0.2em;
+}
+
+.pl-sort-header__glyph {
+    font-size: 0.7rem;
+    line-height: 1;
+    opacity: 0.45;
+}
+
+.pl-sort-header--active .pl-sort-header__glyph {
+    opacity: 1;
+}
+
 .admin-table-wrap tbody td {
     padding: 0.6rem 0.75rem;
     font-size: 0.875rem;
+}
+
+/* Manage Classes: the title cell shows the whole title and wraps it (#543). The
+   floor stops a long title from folding one word per line beside the nowrap
+   Date(s) column; overflow-wrap covers a single unbroken word wider than that. */
+.admin-table-wrap td.pl-class-list__title {
+    min-width: 14rem;
+    overflow-wrap: anywhere;
+}
+
+/* Manage Classes: runs of one class share a row; the "N dates" pill lists every run, and
+   the note above the table says when the list is showing one class's runs. */
+.pl-class-list__dates-link {
+    margin-left: 0.4rem;
+    font-size: 0.75rem;
+    font-weight: 600;
+    padding: 0.1rem 0.45rem;
+    border-radius: 9999px;
+    background: rgba(238, 180, 75, 0.15);
+    color: var(--hub-link);
+    text-decoration: none;
+}
+
+.pl-class-list__dates-link:hover,
+.pl-class-list__dates-link:focus-visible {
+    background: rgba(238, 180, 75, 0.3);
+}
+
+.pl-class-list__group-note {
+    margin: 0.75rem 0 0;
+    font-size: 0.875rem;
+    color: var(--hub-text-muted);
+}
+
+/* My Classes (#544): the Date(s) range stays on one line, the placeholder for an undated
+   class reads as muted, and an archived row fades like the admin list's. */
+.admin-table-wrap td.pl-class-list__dates {
+    white-space: nowrap;
+}
+
+.pl-class-list__no-dates {
+    color: var(--hub-text-muted);
+}
+
+.admin-table-wrap tr.pl-class-list__row--archived {
+    opacity: 0.55;
 }
 
 .admin-table-wrap tbody tr {
@@ -3564,10 +3781,17 @@ html:not(.dark) .admin-table-wrap tbody tr:nth-child(even) {
    One card carries several review queues as labeled groups. A group with no rows renders
    nothing at all (no heading, no "nothing waiting" line), and when every group is empty the
    whole card collapses to .pl-attention-clear: one quiet strip the height of the Waitlists
-   strip, instead of three tall empty cards. */
-.pl-attention-group + .pl-attention-group {
-    margin-top: 1.25rem;
-    padding-top: 1.1rem;
+   strip, instead of three tall empty cards.
+
+   The adjacency selector this rule used to carry (.pl-attention-group + .pl-attention-group)
+   gave the FIRST group no rule of its own, so the card title ran straight into the first
+   group's heading with nothing between them — "Needs Attention (3)" butting up against
+   "Waiting on Your Review". Dropped, so every group is separated from whatever is above it
+   (ruling 20). Scoped to .cms-overview, which is where every .pl-attention-group in the app
+   already lives: both Overview pages wrap theirs in one. */
+.cms-overview .pl-attention-group {
+    margin-top: 0.9rem;
+    padding-top: 0.9rem;
     border-top: 1px solid var(--hub-border);
 }
 
@@ -3969,6 +4193,11 @@ mark { background: color-mix(in srgb, var(--color-tuscan-yellow) 30%, transparen
 /* "Post your hours" nudge banner on the orientations dashboard */
 .pl-hours-nudge { padding: 0.9rem 1.5rem; margin-bottom: 1.5rem; border-left: 3px solid var(--color-tuscan-yellow); }
 .pl-hours-nudge a { color: var(--color-tuscan-yellow); }
+/* Orientations dashboard: the "Recorded by an Admin" table under the bookings table (issue #465). */
+.pl-orient-records { margin-top: 1.5rem; }
+.pl-orient-records__heading { margin: 0 0 0.75rem; }
+.pl-orient-records__empty { padding: 1.5rem 0.75rem; color: var(--hub-text-muted); }
+.pl-orient-records__note { font-size: 0.8125rem; }
 
 /* ============================================================
    Skills directory — filter bar, chips, commission badge, editor
@@ -4472,6 +4701,73 @@ mark { background: color-mix(in srgb, var(--color-tuscan-yellow) 30%, transparen
     gap: 0.5rem;
     margin-bottom: 0.75rem;
 }
+
+/* The photo hero. Without a photo `.pl-event-detail__hero` is an inert wrapper and the
+   card reads as it always has; `--photo` lifts the headline onto the picture, which needs
+   the negative margins to escape the card's 1.75rem padding and its own radius to match
+   the card's 10px corners. The text is forced white on both themes because it now sits on
+   a photograph, not on the card, and the gradient is what guarantees it stays readable
+   over a pale or busy one (there is no cropping or focal point here by design). */
+.pl-event-detail__hero--photo {
+    position: relative;
+    display: flex;
+    align-items: flex-end;
+    min-height: 240px;
+    margin: -1.75rem -1.75rem 1.25rem;
+    padding: 1.75rem;
+    border-radius: 10px 10px 0 0;
+    overflow: hidden;
+}
+
+.pl-event-detail__hero-img {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+}
+
+.pl-event-detail__hero-shade {
+    position: absolute;
+    inset: 0;
+    background: linear-gradient(to top, rgba(0, 0, 0, 0.85) 0%, rgba(0, 0, 0, 0.5) 45%, rgba(0, 0, 0, 0.12) 100%);
+}
+
+.pl-event-detail__hero--photo .pl-event-detail__hero-text {
+    position: relative;
+    width: 100%;
+}
+
+.pl-event-detail__hero--photo .pl-event-detail__title,
+.pl-event-detail__hero--photo .pl-event-detail__row,
+.pl-event-detail__hero--photo .pl-event-detail__type {
+    color: #fff;
+}
+
+.pl-event-detail__hero--photo .pl-event-detail__guild {
+    background: rgba(255, 255, 255, 0.16);
+    color: #fff;
+}
+
+.pl-event-detail__hero--photo .pl-event-detail__guild:hover {
+    background: rgba(255, 255, 255, 0.28);
+}
+
+.pl-event-detail__hero--photo .pl-event-detail__badge {
+    border-color: rgba(255, 255, 255, 0.45);
+    color: #fff;
+}
+
+.pl-event-detail__hero--photo .pl-event-detail__row:last-child {
+    margin-bottom: 0;
+}
+
+@media (max-width: 640px) {
+    .pl-event-detail__hero--photo {
+        min-height: 180px;
+    }
+}
+
 
 .pl-event-detail__guild {
     display: inline-block;
@@ -5072,11 +5368,31 @@ mark { background: color-mix(in srgb, var(--color-tuscan-yellow) 30%, transparen
     text-transform: capitalize;
     margin: 0 0 0.85rem;
 }
+/* Tuscan yellow is 1.8:1 on the white card; the light theme's darker gold keeps the accent at 4.7:1. */
+[data-theme="light"] .pl-compose-section__title { color: #9a6a00; }
 .pl-compose-section__note {
     color: var(--hub-text-muted);
     font-size: 0.875rem;
     margin: 0 0 1rem;
 }
+/* A heading inside a section, under the section title: the composer's Optional Date Window. */
+.pl-compose-section__subtitle {
+    font-size: 1rem;
+    font-weight: 600;
+    color: var(--hub-text);
+    margin: 1rem 0 0.5rem;
+}
+/* The step 3 blocks the scheduling model select swaps between (x-show, so no display here). */
+.pl-schedule-block { margin-top: 0.25rem; }
+/* A flexible class's window: the two day pickers side by side, one hint under the pair. */
+.pl-date-window {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 0 1rem;
+}
+.pl-date-window .pl-form-group { margin-bottom: 0.5rem; }
+@media (max-width: 560px) { .pl-date-window { grid-template-columns: 1fr; } }
+.pl-date-window__hint { margin: 0 0 1rem; }
 .pl-compose-hint {
     padding-top: 1rem;
     margin: 0;
@@ -5183,6 +5499,12 @@ mark { background: color-mix(in srgb, var(--color-tuscan-yellow) 30%, transparen
 }
 @media (max-width: 640px) {
     .pl-composer-count { display: block; }
+}
+/* The description's live count (issue #425): a second hint line under the description box. It is
+   rendered after form_field.html's group, outside it, so the group's 1rem bottom margin is pulled
+   back to the 0.375rem gap the group keeps between its own lines, and the 1rem is kept below. */
+.pl-composer .pl-composer-count-hint {
+    margin: -0.625rem 0 1rem;
 }
 /* Server rendered summary of every broken step, above the tabs; each row jumps to its step. */
 .pl-composer-errors {
@@ -5303,6 +5625,25 @@ mark { background: color-mix(in srgb, var(--color-tuscan-yellow) 30%, transparen
 .pl-submit-gate--end {
     align-items: flex-end;
     text-align: right;
+}
+/* The My Classes actions cell (#544): buttons right aligned, wrapping onto a second line
+   when the row is narrow, never nowrap, because the submit gate's reason lives here and
+   has to read as a sentence, not a sliver one word wide. */
+/* The flex layout sits on an inner wrapper, never on the <td>: a cell that is itself
+   display: flex leaves the table's column sizing and gets pushed past the frame. The gate
+   bends between 8rem and 11rem so the column fits beside five others at 1280px and the
+   reason still reads as a sentence. */
+.pl-class-list__actions-inner {
+    display: flex;
+    gap: 0.375rem;
+    justify-content: flex-end;
+    align-items: flex-start;
+    flex-wrap: wrap;
+}
+.pl-class-list__actions .pl-submit-gate {
+    flex: 1 1 8rem;
+    min-width: 8rem;
+    max-width: 11rem;
 }
 /* The sale modal body (classes/_components/sale_form.html). */
 .pl-sale-form__intro { margin: 0 0 1rem; }
@@ -5490,13 +5831,24 @@ mark { background: color-mix(in srgb, var(--color-tuscan-yellow) 30%, transparen
     .pl-wizard-actions .hub-btn { flex: 1 1 auto; }
 }
 
-/* Brand admin tab (Site Settings). Layout lives in a class, never inline on an
-   x-show element (Rule 12). */
-.pl-brand-tab {
+/* ── Site Settings tab panels ────────────────────────────────────────────────
+   The stacked layout of one x-show tab panel. This MUST be a class and never an
+   inline style="display:flex". Alpine's x-show reveals an element with
+   el.style.removeProperty('display'), which deletes an inline display:flex and
+   drops the panel back to display:block — silently taking `gap` with it, because
+   gap does nothing on a block box. Every section on the panel then sits flush
+   against the next one, which is exactly how the CMS tab shipped. Declared here,
+   the inline display:none that x-show writes still wins while hidden, and removing
+   it falls back to this flex box instead of to nothing.
+   ======================================================================== */
+.pl-settings-tab {
     display: flex;
     flex-direction: column;
     gap: 1.5rem;
 }
+
+/* The General tab's fields are single rows rather than sections, so they sit closer. */
+.pl-settings-tab--tight { gap: 1.25rem; }
 
 /* ── Slideshow admin page (/manage/slideshow/) ───────────────────────────────
    Editor UI for the signage slideshow. Renders under hub/base.html (hub.css +
@@ -7112,6 +7464,20 @@ mark { background: color-mix(in srgb, var(--color-tuscan-yellow) 30%, transparen
    --max, the container padding, or the grid gap ever move. */
 .pl-card-focus__frame--laptop { width: 263px; }
 .pl-card-focus__frame--phone { width: 342px; }
+/* While the host drags the crop box, every frame shows the box region cover fitted, exactly
+   what the saved copy will show (issue #547). card_focus.js render() writes the four numbers
+   as custom properties on the frame's .cls-media wrapper (the img's style attribute belongs to
+   Alpine's object-position binding, which rewrites it on every slider move); this class turns
+   them into a positioned, oversized img that the wrapper's overflow:hidden crops to the box.
+   Compound on purpose: both frame roots carry cp-page and pl-card-focus on one element. */
+.cp-page.pl-card-focus .pl-card-focus__img--boxed {
+  position: absolute;
+  max-width: none;
+  width: var(--pl-boxed-w);
+  height: var(--pl-boxed-h);
+  left: var(--pl-boxed-left);
+  top: var(--pl-boxed-top);
+}
 .pl-card-focus__frame-label {
     font-size: 0.6875rem;
     font-weight: 700;
@@ -8806,6 +9172,38 @@ mark { background: color-mix(in srgb, var(--color-tuscan-yellow) 30%, transparen
 .pl-equip-guild-toggle {
     display: block;
 }
+/* The guild-owned "Create a new ... orientation type" link tucks under the picker's hint. */
+.pl-equip-guild-type-link {
+    margin-top: -0.5rem;
+}
+/* The "New orientation for this equipment" fields under the Required orientation picker
+   (#466): an inset panel Alpine reveals with x-show, so display lives here (rule 12). */
+.pl-equip-new-type {
+    display: block;
+    margin-bottom: 1rem;
+    padding: 1rem;
+    background: var(--hub-surface);
+    border-radius: 10px;
+}
+.pl-equip-new-type__title {
+    margin: 0 0 0.25rem;
+    font-size: 0.9375rem;
+    font-weight: 600;
+}
+.pl-equip-new-type__hint {
+    margin: 0 0 1rem;
+    font-size: 0.8125rem;
+    color: var(--hub-text-muted);
+}
+.pl-equip-new-type__fields {
+    display: flex;
+    gap: 0.75rem;
+    flex-wrap: wrap;
+}
+.pl-equip-new-type__field {
+    flex: 1;
+    min-width: 110px;
+}
 .pl-equip-staff-list {
     display: flex;
     flex-direction: column;
@@ -8847,6 +9245,11 @@ mark { background: color-mix(in srgb, var(--color-tuscan-yellow) 30%, transparen
     outline: 2px solid var(--color-tuscan-yellow);
     outline-offset: 6px;
     border-radius: 8px;
+}
+/* "Recorded on <date>." under the done line when an admin recorded the orientation (issue #465). */
+.pl-orient-recorded {
+    margin: 0.25rem 0 0;
+    font-size: 0.85rem;
 }
 
 @media (max-width: 768px) {
@@ -9128,6 +9531,10 @@ mark { background: color-mix(in srgb, var(--color-tuscan-yellow) 30%, transparen
     margin: 0.5rem 0 0;
     font-size: 0.8125rem;
 }
+.pl-equip-book-note {
+    margin: 0.75rem 0 0;
+    font-size: 0.8125rem;
+}
 /* An Upcoming Slots row sitting under a confirmed reservation: muted, never offered to members. */
 .pl-equip-res-row--blocked {
     opacity: 0.65;
@@ -9136,6 +9543,120 @@ mark { background: color-mix(in srgb, var(--color-tuscan-yellow) 30%, transparen
     display: block;
     color: var(--hub-text-muted);
     font-size: 0.8125rem;
+}
+
+/* Late cancellation fees (#456): the block-until-paid notice on the guild and equipment
+   pages (sentence + Pay button on one line, wrapping on phones), and the fee's own card on
+   its page and the Stripe landing. Theme tokens only. */
+.pl-late-fee-notice {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.5rem 1rem;
+    flex-wrap: wrap;
+    margin: 0 0 0.75rem;
+}
+.pl-late-fee-notice__text {
+    margin: 0;
+    font-size: 0.95rem;
+    color: var(--hub-text);
+}
+.pl-late-fee-notice__form {
+    margin: 0;
+}
+.pl-equip-banner .pl-late-fee-notice {
+    margin: 0;
+}
+.pl-late-fee-card__facts {
+    display: flex;
+    flex-direction: column;
+    gap: 0.75rem;
+    margin: 0 0 1.5rem;
+}
+.pl-late-fee-card__fact {
+    display: flex;
+    gap: 1rem;
+    align-items: baseline;
+}
+.pl-late-fee-card__label {
+    flex: 0 0 5rem;
+    margin: 0;
+    font-size: 0.75rem;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: var(--hub-text-muted);
+}
+.pl-late-fee-card__value {
+    margin: 0;
+    font-size: 0.95rem;
+    color: var(--hub-text);
+}
+.pl-late-fee-card__pay {
+    margin: 0 0 1.5rem;
+}
+.pl-late-fee-card__actions {
+    display: flex;
+    gap: 0.75rem;
+    flex-wrap: wrap;
+}
+/* Part 3: the staff-facing fee card on the orientation respond page, the fee list on the
+   equipment manage Reservations tab, and the Waive modal body. Theme tokens only. */
+.pl-late-fee-panel {
+    padding: 1.5rem;
+    margin-bottom: 1.5rem;
+}
+.pl-late-fee-panel__title {
+    margin: 0 0 0.75rem;
+}
+.pl-late-fee-panel__line {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    flex-wrap: wrap;
+    margin: 0 0 0.25rem;
+}
+.pl-late-fee-panel__amount {
+    font-size: 1.05rem;
+    font-weight: 700;
+    color: var(--hub-text);
+}
+.pl-late-fee-panel__meta {
+    margin: 0 0 0.75rem;
+}
+.pl-late-fee-panel__empty {
+    margin: 0;
+}
+.pl-late-fee-list {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+}
+.pl-late-fee-row {
+    display: grid;
+    grid-template-columns: minmax(0, 1.2fr) minmax(0, 2fr) auto auto auto;
+    gap: 0.5rem 1rem;
+    align-items: center;
+    padding: 0.5rem 0.75rem;
+    background: var(--hub-surface);
+    border-radius: 6px;
+}
+.pl-late-fee-row__amount {
+    font-weight: 700;
+    white-space: nowrap;
+}
+.pl-late-fee-row__action {
+    justify-self: end;
+}
+@media (max-width: 720px) {
+    .pl-late-fee-row {
+        grid-template-columns: 1fr;
+    }
+    .pl-late-fee-row__action {
+        justify-self: start;
+    }
+}
+.pl-late-fee-waive__lead {
+    margin: 0 0 1rem;
 }
 
 /* ========================================
@@ -9455,6 +9976,14 @@ mark { background: color-mix(in srgb, var(--color-tuscan-yellow) 30%, transparen
     font-weight: 400;
 }
 
+/* The roster's Show cancelled toggle, above the Registrations table. Colour comes
+   from the hub-btn variants, so it follows both themes with nothing to override. */
+.pl-roster-filter {
+    display: flex;
+    justify-content: flex-end;
+    margin-bottom: 0.5rem;
+}
+
 /* Registrant self-serve page after a class cancel. */
 .pl-class-cancelled {
     padding: 0.9rem 1rem;
@@ -9469,6 +9998,13 @@ mark { background: color-mix(in srgb, var(--color-tuscan-yellow) 30%, transparen
 .pl-queue-note {
     font-size: 0.8rem;
     color: var(--hub-text-muted);
+}
+
+/* "Contact them at 503 555 0100 (text message)" on an Interested in Teaching row: the one
+   line the admin acts on, so it keeps the full text colour between the two muted lines. */
+.pl-queue-contact {
+    font-size: 0.85rem;
+    color: var(--hub-text);
 }
 
 /* Home page Teaching card (class-lifecycle spec PR 2): single-line rows that wrap on phones. */
@@ -10276,4 +10812,96 @@ mark { background: color-mix(in srgb, var(--color-tuscan-yellow) 30%, transparen
     font-size: 0.85rem;
     line-height: 1.5;
     color: var(--hub-text-muted);
+}
+
+/* ========================================
+   One Class Screen (issue #399)
+   ========================================
+   The per-class management screen — one page per class, one tab strip, whichever of the
+   four viewer roles is looking at it. Header, the meta line under the title, the "why you
+   are seeing this" note a guild lead gets, and the action row under the page. Every rule
+   here is new markup this feature introduces; nothing above it changes. */
+.pl-class-header { display:flex; justify-content:space-between; align-items:flex-start; gap:1rem; flex-wrap:wrap; margin-bottom:0.75rem; }
+.pl-class-header__main { min-width: 0; }
+.pl-class-header__title { margin: 0 0 0.35rem; }
+.pl-class-header__badges { display:flex; gap:0.4rem; flex-wrap:wrap; align-items:center; }
+.pl-class-header__actions { display:flex; gap:0.5rem; flex-wrap:wrap; }
+.pl-class-header--center { align-items: center; }
+/* The one-line "what this page is for" beside a portal <h1>, where a page_header block used
+   to sit one line underneath it and make two headings for one page. */
+.pl-class-header__lead { margin: 0.25rem 0 0; max-width: 65ch; color: var(--hub-text-muted); font-size: 0.9rem; }
+.pl-class-header--tight { margin-bottom: 0.5rem; }
+
+.pl-class-meta { display:flex; flex-wrap:wrap; gap:0.25rem 0.9rem; margin:0.5rem 0 0; color:var(--hub-text-muted); font-size:0.85rem; }
+.pl-class-meta__item { white-space: nowrap; }
+.pl-class-meta__item:not(:last-child)::after { content:" ·"; opacity:0.55; }
+
+.pl-class-context { display:flex; gap:0.6rem; align-items:flex-start; background:var(--hub-surface); border-left:3px solid var(--hub-blue); border-radius:6px; padding:0.7rem 0.9rem; margin:0 0 1.25rem; color:var(--hub-text-muted); font-size:0.875rem; line-height:1.5; }
+.pl-class-context__icon { flex:0 0 auto; color:var(--hub-blue); margin-top:1px; }
+.pl-class-context strong { color:var(--hub-text); font-weight:600; }
+
+.pl-class-actions { display:flex; gap:0.375rem; flex-wrap:wrap; align-items:center; margin-top:1.5rem; }
+.pl-class-actions__break { flex-basis:100%; height:0; margin:0.4rem 0 0.15rem; border-top:1px solid var(--hub-border); }
+@media (max-width: 600px) {
+    .pl-class-actions { display:grid; grid-template-columns:1fr 1fr; gap:0.5rem; }
+    .pl-class-actions .hub-btn { width:100%; text-align:center; justify-content:center; }
+    .pl-class-actions__break { grid-column:1 / -1; margin:0.25rem 0; }
+    .pl-class-header__actions { width:100%; }
+    .pl-class-header__actions .hub-btn { flex:1 1 auto; text-align:center; }
+}
+
+/* One row of a Needs Attention group: what needs doing on the left, the buttons that do
+   it on the right, stacking to full-width buttons on a phone. */
+.pl-attention-row { display:flex; justify-content:space-between; align-items:center; gap:0.5rem; padding:0.5rem 0; border-bottom:1px solid var(--hub-border); flex-wrap:wrap; }
+.pl-attention-row:last-child { border-bottom: none; }
+.pl-attention-row__main { display:flex; flex-direction:column; gap:2px; min-width:0; }
+.pl-attention-row__sub { color:var(--hub-text-muted); font-size:0.85rem; }
+.pl-attention-row__actions { display:flex; gap:6px; flex-wrap:wrap; }
+.pl-attention-group__hint { color:var(--hub-text-muted); margin:0 0 0.6rem; font-size:0.9rem; }
+@media (max-width: 600px) {
+    .pl-attention-row { flex-direction:column; align-items:stretch; }
+    .pl-attention-row__actions .hub-btn { flex:1 1 auto; text-align:center; }
+}
+
+.pl-guild-attention { margin: 0 0 1.25rem; }
+
+/* Site Settings → Features (#405). Same card language as the Automations tab beside it, but
+   three columns rather than five: a feature has a name, a state, and a message — no schedule,
+   no last run, nothing to run now. */
+.pl-automation-card--feature {
+    /* Two rows, not one: the "what off does" line is a sentence, and squeezing it into a
+       third of a 760px form turned every card into a six-line wrap. Name and description take
+       the full width; the state control and the message input share the row beneath. */
+    grid-template-columns: auto minmax(0, 1fr);
+    align-items: center;
+    row-gap: 0.75rem;
+}
+.pl-automation-card--feature .pl-automation-main { grid-column: 1 / -1; }
+/* Django's RadioSelect renders a wrapping <div> with one <div> per choice (it stopped using
+   <ul>/<li> in 4.0), so lay the choices out on that structure, not on a list. */
+.pl-feature-states > div { display: flex; gap: 0.75rem; flex-wrap: wrap; }
+.pl-feature-states > div > div { margin: 0; }
+.pl-feature-states label {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.35rem;
+    font-size: 0.8125rem;
+    color: var(--hub-text);
+    cursor: pointer;
+    white-space: nowrap;
+}
+.pl-feature-message input[type="text"] {
+    width: 100%;
+    padding: 0.4rem 0.55rem;
+    font-size: 0.8125rem;
+    color: var(--hub-text);
+    background: var(--hub-input-bg, var(--hub-card-bg));
+    border: 1px solid var(--hub-input-border);
+    border-radius: 6px;
+}
+
+@media (max-width: 768px) {
+    /* The five-column automation grid already stacks here; the feature card must too, or the
+       message input is squeezed to nothing on a phone. */
+    .pl-automation-card--feature { grid-template-columns: minmax(0, 1fr); }
 }

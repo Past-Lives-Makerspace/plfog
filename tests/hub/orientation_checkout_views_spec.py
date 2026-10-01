@@ -133,6 +133,32 @@ def describe_orientation_checkout_return():
         assert "We sent your request to the folks who run it" in content
         assert "Watch for them to confirm your spot" in content
 
+    def it_answers_a_history_restore_with_the_whole_page_not_the_card(client: Client):
+        """A Back onto this URL must not swap a bare fragment in place of the page.
+
+        The hub keeps no htmx history cache (issue #383), so Back misses and htmx refetches
+        the page. That refetch carries ``HX-Request`` but no ``HX-Boosted``, which is the
+        same shape the polling card uses, so ``HX-Request`` alone cannot tell them apart.
+        Stripe lands the member here, which is what makes this the one fragment branch a
+        restore can actually reach: every other one is ``@require_POST`` and a restore is a
+        GET.
+        """
+        user = _user("ret_restore")
+        booking = OrientationBookingFactory(
+            slot=_paid_slot(), member=user.member, amount_paid_cents=1500, stripe_payment_id="pi_restore"
+        )
+        client.login(username="ret_restore", password="pass")
+        url = reverse("hub_orientation_checkout_return", args=[orientations.make_checkout_token(booking)])
+
+        restored = client.get(url, HTTP_HX_REQUEST="true", HTTP_HX_HISTORY_RESTORE_REQUEST="true")
+        assert restored.status_code == 200
+        assert "<!DOCTYPE html" in restored.content.decode(), "a restore must get the whole document"
+
+        # The poll itself is unchanged: same headers minus the restore marker, still a card.
+        polled = client.get(url, HTTP_HX_REQUEST="true")
+        assert polled.status_code == 200
+        assert "<!DOCTYPE html" not in polled.content.decode(), "the poll must still get just the card"
+
     def it_names_the_orienter_in_the_requested_confirmation(client: Client):
         user = _user("ret_named")
         settings_obj = GuildOrientationSettingsFactory()

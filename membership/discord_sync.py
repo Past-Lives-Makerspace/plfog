@@ -32,7 +32,7 @@ from django.conf import settings
 from django.urls import reverse
 
 from core.events import discord_dm, discord_reactions, discord_roles
-from core.events.discord_dm import bot_token
+from core.events.discord_dm import bot_disabled
 from core.events.discord_oauth import DiscordOAuthError, exchange_code, fetch_identity, resolve_member_from_code
 from core.events.senders import emit_with_email_shell
 
@@ -101,7 +101,7 @@ def _reconcile_config() -> tuple[str, str, str] | None:
     """
     from core.models import SiteConfiguration
 
-    if not bot_token():
+    if bot_disabled("reaction reconcile"):
         return None
     config = SiteConfiguration.load()
     server_id = (config.discord_server_id or "").strip()

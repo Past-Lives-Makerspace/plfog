@@ -24,6 +24,7 @@ from membership.models import (
     OrientationBooking,
     OrientationSlot,
     OrientationType,
+    OrientationRecord,
 )
 from tests.membership.factories import (
     EquipmentFactory,
@@ -37,6 +38,7 @@ from tests.membership.factories import (
     OrientationBookingFactory,
     OrientationSlotFactory,
     OrientationTypeFactory,
+    OrientationRecordFactory,
 )
 
 pytestmark = pytest.mark.django_db
@@ -180,6 +182,20 @@ def describe_orientation_types_save():
         assert response.status_code == 200
         assert b"booking history" in response.content
         assert OrientationType.objects.filter(pk=orientation_type.pk).exists()
+
+    def it_blocks_deleting_a_type_with_recorded_history(client: Client):
+        equipment = EquipmentFactory()
+        _manager_login(client, "ot_del_record", equipment)
+        orientation_type = _owned_type(equipment)
+        record = OrientationRecordFactory(orientation_type=orientation_type)
+        data = _types_data([{"name": orientation_type.name}], initial=1)
+        data["otypes-0-id"] = str(orientation_type.pk)
+        data["otypes-0-DELETE"] = "on"
+        response = client.post(reverse("hub_equipment_orientation_types_save", args=[equipment.slug]), data)
+        assert response.status_code == 200
+        assert b"recorded history" in response.content
+        assert OrientationType.objects.filter(pk=orientation_type.pk).exists()
+        assert OrientationRecord.objects.filter(pk=record.pk).exists()
 
     def it_blocks_deleting_a_type_some_equipment_requires(client: Client):
         equipment = EquipmentFactory(name="CNC Router")
@@ -561,12 +577,42 @@ def describe_orientation_schedule_card():
         assert "Orientation Schedule" in content
         assert "Everyone who manages this equipment, and when they give orientations." in content
         assert "Dana Reyes" in content
-        assert "Operator Basics · Saturday · 10:00 a.m. to 6:00 p.m. · 1 seat · 60 min slots" in content
+        assert "Operator Basics · Every Saturday · 10:00 a.m. to 6:00 p.m. · 1 seat · 60 min slots" in content
         assert "No hours published" in content  # the quiet manager's group
         assert 'id="edit-hours-modal-body"' in content  # the shared Edit Hours modal shell, loaded per scope
         assert content.count(_hours_form_url(equipment, dana.member)) == 1
         assert response.context["can_edit_others_hours"] is True
         assert "pl-orient-days" not in content
+
+    def it_reads_every_other_tuesday_for_a_fortnightly_rule(client: Client):
+        equipment = EquipmentFactory()
+        orientation_type = _owned_type(equipment)
+        dana = _named_manager(client, "sc_fortnight_dana", equipment, "Dana Reyes")
+        _login(client, "sc_fortnight", fog_role=Member.FogRole.ADMIN)
+        _personal_rule(
+            orientation_type,
+            dana.member,
+            weekday=1,
+            cadence=OrientationAvailability.Cadence.FORTNIGHTLY,
+            anchor_date=date(2026, 9, 22),
+        )
+        content = _tab(client, equipment).content.decode()
+        assert "Operator Basics · Every other Tuesday · 6:00 p.m. to 8:00 p.m. · 1 seat" in content
+
+    def it_reads_every_month_on_the_2nd_tuesday_for_a_monthly_rule(client: Client):
+        equipment = EquipmentFactory()
+        orientation_type = _owned_type(equipment)
+        dana = _named_manager(client, "sc_monthly_dana", equipment, "Dana Reyes")
+        _login(client, "sc_monthly", fog_role=Member.FogRole.ADMIN)
+        _personal_rule(
+            orientation_type,
+            dana.member,
+            weekday=1,
+            cadence=OrientationAvailability.Cadence.MONTHLY,
+            anchor_date=date(2026, 9, 8),
+        )
+        content = _tab(client, equipment).content.decode()
+        assert "Operator Basics · Every month on the 2nd Tuesday · 6:00 p.m. to 8:00 p.m. · 1 seat" in content
 
     def it_shows_a_plain_manager_only_their_own_group(client: Client):
         equipment = EquipmentFactory()
@@ -684,6 +730,52 @@ def describe_orientation_hours_form_view():
         assert "Whole window" in content
         assert "+ Add hours" in content
         assert _hours_save_url(equipment) in content
+
+    def it_renders_the_every_other_week_fields_in_the_modal(client: Client):
+        equipment = EquipmentFactory()
+        _owned_type(equipment)
+        me = _named_manager(client, "hf_fortnight", equipment, "Dana Reyes")
+        content = client.get(_hours_form_url(equipment, me.member)).content.decode()
+        assert 'name="modal_rules-__prefix__-cadence"' in content
+        assert "Every other week" in content
+        assert "Every month" in content
+        assert "Starting on" in content
+        assert 'name="modal_rules-__prefix__-anchor_date"' in content
+        assert "pl-slot-date" in content
+
+    def it_saves_an_every_other_week_rule_for_a_manager(client: Client):
+        equipment = EquipmentFactory()
+        orientation_type = _owned_type(equipment)
+        me = _named_manager(client, "hf_fortnight_save", equipment, "Dana Reyes")
+        row = _rule_row(orientation_type, weekday=1, cadence="fortnightly", anchor_date="2026-09-22")
+        response = client.post(
+            _hours_save_url(equipment), _modal_rules([row], scope=str(me.member.pk)), HTTP_HX_REQUEST="true"
+        )
+        assert response.status_code == 204
+        rule = OrientationAvailability.objects.get(orienter=me.member)
+        assert rule.cadence == OrientationAvailability.Cadence.FORTNIGHTLY
+        assert rule.anchor_date == date(2026, 9, 22)
+
+    def it_saves_a_weekly_rule_with_a_start_date_and_generates_nothing_before_it(client: Client):
+        # Issue 492, the equipment side of the same floor.
+        equipment = EquipmentFactory()
+        orientation_type = _owned_type(equipment)
+        me = _named_manager(client, "hf_weekly_start", equipment, "Dana Reyes")
+        today = timezone.localdate()
+        starts = today + timedelta(days=(1 - today.weekday()) % 7 + 14)  # a Tuesday two weeks out
+        row = _rule_row(orientation_type, weekday=1, cadence="weekly", anchor_date=starts.isoformat())
+        response = client.post(
+            _hours_save_url(equipment), _modal_rules([row], scope=str(me.member.pk)), HTTP_HX_REQUEST="true"
+        )
+        assert response.status_code == 204
+        rule = OrientationAvailability.objects.get(orienter=me.member)
+        assert rule.cadence == OrientationAvailability.Cadence.WEEKLY
+        assert rule.anchor_date == starts
+        slot_days = [timezone.localtime(slot.starts_at).date() for slot in rule.slots.order_by("starts_at")]
+        assert slot_days  # the rule does generate, just not yet
+        assert slot_days[0] == starts
+        content = _tab(client, equipment).content.decode()
+        assert f"· Every Tuesday from {starts:%b} {starts.day} ·" in content
 
     def it_403s_a_plain_manager_opening_someone_elses_or_the_shared_scope(client: Client):
         equipment = EquipmentFactory()

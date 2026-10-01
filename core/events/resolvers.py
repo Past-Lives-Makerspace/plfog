@@ -4,10 +4,9 @@ Each resolver maps an event's ``context`` to ``[(User, reason)]`` where ``reason
 records the role / why (used by templates and digests). This is the single tested
 home that replaces the ~25 ad-hoc recipient resolutions across the app.
 
-Phase-1 invariant: these are NEW, additively. Nothing here is called from an
-existing send site yet — they are wired into :func:`core.events.emit.emit` and
-unit-tested. The legacy ad-hoc resolvers (``classes/emails._admin_recipients`` &
-friends) stay in place until the migration phase.
+Every send site reaches these through :func:`core.events.emit.emit`, which asks the
+event's resolver who to reach and then each person's own switches (#524 retired the
+last fixed staff address lists: ``classes.emails._admin_recipients`` and friends).
 
 Members are mapped to Users via :func:`_member_user`, which returns the linked
 ``User`` only when it carries a usable email — members without a usable account or
@@ -97,8 +96,8 @@ def fog_admins(context: dict[str, Any]) -> list[Recipient]:
 
     = every Member with the Admin FOG role, unioned with any addresses configured
     via ``CLASS_ADMIN_NOTIFY_EMAILS`` (mapped to their owning User where one
-    exists). Mirrors today's ``classes.emails._admin_recipients`` but typed and
-    User-based. Guild leads do NOT get global admin mail (Decision 2).
+    exists). An address with no account is dropped: it has no switches to obey.
+    Guild leads do NOT get global admin mail (Decision 2).
     """
     from allauth.account.models import EmailAddress
     from django.contrib.auth.models import User
@@ -127,9 +126,9 @@ def guild_leadership(context: dict[str, Any]) -> list[Recipient]:
 
     Used for both email and in-app (fixes the orientation asymmetry, audit-D §3).
     Reuses :meth:`membership.models.Guild.leadership_members`. An explicit ``None``
-    guild (a lead-less category whose review routes to admins by email only) resolves
-    to no per-user recipient — the email goes to an explicit ``email_to`` address set —
-    while a missing ``guild`` key still fails loudly (a programming error).
+    guild resolves to nobody (the composed resolvers route that case elsewhere, e.g. a
+    lead-less class review goes to the CMS Administrators), while a missing ``guild``
+    key still fails loudly (a programming error).
     """
     guild: Guild | None = _require(context, "guild")
     if guild is None:
@@ -312,18 +311,27 @@ def guild_members(context: dict[str, Any]) -> list[Recipient]:
 
 
 def guild_orienters_or_equipment_managers(context: dict[str, Any]) -> list[Recipient]:
-    """COMPOSITION — the equipment's managers when ``equipment`` is in context, else the guild's orienters.
+    """COMPOSITION — who hears about an orientation request, for either owner type.
 
-    The ``orientation_requested`` audience for both owner types (the
-    ``guild_leadership_or_class_approvers`` precedent — composition, never a
-    union): an equipment-owned request routes to :func:`equipment_managers`
-    (the three tiers, tagged and deduped); a guild-owned request keeps the
-    orienter fan-out with its personal-slot narrowing byte-identical. A context
-    carrying neither key fails loudly in the delegated resolver.
+    The one ``orientation_requested`` audience, for the email and the bell alike (the
+    ``guild_leadership_or_class_approvers`` precedent — composition, never a union):
+
+    * equipment-owned: :func:`equipment_managers` (the three tiers, with its own
+      personal-slot narrowing);
+    * a guild's personal slot: :func:`guild_orienters`, which narrows to the orienter
+      the member booked plus the guild lead;
+    * a guild's shared slot: :func:`guild_leadership`, the whole team (lead, co-leads,
+      secretaries, treasurers, orienters), because any of them can confirm it.
+
+    ``guild_orienters`` itself stays lead-plus-orienters for its other callers. A context
+    carrying neither ``equipment`` nor ``guild`` fails loudly in the delegated resolver.
     """
     if context.get("equipment") is not None:
         return equipment_managers(context)
-    return guild_orienters(context)
+    slot = context.get("slot")
+    if slot is not None and slot.orienter_id is not None:
+        return guild_orienters(context)
+    return guild_leadership(context)
 
 
 def guild_orienters(context: dict[str, Any]) -> list[Recipient]:
@@ -543,7 +551,7 @@ def all_guild_leads(context: dict[str, Any]) -> list[Recipient]:
 def event_audience(context: dict[str, Any]) -> list[Recipient]:
     """The launch-announcement audience for a community event, by scope.
 
-    Mirrors ``CommunityEvent._ANNOUNCE_EVENT``: a guild event → the guild's members;
+    Mirrors ``CommunityEvent.announce_event_key``: a guild event → the guild's members;
     a leadership meeting → all guild leads; any other site-wide event → all active
     members. Composes the three existing resolvers (like :func:`guild_leadership_or_admins`),
     so one ``event.reminder`` / ``event.happening_now`` key serves all three scopes.

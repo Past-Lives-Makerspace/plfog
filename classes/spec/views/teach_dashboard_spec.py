@@ -2,18 +2,21 @@
 
 from __future__ import annotations
 
-from datetime import timedelta
+import re
+from datetime import datetime, timedelta, timezone as dt_timezone
 from io import BytesIO
 
 import pytest
 from django.core.files.uploadedfile import SimpleUploadedFile
 from django.urls import reverse
 from django.utils import timezone
+from PIL import Image
 
 from classes.factories import (
     READY_DESCRIPTION,
     CategoryFactory,
     ClassOfferingFactory,
+    ClassSessionFactory,
     InstructorFactory,
     RegistrationFactory,
     UserFactory,
@@ -23,7 +26,9 @@ from membership.models import Member
 
 
 def _image_file(name: str = "shot.png") -> SimpleUploadedFile:
-    buf = BytesIO(b"\x89PNG\r\n\x1a\n" + b"\x00" * 64)
+    # A real PNG: the gallery refuses bytes Pillow cannot open (#498).
+    buf = BytesIO()
+    Image.new("RGB", (8, 8)).save(buf, "PNG")
     return SimpleUploadedFile(name, buf.getvalue(), content_type="image/png")
 
 
@@ -61,7 +66,7 @@ def describe_instructor_access_gate():
 
     def it_blocks_inactive_instructor(db, client):
         user = UserFactory(username="inactive@example.com")
-        InstructorFactory(user=user, status=Member.Status.FORMER)
+        InstructorFactory(user=user, status=Member.Status.INVITED)
         client.force_login(user)
         response = client.get(reverse("classes:teach_dashboard"))
         assert response.status_code == 403
@@ -106,7 +111,6 @@ def describe_instructor_create_class():
                 "safety_requirements": "",
                 "age_guardian_note": "",
                 "price_cents": 5000,
-                "member_discount_pct": 10,
                 "capacity": 6,
                 "scheduling_model": "fixed",
                 "sale_kind": "percent",
@@ -151,7 +155,6 @@ def describe_instructor_create_class():
                 "safety_requirements": "",
                 "age_guardian_note": "",
                 "price_cents": 5000,
-                "member_discount_pct": 10,
                 "capacity": 6,
                 "scheduling_model": "flexible",
                 "sale_kind": "percent",
@@ -195,7 +198,6 @@ def describe_instructor_create_class():
                 "safety_requirements": "",
                 "age_guardian_note": "",
                 "price_cents": 5000,
-                "member_discount_pct": 10,
                 "capacity": 6,
                 "scheduling_model": "fixed",
                 "sale_kind": "percent",
@@ -222,6 +224,68 @@ def describe_instructor_create_class():
         offering = ClassOffering.objects.get(title="Gallery Class")
         assert ClassImage.objects.filter(class_offering=offering).count() == 2
 
+    def it_refuses_a_gallery_file_that_is_not_an_image_and_saves_nothing(instructor_fixture, client):
+        from django.core.files.storage import default_storage
+
+        from classes.models import CLASS_IMAGE_PREFIX
+
+        def stored() -> set[str]:
+            try:
+                return set(default_storage.listdir(CLASS_IMAGE_PREFIX)[1])
+            except FileNotFoundError:
+                return set()
+
+        # A hero no other spec uploads, so its content-addressed key is new to storage.
+        buf = BytesIO()
+        Image.new("RGB", (8, 8), (201, 17, 88)).save(buf, "PNG")
+        hero = SimpleUploadedFile("hero.png", buf.getvalue(), content_type="image/png")
+        before = stored()
+        cat = CategoryFactory()
+        client.force_login(instructor_fixture.user)
+        response = client.post(
+            reverse("classes:teach_class_create"),
+            {
+                "title": "Gallery Class",
+                "category": cat.pk,
+                "description": "d",
+                "prerequisites": "",
+                "materials_included": "",
+                "materials_to_bring": "",
+                "safety_requirements": "",
+                "age_guardian_note": "",
+                "price_cents": 5000,
+                "capacity": 6,
+                "scheduling_model": "fixed",
+                "sale_kind": "percent",
+                "scheduling_type": "single_session",
+                "flexible_note": "",
+                "recurring_pattern": "",
+                "sessions-TOTAL_FORMS": "0",
+                "sessions-INITIAL_FORMS": "0",
+                "sessions-MIN_NUM_FORMS": "0",
+                "sessions-MAX_NUM_FORMS": "1000",
+                "faq-TOTAL_FORMS": "0",
+                "faq-INITIAL_FORMS": "0",
+                "faq-MIN_NUM_FORMS": "0",
+                "faq-MAX_NUM_FORMS": "1000",
+                "images-TOTAL_FORMS": "0",
+                "images-INITIAL_FORMS": "0",
+                "images-MIN_NUM_FORMS": "0",
+                "images-MAX_NUM_FORMS": "1000",
+                "action": "save",
+                "image": hero,
+                "gallery_images": [
+                    _image_file("x.png"),
+                    SimpleUploadedFile("y.png", b"notes", content_type="image/png"),
+                ],
+            },
+        )
+        assert response.status_code == 200
+        assert "not a photo we can open" in response.content.decode()
+        assert not ClassOffering.objects.filter(title="Gallery Class").exists()
+        assert not ClassImage.objects.exists()
+        assert stored() == before  # the hero form.save() wrote is removed with the row
+
     def it_date_stamps_the_slug_from_the_first_session(instructor_fixture, client):
         cat = CategoryFactory()
         client.force_login(instructor_fixture.user)
@@ -237,7 +301,6 @@ def describe_instructor_create_class():
                 "safety_requirements": "",
                 "age_guardian_note": "",
                 "price_cents": 5000,
-                "member_discount_pct": 10,
                 "capacity": 6,
                 "scheduling_model": "fixed",
                 "sale_kind": "percent",
@@ -392,7 +455,6 @@ def describe_instructor_class_edit_post():
                 "safety_requirements": "",
                 "age_guardian_note": "",
                 "price_cents": 3000,
-                "member_discount_pct": 0,
                 "capacity": 8,
                 "scheduling_model": "fixed",
                 "sale_kind": "percent",
@@ -445,7 +507,6 @@ def describe_instructor_class_edit_post():
                 "safety_requirements": "",
                 "age_guardian_note": "",
                 "price_cents": mine.price_cents,
-                "member_discount_pct": mine.member_discount_pct,
                 "capacity": mine.capacity,
                 "scheduling_model": "fixed",
                 "sale_kind": "percent",
@@ -558,3 +619,204 @@ def describe_instructor_required_admin_without_instructor():
         client.force_login(admin_user)
         response = client.get(reverse("classes:teach_dashboard"))
         assert response.status_code == 200
+
+
+# ---------------------------------------------------------------------------
+# My Classes: sortable headers, the Date(s) column, facet and sort together, pagination (#544)
+# ---------------------------------------------------------------------------
+
+
+def _rows(client, query: str = "") -> list[str]:
+    response = client.get(reverse("classes:teach_dashboard") + query)
+    assert response.status_code == 200
+    return [c.slug for c in response.context["page"]]
+
+
+def _lean(instructor, **kwargs) -> ClassOffering:
+    """A class with no hero and no gallery photo: the list reads neither, and a page of 26 adds up."""
+    return ClassOfferingFactory(instructor=instructor, image="", gallery=0, **kwargs)
+
+
+def _dated(instructor) -> None:
+    """Three classes: one dated early, one late, one with no sessions at all."""
+    now = timezone.now()
+    early = _lean(instructor, title="Early", slug="sort-early")
+    ClassSessionFactory(class_offering=early, starts_at=now + timedelta(days=1))
+    late = _lean(instructor, title="Late", slug="sort-late")
+    ClassSessionFactory(class_offering=late, starts_at=now + timedelta(days=30))
+    _lean(instructor, title="Undated", slug="sort-undated")
+
+
+def describe_instructor_list_sorting():
+    def it_lists_newest_created_first_by_default(instructor_fixture, client):
+        _lean(instructor_fixture, slug="first-made")
+        _lean(instructor_fixture, slug="second-made")
+        client.force_login(instructor_fixture.user)
+        assert _rows(client) == ["second-made", "first-made"]
+
+    def it_sorts_by_title_both_ways(instructor_fixture, client):
+        _lean(instructor_fixture, title="Bravo", slug="bravo")
+        _lean(instructor_fixture, title="Alpha", slug="alpha")
+        client.force_login(instructor_fixture.user)
+        assert _rows(client, "?sort=title&dir=asc") == ["alpha", "bravo"]
+        assert _rows(client, "?sort=title&dir=desc") == ["bravo", "alpha"]
+
+    def it_sorts_by_guild_type(instructor_fixture, client):
+        _lean(instructor_fixture, slug="wood", category=CategoryFactory(name="Woodshop"))
+        _lean(instructor_fixture, slug="metal", category=CategoryFactory(name="Metalshop"))
+        client.force_login(instructor_fixture.user)
+        assert _rows(client, "?sort=category__name&dir=asc") == ["metal", "wood"]
+        assert _rows(client, "?sort=category__name&dir=desc") == ["wood", "metal"]
+
+    def it_sorts_by_first_session_with_undated_classes_last_either_way(instructor_fixture, client):
+        _dated(instructor_fixture)
+        client.force_login(instructor_fixture.user)
+        assert _rows(client, "?sort=first_session&dir=asc") == ["sort-early", "sort-late", "sort-undated"]
+        assert _rows(client, "?sort=first_session&dir=desc") == ["sort-late", "sort-early", "sort-undated"]
+
+    def it_sorts_by_status(instructor_fixture, client):
+        _lean(instructor_fixture, slug="live", status=ClassOffering.Status.PUBLISHED)
+        _lean(instructor_fixture, slug="draft", status=ClassOffering.Status.DRAFT)
+        client.force_login(instructor_fixture.user)
+        assert _rows(client, "?sort=lifecycle_order&dir=asc") == ["draft", "live"]
+        assert _rows(client, "?sort=lifecycle_order&dir=desc") == ["live", "draft"]
+
+    def it_sorts_by_registrations(instructor_fixture, client):
+        _lean(instructor_fixture, slug="quiet")
+        busy = _lean(instructor_fixture, slug="busy")
+        RegistrationFactory(class_offering=busy)
+        client.force_login(instructor_fixture.user)
+        assert _rows(client, "?sort=registration_count&dir=desc") == ["busy", "quiet"]
+        assert _rows(client, "?sort=registration_count&dir=asc") == ["quiet", "busy"]
+
+    def it_falls_back_to_the_default_order_for_an_unknown_sort(instructor_fixture, client):
+        _lean(instructor_fixture, slug="first-made")
+        _lean(instructor_fixture, slug="second-made")
+        client.force_login(instructor_fixture.user)
+        response = client.get(reverse("classes:teach_dashboard") + "?sort=nonsense")
+        assert response.status_code == 200
+        assert [c.slug for c in response.context["page"]] == ["second-made", "first-made"]
+        assert response.context["sort"] == "created_at"
+        assert "sort=nonsense" not in response.content.decode()
+
+    def it_marks_the_sorted_header_and_glyphs_every_other(instructor_fixture, client):
+        _lean(instructor_fixture)
+        client.force_login(instructor_fixture.user)
+        html = client.get(reverse("classes:teach_dashboard") + "?sort=title&dir=asc").content.decode()
+        assert html.count("aria-sort=") == 1
+        assert '<th aria-sort="ascending">' in html
+        assert html.count('class="pl-sort-header__glyph"') == 5
+        assert html.count('class="pl-sort-header pl-sort-header--active"') == 1
+
+
+def describe_instructor_list_facets_and_sort_together():
+    def it_keeps_the_facet_when_sorting_and_the_sort_when_switching_facets(instructor_fixture, client):
+        _lean(instructor_fixture, slug="draft-one", status=ClassOffering.Status.DRAFT)
+        _lean(instructor_fixture, slug="live-one", status=ClassOffering.Status.PUBLISHED)
+        client.force_login(instructor_fixture.user)
+        response = client.get(reverse("classes:teach_dashboard") + "?facet=needs_attention&sort=title&dir=asc")
+        assert response.context["selected_facet"].key == "needs_attention"
+        assert [c.slug for c in response.context["page"]] == ["draft-one"]
+        header_links = re.findall(r'<a class="pl-sort-header[^"]*" href="([^"]+)"', response.content.decode())
+        assert len(header_links) == 5
+        assert all("facet=needs_attention" in link for link in header_links)
+        chips = {row.key: row for row in response.context["facets"]}
+        assert chips["needs_attention"].is_selected
+        assert all("sort=title" in row.url and "dir=asc" in row.url for row in chips.values())
+        assert chips[""].url == "?sort=title&dir=asc"
+        assert chips["upcoming"].url == "?sort=title&dir=asc&facet=upcoming"
+
+    def it_never_echoes_a_junk_facet(instructor_fixture, client):
+        _lean(instructor_fixture)
+        client.force_login(instructor_fixture.user)
+        response = client.get(reverse("classes:teach_dashboard") + "?facet=bogus&sort=title")
+        assert response.context["selected_facet"].key == ""
+        assert "facet=bogus" not in response.content.decode()
+
+    def it_paginates_at_25_and_the_page_link_keeps_the_facet_and_the_sort(instructor_fixture, client):
+        for i in range(26):
+            _lean(instructor_fixture, title=f"Draft {i:02d}", slug=f"draft-{i:02d}", status=ClassOffering.Status.DRAFT)
+        client.force_login(instructor_fixture.user)
+        first = client.get(reverse("classes:teach_dashboard") + "?facet=needs_attention&sort=title&dir=asc")
+        assert len(first.context["page"]) == 25
+        assert first.context["page"].paginator.num_pages == 2
+        link = re.search(r'href="(\?page=2[^"]*)"', first.content.decode())
+        assert link is not None
+        page_link = link.group(1).replace("&amp;", "&")
+        assert "facet=needs_attention" in page_link
+        assert "sort=title" in page_link
+        assert "dir=asc" in page_link
+        second = client.get(reverse("classes:teach_dashboard") + page_link)
+        assert [c.slug for c in second.context["page"]] == ["draft-25"]
+        assert second.context["selected_facet"].key == "needs_attention"
+
+
+def describe_instructor_list_markup():
+    def it_renders_the_dates_like_the_admin_list(instructor_fixture, client):
+        # 20:00 UTC is early afternoon in America/Los_Angeles, so the calendar day holds.
+        ranged = _lean(instructor_fixture, slug="ranged")
+        ClassSessionFactory(class_offering=ranged, starts_at=datetime(2026, 10, 10, 20, tzinfo=dt_timezone.utc))
+        ClassSessionFactory(class_offering=ranged, starts_at=datetime(2026, 10, 22, 20, tzinfo=dt_timezone.utc))
+        single = _lean(instructor_fixture, slug="single")
+        ClassSessionFactory(class_offering=single, starts_at=datetime(2026, 11, 3, 20, tzinfo=dt_timezone.utc))
+        _lean(instructor_fixture, slug="undated")
+        client.force_login(instructor_fixture.user)
+        html = client.get(reverse("classes:teach_dashboard")).content.decode()
+        assert '<td class="pl-class-list__dates">Oct 10 – Oct 22, 2026</td>' in html
+        assert '<td class="pl-class-list__dates">Nov 3, 2026</td>' in html
+        assert html.count('<span class="pl-class-list__no-dates">') == 1
+
+    def it_shows_the_window_or_flexible_for_a_flexible_class(instructor_fixture, client):
+        # The window, or "Flexible" when open ended; never the session rows the class still carries (#545).
+        from datetime import date
+
+        windowed = _lean(
+            instructor_fixture,
+            slug="windowed",
+            scheduling_model=ClassOffering.SchedulingModel.FLEXIBLE,
+            flexible_starts_on=date(2026, 11, 2),
+            flexible_ends_on=date(2026, 12, 1),
+        )
+        ClassSessionFactory(class_offering=windowed, starts_at=datetime(2026, 10, 10, 20, tzinfo=dt_timezone.utc))
+        _lean(instructor_fixture, slug="open-ended", scheduling_model=ClassOffering.SchedulingModel.FLEXIBLE)
+        client.force_login(instructor_fixture.user)
+        html = client.get(reverse("classes:teach_dashboard")).content.decode()
+        assert '<td class="pl-class-list__dates">Nov 2 to Dec 1, 2026</td>' in html
+        assert '<td class="pl-class-list__dates">Flexible</td>' in html
+        # The session row never reaches the Date(s) cells; the rest of the page is not the subject.
+        dates_cells = html.split('<td class="pl-class-list__dates">')[1:]
+        assert dates_cells and all("Oct 10" not in cell.split("</td>")[0] for cell in dates_cells)
+        assert html.count('<span class="pl-class-list__no-dates">') == 0
+
+    def it_uses_the_admin_table_styling_with_no_inline_styles(instructor_fixture, client):
+        _lean(instructor_fixture, status=ClassOffering.Status.PUBLISHED)
+        _lean(instructor_fixture, status=ClassOffering.Status.DRAFT)
+        ready = ClassOfferingFactory(instructor=instructor_fixture, status=ClassOffering.Status.DRAFT, ready=True)
+        _lean(instructor_fixture, status=ClassOffering.Status.ARCHIVED)
+        client.force_login(instructor_fixture.user)
+        html = client.get(reverse("classes:teach_dashboard")).content.decode()
+        table = html[html.index('<div class="admin-table-wrap">') : html.index("</table>")]
+        assert "style=" not in table
+        assert '<td class="pl-class-list__actions">' in table
+        assert '<tr class="pl-class-list__row--archived">' in table
+        # The ready draft gets the live submit form, not just the gated row's disabled button.
+        assert reverse("classes:teach_class_submit", kwargs={"pk": ready.pk}) in table
+
+
+def describe_the_seat_cell_for_a_flexible_class():
+    def it_shows_the_registration_count_alone(instructor_fixture, client):
+        # No seat cap (#545): "2", never "2/1"; a fixed class keeps "N/capacity".
+        from classes.models import Registration
+
+        flexible = _lean(
+            instructor_fixture, slug="open-forge", scheduling_model=ClassOffering.SchedulingModel.FLEXIBLE, capacity=1
+        )
+        fixed = _lean(instructor_fixture, slug="fixed-forge", capacity=6)
+        for offering in (flexible, fixed):
+            for _ in range(2):
+                RegistrationFactory(class_offering=offering, status=Registration.Status.CONFIRMED)
+        client.force_login(instructor_fixture.user)
+        html = client.get(reverse("classes:teach_dashboard")).content.decode()
+        assert "<td>2</td>" in html
+        assert "<td>2/6</td>" in html
+        assert "<td>2/1</td>" not in html

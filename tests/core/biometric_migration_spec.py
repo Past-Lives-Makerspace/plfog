@@ -24,7 +24,7 @@ from core.models import BiometricCredential
 
 pytestmark = pytest.mark.django_db
 
-migration = importlib.import_module("core.migrations.0085_biometric_selector")
+migration = importlib.import_module("core.migrations.0106_biometric_selector")
 
 
 @pytest.fixture()
@@ -51,10 +51,10 @@ def _legacy_credential(user, label, selector, *, revoked_at=None):
 
 def describe_the_migration_itself():
     def it_follows_the_latest_core_migration_on_main():
-        # Renumbered from 0077 on rebase: main grew 0077 through 0084 while this sat unmerged.
+        # Renumbered from 0085 on merge: main grew 0085 through 0105 while this sat unmerged.
         assert (
             "core",
-            "0084_alter_siteconfiguration_signage_show_calendar_and_more",
+            "0105_siteconfiguration_member_agreement_version",
         ) in migration.Migration.dependencies
 
     def it_ships_a_real_reverse_rather_than_a_noop():

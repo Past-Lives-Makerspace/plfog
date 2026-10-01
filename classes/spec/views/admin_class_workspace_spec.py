@@ -1,4 +1,9 @@
-"""BDD specs for the per-class admin Workspace tabs."""
+"""BDD specs for the per-class tabs, reached by their admin URLs.
+
+Those URLs now resolve to the one merged screen, so the refusal an outsider gets is the
+merged gate's 404 rather than the old decorator's 403, and the tab strip the page draws
+points at the merged ``classes:teach_class_*`` routes.
+"""
 
 from __future__ import annotations
 
@@ -12,23 +17,23 @@ def describe_class_registrations_tab():
     def it_gates_behind_admin(member_user, client, db):
         offering = ClassOfferingFactory()
         client.force_login(member_user)
-        resp = client.get(reverse("classes:admin_class_registrations", kwargs={"pk": offering.pk}))
-        assert resp.status_code == 403
+        resp = client.get(reverse("classes:teach_class_registrations", kwargs={"pk": offering.pk}))
+        assert resp.status_code == 404
 
     def it_shows_a_registrant(admin_user, client, db):
         offering = ClassOfferingFactory()
         RegistrationFactory(class_offering=offering, first_name="Jess", last_name="Park")
         client.force_login(admin_user)
-        resp = client.get(reverse("classes:admin_class_registrations", kwargs={"pk": offering.pk}))
+        resp = client.get(reverse("classes:teach_class_registrations", kwargs={"pk": offering.pk}))
         assert resp.status_code == 200
         assert b"Jess" in resp.content
 
     def it_shows_the_subtab_nav(admin_user, client, db):
         offering = ClassOfferingFactory()
         client.force_login(admin_user)
-        resp = client.get(reverse("classes:admin_class_registrations", kwargs={"pk": offering.pk}))
-        assert reverse("classes:admin_class_waitlist", kwargs={"pk": offering.pk}).encode() in resp.content
-        assert reverse("classes:admin_class_discount_codes", kwargs={"pk": offering.pk}).encode() in resp.content
+        resp = client.get(reverse("classes:teach_class_registrations", kwargs={"pk": offering.pk}))
+        assert reverse("classes:teach_class_waitlist", kwargs={"pk": offering.pk}).encode() in resp.content
+        assert reverse("classes:teach_class_discount_codes", kwargs={"pk": offering.pk}).encode() in resp.content
 
 
 def describe_class_waitlist_tab():
@@ -38,7 +43,7 @@ def describe_class_waitlist_tab():
             class_offering=offering, first_name="Wait", last_name="Lister", status=Registration.Status.WAITLISTED
         )
         client.force_login(admin_user)
-        resp = client.get(reverse("classes:admin_class_waitlist", kwargs={"pk": offering.pk}))
+        resp = client.get(reverse("classes:teach_class_waitlist", kwargs={"pk": offering.pk}))
         assert resp.status_code == 200
         assert b"Wait" in resp.content
 
@@ -46,13 +51,13 @@ def describe_class_waitlist_tab():
         offering = ClassOfferingFactory()
         RegistrationFactory(class_offering=offering, status=Registration.Status.WAITLISTED)
         client.force_login(admin_user)
-        resp = client.get(reverse("classes:admin_class_waitlist", kwargs={"pk": offering.pk}))
+        resp = client.get(reverse("classes:teach_class_waitlist", kwargs={"pk": offering.pk}))
         assert b"Waitlist (1)" in resp.content
 
     def it_empty_states_when_no_waitlist(admin_user, client, db):
         offering = ClassOfferingFactory()
         client.force_login(admin_user)
-        resp = client.get(reverse("classes:admin_class_waitlist", kwargs={"pk": offering.pk}))
+        resp = client.get(reverse("classes:teach_class_waitlist", kwargs={"pk": offering.pk}))
         assert resp.status_code == 200
         assert b"Waitlist (0)" in resp.content
 
@@ -62,7 +67,7 @@ def describe_class_discount_codes_tab():
         offering = ClassOfferingFactory()
         DiscountCodeFactory(code="CLASS10", class_offering=offering)
         client.force_login(admin_user)
-        resp = client.get(reverse("classes:admin_class_discount_codes", kwargs={"pk": offering.pk}))
+        resp = client.get(reverse("classes:teach_class_discount_codes", kwargs={"pk": offering.pk}))
         assert resp.status_code == 200
         assert b"CLASS10" in resp.content
 
@@ -70,7 +75,7 @@ def describe_class_discount_codes_tab():
         offering = ClassOfferingFactory()
         DiscountCodeFactory(code="GLOBAL5", class_offering=None)
         client.force_login(admin_user)
-        resp = client.get(reverse("classes:admin_class_discount_codes", kwargs={"pk": offering.pk}))
+        resp = client.get(reverse("classes:teach_class_discount_codes", kwargs={"pk": offering.pk}))
         assert b"GLOBAL5" in resp.content
 
 
@@ -80,20 +85,20 @@ def describe_class_overview_tab():
 
         offering = ClassOfferingFactory(status=ClassOffering.Status.PUBLISHED)
         client.force_login(admin_user)
-        resp = client.get(reverse("classes:admin_class_detail", kwargs={"pk": offering.pk}))
+        resp = client.get(reverse("classes:teach_class_detail", kwargs={"pk": offering.pk}))
         assert resp.status_code == 200
-        # Summary + Edit action present
-        assert reverse("classes:admin_class_edit", kwargs={"pk": offering.pk}).encode() in resp.content
-        # Sub-tab nav present (Overview is now part of the workspace)
-        assert reverse("classes:admin_class_registrations", kwargs={"pk": offering.pk}).encode() in resp.content
+        # Summary + Edit action present — Edit sits in the class header now.
+        assert reverse("classes:teach_class_edit", kwargs={"pk": offering.pk}).encode() in resp.content
+        # The per-class tab strip is present.
+        assert reverse("classes:teach_class_registrations", kwargs={"pk": offering.pk}).encode() in resp.content
 
     def it_no_longer_shows_the_inline_student_email_form(admin_user, client, db):
         offering = ClassOfferingFactory()
         RegistrationFactory(class_offering=offering)
         client.force_login(admin_user)
-        resp = client.get(reverse("classes:admin_class_detail", kwargs={"pk": offering.pk}))
+        resp = client.get(reverse("classes:teach_class_detail", kwargs={"pk": offering.pk}))
         # The bulk-email POST form moved to the Registrations tab; Overview no longer posts to admin_class_email.
-        assert reverse("classes:admin_class_email", kwargs={"pk": offering.pk}).encode() not in resp.content
+        assert reverse("classes:teach_class_email", kwargs={"pk": offering.pk}).encode() not in resp.content
 
     def it_counts_only_confirmed_in_the_capacity_row(admin_user, client, db):
         offering = ClassOfferingFactory(capacity=1)
@@ -101,7 +106,7 @@ def describe_class_overview_tab():
         # A waitlisted person must NOT inflate the "X/capacity registered" summary.
         RegistrationFactory(class_offering=offering, status=Registration.Status.WAITLISTED)
         client.force_login(admin_user)
-        resp = client.get(reverse("classes:admin_class_detail", kwargs={"pk": offering.pk}))
+        resp = client.get(reverse("classes:teach_class_detail", kwargs={"pk": offering.pk}))
         assert b"1/1 registered" in resp.content
 
 
@@ -111,7 +116,7 @@ def describe_workspace_counts():
         RegistrationFactory(class_offering=offering, status=Registration.Status.CONFIRMED)
         RegistrationFactory(class_offering=offering, status=Registration.Status.CANCELLED)
         client.force_login(admin_user)
-        resp = client.get(reverse("classes:admin_class_registrations", kwargs={"pk": offering.pk}))
+        resp = client.get(reverse("classes:teach_class_registrations", kwargs={"pk": offering.pk}))
         assert b"Registrations (1)" in resp.content
 
 
@@ -124,4 +129,4 @@ def describe_class_scoped_discount_code_create():
             {"code": "BACK10", "discount_pct": 10, "is_active": "on"},
         )
         assert resp.status_code == 302
-        assert resp["Location"] == reverse("classes:admin_class_discount_codes", kwargs={"pk": offering.pk})
+        assert resp["Location"] == reverse("classes:teach_class_discount_codes", kwargs={"pk": offering.pk})

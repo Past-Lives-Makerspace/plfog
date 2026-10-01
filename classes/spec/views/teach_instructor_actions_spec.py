@@ -3,7 +3,7 @@ published light-edit page, Run it again on both workspaces, and the Profile tab.
 
 from __future__ import annotations
 
-from datetime import timedelta
+from datetime import date, timedelta
 
 import pytest
 from django.contrib.messages import get_messages
@@ -90,7 +90,8 @@ def describe_workspace_action_row():
         offering = _live(instructor_fixture)
         client.force_login(instructor_fixture.user)
         html = client.get(reverse("classes:teach_class_detail", kwargs={"pk": offering.pk})).content.decode()
-        assert "Edit details" in html
+        # Edit sits in the class header now (decision D5); the action row keeps the rest.
+        assert reverse("classes:teach_class_edit", kwargs={"pk": offering.pk}) in html
         assert "Request a change" in html
         assert "Cancel this class?" in html
         assert "Run this class again?" in html
@@ -244,6 +245,70 @@ def describe_request_change():
         assert any("Only published classes can request a change" in m for m in _messages(resp))
 
 
+def describe_the_flexible_window_on_the_manage_pages():
+    """The published edit page's Dates row and the overview's Sessions table read the window (#545)."""
+
+    def _flexible_live(instructor, **traits) -> ClassOffering:
+        # _live adds a dated session: the row shape of production class 643, which still carries
+        # a session standing in for its window. Both pages read the window, never that row.
+        return _live(instructor, scheduling_model=ClassOffering.SchedulingModel.FLEXIBLE, **traits)
+
+    def _window_cell(html: str) -> str:
+        return html.split("<span data-flexible-window>")[1].split("</span>")[0]
+
+    def _window_row(html: str) -> str:
+        return html.split('<td colspan="2" data-flexible-window>')[1].split("</td>")[0]
+
+    def it_shows_the_window_in_locked_details(instructor_fixture, client):
+        offering = _flexible_live(
+            instructor_fixture, flexible_starts_on=date(2026, 11, 2), flexible_ends_on=date(2026, 12, 1)
+        )
+        client.force_login(instructor_fixture.user)
+        html = client.get(reverse("classes:teach_class_edit", kwargs={"pk": offering.pk})).content.decode()
+        assert "Locked Details" in html
+        assert _window_cell(html) == "Nov 2 to Dec 1, 2026"
+        assert "Arranged with each student" not in html
+
+    def it_says_any_time_in_locked_details_without_a_window(instructor_fixture, client):
+        offering = _flexible_live(instructor_fixture)
+        client.force_login(instructor_fixture.user)
+        html = client.get(reverse("classes:teach_class_edit", kwargs={"pk": offering.pk})).content.decode()
+        assert _window_cell(html) == "Any time, arranged with each student"
+
+    def it_keeps_the_session_list_for_a_fixed_class(instructor_fixture, client):
+        offering = _live(instructor_fixture)
+        client.force_login(instructor_fixture.user)
+        html = client.get(reverse("classes:teach_class_edit", kwargs={"pk": offering.pk})).content.decode()
+        assert "data-flexible-window" not in html
+        assert "<li>" in html.split("<dt")[-1]
+
+    def it_shows_each_window_shape_in_the_overview_sessions_table(instructor_fixture, client):
+        shapes = [
+            ({"flexible_starts_on": date(2026, 11, 2), "flexible_ends_on": date(2026, 12, 1)}, "Nov 2 to Dec 1, 2026"),
+            (
+                {"flexible_starts_on": date(2026, 12, 20), "flexible_ends_on": date(2027, 1, 10)},
+                "Dec 20, 2026 to Jan 10, 2027",
+            ),
+            ({"flexible_starts_on": date(2026, 11, 2)}, "From Nov 2, 2026"),
+            ({"flexible_ends_on": date(2026, 12, 1)}, "Through Dec 1, 2026"),
+            ({}, "Any time, arranged with each student"),
+        ]
+        client.force_login(instructor_fixture.user)
+        for traits, label in shapes:
+            offering = _flexible_live(instructor_fixture, **traits)
+            html = client.get(reverse("classes:teach_class_detail", kwargs={"pk": offering.pk})).content.decode()
+            assert _window_row(html) == label, traits
+            assert "No sessions scheduled yet." not in html, traits
+
+    def it_keeps_the_session_rows_for_a_fixed_class_in_the_overview(instructor_fixture, client):
+        offering = _live(instructor_fixture)
+        client.force_login(instructor_fixture.user)
+        html = client.get(reverse("classes:teach_class_detail", kwargs={"pk": offering.pk})).content.decode()
+        table = html.split('<th colspan="2">Sessions</th>')[1].split("</table>")[0]
+        assert "data-flexible-window" not in table
+        assert "→" in table
+
+
 def describe_published_light_edit():
     def it_renders_the_locked_summary_and_the_light_form(instructor_fixture, client):
         offering = _live(instructor_fixture, title="Locked Lathe", price_cents=8000, capacity=4)
@@ -309,6 +374,70 @@ def describe_published_light_edit():
         assert client.get(reverse("classes:teach_class_edit", kwargs={"pk": offering.pk})).status_code == 200
 
 
+def describe_the_live_class_forms_exits():
+    """Both ways off this page have to resolve for everyone the page admits.
+
+    The page has two exits, Cancel and the redirect a finished save issues, and both used to
+    point at the class screen unconditionally. Guild staff on a class they do not teach have no
+    Overview under Ruling 12, so both landed them on a 404. That was survivable while nothing
+    sent anyone here on purpose; the published-race notice now does, so it is fixed.
+
+    Only two populations reach this form at all: an admin is routed to the composer by
+    ``can_administer`` before the light form is ever considered, which the last test pins.
+    """
+
+    def _guild_staffer(member):
+        guild = GuildFactory(name="Exits Guild")
+        GuildStaffMembershipFactory(guild=guild, member=member)
+        return _live(InstructorFactory(instructor_slug="exits-owner"), category=CategoryFactory(guild=guild))
+
+    def it_sends_the_instructor_out_through_the_class_screen(instructor_fixture, client):
+        offering = _live(instructor_fixture)
+        client.force_login(instructor_fixture.user)
+        detail = reverse("classes:teach_class_detail", kwargs={"pk": offering.pk})
+        html = client.get(reverse("classes:teach_class_edit", kwargs={"pk": offering.pk})).content.decode()
+        assert f'href="{detail}">Cancel</a>' in html
+        resp = client.post(reverse("classes:teach_class_edit", kwargs={"pk": offering.pk}), _light_payload())
+        assert resp.url == detail
+        assert client.get(resp.url).status_code == 200
+
+    def it_sends_guild_staff_out_through_the_dashboard(instructor_fixture, client):
+        offering = _guild_staffer(instructor_fixture)
+        client.force_login(instructor_fixture.user)
+        dashboard = reverse("classes:teach_dashboard")
+        html = client.get(reverse("classes:teach_class_edit", kwargs={"pk": offering.pk})).content.decode()
+        assert f'href="{dashboard}">Cancel</a>' in html
+        # Matched as an href, not as a bare path: the class screen's URL is a prefix of the
+        # gallery endpoints this page legitimately ships (/classes/<pk>/images/upload/).
+        assert f'href="{reverse("classes:teach_class_detail", kwargs={"pk": offering.pk})}"' not in html
+        assert client.get(dashboard).status_code == 200
+
+    def it_returns_guild_staff_somewhere_real_after_a_save_that_landed(instructor_fixture, client):
+        # The worst of the two: the edit is written, then the member is shown a 404, which
+        # reads as the save having failed.
+        offering = _guild_staffer(instructor_fixture)
+        client.force_login(instructor_fixture.user)
+        resp = client.post(
+            reverse("classes:teach_class_edit", kwargs={"pk": offering.pk}),
+            _light_payload(materials_to_bring="A dust mask"),
+        )
+        assert resp.status_code == 302
+        assert resp.url == reverse("classes:teach_dashboard")
+        assert client.get(resp.url).status_code == 200
+        assert "Class updated." in _messages(resp)
+        offering.refresh_from_db()
+        assert offering.materials_to_bring == "A dust mask"
+        # The screen it used to return them to is genuinely closed to them.
+        assert client.get(reverse("classes:teach_class_detail", kwargs={"pk": offering.pk})).status_code == 404
+
+    def it_never_shows_an_admin_this_form_at_all(admin_user, client, db):
+        offering = _live(InstructorFactory(instructor_slug="admin-sees-composer"))
+        client.force_login(admin_user)
+        html = client.get(reverse("classes:teach_class_edit", kwargs={"pk": offering.pk})).content.decode()
+        assert "Locked Details" not in html
+        assert 'name="step"' in html
+
+
 def describe_run_it_again():
     def it_creates_the_undated_draft_copy_from_the_workspace(instructor_fixture, client):
         offering = _live(instructor_fixture, title="Again Anvil")
@@ -327,10 +456,10 @@ def describe_run_it_again():
         pending = ClassOfferingFactory(status=Status.PENDING)
         client.force_login(admin_user)
         for offering in (live, gone):
-            html = client.get(reverse("classes:admin_class_detail", kwargs={"pk": offering.pk})).content.decode()
+            html = client.get(reverse("classes:teach_class_detail", kwargs={"pk": offering.pk})).content.decode()
             assert "Run this class again?" in html
-            assert reverse("classes:admin_class_duplicate_run", kwargs={"pk": offering.pk}) in html
-        html = client.get(reverse("classes:admin_class_detail", kwargs={"pk": pending.pk})).content.decode()
+            assert reverse("classes:teach_class_duplicate_run", kwargs={"pk": offering.pk}) in html
+        html = client.get(reverse("classes:teach_class_detail", kwargs={"pk": pending.pk})).content.decode()
         assert "Run this class again?" not in html
 
     def it_is_gone_from_both_edit_pages_and_nothing_sits_under_save(admin_user, instructor_fixture, client):
@@ -339,11 +468,96 @@ def describe_run_it_again():
         html = client.get(reverse("classes:teach_class_edit", kwargs={"pk": draft.pk})).content.decode()
         assert reverse("classes:teach_class_duplicate_run", kwargs={"pk": draft.pk}) not in html
         client.force_login(admin_user)
-        html = client.get(reverse("classes:admin_class_edit", kwargs={"pk": draft.pk})).content.decode()
-        assert reverse("classes:admin_class_duplicate_run", kwargs={"pk": draft.pk}) not in html
+        html = client.get(reverse("classes:teach_class_edit", kwargs={"pk": draft.pk})).content.decode()
+        assert reverse("classes:teach_class_duplicate_run", kwargs={"pk": draft.pk}) not in html
         # The Save row is the last thing in the form: no form follows the closing </form>.
         tail = html[html.rindex("</form>") :]
         assert "<form" not in tail
+
+
+def describe_deleting_a_draft():
+    """#526: Delete was the admin's alone. The class's own instructor now gets it on a draft, a
+    bounced one included, and never on a class that is submitted, live, finished or cancelled:
+    those are withdrawn or cancelled, so reviewers and registrants are told."""
+
+    def _delete_url(offering: ClassOffering) -> str:
+        return reverse("classes:admin_class_delete", kwargs={"pk": offering.pk})
+
+    def _bounced_draft(instructor) -> ClassOffering:
+        """Sent back with notes: still status DRAFT, lifecycle Changes requested."""
+        offering = ClassOfferingFactory(instructor=instructor, status=Status.DRAFT)
+        ClassApproval.objects.create(
+            class_offering=offering,
+            role=ClassApproval.Role.ADMIN,
+            decision=ClassApproval.Decision.CHANGES_REQUESTED,
+            notes="Add a photo of the finished piece.",
+        )
+        return offering
+
+    def it_offers_delete_on_the_instructors_own_draft(instructor_fixture, client):
+        client.force_login(instructor_fixture.user)
+        plain = ClassOfferingFactory(instructor=instructor_fixture, status=Status.DRAFT)
+        for draft in (plain, _bounced_draft(instructor_fixture)):
+            html = client.get(reverse("classes:teach_class_detail", kwargs={"pk": draft.pk})).content.decode()
+            assert _delete_url(draft) in html
+            assert "Delete this class?" in html
+            assert "This permanently removes your draft and its dates." in html
+
+    def it_withholds_delete_once_the_class_is_submitted_live_finished_or_cancelled(instructor_fixture, client):
+        client.force_login(instructor_fixture.user)
+        pending = ClassOfferingFactory(instructor=instructor_fixture, status=Status.PENDING)
+        gone = ClassOfferingFactory(instructor=instructor_fixture, status=Status.CANCELLED)
+        for offering in (pending, _live(instructor_fixture), _completed_class(instructor_fixture), gone):
+            html = client.get(reverse("classes:teach_class_detail", kwargs={"pk": offering.pk})).content.decode()
+            assert _delete_url(offering) not in html, offering.status
+            assert "Delete unavailable" not in html, offering.status
+
+    def it_deletes_the_draft_and_lands_on_my_classes(instructor_fixture, client):
+        draft = ClassOfferingFactory(instructor=instructor_fixture, title="Scrap Draft", status=Status.DRAFT)
+        client.force_login(instructor_fixture.user)
+        response = client.post(_delete_url(draft))
+        assert response.status_code == 302
+        assert response.url == reverse("classes:teach_dashboard")
+        assert not ClassOffering.objects.filter(pk=draft.pk).exists()
+        assert _messages(response) == ["Deleted ‘Scrap Draft’."]
+
+    def it_refuses_a_class_that_is_no_longer_a_draft(instructor_fixture, client):
+        client.force_login(instructor_fixture.user)
+        pending = ClassOfferingFactory(instructor=instructor_fixture, status=Status.PENDING)
+        for offering in (pending, _live(instructor_fixture)):
+            assert client.post(_delete_url(offering)).status_code == 404
+            assert ClassOffering.objects.filter(pk=offering.pk).exists()
+
+    def it_refuses_another_instructors_draft(instructor_fixture, other_instructor, client):
+        draft = ClassOfferingFactory(instructor=other_instructor, status=Status.DRAFT)
+        client.force_login(instructor_fixture.user)
+        assert client.post(_delete_url(draft)).status_code == 404
+        assert ClassOffering.objects.filter(pk=draft.pk).exists()
+
+    def it_refuses_the_lead_of_the_classes_guild(instructor_fixture, other_instructor, client):
+        # The guild row carries Edit and Emails on someone else's class and nothing more; it
+        # has no Overview to draw the button on and no capability for the endpoint.
+        guild = GuildFactory(name="Forge Guild", guild_lead=other_instructor)
+        draft = ClassOfferingFactory(
+            instructor=instructor_fixture, status=Status.DRAFT, category=CategoryFactory(guild=guild)
+        )
+        client.force_login(other_instructor.user)
+        assert client.post(_delete_url(draft)).status_code == 404
+        assert ClassOffering.objects.filter(pk=draft.pk).exists()
+
+    def it_refuses_a_draft_that_carries_registrations(instructor_fixture, client):
+        # A class taken back to draft keeps its sign-ups, and only an admin can archive it.
+        draft = ClassOfferingFactory(instructor=instructor_fixture, status=Status.DRAFT)
+        RegistrationFactory(class_offering=draft, status=Registration.Status.CONFIRMED)
+        client.force_login(instructor_fixture.user)
+        html = client.get(reverse("classes:teach_class_detail", kwargs={"pk": draft.pk})).content.decode()
+        assert _delete_url(draft) not in html
+        assert "Delete unavailable (has registrations)" in html
+        response = client.post(_delete_url(draft))
+        assert response.status_code == 302
+        assert response.url == reverse("classes:teach_class_detail", kwargs={"pk": draft.pk})
+        assert ClassOffering.objects.filter(pk=draft.pk).exists()
+        assert _messages(response) == ["Can't delete — this class has registrations. Ask an admin to archive it."]
 
 
 def describe_classes_list_withdraw():
@@ -432,7 +646,7 @@ def describe_the_completed_guard_lives_on_the_model():
         RegistrationFactory(class_offering=offering, email="past@example.com", status=Registration.Status.CONFIRMED)
         mail.outbox.clear()
         client.force_login(admin_user)
-        resp = client.post(reverse("classes:admin_class_cancel", kwargs={"pk": offering.pk}), {"reason": "Oops"})
+        resp = client.post(reverse("classes:teach_class_cancel", kwargs={"pk": offering.pk}), {"reason": "Oops"})
         assert resp.status_code == 302
         assert "This class has already happened." in _messages(resp)
         offering.refresh_from_db()
@@ -456,7 +670,7 @@ def describe_the_completed_guard_lives_on_the_model():
         upcoming = timezone.now() + timedelta(days=2)
         ClassSessionFactory(class_offering=offering, starts_at=upcoming, ends_at=upcoming + timedelta(hours=2))
         client.force_login(admin_user)
-        resp = client.post(reverse("classes:admin_class_cancel", kwargs={"pk": offering.pk}), {"reason": "Snow"})
+        resp = client.post(reverse("classes:teach_class_cancel", kwargs={"pk": offering.pk}), {"reason": "Snow"})
         assert resp.status_code == 302
         offering.refresh_from_db()
         assert offering.status == Status.CANCELLED

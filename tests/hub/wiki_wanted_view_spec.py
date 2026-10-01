@@ -19,6 +19,7 @@ from datetime import timedelta
 from django.utils import timezone
 
 from core.models import SiteConfiguration
+from tests.features import turn_on
 from membership.models import Member, WikiWantedPage
 from tests.membership.factories import (
     GuildFactory,
@@ -36,8 +37,7 @@ _HTMX = {"HTTP_HX_REQUEST": "true"}
 @pytest.fixture(autouse=True)
 def _wiki_on(db):
     config = SiteConfiguration.load()
-    config.wiki_enabled = True
-    config.save()
+    turn_on("wiki")
     return config
 
 
@@ -117,7 +117,7 @@ def describe_the_editor():
         html = client.get(_wanted_url(guild)).content.decode()
         row = html.split("Edit The List", 1)[1]
         assert "pl-btn--danger" in row
-        assert "margin-top:0.75rem;" in row
+        assert "pl-btn--spaced" in row
         assert 'style="display:none;">' in row
         # Never a toggle: the DELETE field must not go through form_field.html.
         assert "pl-toggle" not in row.split("Delete this request", 1)[0][-2000:]
@@ -371,7 +371,7 @@ def describe_claim_and_release():
     def it_refuses_a_member_whose_membership_lapsed(db, client):
         user = _login(client, "wanted_claim_lapsed")
         row = WikiWantedPageFactory(guild=GuildFactory())
-        user.member.status = Member.Status.FORMER
+        user.member.status = Member.Status.INVITED
         user.member.save(update_fields=["status"])
         assert client.post(reverse("hub_wiki_wanted_claim", args=[row.pk]), **_HTMX).status_code == 403
 
@@ -477,7 +477,7 @@ def describe_mark_as_written():
         guild = GuildFactory()
         row = WikiWantedPageFactory(guild=guild)
         page = WikiPageFactory(guild=guild)
-        user.member.status = Member.Status.FORMER
+        user.member.status = Member.Status.INVITED
         user.member.save(update_fields=["status"])
         response = client.post(
             reverse("hub_wiki_wanted_fulfil", args=[row.pk]),

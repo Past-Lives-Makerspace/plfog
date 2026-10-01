@@ -20,7 +20,6 @@ def offering():
         instructor=InstructorFactory(),
         status=ClassOffering.Status.PUBLISHED,
         price_cents=0,  # free class — simpler test path
-        member_discount_pct=0,
         capacity=4,
     )
 

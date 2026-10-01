@@ -125,16 +125,16 @@
     <button type="button" class="vote-tab" :class="section === 'schedule' ? 'vote-tab--active' : ''" @click="section = 'schedule'">Guild Calendar</button>
     {% if show_orientation %}<button type="button" class="vote-tab" :class="section === 'orientations' ? 'vote-tab--active' : ''" @click="section = 'orientations'">Orientations</button>{% endif %}
     {% if wiki_tab_enabled %}<button type="button" class="vote-tab" :class="section === 'wiki' ? 'vote-tab--active' : ''" @click="section = 'wiki'">Wiki</button>{% endif %}
-    {% if my_tab_enabled and not is_guilds_surface %}<button type="button" class="vote-tab" :class="section === 'buyables' ? 'vote-tab--active' : ''" @click="section = 'buyables'">Buyables</button>{% endif %}
+    {% if features.my_tab.is_on and not is_guilds_surface %}<button type="button" class="vote-tab" :class="section === 'buyables' ? 'vote-tab--active' : ''" @click="section = 'buyables'">Buyables</button>{% endif %}
     {% if faq_items %}<button type="button" class="vote-tab" :class="section === 'faq' ? 'vote-tab--active' : ''" @click="section = 'faq'">{{ guild.faq_label|default:"FAQ" }}</button>{% endif %}
     {% if guild.wishlist or guild.donate_url %}<button type="button" class="vote-tab" :class="section === 'wishlist' ? 'vote-tab--active' : ''" @click="section = 'wishlist'">Wishlist</button>{% endif %}
-    {% if not is_guilds_surface %}<button type="button" class="vote-tab" :class="section === 'meetings' ? 'vote-tab--active' : ''" @click="section = 'meetings'">Meetings</button>{% endif %}
+    {% if not is_guilds_surface and features.meetings.is_on %}<button type="button" class="vote-tab" :class="section === 'meetings' ? 'vote-tab--active' : ''" @click="section = 'meetings'">Meetings</button>{% endif %}
     {% if gallery_images %}<button type="button" class="vote-tab" :class="section === 'gallery' ? 'vote-tab--active' : ''" @click="section = 'gallery'">Gallery</button>{% endif %}
 </nav>
 
 <div x-show="section === 'overview'">
 <div class="pl-guild-grid">
-    <main>
+    <div>
 
         {% if guild.featured_class %}
         <section class="pl-guild-section">
@@ -222,9 +222,9 @@
             <p>{{ guild.meeting_schedule|linebreaksbr }}</p>
         </section>
         {% endif %}
-    </main>
+    </div>
 
-    <aside>
+    <aside aria-label="Guild details">
         {% with staff_members=guild.staff_by_member %}
         {% if guild.guild_lead or staff_members %}
         <div class="hub-card" data-help-key="guild.staff-roster">
@@ -257,8 +257,8 @@
         <div class="hub-card">
             <div style="display:flex; align-items:center; gap:0.4rem;">
                 <h3 class="hub-detail-label" style="margin-bottom:0;">Studio Hours</h3>
-                <span class="pl-help pl-help--right" tabindex="0" aria-label="What are studio hours?">
-                    <span class="pl-help__icon" aria-hidden="true">?</span>
+                <span class="pl-help pl-help--right">
+                    <span class="pl-help__icon" tabindex="0" role="img" aria-label="What are studio hours?">?</span>
                     <span class="pl-help__bubble" role="tooltip">Come chat with the Guild Lead during these times.</span>
                 </span>
             </div>
@@ -386,7 +386,7 @@
                 {% endif %}{% endwith %}
                 {% if item.has_document %}
                 <div style="margin-top:0.75rem;">
-                    <a href="{{ item.document_href }}" class="hub-btn hub-btn--sm"{% if item.document %} download{% else %} target="_blank" rel="noopener nofollow noreferrer"{% endif %}>{% if item.document %}📄{% else %}🔗{% endif %} {{ item.document_display_name }}</a>
+                    <a href="{{ item.document_href }}" class="hub-btn hub-btn--sm"{% if item.document %} download hx-boost="false"{% else %} target="_blank" rel="noopener nofollow noreferrer"{% endif %}>{% if item.document %}📄{% else %}🔗{% endif %} {{ item.document_display_name }}</a>
                 </div>
                 {% endif %}
             </div>
@@ -396,7 +396,7 @@
 </div>
 {% endif %}
 
-{% if not is_guilds_surface %}
+{% if not is_guilds_surface and features.meetings.is_on %}
 {# ── Meetings tab (spec §6.4) — a filtered window into the Meetings feature. ── #}
 <div x-show="section === 'meetings'" x-cloak>
     {% include "hub/partials/_guild_meetings_tab.html" %}
@@ -450,7 +450,7 @@
 </div>
 {% endif %}
 
-{% if my_tab_enabled and not is_guilds_surface %}
+{% if features.my_tab.is_on and not is_guilds_surface %}
 <div x-show="section === 'buyables'" x-cloak>
     {# Products card #}
     <div class="hub-card">

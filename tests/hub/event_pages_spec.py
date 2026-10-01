@@ -17,6 +17,8 @@ from django.urls import reverse
 from django.utils import timezone
 from factory.django import mute_signals
 
+from core.models import SiteConfiguration
+
 from hub import views
 from hub.view_as import ROLE_ADMIN, ROLE_MEMBER, ViewAs
 from membership.models import CommunityEvent, EventRSVP, Member
@@ -27,6 +29,9 @@ from tests.membership.factories import (
     MemberFactory,
     MembershipPlanFactory,
 )
+
+#: The audience badge's own markup on the event page — assert against this, never bare copy.
+_BADGE = '<span class="pl-event-detail__type">'
 
 pytestmark = pytest.mark.django_db
 
@@ -84,11 +89,50 @@ def describe_event_detail():
         assert b"Metal Guild" in resp.content
         assert reverse("hub_guild_detail", args=[guild.slug]).encode() in resp.content
 
-    def it_renders_a_site_wide_event_with_a_type_label(client: Client):
-        event = CommunityEventFactory(community=True, title="Potluck")
+    def it_badges_a_public_event_by_its_audience(client: Client):
+        # Anchored on the badge's own markup: the changelog renders into every page, so a
+        # bare copy assertion could pass (or fail) on a release note instead (STANDARDS §8).
+        event = CommunityEventFactory(
+            community=True, title="Potluck", google_calendar_target=CommunityEvent.GoogleCalendarTarget.PUBLIC
+        )
         resp = client.get(reverse("hub_event_detail", args=[event.pk]))
         assert resp.status_code == 200
-        assert b"Community event" in resp.content  # get_event_type_display, not a guild pill
+        assert _BADGE + "Public event<" in resp.content.decode()
+
+    def it_badges_a_member_event_by_its_audience(client: Client):
+        event = CommunityEventFactory(
+            community=True,
+            title="Members Night",
+            google_calendar_target=CommunityEvent.GoogleCalendarTarget.MEMBER,
+        )
+        resp = client.get(reverse("hub_event_detail", args=[event.pk]))
+        assert _BADGE + "Member event<" in resp.content.decode()
+
+    def it_badges_a_guild_event_alongside_its_guild_pill(client: Client):
+        guild = GuildFactory(name="Metal Guild")
+        event = CommunityEventFactory(
+            guild_hosted=True, guild=guild, google_calendar_target=CommunityEvent.GoogleCalendarTarget.PUBLIC
+        )
+        resp = client.get(reverse("hub_event_detail", args=[event.pk]))
+        html = resp.content.decode()
+        assert b"Metal Guild" in resp.content
+        assert _BADGE + "Public event<" in html
+
+    def it_never_badges_the_stored_type_on_the_event_page(client: Client):
+        event = CommunityEventFactory(community=True, title="Potluck")
+        html = client.get(reverse("hub_event_detail", args=[event.pk])).content.decode()
+        assert _BADGE + f"{event.get_event_type_display()}<" not in html
+
+    def it_keeps_the_guild_lead_meetings_own_name_on_the_event_page(client: Client):
+        # A lead meeting is a recognisable thing and keeps its name rather than badging
+        # "Member event" like everything else on the members calendar.
+        event = CommunityEventFactory(
+            lead_meeting=True,
+            title="September Leads",
+            google_calendar_target=CommunityEvent.GoogleCalendarTarget.MEMBER,
+        )
+        html = client.get(reverse("hub_event_detail", args=[event.pk])).content.decode()
+        assert _BADGE + "Guild Lead Meeting<" in html
 
     def it_shows_the_past_note_for_an_ended_non_recurring_event(client: Client):
         start = timezone.now() - timedelta(days=2)
@@ -132,8 +176,8 @@ def describe_event_detail():
             ' target="_blank" rel="noopener noreferrer">Join online</a>' in content
         )
         assert (
-            f'class="hub-btn hub-btn--ghost" href="{reverse("hub_event_ics", args=[event.pk])}">Add to calendar</a>'
-            in content
+            f'class="hub-btn hub-btn--ghost" href="{reverse("hub_event_ics", args=[event.pk])}" hx-boost="false" data-pl-download>'
+            "Add to calendar</a>" in content
         )
 
     def it_omits_join_online_and_keeps_add_to_calendar_primary_when_video_url_is_blank(client: Client):
@@ -145,8 +189,8 @@ def describe_event_detail():
         # "Join online" in this feature's own release notes.
         assert 'target="_blank" rel="noopener noreferrer">Join online</a>' not in content
         assert (
-            f'class="hub-btn hub-btn--primary" href="{reverse("hub_event_ics", args=[event.pk])}">Add to calendar</a>'
-            in content
+            f'class="hub-btn hub-btn--primary" href="{reverse("hub_event_ics", args=[event.pk])}" hx-boost="false" data-pl-download>'
+            "Add to calendar</a>" in content
         )
 
     def it_shows_the_edit_button_to_a_guild_lead(client: Client):
@@ -366,3 +410,60 @@ def describe_event_rsvp_post():
         resp = client.post(reverse("hub_event_rsvp", args=[event.pk]))
         assert resp.status_code == 302
         assert "/accounts/login/" in resp.headers["Location"] or "login" in resp.headers["Location"]
+
+
+def describe_event_page_subscribe_menu():
+    """A signed-in member gets the calendar subscription in place of the one-time .ics."""
+
+    # Assert on markup, never bare copy: the site-wide changelog widget on every hub page can
+    # legitimately say "Add to calendar" or "Apple Calendar" in this feature's own release note.
+    ADD_TO_CALENDAR = ">Add to calendar</a>"
+    APPLE_HEADING = 'pl-calendar-export__heading">Apple Calendar</p>'
+    WEBCAL = "webcal://calendar.google.com/calendar/ical/memid%40group.calendar.google.com/public/basic.ics"
+    GOOGLE = "https://calendar.google.com/calendar/r?cid=memid%40group.calendar.google.com"
+
+    def _configure(member_id: str = "memid@group.calendar.google.com", public_id: str = "") -> None:
+        config = SiteConfiguration.load()
+        config.member_google_calendar_id = member_id
+        config.public_google_calendar_id = public_id
+        config.save()
+
+    def it_offers_a_member_both_link_forms_and_no_one_time_download(client: Client):
+        _configure()
+        _user_with_role("sub_member")
+        client.login(username="sub_member", password="pass")
+        event = CommunityEventFactory(community=True, title="Potluck")
+        body = client.get(reverse("hub_event_detail", args=[event.pk])).content.decode()
+        assert APPLE_HEADING in body and 'pl-calendar-export__heading">Google Calendar</p>' in body
+        assert WEBCAL in body and GOOGLE in body
+        assert ADD_TO_CALENDAR not in body
+        assert reverse("hub_event_ics", args=[event.pk]) not in body
+        # The event page never offers the whole-calendar export; that stays on the calendar page.
+        assert reverse("hub_calendar_export_ics") not in body
+
+    def it_keeps_the_primary_slot_for_subscribe_and_demotes_it_beside_join_online(client: Client):
+        _configure()
+        _user_with_role("sub_member2")
+        client.login(username="sub_member2", password="pass")
+        plain = CommunityEventFactory(community=True, video_url="")
+        body = client.get(reverse("hub_event_detail", args=[plain.pk])).content.decode()
+        assert 'class="hub-btn hub-btn--primary" @click' in body
+        online = CommunityEventFactory(community=True, video_url="https://meet.google.com/abc-defg-hij")
+        body = client.get(reverse("hub_event_detail", args=[online.pk])).content.decode()
+        assert 'class="hub-btn hub-btn--ghost" @click' in body
+
+    def it_falls_back_to_add_to_calendar_when_no_calendar_is_configured(client: Client):
+        _configure(member_id="", public_id="")
+        _user_with_role("sub_member3")
+        client.login(username="sub_member3", password="pass")
+        event = CommunityEventFactory(community=True)
+        body = client.get(reverse("hub_event_detail", args=[event.pk])).content.decode()
+        assert ADD_TO_CALENDAR in body
+        assert APPLE_HEADING not in body
+
+    def it_never_offers_subscribe_to_an_anonymous_scanner(client: Client):
+        _configure()
+        event = CommunityEventFactory(community=True)
+        body = client.get(reverse("hub_event_detail", args=[event.pk])).content.decode()
+        assert ADD_TO_CALENDAR in body
+        assert APPLE_HEADING not in body and WEBCAL not in body

@@ -67,23 +67,9 @@ def describe_account_receipts():
         resp = book_client.get("/account/receipts/")
         assert b"$4.99" in resp.content
 
-    def it_does_not_render_member_discount_tag_for_nonmember(book_client, db):
-        user = UserFactory()
-        offering = ClassOfferingFactory(status="published", title="Ceramics", price_cents=8000)
-        ClassSessionFactory(class_offering=offering)
-        RegistrationFactory(
-            email=user.email,
-            class_offering=offering,
-            status=Registration.Status.CONFIRMED,
-            amount_paid_cents=8000,
-            stripe_payment_id="pi_zzz",
-            confirmed_at=timezone.now(),
-        )
-        book_client.force_login(user)
-        resp = book_client.get("/account/receipts/")
-        assert b"is-discount" not in resp.content
-
-    def it_renders_member_discount_tag_for_member_with_linked_registration(book_client, db):
+    def it_renders_a_member_the_same_page_as_a_guest(book_client, db):
+        # No member pricing exists any more, so a linked member's row is the plain amount cell
+        # and the subtitle is the one everybody sees.
         user = UserFactory()
         _airtable_promote(user)
         offering = ClassOfferingFactory(status="published", title="Forge", price_cents=10000)
@@ -101,7 +87,8 @@ def describe_account_receipts():
         assert reg.member is not None
         book_client.force_login(user)
         resp = book_client.get("/account/receipts/")
-        assert b"is-discount" in resp.content
+        assert b'<div class="bk-rec-amount">$80.00</div>' in resp.content
+        assert b"Class purchases. Free registrations don't appear here." in resp.content
 
     def it_redirects_anonymous_to_login(book_client, db):
         resp = book_client.get("/account/receipts/")

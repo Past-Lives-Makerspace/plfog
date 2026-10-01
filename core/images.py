@@ -117,8 +117,10 @@ def normalize_field_if_uploaded(instance, field_name: str, max_long_edge: int) -
         new, scale = _normalize(file, max_long_edge=max_long_edge)
     except (UnidentifiedImageError, OSError, ValueError) as exc:
         # Pillow couldn't read the bytes (corrupt, unsupported format, or a
-        # test using a header-only stub). Leave the field alone; the actual
-        # ImageField/form validators will reject genuinely bad uploads.
+        # test using a header-only stub). Leave the field alone. A form
+        # ImageField, or core.validators.validate_image_content on the routes
+        # that save without a form, is what refuses such a file; a caller
+        # that does neither saves it as it came.
         logger.warning("normalize_image skipped for %s.%s: %s", type(instance).__name__, field_name, exc)
         return 1.0
     setattr(instance, field_name, new)

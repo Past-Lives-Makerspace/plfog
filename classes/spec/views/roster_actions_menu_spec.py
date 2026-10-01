@@ -44,8 +44,10 @@ def _unpaid(offering, **kwargs) -> Registration:
     return RegistrationFactory(class_offering=offering, **kwargs)
 
 
-def _admin_reg_url(offering) -> str:
-    return reverse("classes:admin_class_registrations", args=[offering.pk])
+def _admin_reg_url(offering, *, show_cancelled: bool = False) -> str:
+    """The Registrations tab. Cancelled and refunded rows arrive only when asked for."""
+    url = reverse("classes:teach_class_registrations", args=[offering.pk])
+    return f"{url}?show_cancelled=1" if show_cancelled else url
 
 
 def describe_registration_row_menu():
@@ -56,7 +58,7 @@ def describe_registration_row_menu():
         cancelled = RegistrationFactory(
             class_offering=offering, status=Registration.Status.CANCELLED, amount_paid_cents=0, email="cx@example.com"
         )
-        content = client.get(_admin_reg_url(offering)).content.decode()
+        content = client.get(_admin_reg_url(offering, show_cancelled=True)).content.decode()
 
         paid_menu = menu_region(content, f"reg-row-{paid.pk}")
         assert f'href="{reverse("classes:admin_registration_detail", args=[paid.pk])}"' in paid_menu
@@ -121,7 +123,7 @@ def describe_registration_row_menu():
         cancelled = RegistrationFactory(
             class_offering=offering, status=Registration.Status.CANCELLED, amount_paid_cents=0, email="gone@example.com"
         )
-        content = client.get(_admin_reg_url(offering)).content.decode()
+        content = client.get(_admin_reg_url(offering, show_cancelled=True)).content.decode()
 
         confirmed_menu = menu_region(content, f"reg-row-{confirmed.pk}")
         assert ">Remove Student</button>" in confirmed_menu
@@ -186,7 +188,7 @@ def describe_registration_row_menu():
                 amount_paid_cents=0,
                 email="only-two@example.com",
             )
-            content = client.get(_admin_reg_url(offering)).content.decode()
+            content = client.get(_admin_reg_url(offering, show_cancelled=True)).content.decode()
             menu = menu_region(content, f"reg-row-{reg.pk}")
             # View/Email plus the mover's Move Student group — no payment, refund, or remove rules.
             assert menu.count("pl-row-menu__divider") == 1
@@ -233,7 +235,7 @@ def describe_waitlist_row_menu():
 
     def it_renders_no_kebab_on_a_promoted_stub_row(admin_user, client):
         client.force_login(admin_user)
-        offering = ClassOfferingFactory(price_cents=0, member_discount_pct=0, capacity=5)
+        offering = ClassOfferingFactory(price_cents=0, capacity=5)
         reg = RegistrationFactory(class_offering=offering, status=Registration.Status.WAITLISTED)
         swap = client.post(reverse("classes:registration_promote", args=[reg.pk]), headers=HTMX).content.decode()
         assert f'id="wl-row-{reg.pk}"' in swap
@@ -287,7 +289,7 @@ def describe_admin_surface():
         client.force_login(admin_user)
         offering = ClassOfferingFactory(capacity=5)
         reg = RegistrationFactory(class_offering=offering, status=Registration.Status.WAITLISTED)
-        content = client.get(reverse("classes:admin_class_waitlist", args=[offering.pk])).content.decode()
+        content = client.get(reverse("classes:teach_class_waitlist", args=[offering.pk])).content.decode()
         menu = menu_region(content, f"wl-row-{reg.pk}")
         assert "pl-row-menu__trigger" in menu
         assert ">Add to Class</button>" in menu

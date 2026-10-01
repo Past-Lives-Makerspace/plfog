@@ -80,7 +80,7 @@ def describe_guild_page_slot_list():
         client.login(username="ms_gone", password="pass")
         response = client.get(reverse("hub_guild_detail", args=[guild.slug]))
         assert b"with Bob" not in response.content
-        assert b"No one has posted times for this orientation yet" in response.content
+        assert b"pl-orient-slots__row" not in response.content  # no slot row left to book
 
     def it_stays_silent_for_a_nameless_orienter(client: Client):
         # Defensive: a staffer with no display name renders no bare "with".

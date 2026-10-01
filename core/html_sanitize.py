@@ -12,6 +12,9 @@ welcome emails). Editor HTML is treated as **hostile**:
 * :func:`render_rich_email_text` produces the plain-text ``.txt`` counterpart.
 * :func:`rich_html_to_text` flattens HTML to one readable line for the in-app bell and
   Discord fallback.
+* :func:`clean_rich_body`, :func:`render_rich_body` and :func:`rich_body_to_text` are the
+  same three steps for a body that renders on a page rather than in an email (the class
+  description): what a form stores, what the page shows, and the plain text for a feed.
 
 Modeled on :mod:`membership.markdown` (same ``bleach`` + ``_harden_link`` posture).
 """
@@ -117,6 +120,54 @@ def sanitize_rich_html(raw: str) -> str:
     return hardened
 
 
+def is_editor_html(value: str) -> bool:
+    """True when a stored body is editor HTML (it carries a block tag), false for plain text.
+
+    Plain text is what every body held before its editor existed, and what a client without
+    the editor still posts. The two render differently: HTML is sanitized, text is escaped and
+    paragraph-ized, so a typed ``<safety glasses>`` in plain text is shown, not swallowed.
+    """
+    return bool(_BLOCK_TAG_RE.search(value or ""))
+
+
+def clean_rich_body(raw: str) -> str:
+    """What a form stores for a body that may arrive as editor HTML or as plain text.
+
+    Editor HTML is sanitized to the allowlist; an empty editor (``<p><br></p>``) stores ``""``.
+    Plain text is kept exactly as typed, angle brackets and all: the renderer escapes it, and
+    running it through the sanitizer would read the brackets as a tag and drop the words between
+    them (issue #425).
+    """
+    if not raw or not raw.strip():
+        return ""
+    if is_editor_html(raw):
+        return sanitize_rich_html(raw)
+    return raw
+
+
+def render_rich_body(value: str) -> str:
+    """Page-ready HTML for a stored body: editor HTML sanitized, plain text escaped and paragraph-ized.
+
+    The on-page counterpart of :func:`render_rich_email_body`, without the inline styles: the
+    page's own stylesheet styles the fragment. Returns ``""`` for empty input; the result is safe
+    to ``mark_safe``.
+    """
+    if not value or not value.strip():
+        return ""
+    if is_editor_html(value):
+        return sanitize_rich_html(value)
+    return _legacy_plaintext_to_html(value)
+
+
+def rich_body_to_text(value: str) -> str:
+    """Multi-line plain text of a stored body, for anywhere HTML cannot go (a calendar feed, a meta tag).
+
+    Plain text is returned unchanged; editor HTML is sanitized then flattened, list items as
+    ``- `` bullets. Returns ``""`` for empty input.
+    """
+    return render_rich_email_text(value)
+
+
 def _legacy_plaintext_to_html(value: str) -> str:
     """Escape + paragraph-ize legacy plain text (blank line → ``<p>``, newline → ``<br>``)."""
     from django.utils.html import escape
@@ -139,10 +190,7 @@ def render_rich_email_body(value: str) -> str:
         return ""
     from core.events.templates import style_rich_email_fragment
 
-    if _BLOCK_TAG_RE.search(value):
-        fragment = sanitize_rich_html(value)
-    else:
-        fragment = _legacy_plaintext_to_html(value)
+    fragment = render_rich_body(value)
     if not fragment:
         return ""
     return style_rich_email_fragment(fragment)
@@ -157,7 +205,7 @@ def render_rich_email_text(value: str) -> str:
     """
     if not value or not value.strip():
         return ""
-    if not _BLOCK_TAG_RE.search(value):
+    if not is_editor_html(value):
         return value
     return _html_to_multiline_text(sanitize_rich_html(value))
 

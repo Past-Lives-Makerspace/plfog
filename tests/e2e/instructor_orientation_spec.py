@@ -25,6 +25,9 @@ def describe_apply_to_teach():
     def it_walks_a_locked_member_from_the_marketing_page_to_the_open_portal(live_server, page, login_via_code):
         MembershipPlanFactory()  # so login auto-provisions an ACTIVE member
         login_via_code("teach-me@example.com")
+        from membership.models import Member
+
+        Member.objects.filter(user__username="teach-me@example.com").update(phone="503 555 0100")
 
         # A locked member's click on the Host a Workshop sidebar entry lands on the
         # marketing page, served in place at /classes/teach/ rather than bounced elsewhere.
@@ -40,6 +43,23 @@ def describe_apply_to_teach():
         expect(send).to_be_visible()
 
         page.locator("#id_note").fill("I would like to run a two hour intro to wheel throwing.")
+
+        # Issue #536: the modal also asks how to reach the member. The detail field's label
+        # follows the pick, and the pick prefills the account email or the profile phone;
+        # only a browser proves the Alpine half of that.
+        detail = page.locator("#id_contact_detail")
+        detail_label = page.locator('label[for="id_contact_detail"]')
+        expect(detail_label).to_have_text("Where to reach you")
+        page.select_option("#id_contact_method", "email")
+        expect(detail_label).to_have_text("Email address")
+        expect(detail).to_have_value("teach-me@example.com")
+        page.select_option("#id_contact_method", "text")
+        expect(detail_label).to_have_text("Phone number for texts")
+        expect(detail).to_have_value("503 555 0100")  # the phone on the profile replaces the email prefill
+        detail.fill("503 555 0199")
+        page.select_option("#id_contact_method", "phone")
+        expect(detail_label).to_have_text("Phone number for calls")
+        expect(detail).to_have_value("503 555 0199")  # a number the member typed is never overwritten
         send.click()
 
         # The note lands and the page comes back in the note-sent state.
@@ -54,10 +74,12 @@ def describe_apply_to_teach():
         assert page.url.rstrip("/").endswith("/classes/teach")
         expect(page.get_by_role("heading", name=HERO)).to_be_visible()
 
-        # An admin grants Instructor, exactly as the Permissions tab does.
-        from membership.models import Member
-
+        # The contact pair landed with the note.
         member = Member.objects.get(user__username="teach-me@example.com")
+        assert member.teaching_contact_method == Member.TeachingContactMethod.PHONE
+        assert member.teaching_contact_detail == "503 555 0199"
+
+        # An admin grants Instructor, exactly as the Permissions tab does.
         member.grant_instructor(granted_by=None)
 
         # A reload now opens the real teaching dashboard, and the sidebar reads Teaching.

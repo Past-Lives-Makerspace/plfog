@@ -14,14 +14,14 @@ from tests.membership.factories import GuildFactory
 
 pytestmark = pytest.mark.django_db
 
-GUILDS_HOST = "guilds.pastlives.app"
-GUILDS_BASE_URL = "https://guilds.pastlives.app"
+GUILDS_HOST = "guilds.pastlives.space"
+GUILDS_BASE_URL = "https://guilds.pastlives.space"
 GUILDS_SETTINGS = dict(
-    ALLOWED_HOSTS=["guilds.pastlives.app", "testserver"],
-    GUILDS_HOSTS=["guilds.pastlives.app"],
+    ALLOWED_HOSTS=["guilds.pastlives.space", "testserver"],
+    GUILDS_HOSTS=["guilds.pastlives.space"],
     GUILDS_BASE_URL=GUILDS_BASE_URL,
     BOOK_BASE_URL="https://book.pastlives.space",
-    MEMBER_BASE_URL="https://members.pastlives.app",
+    MEMBER_BASE_URL="https://members.pastlives.space",
 )
 
 

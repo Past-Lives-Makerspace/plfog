@@ -1,5 +1,6 @@
 Django>=5.1,<6.1
 django-allauth>=65.0
+django-oauth-toolkit>=3.4,<4.0
 django-unfold>=0.80
 gunicorn>=23.0
 whitenoise>=6.8
@@ -13,7 +14,10 @@ pillow-heif>=0.18
 django-storages[s3]>=1.14
 Faker>=33.0
 pyairtable>=3.0
-stripe>=11.0
+# stripe 16.0.0 (2026-09-30) pins the API version to 2026-09-30.endive, makes path parameters
+# positional-only in every service method and retypes params, which fails mypy in CI.
+# Lift the ceiling on purpose, with the billing calls checked against its changelog.
+stripe>=11.0,<16
 cryptography>=42.0
 icalendar>=6.0
 recurring-ical-events>=3.0

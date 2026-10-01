@@ -1,13 +1,43 @@
 {% comment %}
 Body of the I'm Interested modal. Server-rendered inline (not fetched by HTMX), so a
-POST that fails validation re-renders the page with the bound form and the error shows
-inside the reopened modal. The note goes through form_field.html, which wraps it in
-.pl-form-group; that is what styles the textarea from the theme input tokens
-(FRONTEND.md rule 13); a bare textarea on a hub page renders as a white box.
+POST that fails validation re-renders the page with the bound form and the errors show
+inside the reopened modal. Every field goes through form_field.html, which wraps it in
+.pl-form-group; that is what styles the textarea, the select and the input from the
+theme input tokens (FRONTEND.md rule 13); a bare control on a hub page renders as a
+white box.
+
+The Alpine component follows the Best way to reach you select: `method` mirrors the
+select, `label()` is what the detail field's label reads (form_field.html puts it on
+the label through field_label_x_text), and `pick()` prefills the detail from the
+form's data- attributes (the member's account email, or the phone on their profile;
+read through $root, because $el inside a handler is the select it fired on) when the
+field is empty or still holds the previous prefill, so anything the member typed is
+never overwritten. x-init reads the select's rendered value (through the DOM: a root's
+x-init runs before its children register their x-ref), so a bound re-render keeps the
+method the member chose.
 {% endcomment %}
-<form method="post" action="{% url 'classes:teach_apply' %}">
+<form method="post" action="{% url 'classes:teach_apply' %}"
+      data-email="{{ contact_prefill_email }}"
+      data-phone="{{ contact_prefill_phone }}"
+      x-data="{
+          method: '',
+          lastFill: '',
+          label() {
+              return { email: 'Email address', text: 'Phone number for texts', phone: 'Phone number for calls' }[this.method] || 'Where to reach you';
+          },
+          pick(value) {
+              this.method = value;
+              const fill = value === 'email' ? this.$root.dataset.email : (value ? this.$root.dataset.phone : '');
+              const box = this.$refs.detail;
+              if (box.value === '' || box.value === this.lastFill) { box.value = fill; }
+              this.lastFill = fill;
+          }
+      }"
+      x-init="method = $el.querySelector('[name=contact_method]').value">
     {% csrf_token %}
     {% include "components/form_field.html" with field=apply_form.note %}
+    {% include "components/form_field.html" with field=apply_form.contact_method %}
+    {% include "components/form_field.html" with field=apply_form.contact_detail field_label_x_text="label()" %}
     <div class="pl-modal__actions">
         <button type="submit" class="pl-btn pl-btn--primary" style="flex:1;">Send It</button>
         <button type="button" @click="$dispatch('close-modal', 'apply-to-teach')" class="pl-btn pl-btn--secondary" style="flex:1;">Cancel</button>

@@ -7,10 +7,30 @@ from pathlib import Path
 import dj_database_url
 import sentry_sdk
 from sentry_sdk.scrubber import DEFAULT_DENYLIST, EventScrubber
+from django.core.exceptions import ImproperlyConfigured
 from django.templatetags.static import static
 from django.urls import reverse_lazy
 
 BASE_DIR = Path(__file__).resolve().parent.parent
+
+# Which deployment this process is. Staging is a clone of production (same code, a copy of
+# the data, real outbound email) that must never reach a real member, the real Discord
+# server or a third-party list, so the switches that keep it contained key off this one
+# value rather than off DEBUG: staging runs with DEBUG off exactly like production. The
+# default follows DJANGO_DEBUG so local dev and production need no new variable; only the
+# staging box sets ENVIRONMENT=staging. An unknown value refuses to boot, because a typo
+# here ("stagin") would silently be production with every containment switch off.
+_ENVIRONMENT_NAMES = ("development", "staging", "production")
+ENVIRONMENT = (
+    os.environ.get(
+        "ENVIRONMENT", "development" if os.environ.get("DJANGO_DEBUG", "True").lower() == "true" else "production"
+    )
+    .strip()
+    .lower()
+)
+if ENVIRONMENT not in _ENVIRONMENT_NAMES:
+    raise ImproperlyConfigured(f"ENVIRONMENT must be one of {_ENVIRONMENT_NAMES}, not {ENVIRONMENT!r}.")
+IS_STAGING = ENVIRONMENT == "staging"
 
 # Sentry
 SENTRY_DSN = os.environ.get("SENTRY_DSN", "")
@@ -25,7 +45,7 @@ SENTRY_SCRUB_DENYLIST = [*DEFAULT_DENYLIST, "selector"]
 if SENTRY_DSN:
     sentry_sdk.init(
         dsn=SENTRY_DSN,
-        environment="development" if os.environ.get("DJANGO_DEBUG", "True").lower() == "true" else "production",
+        environment=ENVIRONMENT,
         traces_sample_rate=0.1,
         send_default_pii=True,
         # recursive=True because the default scrubber only walks the TOP level of a frame's
@@ -57,10 +77,9 @@ CSRF_COOKIE_SECURE = not DEBUG
 SESSION_COOKIE_SECURE = not DEBUG
 SECURE_PROXY_SSL_HEADER = ("HTTP_X_FORWARDED_PROTO", "https")
 
-# Cross-subdomain cookies. Production sets COOKIE_DOMAIN=.pastlives.space so a
-# member logged in on members.pastlives.space is recognized on book.pastlives.space
-# (and vice versa). Local dev and Hetzner staging leave this unset so cookies
-# stay scoped to their own host.
+# Cross-subdomain cookies. COOKIE_DOMAIN=.pastlives.space would let a member logged in
+# on members.pastlives.space be recognized on classes.pastlives.space (and vice versa).
+# Production and local dev leave it unset, so each host keeps its own login.
 _cookie_domain = os.environ.get("COOKIE_DOMAIN", "").strip()
 if _cookie_domain:
     SESSION_COOKIE_DOMAIN = _cookie_domain
@@ -68,12 +87,11 @@ if _cookie_domain:
 
 # Theme-persistence cookie. Written client-side by the theme toggle (see
 # templates/hub/base.html) so an explicit light/dark choice follows the member
-# across subdomains of the same registrable domain — the member hub,
-# guilds.pastlives.app, and the Discord OAuth callback all live on .pastlives.app.
-# It is deliberately separate from COOKIE_DOMAIN (which scopes the session/CSRF
-# cookies to .pastlives.space) because a single cookie cannot span two different
-# registrable domains. Empty (the default) → host-only cookie, correct for local
-# dev (pastlives.test); production sets THEME_COOKIE_DOMAIN=.pastlives.app.
+# across subdomains of the same registrable domain — the member hub and
+# guilds.pastlives.space both live on .pastlives.space. It is separate from
+# COOKIE_DOMAIN so the theme can span subdomains without the session doing so.
+# Empty (the default, and production today) → host-only cookie, correct for local
+# dev (pastlives.test); set THEME_COOKIE_DOMAIN=.pastlives.space to share it.
 THEME_COOKIE_DOMAIN = os.environ.get("THEME_COOKIE_DOMAIN", "").strip()
 
 # Surface routing. PUBLIC_HOSTS is the set of hostnames that serve the public
@@ -81,8 +99,17 @@ THEME_COOKIE_DOMAIN = os.environ.get("THEME_COOKIE_DOMAIN", "").strip()
 # MEMBER_HOST is where the public surface redirects /accounts/* requests so
 # allauth sessions always land on the members domain.
 PUBLIC_HOSTS = [
-    h.strip().lower() for h in os.environ.get("PUBLIC_HOSTS", "book.pastlives.space").split(",") if h.strip()
+    h.strip().lower() for h in os.environ.get("PUBLIC_HOSTS", "classes.pastlives.space").split(",") if h.strip()
 ]
+# Retired public hosts. A GET or HEAD here 301s to the same path on BOOK_BASE_URL, so old
+# links and bookmarks land on the class site. Any other method is served as the public
+# surface instead, so a form opened before the move still submits and nothing that POSTs
+# here is lost to a redirect. A host that is also in PUBLIC_HOSTS is served, not
+# redirected: retiring a host is taking it out of PUBLIC_HOSTS. Auto-added to ALLOWED_HOSTS.
+PUBLIC_REDIRECT_HOSTS = [
+    h.strip().lower() for h in os.environ.get("PUBLIC_REDIRECT_HOSTS", "book.pastlives.space").split(",") if h.strip()
+]
+ALLOWED_HOSTS += [h for h in PUBLIC_REDIRECT_HOSTS if h not in ALLOWED_HOSTS]
 MEMBER_HOST = os.environ.get("MEMBER_HOST", "members.pastlives.space").strip().lower()
 # Absolute base URL of the members surface, used to build cross-surface links
 # from the public catalog (e.g. the admin/teach "Manage" buttons). Defaults to
@@ -92,6 +119,30 @@ MEMBER_BASE_URL = os.environ.get("MEMBER_BASE_URL", f"https://{MEMBER_HOST}").rs
 # External MediaWiki knowledge base. The "Wiki" sidebar link opens this in a new tab;
 # the native how-it-works guides live on the in-app Help page instead. Blank hides the link.
 MAKERSPACE_WIKI_URL = os.environ.get("MAKERSPACE_WIKI_URL", "https://wiki.pastlives.space").rstrip("/")
+# The Knowledge Base — PLM's governance and policy library. It runs as its own Django app on its
+# own server with its own access tiers, so this is only the way in: the sidebar entry links here,
+# and the member arrives already signed in because the KB takes its identity from this app over
+# OpenID Connect (see OAUTH2_PROVIDER below). Blank hides the sidebar entry.
+#
+# The default is the real address, like MAKERSPACE_WIKI_URL above, because this is a public URL a
+# member's browser is sent to and not a secret. It defaulted to blank once, and the entry was
+# therefore invisible in production until an environment variable arrived that never did — the
+# value was declared in render.yaml, which only reaches a service whose blueprint is applied.
+# Shipping the address in the repository removes that dependency: deploying the code deploys the
+# link. An environment variable still wins, which is how a preview points somewhere else.
+#
+# Named rather than inlined so a spec can assert it is a real address: the bug this fixes was
+# invisible to every existing test, because each one sets the value it is about to assert on.
+#
+# This is the ONLY place the address is written. render.yaml deliberately does not carry a copy,
+# because a copy there wins on production the moment a blueprint is applied and a drift between
+# the two would take effect in the order nobody expects.
+#
+# The KB's own hostname, live since 2026-09-22. It still answers on the sslip.io address it was
+# built at, and that name stays on the certificate and in the OIDC app's redirect URIs, so a
+# member holding an old link is not turned away — but this is the address the portal hands out.
+DEFAULT_KNOWLEDGE_BASE_URL = "https://kb.pastlives.space"
+KNOWLEDGE_BASE_URL = os.environ.get("KNOWLEDGE_BASE_URL", DEFAULT_KNOWLEDGE_BASE_URL).rstrip("/")
 MEMBER_ONLY_PATH_PREFIXES: tuple[str, ...] = (
     "/admin/",
     "/billing/",
@@ -112,21 +163,39 @@ MEMBER_ONLY_PATH_PREFIXES: tuple[str, ...] = (
     "/wiki/",
 )
 
+# #409: the only book-surface paths a locked-out (former, or by setting suspended) member may
+# reach while signed in. MEMBER_ONLY_PATH_PREFIXES above is a blocklist, so without this the
+# shared session would open hub pages, /api/ and the Knowledge Base sign-in (/o/) on book.
+# Everything else redirects to /accounts/locked/ (core.middleware.MemberLockoutMiddleware).
+# /classes/admin/ and /classes/teach/ stay 404 on book through the blocklist.
+LOCKED_OUT_BOOK_PATH_PREFIXES: tuple[str, ...] = (
+    "/classes/",
+    "/account/",
+    "/accounts/",
+    "/static/",
+    "/media/",
+    "/health/",
+)
+# Carved back out of the allowlist above: registration management (mark paid, remove, move,
+# promote, payment links) lives under bare /classes/registrations/ and is driven from the
+# members host. Its permission check reads roles, not status, so a former admin or instructor
+# signed in on book could otherwise still run it.
+LOCKED_OUT_BOOK_BLOCKED_PREFIXES: tuple[str, ...] = ("/classes/registrations/",)
+
 # Paths that only exist on the public/book surface. Requests to these on the
 # members host get 302-redirected to the book host so members visiting
-# /account/ end up on book.pastlives.space (where /account/ actually lives).
+# /account/ end up on the public class site (where /account/ actually lives).
 PUBLIC_ONLY_PATH_PREFIXES: tuple[str, ...] = ("/account/",)
 
 # Guilds surface. GUILDS_HOSTS is the set of hostnames that serve the public
-# guild directory + guest guild pages (guilds.pastlives.app). Root redirects to
+# guild directory + guest guild pages (guilds.pastlives.space). Root redirects to
 # /guilds/ and only the guest-appropriate views below resolve there; everything
-# else 404s. Empty defaults are safe hooks — until DNS + DJANGO_ALLOWED_HOSTS
-# include the host, no request ever reaches the guilds branch. Go-live: set
-# GUILDS_HOSTS=guilds.pastlives.app and add the host to ALLOWED_HOSTS +
-# CSRF_TRUSTED_ORIGINS (do NOT add it to PUBLIC_HOSTS — that serves the class
-# catalog and redirects / to /classes/).
+# else 404s. A host here serves nothing until DNS, a Render custom domain and
+# DJANGO_ALLOWED_HOSTS all include it; add it to CSRF_TRUSTED_ORIGINS too, since
+# guests log in on this host. Do NOT add it to PUBLIC_HOSTS — that serves the
+# class catalog and redirects / to /classes/.
 GUILDS_HOSTS = [
-    h.strip().lower() for h in os.environ.get("GUILDS_HOSTS", "guilds.pastlives.app").split(",") if h.strip()
+    h.strip().lower() for h in os.environ.get("GUILDS_HOSTS", "guilds.pastlives.space").split(",") if h.strip()
 ]
 # Vanity calendar alias. Every request to a host listed here 302s to the community
 # calendar on the members domain (calendar.pastlives.space — printed on flyers etc.).
@@ -139,7 +208,7 @@ CALENDAR_REDIRECT_HOSTS = [
 ALLOWED_HOSTS += [h for h in CALENDAR_REDIRECT_HOSTS if h not in ALLOWED_HOSTS]
 # Absolute base URL of the guilds surface, used to canonicalize OG/SEO tags on
 # shared guild links regardless of which host rendered them.
-GUILDS_BASE_URL = os.environ.get("GUILDS_BASE_URL", "https://guilds.pastlives.app").rstrip("/")
+GUILDS_BASE_URL = os.environ.get("GUILDS_BASE_URL", "https://guilds.pastlives.space").rstrip("/")
 # Precise allowlist of view names that may resolve on the guilds host. A precise
 # allowlist (not a broad /guilds/ prefix) keeps the guild editor + product/cart
 # endpoints off the guest surface. Allauth's built-in ``account_*`` login/signup/
@@ -208,6 +277,10 @@ INSTALLED_APPS = [
     # REST API
     "rest_framework",
     "rest_framework.authtoken",
+    # OpenID Connect provider — this app is the identity for the Knowledge Base (see
+    # OAUTH2_PROVIDER below). Installing it adds the tables; it grants nothing until a client
+    # application row exists, and the KB is the only one there is.
+    "oauth2_provider",
 ]
 
 REST_FRAMEWORK = {
@@ -235,6 +308,8 @@ MIDDLEWARE = [
     "django.middleware.clickjacking.XFrameOptionsMiddleware",
     "allauth.account.middleware.AccountMiddleware",
     "hub.view_as.ViewAsMiddleware",
+    "core.middleware.MemberLockoutMiddleware",
+    "core.middleware.MemberAgreementMiddleware",
     "plfog.service_worker_middleware.ServiceWorkerAllowedMiddleware",
 ]
 
@@ -254,11 +329,13 @@ TEMPLATES = [
                 "core.context_processors.registration_mode",
                 "core.context_processors.app_version",
                 "core.context_processors.makerspace_wiki",
+                "core.context_processors.knowledge_base",
                 "core.context_processors.theme",
                 "core.context_processors.feature_flags",
                 "core.context_processors.brand",
                 "core.context_processors.google_analytics",
                 "core.context_processors.surface",
+                "core.context_processors.environment",
                 "core.context_processors.persona",
                 "billing.context_processors.tab_context",
                 "hub.context_processors.hub_sidebar",
@@ -566,8 +643,19 @@ ANYMAIL = {
 
 DEFAULT_FROM_EMAIL = os.environ.get("DEFAULT_FROM_EMAIL", "noreply@pastlives.space")
 
-# Base URL for the public booking site, used to build absolute links in emails.
-BOOK_BASE_URL = os.environ.get("BOOK_BASE_URL", "https://book.pastlives.space")
+# Who staging may really email. Staging carries a copy of production's members, so a class
+# published there would otherwise mail the whole membership. On staging an address is
+# delivered only when it is listed here (a full address, or a bare domain that matches every
+# address at it), or when it belongs to a user who is staff, a FOG admin or an instructor;
+# every other recipient is dropped and logged (core/email_policy.py). Ignored outside
+# staging, so production and local dev never consult it. Blank means "roles only".
+_email_allowlist_raw = os.environ.get("EMAIL_DELIVERY_ALLOWLIST", "")
+EMAIL_DELIVERY_ALLOWLIST: frozenset[str] = frozenset(
+    entry.strip().lower() for entry in _email_allowlist_raw.split(",") if entry.strip()
+)
+
+# Base URL for the public class site, used to build absolute links in emails and Discord posts.
+BOOK_BASE_URL = os.environ.get("BOOK_BASE_URL", "https://classes.pastlives.space")
 
 # Admins to notify on new class registrations (comma-delimited emails). Empty = no admin notifications.
 CLASS_ADMIN_NOTIFY_EMAILS = os.environ.get("CLASS_ADMIN_NOTIFY_EMAILS", "")
@@ -742,4 +830,39 @@ UNFOLD = {
             },
         ],
     },
+}
+
+
+# --- OpenID Connect provider ------------------------------------------------------------------
+# This app is the identity for the Knowledge Base: a member clicks Knowledge Base in the sidebar,
+# the KB sends them here, and they arrive there already signed in as whoever they are here. The KB
+# keeps its own accounts but stops authoring them — it reads `fog_role` off the ID token and maps
+# it to one of its access tiers on every login, so a role changed here is a tier changed there on
+# the member's next visit and nobody administers a second account.
+#
+# Nothing is granted by installing this. `oauth2_provider` adds tables; authorisation requires an
+# Application row naming a client id, a secret and an exact redirect URI, and the KB is the only
+# one that exists. Without `OIDC_RSA_PRIVATE_KEY` the OIDC endpoints refuse to issue anything at
+# all, which is the state of every environment that has not deliberately been given a key.
+OIDC_RSA_PRIVATE_KEY = os.environ.get("OIDC_RSA_PRIVATE_KEY", "")
+
+OAUTH2_PROVIDER = {
+    "OIDC_ENABLED": bool(OIDC_RSA_PRIVATE_KEY),
+    "OIDC_RSA_PRIVATE_KEY": OIDC_RSA_PRIVATE_KEY,
+    # `openid` is required by the protocol. `profile` and `email` are the standard claims; `roles`
+    # is ours and is what carries `fog_role`. A scope the client did not ask for is not emitted,
+    # so the KB has to request `roles` deliberately to learn anything about authority.
+    "SCOPES": {
+        "openid": "Confirm who you are",
+        "profile": "Your name",
+        "email": "Your email address",
+        "roles": "Your role at Past Lives Makerspace",
+    },
+    "OAUTH2_VALIDATOR_CLASS": "core.oidc.FogOAuth2Validator",
+    # Short-lived, because the KB re-reads the member's role on every login and a stale token is a
+    # stale role. The authorization-code grant does issue a refresh token, so it is rotated on use:
+    # a replayed one is then a used one, and the window for a leaked token is a single exchange.
+    "ACCESS_TOKEN_EXPIRE_SECONDS": 3600,
+    "ROTATE_REFRESH_TOKEN": True,
+    "PKCE_REQUIRED": True,
 }

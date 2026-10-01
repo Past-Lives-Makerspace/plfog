@@ -62,7 +62,7 @@
           </td>
           <td>
             {% if ev.class_offering %}
-              <a href="{% url 'classes:admin_class_detail' pk=ev.class_offering.pk %}">{{ ev.class_offering.title }}</a>
+              <a href="{% url 'classes:teach_class_detail' pk=ev.class_offering.pk %}">{{ ev.class_offering.title }}</a>
             {% else %}
               <span style="color:var(--hub-text-muted);">—</span>
             {% endif %}

@@ -239,21 +239,53 @@ Some events also offer a **Scheduled** or **Digest** column — a weekly round-u
 
 Flip any switch to turn that notice on or off for that channel. To move faster:
 
-- **All on** / **All off** at the very top flips everything at once.
-- Each category ("Classes", "Your guilds", and so on) has its own **All on** / **All off**.
+- **Everything**, at the very top, flips every switch on the page: **All** for every channel, or just **Email**, **Push** or **Discord**.
+- Each category ("Classes", "Guilds", and so on) has the same **On** / **Off** buttons at the top of its table, for just that category.
 - Some rows cover a whole family of notices at once — every update about an event you proposed, say. Switching that row off switches off the whole family.
 
 Then hit **Save** at the bottom.
 
 ## What You Can't Turn Off {#always-on}
 
-A few notices are locked on, because missing them would cause real problems: sign-in links and invitations, a class being cancelled, refunds, charges, and tab limit warnings, a space agreement ending, equipment reservations, and Discord setup. You'll always get those by email. Most of them sit together in a block called **Always emailed**. Open it and you can still change push and Discord for the ones that offer them.
+A few notices are locked on, because missing them would cause real problems: sign-in links and invitations, a class being cancelled, refunds, charges and tab limit warnings, a space agreement ending, equipment reservations, late fees and Discord setup. Their Email switch shows a padlock. You can still change push and Discord for the ones that offer them.
+
+If you hold a role or an admin permission, the notices it brings you sit together in **Admin / Permissions** at the top of the page, grouped by the permission. Every section has buttons to turn all Email, all Push or all Discord on or off at once. Nothing changes until you press Save.
 
 Announcements can also be marked **urgent** by whoever sends them. An urgent announcement reaches you even if you've turned that kind of email off — it's saved for the things you truly need to know.
 
 ## Heads-Up: Some Updates Start Switched On {#defaults}
 
 So that nobody misses something important, several updates come **switched on by default**. That's on purpose, but it's your call. Take a minute to open **Settings → Notifications** and set each one the way you actually want it: turn off what you don't need, and keep the ones that matter to you.""",
+    },
+    {
+        "slug": "leadership-directory",
+        "category": "getting-started",
+        "title": "Leadership Directory: Who to Ask",
+        "sort_order": 30,
+        "related": ["welcome-to-fog", "member-directory", "guilds-and-guild-pages"],
+        "body": """Need the person who runs something at Past Lives? Open **Leadership Directory** in the sidebar. It is one page with a card for each person, so you never have to dig through Discord for a name.
+
+## Who Is on the Page {#who-is-listed}
+
+- **Leadership & Admin Team** — the people who keep the makerspace running. Each card shows their title, an email for that role, and their Discord handle.
+- **Guild Leaders** — one card per active guild, with the lead, any co-leads, their Discord handles, and the guild's own email address.
+
+## Getting in Touch {#getting-in-touch}
+
+- Tap an email to start a message.
+- Tap a Discord handle to open that person's Discord profile. A handle shown as plain text belongs to someone who has not linked Discord in the Member Portal yet, so look them up in Discord by that name.
+- Some guilds have no email address yet. Ask in the guild's Discord channel instead.
+
+## Keeping It Current {#keeping-it-current}
+
+- The guild cards read each guild's settings. When a guild changes its lead there, the card changes on its own.
+- Your Discord handle comes from your own **Settings**. Guild leads: your guild's email lives in your guild page's settings.
+- Admins add people to the team section, fix titles and emails, and set the order from **Admin Tools → Leadership Directory**, or with the **Edit this page** button on the directory. The toggle on a member's profile in Manage Members does the same for one person.
+
+!!! tip
+    The **Updated** date under the page title is the last change to the team list, so you can tell how fresh it is.
+""",
+        "screenshots": [],
     },
     {
         "slug": "guilds-and-guild-pages",
@@ -340,7 +372,7 @@ Some guilds post open windows of orienter time as well as fixed slots. Under **P
 
 ## Request a Custom Time {#orientation-request-custom-time}
 
-If none of the posted times work, look for **None of these times work? Request a custom time** below the list. Propose a date and time, add a note if it helps, and click **Send request**. The same rule applies: a guild lead has to confirm it before it's real.
+If none of the posted times work, or the guild hasn't posted any, click **Schedule an Orientation** below the orientations. Propose a date and time, add a note if it helps, and click **Send request**. The same rule applies: a guild lead has to confirm it before it's real.
 
 Not every guild offers this — the button only appears when the guild allows custom requests.
 
@@ -451,7 +483,7 @@ Classes at Past Lives are open to everyone — you don't need to be a member or 
 ### Find a Class {#class-find}
 
 1. Open **Class Catalog** in the left menu, or go straight to [/classes/](/classes/).
-2. Narrow things down with the **Guild Type** and **When** dropdowns, or open **Filters** for price range, instructor, member discounts, and free classes.
+2. Narrow things down with the **Guild Type** and **When** dropdowns, or open **Filters** for price range, instructor, and upcoming dates.
 3. Click a class to see its description, dates, price, and how many spots are left.
 
 ![The class catalog — every upcoming class, with filters across the top.](/static/help/taking-a-class/01-class-catalog.png)
@@ -468,7 +500,6 @@ Classes at Past Lives are open to everyone — you don't need to be a member or 
 
 Good to know:
 
-- **Member pricing is automatic.** Register with the email on your Past Lives account and the member price is applied for you — no code needed.
 - **Discount codes** go in the **Discount code (optional)** box on the registration form. If a class is on sale, the sale price may not combine with codes — the form tells you when that's the case.
 - **You can't join a class after it has started.** That includes joining a series partway through.
 
@@ -522,7 +553,7 @@ Refunds aren't automatic: for a paid class, an admin handles the refund — emai
         "sort_order": 10,
         "related": ["propose-an-event", "taking-a-class"],
         "body": """\
-The Calendar puts everything happening at the space in one place: guild meetings, classes, and community events.
+The Calendar puts everything happening at the space in one place: guild meetings, classes, public events, and member events.
 
 ### Browse the Calendar {#calendar-browse}
 
@@ -549,7 +580,7 @@ A row of colored filter chips sits above the grid — one per guild or calendar.
 You'll need to be signed in for this part.
 
 1. On the **Calendar** tab, click **Subscribe** (top right).
-2. Pick **Subscribe to the Member calendar** for all makerspace events, or **Subscribe to the Public calendar** for the outward facing one. Your calendar app stays in sync as new events are added.
+2. Pick the calendar under your calendar app: **Apple Calendar** (Outlook and most other apps take these links too) or **Google Calendar**. Member events and public events live on separate calendars, so take both to see everything. Your calendar app stays in sync as events are added or moved.
 3. Or pick **Download .ics (one time)** for a one time import of this page.
 
 ![The Subscribe button, top right of the Calendar tab.](/static/help/community-calendar/03-export-calendar.png)
@@ -597,7 +628,7 @@ Got a workshop, meetup, or hangout in mind? Any member can propose an event for 
 ### Propose It {#event-propose}
 
 1. Open the **Calendar** and click **+ Propose an event**.
-2. Fill in the form: title, when it starts, whether it repeats, and the details. Pick your guild to propose one of its meetings or events, or leave the guild blank for a site-wide community event.
+2. Fill in the form: title, when it starts, whether it repeats, and the details. Pick the guild hosting it, or pick **No guild** for a makerspace wide event.
 3. Click **Submit for review**.
 
 ![The Events tab — the upcoming list, with the Propose an event button.](/static/help/propose-an-event/01-events-tab.png)
@@ -846,10 +877,10 @@ Three ways in:
 ### Create Your Draft {#teach-create-class}
 
 1. In the portal, open the **Classes** tab and click **+ New Class** (your first time, the button says **+ Create your first class**).
-2. The form is five steps. Step 1 is the basics: title, guild type, and description.
+2. The form is six steps. Step 1 is the basics: title, guild type, and description.
 3. Step 2 is photos. Add a hero image and at least one gallery photo; a class needs both before it can be submitted. Pick the important part of the photo for the class page banner and again for the catalog card.
-4. Step 3 is dates, seats, and price. A class can be one session or a series; add every date. You can also pick flexible scheduling if the dates are arranged later.
-5. Step 4 holds the optional details students read to prepare. Step 5 is the review: a checklist, a preview of your page and card, and the **Submit for Review** button.
+4. Step 3 is dates, seats, and price. A class can be one session or a series; add every date. Or pick Flexible when each student books their day with you after registering, and set an optional first and last day. A flexible class has no seat cap.
+5. Step 4 holds the optional details students read to prepare. Step 5 is discounts. If the studio lets instructors have discount codes, you see the site wide codes that already apply, the codes on this class, and a **Request a Code** button (an admin approves the code before it exists). Otherwise the step says admins manage codes. Step 6 is the review: a checklist, a preview of your page and card, and the **Submit for Review** button.
 6. Click **Save Draft** on any step to keep working.
 
 ![The new class form: describe it, price it, and add your session dates.](/static/help/become-an-instructor/02-new-class-form.png)
@@ -929,7 +960,7 @@ Before a class can be submitted it needs:
 
 - **At least two photos** — its own hero image and at least one gallery photo. Classes with real photos of the work get real sign-ups.
 - **A description that answers the basics** — what students will make or learn, what's provided, and what (if anything) to bring.
-- **Fair pricing** — cover your materials and time. If you set a member discount, members get it automatically when they register with their member email.""",
+- **Fair pricing** — cover your materials and time. Students type any discount code at checkout, so the price you set is the price.""",
         "screenshots": [],
     },
     {
@@ -1091,7 +1122,7 @@ The classes admin lives at `/classes/admin/`. Reach it from **Class Catalog** in
 The Overview's **Needs Attention** card lists everything waiting on you, under **Waiting on You**. Each row has two buttons:
 
 - **Approve** records your admin approval on the spot.
-- **Review** opens the full review page: the class details, upcoming sessions, a student-eye preview of the public page, and a response form with **Approve**, **Ask for changes**, and **Decline**. Notes are optional on approve and required on the other two, so the instructor always knows what to fix. **Send Response** records it and emails the instructor.
+- **Review** opens the full review page: the class details, upcoming sessions, a student-eye preview of the public page, and a response form with **Approve**, **Ask for changes**, and **Decline**. Notes are optional on approve and required on the other two, so the instructor always knows what to fix. **Submit** records it and emails the instructor.
 
 When the class's category belongs to a guild that has a lead, the guild lead reviews first, through a tokenized link emailed to them (no admin access needed). A guild lead approval hands the class to admins for the final sign off. Your admin approval is final: the moment you approve, the class publishes and opens for sign-ups, even if the guild lead has not weighed in yet (any still-open guild lead review is closed automatically). **Ask for changes** and **Decline** send it back to the instructor as a draft, with your notes.
 
@@ -1752,23 +1783,23 @@ Two doors lead to the same review page.
 
 **From the email (easiest):** the review request carries a direct review link. It's a signed, personal link that works without logging in, so you can review from anywhere.
 
-**From the teaching area:**
+**From your guild's settings page:**
 
-1. Go to `/classes/teach/` (or click **Class Catalog** in the left menu, then **Manage My Classes**).
-2. On the Overview, find **Waiting on Your Review** inside the **Needs Attention** card at the top. You only see it if you lead or staff a guild.
+1. Open your guild page and click **Guild Settings**.
+2. **Needs Attention** is the first thing on that page. Find **Waiting on Your Review**.
 3. Click **Review** next to the waiting class.
 
-One caveat: the teaching area itself only opens once an admin has given you teaching access. If you have never been granted it, use the email link instead. It works without it.
+You do not need teaching access for any of this. One caveat: only the guild's lead, its staff, and admins see the **Guild Settings** button. If you do not see it, ask your lead to add you as staff, or use the email link. That link works without logging in at all.
 
-![The teaching overview. Classes waiting on your review sit at the top.](/static/help/approving-classes/01-review-panel.png)
+![The guild settings page. Classes waiting on your review sit at the top.](/static/help/approving-classes/01-review-panel.png)
 
-![The Needs Attention card, with Waiting on Your Review and a Review button per class.](/static/help/approving-classes/02-review-queue-panel.png)
+![The Needs Attention section, with Waiting on Your Review and a Review button per class.](/static/help/approving-classes/02-review-queue-panel.png)
 
 The review page shows everything the class will publish with: description, sessions, price, capacity, and photos, plus the history of past review rounds.
 
 ### Make the Call
 
-Pick one of three responses and click **Send Response**:
+Pick one of three responses and click **Submit**:
 
 - **Approve.** You're vouching for the class; it moves on to the admin gate.
 - **Ask for changes.** Notes are required so the instructor knows what to work on. The class goes back to draft; they edit and resubmit, and a fresh review round starts with you.
@@ -1781,17 +1812,19 @@ Each review link accepts exactly one response. If you open it again afterwards, 
 Your approval doesn't publish the class. It opens the admin gate: an admin gets a validation request naming you as the lead who vouched, and only their approval publishes the class and opens sign-ups. The instructor is notified at every step, so you don't need to relay anything.""",
         "screenshots": [
             {
+                # The guild-lead persona leads Ceramics Guild, which the capture harness
+                # asserts is pk 1 — the same literal path the your-guild-page shots use.
                 "file": "01-review-panel.png",
-                "page": "classes:teach_overview",
+                "page": "/guilds/1/edit/",
                 "selector": None,
-                "caption": "The teaching overview. Classes waiting on your review sit at the top.",
+                "caption": "The guild settings page. Classes waiting on your review sit at the top.",
                 "as_role": "guild_lead",
             },
             {
                 "file": "02-review-queue-panel.png",
-                "page": "classes:teach_overview",
+                "page": "/guilds/1/edit/",
                 "selector": '[data-help-key="guild.approve-classes"]',
-                "caption": "The Needs Attention card, with Waiting on Your Review and a Review button per class.",
+                "caption": "The Needs Attention section, with Waiting on Your Review and a Review button per class.",
                 "as_role": "guild_lead",
             },
         ],
@@ -1913,8 +1946,8 @@ There are no release days. When a change merges to the main branch on GitHub (af
 ## What the Member Portal Talks To
 
 - **Airtable** — the membership roster lives there; the Member Portal pulls members, spaces, and space agreements in on a schedule, and pushes guild-voting results back out.
-- **Discord** — the Fog Bot mirrors community events into Discord's event list, posts guild announcements and new classes, and links member accounts (see [Discord and the Member Portal](/help/contributing/discord-and-fog/)).
-- **Google Calendar** — community events are pushed to the shared calendar automatically.
+- **Discord** — the Fog Bot mirrors calendar events into Discord's event list, posts guild announcements and new classes, and links member accounts (see [Discord and the Member Portal](/help/contributing/discord-and-fog/)).
+- **Google Calendar** — events are pushed to the shared calendars automatically: the public one, or the members one for guild meetings and the like.
 
 ## Scheduled Jobs
 

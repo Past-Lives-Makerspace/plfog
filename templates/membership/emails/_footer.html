@@ -1,6 +1,8 @@
-{% load site_urls %}<tr>
+{% load static site_urls %}{% google_play_url as play_url %}{% app_store_url as ios_url %}<tr>
 <td style="text-align: center; padding-top: 32px;">
     <a href="{% member_base_url %}" style="font-size:15px; font-weight:700; color:#092E4C; text-decoration:none;">Past Lives Makerspace</a>
+    {% if play_url or ios_url %}<p style="margin: 14px 0 8px; font-size: 13px; color: #5B6B77; line-height: 1.5;">{% if play_url and ios_url %}Get the Past Lives app for iPhone or Android.{% elif play_url %}Get the Past Lives app on Google Play. iOS coming soon.{% else %}Get the Past Lives app on the App Store.{% endif %}</p>
+    {% if play_url %}<a href="{{ play_url }}" style="display: inline-block; margin: 0 4px; text-decoration: none;"><img src="{% member_base_url %}{% static 'img/google-play-badge.png' %}" width="134" height="52" alt="Get it on Google Play" style="display: inline-block; vertical-align: middle; border: 0; outline: none; width: 134px; height: 52px;"></a>{% endif %}{% if ios_url %}<a href="{{ ios_url }}" style="display: inline-block; margin: 0 4px; text-decoration: none;"><img src="{% member_base_url %}{% static 'img/app-store-badge.png' %}" width="120" height="40" alt="Download on the App Store" style="display: inline-block; vertical-align: middle; border: 0; outline: none; width: 120px; height: 40px;"></a>{% endif %}{% endif %}
     <p style="margin: 10px 0 0; font-size: 11px; color: #5B6B77; line-height: 1.5;">You're getting this message because you have a Past Lives Makerspace account.<br><a href="{% member_base_url %}/settings/?tab=notifications&amp;t=__PL_PREFS_TOKEN__" style="color:#092E4C; text-decoration:underline;">Manage your email preferences or unsubscribe</a></p>
 </td>
 </tr>

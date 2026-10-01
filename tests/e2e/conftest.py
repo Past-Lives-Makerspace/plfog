@@ -20,6 +20,7 @@ import pytest
 from django.conf import settings as django_settings
 from django.contrib.auth import get_user_model
 from django.core import mail
+from django.core.cache import cache
 from django.urls import reverse
 
 # Playwright's *sync* API drives an asyncio event loop (via greenlet) on the
@@ -80,6 +81,18 @@ def login_via_code(page, live_server):
         user, _ = user_model.objects.get_or_create(username=email, defaults={"email": email})
         EmailAddress.objects.get_or_create(user=user, email=email, defaults={"verified": True, "primary": True})
         mail.outbox = []
+
+        # allauth caps request_login_code at 5/m/ip (plfog/settings.py), and every spec in
+        # this lane logs in from 127.0.0.1 against one shared LocMemCache that lives for the
+        # whole session. There are around 80 logins across 26 files here, so that ceiling is
+        # reached routinely once the lane is busy enough. When it trips, allauth still renders
+        # the confirm screen and simply sends no email, so the failure does not surface as a
+        # rate limit: it surfaces as "expected a login-code email to be sent" in whichever
+        # unrelated spec happened to be running, which is a genuinely confusing place to land.
+        # The counters and the outgoing-email circuit breaker both live in the cache, so
+        # clearing it resets the budget rather than racing it. Nothing in this lane asserts
+        # rate limiting, so there is no behaviour here to preserve.
+        cache.clear()
 
         # Request a login code.
         page.goto(f"{live_server.url}{reverse('account_request_login_code')}")

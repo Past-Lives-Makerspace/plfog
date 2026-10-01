@@ -33,10 +33,13 @@ def describe_card_object_position():
         assert offering.card_object_position == "10% 90%"
 
     def it_follows_the_banner_crop_box_when_neither_is_set(db):
+        # The box is cut into a copy on save (#547) and the card shows that copy, so the
+        # banner's answer, and through it the card's, is the copy's own centre.
         offering = ClassOfferingFactory(
             image=_real_png(), hero_crop_x=200, hero_crop_y=100, hero_crop_w=400, hero_crop_h=200
         )
-        assert offering.card_object_position == "40.0% 40.0%"
+        assert offering.hero_cropped
+        assert offering.card_object_position == offering.hero_object_position == "50% 50%"
 
     def it_follows_the_banner_when_only_x_is_set(db):
         offering = ClassOfferingFactory(card_focus_x=20, hero_crop_x=10, hero_crop_y=90)
@@ -56,7 +59,7 @@ def describe_card_object_position():
             card_focus_x=5,
             card_focus_y=95,
         )
-        assert offering.hero_object_position == "40.0% 40.0%"
+        assert offering.hero_object_position == "50% 50%"  # the copy cut to the box, centred
         assert offering.card_object_position == "5% 95%"
 
     def it_treats_zero_as_a_real_focal_point(db):

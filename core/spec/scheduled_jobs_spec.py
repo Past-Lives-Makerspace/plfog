@@ -35,6 +35,7 @@ _DISPATCHER_ALWAYS = {
     "announce_new_classes",
     "sync_interested_rsvps",
     "expire_orientation_payment_holds",
+    "release_abandoned_class_holds",
     "take_reconciliation_snapshot",
     "send_pending_funding_results",
 }

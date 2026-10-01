@@ -134,7 +134,7 @@ SCHEDULED_JOBS: list[ScheduledJob] = [
     ScheduledJob(
         key="send_event_reminders",
         name="Event reminders",
-        description="Reminds members about upcoming community events they can attend.",
+        description="Reminds members about upcoming events they can attend.",
         command="send_event_reminders",
         schedule_label="Every 15 min",
         cadence=Cadence.ALWAYS,
@@ -241,6 +241,14 @@ SCHEDULED_JOBS: list[ScheduledJob] = [
         name="Release abandoned orientation checkouts",
         description="Releases orientation seats held by checkouts that were never completed.",
         command="expire_orientation_payment_holds",
+        schedule_label="Every 15 min",
+        cadence=Cadence.ALWAYS,
+    ),
+    ScheduledJob(
+        key="release_abandoned_class_holds",
+        name="Release abandoned class checkouts",
+        description="Releases class seats held by signups whose Stripe checkout was never completed.",
+        command="release_abandoned_class_holds",
         schedule_label="Every 15 min",
         cadence=Cadence.ALWAYS,
     ),

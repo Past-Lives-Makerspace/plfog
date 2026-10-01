@@ -99,6 +99,7 @@ def describe_help_content():
             approved = {
                 "welcome-to-fog": "getting-started",
                 "notifications": "getting-started",
+                "leadership-directory": "getting-started",
                 "guilds-and-guild-pages": "guilds",
                 "getting-oriented": "guilds",
                 "guild-voting": "guilds",
@@ -141,7 +142,7 @@ def describe_help_content():
 
         def it_publishes_no_gated_slugs():
             # GATED surfaces (§10.5 rule 4): Discord connect stays undocumented until
-            # the prod bot is confirmed; billing waits on my_tab_enabled.
+            # the prod bot is confirmed; billing waits on the My Tab feature switch.
             seeded = {article["slug"] for article in _articles()}
             assert not seeded & {"connecting-discord", "notifications-and-your-settings", "billing-admin"}
 
@@ -176,3 +177,20 @@ def describe_help_content():
         def it_keeps_pending_targets_out_of_the_seeded_set():
             seeded = {article["slug"] for article in _articles()}
             assert not seeded & help_content.PENDING_LEGACY_TARGETS
+
+
+def describe_the_notifications_article():
+    """#524: the article explains the padlock and Admin / Permissions, not a retired block."""
+
+    def _body() -> str:
+        return next(article["body"] for article in _articles() if article["slug"] == "notifications")
+
+    def it_explains_the_padlock_instead_of_the_always_emailed_block():
+        body = _body()
+        assert "Their Email switch shows a padlock." in body
+        assert "Always emailed" not in body
+
+    def it_points_role_holders_at_admin_permissions_and_the_channel_buttons():
+        body = _body()
+        assert "**Admin / Permissions** at the top of the page, grouped by the permission" in body
+        assert "turn all Email, all Push or all Discord on or off at once" in body

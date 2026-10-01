@@ -15,6 +15,7 @@ from django.db import models, transaction
 from django.db.models.functions import Coalesce
 from django.utils import timezone
 
+from core.features import DEFAULT_SOON_MESSAGE, FEATURES, FeatureState, FeatureView
 from core.files import delete_orphan_on_replace
 from core.scheduled_jobs import Trigger
 from core.validators import validate_hex_color, validate_image_size
@@ -106,6 +107,15 @@ class HeroCropMixin(models.Model):
         cx = (self.hero_crop_x or 0) + self.hero_crop_w / 2
         cy = (self.hero_crop_y or 0) + self.hero_crop_h / 2
         return f"{(cx / src_w) * 100:.1f}% {(cy / src_h) * 100:.1f}%"
+
+    def focal_point_on_source(self, x_pct: int, y_pct: int) -> tuple[int, int]:
+        """A focal point picked on the photo the page shows, in the stored file's coordinates.
+
+        The Adjust tool reads its point as percentages of the photo on screen. Here that
+        photo is the stored file itself, so the point comes back unchanged; a model whose
+        page shows a derived picture (a class and its cropped copy) overrides this.
+        """
+        return x_pct, y_pct
 
 
 class PushSubscription(models.Model):
@@ -549,6 +559,29 @@ class SiteConfiguration(models.Model):
         default=RegistrationMode.INVITE_ONLY,
         help_text="Open — anyone can sign up. Invite Only — only people with an invite can register.",
     )
+    member_agreement_required = models.BooleanField(
+        default=False,
+        verbose_name="Require members to accept the Member Agreement",
+        help_text="When checked, active members must accept the agreement to access the hub.",
+    )
+    member_agreement_url = models.URLField(
+        blank=True,
+        default="",
+        verbose_name="Member Agreement URL",
+        help_text="URL to the Member Agreement (e.g., in the Knowledge Base).",
+    )
+    member_agreement_version = models.CharField(
+        max_length=40,
+        blank=True,
+        default="",
+        verbose_name="Member Agreement version",
+        help_text=(
+            "The released version members must have accepted, e.g. '2.0.0'. Leave blank to keep "
+            "the one-time behaviour: anyone who has ever accepted is never asked again. Setting a "
+            "version here re-prompts every member who accepted a different one, so change it only "
+            "for a release that people genuinely need to re-read."
+        ),
+    )
     general_calendar_url = models.URLField(
         blank=True,
         default="",
@@ -675,13 +708,23 @@ class SiteConfiguration(models.Model):
         verbose_name="Google Analytics measurement ID",
         help_text="GA4 measurement ID (e.g. G-XXXXXXX) — injected on every page, this admin included. Leave blank to disable.",
     )
-    my_tab_enabled = models.BooleanField(
-        default=True,
-        verbose_name="Enable My Tab",
-        help_text="When off, hides the member My Tab pages, the balance pill, and the Buyables tab "
-        "on guild pages; members visiting the Tab pages are redirected. The admin Payments dashboard "
-        "also hides its Overview and Open Tabs tabs and opens straight on the Payments ledger. The "
-        "Reports page and payment history are unaffected.",
+    late_cancel_fees_enabled = models.BooleanField(
+        default=False,
+        verbose_name="Charge late cancellation fees",
+        help_text=(
+            "When on, guilds and equipment can set a fee for cancelling an orientation or reservation "
+            "inside the notice window. Off means nothing charges anywhere."
+        ),
+    )
+    late_cancel_notice_hours = models.PositiveSmallIntegerField(
+        default=24,
+        verbose_name="Cancellation notice (hours)",
+        help_text="How far ahead members are told to cancel. Shown wherever a fee applies.",
+    )
+    late_cancel_grace_hours = models.PositiveSmallIntegerField(
+        default=2,
+        verbose_name="Grace period (hours)",
+        help_text="Not shown to members. A cancel this close to the notice line is still free.",
     )
     class_registration_enabled = models.BooleanField(
         default=True,
@@ -695,28 +738,42 @@ class SiteConfiguration(models.Model):
         verbose_name="Registration-off message",
         help_text="Shown under the disabled Register button when class registration is off.",
     )
+    # #409: who the members site turns away, and what they read. Former members are always
+    # locked out; suspended ones only while the switch is on. See core/member_lockout.py.
+    former_member_signin_message = models.TextField(
+        blank=True,
+        default="Your membership is no longer active, so this account can no longer sign in to the member site.",
+        verbose_name="Former member sign in message",
+        help_text="Shown when a former member tries to sign in to the member site. The support email is "
+        "shown under it. Blank uses the built in sentence.",
+    )
+    suspended_members_locked_out = models.BooleanField(
+        default=True,
+        verbose_name="Lock out suspended members",
+        help_text="When on, a suspended member cannot sign in to the member site and sees the message below. "
+        "Former members are always locked out.",
+    )
+    suspended_member_signin_message = models.TextField(
+        blank=True,
+        default="Your membership is paused right now, so this account cannot sign in to the member site.",
+        verbose_name="Suspended member sign in message",
+        help_text="Shown when a suspended member tries to sign in while suspended members are locked out. "
+        "The support email is shown under it. Blank uses the built in sentence.",
+    )
     help_page_enabled = models.BooleanField(
         default=True,
         verbose_name="Show Help in the sidebar",
         help_text="When off, the Help link is hidden from the sidebar and the /help/ page redirects to the home page.",
     )
-    wiki_link_enabled = models.BooleanField(
+    guided_tours_enabled = models.BooleanField(
         default=True,
-        verbose_name="Show old wiki link",
-        help_text="Show a link to the old MediaWiki at the bottom of the Wiki home. Turn this off "
-        "once the old wiki is retired.",
+        verbose_name="Offer guided tours",
+        help_text="When off, the guided tour offer never pops up for anyone. Each member's own tour setting is "
+        "kept, and a tour can still be started from its Show me around link.",
     )
-    wiki_enabled = models.BooleanField(
-        default=False,
-        verbose_name="Member wiki",
-        help_text="Show the Wiki in the sidebar and let members read and write wiki pages. When off, "
-        "every /wiki/ page and the QR sticker links answer 404.",
-    )
-    equipment_page_enabled = models.BooleanField(
-        default=True,
-        verbose_name="Equipment page",
-        help_text="Show the Equipment page in the sidebar and allow reservations.",
-    )
+    # wiki_enabled, equipment_page_enabled and host_a_workshop_enabled used to live here. They are
+    # FeatureSwitch rows now (see core/features.py) so that every member feature answers to one
+    # mechanism with three states instead of two, and so that the next one needs no migration.
     guild_welcome_email_enabled = models.BooleanField(
         default=True,
         verbose_name="Send guild welcome emails",
@@ -733,6 +790,16 @@ class SiteConfiguration(models.Model):
             "codes from the Teaching portal — the Discount Codes tile is hidden and the pages "
             "redirect. Admins can always create and approve discount codes from Classes admin, "
             "either way. Default off: only admins create discount codes."
+        ),
+    )
+    instructor_discount_codes_need_approval = models.BooleanField(
+        default=True,
+        verbose_name="Instructors request discount codes and an admin approves them",
+        help_text=(
+            "When on, instructors ask for a discount code and an admin approves or declines it; the "
+            "code exists only once approved. When off, instructors create, edit and delete their own "
+            "codes directly, and each new code waits for approval as before. This only matters while "
+            "the setting above is on."
         ),
     )
     display_demo_classes = models.BooleanField(
@@ -758,7 +825,11 @@ class SiteConfiguration(models.Model):
         verbose_name="Public member directory",
         help_text=(
             "When on, the member directory at /members/ is viewable without signing in (the original "
-            "public-directory behavior). When off, visitors must sign in before the directory shows anything."
+            "public-directory behavior). When off, visitors must sign in before the directory shows anything. "
+            "This is the real access switch for the directory. Member Directory in the feature list above is "
+            "cosmetic: it only decides whether the entry shows in the sidebar, and the page stays reachable by "
+            "its own link either way. Two switches, two jobs — that one tidies the sidebar, this one decides "
+            "whether signed-out visitors can read the directory."
         ),
     )
     member_event_policy = models.CharField(
@@ -805,7 +876,7 @@ class SiteConfiguration(models.Model):
         verbose_name="Publish events to Discord",
         help_text=(
             "When on (and the Discord bot is configured with Manage Events), publishing/editing/deleting a "
-            "community event creates/updates/removes it in the Discord server's Events. Studio hours and "
+            "an event creates/updates/removes it in the Discord server's Events. Studio hours and "
             "classes are never pushed."
         ),
     )
@@ -892,7 +963,7 @@ class SiteConfiguration(models.Model):
     signage_event_qr = models.BooleanField(
         default=False,
         verbose_name="Add a QR to event slides",
-        help_text="Add a QR code to the community calendar on auto event slides.",
+        help_text="Add a QR code to the Calendar on auto event slides.",
     )
     # The self-building slide blocks. All default ON: a screen pointed at its URL should
     # arrive populated, and an admin switches off what they don't want on the wall.
@@ -992,6 +1063,21 @@ class SiteConfiguration(models.Model):
         verbose_name="Public website",
         help_text="Your main marketing website, with no trailing slash. The public topbar's Home, Guilds, Membership, and Contact links and the sidebar globe icon are built from it.",
     )
+    # #467: the two store listings behind every "Get the app" badge (email footers, the sign in
+    # page, the member home, the sidebar and the landing page). Both default to the live Past
+    # Lives listings; blank means not launched, which a fresh deployment or a pulled listing uses.
+    google_play_url = models.URLField(
+        blank=True,
+        default="https://play.google.com/store/apps/details?id=app.pastlives.hub",
+        verbose_name="Google Play URL",
+        help_text="The app's Google Play listing. Blank means not launched: the badge is left out everywhere.",
+    )
+    app_store_url = models.URLField(
+        blank=True,
+        default="https://apps.apple.com/us/app/past-lives-makerspace/id6796557084",
+        verbose_name="App Store URL",
+        help_text="The app's App Store listing. Blank means not launched: the badge is left out everywhere and the copy says iOS is coming soon.",
+    )
 
     class Meta:
         verbose_name = "Site Settings"
@@ -1006,11 +1092,23 @@ class SiteConfiguration(models.Model):
         delete_orphan_on_replace(self, "org_logo")
         super().save(*args, **kwargs)
 
+    def clean(self) -> None:
+        super().clean()
+        if self.member_agreement_required and not self.member_agreement_url:
+            from django.core.exceptions import ValidationError
+
+            raise ValidationError({"member_agreement_url": "Required when Member Agreement is enforced."})
+
     @classmethod
     def load(cls) -> SiteConfiguration:
         """Load the singleton instance, creating it with defaults if needed."""
         obj, _created = cls.objects.get_or_create(pk=1)
         return obj
+
+    @property
+    def instructor_discount_codes_approval_mode(self) -> bool:
+        """Instructors request and an admin decides: both discount code settings on."""
+        return self.instructor_discount_codes_enabled and self.instructor_discount_codes_need_approval
 
 
 class CalendarFeed(models.Model):
@@ -1431,12 +1529,18 @@ class TransactionalEmailLog(models.Model):
     class Status(models.TextChoices):
         SENT = "sent", "Sent"
         FAILED = "failed", "Failed"
+        # Staging only: the delivery policy refused the recipient, so nothing was sent.
+        SUPPRESSED = "suppressed", "Suppressed"
 
     to_email = models.CharField(max_length=254, help_text="Recipient(s); comma-joined when multiple.")
     subject = models.CharField(max_length=500, help_text="Email subject line.")
     trigger_kind = models.CharField(max_length=100, help_text="Which workflow sent it, e.g. 'billing.receipt'.")
     status = models.CharField(max_length=10, choices=Status.choices, help_text="Send outcome.")
-    error_message = models.TextField(blank=True, default="", help_text="Exception text when status=failed.")
+    error_message = models.TextField(
+        blank=True,
+        default="",
+        help_text="Exception text when status=failed; the policy reason when status=suppressed.",
+    )
     created_at = models.DateTimeField(auto_now_add=True, db_index=True)
 
     class Meta:
@@ -1463,6 +1567,7 @@ class SiteActivity(models.Model):
     class Kind(models.TextChoices):
         LOGIN = "login", "Logged in"
         LOGOUT = "logout", "Logged out"
+        ACCEPTED_MEMBER_AGREEMENT = "accepted_member_agreement", "Accepted the Member Agreement"
         PROFILE_UPDATED = "profile_updated", "Updated profile"
         VOTE_SUBMITTED = "vote_submitted", "Submitted vote"
         VOTE_CHANGED = "vote_changed", "Changed vote"
@@ -1488,6 +1593,12 @@ class SiteActivity(models.Model):
         ORIENTATION_DECLINED = "orientation_declined", "Orientation declined"
         ORIENTATION_CANCELLED = "orientation_cancelled", "Orientation cancelled"
         ORIENTATION_COMPLETED = "orientation_completed", "Orientation completed"
+        ORIENTATION_RECORDED = "orientation_recorded", "Orientation recorded"
+        ORIENTATION_RECORD_REMOVED = "orientation_record_removed", "Orientation record removed"
+        LATE_FEE_CHARGED = "late_fee_charged", "Late cancellation fee charged"
+        LATE_FEE_PAID = "late_fee_paid", "Late cancellation fee paid"
+        LATE_FEE_WAIVED = "late_fee_waived", "Late cancellation fee waived"
+        LATE_FEE_REFUNDED = "late_fee_refunded", "Late cancellation fee refunded"
         INSTRUCTOR_ORIENTED = "instructor_oriented", "Completed instructor orientation"
         TEACHING_APPLIED = "teaching_applied", "Applied to teach"
         TEACHING_APPLICATION_DECLINED = "teaching_application_declined", "Teaching application declined"
@@ -2263,6 +2374,87 @@ class ScheduledJobState(models.Model):
     def __str__(self) -> str:
         state = "enabled" if self.enabled else "disabled"
         return f"{self.task_key} ({state})"
+
+
+class FeatureSwitchManager(models.Manager["FeatureSwitch"]):
+    """The current state per member feature, against the ``core.features`` registry.
+
+    Absence of a row means ON, so a database that has never been seeded behaves exactly like
+    the app did before this table existed. That is the property that makes the deploy a no-op.
+    """
+
+    def state_of(self, key: str) -> str:
+        """``key``'s current state, or ON when no row (or no registry entry) exists."""
+        row = self.filter(feature_key=key).first()
+        return row.state if row is not None else FeatureState.ON
+
+    def sync_registry(self) -> None:
+        """Ensure a state row exists for every registry feature so the admin formset always has
+        one to bind, seeded ON. Idempotent; never deletes a row or re-defaults an existing one,
+        so a retired feature's state and an admin's flip both survive."""
+        for feature in FEATURES:
+            self.get_or_create(feature_key=feature.key, defaults={"state": FeatureState.ON})
+
+    def as_context(self) -> dict[str, FeatureView]:
+        """Every feature's state, keyed by feature key, in ONE query.
+
+        This is what the site-wide context processor delivers, so a page that renders every nav
+        entry costs one read rather than one per feature. Registry order is preserved and a
+        feature with no row still appears, ON — a template never has to test for a missing key,
+        and a new feature needs no migration because its absent row simply reads ON.
+        """
+        rows = {row.feature_key: row for row in self.all()}
+        views: dict[str, FeatureView] = {}
+        for feature in FEATURES:
+            row = rows.get(feature.key)
+            state = row.state if row is not None else FeatureState.ON
+            message = (row.message.strip() if row is not None else "") or DEFAULT_SOON_MESSAGE
+            views[feature.key] = FeatureView(key=feature.key, name=feature.name, state=state, message=message)
+        return views
+
+
+class FeatureSwitch(models.Model):
+    """On / Coming soon / Hidden for one member feature, plus the Coming soon hover message.
+
+    One row per ``core.features.FEATURES`` key. The registry owns what a feature IS and what
+    turning it off does; this row owns only the admin's current choice, which is why adding a
+    feature needs no migration.
+    """
+
+    feature_key = models.CharField(
+        max_length=64, unique=True, help_text="Registry key of the feature this state controls."
+    )
+    state = models.CharField(
+        max_length=10,
+        choices=FeatureState.choices,
+        default=FeatureState.ON,
+        help_text=(
+            "On is normal behaviour. Coming soon leaves the sidebar entry visible but inert, showing the message below on hover and on keyboard focus. Hidden removes the entry. For every feature but My Tab, both off states change the sidebar only: every page in the feature stays reachable by its own link, for everyone. My Tab is the exception: both off states turn tab billing off."
+        ),
+    )
+    message = models.CharField(
+        max_length=200,
+        blank=True,
+        help_text=f"The hover text on a Coming soon entry, e.g. 'Launching Sept 30th!'. "
+        f"Blank shows '{DEFAULT_SOON_MESSAGE}'. Ignored unless the state is Coming soon.",
+    )
+    updated_at = models.DateTimeField(auto_now=True, help_text="When this state was last changed.")
+    updated_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="+",
+        help_text="The admin who last changed this feature's state.",
+    )
+
+    objects = FeatureSwitchManager()
+
+    class Meta:
+        ordering = ["feature_key"]
+
+    def __str__(self) -> str:
+        return f"{self.feature_key} ({self.get_state_display()})"
 
 
 # ── TEMPORARY — remove on/after 2026-08-10 ─────────────────────────────────────

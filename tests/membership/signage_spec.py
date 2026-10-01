@@ -817,3 +817,103 @@ def describe_deck_hash_with_a_whats_on_list():
             after_deck = build_deck(zone)
             assert [vm.kind for vm in before_deck] == [vm.kind for vm in after_deck]  # same slides
             assert deck_hash(after_deck, config) != before
+
+
+def describe_a_feature_switch_beats_the_signage_toggle():
+    """#405 AC 5: a feature that is not On drops its kiosk slide, whatever signage_show_* says.
+
+    These are two switches with two different jobs — signage_show_voting is "do we advertise
+    voting on the wall", features.voting is "does voting exist" — and the second has to win.
+    Without that, a feature reading "Coming soon" in the hub still has a slide in the lobby
+    with a QR code onto a 404, which is the most public place in the building to be wrong.
+    """
+
+    def it_drops_the_voting_slide_when_voting_is_hidden():
+        from tests.features import hide, turn_on
+
+        _config(signage_show_voting=True)
+        zone = SlideshowZoneFactory()
+        turn_on("voting")
+        assert any(vm.kind == "voting" for vm in build_deck(zone))
+        hide("voting")
+        assert not any(vm.kind == "voting" for vm in build_deck(zone))
+
+    def it_drops_the_voting_slide_when_voting_is_coming_soon():
+        from tests.features import coming_soon
+
+        _config(signage_show_voting=True)
+        zone = SlideshowZoneFactory()
+        coming_soon("voting", "Launching Sept 30th!")
+        assert not any(vm.kind == "voting" for vm in build_deck(zone))
+
+    def it_drops_the_directory_slide_when_the_directory_is_hidden():
+        from tests.features import hide
+
+        _config(signage_show_directory=True)
+        zone = SlideshowZoneFactory()
+        hide("directory")
+        assert not any(vm.kind == "directory" for vm in build_deck(zone))
+
+    def it_drops_the_teach_slide_when_host_a_workshop_is_hidden():
+        from tests.features import hide
+
+        _config(signage_show_teach=True)
+        zone = SlideshowZoneFactory()
+        hide("teach")
+        assert not any(vm.kind == "teach" for vm in build_deck(zone))
+
+    def it_drops_the_guild_slides_when_guild_pages_are_hidden():
+        from tests.features import hide
+
+        _config(signage_show_guilds=True)
+        zone = SlideshowZoneFactory()
+        GuildFactory(name="Ceramics Guild", is_active=True)
+        assert any(vm.kind == "guild" for vm in build_deck(zone))
+        hide("guilds")
+        assert not any(vm.kind == "guild" for vm in build_deck(zone))
+
+    def it_drops_the_guild_slides_when_guild_pages_are_coming_soon():
+        from tests.features import coming_soon
+
+        _config(signage_show_guilds=True)
+        zone = SlideshowZoneFactory()
+        GuildFactory(name="Ceramics Guild", is_active=True)
+        coming_soon("guilds", "Guild pages are on their way")
+        assert not any(vm.kind == "guild" for vm in build_deck(zone))
+
+    def it_drops_the_class_slides_when_the_class_catalog_is_hidden():
+        from tests.features import hide
+
+        _config(signage_show_classes=True)
+        zone = SlideshowZoneFactory()
+        offering = ClassOfferingFactory(status="published", is_private=False, title="Intro To Lathe")
+        local_start = (timezone.localtime() + timedelta(days=2)).replace(hour=18, minute=0, second=0, microsecond=0)
+        ClassSessionFactory(class_offering=offering, starts_at=local_start, ends_at=local_start + timedelta(hours=2))
+        assert any(vm.kind == "class" for vm in build_deck(zone))
+        hide("catalog")
+        assert not any(vm.kind == "class" for vm in build_deck(zone))
+
+    def it_drops_the_class_slides_when_the_class_catalog_is_coming_soon():
+        from tests.features import coming_soon
+
+        _config(signage_show_classes=True)
+        zone = SlideshowZoneFactory()
+        offering = ClassOfferingFactory(status="published", is_private=False, title="Intro To Lathe")
+        local_start = (timezone.localtime() + timedelta(days=2)).replace(hour=18, minute=0, second=0, microsecond=0)
+        ClassSessionFactory(class_offering=offering, starts_at=local_start, ends_at=local_start + timedelta(hours=2))
+        coming_soon("catalog", "Back in the spring")
+        assert not any(vm.kind == "class" for vm in build_deck(zone))
+
+    def it_leaves_slides_that_belong_to_no_feature_alone():
+        # Events, the calendar and the tour answer to no feature switch, so hiding every feature
+        # there IS must not silently empty the lobby wall. Guilds and the class catalog are
+        # deliberately NOT in that list — they joined the registry in amendments 3 and 5 — and
+        # the specs above are what stop this one quietly re-permitting a slide the sidebar hid.
+        from core.features import FEATURES
+        from tests.features import hide
+
+        _config(signage_show_tour=True, signage_tour_url="https://example.test/tour")
+        zone = SlideshowZoneFactory()
+        for feature in FEATURES:
+            hide(feature.key)
+        assert any(vm.kind == "tour" for vm in build_deck(zone))

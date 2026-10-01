@@ -31,7 +31,6 @@ def paid_offering(db):
         instructor=InstructorFactory(),
         status=ClassOffering.Status.PUBLISHED,
         price_cents=10000,
-        member_discount_pct=10,
         capacity=4,
     )
     ClassSessionFactory(
@@ -51,7 +50,6 @@ def free_offering(db):
         instructor=InstructorFactory(),
         status=ClassOffering.Status.PUBLISHED,
         price_cents=0,
-        member_discount_pct=0,
         capacity=4,
     )
     ClassSessionFactory(
@@ -77,6 +75,20 @@ def _post_data(**overrides):
     }
     data.update(overrides)
     return data
+
+
+def _verify(member_user) -> None:
+    """Make the fixture member findable by email: the register view matches VERIFIED addresses only."""
+    from allauth.account.models import EmailAddress
+
+    EmailAddress.objects.update_or_create(
+        user=member_user, email="member@example.com", defaults={"verified": True, "primary": True}
+    )
+
+
+def _price_summary(body: str) -> str:
+    """The #reg-price-summary block and nothing after the form opens, so the changelog modal can't leak in."""
+    return body[body.index('id="reg-price-summary"') : body.index('id="reg-form"')]
 
 
 def describe_register_view():
@@ -364,7 +376,6 @@ def describe_register_with_discount_code():
             instructor=InstructorFactory(),
             status=ClassOffering.Status.PUBLISHED,
             price_cents=5000,
-            member_discount_pct=0,
             capacity=10,
         )
         ClassSessionFactory(
@@ -406,7 +417,7 @@ def describe_register_with_a_sale():
 
     def it_shows_the_sale_price_on_the_submit_button(sale_offering, client):
         body = client.get(reverse("classes:register", kwargs={"slug": sale_offering.slug})).content.decode()
-        assert "Next — $80" in body
+        assert 'Next: <span id="reg-submit-label">$80</span>' in body
 
     def it_hides_the_code_box_and_explains_when_codes_are_blocked(sale_offering, client):
         body = client.get(reverse("classes:register", kwargs={"slug": sale_offering.slug})).content.decode()
@@ -435,7 +446,6 @@ def describe_register_with_a_sale():
         from classes.factories import DiscountCodeFactory
 
         sale_offering.sale_allow_discount_codes = True
-        sale_offering.member_discount_pct = 0
         sale_offering.save()
         DiscountCodeFactory(code="ZERO", discount_pct=None, discount_fixed_cents=8000)
         response = client.post(
@@ -470,26 +480,6 @@ def describe_a_total_that_reaches_zero_through_discounts():
         assert registration.amount_paid_cents == 0
         mock_checkout.assert_not_called()
 
-    @patch("billing.stripe_utils.create_class_checkout_session")
-    def it_confirms_without_stripe_on_a_full_member_discount(mock_checkout, paid_offering, client, member_user):
-        from allauth.account.models import EmailAddress
-
-        EmailAddress.objects.update_or_create(
-            user=member_user, email="member@example.com", defaults={"verified": True, "primary": True}
-        )
-        paid_offering.member_discount_pct = 100
-        paid_offering.save(update_fields=["member_discount_pct"])
-        response = client.post(
-            reverse("classes:register", kwargs={"slug": paid_offering.slug}),
-            data=_post_data(email="member@example.com"),
-        )
-        assert response.status_code == 302
-        assert response.url == reverse("classes:register_success", kwargs={"slug": paid_offering.slug})
-        registration = Registration.objects.get(class_offering=paid_offering)
-        assert registration.status == Registration.Status.CONFIRMED
-        assert registration.amount_paid_cents == 0
-        mock_checkout.assert_not_called()
-
 
 def describe_client_ip():
     def it_extracts_ip_from_x_forwarded_for_header(db, client):
@@ -501,7 +491,6 @@ def describe_client_ip():
             instructor=InstructorFactory(),
             status=ClassOffering.Status.PUBLISHED,
             price_cents=0,
-            member_discount_pct=0,
             capacity=10,
         )
         ClassSessionFactory(
@@ -529,3 +518,176 @@ def describe_client_ip():
         # Registration succeeds — form received the proxied IP without error.
         assert response.status_code == 302
         assert Registration.objects.filter(class_offering=offering).exists()
+
+
+def describe_the_price_quote_at_checkout():
+    """The page quotes the price it will charge: full price, then a typed code. A member's email changes nothing."""
+
+    @pytest.fixture
+    def verified_member(member_user):
+        _verify(member_user)
+        return member_user
+
+    def it_quotes_the_full_price_to_a_logged_in_member_on_first_render(paid_offering, client, verified_member):
+        client.force_login(verified_member)
+        body = client.get(reverse("classes:register", kwargs={"slug": paid_offering.slug})).content.decode()
+        summary = _price_summary(body)
+        assert '<div class="total">$100</div>' in summary
+        assert 'Next: <span id="reg-submit-label">$100</span>' in body
+
+    def it_quotes_the_full_price_for_a_non_member_email(paid_offering, client):
+        url = reverse("classes:register", kwargs={"slug": paid_offering.slug})
+        body = client.get(url, {"email": "sam@example.com"}).content.decode()
+        summary = _price_summary(body)
+        assert '<div class="total">$100</div>' in summary
+        assert 'Next: <span id="reg-submit-label">$100</span>' in body
+
+    def it_quotes_the_full_price_when_the_refresh_carries_a_member_email(paid_offering, client, verified_member):
+        url = reverse("classes:register", kwargs={"slug": paid_offering.slug})
+        body = client.get(url, {"email": "member@example.com"}).content.decode()
+        summary = _price_summary(body)
+        assert '<div class="total">$100</div>' in summary
+        assert 'Next: <span id="reg-submit-label">$100</span>' in body
+
+    def it_quotes_a_typed_code_on_refresh(paid_offering, client, verified_member):
+        from classes.factories import DiscountCodeFactory
+
+        DiscountCodeFactory(code="SAVE20", discount_pct=20)
+        url = reverse("classes:register", kwargs={"slug": paid_offering.slug})
+        body = client.get(url, {"email": "member@example.com", "discount_code": "SAVE20"}).content.decode()
+        assert '<div class="total">$80</div>' in _price_summary(body)
+        assert 'Next: <span id="reg-submit-label">$80</span>' in body
+
+    def it_wires_every_input_the_quote_depends_on_to_refresh_the_summary(paid_offering, client, verified_member):
+        client.force_login(verified_member)
+        body = client.get(reverse("classes:register", kwargs={"slug": paid_offering.slug})).content.decode()
+        for name in ("email", "discount_code"):
+            tag = next(t for t in body.split("<input")[1:] if f'name="{name}"' in t and 'type="hidden"' not in t)
+            assert f'hx-get="{reverse("classes:register", kwargs={"slug": paid_offering.slug})}"' in tag, name
+            assert 'hx-target="#reg-price-summary"' in tag and 'hx-select="#reg-price-summary"' in tag, name
+            assert 'hx-select-oob="#reg-submit-label"' in tag, name
+            assert 'hx-include="[name=email],[name=discount_code]"' in tag, name
+
+    def it_keeps_the_waitlist_flag_on_the_refresh_url(paid_offering, client, verified_member):
+        # A voluntary waitlist page refreshes as a waitlist page, never as a paid form's summary.
+        url = reverse("classes:register", kwargs={"slug": paid_offering.slug})
+        body = client.get(url + "?waitlist=1").content.decode()
+        email = next(t for t in body.split("<input")[1:] if 'name="email"' in t)
+        assert f'hx-get="{url}?waitlist=1"' in email
+
+    def it_keeps_the_claim_token_on_the_refresh_url(paid_offering, client, verified_member):
+        # A claim link's refresh stays a claim: without the token, taking the last seat would
+        # re-render the sold-out waitlist form, with no code box and the wrong quote.
+        for _ in range(paid_offering.capacity):
+            RegistrationFactory(class_offering=paid_offering, status=Registration.Status.CONFIRMED)
+        claim = RegistrationFactory(
+            class_offering=paid_offering, status=Registration.Status.WAITLISTED, email="member@example.com"
+        )
+        client.force_login(verified_member)  # the member clicks the link from their own inbox
+        url = reverse("classes:register", kwargs={"slug": paid_offering.slug})
+        body = client.get(url + f"?waitlist_token={claim.self_serve_token}").content.decode()
+        email = next(t for t in body.split("<input")[1:] if 'name="email"' in t)
+        assert f'hx-get="{url}?waitlist_token={claim.self_serve_token}"' in email
+        assert 'name="discount_code"' in body  # the claim is a paid signup: the code box is there
+
+    @patch("billing.stripe_utils.create_class_checkout_session")
+    def it_charges_a_member_the_full_price_less_the_typed_code(mock_checkout, paid_offering, client, verified_member):
+        from classes.factories import DiscountCodeFactory
+
+        DiscountCodeFactory(code="SAVE20", discount_pct=20)
+        mock_checkout.return_value = {"id": "cs_test_full", "url": "https://checkout.stripe.com/c/pay/cs_test_full"}
+        response = client.post(
+            reverse("classes:register", kwargs={"slug": paid_offering.slug}),
+            data=_post_data(email="member@example.com", discount_code="SAVE20"),
+        )
+        assert response.status_code == 302
+        # 10000, then 20% off: 8000. The member row links the registration and changes nothing.
+        assert mock_checkout.call_args.kwargs["amount_cents"] == 8000
+        registration = Registration.objects.get(class_offering=paid_offering)
+        assert registration.amount_paid_cents == 8000
+        assert registration.member is not None
+
+    @patch("billing.stripe_utils.create_class_checkout_session")
+    def it_charges_a_member_the_full_price_with_no_code(mock_checkout, paid_offering, client, verified_member):
+        mock_checkout.return_value = {"id": "cs_test_mem", "url": "https://checkout.stripe.com/c/pay/cs_test_mem"}
+        response = client.post(
+            reverse("classes:register", kwargs={"slug": paid_offering.slug}),
+            data=_post_data(email="member@example.com"),
+        )
+        assert response.status_code == 302
+        assert mock_checkout.call_args.kwargs["amount_cents"] == 10000
+        assert Registration.objects.get(class_offering=paid_offering).member is not None
+
+    def it_hides_the_code_box_on_the_waitlist_form(paid_offering, client, verified_member):
+        for _ in range(paid_offering.capacity):
+            RegistrationFactory(class_offering=paid_offering, status=Registration.Status.CONFIRMED)
+        client.force_login(verified_member)
+        body = client.get(reverse("classes:register", kwargs={"slug": paid_offering.slug})).content.decode()
+        assert 'name="discount_code"' not in body
+
+
+def describe_registering_for_a_flexible_class():
+    """No seat cap (#545): past the stored capacity still registers, and ?waitlist=1 registers normally."""
+
+    @pytest.fixture
+    def flexible_offering(db):
+        offering = ClassOfferingFactory(
+            title="Open Forge",
+            slug="open-forge",
+            category=CategoryFactory(),
+            instructor=InstructorFactory(),
+            status=ClassOffering.Status.PUBLISHED,
+            price_cents=0,
+            capacity=1,
+            scheduling_model=ClassOffering.SchedulingModel.FLEXIBLE,
+        )
+        RegistrationFactory(class_offering=offering, status=Registration.Status.CONFIRMED)
+        return offering
+
+    def it_confirms_a_registration_past_the_stored_capacity(flexible_offering, client):
+        url = reverse("classes:register", kwargs={"slug": flexible_offering.slug})
+        page = client.get(url)
+        assert page.status_code == 200
+        assert page.context["is_waitlist"] is False
+        assert page.context["spots_remaining"] is None
+        response = client.post(url, data=_post_data())
+        assert response.status_code == 302
+        registration = Registration.objects.get(email="sam@example.com", class_offering=flexible_offering)
+        assert registration.status == Registration.Status.CONFIRMED
+        assert flexible_offering.seats_taken == 2
+
+    @patch("billing.stripe_utils.create_class_checkout_session")
+    def it_starts_payment_for_a_paid_flexible_class_instead_of_the_waitlist(mock_checkout, flexible_offering, client):
+        mock_checkout.return_value = {"id": "cs_test_flex", "url": "https://checkout.stripe.com/c/pay/cs_test_flex"}
+        flexible_offering.price_cents = 10000
+        flexible_offering.save(update_fields=["price_cents"])
+        response = client.post(reverse("classes:register", kwargs={"slug": flexible_offering.slug}), data=_post_data())
+        assert response.status_code == 302
+        assert response.url == "https://checkout.stripe.com/c/pay/cs_test_flex"
+        registration = Registration.objects.get(email="sam@example.com", class_offering=flexible_offering)
+        assert registration.status == Registration.Status.PENDING
+
+    def it_registers_normally_on_a_stale_waitlist_link(flexible_offering, client):
+        url = reverse("classes:register", kwargs={"slug": flexible_offering.slug}) + "?waitlist=1"
+        assert client.get(url).context["is_waitlist"] is False
+        response = client.post(url, data=_post_data())
+        assert response.status_code == 302
+        registration = Registration.objects.get(email="sam@example.com", class_offering=flexible_offering)
+        assert registration.status == Registration.Status.CONFIRMED
+        assert not CmsActivity.objects.filter(kind=CmsActivity.Kind.WAITLIST_JOINED, registration=registration).exists()
+
+    def it_closes_after_the_last_day(flexible_offering, client):
+        flexible_offering.flexible_ends_on = timezone.localdate() - timedelta(days=1)
+        flexible_offering.save(update_fields=["flexible_ends_on"])
+        response = client.post(reverse("classes:register", kwargs={"slug": flexible_offering.slug}), data=_post_data())
+        assert response.status_code == 302
+        assert response.url == reverse("classes:public_class_detail", kwargs={"slug": flexible_offering.slug})
+        assert not Registration.objects.filter(email="sam@example.com").exists()
+
+    def it_still_waitlists_a_sold_out_fixed_class(paid_offering, client):
+        # The Fixed path is untouched: the existing describe_register_view cases above pin it in full.
+        for _ in range(paid_offering.capacity):
+            RegistrationFactory(class_offering=paid_offering, status=Registration.Status.CONFIRMED)
+        assert (
+            client.get(reverse("classes:register", kwargs={"slug": paid_offering.slug})).context["is_waitlist"] is True
+        )

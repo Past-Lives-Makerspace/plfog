@@ -8,8 +8,8 @@ import pytest
 from django.contrib.auth.models import User
 from django.test import Client
 
-from core.models import SiteConfiguration
 from membership.models import AdminCapability, Member
+from tests.features import hide
 
 pytestmark = pytest.mark.django_db
 
@@ -36,9 +36,7 @@ def _login_superuser(client: Client, username: str = "fogadmin") -> User:
 
 
 def _disable_my_tab() -> None:
-    config = SiteConfiguration.load()
-    config.my_tab_enabled = False
-    config.save()
+    hide("my_tab")
 
 
 def _rendered_tab_links(content: str) -> set[str]:

@@ -1,0 +1,7 @@
+bump = "minor"
+date = "2026-09-30"
+title = "Class prices are the same for everyone at checkout"
+changes = [
+  "Classes no longer take a member percentage off automatically. Members type their member code in the discount box at checkout instead.",
+  "The class catalog filter for classes with a member discount is gone, and class pages and cards no longer show a separate member price.",
+]

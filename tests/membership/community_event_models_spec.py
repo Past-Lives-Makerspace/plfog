@@ -54,16 +54,27 @@ def describe_CommunityEvent():
                     ends_at=_aware(2026, 7, 11, 20),
                 )
 
-        def it_rejects_a_guild_on_a_community_event(db):
+        def it_allows_a_guild_on_a_general_event(db):
+            # The fourth shape (#505): a guild hosting something open to everyone.
             guild = GuildFactory()
-            with pytest.raises(IntegrityError), transaction.atomic():
-                CommunityEvent.objects.create(
-                    title="Community with guild",
-                    event_type=CommunityEvent.EventType.COMMUNITY,
-                    guild=guild,
-                    starts_at=_aware(2026, 7, 11, 18),
-                    ends_at=_aware(2026, 7, 11, 20),
-                )
+            event = CommunityEvent.objects.create(
+                title="Guild open house",
+                event_type=CommunityEvent.EventType.COMMUNITY,
+                guild=guild,
+                starts_at=_aware(2026, 7, 11, 18),
+                ends_at=_aware(2026, 7, 11, 20),
+            )
+            assert event.pk is not None
+
+        def it_allows_a_general_event_with_no_guild(db):
+            event = CommunityEvent.objects.create(
+                title="Potluck",
+                event_type=CommunityEvent.EventType.COMMUNITY,
+                guild=None,
+                starts_at=_aware(2026, 7, 11, 18),
+                ends_at=_aware(2026, 7, 11, 20),
+            )
+            assert event.pk is not None
 
         def it_rejects_a_guild_on_a_lead_meeting(db):
             guild = GuildFactory()
@@ -76,12 +87,13 @@ def describe_CommunityEvent():
                     ends_at=_aware(2026, 7, 11, 20),
                 )
 
-        def it_allows_the_three_valid_combos(db):
+        def it_allows_the_four_valid_shapes(db):
             guild = GuildFactory()
             CommunityEventFactory(guild_meeting=True, guild=guild)
             CommunityEventFactory(community=True)
             CommunityEventFactory(lead_meeting=True)
-            assert CommunityEvent.objects.count() == 3
+            CommunityEventFactory(guild_hosted=True, guild=guild)
+            assert CommunityEvent.objects.count() == 4
 
     def describe_meta_and_str():
         def it_orders_by_starts_at_ascending(db):
@@ -240,6 +252,93 @@ def describe_CommunityEvent():
                 )
                 assert event.ical_rrule() == "FREQ=MONTHLY;BYDAY=2SA,4SA"
 
+    def describe_badge_label():
+        def it_reads_public_event_for_a_public_audience(db):
+            event = CommunityEventFactory(google_calendar_target=CommunityEvent.GoogleCalendarTarget.PUBLIC)
+            assert event.badge_label == "Public event"
+
+        def it_reads_member_event_for_a_member_audience(db):
+            event = CommunityEventFactory(google_calendar_target=CommunityEvent.GoogleCalendarTarget.MEMBER)
+            assert event.badge_label == "Member event"
+
+        def it_keeps_the_guild_lead_meetings_own_name(db):
+            # The cross-guild leadership meeting is a recognisable thing; badging it "Member
+            # event" would hide what it is.
+            event = CommunityEventFactory(
+                lead_meeting=True, google_calendar_target=CommunityEvent.GoogleCalendarTarget.MEMBER
+            )
+            assert event.badge_label == "Guild Lead Meeting"
+
+        def it_names_a_lead_meeting_the_same_way_whatever_calendar_it_is_on(db):
+            event = CommunityEventFactory(
+                lead_meeting=True, google_calendar_target=CommunityEvent.GoogleCalendarTarget.PUBLIC
+            )
+            assert event.badge_label == "Guild Lead Meeting"
+
+        def it_keeps_studio_hours_own_name_rather_than_calling_them_an_event(db):
+            # Ambient standing hours are not a happening (CONTEXT.md), so "Public event"
+            # would misdescribe what a member is looking at on the calendar.
+            event = CommunityEventFactory(
+                studio_hours=True, google_calendar_target=CommunityEvent.GoogleCalendarTarget.PUBLIC
+            )
+            assert event.badge_label == "Studio hours"
+
+        def it_never_calls_a_self_naming_type_an_event(db):
+            # The two exceptions live in one list; this is the rule that list exists for.
+            for event_type in CommunityEvent.SELF_NAMING_TYPES:
+                event = CommunityEventFactory(
+                    event_type=event_type,
+                    guild=GuildFactory() if event_type == CommunityEvent.EventType.STUDIO_HOURS else None,
+                )
+                assert "event" not in event.badge_label.lower()
+
+        def it_badges_a_public_guild_meeting_as_a_public_event(db):
+            event = CommunityEventFactory(
+                guild_meeting=True, google_calendar_target=CommunityEvent.GoogleCalendarTarget.PUBLIC
+            )
+            assert event.badge_label == "Public event"
+
+    def describe_for_member():
+        def it_includes_a_public_event_a_guild_hosts_for_a_member_outside_that_guild(db):
+            from tests.membership.factories import MemberFactory
+
+            outsider = MemberFactory()
+            event = CommunityEventFactory(guild_hosted=True, guild=GuildFactory())
+            assert list(CommunityEvent.objects.for_member(outsider)) == [event]
+
+        def it_excludes_another_guilds_meeting(db):
+            from tests.membership.factories import MemberFactory
+
+            outsider = MemberFactory()
+            CommunityEventFactory(guild_meeting=True, guild=GuildFactory())
+            assert list(CommunityEvent.objects.for_member(outsider)) == []
+
+        def it_excludes_another_guilds_studio_hours(db):
+            from tests.membership.factories import MemberFactory
+
+            outsider = MemberFactory()
+            CommunityEventFactory(studio_hours=True, guild=GuildFactory())
+            assert list(CommunityEvent.objects.for_member(outsider)) == []
+
+        def it_includes_the_members_own_guilds_meeting_exactly_once(db):
+            from tests.membership.factories import GuildMembershipFactory, MemberFactory
+
+            member = MemberFactory()
+            guild = GuildFactory()
+            GuildMembershipFactory(guild=guild, member=member)
+            event = CommunityEventFactory(guild_meeting=True, guild=guild)
+            assert list(CommunityEvent.objects.for_member(member)) == [event]
+
+        def it_lists_a_hosted_event_once_for_a_member_of_the_hosting_guild(db):
+            # Both sides of the OR match here; without distinct() the join duplicates the row.
+            from tests.membership.factories import GuildMembershipFactory, MemberFactory
+
+            member = MemberFactory()
+            guild = GuildFactory()
+            GuildMembershipFactory(guild=guild, member=member)
+            event = CommunityEventFactory(guild_hosted=True, guild=guild)
+            assert list(CommunityEvent.objects.for_member(member)) == [event]
+
     def describe_display():
         def it_absolute_url_is_prefixed_with_member_base_url(db, settings):
             settings.MEMBER_BASE_URL = "https://members.test"
@@ -279,6 +378,21 @@ def describe_CommunityEvent():
             with patch("core.events.emit.emit") as mock_emit:
                 event.announce()
             assert mock_emit.call_args.args[0] == "event.lead_meeting_published"
+
+        def it_refuses_to_name_a_key_for_studio_hours(db):
+            # The dict this replaced raised KeyError here. Answering "the guild's members"
+            # instead would be a silent wrong answer about who gets emailed.
+            event = CommunityEventFactory(studio_hours=True)
+            with pytest.raises(ValueError, match="never announced"):
+                event.announce_event_key()
+
+        def it_picks_guild_published_for_a_public_event_a_guild_hosts(db):
+            # The guild decides the audience, not the type: a guild's open house must not
+            # email the whole membership (#505).
+            event = CommunityEventFactory(guild_hosted=True, guild=GuildFactory())
+            with patch("core.events.emit.emit") as mock_emit:
+                event.announce()
+            assert mock_emit.call_args.args[0] == "event.guild_published"
 
         def it_passes_the_guild_in_context_and_an_absolute_url(db, settings):
             settings.MEMBER_BASE_URL = "https://members.test"

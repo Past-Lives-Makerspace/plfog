@@ -21,25 +21,27 @@ def instructor_fixture(db):
 
 
 def describe_admin_class_duplicate_run():
+    """The admin path now resolves to the one merged view, so it lands where that view lands."""
+
     def it_creates_a_grouped_draft_run_and_redirects_to_its_editor(admin_user, client, db):
         client.force_login(admin_user)
         original = SeriesClassOfferingFactory(
             title="Blacksmithing 101", slug="bs-orig", status=ClassOffering.Status.PUBLISHED, session_count=3
         )
-        resp = client.post(reverse("classes:admin_class_duplicate_run", kwargs={"pk": original.pk}))
+        resp = client.post(reverse("classes:teach_class_duplicate_run", kwargs={"pk": original.pk}))
         run = ClassOffering.objects.exclude(pk=original.pk).get(title="Blacksmithing 101")
         assert resp.status_code == 302
-        assert resp.url == reverse("classes:admin_class_edit", kwargs={"pk": run.pk})
+        assert resp.url == reverse("classes:teach_class_edit", kwargs={"pk": run.pk})
         assert run.status == ClassOffering.Status.DRAFT
         assert run.grouping_key == original.grouping_key
         assert run.sessions.count() == 0
 
-    def it_does_nothing_on_get_and_redirects_to_detail(admin_user, client, db):
+    def it_does_nothing_on_get_and_redirects_to_the_composer(admin_user, client, db):
         client.force_login(admin_user)
         original = ClassOfferingFactory(title="Solo", slug="solo")
-        resp = client.get(reverse("classes:admin_class_duplicate_run", kwargs={"pk": original.pk}))
+        resp = client.get(reverse("classes:teach_class_duplicate_run", kwargs={"pk": original.pk}))
         assert resp.status_code == 302
-        assert resp.url == reverse("classes:admin_class_detail", kwargs={"pk": original.pk})
+        assert resp.url == reverse("classes:teach_class_edit", kwargs={"pk": original.pk})
         assert ClassOffering.objects.filter(title="Solo").count() == 1
 
 

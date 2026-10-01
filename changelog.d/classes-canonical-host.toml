@@ -1,0 +1,10 @@
+bump = "minor"
+date = "2026-09-30"
+title = "Classes now live at classes.pastlives.space"
+changes = [
+  "The public class site is now classes.pastlives.space. Class emails, Discord posts and class QR codes link there.",
+  "Old book.pastlives.space links still work and open the same page on the new address.",
+  "Class links in the #classes Discord channel now open the class here instead of the old class site.",
+  "Links to a class on the old class site now open that class here. If it is no longer listed, you land on the class list.",
+  "If you were signed in on book.pastlives.space, sign in once more on classes.pastlives.space.",
+]

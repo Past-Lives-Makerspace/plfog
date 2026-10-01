@@ -474,10 +474,16 @@ html.dark .cp-page {
 .cp-page .cls-schedule{display:flex;flex-direction:column;gap:3px;margin-top:2px}
 .cp-page .cls-schedule__row{display:flex;justify-content:space-between;align-items:baseline;gap:8px;font-size:12px}
 .cp-page .cls-schedule__date{color:var(--text);font-weight:600;white-space:nowrap}
+/* A series option lists every date ("Oct 2, Oct 9, Oct 23"). The list may wrap, so an eight
+   date series stays inside the card at phone width; the count and the spots keep nowrap and
+   the right edge. min-width:0 lets the flex item shrink below its longest date. */
+.cp-page .cls-schedule__date--list{white-space:normal;min-width:0;flex:0 1 auto}
 .cp-page .cls-schedule__time{color:var(--text3);white-space:nowrap;font-size:11px}
 .cp-page .cls-schedule__more{font-size:11px;color:var(--gold-text);font-weight:600;margin-top:1px}
 .cp-page .cls-schedule__tba{font-size:11px;color:var(--text3);font-style:italic}
 .cp-page .cls-schedule__flex{font-size:11px;color:var(--text3)}
+/* A flexible class's date window under the flex line on the catalog card (#545). */
+.cp-page .cls-schedule__window{font-size:12px;font-weight:600;color:var(--text);margin-top:2px}
 .cp-page .cls-schedule__pick{font-size:11px;color:var(--text3);font-weight:600;text-transform:uppercase;letter-spacing:.05em}
 .cp-page .cls-schedule__row--pick{text-decoration:none;border-radius:5px;margin:0 -6px;padding:3px 6px;transition:background .12s ease}
 .cp-page .cls-schedule__row--pick:hover{background:var(--bg3)}
@@ -485,7 +491,6 @@ html.dark .cp-page {
 .cp-page .cls-spots--dates{color:var(--gold-text);text-transform:none;letter-spacing:0}
 .cp-page .cls-footer{display:flex;align-items:baseline;justify-content:space-between;gap:8px;margin-top:auto;padding-top:8px;border-top:1px solid var(--border)}
 .cp-page .cls-price{font-size:18px;font-weight:900;color:var(--gold-text);font-family:var(--heading)}
-.cp-page .cls-price-member{font-size:10px;color:var(--text3);margin-left:4px;font-family:var(--font);font-weight:400}
 .cp-page .cls-spots{font-size:11px;font-weight:700}
 .cp-page .cls-spots.ok{color:var(--green)}
 .cp-page .cls-spots.low{color:var(--red)}
@@ -821,6 +826,15 @@ a.cp-detail__cat-chip:hover { background: #f5ca6e; color: var(--color-navy); tex
 .cp-detail__prose p:last-child { margin-bottom: 0; }
 .cp-detail__prose a { color: var(--gold-text); font-weight: 600; }
 .cp-detail__prose a:hover { color: var(--gold-text); }
+/* The description is editor HTML (core.html_sanitize allowlist): headings, lists and quotes. */
+.cp-detail__prose h2,
+.cp-detail__prose h3 { margin: 20px 0 8px; line-height: 1.25; color: var(--text); }
+.cp-detail__prose h2 { font-size: 22px; }
+.cp-detail__prose h3 { font-size: 19px; }
+.cp-detail__prose ul,
+.cp-detail__prose ol { margin: 0 0 12px; padding-left: 24px; }
+.cp-detail__prose li { margin: 0 0 4px; }
+.cp-detail__prose blockquote { margin: 0 0 12px; padding-left: 14px; border-left: 3px solid var(--border2); color: var(--text2); }
 
 /* ── Video embed (responsive 16:9) ───────────── */
 .cp-detail__video {
@@ -912,7 +926,9 @@ a.cp-detail__cat-chip:hover { background: #f5ca6e; color: var(--color-navy); tex
   transition: border-color .15s ease, background .15s ease;
 }
 .cp-detail__other-date a:hover { border-color: var(--gold); background: var(--bg4); }
-.cp-detail__other-date-when { font-weight: 600; font-size: 15px; color: var(--text); }
+.cp-detail__other-date-when { font-weight: 600; font-size: 15px; color: var(--text); min-width: 0; }
+/* A series row lists every date and may wrap; the spots stay on one line at the right. */
+.cp-detail__other-date .cls-spots { white-space: nowrap; }
 
 .cp-detail__flex-note {
   padding: 16px 18px;
@@ -923,6 +939,9 @@ a.cp-detail__cat-chip:hover { background: #f5ca6e; color: var(--color-navy); tex
   color: var(--text);
 }
 .cp-detail__flex-note p { margin-top: 8px; }
+/* The window leads the flexible block (#545); the first paragraph sits flush with the box. */
+.cp-detail__flex-note p:first-child { margin-top: 0; }
+.cp-detail__flex-window { font-size: 18px; }
 
 /* ── Info blocks ─────────────────────────────── */
 .cp-detail__info-block {
@@ -1040,15 +1059,15 @@ a.cp-detail__cat-chip:hover { background: #f5ca6e; color: var(--color-navy); tex
   padding: 22px;
   box-shadow: 0 8px 32px rgba(9,46,76,0.10);
 }
-/* Sticky lives on the wrapper (card + gallery stick together — a sticky card
-   alone would slide over the gallery below it). */
+/* Sticky lives on the wrapper (gallery + card stick together — a sticky card
+   alone would leave the gallery above it behind). */
 @media (min-width: 1024px) {
   .cp-detail__rail-inner {
     position: sticky;
     top: 88px;
   }
 }
-.cp-detail__rail-gallery { margin-top: 20px; }
+.cp-detail__rail-gallery { margin-bottom: 20px; }
 .cp-detail__rail-gallery .cp-detail__h3 { margin-bottom: 10px; }
 .cp-detail__rail-gallery .cls-gallery__main { border-radius: var(--r2); }
 .cp-detail__price-row {
@@ -1078,15 +1097,6 @@ a.cp-detail__cat-chip:hover { background: #f5ca6e; color: var(--color-navy); tex
   font-size: 13px;
   font-weight: 700;
   color: var(--gold-text);
-}
-.cp-detail__price-member {
-  font-size: 14px;
-  color: var(--text2);
-  font-weight: 600;
-}
-.cp-detail__price-member span {
-  color: var(--text3);
-  font-weight: 400;
 }
 .cp-detail__spots {
   padding: 12px 0 16px;

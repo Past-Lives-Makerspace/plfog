@@ -59,7 +59,7 @@ def describe_detail_edit_affordances():
         assert response.context["is_admin"] is True
         assert response.context["can_edit_offering"] is True
         assert response.context["can_edit_category"] is True
-        assert response.context["edit_url"] == reverse("classes:admin_class_edit", kwargs={"pk": offering.pk})
+        assert response.context["edit_url"] == reverse("classes:teach_class_edit", kwargs={"pk": offering.pk})
 
     def it_offers_the_owning_instructor_class_editing(db, client):
         user = UserFactory(username="owner-instructor@example.com")

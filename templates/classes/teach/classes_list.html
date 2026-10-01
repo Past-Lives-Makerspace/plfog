@@ -7,26 +7,29 @@
 {% if has_any_classes %}
 {% include "classes/_components/lifecycle_facets.html" with facets=facets %}
 {% endif %}
-{% if classes %}
+{% if page %}
 <div class="admin-table-wrap">
-<table style="width:100%; border-collapse:collapse;">
+<table>
     <thead>
-        <tr style="border-bottom:2px solid var(--hub-border);">
-            <th style="text-align:left; padding:0.5rem 0.75rem; font-weight:600;">Title</th>
-            <th style="text-align:left; padding:0.5rem 0.75rem; font-weight:600;">Guild Type</th>
-            <th style="text-align:left; padding:0.5rem 0.75rem; font-weight:600;">Status</th>
-            <th style="text-align:left; padding:0.5rem 0.75rem; font-weight:600;">Registrations</th>
-            <th style="padding:0.5rem 0.75rem;"></th>
+        <tr>
+            {% sort_header "Title" "title" sort sort_dir base_params %}
+            {% sort_header "Guild Type" "category__name" sort sort_dir base_params %}
+            {% sort_header "Date(s)" "first_session" sort sort_dir base_params %}
+            {% sort_header "Status" "lifecycle_order" sort sort_dir base_params %}
+            {% sort_header "Registrations" "registration_count" sort sort_dir base_params %}
+            <th></th>
         </tr>
     </thead>
     <tbody>
-    {% for offering in classes %}
-        <tr style="border-bottom:1px solid var(--hub-border);{% if offering.status == 'archived' %} opacity:0.55;{% endif %}">
-            <td style="padding:0.5rem 0.75rem;"><a href="{% url 'classes:teach_class_detail' pk=offering.pk %}">{{ offering.title }}</a></td>
-            <td style="padding:0.5rem 0.75rem;">{{ offering.category.name }}</td>
-            <td style="padding:0.5rem 0.75rem;">{% include "classes/_components/lifecycle_badge.html" with offering=offering show_note=True %}</td>
-            <td style="padding:0.5rem 0.75rem;">{{ offering.registration_count }}/{{ offering.capacity }}</td>
-            <td style="padding:0.5rem 0.75rem; display:flex; gap:0.375rem; justify-content:flex-end;">
+    {% for offering in page %}
+        <tr{% if offering.status == 'archived' %} class="pl-class-list__row--archived"{% endif %}>
+            <td class="pl-class-list__title"><a href="{% url 'classes:teach_class_detail' pk=offering.pk %}">{{ offering.title }}</a></td>
+            <td>{{ offering.category.name }}</td>
+            <td class="pl-class-list__dates">{% if offering.is_flexible %}{% firstof offering.flexible_window_label "Flexible" %}{% elif offering.first_session %}{{ offering.first_session|date:"M j" }}{% if offering.last_session != offering.first_session %} – {{ offering.last_session|date:"M j" }}{% endif %}, {{ offering.last_session|date:"Y" }}{% else %}<span class="pl-class-list__no-dates">—</span>{% endif %}</td>
+            <td>{% include "classes/_components/lifecycle_badge.html" with offering=offering show_note=True %}</td>
+            <td>{{ offering.registration_count }}{% if not offering.is_flexible %}/{{ offering.capacity }}{% endif %}</td>
+            <td class="pl-class-list__actions">
+                <div class="pl-class-list__actions-inner">
                 {% if offering.status == 'draft' or offering.status == 'pending' %}
                     <a class="hub-btn hub-btn--sm hub-btn--ghost" href="{% url 'classes:teach_class_edit' pk=offering.pk %}">Edit</a>
                 {% else %}
@@ -41,7 +44,7 @@
                             <span id="submit-gate-{{ offering.pk }}" class="pl-field-hint">{{ blocker }}</span>
                         </span>
                     {% else %}
-                    <form method="post" action="{% url 'classes:teach_class_submit' pk=offering.pk %}" style="display:inline;">
+                    <form method="post" action="{% url 'classes:teach_class_submit' pk=offering.pk %}">
                         {% csrf_token %}
                         <button class="hub-btn hub-btn--sm hub-btn--primary" type="submit">Submit for review</button>
                     </form>
@@ -54,12 +57,14 @@
                     <button type="button" class="pl-btn pl-btn--danger pl-btn--sm" @click="$dispatch('open-confirm', '{{ withdraw_modal_id }}')">Withdraw</button>
                     {% include "components/confirm_modal.html" with confirm_id=withdraw_modal_id confirm_title="Take back this submission?" confirm_message="It goes back to draft and reviewers stop seeing it. You can submit again any time." confirm_action_url=withdraw_url confirm_button_text="Withdraw" %}
                 {% endif %}
+                </div>
             </td>
         </tr>
     {% endfor %}
     </tbody>
 </table>
 </div>
+{% include "components/table_pagination.html" with page=page base_params=base_params %}
 {% elif has_any_classes %}
     <div style="padding:2rem 1rem; text-align:center; color:var(--hub-text-muted);">
         No classes here yet. <a href="{% url 'classes:teach_dashboard' %}">Show all classes</a>.

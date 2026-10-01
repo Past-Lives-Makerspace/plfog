@@ -50,7 +50,7 @@ def describe_teach_overview():
 
     def it_blocks_inactive_members(db, client):
         user = UserFactory(username="inactive@example.com")
-        InstructorFactory(user=user, status=Member.Status.FORMER)
+        InstructorFactory(user=user, status=Member.Status.INVITED)
         client.force_login(user)
         resp = client.get(reverse("classes:teach_overview"))
         assert resp.status_code == 403

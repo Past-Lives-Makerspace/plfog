@@ -15,6 +15,7 @@ from django.urls import reverse
 from django.utils import timezone
 
 from core.models import SiteConfiguration
+from tests.features import hide, turn_on
 from membership.models import Member, WikiPage
 from tests.membership.factories import (
     EquipmentFactory,
@@ -36,8 +37,7 @@ pytestmark = pytest.mark.django_db
 def _wiki_on(db):
     """Every spec in this file runs with the wiki turned on; the off case is explicit."""
     config = SiteConfiguration.load()
-    config.wiki_enabled = True
-    config.save()
+    turn_on("wiki")
     return config
 
 
@@ -70,13 +70,27 @@ def _preview_as(client: Client, role: str) -> None:
 # the whole point of with_fact_prefetch(), and a regression would blow straight past it.
 # 33 since spec D added the moderator-only Review queue link, whose "may I, and how many
 # are waiting" comes off ONE scope lookup (_review_link) rather than two.
-_HOME_QUERY_BUDGET = 33
+# Still 33 after #405, which is worth stating because it looks like it should have moved. The
+# feature_flags context processor added one read (FeatureSwitch.objects.as_context(), ONE query
+# for every state at once, not one per nav entry) and the removal of the wiki route gate took one
+# away. If this ever climbs by eight instead of one, something started asking per feature.
+# 34 since the Member Agreement gate added one SiteConfiguration read per request.
+# 35 since the welcome popup waits for the agreement (#487): the hub context asks
+# needs_member_agreement once more, a second SiteConfiguration read for a member who has
+# not dismissed the popup yet.
+# That fixed cost must stay the same with one page or a full list of cards.
+_HOME_QUERY_BUDGET = 35
 
 
-def describe_the_feature_flag():
-    def it_404s_every_route_while_the_wiki_is_off(client: Client, _wiki_on):
-        _wiki_on.wiki_enabled = False
-        _wiki_on.save()
+def describe_the_feature_switch():
+    def it_keeps_every_wiki_page_reachable_while_the_wiki_is_hidden(client: Client, _wiki_on):
+        """#405 made the switch cosmetic: it owns the sidebar, not the routes.
+
+        This used to assert the opposite — every wiki route 404'd while the flag was off, via
+        ``wiki_feature_required``. That decorator is gone. A saved URL keeps working in every
+        state, which is intended: Hidden is a curtain, and explicitly not a security boundary.
+        """
+        hide("wiki")
         _login(client, "wiki_off")
         page = WikiPageFactory()
         for url in (
@@ -87,15 +101,16 @@ def describe_the_feature_flag():
             reverse("hub_wiki_page", args=[page.slug]),
             reverse("hub_wiki_edit", args=[page.slug]),
         ):
-            assert client.get(url).status_code == 404, url
+            assert client.get(url).status_code == 200, url
 
-    def it_404s_the_write_posts_too(client: Client, _wiki_on):
-        _wiki_on.wiki_enabled = False
-        _wiki_on.save()
+    def it_keeps_the_write_posts_working_too(client: Client, _wiki_on):
+        # The write path is the more interesting half of "the URL still works": a read that
+        # survives a hidden feature is reassuring, a write that survives is the actual claim.
+        hide("wiki")
         _login(client, "wiki_off_post")
         page = WikiPageFactory()
-        assert client.post(reverse("hub_wiki_confirm", args=[page.slug])).status_code == 404
-        assert client.post(reverse("hub_wiki_quick_tip", args=[page.slug]), {"tip": "x"}).status_code == 404
+        assert client.post(reverse("hub_wiki_confirm", args=[page.slug])).status_code == 200
+        assert client.post(reverse("hub_wiki_quick_tip", args=[page.slug]), {"tip": "x"}).status_code == 200
 
     def it_requires_login(client: Client):
         response = client.get(reverse("hub_wiki_home"))
@@ -111,8 +126,7 @@ def describe_the_sidebar():
 
     def it_shows_no_wiki_link_while_the_flag_is_off(client: Client, _wiki_on, settings):
         settings.MAKERSPACE_WIKI_URL = "https://wiki.example.org/"
-        _wiki_on.wiki_enabled = False
-        _wiki_on.save()
+        hide("wiki")
         _login(client, "wiki_nav_off")
         response = client.get(reverse("hub_home"))
         assert b'href="https://wiki.example.org/"' not in response.content
@@ -184,21 +198,17 @@ def describe_wiki_home():
         assert b"Nothing matches those filters." in response.content
 
     def describe_the_old_wiki_card():
-        def it_appears_while_the_link_toggle_is_on(client: Client, _wiki_on, settings):
+        def it_is_gone_for_good(client: Client, _wiki_on, settings):
+            """The card and its wiki_link_enabled toggle were deleted outright in #405.
+
+            The old MediaWiki migration is finished, the toggle was already False on
+            production, and a switch nobody will turn on again is a switch worth removing.
+            """
             settings.MAKERSPACE_WIKI_URL = "https://wiki.example.org/"
-            _wiki_on.wiki_link_enabled = True
-            _wiki_on.save()
             _login(client, "home_oldwiki")
             response = client.get(reverse("hub_wiki_home"))
-            assert b"The Old Wiki" in response.content
-
-        def it_disappears_when_the_toggle_is_off(client: Client, _wiki_on, settings):
-            settings.MAKERSPACE_WIKI_URL = "https://wiki.example.org/"
-            _wiki_on.wiki_link_enabled = False
-            _wiki_on.save()
-            _login(client, "home_nooldwiki")
-            response = client.get(reverse("hub_wiki_home"))
             assert b"The Old Wiki" not in response.content
+            assert b"https://wiki.example.org/" not in response.content
 
 
 def describe_wiki_search():
@@ -394,7 +404,7 @@ def describe_wiki_page_reading():
         # Quick Answers is opt-in on the editor, so a page with none is an ordinary good
         # page rather than an unfinished one. A whole card whose only content is a sentence
         # saying it is empty is noise to somebody who cannot do anything about it.
-        _login(client, "read_nofacts_reader", status=Member.Status.FORMER)
+        _login(client, "read_nofacts_reader", status=Member.Status.INVITED)
         page = WikiPageFactory()
         response = client.get(page.get_absolute_url())
         assert response.status_code == 200
@@ -402,7 +412,7 @@ def describe_wiki_page_reading():
         assert b"pl-wp-factsblock" not in response.content
 
     def it_still_shows_a_reader_the_facts_a_page_does_have(client: Client):
-        _login(client, "read_facts_reader", status=Member.Status.FORMER)
+        _login(client, "read_facts_reader", status=Member.Status.INVITED)
         page = WikiPageFactory()
         WikiPageFactFactory(page=page, label="Blade", value="10 inch")
         response = client.get(page.get_absolute_url())
@@ -413,7 +423,7 @@ def describe_wiki_page_reading():
         # Same rule as Quick Answers next door: attachments are optional, so an empty card
         # is the normal state of a good page and the sentence saying so is noise to
         # somebody who cannot attach anything.
-        _login(client, "read_noattach_reader", status=Member.Status.FORMER)
+        _login(client, "read_noattach_reader", status=Member.Status.INVITED)
         page = WikiPageFactory()
         response = client.get(page.get_absolute_url())
         assert response.status_code == 200
@@ -431,7 +441,7 @@ def describe_wiki_page_reading():
         assert b"Nothing attached yet." in response.content
 
     def it_still_shows_a_reader_the_attachments_a_page_does_have(client: Client):
-        _login(client, "read_attach_reader", status=Member.Status.FORMER)
+        _login(client, "read_attach_reader", status=Member.Status.INVITED)
         page = WikiPageFactory()
         WikiAttachmentFactory(page=page, label="The Manual")
         response = client.get(page.get_absolute_url())
@@ -669,6 +679,9 @@ def describe_the_review_round_fixes():
             WikiPageFactory(title="One", guild=guild, kind=WikiPage.Kind.MACHINE)
             baseline = len(client.get(reverse("hub_wiki_home")).context["recent_pages"])
             assert baseline == 1
+            with django_assert_num_queries(_HOME_QUERY_BUDGET):
+                response = client.get(reverse("hub_wiki_home"))
+            assert len(response.context["recent_pages"]) == 1
             for index in range(12):
                 WikiPageFactory(
                     title=f"Row {index}",
@@ -679,6 +692,7 @@ def describe_the_review_round_fixes():
             with django_assert_num_queries(_HOME_QUERY_BUDGET):
                 response = client.get(reverse("hub_wiki_home"))
             assert response.status_code == 200
+            assert len(response.context["recent_pages"]) > baseline
 
     def describe_the_search_count_line():
         def it_reports_the_real_help_total_past_the_page_cap(client: Client):

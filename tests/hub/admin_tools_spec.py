@@ -161,6 +161,7 @@ def describe_admin_tools_card_order():
         assert _card_titles(client) == [
             "Activity",
             "Announcements",
+            "Leadership Directory",
             "Manage Classes",
             "Manage Members",
             "Notification Settings",
@@ -180,6 +181,15 @@ def describe_admin_tools_card_order():
         def it_does_not_show_for_a_guild_lead(client: Client):
             _login_guild_lead(client, "slideshow_lead")
             assert reverse("hub_admin_slideshow") not in _tools_grid(client)
+
+    def describe_the_leadership_directory_tile():
+        def it_shows_for_a_fog_admin(client: Client):
+            _login_superuser(client, "leadership_admin")
+            assert reverse("hub_admin_leadership") in _tools_grid(client)
+
+        def it_does_not_show_for_a_guild_lead(client: Client):
+            _login_guild_lead(client, "leadership_lead")
+            assert reverse("hub_admin_leadership") not in _tools_grid(client)
 
     def it_stays_alphabetical_for_a_partial_role(client: Client):
         # A guild lead sees a subset, so this catches an ordering that only holds

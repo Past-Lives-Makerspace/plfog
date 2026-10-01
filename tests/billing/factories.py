@@ -7,6 +7,7 @@ from django.contrib.auth import get_user_model
 
 from billing.models import (
     BillingSettings,
+    LateCancellationFee,
     PaymentRefund,
     Product,
     ProductRevenueSplit,
@@ -15,7 +16,12 @@ from billing.models import (
     TabEntry,
     TabEntrySplit,
 )
-from tests.membership.factories import GuildFactory, MemberFactory
+from tests.membership.factories import (
+    EquipmentReservationFactory,
+    GuildFactory,
+    MemberFactory,
+    OrientationBookingFactory,
+)
 
 User = get_user_model()
 
@@ -135,3 +141,28 @@ class PaymentRefundFactory(factory.django.DjangoModelFactory):
     amount_cents = 2500
     status = PaymentRefund.Status.PENDING
     source = PaymentRefund.Source.IN_APP
+
+
+class LateCancellationFeeFactory(factory.django.DjangoModelFactory):
+    """An unpaid $15.00 fee on a cancelled orientation booking by default (#456).
+
+    The member follows the source row, so a fee never points at someone else's booking.
+    ``for_reservation=True`` puts it on a cancelled equipment reservation instead.
+    """
+
+    class Meta:
+        model = LateCancellationFee
+
+    class Params:
+        for_reservation = factory.Trait(
+            orientation_booking=None,
+            reservation=factory.SubFactory(EquipmentReservationFactory, status="cancelled"),
+        )
+
+    orientation_booking = factory.SubFactory(OrientationBookingFactory, status="cancelled")
+    reservation = None
+    member = factory.LazyAttribute(
+        lambda o: o.orientation_booking.member if o.orientation_booking is not None else o.reservation.member
+    )
+    amount_cents = 1500
+    status = LateCancellationFee.Status.UNPAID

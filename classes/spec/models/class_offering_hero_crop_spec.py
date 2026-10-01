@@ -83,6 +83,10 @@ def describe_scale_hero_crop():
         offering.refresh_from_db()
         assert (offering.image.width, offering.image.height) == (2400, 1350)
         assert _box(offering) == (0, 0, 1200, 675)
+        # The copy cut on save is that box, so the banner centres on it (#547); the box
+        # itself still sits a quarter in and a quarter down on the stored photo.
+        assert offering.hero_object_position == "50% 50%"
+        offering.hero_cropped = None
         assert offering.hero_object_position == "25.0% 25.0%"
 
 
@@ -116,3 +120,20 @@ def describe_hero_crop_reset():
         offering.refresh_from_db()
         assert offering.hero_crop_x == 10
         assert offering.hero_crop_w == 20
+
+
+LEGACY = "https://classes.pastlives.space/sites/default/files/glen.jpg"
+
+
+def describe_has_imported_photo_only():
+    def it_is_true_for_an_imported_photo_with_no_upload():
+        assert ClassOffering(legacy_image_url=LEGACY, image="").has_imported_photo_only is True
+
+    def it_is_false_when_an_upload_sits_beside_the_imported_photo():
+        assert ClassOffering(legacy_image_url=LEGACY, image="classes/hero.png").has_imported_photo_only is False
+
+    def it_is_false_for_an_upload_alone():
+        assert ClassOffering(legacy_image_url="", image="classes/hero.png").has_imported_photo_only is False
+
+    def it_is_false_with_no_photo_at_all():
+        assert ClassOffering(legacy_image_url="", image="").has_imported_photo_only is False

@@ -12,6 +12,7 @@ from django.urls import reverse
 from django.utils import timezone
 
 from core.models import SiteConfiguration
+from tests.features import turn_on
 from membership.models import Member, WikiPage
 from tests.membership.factories import GuildFactory, MembershipPlanFactory, WikiPageFactory
 
@@ -23,8 +24,7 @@ _HTMX = {"HTTP_HX_REQUEST": "true"}
 @pytest.fixture(autouse=True)
 def _wiki_on(db):
     config = SiteConfiguration.load()
-    config.wiki_enabled = True
-    config.save()
+    turn_on("wiki")
     return config
 
 

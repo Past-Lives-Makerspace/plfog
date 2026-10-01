@@ -153,3 +153,39 @@ def emit_with_email_shell(
         period=period,
         recipient_user_ids=recipient_user_ids,
     )
+
+
+def emit_flat_email(
+    event_key: str,
+    *,
+    subject: str,
+    text_body: str,
+    html_body: str,
+    period: str,
+    target: Model | None = None,
+    context: dict[str, Any] | None = None,
+) -> EmitResult:
+    """Emit an email-only event whose flat body the sender has already written.
+
+    The staff alerts (#524) build their text in code and wrap it in the branded shell;
+    this hands that exact email to :func:`emit` as the ``Channel.EMAIL`` override, so the
+    event's resolver picks the people and each person's own switch decides (a forced
+    channel always sends). ``trigger_kind`` is set to the event key here, once: the
+    per-recipient email adapter labels an unset one "notification", which would break
+    the email log's one-series history for these keys.
+
+    Args:
+        event_key: A registered event key that declares an EMAIL channel.
+        subject: The email subject line.
+        text_body: The plain-text body.
+        html_body: The body already wrapped in the branded email shell.
+        period: The dedupe bucket. Key it on what makes this email unique (a payment,
+            a registration); a shared or empty period swallows the second alert.
+        target: The related object, for the activity row (none of the alerts log one).
+        context: The resolver context, when the event's resolver needs one.
+
+    Returns:
+        The :class:`~core.events.emit.EmitResult`.
+    """
+    message = Message(title=subject, body=text_body, html_body=html_body, trigger_kind=event_key)
+    return emit(event_key, target=target, context=context, messages={Channel.EMAIL: message}, period=period)

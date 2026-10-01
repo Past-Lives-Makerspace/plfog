@@ -7,8 +7,10 @@ these specs pin them. The ``required`` attribute a pane renders is exactly what 
 form requires of that step, on both composers in both modes, so a form change cannot drift
 from what Next enforces. Nothing the client blocks is something the server accepts: the
 readiness items are submit gates, not Next gates, and formset rows carry no constraint
-attribute at all, so they stay the server's. And no list of fields per step exists anywhere
-but ``classes/composer.py``: not in the script, not in the Alpine root.
+attribute at all, so they stay the server's. The one named exception is the gallery's
+minimum of one photo (#424), which Next also refuses through a hook on the container rather
+than an attribute; ``describe_the_gallery_minimum`` pins it. And no list of fields per step
+exists anywhere but ``classes/composer.py``: not in the script, not in the Alpine root.
 """
 
 from __future__ import annotations
@@ -24,26 +26,43 @@ from django.urls import reverse
 
 from classes.composer import COMPOSER_STEPS
 from classes.factories import ClassOfferingFactory, InstructorFactory, UserFactory
-from classes.forms import ClassFaqForm, ClassOfferingForm, TeachClassOfferingForm, build_class_faq_formset
-from classes.models import ClassOffering
+from classes.forms import (
+    DESCRIPTION_HELP_TEXT,
+    ClassFaqForm,
+    ClassOfferingForm,
+    TeachClassOfferingForm,
+    build_class_faq_formset,
+)
+from classes.models import READINESS_MIN_DESCRIPTION_CHARS, ClassOffering
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
 JS_PATH = REPO_ROOT / "static" / "js" / "composer_validation.js"
 TEMPLATE_PATH = REPO_ROOT / "templates" / "classes" / "_components" / "class_composer.html"
 FIELD_NAMES = sorted({name for step in COMPOSER_STEPS for name in step.fields})
-# The one rule set both composers render, by step. Steps 2, 4 and 5 require nothing: photos,
-# details and review are readiness or optional, never a Next gate. scheduling_model is a
-# required form field whose <select> has no empty option (a model default, no blank=True), so
-# Django omits the attribute: the browser always posts a value and there is nothing to gate.
+# The rule set the instructor's composer renders, by step. Steps 2, 4, 5 and 6 require nothing:
+# photos, details, discounts and review are readiness, links or optional, never an attribute
+# driven Next gate (the gallery minimum is the one named exception, pinned at the end).
+# scheduling_model is a required form field whose <select> has no empty option (a model
+# default, no blank=True), so Django omits the attribute: the browser always posts a value and
+# there is nothing to gate.
 REQUIRED_BY_STEP = {
     1: {"title", "category", "price_cents"},
     2: set(),
-    3: {"capacity", "member_discount_pct", "scheduling_type"},
+    3: {"capacity", "scheduling_type"},
     4: set(),
     5: set(),
+    6: set(),
 }
+# The admin's composer adds only optional fields (instructor, is_private, private_for_name),
+# so it renders the same required set as the instructor's.
+ADMIN_REQUIRED_BY_STEP = REQUIRED_BY_STEP
 VOID_TAGS = {"input", "img", "br", "hr", "link", "meta", "source", "wbr"}
 CONTROL_TAGS = {"input", "select", "textarea"}
+# The gallery minimum (#424): the hook the client counts cards inside, the refusal it shows
+# (copy lives in the template, never in the script), and the marker the two photo controls carry.
+GALLERY_HOOK_ATTR = "data-composer-gallery"
+GALLERY_MESSAGE = "Add at least one gallery photo."
+REQUIRED_BADGE = '<span class="pl-required">Required</span>'
 
 
 @dataclass
@@ -123,10 +142,34 @@ class _FragmentParser(HTMLParser):
             self.controls.append(_Control(tag=tag, name=a.get("name"), attrs=a))
 
 
+class _HookParser(HTMLParser):
+    """Every element stamped with ``attr`` (``data-composer-gallery`` by default), with all of its attributes."""
+
+    def __init__(self, attr: str = GALLERY_HOOK_ATTR) -> None:
+        super().__init__()
+        self.attr = attr
+        self.hooks: list[dict[str, str | None]] = []
+
+    def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
+        a = dict(attrs)
+        if self.attr in a:
+            self.hooks.append(a)
+
+
+def _hooks(html: str, attr: str = GALLERY_HOOK_ATTR) -> list[dict[str, str | None]]:
+    parser = _HookParser(attr)
+    parser.feed(html)
+    return parser.hooks
+
+
+def _step_two(html: str) -> str:
+    return html[html.index('data-composer-step="2"') : html.index('data-composer-step="3"')]
+
+
 def _parse(html: str) -> _PaneParser:
     parser = _PaneParser()
     parser.feed(html)
-    assert sorted(parser.controls) == [1, 2, 3, 4, 5], sorted(parser.controls)
+    assert sorted(parser.controls) == [1, 2, 3, 4, 5, 6], sorted(parser.controls)
     assert parser.x_data is not None, "no .pl-composer root found"
     return parser
 
@@ -171,6 +214,7 @@ class _Composer:
     form_class: type
     offering: ClassOffering
     pages: dict[str, str]
+    required_by_step: dict[int, set[str]]
 
     def form(self, mode: str):
         return self.form_class(instance=self.offering) if mode == "edit" else self.form_class()
@@ -185,16 +229,18 @@ def composer(request, client, instructor, admin_user) -> _Composer:
         )
         create, edit = "classes:teach_class_create", "classes:teach_class_edit"
         form_class: type = TeachClassOfferingForm
+        required_by_step = REQUIRED_BY_STEP
     else:
         client.force_login(admin_user)
         offering = cast(ClassOffering, ClassOfferingFactory(status=ClassOffering.Status.DRAFT, ready=True))
-        create, edit = "classes:admin_class_create", "classes:admin_class_edit"
+        create, edit = "classes:admin_class_create", "classes:teach_class_edit"
         form_class = ClassOfferingForm
+        required_by_step = ADMIN_REQUIRED_BY_STEP
     pages = {
         "create": client.get(reverse(create)).content.decode(),
         "edit": client.get(reverse(edit, kwargs={"pk": offering.pk})).content.decode(),
     }
-    return _Composer(form_class=form_class, offering=offering, pages=pages)
+    return _Composer(form_class=form_class, offering=offering, pages=pages, required_by_step=required_by_step)
 
 
 def describe_required_parity_between_the_panes_and_the_form():
@@ -213,13 +259,15 @@ def describe_required_parity_between_the_panes_and_the_form():
                 assert rendered_by_step[step.number] == server & set(step.fields), (mode, step.number)
             # Every required field is rendered somewhere, so the client can see every server rule.
             assert set().union(*rendered_by_step.values()) == server, mode
-            assert rendered_by_step == REQUIRED_BY_STEP, mode
+            assert rendered_by_step == composer.required_by_step, mode
 
     def it_requires_the_same_things_of_both_composers():
-        # The admin only fields (instructor, is_private, private_for_name) are all optional, so
+        # The admin only fields instructor, is_private and private_for_name are all optional, so
         # the client enforces one rule set whichever portal rendered the page.
-        assert _server_required(ClassOfferingForm()) == _server_required(TeachClassOfferingForm())
-        assert _server_required(ClassOfferingForm()) == set().union(*REQUIRED_BY_STEP.values())
+        admin, teach = _server_required(ClassOfferingForm()), _server_required(TeachClassOfferingForm())
+        assert admin == teach
+        assert admin == set().union(*ADMIN_REQUIRED_BY_STEP.values())
+        assert teach == set().union(*REQUIRED_BY_STEP.values())
 
     def it_needs_no_gate_on_a_select_with_no_empty_option(composer):
         # scheduling_model: required on the form, no `required` on the control, and no gap
@@ -245,7 +293,9 @@ def describe_what_next_never_blocks_on():
     def it_leaves_every_readiness_item_to_submit(composer):
         # readiness_items (classes/models.py) gates submit on a hero photo, a gallery photo, a
         # description of some length, a date (or a flexible note), and capacity >= 1. None of
-        # those is a form rule, so none is a rendered attribute, so Next lets them all through.
+        # those is a form rule, so none is a rendered attribute, and Next lets them through, with
+        # one exception: the gallery photo, which Next also refuses through the container hook
+        # (describe_the_gallery_minimum below, #424). Submit stays the gate for all five.
         for mode, html in composer.pages.items():
             form = composer.form(mode)
             parsed = _parse(html)
@@ -268,16 +318,14 @@ def describe_what_next_never_blocks_on():
                 # on a type=date control) from holding Next on a step no save could refuse.
                 assert "name" not in helper.attrs, (mode, control_id)
 
-    def it_leaves_the_price_floor_and_the_discount_cap_to_the_server(composer):
-        # Deliberate: the $1.00 floor and the 100% cap live in _PricingRulesMixin.clean_*, not in
-        # the rendered min/max, so the client refuses only what every browser can read from the
+    def it_leaves_the_price_floor_to_the_server(composer):
+        # Deliberate: the $1.00 floor lives in _PricingRulesMixin.clean_price_cents, not in the
+        # rendered min, so the client refuses only what every browser can read from the
         # attributes (a blank) and the server keeps the last word on the amount.
         for mode, html in composer.pages.items():
             controls = _parse(html).controls
             price = _by_name(controls[1], "price_cents")
             assert price.required and price.attrs.get("min") == "0" and price.attrs.get("step") == "0.01", mode
-            discount = _by_name(controls[3], "member_discount_pct")
-            assert discount.required and discount.attrs.get("min") == "0" and "max" not in discount.attrs, mode
 
     def it_never_refuses_a_youtube_link_typed_without_a_scheme(composer):
         # <input type="url"> demands a scheme; the server does not. forms.URLField normalises
@@ -355,6 +403,71 @@ def describe_formset_rows():
             assert all(c.kind == "hidden" for c in sessions), mode
 
 
+def describe_the_gallery_minimum():
+    def it_stamps_the_gallery_container_with_the_hook_and_its_message_in_both_modes(composer):
+        # "At least one gallery photo" is a rule about how many rows the gallery holds, and no
+        # constraint attribute on any control can say that. So the container itself carries the
+        # hook the client counts cards inside (the saved class manager and the create mode
+        # picker alike), the refusal it shows, and a tabindex so the refusal can focus it the
+        # way it focuses a control. The card class it counts is the one the server renders.
+        for mode, html in composer.pages.items():
+            hooks = _hooks(html)
+            assert len(hooks) == 1, (mode, len(hooks))
+            assert _hooks(_step_two(html)) == hooks, mode
+            hook = hooks[0]
+            assert hook["id"] == ("gallery-create" if mode == "create" else "gallery-manager"), mode
+            assert hook["data-composer-gallery-message"] == GALLERY_MESSAGE, mode
+            assert hook["tabindex"] == "-1", mode
+            assert _step_two(html).count('class="cls-image-cell') == (1 if mode == "edit" else 0), mode
+            # Both inline scripts signal every add and remove, which is what clears the refusal.
+            assert "new CustomEvent('composer-gallery-changed', { bubbles: true })" in _step_two(html), mode
+
+    def it_marks_exactly_the_two_photo_controls_required(composer):
+        # The composer had no required marker before #424 (form_field.html renders none), so
+        # this one is the hero label's and the Gallery title's alone: nothing else gets it.
+        for mode, html in composer.pages.items():
+            assert html.count(REQUIRED_BADGE) == 2, mode
+            two = _step_two(html)
+            assert two.count(REQUIRED_BADGE) == 2, mode
+            hero_label = two[two.index("data-hero-image-field") : two.index('id="hero-upload-zone"')]
+            assert hero_label.count(REQUIRED_BADGE) == 1 and "Upload image" in hero_label, mode
+            gallery_title = re.search(r'<h3 class="pl-compose-section__title">Gallery (.*?)</h3>', two)
+            assert gallery_title and gallery_title.group(1) == REQUIRED_BADGE, mode
+
+    def it_reads_the_refusal_from_the_template_and_runs_it_on_next_only():
+        js = JS_PATH.read_text(encoding="utf-8")
+        # The copy is the template's, so the script carries the attribute names and no message.
+        assert GALLERY_MESSAGE not in js
+        assert f'"{GALLERY_HOOK_ATTR}"' in js and '"data-composer-gallery-message"' in js
+        assert '".cls-image-cell"' in js and '"composer-gallery-changed"' in js
+        # Wired into the `only` leg of the walk alone: validateAll (Save Draft, the submit
+        # confirm) passes no `only`, so a draft may still be saved without a photo.
+        assert "if (!control && only !== undefined) control = emptyGallery(panes[i]);" in js
+        assert js.count("emptyGallery(") == 2
+
+
+def describe_the_description_count():
+    def it_stamps_the_box_and_the_minimum_on_one_counter_under_the_description(composer):
+        # The live count (#425) is server markup static/js/composer_description_count.js paints into.
+        # The textarea's id and the readiness minimum are both stamped by the template from the
+        # server's own values, so the script names no field and no number, and the help text under
+        # the box names the same minimum the checklist enforces. One counter, on the Basics step.
+        for mode, html in composer.pages.items():
+            counters = _hooks(html, "data-description-count")
+            assert len(counters) == 1, (mode, len(counters))
+            step_one = html[html.index('data-composer-step="1"') : html.index('data-composer-step="2"')]
+            assert _hooks(step_one, "data-description-count") == counters, mode
+            counter = counters[0]
+            assert counter["data-description-for"] == _by_name(_parse(html).controls[1], "description").attrs["id"]
+            assert counter["data-description-min"] == str(READINESS_MIN_DESCRIPTION_CHARS), mode
+            assert counter["aria-live"] == "polite", mode
+            assert (counter["class"] or "").split() == ["pl-field-hint", "pl-composer-count-hint"], mode
+            assert f'<p class="pl-field-hint">{DESCRIPTION_HELP_TEXT}</p>' in step_one, mode
+            assert '<script src="/static/js/composer_description_count.js" defer></script>' in html, mode
+        assert composer.form("create").fields["description"].help_text == DESCRIPTION_HELP_TEXT
+        assert str(READINESS_MIN_DESCRIPTION_CHARS) in DESCRIPTION_HELP_TEXT
+
+
 def describe_the_step_to_field_map_stays_in_one_place():
     def it_keeps_every_field_name_out_of_the_script():
         js = JS_PATH.read_text(encoding="utf-8")
@@ -415,7 +528,7 @@ def describe_the_wiring():
     def it_leaves_back_the_tabs_and_the_goto_events_free(composer):
         html = composer.pages["edit"]
         assert '@click="goTo(phase - 1)">&larr; Back</button>' in html
-        for n in range(1, 6):
+        for n in range(1, 7):
             assert f'@click="goTo({n})">' in html, n
         assert '@composer-goto-step.window="goTo($event.detail.step)"' in html
         assert "validateStep" not in html.split('@click="goTo(phase - 1)"')[1].split("Back</button>")[0]
@@ -433,3 +546,90 @@ def describe_the_wiring():
         html = composer.pages["edit"]
         step_four = html[html.index('data-composer-step="4"') : html.index('data-composer-step="5"')]
         assert step_four.count('@composer-reveal-field="open = true"') == 6
+
+
+def describe_the_flexible_window():
+    """Step 3 swaps the scheduler for an optional date window on the scheduling model select (#545).
+
+    Both blocks stay in the DOM: x-show on the root's ``schedulingModel``, never a removal, so the
+    Fixed e2e walk still finds ``#session-add-date`` and the step map stays the one list of fields.
+    """
+
+    def _step_three(html: str) -> str:
+        return html[html.index('data-composer-step="3"') : html.index('data-composer-step="4"')]
+
+    def it_renders_both_blocks_with_their_alpine_hooks_in_both_composers_and_modes(composer):
+        for mode, html in composer.pages.items():
+            step_three = _step_three(html)
+            fixed = step_three.split('data-schedule-block="fixed"')[1].split('data-schedule-block="flexible"')[0]
+            flexible = step_three.split('data-schedule-block="flexible"')[1]
+            assert "x-show=\"schedulingModel === 'fixed'\" x-cloak" in step_three, mode
+            assert "x-show=\"schedulingModel === 'flexible'\" x-cloak" in step_three, mode
+            # The scheduler, the cards and the Fixed intro sit in the Fixed block.
+            assert 'id="session-add-date"' in fixed and 'name="scheduling_type"' in fixed, mode
+            assert "Add a single date for a one off class" in fixed, mode
+            # The two days, the hint and the note sit in the Flexible block.
+            assert 'name="flexible_starts_on"' in flexible and 'name="flexible_ends_on"' in flexible, mode
+            assert "Optional Date Window" in flexible, mode
+            assert "Leave both blank for a class that runs any time." in flexible, mode
+            assert 'name="flexible_note"' in flexible, mode
+            assert ">Note for students</label>" in flexible, mode
+            # The select itself stays above both blocks, bound to the state the blocks read.
+            select = _by_name(_parse(html).controls[3], "scheduling_model")
+            assert select.attrs.get("x-model") == "schedulingModel", mode
+            assert step_three.index('name="scheduling_model"') < step_three.index('data-schedule-block="fixed"'), mode
+
+    def it_renders_the_days_as_optional_date_pickers_the_server_walk_may_read(composer):
+        # Named, so they post and the walk reads them; type=date with the scheduler's class (rule 14)
+        # and click handler; never required, never a time control (rule 20).
+        for mode, html in composer.pages.items():
+            controls = _parse(html).controls[3]
+            for name in ("flexible_starts_on", "flexible_ends_on"):
+                day = _by_name(controls, name)
+                assert day.kind == "date" and not day.required, (mode, name)
+                assert day.attrs.get("class") == "session-cal__input", (mode, name)
+                assert day.attrs.get("@click") == "(() => { try { $el.showPicker() } catch (e) {} })()", (mode, name)
+            assert not [c for c in controls if c.kind == "time"], mode
+
+    def it_seeds_the_state_from_the_form_so_the_right_block_paints_first(composer):
+        # The fixture's draft is Fixed; create mode starts at the model default.
+        for mode, html in composer.pages.items():
+            assert "schedulingModel: 'fixed'" in (_parse(html).x_data or ""), mode
+
+    def it_keeps_the_window_fields_on_step_three_of_the_map():
+        from classes.composer import step_for_field
+
+        assert step_for_field("flexible_starts_on") == 3
+        assert step_for_field("flexible_ends_on") == 3
+        assert REQUIRED_BY_STEP[3] == {"capacity", "scheduling_type"}
+
+
+def describe_the_seats_section_for_a_flexible_class():
+    """The capacity field hides under Flexible and the no seat cap note shows; the admin keeps the private fields (#545)."""
+
+    def _seats(html: str) -> str:
+        step_three = html[html.index('data-composer-step="3"') : html.index('data-composer-step="4"')]
+        return step_three[step_three.index('pl-compose-section__title">Seats</h3>') :]
+
+    def it_wraps_the_capacity_field_and_swaps_the_note_on_the_scheduling_model(composer):
+        for mode, html in composer.pages.items():
+            seats = _seats(html)
+            fixed = seats.split('data-seats-block="fixed"')[1].split('data-seats-block="flexible"')[0]
+            assert "x-show=\"schedulingModel === 'fixed'\" x-cloak" in fixed.split(">")[0], mode
+            assert 'name="capacity"' in fixed, mode
+            assert "How many can attend" in fixed, mode
+            flexible = seats.split('data-seats-block="flexible"')[1].split("</p>")[0]
+            assert "x-show=\"schedulingModel === 'flexible'\" x-cloak" in flexible, mode
+            assert "Flexible classes have no seat cap. Students book one at a time with you." in flexible, mode
+            # Still one capacity control, still required: hidden is not removed, and the server reads it for a Fixed class.
+            capacity = [c for c in _parse(html).controls[3] if c.name == "capacity"]
+            assert len(capacity) == 1 and capacity[0].required, mode
+
+    def it_keeps_the_admins_private_fields_outside_the_swap(composer):
+        for mode, html in composer.pages.items():
+            seats = _seats(html)
+            after_note = seats.split('data-seats-block="flexible"')[1]
+            if composer.form_class is ClassOfferingForm:
+                assert 'name="is_private"' in after_note and 'name="private_for_name"' in after_note, mode
+            else:
+                assert 'name="is_private"' not in after_note, mode

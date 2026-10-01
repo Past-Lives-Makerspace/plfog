@@ -3,8 +3,9 @@
 from __future__ import annotations
 
 import json
+import logging
 from collections.abc import Iterable
-from datetime import timedelta
+from datetime import datetime, timedelta
 from functools import wraps
 from typing import TYPE_CHECKING, Any, Callable, TypedDict, cast
 
@@ -16,27 +17,28 @@ from django.contrib.contenttypes.models import ContentType
 from django.core.exceptions import ValidationError
 from django.core.files.uploadedfile import UploadedFile
 from django.core.paginator import Paginator
+from django.db import IntegrityError, transaction
 from django.db.models import (
     Count,
-    F,
-    IntegerField,
     Max,
     Min,
     OuterRef,
     Prefetch,
     Q,
     QuerySet,
-    Subquery,
     Sum,
+    Value,
     prefetch_related_objects,
 )
-from django.db.models.functions import TruncDate
+from django.db.models.functions import Coalesce, NullIf, TruncDate
 from django.http import (
     Http404,
     HttpRequest,
     HttpResponse,
+    HttpResponseBadRequest,
     HttpResponseForbidden,
     JsonResponse,
+    QueryDict,
     StreamingHttpResponse,
 )
 from django.shortcuts import get_object_or_404, redirect, render
@@ -49,12 +51,21 @@ if TYPE_CHECKING:
     from django.contrib.auth.models import AbstractUser, User
 
     from classes.forms import PaymentRefundForm, RegistrationMoveForm
-    from classes.models import ClassOfferingQuerySet
     from membership.models import Member
 
 from hub.toast import trigger_toast
 from hub.view_as import classes_review_access_required, refund_authority_required
 
+from classes.access import (
+    ADMIN_SHELL,
+    ROLE_GUILD,
+    ROLE_INSTRUCTOR,
+    TEACH_SHELL,
+    ClassAccess,
+    leads_or_staffs,
+    class_access,
+    class_screen_required,
+)
 from classes.emails import (
     emit_instructor_new_registration,
     send_admin_registration_notification,
@@ -65,12 +76,19 @@ from classes.emails import (
     send_registration_confirmation,
     send_waitlist_joined_confirmation,
 )
-from classes.composer import COMPOSER_STEPS, anchor_steps, clamp_step, error_summary, first_unready_step, step_marks
-from classes.grouping import CatalogGroup, grouped_catalog
+from classes.composer import (
+    COMPOSER_STEPS,
+    STEP_COUNT,
+    anchor_steps,
+    clamp_step,
+    error_summary,
+    first_unready_step,
+    step_marks,
+)
+from classes.grouping import CatalogGroup, admin_group_rows, grouped_catalog
 from classes.lifecycle import ADMIN_FACETS, INSTRUCTOR_FACETS, facet_rows, resolve_facet
 from classes.questions import prefill_answers
-from classes.table import prepare_table
-from classes.templatetags.classes_tags import member_price_cents as compute_member_price_cents
+from classes.table import prepare_table, table_search
 from classes.forms import (
     CategoryForm,
     ClassCancelForm,
@@ -81,6 +99,8 @@ from classes.forms import (
     ClassSessionFormSet,
     ClassSettingsForm,
     DiscountCodeForm,
+    DiscountCodeRequestDeclineForm,
+    DiscountCodeRequestForm,
     TeachClassOfferingForm,
     TeachPublishedClassForm,
     TeachWelcomeEmailForm,
@@ -91,7 +111,9 @@ from classes.forms import (
     build_class_faq_formset,
 )
 from classes.models import (
+    CAPACITY_CONSUMING_REGISTRATION_STATUSES,
     MAX_GALLERY_IMAGES,
+    READINESS_MIN_DESCRIPTION_CHARS,
     Category,
     ClassApproval,
     ClassImage,
@@ -100,13 +122,21 @@ from classes.models import (
     ClassSettings,
     CmsActivity,
     DiscountCode,
+    DiscountCodeRequest,
+    DiscountCodeRequestAlreadyDecided,
     ReadinessItem,
     Registration,
     RegistrationQuestion,
+    flexible_window_has_ended,
     readiness_items,
 )
+from core.files import delete_if_unreferenced
+from core.htmx import wants_fragment
 from core.models import SiteConfiguration
 from core.urls_util import book_absolute_url
+from core.validators import validate_image_content
+
+logger = logging.getLogger(__name__)
 
 _ViewFunc = Callable[..., HttpResponse]
 
@@ -183,10 +213,6 @@ def _apply_browse_filters(qs: Any, request: HttpRequest) -> Any:
     if max_price > 0:
         qs = qs.filter(price_cents__lte=max_price)
 
-    if request.GET.get("members_only") == "1":
-        qs = qs.filter(member_discount_pct__gt=0)
-    if request.GET.get("free") == "1":
-        qs = qs.filter(price_cents=0)
     if request.GET.get("upcoming") == "1":
         qs = qs.exclude(first_session_at__isnull=True)
 
@@ -221,8 +247,6 @@ def public_list(request: HttpRequest) -> HttpResponse:
     selected_guild_slug = request.GET.get("guild", "").strip()
     selected_guild = Guild.objects.filter(slug=selected_guild_slug).first() if selected_guild_slug else None
     selected_instructor_slugs = [s for s in request.GET.getlist("instructor") if s]
-    members_only = request.GET.get("members_only") == "1"
-    free_only = request.GET.get("free") == "1"
     upcoming_only = request.GET.get("upcoming") == "1"
     selected_within = request.GET.get("within", "all")
     selected_within_days = WITHIN_DAYS.get(selected_within)
@@ -290,8 +314,6 @@ def public_list(request: HttpRequest) -> HttpResponse:
             selected_instructor_slugs,
             request.GET.get("min_price"),
             request.GET.get("max_price"),
-            members_only,
-            free_only,
             upcoming_only,
         )
         if v
@@ -301,7 +323,7 @@ def public_list(request: HttpRequest) -> HttpResponse:
     # in place without rerendering hero + filter chrome. Computed once so the
     # OOB hero-count block renders only on HTMX responses (never as a stray
     # duplicate inside the embedded include on a full page load).
-    is_htmx = bool(request.headers.get("HX-Request") and not request.headers.get("HX-Boosted"))
+    is_htmx = wants_fragment(request)
 
     context = {
         "settings_obj": settings_obj,
@@ -314,8 +336,6 @@ def public_list(request: HttpRequest) -> HttpResponse:
         "instructors_for_filter": instructors_for_filter,
         "min_price": request.GET.get("min_price", ""),
         "max_price": request.GET.get("max_price", ""),
-        "members_only": members_only,
-        "free_only": free_only,
         "upcoming_only": upcoming_only,
         "selected_within": selected_within,
         "selected_within_days": selected_within_days,
@@ -346,22 +366,38 @@ def public_category(request: HttpRequest, slug: str) -> HttpResponse:
     return public_list(request)
 
 
-def public_class_detail(request: HttpRequest, slug: str) -> HttpResponse:
-    """Full class detail page — schedule, info grid, (future: registration form)."""
-    offering = get_object_or_404(
-        ClassOffering.objects.public().select_related("category", "instructor").prefetch_related("sessions"),
-        slug=slug,
-    )
-    settings_obj = ClassSettings.load()
-    # Member price reads off the SALE base so every quoted member number
-    # matches what compute_final_price_cents will actually charge.
-    member_price_cents = compute_member_price_cents(offering.sale_price_cents, offering.member_discount_pct)
+def _class_detail_context(request: HttpRequest, offering: ClassOffering) -> dict[str, Any]:
+    """Everything ``classes/public/detail.html`` reads that does not depend on who is looking.
+
+    Shared by the public detail page and both class previews (the login-gated
+    owner/admin one and the token-authorized reviewer one), so a preview shows
+    exactly the page a member will see: the sign-up rail, the schedule, other
+    dates of the same class, related classes and the hero-placement widget's
+    content-type ids. Keys that depend on the viewer's role (``can_edit_offering``,
+    ``edit_url``, ``is_admin``, ``is_instructor``) are the caller's.
+
+    Args:
+        request: The current request, used only for the category edit permission.
+        offering: The class being rendered; ``category`` and ``sessions`` should be
+            fetched already.
+
+    Returns:
+        The template context, ready to be extended with the viewer-specific keys.
+    """
+    from membership.permissions import can_edit_category as can_edit_category_perm
+
     now = timezone.now()
-    upcoming_sessions = list(offering.sessions.filter(starts_at__gte=now).order_by("starts_at"))
-    # A series is its full set of dates; a single class is its one date. Show every
-    # session for a series (so a started one still reads as the N-session series it
+    # A flexible class has no schedule to show, whatever session rows it still carries (a
+    # class saved before #545 may hold one standing in for its window), so the page never
+    # reads them. A series is its full set of dates; a single class is its one date. Show
+    # every session for a series (so a started one still reads as the N-session series it
     # is, with past dates marked) and just the dated session for a single.
-    schedule_sessions = list(offering.sessions.order_by("starts_at")) if offering.is_series else upcoming_sessions
+    if offering.is_flexible:
+        upcoming_sessions: list[Any] = []
+        schedule_sessions: list[Any] = []
+    else:
+        upcoming_sessions = list(offering.sessions.filter(starts_at__gte=now).order_by("starts_at"))
+        schedule_sessions = list(offering.sessions.order_by("starts_at")) if offering.is_series else upcoming_sessions
 
     # Other dates this same class is offered on, so the visitor can switch dates
     # without hunting through the catalog. Only runs you can still book are shown
@@ -389,8 +425,47 @@ def public_class_detail(request: HttpRequest, slug: str) -> HttpResponse:
         .exclude(pk=offering.pk)
         .select_related("instructor")[:3]
     )
+
+    # If the class has NO specific image (real or legacy), it falls back to the category image.
+    has_no_class_image = not offering.image and not offering.legacy_image_url
+    can_edit_category = bool(
+        has_no_class_image and offering.category.hero_image and can_edit_category_perm(request, offering.category)
+    )
+
+    return {
+        "offering": offering,
+        "offering_ct_id": ContentType.objects.get_for_model(ClassOffering).pk,
+        "category_ct_id": ContentType.objects.get_for_model(Category).pk,
+        "can_edit_category": can_edit_category,
+        "settings_obj": ClassSettings.load(),
+        "site_config": SiteConfiguration.load(),
+        "upcoming_sessions": upcoming_sessions,
+        "schedule_sessions": schedule_sessions,
+        # The sign-up rail keys off this; an undefined name is false in a template,
+        # which is how every preview once read "Registration closed".
+        "is_bookable": offering.is_bookable,
+        "now": now,
+        "spots_remaining": offering.spots_remaining,
+        "related_offerings": related_offerings,
+        "sibling_offerings": sibling_offerings,
+        # The flexible block (#545): the template holds the copy, these hold the facts. The
+        # instructor's name is read off the row in the template, so a spec can anchor on it.
+        "is_flexible": offering.is_flexible,
+        "has_flexible_window": offering.has_flexible_window,
+        "flexible_heading": "Flexible Date Range" if offering.has_flexible_window else "Flexible Scheduling",
+        "flexible_window_label": offering.flexible_window_label,
+        "flexible_window_ended": offering.flexible_window_ended,
+        "flexible_ends_on": offering.flexible_ends_on,
+    }
+
+
+def public_class_detail(request: HttpRequest, slug: str) -> HttpResponse:
+    """Full class detail page — schedule, info grid, (future: registration form)."""
+    offering = get_object_or_404(
+        ClassOffering.objects.public().select_related("category", "instructor").prefetch_related("sessions"),
+        slug=slug,
+    )
     from hub.view_as import ROLE_ADMIN, ROLE_GUILD_OFFICER
-    from membership.permissions import can_edit_category as can_edit_category_perm
     from membership.permissions import can_edit_class, is_effective_staff
 
     view_as = getattr(request, "view_as", None)
@@ -406,45 +481,35 @@ def public_class_detail(request: HttpRequest, slug: str) -> HttpResponse:
     edit_url = None
     if can_edit_offering:
         if is_effective_staff(request):
-            edit_url = reverse("classes:admin_class_edit", kwargs={"pk": offering.pk})
+            edit_url = reverse("classes:teach_class_edit", kwargs={"pk": offering.pk})
         else:
             # Instructors and guild leads manage the class from the teaching portal.
             edit_url = reverse("classes:teach_class_edit", kwargs={"pk": offering.pk})
 
-    # If the class has NO specific image (real or legacy), it falls back to the category image.
-    has_no_class_image = not offering.image and not offering.legacy_image_url
-    can_edit_category = bool(
-        has_no_class_image and offering.category.hero_image and can_edit_category_perm(request, offering.category)
-    )
-
-    offering_ct = ContentType.objects.get_for_model(ClassOffering)
-    category_ct = ContentType.objects.get_for_model(Category)
-
-    return render(
-        request,
-        "classes/public/detail.html",
+    context = _class_detail_context(request, offering)
+    context.update(
         {
-            "offering": offering,
-            "offering_ct_id": offering_ct.pk,
-            "category_ct_id": category_ct.pk,
             "can_edit_offering": can_edit_offering,
-            "can_edit_category": can_edit_category,
             "edit_url": edit_url,
             "is_admin": is_admin,
             "is_instructor": is_instructor,
             "view_as": view_as,
-            "settings_obj": settings_obj,
-            "site_config": SiteConfiguration.load(),
-            "upcoming_sessions": upcoming_sessions,
-            "schedule_sessions": schedule_sessions,
-            "is_bookable": offering.is_bookable,
-            "now": now,
-            "member_price_cents": member_price_cents,
-            "spots_remaining": offering.spots_remaining,
-            "related_offerings": related_offerings,
-            "sibling_offerings": sibling_offerings,
-        },
+        }
     )
+    return render(request, "classes/public/detail.html", context)
+
+
+def legacy_class_page(request: HttpRequest, alias: str) -> HttpResponse:
+    """An old classes.pastlives.space class link (``/class/<alias>``): 301 to that class here.
+
+    The old site's address now serves this app, so Discord posts, flyers and search results
+    that point at a Drupal class page land here. A class that is no longer listed, or never
+    came across, goes to the catalog instead of a dead page.
+    """
+    offering = ClassOffering.objects.public().for_legacy_alias(alias)
+    if offering is None:
+        return redirect("classes:public_list", permanent=True)
+    return redirect("classes:public_class_detail", slug=offering.slug, permanent=True)
 
 
 def public_instructor(request: HttpRequest, slug: str) -> HttpResponse:
@@ -487,17 +552,6 @@ def _client_ip(request: HttpRequest) -> str:
     return request.META.get("REMOTE_ADDR", "")
 
 
-def _member_for_email(email: str) -> "Member | None":
-    """Verified Member matching this email, or None.
-
-    Thin wrapper over the shared :func:`membership.selectors.member_for_verified_email`
-    selector (the Discord link flow uses the same lookup); behavior is unchanged.
-    """
-    from membership.selectors import member_for_verified_email
-
-    return member_for_verified_email(email)
-
-
 def _registration_initial_for_user(user: "AbstractBaseUser | AnonymousUser | None") -> dict[str, str]:
     """Pre-fill values pulled from the logged-in user's Member record."""
     if not user or not user.is_authenticated:
@@ -531,23 +585,28 @@ def _cache_registration_to_profile(request: HttpRequest, registration: Registrat
         profile.set_custom_answers(answers)
 
 
-def _register_prefill(request: HttpRequest) -> tuple[str, dict[int, str], bool, dict[str, str]]:
+def _register_prefill(request: HttpRequest) -> tuple[str, dict[int, str], bool, dict[str, Any]]:
     """Resolve the email + pre-fill inputs for the registration form.
 
-    On POST the email comes from the submitted data; on GET an ``?email=`` query
-    (sent by the email field's HTMX recall) lets a returning guest's saved answers
-    pre-fill. Returns ``(bound_email, custom_answers_initial, answers_prefilled,
-    field_initial)`` — the field initial pre-fills standard fields from the
-    logged-in user's Member record (GET only).
+    The email is who is registering, so it decides the price. On POST it comes from the
+    submitted data. On GET it is ``?email=`` (sent by the price summary's HTMX refresh, which
+    also lets a returning guest's saved answers pre-fill) or, failing that, the logged-in
+    user's own address, so a member's first render already quotes their price. The refresh
+    carries the code box as it stands, and that rides into the initial too. Returns
+    ``(bound_email, custom_answers_initial, answers_prefilled, field_initial)`` — the field
+    initial pre-fills standard fields from the logged-in user's Member record (GET only).
     """
+    field_initial: dict[str, Any] = {}
     if request.method == "POST":
         bound_email = (request.POST.get("email") or "").strip()
     else:
-        bound_email = (request.GET.get("email") or "").strip()
+        field_initial = _registration_initial_for_user(request.user)
+        bound_email = (request.GET["email"] if "email" in request.GET else field_initial.get("email", "")).strip()
+        if bound_email:
+            field_initial["email"] = bound_email
+        if "discount_code" in request.GET:
+            field_initial["discount_code"] = request.GET["discount_code"]
     custom_answers_initial, answers_prefilled = prefill_answers(request.user, bound_email)
-    field_initial = {} if request.method == "POST" else _registration_initial_for_user(request.user)
-    if bound_email and request.method != "POST":
-        field_initial.setdefault("email", bound_email)
     return bound_email, custom_answers_initial, answers_prefilled, field_initial
 
 
@@ -606,11 +665,349 @@ def _confirm_free_registration(request: HttpRequest, registration: Registration)
     return redirect("classes:register_success", slug=registration.class_offering.slug)
 
 
+def _already_signed_up_message(registration: Registration) -> str:
+    """What to tell someone whose second signup we just turned into their first one."""
+    title = registration.class_offering.title
+    if registration.status == Registration.Status.WAITLISTED:
+        return f"You're already on the waitlist for {title}. We'll email you if a spot opens."
+    if registration.status == Registration.Status.CONFIRMED:
+        return f"You're already registered for {title}."
+    return f"You already started signing up for {title}. Here's where you left off."
+
+
+_SESSION_REGISTRATION_KEY = "classes_registration_pks"
+# Enough for anyone signing up for a season of classes from one browser, and a ceiling
+# so a bot cannot grow one session row without bound.
+_SESSION_REGISTRATION_LIMIT = 50
+# One resume link per registration per window, however many times the form is POSTed.
+# Without it, anyone who knows an address could use this to mail-bomb its owner.
+_RESUME_LINK_THROTTLE_SECONDS = 15 * 60
+
+
+def _remember_registration(request: HttpRequest, registration: Registration) -> None:
+    """Record that THIS browser created this registration.
+
+    The register form authenticates nobody — the email address is typed, not proved —
+    so the session is what separates the impatient second click from a stranger who
+    happens to know someone's address. Stored server side (the default database session
+    backend), so the browser holds an opaque session id and never the row ids.
+    """
+    remembered = [pk for pk in request.session.get(_SESSION_REGISTRATION_KEY, []) if pk != registration.pk]
+    remembered.append(registration.pk)
+    request.session[_SESSION_REGISTRATION_KEY] = remembered[-_SESSION_REGISTRATION_LIMIT:]
+
+
+def _owns_registration(request: HttpRequest, registration: Registration) -> bool:
+    """Whether this requester has proved the registration is theirs.
+
+    Two proofs count. The browser created it, which is the double-click case and the
+    reason that path stays frictionless. Or the requester is signed in as the member the
+    row is linked to, which was proved by the login, not by typing an address.
+
+    A typed email address is not a proof and never becomes one here. The claim-link flow
+    is authenticated separately, by an unguessable token that only reaches the inbox.
+    """
+    if registration.pk in request.session.get(_SESSION_REGISTRATION_KEY, []):
+        return True
+    if not request.user.is_authenticated:
+        return False
+    member = getattr(request.user, "member", None)
+    return member is not None and registration.member_id == member.pk
+
+
+def _deflect_to_emailed_link(request: HttpRequest, registration: Registration) -> HttpResponse:
+    """Answer an unproved resume request without confirming anything or touching the row.
+
+    Nothing about the registration changes and no Stripe call is made: an unproved
+    submitter must not be able to expire somebody's checkout, re-mint it at a different
+    price, or rewrite the discount code on it. The self-serve token stays out of the
+    response — handing it over would let anyone who knows an address open, and cancel,
+    that person's booking.
+
+    The link goes to the address on file instead, throttled so this cannot be turned
+    into a mail bomb, and the reply says only what is true for any address at all. The
+    password-reset shape: a stranger learns nothing, and a registrant who came back on a
+    new device is one email away from their signup.
+    """
+    from django.core.cache import cache
+
+    if cache.add(f"classes:resume-link:{registration.pk}", True, _RESUME_LINK_THROTTLE_SECONDS):
+        from classes.emails import send_registration_resume_link
+
+        send_registration_resume_link(registration)
+    messages.info(
+        request,
+        "If you have already started signing up for this class, we just emailed that address "
+        "a link to pick up where you left off.",
+    )
+    return redirect("classes:public_class_detail", slug=registration.class_offering.slug)
+
+
+def _self_serve_redirect(request: HttpRequest, registration: Registration) -> HttpResponse:
+    """The self-serve page plus a note saying where this signup stands.
+
+    It is a status page, not a payment page: ``my_registration_pay`` only serves a
+    CONFIRMED row that still owes a balance, so a PENDING row cannot pay from there.
+    That is why this is the landing for signups with nothing to pay right now, and
+    never the answer to an unusable Checkout Session.
+    """
+    messages.info(request, _already_signed_up_message(registration))
+    return redirect("classes:my_registration", token=registration.self_serve_token)
+
+
+def _resume_existing_registration(
+    request: HttpRequest, registration: Registration, form: RegistrationForm
+) -> HttpResponse:
+    """Send a repeat registrant back into the signup they already have, never into a second one.
+
+    Ownership is checked here rather than at the call sites, because every route into a
+    resume has to pass it: the pre-save lookup, and the loser of a race that only learns
+    another row exists when the constraint rejects its insert. An unproved requester is
+    deflected before anything is read from Stripe or written anywhere.
+
+    A PENDING row is unfinished business and goes to :func:`_resume_pending_checkout`.
+    A CONFIRMED or WAITLISTED row has nothing to pay this minute, so it goes to the
+    self-serve page with a note.
+    """
+    if not _owns_registration(request, registration):
+        return _deflect_to_emailed_link(request, registration)
+    if registration.status == Registration.Status.PENDING:
+        return _resume_pending_checkout(request, registration, form)
+    return _self_serve_redirect(request, registration)
+
+
+def _resume_pending_checkout(request: HttpRequest, registration: Registration, form: RegistrationForm) -> HttpResponse:
+    """Take an unfinished signup back to checkout, reusing its Stripe session only when that is honest.
+
+    The stored session is reused only when Stripe still calls it ``open`` **and** its
+    ``amount_total`` equals what this submission computes. The price is re-derived
+    every time because it is not stable between visits: a discount code typed on the
+    second attempt, a sale an admin flipped on, an auto-apply code that has since
+    expired, or a membership that started all move it. Redirecting to the stored page
+    regardless would charge the first visit's number without saying so.
+
+    Anything else mints a fresh session **on the same row**. A second row is no longer
+    available as a fallback, and nothing reaps a PENDING row yet, so an expired session
+    would otherwise leave someone holding a seat they can neither pay for nor re-book.
+    The stale session is expired first so an old tab cannot pay the old price.
+
+    Two cases never mint. A session Stripe reports as already paid means the webhook is
+    behind, and a second session would take the money twice. A Stripe we cannot reach
+    is unknown, not permission to charge again; both land on the self-serve page.
+    """
+    from billing import stripe_utils
+
+    session = None
+    if registration.stripe_session_id:
+        try:
+            session = stripe_utils.retrieve_checkout_session(session_id=registration.stripe_session_id)
+        except Exception:
+            logger.exception(
+                "Could not retrieve Checkout session for registration %s; leaving the signup as it stands.",
+                registration.pk,
+            )
+            return _self_serve_redirect(request, registration)
+
+    if session is not None and session["payment_status"] == "paid":
+        messages.info(request, "We're finishing up your payment. Your confirmation email is on its way.")
+        return redirect(
+            reverse("classes:register_success", kwargs={"slug": registration.class_offering.slug})
+            + f"?reg={registration.self_serve_token}"
+        )
+
+    final_price = form.compute_final_price_cents()
+    if session is not None and session["status"] == "open":
+        if session["amount_total"] == final_price and session["url"]:
+            return redirect(session["url"])
+        try:
+            stripe_utils.expire_checkout_session(session_id=registration.stripe_session_id)
+        except Exception:
+            # Best effort, exactly as the orientation hold release treats it: the
+            # session's own expiry is the backstop, and the new session is what the
+            # registrant is being sent to.
+            logger.exception("Could not expire the stale Checkout session for registration %s.", registration.pk)
+    return _start_registration_payment(request, form, registration, rollback_on_failure=False)
+
+
+def _save_registration(form: RegistrationForm, offering: ClassOffering, email: str) -> tuple[Registration, bool]:
+    """Create the registration, or hand back the one a concurrent POST already wrote.
+
+    ``uq_registration_seat_email`` is the backstop for the race the pre-save lookup
+    cannot see: two POSTs that both read "no signup yet" before either has written.
+    The loser gets an IntegrityError, which is an outcome to handle, not a 500. The
+    savepoint keeps the rest of the request usable afterwards.
+
+    Args:
+        form: A validated ``RegistrationForm`` ready to save.
+        offering: The class being signed up for.
+        email: The address the form validated, used to find the race winner.
+
+    Returns:
+        ``(registration, created)`` — ``created`` is False when the row came back
+        from the race rather than from this request's insert.
+
+    Raises:
+        IntegrityError: When the collision was not the seat constraint. Nothing
+            else is swallowed.
+    """
+    try:
+        with transaction.atomic():
+            return form.save(), True
+    except IntegrityError:
+        winner = offering.live_registration_for_email(email)
+        if winner is None:
+            raise
+        return winner, False
+
+
+def _claimed_waitlist_registration(request: HttpRequest, offering: ClassOffering) -> Registration | None:
+    """The WAITLISTED row this request is claiming a spot for, or ``None``.
+
+    ``send_waitlist_spot_available`` mails a link to the register form carrying
+    ``?waitlist_token=<self_serve_token>``, and the form posts back to that same URL
+    (no ``action``), so the token is on the POST as well as the GET. A claim is what
+    tells the signup guard that this person's existing waitlist row is the thing being
+    converted rather than a duplicate to bounce.
+    """
+    token = request.GET.get("waitlist_token", "").strip()
+    if not token:
+        return None
+    return offering.registrations.filter(self_serve_token=token, status=Registration.Status.WAITLISTED).first()
+
+
+def _convert_waitlist_claim(request: HttpRequest, form: RegistrationForm, registration: Registration) -> HttpResponse:
+    """Turn a claimed waitlist place into a real seat, on the row that was waiting.
+
+    The claimant was told a spot opened and sent a link with a deadline. Their row moves
+    WAITLISTED to PENDING before checkout so it holds the seat for the length of the
+    payment, the way any other in-progress signup does; a free class confirms outright.
+    No new row is written, which is what the seat constraint requires and what the old
+    flow got wrong (it wrote a second row and left the waitlist row standing).
+
+    WAITLISTED to PENDING dispatches nothing (``_dispatch_status_notification`` acts on
+    CONFIRMED and REFUNDED only), so the claimant gets the checkout they asked for and
+    no stray "you joined the waitlist" mail. If Stripe refuses, the row goes back to
+    WAITLISTED and the error propagates: the claim is exactly where it started.
+    """
+    # The claim link's token came from the registrant's inbox, which is proof enough to
+    # hand this browser the row for the rest of its session.
+    _remember_registration(request, registration)
+    registration.status = Registration.Status.PENDING
+    registration.save(update_fields=["status"])
+    try:
+        return _start_registration_payment(request, form, registration, rollback_on_failure=False)
+    except Exception:
+        # Stripe refused. Put them back in the queue rather than leaving a PENDING row
+        # holding a seat nobody paid for and nothing reaps yet; the claim link still
+        # works from WAITLISTED, so the next click can try again. Only while the row is
+        # still PENDING: a free class confirms inside that call, and a failure in the
+        # confirmation fan-out must not un-confirm a seat that was granted.
+        registration.refresh_from_db()
+        if registration.status == Registration.Status.PENDING:
+            registration.status = Registration.Status.WAITLISTED
+            registration.save(update_fields=["status"])
+        raise
+
+
+def _joined_waitlist(request: HttpRequest, registration: Registration) -> HttpResponse:
+    """Finish a waitlist signup: the confirmation email, the note, the self-serve page."""
+    send_waitlist_joined_confirmation(registration)
+    messages.success(
+        request,
+        f"You're on the waitlist for {registration.class_offering.title}. We'll email you if a spot opens.",
+    )
+    return redirect("classes:my_registration", token=registration.self_serve_token)
+
+
+def _start_registration_payment(
+    request: HttpRequest, form: RegistrationForm, registration: Registration, *, rollback_on_failure: bool = True
+) -> HttpResponse:
+    """Take a saved registration to payment, or straight to confirmed when it costs nothing.
+
+    Args:
+        request: The registration POST, used for the absolute return URLs.
+        form: The validated form, which owns the discount arithmetic.
+        registration: The row this signup is being paid for.
+        rollback_on_failure: Delete the row when Stripe refuses. True for a row this
+            request just created, where the row is half-built and nobody has seen it.
+            False when minting a replacement session for a row that existed before this
+            request: deleting that would throw away waivers, answers and the audit
+            trail, so the error propagates and the row is left exactly as it was.
+
+    Returns:
+        A redirect to Stripe's hosted Checkout page, or to the confirmation page
+        for a total of $0.
+    """
+    offering = registration.class_offering
+    final_price = form.compute_final_price_cents()
+    # Captured before the new id overwrites it: it is part of the idempotency key.
+    previous_session_id = registration.stripe_session_id
+
+    if final_price == 0:
+        return _confirm_free_registration(request, registration)
+
+    # Paid class — kick off Stripe Checkout.
+    from billing import stripe_utils
+
+    success_url = (
+        request.build_absolute_uri(reverse("classes:register_success", kwargs={"slug": offering.slug}))
+        + f"?reg={registration.self_serve_token}"
+    )
+    cancel_url = (
+        request.build_absolute_uri(reverse("classes:register_cancelled", kwargs={"slug": offering.slug}))
+        + f"?reg={registration.self_serve_token}"
+    )
+
+    # A series is still ONE line item at the series price — only the Stripe
+    # line-item name gains a "(N-session series)" suffix so the buyer's
+    # receipt reads clearly. No loop, no fan-out: one Registration, one
+    # Checkout Session, one charge, one seat (Option A).
+    product_name = offering.title
+    if offering.is_series and offering.series_session_count > 1:
+        product_name = f"{offering.title} ({offering.series_session_count}-session series)"
+    # Label-only marker so the Stripe receipt reflects the sale (precedent:
+    # the series suffix above). The amount already carries the sale price.
+    if offering.sale_is_active:
+        product_name = f"{product_name} (Sale)"
+
+    try:
+        checkout = stripe_utils.create_class_checkout_session(
+            amount_cents=final_price,
+            product_name=product_name,
+            customer_email=registration.email,
+            success_url=success_url,
+            cancel_url=cancel_url,
+            metadata={
+                "registration_id": str(registration.pk),
+                "class_slug": offering.slug,
+                "kind": "class_registration",
+            },
+            # The key has to change when the session being replaced changes, or Stripe
+            # answers a re-mint with the very session we just expired. Keyed on the row,
+            # the price and the session it supersedes: two concurrent POSTs replacing the
+            # same stale session still share a key, so they share one new session rather
+            # than leaving a second payable page open.
+            idempotency_key=f"class-checkout-reg-{registration.pk}-{final_price}-{previous_session_id or 'first'}",
+        )
+    except Exception:
+        if rollback_on_failure:
+            registration.delete()  # roll back the half-created registration
+        raise
+
+    registration.stripe_session_id = checkout["id"]
+    registration.amount_paid_cents = final_price  # provisional; webhook is canonical
+    # Re-stamped, not assumed: a resumed signup can carry a code the first attempt
+    # did not, and the row must name the code whose price it is about to charge.
+    registration.discount_code = form.validated_discount
+    registration.save(update_fields=["stripe_session_id", "amount_paid_cents", "discount_code"])
+    return redirect(checkout["url"])
+
+
 def register(request: HttpRequest, slug: str) -> HttpResponse:
     """Public registration form — collects info, signs waivers, kicks off Stripe Checkout.
 
-    A total of $0 after discounts (a 100% code, a 100% member discount, or a legacy
-    $0 row) confirms immediately and skips Stripe. Anything else redirects to a
+    A total of $0 after discounts (a 100% code or a legacy $0 row) confirms
+    immediately and skips Stripe. Anything else redirects to a
     Stripe Checkout Session; the webhook handler flips the registration to
     CONFIRMED on success.
     """
@@ -643,99 +1040,78 @@ def register(request: HttpRequest, slug: str) -> HttpResponse:
         )
         return redirect("classes:public_class_detail", slug=offering.slug)
 
+    # The email runs first because who they are decides which form they get: a seat they
+    # already hold, a claim link, or a fresh signup.
+    bound_email, custom_answers_initial, answers_prefilled, initial = _register_prefill(request)
+
     # Waitlist intent: ?waitlist=1 (offered when the class is sold out) routes
     # to the no-charge waitlist branch below. Forced on automatically when the
     # class has no spots left so we never hide the option from a registrant
     # who lands here from a stale link.
-    is_waitlist = request.GET.get("waitlist") == "1" or offering.spots_remaining <= 0
-
-    # Two-pass form: first POST validates email so we can detect a member
-    # before computing price, then re-binds to surface the discounted total.
-    bound_email, custom_answers_initial, answers_prefilled, initial = _register_prefill(request)
-    member = _member_for_email(bound_email) if bound_email else None
+    #
+    # Two people are the opposite of waitlist intent, and both have to be held out of
+    # that branch. A claim link is here to take a seat that just opened. And a signup
+    # this person ALREADY holds is not a waitlist candidate either: a second click on
+    # the last seat sees `spots_remaining == 0` because of their own pending row, and
+    # the waitlist form drops the discount field (``RegistrationForm.__init__``), so
+    # the resumed price would come back undiscounted, read as a price rise, and
+    # re-charge them at full freight with their code wiped off the row. Asking who
+    # already holds a seat, before deciding, is what stops that.
+    claim = _claimed_waitlist_registration(request, offering)
+    existing = offering.live_registration_for_email(bound_email) if bound_email else None
+    # Their own row only changes the answer when it is one of the rows making the class
+    # full. A WAITLISTED row consumes no seat, so somebody already queued is still told a
+    # sold-out class is sold out, and their re-submit is still a waitlist submit.
+    holds_seat = existing is not None and existing.consumes_seat
+    # A flexible class answers None: no seat cap, so nothing to wait for, and ?waitlist=1 on
+    # one (a stale link) registers normally (#545).
+    spots = offering.spots_remaining
+    is_waitlist = (
+        claim is None and not holds_seat and spots is not None and (request.GET.get("waitlist") == "1" or spots <= 0)
+    )
 
     form = RegistrationForm(
         request.POST or None,
         offering=offering,
         settings_obj=settings_obj,
-        member=member,
         client_ip=_client_ip(request),
         initial=initial,
         is_waitlist=is_waitlist,
+        holds_seat=holds_seat,
         user=request.user,
         custom_answers_initial=custom_answers_initial,
+        # The price summary's refresh must land on this same page, claim token and all.
+        refresh_params={name: request.GET[name] for name in ("waitlist", "waitlist_token") if name in request.GET},
     )
 
-    if request.method == "POST" and form.is_valid() and is_waitlist:
-        # The form sets status=WAITLISTED on save (see RegistrationForm.save), so the
-        # WAITLIST_JOINED activity is logged at creation time.
-        registration = form.save()
-        _cache_registration_to_profile(request, registration)
-        send_waitlist_joined_confirmation(registration)
-        messages.success(
-            request,
-            f"You're on the waitlist for {offering.title}. We'll email you if a spot opens.",
-        )
-        return redirect("classes:my_registration", token=registration.self_serve_token)
-
     if request.method == "POST" and form.is_valid():
-        registration = form.save()
+        # One signup per person per class. The impatient second click belongs on the
+        # page the first one was already taking them to, not on a second row eating a
+        # second seat. Answered before either branch saves, and for both branches.
+        #
+        # ``existing`` was resolved above, from the same (stripped) address the form
+        # cleans to, because the shape of the form depended on the answer. If the two
+        # ever disagreed, the constraint still catches the duplicate at the insert and
+        # ``_save_registration`` resumes from there.
+        if existing is not None:
+            if claim is not None and claim.pk == existing.pk:
+                return _convert_waitlist_claim(request, form, existing)
+            return _resume_existing_registration(request, existing, form)
+
+        registration, created = _save_registration(form, offering, form.cleaned_data["email"])
+        if not created:
+            return _resume_existing_registration(request, registration, form)
+        # This browser made it, so this browser may resume it. Written before any Stripe
+        # round trip, so a registrant who abandons checkout and clicks again still owns
+        # the row they are coming back to.
+        _remember_registration(request, registration)
         _cache_registration_to_profile(request, registration)
-        final_price = form.compute_final_price_cents()
+        if is_waitlist:
+            # The form set status=WAITLISTED on save (see RegistrationForm.save), so the
+            # WAITLIST_JOINED activity was logged at creation time.
+            return _joined_waitlist(request, registration)
+        return _start_registration_payment(request, form, registration)
 
-        if final_price == 0:
-            return _confirm_free_registration(request, registration)
-
-        # Paid class — kick off Stripe Checkout.
-        from billing import stripe_utils
-
-        success_url = (
-            request.build_absolute_uri(reverse("classes:register_success", kwargs={"slug": offering.slug}))
-            + f"?reg={registration.self_serve_token}"
-        )
-        cancel_url = (
-            request.build_absolute_uri(reverse("classes:register_cancelled", kwargs={"slug": offering.slug}))
-            + f"?reg={registration.self_serve_token}"
-        )
-
-        # A series is still ONE line item at the series price — only the Stripe
-        # line-item name gains a "(N-session series)" suffix so the buyer's
-        # receipt reads clearly. No loop, no fan-out: one Registration, one
-        # Checkout Session, one charge, one seat (Option A).
-        product_name = offering.title
-        if offering.is_series and offering.series_session_count > 1:
-            product_name = f"{offering.title} ({offering.series_session_count}-session series)"
-        # Label-only marker so the Stripe receipt reflects the sale (precedent:
-        # the series suffix above). The amount already carries the sale price.
-        if offering.sale_is_active:
-            product_name = f"{product_name} (Sale)"
-
-        try:
-            checkout = stripe_utils.create_class_checkout_session(
-                amount_cents=final_price,
-                product_name=product_name,
-                customer_email=registration.email,
-                success_url=success_url,
-                cancel_url=cancel_url,
-                metadata={
-                    "registration_id": str(registration.pk),
-                    "class_slug": offering.slug,
-                    "kind": "class_registration",
-                },
-                idempotency_key=f"class-checkout-reg-{registration.pk}",
-            )
-        except Exception:
-            registration.delete()  # roll back the half-created registration
-            raise
-
-        registration.stripe_session_id = checkout["id"]
-        registration.amount_paid_cents = final_price  # provisional; webhook is canonical
-        registration.save(update_fields=["stripe_session_id", "amount_paid_cents"])
-        return redirect(checkout["url"])
-
-    # Member price reads off the SALE base so every quoted member number
-    # matches what compute_final_price_cents will actually charge.
-    member_price_cents = compute_member_price_cents(offering.sale_price_cents, offering.member_discount_pct)
     upcoming_sessions = list(offering.sessions.filter(starts_at__gte=timezone.now()).order_by("starts_at"))
 
     run_options = _bookable_run_options(offering)
@@ -748,7 +1124,8 @@ def register(request: HttpRequest, slug: str) -> HttpResponse:
             "form": form,
             "settings_obj": settings_obj,
             "site_config": SiteConfiguration.load(),
-            "member_price_cents": member_price_cents,
+            # The one price engine, read for the email, toggle and code as the page has them.
+            "quoted_price_cents": form.quoted_price_cents(),
             "spots_remaining": offering.spots_remaining,
             "is_waitlist": is_waitlist,
             "upcoming_sessions": upcoming_sessions,
@@ -1031,6 +1408,43 @@ def instructor_discount_codes_required(view_func: _ViewFunc) -> _ViewFunc:
     return wrapper  # type: ignore[return-value]
 
 
+def instructor_direct_discount_codes_required(view_func: _ViewFunc) -> _ViewFunc:
+    """Decorator: the instructor's own create, edit, delete and approve routes belong to the direct flow.
+
+    Layered under ``instructor_discount_codes_required``. With
+    ``instructor_discount_codes_need_approval`` on (approval mode, #428) an instructor asks for
+    a code instead of making one, so these routes send them to the Discount Codes page with an
+    info message. A mode switch is not an authorization failure, so never a 403; a POST is
+    redirected the same way.
+    """
+
+    @wraps(view_func)
+    def wrapper(request: HttpRequest, *args: Any, **kwargs: Any) -> HttpResponse:
+        if SiteConfiguration.load().instructor_discount_codes_need_approval:
+            messages.info(request, "Discount codes are requested here and approved by an admin. Use Request a Code.")
+            return redirect("classes:teach_discount_codes")
+        return view_func(request, *args, **kwargs)
+
+    return wrapper  # type: ignore[return-value]
+
+
+def instructor_request_mode_required(view_func: _ViewFunc) -> _ViewFunc:
+    """Decorator: the mirror image of ``instructor_direct_discount_codes_required``, for the request route.
+
+    With the approval flag off, instructors create codes directly and there is nothing to
+    request, so the route sends them back to the Discount Codes page with an info message.
+    """
+
+    @wraps(view_func)
+    def wrapper(request: HttpRequest, *args: Any, **kwargs: Any) -> HttpResponse:
+        if not SiteConfiguration.load().instructor_discount_codes_need_approval:
+            messages.info(request, "Discount codes do not need approval right now. Use New Code instead.")
+            return redirect("classes:teach_discount_codes")
+        return view_func(request, *args, **kwargs)
+
+    return wrapper  # type: ignore[return-value]
+
+
 def classes_admin_access_required(view_func: _ViewFunc) -> _ViewFunc:
     """Decorator: Classes admin tabs are admin-only.
 
@@ -1159,6 +1573,10 @@ def _why_teach_context(member: Member, apply_form: TeachingApplicationForm) -> d
         "article": article,
         "guide": guide,
         "apply_form": apply_form,
+        # What the I'm Interested modal prefills into "Where to reach you" when the member
+        # picks a method: the account email, or the phone on their profile (blank when none).
+        "contact_prefill_email": member.primary_email,
+        "contact_prefill_phone": member.phone,
         "application_state": member.teaching_application_state,
         # The page's words, edited on the classes Settings page. A blanked field hides
         # its section, so the template guards every one.
@@ -1204,7 +1622,11 @@ def teach_apply(request: HttpRequest) -> HttpResponse:
     if not form.is_valid():
         return render(request, "classes/teach/why_teach.html", _why_teach_context(member, form))
     try:
-        member.apply_to_teach(form.cleaned_data["note"])
+        member.apply_to_teach(
+            form.cleaned_data["note"],
+            contact_method=form.cleaned_data["contact_method"],
+            contact_detail=form.cleaned_data["contact_detail"],
+        )
     except ValueError:
         if member.can_create_classes:
             messages.error(request, "You can already host workshops. The teaching portal is open.")
@@ -1353,18 +1775,23 @@ def _guild_lead_review_queue(member: Member) -> list[dict]:
     )
     queue: list[dict] = []
     for offering in offerings:
-        gl_row = next(
-            (a for a in offering.approvals.all() if a.role == ClassApproval.Role.GUILD_LEAD and not a.decision),
-            None,
-        )
+        gl_row = offering.open_guild_lead_approval
         if gl_row is not None:
             queue.append({"offering": offering, "token": gl_row.token})
     return queue
 
 
+# The My Classes headers (templates/classes/teach/classes_list.html); any other ``sort`` falls
+# back to newest created first.
+TEACH_CLASSES_SORTABLE = frozenset(
+    {"title", "category__name", "first_session", "lifecycle_order", "registration_count"}
+)
+
+
 @teaching_member_required
 def teach_dashboard(request: HttpRequest) -> HttpResponse:
-    """My classes — list view for the logged-in teaching member, faceted by lifecycle."""
+    """My classes — list view for the logged-in teaching member, faceted by lifecycle, sortable
+    by its headers and paginated like the admin list."""
     teaching_member: Member = request.teaching_member  # type: ignore[attr-defined]
     base = (
         ClassOffering.objects.for_instructor(teaching_member)
@@ -1375,22 +1802,57 @@ def teach_dashboard(request: HttpRequest) -> HttpResponse:
         .select_related("category__guild")
         # The badge note reads the latest bouncing row; prefetching keeps that off the per-row path.
         .prefetch_related("approvals")
+        # Seat-holders only: this renders as ``N/capacity``, and capacity is spent by exactly
+        # these statuses (``ClassOffering.spots_remaining``), so a wider count would have the
+        # list and the register page disagree about whether the class is full.
         # distinct=True so the sessions join behind the lifecycle inputs never inflates the tally.
-        .annotate(registration_count=Count("registrations", distinct=True))
+        .annotate(
+            registration_count=Count(
+                "registrations",
+                filter=Q(registrations__status__in=CAPACITY_CONSUMING_REGISTRATION_STATUSES),
+                distinct=True,
+            )
+        )
     )
     facet = resolve_facet(INSTRUCTOR_FACETS, request.GET.get("facet", "").strip())
-    classes = facet.apply(base).order_by("-created_at")  # type: ignore[arg-type]  # annotated queryset keeps its aliases
-    facets = facet_rows(INSTRUCTOR_FACETS, base, facet, lambda key: f"?facet={key}" if key else "?")  # type: ignore[arg-type]
+    # The Date(s) column and its sort, the same annotations the admin list reads. They go on
+    # the faceted rows only, so the chip counts over ``base`` stay plain counts.
+    qs = facet.apply(base).annotate(  # type: ignore[arg-type]  # annotated queryset keeps its aliases
+        first_session=Min("sessions__starts_at"),
+        last_session=Max("sessions__starts_at"),
+    )
+    table = prepare_table(
+        request,
+        qs,
+        search_fields=[],
+        default_sort="created_at",
+        default_dir="desc",
+        sortable=TEACH_CLASSES_SORTABLE,
+    )
+    # Every link the page builds (facet chips, headers, page links) starts from the table's
+    # normalized params plus the resolved facet, so sorting keeps the facet, a chip keeps the
+    # sort, and a junk facet is never echoed.
+    params = QueryDict(table["base_params"], mutable=True)
+    params.pop("facet", None)
+
+    def _params_with_facet(key: str) -> str:
+        chip = params.copy()
+        if key:
+            chip["facet"] = key
+        return chip.urlencode()
+
+    table["base_params"] = _params_with_facet(facet.key)
+    facets = facet_rows(INSTRUCTOR_FACETS, base, facet, lambda key: f"?{_params_with_facet(key)}")  # type: ignore[arg-type]
     return render(
         request,
         "classes/teach/classes_list.html",
         {
-            "active_tab": "classes",
+            "active_tab": "my_classes",
             "instructor": teaching_member,
-            "classes": classes,
             "facets": facets,
             "selected_facet": facet,
             "has_any_classes": base.exists(),
+            **table,
         },
     )
 
@@ -1409,12 +1871,14 @@ def _sessions_json(request: HttpRequest, formset: Any, offering: ClassOffering |
             if starts or ends:
                 sessions_data.append({"id": pk, "starts_at": starts, "ends_at": ends, "DELETE": bool(delete)})
     elif offering is not None and offering.pk:
+        # Wall clock in the site's timezone: the scheduler reads these as local times and
+        # posts them back as local times, so the UTC value here drifts seven hours a save.
         for s in offering.sessions.order_by("starts_at"):
             sessions_data.append(
                 {
                     "id": s.pk,
-                    "starts_at": s.starts_at.strftime("%Y-%m-%dT%H:%M"),
-                    "ends_at": s.ends_at.strftime("%Y-%m-%dT%H:%M"),
+                    "starts_at": timezone.localtime(s.starts_at).strftime("%Y-%m-%dT%H:%M"),
+                    "ends_at": timezone.localtime(s.ends_at).strftime("%Y-%m-%dT%H:%M"),
                 }
             )
     return json.dumps(sessions_data)
@@ -1424,6 +1888,23 @@ def _composer_step(request: HttpRequest) -> int:
     """The step the composer asked to land on: ``?step=`` on GET, the hidden ``step`` input on POST."""
     source = request.POST if request.method == "POST" else request.GET
     return clamp_step(source.get("step"))
+
+
+def _is_composer_post(request: HttpRequest) -> bool:
+    """Whether this POST came from the composer rather than one of the smaller class forms.
+
+    ``classes/_components/class_composer.html`` posts a hidden ``step``, the phase the page was
+    on. The published light-edit form (``classes/teach/class_form_published.html``) posts hidden
+    fields of its own, the CSRF token and the FAQ formset's management form, so the test is not
+    that it has none: it is that none of them is named ``step``, and no other form in the
+    project posts that name either.
+
+    Presence is the test, not the value: the input's value is Alpine bound, so a page whose
+    script never ran still posts ``step`` empty, and that is still the composer.
+
+    A GET needs no guard of its own: ``request.POST`` is empty on one, so this is already False.
+    """
+    return "step" in request.POST
 
 
 # A successful composer save leaves the class it saved on this session list. The next composer
@@ -1511,15 +1992,32 @@ def _composer_draft_baseline(form: Any) -> str:
     return json.dumps(values)
 
 
-def _composer_draft_key(request: HttpRequest, saved: ClassOffering | None, *, is_admin: bool) -> str:
+def _composer_draft_key(request: HttpRequest, saved: ClassOffering | None) -> str:
     """The ``localStorage`` key the in flight composer mirrors its typed fields into.
 
-    Per signed in person, so a shared browser never offers one member's draft to the next;
-    per portal and per class, so the admin composer, the instructor composer, and a new class
-    that has no row yet each keep their own copy.
+    Per signed in person, so a shared browser never offers one member's draft to the next, and
+    per class, so a new class that has no row yet keeps its own copy.
+
+    The portal used to be part of the key, because the admin composer and the instructor
+    composer were two pages. They are one page now, so the segment is gone — and a copy typed
+    before this shipped still lives under the old key. :func:`_composer_draft_legacy_keys` is
+    what hands those forward.
     """
-    portal = "admin" if is_admin else "teach"
-    return f"plfog.composer.v1.{request.user.pk}.{portal}.{saved.pk if saved is not None else 'new'}"
+    return f"plfog.composer.v1.{request.user.pk}.{saved.pk if saved is not None else 'new'}"
+
+
+def _composer_draft_legacy_keys(request: HttpRequest, saved: ClassOffering | None) -> str:
+    """The pre-merge keys the browser should look under when the current key holds nothing.
+
+    Both portals' keys, oldest first, space separated for the data attribute.
+    ``static/js/composer_draft.js`` COPIES the first hit forward rather than moving it: code
+    reverted to before the merge would look under the old key again and must still find it.
+    The duplicate is self cleaning, because localStorage already drops anything older than a
+    fortnight. A draft typed AFTER the deploy lives only under the new key, and that one
+    reverted code cannot see; the loss is accepted and bounded by the same sweep.
+    """
+    row = saved.pk if saved is not None else "new"
+    return " ".join(f"plfog.composer.v1.{request.user.pk}.{portal}.{row}" for portal in ("admin", "teach"))
 
 
 def _composer_redirect(url_name: str, pk: int, request: HttpRequest) -> HttpResponse:
@@ -1563,6 +2061,44 @@ def _saved_row(form: Any, offering: ClassOffering | None) -> ClassOffering | Non
     return ClassOffering.objects.prefetch_related("gallery_images").get(pk=offering.pk)
 
 
+def _leave_class_url(request: HttpRequest, offering: ClassOffering) -> str:
+    """Where a class editing screen sends someone who is leaving it: Cancel, and a finished save.
+
+    The class screen for anyone who has an Overview. The dashboard for guild staff on a class
+    they do not teach, who under Ruling 12 have none (``_guild_access``, ``classes/access.py``)
+    and whose ``teach_class_detail`` raises ``Http404``. Sending them there was a dead control on
+    the way out and, after a save, a 404 on top of a write that had already landed.
+
+    One helper for all three exits (the composer's Cancel, the live-class form's Cancel, and the
+    redirect after a live-class save) so they cannot drift apart on a capability question.
+
+    Requires ``request.class_access``, so it is for views behind ``@class_screen_required``.
+    """
+    access: ClassAccess = request.class_access  # type: ignore[attr-defined]
+    if access.can_view_overview:
+        return reverse("classes:teach_class_detail", kwargs={"pk": offering.pk})
+    return reverse("classes:teach_dashboard")
+
+
+def _composer_discounts_context(
+    saved: ClassOffering | None, is_admin: bool, can_view_discount_codes: bool
+) -> dict[str, Any]:
+    """The Discounts step's rows for an instructor: the site wide codes that already apply, and this class's requests.
+
+    Admins get nothing extra: their step is the per class section, which reads
+    ``offering.discount_codes`` itself. ``can_view_discount_codes`` is the viewer's capability
+    on this class (:func:`_composer_context` resolves it), so a guild lead on a class they do
+    not teach, who has it False on purpose, is handed nothing to read.
+    """
+    if is_admin or not can_view_discount_codes:
+        return {}
+    requests = saved.discount_code_requests.all() if saved is not None else DiscountCodeRequest.objects.none()
+    return {
+        "composer_global_codes": DiscountCode.objects.site_wide_live(),
+        "composer_discount_requests": requests,
+    }
+
+
 def _composer_context(
     request: HttpRequest,
     *,
@@ -1574,7 +2110,7 @@ def _composer_context(
     """Everything ``classes/_components/class_composer.html`` reads beyond the forms themselves.
 
     ``readiness()`` and ``review_pipeline()`` need a saved row, so the pipeline card, the tab
-    marks, and the step 5 checklist are absent until the class has a pk; the template guards
+    marks, and the Review step's checklist are absent until the class has a pk; the template guards
     on these context keys, never on ``offering``. A failed POST lands on the first step with
     an error; otherwise the step comes from the request.
 
@@ -1592,17 +2128,28 @@ def _composer_context(
     is_draft = saved is not None and saved.status == ClassOffering.Status.DRAFT
     missing = readiness if is_draft and readiness is not None and request.GET.get("missing") else []
     if saved is not None:
-        cancel_name = "classes:admin_class_detail" if is_admin else "classes:teach_class_detail"
-        cancel_url = reverse(cancel_name, kwargs={"pk": saved.pk})
+        cancel_url = _leave_class_url(request, saved)
     else:
         cancel_url = reverse("classes:admin_classes" if is_admin else "classes:teach_dashboard")
     from membership.permissions import can_print_class_marketing
 
     is_published = saved is not None and saved.status == ClassOffering.Status.PUBLISHED
     marks = step_marks(readiness) if readiness is not None else {}
+    # Who may read discount codes on this class. On edit it is the capability
+    # ``class_screen_required`` resolved: an instructor's follows the master setting, and a
+    # guild lead on a class they do not teach has it False on purpose (``_guild_access``), so
+    # the Discounts step must not hand them the codes, the requests or a Request a Code link
+    # that dead ends. On create there is no class yet and the only person here is an
+    # instructor starting their own, so the master setting is the whole answer.
+    access: ClassAccess | None = getattr(request, "class_access", None)
+    can_view_discount_codes = (
+        access.can_view_discount_codes
+        if access is not None
+        else SiteConfiguration.load().instructor_discount_codes_enabled
+    )
     if saved is not None:
         # The card preview frames render the REAL catalog card three times (two widths on
-        # step 2, the phone on step 5) and each read offering.sessions.all; one prefetch
+        # the Photos step, the phone on the Review step) and each read offering.sessions.all; one prefetch
         # keeps that to a single sessions query however many frames there are.
         prefetch_related_objects([saved], "sessions")
     return {
@@ -1612,6 +2159,9 @@ def _composer_context(
         # the card the catalog would build. None until the class has a pk.
         "card_group": CatalogGroup(saved) if saved is not None else None,
         "composer_tabs": [{"step": step, "done": marks.get(step.number, False)} for step in COMPOSER_STEPS],
+        # The map's own count: every "how many steps" and "the last step" in the template reads it.
+        "step_count": STEP_COUNT,
+        "composer_can_view_discount_codes": can_view_discount_codes,
         "initial_phase": min(error_step_numbers) if error_step_numbers else _composer_step(request),
         "error_steps": error_step_numbers,
         "error_steps_json": json.dumps(error_step_numbers),
@@ -1619,12 +2169,15 @@ def _composer_context(
         "anchor_steps_json": json.dumps(anchor_steps()),
         "pipeline": saved.review_pipeline() if saved is not None else None,
         "readiness": readiness,
-        "is_ready": readiness is not None and all(item.ok for item in readiness),
         "cancel_url": cancel_url,
         "save_label": "Save" if is_published else "Save Draft",
+        # Stamped on the description's live count (#425), so the browser paints the same minimum
+        # the readiness rule enforces and no template or script carries the number itself.
+        "description_min_chars": READINESS_MIN_DESCRIPTION_CHARS,
         # Draft persistence (issue #368, item 3c): the key the browser keeps the in flight
         # typing under, and the one shot signal that the database now has it.
-        "composer_draft_key": _composer_draft_key(request, saved, is_admin=is_admin),
+        "composer_draft_key": _composer_draft_key(request, saved),
+        "composer_draft_legacy_keys": _composer_draft_legacy_keys(request, saved),
         "composer_draft_saved": _composer_draft_saved(request, saved),
         # A bound form here means a save this view refused: every value on the page came from
         # the POST and none of it is in the database, so the browser must not read any of it
@@ -1636,6 +2189,7 @@ def _composer_context(
         # request may print them: published, or an admin looking at a draft.
         "can_print_marketing": saved is not None and can_print_class_marketing(request, saved),
         **_missing_context(missing, verb),
+        **_composer_discounts_context(saved, is_admin, can_view_discount_codes),
     }
 
 
@@ -1649,15 +2203,22 @@ def _render_teach_class_form(
     offering: ClassOffering | None = None,
     faq_formset: Any = None,
     notice: str | None = None,
+    with_hero: bool = True,
 ) -> HttpResponse:
-    """Render the instructor composer. ``notice`` is a page level refusal that is not a form error."""
+    """Render the instructor composer. ``notice`` is a page level refusal that is not a form error.
+
+    ``with_hero=False`` withholds the hero uploader. It is for a render that saves nothing: the
+    uploader writes the instant a file is picked, through its own endpoint, so on a page headed
+    "nothing here was saved" it is the one control that would still change the live class.
+    """
     offering = _saved_row(form, offering)
     saved = offering if offering is not None and offering.pk else None
     return render(
         request,
-        "classes/teach/class_form.html",
+        "classes/class_form.html",
         {
-            "active_tab": "classes",
+            "active_tab": "my_classes",
+            "screen_shell": TEACH_SHELL,
             "instructor": teaching_member,
             "form": form,
             "formset": formset,
@@ -1666,6 +2227,9 @@ def _render_teach_class_form(
             "mode": mode,
             "faq_formset": faq_formset,
             "composer_notice": notice,
+            # Inverted on purpose: the template guards on the withheld flag, so every caller
+            # that never heard of it (the admin composer among them) keeps its hero uploader.
+            "hero_field_withheld": not with_hero,
             **_composer_context(
                 request,
                 form=form,
@@ -1673,7 +2237,7 @@ def _render_teach_class_form(
                 offering=offering,
                 is_admin=False,
             ),
-            **(_teach_gallery_context(saved) if saved is not None else {}),
+            **(_teach_gallery_context(saved, with_hero=with_hero) if saved is not None else {}),
         },
     )
 
@@ -1687,11 +2251,12 @@ def teach_class_create(request: HttpRequest) -> HttpResponse:
         offering = form.save()
         formset.instance = offering
         formset.save()
+        offering.apply_scheduling_model()
         offering.finalize_recurring_slug()
         try:
             offering.add_gallery_images(request.FILES.getlist("gallery_images"))
         except ValidationError as exc:
-            offering.delete()  # roll back the half-created offering
+            _discard_half_created_offering(offering)
             form.add_error(None, exc.messages[0])
         else:
             _mark_composer_saved(request, offering)
@@ -1718,11 +2283,29 @@ def teach_class_create(request: HttpRequest) -> HttpResponse:
     )
 
 
-@teaching_member_required
+@class_screen_required
 def teach_class_edit(request: HttpRequest, pk: int) -> HttpResponse:
-    teaching_member: Member = request.teaching_member  # type: ignore[attr-defined]
+    """The class composer on an existing class — one page for the admin and the instructor alike.
+
+    Two bodies behind one door, because the two really are different forms: an admin edits
+    every fact through :class:`ClassOfferingForm` and publishes from the last step, while the
+    instructor and the guild's staff edit through :class:`TeachClassOfferingForm` and submit
+    for review. ``can_edit`` is the door and ``can_administer`` picks the body; both come from
+    the same capability set the endpoints behind the page are gated on.
+    """
+    access: ClassAccess = request.class_access  # type: ignore[attr-defined]
+    if not access.can_edit:
+        raise Http404("This class is not editable by this viewer.")
+    if access.can_administer:
+        return _admin_composer(request, pk)
+    return _instructor_composer(request, pk)
+
+
+def _instructor_composer(request: HttpRequest, pk: int) -> HttpResponse:
+    """The composer as the class's instructor (or its guild's staff) sees it."""
+    teaching_member: Member = request.user.member
     offering = get_object_or_404(
-        ClassOffering.objects.editable_by(teaching_member).prefetch_related("gallery_images"),
+        ClassOffering.objects.prefetch_related("gallery_images"),
         pk=pk,
     )
     if offering.status in {ClassOffering.Status.CANCELLED, ClassOffering.Status.ARCHIVED}:
@@ -1731,6 +2314,13 @@ def teach_class_edit(request: HttpRequest, pk: int) -> HttpResponse:
         messages.info(request, "Cancelled and archived classes can only be edited by an admin.")
         return redirect("classes:teach_dashboard")
     if offering.status == ClassOffering.Status.PUBLISHED:
+        # Two kinds of POST arrive here. The light form below is one of them and saves as it
+        # always has; a composer POST is a class published while its composer was open, and the
+        # light form holds none of the fields it carries, so it comes back unsaved instead.
+        if _is_composer_post(request):
+            return _render_unsaved_composer_post(
+                request, offering, teaching_member, notice=_PUBLISHED_WHILE_EDITING, with_hero=False
+            )
         # A live class gets the light-edit form on the same URL: content only, no re-review.
         return _teach_published_class_edit(request, offering, teaching_member)
     form = TeachClassOfferingForm(
@@ -1741,6 +2331,7 @@ def teach_class_edit(request: HttpRequest, pk: int) -> HttpResponse:
     if request.method == "POST" and form.is_valid() and formset.is_valid() and faq_formset.is_valid():
         offering = form.save()  # type: ignore[assignment]  # django-stubs infers an annotated row type for offering
         formset.save()
+        offering.apply_scheduling_model()
         faq_formset.save()
         _mark_composer_saved(request, offering)
         submit_now = request.POST.get("action") == "submit"
@@ -1776,12 +2367,43 @@ _CLOSED_WHILE_EDITING = (
     "Copy anything you want to keep before you leave."
 )
 
+# The published race is the same loss with a different ending: the class is still the
+# instructor's to edit, just through the shorter live-class form, so the notice points there
+# rather than at an admin. The fields that form does not carry are the admin's, as ever.
+#
+# The last sentence names Cancel deliberately, and must not be softened back to "reload this
+# page". This page is the body of a POST, so a reload re-sends that POST, which still carries
+# ``step``, which lands right back here. Every control on the page loops the same way: Save
+# posts ``step`` again under a label that looks like it should work. Cancel is the only exit,
+# because it is a link to the class page, where Edit is a GET.
+_PUBLISHED_WHILE_EDITING = (
+    "This class was published after you opened this page, so nothing here was saved. "
+    "A live class is edited through a shorter form: the description, the photos, and what to bring. "
+    "To change the title, dates, price, or capacity, ask an admin. "
+    "Copy anything you want to keep, then press Cancel and open Edit again for the shorter form."
+)
 
-def _render_closed_class_post(request: HttpRequest, offering: ClassOffering, teaching_member: Member) -> HttpResponse:
-    """A composer POST to a class cancelled or archived since the page was rendered.
+
+def _render_unsaved_composer_post(
+    request: HttpRequest,
+    offering: ClassOffering,
+    teaching_member: Member,
+    *,
+    notice: str,
+    with_hero: bool,
+) -> HttpResponse:
+    """A composer POST to a class whose status moved on since the page was rendered.
 
     Nothing is saved. The page comes back with every typed value still in its field and a
     notice at the top, so the work can be copied out instead of vanishing on a redirect.
+
+    Args:
+        request: The POST that lost the race; its data is rebound, never saved.
+        offering: The class as the database now holds it.
+        teaching_member: The instructor or guild staffer the composer renders for.
+        notice: The page level explanation of what changed and what to do about it.
+        with_hero: Whether to keep the hero uploader. Spelled at both call sites rather than
+            defaulted, because it is the one control here that still writes to the class.
     """
     form = TeachClassOfferingForm(request.POST, request.FILES, instance=offering, teaching_member=teaching_member)
     formset = ClassSessionFormSet(request.POST, instance=offering, prefix="sessions")
@@ -1794,34 +2416,57 @@ def _render_closed_class_post(request: HttpRequest, offering: ClassOffering, tea
         mode="edit",
         offering=offering,
         faq_formset=faq_formset,
+        notice=notice,
+        with_hero=with_hero,
+    )
+
+
+def _render_closed_class_post(request: HttpRequest, offering: ClassOffering, teaching_member: Member) -> HttpResponse:
+    """A composer POST to a class cancelled or archived since the page was rendered.
+
+    Keeps the hero uploader: a cancelled or archived class is off the catalog, its photo endpoint
+    is closed to this member anyway (``_edit_photos_or_404``), and this render is unchanged from
+    the one issue #385 shipped.
+    """
+    return _render_unsaved_composer_post(
+        request,
+        offering,
+        teaching_member,
         notice=_CLOSED_WHILE_EDITING.format(status=offering.get_status_display().lower()),
+        with_hero=True,
     )
 
 
 def _teach_published_class_edit(request: HttpRequest, offering: ClassOffering, teaching_member: Member) -> HttpResponse:
     """The published class edit page: light fields + FAQ + gallery, structural facts locked.
 
-    Keeps ``teach_class_edit``'s ``editable_by`` scope (guild staff who can edit a draft can
-    make light edits too). Saves with one Save button and no submit: nothing to review.
+    Reached only through ``teach_class_edit``, so the capability set has already admitted the
+    instructor or the guild's staff. Saves with one Save button and no submit: nothing to review.
     """
     from membership.permissions import can_print_class_marketing
 
     form = TeachPublishedClassForm(request.POST or None, instance=offering)
     faq_formset = build_class_faq_formset(request.POST or None, offering)
+    # Both exits, resolved once: the template has no ClassAccess of its own, and a save that
+    # landed must not return the saver to a 404 that reads as the save having failed.
+    leave_url = _leave_class_url(request, offering)
     if request.method == "POST" and form.is_valid() and faq_formset.is_valid():
         form.save()
         faq_formset.save()
         messages.success(request, "Class updated.")
-        return redirect("classes:teach_class_detail", pk=offering.pk)
+        return redirect(leave_url)
     return render(
         request,
         "classes/teach/class_form_published.html",
         {
-            "active_tab": "classes",
+            "active_tab": "my_classes",
             "instructor": teaching_member,
             "form": form,
             "faq_formset": faq_formset,
             "offering": offering,
+            # Named as the composer names it, because it is the same control answering the
+            # same question on the sibling screen.
+            "cancel_url": leave_url,
             # A live class is where the flyer and QR unlock, and this is the only teach
             # page a live class lands on, so the Share & Print card renders here.
             "can_print_marketing": can_print_class_marketing(request, offering),
@@ -1835,11 +2480,13 @@ def _teach_published_class_edit(request: HttpRequest, offering: ClassOffering, t
     )
 
 
-@teaching_member_required
+@class_screen_required
 def teach_class_duplicate_run(request: HttpRequest, pk: int) -> HttpResponse:
-    """Offer one of my classes on another set of dates — clones it as a grouped draft run."""
-    teaching_member: Member = request.teaching_member  # type: ignore[attr-defined]
-    offering = get_object_or_404(ClassOffering.objects.filter(instructor=teaching_member), pk=pk)
+    """Offer this class on another set of dates — clones it as a grouped draft run."""
+    access: ClassAccess = request.class_access  # type: ignore[attr-defined]
+    if not _may_run_again(access):
+        raise Http404("Another date-set of this class is not this viewer's to make.")
+    offering: ClassOffering = request.class_offering  # type: ignore[attr-defined]
     if request.method == "POST":
         run = offering.duplicate_as_new_run()
         messages.success(request, "New date-set added as a draft. Add its dates, then submit for review.")
@@ -1847,7 +2494,7 @@ def teach_class_duplicate_run(request: HttpRequest, pk: int) -> HttpResponse:
     return redirect("classes:teach_class_edit", pk=offering.pk)
 
 
-@teaching_member_required
+@class_screen_required
 @require_POST
 def teach_class_submit(request: HttpRequest, pk: int) -> HttpResponse:
     """The quick Submit for review on Manage My Classes and the class page: DRAFT to PENDING.
@@ -1855,9 +2502,14 @@ def teach_class_submit(request: HttpRequest, pk: int) -> HttpResponse:
     A refusal lands in the composer on the first step still missing something, with the
     checklist showing. A class that is no longer a draft (a double click, say) lands on its
     class page with a message; nothing here lands silently on the list.
+
+    One of the three per-class routes with no admin twin: submitting is the instructor's own
+    move, so ``can_submit`` holds it and nobody else — not an admin, not the guild's lead.
     """
-    teaching_member: Member = request.teaching_member  # type: ignore[attr-defined]
-    offering = get_object_or_404(ClassOffering.objects.filter(instructor=teaching_member), pk=pk)
+    access: ClassAccess = request.class_access  # type: ignore[attr-defined]
+    if not access.can_submit:
+        raise Http404("This class is not this viewer's to submit.")
+    offering: ClassOffering = request.class_offering  # type: ignore[attr-defined]
     if offering.status != ClassOffering.Status.DRAFT:
         messages.info(request, _already_submitted_message(offering))
         return redirect("classes:teach_class_detail", pk=offering.pk)
@@ -1886,13 +2538,25 @@ def _already_submitted_message(offering: ClassOffering) -> str:
 
 @teaching_member_required
 def teach_registrations(request: HttpRequest) -> HttpResponse:
+    """Every sign-up across the classes this member teaches, grouped by class.
+
+    This page lists waitlisted people on purpose: its checkboxes hand a selection to the
+    announcement composer, and ``can_receive_class_announcement`` reaches a waitlisted
+    registrant. So the rows here are a wider set than the per-class roster's, and the
+    header cannot be one number without lying about one of them.
+
+    It used to be a ``Count("registrations")`` over every row ever written (cancelled ones
+    included), and then briefly ``len(rows)``, which rolled seat-holders and the queue into
+    a single "13 registrations" on the very class every other surface reads as 10. The
+    header now names its two numbers separately, off the model's own properties, so it has
+    nothing left to disagree with.
+    """
     teaching_member: Member = request.teaching_member  # type: ignore[attr-defined]
-    offerings = (
-        ClassOffering.objects.for_instructor(teaching_member)
-        .annotate(registration_count=Count("registrations"))
-        .order_by("-created_at")
-    )
+    show_cancelled = _roster_shows_cancelled(request)
+    hidden_statuses = [Registration.Status.CANCELLED, Registration.Status.REFUNDED]
+    offerings = ClassOffering.objects.for_instructor(teaching_member).order_by("-created_at")
     class_groups = []
+    cancelled_registration_count = 0
     for offering in offerings:
         regs = (
             Registration.objects.filter(class_offering=offering)
@@ -1904,10 +2568,24 @@ def teach_registrations(request: HttpRequest) -> HttpResponse:
             .order_by("-registered_at")
         )
         rows = list(regs)
+        cancelled_registration_count += sum(1 for row in rows if row.status in hidden_statuses)
+        # Counted off the rows already fetched, not off ``offering.seats_taken`` and
+        # ``offering.waitlisted_count``. Those properties are a COUNT each, and this loop runs
+        # once per class the member has ever taught, so asking them here is 2N round trips for
+        # numbers already sitting in memory. ``rows`` is still every status at this point, so
+        # the Python count is the same number the properties return, and
+        # ``it_agrees_with_the_per_class_surfaces_on_the_same_class`` is what holds it to that.
+        seats_taken = sum(1 for row in rows if row.status in CAPACITY_CONSUMING_REGISTRATION_STATUSES)
+        waitlist_count = sum(1 for row in rows if row.status == Registration.Status.WAITLISTED)
+        if not show_cancelled:
+            rows = [row for row in rows if row.status not in hidden_statuses]
         class_groups.append(
             {
                 "offering": offering,
                 "registrations": rows,
+                # Two counts that each say what they count, never a total of the two.
+                "seats_taken": seats_taken,
+                "waitlist_count": waitlist_count,
                 # No emailable row means no tick boxes, so the email footer would be a button
                 # that can only ever answer "tick someone first" with nobody to tick.
                 "can_email_any": any(row.can_receive_class_announcement for row in rows),
@@ -1920,6 +2598,8 @@ def teach_registrations(request: HttpRequest) -> HttpResponse:
             "active_tab": "registrations",
             "instructor": teaching_member,
             "class_groups": class_groups,
+            "show_cancelled": show_cancelled,
+            "cancelled_registration_count": cancelled_registration_count,
         },
     )
 
@@ -1970,7 +2650,22 @@ def teach_discount_codes(request: HttpRequest) -> HttpResponse:
     read-only here; admins manage them from the Classes admin.
     """
     teaching_member: Member = request.teaching_member  # type: ignore[attr-defined]
-    own_codes = DiscountCode.objects.filter(created_by=request.user).order_by("code")
+    config = SiteConfiguration.load()
+    approval_mode = config.instructor_discount_codes_approval_mode
+    if approval_mode:
+        # Read only: the codes on the instructor's classes, plus any they made under the direct
+        # flow before the switch, and where each of their requests stands.
+        own_codes = (
+            DiscountCode.objects.filter(Q(created_by=request.user) | Q(class_offering__instructor=teaching_member))
+            .distinct()
+            .order_by("code")
+        )
+        code_requests = DiscountCodeRequest.objects.filter(requested_by=teaching_member).select_related(
+            "class_offering", "discount_code"
+        )
+    else:
+        own_codes = DiscountCode.objects.filter(created_by=request.user).order_by("code")
+        code_requests = DiscountCodeRequest.objects.none()
     sitewide_codes = (
         DiscountCode.objects.filter(class_offering__isnull=True).exclude(created_by=request.user).order_by("code")
     )
@@ -1978,10 +2673,12 @@ def teach_discount_codes(request: HttpRequest) -> HttpResponse:
         request,
         "classes/teach/discount_codes.html",
         {
-            "active_tab": "discount_codes",
+            "active_tab": "my_discount_codes",
             "instructor": teaching_member,
             "own_codes": own_codes,
             "sitewide_codes": sitewide_codes,
+            "approval_mode": approval_mode,
+            "requests": code_requests,
             # Resolve the acting user's approval capability once (one Member query),
             # reused per row in the template — avoids an N+1 across the code list.
             "approver": DiscountCode.approver_for(request.user),
@@ -1991,6 +2688,27 @@ def teach_discount_codes(request: HttpRequest) -> HttpResponse:
 
 @teaching_member_required
 @instructor_discount_codes_required
+@instructor_request_mode_required
+def teach_discount_code_request(request: HttpRequest) -> HttpResponse:
+    """An instructor asks for a class code; an admin decides in ``admin_discount_code_request_review``."""
+    teaching_member: Member = request.teaching_member  # type: ignore[attr-defined]
+    form = DiscountCodeRequestForm(
+        request.POST or None, teaching_member=teaching_member, initial_class=request.GET.get("class")
+    )
+    if request.method == "POST" and form.is_valid():
+        req = form.save()
+        messages.success(request, f"Your request for {req.code} is in. An admin will review it.")
+        return redirect("classes:teach_class_discount_codes", pk=req.class_offering_id)
+    return render(
+        request,
+        "classes/teach/discount_code_request_form.html",
+        {"active_tab": "my_discount_codes", "instructor": teaching_member, "form": form},
+    )
+
+
+@teaching_member_required
+@instructor_discount_codes_required
+@instructor_direct_discount_codes_required
 def teach_discount_code_create(request: HttpRequest) -> HttpResponse:
     teaching_member: Member = request.teaching_member  # type: ignore[attr-defined]
     assert request.user.is_authenticated  # @teaching_member_required guarantees a real User
@@ -2020,7 +2738,7 @@ def teach_discount_code_create(request: HttpRequest) -> HttpResponse:
         request,
         "classes/teach/discount_code_form.html",
         {
-            "active_tab": "discount_codes",
+            "active_tab": "my_discount_codes",
             "instructor": teaching_member,
             "form": form,
             "mode": "create",
@@ -2031,6 +2749,7 @@ def teach_discount_code_create(request: HttpRequest) -> HttpResponse:
 
 @teaching_member_required
 @instructor_discount_codes_required
+@instructor_direct_discount_codes_required
 def teach_discount_code_edit(request: HttpRequest, pk: int) -> HttpResponse:
     teaching_member: Member = request.teaching_member  # type: ignore[attr-defined]
     # Instructors may only edit codes they created; site-wide / admin codes are
@@ -2044,12 +2763,13 @@ def teach_discount_code_edit(request: HttpRequest, pk: int) -> HttpResponse:
     return render(
         request,
         "classes/teach/discount_code_form.html",
-        {"active_tab": "discount_codes", "instructor": teaching_member, "form": form, "code": code, "mode": "edit"},
+        {"active_tab": "my_discount_codes", "instructor": teaching_member, "form": form, "code": code, "mode": "edit"},
     )
 
 
 @teaching_member_required
 @instructor_discount_codes_required
+@instructor_direct_discount_codes_required
 def teach_discount_code_delete(request: HttpRequest, pk: int) -> HttpResponse:
     # Only the instructor who created a code may delete it; site-wide / admin codes 404.
     code = get_object_or_404(DiscountCode, pk=pk, created_by=request.user)
@@ -2061,6 +2781,7 @@ def teach_discount_code_delete(request: HttpRequest, pk: int) -> HttpResponse:
 
 @teaching_member_required
 @instructor_discount_codes_required
+@instructor_direct_discount_codes_required
 @require_POST
 def teach_discount_code_approve(request: HttpRequest, pk: int) -> HttpResponse:
     """Approve one of the teaching member's own pending codes from the Teaching portal.
@@ -2078,13 +2799,101 @@ def teach_discount_code_approve(request: HttpRequest, pk: int) -> HttpResponse:
     return redirect("classes:teach_discount_codes")
 
 
-def _teach_class_or_404(request: HttpRequest, pk: int) -> ClassOffering:
-    """Scope a per-class Workspace lookup to the logged-in teaching member's own class."""
-    teaching_member: Member = request.teaching_member  # type: ignore[attr-defined]
-    return get_object_or_404(ClassOffering.objects.filter(instructor=teaching_member), pk=pk)
+def _class_screen_context(request: HttpRequest, offering: ClassOffering, subtab: str) -> dict[str, Any]:
+    """Everything the merged per-class screen reads, whichever tab and whichever shell.
+
+    ``screen_shell`` is what ``classes/_components/class_screen_base.html`` extends.
+    ``ExtendsNode`` resolves it at render time and an unset variable becomes ``''``, which
+    raises ``TemplateSyntaxError`` — a missing shell is a 500, not a degraded page — so every
+    render path on the screen comes through here, the bound-invalid-form re-renders included.
+
+    ``instructor`` is the VIEWING member, not the class's. The teaching shell reads it for the
+    "View public profile" link and the admin shell ignores it; Django renders a missing
+    variable as empty rather than raising, so a teach-shell render that left it out would lose
+    that link silently rather than loudly.
+
+    ``active_tab`` lights the portal strip, where the admin's whole-catalog "Classes" tab and
+    the instructor's own "My Classes" tab are now two rows of one strip and so need two keys.
+    """
+    access: ClassAccess = request.class_access  # type: ignore[attr-defined]
+    viewer = getattr(request.user, "member", None)
+    return {
+        "active_tab": "classes" if access.can_administer else "my_classes",
+        "active_subtab": subtab,
+        "access": access,
+        "screen_shell": access.shell,
+        "instructor": viewer,
+        "offering": offering,
+        "can_edit_now": _class_is_editable_now(access, offering),
+        "guild_grants_access": (access.role == ROLE_GUILD and viewer is not None and leads_or_staffs(viewer, offering)),
+        **_class_workspace_counts(offering),
+    }
 
 
-def _render_teach_class_overview(
+def _class_is_editable_now(access: ClassAccess, offering: ClassOffering) -> bool:
+    """Whether the Edit button belongs in this class's header for this viewer.
+
+    Capability first, then the class's own state, and the state half is not the same question
+    for both: an admin edits anything that is not archived or cancelled, while the instructor
+    and the guild's staff edit a class still on its way to the catalog or still ahead of its
+    dates. That is exactly what ``teach_class_edit`` will let each of them do, so the button
+    and the page it opens agree.
+    """
+    if not access.can_edit:
+        return False
+    if access.can_administer:
+        return offering.status not in {ClassOffering.Status.ARCHIVED, ClassOffering.Status.CANCELLED}
+    open_to_review = offering.status in {ClassOffering.Status.DRAFT, ClassOffering.Status.PENDING}
+    return open_to_review or offering.lifecycle == ClassOffering.Lifecycle.UPCOMING
+
+
+def _administered_class(request: HttpRequest) -> ClassOffering:
+    """The class, once this request is confirmed to hold the admin capability on it.
+
+    ``class_screen_required`` is admission to the screen and nothing more: a reviewer and a
+    guild lead both get through it. Every lifecycle action behind the screen — approve,
+    archive, restore, unpublish, remind, duplicate, delete — asserts its own capability as
+    well, and this is where the six that want ``can_administer`` do it (delete asks
+    :func:`_may_delete`, because since #526 the instructor holds it on a draft). Cancelling
+    and deleting are not undone by a revert, so the endpoint carries the same answer the
+    button does rather than trusting the button.
+    """
+    access: ClassAccess = request.class_access  # type: ignore[attr-defined]
+    if not access.can_administer:
+        raise Http404("This class action is not this viewer's to take.")
+    return request.class_offering  # type: ignore[attr-defined,no-any-return]
+
+
+def _may_run_again(access: ClassAccess) -> bool:
+    """Whether this viewer may spin up another date-set of the class.
+
+    ``can_administer`` is the admin row and ``can_submit`` is the instructor's alone, so the
+    pair is exactly the union of the two views this replaces — an admin, or the class's own
+    instructor — with no third party let in. A guild lead or a reviewer gets neither the
+    button nor the endpoint.
+    """
+    return access.can_administer or access.can_submit
+
+
+def _may_delete(access: ClassAccess, offering: ClassOffering) -> bool:
+    """Whether this viewer may hard-delete this class right now.
+
+    ``can_delete`` is the capability (the admin and instructor rows carry it); the state
+    half is here so the button and the endpoint answer the same question. An admin deletes
+    any class, an instructor only a draft of their own: once it is submitted it is in a
+    reviewer's hands (Withdraw is the way back), and once it is live it is cancelled, not
+    deleted, so registrants are told. A bounced draft is still a draft. The registrations
+    guard is not here: it is a refusal with a message, not a 404, because a taken-back draft
+    can carry sign-ups and the person clicking deserves to be told why.
+    """
+    if not access.can_delete:
+        return False
+    if access.can_administer:
+        return True
+    return offering.status == ClassOffering.Status.DRAFT
+
+
+def _render_class_overview(
     request: HttpRequest,
     offering: ClassOffering,
     *,
@@ -2092,26 +2901,29 @@ def _render_teach_class_overview(
     change_form: ClassChangeRequestForm | None = None,
     sale_form: ClassSaleForm | None = None,
 ) -> HttpResponse:
-    """The instructor workspace Overview: pipeline card, summary, and the action row by state.
+    """The per-class Overview: pipeline, facts, sessions, and the action row by capability.
 
     The Cancel class, Request a change, and sale modals are server-rendered inline; a bound,
-    invalid form re-renders the page with that modal open and the error inside it.
+    invalid form re-renders the page with that modal open and the error inside it. Those
+    re-renders are the paths most likely to be missed, which is why they all land here rather
+    than assembling context of their own.
     """
+    access: ClassAccess = request.class_access  # type: ignore[attr-defined]
     return render(
         request,
         "classes/teach/class_overview.html",
         {
-            "active_tab": "classes",
-            "active_subtab": "overview",
-            "instructor": request.teaching_member,  # type: ignore[attr-defined]
-            "offering": offering,
+            **_class_screen_context(request, offering, "overview"),
             "lifecycle": offering.lifecycle,
             "pipeline": offering.review_pipeline(),
             "cancel_form": cancel_form or ClassCancelForm(),
             "change_form": change_form or ClassChangeRequestForm(),
             "sale_form": sale_form or ClassSaleForm(instance=offering),
+            # Only the Archive button reads it, and only an admin is offered one.
+            "archive_blocker": offering.archive_blocker if access.can_administer else "",
             "paid_registration_count": offering.paid_registration_count,
-            **_class_workspace_counts(offering),
+            "can_duplicate_run": _may_run_again(access),
+            "can_delete_now": _may_delete(access, offering),
         },
     )
 
@@ -2136,27 +2948,42 @@ def _save_sale(request: HttpRequest, offering: ClassOffering) -> ClassSaleForm |
     return None
 
 
-@teaching_member_required
+@class_screen_required
+def teach_class_detail(request: HttpRequest, pk: int) -> HttpResponse:
+    """The per-class Overview, for every population that holds it.
+
+    The offering is re-read through :func:`_class_screen_offering` rather than reusing the
+    decorator's plain row: this page joins the instructor, the category's guild and the
+    sessions and counts the registrations, and without that it is an N+1 per session row.
+    """
+    access: ClassAccess = request.class_access  # type: ignore[attr-defined]
+    if not access.can_view_overview:
+        raise Http404("This class has no Overview for this viewer.")
+    return _render_class_overview(request, _class_screen_offering(pk))
+
+
+@class_screen_required
 @require_POST
 def teach_class_sale(request: HttpRequest, pk: int) -> HttpResponse:
-    """The Put This Class On Sale modal on my own class: turn a sale on, change it, or turn it off."""
-    offering = _teach_class_or_404(request, pk)
+    """The Put This Class On Sale modal: turn a sale on, change it, or turn it off."""
+    access: ClassAccess = request.class_access  # type: ignore[attr-defined]
+    if not access.can_sale:
+        raise Http404("Sales on this class are not this viewer's to set.")
+    offering = _class_screen_offering(pk)
     form = _save_sale(request, offering)
     if form is not None:
-        return _render_teach_class_overview(request, offering, sale_form=form)
+        return _render_class_overview(request, offering, sale_form=form)
     return redirect("classes:teach_class_detail", pk=offering.pk)
 
 
-@teaching_member_required
-def teach_class_detail(request: HttpRequest, pk: int) -> HttpResponse:
-    return _render_teach_class_overview(request, _teach_class_or_404(request, pk))
-
-
-@teaching_member_required
+@class_screen_required
 @require_POST
 def teach_class_withdraw(request: HttpRequest, pk: int) -> HttpResponse:
     """Take back a submission in review: the class goes back to draft, reviewers stop seeing it."""
-    offering = _teach_class_or_404(request, pk)
+    access: ClassAccess = request.class_access  # type: ignore[attr-defined]
+    if not access.can_submit:
+        raise Http404("Only the class's own instructor withdraws its submission.")
+    offering: ClassOffering = request.class_offering  # type: ignore[attr-defined]
     try:
         offering.withdraw_submission(actor=cast("User", request.user))
     except ValueError as exc:
@@ -2166,14 +2993,22 @@ def teach_class_withdraw(request: HttpRequest, pk: int) -> HttpResponse:
     return redirect("classes:teach_class_detail", pk=offering.pk)
 
 
-@teaching_member_required
+@class_screen_required
 @require_POST
 def teach_class_cancel(request: HttpRequest, pk: int) -> HttpResponse:
-    """Cancel my own live class with a reason: registrants are told; refunds stay with the admins."""
-    offering = _teach_class_or_404(request, pk)
+    """Cancel a live class with a reason: registrants are emailed, every member gets the bell row.
+
+    Refused for a guild lead and for a reviewer, and for an admin previewing a lower role —
+    :meth:`ClassOffering.cancel` mails every registrant, guests with no account included, and
+    nothing about that is undone by a revert.
+    """
+    access: ClassAccess = request.class_access  # type: ignore[attr-defined]
+    if not access.can_cancel:
+        raise Http404("This class is not this viewer's to cancel.")
+    offering = _class_screen_offering(pk)
     form = ClassCancelForm(request.POST)
     if not form.is_valid():
-        return _render_teach_class_overview(request, offering, cancel_form=form)
+        return _render_class_overview(request, offering, cancel_form=form)
     had_paid = offering.paid_registration_count > 0
     try:
         offering.cancel(cast("User", request.user), form.cleaned_data["reason"])
@@ -2181,21 +3016,24 @@ def teach_class_cancel(request: HttpRequest, pk: int) -> HttpResponse:
         messages.error(request, str(exc))
         return redirect("classes:teach_class_detail", pk=offering.pk)
     message = "Class cancelled. Everyone registered has been told."
-    if had_paid:
+    if had_paid and not access.can_administer:
         message += " An admin will handle refunds."
     messages.success(request, message)
     return redirect("classes:teach_class_detail", pk=offering.pk)
 
 
-@teaching_member_required
+@class_screen_required
 @require_POST
 def teach_class_request_change(request: HttpRequest, pk: int) -> HttpResponse:
     """Ask the admins to change a live class's title, dates, price, or capacity."""
-    offering = _teach_class_or_404(request, pk)
+    access: ClassAccess = request.class_access  # type: ignore[attr-defined]
+    if not access.can_submit:
+        raise Http404("Only the class's own instructor asks the admins for a change.")
+    offering = _class_screen_offering(pk)
     form = ClassChangeRequestForm(request.POST)
     if not form.is_valid():
-        return _render_teach_class_overview(request, offering, change_form=form)
-    teaching_member: Member = request.teaching_member  # type: ignore[attr-defined]
+        return _render_class_overview(request, offering, change_form=form)
+    teaching_member: Member = request.user.member
     try:
         offering.request_change(teaching_member, form.cleaned_data["note"])
     except ValueError as exc:
@@ -2212,12 +3050,19 @@ def _refunds_prefetch() -> Prefetch:
     return Prefetch("refunds", queryset=PaymentRefund.objects.select_related("initiated_by"))
 
 
-def _roster_registrations(offering: ClassOffering) -> QuerySet[Registration]:
-    """The roster queryset for one class, annotated for the shared row partial.
+def _annotated_registrations(offering: ClassOffering) -> QuerySet[Registration]:
+    """Every registration on one class, annotated and joined for the shared row partial.
 
     ``promoted_email_sent`` is one ``Exists()`` subquery on the event spine's
     delivery ledger (the ``reg:{pk}:promoted`` period) so the "No email sent yet"
     chip costs no per-row query.
+
+    **Deliberately unfiltered.** This is the base anything fetching one *known* row
+    renders through — above all :func:`_registration_row_response`, which re-fetches
+    the row an htmx action has just changed. A cancel or a refund moves that row out
+    of the roster's status filter, so filtering here would make ``.get(pk=...)`` raise
+    ``Registration.DoesNotExist`` and turn the roster's most-used action into a 500.
+    The filtering belongs in :func:`_roster_registrations`, where the toggle lives.
     """
     from django.db.models import CharField, Exists, Value
     from django.db.models.functions import Cast, Concat
@@ -2236,6 +3081,48 @@ def _roster_registrations(offering: ClassOffering) -> QuerySet[Registration]:
     )
 
 
+def _roster_registrations(offering: ClassOffering, *, include_cancelled: bool) -> QuerySet[Registration]:
+    """The rows the Registrations tab lists: the people holding a seat, newest first.
+
+    Seat-holders only, so the tab and the ``N/capacity`` counts read the same set.
+    WAITLISTED rows are left out because the Waitlist tab is theirs, with its own
+    ordering and its own actions; before this they appeared on both tabs at once.
+    CANCELLED and REFUNDED rows join them when ``include_cancelled`` is set, which is
+    what the tab's Show cancelled toggle asks for.
+
+    Args:
+        offering: The class whose roster is being listed.
+        include_cancelled: Widen the roster to cancelled and refunded rows too.
+
+    Returns:
+        The annotated roster queryset, filtered to the statuses that should be listed.
+    """
+    statuses = list(CAPACITY_CONSUMING_REGISTRATION_STATUSES)
+    if include_cancelled:
+        statuses += [Registration.Status.CANCELLED, Registration.Status.REFUNDED]
+    return _annotated_registrations(offering).filter(status__in=statuses)
+
+
+def _roster_cancelled_count(offering: ClassOffering) -> int:
+    """How many rows the roster is holding back — the number the toggle has to state.
+
+    A roster that quietly omits people is its own support ticket, so the toggle reads
+    "Show 3 cancelled" rather than offering an unlabelled switch.
+    """
+    return offering.registrations.filter(
+        status__in=[Registration.Status.CANCELLED, Registration.Status.REFUNDED]
+    ).count()
+
+
+def _roster_shows_cancelled(request: HttpRequest) -> bool:
+    """Whether this request asked for the cancelled rows (``?show_cancelled=1``).
+
+    Same boolean-parameter shape as the admin class list's ``?mine=1``; anything other
+    than ``1`` is off, so junk is never echoed back as a filter.
+    """
+    return request.GET.get("show_cancelled", "") == "1"
+
+
 def _claim_email_will_fire(offering: ClassOffering) -> bool:
     """Whether removing a seat-holder right now would fire an auto claim-link email.
 
@@ -2244,9 +3131,9 @@ def _claim_email_will_fire(offering: ClassOffering) -> bool:
     un-notified WAITLISTED row exists. Computed once per page for the remove
     modals' conditional copy.
     """
-    held = offering.registrations.filter(
-        status__in=[Registration.Status.CONFIRMED, Registration.Status.PENDING]
-    ).count()
+    if offering.is_flexible:
+        return False  # no cap, so promote_next_from_waitlist never fires (#545)
+    held = offering.seats_taken
     if held - 1 >= offering.capacity:
         return False
     return offering.registrations.filter(
@@ -2279,9 +3166,17 @@ def _teach_registrations_context(request: HttpRequest, offering: ClassOffering) 
     from hub.view_as import has_refund_authority
 
     move_form = _registration_move_form(request, offering)
+    show_cancelled = _roster_shows_cancelled(request)
     return {
         "offering": offering,
-        "registrations": _roster_registrations(offering),
+        "registrations": _roster_registrations(offering, include_cancelled=show_cancelled),
+        "show_cancelled": show_cancelled,
+        "cancelled_registration_count": _roster_cancelled_count(offering),
+        # The table partial's empty state reads this, and teach_class_registrations_table
+        # serves that partial on its own, so it cannot come from the page context alone.
+        # On the full roster page this repeats the number _class_workspace_counts already put
+        # in the context; it is the same property read twice, so the two cannot disagree.
+        "waitlist_count": offering.waitlisted_count,
         "viewer_has_refund_authority": has_refund_authority(request),
         "can_manage": True,
         "can_move": move_form is not None,
@@ -2305,26 +3200,30 @@ def _waitlist_context(request: HttpRequest, offering: ClassOffering) -> dict[str
     }
 
 
-@teaching_member_required
+@class_screen_required
 def teach_class_registrations(request: HttpRequest, pk: int) -> HttpResponse:
-    offering = _teach_class_or_404(request, pk)
+    """The class roster."""
+    access: ClassAccess = request.class_access  # type: ignore[attr-defined]
+    if not access.can_view_registrations:
+        raise Http404("This class's roster is not open to this viewer.")
+    offering: ClassOffering = request.class_offering  # type: ignore[attr-defined]
     return render(
         request,
         "classes/teach/class_registrations.html",
         {
-            "active_tab": "classes",
-            "active_subtab": "registrations",
-            "instructor": request.teaching_member,  # type: ignore[attr-defined]
+            **_class_screen_context(request, offering, "registrations"),
             **_teach_registrations_context(request, offering),
-            **_class_workspace_counts(offering),
         },
     )
 
 
-@teaching_member_required
+@class_screen_required
 def teach_class_registrations_table(request: HttpRequest, pk: int) -> HttpResponse:
     """The registrations table alone — re-fetched by the ``refund-done`` refresh container."""
-    offering = _teach_class_or_404(request, pk)
+    access: ClassAccess = request.class_access  # type: ignore[attr-defined]
+    if not access.can_view_registrations:
+        raise Http404("This class's roster is not open to this viewer.")
+    offering: ClassOffering = request.class_offering  # type: ignore[attr-defined]
     return render(
         request,
         "classes/teach/partials/class_registrations_table.html",
@@ -2332,80 +3231,126 @@ def teach_class_registrations_table(request: HttpRequest, pk: int) -> HttpRespon
     )
 
 
-@teaching_member_required
+@class_screen_required
 @require_POST
 def teach_class_email(request: HttpRequest, pk: int) -> HttpResponse:
-    """Send a manual email to selected registrants of one of the teaching member's classes.
+    """Send a manual email to selected registrants of one class.
 
-    POST-only sibling of ``teach_registrations_email``, scoped to a single
-    class via ``_teach_class_or_404`` so it slots into the per-class
-    Workspace. Bounces back to the Registrations tab with a flash message on
-    both success and validation error.
+    Bounces back to the Registrations tab with a flash message on both success and validation
+    error. It gates on ``can_send_email``, the capability the Send Email button reads, **and on
+    ``can_view_registrations`` besides** — so it is deliberately narrower than that button
+    rather than equal to it, and this docstring used to claim the two could not disagree.
+
+    The extra conjunct is what #371 item 1 made necessary. This form emails *selected
+    registrants*: its checkboxes live at the foot of the
+    Registrations tab, and its payload is a list of registration ids. A guild lead now holds
+    ``can_send_email`` on a class in their guild and still, by ruling 12, holds no roster — so
+    on the capability alone this endpoint would start admitting a viewer who can never see the
+    form, never see a checkbox, and whose every POST would fail
+    :class:`~classes.forms.TeachEmailForm` validation for want of a registration they are
+    allowed to name. Admitting them would be the surface-shown-action-refused shape #371 exists
+    to remove, rebuilt on the endpoint that models it best. The composer
+    (``hub_compose?audience=class:<pk>&lock=1``) is that population's surface, and it has its
+    own per-person picker.
+
+    Two forms, as before the merge and for the same reason: an admin's send is anchored to the
+    class and signed by them (:class:`AdminClassEmailForm`), while an instructor's is bounded
+    to the registrations of classes they actually teach (:class:`TeachEmailForm`), so a
+    hostile client cannot post someone else's registration ids at it.
     """
-    from classes.forms import TeachEmailForm
+    from classes.forms import AdminClassEmailForm, TeachEmailForm
 
-    offering = _teach_class_or_404(request, pk)
-    form = TeachEmailForm(request.POST, teaching_member=request.teaching_member)  # type: ignore[attr-defined]
-    # Bound recipients to THIS class only — the form otherwise spans all of the
-    # teaching member's classes, which would let one class's tab email another class's
-    # registrants (and mis-anchor the audit record).
-    field = form.fields["registration_ids"]
-    field.queryset = field.queryset.filter(class_offering=offering)  # type: ignore[attr-defined]
+    access: ClassAccess = request.class_access  # type: ignore[attr-defined]
+    if not (access.can_send_email and access.can_view_registrations):
+        raise Http404("This class's registrants are not this viewer's to email.")
+    offering: ClassOffering = request.class_offering  # type: ignore[attr-defined]
+    sender: Member | None = getattr(request.user, "member", None)
+    form: AdminClassEmailForm | TeachEmailForm
+    if access.can_administer:
+        form = AdminClassEmailForm(request.POST, offering=offering)
+    else:
+        form = TeachEmailForm(request.POST, teaching_member=sender)
+        # Narrow the instructor's form to THIS class: it otherwise spans every class they
+        # teach, which would let one class's tab email another class's registrants (and
+        # mis-anchor the audit record).
+        field = form.fields["registration_ids"]
+        field.queryset = field.queryset.filter(class_offering=offering)  # type: ignore[attr-defined]
     if not form.is_valid():
-        first_error = next(iter(form.errors.values()))[0] if form.errors else "Couldn’t send the message."
+        first_error = next(iter(form.errors.values()))[0] if form.errors else "Couldn't send the message."
         messages.error(request, str(first_error))
         return redirect("classes:teach_class_registrations", pk=offering.pk)
-    message = form.send()
+    message = form.send(sender_member=sender) if isinstance(form, AdminClassEmailForm) else form.send()
     messages.success(
         request,
-        f"Sent ‘{message.subject}’ to {message.recipient_count} recipient(s).",
+        f"Sent '{message.subject}' to {message.recipient_count} recipient(s).",
     )
     return redirect("classes:teach_class_registrations", pk=offering.pk)
 
 
-@teaching_member_required
+@class_screen_required
 def teach_class_waitlist(request: HttpRequest, pk: int) -> HttpResponse:
-    offering = _teach_class_or_404(request, pk)
+    """The class waitlist, in order, with the promote and notify actions."""
+    access: ClassAccess = request.class_access  # type: ignore[attr-defined]
+    if not access.can_view_waitlist:
+        raise Http404("This class's waitlist is not open to this viewer.")
+    offering: ClassOffering = request.class_offering  # type: ignore[attr-defined]
     return render(
         request,
         "classes/teach/class_waitlist.html",
         {
-            "active_tab": "classes",
-            "active_subtab": "waitlist",
-            "instructor": request.teaching_member,  # type: ignore[attr-defined]
+            **_class_screen_context(request, offering, "waitlist"),
             **_waitlist_context(request, offering),
-            **_class_workspace_counts(offering),
         },
     )
 
 
-@teaching_member_required
-@instructor_discount_codes_required
+@class_screen_required
 def teach_class_discount_codes(request: HttpRequest, pk: int) -> HttpResponse:
-    offering = _teach_class_or_404(request, pk)
+    """This class's discount codes, plus the global ones that also apply to it.
+
+    The tab itself is conditional for an instructor (the site flag), and
+    ``can_view_discount_codes`` already carries that flag, so the page and the tab strip
+    read one answer.
+    """
+    access: ClassAccess = request.class_access  # type: ignore[attr-defined]
+    if not access.can_view_discount_codes:
+        if access.role == ROLE_INSTRUCTOR:
+            # The instructor leg follows the site flag, and a soft-launch kill switch is not an
+            # authorization failure: same info message and redirect every other flag gate gives.
+            messages.info(request, "Discount codes are managed by admins. Ask an admin if you need one for your class.")
+            return redirect("classes:teach_dashboard")
+        raise Http404("Discount codes on this class are not open to this viewer.")
+    offering: ClassOffering = request.class_offering  # type: ignore[attr-defined]
     codes = DiscountCode.objects.filter(Q(class_offering=offering) | Q(class_offering__isnull=True)).order_by("code")
+    # The instructor under approval mode (#428) reads this tab and asks for codes; admins keep today's page.
+    approval_mode = access.role == ROLE_INSTRUCTOR and SiteConfiguration.load().instructor_discount_codes_approval_mode
+    code_requests = (
+        offering.discount_code_requests.select_related("discount_code")
+        if approval_mode
+        else DiscountCodeRequest.objects.none()
+    )
     return render(
         request,
         "classes/teach/class_discount_codes.html",
         {
-            "active_tab": "classes",
-            "active_subtab": "discount_codes",
-            "instructor": request.teaching_member,  # type: ignore[attr-defined]
-            "offering": offering,
+            **_class_screen_context(request, offering, "discount_codes"),
             "codes": codes,
+            "approval_mode": approval_mode,
+            "requests": code_requests,
             # Resolve the acting user's approval capability once (one Member query),
             # reused per row in the template — avoids an N+1 across the code list.
             "approver": DiscountCode.approver_for(request.user),
-            **_class_workspace_counts(offering),
         },
     )
 
 
-@teaching_member_required
+@class_screen_required
 def teach_class_emails(request: HttpRequest, pk: int) -> HttpResponse:
-    """Author the per-class welcome email. Editable by the instructor, the guild's lead, or an admin."""
-    teaching_member: Member = request.teaching_member  # type: ignore[attr-defined]
-    offering = get_object_or_404(ClassOffering.objects.editable_by(teaching_member), pk=pk)
+    """Author the per-class welcome email. Editable by the instructor, the guild's staff, or an admin."""
+    access: ClassAccess = request.class_access  # type: ignore[attr-defined]
+    if not access.can_view_emails:
+        raise Http404("This class's welcome email is not open to this viewer.")
+    offering: ClassOffering = request.class_offering  # type: ignore[attr-defined]
     form = TeachWelcomeEmailForm(request.POST or None, instance=offering)
     if request.method == "POST" and form.is_valid():
         offering = form.save()
@@ -2419,12 +3364,8 @@ def teach_class_emails(request: HttpRequest, pk: int) -> HttpResponse:
         request,
         "classes/teach/class_emails.html",
         {
-            "active_tab": "classes",
-            "active_subtab": "emails",
-            "instructor": teaching_member,
-            "offering": offering,
+            **_class_screen_context(request, offering, "emails"),
             "form": form,
-            **_class_workspace_counts(offering),
         },
     )
 
@@ -2510,31 +3451,26 @@ def _render_class_preview(
 
     Shared by the login-gated owner/admin preview and the token-authorized
     reviewer preview. ``is_preview`` makes the public template show its
-    "preview" banner and bypass the published-only gating.
+    "preview" banner and bypass the published-only gating. The page content
+    itself comes from :func:`_class_detail_context`, the same builder the public
+    page uses, so the preview never drifts from what a member will see.
     """
-    upcoming_sessions = list(offering.sessions.filter(starts_at__gte=timezone.now()).order_by("starts_at"))
-    return render(
-        request,
-        "classes/public/detail.html",
+    context = _class_detail_context(request, offering)
+    context.update(
         {
             # ``?framed=1`` drops the hub sidebar and every topbar so the review page's
             # iframe shows the class page itself, not a page nested inside another page.
             # Read here rather than in a context processor: only the preview is framed,
             # and no other surface should be strippable by a query parameter.
             "is_framed": request.GET.get("framed") == "1",
-            "offering": offering,
             "can_edit_offering": can_edit_offering,
             "edit_url": edit_url,
             "is_admin": is_admin,
             "is_instructor": is_instructor,
-            "settings_obj": ClassSettings.load(),
-            "site_config": SiteConfiguration.load(),
-            "upcoming_sessions": upcoming_sessions,
-            "member_price_cents": compute_member_price_cents(offering.sale_price_cents, offering.member_discount_pct),
-            "spots_remaining": offering.spots_remaining,
             "is_preview": True,
-        },
+        }
     )
+    return render(request, "classes/public/detail.html", context)
 
 
 @login_required
@@ -2576,7 +3512,7 @@ def class_preview(request: HttpRequest, pk: int) -> HttpResponse:
 
     edit_url = None
     if is_admin:
-        edit_url = reverse("classes:admin_class_edit", kwargs={"pk": offering.pk})
+        edit_url = reverse("classes:teach_class_edit", kwargs={"pk": offering.pk})
     elif user_member is not None and user_member.can_edit_class(offering):
         # Instructors and guild leads manage the class from the teaching portal.
         # A CMS Administrator gets no edit link — they review, they don't edit.
@@ -2782,10 +3718,11 @@ class _GuildLeadQueueRow(TypedDict):
 def _with_guild_leads_queue(now: Any) -> list[_GuildLeadQueueRow]:
     """Every PENDING class whose guild-lead gate is open, with who holds it and for how long.
 
-    ``leadless`` marks a guild whose lead and staff have all gone (nobody to remind), so
-    the row offers "Review it yourself" instead of Remind lead.
+    ``leadless`` marks a guild whose lead and staff have all gone or cannot be reached (nobody to remind), so
+    the row offers "Review it yourself" instead of Remind lead. It asks the same question
+    Remind lead does (:func:`classes.emails.guild_has_reachable_leadership`).
     """
-    from classes.emails import _guild_leadership_recipients
+    from classes.emails import guild_has_reachable_leadership
 
     offerings = (
         ClassOffering.objects.awaiting_guild_lead_any()
@@ -2808,10 +3745,42 @@ def _with_guild_leads_queue(now: Any) -> list[_GuildLeadQueueRow]:
                 "row": gate,
                 "lead": guild.guild_lead if guild is not None else None,
                 "days_waiting": max(0, (now - gate.created_at).days),
-                "leadless": not _guild_leadership_recipients(guild),
+                "leadless": not guild_has_reachable_leadership(guild),
             }
         )
     return queue
+
+
+# The Manage Classes headers (templates/classes/admin/classes_list.html); any other ``sort``
+# falls back to newest created first.
+ADMIN_CLASSES_SORTABLE = frozenset(
+    {
+        "title",
+        "instructor_name",
+        "category__name",
+        "first_session",
+        "lifecycle_order",
+        "registration_count",
+    }
+)
+
+
+def _admin_class_rows(qs: Any, group_filter: str, q: str, search_fields: list[str]) -> tuple[Any, dict[str, int]]:
+    """Manage Classes' rows and each listed group's run count.
+
+    One row per class, chosen by :func:`classes.grouping.admin_group_rows` among the runs
+    that pass the filters and the search; or, when ``group_filter`` names a grouping key,
+    every run of that one class and no counts.
+    """
+    if group_filter:
+        return qs.filter(grouping_key=group_filter), {}
+    shown_pks, group_sizes = admin_group_rows(table_search(qs, q, search_fields), timezone.now())
+    return qs.filter(pk__in=shown_pks), group_sizes
+
+
+def _admin_class_count(offerings: Any, now: datetime) -> int:
+    """How many Manage Classes rows ``offerings`` makes: one per class, as the list shows them."""
+    return len(admin_group_rows(offerings, now)[0])
 
 
 @classes_review_access_required
@@ -2819,26 +3788,8 @@ def admin_classes(request: HttpRequest) -> HttpResponse:
     facet = resolve_facet(ADMIN_FACETS, request.GET.get("status", "").strip())
     status_filter = facet.key
     instructor_filter = request.GET.get("instructor", "").strip()
-
-    # For grouped classes (same title+category on multiple dates), show only the
-    # lowest-pk representative. Solo classes (blank grouping_key) always show.
-    _group_rep_pk = (
-        ClassOffering.objects.filter(
-            grouping_key=OuterRef("grouping_key"),
-            grouping_key__gt="",
-        )
-        .order_by("pk")
-        .values("pk")[:1]
-    )
-    _group_size = (
-        ClassOffering.objects.filter(
-            grouping_key=OuterRef("grouping_key"),
-            grouping_key__gt="",
-        )
-        .values("grouping_key")
-        .annotate(_c=Count("pk"))
-        .values("_c")
-    )
+    # ``group`` lists every run of one class (the row's "N dates" link) instead of one row per class.
+    group_filter = request.GET.get("group", "").strip()
 
     base = (
         ClassOffering.objects.select_related("instructor", "category__guild")
@@ -2846,14 +3797,22 @@ def admin_classes(request: HttpRequest) -> HttpResponse:
         # The badge note reads the latest bouncing row; prefetching keeps that off the per-row path.
         .prefetch_related("approvals")
         .annotate(
+            # Seat-holders only, matching the capacity this renders against (see teach_dashboard).
             # distinct=True so the sessions join below doesn't inflate the registration tally.
-            registration_count=Count("registrations", distinct=True),
+            registration_count=Count(
+                "registrations",
+                filter=Q(registrations__status__in=CAPACITY_CONSUMING_REGISTRATION_STATUSES),
+                distinct=True,
+            ),
             first_session=Min("sessions__starts_at"),
             last_session=Max("sessions__starts_at"),
-            _group_rep_pk=Subquery(_group_rep_pk),
-            group_size=Subquery(_group_size, output_field=IntegerField()),
+            # The name the Instructor cell shows (Member.display_name: preferred, else legal), so
+            # sorting that column matches what the reader sees. NULL for instructorless classes.
+            instructor_name=Coalesce(
+                NullIf("instructor__preferred_name", Value("")),
+                "instructor__full_legal_name",
+            ),
         )
-        .filter(Q(grouping_key="") | Q(pk=F("_group_rep_pk")))
     )
     qs = facet.apply(base)  # type: ignore[arg-type]  # annotated queryset keeps its aliases
     if instructor_filter:
@@ -2870,8 +3829,10 @@ def admin_classes(request: HttpRequest) -> HttpResponse:
         qs = qs.hosted_by(own_member) if own_member is not None else qs.none()  # type: ignore[assignment]
 
     # mine_count is global — all statuses, ignoring q and the Instructor dropdown —
-    # to match how the facet-chip counts ignore the search box and each other.
-    mine_count = base.hosted_by(own_member).count() if own_member is not None else 0
+    # to match how the facet-chip counts ignore the search box and each other. Both count
+    # classes, as the list shows them, not each run of a class.
+    now = timezone.now()
+    mine_count = _admin_class_count(base.hosted_by(own_member), now) if own_member is not None else 0
 
     # Every view-computed URL starts from a normalized copy of the GET params: a
     # bogus mine value (anything but "1") is stripped, not echoed, so cruft never
@@ -2890,7 +3851,7 @@ def admin_classes(request: HttpRequest) -> HttpResponse:
 
     mine_toggle_url = _url_without("mine") if mine_active else _url_without(mine="1")
     # Lifecycle facet chips (All, Needs review, With guild lead, ...), each counted
-    # against the ungrouped base so the numbers ignore the search box and each other.
+    # against the unsearched base so the numbers ignore the search box and each other.
     status_filters = [
         (row.url, row.label, row.count, row.is_selected)
         for row in facet_rows(
@@ -2898,6 +3859,7 @@ def admin_classes(request: HttpRequest) -> HttpResponse:
             base,  # type: ignore[arg-type]  # annotated queryset keeps its aliases
             facet,
             lambda key: "?" + _url_without("status", **({"status": key} if key else {})),
+            count=lambda offerings: _admin_class_count(offerings, now),
         )
     ]
     search_clear_url = _url_without("q")
@@ -2908,16 +3870,26 @@ def admin_classes(request: HttpRequest) -> HttpResponse:
     mine_clear_url = _url_without("mine")
     instructor_clear_url = _url_without("instructor")
 
+    # Runs of one class (same title and category) share a row, picked only after every filter
+    # and the search have applied, so no run is ever hidden behind one the filters exclude.
+    search_fields = ["title", "instructor__full_legal_name", "instructor__preferred_name", "category__name"]
+    qs, group_sizes = _admin_class_rows(qs, group_filter, request.GET.get("q", "").strip(), search_fields)
+
     from membership.models import Member as MemberModel
 
     instructors = MemberModel.objects.filter(instructor_slug__gt="").order_by("full_legal_name")
     table = prepare_table(
         request,
         qs,
-        search_fields=["title", "instructor__full_legal_name", "instructor__preferred_name", "category__name"],
+        search_fields=search_fields,
         default_sort="created_at",
         default_dir="desc",
+        sortable=ADMIN_CLASSES_SORTABLE,
     )
+    for row in table["page"]:
+        if row.grouping_key in group_sizes:
+            row.group_size = group_sizes[row.grouping_key]
+            row.group_url = "?" + _url_without(group=row.grouping_key)
     return render(
         request,
         "classes/admin/classes_list.html",
@@ -2935,6 +3907,8 @@ def admin_classes(request: HttpRequest) -> HttpResponse:
             "instructor_clear_url": instructor_clear_url,
             "search_preserved_fields": search_preserved_fields,
             "search_clear_url": search_clear_url,
+            "selected_group": group_filter,
+            "group_clear_url": _url_without("group"),
             **table,
         },
     )
@@ -2956,14 +3930,15 @@ def _create_form_readiness(form: ClassOfferingForm, session_formset: Any, galler
         has_gallery=bool(gallery_files),
         description=data.get("description") or "",
         scheduling_model=data["scheduling_model"],
-        flexible_note=data.get("flexible_note") or "",
+        # Cleared by the form on a Fixed class, so the rule reads only what a flexible class keeps.
+        flexible_window_ended=flexible_window_has_ended(data["flexible_ends_on"]),
         has_future_session=has_future_session,
         capacity=data.get("capacity") or 0,
     )
 
 
 def _discard_half_created_offering(offering: ClassOffering) -> None:
-    """Roll back an admin create that could not publish: files, activity rows, then the row.
+    """Roll back a create whose gallery was refused or that could not publish: files, activity rows, then the row.
 
     ``ClassOffering.delete`` alone would leave the hero and gallery objects in storage and
     the ``class_created`` activity rows dangling (their FK is SET_NULL). Files are removed
@@ -2977,12 +3952,15 @@ def _discard_half_created_offering(offering: ClassOffering) -> None:
         gallery_image.delete()
         delete_if_unreferenced(ClassImage, "image", name)
     hero_name = offering.image.name if offering.image else ""
+    # A create that arrived with a crop box already cut its copy (ClassOffering.save).
+    copy_name = offering.hero_cropped.name or ""
     SiteActivity.objects.filter(
         target_ct=ContentType.objects.get_for_model(ClassOffering), target_id=offering.pk
     ).delete()
     CmsActivity.objects.filter(class_offering=offering).delete()
     offering.delete()
     delete_if_unreferenced(ClassOffering, "image", hero_name)
+    delete_if_unreferenced(ClassOffering, "hero_cropped", copy_name)
 
 
 @classes_admin_access_required
@@ -2994,9 +3972,9 @@ def admin_class_create(request: HttpRequest) -> HttpResponse:
     gallery files, or activity rows ever landing. Every other POST keeps the class as a
     draft (the composer's Save Draft). A readiness gap is not a form error: the form
     validated, so the composer re-renders on the first step owing an item with the Still
-    Missing checklist, never a non field error on step 1. Only the gallery cap (checked
-    inside ``add_gallery_images``) can still refuse after the save; that path rolls
-    everything back.
+    Missing checklist, never a non field error on step 1. Only the gallery (its cap, or a
+    file that is not an image, both checked inside ``add_gallery_images``) can still refuse
+    after the save; that path rolls everything back.
     """
     form = ClassOfferingForm(request.POST or None, request.FILES or None)
     session_formset = ClassSessionFormSet(request.POST or None, prefix="sessions")
@@ -3011,6 +3989,7 @@ def admin_class_create(request: HttpRequest) -> HttpResponse:
             offering.save()
             session_formset.instance = offering
             session_formset.save()
+            offering.apply_scheduling_model()
             offering.finalize_recurring_slug()
             try:
                 offering.add_gallery_images(gallery_files)
@@ -3022,7 +4001,7 @@ def admin_class_create(request: HttpRequest) -> HttpResponse:
             else:
                 _mark_composer_saved(request, offering)
                 messages.success(request, f"{offering.title} is published." if publish_now else "Draft saved.")
-                return _composer_redirect("classes:admin_class_edit", offering.pk, request)
+                return _composer_redirect("classes:teach_class_edit", offering.pk, request)
 
     context: dict[str, Any] = {
         "active_tab": "classes",
@@ -3094,12 +4073,11 @@ def class_flyer(request: HttpRequest, pk: int) -> HttpResponse:
     return render(request, "classes/class_flyer.html", {"offering": offering, "qr_svg": offering.qr_svg()})
 
 
-@classes_admin_access_required
-def admin_class_edit(request: HttpRequest, pk: int) -> HttpResponse:
-    """The admin composer, edit mode.
+def _admin_composer(request: HttpRequest, pk: int) -> HttpResponse:
+    """The composer as an admin sees it: every fact editable, and Publish on the last step.
 
     ``action=publish`` saves and then publishes a draft straight from the composer (the
-    admin's step 5 action); an unready class stays a draft and lands on the first step
+    admin's Review step action); an unready class stays a draft and lands on the first step
     still owing an item, with the reason shown. Every other POST saves and returns to the
     composer when it said which step it was on, else to the class page, which is where the
     old single page form always landed.
@@ -3111,6 +4089,7 @@ def admin_class_edit(request: HttpRequest, pk: int) -> HttpResponse:
     if request.method == "POST" and form.is_valid() and session_formset.is_valid() and faq_formset.is_valid():
         form.save()
         session_formset.save()
+        offering.apply_scheduling_model()
         faq_formset.save()
         _mark_composer_saved(request, offering)
         if request.POST.get("action") == "publish":
@@ -3119,25 +4098,26 @@ def admin_class_edit(request: HttpRequest, pk: int) -> HttpResponse:
             # would strand the open guild lead row. Only a draft publishes from here.
             if offering.status != ClassOffering.Status.DRAFT:
                 messages.error(request, "Only a draft can be published from here.")
-                return _composer_redirect("classes:admin_class_edit", offering.pk, request)
+                return _composer_redirect("classes:teach_class_edit", offering.pk, request)
             try:
                 offering.publish(cast("User", request.user))
             except ClassNotReadyError as exc:
                 messages.error(request, exc.messages[0])
-                return _unready_redirect("classes:admin_class_edit", offering, exc.items)
+                return _unready_redirect("classes:teach_class_edit", offering, exc.items)
             messages.success(request, f"{offering.title} is published.")
-            return redirect("classes:admin_class_detail", pk=offering.pk)
+            return redirect("classes:teach_class_detail", pk=offering.pk)
         messages.success(request, "Class updated.")
         if request.POST.get("step"):
-            return _composer_redirect("classes:admin_class_edit", offering.pk, request)
-        return redirect("classes:admin_class_detail", pk=offering.pk)
+            return _composer_redirect("classes:teach_class_edit", offering.pk, request)
+        return redirect("classes:teach_class_detail", pk=offering.pk)
 
     shown = _saved_row(form, offering)
     return render(
         request,
-        "classes/admin/class_form.html",
+        "classes/class_form.html",
         {
             "active_tab": "classes",
+            "screen_shell": ADMIN_SHELL,
             "form": form,
             "sessions_json": _sessions_json(request, session_formset, shown),
             "initial_forms": session_formset.initial_form_count(),
@@ -3150,130 +4130,88 @@ def admin_class_edit(request: HttpRequest, pk: int) -> HttpResponse:
                 offering=shown,
                 is_admin=True,
             ),
+            # The hero and gallery components read their post targets from context with no
+            # fallback, so the admin path has to supply them too now that both composers post
+            # to the one merged set of image routes.
+            **_teach_gallery_context(offering),
         },
     )
 
 
 def _class_workspace_counts(offering: ClassOffering) -> dict[str, int]:
-    """Sub-tab badge counts shared by every per-class Workspace tab."""
-    regs = offering.registrations
+    """Sub-tab badge counts shared by every per-class Workspace tab.
+
+    ``seat_taken_count`` is the people holding a seat: confirmed, plus the ones part-way
+    through paying. It used to be called ``confirmed_registration_count``, which named
+    only half of what it counted, off a fourth hand-written copy of the status list. It
+    reads the one constant now, so the badge, the ``N/capacity`` header, the class lists
+    and ``spots_remaining`` all count the same people.
+    """
     return {
-        "confirmed_registration_count": regs.filter(
-            status__in=[Registration.Status.CONFIRMED, Registration.Status.PENDING]
-        ).count(),
-        "waitlist_count": regs.filter(status=Registration.Status.WAITLISTED).count(),
+        "seat_taken_count": offering.seats_taken,
+        "waitlist_count": offering.waitlisted_count,
     }
 
 
-def _admin_class_detail_offering(pk: int) -> ClassOffering:
+def _class_screen_offering(pk: int) -> ClassOffering:
+    """The Overview's own queryset: the joins and the count that page reads, in one query.
+
+    Without it the sessions table is a query per row and the instructor, guild and capacity
+    lines are three more. The screen's other tabs fetch what they need for themselves.
+    """
     return get_object_or_404(
+        # Seat-holders only, like the two class lists. No distinct=True: nothing here joins a
+        # multi-valued relation (``prefetch_related`` is a second query, not a join), so the
+        # count cannot be inflated.
         ClassOffering.objects.select_related("instructor", "category__guild")
         .prefetch_related("sessions")
-        .annotate(registration_count=Count("registrations")),
+        .annotate(
+            registration_count=Count(
+                "registrations",
+                filter=Q(registrations__status__in=CAPACITY_CONSUMING_REGISTRATION_STATUSES),
+            )
+        ),
         pk=pk,
     )
 
 
-def _render_admin_class_detail(
-    request: HttpRequest,
-    offering: ClassOffering,
-    cancel_form: ClassCancelForm,
-    sale_form: ClassSaleForm | None = None,
-) -> HttpResponse:
-    """The admin workspace Overview: pipeline strip, summary, and the action row by state.
-
-    A bound, invalid ``cancel_form`` or ``sale_form`` re-renders the page with that modal
-    open and the error inside it (the modals are server-rendered inline, never fetched).
-    """
-    return render(
-        request,
-        "classes/admin/class_detail.html",
-        {
-            "active_tab": "classes",
-            "active_subtab": "overview",
-            "offering": offering,
-            "lifecycle": offering.lifecycle,
-            "pipeline": offering.review_pipeline(),
-            "cancel_form": cancel_form,
-            "sale_form": sale_form or ClassSaleForm(instance=offering),
-            "archive_blocker": offering.archive_blocker,
-            "paid_registration_count": offering.paid_registration_count,
-            **_class_workspace_counts(offering),
-        },
-    )
-
-
-@classes_review_access_required
-def admin_class_detail(request: HttpRequest, pk: int) -> HttpResponse:
-    offering = _admin_class_detail_offering(pk)
-    return _render_admin_class_detail(request, offering, ClassCancelForm())
-
-
-@classes_admin_access_required
-@require_POST
-def admin_class_cancel(request: HttpRequest, pk: int) -> HttpResponse:
-    """Cancel a live class with a reason: registrants are emailed, every member gets the bell row."""
-    offering = _admin_class_detail_offering(pk)
-    form = ClassCancelForm(request.POST)
-    if not form.is_valid():
-        return _render_admin_class_detail(request, offering, form)
-    try:
-        offering.cancel(cast("User", request.user), form.cleaned_data["reason"])
-    except ValueError as exc:
-        messages.error(request, str(exc))
-        return redirect("classes:admin_class_detail", pk=offering.pk)
-    messages.success(request, "Class cancelled. Everyone registered has been told.")
-    return redirect("classes:admin_class_detail", pk=offering.pk)
-
-
-@classes_admin_access_required
-@require_POST
-def admin_class_sale(request: HttpRequest, pk: int) -> HttpResponse:
-    """The Put This Class On Sale modal on the admin class page: turn a sale on, change it, or turn it off."""
-    offering = _admin_class_detail_offering(pk)
-    form = _save_sale(request, offering)
-    if form is not None:
-        return _render_admin_class_detail(request, offering, ClassCancelForm(), sale_form=form)
-    return redirect("classes:admin_class_detail", pk=offering.pk)
-
-
-@classes_admin_access_required
+@class_screen_required
 @require_POST
 def admin_class_restore(request: HttpRequest, pk: int) -> HttpResponse:
     """Restore an archived class to a draft. It needs review again before it goes live."""
-    offering = get_object_or_404(ClassOffering, pk=pk)
+    offering = _administered_class(request)
     try:
         offering.restore()
     except ValueError as exc:
         messages.error(request, str(exc))
-        return redirect("classes:admin_class_detail", pk=offering.pk)
+        return redirect("classes:teach_class_detail", pk=offering.pk)
     messages.success(request, f"{offering.title} restored to draft. It needs review again before it goes live.")
-    return redirect("classes:admin_class_detail", pk=offering.pk)
+    return redirect("classes:teach_class_detail", pk=offering.pk)
 
 
-@classes_admin_access_required
+@class_screen_required
 @require_POST
 def admin_class_unpublish(request: HttpRequest, pk: int) -> HttpResponse:
     """Take a live class back to draft. Quiet: registrations stand and nobody is emailed."""
-    offering = get_object_or_404(ClassOffering, pk=pk)
+    offering = _administered_class(request)
     try:
         offering.unpublish(actor=request.user)
     except ValueError as exc:
         messages.error(request, str(exc))
-        return redirect("classes:admin_class_detail", pk=offering.pk)
+        return redirect("classes:teach_class_detail", pk=offering.pk)
     messages.success(
         request,
         f"{offering.title} is back to draft and out of the catalog. "
         "Nobody was emailed. It needs review again before it goes live.",
     )
-    return redirect("classes:admin_class_detail", pk=offering.pk)
+    return redirect("classes:teach_class_detail", pk=offering.pk)
 
 
-@classes_admin_access_required
+@class_screen_required
 @require_POST
 def admin_class_remind_lead(request: HttpRequest, pk: int) -> HttpResponse:
     """Remind lead (HTMX): re-send the open guild-lead review request, once per day, and toast the outcome."""
-    offering = get_object_or_404(ClassOffering, pk=pk)
+    offering = _administered_class(request)
     response = HttpResponse(status=204)
     gate = offering.approvals.filter(role=ClassApproval.Role.GUILD_LEAD, decision="").order_by("-created_at").first()
     if gate is None or offering.status != ClassOffering.Status.PENDING:
@@ -3344,133 +4282,38 @@ def admin_teaching_decline(request: HttpRequest, pk: int) -> HttpResponse:
     return redirect("classes:admin_overview")
 
 
-@classes_admin_access_required
-def admin_class_registrations(request: HttpRequest, pk: int) -> HttpResponse:
-    offering = get_object_or_404(ClassOffering, pk=pk)
-    return render(
-        request,
-        "classes/admin/class_registrations.html",
-        {
-            "active_tab": "classes",
-            "active_subtab": "registrations",
-            **_teach_registrations_context(request, offering),
-            **_class_workspace_counts(offering),
-        },
-    )
-
-
-@classes_admin_access_required
-def admin_class_registrations_table(request: HttpRequest, pk: int) -> HttpResponse:
-    """The admin roster table alone — re-fetched by the ``refund-done`` refresh container."""
-    offering = get_object_or_404(ClassOffering, pk=pk)
-    return render(
-        request,
-        "classes/teach/partials/class_registrations_table.html",
-        _teach_registrations_context(request, offering),
-    )
-
-
-@classes_admin_access_required
-def admin_class_waitlist(request: HttpRequest, pk: int) -> HttpResponse:
-    offering = get_object_or_404(ClassOffering, pk=pk)
-    return render(
-        request,
-        "classes/admin/class_waitlist.html",
-        {
-            "active_tab": "classes",
-            "active_subtab": "waitlist",
-            **_waitlist_context(request, offering),
-            **_class_workspace_counts(offering),
-        },
-    )
-
-
-@classes_admin_access_required
-def admin_class_discount_codes(request: HttpRequest, pk: int) -> HttpResponse:
-    offering = get_object_or_404(ClassOffering, pk=pk)
-    codes = DiscountCode.objects.filter(Q(class_offering=offering) | Q(class_offering__isnull=True)).order_by("code")
-    return render(
-        request,
-        "classes/admin/class_discount_codes.html",
-        {
-            "active_tab": "classes",
-            "active_subtab": "discount_codes",
-            "offering": offering,
-            "codes": codes,
-            **_class_workspace_counts(offering),
-        },
-    )
-
-
-@classes_admin_access_required
-def admin_class_emails(request: HttpRequest, pk: int) -> HttpResponse:
-    """Author a class's welcome email from the admin class workspace (any class)."""
-    offering = get_object_or_404(ClassOffering, pk=pk)
-    form = TeachWelcomeEmailForm(request.POST or None, instance=offering)
-    if request.method == "POST" and form.is_valid():
-        offering = form.save()
-        if "send_test" in request.POST:
-            send_class_welcome_email_test(offering, request.user.email)
-            messages.success(request, f"Saved — and sent a test to {request.user.email}.")
-        else:
-            messages.success(request, "Welcome email saved.")
-        return redirect("classes:admin_class_emails", pk=offering.pk)
-    return render(
-        request,
-        "classes/admin/class_emails.html",
-        {
-            "active_tab": "classes",
-            "active_subtab": "emails",
-            "offering": offering,
-            "form": form,
-            **_class_workspace_counts(offering),
-        },
-    )
-
-
-@classes_admin_access_required
-@require_POST
-def admin_class_email(request: HttpRequest, pk: int) -> HttpResponse:
-    from classes.forms import AdminClassEmailForm
-
-    offering = get_object_or_404(ClassOffering, pk=pk)
-    sender_member: Member | None = getattr(request.user, "member", None)
-    form = AdminClassEmailForm(request.POST, offering=offering)
-    if not form.is_valid():
-        first_error = next(iter(form.errors.values()))[0] if form.errors else "Couldn't send the message."
-        messages.error(request, str(first_error))
-        return redirect("classes:admin_class_registrations", pk=pk)
-    message = form.send(sender_member=sender_member)
-    messages.success(
-        request,
-        f"Sent '{message.subject}' to {message.recipient_count} recipient(s).",
-    )
-    return redirect("classes:admin_class_registrations", pk=pk)
-
-
-@classes_review_access_required
+@class_screen_required
 def admin_class_approve(request: HttpRequest, pk: int) -> HttpResponse:
-    """Quick-approve from the admin class detail page.
+    """Quick-approve from the class screen.
 
     Records an admin-role decision via ClassApproval. Admin approval is final:
     the offering publishes immediately, closing any still-open guild-lead gate.
     For request-changes / decline with notes, use the dedicated review page
     at /classes/admin/<pk>/review/.
+
+    ``can_approve`` is the gate, so it admits a ``CLASS_APPROVER`` reviewer as well as an
+    admin — approving is the reviewer's whole contract — and refuses a guild lead who does
+    not hold that grant. A lead or an instructor who *does* hold it keeps it here (ruling
+    25): the grant is the publish-level approval, and holding it does not stop being true
+    on a class of their own.
     """
-    offering = get_object_or_404(ClassOffering, pk=pk)
+    access: ClassAccess = request.class_access  # type: ignore[attr-defined]
+    if not access.can_approve:
+        raise Http404("This class is not this viewer's to approve.")
+    offering: ClassOffering = request.class_offering  # type: ignore[attr-defined]
     if request.method == "POST":
         try:
             row = offering.approve(request.user)
         except ValueError as exc:
             messages.error(request, str(exc))
-            return redirect("classes:admin_class_detail", pk=offering.pk)
+            return redirect("classes:teach_class_detail", pk=offering.pk)
         except ValidationError as exc:
             # An unready class (no dates, no photos, ...) never publishes; say why.
             messages.error(request, exc.messages[0])
-            return redirect("classes:admin_class_detail", pk=offering.pk)
+            return redirect("classes:teach_class_detail", pk=offering.pk)
         send_class_review_decision(offering, row)
         messages.success(request, f"{offering.title} is published.")
-    return redirect("classes:admin_class_detail", pk=offering.pk)
+    return redirect("classes:teach_class_detail", pk=offering.pk)
 
 
 _ACTIVITY_GROUPS = {
@@ -3576,10 +4419,13 @@ def admin_activity(request: HttpRequest) -> HttpResponse:
     )
 
 
-@classes_review_access_required
+@class_screen_required
 def admin_class_review(request: HttpRequest, pk: int) -> HttpResponse:
     """Full reviewer page for admins and CMS Administrators. Mirrors the tokenized public review page."""
-    offering = get_object_or_404(ClassOffering, pk=pk)
+    access: ClassAccess = request.class_access  # type: ignore[attr-defined]
+    if not access.can_approve:
+        raise Http404("This class is not this viewer's to review.")
+    offering: ClassOffering = request.class_offering  # type: ignore[attr-defined]
     return _class_review_view(
         request,
         offering=offering,
@@ -3689,128 +4535,113 @@ def _class_review_view(
     )
 
 
-@classes_admin_access_required
+@class_screen_required
 def admin_class_archive(request: HttpRequest, pk: int) -> HttpResponse:
-    offering = get_object_or_404(ClassOffering, pk=pk)
+    """Take a class out of every list and the catalog. Nobody is notified; registrations stay."""
+    offering = _administered_class(request)
     if request.method == "POST":
         try:
             offering.archive()
         except ValueError as exc:
             # An upcoming class with active registrations must be cancelled, not hidden.
             messages.error(request, str(exc))
-            return redirect("classes:admin_class_detail", pk=offering.pk)
+            return redirect("classes:teach_class_detail", pk=offering.pk)
         messages.success(request, f"{offering.title} archived. Nobody was notified.")
         return redirect("classes:admin_classes")
-    return redirect("classes:admin_class_detail", pk=offering.pk)
+    return redirect("classes:teach_class_detail", pk=offering.pk)
 
 
-@classes_admin_access_required
+@class_screen_required
 def admin_class_duplicate(request: HttpRequest, pk: int) -> HttpResponse:
-    offering = get_object_or_404(ClassOffering, pk=pk)
+    """Copy a class into a fresh draft, dates and all, and open the copy in the composer."""
+    offering = _administered_class(request)
     if request.method == "POST":
         copy = offering.duplicate()
         messages.success(request, "Class duplicated.")
-        return redirect("classes:admin_class_edit", pk=copy.pk)
-    return redirect("classes:admin_class_detail", pk=offering.pk)
+        return redirect("classes:teach_class_edit", pk=copy.pk)
+    return redirect("classes:teach_class_detail", pk=offering.pk)
 
 
-@classes_admin_access_required
-def admin_class_duplicate_run(request: HttpRequest, pk: int) -> HttpResponse:
-    """Offer this class on another set of dates — clones it as a grouped draft run."""
-    offering = get_object_or_404(ClassOffering, pk=pk)
-    if request.method == "POST":
-        run = offering.duplicate_as_new_run()
-        messages.success(request, "New date-set added as a draft. Add its dates, then publish when ready.")
-        return redirect("classes:admin_class_edit", pk=run.pk)
-    return redirect("classes:admin_class_detail", pk=offering.pk)
-
-
-@classes_admin_access_required
+@class_screen_required
 def admin_class_delete(request: HttpRequest, pk: int) -> HttpResponse:
     """Hard-delete a class — only when it has no registrations.
 
     Classes with any registration history (even cancelled) are refused to
     preserve the audit record; use Archive instead in that case.
+
+    There is no soft-delete column behind this and no undo: too loose a gate here is strictly
+    worse than too tight, which is why the capability is asserted on the endpoint and not only
+    drawn on the screen. Since #526 the instructor holds it too, on a draft of their own
+    (:func:`_may_delete`); the URL name keeps its ``admin_`` prefix because
+    ``legacy_class_routes_spec`` pins every name that an old bookmark may still reverse.
+    Each population lands back on its own list.
     """
-    offering = get_object_or_404(ClassOffering, pk=pk)
+    access: ClassAccess = request.class_access  # type: ignore[attr-defined]
+    offering: ClassOffering = request.class_offering  # type: ignore[attr-defined]
+    if not _may_delete(access, offering):
+        raise Http404("This class is not this viewer's to delete.")
     if request.method == "POST":
         if offering.registrations.exists():
-            messages.error(request, "Can't delete — this class has registrations. Archive it instead.")
-            return redirect("classes:admin_class_detail", pk=offering.pk)
+            remedy = "Archive it instead." if access.can_administer else "Ask an admin to archive it."
+            messages.error(request, f"Can't delete — this class has registrations. {remedy}")
+            return redirect("classes:teach_class_detail", pk=offering.pk)
         title = offering.title
         offering.delete()
         messages.success(request, f"Deleted ‘{title}’.")
-        return redirect("classes:admin_classes")
-    return redirect("classes:admin_class_detail", pk=offering.pk)
+        return redirect("classes:admin_classes" if access.can_administer else "classes:teach_dashboard")
+    return redirect("classes:teach_class_detail", pk=offering.pk)
 
 
-@classes_admin_access_required
-@require_POST
-def admin_class_hero_upload(request: HttpRequest, pk: int) -> HttpResponse:
-    return _hero_upload(request, get_object_or_404(ClassOffering, pk=pk))
-
-
-@classes_admin_access_required
-@require_POST
-def admin_class_image_upload(request: HttpRequest, pk: int) -> HttpResponse:
-    return _gallery_upload(request, get_object_or_404(ClassOffering, pk=pk))
-
-
-@classes_admin_access_required
-@require_POST
-def admin_class_image_reorder(request: HttpRequest, pk: int) -> HttpResponse:
-    return _gallery_reorder(request, get_object_or_404(ClassOffering, pk=pk))
-
-
-@classes_admin_access_required
-@require_POST
-def admin_class_image_delete(request: HttpRequest, pk: int) -> HttpResponse:
-    return _gallery_delete(get_object_or_404(ClassImage, pk=pk))
-
-
-@classes_admin_access_required
-@require_POST
-def admin_class_image_alt(request: HttpRequest, pk: int) -> HttpResponse:
-    return _gallery_alt(request, get_object_or_404(ClassImage, pk=pk))
-
-
-# --- Instructor-scoped image endpoints ----------------------------------------
+# --- Per-class image endpoints -------------------------------------------------
 #
-# The hero and gallery components post instantly (drag, drop, reorder, alt text). The
-# instructor edit pages point them at these routes, which share the admin handlers
-# above but scope the class through the teach portal's ``editable_by`` (the instructor,
-# plus guild staff who may edit the draft); anyone else gets a 404, never a 403.
+# The hero and gallery components post instantly (drag, drop, reorder, alt text), and the
+# composer points them here whoever is editing. Three take a class pk and go through
+# ``class_screen_required``; the last two take an IMAGE pk, so they scope themselves through
+# the image's own class and then ask the same question of it.
 
 
-def _teach_editable_offerings(member: Member) -> "ClassOfferingQuerySet":
-    """The classes this member may edit photos on: their editable set, minus the closed ones.
+def _editable_class_or_404(request: HttpRequest) -> ClassOffering:
+    """The class, once this request is confirmed to hold Edit on it and the class is still open.
 
     ``teach_class_edit`` bounces cancelled and archived classes to an admin, so the image
-    routes behind that page exclude them too. A page gate and a mutation gate that disagree
-    are how an instructor ends up curling a surface the UI never offers.
+    routes behind that page exclude them for everyone but an admin. A page gate and a
+    mutation gate that disagree are how someone ends up curling a surface the UI never offers.
     """
-    return ClassOffering.objects.editable_by(member).exclude(
-        status__in=[ClassOffering.Status.CANCELLED, ClassOffering.Status.ARCHIVED]
-    )
+    access: ClassAccess = request.class_access  # type: ignore[attr-defined]
+    offering: ClassOffering = request.class_offering  # type: ignore[attr-defined]
+    return _edit_photos_or_404(access, offering)
 
 
-def _teach_editable_offering_or_404(request: HttpRequest, pk: int) -> ClassOffering:
-    teaching_member: Member = request.teaching_member  # type: ignore[attr-defined]
-    return get_object_or_404(_teach_editable_offerings(teaching_member), pk=pk)
+def _edit_photos_or_404(access: ClassAccess, offering: ClassOffering) -> ClassOffering:
+    """The shared answer for both shapes of image route: may this viewer change this class's photos?"""
+    closed = offering.status in {ClassOffering.Status.CANCELLED, ClassOffering.Status.ARCHIVED}
+    if not access.can_edit or (closed and not access.can_administer):
+        raise Http404("This class's photos are not this viewer's to change.")
+    return offering
 
 
-def _teach_editable_image_or_404(request: HttpRequest, pk: int) -> ClassImage:
-    teaching_member: Member = request.teaching_member  # type: ignore[attr-defined]
-    return get_object_or_404(
-        ClassImage.objects.filter(class_offering__in=_teach_editable_offerings(teaching_member)), pk=pk
-    )
+def _class_image_or_404(request: HttpRequest, pk: int) -> ClassImage:
+    """One gallery image, scoped through the class it belongs to.
+
+    ``class_screen_required`` resolves a CLASS pk and these two routes carry an IMAGE pk, so
+    they cannot wear it. The image names its class, the class answers ``class_access``, and
+    the answer is held to the same capability the class-pk routes assert — one rule, reached
+    two ways, rather than a second rule that can drift.
+    """
+    img = get_object_or_404(ClassImage.objects.select_related("class_offering__category__guild"), pk=pk)
+    access = class_access(request, img.class_offering)
+    if access is None:
+        raise Http404("This class's photos are not this viewer's to change.")
+    _edit_photos_or_404(access, img.class_offering)
+    return img
 
 
 def _teach_gallery_context(offering: ClassOffering, *, with_hero: bool = True) -> dict[str, str]:
-    """The URLs the hero + gallery components post to on the instructor edit pages.
+    """The URLs the hero + gallery components post to, on every page that renders them.
 
-    ``with_hero=False`` for the live-edit page, which renders the gallery but not the hero
-    field: shipping a hero URL a page never posts to only invites drift.
+    The components read these from context with no fallback, so a composer path that omits
+    them posts nowhere at all. ``with_hero=False`` for the live-edit page, which renders the
+    gallery but not the hero field: shipping a hero URL a page never posts to only invites drift.
     """
     hero = (
         {"hero_upload_url": reverse("classes:teach_class_hero_upload", kwargs={"pk": offering.pk})} if with_hero else {}
@@ -3833,43 +4664,43 @@ def teach_image_url_base() -> str:
     return reverse("classes:teach_class_image_delete", kwargs={"pk": 0}).removesuffix("0/delete/")
 
 
-@teaching_member_required
+@class_screen_required
 @require_POST
 def teach_class_hero_upload(request: HttpRequest, pk: int) -> HttpResponse:
-    return _hero_upload(request, _teach_editable_offering_or_404(request, pk))
+    return _hero_upload(request, _editable_class_or_404(request))
 
 
-@teaching_member_required
+@class_screen_required
 @require_POST
 def teach_class_image_upload(request: HttpRequest, pk: int) -> HttpResponse:
-    return _gallery_upload(request, _teach_editable_offering_or_404(request, pk))
+    return _gallery_upload(request, _editable_class_or_404(request))
 
 
-@teaching_member_required
+@class_screen_required
 @require_POST
 def teach_class_image_reorder(request: HttpRequest, pk: int) -> HttpResponse:
-    return _gallery_reorder(request, _teach_editable_offering_or_404(request, pk))
+    return _gallery_reorder(request, _editable_class_or_404(request))
 
 
-@teaching_member_required
+@login_required
 @require_POST
 def teach_class_image_delete(request: HttpRequest, pk: int) -> HttpResponse:
-    return _gallery_delete(_teach_editable_image_or_404(request, pk))
+    return _gallery_delete(_class_image_or_404(request, pk))
 
 
-@teaching_member_required
+@login_required
 @require_POST
 def teach_class_image_alt(request: HttpRequest, pk: int) -> HttpResponse:
-    return _gallery_alt(request, _teach_editable_image_or_404(request, pk))
+    return _gallery_alt(request, _class_image_or_404(request, pk))
 
 
 def _hero_upload(request: HttpRequest, offering: ClassOffering) -> HttpResponse:
     file = request.FILES.get("image")
     if not file:
         return JsonResponse({"error": "No file provided."}, status=400)
-    oversize = _oversize_image_error(file)
-    if oversize is not None:
-        return oversize
+    refused = _oversize_image_error(file) or _not_an_image_error(file)
+    if refused is not None:
+        return refused
     offering.image = file
     offering.hero_crop_x = None
     offering.hero_crop_y = None
@@ -3893,15 +4724,28 @@ def _oversize_image_error(file: UploadedFile) -> JsonResponse | None:
     return JsonResponse({"error": f"Image must be {limit_mb:.0f} MB or smaller."}, status=400)
 
 
+def _not_an_image_error(file: UploadedFile) -> JsonResponse | None:
+    """The 400 for an upload whose bytes are not an image, or None when Pillow can open it.
+
+    Beside ``_oversize_image_error`` for the same reason: neither route builds a form, and the
+    model field never reads the bytes, so without this a text file is saved as a class photo.
+    """
+    try:
+        validate_image_content(file)
+    except ValidationError as exc:
+        return JsonResponse({"error": exc.messages[0]}, status=400)
+    return None
+
+
 def _gallery_upload(request: HttpRequest, offering: ClassOffering) -> HttpResponse:
     if offering.gallery_images.count() >= MAX_GALLERY_IMAGES:
         return JsonResponse({"error": f"A class can have at most {MAX_GALLERY_IMAGES} images."}, status=400)
     file = request.FILES.get("image")
     if not file:
         return JsonResponse({"error": "No file provided."}, status=400)
-    oversize = _oversize_image_error(file)
-    if oversize is not None:
-        return oversize
+    refused = _oversize_image_error(file) or _not_an_image_error(file)
+    if refused is not None:
+        return refused
     next_order = (offering.gallery_images.order_by("-sort_order").values_list("sort_order", flat=True).first() or 0) + 1
     img = ClassImage(class_offering=offering, image=file, sort_order=next_order)
     img.full_clean()
@@ -3923,8 +4767,15 @@ def _gallery_reorder(request: HttpRequest, offering: ClassOffering) -> HttpRespo
 
 
 def _gallery_delete(img: ClassImage) -> HttpResponse:
-    img.image.delete(save=False)
+    """Drop the row, then the file only if no other gallery row still shows it.
+
+    A copied class (Run it again, Duplicate) carries the same storage keys as its source
+    (``ClassOffering._copy_photos_and_faqs_from``), and legacy imports are content-addressed,
+    so a bare ``FieldFile.delete`` here blanked the picture on every class sharing it.
+    """
+    name = img.image.name or ""
     img.delete()
+    delete_if_unreferenced(ClassImage, "image", name)
     return JsonResponse({"ok": True})
 
 
@@ -4108,10 +4959,20 @@ def admin_registrations(request: HttpRequest) -> HttpResponse:
 
 
 @classes_registrations_access_required
-def admin_registrations_export(request: HttpRequest) -> StreamingHttpResponse:
-    """Download the filtered, role-scoped registrations list as a CSV."""
+def admin_registrations_export(request: HttpRequest) -> StreamingHttpResponse | HttpResponse:
+    """Download the filtered registrations list as a CSV. Admins only (ruling 7).
+
+    The check is here rather than on ``classes_registrations_access_required``, which this
+    shares with ``admin_registrations``: the PAGE stays open to instructors, guild leads and
+    CLASS_APPROVER holders, who need their own classes' sign-ups on screen. Carrying a roster
+    of names and email addresses out of the building as a file is a different act, and it is
+    an admin's. The button is hidden on the same test, so nothing dead-ends.
+    """
     from classes.exports import stream_registrations_query_csv
 
+    view_as = getattr(request, "view_as", None)
+    if view_as is None or not view_as.is_admin:
+        return HttpResponseForbidden("Exporting registrations requires admin access.")
     registrations = _filter_registrations(request, _scoped_registrations(request))
     return stream_registrations_query_csv(registrations, filename_stem="registrations")
 
@@ -4163,8 +5024,13 @@ def admin_registration_move(request: HttpRequest, pk: int) -> HttpResponse:
     form = RegistrationMoveForm(request.POST, current=registration.class_offering)
     if form.is_valid():
         actor = request.user if request.user.is_authenticated else None
-        registration.move_to(form.cleaned_data["target"], actor=actor)
-        messages.success(request, "Registration moved.")
+        try:
+            registration.move_to(form.cleaned_data["target"], actor=actor)
+        except ValueError as exc:
+            # One signup per person per class: the destination already holds one.
+            messages.error(request, str(exc))
+        else:
+            messages.success(request, "Registration moved.")
     else:
         messages.error(request, "Could not move registration — pick a valid class.")
     return redirect("classes:admin_registration_detail", pk=pk)
@@ -4294,7 +5160,10 @@ def _registration_row_response(request: HttpRequest, registration: Registration)
     from hub.view_as import has_refund_authority
 
     offering = registration.class_offering
-    reg = _roster_registrations(offering).get(pk=registration.pk)
+    # The unfiltered base on purpose: the action that got here has usually just moved this
+    # row out of the roster's own filter (a cancel, a refund), and this response is what
+    # redraws it in place.
+    reg = _annotated_registrations(offering).get(pk=registration.pk)
     return render(
         request,
         "classes/partials/registration_row.html",
@@ -4472,6 +5341,45 @@ def registration_mark_paid(request: HttpRequest, pk: int) -> HttpResponse:
 
 @login_required
 @require_POST
+def registration_confirm_pending(request: HttpRequest, pk: int) -> HttpResponse:
+    """Confirm a signup that stalled at PENDING, with what it owes still owed.
+
+    The way out of the dead end: a signup whose checkout never completed cannot be marked
+    paid, sent a payment link or promoted, because all three need a CONFIRMED row. This
+    makes the seat real and the balance visible, and every one of those tools then applies.
+
+    The confirmation email goes out here rather than from the model, matching the promote
+    flow. Its ``reg:{pk}:confirmation`` emit period is shared with the payment webhook, so
+    a payment that lands afterwards cannot send the registrant a second one.
+    """
+    from classes.exceptions import RegistrationStateError
+    from hub.toast import trigger_toast
+
+    registration = _registration_manageable_or_403(request, pk)
+    is_htmx = request.headers.get("HX-Request") == "true"
+    try:
+        registration.confirm_pending_payment(actor=request.user)
+    except RegistrationStateError as exc:
+        if not is_htmx:
+            messages.error(request, str(exc))
+            return redirect("classes:admin_registration_detail", pk=pk)
+        response = _row_response(request, registration)
+        trigger_toast(response, str(exc), "error")
+        return response
+    send_registration_confirmation(registration)
+    note = f"{registration.first_name} is confirmed."
+    if registration.balance_due_cents:
+        note = f"{note} They still owe ${registration.balance_due_cents / 100:.2f}."
+    if not is_htmx:
+        messages.success(request, note)
+        return redirect("classes:admin_registration_detail", pk=pk)
+    response = _row_response(request, registration)
+    trigger_toast(response, note, "success")
+    return response
+
+
+@login_required
+@require_POST
 def registration_remove(request: HttpRequest, pk: int) -> HttpResponse:
     """Staff-remove a registrant (seat-holder or waitlister) behind the confirm modal."""
     from classes.exceptions import RegistrationStateError
@@ -4498,8 +5406,8 @@ def registration_move(request: HttpRequest, pk: int) -> HttpResponse:
 
     Gating is stricter than the other roster actions: actual admins may move
     anyone anywhere upcoming, but a non-admin must be the source class's own
-    instructor (``_teach_class_or_404`` semantics — guild leads/officers who can
-    otherwise manage the roster get a 403), and their form only offers other
+    instructor (guild leads/officers who can otherwise manage the roster get a
+    403), and their form only offers other
     upcoming classes they instruct, so a crafted POST at someone else's class
     fails validation. Plain POST + redirect: after a move the row belongs to a
     different roster, so an in-place row swap would render a stale table.
@@ -4521,15 +5429,20 @@ def registration_move(request: HttpRequest, pk: int) -> HttpResponse:
         form = RegistrationMoveForm(request.POST, current=source, instructor=member)
     if form.is_valid():
         actor = request.user if request.user.is_authenticated else None
-        registration.move_to(form.cleaned_data["target"], actor=actor)
-        messages.success(request, f"{registration.first_name} moved to {form.cleaned_data['target'].title}.")
+        try:
+            registration.move_to(form.cleaned_data["target"], actor=actor)
+        except ValueError as exc:
+            # One signup per person per class: the destination already holds one.
+            messages.error(request, str(exc))
+        else:
+            messages.success(request, f"{registration.first_name} moved to {form.cleaned_data['target'].title}.")
     else:
         # Surface the form's own message ("That class is full.", invalid choice) — a
         # generic line would hide why the move bounced.
         first_error = next(iter(form.errors.values()))[0] if form.errors else "Could not move the student."
         messages.error(request, str(first_error))
     if is_admin:
-        return redirect("classes:admin_class_registrations", pk=source.pk)
+        return redirect("classes:teach_class_registrations", pk=source.pk)
     return redirect("classes:teach_class_registrations", pk=source.pk)
 
 
@@ -4544,7 +5457,11 @@ def admin_discount_codes(request: HttpRequest) -> HttpResponse:
     return render(
         request,
         "classes/admin/discount_codes.html",
-        {"active_tab": "discount_codes", **table},
+        {
+            "active_tab": "discount_codes",
+            "pending_requests": DiscountCodeRequest.objects.pending().select_related("class_offering", "requested_by"),
+            **table,
+        },
     )
 
 
@@ -4562,7 +5479,7 @@ def admin_discount_code_create(request: HttpRequest) -> HttpResponse:
         form.save()
         messages.success(request, "Discount code created.")
         if scoped_to is not None:
-            return redirect("classes:admin_class_discount_codes", pk=scoped_to.pk)
+            return redirect("classes:teach_class_discount_codes", pk=scoped_to.pk)
         return redirect("classes:admin_discount_codes")
     return render(
         request,
@@ -4616,6 +5533,70 @@ def admin_discount_code_approve(request: HttpRequest, pk: int) -> HttpResponse:
         code.approve(request.user)
         messages.success(request, f"Discount code {code.code} approved.")
     return redirect("classes:admin_discount_codes")
+
+
+@login_required
+def admin_discount_code_request_review(request: HttpRequest, pk: int) -> HttpResponse:
+    """Approve or decline one instructor's discount code request (#428).
+
+    Open to whoever the "needs approval" ping reaches and to admins: an actual admin, a
+    superuser, or a Discount Code Administrator (``DiscountCode.approver_for(...).approves_any``,
+    the same rule ``admin_discount_code_approve`` applies minus the self-approver leg, since a
+    request is decided by admins or holders only). Anyone else gets a 403.
+
+    The approve form is a ``DiscountCodeForm`` prefilled from the request, so the reviewer can
+    adjust anything before the code is made; a decline needs a note. ``request_row`` is the
+    context name so the template's ``request`` stays the HttpRequest. Reachable with the
+    master flag off too, for a reviewer following an email link after the queue was hidden.
+    An actual admin goes back to the queue afterwards; a holder who is not an admin cannot
+    open that page, so they land on the hub instead.
+    """
+    if not DiscountCode.approver_for(request.user).approves_any:
+        return HttpResponseForbidden(
+            "Reviewing discount code requests takes admin or Discount Code Administrator access."
+        )
+    view_as = getattr(request, "view_as", None)
+    is_admin = view_as is not None and view_as.has_actual("admin")
+    back_url = reverse("classes:admin_discount_codes") if is_admin else reverse("hub_home")
+    req = get_object_or_404(DiscountCodeRequest.objects.select_related("class_offering", "requested_by__user"), pk=pk)
+    if req.status != DiscountCodeRequest.Status.PENDING:
+        messages.info(request, "This request has already been decided.")
+        return redirect(back_url)
+    decision = request.POST.get("decision") if request.method == "POST" else None
+    if request.method == "POST" and decision not in ("approve", "decline"):
+        return HttpResponseBadRequest("Unknown decision.")
+    form = DiscountCodeForm(
+        request.POST if decision == "approve" else None,
+        initial=req.prefill(),
+        scoped_to=req.class_offering,
+        created_by=req.requested_by.user,
+    )
+    decline_form = DiscountCodeRequestDeclineForm(request.POST if decision == "decline" else None)
+    try:
+        if decision == "approve" and form.is_valid():
+            code = req.approve(cast("User", request.user), form)
+            messages.success(request, f"Discount code {code.code} approved and ready to use.")
+            return redirect(back_url)
+        if decision == "decline" and decline_form.is_valid():
+            req.decline(cast("User", request.user), decline_form.cleaned_data["note"])
+            messages.success(request, "Request declined. The instructor has been told.")
+            return redirect(back_url)
+    except DiscountCodeRequestAlreadyDecided:
+        # Another reviewer decided between this page's fetch and the click; the model's row
+        # lock made that one decision the only one.
+        messages.info(request, "This request has already been decided.")
+        return redirect(back_url)
+    return render(
+        request,
+        "classes/admin/discount_code_request_review.html",
+        {
+            "active_tab": "discount_codes",
+            "request_row": req,
+            "form": form,
+            "decline_form": decline_form,
+            "back_url": back_url,
+        },
+    )
 
 
 @classes_admin_access_required

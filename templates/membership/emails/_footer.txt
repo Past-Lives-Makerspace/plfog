@@ -1,4 +1,9 @@
 
-{% load site_urls %}—
-Past Lives Makerspace — {% member_base_url %}
+{% load site_urls %}{% google_play_url as play_url %}{% app_store_url as ios_url %}—
+Past Lives Makerspace — {% member_base_url %}{% if play_url and ios_url %}
+Get the Past Lives app for iPhone or Android.{% elif play_url %}
+Get the Past Lives app on Google Play. iOS coming soon.{% elif ios_url %}
+Get the Past Lives app on the App Store.{% endif %}{% if play_url %}
+Get it on Google Play: {{ play_url }}{% endif %}{% if ios_url %}
+Download on the App Store: {{ ios_url }}{% endif %}
 Manage your email preferences or unsubscribe: {% member_base_url %}/settings/?tab=notifications&t=__PL_PREFS_TOKEN__

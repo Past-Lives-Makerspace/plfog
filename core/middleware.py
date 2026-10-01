@@ -4,12 +4,14 @@ Plfog answers to three kinds of hostname:
 
 - ``members.pastlives.space`` (and local dev, Hetzner staging, Render preview):
   the full member application. ``request.surface == "members"``.
-- ``book.pastlives.space``: a public-only face that exposes the class catalog,
+- ``classes.pastlives.space``: a public-only face that exposes the class catalog,
   class detail pages, registration, and self-serve registration management.
   Everything else (admin, billing, voting, settings, member directory, the
   classes admin/instructor dashboards, etc.) returns 404 from this surface.
-  ``request.surface == "public"``.
-- ``guilds.pastlives.app``: a public guild directory + guest guild pages.
+  ``request.surface == "public"``. A retired public host (``book.pastlives.space``,
+  ``PUBLIC_REDIRECT_HOSTS``) 301s every GET and HEAD to the same path on
+  ``BOOK_BASE_URL`` and serves any other method as this surface.
+- ``guilds.pastlives.space``: a public guild directory + guest guild pages.
   ``request.surface == "guilds"``. Only the guest-appropriate views in
   ``GUILDS_ALLOWED_VIEW_NAMES`` (plus allauth's ``account_*`` login views)
   resolve here; everything else 404s, so the guild editor / product / cart
@@ -19,11 +21,11 @@ The middleware tags every request with ``request.surface`` so templates and
 views can branch on the chrome they should render, and short-circuits any
 request to a member-only path that arrives on the public surface.
 
-Member auth (``/accounts/*``) is served on all surfaces. On ``.pastlives.space``
-session cookies scope to ``.pastlives.space`` so a login completed on book is
-recognised on members automatically; on the ``.app`` guilds surface cookies are
-host-only (prod ``COOKIE_DOMAIN`` is unset), so login-in-place resolves on the
-guilds host with no extra plumbing.
+Member auth (``/accounts/*``) is served on all surfaces. Session cookies are
+host-only unless ``COOKIE_DOMAIN`` is set (production leaves it unset), so
+login-in-place resolves on the guilds host with no extra plumbing. Setting
+``COOKIE_DOMAIN=.pastlives.space`` would share one login across members, book
+and guilds.
 
 The root path on the public surface redirects to ``/classes/`` so the bare
 domain lands on the catalog rather than the member hub home.
@@ -33,7 +35,7 @@ from __future__ import annotations
 
 import json
 from collections.abc import Callable
-from urllib.parse import quote
+from urllib.parse import quote, urlsplit
 
 from django.conf import settings
 from django.http import Http404, HttpRequest, HttpResponse, HttpResponsePermanentRedirect, HttpResponseRedirect
@@ -47,19 +49,12 @@ class SurfaceMiddleware:
 
     def __call__(self, request: HttpRequest) -> HttpResponse:
         host = request.get_host().split(":", 1)[0].lower()
-
-        # Redirect legacy pastlives.app URLs to the canonical members domain.
-        if host in {"pastlives.app", "www.pastlives.app"}:
-            qs = f"?{request.META['QUERY_STRING']}" if request.META.get("QUERY_STRING") else ""
-            return HttpResponsePermanentRedirect(f"https://{settings.MEMBER_HOST}{request.path}{qs}")
-
-        # calendar.pastlives.space is a pure vanity alias: every path 302s to the
-        # community calendar (temporary, not 301, so the target can evolve without
-        # fighting browser caches).
-        if host in set(getattr(settings, "CALENDAR_REDIRECT_HOSTS", [])):
-            return HttpResponseRedirect(f"https://{settings.MEMBER_HOST}/calendar/?public=1")
-
         public_hosts: set[str] = set(getattr(settings, "PUBLIC_HOSTS", []))
+
+        host_redirect = self._host_redirect(request, host, public_hosts)
+        if host_redirect is not None:
+            return host_redirect
+
         guilds_hosts: set[str] = set(getattr(settings, "GUILDS_HOSTS", []))
         signage_hosts: set[str] = set(getattr(settings, "SIGNAGE_HOSTS", []))
 
@@ -77,6 +72,9 @@ class SurfaceMiddleware:
                 return short_circuit
             return self.get_response(request)
 
+        # A retired public host's reads redirected above; its writes are served as the public site.
+        public_hosts |= set(getattr(settings, "PUBLIC_REDIRECT_HOSTS", []))
+
         request.surface = "public" if host in public_hosts else "members"  # type: ignore[attr-defined]
 
         if request.surface == "public":  # type: ignore[attr-defined]
@@ -89,6 +87,28 @@ class SurfaceMiddleware:
                 return short_circuit
 
         return self.get_response(request)
+
+    @staticmethod
+    def _host_redirect(request: HttpRequest, host: str, public_hosts: set[str]) -> HttpResponse | None:
+        """The redirect for a host that only forwards, or ``None`` when the request should be served."""
+        # Redirect legacy pastlives.app URLs to the canonical members domain.
+        if host in {"pastlives.app", "www.pastlives.app"}:
+            qs = f"?{request.META['QUERY_STRING']}" if request.META.get("QUERY_STRING") else ""
+            return HttpResponsePermanentRedirect(f"https://{settings.MEMBER_HOST}{request.path}{qs}")
+
+        # calendar.pastlives.space is a pure vanity alias: every path 302s to the
+        # community calendar (temporary, not 301, so the target can evolve without
+        # fighting browser caches).
+        if host in set(getattr(settings, "CALENDAR_REDIRECT_HOSTS", [])):
+            return HttpResponseRedirect(f"https://{settings.MEMBER_HOST}/calendar/?public=1")
+
+        # A retired public host (in PUBLIC_REDIRECT_HOSTS, not PUBLIC_HOSTS) 301s a read to the same
+        # path on the class site. Only GET and HEAD: a form opened before the move must still
+        # submit, and nothing that POSTs here may be lost to a redirect.
+        retired_hosts = set(getattr(settings, "PUBLIC_REDIRECT_HOSTS", [])) - public_hosts
+        if host in retired_hosts and request.method in ("GET", "HEAD"):
+            return HttpResponsePermanentRedirect(f"{settings.BOOK_BASE_URL.rstrip('/')}{request.get_full_path()}")
+        return None
 
     def _handle_guilds_surface(self, request: HttpRequest) -> HttpResponse | None:
         """Redirect the root to /guilds/ and gate every other path to an allowlist.
@@ -238,3 +258,130 @@ class ToastFlashMiddleware:
                     path="/",
                 )
         return response
+
+
+class MemberLockoutMiddleware:
+    """Keep a signed-in, locked-out member to the pages they may still use (#409).
+
+    Sign-in on the members surface and the biometric unlock already refuse a former (or, by
+    setting, suspended) member; this covers a session that is already open. It never logs
+    anyone out: the session cookie is shared with the book site, where a former member keeps
+    their class receipts.
+
+    - Members surface: every request goes to the lockout page, except the lockout page itself,
+      allauth's logout, ``/static/`` and ``/health/``.
+    - Book surface: only ``settings.LOCKED_OUT_BOOK_PATH_PREFIXES`` is served, less
+      ``settings.LOCKED_OUT_BOOK_BLOCKED_PREFIXES`` (registration management); anything else
+      goes to the lockout page on book (``/accounts/`` is on that list, so it cannot loop).
+    - Guilds and signage surfaces are guest surfaces with their own allowlists: untouched.
+
+    Runs after AuthenticationMiddleware and before MemberAgreementMiddleware, so a locked-out
+    member is never bounced to the agreement. Cost: one Member lookup per authenticated
+    request, the same cached ``request.user.member`` the agreement middleware and hub views
+    read. Only a status of FORMER or SUSPENDED goes on to load SiteConfiguration.
+    """
+
+    MEMBERS_EXEMPT_PREFIXES = ("/static/", "/health/")
+
+    def __init__(self, get_response: Callable[[HttpRequest], HttpResponse]) -> None:
+        self.get_response = get_response
+
+    def __call__(self, request: HttpRequest) -> HttpResponse:
+        if not request.user.is_authenticated or not self._is_gated(request):
+            return self.get_response(request)
+
+        from core.member_lockout import lockout_reason
+
+        reason = lockout_reason(request.user)
+        if reason is None:
+            return self.get_response(request)
+
+        from django.urls import reverse
+
+        from core.htmx import wants_fragment
+
+        locked_url = f"{reverse('account_locked')}?reason={reason}"
+        if wants_fragment(request):
+            res = HttpResponse(status=200)
+            res["HX-Redirect"] = locked_url
+            return res
+        return HttpResponseRedirect(locked_url)
+
+    def _is_gated(self, request: HttpRequest) -> bool:
+        """Whether this path, on this surface, is closed to a locked-out member."""
+        from django.urls import reverse
+
+        surface = getattr(request, "surface", None)
+        path = request.path
+        if surface == "members":
+            open_paths = (reverse("account_locked"), reverse("account_logout"))
+            return path not in open_paths and not path.startswith(self.MEMBERS_EXEMPT_PREFIXES)
+        if surface == "public":
+            if path.startswith(tuple(settings.LOCKED_OUT_BOOK_BLOCKED_PREFIXES)):
+                return True
+            return not path.startswith(tuple(settings.LOCKED_OUT_BOOK_PATH_PREFIXES))
+        return False
+
+
+class MemberAgreementMiddleware:
+    """Redirects active members to the Member Agreement if required and not yet accepted."""
+
+    def __init__(self, get_response: Callable[[HttpRequest], HttpResponse]) -> None:
+        self.get_response = get_response
+
+    @staticmethod
+    def _is_agreement_document(request: HttpRequest) -> bool:
+        """Allow reading the configured document on this origin, without opening other routes."""
+        from core.models import SiteConfiguration
+
+        agreement = urlsplit(SiteConfiguration.load().member_agreement_url)
+        current = urlsplit(request.build_absolute_uri())
+        return (
+            request.method in ("GET", "HEAD")
+            and agreement.scheme == current.scheme
+            and agreement.netloc == current.netloc
+            and (agreement.path or "/") == current.path
+            and agreement.query == current.query
+        )
+
+    def __call__(self, request: HttpRequest) -> HttpResponse:
+        if not request.user.is_authenticated:
+            return self.get_response(request)
+        if getattr(request, "surface", None) != "members":
+            return self.get_response(request)
+
+        path = request.path
+        if (
+            path.startswith("/accounts/")
+            or path.startswith("/admin/")
+            or path.startswith("/api/")
+            or path.startswith("/o/")
+            or path.startswith("/health/")
+            or path.startswith("/sw.js")
+            or path.startswith("/manifest.json")
+            or path == "/agreement/"
+        ):
+            return self.get_response(request)
+
+        member = getattr(request.user, "member", None)
+        if member and member.needs_member_agreement:
+            if self._is_agreement_document(request):
+                return self.get_response(request)
+
+            from core.htmx import wants_fragment
+            from django.urls import reverse
+            from django.shortcuts import redirect
+            import urllib.parse
+
+            next_url = urllib.parse.quote(request.get_full_path())
+            agreement_url = f"{reverse('hub_member_agreement')}?next={next_url}"
+            if wants_fragment(request):
+                from django.http import HttpResponse
+
+                res = HttpResponse(status=200)
+                res["HX-Redirect"] = agreement_url
+                return res
+
+            return redirect(agreement_url)
+
+        return self.get_response(request)

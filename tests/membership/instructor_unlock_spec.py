@@ -66,18 +66,18 @@ def describe_teaching_application_state():
 
     def it_reads_pending_once_they_apply():
         member = _linked_member("state-pending")
-        member.apply_to_teach("Wheel throwing.")
+        member.apply_to_teach("Wheel throwing.", contact_method="email", contact_detail="reach@example.com")
         assert member.teaching_application_state == Member.TeachingApplicationState.PENDING
 
     def it_reads_declined_once_an_admin_says_no():
         member = _linked_member("state-declined")
-        member.apply_to_teach("Wheel throwing.")
+        member.apply_to_teach("Wheel throwing.", contact_method="email", contact_detail="reach@example.com")
         member.decline_teaching(decided_by=None, reason="Do the orientation first.")
         assert member.teaching_application_state == Member.TeachingApplicationState.DECLINED
 
     def it_reads_approved_once_teaching_is_granted():
         member = _linked_member("state-approved")
-        member.apply_to_teach("Wheel throwing.")
+        member.apply_to_teach("Wheel throwing.", contact_method="email", contact_detail="reach@example.com")
         member.grant_teaching(granted_by=None)
         assert member.teaching_application_state == Member.TeachingApplicationState.APPROVED
 
@@ -91,14 +91,14 @@ def describe_teaching_application_state():
     def it_stays_pending_when_a_decision_stamp_carries_no_reason():
         # A half-written decline (stamp, no reason) must never mask a live application.
         member = _linked_member("state-halfdecline")
-        member.apply_to_teach("Wheel throwing.")
+        member.apply_to_teach("Wheel throwing.", contact_method="email", contact_detail="reach@example.com")
         member.teaching_decided_at = timezone.now()
         member.save(update_fields=["teaching_decided_at"])
         assert member.teaching_application_state == Member.TeachingApplicationState.PENDING
 
     def it_stays_pending_when_a_reason_carries_no_decision_stamp():
         member = _linked_member("state-halfreason")
-        member.apply_to_teach("Wheel throwing.")
+        member.apply_to_teach("Wheel throwing.", contact_method="email", contact_detail="reach@example.com")
         member.teaching_decline_reason = "Not yet."
         member.save(update_fields=["teaching_decline_reason"])
         assert member.teaching_application_state == Member.TeachingApplicationState.PENDING
@@ -108,7 +108,9 @@ def describe_apply_to_teach():
     def it_stamps_the_note_logs_the_activity_and_notifies_the_admins():
         _fog_admin("apply-admin")
         member = _linked_member("apply-ok")
-        member.apply_to_teach("  Intro to wheel throwing.  ")
+        member.apply_to_teach(
+            "  Intro to wheel throwing.  ", contact_method="email", contact_detail="reach@example.com"
+        )
         member.refresh_from_db()
         assert member.teaching_applied_at is not None
         assert member.teaching_application_note == "Intro to wheel throwing."
@@ -119,14 +121,14 @@ def describe_apply_to_teach():
     def it_raises_on_a_blank_note():
         member = _linked_member("apply-blank")
         with pytest.raises(ValueError):
-            member.apply_to_teach("   ")
+            member.apply_to_teach("   ", contact_method="email", contact_detail="reach@example.com")
         member.refresh_from_db()
         assert member.teaching_applied_at is None
 
     def it_raises_for_an_inactive_member():
         member = MemberFactory(status=Member.Status.FORMER)
         with pytest.raises(ValueError):
-            member.apply_to_teach("Let me in.")
+            member.apply_to_teach("Let me in.", contact_method="email", contact_detail="reach@example.com")
         member.refresh_from_db()
         assert member.teaching_applied_at is None
 
@@ -137,7 +139,7 @@ def describe_apply_to_teach():
         member.instructor_oriented_at = timezone.now()
         member.save(update_fields=["instructor_oriented_at"])
         with pytest.raises(ValueError):
-            member.apply_to_teach("Let me apply again.")
+            member.apply_to_teach("Let me apply again.", contact_method="email", contact_detail="reach@example.com")
         member.refresh_from_db()
         assert member.teaching_applied_at is None
         assert not SiteActivity.objects.filter(kind=SiteActivity.Kind.TEACHING_APPLIED).exists()
@@ -145,30 +147,104 @@ def describe_apply_to_teach():
 
     def it_raises_rather_than_overwriting_a_pending_application():
         member = _linked_member("apply-twice")
-        member.apply_to_teach("First ask.")
+        member.apply_to_teach("First ask.", contact_method="email", contact_detail="reach@example.com")
         first_stamp = Member.objects.get(pk=member.pk).teaching_applied_at
         with pytest.raises(ValueError):
-            member.apply_to_teach("Second ask.")
+            member.apply_to_teach("Second ask.", contact_method="email", contact_detail="reach@example.com")
         member.refresh_from_db()
         assert member.teaching_applied_at == first_stamp
         assert member.teaching_application_note == "First ask."
 
     def it_clears_a_previous_decline_so_a_re_application_is_clean():
         member = _linked_member("apply-again")
-        member.apply_to_teach("First ask.")
+        member.apply_to_teach("First ask.", contact_method="email", contact_detail="reach@example.com")
         member.decline_teaching(decided_by=None, reason="Not yet.")
-        member.apply_to_teach("Second ask, with the orientation done.")
+        member.apply_to_teach(
+            "Second ask, with the orientation done.", contact_method="email", contact_detail="reach@example.com"
+        )
         member.refresh_from_db()
         assert member.teaching_decline_reason == ""
         assert member.teaching_decided_at is None
         assert member.teaching_application_state == Member.TeachingApplicationState.PENDING
+
+    def it_stores_how_to_reach_them_and_tells_the_admins():
+        """Issue #536: the method and the detail are saved with the note and reach the admins."""
+        admin = _fog_admin("apply-admin-contact")
+        member = _linked_member("apply-contact")
+        member.apply_to_teach("Wheel throwing.", contact_method="text", contact_detail="  503 555 0100  ")
+        member.refresh_from_db()
+        assert member.teaching_contact_method == Member.TeachingContactMethod.TEXT
+        assert member.teaching_contact_detail == "503 555 0100"
+        note = Notification.objects.get(trigger="instructor_application_received", user=admin.user)
+        assert note.title == f"{member.display_name} wants to be an instructor"
+        assert note.body.startswith(
+            f"{member.display_name} wants to be an instructor. Contact them at 503 555 0100 (text message)."
+        )
+        assert '"Wheel throwing."' in note.body
+
+    @pytest.mark.parametrize(
+        ("method", "detail", "label"),
+        [("email", "robin@example.com", "email"), ("phone", "503 555 0100", "phone call")],
+    )
+    def it_names_the_method_in_lower_case_prose_for_every_choice(method, detail, label):
+        admin = _fog_admin(f"apply-admin-label-{method}")
+        member = _linked_member(f"apply-label-{method}")
+        member.apply_to_teach("Wheel throwing.", contact_method=method, contact_detail=detail)
+        note = Notification.objects.get(trigger="instructor_application_received", user=admin.user)
+        assert f"Contact them at {detail} ({label})." in note.body
+
+    def it_raises_on_a_blank_contact_method():
+        member = _linked_member("apply-no-method")
+        with pytest.raises(ValueError):
+            member.apply_to_teach("Wheel throwing.", contact_method="", contact_detail="503 555 0100")
+        member.refresh_from_db()
+        assert member.teaching_applied_at is None
+        assert member.teaching_contact_method == ""
+
+    def it_raises_on_an_unknown_contact_method():
+        member = _linked_member("apply-fax")
+        with pytest.raises(ValueError):
+            member.apply_to_teach("Wheel throwing.", contact_method="fax", contact_detail="503 555 0100")
+        member.refresh_from_db()
+        assert member.teaching_applied_at is None
+
+    def it_raises_on_a_blank_contact_detail():
+        member = _linked_member("apply-no-detail")
+        with pytest.raises(ValueError):
+            member.apply_to_teach("Wheel throwing.", contact_method="email", contact_detail="   ")
+        member.refresh_from_db()
+        assert member.teaching_applied_at is None
+        assert member.teaching_contact_detail == ""
+
+    def it_overwrites_the_previous_contact_pair_when_they_apply_again():
+        member = _linked_member("apply-again-contact")
+        member.apply_to_teach("First ask.", contact_method="email", contact_detail="first@example.com")
+        member.decline_teaching(decided_by=None, reason="Not yet.")
+        member.apply_to_teach("Second ask.", contact_method="phone", contact_detail="503 555 0100")
+        member.refresh_from_db()
+        assert member.teaching_contact_method == Member.TeachingContactMethod.PHONE
+        assert member.teaching_contact_detail == "503 555 0100"
+
+
+def describe_teaching_contact_method_label():
+    def it_is_blank_for_an_application_filed_before_the_question_existed():
+        member = MemberFactory()
+        assert member.teaching_contact_method_label == ""
+
+    @pytest.mark.parametrize(
+        ("method", "label"),
+        [("email", "email"), ("text", "text message"), ("phone", "phone call")],
+    )
+    def it_reads_the_choice_label_in_lower_case(method, label):
+        member = MemberFactory(teaching_contact_method=method)
+        assert member.teaching_contact_method_label == label
 
 
 def describe_decline_teaching():
     def it_stamps_the_reason_logs_the_activity_and_emails_the_member():
         admin = _linked_member("decline-admin")
         member = _linked_member("decline-ok")
-        member.apply_to_teach("Wheel throwing.")
+        member.apply_to_teach("Wheel throwing.", contact_method="email", contact_detail="reach@example.com")
         member.decline_teaching(decided_by=admin, reason="  Do the wheel orientation first.  ")
         member.refresh_from_db()
         assert member.teaching_decline_reason == "Do the wheel orientation first."
@@ -179,7 +255,7 @@ def describe_decline_teaching():
 
     def it_raises_on_a_blank_reason():
         member = _linked_member("decline-blank")
-        member.apply_to_teach("Wheel throwing.")
+        member.apply_to_teach("Wheel throwing.", contact_method="email", contact_detail="reach@example.com")
         with pytest.raises(ValueError):
             member.decline_teaching(decided_by=None, reason="   ")
         member.refresh_from_db()
@@ -188,7 +264,7 @@ def describe_decline_teaching():
 
     def it_attributes_the_activity_to_the_system_for_a_superuser_with_no_member():
         member = _linked_member("decline-system")
-        member.apply_to_teach("Wheel throwing.")
+        member.apply_to_teach("Wheel throwing.", contact_method="email", contact_detail="reach@example.com")
         member.decline_teaching(decided_by=None, reason="Not yet.")
         row = SiteActivity.objects.get(kind=SiteActivity.Kind.TEACHING_APPLICATION_DECLINED)
         assert row.actor is None
@@ -203,14 +279,14 @@ def describe_decline_teaching():
 
     def it_raises_for_a_member_who_can_already_teach():
         member = _linked_member("decline-instructor")
-        member.apply_to_teach("Wheel throwing.")
+        member.apply_to_teach("Wheel throwing.", contact_method="email", contact_detail="reach@example.com")
         member.grant_teaching(granted_by=None)
         with pytest.raises(ValueError):
             member.decline_teaching(decided_by=None, reason="Changed my mind.")
 
     def it_truncates_an_over_long_reason_to_the_field_width():
         member = _linked_member("decline-long")
-        member.apply_to_teach("Wheel throwing.")
+        member.apply_to_teach("Wheel throwing.", contact_method="email", contact_detail="reach@example.com")
         member.decline_teaching(decided_by=None, reason="x" * 400)
         member.refresh_from_db()
         assert len(member.teaching_decline_reason) == 300
@@ -237,7 +313,7 @@ def describe_grant_teaching():
 
     def it_emails_the_applicant_when_answering_a_real_application():
         member = _linked_member("grant-applied")
-        member.apply_to_teach("Wheel throwing.")
+        member.apply_to_teach("Wheel throwing.", contact_method="email", contact_detail="reach@example.com")
         member.grant_teaching(granted_by=None)
         member.refresh_from_db()
         assert member.teaching_decided_at is not None
@@ -250,7 +326,7 @@ def describe_grant_teaching():
 
     def it_clears_a_previous_decline():
         member = _linked_member("grant-after-decline")
-        member.apply_to_teach("Wheel throwing.")
+        member.apply_to_teach("Wheel throwing.", contact_method="email", contact_detail="reach@example.com")
         member.decline_teaching(decided_by=None, reason="Not yet.")
         member.grant_teaching(granted_by=None)
         member.refresh_from_db()
@@ -279,7 +355,7 @@ def describe_revoke_teaching():
         # application that was already answered.
         admin = _linked_member("revoke-applicant")
         member = _linked_member("revoke-applied")
-        member.apply_to_teach("Wheel throwing.")
+        member.apply_to_teach("Wheel throwing.", contact_method="email", contact_detail="reach@example.com")
         member.grant_teaching(granted_by=admin)
         member.revoke_teaching(revoked_by=admin)
         member.refresh_from_db()

@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
-from datetime import timedelta
+import re
+from datetime import date, timedelta
+from unittest import mock
 
 import pytest
 from django.test import override_settings
@@ -418,43 +420,31 @@ def describe_public_list():
         assert b"Intro to Wheel Throwing" not in response.content
         assert b"Cheap Class" in response.content
 
-    def it_filters_members_only(db, client):
+    def it_ignores_the_retired_members_only_filter(db, client):
+        # The automatic member discount is gone, so a bookmarked ``?members_only=1`` narrows
+        # nothing: every browsable class lists, and the form has no control for it.
         cat = CategoryFactory()
         inst = InstructorFactory()
-        members_only = ClassOfferingFactory(
-            title="Members Class",
-            slug="members-class",
-            category=cat,
-            instructor=inst,
-            status=ClassOffering.Status.PUBLISHED,
-            member_discount_pct=15,
-        )
-        no_discount = ClassOfferingFactory(
-            title="Open Class",
-            slug="open-class",
-            category=cat,
-            instructor=inst,
-            status=ClassOffering.Status.PUBLISHED,
-            member_discount_pct=0,
-        )
-        ClassSessionFactory(
-            class_offering=members_only,
-            starts_at=timezone.now() + timedelta(days=1),
-            ends_at=timezone.now() + timedelta(days=1, hours=2),
-        )
-        ClassSessionFactory(
-            class_offering=no_discount,
-            starts_at=timezone.now() + timedelta(days=2),
-            ends_at=timezone.now() + timedelta(days=2, hours=2),
-        )
+        for title, slug, days in (("Anvil Class", "anvil-class", 1), ("Bellows Class", "bellows-class", 2)):
+            offering = ClassOfferingFactory(
+                title=title, slug=slug, category=cat, instructor=inst, status=ClassOffering.Status.PUBLISHED
+            )
+            ClassSessionFactory(
+                class_offering=offering,
+                starts_at=timezone.now() + timedelta(days=days),
+                ends_at=timezone.now() + timedelta(days=days, hours=2),
+            )
         response = client.get(reverse("classes:public_list") + "?members_only=1")
-        assert b"Members Class" in response.content
-        assert b"Open Class" not in response.content
+        assert b"Anvil Class" in response.content
+        assert b"Bellows Class" in response.content
+        assert b'name="members_only"' not in response.content
 
-    def it_filters_free_classes(db, client):
+    def it_ignores_the_retired_free_filter(db, client):
+        # #389: every class has a price now, so ``?free=1`` filters nothing and the
+        # "Free classes" control is gone. A legacy $0 row still lists like any other.
         cat = CategoryFactory()
         inst = InstructorFactory()
-        free = ClassOfferingFactory(
+        legacy_free = ClassOfferingFactory(
             title="Free Workshop",
             slug="free-workshop",
             category=cat,
@@ -471,7 +461,7 @@ def describe_public_list():
             price_cents=2000,
         )
         ClassSessionFactory(
-            class_offering=free,
+            class_offering=legacy_free,
             starts_at=timezone.now() + timedelta(days=1),
             ends_at=timezone.now() + timedelta(days=1, hours=2),
         )
@@ -482,7 +472,11 @@ def describe_public_list():
         )
         response = client.get(reverse("classes:public_list") + "?free=1")
         assert b"Free Workshop" in response.content
-        assert b"Paid Workshop" not in response.content
+        assert b"Paid Workshop" in response.content
+        # The changelog modal (rendered on every page) mentions "Free classes" in old
+        # entries, so the assertions target the control's markup, not the bare phrase.
+        assert b'name="free"' not in response.content
+        assert b"<span>Free classes</span>" not in response.content
 
     def it_filters_upcoming_classes(db, client):
         cat = CategoryFactory()
@@ -569,6 +563,20 @@ def describe_public_class_detail():
         response = client.get(reverse("classes:public_class_detail", kwargs={"slug": offering.slug}))
         assert response.status_code == 404
 
+    def it_offers_register_now_even_for_a_legacy_free_row(db, client):
+        # #389: the "Register — Free" label is retired with the free option; a $0 row
+        # left over from before the $1.00 floor gets the same button as every class.
+        offering = ClassOfferingFactory(status=ClassOffering.Status.PUBLISHED, slug="legacy-free", price_cents=0)
+        ClassSessionFactory(
+            class_offering=offering,
+            starts_at=timezone.now() + timedelta(days=1),
+            ends_at=timezone.now() + timedelta(days=1, hours=2),
+        )
+        response = client.get(reverse("classes:public_class_detail", kwargs={"slug": offering.slug}))
+        assert response.status_code == 200
+        assert b"Register now" in response.content
+        assert "Register — Free".encode() not in response.content
+
     def it_shows_sold_out_when_no_spots_remain(published_class, client):
         from classes.factories import RegistrationFactory
         from classes.models import Registration
@@ -605,6 +613,43 @@ def describe_public_class_detail():
         assert escape(published_class.seo_title) in html
         assert 'name="description"' in html
         assert escape(published_class.seo_description[:30]) in html
+
+    def _anvil_class(instructor) -> ClassOffering:
+        offering = ClassOfferingFactory(
+            status=ClassOffering.Status.PUBLISHED, slug="anvil-hours", instructor=instructor
+        )
+        ClassSessionFactory(
+            class_offering=offering,
+            starts_at=timezone.now() + timedelta(days=4),
+            ends_at=timezone.now() + timedelta(days=4, hours=3),
+        )
+        return offering
+
+    def it_shows_the_teaching_bio_in_the_instructor_card_not_the_directory_bio(db, client):
+        # #526: the card read `about_me`, the member-directory blurb, so what an instructor wrote
+        # under "About me as an instructor" never reached their class pages. Same rule as the
+        # instructor page (``it_renders_the_instructor_bio_not_the_directory_bio`` below).
+        instructor = InstructorFactory(
+            full_legal_name="Sadie",
+            instructor_slug="sadie",
+            about_me="Member directory blurb",
+            instructor_bio="Twenty years at the anvil.",
+        )
+        response = client.get(reverse("classes:public_class_detail", kwargs={"slug": _anvil_class(instructor).slug}))
+        assert response.status_code == 200
+        assert b"Twenty years at the anvil." in response.content
+        assert b"Member directory blurb" not in response.content
+
+    def it_shows_no_bio_at_all_when_the_teaching_bio_is_blank(db, client):
+        # No fallback to the directory blurb: it carries a directory-only privacy toggle that a
+        # public class page cannot honour, so it stays off the page rather than leaking.
+        instructor = InstructorFactory(
+            full_legal_name="Sadie", instructor_slug="sadie", about_me="Member directory blurb", instructor_bio=""
+        )
+        response = client.get(reverse("classes:public_class_detail", kwargs={"slug": _anvil_class(instructor).slug}))
+        assert response.status_code == 200
+        assert b"Member directory blurb" not in response.content
+        assert b"Sadie" in response.content
 
     def describe_related_classes():
         def it_recommends_upcoming_classes_in_the_same_category(published_class, client):
@@ -948,6 +993,61 @@ def describe_detail_hero_fallback():
         assert "img/favicon.png" in resp.content.decode()
 
 
+def _banner_src(body: str) -> str:
+    """The src of the class page banner, the one img.cp-detail__hero-img."""
+    tag = re.search(r'<img class="cp-detail__hero-img"[^>]*>', body)
+    assert tag is not None, "no banner rendered"
+    src = re.search(r'src="([^"]*)"', tag.group(0))
+    assert src is not None, tag.group(0)
+    return src.group(1)
+
+
+def describe_detail_hero_crop():
+    """Issue #547: the banner shows the copy cut to the composer's crop box, else the upload."""
+
+    def it_shows_the_cropped_copy_on_the_banner(client, db):
+        offering = ClassOfferingFactory(
+            status=ClassOffering.Status.PUBLISHED,
+            image__width=1000,
+            image__height=600,
+            hero_crop_x=100,
+            hero_crop_y=50,
+            hero_crop_w=400,
+            hero_crop_h=225,
+        )
+        assert "hero-crops/" in offering.hero_cropped.url
+        body = client.get(reverse("classes:public_class_detail", kwargs={"slug": offering.slug})).content.decode()
+        assert _banner_src(body) == offering.hero_cropped.url
+        # The related classes strip and the card share the accessor; the original is nowhere.
+        assert offering.image.url not in body
+
+    def it_shows_the_upload_on_the_banner_without_a_box(client, db):
+        offering = ClassOfferingFactory(status=ClassOffering.Status.PUBLISHED, image__width=1000, image__height=600)
+        assert not offering.hero_cropped
+        body = client.get(reverse("classes:public_class_detail", kwargs={"slug": offering.slug})).content.decode()
+        assert _banner_src(body) == offering.image.url
+
+    def it_shows_the_cropped_copy_on_a_related_class_card(client, db):
+        shared = CategoryFactory(name="Crop Related")
+        ClassOfferingFactory(status=ClassOffering.Status.PUBLISHED, slug="crop-host", category=shared)
+        related = ClassOfferingFactory(
+            status=ClassOffering.Status.PUBLISHED,
+            slug="crop-related",
+            category=shared,
+            image__width=1000,
+            image__height=600,
+            hero_crop_x=0,
+            hero_crop_y=0,
+            hero_crop_w=400,
+            hero_crop_h=225,
+        )
+        start = timezone.now() + timedelta(days=7)
+        ClassSessionFactory(class_offering=related, starts_at=start, ends_at=start + timedelta(hours=2))
+        body = client.get(reverse("classes:public_class_detail", kwargs={"slug": "crop-host"})).content.decode()
+        assert f'src="{related.hero_cropped.url}"' in body
+        assert related.image.url not in body
+
+
 def describe_all_guild_types_show():
     """Every guild type (Category) appears in the catalog, even with zero bookable classes."""
 
@@ -1009,3 +1109,336 @@ def describe_all_guild_types_show():
 
         slugs = {c.slug for c in response.context["categories"]}
         assert "demo-lamp-working" in slugs
+
+
+def describe_the_description_on_the_class_page():
+    def it_renders_editor_html_formatted_and_sanitized(published_class, client):
+        published_class.description = (
+            "<p>Make a <strong>coat hook</strong>.</p><ul><li>Bring gloves</li></ul><script>evil()</script>"
+        )
+        published_class.save(update_fields=["description"])
+
+        html = client.get(
+            reverse("classes:public_class_detail", kwargs={"slug": published_class.slug})
+        ).content.decode()
+
+        prose = html.split('class="cp-detail__prose"', 1)[1].split("</section>", 1)[0]
+        assert "<strong>coat hook</strong>" in prose
+        assert "<ul><li>Bring gloves</li></ul>" in prose
+        assert "<script" not in prose
+
+    def it_renders_a_pre_editor_description_as_escaped_paragraphs(published_class, client):
+        published_class.description = "Wear <closed toe shoes>.\n\nTake it home."
+        published_class.save(update_fields=["description"])
+
+        html = client.get(
+            reverse("classes:public_class_detail", kwargs={"slug": published_class.slug})
+        ).content.decode()
+
+        prose = html.split('class="cp-detail__prose"', 1)[1].split("</section>", 1)[0]
+        assert "<p>Wear &lt;closed toe shoes&gt;.</p><p>Take it home.</p>" in prose
+
+    def it_keeps_the_meta_description_plain(published_class, client):
+        published_class.description = "<p>Make a <strong>coat hook</strong> &amp; hanger.</p>"
+        published_class.save(update_fields=["description"])
+
+        assert published_class.seo_description.startswith("Make a coat hook & hanger.")
+
+
+def describe_detail_guild_card():
+    """The guild's About text is plain text; its paragraphs and line breaks must survive on the class page."""
+
+    def it_keeps_the_guild_about_paragraphs_and_line_breaks(client, db):
+        from classes.factories import ClassOfferingFactory
+        from classes.models import ClassOffering
+        from membership.models import Guild
+
+        guild = Guild.objects.create(
+            name="Metalworkers Guild",
+            slug="metalworkers-guild",
+            about="Welcome to the metal shop.\n\n• Two gas forges\n• MIG and TIG welding",
+        )
+        offering = ClassOfferingFactory(
+            status=ClassOffering.Status.PUBLISHED,
+            category__name="Metalworking",
+            category__guild=guild,
+        )
+        resp = client.get(reverse("classes:public_class_detail", kwargs={"slug": offering.slug}))
+        assert resp.status_code == 200
+        body = resp.content.decode()
+        assert "<p>Welcome to the metal shop.</p>" in body
+        assert "• Two gas forges<br>• MIG and TIG welding" in body
+
+    def it_falls_back_to_the_partnership_line_when_about_is_empty(client, db):
+        from classes.factories import ClassOfferingFactory
+        from classes.models import ClassOffering
+        from membership.models import Guild
+
+        guild = Guild.objects.create(name="Glass Guild", slug="glass-guild", about="")
+        offering = ClassOfferingFactory(
+            status=ClassOffering.Status.PUBLISHED,
+            category__name="Glass",
+            category__guild=guild,
+        )
+        resp = client.get(reverse("classes:public_class_detail", kwargs={"slug": offering.slug}))
+        assert "offered in partnership with the Glass Guild" in resp.content.decode()
+
+
+def describe_a_flexible_class_page():
+    """A flexible class explains itself (#545): the window, how booking works, never a Schedule.
+
+    Positive anchors are markup (data-flexible-section, the pill class) and factory strings
+    (the instructor's name, the window dates); negative ones are the Schedule's own markup.
+    """
+
+    def _flexible(**traits) -> ClassOffering:
+        # One Billy per spec: the slug is unique, and several specs build more than one class.
+        billy = Member.objects.filter(instructor_slug="billy").first()
+        traits.setdefault(
+            "instructor", billy or InstructorFactory(full_legal_name="Billy Anvil", instructor_slug="billy")
+        )
+        return ClassOfferingFactory(
+            status=ClassOffering.Status.PUBLISHED, scheduling_model=ClassOffering.SchedulingModel.FLEXIBLE, **traits
+        )
+
+    def _page(client, offering: ClassOffering) -> str:
+        response = client.get(reverse("classes:public_class_detail", kwargs={"slug": offering.slug}))
+        assert response.status_code == 200
+        return response.content.decode()
+
+    def _section(html: str) -> str:
+        return html.split('<section class="cp-detail__section" data-flexible-section>')[1].split("</section>")[0]
+
+    def it_shows_the_window_in_bold_and_the_booking_sentence_naming_the_instructor(db, client):
+        offering = _flexible(flexible_starts_on=date(2026, 11, 2), flexible_ends_on=date(2026, 12, 1))
+        section = _section(_page(client, offering))
+        assert '<h2 class="cp-detail__h2">Flexible Date Range</h2>' in section
+        assert "<strong>Nov 2 to Dec 1, 2026</strong>" in section
+        assert "with Billy Anvil and pick a day inside this window that works for both of you." in section
+
+    def it_renders_each_window_shape(db, client):
+        shapes = [
+            ({"flexible_starts_on": date(2026, 11, 2)}, "From Nov 2, 2026"),
+            ({"flexible_ends_on": date(2026, 12, 1)}, "Through Dec 1, 2026"),
+            (
+                {"flexible_starts_on": date(2026, 12, 20), "flexible_ends_on": date(2027, 1, 10)},
+                "Dec 20, 2026 to Jan 10, 2027",
+            ),
+        ]
+        for traits, label in shapes:
+            section = _section(_page(client, _flexible(**traits)))
+            assert f"<strong>{label}</strong>" in section, traits
+            assert "Flexible Date Range" in section, traits
+            assert "inside this window" in section, traits
+
+    def it_reads_flexible_scheduling_with_no_window_and_no_window_words(db, client):
+        section = _section(_page(client, _flexible()))
+        assert '<h2 class="cp-detail__h2">Flexible Scheduling</h2>' in section
+        assert "cp-detail__flex-window" not in section
+        assert "with Billy Anvil and pick a day that works for both of you." in section
+        assert "inside this window" not in section
+
+    def it_shows_the_instructors_note_after_the_sentence_when_there_is_one(db, client):
+        section = _section(_page(client, _flexible(flexible_note="Weekday mornings only.")))
+        assert "cp-detail__flex-instructor-note" in section
+        assert section.index("Billy Anvil") < section.index("Weekday mornings only.")
+        assert "cp-detail__flex-instructor-note" not in _section(_page(client, _flexible(slug="quiet")))
+
+    def it_never_renders_the_schedule_for_a_class_still_carrying_a_month_long_session(db, client):
+        # The shape of production class 665: a flexible class with one 703 hour session row.
+        offering = _flexible(slug="billy-november")
+        start = timezone.now() + timedelta(days=2)
+        ClassSessionFactory(class_offering=offering, starts_at=start, ends_at=start + timedelta(hours=703))
+        html = _page(client, offering)
+        assert "data-flexible-section" in html
+        assert "cp-detail__sessions" not in html
+        assert "cp-detail__h2-sub" not in html
+        assert "h total" not in html
+        assert 'cp-detail__next-pill">Next session' not in html
+        assert 'cp-detail__next-pill cp-detail__next-pill--flex">Flexible scheduling' in html
+        assert "<strong>1</strong> session" not in html
+
+    def it_offers_register_now_through_the_last_day(db, client):
+        today = timezone.localdate()
+        html = _page(client, _flexible(flexible_starts_on=today - timedelta(days=10), flexible_ends_on=today))
+        assert 'data-help-key="class.register"' in html
+        assert "data-flexible-closed" not in html
+        assert 'cp-detail__spots--full">Registration closed' not in html
+
+    def it_closes_registration_the_day_after_the_last_day_naming_the_date(db, client):
+        offering = _flexible(flexible_starts_on=date(2026, 11, 2), flexible_ends_on=date(2026, 12, 1))
+        with mock.patch("classes.models.timezone.localdate", return_value=date(2026, 12, 2)):
+            html = _page(client, offering)
+        assert 'cp-detail__spots--full">Registration closed' in html
+        assert "data-flexible-closed>This class's booking window ended Dec 1, 2026.</div>" in html
+        assert 'data-help-key="class.register"' not in html
+        assert "has already started" not in html.split("data-flexible-closed")[1].split("</div>")[0]
+
+    def it_shows_the_window_under_the_flex_line_on_the_catalog_card(db, client):
+        _flexible(
+            title="Open Forge",
+            slug="open-forge",
+            flexible_starts_on=date(2026, 11, 2),
+            flexible_ends_on=date(2026, 12, 1),
+        )
+        _flexible(title="Any Time Forge", slug="any-time-forge")
+        html = client.get(reverse("classes:public_list")).content.decode()
+        assert html.count('<div class="cls-schedule__flex">Flexible: schedule with the instructor</div>') == 2
+        assert html.count('<div class="cls-schedule__window">') == 1
+        assert '<div class="cls-schedule__window">Nov 2 to Dec 1, 2026</div>' in html
+
+    def it_leaves_the_catalog_the_day_after_the_last_day(db, client):
+        _flexible(title="Open Forge", slug="open-forge", flexible_ends_on=date(2026, 12, 1))
+        with mock.patch("classes.models.timezone.localdate", return_value=date(2026, 12, 1)):
+            assert b"Open Forge" in client.get(reverse("classes:public_list")).content
+        with mock.patch("classes.models.timezone.localdate", return_value=date(2026, 12, 2)):
+            assert b"Open Forge" not in client.get(reverse("classes:public_list")).content
+
+
+def describe_the_rail_and_the_card_of_a_flexible_class():
+    """No seat cap (#545): no count, no max class size, no waitlist; Register now however many hold a seat."""
+
+    def _flexible(**traits) -> ClassOffering:
+        return ClassOfferingFactory(
+            status=ClassOffering.Status.PUBLISHED, scheduling_model=ClassOffering.SchedulingModel.FLEXIBLE, **traits
+        )
+
+    def _rail(html: str) -> str:
+        return html.split('<div class="cp-detail__rail-card">')[1].split("</ul>")[0]
+
+    def it_offers_register_now_past_the_stored_capacity_with_no_seat_math(db, client):
+        from classes.factories import RegistrationFactory
+        from classes.models import Registration
+
+        offering = _flexible(slug="open-forge", capacity=1)
+        for _ in range(3):
+            RegistrationFactory(class_offering=offering, status=Registration.Status.CONFIRMED)
+        html = client.get(reverse("classes:public_class_detail", kwargs={"slug": offering.slug})).content.decode()
+        rail = _rail(html)
+        assert 'data-help-key="class.register"' in rail
+        assert "cp-detail__spots" not in rail
+        assert "max class size" not in rail
+        assert "?waitlist=1" not in rail
+        assert "cp-detail__cta--waitlist" not in rail
+        assert "<strong>1</strong> session" not in rail
+
+    def it_keeps_the_seat_math_on_a_fixed_class(published_class, client):
+        html = client.get(
+            reverse("classes:public_class_detail", kwargs={"slug": published_class.slug})
+        ).content.decode()
+        rail = _rail(html)
+        assert "cp-detail__spots--ok" in rail
+        assert f"<strong>{published_class.capacity}</strong> max class size" in rail
+
+    def it_shows_no_seat_pill_on_the_catalog_card(db, client):
+        from classes.factories import RegistrationFactory
+        from classes.models import Registration
+
+        offering = _flexible(title="Open Forge", slug="open-forge", capacity=1)
+        RegistrationFactory(class_offering=offering, status=Registration.Status.CONFIRMED)
+        fixed = ClassOfferingFactory(title="Fixed Forge", slug="fixed-forge", status=ClassOffering.Status.PUBLISHED)
+        ClassSessionFactory(class_offering=fixed, starts_at=timezone.now() + timedelta(days=3))
+        html = client.get(reverse("classes:public_list")).content.decode()
+        cards = html.split('<div class="cls-card"')
+        flexible_card = next(card for card in cards if "Open Forge" in card)
+        fixed_card = next(card for card in cards if "Fixed Forge" in card)
+        assert 'class="cls-spots' not in flexible_card
+        assert "Sold out" not in flexible_card
+        assert 'class="cls-spots ok"' in fixed_card
+
+    def it_shows_no_seat_pill_on_a_flexible_date_option_row(db, client):
+        # Two runs of one class, grouped on the card: the flexible option row carries no pill.
+        instructor = InstructorFactory(full_legal_name="Group Lead", instructor_slug="group-lead")
+        category = CategoryFactory(name="Forge", slug="forge")
+        fixed = ClassOfferingFactory(
+            title="Grouped Forge",
+            slug="grouped-forge-1",
+            status=ClassOffering.Status.PUBLISHED,
+            instructor=instructor,
+            category=category,
+        )
+        ClassSessionFactory(class_offering=fixed, starts_at=timezone.now() + timedelta(days=3))
+        _flexible(title="Grouped Forge", slug="grouped-forge-2", instructor=instructor, category=category, capacity=1)
+        html = client.get(reverse("classes:public_list")).content.decode()
+        # Each row clipped at its own closing tag, so the last one never swallows the card footer's pill.
+        rows = [row.split("</a>")[0] for row in html.split('<a class="cls-schedule__row cls-schedule__row--pick"')]
+        assert len(rows) == 3
+        flexible_row = next(row for row in rows[1:] if "grouped-forge-2" in row)
+        fixed_row = next(row for row in rows[1:] if "grouped-forge-1" in row)
+        assert 'class="cls-spots' not in flexible_row
+        assert 'class="cls-spots ok"' in fixed_row
+        # The flexible row dates nothing: the flex line stands in for the session date.
+        assert '<span class="cls-schedule__date">Flexible: schedule with the instructor</span>' in flexible_row
+        assert "cls-schedule__time" not in flexible_row
+
+    def it_shows_the_flex_line_and_no_seat_pill_on_a_flexible_other_date_row(db, client):
+        # The detail page's "Other Dates for This Class" rows are the card rows' twin: a flexible
+        # sibling of a fixed class shows the flex line with its window and no pill, never "None spots".
+        instructor = InstructorFactory(full_legal_name="Group Lead", instructor_slug="group-lead")
+        category = CategoryFactory(name="Forge", slug="forge")
+        fixed = ClassOfferingFactory(
+            title="Grouped Forge",
+            slug="grouped-forge-1",
+            status=ClassOffering.Status.PUBLISHED,
+            instructor=instructor,
+            category=category,
+        )
+        ClassSessionFactory(class_offering=fixed, starts_at=timezone.now() + timedelta(days=3))
+        _flexible(
+            title="Grouped Forge",
+            slug="grouped-forge-2",
+            instructor=instructor,
+            category=category,
+            capacity=1,
+            flexible_starts_on=date(2026, 11, 2),
+            flexible_ends_on=date(2026, 12, 1),
+        )
+        html = client.get(reverse("classes:public_class_detail", kwargs={"slug": fixed.slug})).content.decode()
+        rows = html.split('<li class="cp-detail__other-date">')[1:]
+        assert len(rows) == 1
+        row = rows[0].split("</li>")[0]
+        assert "grouped-forge-2" in row
+        assert "Flexible: schedule with the instructor · Nov 2 to Dec 1, 2026" in row
+        assert "cls-spots" not in row
+        assert "None" not in row
+
+
+def describe_sale_markup():
+    """The Sale feature's public markup: badge and struck price on the card, banner and struck rail price."""
+
+    @pytest.fixture
+    def sale_class(published_class):
+        published_class.price_cents = 5000
+        published_class.sale_enabled = True
+        published_class.sale_kind = ClassOffering.SaleKind.PERCENT
+        published_class.sale_percent = 20  # $50 -> $40
+        published_class.sale_banner_text = "Summer blowout!"
+        published_class.save()
+        return published_class
+
+    def it_renders_the_sale_badge_and_struck_price_on_the_catalog_card(sale_class, client):
+        body = client.get(reverse("classes:public_list")).content.decode()
+        assert '<span class="badge sale">Sale</span>' in body
+        assert '<span class="cls-price--was">$50</span>' in body
+        assert '<span class="cls-price">$40</span>' in body
+
+    def it_renders_the_sale_banner_and_struck_rail_price_on_the_detail_page(sale_class, client):
+        url = reverse("classes:public_class_detail", kwargs={"slug": sale_class.slug})
+        body = client.get(url).content.decode()
+        assert 'class="cp-detail__sale-banner"' in body
+        assert "Summer blowout!" in body
+        assert "20% off" in body
+        assert '<div class="cp-detail__price--was">$50</div>' in body
+        assert '<div class="cp-detail__price">$40</div>' in body
+
+    def it_renders_the_struck_original_in_the_register_summary(sale_class, client):
+        body = client.get(reverse("classes:register", kwargs={"slug": sale_class.slug})).content.decode()
+        assert '<span class="reg-was">$50</span> $40' in body
+
+    def it_hides_all_sale_markup_when_no_sale_is_active(published_class, client):
+        body = client.get(reverse("classes:public_list")).content.decode()
+        assert "badge sale" not in body
+        assert "cls-price--was" not in body
+        url = reverse("classes:public_class_detail", kwargs={"slug": published_class.slug})
+        detail = client.get(url).content.decode()
+        assert "cp-detail__sale-banner" not in detail

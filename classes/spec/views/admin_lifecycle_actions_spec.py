@@ -19,7 +19,7 @@ from classes.factories import (
     RegistrationFactory,
     UserFactory,
 )
-from classes.models import ClassApproval, ClassOffering, CmsActivity, Registration
+from classes.models import READINESS_DESCRIPTION_HINT, ClassApproval, ClassOffering, CmsActivity, Registration
 from core.models import Notification
 from tests.membership.factories import GuildFactory
 
@@ -74,7 +74,6 @@ def _payload(cat, inst, **extra) -> dict:
         "category": cat.pk,
         "instructor": inst.pk,
         "price_cents": "50.00",
-        "member_discount_pct": 10,
         "capacity": 6,
         "scheduling_model": "flexible",
         "sale_kind": "percent",
@@ -297,7 +296,7 @@ def describe_admin_class_detail_actions():
     def it_shows_the_pipeline_strip_and_publish_confirm_on_a_pending_class(admin_user, client, db):
         offering = ClassOfferingFactory(status=Status.PENDING)
         client.force_login(admin_user)
-        html = client.get(reverse("classes:admin_class_detail", kwargs={"pk": offering.pk})).content.decode()
+        html = client.get(reverse("classes:teach_class_detail", kwargs={"pk": offering.pk})).content.decode()
         assert 'aria-label="Waiting on an admin"' in html
         assert "Publish this class?" in html
         assert "Review with notes" in html
@@ -315,7 +314,7 @@ def describe_admin_class_detail_actions():
             decided_at=timezone.now(),
         )
         client.force_login(admin_user)
-        html = client.get(reverse("classes:admin_class_detail", kwargs={"pk": offering.pk})).content.decode()
+        html = client.get(reverse("classes:teach_class_detail", kwargs={"pk": offering.pk})).content.decode()
         assert "Changes requested" in html
         assert "Fix the price." in html
 
@@ -323,27 +322,27 @@ def describe_admin_class_detail_actions():
         offering = _upcoming_published()
         RegistrationFactory(class_offering=offering, status=Registration.Status.CONFIRMED)
         client.force_login(admin_user)
-        html = client.get(reverse("classes:admin_class_detail", kwargs={"pk": offering.pk})).content.decode()
+        html = client.get(reverse("classes:teach_class_detail", kwargs={"pk": offering.pk})).content.decode()
         assert "Cancel this class?" in html
         assert "1 registered, 0 paid." in html
         assert "Cancel this class instead. It has upcoming dates and 1 active registrations." in html
         assert "Archive this class?" not in html
-        assert reverse("classes:admin_class_cancel", kwargs={"pk": offering.pk}) in html
+        assert reverse("classes:teach_class_cancel", kwargs={"pk": offering.pk}) in html
 
     def it_offers_archive_for_an_upcoming_class_without_registrations(admin_user, client, db):
         offering = _upcoming_published()
         client.force_login(admin_user)
-        html = client.get(reverse("classes:admin_class_detail", kwargs={"pk": offering.pk})).content.decode()
+        html = client.get(reverse("classes:teach_class_detail", kwargs={"pk": offering.pk})).content.decode()
         assert "Archive this class?" in html
         assert "Cancel this class?" in html
 
     def it_offers_restore_on_an_archived_class(admin_user, client, db):
         offering = ClassOfferingFactory(status=Status.ARCHIVED)
         client.force_login(admin_user)
-        html = client.get(reverse("classes:admin_class_detail", kwargs={"pk": offering.pk})).content.decode()
+        html = client.get(reverse("classes:teach_class_detail", kwargs={"pk": offering.pk})).content.decode()
         assert "Restore to draft?" in html
         assert reverse("classes:admin_class_restore", kwargs={"pk": offering.pk}) in html
-        assert reverse("classes:admin_class_edit", kwargs={"pk": offering.pk}) not in html
+        assert reverse("classes:teach_class_edit", kwargs={"pk": offering.pk}) not in html
         assert "Archive this class?" not in html
 
     def it_shows_the_cancel_record_on_a_cancelled_class(admin_user, client, db):
@@ -351,7 +350,7 @@ def describe_admin_class_detail_actions():
             status=Status.CANCELLED, cancelled_at=timezone.now(), cancellation_reason="Kiln broke"
         )
         client.force_login(admin_user)
-        html = client.get(reverse("classes:admin_class_detail", kwargs={"pk": offering.pk})).content.decode()
+        html = client.get(reverse("classes:teach_class_detail", kwargs={"pk": offering.pk})).content.decode()
         assert "Reason: Kiln broke" in html
         assert "Cancel this class?" not in html
         assert "Archive this class?" in html
@@ -359,9 +358,9 @@ def describe_admin_class_detail_actions():
     def it_shows_the_publish_confirm_to_a_cms_administrator(cms_admin_user, client, db):
         offering = ClassOfferingFactory(status=Status.PENDING)
         client.force_login(cms_admin_user)
-        html = client.get(reverse("classes:admin_class_detail", kwargs={"pk": offering.pk})).content.decode()
+        html = client.get(reverse("classes:teach_class_detail", kwargs={"pk": offering.pk})).content.decode()
         assert "Publish this class?" in html
-        assert reverse("classes:admin_class_cancel", kwargs={"pk": offering.pk}) not in html
+        assert reverse("classes:teach_class_cancel", kwargs={"pk": offering.pk}) not in html
         assert reverse("classes:admin_class_restore", kwargs={"pk": offering.pk}) not in html
 
 
@@ -372,10 +371,10 @@ def describe_admin_class_cancel():
         RegistrationFactory(class_offering=offering, email="booked@example.com", status=Registration.Status.CONFIRMED)
         client.force_login(admin_user)
         resp = client.post(
-            reverse("classes:admin_class_cancel", kwargs={"pk": offering.pk}), {"reason": "The forge is down."}
+            reverse("classes:teach_class_cancel", kwargs={"pk": offering.pk}), {"reason": "The forge is down."}
         )
         assert resp.status_code == 302
-        assert resp.url == reverse("classes:admin_class_detail", kwargs={"pk": offering.pk})
+        assert resp.url == reverse("classes:teach_class_detail", kwargs={"pk": offering.pk})
         assert "Class cancelled. Everyone registered has been told." in _messages(resp)
         offering.refresh_from_db()
         assert offering.status == Status.CANCELLED
@@ -388,7 +387,7 @@ def describe_admin_class_cancel():
     def it_re_renders_the_modal_open_with_the_error_on_a_blank_reason(admin_user, client, db):
         offering = _upcoming_published()
         client.force_login(admin_user)
-        resp = client.post(reverse("classes:admin_class_cancel", kwargs={"pk": offering.pk}), {"reason": "  "})
+        resp = client.post(reverse("classes:teach_class_cancel", kwargs={"pk": offering.pk}), {"reason": "  "})
         assert resp.status_code == 200
         html = resp.content.decode()
         assert "Please tell people why." in html
@@ -405,14 +404,14 @@ def describe_admin_class_cancel():
     def it_does_not_dispatch_the_reopen_on_a_plain_get(admin_user, client, db):
         offering = _upcoming_published()
         client.force_login(admin_user)
-        html = client.get(reverse("classes:admin_class_detail", kwargs={"pk": offering.pk})).content.decode()
+        html = client.get(reverse("classes:teach_class_detail", kwargs={"pk": offering.pk})).content.decode()
         # The Cancel button dispatches the same event on click; only the auto-reopen is absent.
         assert "x-init=\"$nextTick(() => $dispatch('open-modal', 'cancel-class'))\"" not in html
 
     def it_refuses_a_class_that_is_not_published(admin_user, client, db):
         offering = ClassOfferingFactory(status=Status.DRAFT)
         client.force_login(admin_user)
-        resp = client.post(reverse("classes:admin_class_cancel", kwargs={"pk": offering.pk}), {"reason": "Why"})
+        resp = client.post(reverse("classes:teach_class_cancel", kwargs={"pk": offering.pk}), {"reason": "Why"})
         assert resp.status_code == 302
         assert any("Only published classes can be cancelled" in m for m in _messages(resp))
         offering.refresh_from_db()
@@ -438,7 +437,7 @@ def describe_admin_class_archive():
         client.force_login(admin_user)
         resp = client.post(reverse("classes:admin_class_archive", kwargs={"pk": offering.pk}))
         assert resp.status_code == 302
-        assert resp.url == reverse("classes:admin_class_detail", kwargs={"pk": offering.pk})
+        assert resp.url == reverse("classes:teach_class_detail", kwargs={"pk": offering.pk})
         assert any("Cancel this class instead." in m for m in _messages(resp))
         offering.refresh_from_db()
         assert offering.status == Status.PUBLISHED
@@ -505,8 +504,8 @@ def describe_admin_class_unpublish():
         live = _upcoming_published()
         draft = ClassOfferingFactory(status=Status.DRAFT)
         client.force_login(admin_user)
-        live_html = client.get(reverse("classes:admin_class_detail", kwargs={"pk": live.pk})).content.decode()
-        draft_html = client.get(reverse("classes:admin_class_detail", kwargs={"pk": draft.pk})).content.decode()
+        live_html = client.get(reverse("classes:teach_class_detail", kwargs={"pk": live.pk})).content.decode()
+        draft_html = client.get(reverse("classes:teach_class_detail", kwargs={"pk": draft.pk})).content.decode()
         assert "Take back to draft" in live_html
         assert "Take back to draft" not in draft_html
 
@@ -514,8 +513,8 @@ def describe_admin_class_unpublish():
         offering = _upcoming_published()
         RegistrationFactory(class_offering=offering, status=Registration.Status.CONFIRMED)
         client.force_login(admin_user)
-        html = client.get(reverse("classes:admin_class_detail", kwargs={"pk": offering.pk})).content.decode()
-        assert "The 1 people already registered keep their spots" in html
+        html = client.get(reverse("classes:teach_class_detail", kwargs={"pk": offering.pk})).content.decode()
+        assert "The 1 people already signed up keep their places" in html
 
 
 def describe_readiness_guard_on_approve():
@@ -560,7 +559,7 @@ def describe_readiness_guard_on_approve():
         )
         assert resp.status_code == 200
         html = resp.content.decode()
-        assert "Not ready to publish: Write a short description. Add at least one date." in html
+        assert f"Not ready to publish: {READINESS_DESCRIPTION_HINT} Add at least one date." in html
         assert "This class is not ready to publish yet." in html
         offering.refresh_from_db()
         assert offering.status == Status.PENDING
@@ -583,7 +582,7 @@ def describe_readiness_guard_on_approve():
         html = client.get(reverse("classes:admin_class_review", kwargs={"pk": offering.pk})).content.decode()
         assert "Readiness" in html
         assert "Add at least one date." in html
-        assert "Write a short description." in html
+        assert READINESS_DESCRIPTION_HINT in html
         assert "Review Pipeline" in html
         assert "Approval Progress" not in html
         assert "This class is not ready to publish yet." in html
@@ -604,7 +603,8 @@ def describe_admin_class_create_publish_path():
         activity_before = CmsActivity.objects.count()
         site_before = SiteActivity.objects.count()
         client.force_login(admin_user)
-        # Photos present, but the description is short and a flexible class has no note.
+        # Photos present, but the description is short and the flexible class's last day has passed
+        # (#545: a flexible class needs no note, and its one Dates rule is an open window).
         resp = client.post(
             reverse("classes:admin_class_create"),
             _payload(
@@ -612,14 +612,16 @@ def describe_admin_class_create_publish_path():
                 InstructorFactory(),
                 image=_real_png(),
                 gallery_images=[_fake_png("g.png")],
+                flexible_starts_on="2020-01-01",
+                flexible_ends_on="2020-01-31",
             ),
         )
         assert resp.status_code == 200
         # The refusal is the Still Missing checklist on the composer, not a form error (issue #368 item 2.3).
         html = resp.content.decode()
         assert "Still Missing" in html and "Not ready to publish yet." in html
-        assert "goToField('id_description')\">Write a short description.</button>" in html
-        assert "goToField('class-dates')\">Say how students pick a time.</button>" in html
+        assert f"goToField('id_description')\">{READINESS_DESCRIPTION_HINT}</button>" in html
+        assert "goToField('class-dates')\">The last day has passed.</button>" in html
         assert "Some Things Need Fixing" not in html
         assert not ClassOffering.objects.filter(title="Direct Publish").exists()
         assert _stored_class_images() == files_before
@@ -693,7 +695,7 @@ def describe_admin_class_create_publish_path():
         buf = BytesIO()
         Image.new("RGB", (4, 4), (10, 20, 30)).save(buf, "PNG")
         hero = SimpleUploadedFile("hero.png", buf.getvalue(), content_type="image/png")
-        gallery = SimpleUploadedFile("g.png", b"\x89PNG\r\n\x1a\n" + b"\x00" * 64, content_type="image/png")
+        gallery = SimpleUploadedFile("g.png", buf.getvalue(), content_type="image/png")
         client.force_login(admin_user)
         resp = client.post(
             reverse("classes:admin_class_create"),
@@ -792,29 +794,31 @@ def describe_admin_classes_query_count():
 
 
 def describe_permission_edges():
-    def it_forbids_a_plain_member_from_cancel_restore_and_remind(member_user, client, db):
+    def it_refuses_a_plain_member_cancel_restore_and_remind(member_user, client, db):
+        """404, not 403: the merged screen declines to confirm the class exists, and its 404
+        page carries the View As switcher an admin previewing a lower role needs."""
         offering = _upcoming_published()
         client.force_login(member_user)
         for name in (
-            "classes:admin_class_cancel",
+            "classes:teach_class_cancel",
             "classes:admin_class_restore",
             "classes:admin_class_remind_lead",
             "classes:admin_class_unpublish",
         ):
             resp = client.post(reverse(name, kwargs={"pk": offering.pk}), {"reason": "x"})
-            assert resp.status_code == 403, name
+            assert resp.status_code == 404, name
         offering.refresh_from_db()
         assert offering.status == Status.PUBLISHED
 
-    def it_forbids_a_cms_administrator_from_restore_and_cancel(cms_admin_user, client, db):
+    def it_refuses_a_cms_administrator_restore_and_cancel(cms_admin_user, client, db):
         archived = ClassOfferingFactory(status=Status.ARCHIVED)
         live = _upcoming_published()
         client.force_login(cms_admin_user)
-        assert client.post(reverse("classes:admin_class_restore", kwargs={"pk": archived.pk})).status_code == 403
-        assert client.post(reverse("classes:admin_class_unpublish", kwargs={"pk": live.pk})).status_code == 403
+        assert client.post(reverse("classes:admin_class_restore", kwargs={"pk": archived.pk})).status_code == 404
+        assert client.post(reverse("classes:admin_class_unpublish", kwargs={"pk": live.pk})).status_code == 404
         assert (
-            client.post(reverse("classes:admin_class_cancel", kwargs={"pk": live.pk}), {"reason": "x"}).status_code
-            == 403
+            client.post(reverse("classes:teach_class_cancel", kwargs={"pk": live.pk}), {"reason": "x"}).status_code
+            == 404
         )
         archived.refresh_from_db()
         assert archived.status == Status.ARCHIVED

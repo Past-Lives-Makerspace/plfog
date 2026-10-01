@@ -11,7 +11,7 @@ from django.contrib.auth import login
 from django.contrib.auth.decorators import login_required
 from django.contrib.auth.models import User
 from django.core.paginator import Paginator
-from django.http import Http404, HttpRequest, HttpResponse, HttpResponsePermanentRedirect, JsonResponse
+from django.http import Http404, HttpRequest, HttpResponse, HttpResponseRedirect, JsonResponse
 from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse
 from django.views.decorators.csrf import csrf_exempt
@@ -33,6 +33,7 @@ from django.views.decorators.http import require_GET, require_POST
 from allauth.account.internal.stagekit import clear_login
 
 from .forms import FindAccountForm, NewsletterSignupForm
+from .member_lockout import lockout_message, lockout_reason
 from .models import FcmDevice, PushSubscription, SiteActivity, TransactionalEmailLog
 
 logger = logging.getLogger(__name__)
@@ -189,6 +190,25 @@ def restart_login(request: HttpRequest) -> HttpResponse:
     return redirect("account_login")
 
 
+def account_locked(request: HttpRequest) -> HttpResponse:
+    """Tell a member why the members site turned them away (#409).
+
+    Every lockout gate sends the member here with ``?reason=`` naming the Member status that
+    locked them out. The reason is not a secret: the page only shows the matching admin-editable
+    sentence and the support email. It renders on either host, signed in or not: a locked-out
+    member keeps their session for the book site, so a signed-in viewer gets a link to their
+    class bookings there and a sign-out link instead of "Back to login".
+    """
+    from core.urls_util import book_absolute_url
+
+    message = lockout_message(request.GET.get("reason", ""))
+    return render(
+        request,
+        "account/account_locked.html",
+        {"lockout_message": message, "book_account_url": book_absolute_url(reverse("account:overview"))},
+    )
+
+
 def find_account(request: HttpRequest) -> HttpResponse:
     """Look up a member by name and send a login link to the email on file."""
     if request.method == "POST":
@@ -209,18 +229,18 @@ def home(request):
 
 
 def guild_vanity_redirect(request: HttpRequest, slug: str) -> HttpResponse:
-    """Public, human-typable pastlives.app/g/<slug> → 301 to the guest guild page.
+    """Public, human-typable members.pastlives.space/g/<slug> → 302 to the guest guild page.
 
     Reachable pre-login (no decorator). The default Guild manager hides soft-deleted
-    guilds, so an unknown OR soft-deleted slug 404s. Permanent (301) because the
-    vanity ↔ guild mapping is stable; the QR/flyer encode THIS route so the guest
-    host can move without reprints.
+    guilds, so an unknown OR soft-deleted slug 404s. The QR/flyer encode THIS route so
+    the guest host can move without reprints, which is why it is temporary (302): a
+    browser caches a 301 and would keep sending a scan to the old host after a move.
     """
     from membership.models import Guild
 
     guild = get_object_or_404(Guild, slug=slug)
     target = f"{settings.GUILDS_BASE_URL}{reverse('hub_guild_detail', args=[guild.slug])}"
-    return HttpResponsePermanentRedirect(target)
+    return HttpResponseRedirect(target)
 
 
 def newsletter_signup(request: HttpRequest) -> HttpResponse:
@@ -587,6 +607,15 @@ def biometric_unlock(request: HttpRequest) -> JsonResponse:
             BiometricCredential.objects.revoke_all(user)
             logger.warning("Biometric unlock refused for inactive user pk=%s; credentials revoked.", user.pk)
             return JsonResponse({"error": _BIOMETRIC_UNLOCK_FAILED}, status=401)
+
+        # A former (or, by setting, suspended) member is refused the same way, on any host: the
+        # app is the members site. It drops the dead credential and falls back to the login-code
+        # form, which shows them why (#409).
+        lockout = lockout_reason(user)
+        if lockout is not None:
+            BiometricCredential.objects.revoke_all(user)
+            logger.warning("Biometric unlock refused for %s member pk=%s; credentials revoked.", lockout, user.pk)
+            return JsonResponse({"error": lockout_message(lockout)}, status=401)
 
         login(request, user, backend="django.contrib.auth.backends.ModelBackend")
         return JsonResponse({"ok": True, "secret": secret})

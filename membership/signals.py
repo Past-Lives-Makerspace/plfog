@@ -65,7 +65,7 @@ def ensure_user_has_member(sender: type, instance: Any, created: bool, **kwargs:
             # whatever the placeholder already had. Never the username — that's just
             # the lowercased email local part (issue #274).
             member.full_legal_name = instance.get_full_name() or member.full_legal_name
-            member.status = Member.Status.ACTIVE
+            member.status = _status_on_first_link(member.status)
             member.save(update_fields=["user", "full_legal_name", "status"])
             logger.info("Linked existing Member (primary email) to user %s.", instance.username)
             if not is_in_allauth_signup():
@@ -80,7 +80,7 @@ def ensure_user_has_member(sender: type, instance: Any, created: bool, **kwargs:
             member = alias.member
             member.user = instance
             member.full_legal_name = instance.get_full_name() or member.full_legal_name
-            member.status = Member.Status.ACTIVE
+            member.status = _status_on_first_link(member.status)
             member.save(update_fields=["user", "full_legal_name", "status"])
             logger.info("Linked existing Member (alias email %s) to user %s.", email, instance.username)
             if not is_in_allauth_signup():
@@ -90,6 +90,18 @@ def ensure_user_has_member(sender: type, instance: Any, created: bool, **kwargs:
             pass
 
     _auto_create_member_for_user(instance)
+
+
+def _status_on_first_link(status: str) -> str:
+    """The status a Member takes when a User first links to it.
+
+    Only INVITED becomes ACTIVE: accepting the invite is what signing in means. Every other
+    status is kept, so a FORMER member imported from Airtable who never had an account is not
+    reactivated by requesting a login code, and the lockout (#409) still turns them away.
+    """
+    from .models import Member
+
+    return str(Member.Status.ACTIVE) if status == Member.Status.INVITED else status
 
 
 def _auto_create_member_for_user(instance: Any) -> None:

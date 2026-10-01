@@ -239,7 +239,7 @@ def instructor_new_registration_context(data: SampleData) -> dict[str, Any]:
             "class_url": _class_urls(data, registration)["class_url"],
             "manage_url": _absolute_url(reverse("classes:teach_class_detail", kwargs={"pk": offering.pk})),
             "amount_paid": f"{registration.amount_paid_cents / 100:.2f}",
-            "spots_filled": offering.registrations.count(),
+            "spots_filled": offering.seats_taken,
             "capacity": offering.capacity,
         },
     }
@@ -281,7 +281,7 @@ def admin_validation_request_context(data: SampleData) -> dict[str, Any]:
 
     row = data.approval_pending
     return {
-        "subject": f"Executive validation needed: {data.offering.title}",
+        "subject": f"Admin sign-off needed: {data.offering.title}",
         "template_context": {
             "offering": data.offering,
             "approval": row,
@@ -441,6 +441,77 @@ def duplicate_payment_alert_context(data: SampleData) -> dict[str, Any]:
     }
 
 
+def class_registration_admin_notice_context(data: SampleData) -> dict[str, Any]:
+    """Reproduces ``classes.emails.send_admin_registration_notification`` exactly."""
+    from classes.emails import _absolute_url
+
+    registration = data.registration
+    offering = data.offering
+    class_url = _absolute_url(reverse("classes:public_class_detail", kwargs={"slug": offering.slug}))
+    instructor = offering.instructor.display_name if offering.instructor else "N/A"
+    return {
+        "subject": f"[Classes] New registration: {registration.first_name} {registration.last_name} — {offering.title}",
+        "text_body": (
+            f"{registration.first_name} {registration.last_name} ({registration.email}) "
+            f'registered for "{offering.title}" (instructor: {instructor}).\n\n'
+            f"Status: {registration.get_status_display()}\n"
+            f"Paid: ${registration.amount_paid_cents / 100:.2f}\n"
+            f"Capacity: {offering.seats_taken}/{offering.capacity}\n\n"
+            f"View the class: {class_url}"
+        ),
+    }
+
+
+def registration_resume_link_context(data: SampleData) -> dict[str, Any]:
+    """Reproduces ``classes.emails.send_registration_resume_link`` exactly."""
+    from classes.emails import _absolute_url
+
+    registration = data.registration
+    offering = data.offering
+    self_serve_url = _absolute_url(reverse("classes:my_registration", kwargs={"token": registration.self_serve_token}))
+    class_url = _absolute_url(reverse("classes:public_class_detail", kwargs={"slug": offering.slug}))
+    name = registration.first_name.strip()
+    greeting = f"Hi {name}," if name else "Hi,"
+    return {
+        "subject": f"Your signup for {offering.title}",
+        "text_body": (
+            f"{greeting}\n\n"
+            f'Somebody just started signing up for "{offering.title}" with this email address. '
+            f"You already have a signup for that class, so here is the link to it:\n\n"
+            f"{self_serve_url}\n\n"
+            f"That link opens your registration, where you can finish paying if you still owe "
+            f"anything, or cancel it.\n\n"
+            f"Class details: {class_url}\n\n"
+            f"If this wasn't you, nothing has changed and you can ignore this email. Your "
+            f"registration is only reachable through the link above."
+        ),
+    }
+
+
+def orphaned_class_payment_alert_context(data: SampleData) -> dict[str, Any]:
+    """Reproduces ``classes.emails.send_orphaned_payment_alert`` exactly."""
+    from classes.emails import _absolute_url
+
+    registration = data.registration
+    offering = data.offering
+    detail_url = _absolute_url(reverse("classes:admin_registration_detail", kwargs={"pk": registration.pk}))
+    stripe_url = "https://dashboard.stripe.com/payments/pi_sample_orphaned"
+    name = f"{registration.first_name} {registration.last_name}".strip() or registration.email
+    return {
+        "subject": f"Payment needs a decision: {name}, {offering.title}",
+        "text_body": (
+            f"{name} ({registration.email}) paid $45.00 online for "
+            f'"{offering.title}" through a checkout page that was left open on a registration '
+            f"which is now cancelled.\n\n"
+            f"That seat already belongs to another live signup for the same person, so this "
+            f"payment could not be applied. Either refund it or re-seat them by hand.\n\n"
+            f"Registration: {detail_url}\n"
+            f"Stripe payment: {stripe_url}\n"
+            f"Checkout session: cs_sample_orphaned"
+        ),
+    }
+
+
 def orientation_orphan_payment_alert_context(data: SampleData) -> dict[str, Any]:
     """Reproduces ``membership.webhook_handlers._send_orphan_payment_alert`` exactly."""
     booking = data.booking
@@ -454,6 +525,23 @@ def orientation_orphan_payment_alert_context(data: SampleData) -> dict[str, Any]
             f"Refund the payment from the Stripe dashboard.\n\n"
             f"Stripe payment: {stripe_url}\n"
             f"Checkout session: cs_sample_orphan\n"
+            f"Customer email: {data.member.primary_email}"
+        ),
+    }
+
+
+def late_fee_orphan_payment_alert_context(data: SampleData) -> dict[str, Any]:
+    """Reproduces ``billing.webhook_handlers._send_orphan_fee_alert`` exactly."""
+    stripe_url = "https://dashboard.stripe.com/payments/pi_sample_late_fee"
+    return {
+        "subject": "Orphaned late cancellation fee payment needs a manual refund",
+        "text_body": (
+            "A paid late cancellation fee Checkout landed with no fee to mark paid.\n\n"
+            "Late cancellation fee 12 no longer exists.\n\n"
+            "The member paid $15.00 and the app has nothing to show for it. "
+            "Refund the payment from the Stripe dashboard.\n\n"
+            f"Stripe payment: {stripe_url}\n"
+            "Checkout session: cs_sample_late_fee\n"
             f"Customer email: {data.member.primary_email}"
         ),
     }

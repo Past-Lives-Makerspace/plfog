@@ -75,8 +75,8 @@ HELP_KEYS: dict[str, HelpKeyEntry] = {
     "calendar.subscribe": {
         "title": "Subscribe to the calendar",
         "short_text": (
-            "Subscribe to the Member or Public calendar and it stays in sync in your own "
-            "calendar app, or download a one-time .ics."
+            "Subscribe to the Member or Public calendar from Apple Calendar or Google Calendar "
+            "and it stays in sync in your own calendar app, or download a one-time .ics."
         ),
         "article_slug": "community-calendar",
         "anchor": "calendar-subscribe",
@@ -155,8 +155,8 @@ HELP_KEYS: dict[str, HelpKeyEntry] = {
     "class.register": {
         "title": "Register for a class",
         "short_text": (
-            "Sign up from the class page. No account needed. You pay through a secure checkout, and your "
-            "member email applies member pricing automatically. A total of $0 after discounts confirms right away."
+            "Sign up from the class page. No account needed. You pay through a secure checkout. Have a "
+            "discount code? Type it in the box on the form. A total of $0 after discounts confirms right away."
         ),
         "article_slug": "taking-a-class",
         "anchor": "class-register",
@@ -386,7 +386,7 @@ HELP_KEYS: dict[str, HelpKeyEntry] = {
     "guild.events": {
         "title": "Guild events",
         "short_text": (
-            "Events you add publish straight to the community calendar and your guild "
+            "Events you add publish straight to the Calendar and your guild "
             "calendar; no approval step. Members get a heads-up in the app."
         ),
         "article_slug": "guild-events-hours-notes",
@@ -511,8 +511,8 @@ HELP_KEYS: dict[str, HelpKeyEntry] = {
     "teach.class-pricing": {
         "title": "Pricing & discounts",
         "short_text": (
-            "Set the member discount and optional sale pricing. Members get member pricing "
-            "automatically when they register with their member email."
+            "Set the full price here. Put the class on sale later from Manage Class. "
+            "Students type any discount code at checkout."
         ),
         "article_slug": None,
         "anchor": None,
@@ -590,7 +590,7 @@ HELP_KEYS: dict[str, HelpKeyEntry] = {
         "anchor": None,
     },
     "nav.calendar": {
-        "title": "Community calendar",
+        "title": "Calendar",
         "short_text": (
             "Classes, guild meetups, and events all land on one calendar. Filter it, open any event, "
             "or subscribe from your own calendar app."
@@ -609,6 +609,15 @@ HELP_KEYS: dict[str, HelpKeyEntry] = {
         "short_text": (
             "How the space, the machines, and the materials actually work, written by members. "
             "Anyone can add a photo, drop in a tip, or write a whole page."
+        ),
+        "article_slug": None,
+        "anchor": None,
+    },
+    "nav.knowledge-base": {
+        "title": "The Knowledge Base",
+        "short_text": (
+            "Past Lives' policies, handbooks and governance documents, kept by the board. "
+            "Opens signed in as you — what you can read follows your role here."
         ),
         "article_slug": None,
         "anchor": None,
@@ -728,7 +737,7 @@ HELP_KEYS: dict[str, HelpKeyEntry] = {
     },
     "admin.discount-codes": {
         "title": "Discount codes",
-        "short_text": "Create discount codes for a class or a promotion, with usage limits and an expiry date.",
+        "short_text": "Create discount codes for a class or a promotion, with usage limits and an expiry date, and review the codes instructors request.",
         "article_slug": None,
         "anchor": None,
     },

@@ -1,0 +1,7 @@
+{% comment %}
+The fixed STAGING marker every page of a staging deployment carries (settings.IS_STAGING,
+via the ``environment`` context processor). Included once per base template, right after
+<body>; its stylesheet (static/css/staging-ribbon.css) is linked from the same bases only on
+staging, so production ships nothing for it. pointer-events is off in the CSS, so it never
+intercepts a click on whatever it overlaps.
+{% endcomment %}{% if IS_STAGING %}<div class="pl-staging-ribbon" role="status" aria-label="Staging environment. Nothing here is real.">STAGING</div>{% endif %}

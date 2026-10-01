@@ -2,14 +2,19 @@
 
 from __future__ import annotations
 
+import json
 from io import BytesIO
 
+from django.core.files.storage import default_storage
 from django.core.files.uploadedfile import SimpleUploadedFile
 from django.urls import reverse
+from PIL import Image
 
 
 def _image_file(name: str = "shot.png") -> SimpleUploadedFile:
-    buf = BytesIO(b"\x89PNG\r\n\x1a\n" + b"\x00" * 64)
+    # A real PNG: the gallery refuses bytes Pillow cannot open (#498).
+    buf = BytesIO()
+    Image.new("RGB", (8, 8)).save(buf, "PNG")
     return SimpleUploadedFile(name, buf.getvalue(), content_type="image/png")
 
 
@@ -125,6 +130,77 @@ def describe_classes_date_column():
         assert row.registration_count == 2
 
 
+def describe_classes_sorting():
+    def _rows(client, query: str) -> list[str]:
+        response = client.get(reverse("classes:admin_classes") + query)
+        assert response.status_code == 200
+        return [c.slug for c in response.context["page"]]
+
+    def it_sorts_by_title_both_ways(admin_user, client, db):
+        from classes.factories import ClassOfferingFactory
+
+        client.force_login(admin_user)
+        ClassOfferingFactory(title="Bravo", slug="bravo")
+        ClassOfferingFactory(title="Alpha", slug="alpha")
+        assert _rows(client, "?sort=title&dir=asc") == ["alpha", "bravo"]
+        assert _rows(client, "?sort=title&dir=desc") == ["bravo", "alpha"]
+
+    def it_sorts_dates_with_undated_classes_last_either_way(admin_user, client, db):
+        from datetime import timedelta
+
+        from django.utils import timezone
+
+        from classes.factories import ClassOfferingFactory, ClassSessionFactory
+
+        client.force_login(admin_user)
+        now = timezone.now()
+        early = ClassOfferingFactory(title="Early", slug="early")
+        ClassSessionFactory(class_offering=early, starts_at=now + timedelta(days=1))
+        late = ClassOfferingFactory(title="Late", slug="late")
+        ClassSessionFactory(class_offering=late, starts_at=now + timedelta(days=30))
+        ClassOfferingFactory(title="Undated", slug="undated")
+        assert _rows(client, "?sort=first_session&dir=asc") == ["early", "late", "undated"]
+        assert _rows(client, "?sort=first_session&dir=desc") == ["late", "early", "undated"]
+
+    def it_sorts_by_the_name_the_instructor_cell_shows(admin_user, client, db):
+        # The header once named ``instructor__display_name``, a property no query can order by.
+        # The cell shows the preferred name when there is one, so the sort reads the same name:
+        # legal "Robert Jones" who goes by "Sam" sorts among the S's, and no instructor sorts last.
+        from classes.factories import ClassOfferingFactory, InstructorFactory
+
+        client.force_login(admin_user)
+        ClassOfferingFactory(slug="by-zed", instructor=InstructorFactory(full_legal_name="Zed Last"))
+        ClassOfferingFactory(slug="by-abe", instructor=InstructorFactory(full_legal_name="Abe First"))
+        ClassOfferingFactory(
+            slug="by-sam",
+            instructor=InstructorFactory(full_legal_name="Robert Jones", preferred_name="Sam"),
+        )
+        ClassOfferingFactory(slug="nobody", instructor=None)
+        assert _rows(client, "?sort=instructor_name&dir=asc") == ["by-abe", "by-sam", "by-zed", "nobody"]
+        assert _rows(client, "?sort=instructor_name&dir=desc") == ["by-zed", "by-sam", "by-abe", "nobody"]
+
+    def it_falls_back_to_the_default_order_for_an_unknown_sort(admin_user, client, db):
+        from classes.factories import ClassOfferingFactory
+
+        client.force_login(admin_user)
+        ClassOfferingFactory(slug="first-made")
+        ClassOfferingFactory(slug="second-made")
+        response = client.get(reverse("classes:admin_classes") + "?sort=nonsense")
+        assert response.status_code == 200
+        assert response.context["sort"] == "created_at"
+        assert [c.slug for c in response.context["page"]] == ["second-made", "first-made"]
+
+    def it_marks_the_sorted_header_and_glyphs_every_other(admin_user, client, db):
+        from classes.factories import ClassOfferingFactory
+
+        client.force_login(admin_user)
+        ClassOfferingFactory()
+        html = client.get(reverse("classes:admin_classes") + "?sort=title&dir=desc").content.decode()
+        assert html.count("aria-sort=") == 1
+        assert '<th aria-sort="descending">' in html
+        assert html.count('class="pl-sort-header__glyph"') == 6
+
+
 def describe_delete_class():
     def it_deletes_a_draft_with_no_registrations(admin_user, client, db):
         from classes.factories import ClassOfferingFactory
@@ -134,6 +210,8 @@ def describe_delete_class():
         offering = ClassOfferingFactory(status=ClassOffering.Status.DRAFT)
         response = client.post(reverse("classes:admin_class_delete", kwargs={"pk": offering.pk}))
         assert response.status_code == 302
+        # The admin lands back on the whole-catalog list; an instructor lands on My Classes (#526).
+        assert response.url == reverse("classes:admin_classes")
         assert not ClassOffering.objects.filter(pk=offering.pk).exists()
 
     def it_deletes_a_published_class_with_no_registrations(admin_user, client, db):
@@ -174,7 +252,7 @@ def describe_delete_class():
 
             client.force_login(admin_user)
             offering = ClassOfferingFactory(status=ClassOffering.Status.PUBLISHED)
-            response = client.get(reverse("classes:admin_class_detail", kwargs={"pk": offering.pk}))
+            response = client.get(reverse("classes:teach_class_detail", kwargs={"pk": offering.pk}))
             assert response.status_code == 200
             delete_url = reverse("classes:admin_class_delete", kwargs={"pk": offering.pk})
             assert delete_url.encode() in response.content
@@ -186,7 +264,7 @@ def describe_delete_class():
             client.force_login(admin_user)
             offering = ClassOfferingFactory(status=ClassOffering.Status.PUBLISHED)
             RegistrationFactory(class_offering=offering)
-            response = client.get(reverse("classes:admin_class_detail", kwargs={"pk": offering.pk}))
+            response = client.get(reverse("classes:teach_class_detail", kwargs={"pk": offering.pk}))
             assert response.status_code == 200
             delete_url = reverse("classes:admin_class_delete", kwargs={"pk": offering.pk})
             assert delete_url.encode() not in response.content
@@ -227,7 +305,6 @@ def describe_create_class():
                 "category": cat.pk,
                 "instructor": inst.pk,
                 "price_cents": "50.00",
-                "member_discount_pct": 10,
                 "capacity": 6,
                 "scheduling_model": "fixed",
                 "sale_kind": "percent",
@@ -281,7 +358,6 @@ def describe_create_class():
                 "category": cat.pk,
                 "instructor": inst.pk,
                 "price_cents": "50.00",
-                "member_discount_pct": 10,
                 "capacity": 6,
                 "scheduling_model": "fixed",
                 "sale_kind": "percent",
@@ -331,7 +407,6 @@ def describe_create_class():
                 "category": cat.pk,
                 "instructor": inst.pk,
                 "price_cents": "50.00",
-                "member_discount_pct": 10,
                 "capacity": 6,
                 "scheduling_model": "fixed",
                 "sale_kind": "percent",
@@ -365,6 +440,59 @@ def describe_create_class():
         offering = ClassOffering.objects.get(title="Gallery Class")
         assert ClassImage.objects.filter(class_offering=offering).count() == 2
 
+    def it_refuses_a_gallery_file_that_is_not_an_image_and_saves_nothing(admin_user, client, db):
+        from classes.factories import CategoryFactory, InstructorFactory
+        from classes.factories import READY_DESCRIPTION
+        from classes.models import ClassImage, ClassOffering
+
+        client.force_login(admin_user)
+        cat = CategoryFactory()
+        inst = InstructorFactory()
+        response = client.post(
+            reverse("classes:admin_class_create"),
+            {
+                "title": "Gallery Class",
+                "slug": "gallery-class",
+                "category": cat.pk,
+                "instructor": inst.pk,
+                "price_cents": "50.00",
+                "capacity": 6,
+                "scheduling_model": "fixed",
+                "sale_kind": "percent",
+                "scheduling_type": "single_session",
+                "description": READY_DESCRIPTION,
+                "image": _real_image_file(),
+                **_future_session_fields(),
+                "prerequisites": "",
+                "materials_included": "",
+                "materials_to_bring": "",
+                "safety_requirements": "",
+                "age_guardian_note": "",
+                "flexible_note": "",
+                "private_for_name": "",
+                "recurring_pattern": "",
+                "sessions-INITIAL_FORMS": "0",
+                "sessions-MIN_NUM_FORMS": "0",
+                "sessions-MAX_NUM_FORMS": "1000",
+                "faq-TOTAL_FORMS": "0",
+                "faq-INITIAL_FORMS": "0",
+                "faq-MIN_NUM_FORMS": "0",
+                "faq-MAX_NUM_FORMS": "1000",
+                "images-TOTAL_FORMS": "0",
+                "images-INITIAL_FORMS": "0",
+                "images-MIN_NUM_FORMS": "0",
+                "images-MAX_NUM_FORMS": "1000",
+                "gallery_images": [
+                    _image_file("a.png"),
+                    SimpleUploadedFile("b.png", b"notes", content_type="image/png"),
+                ],
+            },
+        )
+        assert response.status_code == 200
+        assert "not a photo we can open" in response.content.decode()
+        assert not ClassOffering.objects.filter(title="Gallery Class").exists()
+        assert not ClassImage.objects.exists()
+
     def it_rejects_an_over_cap_gallery_batch_without_publishing(admin_user, client, db):
         from classes.factories import CategoryFactory, InstructorFactory
         from classes.factories import READY_DESCRIPTION
@@ -381,7 +509,6 @@ def describe_create_class():
                 "category": cat.pk,
                 "instructor": inst.pk,
                 "price_cents": "50.00",
-                "member_discount_pct": 10,
                 "capacity": 6,
                 "scheduling_model": "flexible",
                 "sale_kind": "percent",
@@ -415,6 +542,70 @@ def describe_create_class():
         assert "at most 10 images" in response.content.decode().lower()
         assert not ClassOffering.objects.filter(slug="too-many-photos").exists()
 
+    def it_discards_the_cropped_copy_with_the_hero_when_the_gallery_is_refused(admin_user, client, db):
+        # Issue #547: a create that arrives with a crop box cuts its copy in the same save.
+        # A refused gallery rolls back the row, the hero file and that copy, so the bucket
+        # holds exactly what it held before the post.
+        from classes.factories import CategoryFactory, InstructorFactory
+        from classes.factories import READY_DESCRIPTION
+        from classes.models import ClassOffering
+
+        def _stored(prefix: str) -> set[str]:
+            try:
+                return set(default_storage.listdir(prefix)[1])
+            except FileNotFoundError:
+                return set()
+
+        client.force_login(admin_user)
+        cat = CategoryFactory()
+        inst = InstructorFactory()
+        heroes_before, copies_before = _stored("classes/images"), _stored("classes/hero-crops")
+        response = client.post(
+            reverse("classes:admin_class_create"),
+            {
+                "title": "Cropped Then Refused",
+                "slug": "cropped-then-refused",
+                "category": cat.pk,
+                "instructor": inst.pk,
+                "price_cents": "50.00",
+                "member_discount_pct": 10,
+                "capacity": 6,
+                "scheduling_model": "flexible",
+                "sale_kind": "percent",
+                "scheduling_type": "single_session",
+                "description": READY_DESCRIPTION,
+                "image": _real_image_file(),
+                # The top half of the 4 by 4 hero: a real box, so save() renders a copy.
+                "hero_crop": json.dumps({"x": 0, "y": 0, "w": 4, "h": 2}),
+                "prerequisites": "",
+                "materials_included": "",
+                "materials_to_bring": "",
+                "safety_requirements": "",
+                "age_guardian_note": "",
+                "flexible_note": "We will pick a time together.",
+                "private_for_name": "",
+                "recurring_pattern": "",
+                "sessions-TOTAL_FORMS": "0",
+                "sessions-INITIAL_FORMS": "0",
+                "sessions-MIN_NUM_FORMS": "0",
+                "sessions-MAX_NUM_FORMS": "1000",
+                "faq-TOTAL_FORMS": "0",
+                "faq-INITIAL_FORMS": "0",
+                "faq-MIN_NUM_FORMS": "0",
+                "faq-MAX_NUM_FORMS": "1000",
+                "images-TOTAL_FORMS": "0",
+                "images-INITIAL_FORMS": "0",
+                "images-MIN_NUM_FORMS": "0",
+                "images-MAX_NUM_FORMS": "1000",
+                "gallery_images": [_image_file(f"{i}.png") for i in range(11)],
+            },
+        )
+        assert response.status_code == 200
+        assert "at most 10 images" in response.content.decode().lower()
+        assert not ClassOffering.objects.filter(slug="cropped-then-refused").exists()
+        assert _stored("classes/images") == heroes_before
+        assert _stored("classes/hero-crops") == copies_before
+
 
 def describe_edit_class():
     def it_renders_the_edit_form_on_get(admin_user, client, db):
@@ -422,7 +613,7 @@ def describe_edit_class():
 
         client.force_login(admin_user)
         offering = ClassOfferingFactory()
-        response = client.get(reverse("classes:admin_class_edit", kwargs={"pk": offering.pk}))
+        response = client.get(reverse("classes:teach_class_edit", kwargs={"pk": offering.pk}))
         assert response.status_code == 200
 
     def it_saves_the_edit_on_post(admin_user, client, db):
@@ -431,14 +622,13 @@ def describe_edit_class():
         client.force_login(admin_user)
         offering = ClassOfferingFactory(title="Old Title")
         response = client.post(
-            reverse("classes:admin_class_edit", kwargs={"pk": offering.pk}),
+            reverse("classes:teach_class_edit", kwargs={"pk": offering.pk}),
             {
                 "title": "New Title",
                 "slug": offering.slug,
                 "category": CategoryFactory().pk,
                 "instructor": InstructorFactory().pk,
                 "price_cents": f"{offering.price_cents / 100:.2f}",
-                "member_discount_pct": offering.member_discount_pct,
                 "capacity": offering.capacity,
                 "scheduling_model": offering.scheduling_model,
                 "sale_kind": "percent",
@@ -480,13 +670,12 @@ def describe_edit_class():
             status=ClassOffering.Status.PUBLISHED,
         )
         response = client.post(
-            reverse("classes:admin_class_edit", kwargs={"pk": offering.pk}),
+            reverse("classes:teach_class_edit", kwargs={"pk": offering.pk}),
             {
                 "title": "Renamed To Something Else",
                 "category": CategoryFactory().pk,
                 "instructor": InstructorFactory().pk,
                 "price_cents": f"{offering.price_cents / 100:.2f}",
-                "member_discount_pct": offering.member_discount_pct,
                 "capacity": offering.capacity,
                 "scheduling_model": offering.scheduling_model,
                 "sale_kind": "percent",
@@ -730,7 +919,7 @@ def describe_class_detail():
 
         client.force_login(admin_user)
         offering = ClassOfferingFactory(title="Detailed Class")
-        response = client.get(reverse("classes:admin_class_detail", kwargs={"pk": offering.pk}))
+        response = client.get(reverse("classes:teach_class_detail", kwargs={"pk": offering.pk}))
         assert response.status_code == 200
         assert b"Detailed Class" in response.content
 
@@ -830,3 +1019,325 @@ def describe_duplicate_class():
         assert "pottery" in slugs
         assert "pottery-copy" in slugs
         assert "pottery-copy-2" in slugs
+
+
+def describe_title_column():
+    def it_shows_the_whole_title_and_never_clips_it(admin_user, client, db):
+        # The shape of production's "... with Billy" rows, 54 characters, which the old
+        # 22ch clamp cut to the same "Blacksmithing 101 with…" on every row (#543).
+        from classes.factories import ClassOfferingFactory
+        from classes.models import ClassOffering
+
+        client.force_login(admin_user)
+        title = "Blacksmithing 101 with Billy - Pick Your November Time"
+        ClassOfferingFactory(title=title, status=ClassOffering.Status.PUBLISHED, instructor=admin_user.member)
+        # The whole catalog and the My Classes toggle render the same cell.
+        for query in ("", "?mine=1"):
+            response = client.get(reverse("classes:admin_classes") + query)
+            html = response.content.decode()
+            assert 'class="pl-class-list__title"' in html, query
+            cell = html.split('class="pl-class-list__title"')[1].split("</td>")[0]
+            assert f">{title}</a>" in cell, query
+            assert 'title="' not in cell, query
+            assert "max-width:22ch" not in html, query
+
+
+def describe_the_flexible_window_through_the_admin_composer():
+    """The admin's save paths shed a flexible class's sessions and clear a fixed class's window (#545)."""
+
+    def _payload(**overrides) -> dict:
+        from classes.factories import CategoryFactory, InstructorFactory
+
+        payload = {
+            "action": "save",
+            "step": "3",
+            "title": "Window Class",
+            "category": CategoryFactory().pk,
+            "instructor": InstructorFactory().pk,
+            "description": "Hands-on intro.",
+            "price_cents": "50.00",
+            "member_discount_pct": 10,
+            "capacity": 6,
+            "scheduling_model": "flexible",
+            "scheduling_type": "single_session",
+            "prerequisites": "",
+            "materials_included": "",
+            "materials_to_bring": "",
+            "safety_requirements": "",
+            "age_guardian_note": "",
+            "flexible_note": "",
+            "flexible_starts_on": "2026-11-02",
+            "flexible_ends_on": "2026-12-01",
+            "private_for_name": "",
+            "sessions-INITIAL_FORMS": "0",
+            "sessions-MIN_NUM_FORMS": "0",
+            "sessions-MAX_NUM_FORMS": "1000",
+            "faq-TOTAL_FORMS": "0",
+            "faq-INITIAL_FORMS": "0",
+            "faq-MIN_NUM_FORMS": "0",
+            "faq-MAX_NUM_FORMS": "1000",
+            **_future_session_fields(),
+        }
+        payload.update(overrides)
+        return payload
+
+    def it_stores_the_window_and_sheds_the_posted_session_on_create(admin_user, client, db):
+        from datetime import date
+
+        from classes.models import ClassOffering
+
+        client.force_login(admin_user)
+        resp = client.post(reverse("classes:admin_class_create"), _payload())
+        assert resp.status_code == 302
+        created = ClassOffering.objects.get(title="Window Class")
+        assert created.scheduling_model == "flexible"
+        assert (created.flexible_starts_on, created.flexible_ends_on) == (date(2026, 11, 2), date(2026, 12, 1))
+        assert created.sessions.count() == 0
+
+    def it_sheds_the_sessions_a_class_had_on_edit(admin_user, client, db):
+        from classes.factories import ClassOfferingFactory
+        from classes.models import ClassOffering
+
+        offering = ClassOfferingFactory(status=ClassOffering.Status.DRAFT, ready=True)
+        assert offering.sessions.count() == 1
+        client.force_login(admin_user)
+        resp = client.post(reverse("classes:teach_class_edit", kwargs={"pk": offering.pk}), _payload())
+        assert resp.status_code == 302
+        offering.refresh_from_db()
+        assert offering.sessions.count() == 0
+        assert offering.flexible_ends_on is not None
+
+    def it_clears_the_window_and_keeps_the_session_on_a_class_saved_as_fixed(admin_user, client, db):
+        from datetime import date
+
+        from classes.factories import ClassOfferingFactory
+        from classes.models import ClassOffering
+
+        offering = ClassOfferingFactory(
+            status=ClassOffering.Status.DRAFT,
+            scheduling_model=ClassOffering.SchedulingModel.FLEXIBLE,
+            flexible_starts_on=date(2026, 11, 2),
+            flexible_ends_on=date(2026, 12, 1),
+        )
+        client.force_login(admin_user)
+        resp = client.post(
+            reverse("classes:teach_class_edit", kwargs={"pk": offering.pk}), _payload(scheduling_model="fixed")
+        )
+        assert resp.status_code == 302
+        offering.refresh_from_db()
+        assert offering.scheduling_model == "fixed"
+        assert (offering.flexible_starts_on, offering.flexible_ends_on) == (None, None)
+        assert offering.sessions.count() == 1
+
+    def it_refuses_a_reversed_window_before_anything_is_written_on_create(admin_user, client, db):
+        from classes.models import ClassOffering
+
+        client.force_login(admin_user)
+        resp = client.post(
+            reverse("classes:admin_class_create"),
+            _payload(flexible_starts_on="2026-12-01", flexible_ends_on="2026-11-02"),
+        )
+        assert resp.status_code == 200
+        assert resp.context["initial_phase"] == 3
+        assert "The last day is before the first day." in resp.content.decode()
+        assert "schedulingModel: 'flexible'" in resp.content.decode()
+        assert not ClassOffering.objects.filter(title="Window Class").exists()
+
+    def it_passes_the_publish_preflight_with_no_note_and_no_dates(admin_user, client, db):
+        from classes.models import ClassOffering
+
+        client.force_login(admin_user)
+        resp = client.post(
+            reverse("classes:admin_class_create"),
+            _payload(
+                action="publish",
+                flexible_starts_on="",
+                flexible_ends_on="",
+                **{"sessions-TOTAL_FORMS": "0"},
+                **{k: v for k, v in _publishable_fields().items() if not k.startswith("sessions-")},
+            ),
+        )
+        assert resp.status_code == 302
+        assert ClassOffering.objects.get(title="Window Class").status == ClassOffering.Status.PUBLISHED
+
+    def it_refuses_publish_on_create_when_the_last_day_has_passed(admin_user, client, db):
+        from classes.models import ClassOffering
+
+        client.force_login(admin_user)
+        resp = client.post(
+            reverse("classes:admin_class_create"),
+            _payload(
+                action="publish",
+                flexible_starts_on="2020-01-01",
+                flexible_ends_on="2020-01-31",
+                **{k: v for k, v in _publishable_fields().items() if not k.startswith("sessions-")},
+            ),
+        )
+        assert resp.status_code == 200
+        assert resp.context["initial_phase"] == 3
+        assert "The last day has passed." in resp.content.decode()
+        assert not ClassOffering.objects.filter(title="Window Class").exists()
+
+
+def describe_the_dates_cell_for_a_flexible_class():
+    """The Date(s) cell reads the window, or "Flexible" when open ended, never the session rows (#545)."""
+
+    def it_shows_the_window_or_flexible(admin_user, client, db):
+        from datetime import date, timedelta
+
+        from django.utils import timezone
+
+        from classes.factories import ClassOfferingFactory, ClassSessionFactory
+        from classes.models import ClassOffering
+
+        client.force_login(admin_user)
+        windowed = ClassOfferingFactory(
+            title="Windowed",
+            slug="windowed",
+            status=ClassOffering.Status.PUBLISHED,
+            scheduling_model=ClassOffering.SchedulingModel.FLEXIBLE,
+            flexible_starts_on=date(2026, 11, 2),
+            flexible_ends_on=date(2026, 12, 1),
+        )
+        start = timezone.now() + timedelta(days=2)
+        ClassSessionFactory(class_offering=windowed, starts_at=start, ends_at=start + timedelta(hours=703))
+        ClassOfferingFactory(
+            title="Open Ended",
+            slug="open-ended",
+            status=ClassOffering.Status.PUBLISHED,
+            scheduling_model=ClassOffering.SchedulingModel.FLEXIBLE,
+        )
+        html = client.get(reverse("classes:admin_classes")).content.decode()
+
+        def _dates_cell(title: str) -> str:
+            row = next(row for row in html.split("<tr") if f">{title}<" in row)
+            return " ".join(row.split('<td style="white-space:nowrap;">')[1].split("</td>")[0].split())
+
+        assert _dates_cell("Windowed") == "Nov 2 to Dec 1, 2026"
+        assert _dates_cell("Open Ended") == "Flexible"
+
+
+def describe_the_seat_cell_for_a_flexible_class():
+    def it_shows_the_registration_count_alone(admin_user, client, db):
+        # No seat cap (#545): "2", never "2/1"; a fixed class keeps "N/capacity".
+        from classes.factories import ClassOfferingFactory, RegistrationFactory
+        from classes.models import ClassOffering, Registration
+
+        client.force_login(admin_user)
+        flexible = ClassOfferingFactory(
+            title="Open Forge",
+            slug="open-forge",
+            status=ClassOffering.Status.PUBLISHED,
+            scheduling_model=ClassOffering.SchedulingModel.FLEXIBLE,
+            capacity=1,
+        )
+        fixed = ClassOfferingFactory(
+            title="Fixed Forge", slug="fixed-forge", status=ClassOffering.Status.PUBLISHED, capacity=6
+        )
+        for offering in (flexible, fixed):
+            for _ in range(2):
+                RegistrationFactory(class_offering=offering, status=Registration.Status.CONFIRMED)
+        html = client.get(reverse("classes:admin_classes")).content.decode()
+
+        def _seat_cell(title: str) -> str:
+            row = next(row for row in html.split("<tr") if f">{title}<" in row)
+            return row.split("</td>")[-2].rsplit("<td>", 1)[1].strip()
+
+        assert _seat_cell("Open Forge") == "2"
+        assert _seat_cell("Fixed Forge") == "2/6"
+
+
+def describe_grouped_classes():
+    """Runs of one class (same title and category) share a row; the row never hides a run.
+
+    Production, 2026-09-30: Glen's Blacksmithing 101 group held runs back to June 2024, and
+    the list picked the oldest of them as the group's only row. The Oct 3 run was missing
+    from Upcoming, Drafts and search, so the admin trying to take it down could not find it.
+    """
+
+    def _run(category, slug: str, days: int, **kwargs):
+        from datetime import timedelta
+
+        from django.utils import timezone
+
+        from classes.factories import ClassOfferingFactory, ClassSessionFactory
+        from classes.models import ClassOffering
+
+        kwargs.setdefault("status", ClassOffering.Status.PUBLISHED)
+        offering = ClassOfferingFactory(title="Forge 101 with Glen", slug=slug, category=category, **kwargs)
+        ClassSessionFactory(class_offering=offering, starts_at=timezone.now() + timedelta(days=days))
+        return offering
+
+    def _row_pks(client, query: str) -> list[int]:
+        response = client.get(reverse("classes:admin_classes") + query)
+        assert response.status_code == 200
+        return [c.pk for c in response.context["page"]]
+
+    def it_lists_an_upcoming_run_whose_group_began_years_ago(admin_user, client, db):
+        from classes.factories import CategoryFactory
+
+        client.force_login(admin_user)
+        category = CategoryFactory()
+        _run(category, "forge-2024", days=-480)
+        upcoming = _run(category, "forge-oct", days=3)
+        assert _row_pks(client, "?status=upcoming") == [upcoming.pk]
+
+    def it_finds_the_next_run_by_search_rather_than_the_oldest(admin_user, client, db):
+        from classes.factories import CategoryFactory
+
+        client.force_login(admin_user)
+        category = CategoryFactory()
+        _run(category, "forge-2024", days=-480)
+        later = _run(category, "forge-dec", days=60)
+        sooner = _run(category, "forge-oct", days=3)
+        assert _row_pks(client, "?q=Glen") == [sooner.pk]
+        assert later.pk not in _row_pks(client, "?q=Glen")
+
+    def it_lists_a_draft_run_of_a_published_class(admin_user, client, db):
+        from classes.factories import CategoryFactory
+        from classes.models import ClassOffering
+
+        client.force_login(admin_user)
+        category = CategoryFactory()
+        _run(category, "forge-oct", days=3)
+        draft = _run(category, "forge-nov", days=30, status=ClassOffering.Status.DRAFT)
+        assert _row_pks(client, "?status=draft") == [draft.pk]
+
+    def it_links_the_date_count_to_every_run_of_the_class(admin_user, client, db):
+        from datetime import timedelta
+
+        from django.utils import timezone
+
+        from classes.factories import CategoryFactory, ClassOfferingFactory, ClassSessionFactory
+        from classes.models import ClassOffering
+
+        client.force_login(admin_user)
+        category = CategoryFactory()
+        oldest = _run(category, "forge-2024", days=-480)
+        sooner = _run(category, "forge-oct", days=3)
+        later = _run(category, "forge-dec", days=60)
+        weaving = ClassOfferingFactory(title="Unrelated Weaving", slug="weaving", status=ClassOffering.Status.PUBLISHED)
+        ClassSessionFactory(class_offering=weaving, starts_at=timezone.now() + timedelta(days=5))
+
+        html = client.get(reverse("classes:admin_classes") + "?status=upcoming").content.decode()
+        expand = f"?status=upcoming&amp;group={sooner.grouping_key.replace(':', '%3A')}"
+        assert f'href="{expand}"' in html
+        assert ">2 dates</a>" in html
+
+        rows = _row_pks(client, f"?status=upcoming&group={sooner.grouping_key}")
+        assert sorted(rows) == sorted([sooner.pk, later.pk])
+        assert sorted(_row_pks(client, f"?group={sooner.grouping_key}")) == sorted([oldest.pk, sooner.pk, later.pk])
+        html = client.get(reverse("classes:admin_classes") + f"?group={sooner.grouping_key}").content.decode()
+        assert 'href="?">Show one row per class</a>' in html
+
+    def it_counts_classes_not_dates_on_the_tab_chips(admin_user, client, db):
+        from classes.factories import CategoryFactory
+
+        client.force_login(admin_user)
+        category = CategoryFactory()
+        for slug, days in (("forge-oct", 3), ("forge-nov", 30), ("forge-dec", 60)):
+            _run(category, slug, days=days, instructor=admin_user.member)
+        response = client.get(reverse("classes:admin_classes") + "?status=upcoming")
+        counts = {label: count for _url, label, count, _selected in response.context["status_filters"]}
+        assert counts["Upcoming"] == len(response.context["page"]) == 1
+        assert response.context["mine_count"] == 1

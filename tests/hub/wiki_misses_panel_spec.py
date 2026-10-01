@@ -9,7 +9,7 @@ from django.contrib.auth.models import User
 from django.test import Client
 from django.urls import reverse
 
-from core.models import SiteConfiguration
+from tests.features import turn_on
 from membership.models import Member, WikiWantedPage
 from tests.membership.factories import (
     GuildFactory,
@@ -27,10 +27,7 @@ _HTMX = {"HTTP_HX_REQUEST": "true"}
 
 @pytest.fixture(autouse=True)
 def _wiki_on(db):
-    config = SiteConfiguration.load()
-    config.wiki_enabled = True
-    config.save()
-    return config
+    return turn_on("wiki")
 
 
 def _login(client: Client, username: str, *, fog_role: str = Member.FogRole.MEMBER) -> User:
@@ -171,7 +168,7 @@ def describe_add_to_wanted():
     def it_refuses_a_member_whose_membership_lapsed(db, client):
         user = _login(client, "miss_add_lapsed")
         guild = GuildFactory(guild_lead=user.member)
-        user.member.status = Member.Status.FORMER
+        user.member.status = Member.Status.INVITED
         user.member.save(update_fields=["status"])
         response = client.post(
             reverse("hub_wiki_wanted_request"),

@@ -19,7 +19,7 @@
       <a class="cta-secondary" href="{% if is_public_surface %}{{ MEMBER_BASE_URL }}{% endif %}{% url 'classes:teach_overview' %}">Manage My Classes</a>
     {% endif %}
     {% if user.is_authenticated and not is_public_surface %}
-      <a class="cta-secondary" href="{{ BOOK_BASE_URL }}" target="_blank" rel="noopener" title="See the public booking site at book.pastlives.space">View Publicly</a>
+      <a class="cta-secondary" href="{{ BOOK_BASE_URL }}" target="_blank" rel="noopener" title="See the public class site">View Publicly</a>
     {% endif %}
   </div>
 </div>
@@ -114,14 +114,6 @@
     <fieldset class="cp-filter__group">
       <legend>Show only</legend>
       <div class="cp-filter__checks cp-filter__checks--inline">
-        <label class="cp-filter__check">
-          <input type="checkbox" name="members_only" value="1" {% if members_only %}checked{% endif %}>
-          <span>Member discount available</span>
-        </label>
-        <label class="cp-filter__check">
-          <input type="checkbox" name="free" value="1" {% if free_only %}checked{% endif %}>
-          <span>Free classes</span>
-        </label>
         <label class="cp-filter__check">
           <input type="checkbox" name="upcoming" value="1" {% if upcoming_only %}checked{% endif %}>
           <span>Has upcoming session</span>

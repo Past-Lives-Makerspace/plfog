@@ -38,7 +38,6 @@ def _teach_data(**overrides) -> dict:
         "category": str(CategoryFactory().pk),
         "description": "Hands-on intro.",
         "price_cents": "100.00",
-        "member_discount_pct": "10",
         "capacity": "6",
         "scheduling_model": ClassOffering.SchedulingModel.FIXED,
         "scheduling_type": ClassOffering.SchedulingType.SINGLE_SESSION,
@@ -59,10 +58,17 @@ def _sessions(**overrides) -> dict:
 
 
 def describe_composer_steps():
-    def it_has_five_steps_numbered_in_order():
-        assert STEP_COUNT == 5
-        assert [step.number for step in COMPOSER_STEPS] == [1, 2, 3, 4, 5]
-        assert [step.key for step in COMPOSER_STEPS] == ["basics", "photos", "dates", "details", "review"]
+    def it_has_six_steps_numbered_in_order():
+        assert STEP_COUNT == 6
+        assert [step.number for step in COMPOSER_STEPS] == [1, 2, 3, 4, 5, 6]
+        assert [step.key for step in COMPOSER_STEPS] == [
+            "basics",
+            "photos",
+            "dates",
+            "details",
+            "discounts",
+            "review",
+        ]
 
     def it_places_every_form_field_on_exactly_one_step(form_class):
         # Meta.fields plus the injected hero_crop and card_focus: every one, once.
@@ -88,6 +94,14 @@ def describe_composer_steps():
     def it_has_no_fields_on_the_review_step():
         assert COMPOSER_STEPS[-1].fields == ()
 
+    def it_has_no_fields_and_no_readiness_on_the_discounts_step():
+        # Links and read only tables (#428): nothing for Next to gate, nothing for a tab mark to count.
+        discounts = COMPOSER_STEPS[4]
+        assert discounts.key == "discounts"
+        assert discounts.fields == ()
+        assert discounts.readiness_labels == ()
+        assert discounts.anchors == ()
+
     def it_maps_every_formset_to_a_step():
         assert FORMSET_STEPS == {"gallery": 2, "sessions": 3, "faq": 4}
 
@@ -97,7 +111,8 @@ def describe_step_for_field():
         assert step_for_field("title") == 1
         assert step_for_field("card_focus") == 2
         assert step_for_field("price_cents") == 1
-        assert step_for_field("member_discount_pct") == 3
+        assert step_for_field("flexible_starts_on") == 3
+        assert step_for_field("flexible_ends_on") == 3
         assert step_for_field("age_minimum") == 4
 
     def it_raises_on_an_unknown_field():
@@ -122,7 +137,7 @@ def describe_clamp_step():
     def it_clamps_to_the_map():
         assert clamp_step("0") == 1
         assert clamp_step("-2") == 1
-        assert clamp_step("9") == 5
+        assert clamp_step("9") == 6
 
 
 def describe_anchor_steps():
@@ -140,7 +155,7 @@ def describe_anchor_steps():
             has_gallery=False,
             description="",
             scheduling_model="fixed",
-            flexible_note="",
+            flexible_window_ended=False,
             has_future_session=False,
             capacity=0,
         )
@@ -249,7 +264,7 @@ def describe_step_marks():
             "has_gallery": True,
             "description": "A description long enough to count as a real one for readiness.",
             "scheduling_model": "fixed",
-            "flexible_note": "",
+            "flexible_window_ended": False,
             "has_future_session": True,
             "capacity": 6,
         }
@@ -259,10 +274,11 @@ def describe_step_marks():
     def it_marks_the_three_steps_that_own_readiness_items_when_all_are_ok():
         assert step_marks(_items()) == {1: True, 2: True, 3: True}
 
-    def it_never_marks_the_details_or_review_steps():
+    def it_never_marks_the_details_discounts_or_review_steps():
         marks = step_marks(_items())
         assert 4 not in marks
         assert 5 not in marks
+        assert 6 not in marks
 
     def it_unmarks_photos_when_the_gallery_is_missing():
         assert step_marks(_items(has_gallery=False))[2] is False
@@ -287,7 +303,7 @@ def describe_first_unready_step():
             "has_gallery": True,
             "description": "A description long enough to count as a real one for readiness.",
             "scheduling_model": "fixed",
-            "flexible_note": "",
+            "flexible_window_ended": False,
             "has_future_session": True,
             "capacity": 6,
         }

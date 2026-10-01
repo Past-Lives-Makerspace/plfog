@@ -8,7 +8,7 @@ Builds the accounts and class content one live walkthrough needs:
   owning three classes: a FULL paid class with a waitlist, a paid class with open
   seats, and a submit-ready DRAFT.
 * ``counciltreasurer+admin@`` — holds the CLASS_APPROVER capability, which is what
-  routes both the executive-validation email and the "someone wants to host a
+  routes both the admin sign-off email and the "someone wants to host a
   workshop" request to it. Neither follows the admin role.
 * ``counciltreasurer+guildlead@`` — a plain member who leads the Cartographers
   Guild (no admin tier), so the guild-lead review stage is honestly a guild lead.
@@ -232,6 +232,8 @@ class Command(BaseCommand):
         member.instructor_oriented_at = None
         member.teaching_applied_at = None
         member.teaching_application_note = ""
+        member.teaching_contact_method = ""
+        member.teaching_contact_detail = ""
         member.teaching_decided_at = None
         member.teaching_decline_reason = ""
         member.save(
@@ -241,6 +243,8 @@ class Command(BaseCommand):
                 "instructor_oriented_at",
                 "teaching_applied_at",
                 "teaching_application_note",
+                "teaching_contact_method",
+                "teaching_contact_detail",
                 "teaching_decided_at",
                 "teaching_decline_reason",
             ]
@@ -488,7 +492,12 @@ class Command(BaseCommand):
         amount_paid_cents: int,
     ) -> Registration:
         email = f"counciltreasurer+{local}@pastlives.space"
-        registration = Registration.objects.filter(class_offering=offering, email__iexact=email).first()
+        # The live row wins the lookup. Default ordering is newest-first, so a class
+        # carrying a duplicate that migration 0065 cancelled would otherwise hand back
+        # the cancelled row and confirming it would collide with the row that kept the
+        # seat. This command runs against production, so it must not crash mid-run.
+        rows = Registration.objects.filter(class_offering=offering, email__iexact=email)
+        registration = rows.seat_holding().first() or rows.first()
         if registration is None:
             registration = Registration(
                 class_offering=offering,

@@ -385,12 +385,14 @@ def describe_org_info_read_page():
     def it_shows_an_edit_button_for_an_admin(client: Client):
         _user_with_role("adm_edit_btn", fog_role=Member.FogRole.ADMIN)
         client.login(username="adm_edit_btn", password="pass")
-        assert b"Edit this page" in client.get(reverse("hub_help")).content
+        edit_url = f'href="{reverse("hub_help_edit")}"'.encode()
+        assert edit_url in client.get(reverse("hub_help")).content
 
     def it_hides_the_edit_button_from_a_member(client: Client):
         _user_with_role("m_no_edit_btn")
         client.login(username="m_no_edit_btn", password="pass")
-        assert b"Edit this page" not in client.get(reverse("hub_help")).content
+        edit_url = f'href="{reverse("hub_help_edit")}"'.encode()
+        assert edit_url not in client.get(reverse("hub_help")).content
 
 
 def describe_org_info_nav_and_folded_footer_links():
@@ -408,7 +410,7 @@ def describe_org_info_nav_and_folded_footer_links():
         assert b'href="/info/"' not in resp.content
 
     def it_no_longer_puts_the_external_wiki_in_the_member_nav(client: Client, settings):
-        """The sidebar Wiki slot now belongs to the in-app wiki, gated on wiki_enabled.
+        """The sidebar Wiki slot now belongs to the in-app wiki, gated on the wiki feature switch.
 
         The external MediaWiki is demoted to a card on the wiki home for the length of the
         migration and retired with the existing wiki_link_enabled toggle; while wiki_enabled

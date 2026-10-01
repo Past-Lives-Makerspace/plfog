@@ -3,22 +3,26 @@
 from __future__ import annotations
 
 import json
+from collections.abc import Mapping
 from decimal import Decimal
 from typing import TYPE_CHECKING, Any, cast
+from urllib.parse import urlencode
 
 from django import forms
 from django.core.exceptions import ValidationError
-from django.core.validators import MaxValueValidator
+from django.core.validators import MaxValueValidator, validate_email
+from django.db.models import Q
 from django.forms import inlineformset_factory
 from django.utils import timezone
 from django.utils.text import slugify
 
-from core.html_sanitize import sanitize_rich_html
-from core.widgets import PageContentEditorWidget, RichTextEditorWidget
+from core.html_sanitize import clean_rich_body, sanitize_rich_html
+from core.widgets import PageContentEditorWidget, RichBodyEditorWidget, RichTextEditorWidget
 
 from classes.models import (
     DEFAULT_CLASS_FAQS,
     DEFAULT_SALE_BANNER_TEXT,
+    READINESS_MIN_DESCRIPTION_CHARS,
     Category,
     ClassFaq,
     ClassImage,
@@ -26,6 +30,7 @@ from classes.models import (
     ClassSession,
     ClassSettings,
     DiscountCode,
+    DiscountCodeRequest,
     InstructorMessage,
     InstructorMessageRecipient,
     Registration,
@@ -81,8 +86,9 @@ STRIPE_MIN_CHARGE_CENTS = 50  # Stripe's minimum USD charge is $0.50.
 MIN_PAID_PRICE_CENTS = 100  # Floor for every class ($1.00). There is no free option (#368 item 5).
 PRICE_FLOOR_MESSAGE = "Classes cost at least $1.00."
 PRICE_HELP_TEXT = "In dollars, e.g. 80.00 for $80. Every class costs at least $1.00."
-MAX_MEMBER_DISCOUNT_PCT = 100  # A percentage; the model field only bounds it below.
-MEMBER_DISCOUNT_RANGE_MESSAGE = "Member discount must be between 0 and 100."
+# Under the description box on both composers (#425): the readiness minimum, from the one constant
+# the rule reads, so the hint can never name a number the checklist would then contradict.
+DESCRIPTION_HELP_TEXT = f"At least {READINESS_MIN_DESCRIPTION_CHARS} characters. Say what students make and take home."
 
 
 class CentsAsDollarsField(forms.DecimalField):
@@ -123,7 +129,15 @@ class _HeroCropMixin:
     def add_hero_crop_field(self) -> None:
         instance = getattr(self, "instance", None)
         initial = ""
-        if instance and instance.pk and instance.hero_crop_w and instance.hero_crop_h:
+        # No box is offered on an imported photo, so none is pre-filled: posting it back
+        # would overwrite a focal point set with Adjust on the preview.
+        if (
+            instance
+            and instance.pk
+            and instance.hero_crop_w
+            and instance.hero_crop_h
+            and not instance.has_imported_photo_only
+        ):
             initial = json.dumps(
                 {
                     "x": instance.hero_crop_x or 0,
@@ -216,8 +230,7 @@ class _PricingRulesMixin:
     option: a $0 total is something a discount reaches at registration, never a price an
     instructor or admin can set. ``price_cents`` is a required field, so a blank is refused
     by Django before this runs; this refuses anything typed under the floor, on the price
-    field, in plain words. The member discount is a percentage, so it is capped at 100 here
-    (the model field only bounds it below). Django finds ``clean_<field>`` through the MRO.
+    field, in plain words. Django finds ``clean_<field>`` through the MRO.
     """
 
     def clean_price_cents(self) -> int:
@@ -225,12 +238,6 @@ class _PricingRulesMixin:
         if price < MIN_PAID_PRICE_CENTS:
             raise forms.ValidationError(PRICE_FLOOR_MESSAGE)
         return price
-
-    def clean_member_discount_pct(self) -> int:
-        pct: int = self.cleaned_data["member_discount_pct"]  # type: ignore[attr-defined]
-        if pct > MAX_MEMBER_DISCOUNT_PCT:
-            raise forms.ValidationError(MEMBER_DISCOUNT_RANGE_MESSAGE)
-        return pct
 
 
 class _SaleMixin:
@@ -361,8 +368,87 @@ class _SchedulingTypeMixin:
         field.label = "How does this class run?"
 
 
+FLEXIBLE_WINDOW_ORDER_MESSAGE = "The last day is before the first day."
+
+
+def _window_day_widget() -> forms.DateInput:
+    """One day picker of a flexible class's window: a date, never a time (FRONTEND.md rule 20).
+
+    It wears the session scheduler's input class, which carries the rule 14 dark mode picker
+    fix, and the scheduler's click handler, so the whole field opens the picker. The ISO
+    format is what a native date input reads and writes.
+    """
+    return forms.DateInput(
+        attrs={
+            "type": "date",
+            "class": "session-cal__input",
+            "@click": "(() => { try { $el.showPicker() } catch (e) {} })()",
+        },
+        format="%Y-%m-%d",
+    )
+
+
+class _FlexibleWindowMixin:
+    """The optional date window of a flexible class, on both composer forms.
+
+    ``scheduling_model`` binds the composer's Alpine state so step 3 swaps the scheduler for
+    the window as the select changes; the two day fields and the note take their member
+    facing labels here. ``clean_flexible_window`` keeps the stored row honest: a last day
+    never precedes the first, and a class saved as Fixed sessions carries no window at all,
+    whatever the hidden block posted.
+    """
+
+    def setup_flexible_window_fields(self) -> None:
+        fields = self.fields  # type: ignore[attr-defined]
+        model = fields["scheduling_model"]
+        model.widget.attrs["x-model"] = "schedulingModel"
+        model.help_text = "Fixed sessions: you set the dates and times. Flexible: each student books a day with you."
+        fields["flexible_starts_on"].label = "First day"
+        fields["flexible_ends_on"].label = "Last day"
+        note = fields["flexible_note"]
+        note.label = "Note for students"
+        # The model field's help text is developer wording; the page carries the sentence that says
+        # what Flexible means, so the note is the instructor's extra.
+        note.help_text = (
+            "Optional. Hours you teach, what to bring to the first meeting, "
+            "anything students should know before they book."
+        )
+
+    def clean_flexible_window(self) -> None:
+        data = self.cleaned_data  # type: ignore[attr-defined]
+        # ``.get``: a field that failed its own validation is absent from cleaned_data.
+        if data.get("scheduling_model") == ClassOffering.SchedulingModel.FIXED:
+            data["flexible_starts_on"] = None
+            data["flexible_ends_on"] = None
+            return
+        starts_on, ends_on = data.get("flexible_starts_on"), data.get("flexible_ends_on")
+        if starts_on is not None and ends_on is not None and ends_on < starts_on:
+            self.add_error("flexible_ends_on", FLEXIBLE_WINDOW_ORDER_MESSAGE)  # type: ignore[attr-defined]
+
+
+class _RichDescriptionMixin:
+    """The description is written in the rich-text editor and stored as its sanitized HTML.
+
+    A description saved before the editor existed is plain text, and a client without the editor
+    still posts plain text; :func:`core.html_sanitize.clean_rich_body` keeps that as typed and
+    sanitizes only editor HTML, so the stored value is always one the page can render.
+    """
+
+    cleaned_data: dict[str, Any]
+
+    def clean_description(self) -> str:
+        return clean_rich_body(self.cleaned_data["description"])
+
+
 class ClassOfferingForm(
-    _HeroCropMixin, _CardFocusMixin, _PricingRulesMixin, _LiveSaleGuardMixin, _SchedulingTypeMixin, forms.ModelForm
+    _RichDescriptionMixin,
+    _HeroCropMixin,
+    _CardFocusMixin,
+    _PricingRulesMixin,
+    _LiveSaleGuardMixin,
+    _SchedulingTypeMixin,
+    _FlexibleWindowMixin,
+    forms.ModelForm,
 ):
     """The admin composer form. The six ``sale_*`` fields live on :class:`ClassSaleForm`."""
 
@@ -382,25 +468,35 @@ class ClassOfferingForm(
             "age_minimum",
             "age_guardian_note",
             "price_cents",
-            "member_discount_pct",
             "capacity",
             "scheduling_model",
             "scheduling_type",
             "flexible_note",
+            "flexible_starts_on",
+            "flexible_ends_on",
             "is_private",
             "private_for_name",
             "image",
             "video_url",
         ]
-        widgets = {"video_url": _video_url_widget()}
+        # Four rows, not the widget default of ten: the readiness minimum is 40 characters, so the
+        # box only has to invite a short paragraph, and the live count sits right under it.
+        widgets = {
+            "video_url": _video_url_widget(),
+            "description": RichBodyEditorWidget(attrs={"rows": 4}),
+            "flexible_starts_on": _window_day_widget(),
+            "flexible_ends_on": _window_day_widget(),
+        }
+        # The window's one hint sits under the pair on step 3, so neither day repeats it.
+        help_texts = {"description": DESCRIPTION_HELP_TEXT, "flexible_starts_on": "", "flexible_ends_on": ""}
 
     def __init__(self, *args, **kwargs) -> None:
         super().__init__(*args, **kwargs)
-        self.fields["member_discount_pct"].label = "Member discount (%)"
         self.fields["category"].label = "Guild Type"
         self.add_hero_crop_field()
         self.add_card_focus_field()
         self.setup_scheduling_type_field()
+        self.setup_flexible_window_fields()
 
     def clean_video_url(self) -> str:
         return validate_video_url(self.cleaned_data.get("video_url", ""))
@@ -408,6 +504,7 @@ class ClassOfferingForm(
     def clean(self) -> dict:
         data = super().clean() or {}
         self.clean_price_against_live_sale()
+        self.clean_flexible_window()
         return data
 
     def save(self, commit: bool = True) -> ClassOffering:
@@ -422,7 +519,14 @@ class ClassOfferingForm(
 
 
 class TeachClassOfferingForm(
-    _HeroCropMixin, _CardFocusMixin, _PricingRulesMixin, _LiveSaleGuardMixin, _SchedulingTypeMixin, forms.ModelForm
+    _RichDescriptionMixin,
+    _HeroCropMixin,
+    _CardFocusMixin,
+    _PricingRulesMixin,
+    _LiveSaleGuardMixin,
+    _SchedulingTypeMixin,
+    _FlexibleWindowMixin,
+    forms.ModelForm,
 ):
     """Class form for teaching members — no `instructor`, no `is_private`, slug auto-generated.
 
@@ -444,24 +548,34 @@ class TeachClassOfferingForm(
             "age_minimum",
             "age_guardian_note",
             "price_cents",
-            "member_discount_pct",
             "capacity",
             "scheduling_model",
             "scheduling_type",
             "flexible_note",
+            "flexible_starts_on",
+            "flexible_ends_on",
             "image",
             "video_url",
         ]
-        widgets = {"video_url": _video_url_widget()}
+        # Four rows, not the widget default of ten: the readiness minimum is 40 characters, so the
+        # box only has to invite a short paragraph, and the live count sits right under it.
+        widgets = {
+            "video_url": _video_url_widget(),
+            "description": RichBodyEditorWidget(attrs={"rows": 4}),
+            "flexible_starts_on": _window_day_widget(),
+            "flexible_ends_on": _window_day_widget(),
+        }
+        # The window's one hint sits under the pair on step 3, so neither day repeats it.
+        help_texts = {"description": DESCRIPTION_HELP_TEXT, "flexible_starts_on": "", "flexible_ends_on": ""}
 
     def __init__(self, *args, teaching_member: "Member | None" = None, **kwargs) -> None:
         self.teaching_member = teaching_member
         super().__init__(*args, **kwargs)
-        self.fields["member_discount_pct"].label = "Member discount (%)"
         self.fields["category"].label = "Guild Type"
         self.add_hero_crop_field()
         self.add_card_focus_field()
         self.setup_scheduling_type_field()
+        self.setup_flexible_window_fields()
 
     def clean_video_url(self) -> str:
         return validate_video_url(self.cleaned_data.get("video_url", ""))
@@ -469,6 +583,7 @@ class TeachClassOfferingForm(
     def clean(self) -> dict:
         data = super().clean() or {}
         self.clean_price_against_live_sale()
+        self.clean_flexible_window()
         return data
 
     def save(self, commit: bool = True) -> ClassOffering:
@@ -537,12 +652,30 @@ class ClassSaleForm(_SaleMixin, forms.ModelForm):
         return offering
 
 
+def _teaching_contact_method_choices() -> list[tuple[str, str]]:
+    """The Best way to reach you options, behind a blank so a missed pick is a field error.
+
+    A callable so the form module never imports ``membership.models`` at load time
+    (the two apps import each other).
+    """
+    from membership.models import Member
+
+    return [("", "Pick one"), *Member.TeachingContactMethod.choices]
+
+
 class TeachingApplicationForm(forms.Form):
-    """The I'm Interested modal's single note field.
+    """The I'm Interested modal: the note, how to reach the member, and where.
 
     Validation lives here, not the view: the note is what an admin reads when they
     decide, so a blank submit gets the field error rather than filing an empty ask.
     ``strip`` is Django's default, so a note of only whitespace fails ``required``.
+    The detail is checked against the method in ``clean``: Email must be an address;
+    Text message and Phone call need a phone number with at least seven digits,
+    however it is punctuated. What the member typed is stored as typed.
+
+    The widget attributes on the two contact fields are what the modal's Alpine
+    component hooks: the select reports a change and the detail input takes the
+    prefill (``templates/classes/teach/partials/apply_form.html``).
     """
 
     note = forms.CharField(
@@ -559,6 +692,43 @@ class TeachingApplicationForm(forms.Form):
             "max_length": "That is longer than we can store. Trim it to 2000 characters or fewer.",
         },
     )
+    contact_method = forms.ChoiceField(
+        required=True,
+        choices=_teaching_contact_method_choices,
+        label="Best way to reach you",
+        widget=forms.Select(attrs={"x-ref": "method", "@change": "pick($event.target.value)"}),
+        error_messages={
+            "required": "Pick how you would like us to reach you.",
+            "invalid_choice": "Pick how you would like us to reach you.",
+        },
+    )
+    contact_detail = forms.CharField(
+        required=True,
+        max_length=254,
+        label="Where to reach you",
+        widget=forms.TextInput(attrs={"x-ref": "detail"}),
+        error_messages={
+            "required": "Tell us where to reach you: an email address or a phone number.",
+            "max_length": "That is longer than we can store. Keep it to 254 characters or fewer.",
+        },
+    )
+
+    def clean(self) -> dict:
+        data = super().clean() or {}
+        method = data.get("contact_method")
+        detail = data.get("contact_detail")
+        if not method or not detail:
+            return data  # the field errors already say which one is missing
+        from membership.models import Member
+
+        if method == Member.TeachingContactMethod.EMAIL:
+            try:
+                validate_email(detail)
+            except ValidationError:
+                self.add_error("contact_detail", "That does not look like an email address. Check it and try again.")
+        elif sum(ch.isdigit() for ch in detail) < 7:
+            self.add_error("contact_detail", "That does not look like a phone number. It needs at least seven digits.")
+        return data
 
 
 class ClassSessionForm(forms.ModelForm):
@@ -649,7 +819,7 @@ class CategoryForm(forms.ModelForm):
         fields = ["name", "slug", "sort_order", "hero_image"]
 
 
-class TeachPublishedClassForm(forms.ModelForm):
+class TeachPublishedClassForm(_RichDescriptionMixin, forms.ModelForm):
     """Light edits an instructor may make to a LIVE class without re-review.
 
     Only fields that do not change what registrants booked on: description, prep notes,
@@ -673,6 +843,7 @@ class TeachPublishedClassForm(forms.ModelForm):
             "flexible_note",
             "video_url",
         ]
+        widgets = {"video_url": _video_url_widget(), "description": RichBodyEditorWidget(attrs={"rows": 4})}
 
     def clean_video_url(self) -> str:
         return validate_video_url(self.cleaned_data.get("video_url", ""))
@@ -813,6 +984,101 @@ class DiscountCodeForm(forms.ModelForm):
         return code
 
 
+class DiscountCodeRequestForm(forms.ModelForm):
+    """An instructor's ask for a class code under approval mode.
+
+    One form serves both the global Discount Codes page and the per-class tab:
+    ``class_offering`` is a required choice limited to the instructor's own live classes,
+    preselected from ``?class=<pk>`` when the tab sent them here. The code itself is made by
+    ``DiscountCodeRequest.approve``, never here.
+    """
+
+    discount_fixed_cents = CentsAsDollarsField(
+        required=False,
+        label="Fixed discount ($)",
+        help_text="Flat dollar amount off, for example 20.00 for $20 off.",
+    )
+
+    class Meta:
+        model = DiscountCodeRequest
+        fields = [
+            "class_offering",
+            "code",
+            "discount_pct",
+            "discount_fixed_cents",
+            "valid_from",
+            "valid_until",
+            "max_uses",
+            "reason",
+        ]
+        labels = {"class_offering": "Class"}
+        help_texts = {
+            "code": "Letters and numbers, for example EARLYBIRD. It is uppercased for you.",
+            "max_uses": "Leaving the 'uses' field blank indicates unlimited uses.",
+            "reason": "Why you want this code. The admin who decides reads it.",
+        }
+        widgets = {
+            "code": forms.TextInput(attrs={"oninput": "this.value = this.value.toUpperCase()"}),
+            "reason": forms.Textarea(attrs={"rows": 3}),
+        }
+
+    def __init__(self, *args: Any, teaching_member: Member, initial_class: str | None = None, **kwargs: Any) -> None:
+        super().__init__(*args, **kwargs)
+        self._teaching_member = teaching_member
+        class_field = cast(forms.ModelChoiceField, self.fields["class_offering"])
+        class_field.queryset = (
+            ClassOffering.objects.filter(instructor=teaching_member)
+            .exclude(status__in=[ClassOffering.Status.CANCELLED, ClassOffering.Status.ARCHIVED])
+            .order_by("title")
+        )
+        if initial_class:
+            # An unknown or foreign pk is ignored, as teach_discount_code_create does with ?class=.
+            try:
+                class_field.initial = class_field.queryset.get(pk=int(initial_class)).pk
+            except (ClassOffering.DoesNotExist, ValueError, TypeError):
+                pass
+
+    def clean_code(self) -> str:
+        """Refuse a code that exists or is already asked for; better here than at approval."""
+        code = self.cleaned_data["code"].strip().upper()
+        if (
+            DiscountCode.objects.filter(code=code).exists()
+            or DiscountCodeRequest.objects.pending().filter(code=code).exists()
+        ):
+            raise forms.ValidationError("That code is already taken. Pick another.")
+        return code
+
+    def clean_discount_pct(self) -> int | None:
+        """A zero percent is no discount: the constraint only tests null, so this refuses 0 here."""
+        pct = self.cleaned_data["discount_pct"]
+        if pct is not None and pct < 1:
+            raise forms.ValidationError("Percent off must be at least 1.")
+        return pct
+
+    # No clean(): the "percent or fixed amount" rule is the model's CheckConstraint, whose
+    # violation_error_message ModelForm validation renders as the one non-field error. A form
+    # check here as well rendered two errors for one gap.
+
+    def save(self, commit: bool = True) -> DiscountCodeRequest:
+        self.instance.requested_by = self._teaching_member
+        return super().save(commit=commit)
+
+
+class DiscountCodeRequestDeclineForm(forms.Form):
+    """The one thing a decline needs: a note the instructor will read.
+
+    ``CharField`` strips by default and refuses a whitespace-only value with its required
+    message, so no ``clean_note`` is needed; ``DiscountCodeRequest.decline`` is the last gate.
+    """
+
+    note = forms.CharField(
+        required=True,
+        widget=forms.Textarea(attrs={"rows": 3}),
+        label="Why it was declined",
+        help_text="The instructor sees this note.",
+    )
+
+
 class RegistrationQuestionForm(forms.ModelForm):
     """Admin form for creating/editing global registration questions.
 
@@ -873,8 +1139,11 @@ class RegistrationQuestionForm(forms.ModelForm):
 class RegistrationForm(forms.ModelForm):
     """Public registration form — collects registrant + waiver signatures.
 
-    Computes the final price (member discount + optional discount code) and,
-    on save, creates the Registration plus signed Waiver records.
+    One price engine (:meth:`_price_cents`) serves the quote on the page and the charge at
+    checkout: sale price, then the code. ``member`` is accepted for callers that already
+    resolved one and is not read by the form: the price does not depend on it, and the saved
+    row links itself to the Member by email. On save, creates the Registration plus signed
+    Waiver records.
     """
 
     discount_code = forms.CharField(
@@ -940,8 +1209,10 @@ class RegistrationForm(forms.ModelForm):
         member: "Member | None" = None,
         client_ip: str = "",
         is_waitlist: bool = False,
+        holds_seat: bool = False,
         user: "AbstractBaseUser | AnonymousUser | None" = None,
         custom_answers_initial: dict[int, str] | None = None,
+        refresh_params: Mapping[str, str] | None = None,
         **kwargs,
     ) -> None:
         super().__init__(*args, **kwargs)
@@ -950,6 +1221,14 @@ class RegistrationForm(forms.ModelForm):
         self.member = member
         self.client_ip = client_ip
         self.is_waitlist = is_waitlist
+        # The page's own query (``waitlist``, ``waitlist_token``), kept on the refresh URL so the
+        # re-rendered summary is the one this page shows: a claim link keeps its seat and a
+        # voluntary waitlist page keeps its no-charge form.
+        self._refresh_params = dict(refresh_params or {})
+        # This email already holds a seat in this class, so the class is not sold out
+        # to THEM: the row making it full is their own. Set by the register view, which
+        # resolves the existing signup before it builds the form.
+        self.holds_seat = holds_seat
         self._validated_discount: DiscountCode | None = None
         self.auto_applied_discount: DiscountCode | None = None
         if not offering.requires_model_release:
@@ -984,23 +1263,7 @@ class RegistrationForm(forms.ModelForm):
             self.fields.pop("discount_code", None)
         self._custom_questions = list(active_questions())
         inject_fields(self, self._custom_questions, custom_answers_initial)
-        if self._custom_questions:
-            # A returning guest has no email on first GET, so their saved answers
-            # can't pre-fill server-side yet. When the email changes, HTMX re-fetches
-            # just the questions block (hx-select) so previous answers appear without
-            # disturbing the rest of the form.
-            from django.urls import reverse
-
-            self.fields["email"].widget.attrs.update(
-                {
-                    "hx-get": reverse("classes:register", kwargs={"slug": offering.slug}),
-                    "hx-trigger": "change",
-                    "hx-target": "#custom-questions-block",
-                    "hx-select": "#custom-questions-block",
-                    "hx-swap": "outerHTML",
-                    "hx-include": "this",
-                }
-            )
+        self._wire_price_refresh()
         # On the first GET render, pre-fill the discount field with the best
         # class-scoped auto-apply code (if one exists). The registrant can
         # still clear it before submitting. Skipped when a non-stacking sale
@@ -1010,6 +1273,35 @@ class RegistrationForm(forms.ModelForm):
             if applied is not None:
                 self.fields["discount_code"].initial = applied.code
                 self.auto_applied_discount = applied
+
+    def _wire_price_refresh(self) -> None:
+        """Re-fetch the price summary when the email or the code box changes.
+
+        The quote is for those two as they stand, so each carries the same ``hx-get`` back
+        to this page; the summary is swapped in and the button label out of band. A returning
+        guest's saved answers ride the same refresh when the class asks questions: they can't
+        pre-fill server-side until the email is known.
+        """
+        from django.urls import reverse
+
+        select_oob = "#reg-submit-label"
+        if self._custom_questions:
+            select_oob += ",#custom-questions-block"
+        url = reverse("classes:register", kwargs={"slug": self.offering.slug})
+        if self._refresh_params:
+            url += "?" + urlencode(self._refresh_params)
+        refresh_attrs = {
+            "hx-get": url,
+            "hx-trigger": "change",
+            "hx-include": "[name=email],[name=discount_code]",
+            "hx-target": "#reg-price-summary",
+            "hx-select": "#reg-price-summary",
+            "hx-swap": "outerHTML",
+            "hx-select-oob": select_oob,
+        }
+        for name in ("email", "discount_code"):
+            if name in self.fields:
+                self.fields[name].widget.attrs.update(refresh_attrs)
 
     @staticmethod
     def _user_already_opted_in(user: "AbstractBaseUser | AnonymousUser | None") -> bool:
@@ -1022,29 +1314,32 @@ class RegistrationForm(forms.ModelForm):
     def _find_auto_apply_discount(self) -> DiscountCode | None:
         """Pick the class-scoped auto-apply code that yields the lowest final price.
 
-        Computes the post-member-discount base this registrant would pay, then
-        defers the cheapest-code selection to the DiscountCode manager. Returns
-        ``None`` when no qualifying auto-apply code exists.
+        The base is the price before any code, so the cheapest code is chosen against the
+        price actually paid. Defers the choice to the DiscountCode manager; ``None`` when no
+        qualifying auto-apply code exists.
         """
-        base = self.offering.sale_price_cents
-        if self.member is not None and self.offering.member_discount_pct:
-            base = int(base * (100 - self.offering.member_discount_pct) / 100)
+        base = self._price_cents(code=None)
         return DiscountCode.objects.best_auto_apply_for(self.offering, base)
 
-    def clean_discount_code(self) -> DiscountCode | None:
-        from django.db.models import Q
+    def _code_for(self, raw: str) -> DiscountCode | None:
+        """The code spelled ``raw`` that this class honours, valid or not, else ``None``.
 
+        Codes are either global (class_offering is null) or scoped to this class. A code
+        scoped to some other class is not recognized here.
+        """
+        return (
+            DiscountCode.objects.filter(Q(class_offering__isnull=True) | Q(class_offering=self.offering))
+            .filter(code=raw)
+            .first()
+        )
+
+    def clean_discount_code(self) -> DiscountCode | None:
         raw = (self.cleaned_data.get("discount_code") or "").strip().upper()
         if not raw:
             return None
-        # Codes are either global (class_offering is null) or scoped to this
-        # class. A code scoped to some other class is not recognized here.
-        try:
-            code = DiscountCode.objects.filter(Q(class_offering__isnull=True) | Q(class_offering=self.offering)).get(
-                code=raw
-            )
-        except DiscountCode.DoesNotExist:
-            raise forms.ValidationError("That discount code isn't recognized.") from None
+        code = self._code_for(raw)
+        if code is None:
+            raise forms.ValidationError("That discount code isn't recognized.")
         if not code.is_currently_valid():
             raise forms.ValidationError("That discount code isn't valid right now.")
         self._validated_discount = code
@@ -1052,7 +1347,9 @@ class RegistrationForm(forms.ModelForm):
 
     def clean(self) -> dict:
         data = super().clean() or {}
-        if not self.is_waitlist and self.offering.spots_remaining <= 0:
+        # None is a flexible class: no seat cap, so it is never sold out (#545).
+        spots = self.offering.spots_remaining
+        if not self.is_waitlist and not self.holds_seat and spots is not None and spots <= 0:
             raise forms.ValidationError("This class is sold out.")
         if self.offering.requires_model_release and not data.get("accepts_model_release"):
             self.add_error("accepts_model_release", "Photo release acceptance is required for this class.")
@@ -1067,25 +1364,52 @@ class RegistrationForm(forms.ModelForm):
         return data
 
     @property
-    def member_discount_pct(self) -> int:
-        """Member discount applies only when the registrant matches a verified member."""
-        if self.member is None:
-            return 0
-        return self.offering.member_discount_pct or 0
+    def validated_discount(self) -> DiscountCode | None:
+        """The code this submission validated, if any.
 
-    def compute_final_price_cents(self) -> int:
-        price = self.offering.sale_price_cents  # sale first (== price_cents when no sale)
-        if self.member_discount_pct:  # member discount off the (sale) price
-            price = int(price * (100 - self.member_discount_pct) / 100)
-        code = self._validated_discount
+        Public because the row is not always written by :meth:`save`: a signup resumed
+        onto an existing registration re-stamps the code whose price it is charging.
+        """
+        return self._validated_discount
+
+    def _price_cents(self, *, code: DiscountCode | None) -> int:
+        """The one price engine: sale first, the code last, floor at zero.
+
+        The quote on the page and the charge at checkout both come through here, so the
+        number a registrant reads is the number Stripe is handed.
+        """
+        price = self.offering.sale_price_cents  # == price_cents when no sale
         if code is not None and not self.sale_blocks_codes:  # coupon last, unless the sale blocks it
             price = code.apply_to(price)
         return max(0, price)
 
+    def compute_final_price_cents(self) -> int:
+        """What this validated submission is charged."""
+        return self._price_cents(code=self._validated_discount)
+
+    def _code_as_shown(self) -> DiscountCode | None:
+        """The code box as the page renders it, looked up leniently: blank or unusable quotes no code."""
+        if "discount_code" not in self.fields:
+            return None
+        raw = str(self["discount_code"].value() or "").strip().upper()
+        code = self._code_for(raw) if raw else None
+        if code is None or not code.is_currently_valid():
+            return None
+        return code
+
+    def quoted_price_cents(self) -> int:
+        """The number on the summary and the button: what this page, as it stands, would charge.
+
+        Reads the code box as it renders (the POST when bound, else the initial, which on
+        first render is the auto-applied code). Never raises: a blank or unrecognised code
+        quotes no code, which is what a submit with it would charge.
+        """
+        return self._price_cents(code=self._code_as_shown())
+
     def save(self, commit: bool = True) -> Registration:
         registration: Registration = super().save(commit=False)
         registration.class_offering = self.offering
-        registration.discount_code = self._validated_discount
+        registration.discount_code = self.validated_discount
         if self._newsletter_opt_in_suppressed:
             # We hid the checkbox because this person already opted in, so the
             # unbound field left the flag False. Record the opt-in they actually
@@ -1159,7 +1483,6 @@ class ClassSettingsForm(forms.ModelForm):
         fields = [
             "liability_waiver_text",
             "model_release_waiver_text",
-            "default_member_discount_pct",
             "reminder_hours_before",
             "instructor_approval_required",
             "confirmation_email_footer",
@@ -1601,9 +1924,13 @@ class RegistrationMoveForm(forms.Form):
         )
 
     def clean_target(self) -> ClassOffering:
-        """Instructor moves can't overfill the destination; admin moves can (see the class docstring)."""
+        """Instructor moves can't overfill the destination; admin moves can (see the class docstring).
+
+        A flexible destination answers ``None`` for its spots: no cap, so never full (#545).
+        """
         target = cast(ClassOffering, self.cleaned_data["target"])
-        if self._instructor is not None and target.spots_remaining <= 0:
+        spots = target.spots_remaining
+        if self._instructor is not None and spots is not None and spots <= 0:
             raise ValidationError("That class is full.")
         return target
 

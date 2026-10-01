@@ -1,8 +1,7 @@
 """Read-time aggregation for the Payments tab — no model, no fourth table.
 
-The panel is a merge over the existing money tables (``TabCharge`` rows and paid
-``Registration`` rows, orientation bookings via a documented seam once the
-paid-orientations spec lands). Each source keeps its own lifecycle; this module
+The panel is a merge over the existing money tables (``TabCharge`` rows, paid
+``Registration`` rows, paid orientation bookings and paid late cancellation fees). Each source keeps its own lifecycle; this module
 only derives one row shape (:class:`PaymentRow`) with a source-neutral identity
 and a per-source status badge, then sorts and caps the merged list.
 """
@@ -22,7 +21,7 @@ if TYPE_CHECKING:
 
 MAX_ROWS = 500
 
-SOURCE_LABELS = {"tab": "Tab", "class": "Class", "orientation": "Orientation"}
+SOURCE_LABELS = {"tab": "Tab", "class": "Class", "orientation": "Orientation", "late_fee": "Late fee"}
 
 STATUS_LABELS = {
     "paid": "Paid",
@@ -60,7 +59,7 @@ CSV_HEADERS = [
 class PaymentRow:
     """One ledger row with a source-neutral identity (per the cross-spec contract)."""
 
-    source_kind: str  # "tab" | "class" | "orientation"
+    source_kind: str  # "tab" | "class" | "orientation" | "late_fee"
     source_pk: int
     payer_name: str
     payer_url: str | None  # set only for fog-admin viewers (§5.5 linking rule)
@@ -73,7 +72,7 @@ class PaymentRow:
     tab_pk: int | None = None  # tab rows keep the existing tab-detail modal opener
     stripe_url: str = ""  # muted "Stripe" payment link on tab rows
     pending_age: str = ""  # e.g. "2 h" when status == "refund_pending"
-    item_url: str = ""  # orientation rows: the guild page the item text links to
+    item_url: str = ""  # orientation and late fee rows: the owner page the item text links to
     booking_url: str = ""  # orientation rows: the linked booking's respond page
 
     @property
@@ -151,6 +150,26 @@ def _age_label(since: datetime) -> str:
     return f"{hours // 24} d"
 
 
+def _refund_status(state: str, refunds: tuple[PaymentRefund, ...]) -> tuple[str, str]:
+    """The row's status key and pending age from a source's ``refund_state`` and its ledger rows.
+
+    One derivation for every refundable source (class, orientation, late fee), so the
+    badges never drift between them.
+    """
+    from billing.models import PaymentRefund as PaymentRefundModel
+
+    pending = next((r for r in refunds if r.status == PaymentRefundModel.Status.PENDING), None)
+    if state == "failed":
+        return "refund_failed", ""
+    if pending is not None:
+        return "refund_pending", _age_label(pending.created_at)
+    if state == "full":
+        return "refunded", ""
+    if state == "partial":
+        return "partial", ""
+    return "paid", ""
+
+
 def _tab_rows(window: PanelWindow) -> list[PaymentRow]:
     """Tab charge rows. Refund action deferred by locked decision — ``can_refund`` is always False."""
     from django.db.models.functions import Coalesce
@@ -197,7 +216,6 @@ def _class_rows(window: PanelWindow, *, viewer_is_admin: bool) -> list[PaymentRo
     """
     from django.urls import reverse
 
-    from billing.models import PaymentRefund
     from classes.models import Registration
 
     registrations = (
@@ -209,20 +227,7 @@ def _class_rows(window: PanelWindow, *, viewer_is_admin: bool) -> list[PaymentRo
     rows: list[PaymentRow] = []
     for registration in registrations:
         refunds = tuple(registration.refunds.all())
-        state = registration.refund_state
-        pending = next((r for r in refunds if r.status == PaymentRefund.Status.PENDING), None)
-        pending_age = ""
-        if state == "failed":
-            status = "refund_failed"
-        elif pending is not None:
-            status = "refund_pending"
-            pending_age = _age_label(pending.created_at)
-        elif state == "full":
-            status = "refunded"
-        elif state == "partial":
-            status = "partial"
-        else:
-            status = "paid"
+        status, pending_age = _refund_status(registration.refund_state, refunds)
         guest_name = f"{registration.first_name} {registration.last_name}".strip()
         payer_name = (
             registration.member.display_name if registration.member is not None else (guest_name or registration.email)
@@ -256,7 +261,6 @@ def _orientation_rows(window: PanelWindow, *, viewer_is_admin: bool) -> list[Pay
     """
     from django.urls import reverse
 
-    from billing.models import PaymentRefund
     from membership.models import OrientationBooking
 
     bookings = (
@@ -269,20 +273,7 @@ def _orientation_rows(window: PanelWindow, *, viewer_is_admin: bool) -> list[Pay
     rows: list[PaymentRow] = []
     for booking in bookings:
         refunds = tuple(booking.refunds.all())
-        state = booking.refund_state
-        pending = next((r for r in refunds if r.status == PaymentRefund.Status.PENDING), None)
-        pending_age = ""
-        if state == "failed":
-            status = "refund_failed"
-        elif pending is not None:
-            status = "refund_pending"
-            pending_age = _age_label(pending.created_at)
-        elif state == "full":
-            status = "refunded"
-        elif state == "partial":
-            status = "partial"
-        else:
-            status = "paid"
+        status, pending_age = _refund_status(booking.refund_state, refunds)
         payer_url = reverse("hub_admin_member_edit", args=[booking.member_id]) if viewer_is_admin else None
         rows.append(
             PaymentRow(
@@ -299,6 +290,56 @@ def _orientation_rows(window: PanelWindow, *, viewer_is_admin: bool) -> list[Pay
                 pending_age=pending_age,
                 item_url=booking.orientation_type.owner_page_path(),
                 booking_url=reverse("hub_orientation_respond", args=[booking.pk]),
+            )
+        )
+    return rows
+
+
+def _late_fee_rows(window: PanelWindow, *, viewer_is_admin: bool) -> list[PaymentRow]:
+    """Paid late cancellation fee rows (#456), with refund state derived from the ledger.
+
+    PAID and REFUNDED fees only: money moved on both (a REFUNDED fee was paid first), and a
+    fee with a pending or failed refund is still PAID. UNPAID and WAIVED fees never took
+    money and are not ledger rows. ``paid_at`` is the row's date.
+    """
+    from django.urls import reverse
+
+    from billing.models import LateCancellationFee
+
+    fees = (
+        LateCancellationFee.objects.filter(
+            status__in=[LateCancellationFee.Status.PAID, LateCancellationFee.Status.REFUNDED]
+        )
+        .filter(paid_at__gte=window.start_dt, paid_at__lt=window.end_dt)
+        .select_related(
+            "member",
+            "reservation__equipment",
+            "orientation_booking__slot",
+            "orientation_booking__orientation_type__guild",
+            "orientation_booking__orientation_type__equipment",
+        )
+        .prefetch_related("refunds")
+    )
+    rows: list[PaymentRow] = []
+    for fee in fees:
+        refunds = tuple(fee.refunds.all())
+        status, pending_age = _refund_status(fee.refund_state, refunds)
+        payer_url = reverse("hub_admin_member_edit", args=[fee.member_id]) if viewer_is_admin else None
+        rows.append(
+            PaymentRow(
+                source_kind="late_fee",
+                source_pk=fee.pk,
+                payer_name=fee.member.display_name,
+                payer_url=payer_url,
+                item=f"Late fee: {fee.item_label}",
+                amount_cents=fee.amount_cents,
+                status=status,
+                # paid_at is non-null here: the queryset filters on it above.
+                date=cast(datetime, fee.paid_at),
+                refund_rows=refunds,
+                can_refund=bool(fee.stripe_payment_id) and fee.refundable_cents > 0,
+                pending_age=pending_age,
+                item_url=fee.owner_page_path(),
             )
         )
     return rows
@@ -323,6 +364,8 @@ def build_payments_ledger(
         rows.extend(_class_rows(window, viewer_is_admin=viewer_is_admin))
     if source in ("all", "orientation"):
         rows.extend(_orientation_rows(window, viewer_is_admin=viewer_is_admin))
+    if source in ("all", "late_fee"):
+        rows.extend(_late_fee_rows(window, viewer_is_admin=viewer_is_admin))
 
     wanted = _STATUS_FILTERS.get(status)
     if wanted is not None:

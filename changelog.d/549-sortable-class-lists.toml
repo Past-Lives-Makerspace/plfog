@@ -1,0 +1,7 @@
+bump = "minor"
+date = "2026-09-30"
+title = "Class lists sort by their column headers"
+changes = [
+  "On the teaching portal's list of your classes, click Title, Guild Type, Date(s), Status or Registrations to sort. The list gains a Date(s) column and pages at 25.",
+  "Every sortable header in the admin tables now shows an arrow, so you can tell it sorts. Sorting by Date(s) puts classes with no dates last either way, and sorting Manage Classes by Instructor works again.",
+]

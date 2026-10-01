@@ -273,8 +273,54 @@ STRUCTURAL_EMAILS: list[GalleryEmail] = [
             "Goes to the admin notification addresses."
         ),
         edit_pointer="Text authored in code (classes/emails.py::send_duplicate_payment_alert)",
-        audience="The admin notification addresses.",
+        audience="Every Admin (always emailed).",
+        event_keys=frozenset({"classes.duplicate_payment_alert"}),
         context_builder="duplicate_payment_alert_context",
+    ),
+    GalleryEmail(
+        key="class_registration_admin_notice",
+        name="New class registration (admin copy)",
+        section="Classes",
+        renderer=Renderer.INLINE_STRING,
+        trigger_note=(
+            "Sent when someone registers for a class (a confirmed paid or free signup). The Admins' "
+            "own copy of the instructor's notice: who registered, what they paid and how full the "
+            "class is. Each Admin's Email switch for New class registration decides."
+        ),
+        edit_pointer="Text authored in code (classes/emails.py::send_admin_registration_notification)",
+        audience="Every Admin whose Email switch for New class registration is on.",
+        event_keys=frozenset({"class_registration_admin_notice"}),
+        context_builder="class_registration_admin_notice_context",
+    ),
+    GalleryEmail(
+        key="registration_resume_link",
+        name="Your signup for this class (resume link)",
+        section="Classes",
+        renderer=Renderer.INLINE_STRING,
+        trigger_note=(
+            "Sent when somebody POSTs the register form with an email address that already has a "
+            "signup for that class, from a browser that cannot be tied to it. The link goes to the "
+            "address on file and the page that asked is told nothing, so knowing a person's email is "
+            "not enough to reach their booking. Throttled to one per registration per 15 minutes."
+        ),
+        edit_pointer="Text authored in code (classes/emails.py::send_registration_resume_link)",
+        audience="The registrant, at the address on their registration.",
+        context_builder="registration_resume_link_context",
+    ),
+    GalleryEmail(
+        key="orphaned_class_payment_alert",
+        name="Class payment needs a decision (admin)",
+        section="Classes",
+        renderer=Renderer.INLINE_STRING,
+        trigger_note=(
+            "Sent when a class Checkout page left open on a cancelled registration is finally paid, "
+            "and the seat has since gone to a newer signup for the same person — the payment cannot be "
+            "applied, so somebody has to refund it or re-seat them. Goes to the admin notification addresses."
+        ),
+        edit_pointer="Text authored in code (classes/emails.py::send_orphaned_payment_alert)",
+        audience="Every Admin (always emailed).",
+        event_keys=frozenset({"classes.orphaned_payment_alert"}),
+        context_builder="orphaned_class_payment_alert_context",
     ),
     GalleryEmail(
         key="reminder",
@@ -298,11 +344,11 @@ STRUCTURAL_EMAILS: list[GalleryEmail] = [
         section="Teaching",
         renderer=Renderer.SHELL_TEMPLATE,
         trigger_note=(
-            "Sent when someone registers for a class. Goes to the class's instructor. Admins get a "
-            "CC variant of the same notice (same template, admin audience)."
+            "Sent when someone registers for a class. Goes to the class's instructor. Admins get "
+            "their own copy, the New class registration card under Classes."
         ),
         edit_pointer=_tpl("classes/emails", "instructor_new_registration"),
-        audience="The class's instructor (admins receive a CC variant).",
+        audience="The class's instructor.",
         event_keys=frozenset({"instructor_new_registration"}),
         text_template="classes/emails/instructor_new_registration.txt",
         html_template="classes/emails/instructor_new_registration.html",
@@ -315,10 +361,11 @@ STRUCTURAL_EMAILS: list[GalleryEmail] = [
         renderer=Renderer.SHELL_TEMPLATE,
         trigger_note=(
             "Sent when an instructor submits a class for review. Goes to the category's guild lead and "
-            "staff (or to admins when the category has no guild lead), with a tokenized review link."
+            "staff (or to the CMS Administrators when the category has no guild lead), with a tokenized "
+            "review link. Each reviewer's Email switch for Class review request decides."
         ),
         edit_pointer=_tpl("classes/emails", "review_request"),
-        audience="The guild's lead + staff, or admins for lead-less categories.",
+        audience="The guild's lead + staff, or the CMS Administrators for lead-less categories.",
         event_keys=frozenset({"class_review_requested"}),
         text_template="classes/emails/review_request.txt",
         html_template="classes/emails/review_request.html",
@@ -342,11 +389,11 @@ STRUCTURAL_EMAILS: list[GalleryEmail] = [
     ),
     GalleryEmail(
         key="admin_validation_request",
-        name="Executive validation request",
+        name="Admin sign-off request",
         section="Teaching",
         renderer=Renderer.SHELL_TEMPLATE,
         trigger_note=(
-            "Sent when a guild lead approves a class and the admin (executive) gate opens. "
+            "Sent when a guild lead approves a class and the admin sign-off gate opens. "
             "Goes to the CMS Administrators (CLASS_APPROVER holders), with a tokenized review link."
         ),
         edit_pointer=_tpl("classes/emails", "admin_validation_request"),
@@ -494,11 +541,12 @@ STRUCTURAL_EMAILS: list[GalleryEmail] = [
         section="Guilds & Orientations",
         renderer=Renderer.SHELL_TEMPLATE,
         trigger_note=(
-            "Sent when a member requests a guild orientation. Goes to the guild's lead and staff, "
-            "with one-click confirm / decline links."
+            "Sent when a member requests an orientation. Goes to the guild's lead and staff (a personal "
+            "slot: the orienter booked plus the lead; equipment: its managers), with one-click confirm / "
+            "decline links. Each person's Email switch for Orientation requested decides."
         ),
         edit_pointer=_tpl("membership/emails", "orientation_lead_request"),
-        audience="The guild's lead and all of its staff.",
+        audience="The guild's lead and all of its staff, or the orienter booked plus the lead.",
         event_keys=frozenset({"orientation_requested"}),
         text_template="membership/emails/orientation_lead_request.txt",
         html_template="membership/emails/orientation_lead_request.html",
@@ -515,7 +563,8 @@ STRUCTURAL_EMAILS: list[GalleryEmail] = [
             "— the refund must happen from the Stripe dashboard. Goes to the Billing Administrators."
         ),
         edit_pointer="Text authored in code (membership/webhook_handlers.py::_send_orphan_payment_alert)",
-        audience="Holders of the Billing Administrator capability.",
+        audience="Holders of the Billing Administrator capability (always emailed).",
+        event_keys=frozenset({"membership.orientation_orphan_payment"}),
         context_builder="orientation_orphan_payment_alert_context",
     ),
     GalleryEmail(
@@ -680,6 +729,21 @@ STRUCTURAL_EMAILS: list[GalleryEmail] = [
         audience="The existing account's address.",
         template_prefix="account_already_exists",
         context_builder="account_already_exists_context",
+    ),
+    GalleryEmail(
+        key="late_fee_orphan_payment_alert",
+        name="Orphaned late cancellation fee payment alert (admin)",
+        section="Billing",
+        renderer=Renderer.INLINE_STRING,
+        trigger_note=(
+            "Sent when a paid late cancellation fee Checkout lands with no fee to mark paid (the fee "
+            "row is gone, or was waived or refunded before the money landed) — the refund must "
+            "happen from the Stripe dashboard. Goes to the Billing Administrators."
+        ),
+        edit_pointer="Text authored in code (billing/webhook_handlers.py::_send_orphan_fee_alert)",
+        audience="Holders of the Billing Administrator capability (always emailed).",
+        event_keys=frozenset({"billing.late_fee_orphan_payment"}),
+        context_builder="late_fee_orphan_payment_alert_context",
     ),
     GalleryEmail(
         key="find_account",
@@ -918,8 +982,7 @@ _SKIP_DIR_NAMES: frozenset[str] = frozenset({"tests", "spec", "migrations"})
 _REGISTERED_INLINE_KINDS: dict[str, str] = {
     "core.find_account": "the find_account INLINE_STRING card",
     "classes.welcome_email": "the welcome WELCOME card (this is the real send)",
-    "classes.duplicate_payment_alert": "the duplicate_payment_alert INLINE_STRING card",
-    "membership.orientation_orphan_payment": "the orientation_orphan_payment_alert INLINE_STRING card",
+    "classes.registration_resume_link": "the registration_resume_link INLINE_STRING card",
     "wiki.page_archived": "the wiki_page_archived card",
     "wiki.proposal_declined": "the wiki_proposal_declined card",
 }

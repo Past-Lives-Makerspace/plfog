@@ -3,15 +3,12 @@
 
 {% block account_title %}Receipts.{% endblock %}
 {% block account_sub %}
-  <p class="bk-sub">
-    {% if persona == 'member' %}Class purchases — member pricing applied automatically.
-    {% else %}Class purchases. Free registrations don't appear here.{% endif %}
-  </p>
+  <p class="bk-sub">Class purchases. Free registrations don't appear here.</p>
 {% endblock %}
 
 {% block account_body %}
   {% if not receipts %}
-    {% include "classes/account/_components/empty_state.html" with glyph="$" title="No receipts yet." body="When you register for a paid class, your receipt will show up here. Free classes don't generate one." cta="Browse classes" cta_url="/classes/" %}
+    {% include "classes/account/_components/empty_state.html" with glyph="$" title="No receipts yet." body="When you pay for a class, your receipt will show up here." cta="Browse classes" cta_url="/classes/" %}
   {% else %}
     <div class="bk-receipts">
       <div class="bk-rec-row is-head">
@@ -29,7 +26,7 @@
             <span class="sub">{{ reg.class_offering.instructor.display_name }}</span>
           </div>
           <div class="bk-rec-method">Stripe</div>
-          <div class="bk-rec-amount{% if persona == 'member' and reg.member %} is-discount{% endif %}">{{ reg.amount_paid_cents|cents_as_dollars }}</div>
+          <div class="bk-rec-amount">{{ reg.amount_paid_cents|cents_as_dollars }}</div>
           <a class="bk-rec-action" href="{% url 'classes:my_registration' reg.self_serve_token %}">PDF →</a>
         </div>
       {% endfor %}

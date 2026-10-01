@@ -72,3 +72,22 @@ def describe_series_grouping():
         # The group stays coherent: re-homing one run re-homes its siblings too.
         assert run_b.category_id == new_category.pk
         assert run_b.grouping_key == run_a.grouping_key
+
+    def it_moves_a_run_alone_when_the_same_save_renames_it_out_of_the_class(db):
+        # Production, 2026-09-30: one save renamed a run and moved its category. The sweep
+        # stamped the new name's key on the other runs while they kept the old name, so they
+        # sat on the renamed run's catalog card until their next save quietly moved them back.
+        from classes.factories import CategoryFactory
+        from classes.grouping import grouping_key_for
+
+        cat = CategoryFactory()
+        run_a = SeriesClassOfferingFactory(title="Forge Night with Glen", slug="forge-a", category=cat, session_count=2)
+        SeriesClassOfferingFactory(title="Forge Night with Glen", slug="forge-b", category=cat, session_count=2)
+        new_category = CategoryFactory()
+        run_a.title = "Forge Night"
+        run_a.category = new_category
+        run_a.save()
+        run_b = ClassOffering.objects.get(slug="forge-b")
+        assert run_b.category_id == cat.pk
+        assert run_b.grouping_key == grouping_key_for("Forge Night with Glen", cat.pk)
+        assert run_a.grouping_key == grouping_key_for("Forge Night", new_category.pk)

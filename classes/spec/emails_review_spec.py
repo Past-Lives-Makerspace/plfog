@@ -2,18 +2,20 @@
 
 from __future__ import annotations
 
+from allauth.account.models import EmailAddress
 from django.core import mail
 
 from classes.emails import (
-    _admin_recipients,
     send_admin_review_request,
     send_admin_validation_request,
     send_class_review_decision,
+    send_guild_lead_review_reminder,
     send_guild_lead_review_request,
 )
 from classes.factories import CategoryFactory, ClassOfferingFactory, InstructorFactory, UserFactory
 from classes.models import ClassApproval, ClassOffering
-from membership.models import AdminCapability, GuildStaffMembership, Member
+from core.models import Notification, NotificationPreference
+from membership.models import AdminCapability, Guild, GuildStaffMembership, Member
 from tests.membership.factories import GuildFactory, GuildStaffMembershipFactory, MemberFactory
 
 
@@ -38,104 +40,119 @@ def _class_admin(email: str) -> Member:
     return member
 
 
-def describe_admin_recipients():
-    def it_deduplicates_repeated_addresses(db, settings):
-        settings.CLASS_ADMIN_NOTIFY_EMAILS = "admin@example.com, admin@example.com, other@example.com"
-        result = _admin_recipients()
-        assert result == ["admin@example.com", "other@example.com"]
-
-    def it_includes_admin_members_from_the_db(db, settings):
-        settings.CLASS_ADMIN_NOTIFY_EMAILS = ""
-        MemberFactory(fog_role=Member.FogRole.ADMIN, _pre_signup_email="dbadmin@example.com")
-        assert _admin_recipients() == ["dbadmin@example.com"]
-
-    def it_unions_db_admins_with_the_setting_and_dedupes(db, settings):
-        settings.CLASS_ADMIN_NOTIFY_EMAILS = "dbadmin@example.com, extra@example.com"
-        MemberFactory(fog_role=Member.FogRole.ADMIN, _pre_signup_email="dbadmin@example.com")
-        # DB admin comes first; the setting's duplicate is dropped, the extra kept.
-        assert _admin_recipients() == ["dbadmin@example.com", "extra@example.com"]
-
-    def it_excludes_admin_members_without_an_email(db, settings):
-        settings.CLASS_ADMIN_NOTIFY_EMAILS = ""
-        MemberFactory(fog_role=Member.FogRole.ADMIN, _pre_signup_email="")
-        assert _admin_recipients() == []
-
-    def it_ignores_non_admin_members(db, settings):
-        settings.CLASS_ADMIN_NOTIFY_EMAILS = ""
-        MemberFactory(fog_role=Member.FogRole.MEMBER, _pre_signup_email="member@example.com")
-        assert _admin_recipients() == []
+def _leader(email: str) -> Member:
+    """A member with a login: the review request reaches only people who hold switches."""
+    return UserFactory(username=email, email=email).member  # type: ignore[attr-defined]
 
 
-def _make_guilded_category():
-    """Category linked to a Guild whose lead resolves to a known email address."""
-    lead = MemberFactory(_pre_signup_email="emailguildlead@example.com")
-    guild = GuildFactory(name="Email Test Guild", guild_lead=lead)
-    return CategoryFactory(guild=guild)
+def _guild_led_by(lead: Member, name: str = "Email Test Guild") -> Guild:
+    return GuildFactory(name=name, guild_lead=lead)
+
+
+def _email_off(member: Member) -> None:
+    NotificationPreference.objects.create(
+        user=member.user, event_key="class_review_requested", channel="email", enabled=False
+    )
+
+
+def _review_emails(address: str) -> list:
+    return [m for m in mail.outbox if m.to == [address] and m.subject.startswith("Review request:")]
+
+
+def _bells(member: Member) -> int:
+    return Notification.objects.filter(trigger="class_review_requested", user=member.user).count()
+
+
+def _pending_guild_class(guild: Guild) -> tuple[ClassOffering, ClassApproval]:
+    inst_user = UserFactory(username=f"inst-{guild.pk}@example.com")
+    instructor = InstructorFactory(user=inst_user, full_legal_name="Inst", instructor_slug=f"inst-{guild.pk}")
+    offering = ClassOfferingFactory(instructor=instructor, category=CategoryFactory(guild=guild))
+    row = ClassApproval.objects.create(class_offering=offering, role=ClassApproval.Role.GUILD_LEAD)
+    return offering, row
 
 
 def describe_send_guild_lead_review_request():
-    def it_emails_the_guild_lead_and_the_instructor(db, settings):
+    def it_emails_the_guild_lead_and_the_instructor(db):
         """Stage one: the guild lead gets the request, the instructor gets the explainer."""
-        settings.CLASS_ADMIN_NOTIFY_EMAILS = ""
-        cat = _make_guilded_category()
-        inst_user = UserFactory(username="inst2@example.com")
-        instructor = InstructorFactory(user=inst_user, full_legal_name="Inst2", instructor_slug="inst2")
-        offering = ClassOfferingFactory(
-            instructor=instructor,
-            category=cat,
-            status=ClassOffering.Status.DRAFT,
-        )
-        row = ClassApproval.objects.create(class_offering=offering, role=ClassApproval.Role.GUILD_LEAD)
+        lead = _leader("emailguildlead@example.com")
+        offering, row = _pending_guild_class(_guild_led_by(lead))
 
         send_guild_lead_review_request(offering, row)
 
-        # One review-request email to the guild lead + one instructor notification
+        # One review-request email to the guild lead + one instructor explainer.
         assert len(mail.outbox) == 2
-        review_email = next(m for m in mail.outbox if m.to == ["emailguildlead@example.com"])
+        review_email = _review_emails("emailguildlead@example.com")[0]
         assert offering.title in review_email.subject
         assert f"/classes/review/{row.token}/" in review_email.body
         assert "Guild Lead" in review_email.body
 
-    def it_also_emails_guild_staff_on_the_review_request(db, settings):
-        """The single review-request email fans out to the lead and every staff member."""
-        settings.CLASS_ADMIN_NOTIFY_EMAILS = ""
-        cat = _make_guilded_category()  # lead = emailguildlead@example.com
-        staff_member = MemberFactory(_pre_signup_email="coleadstaff@example.com")
-        GuildStaffMembershipFactory(guild=cat.guild, member=staff_member, role=GuildStaffMembership.Role.CO_LEAD)
-        inst_user = UserFactory(username="inststaff@example.com")
-        instructor = InstructorFactory(user=inst_user, full_legal_name="InstS", instructor_slug="insts")
-        offering = ClassOfferingFactory(
-            ready=True, instructor=instructor, category=cat, status=ClassOffering.Status.DRAFT
-        )
-        row = ClassApproval.objects.create(class_offering=offering, role=ClassApproval.Role.GUILD_LEAD)
+    def it_also_emails_guild_staff_on_the_review_request(db):
+        """The review request fans out to the lead and every staff member."""
+        lead = _leader("emailguildlead@example.com")
+        guild = _guild_led_by(lead)
+        staff_member = _leader("coleadstaff@example.com")
+        GuildStaffMembershipFactory(guild=guild, member=staff_member, role=GuildStaffMembership.Role.CO_LEAD)
+        offering, row = _pending_guild_class(guild)
 
         send_guild_lead_review_request(offering, row)
 
-        # The spine sends one review email per leadership address; the lead AND the staff
-        # member are both addressed (recipient SET identical to the old multi-To send).
-        review_recipients = {addr for m in mail.outbox if "Review request" in m.subject for addr in m.to}
-        assert "emailguildlead@example.com" in review_recipients
-        assert "coleadstaff@example.com" in review_recipients
+        assert len(_review_emails("emailguildlead@example.com")) == 1
+        assert len(_review_emails("coleadstaff@example.com")) == 1
 
-    def it_skips_guild_lead_email_when_lead_has_no_email(db, settings):
-        settings.CLASS_ADMIN_NOTIFY_EMAILS = ""
-        noemail_member = MemberFactory(_pre_signup_email="")
-        guild = GuildFactory(name="Silent Guild", guild_lead=noemail_member)
-        cat = CategoryFactory(guild=guild)
-        offering = ClassOfferingFactory(category=cat, status=ClassOffering.Status.DRAFT)
-        row = ClassApproval.objects.create(class_offering=offering, role=ClassApproval.Role.GUILD_LEAD)
+    def it_skips_a_leader_with_no_login(db):
+        """A member with no login has no switches to obey, so the event system skips them."""
+        guild = _guild_led_by(MemberFactory(_pre_signup_email="nologin@example.com"), "Silent Guild")
+        offering, row = _pending_guild_class(guild)
 
         send_guild_lead_review_request(offering, row)
 
-        # Guild lead has no email so no review-request email; only the instructor notification fires
+        # Only the instructor's explainer goes out.
         assert len(mail.outbox) == 1
-        assert mail.outbox[0].to != [""]  # not sent to the lead's empty address
+        assert mail.outbox[0].to != ["nologin@example.com"]
+
+    def describe_the_email_switch():
+        def it_sends_no_review_email_to_a_leader_who_switched_it_off(db):
+            lead = _leader("offlead@example.com")
+            _email_off(lead)
+            offering, row = _pending_guild_class(_guild_led_by(lead))
+
+            send_guild_lead_review_request(offering, row)
+
+            assert _review_emails("offlead@example.com") == []
+            # The switch is the Email switch only: the bell still rings.
+            assert _bells(lead) == 1
+
+        def it_emails_a_leader_who_left_it_on_at_their_notification_address(db):
+            lead = _leader("primarylead@example.com")
+            EmailAddress.objects.create(user=lead.user, email="shop@example.com", verified=True, primary=False)
+            lead.notification_email = "shop@example.com"
+            lead.save(update_fields=["notification_email"])
+            offering, row = _pending_guild_class(_guild_led_by(lead))
+
+            send_guild_lead_review_request(offering, row)
+
+            assert len(_review_emails("shop@example.com")) == 1
+            assert _review_emails("primarylead@example.com") == []
+            assert _bells(lead) == 1
+
+        def it_still_reaches_the_rest_of_the_leadership(db):
+            lead = _leader("quietlead@example.com")
+            _email_off(lead)
+            guild = _guild_led_by(lead)
+            staff_member = _leader("loudstaff@example.com")
+            GuildStaffMembershipFactory(guild=guild, member=staff_member, role=GuildStaffMembership.Role.SECRETARY)
+            offering, row = _pending_guild_class(guild)
+
+            send_guild_lead_review_request(offering, row)
+
+            assert _review_emails("quietlead@example.com") == []
+            assert len(_review_emails("loudstaff@example.com")) == 1
 
 
 def describe_guild_lead_review_request_no_double_send():
     def it_sends_one_email_and_one_in_app_to_an_opted_in_lead(db, settings):
         """Opted-in leadership get the dedicated review email only, plus one in-app row."""
-        from core.models import Notification, NotificationPreference, SiteActivity
+        from core.models import SiteActivity
 
         settings.CLASS_ADMIN_NOTIFY_EMAILS = ""
         lead_user = UserFactory(email="leaduser@example.com")
@@ -167,9 +184,7 @@ def describe_guild_lead_review_request_no_double_send():
 
 
 def describe_send_admin_review_request():
-    def it_emails_the_class_administrators_and_the_instructor(db, settings):
-        """Stage one for lead-less categories: the CMS Administrators get the request."""
-        _class_admin("classadmin@example.com")
+    def _leadless_class() -> tuple[ClassOffering, ClassApproval]:
         inst_user = UserFactory(username="inst3@example.com")
         instructor = InstructorFactory(user=inst_user, full_legal_name="Inst3", instructor_slug="inst3")
         offering = ClassOfferingFactory(
@@ -177,20 +192,75 @@ def describe_send_admin_review_request():
             category=CategoryFactory(guild=None),
             status=ClassOffering.Status.DRAFT,
         )
-        row = ClassApproval.objects.create(class_offering=offering, role=ClassApproval.Role.ADMIN)
+        return offering, ClassApproval.objects.create(class_offering=offering, role=ClassApproval.Role.ADMIN)
+
+    def it_emails_the_class_administrators_and_the_instructor(db):
+        """Stage one for lead-less categories: the CMS Administrators get the request."""
+        _class_admin("classadmin@example.com")
+        offering, row = _leadless_class()
 
         send_admin_review_request(offering, row)
 
         assert len(mail.outbox) == 2
-        review_email = next(m for m in mail.outbox if m.to == ["classadmin@example.com"])
+        review_email = _review_emails("classadmin@example.com")[0]
         assert offering.title in review_email.subject
+
+    def it_sends_no_review_email_to_a_cms_administrator_who_switched_it_off(db):
+        admin = _class_admin("quietadmin@example.com")
+        _email_off(admin)
+        other = _class_admin("loudadmin@example.com")
+        offering, row = _leadless_class()
+
+        send_admin_review_request(offering, row)
+
+        assert _review_emails("quietadmin@example.com") == []
+        assert len(_review_emails("loudadmin@example.com")) == 1
+        # Push, Discord and the bell are untouched by the Email switch.
+        assert _bells(admin) == 1
+        assert _bells(other) == 1
+
+
+def describe_send_guild_lead_review_reminder():
+    def it_returns_none_for_a_guild_with_no_leadership(db):
+        _offering, row = _pending_guild_class(GuildFactory(name="Empty Guild", guild_lead=None))
+        assert send_guild_lead_review_reminder(row) is None
+        assert mail.outbox == []
+
+    def it_returns_none_for_a_class_whose_category_has_no_guild(db):
+        offering = ClassOfferingFactory(category=CategoryFactory(guild=None))
+        row = ClassApproval.objects.create(class_offering=offering, role=ClassApproval.Role.GUILD_LEAD)
+        assert send_guild_lead_review_reminder(row) is None
+
+    def it_emails_leadership_whose_switch_is_on_and_skips_those_whose_switch_is_off(db):
+        lead = _leader("remindlead@example.com")
+        guild = _guild_led_by(lead, "Remind Guild")
+        quiet = _leader("remindquiet@example.com")
+        GuildStaffMembershipFactory(guild=guild, member=quiet, role=GuildStaffMembership.Role.TREASURER)
+        _email_off(quiet)
+        _offering, row = _pending_guild_class(guild)
+
+        result = send_guild_lead_review_reminder(row)
+
+        assert result is not None
+        assert len(_review_emails("remindlead@example.com")) == 1
+        assert _review_emails("remindquiet@example.com") == []
+        assert _bells(quiet) == 1
+
+    def it_returns_none_when_no_leader_can_be_reached(db):
+        # A lead with no login cannot hold switches or receive the email, so there is
+        # nobody to remind: the admin reviews it instead of being told a reminder went out.
+        guild = _guild_led_by(MemberFactory(_pre_signup_email="ghost@example.com"), "Ghost Guild")
+        _offering, row = _pending_guild_class(guild)
+
+        assert send_guild_lead_review_reminder(row) is None
+        assert mail.outbox == []
 
 
 def describe_send_admin_validation_request():
-    def it_emails_class_administrators_with_executive_validation_wording(db, settings):
-        """Stage two: the CMS Administrators get the executive-validation request after a lead approves."""
+    def it_emails_class_administrators_asking_for_admin_sign_off(db, settings):
+        """Stage two: the CMS Administrators get the admin sign-off request after a lead approves."""
         _class_admin("classadmin@example.com")
-        cat = _make_guilded_category()
+        cat = CategoryFactory(guild=_guild_led_by(MemberFactory(_pre_signup_email="emailguildlead@example.com")))
         offering = ClassOfferingFactory(category=cat, status=ClassOffering.Status.PENDING)
         row = ClassApproval.objects.create(class_offering=offering, role=ClassApproval.Role.ADMIN)
 
@@ -199,8 +269,8 @@ def describe_send_admin_validation_request():
         assert len(mail.outbox) == 1
         email = mail.outbox[0]
         assert email.to == ["classadmin@example.com"]
-        assert "validation" in email.subject.lower()
-        assert "executive validation" in email.body.lower()
+        assert email.subject == f"Admin sign-off needed: {offering.title}"
+        assert "request admin sign-off" in email.body.lower()
         assert f"/classes/review/{row.token}/" in email.body
 
     def it_does_nothing_when_there_are_no_class_administrators(db):

@@ -1,0 +1,18 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="720" viewBox="0 0 1200 720" role="img" aria-labelledby="title desc">
+  <title id="title">Separated profile visibility cards</title>
+  <desc id="desc">The Member Directory and Spaces Map cards are separated by a visible one-rem gap.</desc>
+  <rect width="1200" height="720" fill="#0a0b10"/>
+  <text x="56" y="66" fill="#f4efdd" font-family="Arial, sans-serif" font-size="32" font-weight="700">Edit Your Profile</text>
+  <rect x="56" y="120" width="1088" height="210" rx="18" fill="#181b24" stroke="#303542" stroke-width="2"/>
+  <text x="88" y="178" fill="#f4efdd" font-family="Arial, sans-serif" font-size="27" font-weight="700">Member Directory</text>
+  <text x="88" y="218" fill="#9aa6b8" font-family="Arial, sans-serif" font-size="19">Decide what other members see when they look you up.</text>
+  <rect x="934" y="157" width="178" height="58" rx="29" fill="#252a35" stroke="#454c5b" stroke-width="2"/>
+  <text x="962" y="193" fill="#8b97a8" font-family="Arial, sans-serif" font-size="17" font-weight="700">HIDDEN</text>
+  <text x="56" y="360" fill="#eeb44b" font-family="Arial, sans-serif" font-size="16" font-weight="700">16 PX SPACE</text>
+  <line x1="56" y1="372" x2="1144" y2="372" stroke="#eeb44b" stroke-width="2" stroke-dasharray="8 8"/>
+  <rect x="56" y="390" width="1088" height="160" rx="18" fill="#181b24" stroke="#303542" stroke-width="2"/>
+  <text x="88" y="448" fill="#f4efdd" font-family="Arial, sans-serif" font-size="27" font-weight="700">Spaces Map</text>
+  <text x="88" y="488" fill="#9aa6b8" font-family="Arial, sans-serif" font-size="19">Share your name on your studio or shelf on the Spaces map.</text>
+  <rect x="1056" y="430" width="56" height="32" rx="16" fill="#eeb44b"/>
+  <circle cx="1095" cy="446" r="12" fill="#f4efdd"/>
+</svg>

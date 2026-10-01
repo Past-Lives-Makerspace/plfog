@@ -2,11 +2,20 @@
 
 from __future__ import annotations
 
+import re
 from typing import Any
 
 from django.http import HttpRequest
 
 from membership.models import AdminCapability, Guild, Member
+
+# The per-class management screen an admin lands on. After #399 that is
+# ``/classes/teach/classes/<pk>/…`` for everyone — the old ``/classes/admin/<pk>/`` pages
+# merged into it — so the Admin Tools entry has to recognise the new shape by path. The
+# pattern is deliberately the PER-CLASS one and not the whole ``/classes/teach/`` prefix:
+# an admin who also instructs still gets Teaching lit on the portal landing, their My
+# Classes list and their Instructor Profile, which is the entry those pages belong to.
+_MERGED_CLASS_PATH = re.compile(r"^/classes/teach/classes/\d+(?:/|$)")
 
 
 def hub_sidebar(request: HttpRequest) -> dict[str, Any]:
@@ -30,6 +39,8 @@ def hub_sidebar(request: HttpRequest) -> dict[str, Any]:
             "user_profile_photo_url": "",
             "can_create_classes": False,
             "teach_nav": None,
+            "classes_admin_nav_active": False,
+            "classes_catalog_active_class": "",
         }
 
     initials = ""
@@ -39,6 +50,8 @@ def hub_sidebar(request: HttpRequest) -> dict[str, Any]:
         initials = member.initials
         if member.profile_photo:
             photo_url = member.profile_photo.url
+    admin_nav_active = _classes_admin_nav_active(request)
+    teach_nav = _teach_nav(request, member, admin_nav_active)
     return {
         # Inactive guilds are hidden everywhere they're listed (directory, voting,
         # My Guilds) — the sidebar follows suit. Their detail pages stay reachable
@@ -50,11 +63,59 @@ def hub_sidebar(request: HttpRequest) -> dict[str, Any]:
         "view_as_capabilities": _admin_capability_rows(request, member),
         "view_as_instructor": _instructor_row(request, member),
         "can_create_classes": member is not None and member.can_create_classes,
-        "teach_nav": _teach_nav(request, member),
+        "teach_nav": teach_nav,
+        "classes_admin_nav_active": admin_nav_active,
+        "classes_catalog_active_class": _classes_catalog_active_class(request, admin_nav_active, teach_nav),
     }
 
 
-def _teach_nav(request: HttpRequest, member: Member | None) -> dict[str, Any] | None:
+def _classes_admin_nav_active(request: HttpRequest) -> bool:
+    """Whether the Admin Tools sidebar entry owns the current classes-management path.
+
+    Admin Tools has claimed ``/classes/admin/`` ever since Manage Classes became one of its
+    cards. #399 merges the per-class admin screen into the instructor's own
+    ``/classes/teach/classes/<pk>/…`` page, so the same admin doing the same job now stands on
+    a ``/classes/teach/`` path — which is where ``_teach_nav`` lights. Deciding it here rather
+    than in the template keeps the two entries reading one answer, so they can never both light.
+
+    The merged path only belongs to Admin Tools for a viewer in the admin capability set, and
+    ``request.view_as.is_admin`` is the EFFECTIVE read (ruling 9): an admin previewing as a
+    member is previewing the member's sidebar, and gets Teaching lit like the member would.
+    An instructor on that same page is simply an instructor, and keeps Teaching.
+
+    ``request.view_as`` is read defensively for the same reason the rest of this module does:
+    a 404 rendered before ``ViewAsMiddleware`` has run has no such attribute.
+    """
+    path = request.path
+    if path.startswith("/classes/admin/"):
+        return True
+    view_as = getattr(request, "view_as", None)
+    return view_as is not None and view_as.is_admin and _MERGED_CLASS_PATH.match(path) is not None
+
+
+def _classes_catalog_active_class(
+    request: HttpRequest, admin_nav_active: bool, teach_nav: dict[str, Any] | None
+) -> str:
+    """``"active"`` when the Class Catalog sidebar entry owns the current page, else ``""``.
+
+    Catalog lights on every ``/classes/`` path EXCEPT the two other entries carve out of it:
+    a class-management path, which belongs to Admin Tools (:func:`_classes_admin_nav_active`),
+    and the teaching portal, which belongs to Teaching (:func:`_teach_nav`). Exactly one of the
+    three is ever lit.
+
+    This used to be an inline ``{% if %}`` in base.html, written out twice. #405 routes the entry
+    through ``_sidebar_feature_link.html`` so all three switch states come from one call site,
+    and a ``{% include ... with %}`` argument cannot hold an ``{% if %}`` — so the answer is
+    computed here as a CSS class, the same shape ``teach_nav["active_class"]`` already uses.
+    """
+    if not request.path.startswith("/classes/"):
+        return ""
+    if admin_nav_active or (teach_nav is not None and teach_nav["is_active"]):
+        return ""
+    return "active"
+
+
+def _teach_nav(request: HttpRequest, member: Member | None, admin_nav_active: bool) -> dict[str, Any] | None:
     """The sidebar's Teaching entry, or ``None`` for anyone who is not an active member.
 
     Every ACTIVE member gets the entry now. Teaching is something we recruit for, and a
@@ -69,16 +130,38 @@ def _teach_nav(request: HttpRequest, member: Member | None) -> dict[str, Any] | 
     Deliberately NOT gated on ``is_instructor`` (the public profile slug): that is the
     Instructor *role*, and someone can hold the portal unlock without a slug, which would
     leave them with access and no way in. Active on every ``/classes/teach/`` path, which
-    the Class Catalog entry excludes.
+    the Class Catalog entry excludes — except the one an admin owns instead, which is
+    ``admin_nav_active`` (see :func:`_classes_admin_nav_active`); the two entries never
+    both light.
+
+    The ``teach`` feature switch (``core.features``) governs the entry, and can only reach the
+    NON-teaching branch: a member who cannot teach yet loses the invitation, an instructor
+    keeps the portal in all three states. Gating both would lock every instructor out of their
+    own teaching pages, which is not what a visibility switch is for. That is what ``teaches``
+    says, and the template pairs it with the feature's state.
+
+    The state is deliberately NOT read here. ``core.context_processors.feature_flags`` already
+    puts every feature in the same context as ``features``, and reading it a second time costs
+    one extra query on EVERY page in the app, for every member who cannot teach yet, which is
+    most of them. ``tests/hub/wiki_views_spec.py``'s home-page query budget catches it. So this
+    returns the entry and the two facts the template cannot derive — whether they teach, and
+    whether this entry owns the current page — and the sidebar renders it against the state it
+    was already given.
     """
     from django.urls import reverse
 
     if member is None or member.status != Member.Status.ACTIVE:
         return None
+    is_active = request.path.startswith("/classes/teach/") and not admin_nav_active
     return {
         "label": "Teaching" if member.can_create_classes else "Host a Workshop",
         "url": reverse("classes:teach_overview"),
-        "is_active": request.path.startswith("/classes/teach/"),
+        "is_active": is_active,
+        # The same answer as a CSS class, so the entry can be handed to the shared
+        # _sidebar_feature_link.html include — a `with` argument cannot hold an {% if %}.
+        "active_class": "active" if is_active else "",
+        # False means this is the "Host a Workshop" invitation, which features.teach governs.
+        "teaches": member.can_create_classes,
     }
 
 

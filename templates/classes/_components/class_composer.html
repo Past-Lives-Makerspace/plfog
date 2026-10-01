@@ -1,6 +1,13 @@
 {% load static %}
+{% load classes_tags %}
+{% comment %}The description is a rich-text editor (core.widgets.RichBodyEditorWidget). Quill and
+rich-editor-init.js load here, above the form, so the widget's own init line finds them and the
+editor is mounted while the page is still parsing: composer_draft.js reads its baseline from the
+form at the bottom of the page, and that has to be the value Quill settled on.{% endcomment %}
+{% include "_components/rich_editor_assets.html" %}
 {% comment %}
-The five step class composer, shared by templates/classes/teach/class_form.html and
+The class composer, one pane per step of classes/composer.py, shared by
+templates/classes/class_form.html (the one per-class composer) and
 templates/classes/admin/class_form.html (design spec §C). Built exactly like the
 announcement composer (templates/hub/announcement_compose.html): one page, one <form>,
 one Alpine x-data holding `phase`, x-show per step, and the .pl-phase-tabs bar. No
@@ -11,13 +18,24 @@ Context (from _composer_context in classes/views.py, plus the form context):
   form, formset (sessions), faq_formset, offering (may be None on create), mode
   (anchor_steps_json is rendered autoescaped ON PURPOSE: it sits inside the double quoted
   x-data attribute, so its quotes must reach the browser as &quot; or they end the attribute.)
-  is_admin        — controls instructor / is_private / private_for_name, the discount code
-                    URL names, and the step 5 action (Publish instead of Submit for Review)
+  is_admin        — controls instructor / is_private / private_for_name, which Discounts
+                    step variant renders, and the Review step action (Publish instead of
+                    Submit for Review)
+  step_count      — STEP_COUNT from classes/composer.py: every "how many steps" and "the
+                    last step" below reads it, so adding a step never edits a number here
+  composer_can_view_discount_codes — the viewer's capability on this class (the master
+                    setting on create): False for a guild lead editing a class they do not
+                    teach, who lands on the "admins manage codes" line like an instructor
+                    with the setting off
+  composer_global_codes / composer_discount_requests — the Discounts step's rows for an
+                    instructor who may view discount codes: the site wide codes that already
+                    apply, and this class's requests. Absent for admins and for anyone who may
+                    not; the template branches on the capability, never on these keys
   composer_tabs   — [{step: ComposerStep, done: bool}], the tab bar with completion marks
   initial_phase   — the step to open on: the first broken step after a failed POST, else ?step=
   error_steps / error_steps_json / error_summary — the broken steps and their failing field labels
   anchor_steps_json — DOM id -> step number, for goToField()
-  pipeline, readiness, is_ready — only present once the class has a pk
+  pipeline, readiness — only present once the class has a pk
   missing_items / missing_verb — the failing readiness items behind a refused submit or
                     publish (?missing=1 after the redirect, or the admin create preflight),
                     rendered as the Still Missing checklist: not a form error, the form validated
@@ -27,12 +45,14 @@ Context (from _composer_context in classes/views.py, plus the form context):
                     in flight typing under (per person, per portal, per class), and the one
                     shot signal that a save just landed, so the browser copy can be dropped
   card_group      — the genuine CatalogGroup for a saved class (None on create); the
-                    card preview frames on steps 2 and 5 render the REAL catalog card
+                    card preview frames on the Photos and Review steps render the REAL catalog card
                     through it
+  description_min_chars — READINESS_MIN_DESCRIPTION_CHARS, stamped on the description's live
+                    count (#425) so the browser paints the same minimum the readiness rule enforces
   cancel_url, save_label
 
 `liveTitle` on the root x-data mirrors the title field as the host types, so every card
-frame (steps 2 and 5, and the create mode skeleton) shows the new title before the save.
+frame (the Photos and Review steps, and the create mode skeleton) shows the new title before the save.
 
 Each step pane carries data-composer-step="N" and the root listens for a window event
 composer-goto-step {step: N}: that is how anything outside Alpine (the guided tour in
@@ -50,7 +70,9 @@ on the controls inside each pane (required, min, max, step, maxlength, type), re
 browser's constraint validation API, so no list of fields per step exists outside
 classes/composer.py. Formset rows (gallery, sessions, FAQ) carry no constraint attributes
 (Django builds every formset form with use_required_attribute=False), so Next never blocks on
-them and a half filled row stays the server's to refuse at save, on the step that owns it.
+them and a half filled row stays the server's to refuse at save, on the step that owns it. The
+one named exception is the gallery's minimum of one photo (#424): image_formset.html stamps its
+container data-composer-gallery, and Next (only Next) refuses step 2 while it holds no card.
 Back, the tabs, goTo() and goToField() never validate: jumping around to look at things
 stays free. The form keeps novalidate because the browser's own bubble cannot
 point at a control inside a hidden pane; the step check points at the field itself.
@@ -71,9 +93,9 @@ Do not merge them.
 
 <h2 class="pl-composer__title">{% if mode == 'create' %}New Class{% else %}Edit Class: {{ offering.title }}{% endif %}</h2>
 {% if is_admin %}
-<p class="pl-wizard-lead">Five steps. Save a draft any time and come back to it. Publish when it is ready.</p>
+<p class="pl-wizard-lead">{{ step_count }} steps. Save a draft any time and come back to it. Publish when it is ready.</p>
 {% else %}
-<p class="pl-wizard-lead">Five steps. Save a draft any time and come back to it. Nothing goes live until an admin approves it.</p>
+<p class="pl-wizard-lead">{{ step_count }} steps. Save a draft any time and come back to it. Nothing goes live until an admin approves it.</p>
 {% endif %}
 
 {% if pipeline and not pipeline.is_live and not pipeline.muted %}
@@ -93,12 +115,14 @@ Do not merge them.
 {% endif %}
 
 <div class="hub-card pl-composer"
-     data-composer-draft-key="{{ composer_draft_key }}"{% if composer_draft_saved %} data-composer-draft-saved="1"{% endif %}{% if composer_draft_unsaved %} data-composer-draft-unsaved="1" data-composer-draft-baseline="{{ composer_draft_baseline }}"{% endif %}
+     data-composer-draft-key="{{ composer_draft_key }}" data-composer-draft-legacy-keys="{{ composer_draft_legacy_keys }}"{% if composer_draft_saved %} data-composer-draft-saved="1"{% endif %}{% if composer_draft_unsaved %} data-composer-draft-unsaved="1" data-composer-draft-baseline="{{ composer_draft_baseline }}"{% endif %}
      x-data="{
        phase: {{ initial_phase }},
        errorSteps: {{ error_steps_json }},
        anchorSteps: {{ anchor_steps_json }},
        cardPosition: '{{ offering.card_object_position|default:'50% 50%'|escapejs }}',
+       {# From the form, not the row: a bound form after a failed save and a reopened draft both paint the right step 3 block first. The select's x-model keeps it current. #}
+       schedulingModel: '{{ form.scheduling_model.value|default:'fixed'|escapejs }}',
        liveTitle: '',
        previewLoaded: false,
        init() {
@@ -150,7 +174,7 @@ Do not merge them.
      @input="if ($event.target.id === 'id_title') liveTitle = $event.target.value"
      @composer-goto-step.window="goTo($event.detail.step)">
 
-  <p class="pl-composer-count">Step <span x-text="phase"></span> of 5</p>
+  <p class="pl-composer-count">Step <span x-text="phase"></span> of {{ step_count }}</p>
   <div class="pl-phase-tabs" role="tablist" aria-label="Class steps">
     {% for tab in composer_tabs %}
     <button type="button" class="pl-phase-tab{% if tab.done %} pl-phase-tab--done{% endif %}" role="tab"
@@ -185,6 +209,7 @@ Do not merge them.
     {# The submit confirm flips this to "submit" (teach) or "publish" (admin) before requestSubmit(); everything else is a draft save. #}
     <input type="hidden" id="composer-action" name="action" value="save">
     {# Which step the user was looking at, so a save comes back to it (?step=N). #}
+    {# Load bearing beyond that: _is_composer_post (classes/views.py) reads the NAME to tell a composer POST from the published light form's, so removing this input reinstates the data loss of #386. Covered by tests/e2e/class_composer_steps_spec.py. #}
     <input type="hidden" name="step" :value="phase">
 
     {% if composer_notice %}
@@ -221,10 +246,12 @@ Do not merge them.
       {% include "components/form_field.html" with field=form.category %}
       {% if is_admin %}{% include "components/form_field.html" with field=form.instructor %}{% endif %}
       {% include "components/form_field.html" with field=form.description %}
+      {# The live count toward the minimum (#425), painted by static/js/composer_description_count.js and empty until it runs. The box's id and the minimum are stamped here, so the script names neither. #}
+      <p class="pl-field-hint pl-composer-count-hint" data-description-count data-description-for="{{ form.description.id_for_label }}" data-description-min="{{ description_min_chars }}" aria-live="polite"></p>
       {% comment %}The price lives here, not on step 3: it is the one field a draft row cannot be saved without, so a Save Draft from step 1 has to carry it.{% endcomment %}
       <div class="pl-compose-section" data-help-key="teach.class-pricing">
         <h3 class="pl-compose-section__title">What It Costs</h3>
-        <p class="pl-compose-section__note">Set the full price. Every class costs at least $1.00. The member discount is on step 3.</p>
+        <p class="pl-compose-section__note">Set the full price. Every class costs at least $1.00.</p>
         {% include "components/form_field.html" with field=form.price_cents %}
       </div>
     </div>
@@ -238,8 +265,14 @@ Do not merge them.
         <div class="pl-crop-pair">
           <div class="pl-crop-pane">
             <p class="pl-crop-pane__label">Class Page Banner</p>
-            <p class="pl-crop-pane__hint">Drag the box. Everything outside it is cut off.</p>
-            {% include "classes/_components/hero_image_field.html" with field=form.image current_image_url=offering.hero_image_url crop_field=form.hero_crop offering=offering %}
+            {% if hero_field_withheld %}
+            {# Withheld by _render_unsaved_composer_post (classes/views.py): this render saves nothing, and the uploader below writes the instant a file is picked. #}
+            <p class="pl-crop-pane__hint">The photo cannot be changed from this page. Use the shorter form for a live class.</p>
+            {% else %}
+            <p class="pl-crop-pane__hint" id="hero-crop-hint"{% if offering.has_imported_photo_only %} hidden{% endif %}>Drag the box. Everything outside it is cut off.</p>
+            {# hero_source_url, not hero_image_url: the box is drawn on the original, never on the cropped copy. #}
+            {% include "classes/_components/hero_image_field.html" with field=form.image current_image_url=offering.hero_source_url crop_field=form.hero_crop offering=offering %}
+            {% endif %}
           </div>
           <div class="pl-crop-pane">
             <p class="pl-crop-pane__label">Catalog Card</p>
@@ -249,7 +282,7 @@ Do not merge them.
         </div>
       </div>
       <div class="pl-compose-section">
-        <h3 class="pl-compose-section__title">Gallery</h3>
+        <h3 class="pl-compose-section__title">Gallery <span class="pl-required">Required</span></h3>
         <p class="pl-compose-section__note">Extra photos shown on your class page. Finished pieces, the studio, tool close ups. Images save the moment you drop them in. You need at least one before you can submit.</p>
         {% include "classes/_components/image_formset.html" with offering=offering %}
       </div>
@@ -265,23 +298,41 @@ Do not merge them.
       <h2 class="pl-composer__heading">Dates, Seats And Price</h2>
       <div class="pl-compose-section" id="class-dates" data-help-key="teach.class-schedule">
         <h3 class="pl-compose-section__title">When It Meets</h3>
-        <p class="pl-compose-section__note">Add a single date for a one off class, or every date in the series. Students enroll once for all of them. You can add or remove dates here any time.</p>
         {% include "components/form_field.html" with field=form.scheduling_model %}
-        {% include "classes/_components/scheduling_type_field.html" with field=form.scheduling_type %}
-        {% include "classes/_components/session_calendar.html" %}
-        {% include "classes/_components/collapsible_field.html" with field=form.flexible_note %}
+        {% comment %}
+        The two blocks swap on the select (schedulingModel on the root). Both stay in the DOM:
+        the scheduler's hidden sessions-N-* inputs keep posting under Flexible and the server
+        sheds them (ClassOffering.apply_scheduling_model), and the window's two days post under
+        Fixed and the form clears them. x-show, never a removal, so the Fixed e2e walk still
+        finds #session-add-date and nothing here is a second list of fields per step.
+        {% endcomment %}
+        <div class="pl-schedule-block" data-schedule-block="fixed" x-show="schedulingModel === 'fixed'" x-cloak>
+          <p class="pl-compose-section__note">Add a single date for a one off class, or every date in the series. Students enroll once for all of them. You can add or remove dates here any time.</p>
+          {% include "classes/_components/scheduling_type_field.html" with field=form.scheduling_type %}
+          {% include "classes/_components/session_calendar.html" %}
+        </div>
+        <div class="pl-schedule-block" data-schedule-block="flexible" x-show="schedulingModel === 'flexible'" x-cloak>
+          <p class="pl-compose-section__note">Each student books their day with you after registering. No dates or times to add here.</p>
+          <h4 class="pl-compose-section__subtitle">Optional Date Window</h4>
+          <div class="pl-date-window">
+            {% include "components/form_field.html" with field=form.flexible_starts_on %}
+            {% include "components/form_field.html" with field=form.flexible_ends_on %}
+          </div>
+          <p class="pl-field-hint pl-date-window__hint">Leave both blank for a class that runs any time. Students see the window on the class page, and the class leaves the catalog after the last day.</p>
+          {% include "classes/_components/collapsible_field.html" with field=form.flexible_note %}
+        </div>
       </div>
       <div class="pl-compose-section">
-        <h3 class="pl-compose-section__title">Seats And Member Discount</h3>
-        <p class="pl-compose-section__note">How many can attend, and the discount members get on top of the price from step 1.</p>
-        {% include "components/form_field.html" with field=form.capacity %}
-        {% include "components/form_field.html" with field=form.member_discount_pct %}
+        <h3 class="pl-compose-section__title">Seats</h3>
+        {# The capacity field stays in the DOM under Flexible (hidden, still posted, never read for a flexible class); the note swaps with the model (#545). #}
+        <div data-seats-block="fixed" x-show="schedulingModel === 'fixed'" x-cloak>
+          <p class="pl-compose-section__note">How many can attend.</p>
+          {% include "components/form_field.html" with field=form.capacity %}
+        </div>
+        <p class="pl-compose-section__note" data-seats-block="flexible" x-show="schedulingModel === 'flexible'" x-cloak>Flexible classes have no seat cap. Students book one at a time with you.</p>
         {% if is_admin %}
           {% include "components/form_field.html" with field=form.is_private %}
           {% include "components/form_field.html" with field=form.private_for_name %}
-          {% include "classes/_components/class_discount_codes_section.html" with offering=offering create_url='classes:admin_discount_code_create' edit_url='classes:admin_discount_code_edit' %}
-        {% elif instructor_discount_codes_enabled %}
-          {% include "classes/_components/class_discount_codes_section.html" with offering=offering create_url='classes:teach_discount_code_create' edit_url='classes:teach_discount_code_edit' %}
         {% endif %}
       </div>
     </div>
@@ -299,13 +350,55 @@ Do not merge them.
       {% include "classes/_components/faq_formset.html" %}
     </div>
 
-    {# ── Step 5 ── #}
-    <div class="pl-composer__step" data-composer-step="5" x-show="phase === 5" x-cloak>
+    {# ── Step 5: Discounts ── #}
+    {% comment %}
+    Links and read only tables, never a control (#428): the per step check counts every input,
+    select and textarea inside a pane, and the request form stays on its own page because a
+    <form> cannot nest inside the composer's. data-composer-discounts names the variant that
+    rendered, so specs anchor on markup: admin (the per class section), off (this viewer may not
+    view discount codes on this class: the master setting is off, or they are a guild lead on a
+    class they do not teach), request (approval mode) or direct (instructors still make their own
+    codes).
+    class_discount_codes_section.html renders nothing for an unsaved class, hence the "save your
+    draft once" line beside each include of it.
+    {% endcomment %}
+    <div class="pl-composer__step" data-composer-step="5" x-show="phase === 5" x-cloak
+         data-composer-discounts="{% if is_admin %}admin{% elif not composer_can_view_discount_codes %}off{% elif instructor_discount_codes_need_approval %}request{% else %}direct{% endif %}">
+      <h2 class="pl-composer__heading">Discounts</h2>
+      {% if is_admin %}
+        <p class="pl-compose-section__note">Codes for this class only. Global codes apply to every class and live on the Discount Codes page.</p>
+        {% include "classes/_components/class_discount_codes_section.html" with offering=offering create_url='classes:admin_discount_code_create' edit_url='classes:admin_discount_code_edit' %}
+        {% if not offering or not offering.pk %}<p class="pl-compose-section__note">Save your draft once and the discount codes for this class appear here.</p>{% endif %}
+      {% elif not composer_can_view_discount_codes %}
+        <p class="pl-compose-section__note">Discount codes are managed by admins. Ask an admin if you need one for your class.</p>
+      {% else %}
+        <div class="pl-compose-section">
+          <h3 class="pl-compose-section__title">Codes That Apply To Every Class</h3>
+          <p class="pl-compose-section__note">These already work on your class. Anyone signing up for your class can use them.</p>
+          {% include "classes/_components/discount_codes_read_only_table.html" with codes=composer_global_codes empty_text="No site wide codes right now." %}
+        </div>
+        {% if instructor_discount_codes_need_approval %}
+          {% if offering and offering.pk %}
+            {% include "classes/_components/class_discount_codes_section.html" with offering=offering create_url='classes:teach_discount_code_request' edit_url='classes:teach_discount_code_edit' read_only=True button_label="Request a Code" %}
+            {% include "classes/_components/discount_code_requests_list.html" with requests=composer_discount_requests %}
+          {% else %}
+            <p class="pl-compose-section__note">Save your draft once and you can request a discount code here.</p>
+          {% endif %}
+        {% else %}
+          {% include "classes/_components/class_discount_codes_section.html" with offering=offering create_url='classes:teach_discount_code_create' edit_url='classes:teach_discount_code_edit' %}
+          {% if not offering or not offering.pk %}<p class="pl-compose-section__note">Save your draft once and you can add a discount code here.</p>{% endif %}
+        {% endif %}
+      {% endif %}
+    </div>
+
+    {# ── Step 6: Review ── #}
+    <div class="pl-composer__step" data-composer-step="{{ step_count }}" x-show="phase === {{ step_count }}" x-cloak>
       <h2 class="pl-composer__heading">Review And Submit</h2>
       {% if readiness and offering.status == 'draft' %}
       {# The five things a class needs before it can be submitted; each hint jumps to its step and field. #}
       <section class="hub-card pl-readiness-card pl-composer__card" data-help-key="teach.submit-for-review">
         <h3 class="pl-composer__card-title">Ready to Submit?</h3>
+        <p class="pl-compose-section__note">This list reads your saved draft. Submit saves your changes first, so a date or description you have just added counts.</p>
         {% include "classes/_components/readiness_list.html" with readiness=readiness link_hints=True jump=True grid=True %}
       </section>
       {% endif %}
@@ -345,7 +438,7 @@ Do not merge them.
       {% endif %}
     </div>
 
-    {# ── Action bar: outside every step, present on all five, sticky. ── #}
+    {# ── Action bar: outside every step, present on every step, sticky. ── #}
     <div class="pl-composer-bar">
       <button type="button" class="hub-btn hub-btn--sm hub-btn--ghost" x-show="phase > 1" @click="goTo(phase - 1)">&larr; Back</button>
       {# .prevent: the click (or the Enter key's synthetic click) never submits on its own; saveDraft() checks every step first, then requestSubmit()s. #}
@@ -354,21 +447,16 @@ Do not merge them.
       <a class="hub-btn hub-btn--sm hub-btn--ghost" href="{% url 'classes:class_preview' pk=offering.pk %}" target="_blank" rel="noopener">Preview &#8599;</a>
       {% endif %}
       <span class="pl-composer-bar__spacer"></span>
-      <button type="button" class="hub-btn hub-btn--sm hub-btn--primary pl-composer-bar__primary" x-show="phase < 5" @click="next()">Next &rarr;</button>
+      <button type="button" class="hub-btn hub-btn--sm hub-btn--primary pl-composer-bar__primary" x-show="phase < {{ step_count }}" @click="next()">Next &rarr;</button>
       {% if not offering or offering.status == 'draft' %}
         {% if is_admin %}
-          <button type="button" class="hub-btn hub-btn--sm hub-btn--primary pl-composer-bar__primary" x-show="phase === 5" x-cloak
+          <button type="button" class="hub-btn hub-btn--sm hub-btn--primary pl-composer-bar__primary" x-show="phase === {{ step_count }}" x-cloak
                   @click="confirmSubmit('submit-class')">Publish</button>
-        {% elif not offering or is_ready %}
-          <button type="button" class="hub-btn hub-btn--sm hub-btn--primary pl-composer-bar__primary" x-show="phase === 5" x-cloak
+        {% else %}
+          {# Live on every draft: the checklist reads the saved row, the POST saves first, and submit_for_review() is the gate (#536). #}
+          <button type="button" class="hub-btn hub-btn--sm hub-btn--primary pl-composer-bar__primary" x-show="phase === {{ step_count }}" x-cloak
                   data-help-key="teach.submit-for-review"
                   @click="confirmSubmit('submit-class')">{% if pipeline.is_bounced %}Fix and Resubmit{% else %}Submit for Review{% endif %}</button>
-        {% else %}
-          <span class="pl-help pl-help--right pl-composer-bar__primary" x-show="phase === 5" x-cloak>
-            <button type="button" class="hub-btn hub-btn--sm hub-btn--primary" disabled aria-label="Submit for Review: finish the checklist above first."
-                    data-help-key="teach.submit-for-review">{% if pipeline.is_bounced %}Fix and Resubmit{% else %}Submit for Review{% endif %}</button>
-            <span class="pl-help__bubble" role="tooltip">Finish the checklist above first.</span>
-          </span>
         {% endif %}
       {% endif %}
       <a class="hub-btn hub-btn--sm hub-btn--ghost" href="{{ cancel_url }}">Cancel</a>
@@ -387,9 +475,12 @@ Do not merge them.
 where hx-boost re-runs it on every arrival; composer_validation.js is a guarded IIFE that defines
 window.plComposerValidation once and is safe to re-run the same way, and composer_draft.js hands a
 re-run back to the copy already loaded so its one set of document listeners keeps pointing at the
-page that just arrived. card_focus.js registers an
+page that just arrived. composer_description_count.js (#425) works like composer_draft.js: one
+document listener, and a boot() per arrival that paints the count under the description box.
+card_focus.js registers an
 Alpine.data component and must exist before Alpine initialises the page, so it loads once from
 hub/base.html's head with the other Alpine components (FRONTEND.md, Scripts under hx-boost).{% endcomment %}
 <script src="{% static 'js/hero_cropper.js' %}" defer></script>
 <script src="{% static 'js/composer_validation.js' %}" defer></script>
 <script src="{% static 'js/composer_draft.js' %}" defer></script>
+<script src="{% static 'js/composer_description_count.js' %}" defer></script>

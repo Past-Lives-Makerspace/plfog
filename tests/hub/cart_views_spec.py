@@ -14,6 +14,7 @@ from unittest.mock import patch
 from billing.exceptions import TabLimitExceededError, TabLockedError
 from billing.models import TabEntry
 from tests.billing.factories import BillingSettingsFactory, ProductFactory, TabFactory
+from tests.features import coming_soon, hide
 from tests.membership.factories import GuildFactory, MembershipPlanFactory
 
 
@@ -29,6 +30,23 @@ def _linked_user(client: Client, *, username: str = "cartu") -> tuple:
 
 @pytest.mark.django_db
 def describe_guild_cart_confirm():
+    @pytest.mark.parametrize("switch_off", [hide, coming_soon])
+    def it_adds_nothing_while_my_tab_is_off(client: Client, switch_off):
+        BillingSettingsFactory()
+        guild = GuildFactory()
+        product = ProductFactory(guild=guild, price=Decimal("10.00"))
+        _user, tab = _linked_user(client, username="cart_off")
+        switch_off("my_tab")
+
+        response = client.post(
+            f"/guilds/{guild.pk}/cart/confirm/",
+            data=json.dumps({"items": [{"product_pk": product.pk, "quantity": 1}]}),
+            content_type="application/json",
+        )
+
+        assert response.status_code == 400
+        assert not TabEntry.objects.filter(tab=tab).exists()
+
     def it_creates_tab_entries_for_each_cart_item(client: Client):
         BillingSettingsFactory()
         guild = GuildFactory()
@@ -163,6 +181,21 @@ def describe_guild_cart_confirm():
 
 @pytest.mark.django_db
 def describe_guild_eyop_form():
+    @pytest.mark.parametrize("switch_off", [hide, coming_soon])
+    def it_adds_nothing_while_my_tab_is_off(client: Client, switch_off):
+        BillingSettingsFactory()
+        guild = GuildFactory()
+        _user, tab = _linked_user(client, username="eyop_off")
+        switch_off("my_tab")
+
+        response = client.post(
+            f"/guilds/{guild.pk}/eyop-form/",
+            {"description": "Custom thing", "amount": "12.50", "quantity": "1"},
+        )
+
+        assert response.status_code == 400
+        assert not TabEntry.objects.filter(tab=tab).exists()
+
     def it_returns_form_partial_for_htmx(client: Client):
         BillingSettingsFactory()
         guild = GuildFactory()

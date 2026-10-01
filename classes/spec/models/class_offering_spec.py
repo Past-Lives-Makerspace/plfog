@@ -6,13 +6,16 @@ from io import BytesIO
 
 import pytest
 from django.core.files.uploadedfile import SimpleUploadedFile
+from PIL import Image
 
 from classes.factories import ClassOfferingFactory, InstructorFactory
 from classes.models import ClassOffering
 
 
 def _image_file(name: str = "shot.png") -> SimpleUploadedFile:
-    buf = BytesIO(b"\x89PNG\r\n\x1a\n" + b"\x00" * 64)
+    # A real PNG: the gallery refuses bytes Pillow cannot open (#498).
+    buf = BytesIO()
+    Image.new("RGB", (8, 8)).save(buf, "PNG")
     return SimpleUploadedFile(name, buf.getvalue(), content_type="image/png")
 
 
@@ -51,15 +54,6 @@ def describe_ClassOffering():
             c.archive()
             c.refresh_from_db()
             assert c.status == ClassOffering.Status.ARCHIVED
-
-    def describe_member_price_cents():
-        def it_returns_discounted_cents_when_there_is_a_member_discount(db):
-            c = ClassOfferingFactory(price_cents=10_000, member_discount_pct=10)
-            assert c.member_price_cents == 9_000
-
-        def it_returns_none_when_there_is_no_member_discount(db):
-            c = ClassOfferingFactory(price_cents=10_000, member_discount_pct=0)
-            assert c.member_price_cents is None
 
     def describe_sale_is_active():
         def it_is_true_when_enabled_paid_and_percent_set(db):

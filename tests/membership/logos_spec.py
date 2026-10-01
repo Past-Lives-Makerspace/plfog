@@ -18,6 +18,13 @@ def describe_logo_prefix_for():
     def it_maps_writing_category_to_writers_logo():
         assert logo_prefix_for("Writing") == "writers"
 
+    def it_maps_the_printmaking_guild_to_the_press_wheel_logo():
+        assert logo_prefix_for("Printmaking Guild") == "printmaking"
+        assert logo_prefix_for("Printmakers") == "printmaking"
+
+    def it_leaves_3d_printing_off_the_printmaking_logo():
+        assert logo_prefix_for("3D Printing") is None
+
     def it_returns_none_when_unmatched():
         assert logo_prefix_for("Quantum Computing") is None
 

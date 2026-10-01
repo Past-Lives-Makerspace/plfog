@@ -91,6 +91,41 @@ def describe_ViewAs():
             assert v.has_actual(ROLE_ADMIN) is True
             assert v.has(ROLE_ADMIN) is False
 
+    def describe_is_previewing():
+        def it_is_false_when_nothing_is_picked():
+            v = ViewAs(actual=frozenset({ROLE_ADMIN, ROLE_GUILD_OFFICER, ROLE_MEMBER}), picked=None)
+            assert v.is_previewing is False
+
+        def it_is_false_when_the_pick_is_the_users_own_highest_role():
+            v = ViewAs(actual=frozenset({ROLE_ADMIN, ROLE_GUILD_OFFICER, ROLE_MEMBER}), picked=ROLE_ADMIN)
+            assert v.is_previewing is False
+
+        def it_is_true_when_an_admin_downgrades_to_member():
+            v = ViewAs(actual=frozenset({ROLE_ADMIN, ROLE_GUILD_OFFICER, ROLE_MEMBER}), picked=ROLE_MEMBER)
+            assert v.is_previewing is True
+
+        def it_is_true_when_an_admin_previews_as_guest():
+            from hub.view_as import ROLE_GUEST
+
+            v = ViewAs(actual=frozenset({ROLE_ADMIN, ROLE_GUILD_OFFICER, ROLE_MEMBER}), picked=ROLE_GUEST)
+            assert v.is_previewing is True
+
+        def it_is_true_when_a_non_admin_officer_downgrades_to_member():
+            # A capability gate suppressed while previewing stays suppressed for as long as
+            # this pick stands — they picked Member, so they see Member.
+            v = ViewAs(actual=frozenset({ROLE_GUILD_OFFICER, ROLE_MEMBER}), picked=ROLE_MEMBER)
+            assert v.is_previewing is True
+
+        def it_is_false_for_a_plain_member_who_picks_their_only_role():
+            v = ViewAs(actual=frozenset({ROLE_MEMBER}), picked=ROLE_MEMBER)
+            assert v.is_previewing is False
+
+        def it_is_false_for_an_anonymous_visitor():
+            from hub.view_as import ROLE_GUEST
+
+            v = ViewAs(actual=frozenset({ROLE_GUEST}), picked=None)
+            assert v.is_previewing is False
+
     def describe_show_dropdown():
         def it_is_true_for_admins():
             v = ViewAs(actual=frozenset({ROLE_ADMIN, ROLE_GUILD_OFFICER, ROLE_MEMBER}), picked=None)

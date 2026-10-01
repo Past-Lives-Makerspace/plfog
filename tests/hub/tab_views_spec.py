@@ -10,17 +10,39 @@ from django.db.models.signals import post_save
 from django.test import Client
 
 from billing.models import TabCharge
-from core.models import SiteConfiguration
 from membership.signals import ensure_user_has_member
 from tests.billing.factories import TabChargeFactory, TabEntryFactory, TabFactory
+from tests.features import coming_soon, hide
 
 pytestmark = pytest.mark.django_db
 
 
 def _disable_tab_payments():
-    config = SiteConfiguration.load()
-    config.my_tab_enabled = False
-    config.save()
+    hide("my_tab")
+
+
+def describe_my_tab_while_coming_soon():
+    """Coming soon is an off state for the pages too (#416), not just a muted sidebar entry."""
+
+    def it_sends_the_tab_page_home(client: Client):
+        coming_soon("my_tab", "Tabs open in October")
+        User.objects.create_user(username="tab_soon", password="pass")
+        client.login(username="tab_soon", password="pass")
+
+        response = client.get("/tab/")
+
+        assert response.status_code == 302
+        assert response.url == "/"
+
+    def it_sends_the_history_page_home(client: Client):
+        coming_soon("my_tab")
+        User.objects.create_user(username="hist_soon", password="pass")
+        client.login(username="hist_soon", password="pass")
+
+        response = client.get("/tab/history/")
+
+        assert response.status_code == 302
+        assert response.url == "/"
 
 
 def describe_tab_detail():

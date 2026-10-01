@@ -12,7 +12,7 @@ from django.http import QueryDict
 from classes.video_providers import YOUTUBE, VideoLink, recognize
 
 if TYPE_CHECKING:
-    from classes.models import ClassApproval, ClassOffering, DiscountApprover, DiscountCode
+    from classes.models import ClassApproval, ClassOffering, ClassSession, DiscountApprover, DiscountCode
 
 register = template.Library()
 
@@ -87,17 +87,28 @@ def video_link(url: str | None) -> VideoLink | None:
 
 @register.inclusion_tag("components/table_sort_header.html")
 def sort_header(label: str, field: str, current_sort: str, current_dir: str, base_params: str) -> dict:
-    """Render a sortable table header cell."""
+    """Render a sortable table header cell.
+
+    Every header carries a glyph so it reads as a control: a muted double arrow when the
+    column is not the active sort, an up or down arrow when it is. ``aria_sort`` is the
+    ``aria-sort`` value for the active column's ``<th>`` ("ascending" or "descending") and
+    "" otherwise; it follows the same rule as the ordering, where anything but "desc" is
+    ascending.
+    """
     is_active = current_sort == field
     next_dir = "desc" if is_active and current_dir == "asc" else "asc"
     qd = QueryDict(base_params, mutable=True)
     qd["sort"] = field
     qd["dir"] = next_dir
+    aria_sort = ""
+    if is_active:
+        aria_sort = "descending" if current_dir == "desc" else "ascending"
     return {
         "label": label,
         "href": f"?{qd.urlencode()}",
         "is_active": is_active,
         "direction": current_dir if is_active else "",
+        "aria_sort": aria_sort,
     }
 
 
@@ -179,14 +190,6 @@ def initials(name: str | None) -> str:
 
 
 @register.simple_tag
-def member_price_cents(price_cents: int, discount_pct: int) -> int | None:
-    """Return the discounted member price in cents, or None if no discount."""
-    if not discount_pct:
-        return None
-    return int(int(price_cents) * (100 - int(discount_pct)) / 100)
-
-
-@register.simple_tag
 def classes_settings():
     """Load the ClassSettings singleton for use in templates."""
     from classes.models import ClassSettings
@@ -249,6 +252,22 @@ def session_date_range(sessions) -> str:
     first = localtime(items[0].starts_at).strftime("%b %-d")
     last = localtime(items[-1].starts_at).strftime("%b %-d")
     return first if first == last else f"{first} – {last}"
+
+
+@register.filter
+def session_dates(sessions: Iterable[ClassSession] | None) -> str:
+    """Every date of a session list, comma separated, e.g. 'Oct 2, Oct 9, Oct 23'.
+
+    The catalog card's series option rows and the class page's other-date rows use
+    it so a member sees which days a session set commits them to, not just its first
+    and last. Dates are local time, sorted, one per session; a session with no start
+    is skipped. The register page's run picker keeps ``session_date_range`` because a
+    ``<select>`` option cannot wrap. Returns "" when empty.
+    """
+    from django.utils.timezone import localtime
+
+    items = sorted((s for s in (sessions or []) if s.starts_at), key=lambda s: s.starts_at)
+    return ", ".join(localtime(s.starts_at).strftime("%b %-d") for s in items)
 
 
 @register.filter

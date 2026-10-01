@@ -42,6 +42,14 @@
     var CROPPER_JS = "https://cdn.jsdelivr.net/npm/cropperjs@1.6.1/dist/cropper.min.js";
     var ASPECT = 16 / 9;
     var STEP_SHOWN_EVENT = "composer-step-shown";
+    /* Dispatched on window with {position, box, natural}: the crop box's centre as a
+     * percentage of the source image ("50.0% 68.8%", the shape of hero_object_position),
+     * the box in natural pixels {x, y, w, h} and the source size {w, h}. The card focus
+     * component (card_focus.js) shows the box region in the card frames as the host drags,
+     * exactly what the saved copy will show (issues #536, #547). Every drag announces; ready
+     * announces a saved box only while the frames show the whole original (no cropped copy
+     * yet), because frames already showing the copy sit where the server put them. */
+    var CROP_EVENT = "hero-crop";
 
     function loadStylesheet(href) {
         if (document.querySelector('link[href="' + href + '"]')) return;
@@ -142,6 +150,34 @@
             if (preview) preview.classList.remove("cropper-hidden");
         }
 
+        /* Tell the page what the crop box frames (see CROP_EVENT). Nothing to say until
+         * the image has pixels and the box has a size. */
+        function announceCrop() {
+            if (!instance) return;
+            var box = instance.getData(true);
+            var image = instance.getImageData();
+            if (!image.naturalWidth || !image.naturalHeight || !box.width || !box.height) return;
+            var x = ((box.x + box.width / 2) / image.naturalWidth) * 100;
+            var y = ((box.y + box.height / 2) / image.naturalHeight) * 100;
+            window.dispatchEvent(new CustomEvent(CROP_EVENT, {
+                detail: {
+                    position: x.toFixed(1) + "% " + y.toFixed(1) + "%",
+                    box: {
+                        x: Math.round(box.x), y: Math.round(box.y),
+                        w: Math.round(box.width), h: Math.round(box.height),
+                    },
+                    natural: { w: image.naturalWidth, h: image.naturalHeight },
+                },
+            }));
+        }
+
+        /* A card frame showing the cropped copy carries the original's URL in
+         * data-hero-source (_class_card_media.html); no such frame means the frames show
+         * the whole original, so a saved box has something to add on ready. */
+        function framesShowTheCopy() {
+            return !!document.querySelector("img[data-hero-source]");
+        }
+
         function mountOn(preview) {
             var initial = readInitialCrop(cropInput);
             instance = new window.Cropper(preview, {
@@ -163,15 +199,25 @@
                 checkCrossOrigin: false,
                 checkOrientation: false,
                 ready: function () {
-                    // Restore a saved crop; write nothing for an untouched one.
+                    // Restore a saved crop; write nothing for an untouched one. The automatic
+                    // box Cropper draws for a focal point set with the Adjust tool (w 0, x and
+                    // y as percentages; the composer seeds hero_crop empty for it) is nobody's
+                    // choice, so it is never announced. A restored box is announced only while
+                    // the frames show the whole original (a box saved before #547, its copy
+                    // not rendered yet): they zoom to it at once. Frames already showing the
+                    // copy sit where the server put them, centred on it, until a drag.
                     if (initial && initial.w && initial.h) {
                         instance.setData({
                             x: initial.x, y: initial.y,
                             width: initial.w, height: initial.h,
                         });
+                        if (!framesShowTheCopy()) announceCrop();
                     }
                 },
-                cropend: function () { writeCrop(cropInput, instance.getData(true)); },
+                cropend: function () {
+                    writeCrop(cropInput, instance.getData(true));
+                    announceCrop();
+                },
             });
         }
 

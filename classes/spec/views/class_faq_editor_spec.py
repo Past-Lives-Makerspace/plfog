@@ -35,7 +35,6 @@ def _edit_payload(offering: ClassOffering, **faq_fields: str) -> dict:
         "category": offering.category.pk,
         "instructor": offering.instructor.pk,
         "price_cents": f"{offering.price_cents / 100:.2f}",
-        "member_discount_pct": offering.member_discount_pct,
         "capacity": offering.capacity,
         "scheduling_model": offering.scheduling_model,
         "sale_kind": "percent",
@@ -65,7 +64,7 @@ def describe_admin_faq_editor():
     def it_seeds_the_default_questions_as_editable_rows(admin_user, client, db):
         client.force_login(admin_user)
         offering = ClassOfferingFactory()
-        response = client.get(reverse("classes:admin_class_edit", kwargs={"pk": offering.pk}))
+        response = client.get(reverse("classes:teach_class_edit", kwargs={"pk": offering.pk}))
         formset = response.context["faq_formset"]
         assert [f.initial.get("question") for f in formset.forms] == [faq["question"] for faq in DEFAULT_CLASS_FAQS]
 
@@ -73,7 +72,7 @@ def describe_admin_faq_editor():
         client.force_login(admin_user)
         offering = ClassOfferingFactory()
         ClassFaqFactory(class_offering=offering, question="Custom?")
-        response = client.get(reverse("classes:admin_class_edit", kwargs={"pk": offering.pk}))
+        response = client.get(reverse("classes:teach_class_edit", kwargs={"pk": offering.pk}))
         formset = response.context["faq_formset"]
         assert len(formset.forms) == 1
         assert formset.forms[0].instance.question == "Custom?"
@@ -82,7 +81,7 @@ def describe_admin_faq_editor():
         client.force_login(admin_user)
         offering = ClassOfferingFactory()
         response = client.post(
-            reverse("classes:admin_class_edit", kwargs={"pk": offering.pk}),
+            reverse("classes:teach_class_edit", kwargs={"pk": offering.pk}),
             _edit_payload(
                 offering,
                 **{
@@ -104,7 +103,7 @@ def describe_admin_faq_editor():
         offering = ClassOfferingFactory()
         faq = ClassFaqFactory(class_offering=offering, question="Old?", answer="Old.")
         response = client.post(
-            reverse("classes:admin_class_edit", kwargs={"pk": offering.pk}),
+            reverse("classes:teach_class_edit", kwargs={"pk": offering.pk}),
             _edit_payload(
                 offering,
                 **{
@@ -124,7 +123,7 @@ def describe_admin_faq_editor():
         client.force_login(admin_user)
         offering = ClassOfferingFactory()
         response = client.post(
-            reverse("classes:admin_class_edit", kwargs={"pk": offering.pk}),
+            reverse("classes:teach_class_edit", kwargs={"pk": offering.pk}),
             _edit_payload(
                 offering,
                 **{
@@ -201,10 +200,12 @@ def describe_rail_gallery():
         )
         return offering
 
-    def it_renders_the_gallery_under_the_booking_rail_when_shots_exist(published, client):
+    def it_renders_the_gallery_above_the_booking_card_when_shots_exist(published, client):
         ClassImageFactory(class_offering=published, image=_image_file("g1.png"))
         response = client.get(reverse("classes:public_class_detail", kwargs={"slug": published.slug}))
-        assert b"cp-detail__rail-gallery" in response.content
+        body = response.content.decode()
+        assert "cp-detail__rail-gallery" in body
+        assert body.index("cp-detail__rail-gallery") < body.index("cp-detail__rail-card")
 
     def it_omits_the_gallery_section_without_gallery_shots(published, client):
         response = client.get(reverse("classes:public_class_detail", kwargs={"slug": published.slug}))

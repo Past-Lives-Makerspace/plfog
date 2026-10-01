@@ -50,7 +50,7 @@ def describe_admin_teaching_page_settings():
         assert response.status_code == 200
         content = response.content.decode()
         assert "Teaching Marketing Page" in content.split('class="pl-teach-page-settings__title">')[1][:60]
-        assert 'vote-tab vote-tab--active">Settings</a>' in content
+        assert 'vote-tab vote-tab--active" aria-current="page">Settings</a>' in content
         assert "until an admin says yes to them." in content
         assert "View the Page" in content
         assert f'href="{reverse("classes:teach_why")}"' in content
@@ -82,10 +82,10 @@ def describe_admin_teaching_page_settings():
         content = client.get(reverse(URL_NAME)).content.decode()
         assert "rich-editor-init.js" in content
         for name in ("teach_page_how_it_works", "teach_page_expectations", "teach_page_faq"):
-            assert f'id="pl-rte-mount-id_{name}"' in content
+            assert f'data-rte-for="id_{name}"' in content
         assert content.count('data-rte-seed="server"') == 3
         assert content.count('data-rte-toolbar="page"') == 3
-        assert 'id="pl-rte-mount-id_teach_page_features"' not in content
+        assert 'data-rte-for="id_teach_page_features"' not in content
         assert '<textarea name="teach_page_features"' in content
 
     def it_prefills_the_defaults_rendered_into_the_editor(admin_user, client, db):

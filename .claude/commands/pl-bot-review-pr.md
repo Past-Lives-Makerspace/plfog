@@ -37,16 +37,16 @@ needs one approving review, and a second is simply recorded.
    PastLivesReviewBot, and tell the user what needs fixing:
    ```
    BOT_PAT=$(grep '^BOT_PAT=' .env | cut -d= -f2) && \
-   GH_TOKEN=$BOT_PAT gh pr comment <number> --body "<findings, grouped by file:line>"
+   GH_TOKEN=$BOT_PAT gh pr comment <number> --body "<20 to 60 word summary, then one line per blocker: file:line, what, the fix>"
    ```
 
-5. If it passes, post a formal **APPROVE** review as PastLivesReviewBot:
+5. If it passes, post a formal **APPROVE** review as PastLivesReviewBot. It opens with
+   "LGTM" and a GIF exactly as the workflow's approvals do (`with_lgtm` in
+   `.github/scripts/bot_review_post.py`), followed by the rubric's 5 to 15 word sign-off:
    ```
-   read OWNER REPO < <(gh repo view --json owner,name -q '.owner.login + " " + .name')
+   BODY=$(python3 -c 'import sys; sys.path.insert(0, ".github/scripts"); from bot_review_post import with_lgtm; print(with_lgtm(sys.argv[1], sys.argv[2]))' "<what you verified; sign off>" <number>) && \
    BOT_PAT=$(grep '^BOT_PAT=' .env | cut -d= -f2) && \
-   GH_TOKEN=$BOT_PAT gh api --method POST "repos/$OWNER/$REPO/pulls/<number>/reviews" \
-     -f event='APPROVE' \
-     -f body='Reviewed and approved by PastLivesReviewBot. Code meets PLFOG coding standards.'
+   GH_TOKEN=$BOT_PAT gh pr review <number> --approve --body "$BODY"
    ```
    Then confirm the approval to the user.
 

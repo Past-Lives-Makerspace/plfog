@@ -16,6 +16,7 @@ import icalendar
 from django.conf import settings
 from django.core import signing
 from django.db import transaction
+from django.db.models import Q
 from django.urls import reverse
 from django.utils import timezone
 
@@ -26,6 +27,8 @@ from core.models import SiteActivity
 if TYPE_CHECKING:
     from django.contrib.auth.models import User
     from django.db.models import QuerySet
+
+    from billing.models import LateCancellationFee
 
     from membership.models import (
         Equipment,
@@ -105,7 +108,8 @@ def apply_token_action(booking: OrientationBooking, action: str, *, recipient: M
     statuses = OrientationBooking.Status
     if action == "cancel":
         if booking.status in (statuses.REQUESTED, statuses.CONFIRMED):
-            cancel_orientation(booking, actor_label=booking.member.display_name, actor=actor)
+            # The member's own emailed link: a late cancel of a confirmed booking carries the fee.
+            cancel_orientation(booking, actor_label=booking.member.display_name, actor=actor, self_cancel=True)
             return "cancelled"
         return "already"
     if booking.status != statuses.REQUESTED:
@@ -169,6 +173,9 @@ def _context(booking: OrientationBooking, **extra: Any) -> dict[str, Any]:
         "owner_url": booking.orientation_type.owner_page_url(),
         "owner_page_label": "equipment page" if booking.orientation_type.is_equipment_owned else "guild page",
         "cancel_url": _action_url(booking, "cancel", recipient=member),
+        # The cancelled email's guarded fee block (#456): the row and its page, set by cancel_orientation.
+        "late_fee": None,
+        "late_fee_pay_url": "",
         **extra,
     }
 
@@ -182,6 +189,7 @@ def _emit_member_email(
     ics: tuple[str, bytes, str] | None,
     in_app_title: str = "",
     in_app_body: str = "",
+    extra_context: dict[str, Any] | None = None,
 ) -> None:
     """Emit a member-facing orientation email (structural shell + optional ``.ics``).
 
@@ -198,7 +206,7 @@ def _emit_member_email(
     request / confirm / decline / cancel emails are independent (each one sends once),
     while a re-run of the SAME step is deduped — replacing the old "send every time".
     """
-    ctx = _context(booking)
+    ctx = _context(booking, **(extra_context or {}))
     # Member in-app only fires for confirm/decline/cancel (in_app_title set). For the
     # request-received email, suppress the in-app by giving the resolver no member.
     resolver_context: dict[str, Any] = {"booking": booking} if in_app_title else {"member": None}
@@ -871,62 +879,16 @@ def _request_resolver_context(booking: OrientationBooking) -> dict[str, Any]:
     return {"guild": booking.guild, "slot": booking.slot}
 
 
-def equipment_personal_audience(equipment: Equipment, orienter: Member) -> list[Member]:
-    """Who hears about a request on a manager's personal slot: the manager, the EQUIPMENT
-    capability holders, and the owning guild's lead if any, deduped (the equipment twin of
-    "the orienter plus the lead")."""
-    from membership.models import AdminCapability
-
-    audience: list[Member] = [orienter]
-    seen = {orienter.pk}
-    holders = AdminCapability.objects.filter(capability=AdminCapability.Capability.EQUIPMENT).select_related("member")
-    for grant in holders:
-        if grant.member_id not in seen:
-            audience.append(grant.member)
-            seen.add(grant.member_id)
-    guild = equipment.guild
-    if guild is not None and guild.guild_lead_id is not None and guild.guild_lead_id not in seen:
-        audience.append(cast("Member", guild.guild_lead))
-    return audience
-
-
-def _request_audience(booking: OrientationBooking) -> list[Member]:
-    """Who hears about a request: the slot's orienter + the lead (personal), or all leadership.
-
-    A personal slot routes to the person the member actually booked, with the guild lead
-    kept in the loop (deduped); a guild slot keeps the full leadership fan-out.
-    """
-    orientation_type = booking.orientation_type
-    if orientation_type.is_equipment_owned:
-        equipment = cast("Equipment", orientation_type.equipment)
-        if booking.slot.orienter_id is not None and booking.slot.orienter is not None:
-            return equipment_personal_audience(equipment, booking.slot.orienter)
-        # Shared slot: the three manage tiers, deduped — any manager confirms.
-        return equipment.manager_members()
-    guild = cast("Guild", booking.guild)  # guild-owned: the one-owner constraint guarantees it
-    slot = booking.slot
-    if slot.orienter_id is not None and slot.orienter is not None:
-        audience = [slot.orienter]
-        lead = guild.guild_lead
-        if lead is not None and lead.pk != slot.orienter_id:
-            audience.append(lead)
-        return audience
-    return guild.leadership_members()
-
-
 def _emit_lead_request(booking: OrientationBooking) -> None:
-    """Email the request's audience, and in-app-notify the matching orienters (Decision 7).
+    """Tell the request's audience a member asked for an orientation: email + bell (Decision 7).
 
-    For a guild slot the email recipients are the guild's whole leadership team (lead +
-    staff), byte-identical to before. For a personal slot both the email and the in-app
-    ``orientation_requested`` row route to the slot's orienter + the guild lead (deduped)
-    — the ``guild_orienters`` resolver honors the slot passed in context. The activity
-    row is logged by the caller.
+    One audience for every channel, the ``orientation_requested`` resolver
+    (:func:`core.events.resolvers.guild_orienters_or_equipment_managers`): a guild's
+    shared slot reaches its whole leadership, a personal slot the orienter booked plus
+    the guild lead, and equipment its managers. Each person's own Email switch decides
+    the email (#524), which goes to their notification address. The activity row is
+    logged by the caller.
     """
-    recipients: list[str] = []
-    for member in _request_audience(booking):
-        if member.primary_email and member.primary_email not in recipients:
-            recipients.append(member.primary_email)
     # One body goes to the whole audience, so the confirm/decline links carry the
     # slot's primary responder (personal slot: the orienter; guild slot: the lead)
     # as the token recipient — a paid booking's email-link decline credits them.
@@ -954,7 +916,6 @@ def _emit_lead_request(booking: OrientationBooking) -> None:
         in_app_title="New orientation request",
         in_app_body=f"{booking.member.display_name} requested an orientation for {booking.orientation_type.owner_name}.",
         url=reverse("hub_orientation_respond", args=[booking.pk]),
-        email_to=recipients or None,
         period=f"booking:{booking.pk}:request",
     )
 
@@ -965,6 +926,8 @@ def confirm_orientation(booking: OrientationBooking, *, oriented_by: Member | No
     ``oriented_by`` credits the actual runner (Decision 7). The view passes the acting
     member; when omitted the booking model still defaults to the guild lead.
     """
+    from membership.late_cancel import booking_sentence, policy_for
+
     booking.confirm(oriented_by=oriented_by)
     actor = booking.oriented_by.user if booking.oriented_by is not None else None
     SiteActivity.log(SiteActivity.Kind.ORIENTATION_CONFIRMED, actor=actor, target=booking)
@@ -973,6 +936,8 @@ def confirm_orientation(booking: OrientationBooking, *, oriented_by: Member | No
         action="confirm",
         subject=f"Orientation confirmed — {booking.orientation_type.owner_name}",
         template="orientation_confirmed",
+        # The confirmed email's guarded policy line; "" when no late fee applies (#456).
+        extra_context={"cancellation_policy": booking_sentence(policy_for(booking))},
         ics=_ics(booking, method="REQUEST", status="CONFIRMED"),
         in_app_title="Orientation confirmed",
         in_app_body=f"Your orientation for {booking.orientation_type.owner_name} is confirmed.",
@@ -1001,13 +966,34 @@ def decline_orientation(booking: OrientationBooking, *, note: str = "", actor: U
     recap_orphaned_slot(booking.slot)
 
 
-def cancel_orientation(booking: OrientationBooking, *, actor_label: str, actor: User | None = None) -> None:
+def cancel_orientation(
+    booking: OrientationBooking, *, actor_label: str, actor: User | None = None, self_cancel: bool = False
+) -> LateCancellationFee | None:
     """Cancel a booking: update state, auto-refund a paid booking, email the member, notify, log.
 
     Member cancels, lead cancels, slot cancels, and no-login token cancels all route
     through here — so every cancellation path refunds a paid booking automatically.
+
+    ``self_cancel`` marks the member cancelling their own booking (the hub button and
+    their emailed link). Only that path can carry a late cancellation fee (#456), and only
+    for a CONFIRMED booking: cancelling a request the lead never confirmed is free, and a
+    lead, a slot cancel, a decline and a manager never charge. The fee is written in the
+    same transaction as the cancel. A paid booking still refunds in full through
+    :func:`_refund_if_paid`; the fee is separate and never netted against it.
+
+    Returns:
+        The :class:`~billing.models.LateCancellationFee` a late self cancel created (or the
+        booking already carried), else ``None``; the view sends the member to pay it.
     """
-    booking.cancel()
+    from billing.late_fees import charge_if_late, pay_url
+    from membership.models import OrientationBooking
+
+    can_charge = self_cancel and booking.status == OrientationBooking.Status.CONFIRMED
+    fee: LateCancellationFee | None = None
+    with transaction.atomic():
+        booking.cancel()
+        if can_charge:
+            fee = charge_if_late(booking)
     _refund_if_paid(booking, actor=actor)
     SiteActivity.log(SiteActivity.Kind.ORIENTATION_CANCELLED, actor=None, target=booking)
     _emit_member_email(
@@ -1018,11 +1004,14 @@ def cancel_orientation(booking: OrientationBooking, *, actor_label: str, actor: 
         ics=_ics(booking, method="CANCEL", status="CANCELLED"),
         in_app_title="Orientation cancelled",
         in_app_body=f"The orientation for {booking.orientation_type.owner_name} was cancelled.",
+        extra_context={"late_fee": fee, "late_fee_pay_url": pay_url(fee) if fee is not None else ""},
     )
-    # In-app ping to the orienters that a booking was cancelled (was lead-only; now
-    # fans out to all orienters via the guild_orienters resolver — Decision 7). The
-    # orientation_requested EMAIL channel defaults OFF (opt-in), so this matches the
-    # old dispatch (in-app always; generic email only for an opted-in orienter).
+    # Bell (and push / Discord per switch) that a booking was cancelled, to the same
+    # audience the request reached (the orientation_requested resolver: a shared guild
+    # slot's whole leadership, a personal slot's orienter plus lead, or the equipment's
+    # managers). No email: the row's Email switch is about requests, and since #524 it
+    # defaults ON, so letting this ping email would start a new bare cancel email to
+    # every leader who never touched the page.
     emit(
         "orientation_requested",
         context=_request_resolver_context(booking),
@@ -1030,11 +1019,13 @@ def cancel_orientation(booking: OrientationBooking, *, actor_label: str, actor: 
         body=f"{actor_label} cancelled the orientation for {booking.orientation_type.owner_name}.",
         url=reverse("hub_orientation_respond", args=[booking.pk]),
         period=f"booking:{booking.pk}:cancel",
+        suppress_email=True,
     )
     # Member self-cancel, lead cancel, and token cancel all land here: a freed seat on a
     # slot whose hours are gone or paused must not reopen. A slot cancel (cancel_slot)
     # has already marked the slot, so the recap leaves its reason alone.
     recap_orphaned_slot(booking.slot)
+    return fee
 
 
 def cancel_slot(slot: OrientationSlot, *, reason: str = "") -> None:
@@ -1138,7 +1129,7 @@ def _horizon_spans(rule: OrientationAvailability, *, today: date, window_weeks: 
     spans: list[tuple[datetime, datetime]] = []
     for offset in range(window_weeks * 7):
         day = today + timedelta(days=offset)
-        if day.weekday() != rule.weekday:
+        if not rule.occurs_on(day):
             continue
         spans.extend(rule.carve_spans(day))
     return spans
@@ -1169,6 +1160,22 @@ def _overlaps_other_slot(
     )
 
 
+def _owner_accepting(rule: OrientationAvailability) -> bool:
+    """Whether the row's owner takes bookings now: the type's gate, or the guild's for an Any orientation row.
+
+    An open row with no type (any of the guild's orientations) has no type to ask, so
+    it reads the guild's settings gate directly and needs at least one active type to
+    offer; the constraint guarantees such a row is guild owned.
+    """
+    from membership.models import GuildOrientationSettings
+
+    if rule.orientation_type is not None:
+        return rule.orientation_type.is_accepting
+    guild = cast("Guild", rule.guild)
+    settings_obj = GuildOrientationSettings.objects.filter(guild=guild).first()
+    return settings_obj is not None and settings_obj.is_accepting and guild.orientation_types.active().exists()
+
+
 def _rule_generates(rule: OrientationAvailability, *, runners_by_equipment: dict[int, set[int]]) -> bool:
     """The per-rule gate: an accepting owner, and a personal rule's orienter still current.
 
@@ -1181,13 +1188,13 @@ def _rule_generates(rule: OrientationAvailability, *, runners_by_equipment: dict
     shown as an orienter — the guild branch above reads ``leadership_members()`` for the
     identical reason.
     """
-    if not rule.orientation_type.is_accepting:
+    if not _owner_accepting(rule):
         return False
     if rule.orienter_id is None:
         return True
     if rule.guild_id is not None:
         return rule.orienter_id in {member.pk for member in cast("Guild", rule.guild).leadership_members()}
-    equipment = cast("Equipment", rule.orientation_type.equipment)
+    equipment = cast("Equipment", cast("OrientationType", rule.orientation_type).equipment)
     if equipment.pk not in runners_by_equipment:
         runners_by_equipment[equipment.pk] = {member.pk for member in equipment.orienter_members()}
     return rule.orienter_id in runners_by_equipment[equipment.pk]
@@ -1235,12 +1242,13 @@ def _materialize(
             starts_at=start_dt,
             defaults={
                 "guild": rule.guild,
-                # The rule's type rides onto every slot it materializes (issue #282).
-                "orientation_type": rule.orientation_type,
+                # The rule's type rides onto every slot it materializes (issue #282). A fixed
+                # row always has one; only an open row may leave it empty.
+                "orientation_type": cast("OrientationType", rule.orientation_type),
                 "orienter": rule.orienter,
                 "ends_at": end_dt,
                 "seats": rule.seats,
-                "location": rule.location or rule.orientation_type.default_location,
+                "location": rule.location or cast("OrientationType", rule.orientation_type).default_location,
                 "source": OrientationSlot.Source.GENERATED,
             },
         )
@@ -1249,6 +1257,71 @@ def _materialize(
             if occupied is not None:
                 occupied.append((rule.pk, start_dt, end_dt))
     return created
+
+
+def _materialize_windows(
+    rule: OrientationAvailability, spans: list[tuple[datetime, datetime]], *, reference: datetime
+) -> int:
+    """Create an open row's missing future windows from ``spans``; returns how many were created.
+
+    One :class:`OrientationAvailabilityBlock` per occurrence, keyed by row and start
+    like a slot (``uq_orientblock_rule_start``), so a rerun creates nothing. The window
+    carries the row's orienter, its type (or none, for any orientation) and its location.
+    """
+    from membership.models import OrientationAvailabilityBlock
+
+    created = 0
+    for start_dt, end_dt in spans:
+        if start_dt <= reference:
+            continue
+        _window, was_created = OrientationAvailabilityBlock.objects.get_or_create(
+            availability=rule,
+            starts_at=start_dt,
+            defaults={
+                # The constraint makes an open row guild owned and personal, so both are set.
+                "guild": cast("Guild", rule.guild),
+                "orienter": cast("Member", rule.orienter),
+                "orientation_type": rule.orientation_type,
+                "ends_at": end_dt,
+                "location": rule.location,
+            },
+        )
+        if was_created:
+            created += 1
+    return created
+
+
+def _future_generated_windows(rule: OrientationAvailability) -> Any:
+    """The row's uncancelled windows that have not started yet, the only windows retirement may touch."""
+    return rule.windows.filter(starts_at__gte=timezone.now(), is_cancelled=False)
+
+
+def _retire_windows(windows: Any) -> tuple[int, int]:
+    """Retire the windows in ``windows``; keep, cancelled and detached, the ones with a booked segment.
+
+    A window nobody booked into is deleted. One with a live segment (a seat holding
+    booking on a carved slot) is retired instead, so no new booking lands in it while
+    the segment stays on the member's own slot and booking.
+
+    Returns:
+        ``(open_windows_removed, kept_with_bookings)``.
+    """
+    removed = kept = 0
+    for window in windows:
+        if window.booked_segments().exists():
+            window.mark_retired()
+            kept += 1
+        else:
+            window.delete()
+            removed += 1
+    return removed, kept
+
+
+def _retire_off_grid_windows(rule: OrientationAvailability, spans: list[tuple[datetime, datetime]]) -> None:
+    """The window twin of :func:`_retire_off_grid`: retire future windows whose span fell off the row's grid."""
+    grid = set(spans)
+    off_grid = [window for window in _future_generated_windows(rule) if (window.starts_at, window.ends_at) not in grid]
+    _retire_windows(off_grid)
 
 
 def generate_slots(
@@ -1272,7 +1345,15 @@ def generate_slots(
     would overlap any other uncancelled slot on the tool (a booked slot kept from an
     old grid, a one time slot, a sibling type's slot) is skipped. The overlap set is
     loaded once per equipment per run. Guild rules keep their one-slot-per-window
-    shape and generate over each other exactly as before.
+    shape and generate over each other as before, and since #373 they retire their
+    own off-grid open slots the same way, so a rule edited to a sparser cadence does
+    not leave its off-grid slots bookable (booked ones stay, capped, as on a delete).
+
+    A row set to any time in the window (issue #532) materializes one open window
+    (:class:`OrientationAvailabilityBlock`) per occurrence instead of slots, keyed by
+    row and start the same way, and retires its off-grid future windows the same way
+    (a window with a booked segment is cancelled and detached, not deleted). The
+    count returned includes windows.
 
     Raises:
         ValueError: If both ``guild`` and ``equipment`` are given.
@@ -1284,9 +1365,12 @@ def generate_slots(
     reference = now or timezone.now()
     today = timezone.localdate()
     # A rule whose orientation type was deactivated stops generating (existing slots
-    # are handled by the bookable() type-active filter, not deleted).
-    rules = OrientationAvailability.objects.filter(is_active=True, orientation_type__is_active=True).select_related(
-        "guild", "orientation_type", "orientation_type__equipment"
+    # are handled by the bookable() type-active filter, not deleted). An Any
+    # orientation open row has no type; _owner_accepting reads its guild instead.
+    rules = (
+        OrientationAvailability.objects.filter(is_active=True)
+        .filter(Q(orientation_type__isnull=True) | Q(orientation_type__is_active=True))
+        .select_related("guild", "orientation_type", "orientation_type__equipment")
     )
     if guild is not None:
         rules = rules.filter(guild=guild)
@@ -1299,17 +1383,23 @@ def generate_slots(
         if _rule_generates(rule, runners_by_equipment=runners_by_equipment)
     ]
     for rule, spans in eligible:
-        if rule.orientation_type.equipment_id is not None:
+        if rule.is_open:
+            _retire_off_grid_windows(rule, spans)
+        else:
             _retire_off_grid(rule, spans)
     occupied_by_equipment: dict[int, list[tuple[int | None, datetime, datetime]]] = {}
     created = 0
     for rule, spans in eligible:
+        if rule.is_open:
+            created += _materialize_windows(rule, spans, reference=reference)
+            continue
         occupied: list[tuple[int | None, datetime, datetime]] | None = None
-        equipment_id = rule.orientation_type.equipment_id
+        orientation_type = cast("OrientationType", rule.orientation_type)
+        equipment_id = orientation_type.equipment_id
         if equipment_id is not None:
             if equipment_id not in occupied_by_equipment:
                 occupied_by_equipment[equipment_id] = _occupied_spans(
-                    cast("Equipment", rule.orientation_type.equipment), reference=reference
+                    cast("Equipment", orientation_type.equipment), reference=reference
                 )
             occupied = occupied_by_equipment[equipment_id]
         created += _materialize(rule, spans, reference=reference, occupied=occupied)
@@ -1378,8 +1468,11 @@ def reseat_slots(rule: OrientationAvailability) -> None:
     """Apply a seats-only edit to the rule's future open generated slots without a re-grid.
 
     Open slots take the rule's new count; booked ones take ``max(new, taken)`` so a
-    raise reaches already-booked days and a lower never drops below what is held.
+    raise reaches already-booked days and a lower never drops below what is held. An
+    open row has no seats to follow, so it is left alone.
     """
+    if rule.is_open:
+        return
     _reseat(_future_generated(rule).with_seat_holding_count(), seats=rule.seats)
 
 
@@ -1396,9 +1489,15 @@ def retire_open_slots(rule: OrientationAvailability) -> tuple[int, int]:
     ``active()``-only test would cascade a live paid ``PENDING_PAYMENT`` hold away
     with the slot, eating a checkout mid-payment.
 
+    An open row retires its future windows the same way (:func:`_retire_windows`): a
+    window nobody booked into is deleted, one with a booked segment is cancelled and
+    detached, and the counts read the same for the success message.
+
     Returns:
         ``(open_slots_removed, kept_with_bookings)`` for the success message.
     """
+    if rule.is_open:
+        return _retire_windows(_future_generated_windows(rule))
     return _retire_slots(_retire_candidates(rule))
 
 
