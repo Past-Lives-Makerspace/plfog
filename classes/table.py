@@ -9,6 +9,16 @@ from django.http import HttpRequest, QueryDict
 PER_PAGE = 25
 
 
+def table_search(queryset: QuerySet, q: str, search_fields: list[str]) -> QuerySet:
+    """``queryset`` narrowed to rows where any of ``search_fields`` contains ``q`` (all rows when blank)."""
+    if not q or not search_fields:
+        return queryset
+    search_q = Q()
+    for field in search_fields:
+        search_q |= Q(**{f"{field}__icontains": q})
+    return queryset.filter(search_q)
+
+
 def prepare_table(
     request: HttpRequest,
     queryset: QuerySet,
@@ -37,11 +47,7 @@ def prepare_table(
     if sortable is not None and sort not in sortable:
         sort = default_sort
 
-    if q and search_fields:
-        search_q = Q()
-        for field in search_fields:
-            search_q |= Q(**{f"{field}__icontains": q})
-        queryset = queryset.filter(search_q)
+    queryset = table_search(queryset, q, search_fields)
 
     ordering = F(sort).desc(nulls_last=True) if sort_dir == "desc" else F(sort).asc(nulls_last=True)
     queryset = queryset.order_by(ordering)

@@ -7,7 +7,7 @@ from classes.factories import (
     ClassOfferingFactory,
     RegistrationFactory,
 )
-from classes.grouping import grouping_key_for, regroup_offerings
+from classes.grouping import admin_group_rows, grouping_key_for, regroup_offerings
 from classes.models import ClassOffering, Registration
 
 
@@ -70,6 +70,50 @@ def describe_regroup_offerings():
 
         offering.refresh_from_db()
         assert offering.grouping_key == f"repair-me:{offering.category_id}"
+
+
+def describe_admin_group_rows():
+    def _annotated(pks: list[int]):
+        from django.db.models import Min
+
+        return ClassOffering.objects.filter(pk__in=pks).annotate(first_session=Min("sessions__starts_at"))
+
+    def it_picks_the_next_run_then_the_latest_past_one_then_an_undated_one(db):
+        from datetime import timedelta
+
+        from django.utils import timezone
+
+        from classes.factories import ClassSessionFactory
+
+        now = timezone.now()
+        category = CategoryFactory()
+
+        def run(slug: str, days: int | None) -> ClassOffering:
+            offering = ClassOfferingFactory(title="Forging 101 with Glen", slug=slug, category=category)
+            if days is not None:
+                ClassSessionFactory(class_offering=offering, starts_at=now + timedelta(days=days))
+            return offering
+
+        undated = run("undated", None)
+        oldest = run("oldest", -400)
+        latest_past = run("latest-past", -10)
+        later = run("later", 40)
+        sooner = run("sooner", 5)
+        solo = ClassOfferingFactory(title="Totally Different", slug="different", category=category)
+        ClassOffering.objects.filter(pk=solo.pk).update(grouping_key="")
+        key = sooner.grouping_key
+        everyone = [undated.pk, oldest.pk, latest_past.pk, later.pk, sooner.pk, solo.pk]
+
+        pks, sizes = admin_group_rows(_annotated(everyone), now)
+        assert sorted(pks) == sorted([sooner.pk, solo.pk])
+        assert sizes == {key: 5}
+
+        pks, sizes = admin_group_rows(_annotated([undated.pk, oldest.pk, latest_past.pk]), now)
+        assert pks == [latest_past.pk]
+        assert sizes == {key: 3}
+
+        pks, _sizes = admin_group_rows(_annotated([undated.pk]), now)
+        assert pks == [undated.pk]
 
 
 def describe_spots_remaining_map():

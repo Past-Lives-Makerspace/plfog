@@ -1404,14 +1404,18 @@ class ClassOffering(HeroCropMixin, models.Model):
         # ``category_written`` for the same reason as the reopen above, and the cost of
         # missing it is higher here: on a save that leaves the category where it was, this
         # would carry every sibling off to a category the class itself never moved to,
-        # splitting the group it exists to keep together.
+        # splitting the group it exists to keep together. Each sibling's key comes from its
+        # own title: the same save may rename this class, and stamping the new name's key on
+        # runs still carrying the old name files them on the wrong catalog card until their
+        # next save moves them back.
         if old is not None and old.category_id != self.category_id and category_written and old.grouping_key:
-            type(self)._default_manager.filter(
-                grouping_key=old.grouping_key,
-            ).exclude(pk=self.pk).update(
-                category_id=self.category_id,
-                grouping_key=self.grouping_key,
+            siblings = list(
+                type(self)._default_manager.filter(grouping_key=old.grouping_key).exclude(pk=self.pk).only("title")
             )
+            for sibling in siblings:
+                sibling.category_id = self.category_id
+                sibling.grouping_key = grouping_key_for(sibling.title, self.category_id)
+            type(self)._default_manager.bulk_update(siblings, ["category", "grouping_key"])
 
         if creating:
             from classes import activity
@@ -2104,7 +2108,7 @@ class ClassOffering(HeroCropMixin, models.Model):
             )
             # Stage-1 → Stage-2 escalation: a Guild Lead's approval opens the
             # Admin gate (if admin review is still required and not yet open)
-            # and notifies staff for executive validation. We do not publish on
+            # and notifies staff for admin sign-off. We do not publish on
             # this branch — publication waits for the admin to sign off.
             if (
                 row.role == ClassApproval.Role.GUILD_LEAD
@@ -2153,7 +2157,7 @@ class ClassOffering(HeroCropMixin, models.Model):
     def _escalate_to_admin(self, admin_row: "ClassApproval", *, guild_lead: "User | None") -> None:
         """Fire the stage-two admin escalation after a Guild Lead approves.
 
-        Emits the executive-validation request as one ``class_validation_requested``
+        Emits the admin sign-off request as one ``class_validation_requested``
         event (admin email + FOG_ADMINS in-app) via
         :func:`classes.emails.send_admin_validation_request`. The Guild Lead is named
         in the copy so admins know who already vouched for the class.

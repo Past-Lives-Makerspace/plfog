@@ -1,10 +1,10 @@
-{% load classes_tags %}EXECUTIVE VALIDATION REQUESTED
+{% load classes_tags %}ADMIN SIGN-OFF REQUESTED
 
 {{ offering.title }}
 by {{ offering.instructor.display_name }}{% if offering.category %} · {{ offering.category.name }}{% endif %}
 Price {{ offering.price_cents }} cents · Capacity {{ offering.capacity }}
 
-{{ guild_lead_name }} and {{ instructor_name }} request executive validation
+{{ guild_lead_name }} and {{ instructor_name }} request admin sign-off
 to publish this class. The Guild Lead has approved this class. Please
 review to approve.
 

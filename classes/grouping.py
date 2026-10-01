@@ -9,6 +9,7 @@ offering stays independently bookable with its own capacity and registrations.
 
 from __future__ import annotations
 
+from datetime import datetime
 from typing import Any
 
 from django.utils.text import slugify
@@ -58,6 +59,42 @@ def grouped_catalog(offerings: Any) -> list[CatalogGroup]:
         else:
             group.members.append(offering)
     return [groups[key] for key in order]
+
+
+def admin_group_rows(offerings: Any, now: datetime) -> tuple[list[int], dict[str, int]]:
+    """One row per class for Manage Classes, chosen among the offerings that passed its filters.
+
+    Grouping after the filters is the point: a group's row picked from all of its runs is
+    often one the active tab or search excludes, and the whole class then vanishes from the
+    list (a June 2024 run hid Glen's October run from Upcoming). Within a group the row shown
+    is the soonest upcoming run, else the latest past one, else the lowest pk. An offering
+    with a blank key stands alone.
+
+    Args:
+        offerings: the filtered queryset, annotated with ``first_session``.
+        now: the instant that splits upcoming from past.
+
+    Returns:
+        The pks to list, and how many matching runs each grouping key holds.
+    """
+    best: dict[str, tuple[tuple[int, float, int], int]] = {}
+    sizes: dict[str, int] = {}
+    pks: list[int] = []
+    for pk, key, first_session in offerings.values_list("pk", "grouping_key", "first_session"):
+        if not key:
+            pks.append(pk)
+            continue
+        sizes[key] = sizes.get(key, 0) + 1
+        if first_session is None:
+            rank = (2, 0.0, pk)
+        elif first_session >= now:
+            rank = (0, first_session.timestamp(), pk)
+        else:
+            rank = (1, -first_session.timestamp(), pk)
+        if key not in best or rank < best[key][0]:
+            best[key] = (rank, pk)
+    pks.extend(pk for _rank, pk in best.values())
+    return pks, sizes
 
 
 def grouping_key_for(title: str | None, category_id: int | None) -> str:
