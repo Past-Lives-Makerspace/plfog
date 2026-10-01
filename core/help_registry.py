@@ -338,14 +338,14 @@ HELP_KEYS: dict[str, HelpKeyEntry] = {
         "article_slug": "running-orientations",
         "anchor": "orientation-recurring-hours",
     },
-    "orientation.availability-blocks": {
-        "title": "Availability blocks",
+    "orientation.how-members-book": {
+        "title": "How members book",
         "short_text": (
-            "Post a window of time you're available. Members choose one of the guild's orientations "
-            "and a start time inside it. Blocks can't be edited; cancel one and post again instead."
+            "Fixed start times turn these hours into slots with seats. Any time in the window opens the "
+            "whole span: a member picks an orientation and any 15 minute start that fits, one person at a time."
         ),
         "article_slug": "running-orientations",
-        "anchor": "orientation-availability-blocks",
+        "anchor": "orientation-recurring-hours",
     },
     "orientation.respond-requests": {
         "title": "Respond to a request",

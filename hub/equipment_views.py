@@ -1069,6 +1069,7 @@ def hub_equipment_orientation_hours_save(request: HttpRequest, slug: str) -> Htt
                 removed=removed,
                 kept=kept,
                 shared_farewell=_EQUIPMENT_SHARED_FAREWELL if shared_emptied else None,
+                card="Upcoming Slots",  # the equipment tab keeps its own card name (#532)
             ),
         )
         response = HttpResponse(status=204)

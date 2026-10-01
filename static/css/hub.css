@@ -4186,6 +4186,23 @@ mark { background: color-mix(in srgb, var(--color-tuscan-yellow) 30%, transparen
 .pl-slot-admin__seats { color: var(--hub-text-muted); font-size: 0.85rem; }
 .pl-slot-admin__source { font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0.04em; }
 
+/* Orientations tab (#532): the How members book chips (.pl-chip is the shared radio chip), the
+   Edit Hours rows, booked segments under an open window on Upcoming Times, and Add a one off.
+   Layout lives in classes so an x-show can toggle display (FRONTEND.md rule 12). Tokens only. */
+.pl-booking-style { display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap; margin-bottom: 0.75rem; }
+.pl-booking-style__label { font-size: 0.8125rem; font-weight: 600; color: var(--hub-text-muted); margin-right: 0.25rem; }
+.pl-hours-row { padding: 1rem; background: var(--hub-surface); border: 1px solid var(--hub-border); border-radius: 10px; }
+.pl-hours-row__line { display: flex; gap: 0.75rem; flex-wrap: wrap; margin-bottom: 1rem; }
+.pl-hours-row__line > * { flex: 1; min-width: 120px; }
+.pl-hours-row__line > .pl-hours-row__narrow { min-width: 90px; }
+.pl-hours-row__hint { font-size: 0.8125rem; color: var(--hub-text-muted); margin: 0 0 0.5rem; }
+.pl-orient-style { font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0.04em; color: var(--hub-text-muted); }
+.pl-slot-admin__segments { flex-basis: 100%; list-style: none; margin: 0; padding: 0 0 0 1.25rem; font-size: 0.85rem; color: var(--hub-text-muted); }
+.pl-slot-admin__segments li { padding: 0.15rem 0; }
+.pl-slot-admin__segments strong { color: var(--hub-text); font-weight: 500; }
+.pl-oneoff { margin-top: 1rem; padding-top: 1rem; border-top: 1px solid var(--hub-border); }
+.pl-oneoff__actions { display: flex; gap: 0.75rem; margin-top: 1rem; align-items: center; flex-wrap: wrap; }
+
 /* Add A Slot date input — Rule 14 dark-mode picker icon */
 .pl-slot-date::-webkit-calendar-picker-indicator { filter: invert(1); cursor: pointer; }
 [data-theme="light"] .pl-slot-date::-webkit-calendar-picker-indicator { filter: none; }

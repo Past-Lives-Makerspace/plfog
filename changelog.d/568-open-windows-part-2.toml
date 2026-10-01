@@ -1,0 +1,8 @@
+bump = "minor"
+date = "2026-09-30"
+title = "Post open orientation hours that members book any time inside"
+changes = [
+  "Guild leads and staff: each row of your orientation hours now chooses how members book it. Fixed start times work as before. Any time in the window opens the whole span, and a member picks an orientation and any 15 minute start that fits, one person at a time.",
+  "The Upcoming Times card on your guild Orientations tab lists fixed times and open windows together, shows who booked into a window, and adds a one off of either kind.",
+  "The Availability Blocks card on the Orientations dashboard is gone. Open windows replace it.",
+]

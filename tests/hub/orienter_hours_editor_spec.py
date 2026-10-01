@@ -1,5 +1,5 @@
 """BDD specs for the per-orienter Orientations tab — My Hours scope binding, the lead
-overview + edit-on-behalf, the legacy Guild Hours card, the Upcoming Slots + Add A
+overview + edit-on-behalf, the legacy Guild Hours card, the Upcoming Times + Add a one off
 Slot card, rule-delete retirement, and the staff-remove hook."""
 
 from __future__ import annotations
@@ -257,7 +257,7 @@ def describe_non_leadership_admin_self_scope():
         assert response.status_code == 200
         assert b"My Orientation Hours" not in response.content
         assert b"Orientation Schedule" in response.content
-        assert b"+ Add A Slot" in response.content  # the rest of the tab is intact
+        assert b"+ Add a one off" in response.content  # the rest of the tab is intact
 
     def it_403s_a_self_scope_save(client: Client):
         user = _member_user("nl_save", name="Site Admin", fog_role=Member.FogRole.ADMIN)
@@ -848,12 +848,12 @@ def describe_upcoming_slots_card():
         OrientationSlotFactory(guild=guild, seats=2)
         client.login(username="up_lead", password="pass")
         response = client.get(_tab_url(guild))
-        assert b"Upcoming Slots" in response.content
+        assert b"Upcoming Times" in response.content
         assert b"Bob Placeholder" in response.content
         assert b"Any orienter" in response.content
         assert b"0 of 4 booked" in response.content
         assert b"recurring" in response.content
-        assert b"one-off" in response.content
+        assert b"one off" in response.content
         # Per-row Cancel goes through the confirm modal to the existing endpoint.
         assert b"Cancel this open slot?" in response.content
         slot = guild.orientation_slots.first()
@@ -873,7 +873,7 @@ def describe_upcoming_slots_card():
         guild = GuildFactory(guild_lead=user.member)
         client.login(username="up_empty", password="pass")
         response = client.get(_tab_url(guild))
-        assert b"No upcoming slots yet." in response.content
+        assert b"No upcoming times yet." in response.content
 
 
 def describe_add_a_slot():
@@ -988,7 +988,7 @@ def describe_staff_remove_retirement():
         assert OrientationSlot.objects.filter(pk=booked.pk).exists()  # booked slots stay theirs
         joined = " ".join(str(m) for m in response.context["messages"])
         assert "They still have 1 upcoming booked orientation." in joined
-        assert "Upcoming Slots card" in joined
+        assert "Upcoming Times card" in joined
 
 
 def describe_rule_pause_retirement():

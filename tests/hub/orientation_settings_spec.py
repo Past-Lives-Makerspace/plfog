@@ -119,8 +119,8 @@ def describe_guild_orientation_edit():
         assert reverse("hub_guild_orientation_hours_form", args=[guild.pk]).encode() in response.content
         assert b"Who runs orientations" in response.content
         # The Upcoming Slots card (first UI for the slot endpoints) rides on the same tab.
-        assert b"Upcoming Slots" in response.content
-        assert b"+ Add A Slot" in response.content
+        assert b"Upcoming Times" in response.content
+        assert b"+ Add a one off" in response.content
 
     def it_redirects_a_get_to_the_orientations_tab(client: Client):
         _user_with_role("ed_get", fog_role=Member.FogRole.ADMIN)

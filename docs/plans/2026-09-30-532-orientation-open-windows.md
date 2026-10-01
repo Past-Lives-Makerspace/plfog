@@ -80,6 +80,14 @@ Approved by Felix 2026-09-30: the desktop screens as drawn (D1 stands) and D7's 
 - D14. The legacy shared Any orienter formset in `guild_edit.html` never renders `booking_style`; the
   form treats a missing value as fixed, exactly as `cadence` does.
 - D15. Guild owned only. Equipment windows are a follow up (they need the reservation overlap union).
+- D17. Part 2 settled three details differently from the sketch above, on 2026-09-30:
+  `overview_line` never landed; the schedule lines read `type_display`, and each overview group
+  is `(person, rows, has_open)` so a line names its style only for a person who mixes them.
+  `EXTERNAL_SIGNUP_URL_WARNING` is one constant shared with the equipment tab, whose card is
+  still Upcoming Slots, so it now says "add a time from the Upcoming card on this tab". The
+  Edit Hours modal renders each row through `hub/partials/_orienter_hours_row.html` with an
+  `offer_open` flag the guild views pass and the equipment views do not; the hours form takes
+  `orienter` and `allow_open` so the model's clean sees the person before save.
 - D16. Copy, exact:
   - Chip labels: "Fixed start times", "Any time in the window". Group label: "How members book".
   - Open row hint: "Members pick an orientation and any 15 minute start that fits inside these hours.

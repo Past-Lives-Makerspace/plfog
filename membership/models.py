@@ -10090,6 +10090,11 @@ class OrientationAvailability(models.Model):
             errors["orientation_type"] = "Pick an orientation."
         return errors
 
+    #: Rows the same Edit Hours save is resubmitting (set by the form, never stored). Their
+    #: stored hours are about to be replaced, so the overlap check skips them and the
+    #: formset compares the submitted versions instead.
+    overlap_skip_pks: frozenset[int] = frozenset()
+
     def overlapping_rule(self) -> OrientationAvailability | None:
         """The orienter's other active row this one may not overlap, or None.
 
@@ -10109,7 +10114,7 @@ class OrientationAvailability(models.Model):
             is_active=True,
             start_time__lt=self.end_time,
             end_time__gt=self.start_time,
-        ).exclude(pk=self.pk)
+        ).exclude(pk__in={self.pk, *self.overlap_skip_pks} - {None})
         if not self.is_open:
             others = others.filter(booking_style=self.BookingStyle.OPEN)
         return others.order_by("start_time").first()
@@ -10538,7 +10543,11 @@ class OrientationSlotQuerySet(models.QuerySet):
             & (Q(orienter__isnull=True) | self._run_by_gate())
             & ~Exists(reserved_over_span)
         )
-        rule_gate = Q(availability__isnull=True) | Q(availability__is_active=True)
+        # A slot kept through a row's switch to open (#532) stays its member's but never
+        # reopens: the row's window now offers that span, and one person books one way.
+        rule_gate = Q(availability__isnull=True) | Q(
+            availability__is_active=True, availability__booking_style=OrientationAvailability.BookingStyle.FIXED
+        )
         return (
             self.upcoming()
             .filter(orientation_type__is_active=True)
