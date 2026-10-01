@@ -17,7 +17,7 @@
     <h3 style="margin:0 0 0.5rem;">Locked Details</h3>
     <dl style="display:grid;grid-template-columns:140px 1fr;gap:8px 18px;font-size:14px;margin:0;">
         <dt style="color:var(--hub-text-muted);">Title</dt><dd style="margin:0;">{{ offering.title }}</dd>
-        <dt style="color:var(--hub-text-muted);">Guild Type</dt><dd style="margin:0;">{{ offering.category.name }}</dd>
+        <dt style="color:var(--hub-text-muted);">Class Type</dt><dd style="margin:0;">{{ offering.category.name }}</dd>
         <dt style="color:var(--hub-text-muted);">Price</dt>
         <dd style="margin:0;">{{ offering.price_cents|cents_as_price }}{% if offering.sale_is_active %} <span style="color:var(--hub-text-muted);">· sale: {{ offering.sale_savings_display }}</span>{% endif %}</dd>
         <dt style="color:var(--hub-text-muted);">Capacity</dt><dd style="margin:0;">{% if offering.is_flexible %}No seat cap{% else %}{{ offering.capacity }}{% endif %}</dd>

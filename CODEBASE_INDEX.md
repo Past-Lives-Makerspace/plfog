@@ -5,7 +5,7 @@
 | App | Purpose |
 |-----|---------|
 | `membership/` | Core domain: Member, Guild (+ staff roles, orientations, FAQ/links/announcements), Space, Lease, voting, funding snapshots |
-| `classes/` | **Book CMS** — classes/workshops: offerings, sessions, registrations, approvals, discount codes, instructor emails, CSV export (served on the `book.` subdomain) |
+| `classes/` | **Book CMS** — classes: offerings, sessions, registrations, approvals, discount codes, instructor emails, CSV export (served on the `book.` subdomain) |
 | `billing/` | Stripe tab system: Tab, TabEntry, TabCharge, StripeAccount, Product |
 | `core/` | Auth + platform infra: Invite, SiteConfiguration, PushSubscription, notifications/triggers, transactional email (`core.email.send`), SiteActivity, scheduled tasks |
 | `hub/` | Member-facing views (guild voting, directory, tab, profile, guild pages) |
@@ -57,7 +57,7 @@ Those six plus `plfog/` are the whole of `INSTALLED_APPS` for this project. Othe
 
 ### classes (book CMS — `book.` subdomain)
 - `Category` (+ `verbose_name`) — class grouping; **UI labeled "Guild"** (see relabel plan); optional FK to `membership.Guild`
-- `ClassOffering` (+ `ClassOfferingQuerySet`) — a class/workshop; status DRAFT/PENDING/PUBLISHED/ARCHIVED; `public()` / `bookable()`; sequential approval state machine; instructor welcome-email fields
+- `ClassOffering` (+ `ClassOfferingQuerySet`) — a class; status DRAFT/PENDING/PUBLISHED/ARCHIVED; `public()` / `bookable()`; sequential approval state machine; instructor welcome-email fields
 - `ClassSession` — individual dated session (`starts_at` / `ends_at`); a series offering has many
 - `ClassApproval` (+ QuerySet) — sequential guild-lead→admin approval rows with tokenized review links
 - `Registration` — a signup; status PENDING/CONFIRMED/WAITLISTED/CANCELLED/REFUNDED; `self_serve_token`

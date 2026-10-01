@@ -251,7 +251,7 @@ def describe_event_registry():
             assert get_event("class_validation_requested").recipient is Recipients.CLASS_APPROVERS
 
         def it_routes_the_teach_request_to_class_approvers_not_every_admin():
-            """Deciding who may host a workshop is the CMS Administrators' duty, not the admin tier's."""
+            """Deciding who may host a class is the CMS Administrators' duty, not the admin tier's."""
             assert get_event("instructor_application_received").recipient is Recipients.CLASS_APPROVERS
 
         def it_routes_the_move_notice_to_the_registrant():

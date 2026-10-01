@@ -1,6 +1,6 @@
 """BDD specs for the admin Waivers & Reminders page (the general class settings).
 
-The Host a Workshop page's words moved to the Teaching Marketing Page
+The Host a Class page's words moved to the Teaching Marketing Page
 (admin_teaching_page_settings_spec.py); this page is the waivers and reminders form again.
 """
 
@@ -54,7 +54,7 @@ def describe_admin_settings():
         assert "<textarea" not in content.split(">Save</button>")[1]
 
     def it_renders_only_the_general_fields(admin_user, client, db):
-        """The Host a Workshop words and the example picker live on their own page now."""
+        """The Host a Class words and the example picker live on their own page now."""
         client.force_login(admin_user)
         page = client.get(reverse("classes:admin_settings")).content.decode()
         # The release notes render on every hub page and mention the new page by name,
@@ -73,7 +73,7 @@ def describe_admin_settings():
         for name in TEACH_PAGE_FIELDS:
             assert f'name="{name}"' not in content
         assert 'name="example_class"' not in content
-        assert "Host a Workshop Page" not in content
+        assert "Host a Class Page" not in content
         assert "Teaching Marketing Page" not in content
         assert "rich-editor-init.js" not in content
 

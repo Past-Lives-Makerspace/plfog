@@ -1,7 +1,7 @@
 """End-to-end: saying you're interested in hosting, and an admin opening the portal.
 
 Teaching stopped being self-service. This drives the real loop in a browser: a member
-who cannot teach lands on the Host a Workshop page (not a 403, not a dead end), opens
+who cannot teach lands on the Host a Class page (not a 403, not a dead end), opens
 the interest modal, sends a note, sees the note-sent state, and stays out of the
 portal until an admin grants Instructor. The Alpine modal open/close and the
 server-rendered state flip are exactly what the unit specs cannot prove. Run with
@@ -29,12 +29,12 @@ def describe_apply_to_teach():
 
         Member.objects.filter(user__username="teach-me@example.com").update(phone="503 555 0100")
 
-        # A locked member's click on the Host a Workshop sidebar entry lands on the
+        # A locked member's click on the Host a Class sidebar entry lands on the
         # marketing page, served in place at /classes/teach/ rather than bounced elsewhere.
         page.goto(f"{live_server.url}/classes/teach/")
         assert page.url.rstrip("/").endswith("/classes/teach")
         expect(page.get_by_role("heading", name=HERO)).to_be_visible()
-        expect(page.locator('[data-nav="teach"]').first).to_contain_text("Host a Workshop")
+        expect(page.locator('[data-nav="teach"]').first).to_contain_text("Host a Class")
 
         # The interest modal is closed until the hero button opens it.
         send = page.get_by_role("button", name=SEND_BUTTON)

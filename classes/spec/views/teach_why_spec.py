@@ -1,4 +1,4 @@
-"""BDD specs for the Host a Workshop page and the I'm Interested POST (spec §A, retoned).
+"""BDD specs for the Host a Class page and the I'm Interested POST (spec §A, retoned).
 
 Teaching stopped being self-service: a member says they are interested, an admin says
 yes. These cover the page in all four states, the POST's guards, the branch that sends
@@ -24,7 +24,7 @@ APPLY_AGAIN_BUTTON = "I'm Still Interested"
 SEND_BUTTON = "Send It"
 PENDING_BANNER = "Thanks, We Got Your Note"
 DECLINED_BANNER = "Not Right Now"
-APPROVED_BANNER = "You Can Host Workshops"
+APPROVED_BANNER = "You Can Host Classes"
 # Template-literal copy is NOT autoescaped (only variables are), so these match verbatim.
 PLACEHOLDER = "The guide has not been loaded yet."
 BLANK_NOTE_ERROR = "Tell us a little about what you want to host."
@@ -46,7 +46,7 @@ GUIDE_ITEM = '<details class="pl-disclosure pl-teach-guide">'
 # is filled. Used to prove each blanked field hides exactly its own section.
 SECTION_MARKERS = {
     "teach_page_title": HERO_TITLE,
-    "teach_page_lead": "Run a workshop or a class for the people already in the shop.",
+    "teach_page_lead": "Run a class for the people already in the shop.",
     "teach_page_features": "What You Get",
     "teach_page_how_it_works": "How It Works",
     "teach_page_expectations": "What We Ask Of You",
@@ -129,7 +129,7 @@ def describe_teach_why():
         content = client.get(reverse("classes:teach_why")).content.decode()
         assert APPROVED_BANNER in content
         assert "Go to the Teaching Portal" in content
-        assert "Create a Workshop" in content
+        assert "Create a Class" in content
         assert "You Are Already In" in content
         assert APPLY_BUTTON not in content
         assert OPEN_MODAL not in content
@@ -452,7 +452,7 @@ def describe_teach_apply():
         assert member.teaching_applied_at is None
         assert not SiteActivity.objects.filter(kind=SiteActivity.Kind.TEACHING_APPLIED).exists()
         assert [m.message for m in get_messages(response.wsgi_request)] == [
-            "You can already host workshops. The teaching portal is open."
+            "You can already host classes. The teaching portal is open."
         ]
 
     def it_rerenders_with_the_field_error_on_a_blank_note(db, client):

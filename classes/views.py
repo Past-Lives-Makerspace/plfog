@@ -263,13 +263,13 @@ def public_list(request: HttpRequest) -> HttpResponse:
         key = offering.grouping_key or f"solo:{offering.pk}"
         keys_by_category.setdefault(offering.category_id, set()).add(key)
     category_counts: dict[int, int] = {cat_id: len(keys) for cat_id, keys in keys_by_category.items()}
-    # Show every guild type in the catalog, even those with no bookable classes right
+    # Show every class type in the catalog, even those with no bookable classes right
     # now, so members can see the full range of guilds. Zero-class types get a count of
-    # 0 (reflected in the "Guild Types" hero stat and the guild-type filter dropdown).
+    # 0 (reflected in the "Class Types" hero stat and the class-type filter dropdown).
     # Mirror the demo gate from ClassOfferingQuerySet.public(): when demo classes are
-    # hidden, hide demo-slug guild types too. The old "count > 0" filter hid them only
+    # hidden, hide demo-slug class types too. The old "count > 0" filter hid them only
     # as a side effect (they had zero bookable classes), so listing all categories
-    # unconditionally would leak [DEMO] guild types into the public catalog.
+    # unconditionally would leak [DEMO] class types into the public catalog.
     category_qs = Category.objects.all()
     if not SiteConfiguration.load().display_demo_classes:
         category_qs = category_qs.exclude(slug__startswith="demo-")
@@ -1536,7 +1536,7 @@ def _filter_registrations(request: HttpRequest, qs: QuerySet[Registration]) -> Q
 
 
 def _why_teach_context(member: Member, apply_form: TeachingApplicationForm) -> dict[str, Any]:
-    """Context for the Host a Workshop page: state, the admin-edited copy, the example, the guide.
+    """Context for the Host a Class page: state, the admin-edited copy, the example, the guide.
 
     A missing help-center seed must fail soft on the page (a placeholder line) but
     loudly in the logs: the page is the whole recruiting surface and must never 500
@@ -1595,7 +1595,7 @@ def _why_teach_context(member: Member, apply_form: TeachingApplicationForm) -> d
 
 @active_member_required
 def teach_why(request: HttpRequest) -> HttpResponse:
-    """The Host a Workshop page: the marketing surface and the I'm Interested front door.
+    """The Host a Class page: the marketing surface and the I'm Interested front door.
 
     Open to every active member, instructors included, so an admin can link it and an
     approved instructor can still read the guide. Locked members reach it through
@@ -1629,7 +1629,7 @@ def teach_apply(request: HttpRequest) -> HttpResponse:
         )
     except ValueError:
         if member.can_create_classes:
-            messages.error(request, "You can already host workshops. The teaching portal is open.")
+            messages.error(request, "You can already host classes. The teaching portal is open.")
         else:
             messages.error(request, "We already have your note. Refresh the page and check where things stand.")
         return redirect("classes:teach_why")
@@ -1644,7 +1644,7 @@ def teach_overview(request: HttpRequest) -> HttpResponse:
     The Teaching sidebar entry is universal now, so this route is the front door for
     the whole membership: a member who can teach gets their dashboard (drafts, classes
     awaiting review, recent sign-ups, waitlists), and everyone else gets the Host a
-    Workshop page instead of a 403 or a redirect loop.
+    Class page instead of a 403 or a redirect loop.
     """
     teaching_member: Member = request.teaching_member  # type: ignore[attr-defined]
     if not teaching_member.can_create_classes:
@@ -5675,7 +5675,7 @@ def admin_settings(request: HttpRequest) -> HttpResponse:
 
 @admin_required
 def admin_teaching_page_settings(request: HttpRequest) -> HttpResponse:
-    """The Teaching Marketing Page: every word of the Host a Workshop page, plus the money split."""
+    """The Teaching Marketing Page: every word of the Host a Class page, plus the money split."""
     settings_obj = ClassSettings.load()
     form = TeachingPageSettingsForm(request.POST or None, instance=settings_obj)
     if request.method == "POST" and form.is_valid():

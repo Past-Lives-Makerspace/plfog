@@ -353,7 +353,7 @@ class MarketingOptInSignupForm(SignupForm):
     wants_newsletter = forms.BooleanField(
         required=False,
         initial=False,
-        label="Email me about new classes, workshops, and events at Past Lives.",
+        label="Email me about new classes and events at Past Lives.",
     )
 
     def clean(self) -> dict[str, Any]:

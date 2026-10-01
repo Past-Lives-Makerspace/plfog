@@ -10,7 +10,7 @@ It runs as **two surfaces** that mirror production:
 | Surface | Local host | What it is |
 |---|---|---|
 | **Members** | `pastlives.test:8000` | Member dashboard, membership, billing, studio rentals |
-| **Book** | `book.pastlives.test:8000` | Public-facing classes & workshop catalog and booking |
+| **Book** | `book.pastlives.test:8000` | Public-facing class catalog and booking |
 
 **Stack:** Django (Python 3.13) · PostgreSQL · server-rendered templates · Stripe billing ·
 Airtable sync · web push. Hosted on [Render](https://render.com).

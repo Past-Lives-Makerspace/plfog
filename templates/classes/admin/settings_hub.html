@@ -3,7 +3,7 @@
 {% block tab_content %}
 <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:1rem;">
   <a class="hub-card" style="margin:0;text-decoration:none;" href="{% url 'classes:admin_categories' %}">
-    <h3 style="margin:0 0 4px;">Guild Types</h3>
+    <h3 style="margin:0 0 4px;">Class Types</h3>
     <p style="margin:0;color:var(--hub-text-muted);">Groupings that organize the class catalog.</p>
   </a>
   <a class="hub-card" style="margin:0;text-decoration:none;" href="{% url 'classes:admin_discount_codes' %}">
@@ -20,7 +20,7 @@
   </a>
   <a class="hub-card" style="margin:0;text-decoration:none;" href="{% url 'classes:admin_teaching_page_settings' %}">
     <h3 style="margin:0 0 4px;">Teaching Marketing Page</h3>
-    <p style="margin:0;color:var(--hub-text-muted);">The page a member sees under Host a Workshop until an admin says yes. Every word of it, plus the money split.</p>
+    <p style="margin:0;color:var(--hub-text-muted);">The page a member sees under Host a Class until an admin says yes. Every word of it, plus the money split.</p>
   </a>
 </div>
 {% endblock %}

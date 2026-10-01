@@ -1,4 +1,4 @@
-"""BDD specs for the demo guild type that stage_demo_meeting owns.
+"""BDD specs for the demo class type that stage_demo_meeting owns.
 
 Only the category lifecycle is covered here. Staging itself writes the four
 production personas and is exercised by hand before a live walkthrough.

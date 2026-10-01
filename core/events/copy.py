@@ -382,21 +382,21 @@ _CURATED: dict[str, EventCopy] = {
         },
         channels={
             Channel.IN_APP: ChannelCopy(
-                subject="You can host workshops at Past Lives",
+                subject="You can host classes at Past Lives",
                 body_text="An admin said yes. The teaching portal is open.",
             ),
             Channel.EMAIL: ChannelCopy(
-                subject="You can host workshops at Past Lives",
+                subject="You can host classes at Past Lives",
                 body_text=(
                     "Good news. An admin said yes. The teaching portal is open and you can start "
-                    "building your first workshop page.\n\n"
+                    "building your first class page.\n\n"
                     "Build your first page: {{ portal_url }}\n\n"
                     "Past Lives Makerspace"
                 ),
                 body_html=(
                     "<p>Good news. An admin said yes. The "
                     '<a href="{{ portal_url }}">teaching portal</a> is open and you can start '
-                    "building your first workshop page.</p>"
+                    "building your first class page.</p>"
                     '<p style="text-align:center;margin:24px 0 8px;"><a href="{{ portal_url }}" '
                     'style="display:inline-block;padding:12px 28px;background-color:#EEB44B;color:#092E4C;'
                     'font-size:14px;font-weight:700;text-decoration:none;border-radius:6px;">'
@@ -417,11 +417,11 @@ _CURATED: dict[str, EventCopy] = {
         },
         channels={
             Channel.IN_APP: ChannelCopy(
-                subject="About hosting a workshop",
+                subject="About hosting a class",
                 body_text="{{ decline_reason }}",
             ),
             Channel.EMAIL: ChannelCopy(
-                subject="About hosting a workshop",
+                subject="About hosting a class",
                 body_text=(
                     "An admin had a look at your note and it is not the right time yet.\n\n"
                     "Here is what they said:\n\n{{ decline_reason }}\n\n"

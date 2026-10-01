@@ -72,20 +72,20 @@ I understand that I may revoke this consent at any time by notifying PLM in writ
 DEMO_SLUG_PREFIX = "demo-"
 DEMO_TITLE_PREFIX = "[DEMO]"
 
-# The Host a Workshop page, as an admin first sees it. Each constant is the migration
+# The Host a Class page, as an admin first sees it. Each constant is the migration
 # default of the matching ClassSettings.teach_page_* field, so a fresh database renders
 # the whole page with no seed command; an admin edits the words on the classes Settings
 # page. No dashes anywhere in this copy: it is member facing.
 DEFAULT_TEACH_PAGE_TITLE = "Share What You Love"
 
 DEFAULT_TEACH_PAGE_LEAD = (
-    "Run a workshop or a class for the people already in the shop. Show a technique, teach a skill, "
+    "Run a class for the people already in the shop. Show a technique, teach a skill, "
     "or just get folks making things together. You get a page for it, a sign up list, and the tools "
     "to run the day."
 )
 
 DEFAULT_TEACH_PAGE_FEATURES = """\
-A Page Worth Sharing: Your workshop gets its own page with a wide banner photo, a gallery, the schedule, your bio, and a sign up panel that follows the reader down the page.
+A Page Worth Sharing: Your class gets its own page with a wide banner photo, a gallery, the schedule, your bio, and a sign up panel that follows the reader down the page.
 Your Words, Your Photos: Write it the way you would say it. Add a banner and as many gallery shots as you like, and choose which part of each photo shows.
 Sign Ups That Run Themselves: When it fills up, people join a waitlist. The moment a seat opens, the next person is offered it and held for three days.
 Everyone On One Screen: See who is coming, mark someone as paid, move a person to another date, and email the whole group without leaving the page.
@@ -117,7 +117,7 @@ DEFAULT_TEACH_PAGE_EXPECTATIONS = (
 
 DEFAULT_TEACH_PAGE_FAQ = (
     "<h3>Do I Need to Be an Expert?</h3>"
-    "<p>No. You need to be safe and clear. Plenty of great workshops are run by people two steps ahead of "
+    "<p>No. You need to be safe and clear. Plenty of great classes are run by people two steps ahead of "
     "everyone else in the room.</p>"
     "<h3>How Long Until I Hear Back?</h3>"
     "<p>An admin usually gets to it within a week. You can check this page any time to see where things stand.</p>"
@@ -202,8 +202,8 @@ class Category(HeroCropMixin, models.Model):
 
     class Meta:
         ordering = ["sort_order", "name"]
-        verbose_name = "Guild Type"
-        verbose_name_plural = "Guild Types"
+        verbose_name = "Class Type"
+        verbose_name_plural = "Class Types"
 
     def __str__(self) -> str:
         return self.name
@@ -1512,7 +1512,7 @@ class ClassOffering(HeroCropMixin, models.Model):
 
         * the dates, via ``approved_schedule_fingerprint``; and
         * the guild, via ``opened_for_guild``. ``category`` is an instructor-editable
-          field on the composer (labelled "Guild Type") and a draft is editable, so "wrong
+          field on the composer (labelled "Class Type") and a draft is editable, so "wrong
           guild, re-file this under Woodshop" is an ordinary reason to bounce a class. A
           row approved by guild 1 says nothing about guild 2, whose lead has never seen the
           class.
@@ -5171,7 +5171,7 @@ class CmsActivity(models.Model):
 
 @dataclass(frozen=True)
 class FeatureCard:
-    """One "What You Get" card on the Host a Workshop page.
+    """One "What You Get" card on the Host a Class page.
 
     Parsed from one line of ``ClassSettings.teach_page_features``. ``icon`` is a key from
     :data:`TEACH_PAGE_FEATURE_ICONS`, decoration only, chosen by the card's position.
@@ -5184,7 +5184,7 @@ class FeatureCard:
 
 @dataclass(frozen=True)
 class FaqItem:
-    """One Common Questions accordion item on the Host a Workshop page.
+    """One Common Questions accordion item on the Host a Class page.
 
     Split out of the SANITIZED ``ClassSettings.teach_page_faq`` HTML by
     :meth:`ClassSettings.teach_page_faq_items`: the heading text is the question and the
@@ -5221,14 +5221,14 @@ class ClassSettings(models.Model):
         on_delete=models.SET_NULL,
         related_name="+",
         help_text=(
-            "The class page shown as the worked example on the Host a Workshop page. Leave blank to hide that link."
+            "The class page shown as the worked example on the Host a Class page. Leave blank to hide that link."
         ),
     )
     teach_page_title = models.CharField(
         max_length=120,
         blank=True,
         default=DEFAULT_TEACH_PAGE_TITLE,
-        help_text="The big headline at the top of the Host a Workshop page. Leave blank to show no headline.",
+        help_text="The big headline at the top of the Host a Class page. Leave blank to show no headline.",
     )
     teach_page_lead = models.TextField(
         blank=True,
@@ -5285,7 +5285,7 @@ class ClassSettings(models.Model):
     )
     teach_page_split_enabled = models.BooleanField(
         default=True,
-        help_text="Show the Where the Money Goes section on the Host a Workshop page.",
+        help_text="Show the Where the Money Goes section on the Host a Class page.",
     )
     teach_page_split_instructor_pct = models.PositiveSmallIntegerField(
         default=70,
@@ -5333,7 +5333,7 @@ class ClassSettings(models.Model):
         )
         return obj
 
-    # ── The Host a Workshop page ─────────────────────────────────────────────
+    # ── The Host a Class page ─────────────────────────────────────────────
 
     def teach_page_feature_cards(self) -> list[FeatureCard]:
         """The What You Get cards, parsed from ``teach_page_features``.

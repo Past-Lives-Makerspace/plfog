@@ -714,11 +714,11 @@ def describe_teach_slide():
         class_settings = ClassSettings.load()
         class_settings.teach_page_cta_title = ""
         class_settings.teach_page_cta_line = ""
-        class_settings.teach_page_title = "Host A Workshop"
+        class_settings.teach_page_title = "Host A Class"
         class_settings.teach_page_lead = "Share what you know."
         class_settings.save()
         vm = next(vm for vm in build_deck(zone) if vm.kind == "teach")
-        assert vm.title == "Host A Workshop"
+        assert vm.title == "Host A Class"
         assert vm.body == "Share what you know."
 
     def it_adds_no_slide_when_every_copy_field_is_blank():

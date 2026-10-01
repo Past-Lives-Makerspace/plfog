@@ -149,7 +149,7 @@ The app-wide "?" hover bubble next to a title, label, or column header (e.g. the
 
 ### Disclosure (`.pl-disclosure`)
 
-The hub's `<details>` pattern: a bordered summary row with a title, an optional hint under it, and a chevron that points down when closed and up when open; the body continues the same card. Use it for anything a member opens and closes on a hub page (the Host a Workshop questions and hosting guide). It is inline markup in `hub.css`, **not** a `components/` include. Never hide the native marker without replacing it with the chevron: a summary with no open indicator reads as plain text and nobody clicks it.
+The hub's `<details>` pattern: a bordered summary row with a title, an optional hint under it, and a chevron that points down when closed and up when open; the body continues the same card. Use it for anything a member opens and closes on a hub page (the Host a Class questions and hosting guide). It is inline markup in `hub.css`, **not** a `components/` include. Never hide the native marker without replacing it with the chevron: a summary with no open indicator reads as plain text and nobody clicks it.
 
 ```html
 <details class="pl-disclosure">

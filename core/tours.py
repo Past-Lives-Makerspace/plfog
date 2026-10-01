@@ -189,7 +189,7 @@ TOURS: dict[str, Tour] = {
             ),
             TourStep(
                 target='[data-help-key="catalog.filter"]',
-                title="Browse Classes and Workshops",
+                title="Browse Classes",
                 body="Every class lives here. Filter by guild or date, then open one to see the details.",
                 navigate="classes:public_list",
             ),

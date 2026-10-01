@@ -1,6 +1,6 @@
 """BDD specs for the Teaching Marketing Page under Class Settings.
 
-Every word of the Host a Workshop page plus the money split, edited on its own page with
+Every word of the Host a Class page plus the money split, edited on its own page with
 the rich editor on the three prose fields. A Quill save is sanitized before storage; a
 Markdown value (a no JS textarea) passes through unchanged and still renders.
 """
@@ -70,7 +70,7 @@ def describe_admin_teaching_page_settings():
             "What We Ask Of You",
             "Common Questions",
             "Bottom Card",
-            "Example Workshop",
+            "Example Class",
         ):
             assert f'class="pl-teach-page-settings__section">{heading}</h3>' in content
         assert ">Save</button>" in content
@@ -92,7 +92,7 @@ def describe_admin_teaching_page_settings():
         client.force_login(admin_user)
         content = client.get(reverse(URL_NAME)).content.decode()
         assert 'value="Share What You Love"' in content
-        assert "A Page Worth Sharing: Your workshop gets its own page" in content
+        assert "A Page Worth Sharing: Your class gets its own page" in content
         assert "<h3>Do I Need to Be an Expert?</h3>" in content
         assert "<strong>Build your page.</strong>" in content
         assert 'value="70"' in content and 'value="20"' in content and 'value="10"' in content

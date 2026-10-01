@@ -796,7 +796,7 @@ def describe_teach_composer_post():
         assert 'goTo(3)">Dates, Seats And Price: Capacity</button>' in html
 
     def it_saves_a_draft_from_step_one_alone(instructor_fixture, client):
-        # Title, guild type, description, and the price are the whole of step 1. Steps 2 to 4 are
+        # Title, class type, description, and the price are the whole of step 1. Steps 2 to 4 are
         # untouched: the POST is exactly what a browser submits from the rendered page (every
         # field with its default, parsed from the GET), plus step 1. capacity, scheduling_model
         # and scheduling_type are required form fields with model defaults, so they ride along

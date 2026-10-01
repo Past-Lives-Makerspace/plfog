@@ -467,7 +467,7 @@ class BiometricCredential(models.Model):
 # seeds the field (and backstops a blanked one) so the embed is never empty.
 DISCORD_INFO_LINKS_DEFAULT = (
     "**🎨 Classes**\n"
-    "Browse and sign up for upcoming classes and workshops:\n"
+    "Browse and sign up for upcoming classes:\n"
     "https://classes.pastlives.space/\n"
     "\n"
     "**🗓️ Calendar**\n"
@@ -914,7 +914,7 @@ class SiteConfiguration(models.Model):
     signage_show_classes = models.BooleanField(
         default=True,
         verbose_name="Show this week's classes",
-        help_text="Add a slide for each class or workshop happening in the next seven days.",
+        help_text="Add a slide for each class happening in the next seven days.",
     )
     signage_show_guilds = models.BooleanField(
         default=True,
@@ -942,8 +942,8 @@ class SiteConfiguration(models.Model):
     )
     signage_show_teach = models.BooleanField(
         default=True,
-        verbose_name="Show Host a Workshop",
-        help_text="Add a slide inviting members to run their own workshop or class.",
+        verbose_name="Show Host a Class",
+        help_text="Add a slide inviting members to run their own class.",
     )
     signage_show_tour = models.BooleanField(
         default=True,
@@ -1058,14 +1058,14 @@ class SiteConfiguration(models.Model):
 class CalendarFeed(models.Model):
     """A named iCal feed displayed on the Calendar.
 
-    Multiple feeds (e.g. "General Calendar", "Workshops", "Open Studio") can be
+    Multiple feeds (e.g. "General Calendar", "Classes", "Open Studio") can be
     configured from the Site Settings → Calendar tab. Each is fetched on demand
     by ``hub.calendar_service`` and rendered as its own legend entry.
     """
 
     name = models.CharField(
         max_length=100,
-        help_text="Display name shown on the Calendar legend (e.g. 'General Calendar', 'Workshops').",
+        help_text="Display name shown on the Calendar legend (e.g. 'General Calendar', 'Classes').",
     )
     ical_url = models.URLField(
         help_text="Public iCal URL. Paste the 'Secret address in iCal format' from Google Calendar settings.",

@@ -500,7 +500,7 @@ class ClassOfferingForm(
 
     def __init__(self, *args, **kwargs) -> None:
         super().__init__(*args, **kwargs)
-        self.fields["category"].label = "Guild Type"
+        self.fields["category"].label = "Class Type"
         self.add_hero_crop_field()
         self.add_card_focus_field()
         self.setup_scheduling_type_field()
@@ -585,7 +585,7 @@ class TeachClassOfferingForm(
     def __init__(self, *args, teaching_member: "Member | None" = None, **kwargs) -> None:
         self.teaching_member = teaching_member
         super().__init__(*args, **kwargs)
-        self.fields["category"].label = "Guild Type"
+        self.fields["category"].label = "Class Type"
         self.add_hero_crop_field()
         self.add_card_focus_field()
         self.setup_scheduling_type_field()
@@ -839,7 +839,7 @@ class TeachPublishedClassForm(_RichDescriptionMixin, forms.ModelForm):
     Only fields that do not change what registrants booked on: the subtitle (#563), description,
     prep notes, materials, safety, guardian note, the flexible-scheduling note, and the video.
     The subtitle leads ``Meta.fields`` because the template renders them in this order, and it
-    belongs above the description. Title, guild type, price, capacity, dates, and scheduling
+    belongs above the description. Title, class type, price, capacity, dates, and scheduling
     model stay admin-only after publish (the instructor asks through
     :class:`ClassChangeRequestForm`). A sale is not one of
     those: the instructor sets, changes, or ends one on a live class from the manage page's
@@ -1492,7 +1492,7 @@ class RegistrationForm(forms.ModelForm):
 class ClassSettingsForm(forms.ModelForm):
     """The Waivers & Reminders page: the general class settings only.
 
-    The Host a Workshop page's words moved to :class:`TeachingPageSettingsForm` and its
+    The Host a Class page's words moved to :class:`TeachingPageSettingsForm` and its
     own page, so this form is back to the fields the waivers page has always saved.
     """
 
@@ -1513,7 +1513,7 @@ class ClassSettingsForm(forms.ModelForm):
 
 
 class TeachingPageSettingsForm(forms.ModelForm):
-    """The Teaching Marketing Page: every word of the Host a Workshop page, plus the money split.
+    """The Teaching Marketing Page: every word of the Host a Class page, plus the money split.
 
     The three prose sections use the rich editor (``PageContentEditorWidget``), so what an
     admin types is stored as sanitized HTML; an older Markdown value, or one typed into
@@ -1559,7 +1559,7 @@ class TeachingPageSettingsForm(forms.ModelForm):
             "teach_page_faq": "The questions and their answers",
             "teach_page_cta_title": "Bottom Card Headline",
             "teach_page_cta_line": "Bottom Card Line",
-            "example_class": "Example Workshop Page",
+            "example_class": "Example Class Page",
         }
         widgets = {
             "teach_page_lead": forms.Textarea(attrs={"rows": 4}),
