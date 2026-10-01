@@ -21,4 +21,4 @@ def describe_absolute_url():
             delattr(settings, "BOOK_BASE_URL")
         from classes.emails import _absolute_url
 
-        assert _absolute_url("/path/") == "https://book.pastlives.space/path/"
+        assert _absolute_url("/path/") == "https://classes.pastlives.space/path/"

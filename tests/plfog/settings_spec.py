@@ -316,7 +316,12 @@ def describe_allowed_hosts():
                     "SENTRY_DSN": None,
                 },
             )
-            assert settings_module.ALLOWED_HOSTS == ["example.com", "api.example.com", "calendar.pastlives.space"]
+            assert settings_module.ALLOWED_HOSTS == [
+                "example.com",
+                "api.example.com",
+                "book.pastlives.space",
+                "calendar.pastlives.space",
+            ]
 
     def it_defaults_to_localhost(monkeypatch):
         with patch("sentry_sdk.init"):
@@ -329,7 +334,12 @@ def describe_allowed_hosts():
                     "SENTRY_DSN": None,
                 },
             )
-            assert settings_module.ALLOWED_HOSTS == ["localhost", "127.0.0.1", "calendar.pastlives.space"]
+            assert settings_module.ALLOWED_HOSTS == [
+                "localhost",
+                "127.0.0.1",
+                "book.pastlives.space",
+                "calendar.pastlives.space",
+            ]
 
     def describe_render_external_hostname():
         def it_appends_render_hostname_when_set(monkeypatch):
@@ -357,7 +367,11 @@ def describe_allowed_hosts():
                         "SENTRY_DSN": None,
                     },
                 )
-                assert settings_module.ALLOWED_HOSTS == ["example.com", "calendar.pastlives.space"]
+                assert settings_module.ALLOWED_HOSTS == [
+                    "example.com",
+                    "book.pastlives.space",
+                    "calendar.pastlives.space",
+                ]
 
         def it_appends_to_default_hosts_when_only_render_hostname_is_set(monkeypatch):
             with patch("sentry_sdk.init"):
@@ -374,6 +388,7 @@ def describe_allowed_hosts():
                     "localhost",
                     "127.0.0.1",
                     "plfog.onrender.com",
+                    "book.pastlives.space",
                     "calendar.pastlives.space",
                 ]
 
@@ -678,3 +693,45 @@ def describe_guilds_surface_defaults():
             )
             assert settings_module.GUILDS_HOSTS == ["guilds.pastlives.space"]
             assert settings_module.GUILDS_BASE_URL == "https://guilds.pastlives.space"
+
+
+def describe_public_surface_defaults():
+    # Production's links come from these defaults: classes.pastlives.space is the class site,
+    # and book.pastlives.space only forwards to it.
+    def it_serves_and_links_the_class_site_on_classes_pastlives_space(monkeypatch):
+        with patch("sentry_sdk.init"):
+            settings_module = _reload_settings(
+                monkeypatch,
+                {"PUBLIC_HOSTS": None, "BOOK_BASE_URL": None, "DJANGO_DEBUG": "True", "SENTRY_DSN": None},
+            )
+            assert settings_module.PUBLIC_HOSTS == ["classes.pastlives.space"]
+            assert settings_module.BOOK_BASE_URL == "https://classes.pastlives.space"
+
+    def it_retires_book_pastlives_space_and_still_accepts_its_requests(monkeypatch):
+        with patch("sentry_sdk.init"):
+            settings_module = _reload_settings(
+                monkeypatch,
+                {
+                    "PUBLIC_REDIRECT_HOSTS": None,
+                    "DJANGO_ALLOWED_HOSTS": "members.example",
+                    "DJANGO_DEBUG": "True",
+                    "SENTRY_DSN": None,
+                },
+            )
+            assert settings_module.PUBLIC_REDIRECT_HOSTS == ["book.pastlives.space"]
+            assert "book.pastlives.space" in settings_module.ALLOWED_HOSTS
+
+    def it_reads_retired_hosts_from_the_env_without_listing_an_allowed_one_twice(monkeypatch):
+        with patch("sentry_sdk.init"):
+            settings_module = _reload_settings(
+                monkeypatch,
+                {
+                    "PUBLIC_REDIRECT_HOSTS": " Old.Example , ,other.example",
+                    "DJANGO_ALLOWED_HOSTS": "old.example",
+                    "DJANGO_DEBUG": "True",
+                    "SENTRY_DSN": None,
+                },
+            )
+            assert settings_module.PUBLIC_REDIRECT_HOSTS == ["old.example", "other.example"]
+            assert settings_module.ALLOWED_HOSTS.count("old.example") == 1
+            assert "other.example" in settings_module.ALLOWED_HOSTS

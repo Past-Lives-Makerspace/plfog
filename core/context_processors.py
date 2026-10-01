@@ -141,7 +141,7 @@ def surface(request: HttpRequest) -> dict[str, str | bool]:
         "is_guest_surface": is_public or is_guilds,
         "MEMBER_HOST": settings.MEMBER_HOST,
         "MEMBER_BASE_URL": getattr(settings, "MEMBER_BASE_URL", f"https://{settings.MEMBER_HOST}"),
-        "BOOK_BASE_URL": getattr(settings, "BOOK_BASE_URL", "https://book.pastlives.space"),
+        "BOOK_BASE_URL": getattr(settings, "BOOK_BASE_URL", "https://classes.pastlives.space"),
         "GUILDS_BASE_URL": getattr(settings, "GUILDS_BASE_URL", "https://guilds.pastlives.space"),
         "SIGNAGE_BASE_URL": getattr(settings, "SIGNAGE_BASE_URL", "https://slideshow.pastlives.space"),
         "guilds_page_base": "guilds/base_public.html" if is_guilds else "hub/base.html",
