@@ -1,0 +1,7 @@
+bump = "minor"
+date = "2026-09-30"
+title = "Flexible classes take a date window instead of session times"
+changes = [
+  "Instructors who teach students one at a time can mark a class Flexible on step 3 of the composer and, if they like, give its first and last day. The class page tells students they book their day with the instructor, shows the window, and the class leaves the catalog the day after its last day.",
+  "A Flexible class has no seat cap: registering never puts anyone on a waitlist, and the page shows no seat count.",
+]
