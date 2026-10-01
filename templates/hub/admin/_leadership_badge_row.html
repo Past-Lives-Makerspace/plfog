@@ -1,0 +1,19 @@
+{% comment %}
+One badge in the Leadership Directory editor's Badges section (#571). ``entry`` is a
+LeadershipEditorBadge. The pill previews the badge as cards show it and follows the label and
+color as they are typed or picked; each field saves by itself, and a refused value goes back to
+its last saved one. Delete opens a confirm naming how many people hold the badge.
+{% endcomment %}
+{% with badge=entry.badge %}
+<div class="pl-leadership-badge" data-badge-fields="{{ badge.pk }}" data-save-url="{% url 'hub_admin_leadership_badge_save' badge.pk %}">
+  <span class="pl-leader-badge pl-leadership-badge__preview" data-badge-pill="{{ badge.pk }}" style="background-color: {{ badge.color }}; color: {{ badge.text_color }};">{{ badge.label }}</span>
+  <div class="pl-leadership-badge__fields">
+    <div>{% include "components/form_field.html" with field=entry.form.label %}</div>
+    <div class="pl-form-group">
+      <span class="pl-form-label">{{ entry.form.color.label }}</span>
+      {% include "components/color_picker.html" with field=entry.form.color picker_autosave="color" %}
+    </div>
+  </div>
+  <button type="button" class="pl-btn pl-btn--danger pl-btn--sm pl-btn--spaced" @click="$dispatch('open-confirm', '{{ entry.delete_confirm_id }}')">Delete badge</button>
+</div>
+{% endwith %}

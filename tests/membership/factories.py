@@ -32,6 +32,7 @@ from membership.models import (
     GuildOrientationSettings,
     GuildStaffMembership,
     HelpCategory,
+    LeadershipBadge,
     LeadershipListing,
     LeadershipRole,
     LeadershipTab,
@@ -150,6 +151,14 @@ class LeadershipRoleFactory(factory.django.DjangoModelFactory):
     listing = factory.SubFactory(LeadershipListingFactory)
     title = factory.Sequence(lambda n: f"Role {n}")
     email = ""
+
+
+class LeadershipBadgeFactory(factory.django.DjangoModelFactory):
+    class Meta:
+        model = LeadershipBadge
+
+    label = factory.Sequence(lambda n: f"Badge {n}")
+    color = "#092E4C"
 
 
 class SpaceFactory(factory.django.DjangoModelFactory):

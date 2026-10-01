@@ -1,0 +1,16 @@
+{% comment %}
+Add a Badge in the Leadership Directory editor (#571): the modal's body. A form of its own that
+makes a badge nobody holds yet, last in the Badges section, and comes back with a toast.
+Included by components/modal.html with the page context; a refused add re-renders its errors
+here and the page reopens this modal.
+{% endcomment %}
+<form method="post" action="{% url 'hub_admin_leadership_badge_add' %}" class="pl-leadership-add">
+  {% csrf_token %}
+  <p class="pl-leadership-add__hint">A colored badge such as Elevator Certified. Give it to people with its toggle on their rows.</p>
+  {% include "components/form_field.html" with field=editor.badge_add_form.label %}
+  {% include "components/form_field.html" with field=editor.badge_add_form.color %}
+  <div class="pl-leadership-add__actions">
+    <button type="button" class="pl-btn pl-btn--secondary" @click="$dispatch('close-modal', 'leadership-badge-add')">Cancel</button>
+    <button type="submit" class="pl-btn pl-btn--primary">Add</button>
+  </div>
+</form>

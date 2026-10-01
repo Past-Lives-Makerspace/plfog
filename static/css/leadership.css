@@ -202,6 +202,36 @@
     color: rgba(9, 46, 76, 0.8);
 }
 
+/* A member's badges (#571): pills under the name plate, wrapping onto a second line when there
+   are many. Each pill's background and text color are inline (every badge has its own color, and
+   the text is the black or white that reads on it); a thin inner edge keeps a pale badge on a
+   white card, or a near black one on the dark card, from losing its outline in either theme.
+   The editor's previews and toggles use the same pill. */
+.pl-leader-card__badges {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.35rem;
+    margin: 0;
+    padding: 0.75rem 1rem 0;
+    list-style: none;
+}
+
+.pl-leader-badge {
+    display: inline-flex;
+    align-items: center;
+    max-width: 100%;
+    padding: 0.2rem 0.6rem;
+    border-radius: 999px;
+    font: 700 0.72rem/1.25 Inter, sans-serif;
+    letter-spacing: 0.02em;
+    overflow-wrap: anywhere;
+    box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.18);
+}
+
+[data-theme="light"] .pl-leader-badge {
+    box-shadow: inset 0 0 0 1px rgba(9, 46, 76, 0.18);
+}
+
 .pl-leader-card__body {
     display: flex;
     flex: 1;
@@ -426,6 +456,52 @@ a.pl-leader-card__row:focus-visible {
     margin-bottom: 0;
 }
 
+/* The Badges section: a heading with + Add a badge beside it, then a row per badge with its
+   pill preview, its label and color fields, and Delete badge. */
+.pl-leadership-admin__section-head {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.5rem 1rem;
+}
+
+.pl-leadership-badge {
+    padding: 1rem 0;
+    border-top: 1px solid var(--hub-border);
+}
+
+.pl-leadership-badge__preview {
+    margin-bottom: 0.75rem;
+}
+
+.pl-leadership-badge__fields {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: 0 1rem;
+    align-items: start;
+}
+
+.pl-leadership-badge__confirm {
+    margin: 0 0 1.5rem;
+}
+
+/* A person row's badge toggles, under their role lines: a switch and the badge's pill per badge. */
+.pl-roster-row__badges {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem 1rem;
+    padding: 0 0.875rem 0.875rem;
+}
+
+.pl-badge-toggle {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.5rem;
+    min-height: 44px;
+    cursor: pointer;
+}
+
 .pl-leadership-add__hint {
     margin: 0 0 1rem;
     font-size: 0.8125rem;
@@ -453,6 +529,14 @@ a.pl-leader-card__row:focus-visible {
 
     .pl-leader-card__body {
         padding: 0.7rem 0.6rem;
+    }
+
+    .pl-leader-card__badges {
+        padding: 0.6rem 0.6rem 0;
+    }
+
+    .pl-leadership-badge__fields {
+        grid-template-columns: minmax(0, 1fr);
     }
 
     .pl-leader-card__row {

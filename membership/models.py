@@ -46,7 +46,13 @@ from django.utils.safestring import SafeString
 from core.files import delete_orphan_on_replace
 from core.images import normalize_field_if_uploaded
 from core.models import HeroCropMixin
-from core.validators import ALLOWED_WIKI_IMAGE_EXTENSIONS, validate_document, validate_image_size, validate_wiki_upload
+from core.validators import (
+    ALLOWED_WIKI_IMAGE_EXTENSIONS,
+    validate_document,
+    validate_hex_color,
+    validate_image_size,
+    validate_wiki_upload,
+)
 from membership.managers import MemberEmailManager
 
 if TYPE_CHECKING:
@@ -3572,14 +3578,13 @@ class LeadershipTabQuerySet(models.QuerySet["LeadershipTab"]):
         return self.filter(kind=LeadershipTab.Kind.PEOPLE)
 
     def with_listed(self) -> LeadershipTabQuerySet:
-        """Each tab with its listed people on ``listed_listings``, their members and role lines loaded.
+        """Each tab with its listed people on ``listed_listings``, their members, role lines and badges loaded.
 
-        Three queries however many tabs, people and lines there are: the tabs, the listings
-        with their members, then the role lines.
+        Four queries however many tabs, people, lines and badges there are: the tabs, the
+        listings with their members, the role lines, then the members' badges.
         """
-        return self.prefetch_related(
-            models.Prefetch("listings", queryset=LeadershipListing.objects.listed(), to_attr="listed_listings")
-        )
+        listed = LeadershipListing.objects.listed().prefetch_related("member__leadership_badges")
+        return self.prefetch_related(models.Prefetch("listings", queryset=listed, to_attr="listed_listings"))
 
     def for_directory(self, *, include_empty: bool) -> list[LeadershipTab]:
         """The tabs the directory shows, in order, each with its listed people loaded.
@@ -3865,6 +3870,71 @@ class LeadershipRole(models.Model):
 
     def __str__(self) -> str:
         return f"{self.title} ({self.listing.member.display_name})"
+
+
+class LeadershipBadgeQuerySet(models.QuerySet["LeadershipBadge"]):
+    """Queries over the Leadership Directory's badges, in the order they were made."""
+
+    def with_holder_counts(self) -> LeadershipBadgeQuerySet:
+        """Each badge with ``holder_count``, how many members hold it, in one grouped query.
+
+        ``order_by`` is explicit: Django leaves ``Meta.ordering`` out of a grouped query, so
+        without it PostgreSQL returns the badges in any order.
+        """
+        return self.annotate(holder_count=Count("members")).order_by("id")
+
+
+class LeadershipBadge(models.Model):
+    """A colored badge admins give people on the Leadership Directory, such as Elevator Certified (#571).
+
+    A badge belongs to the person, not to one card: it shows on every People tab card of
+    each member who holds it, in the order the badges were made. The link to members is
+    declared here, so it lives in its own table and the Airtable sync, which writes
+    :class:`Member` columns, never touches it. Making, changing or giving one sends nothing.
+    """
+
+    label = models.CharField(max_length=40, help_text="The words on the badge, e.g. 'Elevator Certified'.")
+    color = models.CharField(
+        max_length=7,
+        default="#EEB44B",
+        validators=[validate_hex_color],
+        help_text="The badge's background as a six digit hex code, e.g. #092E4C. The text picks black or white.",
+    )
+    members = models.ManyToManyField(
+        Member,
+        blank=True,
+        related_name="leadership_badges",
+        help_text="The members who hold this badge; it shows on each of their Leadership Directory cards.",
+    )
+
+    objects = LeadershipBadgeQuerySet.as_manager()
+
+    # How many members hold it, set only by LeadershipBadgeQuerySet.with_holder_counts.
+    holder_count: int
+
+    class Meta:
+        ordering = ["id"]
+
+    def __str__(self) -> str:
+        return self.label
+
+    @property
+    def text_color(self) -> str:
+        """Black or white, whichever contrasts more with the badge color (WCAG relative luminance)."""
+        channels = [int(self.color[index : index + 2], 16) / 255 for index in (1, 3, 5)]
+        red, green, blue = (c / 12.92 if c <= 0.04045 else ((c + 0.055) / 1.055) ** 2.4 for c in channels)
+        luminance = 0.2126 * red + 0.7152 * green + 0.0722 * blue
+        on_black = (luminance + 0.05) / 0.05
+        on_white = 1.05 / (luminance + 0.05)
+        return "#000000" if on_black >= on_white else "#FFFFFF"
+
+    def give(self, member: Member) -> None:
+        """Give the badge to ``member``; giving it twice changes nothing."""
+        self.members.add(member)
+
+    def take(self, member: Member) -> None:
+        """Take the badge from ``member``; taking one they do not hold changes nothing."""
+        self.members.remove(member)
 
 
 class HelpCategoryQuerySet(models.QuerySet):

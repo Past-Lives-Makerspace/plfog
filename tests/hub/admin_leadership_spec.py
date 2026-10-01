@@ -22,9 +22,17 @@ from django.http import HttpResponse
 from django.test import Client
 from django.urls import get_resolver, reverse
 
-from hub.forms import LeadershipEditor
-from membership.models import LeadershipListing, LeadershipPage, LeadershipRole, LeadershipTab, Member
+from hub.forms import LeadershipEditor, badge_delete_message
+from membership.models import (
+    LeadershipBadge,
+    LeadershipListing,
+    LeadershipPage,
+    LeadershipRole,
+    LeadershipTab,
+    Member,
+)
 from tests.membership.factories import (
+    LeadershipBadgeFactory,
     LeadershipListingFactory,
     LeadershipRoleFactory,
     LeadershipTabFactory,
@@ -104,6 +112,8 @@ def describe_editor_gating():
         listing = LeadershipListingFactory(tab=tab)
         role = LeadershipRoleFactory(listing=listing, title="Gated Title")
         newcomer = MemberFactory()
+        badge = LeadershipBadgeFactory(label="Gated Badge", color="#092E4C")
+        badge.give(listing.member)
         return {
             "hub_admin_leadership_page_save": (_PAGE_SAVE, {"field": "hero_title", "value": "Hijacked"}),
             "hub_admin_leadership_tab_add": (_TAB_ADD, {"newtab-title": "Hijacked"}),
@@ -134,6 +144,23 @@ def describe_editor_gating():
                 {"field": "title", "value": "Hijacked"},
             ),
             "hub_admin_leadership_role_delete": (reverse("hub_admin_leadership_role_delete", args=[role.pk]), {}),
+            "hub_admin_leadership_badge_add": (
+                reverse("hub_admin_leadership_badge_add"),
+                {"newbadge-label": "Hijacked", "newbadge-color": "#000000"},
+            ),
+            "hub_admin_leadership_badge_save": (
+                reverse("hub_admin_leadership_badge_save", args=[badge.pk]),
+                {"field": "label", "value": "Hijacked"},
+            ),
+            "hub_admin_leadership_badge_delete": (reverse("hub_admin_leadership_badge_delete", args=[badge.pk]), {}),
+            "hub_admin_leadership_badge_give": (
+                reverse("hub_admin_leadership_badge_give", args=[badge.pk, newcomer.pk]),
+                {},
+            ),
+            "hub_admin_leadership_badge_take": (
+                reverse("hub_admin_leadership_badge_take", args=[badge.pk, listing.member.pk]),
+                {},
+            ),
         }
 
     def _untouched() -> None:
@@ -141,6 +168,9 @@ def describe_editor_gating():
         assert list(LeadershipTab.objects.values_list("title", flat=True)) == ["Gated Tab"]
         assert list(LeadershipRole.objects.values_list("title", flat=True)) == ["Gated Title"]
         assert LeadershipListing.objects.filter(is_listed=True).count() == 1
+        badge = LeadershipBadge.objects.get()
+        assert (badge.label, badge.color) == ("Gated Badge", "#092E4C")
+        assert list(badge.members.all()) == [LeadershipListing.objects.get().member]
 
     def it_covers_every_editor_url():
         names = {
@@ -804,3 +834,274 @@ def describe_role_delete():
         role.listing.remove_from_tab()
         assert client.post(reverse("hub_admin_leadership_role_delete", args=[role.pk])).status_code == 404
         assert LeadershipRole.objects.filter(pk=role.pk).exists()
+
+
+# --- Badges (#571) ---
+
+_BADGE_ADD = reverse("hub_admin_leadership_badge_add")
+
+
+def _badges_section(html: str) -> str:
+    return _between(html, "data-badges", "</section>")
+
+
+def _toggle(html: str, badge: LeadershipBadge, member: Member) -> list[str]:
+    """Every badge toggle input on the page for this badge and member, one per pane they are in."""
+    return re.findall(
+        rf'<input type="checkbox" data-badge-toggle data-badge-id="{badge.pk}" data-member-id="{member.pk}"[^>]*>',
+        html,
+    )
+
+
+def describe_badges_in_the_editor():
+    def it_lists_each_badge_above_the_tabs_with_a_pill_autosaving_fields_and_a_delete(client: Client):
+        _admin(client)
+        LeadershipTabFactory()
+        light = LeadershipBadgeFactory(label="Elevator Certified", color="#FFE066")
+        dark = LeadershipBadgeFactory(label="Forklift Trained", color="#092E4C")
+        html = client.get(_PAGE).content.decode()
+        section = _badges_section(html)
+        assert html.index("data-badges") < html.index("data-tab-strip")
+        assert section.index("Elevator Certified") < section.index("Forklift Trained")
+        for badge in (light, dark):
+            row = _between(section, f'data-badge-fields="{badge.pk}"', "data-badge-fields=")
+            assert f'data-save-url="{reverse("hub_admin_leadership_badge_save", args=[badge.pk])}"' in row
+            assert 'data-autosave="label"' in row and f'value="{badge.label}"' in row
+            assert re.search(r'<input[^>]*name="badge-\d+-label"[^>]*required', row)
+            assert f'data-autosave="color" value="{badge.color}"' in row
+            assert f"$dispatch('open-confirm', 'leadership-badge-delete-{badge.pk}')" in row
+            assert f'action="{reverse("hub_admin_leadership_badge_delete", args=[badge.pk])}"' in html
+        assert (
+            f'data-badge-pill="{light.pk}" style="background-color: #FFE066; color: #000000;">Elevator Certified<'
+            in section
+        )
+        assert f'data-badge-pill="{dark.pk}" style="background-color: #092E4C; color: #FFFFFF;">Forklift Trained<' in (
+            section
+        )
+        assert "$dispatch('open-modal', 'leadership-badge-add')" in section
+        assert f'action="{_BADGE_ADD}"' in html
+
+    def it_names_how_many_people_hold_a_badge_in_its_delete_confirm(client: Client):
+        _admin(client)
+        badge = LeadershipBadgeFactory()
+        for _ in range(3):
+            badge.give(MemberFactory())
+        html = client.get(_PAGE).content.decode()
+        assert (
+            f'<p class="pl-leadership-badge__confirm" data-badge-delete-message="{badge.pk}">'
+            f"{badge_delete_message(3)}</p>"
+        ) in html
+
+    def it_says_so_with_no_badges(client: Client):
+        _admin(client)
+        section = _badges_section(client.get(_PAGE).content.decode())
+        assert 'class="pl-leadership-admin__empty"' in section
+        assert "data-badge-fields" not in section
+
+    def it_gives_each_person_row_a_toggle_per_badge_on_for_the_ones_they_hold(client: Client):
+        _admin(client)
+        leadership = LeadershipTabFactory(sort_order=0)
+        board = LeadershipTabFactory(sort_order=1)
+        morlock = _person(leadership, "Morlock Mender").member
+        LeadershipListingFactory(tab=board, member=morlock)
+        ada = _person(leadership, "Ada Aldous", sort_order=1).member
+        elevator = LeadershipBadgeFactory(label="Elevator Certified")
+        forklift = LeadershipBadgeFactory(label="Forklift Trained")
+        elevator.give(morlock)
+        html = client.get(_PAGE).content.decode()
+        held = _toggle(html, elevator, morlock)
+        # One toggle per pane the member is in, both on: the badge is the member's, not the card's.
+        assert len(held) == 2
+        assert all(tag.endswith(" checked>") for tag in held)
+        assert all(not tag.endswith(" checked>") for tag in _toggle(html, forklift, morlock))
+        assert all(not tag.endswith(" checked>") for tag in _toggle(html, elevator, ada))
+        give = reverse("hub_admin_leadership_badge_give", args=[elevator.pk, morlock.pk])
+        take = reverse("hub_admin_leadership_badge_take", args=[elevator.pk, morlock.pk])
+        assert f'data-give-url="{give}"' in held[0] and f'data-take-url="{take}"' in held[0]
+        assert f'data-badge-pill="{elevator.pk}"' in _pane(html, board)
+
+    def it_gives_no_toggles_without_badges_or_on_guild_leads(client: Client):
+        _admin(client)
+        tab = LeadershipTabFactory()
+        _person(tab, "Ada Aldous")
+        guilds = _guild_leads()
+        assert "pl-roster-row__badges" not in client.get(_PAGE).content.decode()
+        LeadershipBadgeFactory()
+        html = client.get(_PAGE).content.decode()
+        assert "pl-roster-row__badges" in _pane(html, tab)
+        assert '<input type="checkbox" data-badge-toggle' not in _pane(html, guilds)
+
+    def it_keeps_the_editor_query_count_flat_as_badges_and_holders_grow(client: Client):
+        from django.db import connection
+        from django.test.utils import CaptureQueriesContext
+
+        _admin(client)
+        tab = LeadershipTabFactory()
+        listing = _person(tab, "Ada Aldous")
+        LeadershipBadgeFactory().give(listing.member)
+
+        def count() -> int:
+            with CaptureQueriesContext(connection) as queries:
+                assert client.get(_PAGE).status_code == 200
+            return len(queries.captured_queries)
+
+        count()
+        small = count()
+        for index in range(3):
+            badge = LeadershipBadgeFactory()
+            for name in ("Bea", "Cal", "Dot"):
+                badge.give(_person(tab, f"{name} {index}", sort_order=index + 2).member)
+        assert count() == small
+
+
+def describe_LeadershipEditor_badges():
+    def it_counts_holders_and_marks_each_toggle_from_one_badge_query():
+        tab = LeadershipTabFactory()
+        held = _person(tab, "Ada Aldous").member
+        badge = LeadershipBadgeFactory()
+        other = LeadershipBadgeFactory()
+        badge.give(held)
+        editor = LeadershipEditor()
+        assert [(entry.badge, entry.holders) for entry in editor.badges] == [(badge, 1), (other, 0)]
+        (person,) = editor.panes[0].people
+        assert [(toggle.badge, toggle.held) for toggle in person.badges] == [(badge, True), (other, False)]
+        assert editor.badges[0].delete_confirm_id == f"leadership-badge-delete-{badge.pk}"
+        assert editor.badges[0].delete_message == badge_delete_message(1)
+
+    def it_words_the_delete_confirm_for_nobody_one_and_many():
+        assert badge_delete_message(0) == "Nobody holds this badge, so only the badge goes."
+        assert badge_delete_message(1) == "1 person holds it. It comes off all of their cards at once."
+        assert badge_delete_message(5) == "5 people hold it. It comes off all of their cards at once."
+
+
+def describe_badge_add():
+    def it_adds_a_badge_nobody_holds_and_comes_back_with_a_message(client: Client, mailoutbox: list[object]):
+        _admin(client)
+        response = client.post(_BADGE_ADD, {"newbadge-label": "  Elevator Certified ", "newbadge-color": "#FFE066"})
+        badge = LeadershipBadge.objects.get()
+        assert (badge.label, badge.color, badge.members.count()) == ("Elevator Certified", "#FFE066", 0)
+        assert response.status_code == 302
+        assert response["Location"] == _PAGE
+        assert any("Elevator Certified" in message for message in _messages(response))
+        assert mailoutbox == []
+
+    def it_reopens_the_modal_with_the_error_for_a_blank_label_or_a_bad_color(client: Client):
+        _admin(client)
+        for payload in (
+            {"newbadge-label": "", "newbadge-color": "#FFE066"},
+            {"newbadge-label": "Typed Label Kept", "newbadge-color": "yellow"},
+        ):
+            response = client.post(_BADGE_ADD, payload)
+            assert response.status_code == 200
+            html = response.content.decode()
+            assert "x-init=\"$dispatch('open-modal', 'leadership-badge-add')" in html
+            assert 'class="pl-field-error"' in _form(html, _BADGE_ADD)
+        assert "Typed Label Kept" in _form(html, _BADGE_ADD)
+        assert LeadershipBadge.objects.count() == 0
+
+    def it_opens_no_badge_modal_on_a_plain_load(client: Client):
+        _admin(client)
+        assert "x-init=\"$dispatch('open-modal', 'leadership-badge-add')" not in client.get(_PAGE).content.decode()
+
+
+def describe_badge_save():
+    def it_saves_a_label_and_a_color_and_answers_the_saved_row(client: Client):
+        _admin(client)
+        badge = LeadershipBadgeFactory(label="Old Label", color="#092E4C")
+        url = reverse("hub_admin_leadership_badge_save", args=[badge.pk])
+        assert client.post(url, {"field": "label", "value": " Elevator Certified "}).json() == {
+            "id": badge.pk,
+            "label": "Elevator Certified",
+        }
+        assert client.post(url, {"field": "color", "value": "#ffe066"}).json() == {"id": badge.pk, "color": "#ffe066"}
+        badge.refresh_from_db()
+        assert (badge.label, badge.color) == ("Elevator Certified", "#ffe066")
+
+    def it_refuses_a_blank_label_or_a_bad_color_with_an_error_toast_and_keeps_the_old_value(client: Client):
+        _admin(client)
+        badge = LeadershipBadgeFactory(label="Kept Label", color="#092E4C")
+        url = reverse("hub_admin_leadership_badge_save", args=[badge.pk])
+        for field, value in (("label", "  "), ("color", "#FFF"), ("color", "navy"), ("color", "")):
+            response = client.post(url, {"field": field, "value": value})
+            assert response.status_code == 422, value
+            assert list(response.json()["errors"]) == [field]
+            assert _toast(response)["type"] == "error"
+        badge.refresh_from_db()
+        assert (badge.label, badge.color) == ("Kept Label", "#092E4C")
+
+    def it_refuses_a_field_it_does_not_edit(client: Client):
+        _admin(client)
+        badge = LeadershipBadgeFactory()
+        url = reverse("hub_admin_leadership_badge_save", args=[badge.pk])
+        assert client.post(url, {"field": "members", "value": "1"}).status_code == 400
+        assert badge.members.count() == 0
+
+    def it_answers_404_for_a_badge_that_is_gone(client: Client):
+        _admin(client)
+        url = reverse("hub_admin_leadership_badge_save", args=[999999])
+        assert client.post(url, {"field": "label", "value": "x"}).status_code == 404
+
+
+def describe_badge_delete():
+    def it_deletes_the_badge_and_takes_it_off_everyone_at_once(client: Client):
+        _admin(client)
+        badge = LeadershipBadgeFactory(label="Elevator Certified")
+        kept = LeadershipBadgeFactory(label="Kept Badge")
+        holder = _person(LeadershipTabFactory(), "Morlock Mender").member
+        badge.give(holder)
+        kept.give(holder)
+        response = client.post(reverse("hub_admin_leadership_badge_delete", args=[badge.pk]))
+        assert response.status_code == 302
+        assert response["Location"] == _PAGE
+        assert any("Elevator Certified" in message for message in _messages(response))
+        assert list(LeadershipBadge.objects.all()) == [kept]
+        assert list(holder.leadership_badges.all()) == [kept]
+
+    def it_answers_404_for_a_badge_that_is_gone(client: Client):
+        _admin(client)
+        assert client.post(reverse("hub_admin_leadership_badge_delete", args=[999999])).status_code == 404
+
+
+def describe_badge_give_and_take():
+    def it_gives_and_takes_and_answers_the_new_holder_count(client: Client, mailoutbox: list[object]):
+        _admin(client)
+        badge = LeadershipBadgeFactory()
+        member = MemberFactory()
+        badge.give(MemberFactory())
+        give = reverse("hub_admin_leadership_badge_give", args=[badge.pk, member.pk])
+        take = reverse("hub_admin_leadership_badge_take", args=[badge.pk, member.pk])
+        response = client.post(give)
+        assert response.status_code == 200
+        assert response.json() == {
+            "badge": badge.pk,
+            "member": member.pk,
+            "held": True,
+            "holders": 2,
+            "delete_message": badge_delete_message(2),
+        }
+        assert client.post(give).json()["holders"] == 2  # giving twice changes nothing
+        assert list(member.leadership_badges.all()) == [badge]
+        taken = client.post(take).json()
+        assert (taken["held"], taken["holders"], taken["delete_message"]) == (False, 1, badge_delete_message(1))
+        assert client.post(take).status_code == 200  # taking one they do not hold changes nothing
+        assert list(member.leadership_badges.all()) == []
+        assert mailoutbox == []
+
+    def it_answers_404_for_a_badge_or_a_member_that_is_gone(client: Client):
+        _admin(client)
+        badge = LeadershipBadgeFactory()
+        member = MemberFactory()
+        for name in ("hub_admin_leadership_badge_give", "hub_admin_leadership_badge_take"):
+            assert client.post(reverse(name, args=[999999, member.pk])).status_code == 404
+            assert client.post(reverse(name, args=[badge.pk, 999999])).status_code == 404
+        assert badge.members.count() == 0
+
+    def it_shows_on_every_people_tab_card_the_member_has(client: Client):
+        _admin(client)
+        leadership, board = LeadershipTabFactory(sort_order=0), LeadershipTabFactory(sort_order=1)
+        morlock = _person(leadership, "Morlock Mender").member
+        LeadershipListingFactory(tab=board, member=morlock)
+        badge = LeadershipBadgeFactory(label="Elevator Certified")
+        client.post(reverse("hub_admin_leadership_badge_give", args=[badge.pk, morlock.pk]))
+        page = client.get(reverse("hub_leadership_directory")).content.decode()
+        assert page.count(">Elevator Certified</li>") == 2

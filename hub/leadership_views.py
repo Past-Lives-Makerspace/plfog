@@ -7,8 +7,10 @@ with the field's errors and an error toast, and the editor puts the field back (
 workspace contract). A new role line's first save answers with the line's own URLs, so its
 next save updates it rather than adding it again. A tab, card or line that is gone answers
 404, and so does a line on a card another window took off its tab. An order that does not
-name exactly what is there now answers 409, and the editor reloads. The two modals (Add a Tab, Add a Person) and the Delete tab confirm are plain POSTs that
-redirect back with a message, which the hub shows as a toast.
+name exactly what is there now answers 409, and the editor reloads. The three modals (Add a Tab, Add a Person, Add a Badge) and the Delete tab and Delete badge
+confirms are plain POSTs that redirect back with a message, which the hub shows as a toast.
+Give and Take a badge (#571) answer JSON with the badge's new holder count; a badge or
+member that is gone answers 404. Nothing here sends an email, a push or a Discord post.
 """
 
 from __future__ import annotations
@@ -23,21 +25,26 @@ from django.views.decorators.http import require_GET, require_POST
 from hub.forms import (
     LeadershipAddForm,
     LeadershipAutosaveForm,
+    LeadershipBadgeAddForm,
+    LeadershipBadgeForm,
     LeadershipEditor,
     LeadershipPageForm,
     LeadershipRoleForm,
     LeadershipTabAddForm,
     LeadershipTabForm,
+    badge_delete_message,
 )
 from hub.toast import trigger_toast
 from hub.view_as import fog_admin_required
 from hub.views import _get_hub_context
 from membership.models import (
+    LeadershipBadge,
     LeadershipListing,
     LeadershipPage,
     LeadershipRole,
     LeadershipOrderStaleError,
     LeadershipTab,
+    Member,
 )
 
 # --- Helpers (all above the views: a def between a decorator and its view would be decorated) ---
@@ -53,6 +60,7 @@ def _render_editor(
     *,
     add_form: LeadershipAddForm | None = None,
     tab_add_form: LeadershipTabAddForm | None = None,
+    badge_add_form: LeadershipBadgeAddForm | None = None,
 ) -> HttpResponse:
     """Render the editor, with a refused modal form re-rendering its errors when one is given."""
     editor = LeadershipEditor(
@@ -60,6 +68,7 @@ def _render_editor(
         add_member=request.GET.get("add"),
         add_form=add_form,
         tab_add_form=tab_add_form,
+        badge_add_form=badge_add_form,
     )
     return render(request, "hub/admin/leadership.html", {**_get_hub_context(request), "editor": editor})
 
@@ -76,7 +85,7 @@ def _refused(form: BaseForm) -> JsonResponse:
 def _autosave(
     request: HttpRequest,
     form_class: type[LeadershipAutosaveForm],
-    instance: LeadershipPage | LeadershipTab | LeadershipRole,
+    instance: LeadershipPage | LeadershipTab | LeadershipRole | LeadershipBadge,
 ) -> HttpResponse:
     """Save the one posted field: the saved row as JSON, 400 for a field the form does not edit, 422 if refused."""
     if "field" not in request.POST or "value" not in request.POST:
@@ -106,6 +115,30 @@ def _stale_order(exc: LeadershipOrderStaleError) -> HttpResponse:
     response = HttpResponse(str(exc), status=409)
     trigger_toast(response, "The list changed in another window. Reloading to show the latest.", "error")
     return response
+
+
+def _hold_badge(pk: int, member_pk: int, *, held: bool) -> JsonResponse:
+    """Give or take badge ``pk`` for member ``member_pk``: the new state and holder count as JSON; 404 if either is gone.
+
+    The editor keeps every toggle of that badge and member on the page in step, and puts
+    the fresh count into the badge's Delete confirm.
+    """
+    badge = get_object_or_404(LeadershipBadge, pk=pk)
+    member = get_object_or_404(Member, pk=member_pk)
+    if held:
+        badge.give(member)
+    else:
+        badge.take(member)
+    holders = badge.members.count()
+    return JsonResponse(
+        {
+            "badge": badge.pk,
+            "member": member.pk,
+            "held": held,
+            "holders": holders,
+            "delete_message": badge_delete_message(holders),
+        }
+    )
 
 
 # --- The page ---
@@ -251,3 +284,50 @@ def admin_leadership_role_delete(request: HttpRequest, pk: int) -> HttpResponse:
     """Remove a role line; a line on a card another window took off its tab is a 404 and stays kept."""
     get_object_or_404(LeadershipRole, pk=pk, listing__is_listed=True).delete()
     return HttpResponse(status=204)
+
+
+# --- Badges (#571) ---
+
+
+@fog_admin_required
+@require_POST
+def admin_leadership_badge_add(request: HttpRequest) -> HttpResponse:
+    """Add a Badge: a new badge with its label and color, held by nobody yet, last in the Badges section."""
+    form = LeadershipBadgeAddForm(request.POST, prefix="newbadge")
+    if not form.is_valid():
+        messages.error(request, "Couldn't add that badge. Check the highlighted fields.")
+        return _render_editor(request, badge_add_form=form)
+    badge = form.save()
+    messages.success(request, f"Added the {badge.label} badge.")
+    return redirect("hub_admin_leadership")
+
+
+@fog_admin_required
+@require_POST
+def admin_leadership_badge_save(request: HttpRequest, pk: int) -> HttpResponse:
+    """Save a badge's label or color."""
+    return _autosave(request, LeadershipBadgeForm, get_object_or_404(LeadershipBadge, pk=pk))
+
+
+@fog_admin_required
+@require_POST
+def admin_leadership_badge_delete(request: HttpRequest, pk: int) -> HttpResponse:
+    """Delete a badge, which takes it off every card of everyone who held it."""
+    badge = get_object_or_404(LeadershipBadge, pk=pk)
+    badge.delete()
+    messages.success(request, f"Deleted the {badge.label} badge.")
+    return redirect("hub_admin_leadership")
+
+
+@fog_admin_required
+@require_POST
+def admin_leadership_badge_give(request: HttpRequest, pk: int, member_pk: int) -> HttpResponse:
+    """Give a member the badge; it shows on every People tab card they have."""
+    return _hold_badge(pk, member_pk, held=True)
+
+
+@fog_admin_required
+@require_POST
+def admin_leadership_badge_take(request: HttpRequest, pk: int, member_pk: int) -> HttpResponse:
+    """Take the badge from a member; it comes off every card they have."""
+    return _hold_badge(pk, member_pk, held=False)

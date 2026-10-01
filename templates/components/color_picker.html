@@ -3,7 +3,12 @@ Modern color picker component with a swatch and hex code input.
 Syncs the hidden color input with a visible text field.
 
 Parameters:
-  field — required, the Django color form field
+  field           — required, the Django color form field
+  picker_autosave — optional, a field name. For a page that saves each field as it changes
+                    (the Leadership Directory editor): the hex input carries
+                    data-autosave="<name>" and its saved value, and a swatch pick fires input
+                    and change on the hex input, so a script listening on an ancestor saves
+                    it. Omit it and the picker behaves exactly as before.
 {% endcomment %}
 <div class="pl-color-picker" x-data="{ color: '{{ field.value|default:"#EEB44B" }}' }">
     <div class="pl-color-picker__swatch-wrapper" :style="`background-color: ${color}`">
@@ -11,12 +16,14 @@ Parameters:
                class="pl-color-picker__input"
                aria-label="{{ field.label }} swatch"
                x-model="color"
-               @input="$refs.hexInput.value = color">
+               {% if picker_autosave %}@input="$refs.hexInput.value = color; $refs.hexInput.dispatchEvent(new Event('input', { bubbles: true }))"
+               @change="$refs.hexInput.dispatchEvent(new Event('change', { bubbles: true }))"{% else %}@input="$refs.hexInput.value = color"{% endif %}>
     </div>
     <input type="text"
            x-ref="hexInput"
            class="pl-color-picker__hex"
            aria-label="{{ field.label }} hex code"
+           {% if picker_autosave %}data-autosave="{{ picker_autosave }}" value="{{ field.value|default:"#EEB44B" }}"{% endif %}
            :value="color"
            @input="if (/^#[0-9A-F]{6}$/i.test($event.target.value)) color = $event.target.value"
            placeholder="#000000">
