@@ -605,11 +605,11 @@ def describe_the_flexible_window():
 
 
 def describe_the_seats_section_for_a_flexible_class():
-    """The capacity field hides under Flexible and the no seat cap note shows; the admin keeps the discount and private fields (#545)."""
+    """The capacity field hides under Flexible and the no seat cap note shows; the admin keeps the private fields (#545)."""
 
     def _seats(html: str) -> str:
         step_three = html[html.index('data-composer-step="3"') : html.index('data-composer-step="4"')]
-        return step_three[step_three.index("Seats And Member Discount") :]
+        return step_three[step_three.index('pl-compose-section__title">Seats</h3>') :]
 
     def it_wraps_the_capacity_field_and_swaps_the_note_on_the_scheduling_model(composer):
         for mode, html in composer.pages.items():
@@ -625,11 +625,11 @@ def describe_the_seats_section_for_a_flexible_class():
             capacity = [c for c in _parse(html).controls[3] if c.name == "capacity"]
             assert len(capacity) == 1 and capacity[0].required, mode
 
-    def it_keeps_the_admins_discount_and_private_fields_outside_the_swap(composer):
+    def it_keeps_the_admins_private_fields_outside_the_swap(composer):
         for mode, html in composer.pages.items():
             seats = _seats(html)
             after_note = seats.split('data-seats-block="flexible"')[1]
             if composer.form_class is ClassOfferingForm:
-                assert 'name="member_discount_pct"' in after_note and 'name="is_private"' in after_note, mode
+                assert 'name="is_private"' in after_note and 'name="private_for_name"' in after_note, mode
             else:
-                assert 'id="member-discount-note"' in after_note, mode
+                assert 'name="is_private"' not in after_note, mode

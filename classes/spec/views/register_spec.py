@@ -638,7 +638,6 @@ def describe_registering_for_a_flexible_class():
             instructor=InstructorFactory(),
             status=ClassOffering.Status.PUBLISHED,
             price_cents=0,
-            member_discount_pct=0,
             capacity=1,
             scheduling_model=ClassOffering.SchedulingModel.FLEXIBLE,
         )

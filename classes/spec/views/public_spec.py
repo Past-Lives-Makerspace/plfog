@@ -1368,6 +1368,7 @@ def describe_the_rail_and_the_card_of_a_flexible_class():
         assert 'class="cls-spots' not in flexible_row
         assert 'class="cls-spots ok"' in fixed_row
 
+
 def describe_sale_markup():
     """The Sale feature's public markup: badge and struck price on the card, banner and struck rail price."""
 
