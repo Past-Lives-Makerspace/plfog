@@ -201,10 +201,12 @@ def describe_rail_gallery():
         )
         return offering
 
-    def it_renders_the_gallery_under_the_booking_rail_when_shots_exist(published, client):
+    def it_renders_the_gallery_above_the_booking_card_when_shots_exist(published, client):
         ClassImageFactory(class_offering=published, image=_image_file("g1.png"))
         response = client.get(reverse("classes:public_class_detail", kwargs={"slug": published.slug}))
-        assert b"cp-detail__rail-gallery" in response.content
+        body = response.content.decode()
+        assert "cp-detail__rail-gallery" in body
+        assert body.index("cp-detail__rail-gallery") < body.index("cp-detail__rail-card")
 
     def it_omits_the_gallery_section_without_gallery_shots(published, client):
         response = client.get(reverse("classes:public_class_detail", kwargs={"slug": published.slug}))

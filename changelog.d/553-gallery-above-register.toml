@@ -1,0 +1,6 @@
+bump = "patch"
+date = "2026-09-30"
+title = "Class photos sit above the Register button"
+changes = [
+  "On a class page, the photo gallery now comes before the price and Register button in the side column, so the pictures are the first thing you see beside the description.",
+]

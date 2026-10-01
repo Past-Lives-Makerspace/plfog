@@ -108,7 +108,7 @@ def describe_gallery_rendering():
         client.force_login(instructor_fixture.user)
         response = client.get(reverse("classes:class_preview", kwargs={"pk": offering.pk}))
         body = response.content.decode()
-        assert "cp-detail__rail-gallery" in body  # gallery sits under the booking rail
+        assert "cp-detail__rail-gallery" in body  # gallery sits above the booking card in the rail
         assert 'class="cls-gallery"' in body
         assert "clsGallery(2)" in body  # the 2 gallery shots — the hero stays out of the rail gallery
         assert "cls-gallery__thumbs" in body
