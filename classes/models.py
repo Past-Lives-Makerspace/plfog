@@ -911,6 +911,9 @@ class ClassOffering(HeroCropMixin, models.Model):
     )
     hero_cropped = models.ImageField(
         upload_to="classes/hero-crops/",
+        # Nullable on purpose: the column lands while the previous release still serves,
+        # and its INSERTs omit it (STANDARDS.md section 10). Code writes "" when cleared.
+        null=True,
         blank=True,
         help_text=(
             "The hero image cut to the composer's crop box. Rendered by save() whenever the box or the "

@@ -11,6 +11,7 @@ deploy that added the column.
 from __future__ import annotations
 
 from django.core.management.base import BaseCommand
+from django.db.models import Q
 
 from classes.models import ClassOffering
 
@@ -22,7 +23,8 @@ class Command(BaseCommand):
         pending = (
             ClassOffering.objects.filter(hero_crop_w__gt=0, hero_crop_h__gt=0)
             .exclude(image="")
-            .filter(hero_cropped="")
+            # NULL is what the migration left on every existing row; "" is a cleared copy.
+            .filter(Q(hero_cropped__isnull=True) | Q(hero_cropped=""))
             .order_by("pk")
         )
         rendered = 0

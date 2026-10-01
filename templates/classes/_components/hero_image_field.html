@@ -98,6 +98,13 @@ static/js/hero_cropper.js defines to mount Cropper.js on the new img once it has
                     // A new photo has no crop yet; the server cleared its copy on upload.
                     const cropInput = document.querySelector('[data-hero-crop-input]');
                     if (cropInput) cropInput.value = '';
+                    // The card frames showed that copy, with the old original behind
+                    // data-hero-source for a drag to swap in (card_focus.js); both files are
+                    // gone now, so point the frames at the new photo and drop the attribute.
+                    document.querySelectorAll('img[data-hero-source]').forEach(img => {
+                        img.setAttribute('src', data.url);
+                        img.removeAttribute('data-hero-source');
+                    });
                     // Mount the cropper on the new photo once it has loaded.
                     if (window.initHeroCropper) window.initHeroCropper();
                 })

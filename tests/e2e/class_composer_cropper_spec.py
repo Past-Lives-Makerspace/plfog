@@ -335,12 +335,15 @@ def describe_hero_cropper():
                 assert shown == pytest.approx(centre, abs=0.6), (step, shown, centre)
 
     def it_frames_a_freshly_uploaded_photo_on_a_saved_class(live_server, page, login_via_code, serve_media, tmp_path):
-        offering = _seed_draft_with_square_photo(_seed_instructor())
+        # Seeded with a box, so the class has a cropped copy and its card frames show it (#547).
+        offering = _seed_draft_with_square_photo(_seed_instructor(), **CENTRED_BOX)
+        old_copy = offering.hero_cropped.url
         login_via_code(EMAIL)
         _open_photos_step(page, live_server, "classes:teach_class_edit", pk=offering.pk)
         expect(page.locator(FRAME)).to_be_visible()
         before = page.locator(PREVIEW).get_attribute("src")
         assert before
+        expect(page.locator(CARD_PHOTOS).first).to_have_attribute("src", old_copy)
 
         page.locator("#hero-file-input").set_input_files(str(_png(tmp_path / "new-hero.png", 900, 600)))
 
@@ -353,6 +356,14 @@ def describe_hero_cropper():
         expect(page.locator(CROP_INPUT)).to_have_value("")
         offering.refresh_from_db()
         assert "new-hero" in offering.image.name
+        # The upload replaced the original and its copy on the server; the frames show the new
+        # photo and no longer carry the deleted original for a drag to swap in.
+        assert not offering.hero_cropped
+        card_photos = page.locator(CARD_PHOTOS)
+        expect(card_photos).to_have_count(3)
+        for photo in card_photos.all():
+            expect(photo).to_have_attribute("src", offering.image.url)
+            expect(photo).not_to_have_attribute("data-hero-source", re.compile(r".*"))
 
     def it_frames_a_photo_picked_before_the_first_save(live_server, page, login_via_code, serve_media, tmp_path):
         _seed_instructor()

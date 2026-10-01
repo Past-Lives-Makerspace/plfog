@@ -371,6 +371,23 @@ def describe_teach_composer_get():
             assert 'id="hero-preview"' in field, mode
             assert field.index("cropInput.value = ''") < field.index("window.initHeroCropper()"), mode
 
+    def it_points_the_card_frames_at_a_freshly_uploaded_photo(instructor_fixture, client):
+        # Issue #547: the instant upload on a saved class replaces the original and its copy on
+        # the server, while the frames still show the copy with the deleted original behind
+        # data-hero-source. The handler points every such frame at the new file and drops the
+        # attribute, after forgetting the crop and before the cropper remounts.
+        client.force_login(instructor_fixture.user)
+        offering = ClassOfferingFactory(instructor=instructor_fixture, status=Status.DRAFT)
+        html = client.get(reverse("classes:teach_class_edit", kwargs={"pk": offering.pk})).content.decode()
+        field = html.split("data-hero-image-field")[1].split("</script>")[0]
+        assert "querySelectorAll('img[data-hero-source]')" in field
+        assert (
+            field.index("cropInput.value = ''")
+            < field.index("img.setAttribute('src', data.url)")
+            < field.index("img.removeAttribute('data-hero-source')")
+            < field.index("window.initHeroCropper()")
+        )
+
     def it_puts_the_price_on_the_first_step(instructor_fixture, client):
         client.force_login(instructor_fixture.user)
         html = client.get(reverse("classes:teach_class_create")).content.decode()

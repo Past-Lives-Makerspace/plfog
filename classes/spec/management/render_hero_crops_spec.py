@@ -18,14 +18,14 @@ LEGACY = "https://classes.pastlives.space/sites/default/files/glen.jpg"
 BOX = {"hero_crop_x": 0, "hero_crop_y": 0, "hero_crop_w": 400, "hero_crop_h": 225}
 
 
-def _cropped_before_the_column_existed() -> ClassOffering:
+def _cropped_before_the_column_existed(stored: str | None = None) -> ClassOffering:
     """A class with a box and no copy: the shape production holds from before #547.
 
-    ``save()`` renders the copy now, so the row is stripped of it afterwards, the way the
-    migration leaves every existing row.
+    ``save()`` renders the copy now, so the row is stripped of it afterwards: NULL, the way
+    the migration leaves every existing row, or "" the way a cleared copy is written.
     """
     offering = ClassOfferingFactory(image__width=1000, image__height=600, **BOX)
-    ClassOffering.objects.filter(pk=offering.pk).update(hero_cropped="")
+    ClassOffering.objects.filter(pk=offering.pk).update(hero_cropped=stored)
     offering.refresh_from_db()
     assert not offering.hero_cropped
     return offering
@@ -56,6 +56,20 @@ def describe_render_hero_crops_command():
             assert not untouched.hero_cropped, untouched
         done.refresh_from_db()
         assert done.hero_cropped.name == done_copy
+
+    def it_renders_a_null_row_and_an_empty_row_alike():
+        null_row = _cropped_before_the_column_existed(None)
+        empty_row = _cropped_before_the_column_existed("")
+        assert ClassOffering.objects.filter(pk=null_row.pk, hero_cropped__isnull=True).exists()
+        assert ClassOffering.objects.filter(pk=empty_row.pk, hero_cropped="").exists()
+
+        out = StringIO()
+        call_command("render_hero_crops", stdout=out)
+
+        assert "Rendered 2 hero crops." in out.getvalue()
+        for row in (null_row, empty_row):
+            row.refresh_from_db()
+            assert _copy_size(row) == (400, 225)
 
     def it_renders_nothing_on_a_second_run():
         _cropped_before_the_column_existed()
