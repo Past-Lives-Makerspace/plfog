@@ -77,11 +77,13 @@ def _seed_instructor() -> Member:
     )
 
 
-def _seed_draft_with_square_photo(instructor: Member) -> ClassOffering:
+def _seed_draft_with_square_photo(instructor: Member, **fields) -> ClassOffering:
     """A ready draft with a square hero photo.
 
     Square on purpose: a 16:9 frame on a square photo has room to move, so a drag
     changes the crop. On a 16:9 photo the frame fills the image and cannot move.
+    ``fields`` can carry the four hero_crop_* columns to seed a saved box, which the save
+    cuts into a cropped copy (issue #547).
     """
     return cast(
         ClassOffering,
@@ -91,8 +93,14 @@ def _seed_draft_with_square_photo(instructor: Member) -> ClassOffering:
             ready=True,
             image__width=1200,
             image__height=1200,
+            **fields,
         ),
     )
+
+
+# The box Cropper draws by itself on the square photo (full width, 16:9, centred), so a drag
+# from it moves the same distance as on a photo with no box.
+CENTRED_BOX = {"hero_crop_x": 0, "hero_crop_y": 262, "hero_crop_w": 1200, "hero_crop_h": 675}
 
 
 def _png(path: Path, width: int, height: int) -> Path:
@@ -188,20 +196,22 @@ def describe_hero_cropper():
         offering.refresh_from_db()
         saved = (offering.hero_crop_x, offering.hero_crop_y, offering.hero_crop_w, offering.hero_crop_h)
         assert saved == (crop["x"], crop["y"], crop["w"], crop["h"])
+        # The saved box is cut into a copy (#547), and every card shows that copy centred.
+        assert offering.hero_cropped
         position = offering.hero_object_position
-        assert position != "50% 50%"
+        assert position == "50% 50%"
 
         # Back on the Photos step: the frame restores the saved crop, and every card frame
-        # (two on this step, the phone one on the Review step) shows the photo at the crop's centre,
-        # exactly what the catalog will render.
+        # (two on this step, the phone one on the Review step) shows the cropped copy, centred,
+        # exactly what the catalog will render. The cropper announces nothing on ready, so
+        # the box's centre on the original never pulls the frames off it.
         expect(page.locator(FRAME)).to_be_visible()
         assert json.loads(page.locator(CROP_INPUT).input_value()) == crop
         restored = page.evaluate(f"document.querySelector('{PREVIEW}').cropper.getData(true)")
         assert restored["y"] == pytest.approx(crop["y"], abs=2)
         assert restored["height"] == pytest.approx(crop["h"], abs=2)
-        # The Review step (6) binds the server's string ("50.0% 68.8%"); step 2 binds through
-        # card_focus.js, which reads it back to whole percentages ("50% 69%"). Same focal
-        # point within a third of a pixel at card size, so compare the computed position.
+        # The Review step (6) binds the server's string; step 2 binds through card_focus.js,
+        # which reads it back to whole percentages. Compare the computed position.
         centre = _percentages(position)
         for step, frames in ((2, 2), (6, 1)):
             card_photos = page.locator(f'[data-composer-step="{step}"] {CARD_PHOTOS}')
@@ -210,16 +220,50 @@ def describe_hero_cropper():
                 shown = _percentages(photo.evaluate("el => getComputedStyle(el).objectPosition"))
                 assert shown == pytest.approx(centre, abs=0.5), (step, shown, centre)
 
-    def it_moves_the_card_frames_with_the_crop_before_any_save(live_server, page, login_via_code, serve_media):
-        # Issue #536, item 4: the cropper announces the crop's centre (hero-crop on window) after
-        # every drag and the card focus component follows it, so the laptop and phone frames on
-        # this step and the phone frame on Review show the crop the host is dragging, not the
-        # saved one. Before, they held the saved value until Save Draft.
+    def it_shows_the_saved_box_as_the_hero_on_the_page_preview(live_server, page, login_via_code, serve_media):
+        # Issue #547: saving a box renders a copy cut to it (ClassOffering.hero_cropped), and
+        # the page preview's banner shows that copy. The composer keeps its cropper on the
+        # original, so the box can be moved again, while its card frames show the copy.
         offering = _seed_draft_with_square_photo(_seed_instructor())
         login_via_code(EMAIL)
         _open_photos_step(page, live_server, "classes:teach_class_edit", pk=offering.pk)
         expect(page.locator(FRAME)).to_be_visible()
         _wait_ready(page)
+        _drag_frame_down(page, 60)
+        crop = json.loads(page.locator(CROP_INPUT).input_value())
+
+        page.locator('#composer-form button[type="submit"]').click()
+        page.wait_for_url(re.compile(r"step=2"))
+
+        offering.refresh_from_db()
+        assert "hero-crops/" in offering.hero_cropped.name
+        with offering.hero_cropped.open("rb") as handle:
+            assert Image.open(handle).size == (crop["w"], crop["h"])
+        expect(page.locator(PREVIEW)).to_have_attribute("src", offering.image.url)
+        expect(page.locator(CARD_PHOTOS).first).to_have_attribute("src", offering.hero_cropped.url)
+
+        page.goto(f"{live_server.url}{reverse('classes:class_preview', kwargs={'pk': offering.pk})}")
+        hero = page.locator(".cp-detail__hero-img")
+        expect(hero).to_have_attribute("src", re.compile(r"hero-crops/"))
+        expect(hero).to_have_attribute("src", offering.hero_cropped.url)
+
+    def it_moves_the_card_frames_with_the_crop_before_any_save(live_server, page, login_via_code, serve_media):
+        # Issue #536, item 4: the cropper announces the crop's centre (hero-crop on window) after
+        # every drag and the card focus component follows it, so the laptop and phone frames on
+        # this step and the phone frame on Review show the crop the host is dragging, not the
+        # saved one. Before, they held the saved value until Save Draft. On a class that already
+        # has a cropped copy (#547) the frames show that copy, and the new box is measured on the
+        # original, so the first drag swaps every frame to the original before the centre lands.
+        offering = _seed_draft_with_square_photo(_seed_instructor(), **CENTRED_BOX)
+        assert offering.hero_cropped
+        login_via_code(EMAIL)
+        _open_photos_step(page, live_server, "classes:teach_class_edit", pk=offering.pk)
+        expect(page.locator(FRAME)).to_be_visible()
+        _wait_ready(page)
+        card_photos = page.locator(CARD_PHOTOS)
+        expect(card_photos).to_have_count(3)
+        for photo in card_photos.all():
+            expect(photo).to_have_attribute("src", offering.hero_cropped.url)
 
         _drag_frame_down(page, 60)
         crop = json.loads(page.locator(CROP_INPUT).input_value())
@@ -232,11 +276,15 @@ def describe_hero_cropper():
             card_photos = page.locator(f'[data-composer-step="{step}"] {CARD_PHOTOS}')
             expect(card_photos).to_have_count(frames)
             for photo in card_photos.all():
+                expect(photo).to_have_attribute("src", offering.image.url)
+                expect(photo).not_to_have_attribute("data-hero-source", re.compile(r".*"))
                 shown = _percentages(photo.evaluate("el => getComputedStyle(el).objectPosition"))
                 assert shown == pytest.approx(centre, abs=0.6), (step, shown, centre)
-        # Nothing was saved: the row still carries no crop and the sliders were never touched.
+        # Nothing was saved: the row keeps its box and its copy, and the sliders were never touched.
+        copy = offering.hero_cropped.name
         offering.refresh_from_db()
-        assert offering.hero_object_position == "50% 50%"
+        assert offering.hero_crop_box == tuple(CENTRED_BOX.values())
+        assert offering.hero_cropped.name == copy
         expect(page.locator("[data-card-focus-input]")).to_have_value("")
 
     def it_keeps_the_frames_on_a_saved_focal_point_until_the_host_drags(live_server, page, login_via_code, serve_media):
@@ -244,7 +292,8 @@ def describe_hero_cropper():
         # percentages) and the composer seeds hero_crop empty for it, so Cropper mounts its
         # automatic box. That box is nobody's choice: announcing its centre on ready pulled
         # the frames off the saved focal point while the real card stayed on it (PR #539
-        # review). Ready announces only a restored box; a real drag still moves the frames.
+        # review). Ready announces nothing (since #547 a restored box's copy is centred by
+        # the server too); a real drag still moves the frames.
         offering = cast(
             ClassOffering,
             ClassOfferingFactory(
@@ -286,12 +335,15 @@ def describe_hero_cropper():
                 assert shown == pytest.approx(centre, abs=0.6), (step, shown, centre)
 
     def it_frames_a_freshly_uploaded_photo_on_a_saved_class(live_server, page, login_via_code, serve_media, tmp_path):
-        offering = _seed_draft_with_square_photo(_seed_instructor())
+        # Seeded with a box, so the class has a cropped copy and its card frames show it (#547).
+        offering = _seed_draft_with_square_photo(_seed_instructor(), **CENTRED_BOX)
+        old_copy = offering.hero_cropped.url
         login_via_code(EMAIL)
         _open_photos_step(page, live_server, "classes:teach_class_edit", pk=offering.pk)
         expect(page.locator(FRAME)).to_be_visible()
         before = page.locator(PREVIEW).get_attribute("src")
         assert before
+        expect(page.locator(CARD_PHOTOS).first).to_have_attribute("src", old_copy)
 
         page.locator("#hero-file-input").set_input_files(str(_png(tmp_path / "new-hero.png", 900, 600)))
 
@@ -304,6 +356,14 @@ def describe_hero_cropper():
         expect(page.locator(CROP_INPUT)).to_have_value("")
         offering.refresh_from_db()
         assert "new-hero" in offering.image.name
+        # The upload replaced the original and its copy on the server; the frames show the new
+        # photo and no longer carry the deleted original for a drag to swap in.
+        assert not offering.hero_cropped
+        card_photos = page.locator(CARD_PHOTOS)
+        expect(card_photos).to_have_count(3)
+        for photo in card_photos.all():
+            expect(photo).to_have_attribute("src", offering.image.url)
+            expect(photo).not_to_have_attribute("data-hero-source", re.compile(r".*"))
 
     def it_frames_a_photo_picked_before_the_first_save(live_server, page, login_via_code, serve_media, tmp_path):
         _seed_instructor()

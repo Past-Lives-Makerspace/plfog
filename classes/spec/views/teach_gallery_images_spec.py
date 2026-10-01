@@ -8,6 +8,7 @@ from io import BytesIO
 from unittest.mock import patch
 
 import pytest
+from django.core.files.storage import default_storage
 from django.core.files.uploadedfile import SimpleUploadedFile
 from django.urls import resolve, reverse
 from django.utils import timezone
@@ -119,6 +120,32 @@ def describe_instructor_gallery_endpoints():
         assert resp.json()["url"]
         offering.refresh_from_db()
         assert offering.hero_crop_w is None
+
+    def it_drops_the_cropped_copy_along_with_the_box_when_the_hero_is_replaced(instructor_fixture, client):
+        # Issue #547: a new photo has no box yet, so the copy cut to the old one goes with it
+        # and the new photo shows whole; the response hands back the new original.
+        offering = ClassOfferingFactory(
+            instructor=instructor_fixture,
+            status=Status.DRAFT,
+            image__width=1000,
+            image__height=600,
+            hero_crop_x=0,
+            hero_crop_y=0,
+            hero_crop_w=400,
+            hero_crop_h=225,
+        )
+        copy = offering.hero_cropped.name
+        assert default_storage.exists(copy)
+        client.force_login(instructor_fixture.user)
+        resp = client.post(
+            reverse("classes:teach_class_hero_upload", kwargs={"pk": offering.pk}), {"image": _png("hero.png")}
+        )
+        assert resp.status_code == 200
+        offering.refresh_from_db()
+        assert not offering.hero_cropped
+        assert not default_storage.exists(copy)
+        assert offering.hero_crop_w is None
+        assert resp.json()["url"] == offering.image.url == offering.hero_image_url
 
     def it_lets_guild_staff_who_can_edit_the_class_manage_its_gallery(instructor_fixture, stranger, client):
         guild = GuildFactory(name="Gallery Guild")

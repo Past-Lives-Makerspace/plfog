@@ -83,6 +83,10 @@ def describe_scale_hero_crop():
         offering.refresh_from_db()
         assert (offering.image.width, offering.image.height) == (2400, 1350)
         assert _box(offering) == (0, 0, 1200, 675)
+        # The copy cut on save is that box, so the banner centres on it (#547); the box
+        # itself still sits a quarter in and a quarter down on the stored photo.
+        assert offering.hero_object_position == "50% 50%"
+        offering.hero_cropped = None
         assert offering.hero_object_position == "25.0% 25.0%"
 
 

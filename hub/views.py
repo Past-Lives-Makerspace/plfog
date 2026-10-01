@@ -462,10 +462,17 @@ def hub_hero_adjust(request: HttpRequest) -> JsonResponse:
 
     # Update crop fields
     hero_obj = cast(HeroCropMixin, obj)
-    hero_obj.hero_crop_x = int(crop["x"])
-    hero_obj.hero_crop_y = int(crop["y"])
-    hero_obj.hero_crop_w = int(crop.get("w") or 0)
-    hero_obj.hero_crop_h = int(crop.get("h") or 0)
+    x, y = int(crop["x"]), int(crop["y"])
+    w, h = int(crop.get("w") or 0), int(crop.get("h") or 0)
+    if w == 0 and h == 0:
+        # A focal point is picked on the photo the page shows. A class page shows the copy
+        # cut to its crop box, and this save drops that copy, so the point is mapped into
+        # the original's coordinates first (identity on every other model).
+        x, y = hero_obj.focal_point_on_source(x, y)
+    hero_obj.hero_crop_x = x
+    hero_obj.hero_crop_y = y
+    hero_obj.hero_crop_w = w
+    hero_obj.hero_crop_h = h
     hero_obj.save(update_fields=["hero_crop_x", "hero_crop_y", "hero_crop_w", "hero_crop_h"])
 
     return JsonResponse(
