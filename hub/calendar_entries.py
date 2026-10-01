@@ -12,9 +12,9 @@ location, description, guild, feed``.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import UTC, date, datetime, timedelta
+from datetime import date, datetime, timedelta
 from typing import TYPE_CHECKING, Any
-from urllib.parse import quote, urlencode
+from urllib.parse import quote, quote_plus, urlencode
 
 from django.utils import timezone
 
@@ -311,8 +311,19 @@ def calendar_subscribe_links(config: SiteConfiguration) -> list[dict[str, str]]:
     return rows
 
 
-# Google rejects a link past roughly 8 KB, so the description is trimmed well short of that.
-_GOOGLE_EVENT_DETAILS_LIMIT = 1500
+# Google rejects a link past roughly 8 KB. The limit is on the encoded description, because
+# accented text and emoji encode to many bytes per character.
+_GOOGLE_EVENT_DETAILS_LIMIT = 3000
+
+
+def _trim_to_encoded_length(text: str, limit: int) -> str:
+    """The longest prefix of ``text`` whose URL encoding fits in ``limit`` bytes."""
+    used = 0
+    for index, char in enumerate(text):
+        used += len(quote_plus(char))
+        if used > limit:
+            return text[:index]
+    return text
 
 
 def google_calendar_event_url(event: CommunityEvent, page_url: str = "") -> str:
@@ -325,8 +336,12 @@ def google_calendar_event_url(event: CommunityEvent, page_url: str = "") -> str:
     ``.ics`` download does nothing. A recurring series carries its ``RRULE``, as the ``.ics``
     does. The details end with the video link, when there is one, and the event page's link,
     so the entry leads back here.
+
+    Times go in the makerspace's local time with its zone named (``ctz``), because the
+    ``RRULE``'s weekday is the local one: in UTC an evening series would land a day late for
+    anyone whose own calendar is not on Pacific time.
     """
-    details = event.description[:_GOOGLE_EVENT_DETAILS_LIMIT]
+    details = _trim_to_encoded_length(event.description, _GOOGLE_EVENT_DETAILS_LIMIT)
     for link in (event.video_url, page_url):
         if link:
             details = f"{details}\n\n{link}" if details else link
@@ -334,8 +349,9 @@ def google_calendar_event_url(event: CommunityEvent, page_url: str = "") -> str:
         "action": "TEMPLATE",
         "text": event.title,
         "dates": "/".join(
-            moment.astimezone(UTC).strftime("%Y%m%dT%H%M%SZ") for moment in (event.starts_at, event.ends_at)
+            timezone.localtime(moment).strftime("%Y%m%dT%H%M%S") for moment in (event.starts_at, event.ends_at)
         ),
+        "ctz": timezone.get_default_timezone_name(),
     }
     if details:
         params["details"] = details

@@ -237,7 +237,7 @@ def describe_google_calendar_event_url():
         assert f"{parts.scheme}://{parts.netloc}{parts.path}" == "https://calendar.google.com/calendar/render"
         return {key: values[0] for key, values in parse_qs(parts.query).items()}
 
-    def it_fills_in_one_event_with_its_times_in_utc():
+    def it_fills_in_one_event_in_the_makerspaces_local_time():
         pacific = ZoneInfo("America/Los_Angeles")
         event = CommunityEventFactory(
             community=True,
@@ -251,7 +251,8 @@ def describe_google_calendar_event_url():
         assert params == {
             "action": "TEMPLATE",
             "text": "Potluck & Pins",
-            "dates": "20261011T010000Z/20261011T033000Z",
+            "dates": "20261010T180000/20261010T203000",
+            "ctz": "America/Los_Angeles",
             "details": "Bring a dish.\n\nhttps://pastlives.space/events/1/",
             "location": "Common Area",
         }
@@ -264,17 +265,25 @@ def describe_google_calendar_event_url():
     def it_leaves_out_what_the_event_does_not_have():
         event = CommunityEventFactory(community=True, description="", location="", video_url="")
         params = _params(google_calendar_event_url(event))
-        assert set(params) == {"action", "text", "dates"}
+        assert set(params) == {"action", "text", "dates", "ctz"}
 
     def it_trims_a_long_description_so_the_link_stays_usable():
         event = CommunityEventFactory(community=True, description="x" * 5000)
-        assert len(_params(google_calendar_event_url(event))["details"]) == 1500
+        assert len(_params(google_calendar_event_url(event))["details"]) == 3000
 
-    def it_carries_the_series_rule_for_a_recurring_event():
+    def it_trims_by_encoded_length_so_emoji_cannot_overrun_it():
+        event = CommunityEventFactory(community=True, description="\U0001f525" * 5000)
+        details = _params(google_calendar_event_url(event))["details"]
+        assert details == "\U0001f525" * 250  # 12 encoded bytes each
+
+    def it_carries_the_series_rule_on_the_local_weekday():
+        # Monday 6 PM in Portland is Tuesday in UTC; the rule and the dates must both say Monday.
         event = CommunityEventFactory(
             community=True,
             recurrence=CommunityEvent.Recurrence.WEEKLY,
             starts_at=datetime(2026, 10, 6, 1, 0, tzinfo=UTC),
             ends_at=datetime(2026, 10, 6, 3, 0, tzinfo=UTC),
         )
-        assert _params(google_calendar_event_url(event))["recur"] == f"RRULE:{event.ical_rrule()}"
+        params = _params(google_calendar_event_url(event))
+        assert params["recur"] == "RRULE:FREQ=WEEKLY;BYDAY=MO"
+        assert params["dates"] == "20261005T180000/20261005T200000"
