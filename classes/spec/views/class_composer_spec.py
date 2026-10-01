@@ -391,6 +391,20 @@ def describe_teach_composer_get():
             < field.index("window.initHeroCropper()")
         )
 
+    def it_hands_the_whole_crop_announcement_to_the_card_frames(instructor_fixture, client):
+        # Issue #547 follow up: the cropper announces the box in natural pixels and the photo's
+        # size beside the centre, and card_focus.js lays the box out in every frame, the two on
+        # the Photos step and the phone one on the Review step, all under .pl-card-focus__frame.
+        offering = ClassOfferingFactory(instructor=instructor_fixture, status=Status.DRAFT)
+        client.force_login(instructor_fixture.user)
+        html = client.get(reverse("classes:teach_class_edit", kwargs={"pk": offering.pk})).content.decode()
+        assert '@hero-crop.window="followBanner($event.detail)"' in html
+        assert html.count('class="pl-card-focus__frame pl-card-focus__frame--laptop"') == 1
+        assert html.count('class="pl-card-focus__frame pl-card-focus__frame--phone"') == 2
+        # Both frame roots carry cp-page and pl-card-focus on one element: the boxed rule in
+        # hub.css is written as that compound.
+        assert html.count('class="cp-page pl-card-focus"') == 2
+
     def it_puts_the_price_on_the_first_step(instructor_fixture, client):
         client.force_login(instructor_fixture.user)
         html = client.get(reverse("classes:teach_class_create")).content.decode()

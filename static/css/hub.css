@@ -7440,6 +7440,20 @@ mark { background: color-mix(in srgb, var(--color-tuscan-yellow) 30%, transparen
    --max, the container padding, or the grid gap ever move. */
 .pl-card-focus__frame--laptop { width: 263px; }
 .pl-card-focus__frame--phone { width: 342px; }
+/* While the host drags the crop box, every frame shows the box region cover fitted, exactly
+   what the saved copy will show (issue #547). card_focus.js render() writes the four numbers
+   as custom properties on the frame's .cls-media wrapper (the img's style attribute belongs to
+   Alpine's object-position binding, which rewrites it on every slider move); this class turns
+   them into a positioned, oversized img that the wrapper's overflow:hidden crops to the box.
+   Compound on purpose: both frame roots carry cp-page and pl-card-focus on one element. */
+.cp-page.pl-card-focus .pl-card-focus__img--boxed {
+  position: absolute;
+  max-width: none;
+  width: var(--pl-boxed-w);
+  height: var(--pl-boxed-h);
+  left: var(--pl-boxed-left);
+  top: var(--pl-boxed-top);
+}
 .pl-card-focus__frame-label {
     font-size: 0.6875rem;
     font-weight: 700;
