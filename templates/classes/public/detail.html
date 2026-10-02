@@ -448,6 +448,10 @@ appends and runs it on the first boosted arrival here (FRONTEND.md, Scripts unde
           {% else %}
             <div class="cp-detail__waitlist-hint">This {% if offering.is_series %}series{% else %}class{% endif %} has already started — sign-ups are closed.</div>
           {% endif %}
+        {% elif not registration_open %}
+          {# Past the cutoff (hours before the first session): no CTA and no waitlist. The hours come off the row. #}
+          <div class="cp-detail__spots cp-detail__spots--full" data-registration-closed>Registration closed</div>
+          <div class="cp-detail__waitlist-hint">Registration has closed. Sign-ups end {{ registration_cutoff_hours }} hours before class starts.</div>
         {% elif not class_registration_enabled %}
           <div class="cp-detail__spots cp-detail__spots--full">Registration unavailable</div>
           <span class="cp-detail__cta cp-detail__cta--disabled" aria-disabled="true" role="button">Registration unavailable</span>
@@ -476,6 +480,9 @@ appends and runs it on the first boosted arrival here (FRONTEND.md, Scripts unde
               Join the waitlist
             </a>
             <div class="cp-detail__waitlist-hint">We'll email you the moment a spot opens. No charge to hold your place.</div>
+          {% endif %}
+          {% if registration_closes_at %}
+            <div class="cp-detail__waitlist-hint" data-registration-closes-at="{{ registration_closes_at|date:"c" }}">Registration closes {{ registration_cutoff_hours }} hours before class starts ({{ registration_closes_at|date:"D, M j, g:i A" }}).</div>
           {% endif %}
         {% endif %}
         <ul class="cp-detail__rail-meta">

@@ -123,6 +123,8 @@ Do not merge them.
        cardPosition: '{{ offering.card_object_position|default:'50% 50%'|escapejs }}',
        {# From the form, not the row: a bound form after a failed save and a reopened draft both paint the right step 3 block first. The select's x-model keeps it current. #}
        schedulingModel: '{{ form.scheduling_model.value|default:'fixed'|escapejs }}',
+       {# Same source as schedulingModel: the toggle's x-model keeps it current, and the hours box shows only while it is on. #}
+       registrationCutoff: {% if form.registration_cutoff_enabled.value %}true{% else %}false{% endif %},
        liveTitle: '',
        previewLoaded: false,
        init() {
@@ -311,6 +313,14 @@ Do not merge them.
           <p class="pl-compose-section__note">Add a single date for a one off class, or every date in the series. Students enroll once for all of them. You can add or remove dates here any time.</p>
           {% include "classes/_components/scheduling_type_field.html" with field=form.scheduling_type %}
           {% include "classes/_components/session_calendar.html" %}
+          {# The registration cutoff rides with the dates: a flexible class has no start to count from, so it sits inside the fixed block. #}
+          <div class="pl-registration-cutoff" data-registration-cutoff>
+            <h4 class="pl-compose-section__subtitle">Registration Cutoff</h4>
+            {% include "components/form_field.html" with field=form.registration_cutoff_enabled %}
+            <div class="pl-registration-cutoff__hours" data-registration-cutoff-hours x-show="registrationCutoff" x-cloak>
+              {% include "components/form_field.html" with field=form.registration_cutoff_hours %}
+            </div>
+          </div>
         </div>
         <div class="pl-schedule-block" data-schedule-block="flexible" x-show="schedulingModel === 'flexible'" x-cloak>
           <p class="pl-compose-section__note">Each student books their day with you after registering. No dates or times to add here.</p>

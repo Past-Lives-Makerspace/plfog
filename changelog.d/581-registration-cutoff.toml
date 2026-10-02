@@ -1,0 +1,8 @@
+bump = "minor"
+date = "2026-10-02"
+title = "Registration closes before a class starts"
+changes = [
+  "Each class now closes registration 48 hours before its first session, so the instructor knows who is coming in time to prepare. The class page says when registration closes, and once it has closed it says so and why.",
+  "On the Dates & Price step of the class composer you can change the number of hours or turn the cutoff off for a class that should take sign-ups right up to the start.",
+  "Classes that run as a flexible, book with the instructor arrangement are not affected.",
+]

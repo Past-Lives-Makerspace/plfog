@@ -567,10 +567,11 @@ def describe_public_class_detail():
         # #389: the "Register — Free" label is retired with the free option; a $0 row
         # left over from before the $1.00 floor gets the same button as every class.
         offering = ClassOfferingFactory(status=ClassOffering.Status.PUBLISHED, slug="legacy-free", price_cents=0)
+        # Three days out: the default 48 hour registration cutoff would close a nearer class.
         ClassSessionFactory(
             class_offering=offering,
-            starts_at=timezone.now() + timedelta(days=1),
-            ends_at=timezone.now() + timedelta(days=1, hours=2),
+            starts_at=timezone.now() + timedelta(days=3),
+            ends_at=timezone.now() + timedelta(days=3, hours=2),
         )
         response = client.get(reverse("classes:public_class_detail", kwargs={"slug": offering.slug}))
         assert response.status_code == 200
@@ -729,8 +730,9 @@ def describe_catalog_grouping():
 
         cat = CategoryFactory()
         inst = InstructorFactory()
-        full_date = _publish("Repeat Class", "rep-a", cat, inst, days_out=1)
-        _publish("Repeat Class", "rep-b", cat, inst, days_out=2)
+        # Both past the default 48 hour registration cutoff, so each row shows its seats, not Closed.
+        full_date = _publish("Repeat Class", "rep-a", cat, inst, days_out=3)
+        _publish("Repeat Class", "rep-b", cat, inst, days_out=4)
         for _ in range(full_date.capacity):
             RegistrationFactory(class_offering=full_date, status=Registration.Status.CONFIRMED)
 

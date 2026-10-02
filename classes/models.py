@@ -19,7 +19,21 @@ from django.core.exceptions import ValidationError
 from django.core.files.base import ContentFile
 from django.core.validators import MaxValueValidator
 from django.db import IntegrityError, models, transaction
-from django.db.models import Case, CheckConstraint, Exists, F, IntegerField, Max, OuterRef, Q, Value, When
+from django.db.models import (
+    Case,
+    CheckConstraint,
+    DurationField,
+    Exists,
+    ExpressionWrapper,
+    F,
+    IntegerField,
+    Max,
+    OuterRef,
+    Q,
+    Value,
+    When,
+)
+from django.db.models.functions import Cast, Now
 from django.utils import timezone
 from django.utils.formats import date_format
 from django.utils.html import strip_tags
@@ -330,6 +344,25 @@ class ClassOfferingQuerySet(models.QuerySet["ClassOffering"]):
             )
             .order_by(F("first_session_at").asc(nulls_last=True), "title")
             .distinct()
+        )
+
+    def registration_open(self) -> "ClassOfferingQuerySet":
+        """The :meth:`bookable` classes a visitor can still register for right now.
+
+        Narrower than ``bookable()`` by the registration cutoff: a dated class whose
+        ``registration_cutoff_hours`` is set drops out once its first session is that close
+        (at the cutoff instant it is already closed). A class with the cutoff off and a
+        flexible class pass straight through. The catalog keeps reading ``bookable()``, so a
+        closed class is still listed; this scopes the surfaces that take a sign-up.
+        """
+        # The Cast is for SQLite: its duration arithmetic allows IntegerField operands and
+        # refuses PositiveIntegerField by name. PostgreSQL multiplies the interval natively.
+        hours = Cast("registration_cutoff_hours", IntegerField())
+        cutoff = ExpressionWrapper(hours * Value(timedelta(hours=1)), output_field=DurationField())
+        return self.bookable().filter(
+            Q(registration_cutoff_hours__isnull=True)
+            | Q(scheduling_model=ClassOffering.SchedulingModel.FLEXIBLE)
+            | Q(first_session_at__gt=Now() + cutoff)
         )
 
     def upcoming(self) -> "ClassOfferingQuerySet":
@@ -950,6 +983,17 @@ class ClassOffering(HeroCropMixin, models.Model):
         "Turn on to let registrants add a discount code on top of the sale.",
     )
     capacity = models.PositiveIntegerField(default=6, help_text="Maximum confirmed registrants.")
+    # Nullable on purpose: the column lands while the previous release still serves, and its
+    # INSERTs omit it (STANDARDS.md section 10). Null is the cutoff switched off.
+    registration_cutoff_hours = models.PositiveIntegerField(
+        null=True,
+        blank=True,
+        default=48,
+        help_text=(
+            "Registration closes this many hours before the first session. "
+            "Blank takes sign-ups right up to the start. Ignored for a flexible class."
+        ),
+    )
     scheduling_model = models.CharField(
         max_length=10,
         choices=SchedulingModel.choices,
@@ -2268,8 +2312,50 @@ class ClassOffering(HeroCropMixin, models.Model):
         """
         if self.scheduling_model == self.SchedulingModel.FLEXIBLE:
             return not self.flexible_window_ended
-        earliest = self.earliest_session_at
+        earliest = self._first_session_starts_at
         return earliest is not None and earliest >= timezone.now()
+
+    @property
+    def _first_session_starts_at(self) -> datetime | None:
+        """Earliest session start; reads the ``first_session_at`` annotation when present.
+
+        ``first_session_at`` is the ``bookable()`` / ``upcoming()`` contract: the earliest
+        session ever, ``Min("sessions__starts_at")`` with no filter. Those querysets annotate
+        it so a catalog or sibling row answers the booking gates with no query of its own;
+        any other row runs :attr:`earliest_session_at`. No other queryset may put a different
+        fact under that name (a "next upcoming session" annotation is ``next_session_at``).
+        An annotation is a snapshot of the sessions at fetch time, which is fine on the
+        read-only lists that carry it.
+        """
+        if hasattr(self, "first_session_at"):
+            return cast("datetime | None", self.first_session_at)
+        return self.earliest_session_at
+
+    @property
+    def registration_closes_at(self) -> datetime | None:
+        """When the cutoff shuts registration: the first session minus ``registration_cutoff_hours``.
+
+        None when the cutoff is off, the class is flexible (no start to count from) or it has
+        no sessions. A series counts from its first session.
+        """
+        if self.registration_cutoff_hours is None or self.is_flexible:
+            return None
+        first = self._first_session_starts_at
+        if first is None:
+            return None
+        return first - timedelta(hours=self.registration_cutoff_hours)
+
+    @property
+    def registration_open(self) -> bool:
+        """Whether a visitor can register right now: :attr:`is_bookable` and before the cutoff.
+
+        At the cutoff instant the class is closed. The queryset twin is
+        :meth:`ClassOfferingQuerySet.registration_open`.
+        """
+        if not self.is_bookable:
+            return False
+        closes_at = self.registration_closes_at
+        return closes_at is None or closes_at > timezone.now()
 
     # --- Flexible scheduling ----------------------------------------------------
 
