@@ -15,7 +15,8 @@
     <div @click="open = !open" style="display:flex;justify-content:space-between;align-items:center;padding:0.6rem 1rem;background:var(--hub-bg-muted, rgba(0,0,0,0.03));cursor:pointer;user-select:none;">
         <div style="display:flex;align-items:center;gap:0.5rem;">
             <span x-text="open ? '▾' : '▸'" style="font-size:0.8rem;width:1rem;text-align:center;"></span>
-            <strong>{{ group.offering.title }}</strong>
+            {# @click.stop: the bar toggles the group; the name itself opens the class screen. #}
+            <strong><a href="{% url 'classes:teach_class_detail' pk=group.offering.pk %}" @click.stop>{{ group.offering.title }}</a></strong>
             {% comment %}Two numbers, never their sum: a waitlisted person is listed below (the
             composer can email them) but holds no seat, so rolling them together here would
             contradict every per-class count of the same class.{% endcomment %}
