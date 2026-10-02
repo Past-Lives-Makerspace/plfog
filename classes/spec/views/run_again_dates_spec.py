@@ -11,8 +11,10 @@ from __future__ import annotations
 from django.contrib.messages import get_messages
 from django.urls import reverse
 
-from classes.factories import InstructorFactory, SeriesClassOfferingFactory, UserFactory
+from classes.factories import CategoryFactory, InstructorFactory, SeriesClassOfferingFactory, UserFactory
 from classes.models import ClassOffering
+from membership.models import AdminCapability
+from tests.membership.factories import GuildFactory, GuildStaffMembershipFactory
 
 
 def _instructor(client):
@@ -40,7 +42,8 @@ def describe_run_it_again():
             instructor=member, title="Confirm Copy Series", status=ClassOffering.Status.PUBLISHED, session_count=2
         )
         html = client.get(reverse("classes:teach_class_detail", kwargs={"pk": offering.pk})).content.decode()
-        start = html.index("confirm-run-again") if "confirm-run-again" in html else html.index("run-again")
+        # The first "run-again" in the page is the button's open-confirm dispatch, just before the modal.
+        start = html.index("run-again")
         assert "Students sign up for each run separately" in html[start:]
 
 
@@ -57,7 +60,23 @@ def describe_the_dates_surfaces():
         offering = SeriesClassOfferingFactory(instructor=member, status=ClassOffering.Status.PUBLISHED, session_count=2)
         html = client.get(reverse("classes:teach_class_edit", kwargs={"pk": offering.pk})).content.decode()
         detail = reverse("classes:teach_class_detail", kwargs={"pk": offering.pk})
-        assert (
-            f'data-run-again-hint style="margin:0.75rem 0 0;">To offer this class to another group, use <a href="{detail}">'
-            in html
+        assert "data-run-again-hint" in html
+        assert f'To offer this class to another group, use <a href="{detail}">Run it again</a>' in html
+
+    def it_shows_no_hint_to_guild_staff_who_reach_the_class_screen_without_the_button(client, db):
+        # A guild staffer holding the reviewer grant gets the class screen as the way out of
+        # the edit page, but Run it again is not on it for them, so the hint would be dead.
+        member = _instructor(client)
+        member.admin_capabilities.create(capability=AdminCapability.Capability.CLASS_APPROVER)
+        guild = GuildFactory(name="Hint Guild")
+        GuildStaffMembershipFactory(guild=guild, member=member)
+        offering = SeriesClassOfferingFactory(
+            instructor=InstructorFactory(instructor_slug="hint-owner"),
+            category=CategoryFactory(guild=guild),
+            status=ClassOffering.Status.PUBLISHED,
+            session_count=2,
         )
+        html = client.get(reverse("classes:teach_class_edit", kwargs={"pk": offering.pk})).content.decode()
+        detail = reverse("classes:teach_class_detail", kwargs={"pk": offering.pk})
+        assert f'href="{detail}">Cancel</a>' in html
+        assert "data-run-again-hint" not in html

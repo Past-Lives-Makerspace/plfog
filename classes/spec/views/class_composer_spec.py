@@ -304,7 +304,7 @@ def _assert_round_trip(offering: ClassOffering, category) -> None:
     assert offering.flexible_ends_on is not None and offering.flexible_ends_on.isoformat() == "2026-12-01"
     # The payload posts a cutoff of 36 under a flexible class, which stores none: a flexible
     # class has no start to count from (classes/forms.py clean_registration_cutoff). The form
-    # specs prove 36 lands on a fixed class.
+    # specs prove a cutoff lands on a fixed class.
     assert offering.registration_cutoff_hours is None
     assert offering.video_url == VIDEO
     assert (offering.card_focus_x, offering.card_focus_y) == (30, 70)

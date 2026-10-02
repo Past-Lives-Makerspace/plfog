@@ -2474,7 +2474,15 @@ def _teach_published_class_edit(request: HttpRequest, offering: ClassOffering, t
     # Both exits, resolved once: the template has no ClassAccess of its own, and a save that
     # landed must not return the saver to a 404 that reads as the save having failed.
     leave_url = _leave_class_url(request, offering)
-    class_detail_url = reverse("classes:teach_class_detail", kwargs={"pk": offering.pk})
+    access: ClassAccess = request.class_access  # type: ignore[attr-defined]
+    # Run it again lives on the class screen behind the same check as its button, so the hint
+    # links it only for a viewer who both reaches that screen and holds the button there. A
+    # guild staffer with the reviewer grant reaches the screen without the button.
+    run_again_url = (
+        reverse("classes:teach_class_detail", kwargs={"pk": offering.pk})
+        if _may_run_again(access) and access.can_view_overview
+        else ""
+    )
     if request.method == "POST" and form.is_valid() and faq_formset.is_valid():
         form.save()
         faq_formset.save()
@@ -2492,9 +2500,7 @@ def _teach_published_class_edit(request: HttpRequest, offering: ClassOffering, t
             # Named as the composer names it, because it is the same control answering the
             # same question on the sibling screen.
             "cancel_url": leave_url,
-            # Run it again lives on the class screen, which only the instructor reaches from
-            # here (guild staff leave through the dashboard), so the hint links it only then.
-            "run_again_url": leave_url if leave_url == class_detail_url else "",
+            "run_again_url": run_again_url,
             # A live class is where the flyer and QR unlock, and this is the only teach
             # page a live class lands on, so the Share & Print card renders here.
             "can_print_marketing": can_print_class_marketing(request, offering),
