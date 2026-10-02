@@ -26,8 +26,10 @@ def _flexible(**traits) -> ClassOffering:
     return ClassOfferingFactory(scheduling_model=ClassOffering.SchedulingModel.FLEXIBLE, **traits)
 
 
-def _post(form_class, offering: ClassOffering, text: str):
+def _post(form_class, offering: ClassOffering, text: str, rendered: str | None = None):
+    """A composer POST with ``text`` in the box; ``rendered`` is the line the box was filled with (today's unless given)."""
     data = {
+        "flexible_booking_text_default": offering.default_flexible_booking_line if rendered is None else rendered,
         "title": offering.title,
         "slug": offering.slug,
         "category": str(offering.category_id),
@@ -77,17 +79,32 @@ def describe_the_booking_line_box_on_the_composer():
         value = ClassOfferingForm()["flexible_booking_text"].value()
         assert value.startswith("After you register, you'll book your session directly with your instructor")
 
-    def it_counts_the_standard_line_with_the_old_name_as_unchanged_after_a_rename(form_class):
-        # The instructor was renamed while the composer sat open: the pre-fill still says Billy.
+    def it_carries_the_rendered_line_in_a_hidden_field(form_class):
+        offering = _flexible()
+        html = str(form_class(instance=offering)["flexible_booking_text_default"])
+        assert 'type="hidden"' in html
+        assert 'name="flexible_booking_text_default"' in html
+        assert "Billy Anvil" in html
+
+    def it_counts_the_line_the_box_was_filled_with_as_unchanged_after_a_rename(form_class):
+        # The instructor was renamed while the composer sat open: the box and the hidden field
+        # both still say Billy, and today's line does not.
         offering = _flexible()
         stale = offering.default_flexible_booking_line
         offering.instructor.full_legal_name = "William E. Ottaviani"
         offering.instructor.save(update_fields=["full_legal_name"])
         offering.refresh_from_db()
         assert stale != offering.default_flexible_booking_line
-        form = _post(form_class, offering, stale)
+        form = _post(form_class, offering, stale, rendered=stale)
         assert form.is_valid(), form.errors
         assert form.save().flexible_booking_text == ""
+
+    def it_counts_todays_line_as_unchanged_when_a_post_carries_no_hidden_field(form_class):
+        offering = _flexible()
+        form = _post(form_class, offering, offering.default_flexible_booking_line)
+        form.data.pop("flexible_booking_text_default")
+        assert form.is_valid(), form.errors
+        assert form.cleaned_data["flexible_booking_text"] == ""
 
     def it_stores_a_standard_line_with_one_word_changed(form_class):
         offering = _flexible()
@@ -95,6 +112,15 @@ def describe_the_booking_line_box_on_the_composer():
         form = _post(form_class, offering, changed)
         assert form.is_valid(), form.errors
         assert form.save().flexible_booking_text == changed
+
+    def it_stores_a_standard_line_with_contact_details_after_the_name(form_class):
+        offering = _flexible()
+        with_email = offering.default_flexible_booking_line.replace(
+            "Billy Anvil", "Billy Anvil (email billy@example.com)"
+        )
+        form = _post(form_class, offering, with_email)
+        assert form.is_valid(), form.errors
+        assert form.save().flexible_booking_text == with_email
 
     def it_shows_the_instructors_own_text_once_written(form_class):
         offering = _flexible(flexible_booking_text=OWN_LINE)
@@ -137,6 +163,7 @@ def describe_the_booking_line_box_on_a_published_class():
             "safety_requirements": "",
             "age_guardian_note": "",
             "flexible_note": "",
+            "flexible_booking_text_default": offering.default_flexible_booking_line,
             "video_url": "",
             **extra,
         }
@@ -148,9 +175,11 @@ def describe_the_booking_line_box_on_a_published_class():
         assert form["flexible_booking_text"].value() == offering.default_flexible_booking_line
         assert form.fields["flexible_booking_text"].label == "How booking works"
 
-    def it_has_no_box_for_a_fixed_class():
+    def it_has_no_box_and_no_hidden_field_for_a_fixed_class():
         offering = ClassOfferingFactory(status=ClassOffering.Status.PUBLISHED, category=CategoryFactory())
-        assert "flexible_booking_text" not in TeachPublishedClassForm(instance=offering).fields
+        fields = TeachPublishedClassForm(instance=offering).fields
+        assert "flexible_booking_text" not in fields
+        assert "flexible_booking_text_default" not in fields
 
     def it_stores_the_instructors_text_and_blank_for_the_standard_line():
         offering = _flexible(status=ClassOffering.Status.PUBLISHED)

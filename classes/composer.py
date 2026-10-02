@@ -62,6 +62,7 @@ COMPOSER_STEPS: tuple[ComposerStep, ...] = (
             "scheduling_type",
             "flexible_note",
             "flexible_booking_text",
+            "flexible_booking_text_default",
             "flexible_starts_on",
             "flexible_ends_on",
             "registration_cutoff_enabled",

@@ -263,6 +263,7 @@ def _full_payload(category, **extra) -> dict:
         "scheduling_type": "series_package",
         "flexible_note": "We will find a time together.",
         "flexible_booking_text": "Email me and we will pick a Saturday.",
+        "flexible_booking_text_default": "",
         "flexible_starts_on": "2026-11-02",
         "flexible_ends_on": "2026-12-01",
         "registration_cutoff_enabled": "on",

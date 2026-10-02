@@ -331,6 +331,7 @@ Do not merge them.
           </div>
           <p class="pl-field-hint pl-date-window__hint">Leave both blank for a class that runs any time. Students see the window on the class page, and the class leaves the catalog after the last day.</p>
           {# The line the class page shows under Flexible Scheduling, pre-filled with the standard one so editing it is editing the page; left as is, the form stores blank and the line keeps following the instructor's name and the window. #}
+          {{ form.flexible_booking_text_default }}
           {% include "components/form_field.html" with field=form.flexible_booking_text %}
           {% include "classes/_components/collapsible_field.html" with field=form.flexible_note %}
         </div>

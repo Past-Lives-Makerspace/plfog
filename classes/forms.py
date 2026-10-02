@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-import re
-
 import json
 from collections.abc import Mapping
 from decimal import Decimal
@@ -404,35 +402,38 @@ def setup_flexible_booking_text(form: forms.ModelForm) -> None:
     stores blank when what comes back is still the standard line, so the page keeps building
     it live (a renamed instructor, a window added later). ``form.initial`` is read at render
     time, so setting it here, after the ModelForm has copied the instance in, is enough.
+
+    The line the box was filled with rides along in a hidden field, so the compare on the way
+    back is against what the instructor actually saw: an instructor renamed while the composer
+    sat open (58 classes moved from "Billy" to his full name on 2026-09-30) still counts an
+    untouched box as untouched, instead of freezing the old name as their own words.
     """
     field = form.fields["flexible_booking_text"]
     field.label = "How booking works"
     field.help_text = "Shown on the class page under Flexible Scheduling. Change it to say how students book with you."
+    form.fields["flexible_booking_text_default"] = forms.CharField(required=False, widget=forms.HiddenInput())
+    form.initial["flexible_booking_text_default"] = form.instance.default_flexible_booking_line
     if not form.instance.flexible_booking_text:
         form.initial["flexible_booking_text"] = form.instance.default_flexible_booking_line
 
 
-# The shape of the standard line, whoever it names: the pre-fill is compared against this and not
-# against today's exact default, so an instructor renamed while the composer was open (58 classes
-# moved from "Billy" to his full name on 2026-09-30) does not turn the untouched box into a frozen
-# copy of the old name. The one thing that cannot be kept is a standard line with only the name
-# changed; the page names the instructor from their profile.
-STANDARD_BOOKING_LINE = re.compile(
-    r"After you register, you'll book your session directly with .+ and pick a day "
-    r"(?:inside this window )?that works for both of you\."
-)
+def _folded(text: str) -> str:
+    return " ".join(text.split())
 
 
 def clean_flexible_booking_text(form: forms.ModelForm) -> str:
     """The posted text, or blank when it is still the standard line the box was pre-filled with.
 
-    Compared with the spacing folded, so a wrapped paste of the same words still counts as
-    untouched; a kept text is stored as typed, line breaks included.
+    Untouched means equal to the line the box was rendered with (the hidden field) or to
+    today's standard line, both with the spacing folded so a wrapped paste of the same words
+    still counts; a kept text is stored as typed, line breaks included. The hidden field is
+    read from the raw POST because Django cleans it after this field; a POST without it (an
+    older page still open) falls back to today's line alone.
     """
     text: str = form.cleaned_data["flexible_booking_text"]
-    if STANDARD_BOOKING_LINE.fullmatch(" ".join(text.split())):
-        return ""
-    return text
+    rendered = form.data.get(form.add_prefix("flexible_booking_text_default"), "")
+    untouched = {_folded(rendered), _folded(form.instance.default_flexible_booking_line)}
+    return "" if _folded(text) in untouched else text
 
 
 class _FlexibleWindowMixin:
