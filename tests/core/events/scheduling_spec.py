@@ -2,11 +2,11 @@
 
 from __future__ import annotations
 
-from datetime import timedelta
+from datetime import UTC, datetime, timedelta
 
 from django.utils import timezone
 
-from core.events.scheduling import DueWindow, due_anchor_window, fire_time, is_due
+from core.events.scheduling import DueWindow, due_anchor_window, fire_time, is_due, next_tick
 
 
 def describe_fire_time():
@@ -73,3 +73,17 @@ def describe_DueWindow():
         w = DueWindow(fire_at=now, window_start=now, window_end=now + timedelta(minutes=15))
         assert w.fire_at == now
         assert w.is_due is True
+
+
+def describe_next_tick():
+    def it_is_the_time_itself_on_a_quarter_hour():
+        mark = datetime(2026, 10, 3, 18, 15, tzinfo=UTC)
+        assert next_tick(mark) == mark
+
+    def it_rounds_up_to_the_next_quarter_hour():
+        assert next_tick(datetime(2026, 10, 3, 18, 7, 30, tzinfo=UTC)) == datetime(2026, 10, 3, 18, 15, tzinfo=UTC)
+        assert next_tick(datetime(2026, 10, 3, 18, 45, 1, tzinfo=UTC)) == datetime(2026, 10, 3, 19, 0, tzinfo=UTC)
+
+    def it_matches_in_local_time():
+        local = timezone.make_aware(datetime(2026, 10, 3, 18, 7))
+        assert next_tick(local) == timezone.make_aware(datetime(2026, 10, 3, 18, 15))

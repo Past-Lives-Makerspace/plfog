@@ -87,11 +87,28 @@ def describe_event_send_hints():
         assert hints["remind_7d"].endswith("Too late for this event, so it won't send.")
         assert hints["remind_3d"].endswith(f"{_time(start - timedelta(days=3))}.")
 
-    def it_calls_a_send_due_within_a_tick_too_late():
-        # The cron already checked anything due in the next 15 minutes, before this save.
-        soon = timezone.now() + timedelta(minutes=10)
-        hints = event_send_hints(starts_at=soon, recurrence="none", publish_at=None)
-        assert hints["notify_happening_now"].endswith("Too late for this event, so it won't send.")
+    def it_calls_a_send_the_last_tick_already_checked_too_late():
+        # At 5:50 the 5:45 tick has run, and it was the one that checked a 5:55 send.
+        start = timezone.make_aware(datetime(2026, 10, 3, 17, 55))
+        at_550 = event_send_hints(
+            starts_at=start, recurrence="none", publish_at=None, now=timezone.make_aware(datetime(2026, 10, 3, 17, 50))
+        )
+        at_544 = event_send_hints(
+            starts_at=start, recurrence="none", publish_at=None, now=timezone.make_aware(datetime(2026, 10, 3, 17, 44))
+        )
+        assert at_550["notify_happening_now"].endswith("Too late for this event, so it won't send.")
+        assert at_544["notify_happening_now"].endswith(f"{_time(start)}.")
+
+    def it_counts_a_send_after_the_tick_that_publishes_an_odd_minute_announcement():
+        # Announced at 6:07, published by the 6:15 tick, which checks a 6:20 send.
+        start = timezone.make_aware(datetime(2026, 10, 10, 18, 20))
+        hints = event_send_hints(
+            starts_at=start,
+            recurrence="none",
+            publish_at=timezone.make_aware(datetime(2026, 10, 3, 18, 7)),
+            now=timezone.make_aware(datetime(2026, 10, 1, 12, 0)),
+        )
+        assert hints["remind_7d"].endswith(f"{_time(start - timedelta(days=7))}.")
 
     def it_calls_a_send_due_at_the_announce_time_too_late():
         # That send is checked in the tick before, while the event is still scheduled.

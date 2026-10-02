@@ -26,7 +26,7 @@ if TYPE_CHECKING:
 from core.html_sanitize import sanitize_rich_html
 from core.validators import ALLOWED_WIKI_IMAGE_EXTENSIONS, validate_image_size, validate_wiki_upload
 from core.features import DEFAULT_SOON_MESSAGE
-from core.events.scheduling import DEFAULT_WINDOW
+from core.events.scheduling import next_tick
 from core.models import CalendarFeed, FeatureSwitch, ScheduledJobState, SiteConfiguration
 from core.widgets import PageContentEditorWidget, RichTextEditorWidget
 from membership.markdown import sanitize_page_submission, sanitize_wiki_submission
@@ -3310,7 +3310,12 @@ def _send_time_display(at: datetime) -> str:
 
 
 def event_send_hints(
-    *, starts_at: datetime | None, recurrence: str | None, publish_at: datetime | None, in_review: bool = False
+    *,
+    starts_at: datetime | None,
+    recurrence: str | None,
+    publish_at: datetime | None,
+    in_review: bool = False,
+    now: datetime | None = None,
 ) -> dict[str, str]:
     """Each timing toggle's description, naming when it goes out for this start and repeat.
 
@@ -3319,19 +3324,20 @@ def event_send_hints(
     off, because the page does not re-render on a flip. With no start yet, each toggle just
     says what it is for.
 
-    A send counts only from one scheduler tick after now, or after a future announce time. The
-    cron checks each send in the tick before it is due, so a send due sooner than that was
-    already checked before this save, and one due at the announce time is checked while the
-    event is still scheduled, which skips it. A proposal's times hold only if it is approved
-    by then, and say so.
+    A send counts only if a cron tick at or after this save, and after a future announce time,
+    is the one that checks it. Each tick checks the sends due before the next, so a send on
+    the tick mark itself belongs to the tick before: that is why one due at the announce time
+    never goes (the event is still scheduled when it is checked). A proposal's times hold only
+    if it is approved by then, and say so. ``now`` is for specs that pin the clock.
     """
     repeat = recurrence or CommunityEvent.Recurrence.NONE
     series = repeat != CommunityEvent.Recurrence.NONE
     event = None
     if starts_at is not None:
         event = CommunityEvent(starts_at=starts_at, ends_at=starts_at + timedelta(hours=1), recurrence=repeat)
-    now = timezone.now()
-    after = (publish_at if publish_at is not None and publish_at > now else now) + DEFAULT_WINDOW
+    now = now or timezone.now()
+    first_tick = next_tick(publish_at if publish_at is not None and publish_at > now else now)
+    after = first_tick + timedelta(seconds=1)  # strictly after the mark: see above
     if_approved = ", if it's approved by then" if in_review else ""
     hints: dict[str, str] = {}
     for name, days in EVENT_SEND_TOGGLES:
