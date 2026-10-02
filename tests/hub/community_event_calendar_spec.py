@@ -6,6 +6,7 @@ from __future__ import annotations
 import re
 from datetime import date, datetime, timedelta
 from typing import TYPE_CHECKING
+from unittest.mock import patch
 
 import pytest
 from django.contrib.auth.models import User
@@ -118,6 +119,20 @@ def describe_monthly_expansion():
         pks = [e.pk for e in entries]
         assert len(set(pks)) == 3  # distinct synthetic pks (no collision)
         assert all(pk >= EVENT_PK_OFFSET for pk in pks)
+
+    def it_links_each_date_to_the_event_page_on_that_date():
+        # The page and its Add to calendar speak about the date a member clicked.
+        event = CommunityEventFactory(
+            recurrence=CommunityEvent.Recurrence.MONTHLY,
+            starts_at=_aware(2020, 1, 11, 18),  # 2nd Saturday
+            ends_at=_aware(2020, 1, 11, 20),
+        )
+        entries = community_event_entries(date(2026, 8, 1), date(2026, 10, 31))
+        assert [e.url for e in entries] == [
+            f"{event.public_url}?date=2026-08-08",
+            f"{event.public_url}?date=2026-09-12",
+            f"{event.public_url}?date=2026-10-10",
+        ]
 
     def it_uses_the_event_pk_offset_so_it_never_collides():
         now = timezone.now()
@@ -244,6 +259,33 @@ def describe_feed_key_mapping():
             assert entry.feed_key == ""
             assert entry.source_key == "community"
 
+        def it_lists_tonights_date_after_five_in_the_evening():
+            # 6:30 PM Saturday in Portland is Sunday in UTC; tonight's date is still on.
+            CommunityEventFactory(
+                community=True,
+                title="Saturday Night",
+                recurrence=CommunityEvent.Recurrence.WEEKLY,
+                starts_at=_aware(2026, 9, 5, 18),
+                ends_at=_aware(2026, 9, 5, 21),
+            )
+            evening = timezone.make_aware(datetime(2026, 10, 3, 18, 30))
+            with patch("django.utils.timezone.now", return_value=evening):
+                entry = next(e for e in upcoming_calendar_events() if e.title == "Saturday Night")
+            assert timezone.localdate(entry.start_dt) == date(2026, 10, 3)
+            assert entry.url.endswith("?date=2026-10-03")
+
+        def it_links_a_series_to_the_date_it_lists():
+            event = CommunityEventFactory(
+                community=True,
+                title="Tab Series",
+                recurrence=CommunityEvent.Recurrence.WEEKLY,
+                starts_at=_aware(2020, 1, 11, 18),
+                ends_at=_aware(2020, 1, 11, 20),
+            )
+            entry = next(e for e in upcoming_calendar_events() if e.title == "Tab Series")
+            assert entry.url == f"{event.public_url}?date={timezone.localdate(entry.start_dt).isoformat()}"
+            assert entry.start_dt == event.next_occurrence_start()
+
 
 def describe_legend_fallback():
     def it_flags_the_window_when_an_unmapped_event_is_present():
@@ -335,10 +377,11 @@ def describe_ics_export():
         body = resp.content.decode()
         assert f"UID:community-{event.pk}@pastlives" in body
         assert "SUMMARY:Potluck" in body
-        assert "DTSTART:" in body
-        assert "DTEND:" in body
+        assert "DTSTART;TZID=America/Los_Angeles:" in body
+        assert "DTEND;TZID=America/Los_Angeles:" in body
+        assert body.count("BEGIN:VTIMEZONE") == 1
         assert "LOCATION:Common Area" in body
-        assert "RRULE" not in body  # non-recurring → no RRULE
+        assert "RRULE" not in body.split("END:VTIMEZONE")[1]  # non-recurring → no RRULE
 
     def it_emits_one_rrule_vevent_for_a_monthly_event(client: Client):
         _login(client, "ics2")

@@ -41,6 +41,7 @@ from hub.forms import (
     CalendarFeedFormSet,
     DeleteAccountConfirmForm,
     DiscordGuildEmojiFormSet,
+    EventDateForm,
     GuildEditForm,
     GuildRoleFormSet,
     MeetingItemProposalForm,
@@ -89,7 +90,7 @@ from membership.models import (
     VotePreference,
     WikiArticle,
 )
-from membership.ical import ical_escape
+from membership.ical import ical_escape, ical_timezone_lines
 from membership.permissions import can_edit_category as _can_edit_category
 from membership.permissions import can_edit_class as _can_edit_offering
 from membership.permissions import can_edit_guild as _can_edit_guild
@@ -6496,6 +6497,7 @@ def calendar_export_ics(request: HttpRequest) -> HttpResponse:
         "X-WR-CALNAME:Past Lives Calendar",
         "CALSCALE:GREGORIAN",
         "METHOD:PUBLISH",
+        *ical_timezone_lines(),
     ]
 
     for evt in events:
@@ -6525,7 +6527,7 @@ def calendar_export_ics(request: HttpRequest) -> HttpResponse:
     # emits ONE VEVENT carrying an RRULE the subscriber expands itself. Only PUBLISHED
     # events export (pending/declined proposals never leave FOG).
     for ev in CommunityEvent.objects.published().upcoming().select_related("guild"):
-        lines += ev.ics_vevent_lines()
+        lines += ev.ics_vevent_lines(ev.starts_at)
 
     lines.append("END:VCALENDAR")
     ical_content = "\r\n".join(lines) + "\r\n"
@@ -6556,9 +6558,13 @@ def event_detail(request: HttpRequest, pk: int) -> HttpResponse:
     rsvps = list(event.rsvps.select_related("member"))
     member = _get_member(request)
     viewer_rsvped = member is not None and any(rsvp.member_id == member.pk for rsvp in rsvps)
-    # Add to calendar puts this one event in the viewer's own calendar. Subscribing to the
-    # whole makerspace calendar lives on the Community Calendar, not here.
-    google_event_url = google_calendar_event_url(event, request.build_absolute_uri(request.path))
+    # The page speaks about one date: the one the link names, or else the next. Add to
+    # calendar puts the event in the viewer's own calendar from that date. Its link back is the
+    # plain page, which opens on the next date, because a series' entries carry it for every
+    # date. Subscribing to the whole makerspace calendar lives on the Community Calendar.
+    start = EventDateForm(request.GET).occurrence_start(event)
+    date_query = event.date_query(start)
+    google_event_url = google_calendar_event_url(event, start, request.build_absolute_uri(request.path))
     return render(
         request,
         "hub/event_detail.html",
@@ -6567,7 +6573,10 @@ def event_detail(request: HttpRequest, pk: int) -> HttpResponse:
             "event": event,
             "can_edit": can_edit,
             "is_recurring": is_recurring,
+            "when": event.when_display_for(start),
             "google_event_url": google_event_url,
+            "ics_url": reverse("hub_event_ics", args=[event.pk]) + date_query,
+            "date_query": date_query,
             # A non-recurring event that has already ended is still viewable; show an honest
             # "already taken place" note. A recurring series is ongoing, so never flag it.
             "show_past_note": not is_recurring and event.ends_at < dj_timezone.now(),
@@ -6585,34 +6594,37 @@ def event_rsvp(request: HttpRequest, pk: int) -> HttpResponse:
 
     Thin orchestration: the toggle and the best-effort Discord refresh are model methods. An
     unlinked account or a finished non-recurring event is turned away with a friendly message
-    (the same "already taken place" gate the page shows), never a 500.
+    (the same "already taken place" gate the page shows), never a 500. The member goes back to
+    the date the page was showing (``?date=`` on the form's action).
     """
     from membership.models import CommunityEvent, EventRSVP
 
     event = get_object_or_404(CommunityEvent.objects.published(), pk=pk)
+    page = reverse("hub_event_detail", args=[pk]) + event.date_query(EventDateForm(request.GET).occurrence_start(event))
     member = _get_member(request)
     if member is None:
         messages.error(request, "Connect your Past Lives account to RSVP.")
-        return redirect("hub_event_detail", pk=pk)
+        return redirect(page)
     if event.rsvps_closed:
         messages.info(request, "This event has already taken place.")
-        return redirect("hub_event_detail", pk=pk)
+        return redirect(page)
     going = event.toggle_rsvp(member, source=EventRSVP.Source.HUB)
     event.refresh_discord_announcement()
     messages.success(request, "You're on the list. See you there." if going else "You're no longer on the list.")
-    return redirect("hub_event_detail", pk=pk)
+    return redirect(page)
 
 
 def event_ics(request: HttpRequest, pk: int) -> HttpResponse:
     """The single-event ``.ics`` for the public page's "Add to calendar" button.
 
     Public (no login) so a flyer scanner can add it to their own calendar; PUBLISHED-only,
-    like the page it belongs to.
+    like the page it belongs to. It starts on the date the page was showing (``?date=``).
     """
     from membership.models import CommunityEvent
 
     event = get_object_or_404(CommunityEvent.objects.published(), pk=pk)
-    response = HttpResponse(event.ics_document(), content_type="text/calendar; charset=utf-8")
+    start = EventDateForm(request.GET).occurrence_start(event)
+    response = HttpResponse(event.ics_document(start), content_type="text/calendar; charset=utf-8")
     response["Content-Disposition"] = f'attachment; filename="event-{event.pk}.ics"'
     return response
 

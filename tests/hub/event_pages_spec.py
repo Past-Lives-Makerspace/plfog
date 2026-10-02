@@ -4,9 +4,11 @@ the per-event .ics (public add-to-calendar), the editor-gated QR download, and t
 
 from __future__ import annotations
 
-from datetime import timedelta
+import html
+import re
+from datetime import datetime, timedelta
 from unittest.mock import patch
-from urllib.parse import quote_plus
+from urllib.parse import parse_qs, quote_plus, urlsplit
 
 import httpx
 import pytest
@@ -268,7 +270,7 @@ def describe_event_ics():
         assert resp.status_code == 200
         assert resp["Content-Type"].startswith("text/calendar")
         assert resp["Content-Disposition"] == f'attachment; filename="event-{event.pk}.ics"'
-        assert resp.content.decode() == event.ics_document()
+        assert resp.content.decode() == event.ics_document(event.starts_at)
 
     def it_404s_the_ics_for_a_non_published_event(client: Client):
         event = CommunityEventFactory(pending=True)
@@ -449,3 +451,90 @@ def describe_event_page_add_to_calendar_menu():
         event = CommunityEventFactory(community=True)
         page = "http://testserver" + reverse("hub_event_detail", args=[event.pk])
         assert f"details={quote_plus(page)}" in _body(client, event)
+
+
+def describe_event_page_on_one_date():
+    """A series' page and its Add to calendar speak about one date: the one the link names
+    (the calendar links each date with ``?date=``), or else the next one."""
+
+    def _weekly() -> CommunityEvent:
+        # Every week at 6 PM, since five weeks ago.
+        anchor = timezone.localtime().replace(hour=18, minute=0, second=0, microsecond=0) - timedelta(weeks=5)
+        return CommunityEventFactory(
+            community=True,
+            recurrence=CommunityEvent.Recurrence.WEEKLY,
+            starts_at=anchor,
+            ends_at=anchor + timedelta(hours=2),
+        )
+
+    def _later_date(event: CommunityEvent) -> datetime:
+        """The series' date two to three weeks out: not its first, and not its next."""
+        today = timezone.localdate()
+        return event.occurrences_in(today + timedelta(days=14), today + timedelta(days=20))[0]
+
+    def _page(client: Client, event: CommunityEvent, query: str = "") -> str:
+        return client.get(reverse("hub_event_detail", args=[event.pk]) + query).content.decode()
+
+    def _google_params(body: str) -> dict[str, str]:
+        match = re.search(r'href="(https://calendar\.google\.com/calendar/render\?[^"]+)"', body)
+        assert match is not None
+        query = urlsplit(html.unescape(match.group(1))).query
+        return {key: values[0] for key, values in parse_qs(query).items()}
+
+    def it_shows_the_date_the_link_names(client: Client):
+        event = _weekly()
+        later = _later_date(event)
+        body = _page(client, event, f"?date={timezone.localdate(later).isoformat()}")
+        assert f"<span>{event.when_display_for(later)}</span>" in body
+        assert event.when_display_for(event.starts_at) not in body
+
+    def it_shows_the_next_date_when_the_link_names_none(client: Client):
+        event = _weekly()
+        assert f"<span>{event.when_display_for(event.next_occurrence_start())}</span>" in _page(client, event)
+
+    def it_shows_the_next_date_for_a_date_the_series_does_not_meet(client: Client):
+        event = _weekly()
+        off_day = timezone.localdate(_later_date(event)) + timedelta(days=1)
+        body = _page(client, event, f"?date={off_day.isoformat()}")
+        assert f"<span>{event.when_display_for(event.next_occurrence_start())}</span>" in body
+
+    def it_shows_the_next_date_for_a_date_that_is_not_one(client: Client):
+        event = _weekly()
+        body = _page(client, event, "?date=next-tuesday")
+        assert f"<span>{event.when_display_for(event.next_occurrence_start())}</span>" in body
+
+    def it_shows_the_next_date_for_a_date_too_far_away_to_look_up(client: Client):
+        event = _weekly()
+        resp = client.get(reverse("hub_event_detail", args=[event.pk]) + "?date=9999-12-31")
+        assert resp.status_code == 200
+        assert f"<span>{event.when_display_for(event.next_occurrence_start())}</span>" in resp.content.decode()
+        assert client.get(reverse("hub_event_ics", args=[event.pk]) + "?date=9999-12-31").status_code == 200
+
+    def it_sends_an_rsvp_back_to_the_date_shown(client: Client):
+        _user_with_role("rsvp_on_date")
+        client.login(username="rsvp_on_date", password="pass")
+        event = _weekly()
+        query = f"?date={timezone.localdate(_later_date(event)).isoformat()}"
+        rsvp_url = reverse("hub_event_rsvp", args=[event.pk]) + query
+        assert f'action="{rsvp_url}"' in _page(client, event, query)
+        with patch.object(CommunityEvent, "refresh_discord_announcement"):
+            resp = client.post(rsvp_url)
+        assert resp["Location"] == reverse("hub_event_detail", args=[event.pk]) + query
+
+    def it_adds_the_series_to_google_from_the_date_shown(client: Client):
+        event = _weekly()
+        later = _later_date(event)
+        day = timezone.localdate(later).isoformat()
+        params = _google_params(_page(client, event, f"?date={day}"))
+        assert params["dates"].startswith(f"{day.replace('-', '')}T180000/")
+        assert params["recur"] == f"RRULE:{event.ical_rrule()}"
+        # Every date of the series in Google carries this link, so it opens on the next date.
+        assert params["details"].endswith("http://testserver" + reverse("hub_event_detail", args=[event.pk]))
+
+    def it_downloads_the_ics_from_the_date_shown(client: Client):
+        event = _weekly()
+        later = _later_date(event)
+        query = f"?date={timezone.localdate(later).isoformat()}"
+        ics_url = reverse("hub_event_ics", args=[event.pk]) + query
+        assert f'href="{ics_url}"' in _page(client, event, query)
+        assert client.get(ics_url).content.decode() == event.ics_document(later)

@@ -9,8 +9,8 @@ rest take the single-event .ics, an attachment: hx-boost="false" and data-pl-dow
 (FRONTEND.md rule 24), so inside the native app that row is hidden and Google Calendar remains.
 
 Parameters:
-  event            — the CommunityEvent
   google_event_url — hub.calendar_entries.google_calendar_event_url()
+  ics_url          — hub_event_ics with the page's ?date=, so both rows start on the date shown
   button_class     — the trigger's classes (primary, or ghost beside Join online)
 {% endcomment %}
 <div class="pl-calendar-export pl-calendar-export--left" x-data="{ open: false }">
@@ -20,6 +20,6 @@ Parameters:
     </button>
     <div class="pl-calendar-export__dropdown" x-show="open" x-transition>
         <a href="{{ google_event_url }}" class="pl-calendar-export__item" target="_blank" rel="noopener">Google Calendar</a>
-        <a href="{% url 'hub_event_ics' event.pk %}" class="pl-calendar-export__item" download hx-boost="false" data-pl-download>Apple Calendar or Outlook (.ics)</a>
+        <a href="{{ ics_url }}" class="pl-calendar-export__item" download hx-boost="false" data-pl-download>Apple Calendar or Outlook (.ics)</a>
     </div>
 </div>

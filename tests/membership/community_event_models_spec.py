@@ -582,19 +582,21 @@ def describe_ics_document():
             starts_at=_aware(2026, 7, 15, 18),
             ends_at=_aware(2026, 7, 15, 20),
         )
-        doc = event.ics_document()
+        doc = event.ics_document(event.starts_at)
         assert doc.startswith("BEGIN:VCALENDAR")
         assert doc.rstrip().endswith("END:VCALENDAR")
         assert doc.count("BEGIN:VEVENT") == 1
         assert doc.count("END:VEVENT") == 1
         assert f"UID:community-{event.pk}@pastlives" in doc
-        assert "DTSTART:" in doc
-        assert "DTEND:" in doc
+        assert "DTSTART;TZID=America/Los_Angeles:20260715T180000" in doc
+        assert "DTEND;TZID=America/Los_Angeles:20260715T200000" in doc
         assert "SUMMARY:Potluck" in doc
 
     def it_omits_rrule_for_a_non_recurring_event(db):
-        doc = CommunityEventFactory(recurrence=CommunityEvent.Recurrence.NONE).ics_document()
-        assert "RRULE" not in doc
+        event = CommunityEventFactory(recurrence=CommunityEvent.Recurrence.NONE)
+        doc = event.ics_document(event.starts_at)
+        # The time zone block carries its own yearly rules; the event carries none.
+        assert "RRULE" not in doc.split("BEGIN:VEVENT")[1]
 
     def it_emits_exactly_one_rrule_for_a_recurring_event(db):
         event = CommunityEventFactory(
@@ -603,8 +605,8 @@ def describe_ics_document():
             starts_at=_aware(2026, 7, 11, 18),  # 2nd Saturday
             ends_at=_aware(2026, 7, 11, 20),
         )
-        doc = event.ics_document()
-        assert doc.count("RRULE:") == 1
+        doc = event.ics_document(event.starts_at)
+        assert doc.split("BEGIN:VEVENT")[1].count("RRULE:") == 1
         assert f"RRULE:{event.ical_rrule()}" in doc
 
     def it_ical_escapes_location_and_description(db):
@@ -613,24 +615,108 @@ def describe_ics_document():
             location="Room A, B; C",
             description="Line one\nLine two",
         )
-        doc = event.ics_document()
+        doc = event.ics_document(event.starts_at)
         assert "LOCATION:Room A\\, B\\; C" in doc
         assert "DESCRIPTION:Line one\\nLine two" in doc
 
     def it_includes_a_url_property_when_video_url_is_set(db):
         event = CommunityEventFactory(community=True, video_url="https://meet.google.com/abc-defg-hij")
-        doc = event.ics_document()
+        doc = event.ics_document(event.starts_at)
         assert "URL:https://meet.google.com/abc-defg-hij" in doc
 
     def it_omits_url_when_video_url_is_blank(db):
-        doc = CommunityEventFactory(community=True, video_url="").ics_document()
+        event = CommunityEventFactory(community=True, video_url="")
+        doc = event.ics_document(event.starts_at)
         assert "URL:" not in doc
 
     def it_matches_the_lines_used_by_the_combined_export(db):
         # The combined calendar export builds its CommunityEvent VEVENT from the same
         # ics_vevent_lines(), so the per-event .ics and the export never drift.
         event = CommunityEventFactory(community=True, title="Shared", location="Shop")
-        assert event.ics_vevent_lines()[0] == "BEGIN:VEVENT"
-        assert event.ics_vevent_lines()[-1] == "END:VEVENT"
-        for line in event.ics_vevent_lines():
-            assert line in event.ics_document()
+        lines = event.ics_vevent_lines(event.starts_at)
+        assert lines[0] == "BEGIN:VEVENT"
+        assert lines[-1] == "END:VEVENT"
+        for line in lines:
+            assert line in event.ics_document(event.starts_at)
+
+    def it_starts_a_series_on_the_date_given_and_keeps_its_length(db):
+        event = CommunityEventFactory(
+            community=True,
+            recurrence=CommunityEvent.Recurrence.MONTHLY,
+            starts_at=_aware(2026, 7, 11, 18),  # 2nd Saturday
+            ends_at=timezone.make_aware(datetime(2026, 7, 11, 20, 30)),
+        )
+        doc = event.ics_document(_aware(2026, 10, 10, 18))  # October's 2nd Saturday
+        assert "DTSTART;TZID=America/Los_Angeles:20261010T180000" in doc
+        assert "DTEND;TZID=America/Los_Angeles:20261010T203000" in doc
+        assert f"RRULE:{event.ical_rrule()}" in doc
+
+    def it_keeps_an_evening_series_on_its_own_weekday_in_every_calendar(db):
+        # 6 PM on the first Wednesday is Thursday in UTC. Written in UTC, the first-Wednesday
+        # rule put every later date on a Tuesday; read back the way a calendar app reads it,
+        # each date must be a first Wednesday at 6 PM, through the November clock change.
+        import icalendar
+        import recurring_ical_events
+
+        event = CommunityEventFactory(
+            community=True,
+            recurrence=CommunityEvent.Recurrence.MONTHLY,
+            starts_at=_aware(2026, 9, 2, 18),
+            ends_at=_aware(2026, 9, 2, 20),
+        )
+        calendar = icalendar.Calendar.from_ical(event.ics_document(_aware(2026, 10, 7, 18)))
+        starts = [
+            timezone.localtime(occurrence["DTSTART"].dt)
+            for occurrence in recurring_ical_events.of(calendar).between(date(2026, 10, 1), date(2027, 1, 31))
+        ]
+        assert [(s.date(), s.hour) for s in starts] == [
+            (date(2026, 10, 7), 18),
+            (date(2026, 11, 4), 18),
+            (date(2026, 12, 2), 18),
+            (date(2027, 1, 6), 18),
+        ]
+
+
+def describe_occurrence_start():
+    def _monthly() -> CommunityEvent:
+        # The 2nd Saturday of every month, from July.
+        return CommunityEventFactory(
+            community=True,
+            recurrence=CommunityEvent.Recurrence.MONTHLY,
+            starts_at=_aware(2026, 7, 11, 18),
+            ends_at=_aware(2026, 7, 11, 20),
+        )
+
+    def it_is_the_start_of_the_date_named(db):
+        assert _monthly().occurrence_start(date(2026, 10, 10)) == _aware(2026, 10, 10, 18)
+
+    def it_is_the_next_date_when_none_is_named(db):
+        event = _monthly()
+        assert event.occurrence_start(None) == event.next_occurrence_start()
+
+    def it_is_the_next_date_when_the_named_one_is_not_a_date_of_the_event(db):
+        event = _monthly()
+        assert event.occurrence_start(date(2026, 10, 11)) == event.next_occurrence_start()
+
+    def it_is_a_one_offs_own_start_whatever_is_named(db):
+        event = CommunityEventFactory(community=True)
+        assert event.occurrence_start(None) == event.starts_at
+        assert event.occurrence_start(timezone.localdate(event.starts_at)) == event.starts_at
+
+
+def describe_public_url_on():
+    def it_names_the_date_for_a_series(db, settings):
+        settings.MEMBER_BASE_URL = "https://members.test"
+        event = CommunityEventFactory(
+            community=True,
+            recurrence=CommunityEvent.Recurrence.WEEKLY,
+            starts_at=_aware(2026, 9, 2, 21),  # Wednesday 9 PM: Thursday in UTC
+            ends_at=_aware(2026, 9, 2, 22),
+        )
+        assert (
+            event.public_url_on(_aware(2026, 10, 7, 21)) == f"https://members.test/events/{event.pk}/?date=2026-10-07"
+        )
+
+    def it_is_the_plain_page_for_a_one_off(db):
+        event = CommunityEventFactory(community=True)
+        assert event.public_url_on(event.starts_at) == event.public_url

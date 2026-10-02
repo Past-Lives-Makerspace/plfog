@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from datetime import date, datetime, time, timedelta
+from datetime import date as date_type
 from decimal import Decimal
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, ClassVar, Self, cast
@@ -3505,6 +3506,30 @@ class EventDecisionForm(forms.Form):
         if decision in ("changes", "decline") and not notes:
             self.add_error("notes", "Add a note so the proposer knows why.")
         return cleaned
+
+
+class EventDateForm(forms.Form):
+    """The ``?date=`` a link to an event page names (``CommunityEvent.date_query``).
+
+    Optional and forgiving: a link with no date, or with one that is not a date of the event,
+    opens the page on the event's next date, so a stale or hand-edited link never errors.
+    """
+
+    date = forms.DateField(required=False, input_formats=["%Y-%m-%d"])
+
+    # Nothing links further out than this; a date near the calendar's end overflows the lookup.
+    _REACH = timedelta(days=3660)
+
+    def clean_date(self) -> date_type | None:
+        on = cast(date_type | None, self.cleaned_data["date"])
+        if on is not None and abs(on - timezone.localdate()) > self._REACH:
+            raise forms.ValidationError("No event page links to a date that far away.")
+        return on
+
+    def occurrence_start(self, event: CommunityEvent) -> datetime:
+        """The start of the date the link names, or of the event's next date."""
+        on = self.cleaned_data["date"] if self.is_valid() else None
+        return event.occurrence_start(on)
 
 
 class OrientationCustomRequestForm(forms.Form):
