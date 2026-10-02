@@ -235,6 +235,22 @@ def describe_editing_an_announced_event():
         def it_drops_the_announce_time_from_a_published_event():
             form = CommunityEventForm(instance=_went_out_on_schedule())
             assert form.announced is True
+            assert form.went_out_on_schedule is True
+            assert "publish_at" not in form.fields
+
+        def it_names_no_time_for_an_event_announced_on_save():
+            form = CommunityEventForm(instance=CommunityEventFactory())  # PUBLISHED, no publish_at
+            assert form.announced is True
+            assert form.went_out_on_schedule is False
+
+        def it_never_calls_a_future_time_on_a_live_event_the_time_it_went_out():
+            # The old form let a lead set a schedule on an event that was already live.
+            live = CommunityEventFactory(
+                moderation_state=State.PUBLISHED, publish_at=timezone.now() + timedelta(days=2)
+            )
+            form = CommunityEventForm(instance=live)
+            assert form.announced is True
+            assert form.went_out_on_schedule is False
             assert "publish_at" not in form.fields
 
         def it_keeps_the_announce_time_on_a_scheduled_event():
@@ -243,12 +259,14 @@ def describe_editing_an_announced_event():
             )
             form = CommunityEventForm(instance=event)
             assert form.announced is False
+            assert form.went_out_on_schedule is False
             assert "publish_at" in form.fields
 
         def it_keeps_the_announce_time_on_a_new_event():
             # A new row carries the model default, PUBLISHED, before anything announces it.
             form = CommunityEventForm(instance=CommunityEvent())
             assert form.announced is False
+            assert form.went_out_on_schedule is False
             assert "publish_at" in form.fields
 
     def it_saves_a_lead_edit_and_keeps_the_time_it_went_out(client: Client):
@@ -323,6 +341,17 @@ def describe_editing_an_announced_event():
             content = client.get(reverse("hub_guild_event_edit", args=[guild.pk, event.pk])).content
             assert b'id="event-announced"' in content
             assert b'name="publish_at"' not in content
+
+        def it_shows_no_went_out_time_for_a_live_event_holding_a_future_one(client: Client):
+            user = _user_with_role("lead_badge_future")
+            guild = GuildFactory(guild_lead=user.member)
+            event = CommunityEventFactory(
+                guild=guild, moderation_state=State.PUBLISHED, publish_at=timezone.now() + timedelta(days=3)
+            )
+            client.login(username="lead_badge_future", password="pass")
+            content = client.get(reverse("hub_guild_event_edit", args=[guild.pk, event.pk])).content
+            assert b'id="event-announced"' in content
+            assert event.publish_at_display.encode() not in content
 
         def it_still_offers_the_schedule_on_a_scheduled_event(client: Client):
             user = _user_with_role("lead_badge_parked")

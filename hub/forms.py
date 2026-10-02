@@ -3121,6 +3121,10 @@ class CommunityEventForm(forms.ModelForm):
         )
         if self.announced:
             del self.fields["publish_at"]
+        # Only a time that has passed is when it went out. A live event can still hold a future
+        # one (the old form let a lead set it after publishing), and seeded rows hold none.
+        publish_at = self.instance.publish_at
+        self.went_out_on_schedule: bool = self.announced and publish_at is not None and publish_at <= timezone.now()
         self.fields["video_url"].label = "Video link"
         self._setup_audience_field(can_choose_audience=can_choose_audience)
         self._setup_kind_field(can_choose_audience=can_choose_audience, fixed_guild=guild)

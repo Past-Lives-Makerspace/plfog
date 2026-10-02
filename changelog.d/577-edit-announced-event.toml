@@ -3,5 +3,5 @@ date = "2026-10-02"
 title = "Events announced on a schedule can be edited again"
 changes = [
   "Saving changes to an event whose announcement went out at a scheduled time no longer stops on \"Pick a time in the future\".",
-  "Once an event is announced, its edit page shows when it went out and says that saving won't send it again.",
+  "The edit page for an event that is already live now says that saving won't announce it again.",
 ]

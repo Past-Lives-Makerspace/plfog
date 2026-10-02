@@ -42,7 +42,7 @@
     <div class="hub-card" style="padding:1.5rem; margin-bottom:1.5rem;">
       <h2 class="hub-detail-label" style="margin-top:0; margin-bottom:0.5rem;">Announcements &amp; reminders</h2>
       <p class="hub-text-muted" style="font-size:0.8125rem; margin-top:0; margin-bottom:1.25rem;">
-        {% if form.announced %}This event's announcement has gone out. Choose whether members get a nudge before it starts.{% else %}Choose when this event's announcement goes out, and whether members get a nudge before it starts.{% endif %}
+        {% if form.announced %}Choose whether members get a nudge before it starts.{% else %}Choose when this event's announcement goes out, and whether members get a nudge before it starts.{% endif %}
       </p>
 
       {% if form.announced %}
@@ -50,9 +50,9 @@
       <div class="pl-toggle-row" id="event-announced">
         <div class="pl-toggle-info">
           <div class="pl-toggle-label">Announcement</div>
-          <div class="pl-toggle-desc">{% if event.publish_at %}Went out {{ event.publish_at_display }}.{% else %}Already sent.{% endif %} Saving changes won't send it again.</div>
+          <div class="pl-toggle-desc">{% if form.went_out_on_schedule %}Went out {{ event.publish_at_display }}.{% else %}This event is live.{% endif %} Saving changes won't announce it again.</div>
         </div>
-        <span class="pl-status-badge pl-status-badge--ok">Sent</span>
+        <span class="pl-status-badge pl-status-badge--ok">Live</span>
       </div>
       {% else %}
       {# When should this go out? — a presentational Alpine toggle; publish_at is the real field. #}
@@ -106,7 +106,7 @@
     {% endif %}
 
     <p class="hub-text-muted" style="font-size:0.8125rem; margin-bottom:1rem;">
-      {% if form.announced %}This event is already announced, so saving only updates it where it already appears. A reminder you turn on goes out at its time, never on save.{% else %}Saving posts the announcement to Discord and adds it to the Calendar — right away, or on your scheduled date if you set one.{% endif %}{% if google_sync_enabled %} Saving also updates this event on the linked Google Calendar.{% endif %}
+      {% if form.announced %}This event is already live, so saving won't announce it again. Reminders are never sent on save.{% else %}Saving posts the announcement to Discord and adds it to the Calendar — right away, or on your scheduled date if you set one.{% endif %}{% if google_sync_enabled %} Saving also updates this event on the linked Google Calendar.{% endif %}
     </p>
 
     <div class="pl-form-actions">
