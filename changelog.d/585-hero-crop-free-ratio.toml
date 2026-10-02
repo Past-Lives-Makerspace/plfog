@@ -1,0 +1,7 @@
+bump = "minor"
+date = "2026-10-02"
+title = "Crop your class photo wide, square or free"
+changes = [
+  "On the Photos step, pick a box shape above the crop preview: Wide (16:9), Square (1:1) or Free. Square and Free let a tall or square subject fit whole.",
+  "The class page shows the shape you chose, with soft bars at the sides on a wide screen.",
+]
