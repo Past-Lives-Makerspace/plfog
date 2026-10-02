@@ -63,7 +63,8 @@
         <tr>
             <td>{{ r.registered_at|date:"Y-m-d H:i" }}</td>
             <td><a href="{% url 'classes:admin_registration_detail' pk=r.pk %}">{{ r.order_number }}</a></td>
-            <td>{{ r.class_offering.title }}</td>
+            {# The name opens the class screen, so an admin can answer "which class was this payment for" from the list. A guild lead cannot open a class they do not teach, so they get the name alone. #}
+            <td>{% if show_instructor_filter or r.class_offering.instructor_id == own_member_pk %}<a href="{% url 'classes:teach_class_detail' pk=r.class_offering.pk %}">{{ r.class_offering.title }}</a>{% else %}{{ r.class_offering.title }}{% endif %}</td>
             <td><a href="{% url 'classes:admin_registration_detail' pk=r.pk %}">{{ r.first_name }} {{ r.last_name }}</a> <small style="color:var(--hub-text-muted);">({{ r.email }})</small></td>
             <td>{% if r.member %}Yes{% else %}—{% endif %}</td>
             <td>{{ r.get_status_display }}</td>

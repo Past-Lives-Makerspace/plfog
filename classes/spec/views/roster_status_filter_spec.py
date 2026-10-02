@@ -71,7 +71,8 @@ def _roster_empty_state(html: str) -> str:
 
 def _group_header(html: str, title: str) -> str:
     """The cross-class page's header row for one class, so count assertions stay scoped."""
-    start = html.index(f"<strong>{title}</strong>")
+    # The title is a link to the class screen inside the <strong>; anchor on its closing tags.
+    start = html.index(f"{title}</a></strong>")
     return html[start : html.index("</div>", start)]
 
 
