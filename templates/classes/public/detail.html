@@ -4,6 +4,16 @@
 {% block title %}{{ offering.seo_title }}{% endblock %}
 {% block meta_description %}{{ offering.seo_description }}{% endblock %}
 
+{% comment %}
+The Share button's platform decision (Capacitor plugin, navigator.share, or the menu) and
+the clipboard write. Head, deferred: it registers no Alpine component (the menu state is an
+inline x-data on the wrapper), binds on document once behind a window flag, and head-support
+appends and runs it on the first boosted arrival here (FRONTEND.md, Scripts under hx-boost).
+{% endcomment %}
+{% block classes_extra_head %}
+<script defer src="{% static 'js/class_share.js' %}"></script>
+{% endblock %}
+
 {% block portal_content %}
 <article class="cp-detail">
   {% if is_preview %}
@@ -112,9 +122,51 @@
     </div>
   </header>
 
-  {# Back link (left) + edit/adjust controls (right): under the hero image, above the body #}
+  {# Back link + Share (left) + edit/adjust controls (right): under the hero image, above the body #}
   <div style="display:flex; justify-content:space-between; align-items:center; gap:1rem; margin:0.85rem 0 1.5rem; flex-wrap:wrap;">
+      <div class="cp-detail__hero-links">
       <a class="pl-btn pl-btn--primary" href="{% url 'classes:public_list' %}">&larr; All classes</a>
+      {# Share: the device share sheet where one exists, else this Copy / Text / Email menu. Not on a preview, because the page is not public yet. #}
+      {# The facts ride on data attributes the server renders; static/js/class_share.js reads them and tells this wrapper to open the menu through bubbling custom events. #}
+      {% if not is_preview %}
+      {% with share_title=offering.title|strip_date_suffix %}
+      {% with share_text=share_title|add:" at Past Lives Makerspace" %}
+      {% with share_body=share_text|add:" "|add:offering.public_url %}
+      <div class="cp-share" data-share
+           x-data="{ open: false, copied: false, manual: false }"
+           @click.outside="open = false"
+           @keydown.escape.window="open = false"
+           @pl-share-menu="open = !open"
+           @pl-share-copied="copied = true; setTimeout(() => copied = false, 2000)"
+           @pl-share-manual="manual = true; $nextTick(() => $refs.manualUrl.select())">
+        <button type="button" class="pl-btn pl-btn--secondary cp-share__btn"
+                data-share-url="{{ offering.public_url }}"
+                data-share-title="{{ share_title }}"
+                data-share-text="{{ share_text }}"
+                aria-haspopup="menu" :aria-expanded="open">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/>
+            <path d="M8.59 13.51l6.83 3.98"/><path d="M15.41 6.51l-6.82 3.98"/>
+          </svg>
+          <span>Share</span>
+        </button>
+        {# The panel positions the dropdown; the menu inside holds only menuitems (ARIA), and the by-hand copy field sits under it. #}
+        <div class="cp-share__panel" x-show="open" x-cloak>
+          <div class="cp-share__menu" role="menu" aria-label="Share this class">
+            <button type="button" role="menuitem" class="cp-share__item" data-share-copy="{{ offering.public_url }}"
+                    x-text="copied ? 'Copied!' : 'Copy link'">Copy link</button>
+            <a role="menuitem" class="cp-share__item" href="sms:?&body={{ share_body|urlencode:'' }}" @click="open = false">Text</a>
+            <a role="menuitem" class="cp-share__item" href="mailto:?subject={{ share_title|urlencode:'' }}&body={{ share_body|urlencode:'' }}" @click="open = false">Email</a>
+          </div>
+          <input type="text" readonly class="cp-share__manual" value="{{ offering.public_url }}" aria-label="Class link"
+                 x-show="manual" x-ref="manualUrl" @click="$el.select()">
+        </div>
+      </div>
+      {% endwith %}
+      {% endwith %}
+      {% endwith %}
+      {% endif %}
+      </div>
 
       {# --- Visual Placement Tool --- #}
       {% if can_edit_offering or can_edit_category %}

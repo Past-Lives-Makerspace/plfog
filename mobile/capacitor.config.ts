@@ -73,10 +73,15 @@ const config: CapacitorConfig = {
     // @capgo/capacitor-native-biometric is here AND in the iOS list below: biometric sign in
     // is a both-platforms feature, and these lists are allowlists, so a plugin missing from
     // one is silently absent from that native project with no build error.
-    includePlugins: ['@capacitor/push-notifications', '@capgo/capacitor-native-biometric'],
+    // @capacitor/share: the class page's Share button opens the system share sheet through it
+    // (static/js/class_share.js); without it the Android WebView, which has no navigator.share,
+    // only ever gets the Copy / Text / Email menu.
+    includePlugins: ['@capacitor/push-notifications', '@capgo/capacitor-native-biometric', '@capacitor/share'],
   },
   ios: {
-    includePlugins: ['@capacitor-firebase/messaging', '@capgo/capacitor-native-biometric'],
+    // @capacitor/share here too: the WKWebView has navigator.share, but the plugin is the first
+    // branch the Share button tries inside the app, so both shells behave the same.
+    includePlugins: ['@capacitor-firebase/messaging', '@capgo/capacitor-native-biometric', '@capacitor/share'],
     // Let the web layer own safe-area insets via CSS env(safe-area-inset-*).
     contentInset: 'never',
   },

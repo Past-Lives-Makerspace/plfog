@@ -657,6 +657,96 @@ html.dark .cp-page {
   .cp-detail__sale-banner { animation: none; }
 }
 
+/* ── Share button + fallback menu (row under the hero) ─────── */
+/* "← All classes" and Share sit together on the left of the row; the edit controls keep the
+   right. The menu is the surface's dropdown idiom (the topbar account menu) on the elevation
+   ladder's top rung, so it reads the same over Obsidian and Slate. */
+.cp-detail__hero-links {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+.cp-share {
+  position: relative;
+  display: inline-block;
+}
+.cp-share__btn {
+  font-family: var(--font);
+  border-color: var(--hub-border-strong);
+}
+/* The panel is the dropdown surface; the role="menu" list inside it holds only menuitems, and
+   the by-hand copy field (revealed when the clipboard write fails) sits under that list. */
+.cp-share__panel {
+  position: absolute;
+  top: calc(100% + 6px);
+  left: 0;
+  min-width: 180px;
+  padding: 6px;
+  background: var(--hub-elevated);
+  border: 1px solid var(--hub-border-strong);
+  border-radius: 8px;
+  box-shadow: 0 8px 32px rgba(0,0,0,0.25);
+  z-index: 60;
+}
+.cp-share__menu {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.cp-share__item {
+  display: block;
+  width: 100%;
+  padding: 9px 12px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--hub-text);
+  font-family: var(--font);
+  font-size: 14px;
+  font-weight: 600;
+  text-align: left;
+  text-decoration: none;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.cp-page a.cp-share__item { color: var(--hub-text); }
+.cp-share__item:hover,
+.cp-share__item:focus-visible,
+.cp-page a.cp-share__item:hover {
+  background: rgba(255,255,255,0.06);
+  color: var(--hub-text);
+  text-decoration: none;
+}
+[data-theme="light"] .cp-share__item:hover,
+[data-theme="light"] .cp-share__item:focus-visible,
+[data-theme="light"] .cp-page a.cp-share__item:hover {
+  background: rgba(9,46,76,0.07);
+}
+/* Shown only when the clipboard write failed: a readonly copy of the link to select by hand. */
+.cp-share__manual {
+  box-sizing: border-box;
+  width: 100%;
+  min-width: 260px;
+  margin: 6px 0 2px;
+  padding: 7px 10px;
+  border: 1px solid var(--hub-input-border);
+  border-radius: 6px;
+  background: var(--hub-input-bg);
+  color: var(--hub-text);
+  font-family: var(--font);
+  font-size: 13px;
+}
+/* On a phone the panel anchored to the button's left edge runs off the viewport once the
+   copy field shows, so the links group becomes the offset parent and the panel spans the
+   row under both buttons. */
+@media (max-width: 480px) {
+  .cp-detail__hero-links { flex: 1 1 auto; position: relative; }
+  .cp-share { position: static; }
+  .cp-share__panel { left: 0; right: 0; min-width: 0; }
+  .cp-share__manual { min-width: 0; }
+}
+
 /* ── Hero ──────────────────────────────────────── */
 /* min-height, not height: the content sits at the bottom, so a fixed box pushed the category
    row out of the top once a long title or subtitle wrapped on a phone (#563). Short content
