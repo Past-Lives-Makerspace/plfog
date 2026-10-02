@@ -26,6 +26,17 @@ from django.utils import timezone
 DEFAULT_WINDOW = timedelta(minutes=15)
 
 
+def next_tick(at: datetime) -> datetime:
+    """The first cron tick at or after ``at``.
+
+    The cron runs on the quarter hours (``*/15 * * * *`` on Render), and each tick checks the
+    sends due before the next one. Every timezone offset this app runs in is whole hours, so
+    the quarter marks are the same in UTC and in local time.
+    """
+    mark = at.replace(minute=at.minute - at.minute % 15, second=0, microsecond=0)
+    return mark if mark == at else mark + DEFAULT_WINDOW
+
+
 @dataclass(frozen=True)
 class DueWindow:
     """The fire time for a scheduled event and the tick window it's due in.

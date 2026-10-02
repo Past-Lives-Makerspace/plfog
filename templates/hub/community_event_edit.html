@@ -13,7 +13,14 @@
   </div>
   {% endif %}
 
-  <form method="post" class="hub-form" enctype="multipart/form-data">
+  {% comment %}
+  scheduleLater drives the schedule toggle's reveal; hasAnnounceAt follows the "Announce at"
+  input. Together they keep the Save button naming what the save will do: a cleared time
+  announces now even with the toggle on. A live event has neither, and its button just says Save.
+  {% endcomment %}
+  <form method="post" class="hub-form" enctype="multipart/form-data"{% if not form.announced %}
+        x-data="{ scheduleLater: {{ form.publish_at.value|yesno:'true,false' }}, hasAnnounceAt: {{ form.publish_at.value|yesno:'true,false' }} }"
+        @change="if ($event.target.name === 'publish_at') hasAnnounceAt = $event.target.value !== ''"{% endif %}>
     {% csrf_token %}
 
     <div class="hub-card" style="padding:1.5rem; margin-bottom:1.5rem;">
@@ -55,36 +62,28 @@
         <span class="pl-status-badge pl-status-badge--ok">Live</span>
       </div>
       {% else %}
-      {# When should this go out? — a presentational Alpine toggle; publish_at is the real field. #}
-      <div x-data="{ scheduleLater: {{ form.publish_at.value|yesno:'true,false' }} }">
-        <div class="pl-toggle-row">
-          <div class="pl-toggle-info">
-            <div class="pl-toggle-label">Schedule the announcement for later</div>
-            <div class="pl-toggle-desc">Off announces as soon as you save. On lets you pick a date and time.</div>
-          </div>
-          <label class="pl-toggle">
-            <input type="checkbox" x-model="scheduleLater"
-                   @change="if (!scheduleLater) { document.getElementById('{{ form.publish_at.id_for_label }}').value = '' }">
-            <span class="pl-toggle__slider"></span>
-          </label>
+      {# When should this go out? A presentational Alpine toggle (state on the form); publish_at is the real field. #}
+      <div class="pl-toggle-row">
+        <div class="pl-toggle-info">
+          <div class="pl-toggle-label">Schedule the announcement for later</div>
+          <div class="pl-toggle-desc">{% if form.in_review %}Off announces it as soon as it's approved.{% else %}Off announces as soon as you save.{% endif %} On lets you pick a date and time.</div>
         </div>
+        <label class="pl-toggle">
+          {# Clearing the time fires its change event, so the Save label and the reminder times follow. #}
+          <input type="checkbox" x-model="scheduleLater"
+                 @change="if (!scheduleLater) { const input = document.getElementById('{{ form.publish_at.id_for_label }}'); input.value = ''; input.dispatchEvent(new Event('change', { bubbles: true })) }">
+          <span class="pl-toggle__slider"></span>
+        </label>
+      </div>
 
-        <div x-show="scheduleLater" class="pl-reveal">
-          {% include "components/form_field.html" with field=form.publish_at field_hint="We'll announce it — Discord, the bell, and the calendar — at this time. Until then it stays hidden." %}
-        </div>
+      <div x-show="scheduleLater" class="pl-reveal">
+        {% include "components/form_field.html" with field=form.publish_at field_hint="We'll announce it — Discord, the bell, and the calendar — at this time. Until then it stays hidden." %}
       </div>
       {% endif %}
 
-      {# Reminders — three independent toggles, off by default. #}
+      {# Reminders and the happening-now ping, each saying when it goes out. #}
       <p class="hub-text-muted" style="font-size:0.8125rem; margin:1.25rem 0 0.5rem;">Remind members before it starts:</p>
-      {% include "components/form_field.html" with field=form.remind_7d %}
-      {% include "components/form_field.html" with field=form.remind_3d %}
-      {% include "components/form_field.html" with field=form.remind_1d %}
-
-      {# Happening now #}
-      <div style="margin-top:1.25rem;">
-        {% include "components/form_field.html" with field=form.notify_happening_now field_hint="A single ping to members when the event begins." %}
-      </div>
+      {% include "hub/partials/_event_send_toggles.html" with send_rows=form.send_rows in_review=form.in_review %}
     </div>
 
     {% comment %}
@@ -105,12 +104,13 @@
       </div>
     {% endif %}
 
-    <p class="hub-text-muted" style="font-size:0.8125rem; margin-bottom:1rem;">
-      {% if form.announced %}This event is already live, so saving won't announce it again. Reminders are never sent on save.{% else %}Saving posts the announcement to Discord and adds it to the Calendar — right away, or on your scheduled date if you set one.{% endif %}{% if google_sync_enabled %} Saving also updates this event on the linked Google Calendar.{% endif %}
+    <p class="hub-text-muted" id="event-save-note" style="font-size:0.8125rem; margin-bottom:1rem;">
+      {% if form.announced %}This event is already live, so saving won't announce it again. Reminders are never sent on save.{% elif form.in_review %}This event hasn't been approved, so saving won't announce it.{% else %}Saving posts the announcement to Discord and adds it to the Calendar — right away, or on your scheduled date if you set one.{% endif %}{% if google_sync_enabled %} Saving also updates this event on the linked Google Calendar.{% endif %}
     </p>
 
     <div class="pl-form-actions">
-      <button type="submit" class="pl-btn pl-btn--primary">Save event</button>
+      <button type="submit" class="pl-btn pl-btn--primary" id="event-save"{% if form.saves_announce %}
+              x-text="scheduleLater && hasAnnounceAt ? 'Save and schedule' : 'Save and announce'"{% endif %}>{% if not form.saves_announce %}Save{% elif form.publish_at.value %}Save and schedule{% else %}Save and announce{% endif %}</button>
       <a href="{{ cancel_url }}" class="pl-btn pl-btn--secondary">Cancel</a>
       {% if delete_url %}
         <button type="button" class="pl-btn pl-btn--danger pl-form-actions__danger"

@@ -569,6 +569,8 @@ urlpatterns = [
     path("events/add/", views.event_edit, name="hub_event_add"),
     path("events/<int:event_pk>/edit/", views.event_edit, name="hub_event_edit"),
     path("events/<int:event_pk>/delete/", views.event_delete, name="hub_event_delete"),
+    # The editor's reminder toggles with fresh send times, for the guild and admin surfaces alike.
+    path("events/send-toggles/", views.event_send_toggles, name="hub_event_send_toggles"),
     # Shared by all three composers — the photo field's own delete endpoint.
     path("events/<int:event_pk>/photo/delete/", views.event_photo_delete, name="hub_event_photo_delete"),
     # Member event proposals + reviewer queue.
