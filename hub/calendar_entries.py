@@ -217,7 +217,8 @@ def upcoming_calendar_events() -> list[Any]:
     from membership.models import CalendarEvent, CommunityEvent
 
     now = timezone.now()
-    today = now.date()
+    # The local date: from 5 PM in Portland the UTC date is tomorrow, which skipped tonight's date.
+    today = timezone.localdate(now)
     horizon = today + timedelta(days=_EVENTS_TAB_HORIZON_DAYS)
 
     # Feed / general / class iCal rows still upcoming, minus the iCal echo of any event

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from datetime import date, datetime, time, timedelta
+from datetime import date as date_type
 from decimal import Decimal
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, ClassVar, Self, cast
@@ -3515,6 +3516,15 @@ class EventDateForm(forms.Form):
     """
 
     date = forms.DateField(required=False, input_formats=["%Y-%m-%d"])
+
+    # Nothing links further out than this; a date near the calendar's end overflows the lookup.
+    _REACH = timedelta(days=3660)
+
+    def clean_date(self) -> date_type | None:
+        on = cast(date_type | None, self.cleaned_data["date"])
+        if on is not None and abs(on - timezone.localdate()) > self._REACH:
+            raise forms.ValidationError("No event page links to a date that far away.")
+        return on
 
     def occurrence_start(self, event: CommunityEvent) -> datetime:
         """The start of the date the link names, or of the event's next date."""

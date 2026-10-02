@@ -595,7 +595,8 @@ def describe_ics_document():
     def it_omits_rrule_for_a_non_recurring_event(db):
         event = CommunityEventFactory(recurrence=CommunityEvent.Recurrence.NONE)
         doc = event.ics_document(event.starts_at)
-        assert "RRULE" not in doc
+        # The time zone block carries its own yearly rules; the event carries none.
+        assert "RRULE" not in doc.split("BEGIN:VEVENT")[1]
 
     def it_emits_exactly_one_rrule_for_a_recurring_event(db):
         event = CommunityEventFactory(
@@ -605,7 +606,7 @@ def describe_ics_document():
             ends_at=_aware(2026, 7, 11, 20),
         )
         doc = event.ics_document(event.starts_at)
-        assert doc.count("RRULE:") == 1
+        assert doc.split("BEGIN:VEVENT")[1].count("RRULE:") == 1
         assert f"RRULE:{event.ical_rrule()}" in doc
 
     def it_ical_escapes_location_and_description(db):

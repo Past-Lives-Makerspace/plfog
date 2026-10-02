@@ -9,17 +9,43 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
+from django.core.exceptions import ImproperlyConfigured
 from django.utils import timezone
 
 if TYPE_CHECKING:
     from datetime import datetime
+
+# Each zone's VTIMEZONE in the yearly-rule form Google and Apple export. Outlook reads only a
+# rule's DTSTART and RRULE and ignores RDATE lists, so a zone written as a list of its clock
+# changes (icalendar's own output) leaves Outlook an hour off for half the year.
+_VTIMEZONES = {
+    "America/Los_Angeles": [
+        "BEGIN:VTIMEZONE",
+        "TZID:America/Los_Angeles",
+        "BEGIN:DAYLIGHT",
+        "TZOFFSETFROM:-0800",
+        "TZOFFSETTO:-0700",
+        "TZNAME:PDT",
+        "DTSTART:19700308T020000",
+        "RRULE:FREQ=YEARLY;BYMONTH=3;BYDAY=2SU",
+        "END:DAYLIGHT",
+        "BEGIN:STANDARD",
+        "TZOFFSETFROM:-0700",
+        "TZOFFSETTO:-0800",
+        "TZNAME:PST",
+        "DTSTART:19701101T020000",
+        "RRULE:FREQ=YEARLY;BYMONTH=11;BYDAY=1SU",
+        "END:STANDARD",
+        "END:VTIMEZONE",
+    ],
+}
 
 
 def ical_escape(value: str) -> str:
     """Escape a text value per RFC 5545 §3.3.11 (backslash, newlines, ``;`` and ``,``)."""
     value = value.replace("\\", "\\\\")
     value = value.replace("\r\n", "\\n").replace("\n", "\\n").replace("\r", "\\n")
-    value = value.replace(";", "\;").replace(",", "\\,")
+    value = value.replace(";", "\\;").replace(",", "\\,")
     return value
 
 
@@ -36,10 +62,10 @@ def ical_local_time(name: str, moment: datetime) -> str:
 def ical_timezone_lines() -> list[str]:
     """The ``VTIMEZONE`` block that :func:`ical_local_time`'s ``TZID`` points to.
 
-    Built from the time zone database rather than written by hand, so the daylight saving dates
-    stay right. The lines keep icalendar's folding.
+    Raises:
+        ImproperlyConfigured: ``TIME_ZONE`` names a zone with no block in ``_VTIMEZONES``.
     """
-    import icalendar
-
-    vtimezone = icalendar.Timezone.from_tzid(timezone.get_default_timezone_name())
-    return vtimezone.to_ical().decode().rstrip("\r\n").split("\r\n")
+    name = timezone.get_default_timezone_name()
+    if name not in _VTIMEZONES:
+        raise ImproperlyConfigured(f"No VTIMEZONE for TIME_ZONE {name!r}; add its rules to membership/ical.py.")
+    return list(_VTIMEZONES[name])

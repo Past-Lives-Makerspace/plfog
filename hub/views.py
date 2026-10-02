@@ -6559,11 +6559,12 @@ def event_detail(request: HttpRequest, pk: int) -> HttpResponse:
     member = _get_member(request)
     viewer_rsvped = member is not None and any(rsvp.member_id == member.pk for rsvp in rsvps)
     # The page speaks about one date: the one the link names, or else the next. Add to
-    # calendar puts the event in the viewer's own calendar from that date. Subscribing to the
-    # whole makerspace calendar lives on the Community Calendar, not here.
+    # calendar puts the event in the viewer's own calendar from that date. Its link back is the
+    # plain page, which opens on the next date, because a series' entries carry it for every
+    # date. Subscribing to the whole makerspace calendar lives on the Community Calendar.
     start = EventDateForm(request.GET).occurrence_start(event)
     date_query = event.date_query(start)
-    google_event_url = google_calendar_event_url(event, start, request.build_absolute_uri(request.path + date_query))
+    google_event_url = google_calendar_event_url(event, start, request.build_absolute_uri(request.path))
     return render(
         request,
         "hub/event_detail.html",
@@ -6575,6 +6576,7 @@ def event_detail(request: HttpRequest, pk: int) -> HttpResponse:
             "when": event.when_display_for(start),
             "google_event_url": google_event_url,
             "ics_url": reverse("hub_event_ics", args=[event.pk]) + date_query,
+            "date_query": date_query,
             # A non-recurring event that has already ended is still viewable; show an honest
             # "already taken place" note. A recurring series is ongoing, so never flag it.
             "show_past_note": not is_recurring and event.ends_at < dj_timezone.now(),
@@ -6592,22 +6594,24 @@ def event_rsvp(request: HttpRequest, pk: int) -> HttpResponse:
 
     Thin orchestration: the toggle and the best-effort Discord refresh are model methods. An
     unlinked account or a finished non-recurring event is turned away with a friendly message
-    (the same "already taken place" gate the page shows), never a 500.
+    (the same "already taken place" gate the page shows), never a 500. The member goes back to
+    the date the page was showing (``?date=`` on the form's action).
     """
     from membership.models import CommunityEvent, EventRSVP
 
     event = get_object_or_404(CommunityEvent.objects.published(), pk=pk)
+    page = reverse("hub_event_detail", args=[pk]) + event.date_query(EventDateForm(request.GET).occurrence_start(event))
     member = _get_member(request)
     if member is None:
         messages.error(request, "Connect your Past Lives account to RSVP.")
-        return redirect("hub_event_detail", pk=pk)
+        return redirect(page)
     if event.rsvps_closed:
         messages.info(request, "This event has already taken place.")
-        return redirect("hub_event_detail", pk=pk)
+        return redirect(page)
     going = event.toggle_rsvp(member, source=EventRSVP.Source.HUB)
     event.refresh_discord_announcement()
     messages.success(request, "You're on the list. See you there." if going else "You're no longer on the list.")
-    return redirect("hub_event_detail", pk=pk)
+    return redirect(page)
 
 
 def event_ics(request: HttpRequest, pk: int) -> HttpResponse:

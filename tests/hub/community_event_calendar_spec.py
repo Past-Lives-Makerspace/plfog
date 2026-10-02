@@ -6,6 +6,7 @@ from __future__ import annotations
 import re
 from datetime import date, datetime, timedelta
 from typing import TYPE_CHECKING
+from unittest.mock import patch
 
 import pytest
 from django.contrib.auth.models import User
@@ -258,6 +259,21 @@ def describe_feed_key_mapping():
             assert entry.feed_key == ""
             assert entry.source_key == "community"
 
+        def it_lists_tonights_date_after_five_in_the_evening():
+            # 6:30 PM Saturday in Portland is Sunday in UTC; tonight's date is still on.
+            CommunityEventFactory(
+                community=True,
+                title="Saturday Night",
+                recurrence=CommunityEvent.Recurrence.WEEKLY,
+                starts_at=_aware(2026, 9, 5, 18),
+                ends_at=_aware(2026, 9, 5, 21),
+            )
+            evening = timezone.make_aware(datetime(2026, 10, 3, 18, 30))
+            with patch("django.utils.timezone.now", return_value=evening):
+                entry = next(e for e in upcoming_calendar_events() if e.title == "Saturday Night")
+            assert timezone.localdate(entry.start_dt) == date(2026, 10, 3)
+            assert entry.url.endswith("?date=2026-10-03")
+
         def it_links_a_series_to_the_date_it_lists():
             event = CommunityEventFactory(
                 community=True,
@@ -365,7 +381,7 @@ def describe_ics_export():
         assert "DTEND;TZID=America/Los_Angeles:" in body
         assert body.count("BEGIN:VTIMEZONE") == 1
         assert "LOCATION:Common Area" in body
-        assert "RRULE" not in body  # non-recurring → no RRULE
+        assert "RRULE" not in body.split("END:VTIMEZONE")[1]  # non-recurring → no RRULE
 
     def it_emits_one_rrule_vevent_for_a_monthly_event(client: Client):
         _login(client, "ics2")

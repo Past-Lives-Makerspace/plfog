@@ -503,6 +503,24 @@ def describe_event_page_on_one_date():
         body = _page(client, event, "?date=next-tuesday")
         assert f"<span>{event.when_display_for(event.next_occurrence_start())}</span>" in body
 
+    def it_shows_the_next_date_for_a_date_too_far_away_to_look_up(client: Client):
+        event = _weekly()
+        resp = client.get(reverse("hub_event_detail", args=[event.pk]) + "?date=9999-12-31")
+        assert resp.status_code == 200
+        assert f"<span>{event.when_display_for(event.next_occurrence_start())}</span>" in resp.content.decode()
+        assert client.get(reverse("hub_event_ics", args=[event.pk]) + "?date=9999-12-31").status_code == 200
+
+    def it_sends_an_rsvp_back_to_the_date_shown(client: Client):
+        _user_with_role("rsvp_on_date")
+        client.login(username="rsvp_on_date", password="pass")
+        event = _weekly()
+        query = f"?date={timezone.localdate(_later_date(event)).isoformat()}"
+        rsvp_url = reverse("hub_event_rsvp", args=[event.pk]) + query
+        assert f'action="{rsvp_url}"' in _page(client, event, query)
+        with patch.object(CommunityEvent, "refresh_discord_announcement"):
+            resp = client.post(rsvp_url)
+        assert resp["Location"] == reverse("hub_event_detail", args=[event.pk]) + query
+
     def it_adds_the_series_to_google_from_the_date_shown(client: Client):
         event = _weekly()
         later = _later_date(event)
@@ -510,8 +528,8 @@ def describe_event_page_on_one_date():
         params = _google_params(_page(client, event, f"?date={day}"))
         assert params["dates"].startswith(f"{day.replace('-', '')}T180000/")
         assert params["recur"] == f"RRULE:{event.ical_rrule()}"
-        page = "http://testserver" + reverse("hub_event_detail", args=[event.pk]) + f"?date={day}"
-        assert params["details"].endswith(page)
+        # Every date of the series in Google carries this link, so it opens on the next date.
+        assert params["details"].endswith("http://testserver" + reverse("hub_event_detail", args=[event.pk]))
 
     def it_downloads_the_ics_from_the_date_shown(client: Client):
         event = _weekly()
