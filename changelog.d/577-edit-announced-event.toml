@@ -1,0 +1,7 @@
+bump = "patch"
+date = "2026-10-02"
+title = "Events announced on a schedule can be edited again"
+changes = [
+  "Saving changes to an event whose announcement went out at a scheduled time no longer stops on \"Pick a time in the future\".",
+  "The edit page for an event that is already live now says that saving won't announce it again.",
+]
