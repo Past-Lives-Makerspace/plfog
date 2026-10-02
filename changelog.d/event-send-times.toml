@@ -1,0 +1,8 @@
+bump = "minor"
+date = "2026-10-02"
+title = "The event editor says what will be sent, and when"
+changes = [
+  "Each reminder in the event editor shows when it will go out, or says it's too late to send, and updates as you change the start time.",
+  "The Save button says what saving does: \"Save and announce\" or \"Save and schedule\" before an event is announced, and \"Save\" once it's live.",
+  "Reminders and the \"happening now\" ping on a repeating event now go out before every date, not only the first one.",
+]

@@ -3125,6 +3125,14 @@ class CommunityEventForm(forms.ModelForm):
         # one (the old form let a lead set it after publishing), and seeded rows hold none.
         publish_at = self.instance.publish_at
         self.went_out_on_schedule: bool = self.announced and publish_at is not None and publish_at <= timezone.now()
+        # What a save does, read by the edit views to decide and by the page to say so, so the
+        # Save button and the note can never promise something the view will not do. A new or
+        # still-scheduled event announces (now, or parks for its time); a live one sends
+        # nothing; anything else is waiting on a reviewer, and approving it is what announces.
+        self.saves_announce: bool = (
+            self.instance.pk is None or self.instance.moderation_state == CommunityEvent.ModerationState.SCHEDULED
+        )
+        self.in_review: bool = not (self.saves_announce or self.announced)
         self.fields["video_url"].label = "Video link"
         self._setup_audience_field(can_choose_audience=can_choose_audience)
         self._setup_kind_field(can_choose_audience=can_choose_audience, fixed_guild=guild)
@@ -3270,6 +3278,98 @@ class CommunityEventForm(forms.ModelForm):
             if event_type == CommunityEvent.EventType.LEAD_MEETING and guild is not None:
                 self.add_error("guild", "A Guild Lead Meeting is makerspace wide. Choose No guild.")
         return cleaned
+
+    def send_rows(self) -> list[tuple[forms.BoundField, str]]:
+        """The reminder and happening-now toggles, each with when it would go out.
+
+        Reads the submitted start after a refused save and the stored one otherwise. A live
+        event's announce time is spent, so it never delays a send.
+        """
+        if self.is_bound:
+            data = getattr(self, "cleaned_data", {})
+            starts_at, recurrence, publish_at = data.get("starts_at"), data.get("recurrence"), data.get("publish_at")
+        else:
+            starts_at = self.instance.starts_at
+            recurrence = self.instance.recurrence
+            publish_at = None if self.announced else self.instance.publish_at
+        hints = event_send_hints(starts_at=starts_at, recurrence=recurrence, publish_at=publish_at)
+        return [(self[name], hints[name]) for name, _days in EVENT_SEND_TOGGLES]
+
+
+#: The editor's timing toggles: each field and how many days before a date it sends (0 is the
+#: happening-now ping, as the date begins).
+EVENT_SEND_TOGGLES: list[tuple[str, int]] = [*CommunityEvent.REMINDER_OFFSETS, ("notify_happening_now", 0)]
+
+
+def _send_time_display(at: datetime) -> str:
+    local = timezone.localtime(at)
+    return f"{local.strftime('%a, %b %-d')} at {local.strftime('%-I:%M %p')}"
+
+
+def event_send_hints(
+    *, starts_at: datetime | None, recurrence: str | None, publish_at: datetime | None
+) -> dict[str, str]:
+    """Each timing toggle's description, naming when it goes out for this start and repeat.
+
+    The times come from :meth:`CommunityEvent.reminder_sends`, the method the scheduler fires
+    from, so what the editor says is what happens. Worded the same whether the toggle is on or
+    off, because the page does not re-render on a flip. Nothing sends before the event is
+    live, so a future announce time is the earliest any send can go; with no start yet, each
+    toggle just says what it is for.
+    """
+    repeat = recurrence or CommunityEvent.Recurrence.NONE
+    series = repeat != CommunityEvent.Recurrence.NONE
+    event = None
+    if starts_at is not None:
+        event = CommunityEvent(starts_at=starts_at, ends_at=starts_at + timedelta(hours=1), recurrence=repeat)
+    now = timezone.now()
+    after = publish_at if publish_at is not None and publish_at > now else now
+    hints: dict[str, str] = {}
+    for name, days in EVENT_SEND_TOGGLES:
+        if days:
+            span = "1 day" if days == 1 else f"{days} days"
+            purpose = f"Send members a reminder {span} before {'each date' if series else 'it starts'}"
+        else:
+            purpose = "A ping to members as each date begins" if series else "A single ping to members when it begins"
+        if event is None:
+            hints[name] = f"{purpose}."
+            continue
+        found = event.next_reminder_send(days, after=after)
+        if found is None:
+            hints[name] = f"{purpose}. Too late for this event, so it won't send."
+        elif series and days:
+            send, date_start = found
+            hints[name] = f"{purpose}. Next: {_send_time_display(send)}, for {date_start.strftime('%a, %b %-d')}."
+        elif series:
+            hints[name] = f"{purpose}. Next: {_send_time_display(found[0])}."
+        else:
+            hints[name] = f"{purpose}: {_send_time_display(found[0])}."
+    return hints
+
+
+class EventSendTogglesForm(forms.Form):
+    """The editor's timing toggles on their own, re-rendered with fresh times as the start changes.
+
+    The start, repeat and announce time arrive exactly as the editor's inputs hold them; the
+    toggles are the model's own form fields, so the swapped-in rows match the page's.
+    """
+
+    starts_at = forms.DateTimeField(required=False, input_formats=["%Y-%m-%dT%H:%M", "%Y-%m-%dT%H:%M:%S"])
+    recurrence = forms.ChoiceField(required=False, choices=CommunityEvent.Recurrence.choices)
+    publish_at = forms.DateTimeField(required=False, input_formats=["%Y-%m-%dT%H:%M", "%Y-%m-%dT%H:%M:%S"])
+
+    def __init__(self, *args: Any, **kwargs: Any) -> None:
+        super().__init__(*args, **kwargs)
+        self.fields.update(forms.fields_for_model(CommunityEvent, fields=[name for name, _days in EVENT_SEND_TOGGLES]))
+
+    def send_rows(self) -> list[tuple[forms.BoundField, str]]:
+        """The toggles with their times; a start or repeat that does not parse just gets no time."""
+        self.is_valid()
+        data = self.cleaned_data
+        hints = event_send_hints(
+            starts_at=data.get("starts_at"), recurrence=data.get("recurrence"), publish_at=data.get("publish_at")
+        )
+        return [(self[name], hints[name]) for name, _days in EVENT_SEND_TOGGLES]
 
 
 _STUDIO_HOURS_WEEKDAYS: list[tuple[str, str]] = [

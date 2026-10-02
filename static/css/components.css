@@ -145,6 +145,11 @@
     border-bottom: none;
 }
 
+/* A group of toggle rows set apart from the rows above it (the event editor's happening-now ping). */
+.pl-toggle-set {
+    margin-top: 1.25rem;
+}
+
 .pl-toggle-label {
     font-size: 0.9375rem;
     font-weight: 400;

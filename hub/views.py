@@ -5615,12 +5615,13 @@ def guild_event_edit(request: HttpRequest, pk: int, event_pk: int | None = None)
             if is_new:
                 event.created_by = request.user
             event.save()
-            # A new event OR a still-SCHEDULED one routes through schedule_or_go_live so a
-            # future publish_at parks it and a cleared/back-dated one publishes now (no strand);
-            # editing a live event only re-pushes to Google (never re-announces).
-            if is_new or event.moderation_state == CommunityEvent.ModerationState.SCHEDULED:
+            # The form's flags are what the page told the editor a save would do: a new or
+            # still-SCHEDULED event routes through schedule_or_go_live (a future publish_at
+            # parks it, a cleared/back-dated one publishes now: no strand); a live event only
+            # re-pushes to Google and Discord (never re-announces).
+            if form.saves_announce:
                 event.schedule_or_go_live(actor=request.user)
-            elif event.moderation_state == CommunityEvent.ModerationState.PUBLISHED:
+            elif form.announced:
                 event.push_to_google(actor=request.user)
                 event.push_to_discord(actor=request.user)
             if event.moderation_state == CommunityEvent.ModerationState.SCHEDULED:
@@ -5691,11 +5692,10 @@ def event_edit(request: HttpRequest, event_pk: int | None = None) -> HttpRespons
             if is_new:
                 event.created_by = request.user
             event.save()
-            # is_new OR still-SCHEDULED → schedule_or_go_live (park a future publish_at, publish a
-            # cleared/back-dated one now); editing a live event only re-pushes to Google.
-            if is_new or event.moderation_state == CommunityEvent.ModerationState.SCHEDULED:
+            # The same flags the page reads (see guild_event_edit).
+            if form.saves_announce:
                 event.schedule_or_go_live(actor=request.user)
-            elif event.moderation_state == CommunityEvent.ModerationState.PUBLISHED:
+            elif form.announced:
                 event.push_to_google(actor=request.user)
                 event.push_to_discord(actor=request.user)
             if event.moderation_state == CommunityEvent.ModerationState.SCHEDULED:
@@ -5721,6 +5721,19 @@ def event_edit(request: HttpRequest, event_pk: int | None = None) -> HttpRespons
             **_event_photo_context(),
         },
     )
+
+
+@login_required
+def event_send_toggles(request: HttpRequest) -> HttpResponse:
+    """The event editor's reminder toggles, re-rendered with the times for the start being typed.
+
+    Pure arithmetic on the posted start, repeat and announce time: it reads no event and
+    writes nothing, so signing in is the only gate.
+    """
+    from hub.forms import EventSendTogglesForm
+
+    form = EventSendTogglesForm(request.GET)
+    return render(request, "hub/partials/_event_send_toggles.html", {"send_rows": form.send_rows()})
 
 
 @login_required
