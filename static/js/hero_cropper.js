@@ -178,6 +178,9 @@
 
         function destroy() {
             pending = null;
+            // No live cropper, no shape to pick: a click in the gap before the next mount
+            // would be lost, since the mount sets the radio from the box. Ready re-reveals.
+            if (picker) picker.hidden = true;
             if (!instance) return;
             var old = instance;
             instance = null;

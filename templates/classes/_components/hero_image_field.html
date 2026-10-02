@@ -43,7 +43,7 @@ static/js/hero_cropper.js defines to mount Cropper.js on the new img once it has
     imported one the box cannot position) and the cropper's ready callback reveals it, so
     a fresh upload in either branch shows it without this template knowing.
     {% endcomment %}
-    <fieldset class="pl-crop-shape" data-hero-crop-shape{% if not current_image_url or offering.has_imported_photo_only %} hidden{% endif %}>
+    <fieldset class="pl-crop-shape" data-hero-crop-shape aria-describedby="hero-crop-shape-hint"{% if not current_image_url or offering.has_imported_photo_only %} hidden{% endif %}>
         <legend class="pl-crop-shape__legend">Box shape</legend>
         <div class="pl-crop-shape__opts">
             <label class="pl-crop-shape__opt">

@@ -451,6 +451,9 @@ def describe_hero_cropper():
         expect(frame).to_be_visible()
         assert _width(page, FRAME) > COLLAPSED_WIDTH
         expect(page.locator(CROP_INPUT)).to_have_value("")
+        # The server hid the picker with no photo; the live cropper reveals it, on Wide.
+        expect(page.locator(SHAPE_PICKER)).to_be_visible()
+        expect(_shape_radio(page, "wide")).to_be_checked()
         # The card skeleton mirrors the same picked photo, so the two panes agree.
         expect(page.locator(CARD_PHOTOS).first).to_have_attribute("src", re.compile(r"^data:image/png"))
 
