@@ -148,7 +148,7 @@ an admin reading a queue wants the glance.{% endcomment %}
     {% endif %}
     {% if can_duplicate_run %}{% if lifecycle == 'upcoming' or lifecycle == 'completed' or lifecycle == 'cancelled' %}
         <button type="button" class="hub-btn hub-btn--sm" @click="$dispatch('open-confirm', 'run-again')">Run it again</button>
-        {% include "components/confirm_modal.html" with confirm_id="run-again" confirm_title="Run this class again?" confirm_message="We make a draft copy with no dates. Add the new dates, then submit it for review." confirm_action_url=run_again_url confirm_button_text="Make a Draft Copy" confirm_button_style="primary" %}
+        {% include "components/confirm_modal.html" with confirm_id="run-again" confirm_title="Run this class again?" confirm_message="We make a draft copy with no dates. Add the new group's dates and submit it for review. Students sign up for each run separately, and the catalog shows both runs under one card." confirm_action_url=run_again_url confirm_button_text="Make a Draft Copy" confirm_button_style="primary" %}
     {% endif %}{% endif %}
     {% if access.can_administer and offering.status != 'archived' %}
     <form method="post" action="{% url 'classes:admin_class_duplicate' pk=offering.pk %}" style="display:inline;">

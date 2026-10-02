@@ -445,7 +445,7 @@ def describe_run_it_again():
         resp = client.post(reverse("classes:teach_class_duplicate_run", kwargs={"pk": offering.pk}))
         assert resp.status_code == 302
         run = ClassOffering.objects.get(slug=f"{offering.slug}-run")
-        assert resp.url == reverse("classes:teach_class_edit", kwargs={"pk": run.pk})
+        assert resp.url == f"{reverse('classes:teach_class_edit', kwargs={'pk': run.pk})}?step=3"
         assert run.status == Status.DRAFT
         assert run.sessions.count() == 0
         assert run.title == "Again Anvil"

@@ -2474,6 +2474,7 @@ def _teach_published_class_edit(request: HttpRequest, offering: ClassOffering, t
     # Both exits, resolved once: the template has no ClassAccess of its own, and a save that
     # landed must not return the saver to a 404 that reads as the save having failed.
     leave_url = _leave_class_url(request, offering)
+    class_detail_url = reverse("classes:teach_class_detail", kwargs={"pk": offering.pk})
     if request.method == "POST" and form.is_valid() and faq_formset.is_valid():
         form.save()
         faq_formset.save()
@@ -2491,6 +2492,9 @@ def _teach_published_class_edit(request: HttpRequest, offering: ClassOffering, t
             # Named as the composer names it, because it is the same control answering the
             # same question on the sibling screen.
             "cancel_url": leave_url,
+            # Run it again lives on the class screen, which only the instructor reaches from
+            # here (guild staff leave through the dashboard), so the hint links it only then.
+            "run_again_url": leave_url if leave_url == class_detail_url else "",
             # A live class is where the flyer and QR unlock, and this is the only teach
             # page a live class lands on, so the Share & Print card renders here.
             "can_print_marketing": can_print_class_marketing(request, offering),
@@ -2513,8 +2517,13 @@ def teach_class_duplicate_run(request: HttpRequest, pk: int) -> HttpResponse:
     offering: ClassOffering = request.class_offering  # type: ignore[attr-defined]
     if request.method == "POST":
         run = offering.duplicate_as_new_run()
-        messages.success(request, "New date-set added as a draft. Add its dates, then submit for review.")
-        return redirect("classes:teach_class_edit", pk=run.pk)
+        messages.success(
+            request,
+            f"This is a new run of {run.title}. Add its dates below, then submit it for review. "
+            "Everything else came across from the original.",
+        )
+        # Straight to the Dates step: the one thing a new run is missing.
+        return redirect(f"{reverse('classes:teach_class_edit', kwargs={'pk': run.pk})}?step=3")
     return redirect("classes:teach_class_edit", pk=offering.pk)
 
 
