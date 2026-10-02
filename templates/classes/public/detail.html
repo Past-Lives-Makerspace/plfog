@@ -150,13 +150,16 @@ appends and runs it on the first boosted arrival here (FRONTEND.md, Scripts unde
           </svg>
           <span>Share</span>
         </button>
-        <div class="cp-share__menu" role="menu" aria-label="Share this class" x-show="open" x-cloak>
-          <button type="button" role="menuitem" class="cp-share__item" data-share-copy="{{ offering.public_url }}"
-                  x-text="copied ? 'Copied!' : 'Copy link'">Copy link</button>
+        {# The panel positions the dropdown; the menu inside holds only menuitems (ARIA), and the by-hand copy field sits under it. #}
+        <div class="cp-share__panel" x-show="open" x-cloak>
+          <div class="cp-share__menu" role="menu" aria-label="Share this class">
+            <button type="button" role="menuitem" class="cp-share__item" data-share-copy="{{ offering.public_url }}"
+                    x-text="copied ? 'Copied!' : 'Copy link'">Copy link</button>
+            <a role="menuitem" class="cp-share__item" href="sms:?&body={{ share_body|urlencode:'' }}" @click="open = false">Text</a>
+            <a role="menuitem" class="cp-share__item" href="mailto:?subject={{ share_title|urlencode:'' }}&body={{ share_body|urlencode:'' }}" @click="open = false">Email</a>
+          </div>
           <input type="text" readonly class="cp-share__manual" value="{{ offering.public_url }}" aria-label="Class link"
                  x-show="manual" x-ref="manualUrl" @click="$el.select()">
-          <a role="menuitem" class="cp-share__item" href="sms:?&body={{ share_body|urlencode:'' }}" @click="open = false">Text</a>
-          <a role="menuitem" class="cp-share__item" href="mailto:?subject={{ share_title|urlencode:'' }}&body={{ share_body|urlencode:'' }}" @click="open = false">Email</a>
         </div>
       </div>
       {% endwith %}

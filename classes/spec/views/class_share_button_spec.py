@@ -10,6 +10,7 @@ A preview renders no button, because the page is not public yet. Assertions anch
 from __future__ import annotations
 
 import re
+from typing import cast
 from urllib.parse import quote
 
 import pytest
@@ -28,8 +29,11 @@ TEXT = "Forge a Leaf Dish at Past Lives Makerspace"
 def _published() -> ClassOffering:
     # The CMS date suffix is what strip_date_suffix drops; the slug is explicit so the
     # factory never derives one from the slashes in the title.
-    return ClassOfferingFactory(
-        status=ClassOffering.Status.PUBLISHED, title="Forge a Leaf Dish - 10/5/26", slug="forge-a-leaf-dish"
+    return cast(
+        "ClassOffering",
+        ClassOfferingFactory(
+            status=ClassOffering.Status.PUBLISHED, title="Forge a Leaf Dish - 10/5/26", slug="forge-a-leaf-dish"
+        ),
     )
 
 

@@ -13,6 +13,7 @@ Run with ``pytest -m e2e``.
 from __future__ import annotations
 
 from datetime import timedelta
+from typing import cast
 from urllib.parse import unquote, urlparse
 
 from django.urls import reverse
@@ -26,6 +27,8 @@ SHARE_BUTTON = "button[data-share-url]"
 MENU = ".cp-share [role=menu]"
 ITEMS = ".cp-share [role=menuitem]"
 COPY = "button[data-share-copy]"
+MANUAL = ".cp-share__manual"
+NO_CLIPBOARD = "Object.defineProperty(navigator, 'clipboard', { value: undefined });"
 TEXT_LINK = ".cp-share a[href^='sms:']"
 EMAIL_LINK = ".cp-share a[href^='mailto:']"
 TITLE = "Forge a Leaf Dish"
@@ -43,7 +46,10 @@ CAPACITOR_STUB = (
 
 
 def _published() -> ClassOffering:
-    offering = ClassOfferingFactory(status=ClassOffering.Status.PUBLISHED, title=TITLE, slug="forge-a-leaf-dish")
+    offering = cast(
+        "ClassOffering",
+        ClassOfferingFactory(status=ClassOffering.Status.PUBLISHED, title=TITLE, slug="forge-a-leaf-dish"),
+    )
     start = timezone.now() + timedelta(days=3)
     ClassSessionFactory(class_offering=offering, starts_at=start, ends_at=start + timedelta(hours=2))
     return offering
@@ -91,6 +97,27 @@ def describe_the_share_button():
 
         expect(page.locator(COPY)).to_have_text("Copied!")
         assert page.evaluate("navigator.clipboard.readText()") == offering.public_url
+
+    def it_offers_the_link_to_copy_by_hand_when_the_clipboard_is_missing(live_server, page: Page, settings):
+        page.add_init_script(NO_CLIPBOARD)
+        offering = _open(page, live_server, settings)
+        page.locator(SHARE_BUTTON).click()
+        expect(page.locator(MANUAL)).to_be_hidden()
+
+        page.locator(COPY).click()
+
+        expect(page.locator(MANUAL)).to_be_visible()
+        expect(page.locator(MANUAL)).to_have_value(offering.public_url)
+        expect(page.locator(COPY)).to_have_text("Copy link")
+        state = page.evaluate(
+            """() => {
+              const el = document.querySelector('.cp-share__manual');
+              return {focused: document.activeElement === el,
+                      start: el.selectionStart, end: el.selectionEnd, length: el.value.length};
+            }"""
+        )
+        assert state["focused"] is True
+        assert (state["start"], state["end"]) == (0, state["length"])
 
     def it_prefers_the_web_share_sheet_and_opens_no_menu(live_server, page: Page, settings):
         page.add_init_script(WEB_SHARE_STUB)
