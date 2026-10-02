@@ -104,8 +104,11 @@ def describe_biometric_enroll():
         secret = _post(client, ENROLL_URL, {"device_label": "iPhone", "platform": "ios"}).json()["secret"]
 
         credential = BiometricCredential.objects.get(user=member_user)
-        assert credential.secret_hash != secret
-        assert BiometricCredential.objects.filter(secret_hash=secret).count() == 0
+        assert credential.verifier_hash != secret
+        assert BiometricCredential.objects.filter(verifier_hash=secret).count() == 0
+        # The selector half IS returned in the clear — it identifies, it does not
+        # authenticate — so the token the device stores starts with it.
+        assert secret.startswith(f"{credential.selector}.")
 
     def it_records_the_device_label_and_platform(client, member_user):
         client.force_login(member_user)
@@ -246,6 +249,43 @@ def describe_biometric_unlock():
         assert response.status_code == 401
         assert _authenticated_user_id(client) is None
 
+    def it_refuses_an_unknown_selector_without_revoking_anything(client, member_user):
+        """An unknown selector is the one failure that must stay completely inert. If it
+        revoked, or answered differently, the endpoint would tell a stranger which
+        credentials exist and let them kill the ones they found."""
+        credential, _secret = BiometricCredential.objects.issue(
+            member_user, device_label="iPhone", platform=BiometricCredential.Platform.IOS
+        )
+
+        response = _post(client, UNLOCK_URL, {"secret": "no-such-selector.no-such-verifier"})
+
+        assert response.status_code == 401
+        assert _authenticated_user_id(client) is None
+        credential.refresh_from_db()
+        assert credential.revoked_at is None
+
+    def it_revokes_a_stolen_credential_when_the_real_device_returns_however_stale_it_is(client, member_user):
+        """The end-to-end version of the bug this change exists to close.
+
+        A thief redeems the copied token twice. Under the old single-slot design the
+        original then matched no column, the server called it unknown, and the thief kept
+        the account. Now the selector still names the credential, so the mismatch is caught.
+        """
+        credential, stolen = BiometricCredential.objects.issue(
+            member_user, device_label="iPhone", platform=BiometricCredential.Platform.IOS
+        )
+        thiefs_token = _post(Client(), UNLOCK_URL, {"secret": stolen}).json()["secret"]
+        thiefs_token = _post(Client(), UNLOCK_URL, {"secret": thiefs_token}).json()["secret"]
+
+        response = _post(client, UNLOCK_URL, {"secret": stolen})  # the member's own phone
+
+        assert response.status_code == 401
+        assert _authenticated_user_id(client) is None
+        credential.refresh_from_db()
+        assert credential.revoked_at is not None
+        # And the token the thief was left holding is dead too.
+        assert _post(Client(), UNLOCK_URL, {"secret": thiefs_token}).status_code == 401
+
     def it_refuses_a_missing_secret(client):
         response = _post(client, UNLOCK_URL, {})
 
@@ -306,6 +346,23 @@ def describe_biometric_unlock():
         def _body_for_unknown(client):
             return _post(client, UNLOCK_URL, {"secret": "never-issued"}).json()
 
+        def _body_for_unknown_selector(client):
+            return _post(client, UNLOCK_URL, {"secret": "never-issued.never-issued"}).json()
+
+        def _body_for_malformed(client, user):
+            """A token minted before selectors existed: no separator, so no selector to
+            look up. Must read exactly like every other failure, not like a parse error."""
+            _credential, secret = BiometricCredential.objects.issue(
+                user, device_label="iPhone", platform=BiometricCredential.Platform.IOS
+            )
+            return _post(client, UNLOCK_URL, {"secret": secret.split(".", 1)[1]}).json()
+
+        def _body_for_wrong_verifier(client, user):
+            credential, _secret = BiometricCredential.objects.issue(
+                user, device_label="iPhone", platform=BiometricCredential.Platform.IOS
+            )
+            return _post(client, UNLOCK_URL, {"secret": f"{credential.selector}.wrong"}).json()
+
         def _body_for_expired(client, user):
             credential, secret = BiometricCredential.objects.issue(
                 user, device_label="iPhone", platform=BiometricCredential.Platform.IOS
@@ -341,6 +398,9 @@ def describe_biometric_unlock():
         def it_is_word_for_word_identical_however_the_secret_failed(client, member_user, other_user):
             bodies = [
                 _body_for_unknown(client),
+                _body_for_unknown_selector(client),
+                _body_for_malformed(client, member_user),
+                _body_for_wrong_verifier(client, member_user),
                 _body_for_expired(client, member_user),
                 _body_for_revoked(client, member_user),
                 _body_for_replayed(client, member_user),
@@ -352,7 +412,7 @@ def describe_biometric_unlock():
         def it_never_says_which_kind_of_failure_it_was(client, member_user):
             body = _body_for_replayed(client, member_user)
 
-            leaky = ["revoke", "expire", "replay", "unknown", "already", "inactive", "disabled"]
+            leaky = ["revoke", "expire", "replay", "unknown", "already", "inactive", "disabled", "selector", "verifier"]
             assert not any(word in body["error"].lower() for word in leaky), body
 
     def describe_rate_limiting():
@@ -544,6 +604,37 @@ def describe_biometric_disable():
 
         credential.refresh_from_db()
         assert credential.revoked_at is not None
+
+    def it_still_lands_when_the_stored_token_is_many_rotations_stale(client, member_user):
+        """Disable matches on the SELECTOR, which never rotates, so a phone that has been
+        offline through several unlocks can still sign itself out. Matching on the verifier
+        would have made logout fail exactly when the member most wants it to work."""
+        credential, secret = BiometricCredential.objects.issue(
+            member_user, device_label="iPhone", platform=BiometricCredential.Platform.IOS
+        )
+        stale = secret
+        for _ in range(5):
+            _user, secret = BiometricCredential.objects.redeem(secret)
+        client.force_login(member_user)
+
+        _post(client, DISABLE_URL, {"secret": stale})
+
+        credential.refresh_from_db()
+        assert credential.revoked_at is not None
+
+    def it_ignores_a_token_with_no_separator(client, member_user):
+        """A pre-selector token has no selector half, so the whole string is matched and
+        finds nothing. Silent success, like every other miss here."""
+        credential, secret = BiometricCredential.objects.issue(
+            member_user, device_label="iPhone", platform=BiometricCredential.Platform.IOS
+        )
+        client.force_login(member_user)
+
+        response = _post(client, DISABLE_URL, {"secret": secret.split(".", 1)[1]})
+
+        assert response.status_code == 200
+        credential.refresh_from_db()
+        assert credential.revoked_at is None
 
     def it_revokes_exactly_the_credential_named_by_credential_id(client, member_user):
         """App logout uses the id: reading the secret back would raise a Face ID prompt."""
