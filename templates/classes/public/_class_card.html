@@ -108,6 +108,9 @@ which the composer's card preview frames include on their own.
         <span class="cls-spots cls-spots--dates">{% if offering.scheduling_type == 'series_package' %}{{ group.date_count }} option{{ group.date_count|pluralize }}{% else %}{{ group.date_count }} dates{% endif %}</span>
       {% elif offering.scheduling_model == 'flexible' %}
         {# No seat cap (#545): no seat pill. #}
+      {% elif not offering.registration_open %}
+        {# Past its registration cutoff: listed until it starts, but the seats are not for sale. #}
+        <span class="cls-spots full" data-registration-closed>Closed</span>
       {% else %}
         {% with spots=offering.spots_remaining %}
           <span class="cls-spots {{ spots|spots_class }}">

@@ -265,6 +265,8 @@ def _full_payload(category, **extra) -> dict:
         "flexible_note": "We will find a time together.",
         "flexible_starts_on": "2026-11-02",
         "flexible_ends_on": "2026-12-01",
+        "registration_cutoff_enabled": "on",
+        "registration_cutoff_hours": "36",
         "video_url": VIDEO,
         "hero_crop": json.dumps({"x": 10, "y": 20, "w": 320, "h": 180}),
         "card_focus": json.dumps({"x": 30, "y": 70}),
@@ -300,6 +302,7 @@ def _assert_round_trip(offering: ClassOffering, category) -> None:
     assert offering.flexible_note == "We will find a time together."
     assert offering.flexible_starts_on is not None and offering.flexible_starts_on.isoformat() == "2026-11-02"
     assert offering.flexible_ends_on is not None and offering.flexible_ends_on.isoformat() == "2026-12-01"
+    assert offering.registration_cutoff_hours == 36
     assert offering.video_url == VIDEO
     assert (offering.card_focus_x, offering.card_focus_y) == (30, 70)
 

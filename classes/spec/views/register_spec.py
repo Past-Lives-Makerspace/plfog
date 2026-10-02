@@ -493,10 +493,11 @@ def describe_client_ip():
             price_cents=0,
             capacity=10,
         )
+        # Three days out: the default 48 hour registration cutoff would close a nearer class.
         ClassSessionFactory(
             class_offering=offering,
-            starts_at=timezone.now() + timedelta(days=2),
-            ends_at=timezone.now() + timedelta(days=2, hours=2),
+            starts_at=timezone.now() + timedelta(days=3),
+            ends_at=timezone.now() + timedelta(days=3, hours=2),
         )
         data = {
             "first_name": "Proxy",

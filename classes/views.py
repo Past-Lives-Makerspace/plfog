@@ -164,14 +164,17 @@ def _browsable_classes() -> Any:
 
 
 def _bookable_run_options(offering: Any) -> list[Any]:
-    """Still-bookable date-sets of this class, including the current run.
+    """Date-sets of this class still open for registration, including the current run.
 
     Powers the register-page dropdown for switching runs. Returns an empty list
-    unless there's an actual choice (more than one bookable run in the group).
-    Each returned offering carries a ``spots_left`` attribute for its label.
+    unless there's an actual choice (more than one open run in the group). A run past
+    its registration cutoff is not offered. Each returned offering carries a
+    ``spots_left`` attribute for its label.
     """
     runs = list(
-        ClassOffering.objects.bookable().filter(grouping_key=offering.grouping_key).prefetch_related("sessions")
+        ClassOffering.objects.registration_open()
+        .filter(grouping_key=offering.grouping_key)
+        .prefetch_related("sessions")
     )
     if len(runs) <= 1:
         return []
@@ -179,6 +182,11 @@ def _bookable_run_options(offering: Any) -> list[Any]:
     for run in runs:
         run.spots_left = run_spots.get(run.pk, run.capacity)
     return runs
+
+
+def registration_closed_message(offering: Any) -> str:
+    """The one sentence the register view and the class page share for a class past its cutoff."""
+    return f"Registration has closed. Sign-ups end {offering.registration_cutoff_hours} hours before class starts."
 
 
 def _coerce_dollars_to_cents(raw: str | None) -> int:
@@ -400,12 +408,12 @@ def _class_detail_context(request: HttpRequest, offering: ClassOffering) -> dict
         schedule_sessions = list(offering.sessions.order_by("starts_at")) if offering.is_series else upcoming_sessions
 
     # Other dates this same class is offered on, so the visitor can switch dates
-    # without hunting through the catalog. Only runs you can still book are shown
-    # (a started run is dropped), and each keeps its own seats.
+    # without hunting through the catalog. Only runs still open for registration are
+    # shown (a started run and one past its cutoff are dropped), and each keeps its own seats.
     sibling_offerings: list[Any] = []
     if offering.grouping_key:
         sibling_offerings = list(
-            ClassOffering.objects.bookable()
+            ClassOffering.objects.registration_open()
             .filter(grouping_key=offering.grouping_key)
             .exclude(pk=offering.pk)
             .select_related("instructor")
@@ -444,6 +452,11 @@ def _class_detail_context(request: HttpRequest, offering: ClassOffering) -> dict
         # The sign-up rail keys off this; an undefined name is false in a template,
         # which is how every preview once read "Registration closed".
         "is_bookable": offering.is_bookable,
+        # The cutoff (hours before the first session): the rail reads these three to say when
+        # registration closes, or that it has.
+        "registration_open": offering.registration_open,
+        "registration_closes_at": offering.registration_closes_at,
+        "registration_cutoff_hours": offering.registration_cutoff_hours,
         "now": now,
         "spots_remaining": offering.spots_remaining,
         "related_offerings": related_offerings,
@@ -1026,6 +1039,12 @@ def register(request: HttpRequest, slug: str) -> HttpResponse:
     # part-way through. Send late arrivals back to the detail page with a note.
     if not offering.is_bookable:
         messages.info(request, "Registration has closed for this class — it has already started.")
+        return redirect("classes:public_class_detail", slug=offering.slug)
+
+    # The cutoff: a class this close to its first session takes no more sign-ups, and no
+    # waitlist either. The hours are read off the row so the note matches the class page.
+    if not offering.registration_open:
+        messages.info(request, registration_closed_message(offering))
         return redirect("classes:public_class_detail", slug=offering.slug)
 
     # Site-wide kill switch (Site Settings → Features). When class registration is

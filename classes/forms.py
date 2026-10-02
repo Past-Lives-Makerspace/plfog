@@ -10,7 +10,7 @@ from urllib.parse import urlencode
 
 from django import forms
 from django.core.exceptions import ValidationError
-from django.core.validators import MaxValueValidator, validate_email
+from django.core.validators import MaxValueValidator, MinValueValidator, validate_email
 from django.db.models import Q
 from django.forms import inlineformset_factory
 from django.utils import timezone
@@ -428,6 +428,58 @@ class _FlexibleWindowMixin:
             self.add_error("flexible_ends_on", FLEXIBLE_WINDOW_ORDER_MESSAGE)  # type: ignore[attr-defined]
 
 
+REGISTRATION_CUTOFF_DEFAULT_HOURS = 48
+REGISTRATION_CUTOFF_MIN_HOURS = 1
+REGISTRATION_CUTOFF_MAX_HOURS = 720
+REGISTRATION_CUTOFF_REQUIRED_MESSAGE = "Enter how many hours before the class registration should close."
+
+
+class _RegistrationCutoffMixin:
+    """The registration cutoff on both composer forms: a toggle and an hours box.
+
+    ``registration_cutoff_enabled`` is a form-only switch bound to the composer's Alpine state so
+    the hours box shows only while it is on; the row stores just ``registration_cutoff_hours``,
+    where null is "off". ``clean_registration_cutoff`` writes that null when the switch is off
+    and refuses an empty box when it is on; the bounds live on the field as attributes so the
+    browser refuses them first.
+    """
+
+    def setup_registration_cutoff_fields(self) -> None:
+        """Add the switch and shape the hours box; the form's metaclass never collects a mixin's fields."""
+        fields = self.fields  # type: ignore[attr-defined]
+        instance: ClassOffering = self.instance  # type: ignore[attr-defined]
+        saved_hours = instance.registration_cutoff_hours
+        fields["registration_cutoff_enabled"] = forms.BooleanField(
+            required=False,
+            initial=saved_hours is not None,
+            label="Close registration before the class starts",
+            help_text=(
+                "Students cannot register once this many hours remain before the first session. "
+                "Turn it off to take sign-ups right up to the start."
+            ),
+            widget=forms.CheckboxInput(attrs={"x-model": "registrationCutoff"}),
+        )
+        hours = fields["registration_cutoff_hours"]
+        hours.label = "Hours before the first session"
+        hours.help_text = ""
+        hours.required = False
+        hours.initial = saved_hours if saved_hours is not None else REGISTRATION_CUTOFF_DEFAULT_HOURS
+        hours.validators = [
+            MinValueValidator(REGISTRATION_CUTOFF_MIN_HOURS),
+            MaxValueValidator(REGISTRATION_CUTOFF_MAX_HOURS),
+        ]
+        hours.widget.attrs.update({"min": REGISTRATION_CUTOFF_MIN_HOURS, "max": REGISTRATION_CUTOFF_MAX_HOURS})
+
+    def clean_registration_cutoff(self) -> None:
+        data = self.cleaned_data  # type: ignore[attr-defined]
+        if not data.get("registration_cutoff_enabled"):
+            data["registration_cutoff_hours"] = None
+            return
+        # ``in``: a box that failed its own bounds is absent from cleaned_data and already carries its error.
+        if "registration_cutoff_hours" in data and data["registration_cutoff_hours"] is None:
+            self.add_error("registration_cutoff_hours", REGISTRATION_CUTOFF_REQUIRED_MESSAGE)  # type: ignore[attr-defined]
+
+
 class _RichDescriptionMixin:
     """The description is written in the rich-text editor and stored as its sanitized HTML.
 
@@ -450,6 +502,7 @@ class ClassOfferingForm(
     _LiveSaleGuardMixin,
     _SchedulingTypeMixin,
     _FlexibleWindowMixin,
+    _RegistrationCutoffMixin,
     forms.ModelForm,
 ):
     """The admin composer form. The six ``sale_*`` fields live on :class:`ClassSaleForm`."""
@@ -477,6 +530,7 @@ class ClassOfferingForm(
             "flexible_note",
             "flexible_starts_on",
             "flexible_ends_on",
+            "registration_cutoff_hours",
             "is_private",
             "private_for_name",
             "image",
@@ -505,6 +559,7 @@ class ClassOfferingForm(
         self.add_card_focus_field()
         self.setup_scheduling_type_field()
         self.setup_flexible_window_fields()
+        self.setup_registration_cutoff_fields()
 
     def clean_video_url(self) -> str:
         return validate_video_url(self.cleaned_data.get("video_url", ""))
@@ -513,6 +568,7 @@ class ClassOfferingForm(
         data = super().clean() or {}
         self.clean_price_against_live_sale()
         self.clean_flexible_window()
+        self.clean_registration_cutoff()
         return data
 
     def save(self, commit: bool = True) -> ClassOffering:
@@ -534,6 +590,7 @@ class TeachClassOfferingForm(
     _LiveSaleGuardMixin,
     _SchedulingTypeMixin,
     _FlexibleWindowMixin,
+    _RegistrationCutoffMixin,
     forms.ModelForm,
 ):
     """Class form for teaching members — no `instructor`, no `is_private`, slug auto-generated.
@@ -563,6 +620,7 @@ class TeachClassOfferingForm(
             "flexible_note",
             "flexible_starts_on",
             "flexible_ends_on",
+            "registration_cutoff_hours",
             "image",
             "video_url",
         ]
@@ -590,6 +648,7 @@ class TeachClassOfferingForm(
         self.add_card_focus_field()
         self.setup_scheduling_type_field()
         self.setup_flexible_window_fields()
+        self.setup_registration_cutoff_fields()
 
     def clean_video_url(self) -> str:
         return validate_video_url(self.cleaned_data.get("video_url", ""))
@@ -598,6 +657,7 @@ class TeachClassOfferingForm(
         data = super().clean() or {}
         self.clean_price_against_live_sale()
         self.clean_flexible_window()
+        self.clean_registration_cutoff()
         return data
 
     def save(self, commit: bool = True) -> ClassOffering:

@@ -5410,6 +5410,9 @@ mark { background: color-mix(in srgb, var(--color-tuscan-yellow) 30%, transparen
 .pl-date-window .pl-form-group { margin-bottom: 0.5rem; }
 @media (max-width: 560px) { .pl-date-window { grid-template-columns: 1fr; } }
 .pl-date-window__hint { margin: 0 0 1rem; }
+/* The registration cutoff under the dates on step 3: the toggle, then the hours box while it is on. */
+.pl-registration-cutoff { margin-top: 1.25rem; }
+.pl-registration-cutoff__hours { max-width: 14rem; margin-top: 0.75rem; }
 .pl-compose-hint {
     padding-top: 1rem;
     margin: 0;
