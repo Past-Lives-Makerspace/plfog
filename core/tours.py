@@ -135,13 +135,15 @@ def _demo_guild_slug(member: Member) -> dict[str, Any]:
 
 
 def _demo_class_slug(member: Member) -> dict[str, Any]:
-    # The member tour's register stop: the soonest bookable (future, published,
-    # non-private) class. None bookable -> drop the step.
+    # The member tour's register stop: the soonest class still open for registration
+    # (future, published, non-private, and not past its registration cutoff, since the
+    # stop targets the Register button a closed rail does not render). None open -> drop
+    # the step.
     from classes.models import ClassOffering
 
-    offering = ClassOffering.objects.bookable().first()
+    offering = ClassOffering.objects.registration_open().first()
     if offering is None:
-        raise ValueError("No bookable class exists for the member tour register stop")
+        raise ValueError("No bookable class open for registration exists for the member tour register stop")
     return {"slug": offering.slug}
 
 

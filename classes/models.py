@@ -2319,10 +2319,13 @@ class ClassOffering(HeroCropMixin, models.Model):
     def _first_session_starts_at(self) -> datetime | None:
         """Earliest session start; reads the ``first_session_at`` annotation when present.
 
-        ``bookable()`` and ``upcoming()`` annotate it, so a catalog or sibling row answers
-        the booking gates with no query of its own; any other row runs
-        :attr:`earliest_session_at`. An annotation is a snapshot of the sessions at fetch
-        time, which is fine on the read-only lists that carry it.
+        ``first_session_at`` is the ``bookable()`` / ``upcoming()`` contract: the earliest
+        session ever, ``Min("sessions__starts_at")`` with no filter. Those querysets annotate
+        it so a catalog or sibling row answers the booking gates with no query of its own;
+        any other row runs :attr:`earliest_session_at`. No other queryset may put a different
+        fact under that name (a "next upcoming session" annotation is ``next_session_at``).
+        An annotation is a snapshot of the sessions at fetch time, which is fine on the
+        read-only lists that carry it.
         """
         if hasattr(self, "first_session_at"):
             return cast("datetime | None", self.first_session_at)

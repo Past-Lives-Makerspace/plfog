@@ -473,6 +473,28 @@ def describe_member_tour_resolvers():
             )
             assert _demo_class_slug(member) == {"slug": offering.slug}
 
+        def it_skips_a_class_past_its_registration_cutoff():
+            # The stop targets the Register button, which a closed rail does not render.
+            from classes.factories import ClassOfferingFactory, ClassSessionFactory
+            from classes.models import ClassOffering
+
+            member = _member("dc-cutoff")
+            closed = ClassOfferingFactory(status=ClassOffering.Status.PUBLISHED, is_private=False)
+            ClassSessionFactory(
+                class_offering=closed,
+                starts_at=timezone.now() + timedelta(hours=10),
+                ends_at=timezone.now() + timedelta(hours=12),
+            )
+            with pytest.raises(ValueError, match="No bookable class"):
+                _demo_class_slug(member)
+            open_later = ClassOfferingFactory(status=ClassOffering.Status.PUBLISHED, is_private=False)
+            ClassSessionFactory(
+                class_offering=open_later,
+                starts_at=timezone.now() + timedelta(days=7),
+                ends_at=timezone.now() + timedelta(days=7, hours=2),
+            )
+            assert _demo_class_slug(member) == {"slug": open_later.slug}
+
         def it_raises_when_no_bookable_class_exists():
             member = _member("dc-none")
             with pytest.raises(ValueError, match="No bookable class"):

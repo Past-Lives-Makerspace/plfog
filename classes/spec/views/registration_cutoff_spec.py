@@ -7,6 +7,7 @@ on copy: the changelog renders on every page.
 
 from __future__ import annotations
 
+import re
 from datetime import timedelta
 
 import pytest
@@ -21,6 +22,7 @@ from classes.factories import (
     ClassOfferingFactory,
     ClassSessionFactory,
     InstructorFactory,
+    RegistrationFactory,
     UserFactory,
 )
 from classes.models import ClassOffering, Registration
@@ -99,6 +101,75 @@ def describe_register():
     def it_ignores_the_cutoff_for_a_flexible_class(client):
         flexible = _dated("flex-register", scheduling_model=ClassOffering.SchedulingModel.FLEXIBLE)
         assert client.get(_register_url(flexible)).status_code == 200
+
+    def it_still_redirects_a_newcomer_asking_for_the_waitlist(client):
+        closed = _dated("closed-waitlist", 10, capacity=0)
+        response = client.get(_register_url(closed) + "?waitlist=1")
+        assert response.status_code == 302
+        assert response.url == _detail_url(closed)
+
+
+def _claim_post_data() -> dict:
+    return {
+        "first_name": "Sam",
+        "last_name": "Smith",
+        "pronouns": "",
+        "email": "sam@example.com",
+        "phone": "",
+        "prior_experience": "",
+        "looking_for": "",
+        "discount_code": "",
+        "liability_signature": "Sam Smith",
+        "accepts_liability": "on",
+    }
+
+
+def describe_a_waitlist_claim_inside_the_cutoff():
+    """A seat freed 47 hours out mails a claim link; the person it names goes through.
+
+    They were already in the headcount when the class filled and were told the seat is
+    theirs, so the cutoff is not theirs to hit. Everyone else stays closed.
+    """
+
+    def _waiting(offering: ClassOffering) -> Registration:
+        return RegistrationFactory(
+            class_offering=offering,
+            first_name="Sam",
+            last_name="Smith",
+            email="sam@example.com",
+            status=Registration.Status.WAITLISTED,
+        )
+
+    def _claim_url(offering: ClassOffering, waiting: Registration) -> str:
+        return f"{_register_url(offering)}?waitlist_token={waiting.self_serve_token}"
+
+    def it_lets_the_promoted_waitlister_reach_the_form(client):
+        closed = _dated("claim-form", 10)
+        response = client.get(_claim_url(closed, _waiting(closed)))
+        assert response.status_code == 200
+        assert [m.message for m in get_messages(response.wsgi_request)] == []
+
+    def it_lets_the_promoted_waitlister_confirm_the_seat(client):
+        closed = _dated("claim-confirm", 10, price_cents=0)
+        waiting = _waiting(closed)
+        response = client.post(_claim_url(closed, waiting), data=_claim_post_data())
+        assert response.status_code == 302
+        assert response.url == reverse("classes:register_success", kwargs={"slug": closed.slug})
+        waiting.refresh_from_db()
+        assert waiting.status == Registration.Status.CONFIRMED
+        assert Registration.objects.filter(class_offering=closed).count() == 1
+
+    def it_still_redirects_a_claim_on_a_class_that_has_started(client):
+        started = _dated("claim-started", -1)
+        response = client.get(_claim_url(started, _waiting(started)))
+        assert response.status_code == 302
+        assert response.url == _detail_url(started)
+
+    def it_still_redirects_a_token_that_matches_no_waiting_row(client):
+        closed = _dated("claim-bogus", 10)
+        response = client.get(_register_url(closed) + "?waitlist_token=not-a-token")
+        assert response.status_code == 302
+        assert response.url == _detail_url(closed)
 
 
 def describe_the_class_page_rail():
@@ -275,8 +346,9 @@ def describe_the_composer():
         assert "registrationCutoff: true," in html
         assert 'x-model="registrationCutoff"' in html
         assert 'data-registration-cutoff-hours x-show="registrationCutoff"' in html
-        assert 'name="registration_cutoff_hours"' in html
-        assert 'value="48"' in html
+        hours_box = re.search(r'<input[^>]*id="id_registration_cutoff_hours"[^>]*>', html)
+        assert hours_box is not None
+        assert 'value="48"' in hours_box.group(0)
 
     def it_opens_with_the_toggle_off_for_a_class_saved_without_a_cutoff(client, instructor):
         client.force_login(instructor.user)

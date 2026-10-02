@@ -472,7 +472,10 @@ class _RegistrationCutoffMixin:
 
     def clean_registration_cutoff(self) -> None:
         data = self.cleaned_data  # type: ignore[attr-defined]
-        if not data.get("registration_cutoff_enabled"):
+        # A flexible class has no start to count from, so it stores no cutoff, whatever the
+        # hidden block posted (the mirror of ``clean_flexible_window``).
+        flexible = data.get("scheduling_model") == ClassOffering.SchedulingModel.FLEXIBLE
+        if flexible or not data.get("registration_cutoff_enabled"):
             data["registration_cutoff_hours"] = None
             return
         # ``in``: a box that failed its own bounds is absent from cleaned_data and already carries its error.

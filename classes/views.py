@@ -535,9 +535,11 @@ def public_instructor(request: HttpRequest, slug: str) -> HttpResponse:
         ClassOffering.objects.public()  # type: ignore[misc]  # django-stubs can't see annotate() aliases
         .filter(instructor=instructor)
         .prefetch_related("sessions")
-        .annotate(first_session_at=Min("sessions__starts_at", filter=Q(sessions__starts_at__gte=now)))
-        .filter(Q(first_session_at__isnull=False) | Q(scheduling_model=ClassOffering.SchedulingModel.FLEXIBLE))
-        .order_by("first_session_at", "title")
+        # ``next_session_at``, not ``first_session_at``: that name is the ``bookable()`` /
+        # ``upcoming()`` contract (the earliest session ever) and the booking gates read it.
+        .annotate(next_session_at=Min("sessions__starts_at", filter=Q(sessions__starts_at__gte=now)))
+        .filter(Q(next_session_at__isnull=False) | Q(scheduling_model=ClassOffering.SchedulingModel.FLEXIBLE))
+        .order_by("next_session_at", "title")
     )
     past_classes = (
         ClassOffering.objects.filter(instructor=instructor, status=ClassOffering.Status.ARCHIVED)
@@ -1043,7 +1045,10 @@ def register(request: HttpRequest, slug: str) -> HttpResponse:
 
     # The cutoff: a class this close to its first session takes no more sign-ups, and no
     # waitlist either. The hours are read off the row so the note matches the class page.
-    if not offering.registration_open:
+    # A valid waitlist claim goes through: the person is known, their seat was already in
+    # the headcount when the class filled, and the claim link they were mailed must land.
+    claim = _claimed_waitlist_registration(request, offering)
+    if claim is None and not offering.registration_open:
         messages.info(request, registration_closed_message(offering))
         return redirect("classes:public_class_detail", slug=offering.slug)
 
@@ -1075,8 +1080,8 @@ def register(request: HttpRequest, slug: str) -> HttpResponse:
     # the waitlist form drops the discount field (``RegistrationForm.__init__``), so
     # the resumed price would come back undiscounted, read as a price rise, and
     # re-charge them at full freight with their code wiped off the row. Asking who
-    # already holds a seat, before deciding, is what stops that.
-    claim = _claimed_waitlist_registration(request, offering)
+    # already holds a seat, before deciding, is what stops that. ``claim`` was resolved
+    # above, ahead of the cutoff gate.
     existing = offering.live_registration_for_email(bound_email) if bound_email else None
     # Their own row only changes the answer when it is one of the rows making the class
     # full. A WAITLISTED row consumes no seat, so somebody already queued is still told a

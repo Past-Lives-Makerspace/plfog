@@ -91,6 +91,23 @@ def describe_clean():
             assert not form.is_valid(), hours
             assert list(form.errors) == ["registration_cutoff_hours"], hours
 
+    def it_stores_no_cutoff_for_a_flexible_class(form_class):
+        flexible = ClassOffering.SchedulingModel.FLEXIBLE
+        form = form_class(
+            _data(scheduling_model=flexible, registration_cutoff_enabled="on", registration_cutoff_hours="24")
+        )
+        assert form.is_valid(), form.errors
+        assert form.cleaned_data["registration_cutoff_hours"] is None
+
+    def it_does_not_refuse_a_hidden_empty_box_on_a_flexible_class(form_class):
+        # Hours cleared, then switched to Flexible: the box is hidden, so no error may land on it.
+        flexible = ClassOffering.SchedulingModel.FLEXIBLE
+        form = form_class(
+            _data(scheduling_model=flexible, registration_cutoff_enabled="on", registration_cutoff_hours="")
+        )
+        assert form.is_valid(), form.errors
+        assert form.cleaned_data["registration_cutoff_hours"] is None
+
     def it_accepts_the_bounds(form_class):
         for hours in ("1", "720"):
             form = form_class(_data(registration_cutoff_enabled="on", registration_cutoff_hours=hours))
