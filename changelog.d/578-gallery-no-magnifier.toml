@@ -1,0 +1,6 @@
+bump = "patch"
+date = "2026-10-02"
+title = "Class page photos no longer magnify under the mouse"
+changes = [
+  "Moving the mouse over a class gallery photo shows the photo as it is. Click or tap it to open the full size view, as before.",
+]

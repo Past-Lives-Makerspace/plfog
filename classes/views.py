@@ -4894,6 +4894,19 @@ def admin_guild_tagging(request: HttpRequest) -> HttpResponse:
     )
 
 
+def _granted_instructor_pk(request: HttpRequest) -> int | None:
+    """The viewer's member pk when they may open the classes they teach, else None.
+
+    Mirrors the instructor leg of :func:`classes.access.class_access`: a member named as a
+    class's instructor opens its screen only with the teaching grant
+    (``Member.can_create_classes``). Memberless users and ungranted members get None.
+    """
+    member = getattr(request.user, "member", None)
+    if member is None or not member.can_create_classes:
+        return None
+    return member.pk  # type: ignore[no-any-return]
+
+
 @classes_registrations_access_required
 def admin_registrations(request: HttpRequest) -> HttpResponse:
     scoped = _scoped_registrations(request)
@@ -4948,6 +4961,11 @@ def admin_registrations(request: HttpRequest) -> HttpResponse:
             "class_options": class_options,
             "class_filter": request.GET.get("class", ""),
             "show_instructor_filter": is_actual_admin,
+            # The Class link opens the class screen, which opens for the actual admin and for
+            # the class's instructor once they hold the teaching grant (classes/access.py);
+            # the template links only what will open, so a guild lead and a named but
+            # ungranted instructor get the title alone.
+            "own_member_pk": _granted_instructor_pk(request),
             "instructors": instructors,
             "instructor_filter": request.GET.get("instructor", ""),
             "mine_active": mine_active,

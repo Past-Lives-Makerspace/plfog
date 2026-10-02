@@ -136,6 +136,11 @@ def describe_gallery_rendering():
         assert 'class="cls-gallery"' in body
         assert "clsGallery(2)" in body  # the 2 gallery shots — the hero stays out of the rail gallery
         assert "cls-gallery__thumbs" in body
+        # The hover magnifier is gone: no lens, no hint badge, no zoom handlers; the lightbox stays.
+        assert "cls-gallery__zoom-lens" not in body
+        assert "cls-gallery__zoom-hint" not in body
+        assert "onZoomMove" not in body
+        assert "openLightbox(activeIndex)" in body
         # ensure BytesIO import is referenced so ruff doesn't complain
         assert BytesIO is not None
 

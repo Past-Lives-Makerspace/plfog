@@ -1,0 +1,6 @@
+bump = "minor"
+date = "2026-10-02"
+title = "Registration lists link to the class"
+changes = [
+  "On the admin Registrations list and on an instructor's Registrations page, the class name now opens that class's page, so you can tell which class a sign-up or a payment belongs to in one click.",
+]
