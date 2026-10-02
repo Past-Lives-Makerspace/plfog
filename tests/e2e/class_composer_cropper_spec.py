@@ -19,8 +19,8 @@ import re
 import threading
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
-from typing import cast
-from urllib.parse import unquote, urlsplit
+from typing import Any, cast
+from urllib.parse import unquote, urlparse, urlsplit
 
 import pytest
 from django.conf import settings
@@ -38,6 +38,9 @@ FRAME = ".cropper-container"
 CROP_INPUT = "#id_hero_crop"
 PREVIEW = "[data-hero-cropper-preview]"
 CARD_PHOTOS = ".pl-card-focus__frame .cls-img"
+SHAPE_PICKER = "[data-hero-crop-shape]"
+# The class page caps the photo's height (static/css/cms-public.css, the hero's ::before sizer).
+HERO_CAP = 700
 # Cropper.js sizes a mount it cannot measure (a display:none pane) at 200x100 and never
 # grows it; a frame that mounted on screen is a good deal wider than that.
 COLLAPSED_WIDTH = 200
@@ -591,6 +594,8 @@ def describe_hero_cropper():
         assert mounted == {"cropper": False, "frames": 0}
         expect(page.locator("#hero-legacy-note")).to_be_visible()
         expect(page.locator("#hero-crop-hint")).to_be_hidden()
+        # No box, so no shape to choose either.
+        expect(page.locator(SHAPE_PICKER)).to_be_hidden()
 
         page.locator("#hero-file-input").set_input_files(str(_png(tmp_path / "replacement.png", 900, 600)))
 
@@ -599,5 +604,220 @@ def describe_hero_cropper():
         frame = page.locator(f"#hero-preview {FRAME}")
         expect(frame).to_have_count(1)
         expect(frame).to_be_visible()
+        # The cropper's ready reveals the picker for the new photo, on Wide.
+        expect(page.locator(SHAPE_PICKER)).to_be_visible()
+        expect(_shape_radio(page, "wide")).to_be_checked()
         offering.refresh_from_db()
         assert "replacement" in offering.image.name
+
+
+def _shape_radio(page, shape: str):
+    return page.locator(f'input[name="hero_crop_shape"][value="{shape}"]')
+
+
+def _box_data(page) -> dict[str, float]:
+    """Cropper's own box in source pixels, rounded, straight from the instance."""
+    return cast(dict[str, float], page.evaluate(f"document.querySelector('{PREVIEW}').cropper.getData(true)"))
+
+
+def _hero_crops(page) -> int:
+    """How many hero-crop announcements the window has seen (counted by the init script below)."""
+    return cast(int, page.evaluate("window.__heroCrops"))
+
+
+def _count_hero_crops(page) -> None:
+    page.add_init_script(
+        "window.__heroCrops = 0; window.addEventListener('hero-crop', () => { window.__heroCrops += 1; });"
+    )
+
+
+def _drag_corner_in(page, dx: int, dy: int) -> None:
+    """Drag the box's bottom right handle up and left by (dx, dy) viewport pixels, the way a host reshapes a free box."""
+    handle = page.locator(".cropper-point.point-se")
+    expect(handle).to_be_visible()
+    handle.evaluate("el => el.scrollIntoView({ block: 'center', behavior: 'instant' })")
+    box = handle.bounding_box()
+    assert box is not None
+    x, y = box["x"] + box["width"] / 2, box["y"] + box["height"] / 2
+    page.mouse.move(x, y)
+    page.mouse.down()
+    page.mouse.move(x - dx, y - dy, steps=8)
+    page.mouse.up()
+
+
+def _hero_on_page(page) -> dict[str, Any]:
+    """The class page hero: its frame, the ratio it was handed, the img's fit and the rect a contain fit paints."""
+    return cast(
+        dict[str, Any],
+        page.evaluate(
+            """() => {
+              const hero = document.querySelector('.cp-detail__hero');
+              const img = document.querySelector('.cp-detail__hero-img');
+              const frame = hero.getBoundingClientRect();
+              const box = img.getBoundingClientRect();
+              const scale = Math.min(box.width / img.naturalWidth, box.height / img.naturalHeight);
+              return {
+                width: frame.width,
+                height: frame.height,
+                ratio: getComputedStyle(hero).getPropertyValue('--cp-hero-ratio').replace(/\\s+/g, ' ').trim(),
+                fit: getComputedStyle(img).objectFit,
+                natural: {width: img.naturalWidth, height: img.naturalHeight},
+                painted: {width: img.naturalWidth * scale, height: img.naturalHeight * scale},
+              };
+            }"""
+        ),
+    )
+
+
+def _seed_draft_with_landscape_photo(instructor: Member) -> ClassOffering:
+    """A ready draft with a 1200 by 900 photo: wider than square, so Square has room to slide and Free opens on 4:3."""
+    return cast(
+        ClassOffering,
+        ClassOfferingFactory(
+            instructor=instructor,
+            status=ClassOffering.Status.DRAFT,
+            ready=True,
+            image__width=1200,
+            image__height=900,
+        ),
+    )
+
+
+def describe_crop_shape_picker():
+    """The Photos step's Wide, Square and Free radios (the 2026-10-02 instructor round, PR 7).
+
+    The radios are named hero_crop_shape and no form reads them: the shape lives only in
+    the box the cropper writes to hero_crop, so the row, the copy and the class page follow
+    it through the paths PR 6 built. Only a browser runs Cropper's re-fit, so this drives
+    it end to end.
+    """
+
+    def it_fits_a_square_box_that_the_row_the_copy_and_the_class_page_all_take(
+        live_server, page, login_via_code, serve_media, settings
+    ):
+        offering = _seed_draft_with_landscape_photo(_seed_instructor())
+        _count_hero_crops(page)
+        login_via_code(EMAIL)
+        _open_photos_step(page, live_server, "classes:teach_class_edit", pk=offering.pk)
+        expect(page.locator(FRAME)).to_be_visible()
+        _wait_ready(page)
+
+        # No saved box: the picker is up, on Wide, and nothing has been written or announced.
+        expect(page.locator(SHAPE_PICKER)).to_be_visible()
+        expect(_shape_radio(page, "wide")).to_be_checked()
+        expect(page.locator(CROP_INPUT)).to_have_value("")
+        assert _hero_crops(page) == 0
+
+        _shape_radio(page, "square").check()
+
+        # Cropper re-fit the box square; the input and the card previews heard about it once.
+        box = _box_data(page)
+        assert box["width"] == pytest.approx(box["height"], abs=1), box
+        assert box["height"] == pytest.approx(900, abs=1), box  # as tall as the photo allows
+        crop = json.loads(page.locator(CROP_INPUT).input_value())
+        assert crop == {"x": round(box["x"]), "y": round(box["y"]), "w": round(box["width"]), "h": round(box["height"])}
+        assert _hero_crops(page) == 1
+
+        page.locator('#composer-form button[type="submit"]').click()
+        page.wait_for_url(re.compile(r"step=2"))
+
+        offering.refresh_from_db()
+        assert offering.hero_crop_w == offering.hero_crop_h == crop["w"]
+        assert (offering.hero_crop_x, offering.hero_crop_y) == (crop["x"], crop["y"])
+        with offering.hero_cropped.open("rb") as handle:
+            assert Image.open(handle).size == (crop["w"], crop["w"])
+        assert offering.hero_aspect_ratio == f"{crop['w']} / {crop['w']}"
+        # Back on the Photos step the rebuilt cropper read the square box and checked Square.
+        expect(page.locator(FRAME)).to_be_visible()
+        _wait_ready(page)
+        expect(_shape_radio(page, "square")).to_be_checked()
+        restored = _box_data(page)
+        assert restored["width"] == pytest.approx(restored["height"], abs=1), restored
+
+        # The class page: the hero takes the box's own numbers as its ratio and paints the
+        # whole square copy. At 1366 the column is wider than it is tall, so the 700px cap
+        # holds and the square sits pillarboxed in it; at 390 the frame is the column's
+        # width and square.
+        ClassOffering.objects.filter(pk=offering.pk).update(status=ClassOffering.Status.PUBLISHED)
+        settings.PUBLIC_HOSTS = [urlparse(live_server.url).hostname]
+        url = f"{live_server.url}{reverse('classes:public_class_detail', kwargs={'slug': offering.slug})}"
+        for width in (1366, 390):
+            page.set_viewport_size({"width": width, "height": 900})
+            page.goto(url)
+            page.wait_for_load_state("networkidle")
+            page.wait_for_function("() => document.querySelector('.cp-detail__hero-img').naturalWidth > 0")
+            hero = _hero_on_page(page)
+            assert hero["ratio"] == f"{crop['w']} / {crop['w']}", (width, hero)
+            assert hero["fit"] == "contain", width
+            assert hero["natural"] == {"width": crop["w"], "height": crop["w"]}, width
+            painted = hero["painted"]
+            assert painted["width"] == pytest.approx(painted["height"], abs=1), (width, painted)
+            assert painted["width"] <= hero["width"] + 0.5 and painted["height"] <= hero["height"] + 0.5, (width, hero)
+            expected_height = min(hero["width"], HERO_CAP)
+            assert hero["height"] == pytest.approx(expected_height, abs=1), (width, hero)
+            assert painted["height"] == pytest.approx(expected_height, abs=1), (width, hero)
+            if width == 1366:
+                assert painted["width"] < hero["width"] - 100, (width, hero)  # the soft bars at the sides
+
+    def it_saves_the_odd_rectangle_a_host_drags_in_free_and_restores_the_shape(
+        live_server, page, login_via_code, serve_media
+    ):
+        offering = _seed_draft_with_landscape_photo(_seed_instructor())
+        _count_hero_crops(page)
+        login_via_code(EMAIL)
+        _open_photos_step(page, live_server, "classes:teach_class_edit", pk=offering.pk)
+        expect(page.locator(FRAME)).to_be_visible()
+        _wait_ready(page)
+
+        _shape_radio(page, "free").check()
+
+        # Free opens on the whole photo (4:3, neither wide nor square), written and announced once.
+        box = _box_data(page)
+        assert (box["width"], box["height"]) == pytest.approx((1200, 900), abs=1), box
+        assert json.loads(page.locator(CROP_INPUT).input_value())["h"] == pytest.approx(900, abs=1)
+        assert _hero_crops(page) == 1
+
+        # Pull the bottom right corner in: a free box takes any rectangle, and the drag writes
+        # it like any other drag (one more announcement).
+        _drag_corner_in(page, 40, 150)
+        crop = json.loads(page.locator(CROP_INPUT).input_value())
+        assert crop["w"] < 1200 and crop["h"] < 900, crop
+        ratio = crop["w"] / crop["h"]
+        assert abs(ratio / (16 / 9) - 1) > 0.02 and abs(ratio - 1) > 0.02, crop  # an odd rectangle
+        assert _hero_crops(page) == 2
+
+        page.locator('#composer-form button[type="submit"]').click()
+        page.wait_for_url(re.compile(r"step=2"))
+
+        offering.refresh_from_db()
+        assert offering.hero_crop_box == (crop["x"], crop["y"], crop["w"], crop["h"])
+        with offering.hero_cropped.open("rb") as handle:
+            assert Image.open(handle).size == (crop["w"], crop["h"])
+        # Reloaded: the picker shows Free for the odd box, and the box is the saved one.
+        expect(page.locator(FRAME)).to_be_visible()
+        _wait_ready(page)
+        expect(_shape_radio(page, "free")).to_be_checked()
+        restored = _box_data(page)
+        assert restored["width"] == pytest.approx(crop["w"], abs=2)
+        assert restored["height"] == pytest.approx(crop["h"], abs=2)
+
+    def it_shows_wide_for_a_saved_wide_box_and_keeps_an_untouched_box_unwritten(
+        live_server, page, login_via_code, serve_media
+    ):
+        # A box saved before the picker existed is 16:9; it reads as Wide, and until a shape
+        # is clicked or the box dragged the input holds exactly what the server rendered.
+        offering = _seed_draft_with_square_photo(_seed_instructor(), **CENTRED_BOX)
+        login_via_code(EMAIL)
+        _open_photos_step(page, live_server, "classes:teach_class_edit", pk=offering.pk)
+        expect(page.locator(FRAME)).to_be_visible()
+        _wait_ready(page)
+        expect(_shape_radio(page, "wide")).to_be_checked()
+        rendered = page.locator(CROP_INPUT).input_value()
+        assert json.loads(rendered) == {"x": 0, "y": 262, "w": 1200, "h": 675}
+
+        page.locator('[data-step-tab="3"]').click()
+        page.locator('[data-step-tab="2"]').click()
+        expect(page.locator(FRAME)).to_be_visible()
+        _wait_ready(page)
+        expect(_shape_radio(page, "wide")).to_be_checked()
+        expect(page.locator(CROP_INPUT)).to_have_value(rendered)

@@ -107,6 +107,22 @@ def describe_render_hero_crop():
         offering.save()
         assert _copy(offering).size == (1000, 600)
 
+    def it_cuts_a_square_box_and_the_page_takes_its_shape(db):
+        # The Photos step offers Square beside Wide; the render cuts whatever rectangle the
+        # box holds, and the banner's ratio is the box's own numbers, not a literal 1 / 1.
+        offering = _cropped((1000, 600), (200, 0, 600, 600))
+        copy = _copy(offering)
+        assert copy.size == (600, 600)
+        assert copy.width == copy.height
+        assert offering.hero_aspect_ratio == "600 / 600"
+
+    def it_cuts_an_odd_rectangle_from_the_free_shape(db):
+        # Free lets the host drag any rectangle; the row and the copy hold exactly that one.
+        offering = _cropped((1000, 600), (37, 91, 517, 233))
+        assert offering.hero_crop_box == (37, 91, 517, 233)
+        assert _copy(offering).size == (517, 233)
+        assert offering.hero_aspect_ratio == "517 / 233"
+
     def it_clamps_a_box_that_runs_past_the_edge(db):
         # A box measured on a raw original that was later downsized in place can overhang.
         offering = _cropped((1000, 600), (800, 400, 400, 225))

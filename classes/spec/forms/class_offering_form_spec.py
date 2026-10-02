@@ -317,6 +317,15 @@ def describe_HeroCropMixin():
             assert form.is_valid(), form.errors
             assert form.cleaned_data["hero_crop"] is None
 
+        def it_ignores_the_shape_picker_the_composer_posts_beside_it():
+            # The Photos step's Wide, Square and Free radios post as hero_crop_shape. No form
+            # claims that key: the shape lives only in the box the cropper writes to hero_crop,
+            # so an untouched cropper with a shape chosen still saves no box.
+            form = ClassOfferingForm(data=_admin_post_data(hero_crop="", hero_crop_shape="square"))
+            assert form.is_valid(), form.errors
+            assert "hero_crop_shape" not in form.fields
+            assert form.cleaned_data["hero_crop"] is None
+
     def describe_apply_hero_crop_to_instance():
         def it_writes_crop_coords_to_offering():
             crop = json.dumps({"x": 7, "y": 3, "w": 400, "h": 250})

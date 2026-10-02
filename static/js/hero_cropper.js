@@ -32,6 +32,15 @@
  * preview img and then call window.initHeroCropper(), which re-queries the img
  * and mounts on it once it has loaded.
  *
+ * The box can be wide (16:9), square or free. The template's
+ * [data-hero-crop-shape] fieldset holds three radios named hero_crop_shape that
+ * no form reads; this script owns them. A click hands Cropper the new ratio
+ * (setAspectRatio re-fits the box, centred), then writes and announces the box
+ * exactly as a drag does, so the hidden input and the card previews follow the
+ * choice. Every mount checks the radio matching the box the input holds (the
+ * same 2 percent detection as SHAPE_OF below; no box is Wide), so a rebuild on a
+ * step reveal and a reload of the composer show the shape that was saved.
+ *
  * Loads Cropper.js from a CDN on first use; safe to include the script on
  * pages that don't have a hero image field: it just no-ops.
  */
@@ -40,7 +49,11 @@
 
     var CROPPER_CSS = "https://cdn.jsdelivr.net/npm/cropperjs@1.6.1/dist/cropper.min.css";
     var CROPPER_JS = "https://cdn.jsdelivr.net/npm/cropperjs@1.6.1/dist/cropper.min.js";
-    var ASPECT = 16 / 9;
+    /* Cropper aspect ratios by shape. NaN is Cropper's "free" (any rectangle). */
+    var SHAPES = { wide: 16 / 9, square: 1, free: NaN };
+    /* A box within this fraction of a shape's ratio counts as that shape: a saved box
+     * is rounded to whole source pixels, so it is never exactly 16:9 or 1:1. */
+    var SHAPE_TOLERANCE = 0.02;
     var STEP_SHOWN_EVENT = "composer-step-shown";
     /* Dispatched on window with {position, box, natural}: the crop box's centre as a
      * percentage of the source image ("50.0% 68.8%", the shape of hero_object_position),
@@ -83,6 +96,17 @@
         try { return JSON.parse(raw); } catch (e) { return null; }
     }
 
+    /* The shape whose ratio a box {w, h} is within SHAPE_TOLERANCE of: "wide", "square"
+     * or "free". No box (null, or the Adjust tool's focal point with w and h 0) is
+     * "wide", the shape the cropper has always opened with. */
+    function shapeOf(box) {
+        if (!box || !box.w || !box.h) return "wide";
+        var ratio = box.w / box.h;
+        if (Math.abs(ratio / SHAPES.wide - 1) <= SHAPE_TOLERANCE) return "wide";
+        if (Math.abs(ratio / SHAPES.square - 1) <= SHAPE_TOLERANCE) return "square";
+        return "free";
+    }
+
     function writeCrop(input, data) {
         if (!data) { input.value = ""; return; }
         input.value = JSON.stringify({
@@ -112,9 +136,37 @@
         var cropInput = container.querySelector("[data-hero-crop-input]");
         var mount = container.querySelector("#hero-preview");
         if (!cropInput || !mount) return null;
+        var picker = container.querySelector("[data-hero-crop-shape]");
+        var radios = picker ? picker.querySelectorAll('input[name="hero_crop_shape"]') : [];
 
         var instance = null;
         var pending = null; // the preview img whose load event we are waiting on
+
+        function checkedShape() {
+            for (var i = 0; i < radios.length; i++) {
+                if (radios[i].checked) return radios[i].value;
+            }
+            return "wide";
+        }
+
+        function checkShape(shape) {
+            for (var i = 0; i < radios.length; i++) {
+                radios[i].checked = radios[i].value === shape;
+            }
+        }
+
+        /* A shape click on a live cropper: Cropper re-fits its box to the ratio (its own
+         * initCropBox, centred, as large as the photo allows), which fires no cropend, so
+         * the box is written and announced here, once, the way a drag's cropend does. */
+        function onShapeChange() {
+            if (!instance) return;
+            instance.setAspectRatio(SHAPES[checkedShape()]);
+            writeCrop(cropInput, instance.getData(true));
+            announceCrop();
+        }
+        for (var r = 0; r < radios.length; r++) {
+            radios[r].addEventListener("change", onShapeChange);
+        }
 
         function currentPreview() {
             return mount.querySelector("[data-hero-cropper-preview]");
@@ -180,8 +232,12 @@
 
         function mountOn(preview) {
             var initial = readInitialCrop(cropInput);
+            // The radio follows the box, never the other way round: the input is the
+            // truth on a rebuild (a step reveal re-mounts from it) and on a reload.
+            var shape = shapeOf(initial);
+            checkShape(shape);
             instance = new window.Cropper(preview, {
-                aspectRatio: ASPECT,
+                aspectRatio: SHAPES[shape],
                 viewMode: 1,
                 autoCropArea: 1,
                 background: false,
@@ -199,6 +255,9 @@
                 checkCrossOrigin: false,
                 checkOrientation: false,
                 ready: function () {
+                    // A cropper is live, so its shape can be chosen (the server hides the
+                    // picker when it renders no croppable photo; a fresh upload lands here).
+                    if (picker) picker.hidden = false;
                     // Restore a saved crop; write nothing for an untouched one. The automatic
                     // box Cropper draws for a focal point set with the Adjust tool (w 0, x and
                     // y as percentages; the composer seeds hero_crop empty for it) is nobody's

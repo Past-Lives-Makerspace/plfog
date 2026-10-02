@@ -12,7 +12,7 @@ Params:
   crop_field         — bound hidden hero_crop CharField (optional; enables cropper)
   offering           — the ClassOffering instance (needed for AJAX upload URL)
 
-Both branches render #hero-preview as the cropper's mount. The inline scripts own the
+Both branches render #hero-preview as the cropper's mount, under one shape picker. The inline scripts own the
 file pick: they swap a fresh <img data-hero-cropper-preview> into #hero-preview, clear
 the crop input (a new photo has no crop yet), then call window.initHeroCropper(), which
 static/js/hero_cropper.js defines to mount Cropper.js on the new img once it has loaded.
@@ -31,6 +31,38 @@ static/js/hero_cropper.js defines to mount Cropper.js on the new img once it has
             </span>
         </span>
     </label>
+
+    {% comment %}
+    Crop box shape picker. Three radios named hero_crop_shape, which no form reads: the
+    server only ever sees the box the cropper writes to the hidden hero_crop input, and
+    Django ignores a POST key no field claims. static/js/hero_cropper.js owns the radios:
+    it checks the one matching the saved box when it mounts (a ratio within 2 percent of
+    16:9 is Wide, within 2 percent of 1:1 is Square, anything else Free, no box is Wide),
+    and a click re-fits the Cropper.js box and writes and announces it like a drag. Hidden
+    until a cropper is live: the server hides it with no croppable photo (none yet, or an
+    imported one the box cannot position) and the cropper's ready callback reveals it, so
+    a fresh upload in either branch shows it without this template knowing.
+    {% endcomment %}
+    <fieldset class="pl-crop-shape" data-hero-crop-shape{% if not current_image_url or offering.has_imported_photo_only %} hidden{% endif %}>
+        <legend class="pl-crop-shape__legend">Box shape</legend>
+        <div class="pl-crop-shape__opts">
+            <label class="pl-crop-shape__opt">
+                <input type="radio" name="hero_crop_shape" value="wide" checked>
+                <span class="pl-crop-shape__title">Wide</span>
+                <span class="pl-crop-shape__ratio">16:9</span>
+            </label>
+            <label class="pl-crop-shape__opt">
+                <input type="radio" name="hero_crop_shape" value="square">
+                <span class="pl-crop-shape__title">Square</span>
+                <span class="pl-crop-shape__ratio">1:1</span>
+            </label>
+            <label class="pl-crop-shape__opt">
+                <input type="radio" name="hero_crop_shape" value="free">
+                <span class="pl-crop-shape__title">Free</span>
+            </label>
+        </div>
+        <p class="pl-field-hint pl-crop-shape__hint" id="hero-crop-shape-hint">Wide fits the banner on a laptop. Square and Free show the whole shape on the class page, with soft bars at the sides on a wide screen.</p>
+    </fieldset>
 
     {% if offering and offering.pk %}
     <div id="hero-upload-area"

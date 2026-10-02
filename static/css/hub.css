@@ -7456,6 +7456,69 @@ mark { background: color-mix(in srgb, var(--color-tuscan-yellow) 30%, transparen
     color: var(--hub-text-muted);
     margin: 0.35rem 0 0.75rem;
 }
+/* Crop box shape picker (hero_image_field.html): three radios, Wide, Square and Free, as
+   a row of pills, styled the way the option cards (.pl-radio-option) and the scheduling
+   type cards are. The native radio stays visible for the keyboard and screen readers;
+   :has(input:checked) lifts the chosen pill. The fieldset reset drops the browser's
+   inset border and legend offset, which the hub's forms never use. */
+.pl-crop-shape {
+    margin: 0 0 0.5rem;
+    padding: 0;
+    border: 0;
+    min-width: 0;
+}
+.pl-crop-shape__legend {
+    padding: 0;
+    margin: 0 0 0.35rem;
+    font-size: 0.8125rem;
+    font-weight: 600;
+    color: var(--hub-text);
+}
+.pl-crop-shape__opts {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+}
+.pl-crop-shape__opt {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.4rem;
+    padding: 0.4rem 0.75rem;
+    background: var(--hub-surface);
+    border: 1px solid var(--hub-border);
+    border-radius: 999px;
+    cursor: pointer;
+    font-size: 0.875rem;
+    color: var(--hub-text);
+    transition: border-color 0.15s ease, background 0.15s ease;
+}
+.pl-crop-shape__opt:hover {
+    border-color: var(--hub-border-strong);
+}
+.pl-crop-shape__opt input[type="radio"] {
+    flex: 0 0 auto;
+    width: auto;
+    margin: 0;
+    padding: 0;
+    background: none;
+    border: none;
+    accent-color: var(--color-tuscan-yellow);
+    cursor: pointer;
+}
+.pl-crop-shape__title {
+    font-weight: 600;
+}
+.pl-crop-shape__ratio {
+    font-size: 0.75rem;
+    color: var(--hub-text-muted);
+}
+.pl-crop-shape__opt:has(input:checked) {
+    border-color: var(--color-tuscan-yellow);
+    background: var(--hub-elevated);
+}
+.pl-crop-shape__hint {
+    margin: 0.5rem 0 0;
+}
 @media (max-width: 800px) {
     .pl-crop-pair { grid-template-columns: 1fr; }
 }
