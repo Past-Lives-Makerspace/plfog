@@ -3,7 +3,7 @@ display properties, and the one-shot announce()."""
 
 from __future__ import annotations
 
-from datetime import date, datetime, timedelta
+from datetime import UTC, date, datetime, timedelta
 from unittest.mock import patch
 
 import pytest
@@ -215,6 +215,19 @@ def describe_CommunityEvent():
             days = [timezone.localtime(d).day for d in occ]
             assert days == [11, 25]  # 2nd and 4th Saturday
 
+        def it_occurrences_in_never_spills_a_second_date_into_the_next_month(db):
+            # Jul 23 is the 4th Thursday; two weeks on is Aug 6. The iCal rule (BYDAY=4TH) has no
+            # such date, and listing it depended on whether the window began in July.
+            event = CommunityEventFactory(
+                recurrence=CommunityEvent.Recurrence.SEMI_MONTHLY,
+                starts_at=_aware(2026, 7, 23, 18),
+                ends_at=_aware(2026, 7, 23, 20),
+            )
+            from_july = event.occurrences_in(date(2026, 7, 1), date(2026, 8, 31))
+            from_august = event.occurrences_in(date(2026, 8, 1), date(2026, 8, 31))
+            assert [timezone.localtime(d).date() for d in from_july] == [date(2026, 7, 23), date(2026, 8, 27)]
+            assert [timezone.localtime(d).date() for d in from_august] == [date(2026, 8, 27)]
+
         def describe_ical_rrule():
             def it_is_blank_for_a_nonrecurring_event(db):
                 event = CommunityEventFactory(starts_at=_aware(2026, 7, 11, 18), ends_at=_aware(2026, 7, 11, 20))
@@ -410,6 +423,23 @@ def describe_CommunityEvent():
             event = CommunityEventFactory(starts_at=_aware(2026, 11, 5, 18), ends_at=_aware(2026, 11, 5, 20))
             ((send, _date),) = event.reminder_sends(7, _aware(2026, 10, 28, 0), _aware(2026, 10, 30, 0))
             assert timezone.localtime(send).hour == 18
+
+        def it_finds_a_date_just_after_midnight_from_a_utc_now_across_fall_back(db):
+            # Nov 1 2026 falls back; a day before Nov 2 at 12:30 AM is Nov 1 at 12:30 AM, 25
+            # real hours earlier, which a real-time date window slid past.
+            start = timezone.make_aware(datetime(2026, 11, 2, 0, 30))
+            event = CommunityEventFactory(starts_at=start, ends_at=start + timedelta(hours=1))
+            send = timezone.make_aware(datetime(2026, 11, 1, 0, 30))
+            frm = send.astimezone(UTC) - timedelta(minutes=5)
+            assert event.reminder_sends(1, frm, frm + timedelta(minutes=15)) == [(send, start)]
+
+        def it_finds_a_late_evening_date_from_a_utc_now_across_spring_forward(db):
+            # Mar 14 2027 springs forward; a day before 11:30 PM that night is 23 real hours.
+            start = timezone.make_aware(datetime(2027, 3, 14, 23, 30))
+            event = CommunityEventFactory(starts_at=start, ends_at=start + timedelta(minutes=30))
+            send = timezone.make_aware(datetime(2027, 3, 13, 23, 30))
+            frm = send.astimezone(UTC) - timedelta(minutes=5)
+            assert event.reminder_sends(1, frm, frm + timedelta(minutes=15)) == [(send, start)]
 
         def it_treats_zero_days_as_the_moment_a_date_begins(db):
             event = CommunityEventFactory(starts_at=_aware(2026, 7, 11, 18), ends_at=_aware(2026, 7, 11, 20))

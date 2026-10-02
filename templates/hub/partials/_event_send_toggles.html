@@ -6,14 +6,18 @@ start, the repeat or the announce time changes. The times therefore always come 
 CommunityEvent.reminder_sends, the method the scheduler fires from, and never lag the inputs.
 The request carries this block's own toggles, so a flip made before the change survives it.
 An input the page does not have (a live event has no announce time) matches nothing and is
-simply left out.
+simply left out. hx-sync replaces a request still in flight, because the swap removes the
+element a queued one would have run from, which left the times one edit behind. A proposal
+says so (in_review), since its times hold only if it is approved by then.
 {% endcomment %}
 <div id="event-send-toggles"
      hx-get="{% url 'hub_event_send_toggles' %}"
      hx-trigger="change from:#id_starts_at, change from:#id_recurrence, change from:#id_publish_at"
      hx-include="#id_starts_at, #id_recurrence, #id_publish_at, #event-send-toggles"
      hx-target="this"
-     hx-swap="outerHTML">
+     hx-swap="outerHTML"
+     hx-sync="this:replace"{% if in_review %}
+     hx-vals='{"in_review": "on"}'{% endif %}>
   {% for field, hint in send_rows %}
     {% if forloop.last %}<div class="pl-toggle-set">{% endif %}
     {% include "components/form_field.html" with field=field field_hint=hint %}

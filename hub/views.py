@@ -5733,7 +5733,12 @@ def event_send_toggles(request: HttpRequest) -> HttpResponse:
     from hub.forms import EventSendTogglesForm
 
     form = EventSendTogglesForm(request.GET)
-    return render(request, "hub/partials/_event_send_toggles.html", {"send_rows": form.send_rows()})
+    rows = form.send_rows()
+    return render(
+        request,
+        "hub/partials/_event_send_toggles.html",
+        {"send_rows": rows, "in_review": form.cleaned_data.get("in_review", False)},
+    )
 
 
 @login_required

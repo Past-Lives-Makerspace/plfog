@@ -108,7 +108,9 @@ def _sending_events(now: datetime, *, days_before: int) -> QuerySet[CommunityEve
     within that reach, or a repeating series that has begun by then. Studio hours never send."""
     from membership.models import CommunityEvent
 
-    reach = now + timedelta(days=days_before) + DEFAULT_WINDOW
+    # A coarse cut; reminder_sends makes the exact one. Counted in clock time from a UTC now,
+    # with a day to spare for the hour a daylight saving change adds and for the tick window.
+    reach = timezone.localtime(now) + timedelta(days=days_before + 1)
     one_off = Q(recurrence=CommunityEvent.Recurrence.NONE, starts_at__gte=now, starts_at__lte=reach)
     series = ~Q(recurrence=CommunityEvent.Recurrence.NONE) & Q(starts_at__lte=reach)
     return (

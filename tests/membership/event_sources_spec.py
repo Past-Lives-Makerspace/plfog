@@ -4,7 +4,7 @@ past-offset skip, and a repeating series reminding before every date."""
 
 from __future__ import annotations
 
-from datetime import datetime, timedelta
+from datetime import UTC, datetime, timedelta
 
 import pytest
 from django.contrib.auth.models import User
@@ -116,6 +116,16 @@ def describe_event_reminder_occurrences():
             assert run_sources([event_reminder_occurrences], now=send) == 1
             assert run_sources([event_reminder_occurrences], now=send) == 0
         assert Notification.objects.filter(trigger="event.reminder", user=member).count() == 3
+
+    def it_reminds_a_week_out_across_the_fall_clock_change_on_a_utc_tick():
+        # The cron's now is UTC. Nov 1 2026 falls back, so 6 PM a week before a Nov 5 6 PM
+        # start is 7 days and an hour earlier in real time.
+        start = timezone.make_aware(datetime(2026, 11, 5, 18, 0))
+        event = CommunityEventFactory(starts_at=start, ends_at=start + timedelta(hours=2), remind_7d=True)
+        tick = timezone.make_aware(datetime(2026, 10, 29, 17, 50)).astimezone(UTC)
+        (occurrence,) = list(event_reminder_occurrences(tick))
+        assert occurrence.is_due(now=tick)
+        assert occurrence.period == f"event:{event.pk}:reminder:7d:2026-11-05"
 
     def it_sends_nothing_for_studio_hours_even_with_a_toggle_on():
         # Studio hours are weekly rows, exactly the shape a series now reminds on.

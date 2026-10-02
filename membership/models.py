@@ -6294,7 +6294,13 @@ class CommunityEvent(models.Model):
         occurrences: list[datetime_type] = []
         while month_cursor <= to:
             occ_date = _nth_weekday(month_cursor, wd, ordinal)
-            candidates = [occ_date, occ_date + relativedelta(weeks=2)] if is_semi_monthly else [occ_date]
+            candidates = [occ_date]
+            # Twice a month is the nth and nth+2 weekday when both fit in the month, as
+            # ical_rrule says. A second date spilling into the next month was listed only when
+            # the window began in the earlier month, so the same date came and went with it.
+            second = occ_date + relativedelta(weeks=2)
+            if is_semi_monthly and second.month == occ_date.month:
+                candidates.append(second)
             for occ in candidates:
                 if occ >= anchor_date and frm <= occ <= to:
                     occurrences.append(local_start.replace(year=occ.year, month=occ.month, day=occ.day))
@@ -6448,10 +6454,16 @@ class CommunityEvent(models.Model):
         its tick and the event editor shows the next one, so the two cannot disagree. A
         repeating series sends before each of its dates, and ``days_before=0`` is the
         happening-now ping, sent as a date begins. Times are local, so "7 days before" keeps
-        the wall-clock time across a daylight saving change.
+        the wall-clock time across a daylight saving change. The dates are looked up in clock
+        time with a day to spare either side: the cron's ``now`` is UTC, and adding days to it
+        in real time slips an hour across a change, which would drop a date at the edge.
         """
         before = timedelta(days=days_before)
-        dates = self.occurrences_in(timezone.localdate(frm + before), timezone.localdate(to + before))
+        spare = timedelta(days=1)
+        dates = self.occurrences_in(
+            timezone.localdate(timezone.localtime(frm) + before) - spare,
+            timezone.localdate(timezone.localtime(to) + before) + spare,
+        )
         sends = []
         for date_start in dates:
             local = timezone.localtime(date_start)

@@ -15,6 +15,7 @@ import pytest
 from django.test import Client
 from django.urls import reverse
 from django.utils import timezone
+from django.utils.html import escape
 
 from hub.forms import CommunityEventForm, EventSendTogglesForm, event_send_hints
 from membership.models import CommunityEvent, Member
@@ -85,6 +86,30 @@ def describe_event_send_hints():
         hints = event_send_hints(starts_at=start, recurrence="none", publish_at=_evening(5))
         assert hints["remind_7d"].endswith("Too late for this event, so it won't send.")
         assert hints["remind_3d"].endswith(f"{_time(start - timedelta(days=3))}.")
+
+    def it_calls_a_send_due_within_a_tick_too_late():
+        # The cron already checked anything due in the next 15 minutes, before this save.
+        soon = timezone.now() + timedelta(minutes=10)
+        hints = event_send_hints(starts_at=soon, recurrence="none", publish_at=None)
+        assert hints["notify_happening_now"].endswith("Too late for this event, so it won't send.")
+
+    def it_calls_a_send_due_at_the_announce_time_too_late():
+        # That send is checked in the tick before, while the event is still scheduled.
+        start = _evening(10)
+        at_announce = event_send_hints(starts_at=start, recurrence="none", publish_at=start - timedelta(days=7))
+        before_it = event_send_hints(
+            starts_at=start, recurrence="none", publish_at=start - timedelta(days=7, minutes=30)
+        )
+        assert at_announce["remind_7d"].endswith("Too late for this event, so it won't send.")
+        assert before_it["remind_7d"].endswith(f"{_time(start - timedelta(days=7))}.")
+
+    def it_says_a_proposals_times_hold_only_if_it_is_approved_by_then():
+        start = _evening(10)
+        hints = event_send_hints(starts_at=start, recurrence="none", publish_at=None, in_review=True)
+        assert hints["remind_7d"].endswith(f"{_time(start - timedelta(days=7))}, if it's approved by then.")
+        series = event_send_hints(starts_at=start, recurrence=Weekly, publish_at=None, in_review=True)
+        assert series["notify_happening_now"].endswith("if it's approved by then.")
+        assert series["remind_7d"].endswith("if it's approved by then.")
 
     def it_ignores_an_announce_time_that_has_passed():
         start = _evening(10)
@@ -160,7 +185,9 @@ def describe_the_save_button():
     def it_says_save_and_announce_on_a_new_event(client: Client):
         content = _page(client)
         assert _save_label(content) == "Save and announce"
-        assert b"Save and schedule" in content  # the label it switches to once a time is set
+        # The label it switches to once a time is set. Anchored on the attribute: the changelog
+        # renders on every page and says "Save and schedule" too.
+        assert re.search(rb'id="event-save"[^>]*x-text="[^"]*\'Save and schedule\'', content)
 
     def it_says_save_and_schedule_on_a_scheduled_event(client: Client):
         event = CommunityEventFactory(moderation_state=State.SCHEDULED, publish_at=timezone.now() + timedelta(days=2))
@@ -216,6 +243,26 @@ def describe_the_send_toggles():
         # The flip made before the start changed survives the swap.
         assert re.search(rb'<input[^>]*name="remind_1d"[^>]*checked', content)
         assert not re.search(rb'<input[^>]*name="remind_7d"[^>]*checked', content)
+
+    def it_carries_a_proposals_qualifier_through_the_swap(client: Client):
+        _user_with_role("send_partial_review")
+        client.login(username="send_partial_review", password="pass")
+        resp = client.get(
+            reverse("hub_event_send_toggles"),
+            {"starts_at": _field(_evening(9)), "recurrence": "none", "in_review": "on"},
+        )
+        assert escape("if it's approved by then.").encode() in resp.content
+        assert b'hx-vals=\'{"in_review": "on"}\'' in resp.content
+
+    def it_marks_a_proposals_toggles_on_the_edit_page(client: Client):
+        user = _user_with_role("send_review_page")
+        guild = GuildFactory(guild_lead=user.member)
+        start = _evening(10)
+        event = CommunityEventFactory(pending=True, guild=guild, starts_at=start, ends_at=start + timedelta(hours=2))
+        client.login(username="send_review_page", password="pass")
+        content = client.get(reverse("hub_guild_event_edit", args=[guild.pk, event.pk])).content
+        assert b'hx-vals=\'{"in_review": "on"}\'' in content
+        assert escape(f"{_time(start - timedelta(days=7))}, if it's approved by then.").encode() in content
 
     def it_says_only_what_each_is_for_when_the_start_does_not_parse(client: Client):
         _user_with_role("send_partial_bad")

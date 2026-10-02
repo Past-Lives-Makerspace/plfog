@@ -83,7 +83,7 @@
 
       {# Reminders and the happening-now ping, each saying when it goes out. #}
       <p class="hub-text-muted" style="font-size:0.8125rem; margin:1.25rem 0 0.5rem;">Remind members before it starts:</p>
-      {% include "hub/partials/_event_send_toggles.html" with send_rows=form.send_rows %}
+      {% include "hub/partials/_event_send_toggles.html" with send_rows=form.send_rows in_review=form.in_review %}
     </div>
 
     {% comment %}

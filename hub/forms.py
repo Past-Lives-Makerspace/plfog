@@ -26,6 +26,7 @@ if TYPE_CHECKING:
 from core.html_sanitize import sanitize_rich_html
 from core.validators import ALLOWED_WIKI_IMAGE_EXTENSIONS, validate_image_size, validate_wiki_upload
 from core.features import DEFAULT_SOON_MESSAGE
+from core.events.scheduling import DEFAULT_WINDOW
 from core.models import CalendarFeed, FeatureSwitch, ScheduledJobState, SiteConfiguration
 from core.widgets import PageContentEditorWidget, RichTextEditorWidget
 from membership.markdown import sanitize_page_submission, sanitize_wiki_submission
@@ -3292,7 +3293,9 @@ class CommunityEventForm(forms.ModelForm):
             starts_at = self.instance.starts_at
             recurrence = self.instance.recurrence
             publish_at = None if self.announced else self.instance.publish_at
-        hints = event_send_hints(starts_at=starts_at, recurrence=recurrence, publish_at=publish_at)
+        hints = event_send_hints(
+            starts_at=starts_at, recurrence=recurrence, publish_at=publish_at, in_review=self.in_review
+        )
         return [(self[name], hints[name]) for name, _days in EVENT_SEND_TOGGLES]
 
 
@@ -3307,15 +3310,20 @@ def _send_time_display(at: datetime) -> str:
 
 
 def event_send_hints(
-    *, starts_at: datetime | None, recurrence: str | None, publish_at: datetime | None
+    *, starts_at: datetime | None, recurrence: str | None, publish_at: datetime | None, in_review: bool = False
 ) -> dict[str, str]:
     """Each timing toggle's description, naming when it goes out for this start and repeat.
 
     The times come from :meth:`CommunityEvent.reminder_sends`, the method the scheduler fires
     from, so what the editor says is what happens. Worded the same whether the toggle is on or
-    off, because the page does not re-render on a flip. Nothing sends before the event is
-    live, so a future announce time is the earliest any send can go; with no start yet, each
-    toggle just says what it is for.
+    off, because the page does not re-render on a flip. With no start yet, each toggle just
+    says what it is for.
+
+    A send counts only from one scheduler tick after now, or after a future announce time. The
+    cron checks each send in the tick before it is due, so a send due sooner than that was
+    already checked before this save, and one due at the announce time is checked while the
+    event is still scheduled, which skips it. A proposal's times hold only if it is approved
+    by then, and say so.
     """
     repeat = recurrence or CommunityEvent.Recurrence.NONE
     series = repeat != CommunityEvent.Recurrence.NONE
@@ -3323,7 +3331,8 @@ def event_send_hints(
     if starts_at is not None:
         event = CommunityEvent(starts_at=starts_at, ends_at=starts_at + timedelta(hours=1), recurrence=repeat)
     now = timezone.now()
-    after = publish_at if publish_at is not None and publish_at > now else now
+    after = (publish_at if publish_at is not None and publish_at > now else now) + DEFAULT_WINDOW
+    if_approved = ", if it's approved by then" if in_review else ""
     hints: dict[str, str] = {}
     for name, days in EVENT_SEND_TOGGLES:
         if days:
@@ -3339,11 +3348,12 @@ def event_send_hints(
             hints[name] = f"{purpose}. Too late for this event, so it won't send."
         elif series and days:
             send, date_start = found
-            hints[name] = f"{purpose}. Next: {_send_time_display(send)}, for {date_start.strftime('%a, %b %-d')}."
+            when = f"{_send_time_display(send)}, for {date_start.strftime('%a, %b %-d')}"
+            hints[name] = f"{purpose}. Next: {when}{if_approved}."
         elif series:
-            hints[name] = f"{purpose}. Next: {_send_time_display(found[0])}."
+            hints[name] = f"{purpose}. Next: {_send_time_display(found[0])}{if_approved}."
         else:
-            hints[name] = f"{purpose}: {_send_time_display(found[0])}."
+            hints[name] = f"{purpose}: {_send_time_display(found[0])}{if_approved}."
     return hints
 
 
@@ -3357,6 +3367,7 @@ class EventSendTogglesForm(forms.Form):
     starts_at = forms.DateTimeField(required=False, input_formats=["%Y-%m-%dT%H:%M", "%Y-%m-%dT%H:%M:%S"])
     recurrence = forms.ChoiceField(required=False, choices=CommunityEvent.Recurrence.choices)
     publish_at = forms.DateTimeField(required=False, input_formats=["%Y-%m-%dT%H:%M", "%Y-%m-%dT%H:%M:%S"])
+    in_review = forms.BooleanField(required=False)
 
     def __init__(self, *args: Any, **kwargs: Any) -> None:
         super().__init__(*args, **kwargs)
@@ -3367,7 +3378,10 @@ class EventSendTogglesForm(forms.Form):
         self.is_valid()
         data = self.cleaned_data
         hints = event_send_hints(
-            starts_at=data.get("starts_at"), recurrence=data.get("recurrence"), publish_at=data.get("publish_at")
+            starts_at=data.get("starts_at"),
+            recurrence=data.get("recurrence"),
+            publish_at=data.get("publish_at"),
+            in_review=bool(data.get("in_review")),
         )
         return [(self[name], hints[name]) for name, _days in EVENT_SEND_TOGGLES]
 
