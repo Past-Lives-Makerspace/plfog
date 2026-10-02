@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import re
+
 import json
 from collections.abc import Mapping
 from decimal import Decimal
@@ -410,14 +412,25 @@ def setup_flexible_booking_text(form: forms.ModelForm) -> None:
         form.initial["flexible_booking_text"] = form.instance.default_flexible_booking_line
 
 
+# The shape of the standard line, whoever it names: the pre-fill is compared against this and not
+# against today's exact default, so an instructor renamed while the composer was open (58 classes
+# moved from "Billy" to his full name on 2026-09-30) does not turn the untouched box into a frozen
+# copy of the old name. The one thing that cannot be kept is a standard line with only the name
+# changed; the page names the instructor from their profile.
+STANDARD_BOOKING_LINE = re.compile(
+    r"After you register, you'll book your session directly with .+ and pick a day "
+    r"(?:inside this window )?that works for both of you\."
+)
+
+
 def clean_flexible_booking_text(form: forms.ModelForm) -> str:
     """The posted text, or blank when it is still the standard line the box was pre-filled with.
 
     Compared with the spacing folded, so a wrapped paste of the same words still counts as
     untouched; a kept text is stored as typed, line breaks included.
     """
-    text = (form.cleaned_data.get("flexible_booking_text") or "").strip()
-    if " ".join(text.split()) == form.instance.default_flexible_booking_line:
+    text: str = form.cleaned_data["flexible_booking_text"]
+    if STANDARD_BOOKING_LINE.fullmatch(" ".join(text.split())):
         return ""
     return text
 
@@ -686,6 +699,11 @@ class TeachClassOfferingForm(
     def __init__(self, *args, teaching_member: "Member | None" = None, **kwargs) -> None:
         self.teaching_member = teaching_member
         super().__init__(*args, **kwargs)
+        # What save() will set, set now, so the booking line box on a new class names the
+        # instructor and not "your instructor". The instructor is not one of this form's fields,
+        # so nothing posted can overwrite it.
+        if teaching_member is not None and not self.instance.instructor_id:
+            self.instance.instructor = teaching_member
         self.fields["category"].label = "Class Type"
         self.add_hero_crop_field()
         self.add_card_focus_field()
@@ -960,8 +978,8 @@ class TeachPublishedClassForm(_RichDescriptionMixin, forms.ModelForm):
             "materials_to_bring",
             "safety_requirements",
             "age_guardian_note",
-            "flexible_note",
             "flexible_booking_text",
+            "flexible_note",
             "video_url",
         ]
         widgets = {

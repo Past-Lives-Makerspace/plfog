@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import re
+
 from typing import TYPE_CHECKING, Any
 
 from django import template
@@ -87,18 +89,35 @@ def is_public(member: Any, field_name: str) -> bool:
     return bool(member.is_public(field_name))
 
 
+# An extension marker and its digits: "x12", "ext 12", "ext. 12", "extension 12". Not \b before
+# the letter: "0199x12" has no word boundary there.
+_EXTENSION = re.compile(r"(?<![a-z])(?:x|ext\.?|extension)\s*(\d+)", re.IGNORECASE)
+_SECOND_NUMBER = re.compile(r"[,/]")
+_DIGITS = frozenset("0123456789")
+
+
 @register.filter
 def tel_href(phone: str) -> str:
     """``phone`` as the number part of a ``tel:`` link: its digits, with a leading plus kept.
 
     Members type their number any way they like ("(503) 555 0199", "503.555.0199"); a dialer
     wants the digits. A ``+`` in front marks a country code and stays, so an international
-    number still dials. A value with no digits at all gives "", and the card shows it as text.
+    number still dials. An extension ("x12", "ext. 12", ", ext 12") rides along as RFC 3966's
+    ``;ext=12`` instead of being dialled as part of the number, and of two numbers split by a
+    comma or a slash only the first is linked. A value with no digits before any extension
+    gives "", and the card shows it as text. ``_DIGITS`` and not ``str.isdigit``, which also
+    takes superscripts.
     """
-    digits = "".join(ch for ch in phone if ch.isdigit())
+    first, *rest = _SECOND_NUMBER.split(phone, maxsplit=1)
+    extension = _EXTENSION.search(first)
+    if extension is None and rest:
+        extension = _EXTENSION.match(rest[0].strip())
+    number = first[: extension.start()] if extension is not None and extension.string is first else first
+    digits = "".join(ch for ch in number if ch in _DIGITS)
     if not digits:
         return ""
-    return f"+{digits}" if phone.strip().startswith("+") else digits
+    href = f"+{digits}" if number.strip().startswith("+") else digits
+    return f"{href};ext={extension.group(1)}" if extension is not None else href
 
 
 @register.filter

@@ -66,9 +66,35 @@ def describe_the_booking_line_box_on_the_composer():
         assert "Billy Anvil" in form["flexible_booking_text"].value()
         assert "inside this window" in form["flexible_booking_text"].value()
 
-    def it_is_pre_filled_with_your_instructor_on_a_new_class(form_class):
-        value = form_class()["flexible_booking_text"].value()
+    def it_is_pre_filled_with_the_teaching_member_on_a_new_class():
+        # The teach form sets the instructor on save; the box has to name them before that, or an
+        # edited line would carry "your instructor" onto the live page for good.
+        teacher = InstructorFactory(full_legal_name="Riley Harrison")
+        value = TeachClassOfferingForm(teaching_member=teacher)["flexible_booking_text"].value()
+        assert "directly with Riley Harrison and pick a day" in value
+
+    def it_is_pre_filled_with_your_instructor_on_a_new_admin_class():
+        value = ClassOfferingForm()["flexible_booking_text"].value()
         assert value.startswith("After you register, you'll book your session directly with your instructor")
+
+    def it_counts_the_standard_line_with_the_old_name_as_unchanged_after_a_rename(form_class):
+        # The instructor was renamed while the composer sat open: the pre-fill still says Billy.
+        offering = _flexible()
+        stale = offering.default_flexible_booking_line
+        offering.instructor.full_legal_name = "William E. Ottaviani"
+        offering.instructor.save(update_fields=["full_legal_name"])
+        offering.refresh_from_db()
+        assert stale != offering.default_flexible_booking_line
+        form = _post(form_class, offering, stale)
+        assert form.is_valid(), form.errors
+        assert form.save().flexible_booking_text == ""
+
+    def it_stores_a_standard_line_with_one_word_changed(form_class):
+        offering = _flexible()
+        changed = offering.default_flexible_booking_line.replace("pick a day", "pick a Saturday")
+        form = _post(form_class, offering, changed)
+        assert form.is_valid(), form.errors
+        assert form.save().flexible_booking_text == changed
 
     def it_shows_the_instructors_own_text_once_written(form_class):
         offering = _flexible(flexible_booking_text=OWN_LINE)
