@@ -5,10 +5,26 @@ from __future__ import annotations
 import re
 
 import pytest
+from django.core.files.uploadedfile import SimpleUploadedFile
 from django.urls import reverse
 
-from classes.factories import ClassOfferingFactory, InstructorFactory, UserFactory
-from classes.models import ClassOffering
+from classes.factories import CategoryFactory, ClassOfferingFactory, InstructorFactory, UserFactory
+from classes.models import Category, ClassOffering
+
+
+# Smallest valid GIF, enough for a category hero ImageField to accept and store.
+_GIF = (
+    b"GIF89a\x01\x00\x01\x00\x80\x00\x00\x00\x00\x00\xff\xff\xff!"
+    b"\xf9\x04\x01\x00\x00\x00\x00,\x00\x00\x00\x00\x01\x00\x01\x00\x00\x02\x02D\x01\x00;"
+)
+
+
+def _category_with_hero() -> Category:
+    """A category carrying a hero image, for the fallback branch of the class page banner."""
+    category = CategoryFactory()
+    category.hero_image = SimpleUploadedFile("hero.gif", _GIF, content_type="image/gif")
+    category.save()
+    return category
 
 
 @pytest.fixture
@@ -56,30 +72,60 @@ def describe_class_preview():
         response = client.get(reverse("classes:class_preview", kwargs={"pk": draft.pk}))
         assert response.status_code == 200
 
-    def it_renders_the_hero_adjust_tool_with_the_content_type_ids(instructor_fixture, client):
+    def it_renders_the_hero_adjust_tool_for_a_category_hero_with_the_content_type_ids(
+        admin_user, instructor_fixture, client
+    ):
         """Issue #536, item 4: the preview passes the ids heroPlacement({...}) interpolates.
 
-        Without them the rendered ``contentTypeId: ,`` is a JavaScript syntax error, the
-        component never initialises, the hero shows at 50% 50% whatever the saved crop, and
-        the Adjust tool the imported photo note sends instructors to is dead in every preview.
+        Without them the rendered ``contentTypeId: ,`` is a JavaScript syntax error and the
+        component never initialises. The tool now exists for the category hero only (the
+        class's own photo shows whole, so there is nothing to adjust), so it is the category's
+        ids that must land, and an admin is the editor who can move the category hero.
         """
         from django.contrib.contenttypes.models import ContentType
 
         from classes.models import Category
 
         draft = ClassOfferingFactory(
-            instructor=instructor_fixture, slug="adjustable", status=ClassOffering.Status.DRAFT
+            instructor=instructor_fixture,
+            slug="adjustable",
+            status=ClassOffering.Status.DRAFT,
+            image="",
+            category=_category_with_hero(),
+        )
+        client.force_login(admin_user)
+        response = client.get(reverse("classes:class_preview", kwargs={"pk": draft.pk}))
+        html = response.content.decode()
+        category_ct = ContentType.objects.get_for_model(Category)
+        assert response.context["category_ct_id"] == category_ct.pk
+        assert "heroPlacement({" in html
+        assert f"contentTypeId: {category_ct.pk}," in html
+        assert f"objectId: {draft.category.pk}," in html
+        assert "contentTypeId: ," not in html
+        assert 'title="Adjust Placement"' in html
+
+    def it_shows_the_classs_own_photo_whole_with_no_adjust_tool(instructor_fixture, client):
+        # The frame takes the photo's shape and the img is contain fitted, so the composer's
+        # crop box is what the page shows; the sliders would have nothing to move.
+        draft = ClassOfferingFactory(
+            instructor=instructor_fixture,
+            slug="whole-photo",
+            status=ClassOffering.Status.DRAFT,
+            image__width=1000,
+            image__height=600,
         )
         client.force_login(instructor_fixture.user)
-        html = client.get(reverse("classes:class_preview", kwargs={"pk": draft.pk})).content.decode()
-        offering_ct = ContentType.objects.get_for_model(ClassOffering)
-        assert "heroPlacement({" in html
-        assert f"contentTypeId: {offering_ct.pk}," in html
-        assert f"objectId: {draft.pk}," in html
-        assert "contentTypeId: ," not in html
-        # The category id is in the context too, for the category hero branch the public page shares.
         response = client.get(reverse("classes:class_preview", kwargs={"pk": draft.pk}))
-        assert response.context["category_ct_id"] == ContentType.objects.get_for_model(Category).pk
+        assert response.context["can_edit_offering"] is True
+        html = response.content.decode()
+        hero = re.search(r'<header class="cp-detail__hero[^>]*>', html)
+        assert hero is not None, "no hero rendered"
+        assert 'class="cp-detail__hero cp-detail__hero--photo"' in hero.group(0)
+        assert 'style="--cp-hero-ratio: 1000 / 600;"' in hero.group(0)
+        assert "cp-detail__hero-backdrop" in html
+        assert "heroPlacement(" not in html
+        assert 'title="Adjust Placement"' not in html
+        assert "isAdjusting" not in html
 
     def it_shows_the_cropped_copy_on_the_banner(instructor_fixture, client):
         # Issue #547: the page preview is the public page, so it shows the copy cut to the
@@ -237,13 +283,26 @@ def describe_page_parity_in_preview():
         return offering
 
     def it_gives_the_hero_widget_its_content_type_id(admin_user, instructor_fixture, category, client):
+        # The widget is the category hero's now, so the class has no photo of its own here.
         offering = _publish("Forge Night", "forge-hero", category, instructor_fixture, days_out=3)
-        offering.legacy_image_url = "https://img.example.com/forge.jpg"
-        offering.save(update_fields=["legacy_image_url"])
+        offering.image = ""
+        offering.save(update_fields=["image"])
+        category.hero_image = SimpleUploadedFile("hero.gif", _GIF, content_type="image/gif")
+        category.save()
         client.force_login(admin_user)
         body = client.get(reverse("classes:class_preview", kwargs={"pk": offering.pk})).content.decode()
         assert "contentTypeId: ," not in body
         assert "heroPlacement(" in body
+
+    def it_shows_an_imported_photo_whole_with_no_widget(admin_user, instructor_fixture, category, client):
+        offering = _publish("Forge Night", "forge-whole", category, instructor_fixture, days_out=3)
+        offering.image = ""
+        offering.legacy_image_url = "https://img.example.com/forge.jpg"
+        offering.save(update_fields=["image", "legacy_image_url"])
+        client.force_login(admin_user)
+        body = client.get(reverse("classes:class_preview", kwargs={"pk": offering.pk})).content.decode()
+        assert 'style="--cp-hero-ratio: 16 / 9;"' in body
+        assert "heroPlacement(" not in body
 
     def it_lists_other_dates_of_the_same_class(admin_user, instructor_fixture, category, client):
         first = _publish("Forge Night with Glen", "forge-a", category, instructor_fixture, days_out=2)

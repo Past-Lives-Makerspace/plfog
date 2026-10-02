@@ -750,7 +750,8 @@ html.dark .cp-page {
 /* ── Hero ──────────────────────────────────────── */
 /* min-height, not height: the content sits at the bottom, so a fixed box pushed the category
    row out of the top once a long title or subtitle wrapped on a phone (#563). Short content
-   leaves the box at exactly this size; the image is absolutely inset, so it covers any height. */
+   leaves the box at exactly this size; the image is absolutely inset, so it covers any height.
+   This floor is the category hero's and the logo fallback's; a class photo has its own below. */
 .cp-detail__hero {
   position: relative;
   width: 100%;
@@ -760,13 +761,54 @@ html.dark .cp-page {
   display: flex;
   align-items: flex-end;
 }
+/* A class photo shows whole, so the frame takes the photo's shape. The template sets
+   --cp-hero-ratio to the shown copy's "W / H"; the ::before sizer carries that ratio at full
+   width, capped at 700px. The hero column is 1240px at its widest, so a 16:9 crop fills it on
+   any screen and only a taller shape (a square, say) is pillarboxed over the backdrop.
+   A grid cell holds the sizer and the content together, so the frame is the taller of the
+   two: the photo's height, or the content when a long title needs more (#563). The ratio sits
+   on the sizer and not on the frame itself because aspect-ratio with max-height on the frame
+   would clip tall content again. 200px is the floor for a very short crop. */
+.cp-detail__hero--photo {
+  min-height: 200px;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  align-items: end;
+}
+.cp-detail__hero--photo::before {
+  content: "";
+  grid-area: 1 / 1;
+  width: 100%;
+  aspect-ratio: var(--cp-hero-ratio, 16 / 9);
+  max-height: 700px;
+}
+.cp-detail__hero--photo > .cp-detail__hero-content {
+  grid-area: 1 / 1;
+}
+/* contain, centred: nothing of the class photo is clipped, whatever the frame's height. */
 .cp-detail__hero-img {
   position: absolute;
   inset: 0;
   width: 100%;
   height: 100%;
-  object-fit: cover;
+  object-fit: contain;
+  object-position: 50% 50%;
   display: block;
+}
+/* The category hero keeps the cover fit the Adjust sliders position. */
+.cp-detail__hero-img--cover {
+  object-fit: cover;
+}
+/* The same photo, blurred and darkened, under the img: it fills the bars when the frame is
+   taller than the photo (a long title on a phone, the 700px cap on a tall crop). The scale
+   hides the blur's soft edge. */
+.cp-detail__hero-backdrop {
+  position: absolute;
+  inset: 0;
+  background-size: cover;
+  background-position: 50% 50%;
+  filter: blur(28px) brightness(0.6);
+  transform: scale(1.1);
 }
 .cp-detail__hero-logo {
   position: absolute;

@@ -196,8 +196,7 @@ LEGACY_PHOTO = "https://classes.pastlives.space/sites/default/files/glen.jpg"
 
 IMPORTED_PHOTO_NOTE = (
     "This photo came over from the old class site, so the crop box is off for it. "
-    "To choose which part shows on the banner, click Preview and use Adjust under the photo. "
-    "Upload a new photo to crop it here."
+    "The class page shows all of it. Upload a new photo to crop it here."
 )
 
 
@@ -482,7 +481,7 @@ def describe_teach_composer_get():
         """A legacy only class has its own hero: the note, the preview, and a ticked checklist.
 
         The crop box cannot position an imported photo, so the preview carries no cropper
-        hook, the box hint is hidden, and the note sends the editor to Adjust instead.
+        hook, the box hint is hidden, and the note says the page shows the whole photo.
         """
         offering = ClassOfferingFactory(
             instructor=instructor_fixture,

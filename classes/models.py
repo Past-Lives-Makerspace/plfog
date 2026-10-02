@@ -15,6 +15,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any, NamedTuple, cast
 
 from django.conf import settings
+from django.core.cache import cache
 from django.core.exceptions import ValidationError
 from django.core.files.base import ContentFile
 from django.core.validators import MaxValueValidator
@@ -33,6 +34,7 @@ from django.db.models import (
     Value,
     When,
 )
+from django.db.models.fields.files import ImageFieldFile
 from django.db.models.functions import Cast, Now
 from django.utils import timezone
 from django.utils.formats import date_format
@@ -1066,6 +1068,45 @@ class ClassOffering(HeroCropMixin, models.Model):
             return "50% 50%"
         return super().hero_object_position
 
+    @property
+    def hero_aspect_ratio(self) -> str:
+        """CSS ``aspect-ratio`` for the class page banner: the shape of the photo it shows.
+
+        The banner shows the whole photo (``object-fit: contain``) in a frame of the
+        photo's own shape, so the composer's crop box is exactly what the page shows.
+        Never opens a file on a page view: with a cropped copy the ratio is the stored
+        box's, ``"W / H"`` from ``hero_crop_w`` and ``hero_crop_h``, because
+        :meth:`render_hero_crop` cuts the copy to exactly that box and
+        ``_sync_hero_crop_copy`` keeps the two in step (a box clamped at the image's edge
+        differs by the clamped pixels, which only shows as a thin backdrop bar). With an
+        upload and no copy the file's size is read once and memoised in the cache under
+        the storage name, which is unique per upload (``file_overwrite`` is off), so the
+        entry never goes stale. ``"16 / 9"`` (the crop box's own shape) when there is no
+        uploaded file (an imported photo, or none) or when the file cannot be read. A
+        copy with no box should not happen; it falls through to the file read.
+        """
+        if self.hero_cropped and self.hero_crop_w and self.hero_crop_h:
+            return f"{self.hero_crop_w} / {self.hero_crop_h}"
+        photo = self.hero_cropped or self.image
+        if not photo:
+            return "16 / 9"
+        return cast(str, cache.get_or_set(f"hero-ratio:{photo.name}", lambda: self._read_hero_ratio(photo), None))
+
+    @staticmethod
+    def _read_hero_ratio(photo: ImageFieldFile) -> str:
+        """``"W / H"`` read from the stored file, or ``"16 / 9"`` when it cannot be read.
+
+        The same guards ``hero_object_position`` uses to read a size: a file missing from
+        storage, or one Pillow cannot parse (no dimensions), gives the default.
+        """
+        try:
+            width, height = photo.width, photo.height
+        except (FileNotFoundError, ValueError, AttributeError, OSError):
+            return "16 / 9"
+        if not (width and height):
+            return "16 / 9"
+        return f"{width} / {height}"
+
     def focal_point_on_source(self, x_pct: int, y_pct: int) -> tuple[int, int]:
         """A focal point picked on the cropped copy, mapped into the original's coordinates.
 
@@ -1415,6 +1456,10 @@ class ClassOffering(HeroCropMixin, models.Model):
             old_name = getattr(getattr(old, "image", None), "name", "") or ""
             image_changed = old is not None and old_name != new_name
             if old is not None and old_name and old_name != new_name:
+                # The replaced file is deleted from storage before the new one lands, so a
+                # same named upload can get the old storage name back; the memoised ratio
+                # under that name (hero_aspect_ratio) would then describe the old photo.
+                cache.delete(f"hero-ratio:{old_name}")
                 self.hero_crop_x = None
                 self.hero_crop_y = None
                 self.hero_crop_w = None
@@ -2464,8 +2509,8 @@ class ClassOffering(HeroCropMixin, models.Model):
         """True when the class's only photo is one imported from the legacy class site.
 
         The composer's crop box cannot position such a photo (the saved box is read
-        against an uploaded file's dimensions), so the editor withholds it and points at
-        Adjust on the preview instead, and the form does not pre-fill a saved box.
+        against an uploaded file's dimensions), so the editor withholds it, its note says
+        the class page shows the whole photo, and the form does not pre-fill a saved box.
         """
         return bool(self.legacy_image_url) and not self.image.name
 

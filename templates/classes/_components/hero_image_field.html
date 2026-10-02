@@ -25,7 +25,7 @@ static/js/hero_cropper.js defines to mount Cropper.js on the new img once it has
             <span class="pl-help__icon" aria-hidden="true">?</span>
             <span class="pl-help__bubble" role="tooltip">
                 <strong>Recommended:</strong> 1600&nbsp;&times;&nbsp;900&nbsp;px (16:9).<br>
-                After upload, drag the crop box to pick the focal point.<br>
+                After upload, drag the crop box. The class page shows exactly what is inside it.<br>
                 <strong>Format:</strong> JPG, PNG, or HEIC (iPhone). <strong>Max size:</strong> 3&nbsp;MB. Larger images are auto-resized.<br>
                 Tip: use a clean, well-lit shot of the finished work or the class in action.
             </span>
@@ -45,8 +45,8 @@ static/js/hero_cropper.js defines to mount Cropper.js on the new img once it has
             {% endif %}
         </div>
         {% if offering.has_imported_photo_only %}
-        {# The crop box cannot position an imported photo, so it is withheld; Adjust on the preview can. #}
-        <p class="pl-field-hint" id="hero-legacy-note">This photo came over from the old class site, so the crop box is off for it. To choose which part shows on the banner, click Preview and use Adjust under the photo. Upload a new photo to crop it here.</p>
+        {# The crop box cannot position an imported photo, so it is withheld; the class page shows the whole photo. #}
+        <p class="pl-field-hint" id="hero-legacy-note">This photo came over from the old class site, so the crop box is off for it. The class page shows all of it. Upload a new photo to crop it here.</p>
         {% endif %}
         <label class="cls-image-upload-zone" id="hero-upload-zone" style="margin-bottom:0.5rem;">
             <input type="file" accept="image/*" id="hero-file-input" style="display:none;">

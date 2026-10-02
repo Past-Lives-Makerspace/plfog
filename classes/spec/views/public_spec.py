@@ -7,6 +7,7 @@ from datetime import date, timedelta
 from unittest import mock
 
 import pytest
+from django.core.files.uploadedfile import SimpleUploadedFile
 from django.test import override_settings
 from django.urls import reverse
 from django.utils import timezone
@@ -17,7 +18,7 @@ from classes.factories import (
     ClassSessionFactory,
     InstructorFactory,
 )
-from classes.models import ClassOffering
+from classes.models import Category, ClassOffering
 from membership.models import Member
 from tests.membership.factories import MemberContactFactory
 
@@ -995,12 +996,17 @@ def describe_detail_hero_fallback():
         assert "img/favicon.png" in resp.content.decode()
 
 
-def _banner_src(body: str) -> str:
-    """The src of the class page banner, the one img.cp-detail__hero-img."""
+def _banner_tag(body: str) -> str:
+    """The opening tag of the class page banner, the one img.cp-detail__hero-img."""
     tag = re.search(r'<img class="cp-detail__hero-img"[^>]*>', body)
     assert tag is not None, "no banner rendered"
-    src = re.search(r'src="([^"]*)"', tag.group(0))
-    assert src is not None, tag.group(0)
+    return tag.group(0)
+
+
+def _banner_src(body: str) -> str:
+    """The src of the class page banner."""
+    src = re.search(r'src="([^"]*)"', _banner_tag(body))
+    assert src is not None, _banner_tag(body)
     return src.group(1)
 
 
@@ -1048,6 +1054,118 @@ def describe_detail_hero_crop():
         body = client.get(reverse("classes:public_class_detail", kwargs={"slug": "crop-host"})).content.decode()
         assert f'src="{related.hero_cropped.url}"' in body
         assert related.image.url not in body
+
+
+# Smallest valid GIF, enough for a category hero ImageField to accept and store.
+_GIF = (
+    b"GIF89a\x01\x00\x01\x00\x80\x00\x00\x00\x00\x00\xff\xff\xff!"
+    b"\xf9\x04\x01\x00\x00\x00\x00,\x00\x00\x00\x00\x01\x00\x01\x00\x00\x02\x02D\x01\x00;"
+)
+
+
+def _category_with_hero() -> Category:
+    """A category carrying a hero image, for the fallback branch of the class page banner."""
+    category = CategoryFactory()
+    category.hero_image = SimpleUploadedFile("hero.gif", _GIF, content_type="image/gif")
+    category.save()
+    return category
+
+
+def _hero_tag(body: str) -> str:
+    """The opening tag of the class page banner frame, header.cp-detail__hero."""
+    tag = re.search(r'<header class="cp-detail__hero[^>]*>', body)
+    assert tag is not None, "no hero rendered"
+    return tag.group(0)
+
+
+def describe_detail_hero_shape():
+    """The banner shows the whole class photo in a frame of the photo's shape; Adjust is for the category hero only."""
+
+    def it_frames_the_cropped_copy_in_its_own_shape_with_a_backdrop_and_no_adjust(admin_user, client):
+        offering = ClassOfferingFactory(
+            status=ClassOffering.Status.PUBLISHED,
+            image__width=1000,
+            image__height=600,
+            hero_crop_x=100,
+            hero_crop_y=50,
+            hero_crop_w=400,
+            hero_crop_h=225,
+        )
+        client.force_login(admin_user)
+        response = client.get(reverse("classes:public_class_detail", kwargs={"slug": offering.slug}))
+        assert response.context["can_edit_offering"] is True
+        body = response.content.decode()
+        hero = _hero_tag(body)
+        assert "cp-detail__hero--photo" in hero
+        assert 'style="--cp-hero-ratio: 400 / 225;"' in hero
+        assert (
+            f"""<div class="cp-detail__hero-backdrop" style="background-image: url('{offering.hero_cropped.url}');">"""
+            in body
+        )
+        assert _banner_src(body) == offering.hero_cropped.url
+        # Nothing is clipped, so nothing is adjustable: no component, no sliders, no bound style.
+        assert "heroPlacement(" not in body
+        assert 'title="Adjust Placement"' not in body
+        assert 'x-ref="heroImg"' not in body
+        assert "object-position" not in _banner_tag(body)
+        # The Edit link stays, and no longer leans on the component's state.
+        assert f'href="{response.context["edit_url"]}"' in body
+        assert "isAdjusting" not in body
+
+    def it_frames_the_upload_in_its_own_shape_without_a_box(client, db):
+        offering = ClassOfferingFactory(status=ClassOffering.Status.PUBLISHED, image__width=1000, image__height=600)
+        body = client.get(reverse("classes:public_class_detail", kwargs={"slug": offering.slug})).content.decode()
+        assert 'style="--cp-hero-ratio: 1000 / 600;"' in _hero_tag(body)
+        assert (
+            f"""<div class="cp-detail__hero-backdrop" style="background-image: url('{offering.image.url}');">""" in body
+        )
+
+    def it_frames_an_imported_photo_whole_in_the_crop_boxs_shape(admin_user, client):
+        offering = ClassOfferingFactory(
+            status=ClassOffering.Status.PUBLISHED,
+            image="",
+            legacy_image_url="https://classes.pastlives.space/sites/default/files/glen.jpg",
+        )
+        client.force_login(admin_user)
+        body = client.get(reverse("classes:public_class_detail", kwargs={"slug": offering.slug})).content.decode()
+        assert 'style="--cp-hero-ratio: 16 / 9;"' in _hero_tag(body)
+        proxied = offering.hero_image_url
+        assert "_legacy-image" in proxied
+        assert f"""<div class="cp-detail__hero-backdrop" style="background-image: url('{proxied}');">""" in body
+        assert _banner_src(body) == proxied
+        assert "heroPlacement(" not in body
+        assert 'title="Adjust Placement"' not in body
+
+    def it_keeps_the_cover_fit_and_the_adjust_tool_for_a_category_hero(admin_user, client):
+        from django.contrib.contenttypes.models import ContentType
+
+        offering = ClassOfferingFactory(status=ClassOffering.Status.PUBLISHED, image="", category=_category_with_hero())
+        client.force_login(admin_user)
+        response = client.get(reverse("classes:public_class_detail", kwargs={"slug": offering.slug}))
+        assert response.context["can_edit_category"] is True
+        body = response.content.decode()
+        hero = _hero_tag(body)
+        assert "cp-detail__hero--photo" not in hero
+        assert "--cp-hero-ratio" not in hero
+        assert "cp-detail__hero-backdrop" not in body
+        banner = re.search(r'<img class="cp-detail__hero-img cp-detail__hero-img--cover"[^>]*>', body)
+        assert banner is not None, "no category banner rendered"
+        assert f'src="{offering.category.hero_image.url}"' in banner.group(0)
+        assert 'x-ref="heroImg"' in banner.group(0)
+        assert "heroPlacement({" in body
+        assert f"contentTypeId: {ContentType.objects.get_for_model(Category).pk}," in body
+        assert f"objectId: {offering.category.pk}," in body
+        assert 'title="Adjust Placement"' in body
+        assert 'x-show="!isAdjusting" title="Edit Class"' in body
+
+    def it_shows_a_guest_the_category_hero_positioned_without_the_tool(client, db):
+        offering = ClassOfferingFactory(status=ClassOffering.Status.PUBLISHED, image="", category=_category_with_hero())
+        body = client.get(reverse("classes:public_class_detail", kwargs={"slug": offering.slug})).content.decode()
+        banner = re.search(r'<img class="cp-detail__hero-img cp-detail__hero-img--cover"[^>]*>', body)
+        assert banner is not None, "no category banner rendered"
+        assert 'style="object-position: 50% 50%;"' in banner.group(0)
+        assert "heroPlacement(" not in body
+        assert 'title="Adjust Placement"' not in body
 
 
 def describe_all_guild_types_show():

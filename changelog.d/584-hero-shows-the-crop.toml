@@ -1,0 +1,8 @@
+bump = "patch"
+date = "2026-10-02"
+title = "The class page shows the photo the way you cropped it"
+changes = [
+  "The banner on a class page now shows everything inside the crop box from the Photos step. Before, the top and bottom of the crop were cut off on a laptop and the sides on a phone.",
+  "A soft, blurred copy of the same photo fills any space around it, such as on a wide screen.",
+  "The Adjust sliders are gone from a class photo, because the crop box already decides what shows.",
+]
