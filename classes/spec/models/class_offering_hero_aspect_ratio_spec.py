@@ -104,6 +104,17 @@ def describe_hero_aspect_ratio():
             with _no_file_reads():
                 assert ClassOffering.objects.get(pk=offering.pk).hero_aspect_ratio == "1000 / 600"
 
+        def it_forgets_the_old_shape_when_a_same_named_upload_replaces_the_file(db):
+            # The old file is deleted before the new one is stored, so the replacement gets
+            # the same storage name back; the ratio memoised under it must go with the file.
+            offering = ClassOfferingFactory(image=_real_png((1000, 600)))
+            old_name = offering.image.name
+            assert offering.hero_aspect_ratio == "1000 / 600"
+            offering.image = _real_png((800, 500))
+            offering.save()
+            assert cache.get(f"hero-ratio:{old_name}") is None
+            assert ClassOffering.objects.get(pk=offering.pk).hero_aspect_ratio == "800 / 500"
+
         def it_is_the_uploads_shape_for_a_focal_point(db):
             # The Adjust tool's shape, width and height 0, is no box: no copy, the whole upload.
             offering = ClassOfferingFactory(

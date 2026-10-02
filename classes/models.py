@@ -1456,6 +1456,10 @@ class ClassOffering(HeroCropMixin, models.Model):
             old_name = getattr(getattr(old, "image", None), "name", "") or ""
             image_changed = old is not None and old_name != new_name
             if old is not None and old_name and old_name != new_name:
+                # The replaced file is deleted from storage before the new one lands, so a
+                # same named upload can get the old storage name back; the memoised ratio
+                # under that name (hero_aspect_ratio) would then describe the old photo.
+                cache.delete(f"hero-ratio:{old_name}")
                 self.hero_crop_x = None
                 self.hero_crop_y = None
                 self.hero_crop_w = None

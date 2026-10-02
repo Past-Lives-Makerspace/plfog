@@ -763,7 +763,7 @@ html.dark .cp-page {
 }
 /* A class photo shows whole, so the frame takes the photo's shape. The template sets
    --cp-hero-ratio to the shown copy's "W / H"; the ::before sizer carries that ratio at full
-   width, capped at 700px. The hero column is 1232px at its widest, so a 16:9 crop fills it on
+   width, capped at 700px. The hero column is 1240px at its widest, so a 16:9 crop fills it on
    any screen and only a taller shape (a square, say) is pillarboxed over the backdrop.
    A grid cell holds the sizer and the content together, so the frame is the taller of the
    two: the photo's height, or the content when a long title needs more (#563). The ratio sits
