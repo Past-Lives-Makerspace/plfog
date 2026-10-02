@@ -85,7 +85,7 @@ def _event_occurrences(frm: date, to: date) -> list[tuple[datetime, str, str]]:
     from membership.models import CommunityEvent
 
     rows = CommunityEvent.objects.published().upcoming().candidates_for_window(frm, to)
-    items = [(dt, row.title, row.public_url) for row in rows for dt in row.occurrences_in(frm, to)]
+    items = [(dt, row.title, row.public_url_on(dt)) for row in rows for dt in row.occurrences_in(frm, to)]
     items.sort(key=lambda item: item[0])
     return items
 

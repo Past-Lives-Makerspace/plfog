@@ -191,7 +191,7 @@ def community_event_entries(fetch_from: date, fetch_to: date, guild: Guild | Non
                     start_dt=occ_start,
                     end_dt=occ_start + duration,
                     source="community",
-                    url=ev.absolute_url,
+                    url=ev.public_url_on(occ_start),
                     location=ev.location,
                     description=ev.description,
                     video_url=ev.video_url,
@@ -245,7 +245,7 @@ def upcoming_calendar_events() -> list[Any]:
                 start_dt=start,
                 end_dt=start + duration,
                 source="community",
-                url=ev.absolute_url,
+                url=ev.public_url_on(start),
                 location=ev.location,
                 description=ev.description,
                 video_url=ev.video_url,
@@ -326,16 +326,17 @@ def _trim_to_encoded_length(text: str, limit: int) -> str:
     return text
 
 
-def google_calendar_event_url(event: CommunityEvent, page_url: str = "") -> str:
+def google_calendar_event_url(event: CommunityEvent, start: datetime, page_url: str = "") -> str:
     """Google Calendar's "create this event" link for one event, for the Add to calendar menu.
 
     Opens Google Calendar (the app on a phone, the site on a desktop) with the title, times,
     place and description filled in, so a member adds the one event they care about rather
     than subscribing to the whole makerspace calendar. A plain ``https`` URL on another host,
     so it works in every browser and the native shells hand it to the system, where the
-    ``.ics`` download does nothing. A recurring series carries its ``RRULE``, as the ``.ics``
-    does. The details end with the video link, when there is one, and the event page's link,
-    so the entry leads back here.
+    ``.ics`` download does nothing. The times are the date that begins at ``start``, the one
+    the event page shows (``CommunityEvent.occurrence_start``), and a recurring series carries
+    its ``RRULE`` from there, as the ``.ics`` does. The details end with the video link, when
+    there is one, and the event page's link, so the entry leads back here.
 
     Times go in the makerspace's local time with its zone named (``ctz``), because the
     ``RRULE``'s weekday is the local one: in UTC an evening series would land a day late for
@@ -349,7 +350,8 @@ def google_calendar_event_url(event: CommunityEvent, page_url: str = "") -> str:
         "action": "TEMPLATE",
         "text": event.title,
         "dates": "/".join(
-            timezone.localtime(moment).strftime("%Y%m%dT%H%M%S") for moment in (event.starts_at, event.ends_at)
+            timezone.localtime(moment).strftime("%Y%m%dT%H%M%S")
+            for moment in (start, start + (event.ends_at - event.starts_at))
         ),
         "ctz": timezone.get_default_timezone_name(),
     }

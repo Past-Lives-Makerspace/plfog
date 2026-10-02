@@ -6334,22 +6334,24 @@ class CommunityEvent(models.Model):
         interval_part = "" if interval == 1 else f"INTERVAL={interval};"
         return f"FREQ=MONTHLY;{interval_part}BYDAY={ordinal}{weekday}"
 
-    def ics_vevent_lines(self) -> list[str]:
-        """The iCal ``VEVENT`` lines (``BEGIN:VEVENT`` … ``END:VEVENT``) for this event.
+    def ics_vevent_lines(self, start: datetime_type) -> list[str]:
+        """The iCal ``VEVENT`` lines (``BEGIN:VEVENT`` … ``END:VEVENT``) for this event from ``start``.
 
         Shared by the per-event :meth:`ics_document` and the combined
         ``hub.views.calendar_export_ics`` loop so the two never drift. A recurring
         series emits ONE ``RRULE`` (subscribers expand it themselves — no per-occurrence
-        VEVENTs); ``DESCRIPTION``/``LOCATION`` are RFC-5545 escaped.
+        VEVENTs), beginning at ``start``; ``DESCRIPTION``/``LOCATION`` are RFC-5545 escaped.
+        Times are local with the zone named, so the document needs the
+        :func:`~membership.ical.ical_timezone_lines` block beside it.
         """
-        from membership.ical import ical_escape
+        from membership.ical import ical_escape, ical_local_time
 
         lines = [
             "BEGIN:VEVENT",
             f"UID:community-{self.pk}@pastlives",
             f"SUMMARY:{ical_escape(self.title)}",
-            f"DTSTART:{self.starts_at.strftime('%Y%m%dT%H%M%SZ')}",
-            f"DTEND:{self.ends_at.strftime('%Y%m%dT%H%M%SZ')}",
+            ical_local_time("DTSTART", start),
+            ical_local_time("DTEND", start + (self.ends_at - self.starts_at)),
         ]
         rrule = self.ical_rrule()
         if rrule:
@@ -6365,17 +6367,21 @@ class CommunityEvent(models.Model):
         lines.append("END:VEVENT")
         return lines
 
-    def ics_document(self) -> str:
+    def ics_document(self, start: datetime_type) -> str:
         """A standalone single-``VEVENT`` ``VCALENDAR`` string for this event's public
-        "Add to calendar" download. Reuses :meth:`ics_vevent_lines`, so the per-event
-        add and the combined calendar export always agree."""
+        "Add to calendar" download, from ``start`` (see :meth:`occurrence_start`). Reuses
+        :meth:`ics_vevent_lines`, so the per-event add and the combined calendar export
+        always agree."""
+        from membership.ical import ical_timezone_lines
+
         lines = [
             "BEGIN:VCALENDAR",
             "VERSION:2.0",
             "PRODID:-//Past Lives Makerspace//Calendar//EN",
             "CALSCALE:GREGORIAN",
             "METHOD:PUBLISH",
-            *self.ics_vevent_lines(),
+            *ical_timezone_lines(),
+            *self.ics_vevent_lines(start),
             "END:VCALENDAR",
         ]
         return "\r\n".join(lines) + "\r\n"
@@ -6493,6 +6499,20 @@ class CommunityEvent(models.Model):
         from django.urls import reverse
 
         return f"{settings.MEMBER_BASE_URL}{reverse('hub_event_detail', args=[self.pk])}"
+
+    def date_query(self, start: datetime_type) -> str:
+        """``?date=YYYY-MM-DD`` naming one date of a repeating series, or ``""`` for a one-off.
+
+        The event page reads it (:meth:`occurrence_start`), so a link from one date opens the
+        page, and its Add to calendar, on that date rather than the series' first.
+        """
+        if self.recurrence == self.Recurrence.NONE:
+            return ""
+        return f"?date={timezone.localdate(start).isoformat()}"
+
+    def public_url_on(self, start: datetime_type) -> str:
+        """:attr:`public_url` opened on the date that begins at ``start``."""
+        return f"{self.public_url}{self.date_query(start)}"
 
     @property
     def photo_url(self) -> str:
@@ -7042,6 +7062,19 @@ class CommunityEvent(models.Model):
             if occ + duration >= now:
                 return occ
         return self.starts_at
+
+    def occurrence_start(self, on: date_type | None) -> datetime_type:
+        """The start of this event's date ``on``, or of its next date when ``on`` is not one.
+
+        The event page and its Add to calendar speak about one date: the one a member opened
+        from a calendar (:meth:`date_query`), or else the next one they can attend. A one-off
+        has only its own.
+        """
+        if on is not None:
+            dates = self.occurrences_in(on, on)
+            if dates:
+                return dates[0]
+        return self.next_occurrence_start()
 
     @property
     def rsvps_closed(self) -> bool:

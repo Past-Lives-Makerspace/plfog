@@ -1,0 +1,8 @@
+bump = "patch"
+date = "2026-10-02"
+title = "Repeating events open on the date you picked"
+changes = [
+  "Opening a repeating event from the calendar shows the date you clicked, not the first date in the series. From anywhere else, it shows the next date.",
+  "Add to calendar starts from that date, in Google Calendar and in Apple Calendar or Outlook.",
+  "A repeating evening event added to Apple Calendar or Outlook now lands on the right day and time every time, not a day early.",
+]

@@ -247,7 +247,7 @@ def describe_google_calendar_event_url():
             starts_at=datetime(2026, 10, 10, 18, 0, tzinfo=pacific),
             ends_at=datetime(2026, 10, 10, 20, 30, tzinfo=pacific),
         )
-        params = _params(google_calendar_event_url(event, "https://pastlives.space/events/1/"))
+        params = _params(google_calendar_event_url(event, event.starts_at, "https://pastlives.space/events/1/"))
         assert params == {
             "action": "TEMPLATE",
             "text": "Potluck & Pins",
@@ -259,21 +259,21 @@ def describe_google_calendar_event_url():
 
     def it_lists_the_video_link_before_the_page_link_in_the_details():
         event = CommunityEventFactory(community=True, description="", video_url="https://meet.google.com/abc")
-        params = _params(google_calendar_event_url(event, "https://pastlives.space/events/1/"))
+        params = _params(google_calendar_event_url(event, event.starts_at, "https://pastlives.space/events/1/"))
         assert params["details"] == "https://meet.google.com/abc\n\nhttps://pastlives.space/events/1/"
 
     def it_leaves_out_what_the_event_does_not_have():
         event = CommunityEventFactory(community=True, description="", location="", video_url="")
-        params = _params(google_calendar_event_url(event))
+        params = _params(google_calendar_event_url(event, event.starts_at))
         assert set(params) == {"action", "text", "dates", "ctz"}
 
     def it_trims_a_long_description_so_the_link_stays_usable():
         event = CommunityEventFactory(community=True, description="x" * 5000)
-        assert len(_params(google_calendar_event_url(event))["details"]) == 3000
+        assert len(_params(google_calendar_event_url(event, event.starts_at))["details"]) == 3000
 
     def it_trims_by_encoded_length_so_emoji_cannot_overrun_it():
         event = CommunityEventFactory(community=True, description="\U0001f525" * 5000)
-        details = _params(google_calendar_event_url(event))["details"]
+        details = _params(google_calendar_event_url(event, event.starts_at))["details"]
         assert details == "\U0001f525" * 250  # 12 encoded bytes each
 
     def it_carries_the_series_rule_on_the_local_weekday():
@@ -284,6 +284,19 @@ def describe_google_calendar_event_url():
             starts_at=datetime(2026, 10, 6, 1, 0, tzinfo=UTC),
             ends_at=datetime(2026, 10, 6, 3, 0, tzinfo=UTC),
         )
-        params = _params(google_calendar_event_url(event))
+        params = _params(google_calendar_event_url(event, event.starts_at))
         assert params["recur"] == "RRULE:FREQ=WEEKLY;BYDAY=MO"
         assert params["dates"] == "20261005T180000/20261005T200000"
+
+    def it_starts_a_series_on_the_date_given_and_keeps_its_length():
+        # A member opened the November date; the series starts there, not on its first date.
+        event = CommunityEventFactory(
+            community=True,
+            recurrence=CommunityEvent.Recurrence.MONTHLY,
+            starts_at=datetime(2026, 9, 2, 18, 0, tzinfo=ZoneInfo("America/Los_Angeles")),
+            ends_at=datetime(2026, 9, 2, 20, 30, tzinfo=ZoneInfo("America/Los_Angeles")),
+        )
+        november = datetime(2026, 11, 4, 18, 0, tzinfo=ZoneInfo("America/Los_Angeles"))
+        params = _params(google_calendar_event_url(event, november))
+        assert params["dates"] == "20261104T180000/20261104T203000"
+        assert params["recur"] == "RRULE:FREQ=MONTHLY;BYDAY=1WE"

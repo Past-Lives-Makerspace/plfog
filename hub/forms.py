@@ -3507,6 +3507,21 @@ class EventDecisionForm(forms.Form):
         return cleaned
 
 
+class EventDateForm(forms.Form):
+    """The ``?date=`` a link to an event page names (``CommunityEvent.date_query``).
+
+    Optional and forgiving: a link with no date, or with one that is not a date of the event,
+    opens the page on the event's next date, so a stale or hand-edited link never errors.
+    """
+
+    date = forms.DateField(required=False, input_formats=["%Y-%m-%d"])
+
+    def occurrence_start(self, event: CommunityEvent) -> datetime:
+        """The start of the date the link names, or of the event's next date."""
+        on = self.cleaned_data["date"] if self.is_valid() else None
+        return event.occurrence_start(on)
+
+
 class OrientationCustomRequestForm(forms.Form):
     """A member proposing their own orientation time when no posted slot works.
 
