@@ -209,3 +209,128 @@ def describe_edit_page_template_state():
         assert b'pl-reveal" style="display' not in content
         # Reminders render through the toggle component, not as raw checkboxes.
         assert b"pl-toggle" in content
+
+
+def _spent(event: CommunityEvent) -> str:
+    """The event's announce time as its edit page renders it back into the form."""
+    assert event.publish_at is not None
+    return timezone.localtime(event.publish_at).strftime("%Y-%m-%dT%H:%M")
+
+
+@pytest.mark.django_db
+def describe_editing_an_announced_event():
+    """An event that went out on a schedule keeps the time it went out; that time is spent.
+
+    The edit page renders the stored ``publish_at`` back into the form, so every save of such
+    an event used to fail on "Pick a time in the future" with no way past it but a toggle whose
+    copy says it announces on save.
+    """
+
+    def _went_out_on_schedule(**kwargs: object) -> CommunityEvent:
+        return CommunityEventFactory(
+            moderation_state=State.PUBLISHED, publish_at=timezone.now() - timedelta(days=2), **kwargs
+        )
+
+    def describe_the_form():
+        def it_drops_the_announce_time_from_a_published_event():
+            form = CommunityEventForm(instance=_went_out_on_schedule())
+            assert form.announced is True
+            assert "publish_at" not in form.fields
+
+        def it_keeps_the_announce_time_on_a_scheduled_event():
+            event = CommunityEventFactory(
+                moderation_state=State.SCHEDULED, publish_at=timezone.now() + timedelta(days=2)
+            )
+            form = CommunityEventForm(instance=event)
+            assert form.announced is False
+            assert "publish_at" in form.fields
+
+        def it_keeps_the_announce_time_on_a_new_event():
+            # A new row carries the model default, PUBLISHED, before anything announces it.
+            form = CommunityEventForm(instance=CommunityEvent())
+            assert form.announced is False
+            assert "publish_at" in form.fields
+
+    def it_saves_a_lead_edit_and_keeps_the_time_it_went_out(client: Client):
+        user = _user_with_role("lead_spent")
+        guild = GuildFactory(guild_lead=user.member)
+        event = _went_out_on_schedule(guild=guild)
+        went_out = event.publish_at
+        client.login(username="lead_spent", password="pass")
+        with patch.object(CommunityEvent, "announce") as mock_announce:
+            resp = client.post(
+                reverse("hub_guild_event_edit", args=[guild.pk, event.pk]),
+                data=_payload(title="Renamed", publish_at=_spent(event)),
+            )
+        assert resp.status_code == 302
+        event.refresh_from_db()
+        assert event.title == "Renamed"
+        assert event.publish_at == went_out
+        mock_announce.assert_not_called()
+
+    def it_saves_a_kind_change_from_the_admin_events_tab(client: Client):
+        _user_with_role("admin_spent", fog_role=Member.FogRole.ADMIN)
+        guild = GuildFactory()
+        event = _went_out_on_schedule(guild=guild)
+        client.login(username="admin_spent", password="pass")
+        resp = client.post(
+            reverse("hub_event_edit", args=[event.pk]),
+            data=_payload(
+                event_type="community",
+                guild=str(guild.pk),
+                google_calendar_target="public",
+                publish_at=_spent(event),
+            ),
+        )
+        assert resp.status_code == 302
+        event.refresh_from_db()
+        assert event.event_type == CommunityEvent.EventType.COMMUNITY
+
+    def it_sends_members_nothing_new_when_an_announced_event_is_saved(client: Client):
+        from core.models import EventDelivery
+
+        user = _user_with_role("lead_quiet")
+        guild = GuildFactory(guild_lead=user.member)
+        client.login(username="lead_quiet", password="pass")
+        assert client.post(reverse("hub_guild_event_add", args=[guild.pk]), data=_payload()).status_code == 302
+        event = CommunityEvent.objects.get(guild=guild)
+        sent = EventDelivery.objects.count()
+        assert sent > 0  # the create announced it
+        for title in ("Renamed once", "Renamed twice"):
+            resp = client.post(
+                reverse("hub_guild_event_edit", args=[guild.pk, event.pk]),
+                data=_payload(title=title, remind_1d="on", notify_happening_now="on"),
+            )
+            assert resp.status_code == 302
+        assert EventDelivery.objects.count() == sent
+
+    def describe_the_edit_page():
+        def it_shows_when_it_went_out_in_place_of_the_schedule_toggle(client: Client):
+            user = _user_with_role("lead_badge_out")
+            guild = GuildFactory(guild_lead=user.member)
+            event = _went_out_on_schedule(guild=guild)
+            client.login(username="lead_badge_out", password="pass")
+            content = client.get(reverse("hub_guild_event_edit", args=[guild.pk, event.pk])).content
+            assert b'id="event-announced"' in content
+            assert event.publish_at_display.encode() in content
+            assert b'name="publish_at"' not in content
+
+        def it_shows_the_announced_row_for_an_event_announced_on_save(client: Client):
+            user = _user_with_role("lead_badge_now")
+            guild = GuildFactory(guild_lead=user.member)
+            event = CommunityEventFactory(guild=guild)  # PUBLISHED, announced the moment it saved
+            client.login(username="lead_badge_now", password="pass")
+            content = client.get(reverse("hub_guild_event_edit", args=[guild.pk, event.pk])).content
+            assert b'id="event-announced"' in content
+            assert b'name="publish_at"' not in content
+
+        def it_still_offers_the_schedule_on_a_scheduled_event(client: Client):
+            user = _user_with_role("lead_badge_parked")
+            guild = GuildFactory(guild_lead=user.member)
+            event = CommunityEventFactory(
+                guild=guild, moderation_state=State.SCHEDULED, publish_at=timezone.now() + timedelta(days=3)
+            )
+            client.login(username="lead_badge_parked", password="pass")
+            content = client.get(reverse("hub_guild_event_edit", args=[guild.pk, event.pk])).content
+            assert b'id="event-announced"' not in content
+            assert b'name="publish_at"' in content

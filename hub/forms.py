@@ -3113,6 +3113,14 @@ class CommunityEventForm(forms.ModelForm):
         for name in ("starts_at", "ends_at", "publish_at"):
             cast(forms.DateTimeField, self.fields[name]).input_formats = ["%Y-%m-%dT%H:%M", "%Y-%m-%dT%H:%M:%S"]
         self.fields["publish_at"].label = "Announce at"
+        # A published event's announcement has already gone out, so its "Announce at" is a
+        # record rather than a choice: the edit views never reschedule a live event, and the
+        # field's "in the future" rule refused every save once the time it names had passed.
+        self.announced: bool = (
+            self.instance.pk is not None and self.instance.moderation_state == CommunityEvent.ModerationState.PUBLISHED
+        )
+        if self.announced:
+            del self.fields["publish_at"]
         self.fields["video_url"].label = "Video link"
         self._setup_audience_field(can_choose_audience=can_choose_audience)
         self._setup_kind_field(can_choose_audience=can_choose_audience, fixed_guild=guild)
