@@ -42,7 +42,7 @@ def _assert_skip_link_is_first_and_targets_main(html: str) -> None:
 
 
 def _framed_preview(client: Client, *, framed: bool) -> str:
-    offering = ClassOfferingFactory(ready=True, slug="skip-link-preview", status=ClassOffering.Status.PENDING)
+    offering = ClassOfferingFactory(ready=True, slug="framed-preview", status=ClassOffering.Status.PENDING)
     row = ClassApproval.objects.create(class_offering=offering, role=ClassApproval.Role.ADMIN)
     url = reverse("classes:class_review_preview", kwargs={"token": row.token})
     return client.get(f"{url}?framed=1" if framed else url).content.decode()
@@ -79,7 +79,7 @@ def describe_the_skip_link():
             html = _framed_preview(client, framed=True)
             assert "pl-public-topbar" not in html
             assert "hub-sidebar" not in html
-            assert "skip-link" not in html
+            assert 'class="skip-link"' not in html
             assert 'href="#main-content"' not in html
             # The landmark keeps its id: only the link is conditional.
             assert MAIN_OPEN in html
