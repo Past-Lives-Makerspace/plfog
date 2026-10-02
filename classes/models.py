@@ -1003,6 +1003,17 @@ class ClassOffering(HeroCropMixin, models.Model):
         help_text="Fixed scheduled sessions or flexible per-student scheduling.",
     )
     flexible_note = models.TextField(blank=True, help_text="Notes when scheduling_model=flexible.")
+    # default and db_default: the column lands while the previous release still serves, and its
+    # INSERTs omit it (STANDARDS.md section 10), so the database must fill it in.
+    flexible_booking_text = models.TextField(
+        blank=True,
+        default="",
+        db_default="",
+        help_text=(
+            "Replaces the standard line on the class page that says how students book a flexible "
+            "class. Blank shows the standard line, which names the instructor and the window."
+        ),
+    )
     # Both nullable on purpose: the columns land while the previous release still serves, and
     # its INSERTs omit them (STANDARDS.md section 10). Blank means "no window" on that end.
     flexible_starts_on = models.DateField(
@@ -2408,6 +2419,24 @@ class ClassOffering(HeroCropMixin, models.Model):
     def is_flexible(self) -> bool:
         """Students book their day with the instructor instead of a scheduled session."""
         return self.scheduling_model == self.SchedulingModel.FLEXIBLE
+
+    @property
+    def default_flexible_booking_line(self) -> str:
+        """The standard line under Flexible Scheduling: who the student books with, and inside what.
+
+        Built from the row each time it is read, so a renamed instructor or a window added later
+        shows up without anyone retyping the line. The composer pre-fills its booking text box
+        with this and stores blank when the instructor leaves it as is (``classes.forms``), which
+        is what keeps the line live.
+        """
+        name = self.instructor.display_name if self.instructor else "your instructor"
+        window = "inside this window " if self.has_flexible_window else ""
+        return f"After you register, you'll book your session directly with {name} and pick a day {window}that works for both of you."
+
+    @property
+    def flexible_booking_line(self) -> str:
+        """What the class page shows: the instructor's own text when they wrote one, else the standard line."""
+        return self.flexible_booking_text.strip() or self.default_flexible_booking_line
 
     @property
     def has_flexible_window(self) -> bool:

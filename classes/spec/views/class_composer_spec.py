@@ -262,6 +262,7 @@ def _full_payload(category, **extra) -> dict:
         "scheduling_model": "flexible",
         "scheduling_type": "series_package",
         "flexible_note": "We will find a time together.",
+        "flexible_booking_text": "Email me and we will pick a Saturday.",
         "flexible_starts_on": "2026-11-02",
         "flexible_ends_on": "2026-12-01",
         "registration_cutoff_enabled": "on",
@@ -299,6 +300,7 @@ def _assert_round_trip(offering: ClassOffering, category) -> None:
     assert offering.scheduling_model == "flexible"
     assert offering.scheduling_type == "series_package"
     assert offering.flexible_note == "We will find a time together."
+    assert offering.flexible_booking_text == "Email me and we will pick a Saturday."
     assert offering.flexible_starts_on is not None and offering.flexible_starts_on.isoformat() == "2026-11-02"
     assert offering.flexible_ends_on is not None and offering.flexible_ends_on.isoformat() == "2026-12-01"
     # The payload posts a cutoff of 36 under a flexible class, which stores none: a flexible

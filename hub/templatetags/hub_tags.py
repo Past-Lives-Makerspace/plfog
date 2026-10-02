@@ -88,6 +88,20 @@ def is_public(member: Any, field_name: str) -> bool:
 
 
 @register.filter
+def tel_href(phone: str) -> str:
+    """``phone`` as the number part of a ``tel:`` link: its digits, with a leading plus kept.
+
+    Members type their number any way they like ("(503) 555 0199", "503.555.0199"); a dialer
+    wants the digits. A ``+`` in front marks a country code and stays, so an international
+    number still dials. A value with no digits at all gives "", and the card shows it as text.
+    """
+    digits = "".join(ch for ch in phone if ch.isdigit())
+    if not digits:
+        return ""
+    return f"+{digits}" if phone.strip().startswith("+") else digits
+
+
+@register.filter
 def initials(name: str) -> str:
     """The first letter of the first two words of ``name``, upper-cased: "Lee Mendelsohn" → "LM".
 

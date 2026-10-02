@@ -9,7 +9,8 @@ rows, category-hero fallback) when no list is passed.
 Features:
   - Thumbnail strip below for quick switching when there's more than one.
   - Click or tap the main image to open a full-screen lightbox; arrow keys +
-    on-screen arrows step through, Esc closes.
+    on-screen arrows step through, Esc closes. The lightbox is teleported to
+    body so the sticky rail's stacking context cannot trap it under the hero.
   - No hover magnifier.
 {% endcomment %}
 {% with images=images|default:offering.display_images %}
@@ -42,6 +43,8 @@ Features:
     </div>
     {% endif %}
 
+    {# Teleported to body: the rail that holds the gallery is sticky on a laptop, and a sticky box is a stacking context, so a lightbox left inside it paints under the hero's content block whatever its z-index (the class title showed through the open photo). On body it stacks against the page. The window key handlers and the component's state still reach it. #}
+    <template x-teleport="body">
     <div class="cls-lightbox"
          x-show="lightboxOpen"
          x-transition.opacity
@@ -64,6 +67,7 @@ Features:
             <span x-text="activeIndex + 1"></span> / <span x-text="totalSlides"></span>
         </div>
     </div>
+    </template>
 </div>
 {% endif %}
 {% endwith %}

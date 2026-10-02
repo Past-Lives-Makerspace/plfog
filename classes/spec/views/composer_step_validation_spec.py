@@ -574,6 +574,9 @@ def describe_the_flexible_window():
             assert "Leave both blank for a class that runs any time." in flexible, mode
             assert 'name="flexible_note"' in flexible, mode
             assert ">Note for students</label>" in flexible, mode
+            # The booking line box sits in the Flexible block too, above the note.
+            assert 'name="flexible_booking_text"' in flexible, mode
+            assert flexible.index('name="flexible_booking_text"') < flexible.index('name="flexible_note"'), mode
             # The select itself stays above both blocks, bound to the state the blocks read.
             select = _by_name(_parse(html).controls[3], "scheduling_model")
             assert select.attrs.get("x-model") == "schedulingModel", mode
