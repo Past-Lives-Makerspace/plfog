@@ -48,6 +48,17 @@ def describe_admin_registrations_list():
         assert "<td>Someone Elses Links</td>" in html
         assert _class_link(others) not in html
 
+    def it_does_not_link_for_an_instructor_without_the_teaching_grant(client, db):
+        """Named as instructor but never granted teaching: the class screen refuses them."""
+        user = UserFactory(username="links-ungranted")
+        named = InstructorFactory(user=user, instructor_slug="links-ungranted", instructor_oriented_at=None)
+        offering = ClassOfferingFactory(instructor=named, title="Ungranted Links")
+        RegistrationFactory(class_offering=offering)
+        client.force_login(user)
+        html = client.get(reverse("classes:admin_registrations")).content.decode()
+        assert "<td>Ungranted Links</td>" in html
+        assert _class_link(offering) not in html
+
 
 def describe_teach_registrations_page():
     def it_links_each_group_header_to_the_class_screen(client, db):
