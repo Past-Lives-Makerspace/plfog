@@ -1,0 +1,7 @@
+bump = "minor"
+date = "2026-10-02"
+title = "Share a class from its page"
+changes = [
+  "Every class page has a Share button next to All classes. On a phone it opens your share sheet, so you can send the class by text, email, Instagram or any app you have.",
+  "Where the share sheet is not available, including the Android app until its next update, the button offers Copy link, Text and Email.",
+]
