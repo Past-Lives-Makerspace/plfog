@@ -359,6 +359,98 @@ def describe_CommunityEvent():
             )
             assert "Every 3 months" in event.when_display
 
+        def it_when_display_for_names_one_date_at_the_events_length_without_the_cadence(db):
+            event = CommunityEventFactory(
+                recurrence=CommunityEvent.Recurrence.WEEKLY,
+                starts_at=_aware(2026, 7, 11, 18),
+                ends_at=_aware(2026, 7, 11, 20),
+            )
+            assert event.when_display_for(_aware(2026, 7, 25, 18)) == "Sat, Jul 25 · 6:00 PM – 8:00 PM"
+
+    def describe_reminder_sends():
+        def it_sends_a_one_off_reminder_its_days_before_the_start(db):
+            event = CommunityEventFactory(starts_at=_aware(2026, 7, 11, 18), ends_at=_aware(2026, 7, 11, 20))
+            sends = event.reminder_sends(7, _aware(2026, 7, 1, 0), _aware(2026, 7, 11, 23))
+            assert sends == [(_aware(2026, 7, 4, 18), _aware(2026, 7, 11, 18))]
+
+        def it_leaves_out_a_send_outside_the_window(db):
+            event = CommunityEventFactory(starts_at=_aware(2026, 7, 11, 18), ends_at=_aware(2026, 7, 11, 20))
+            assert (
+                event.reminder_sends(
+                    7,
+                    _aware(
+                        2026,
+                        7,
+                        4,
+                        18,
+                    )
+                    + timedelta(minutes=1),
+                    _aware(2026, 7, 11, 23),
+                )
+                == []
+            )
+            assert event.reminder_sends(7, _aware(2026, 7, 1, 0), _aware(2026, 7, 4, 17)) == []
+
+        def it_sends_before_each_date_of_a_series(db):
+            event = CommunityEventFactory(
+                recurrence=CommunityEvent.Recurrence.WEEKLY,
+                starts_at=_aware(2026, 7, 11, 18),
+                ends_at=_aware(2026, 7, 11, 20),
+            )
+            sends = event.reminder_sends(1, _aware(2026, 7, 12, 0), _aware(2026, 7, 31, 23))
+            assert [date_start for _send, date_start in sends] == [
+                _aware(2026, 7, 18, 18),
+                _aware(2026, 7, 25, 18),
+                _aware(2026, 8, 1, 18),
+            ]
+            assert all(date_start - send == timedelta(days=1) for send, date_start in sends)
+
+        def it_keeps_the_wall_clock_time_across_daylight_saving(db):
+            # Nov 1, 2026 is the fall-back change, between the send and the date.
+            event = CommunityEventFactory(starts_at=_aware(2026, 11, 5, 18), ends_at=_aware(2026, 11, 5, 20))
+            ((send, _date),) = event.reminder_sends(7, _aware(2026, 10, 28, 0), _aware(2026, 10, 30, 0))
+            assert timezone.localtime(send).hour == 18
+
+        def it_treats_zero_days_as_the_moment_a_date_begins(db):
+            event = CommunityEventFactory(starts_at=_aware(2026, 7, 11, 18), ends_at=_aware(2026, 7, 11, 20))
+            assert event.reminder_sends(0, _aware(2026, 7, 11, 17), _aware(2026, 7, 11, 19)) == [
+                (_aware(2026, 7, 11, 18), _aware(2026, 7, 11, 18))
+            ]
+
+    def describe_next_reminder_send():
+        def it_finds_a_one_off_send_still_ahead(db):
+            event = CommunityEventFactory(starts_at=_aware(2026, 7, 11, 18), ends_at=_aware(2026, 7, 11, 20))
+            assert event.next_reminder_send(3, after=_aware(2026, 7, 1)) == (
+                _aware(2026, 7, 8, 18),
+                _aware(2026, 7, 11, 18),
+            )
+
+        def it_has_none_once_a_one_off_send_has_passed(db):
+            event = CommunityEventFactory(starts_at=_aware(2026, 7, 11, 18), ends_at=_aware(2026, 7, 11, 20))
+            assert event.next_reminder_send(3, after=_aware(2026, 7, 9)) is None
+
+        def it_skips_a_series_date_that_is_too_close_for_the_next(db):
+            event = CommunityEventFactory(
+                recurrence=CommunityEvent.Recurrence.WEEKLY,
+                starts_at=_aware(2026, 7, 11, 18),
+                ends_at=_aware(2026, 7, 11, 20),
+            )
+            # Jul 15: the Jul 18 date is 3 days off, too close for a 7-day reminder.
+            assert event.next_reminder_send(7, after=_aware(2026, 7, 15)) == (
+                _aware(2026, 7, 18, 18),
+                _aware(2026, 7, 25, 18),
+            )
+
+        def it_finds_a_yearly_series_next_send_a_year_out(db):
+            event = CommunityEventFactory(
+                recurrence=CommunityEvent.Recurrence.YEARLY,
+                starts_at=_aware(2026, 7, 11, 18),
+                ends_at=_aware(2026, 7, 11, 20),
+            )
+            found = event.next_reminder_send(7, after=_aware(2026, 7, 10))
+            assert found is not None
+            assert timezone.localtime(found[1]).year == 2027
+
     def describe_announce():
         def it_picks_guild_published_for_a_guild_event(db):
             guild = GuildFactory()

@@ -1,6 +1,6 @@
 """BDD specs for the community-event scheduler sources: reminder + happening-now
-occurrence yield, the 15-minute due-window math, per-offset dedupe, the past-offset skip,
-and the recurring-series no-fire (v1 anchors on starts_at)."""
+occurrence yield, the 15-minute due-window math, per-offset and per-date dedupe, the
+past-offset skip, and a repeating series reminding before every date."""
 
 from __future__ import annotations
 
@@ -37,26 +37,31 @@ def _guild_member(guild) -> User:
     return user
 
 
+def _date(event: CommunityEvent) -> str:
+    return timezone.localtime(event.starts_at).date().isoformat()
+
+
 def describe_event_reminder_occurrences():
-    def it_yields_one_occurrence_per_enabled_offset_with_distinct_periods():
+    def it_yields_each_enabled_offset_at_its_own_send_time_with_a_dated_period():
         now = timezone.make_aware(datetime(2026, 7, 12, 9, 0))
         event = CommunityEventFactory(starts_at=now + timedelta(days=7), remind_7d=True, remind_1d=True)
-        occurrences = list(event_reminder_occurrences(now))
-        periods = {o.period for o in occurrences}
-        assert periods == {f"event:{event.pk}:reminder:7d", f"event:{event.pk}:reminder:1d"}
+        week_out = {o.period for o in event_reminder_occurrences(now)}
+        day_out = {o.period for o in event_reminder_occurrences(now + timedelta(days=6))}
+        assert week_out == {f"event:{event.pk}:reminder:7d:{_date(event)}"}
+        assert day_out == {f"event:{event.pk}:reminder:1d:{_date(event)}"}
 
     def it_marks_due_only_the_offset_whose_fire_time_lands_in_the_tick():
         now = timezone.make_aware(datetime(2026, 7, 12, 9, 0))
         event = CommunityEventFactory(starts_at=now + timedelta(days=7), remind_7d=True, remind_3d=True, remind_1d=True)
         due = [o for o in event_reminder_occurrences(now) if o.is_due(now=now)]
-        assert [o.period for o in due] == [f"event:{event.pk}:reminder:7d"]
+        assert [o.period for o in due] == [f"event:{event.pk}:reminder:7d:{_date(event)}"]
 
-    def it_yields_past_offsets_but_none_are_due_for_an_event_under_a_day_out():
+    def it_never_yields_an_offset_whose_time_has_passed():
         now = timezone.make_aware(datetime(2026, 7, 12, 9, 0))
         CommunityEventFactory(starts_at=now + timedelta(hours=12), remind_7d=True, remind_3d=True)
         occurrences = list(event_reminder_occurrences(now))
-        assert len(occurrences) == 2  # both offsets are still generated…
-        assert run_due(occurrences, now=now) == 0  # …but their fire times are in the past
+        assert occurrences == []
+        assert run_due(occurrences, now=now) == 0
 
     def it_excludes_unpublished_events():
         now = timezone.make_aware(datetime(2026, 7, 12, 9, 0))
@@ -72,19 +77,54 @@ def describe_event_reminder_occurrences():
         first = run_sources([event_reminder_occurrences], now=now)
         second = run_sources([event_reminder_occurrences], now=now)
         assert first == 1
-        assert second == 0  # deduped on EventDelivery period event:{pk}:reminder:7d
+        assert second == 0  # deduped on EventDelivery period event:{pk}:reminder:7d:{date}
         assert Notification.objects.filter(trigger="event.reminder", user=member).count() == 1
 
-    def it_does_not_fire_a_reminder_for_a_past_anchored_recurring_series():
-        # v1 anchors on starts_at, so a monthly series whose first start is behind us
-        # contributes no reminder occurrence (it still got its launch announcement).
-        now = timezone.make_aware(datetime(2026, 7, 12, 9, 0))
-        CommunityEventFactory(
-            starts_at=now - timedelta(days=30),
+    def it_reminds_before_each_date_of_a_series_whose_first_date_has_passed():
+        # v1 anchored on starts_at, so a monthly series stopped reminding after its first date
+        # while the editor still let a lead turn reminders on for it.
+        first = timezone.make_aware(datetime(2026, 6, 11, 18, 0))  # the 2nd Thursday
+        event = CommunityEventFactory(
+            starts_at=first,
+            ends_at=first + timedelta(hours=2),
             recurrence=CommunityEvent.Recurrence.MONTHLY,
             remind_7d=True,
         )
-        assert list(event_reminder_occurrences(now)) == []
+        july, august = event.occurrences_in(datetime(2026, 7, 1).date(), datetime(2026, 8, 31).date())
+        for date_start in (july, august):
+            send = date_start - timedelta(days=7)
+            (occurrence,) = list(event_reminder_occurrences(send))
+            assert occurrence.is_due(now=send)
+            assert occurrence.period == f"event:{event.pk}:reminder:7d:{date_start.date().isoformat()}"
+            assert occurrence.context["when"].startswith(date_start.strftime("%a, %b %-d"))
+
+    def it_sends_each_date_of_a_series_once():
+        guild = GuildFactory()
+        member = _guild_member(guild)
+        first = timezone.make_aware(datetime(2026, 6, 4, 18, 0))
+        event = CommunityEventFactory(
+            guild=guild,
+            starts_at=first,
+            ends_at=first + timedelta(hours=2),
+            recurrence=CommunityEvent.Recurrence.WEEKLY,
+            remind_1d=True,
+        )
+        dates = event.occurrences_in(datetime(2026, 7, 1).date(), datetime(2026, 7, 16).date())
+        assert len(dates) == 3
+        for date_start in dates:
+            send = date_start - timedelta(days=1)
+            assert run_sources([event_reminder_occurrences], now=send) == 1
+            assert run_sources([event_reminder_occurrences], now=send) == 0
+        assert Notification.objects.filter(trigger="event.reminder", user=member).count() == 3
+
+    def it_sends_nothing_for_studio_hours_even_with_a_toggle_on():
+        # Studio hours are weekly rows, exactly the shape a series now reminds on.
+        first = timezone.make_aware(datetime(2026, 6, 4, 18, 0))
+        event = CommunityEventFactory(
+            studio_hours=True, starts_at=first, ends_at=first + timedelta(hours=3), remind_1d=True
+        )
+        (date_start,) = event.occurrences_in(datetime(2026, 7, 2).date(), datetime(2026, 7, 2).date())
+        assert list(event_reminder_occurrences(date_start - timedelta(days=1))) == []
 
     def it_fires_for_a_future_first_start_of_a_recurring_series():
         now = timezone.make_aware(datetime(2026, 7, 12, 9, 0))
@@ -94,7 +134,7 @@ def describe_event_reminder_occurrences():
             remind_7d=True,
         )
         due = [o for o in event_reminder_occurrences(now) if o.is_due(now=now)]
-        assert [o.period for o in due] == [f"event:{event.pk}:reminder:7d"]
+        assert [o.period for o in due] == [f"event:{event.pk}:reminder:7d:{_date(event)}"]
 
 
 def describe_event_happening_now_occurrences():
@@ -103,7 +143,7 @@ def describe_event_happening_now_occurrences():
         opted_in = CommunityEventFactory(starts_at=now + timedelta(minutes=5), notify_happening_now=True)
         CommunityEventFactory(starts_at=now + timedelta(minutes=5), notify_happening_now=False)
         periods = {o.period for o in event_happening_now_occurrences(now)}
-        assert periods == {f"event:{opted_in.pk}:happening_now"}
+        assert periods == {f"event:{opted_in.pk}:happening_now:{_date(opted_in)}"}
 
     def it_uses_a_zero_offset_anchored_on_the_start():
         now = timezone.make_aware(datetime(2026, 7, 12, 9, 0))
@@ -116,6 +156,27 @@ def describe_event_happening_now_occurrences():
         now = timezone.make_aware(datetime(2026, 7, 12, 9, 0))
         CommunityEventFactory(starts_at=now + timedelta(hours=2), notify_happening_now=True)
         assert list(event_happening_now_occurrences(now)) == []
+
+    def it_pings_as_each_date_of_a_series_begins():
+        first = timezone.make_aware(datetime(2026, 6, 11, 18, 0))
+        event = CommunityEventFactory(
+            starts_at=first,
+            ends_at=first + timedelta(hours=2),
+            recurrence=CommunityEvent.Recurrence.MONTHLY,
+            notify_happening_now=True,
+        )
+        (july,) = event.occurrences_in(datetime(2026, 7, 1).date(), datetime(2026, 7, 31).date())
+        (occurrence,) = list(event_happening_now_occurrences(july - timedelta(minutes=5)))
+        assert occurrence.anchor == july
+        assert occurrence.period == f"event:{event.pk}:happening_now:{july.date().isoformat()}"
+
+    def it_pings_nothing_for_studio_hours_even_with_the_toggle_on():
+        first = timezone.make_aware(datetime(2026, 6, 4, 18, 0))
+        event = CommunityEventFactory(
+            studio_hours=True, starts_at=first, ends_at=first + timedelta(hours=3), notify_happening_now=True
+        )
+        (date_start,) = event.occurrences_in(datetime(2026, 7, 2).date(), datetime(2026, 7, 2).date())
+        assert list(event_happening_now_occurrences(date_start - timedelta(minutes=5))) == []
 
     def it_delivers_once_then_dedupes():
         now = timezone.make_aware(datetime(2026, 7, 12, 9, 0))
@@ -134,7 +195,7 @@ def describe_reminder_join_url():
     """The Meetings §6.6 rail: a linked meeting's video-call link rides the reminder context."""
 
     def _reminder_context(event: CommunityEvent) -> dict:
-        now = event.starts_at - timedelta(days=2)
+        now = event.starts_at - timedelta(days=3)  # the 3-day reminder's own send time
         occurrence = next(iter(event_reminder_occurrences(now)))
         return occurrence.context
 

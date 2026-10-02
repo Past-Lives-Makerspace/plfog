@@ -80,6 +80,11 @@ _DISCORD_FIELD_VALUE_MAX = 1024
 _DISCORD_DESCRIPTION_MAX = 600
 
 
+#: How far :meth:`CommunityEvent.next_reminder_send` looks: past a yearly series' next date
+#: plus the longest reminder offset, so a repeating event always finds its next send.
+_NEXT_SEND_HORIZON = timedelta(days=400)
+
+
 def _active_lease_q(prefix: str = "", today: date_type | None = None) -> Q:
     """Build the Q-object filter for active leases.
 
@@ -6401,12 +6406,7 @@ class CommunityEvent(models.Model):
         Appends the recurrence label (e.g. ' · Every week') for a repeating series so the
         single launch announcement makes the cadence clear.
         """
-        local_start = timezone.localtime(self.starts_at)
-        local_end = timezone.localtime(self.ends_at)
-        when = (
-            f"{local_start.strftime('%a, %b %-d')} · "
-            f"{local_start.strftime('%-I:%M %p')} – {local_end.strftime('%-I:%M %p')}"
-        )
+        when = self.when_display_for(self.starts_at)
         if self.recurrence != self.Recurrence.NONE:
             when += f" · {self.get_recurrence_display()}"
         return when
@@ -6423,9 +6423,52 @@ class CommunityEvent(models.Model):
         local = timezone.localtime(self.publish_at)
         return f"{local.strftime('%b %-d, %Y')} · {local.strftime('%-I:%M %p')}"
 
+    def when_display_for(self, start: datetime_type) -> str:
+        """``when_display`` for one date of the event, which keeps the event's length.
+
+        A reminder is about one date, so it names that date and leaves the cadence out.
+        """
+        local_start = timezone.localtime(start)
+        local_end = timezone.localtime(start + (self.ends_at - self.starts_at))
+        return (
+            f"{local_start.strftime('%a, %b %-d')} · "
+            f"{local_start.strftime('%-I:%M %p')} – {local_end.strftime('%-I:%M %p')}"
+        )
+
     def enabled_reminder_offsets(self) -> list[int]:
         """Days-before values whose reminder toggle is on (e.g. ``[7, 1]``)."""
         return [days for attr, days in self.REMINDER_OFFSETS if getattr(self, attr)]
+
+    def reminder_sends(
+        self, days_before: int, frm: datetime_type, to: datetime_type
+    ) -> list[tuple[datetime_type, datetime_type]]:
+        """``(send time, date it is for)`` for each send of a ``days_before`` ping inside ``[frm, to]``.
+
+        The one answer to "when does this reminder go out": the scheduler fires what falls in
+        its tick and the event editor shows the next one, so the two cannot disagree. A
+        repeating series sends before each of its dates, and ``days_before=0`` is the
+        happening-now ping, sent as a date begins. Times are local, so "7 days before" keeps
+        the wall-clock time across a daylight saving change.
+        """
+        before = timedelta(days=days_before)
+        dates = self.occurrences_in(timezone.localdate(frm + before), timezone.localdate(to + before))
+        sends = []
+        for date_start in dates:
+            local = timezone.localtime(date_start)
+            if frm <= local - before <= to:
+                sends.append((local - before, local))
+        return sends
+
+    def next_reminder_send(
+        self, days_before: int, *, after: datetime_type
+    ) -> tuple[datetime_type, datetime_type] | None:
+        """The first :meth:`reminder_sends` entry at or after ``after``, or ``None`` when none is left.
+
+        A one-off event has none once its send time has passed. A repeating series always has
+        one, and the longest cadence (yearly) puts it within :data:`_NEXT_SEND_HORIZON`.
+        """
+        sends = self.reminder_sends(days_before, after, after + _NEXT_SEND_HORIZON)
+        return sends[0] if sends else None
 
     @property
     def public_url(self) -> str:
