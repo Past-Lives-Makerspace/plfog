@@ -763,7 +763,8 @@ html.dark .cp-page {
 }
 /* A class photo shows whole, so the frame takes the photo's shape. The template sets
    --cp-hero-ratio to the shown copy's "W / H"; the ::before sizer carries that ratio at full
-   width, capped at 520px (on a wide screen the photo is then pillarboxed over the backdrop).
+   width, capped at 700px. The hero column is 1232px at its widest, so a 16:9 crop fills it on
+   any screen and only a taller shape (a square, say) is pillarboxed over the backdrop.
    A grid cell holds the sizer and the content together, so the frame is the taller of the
    two: the photo's height, or the content when a long title needs more (#563). The ratio sits
    on the sizer and not on the frame itself because aspect-ratio with max-height on the frame
@@ -779,7 +780,7 @@ html.dark .cp-page {
   grid-area: 1 / 1;
   width: 100%;
   aspect-ratio: var(--cp-hero-ratio, 16 / 9);
-  max-height: 520px;
+  max-height: 700px;
 }
 .cp-detail__hero--photo > .cp-detail__hero-content {
   grid-area: 1 / 1;
@@ -799,7 +800,7 @@ html.dark .cp-page {
   object-fit: cover;
 }
 /* The same photo, blurred and darkened, under the img: it fills the bars when the frame is
-   taller than the photo (a long title on a phone, the 520px cap on a wide screen). The scale
+   taller than the photo (a long title on a phone, the 700px cap on a tall crop). The scale
    hides the blur's soft edge. */
 .cp-detail__hero-backdrop {
   position: absolute;

@@ -3,7 +3,7 @@
 The hero's content sits at the bottom of the box. While the box had a fixed height, a long
 title or subtitle that wrapped on a phone pushed the category row out of the top, where the
 box's overflow cut it off (#563). Now the box takes the photo's shape (``--cp-hero-ratio`` on
-the frame, applied by the ``.cp-detail__hero--photo`` sizer), capped at 520px, with the photo
+the frame, applied by the ``.cp-detail__hero--photo`` sizer), capped at 700px, with the photo
 contain fitted so nothing of it is ever clipped, and the box still grows past the photo when
 the content needs more. Only a real browser lays the text out and sizes the frame, so this
 drives the page at a phone width and at a desktop width: the category row and the byline stay
@@ -30,7 +30,7 @@ WORDED_150 = (
 UNBROKEN_150 = ("PickYourOctoberTime" * 8)[:150]
 LONG_TITLE = "Forge a Leaf Dish at the Anvil, Then Patina, Polish and Seal It for the Table in One Long Afternoon"
 # The photo's height is capped here (max-height on the sizer in cms-public.css).
-CAP = 520
+CAP = 700
 
 
 def _boxes(page: Page) -> dict[str, Any]:
@@ -68,11 +68,6 @@ def _assert_nothing_clipped(boxes: dict[str, Any]) -> None:
         hero["left"],
         hero["right"],
     )
-    photo_height = _photo_height(boxes)
-    if photo_height < CAP and abs(hero["height"] - photo_height) <= 1:
-        # Sized by the photo alone (under the cap, content not taller): the frame has the
-        # photo's shape, so the photo paints edge to edge.
-        assert hero["width"] / hero["height"] == pytest.approx(natural["width"] / natural["height"], abs=0.01)
 
 
 def _open(page: Page, live_server, offering: ClassOffering) -> None:
@@ -108,15 +103,20 @@ def describe_the_class_page_hero():
 
     @pytest.mark.parametrize("width", [390, 1366])
     def it_takes_the_photos_shape_without_a_subtitle(live_server, page: Page, serve_media, settings, width):
-        # The factory's photo is square, so a phone frame is as tall as it is wide and a
-        # desktop frame hits the cap, pillarboxing the photo over the backdrop.
+        # The factory's photo is square: a phone frame is as tall as it is wide and the photo
+        # paints edge to edge; the 1240px desktop column would be 1240px tall, so the frame
+        # hits the cap and the photo is pillarboxed over the backdrop.
         offering = ClassOfferingFactory(status=ClassOffering.Status.PUBLISHED)
         settings.PUBLIC_HOSTS = [urlparse(live_server.url).hostname]
         page.set_viewport_size({"width": width, "height": 900})
         _open(page, live_server, offering)
         boxes = _boxes(page)
-        assert boxes["natural"] == {"width": 4, "height": 4}
-        assert boxes["hero"]["height"] == pytest.approx(_photo_height(boxes), abs=1)
-        assert (boxes["hero"]["height"] == CAP) is (width == 1366)
+        hero, natural = boxes["hero"], boxes["natural"]
+        assert natural == {"width": 4, "height": 4}
+        assert hero["height"] == pytest.approx(_photo_height(boxes), abs=1)
+        if width == 390:
+            assert hero["width"] / hero["height"] == pytest.approx(natural["width"] / natural["height"], abs=0.01)
+        else:
+            assert hero["height"] == CAP
         _assert_nothing_clipped(boxes)
         assert boxes["overflow"] == 0

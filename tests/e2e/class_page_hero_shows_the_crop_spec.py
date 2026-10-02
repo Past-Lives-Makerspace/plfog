@@ -36,7 +36,7 @@ from tests.e2e.class_composer_cropper_spec import (
     _wait_ready,
 )
 
-CAP = 520
+CAP = 700
 FIELD = (40, 90, 160)
 SUBJECT = (235, 140, 30)
 
@@ -114,8 +114,8 @@ def describe_the_class_page_banner():
         assert copy.size == (crop["w"], crop["h"])
         assert offering.hero_aspect_ratio == f"{crop['w']} / {crop['h']}"
 
-        # The public page, at a desktop width (the cap pillarboxes the copy) and a phone width
-        # (the frame has the copy's shape).
+        # The public page at a desktop width and a phone width: a 16:9 copy fills the hero
+        # column under the cap at both, so the frame has the copy's shape.
         ClassOffering.objects.filter(pk=offering.pk).update(status=ClassOffering.Status.PUBLISHED)
         settings.PUBLIC_HOSTS = [urlparse(live_server.url).hostname]
         url = f"{live_server.url}{reverse('classes:public_class_detail', kwargs={'slug': offering.slug})}"
