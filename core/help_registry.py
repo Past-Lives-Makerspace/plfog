@@ -234,7 +234,8 @@ HELP_KEYS: dict[str, HelpKeyEntry] = {
     "teach.duplicate-run": {
         "title": "Offer a class on new dates",
         "short_text": (
-            "One click copies your class as a new draft with no dates. Add the new dates, then submit it for review."
+            "One click copies your class as a new draft that opens on its Dates & Price step. "
+            "Add the new group's dates, then submit it for review."
         ),
         "article_slug": "run-your-class",
         "anchor": "teach-duplicate-run",

@@ -1020,7 +1020,7 @@ When a class fills up, new sign-ups join a waitlist. You do not manage it by han
 You do not need to rebuild a class to run it on new dates.
 
 1. While the class is a draft or pending, open its **Edit** page and click **+ Offer on another set of dates** at the bottom. Once the class is live, finished, or cancelled, open it from the **Classes** tab of the teaching portal and click **Run it again** instead.
-2. Either way you get a draft copy with no dates. Add the new dates, then submit it for review.
+2. Either way you get a draft copy with no dates that opens on its Dates & Price step. Add the new group's dates, then submit it for review.
 
 On the public class page, the original and the new class link to each other under **Other Dates for This Class**, so students always see every date the class is offered. And like any class, the new one goes through review before it publishes.
 

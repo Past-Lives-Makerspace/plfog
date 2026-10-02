@@ -1,0 +1,7 @@
+bump = "patch"
+date = "2026-10-02"
+title = "Running a class again starts on its dates"
+changes = [
+  "Run it again now opens the new run on the Dates & Price step with a note saying what to do next: add the new group's dates, then submit for review. Everything else comes across from the original.",
+  "The Dates & Price step and the published class page now say that a second group gets its own run, with its own seats, rather than more dates on the same class.",
+]

@@ -310,7 +310,7 @@ Do not merge them.
         finds #session-add-date and nothing here is a second list of fields per step.
         {% endcomment %}
         <div class="pl-schedule-block" data-schedule-block="fixed" x-show="schedulingModel === 'fixed'" x-cloak>
-          <p class="pl-compose-section__note">Add a single date for a one off class, or every date in the series. Students enroll once for all of them. You can add or remove dates here any time.</p>
+          <p class="pl-compose-section__note">Add a single date for a one off class, or every date in the series. Students enroll once for all of them. You can add or remove dates here any time. <span data-run-again-hint>Adding dates for a second group? Do not add them here; use Run it again on the class page so each group gets its own seats.</span></p>
           {% include "classes/_components/scheduling_type_field.html" with field=form.scheduling_type %}
           {% include "classes/_components/session_calendar.html" %}
           {# The registration cutoff rides with the dates: a flexible class has no start to count from, so it sits inside the fixed block. #}

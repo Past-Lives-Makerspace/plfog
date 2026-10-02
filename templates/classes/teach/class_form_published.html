@@ -37,6 +37,8 @@
             {% endif %}
         </dd>
     </dl>
+    {# The dates are locked here; a second group is a second run, made from the class page. The hint renders only for a viewer who holds Run it again there. #}
+    {% if run_again_url %}<p class="pl-field-hint" data-run-again-hint style="margin:0.75rem 0 0;">To offer this class to another group, use <a href="{{ run_again_url }}">Run it again</a> on the class page.</p>{% endif %}
 </section>
 
 {# Share & Print: a live class is where the flyer and QR unlock, and this is the only teach page a live class lands on. #}

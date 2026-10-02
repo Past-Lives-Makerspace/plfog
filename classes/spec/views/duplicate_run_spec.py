@@ -31,7 +31,7 @@ def describe_admin_class_duplicate_run():
         resp = client.post(reverse("classes:teach_class_duplicate_run", kwargs={"pk": original.pk}))
         run = ClassOffering.objects.exclude(pk=original.pk).get(title="Blacksmithing 101")
         assert resp.status_code == 302
-        assert resp.url == reverse("classes:teach_class_edit", kwargs={"pk": run.pk})
+        assert resp.url == f"{reverse('classes:teach_class_edit', kwargs={'pk': run.pk})}?step=3"
         assert run.status == ClassOffering.Status.DRAFT
         assert run.grouping_key == original.grouping_key
         assert run.sessions.count() == 0
@@ -58,7 +58,7 @@ def describe_teach_class_duplicate_run():
         resp = client.post(reverse("classes:teach_class_duplicate_run", kwargs={"pk": original.pk}))
         run = ClassOffering.objects.exclude(pk=original.pk).get(title="Forge Night")
         assert resp.status_code == 302
-        assert resp.url == reverse("classes:teach_class_edit", kwargs={"pk": run.pk})
+        assert resp.url == f"{reverse('classes:teach_class_edit', kwargs={'pk': run.pk})}?step=3"
         assert run.status == ClassOffering.Status.DRAFT
         assert run.instructor_id == instructor_fixture.pk
 
