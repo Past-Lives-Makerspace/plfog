@@ -81,10 +81,13 @@ def describe_ClassOffering():
             assert 0 < len(o.seo_description) <= 160
 
         def it_strips_html_and_newlines_from_the_source(db):
-            o = ClassOfferingFactory(description="Line one\n\nLine two <b>bold</b> & more")
-            d = o.seo_description
-            assert "\n" not in d
-            assert "<b>" not in d
+            o = ClassOfferingFactory(description="<p>Line one</p><p>Line two <strong>bold</strong> &amp; more</p>")
+            assert o.seo_description == "Line one Line two bold & more"
+
+        def it_keeps_brackets_typed_as_plain_text(db):
+            # Plain text is kept as typed (#425); the page escapes it.
+            o = ClassOfferingFactory(description="Bring <safety glasses>\n\nand gloves")
+            assert o.seo_description == "Bring <safety glasses> and gloves"
 
         def describe_with_a_blank_description():
             def it_falls_back_to_a_category_aware_default(db):
@@ -99,8 +102,7 @@ def describe_ClassOffering():
 
         def it_is_html_safe_when_escaped_in_a_template(db):
             o = ClassOfferingFactory(description="Bring tongs & gloves <script>x</script>")
-            assert "<" not in o.seo_description
-            assert "&amp;" in escape(o.seo_description)
+            assert escape(o.seo_description) == "Bring tongs &amp; gloves &lt;script&gt;x&lt;/script&gt;"
 
     def describe_persistence_guard():
         def it_keeps_archived_offerings_queryable_for_seo(db):
