@@ -4948,6 +4948,9 @@ def admin_registrations(request: HttpRequest) -> HttpResponse:
             "class_options": class_options,
             "class_filter": request.GET.get("class", ""),
             "show_instructor_filter": is_actual_admin,
+            # The Class link opens the class screen, which a guild lead cannot open for a class
+            # they do not teach (classes/access.py); the template links only what will open.
+            "own_member_pk": getattr(getattr(request.user, "member", None), "pk", None),
             "instructors": instructors,
             "instructor_filter": request.GET.get("instructor", ""),
             "mine_active": mine_active,

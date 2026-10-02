@@ -10,7 +10,13 @@ from __future__ import annotations
 
 from django.urls import reverse
 
-from classes.factories import ClassOfferingFactory, InstructorFactory, RegistrationFactory, UserFactory
+from classes.factories import (
+    CategoryFactory,
+    ClassOfferingFactory,
+    InstructorFactory,
+    RegistrationFactory,
+    UserFactory,
+)
 
 
 def _class_link(offering) -> str:
@@ -24,6 +30,23 @@ def describe_admin_registrations_list():
         client.force_login(admin_user)
         html = client.get(reverse("classes:admin_registrations")).content.decode()
         assert f"<td><a {_class_link(offering)}>Blade Smithing Links</a></td>" in html
+
+    def it_links_only_the_classes_a_guild_lead_can_open(client, db):
+        """A lead's list also holds the guild's other classes, whose screen 404s for them."""
+        from tests.membership.factories import GuildFactory
+
+        user = UserFactory(username="links-lead")
+        lead = InstructorFactory(user=user, instructor_slug="links-lead")
+        category = CategoryFactory(guild=GuildFactory(guild_lead=lead))
+        others = ClassOfferingFactory(category=category, title="Someone Elses Links")
+        own = ClassOfferingFactory(instructor=lead, title="The Leads Own Links")
+        RegistrationFactory(class_offering=others)
+        RegistrationFactory(class_offering=own)
+        client.force_login(user)
+        html = client.get(reverse("classes:admin_registrations")).content.decode()
+        assert f"<td><a {_class_link(own)}>The Leads Own Links</a></td>" in html
+        assert "<td>Someone Elses Links</td>" in html
+        assert _class_link(others) not in html
 
 
 def describe_teach_registrations_page():

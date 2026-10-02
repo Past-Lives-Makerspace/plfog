@@ -1,4 +1,4 @@
-bump = "patch"
+bump = "minor"
 date = "2026-10-02"
 title = "Registration lists link to the class"
 changes = [
