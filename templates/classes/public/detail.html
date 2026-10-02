@@ -30,17 +30,19 @@ appends and runs it on the first boosted arrival here (FRONTEND.md, Scripts unde
   {% endif %}
 
   {# ── HERO ─────────────────────────────────────────────── #}
+  {% comment %}
+  The class's own photo (uploaded, or imported from the old class site) shows whole: the
+  frame takes the photo's shape through --cp-hero-ratio (read by the .cp-detail__hero--photo
+  sizer in cms-public.css) and the img is contain fitted, so the composer's crop box is
+  exactly what the page shows and there is nothing left for the Adjust sliders to move. The
+  ratio rides a custom property rather than aspect-ratio on the frame itself because the
+  frame must still grow past the photo's height for a long title (#563) while the photo's
+  height is capped at 520px; the sizer takes the cap and the content sets the floor. Only
+  the category hero, cover fitted, keeps heroPlacement and the Adjust tooling.
+  {% endcomment %}
   {% with class_img_url=offering.image|default:offering.legacy_image_url %}
   <div class="cp-detail__herobox"
-          {% if class_img_url and can_edit_offering %}
-          x-data="heroPlacement({
-              updateUrl: '{% url 'hub_hero_adjust' %}',
-              contentTypeId: {{ offering_ct_id }},
-              objectId: {{ offering.pk }},
-              csrfToken: '{{ csrf_token }}',
-              initialObjectPosition: '{{ offering.hero_object_position }}'
-          })"
-          {% elif not class_img_url and offering.category.hero_image and can_edit_category %}
+          {% if not class_img_url and offering.category.hero_image and can_edit_category %}
           x-data="heroPlacement({
               updateUrl: '{% url 'hub_hero_adjust' %}',
               contentTypeId: {{ category_ct_id }},
@@ -49,30 +51,23 @@ appends and runs it on the first boosted arrival here (FRONTEND.md, Scripts unde
               initialObjectPosition: '{{ offering.category.hero_object_position }}'
           })"
           {% endif %}>
-  <header class="cp-detail__hero">
+  <header class="cp-detail__hero{% if class_img_url %} cp-detail__hero--photo{% endif %}"{% if class_img_url %} style="--cp-hero-ratio: {{ offering.hero_aspect_ratio }};"{% endif %}>
     {% if offering.image %}
       {# hero_image_url is the copy cut to the composer's crop box when there is one, else the upload. #}
+      {# The backdrop is the same photo blurred under the img; it only shows where the frame is taller than the photo. #}
+      <div class="cp-detail__hero-backdrop" style="background-image: url('{{ offering.hero_image_url }}');"></div>
       <img class="cp-detail__hero-img"
            src="{{ offering.hero_image_url }}"
-           alt="{{ offering.title }}"
-           {% if can_edit_offering %}
-           x-ref="heroImg"
-           :style="'object-position: ' + objectPosition"
-           {% else %}
-           style="object-position: {{ offering.hero_object_position }};"
-           {% endif %}>
+           alt="{{ offering.title }}">
     {% elif offering.legacy_image_url %}
+      {% with legacy_src=offering.hero_image_url %}
+      <div class="cp-detail__hero-backdrop" style="background-image: url('{{ legacy_src }}');"></div>
       <img class="cp-detail__hero-img"
-           src="{% url 'classes:legacy_image' %}?url={{ offering.legacy_image_url|urlencode }}"
-           alt="{{ offering.title }}"
-           {% if can_edit_offering %}
-           x-ref="heroImg"
-           :style="'object-position: ' + objectPosition"
-           {% else %}
-           style="object-position: {{ offering.hero_object_position }};"
-           {% endif %}>
+           src="{{ legacy_src }}"
+           alt="{{ offering.title }}">
+      {% endwith %}
     {% elif offering.category.hero_image %}
-      <img class="cp-detail__hero-img"
+      <img class="cp-detail__hero-img cp-detail__hero-img--cover"
            src="{{ offering.category.hero_image.url }}"
            alt="{{ offering.category.name }}"
            {% if can_edit_category %}
@@ -168,13 +163,14 @@ appends and runs it on the first boosted arrival here (FRONTEND.md, Scripts unde
       {% endif %}
       </div>
 
-      {# --- Visual Placement Tool --- #}
+      {# --- Edit link, and the Visual Placement Tool for the category hero --- #}
+      {# can_edit_category is true only with no class photo, a category hero and the permission: exactly when heroPlacement is mounted above, so isAdjusting exists. #}
       {% if can_edit_offering or can_edit_category %}
         {% if class_img_url or offering.category.hero_image %}
         <div style="display: flex; align-items: center; gap: 0.5rem;">
             {% if can_edit_offering and edit_url %}
             <a href="{{ edit_url }}" style="background: rgba(0,0,0,0.6); border: 1px solid rgba(255,255,255,0.2); padding: 4px 10px; border-radius: 4px; color: white; display: flex; align-items: center; gap: 0.5rem; font-size: 11px; font-weight: 600; cursor: pointer; backdrop-filter: blur(4px); text-decoration: none;"
-               x-show="!isAdjusting" title="Edit Class">
+               {% if can_edit_category %}x-show="!isAdjusting"{% endif %} title="Edit Class">
                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
                     <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/>
                 </svg>
@@ -182,6 +178,7 @@ appends and runs it on the first boosted arrival here (FRONTEND.md, Scripts unde
             </a>
             {% endif %}
 
+            {% if can_edit_category %}
             <button type="button" style="background: rgba(0,0,0,0.6); border: 1px solid rgba(255,255,255,0.2); padding: 4px 10px; border-radius: 4px; color: white; display: flex; align-items: center; gap: 0.5rem; font-size: 11px; font-weight: 600; cursor: pointer; backdrop-filter: blur(4px);"
                     @click="startAdjusting()" x-show="!isAdjusting" :disabled="isLoading" title="Adjust Placement">
                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
@@ -211,6 +208,7 @@ appends and runs it on the first boosted arrival here (FRONTEND.md, Scripts unde
                     </button>
                 </div>
             </div>
+            {% endif %}
         </div>
         {% endif %}
       {% endif %}

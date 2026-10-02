@@ -1066,6 +1066,28 @@ class ClassOffering(HeroCropMixin, models.Model):
             return "50% 50%"
         return super().hero_object_position
 
+    @property
+    def hero_aspect_ratio(self) -> str:
+        """CSS ``aspect-ratio`` for the class page banner: the shape of the photo it shows.
+
+        The banner shows the whole photo (``object-fit: contain``) in a frame of the
+        photo's own shape, so the composer's crop box is exactly what the page shows.
+        The cropped copy wins when there is one, else the upload. ``"16 / 9"`` (the crop
+        box's own shape) when there is no uploaded file (an imported photo, or none) or
+        when the file's size cannot be read, with the same guards ``hero_object_position``
+        uses to read a size.
+        """
+        photo = self.hero_cropped or self.image
+        if not photo:
+            return "16 / 9"
+        try:
+            width, height = photo.width, photo.height
+        except (FileNotFoundError, ValueError, AttributeError, OSError):
+            return "16 / 9"
+        if not (width and height):
+            return "16 / 9"
+        return f"{width} / {height}"
+
     def focal_point_on_source(self, x_pct: int, y_pct: int) -> tuple[int, int]:
         """A focal point picked on the cropped copy, mapped into the original's coordinates.
 
