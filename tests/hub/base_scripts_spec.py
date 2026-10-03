@@ -30,6 +30,7 @@ HEAD_ORDER = (
     "js/session_calendar.js",
     "js/card_focus.js",
     "js/space_map.js",
+    "js/guild_autosave.js",
     "js/pl_help.js",
     "js/alpine.min.js",
     "js/biometric-auth.js",

@@ -1,11 +1,28 @@
 {% extends "hub/base.html" %}
+{% load hub_tags %}
 {% block title %}{{ guild.name }} Settings{% endblock %}
 {% block content %}
 {% include "_components/rich_editor_assets.html" %}
-<div x-data="{ section: new URLSearchParams(window.location.search).get('tab') || '{{ active_tab|default:'basic' }}' }">
-<div style="display:flex; justify-content:space-between; align-items:center; gap:12px; flex-wrap:wrap; margin-bottom:0.5rem;">
-  <h1 class="hub-page-title" style="margin:0;">{{ guild.name }} Settings</h1>
-  <span style="display:flex; gap:8px; flex-wrap:wrap;">
+{% comment %}
+Every form on this page saves itself as it is edited (#575): the root is the plGuildAutosave
+component (static/js/guild_autosave.js, loaded from hub/base.html's head), each saving form
+carries data-autosave (data-autosave="change" on the two hours forms, which materialize slots
+and push to Google, so they save on a change and never on a typing pause), and a formset form
+names its prefix and required fields so a half typed new row is skipped rather than refused.
+The save pill is the meeting workspace's. The two window events are the shared confirms'
+way back in: the modals are teleported to <body>, outside this root.
+{% endcomment %}
+<div x-data="plGuildAutosave({ section: new URLSearchParams(window.location.search).get('tab') || '{{ active_tab|default:'basic' }}' })" data-guild-autosave @pl-guild-autosave-leave.window="leave()" @pl-guild-autosave-delete.window="confirmDelete()">
+<div class="pl-guild-settings__header">
+  <div>
+    <h1 class="hub-page-title pl-guild-settings__title">{{ guild.name }} Settings</h1>
+    <p class="pl-guild-settings__lead">Every change saves as you make it.</p>
+  </div>
+  <span class="pl-guild-settings__actions">
+    <span class="pl-meeting-savestate" data-save-pill
+          :class="'pl-meeting-savestate--' + (pending > 0 ? 'saving' : state)"
+          :data-saves="saves"
+          x-show="pending > 0 || state !== 'idle'" x-text="label()" aria-live="polite" x-cloak></span>
     <a href="?tour=guild-lead" class="hub-btn hub-btn--sm">Show me around</a>
     <a href="{% url 'hub_guild_detail' guild.slug %}" class="hub-btn hub-btn--sm hub-btn--ghost">← Back to Guild Page</a>
   </span>
@@ -96,9 +113,9 @@ two empty lists, and "all clear" would be a lie about a guild that does have wor
   <button type="button" class="vote-tab" data-help-key="guild.manage-staff" :class="section === 'staff' ? 'vote-tab--active' : ''" @click="section = 'staff'">Staff</button>
 </div>
 
-<form method="post" enctype="multipart/form-data" class="hub-form">
+<form method="post" enctype="multipart/form-data" class="hub-form" data-autosave>
   {% csrf_token %}
-  {# Where to land after a successful save. The per-link delete button flips this to "edit" so you stay here. #}
+  {# Where a plain (script off) post lands; the autosave answers JSON and never redirects. #}
   <input type="hidden" name="after" value="detail">
 
   {# ── Basic Information ───────────────────────────────────────────── #}
@@ -170,21 +187,23 @@ two empty lists, and "all clear" would be a lie about a guild that does have wor
 
     <div class="hub-card" style="padding:1.5rem; margin-bottom:1.5rem;" data-help-key="guild.photo-gallery">
       <h2 class="hub-detail-label" style="margin-top:0; margin-bottom:0.25rem;">Gallery</h2>
-      <p class="hub-text-muted" style="font-size:0.8125rem; margin-bottom:1rem;">Optional. Photos shown in the gallery section. Images save instantly — no need to hit Save.</p>
+      <p class="hub-text-muted" style="font-size:0.8125rem; margin-bottom:1rem;">Optional. Photos shown in the gallery section.</p>
       {% url 'hub_guild_image_upload' guild.pk as upload_url %}
       {% url 'hub_guild_image_reorder' guild.pk as reorder_url %}
       {# delete and alt URLs are prefixes: /guilds/1/images/ (JS appends [id]/delete/ or [id]/alt/) #}
       {% url 'hub_guild_image_upload' guild.pk as base_url %}
+      {# The gallery saves through its own endpoints; its inputs must not post the main form. #}
+      <div data-autosave-ignore>
       {% with delete_url_prefix=base_url|slice:":-7" %}
         {% include "components/gallery_manager.html" with instance=guild images=guild.gallery_images.all upload_url=upload_url reorder_url=reorder_url delete_url_prefix=delete_url_prefix alt_url_prefix=delete_url_prefix csrf_token=csrf_token %}
       {% endwith %}
+      </div>
     </div>
   </div>
 
   {# The main form only covers Basic / Meetings / Images — every other tab saves via its own endpoint. #}
-  <div x-show="section === 'basic' || section === 'meetings' || section === 'images'" style="margin-top:0.5rem; display:flex; gap:1rem;">
-    <button type="submit" class="pl-btn pl-btn--primary">Save Changes</button>
-    <a href="{% url 'hub_guild_detail' guild.slug %}" class="pl-btn pl-btn--secondary">Cancel</a>
+  <div x-show="section === 'basic' || section === 'meetings' || section === 'images'" class="pl-guild-settings__footer">
+    <a href="{% url 'hub_guild_detail' guild.slug %}" class="pl-btn pl-btn--secondary">View guild page</a>
   </div>
 </form>
 
@@ -194,15 +213,15 @@ two empty lists, and "all clear" would be a lie about a guild that does have wor
   "Studio Hours" card and mirrored to the Public Google Calendar. ────
 {% endcomment %}
 <div x-show="section === 'studio_hours'" x-cloak>
-  <form method="post" action="{% url 'hub_guild_studio_hours_save' guild.pk %}" class="hub-form">
+  <form method="post" action="{% url 'hub_guild_studio_hours_save' guild.pk %}" class="hub-form" data-autosave="change" data-formset="studio_hours" data-formset-required="{{ studio_hours_formset.empty_form|required_fields }}" data-autosave-confirm="delete-studio-hours">
     {% csrf_token %}
     <div class="hub-card" style="padding:1.5rem; margin-bottom:1.5rem;" data-help-key="guild.studio-hours">
       <h2 class="hub-detail-label" style="margin-top:0; margin-bottom:0.25rem;">Studio Hours</h2>
       <p class="hub-text-muted" style="font-size:0.8125rem; margin-bottom:1rem;">Weekly windows when you're around for members to drop by — shown on your guild page. Add one row per window (e.g. Tuesdays and Saturdays are two rows).</p>
       {{ studio_hours_formset.management_form }}
-      <div id="studio-hours-rows" style="display:flex; flex-direction:column; gap:0.75rem;">
+      <div id="studio-hours-rows" style="display:flex; flex-direction:column; gap:0.75rem;" data-formset-rows>
         {% for sh in studio_hours_formset %}
-        <div class="hub-card" style="padding:1rem; background:rgba(255,255,255,0.02);">
+        <div class="hub-card" style="padding:1rem; background:rgba(255,255,255,0.02);" data-formset-row>
           {{ sh.id }}
           {% for error in sh.non_field_errors %}<p class="pl-field-error">{{ error }}</p>{% endfor %}
           <div style="display:flex; gap:0.75rem; flex-wrap:wrap;">
@@ -218,22 +237,18 @@ two empty lists, and "all clear" would be a lie about a guild that does have wor
           </div>
           {% endif %}
           {% if sh.instance.pk %}
-            {# Real delete button: flips the hidden DELETE field and saves the form so no work is lost. #}
+            {# Real delete button: the confirm flips the hidden DELETE field and the form saves itself. #}
             <div style="display:none;">{{ sh.DELETE }}</div>
-            <button type="button" class="pl-btn pl-btn--danger pl-btn--sm pl-btn--spaced"
-                    onclick="document.getElementById('{{ sh.DELETE.id_for_label }}').checked = true; this.form.requestSubmit();">
-              Delete
-            </button>
+            <button type="button" class="pl-btn pl-btn--danger pl-btn--sm pl-btn--spaced" data-formset-remove>Delete</button>
           {% endif %}
         </div>
-        {% empty %}
-        <p class="hub-text-muted">No studio hours yet — add your first window.</p>
         {% endfor %}
+        <p class="hub-text-muted" data-formset-empty{% if studio_hours_formset.forms %} hidden{% endif %}>No studio hours yet. Add your first window.</p>
       </div>
 
       {# Hidden empty-form template, cloned by the +Add button below. #}
-      <template id="studio-hours-empty-template">
-        <div class="hub-card" style="padding:1rem; background:rgba(255,255,255,0.02);">
+      <template id="studio-hours-empty-template" data-formset-template>
+        <div class="hub-card" style="padding:1rem; background:rgba(255,255,255,0.02);" data-formset-row>
           {% with studio_hours_formset.empty_form as esh %}
             {{ esh.id }}
             <div style="display:flex; gap:0.75rem; flex-wrap:wrap;">
@@ -243,29 +258,17 @@ two empty lists, and "all clear" would be a lie about a guild that does have wor
               <div style="flex:1; min-width:140px;">{% include "components/form_field.html" with field=esh.location %}</div>
             </div>
             {% include "components/form_field.html" with field=esh.note %}
-            <button type="button" class="pl-btn pl-btn--danger pl-btn--sm pl-btn--spaced" onclick="this.closest('.hub-card').remove();">Remove</button>
+            <button type="button" class="pl-btn pl-btn--danger pl-btn--sm pl-btn--spaced" data-formset-remove>Remove</button>
           {% endwith %}
         </div>
       </template>
 
-      {# Add then Save sit together (FAQ/hours footer rhythm). #}
-      <div style="margin-top:1rem; display:flex; gap:1rem; align-items:center; flex-wrap:wrap;">
-        <button type="button" class="hub-btn hub-btn--sm"
-                onclick="
-                  const tpl = document.getElementById('studio-hours-empty-template');
-                  const total = document.getElementById('id_studio_hours-TOTAL_FORMS');
-                  const idx = parseInt(total.value, 10);
-                  const wrap = document.createElement('div');
-                  wrap.innerHTML = tpl.innerHTML.replaceAll('__prefix__', idx);
-                  document.getElementById('studio-hours-rows').appendChild(wrap.firstElementChild);
-                  total.value = idx + 1;
-                ">
-          + Add studio hours
-        </button>
-        <button type="submit" class="pl-btn pl-btn--primary">Save Studio Hours</button>
+      <div style="margin-top:1rem;">
+        <button type="button" class="hub-btn hub-btn--sm" data-formset-add>+ Add studio hours</button>
       </div>
     </div>
   </form>
+  {% include "components/confirm_modal.html" with confirm_id="delete-studio-hours" confirm_title="Delete these hours?" confirm_message="Upcoming open times from this window come off the calendar. Booked times stay until you cancel them." confirm_button_text="Delete" confirm_js="window.dispatchEvent(new CustomEvent('pl-guild-autosave-delete'))" %}
 </div>
 
 {# ── Share & Print (Basic tab) — vanity URL, printable flyer, QR downloads ──── #}
@@ -300,7 +303,7 @@ and endpoint, sitting outside the main form. A guild lead never sees this: it is
 on is_admin (the same effective-admin gate as the Danger Zone below), and the save view
 403s anyone who is not an actual admin.
 {% endcomment %}
-<form method="post" action="{% url 'hub_guild_visibility_save' guild.pk %}" class="hub-form" x-show="section === 'basic'" x-cloak>
+<form method="post" action="{% url 'hub_guild_visibility_save' guild.pk %}" class="hub-form" x-show="section === 'basic'" x-cloak data-autosave>
   {% csrf_token %}
   <div class="hub-card" style="padding:1.5rem; margin-top:2.5rem; margin-bottom:1.5rem;">
     <h2 class="hub-detail-label" style="margin-top:0; margin-bottom:0.25rem;">Visibility</h2>
@@ -310,7 +313,6 @@ on is_admin (the same effective-admin gate as the Danger Zone below), and the sa
       settings page stay reachable by direct link, so an admin can always turn it back on.
     </p>
     {% include "components/form_field.html" with field=visibility_form.is_active %}
-    <button type="submit" class="pl-btn pl-btn--primary" style="margin-top:1rem;">Save</button>
   </div>
 </form>
 {% comment %}
@@ -421,7 +423,7 @@ confirm modal carries its own POST form, and template content can't nest a form.
 
 {# ── Orientations (settings + recurring hours each save via their own endpoint) ──── #}
 <div x-show="section === 'orientations'" x-cloak>
-  <form method="post" action="{% url 'hub_guild_orientation_edit' guild.pk %}" class="hub-form">
+  <form method="post" action="{% url 'hub_guild_orientation_edit' guild.pk %}" class="hub-form" data-autosave>
     {% csrf_token %}
 
     <div class="hub-card" style="padding:1.5rem; margin-bottom:1.5rem;">
@@ -443,8 +445,8 @@ confirm modal carries its own POST form, and template content can't nest a form.
       {% include "components/form_field.html" with field=orientation_form.closed_message %}
     </div>
 
-    {# Who runs orientations — sits above the Save button with clear margin (orienters are guild staff). #}
-    <div class="hub-card" style="padding:1.25rem 1.5rem; margin-bottom:1rem; display:flex; align-items:center; justify-content:space-between; gap:1rem; flex-wrap:wrap;">
+    {# Who runs orientations (orienters are guild staff). #}
+    <div class="hub-card" style="padding:1.25rem 1.5rem; margin-bottom:1.5rem; display:flex; align-items:center; justify-content:space-between; gap:1rem; flex-wrap:wrap;">
       <div style="flex:1; min-width:240px;">
         <h2 class="hub-detail-label" style="margin:0 0 0.25rem;">Who runs orientations</h2>
         <p class="hub-text-muted" style="font-size:0.8125rem; margin:0;">
@@ -454,21 +456,19 @@ confirm modal carries its own POST form, and template content can't nest a form.
       </div>
       <a href="{% url 'hub_guild_edit' guild.pk %}?tab=staff" class="hub-btn hub-btn--sm">Manage staff →</a>
     </div>
-
-    <button type="submit" class="hub-btn hub-btn--primary" style="margin-bottom:2rem;">Save orientation settings</button>
   </form>
 
   {# ── Orientation Types (its own form + endpoint, the FAQ idiom) ──── #}
-  <form method="post" action="{% url 'hub_guild_orientation_types_save' guild.pk %}" class="hub-form" id="otypes-form">
+  <form method="post" action="{% url 'hub_guild_orientation_types_save' guild.pk %}" class="hub-form" id="otypes-form" data-autosave data-formset="otypes" data-formset-required="{{ orientation_type_formset.empty_form|required_fields }}">
     {% csrf_token %}
     <div class="hub-card" style="padding:1.5rem; margin-bottom:1.5rem;">
       <h2 class="hub-detail-label" style="margin-top:0; margin-bottom:0.25rem;">Orientation Types</h2>
       <p class="hub-text-muted" style="font-size:0.8125rem; margin:0 0 1rem;">The kinds of orientation your guild offers, e.g. Shop Basics, Lathe, CNC. Each has its own length, price, seats, and location. Members book each one separately; completing any one counts as oriented for the guild. Set a price and members pay by card when they book; declines and cancellations refund automatically.</p>
       {{ orientation_type_formset.management_form }}
       {% for error in orientation_type_formset.non_form_errors %}<p class="pl-field-error">{{ error }}</p>{% endfor %}
-      <div id="otype-rows" style="display:flex; flex-direction:column; gap:1rem;">
+      <div id="otype-rows" style="display:flex; flex-direction:column; gap:1rem;" data-formset-rows>
         {% for t in orientation_type_formset %}
-          <div class="hub-card" style="padding:1rem; background:rgba(255,255,255,0.02);">
+          <div class="hub-card" style="padding:1rem; background:rgba(255,255,255,0.02);" data-formset-row>
             {% for error in t.non_field_errors %}<p class="pl-field-error">{{ error }}</p>{% endfor %}
             <div style="display:flex; gap:0.75rem; flex-wrap:wrap;">
               <div style="flex:2; min-width:160px;">{% include "components/form_field.html" with field=t.name %}</div>
@@ -485,21 +485,17 @@ confirm modal carries its own POST form, and template content can't nest a form.
             {% include "components/form_field.html" with field=t.is_active %}
             {% if t.instance.pk %}
               <div style="display:none;">{{ t.DELETE }}</div>
-              <button type="button" class="pl-btn pl-btn--danger pl-btn--sm pl-btn--spaced"
-                      onclick="document.getElementById('{{ t.DELETE.id_for_label }}').checked = true; this.form.requestSubmit();">
-                Delete
-              </button>
+              <button type="button" class="pl-btn pl-btn--danger pl-btn--sm pl-btn--spaced" data-formset-remove>Delete</button>
             {% endif %}
             {{ t.id }}
           </div>
-        {% empty %}
-          <p class="hub-text-muted">No orientation types yet. Add your first below. Members can only book once at least one type exists.</p>
         {% endfor %}
+        <p class="hub-text-muted" data-formset-empty{% if orientation_type_formset.forms %} hidden{% endif %}>No orientation types yet. Add your first below. Members can only book once at least one type exists.</p>
       </div>
 
       {# Hidden empty-form template, cloned by the +Add button below. #}
-      <template id="otype-empty-template">
-        <div class="hub-card" style="padding:1rem; background:rgba(255,255,255,0.02);">
+      <template id="otype-empty-template" data-formset-template>
+        <div class="hub-card" style="padding:1rem; background:rgba(255,255,255,0.02);" data-formset-row>
           {% with orientation_type_formset.empty_form as ef %}
             <div style="display:flex; gap:0.75rem; flex-wrap:wrap;">
               <div style="flex:2; min-width:160px;">{% include "components/form_field.html" with field=ef.name %}</div>
@@ -515,23 +511,12 @@ confirm modal carries its own POST form, and template content can't nest a form.
             {% include "components/form_field.html" with field=ef.external_signup_url %}
             {% include "components/form_field.html" with field=ef.is_active %}
             {{ ef.id }}
-            <button type="button" class="pl-btn pl-btn--danger pl-btn--sm pl-btn--spaced" onclick="this.closest('.hub-card').remove();">Remove</button>
+            <button type="button" class="pl-btn pl-btn--danger pl-btn--sm pl-btn--spaced" data-formset-remove>Remove</button>
           {% endwith %}
         </div>
       </template>
 
-      <button type="button" class="hub-btn hub-btn--sm" style="margin-top:1rem;"
-              onclick="
-                const tpl = document.getElementById('otype-empty-template');
-                const total = document.getElementById('id_otypes-TOTAL_FORMS');
-                const idx = parseInt(total.value, 10);
-                const wrap = document.createElement('div');
-                wrap.innerHTML = tpl.innerHTML.replaceAll('__prefix__', idx);
-                document.getElementById('otype-rows').appendChild(wrap.firstElementChild);
-                total.value = idx + 1;
-              ">
-        + Add an orientation type
-      </button>
+      <button type="button" class="hub-btn hub-btn--sm" style="margin-top:1rem;" data-formset-add>+ Add an orientation type</button>
 
       {% if orientation_is_paid %}
       {# Read-only: the split is set by an admin on the Payments Dashboard, not here. #}
@@ -546,15 +531,11 @@ confirm modal carries its own POST form, and template content can't nest a form.
         </span>
       </div>
       {% endif %}
-
-      <div style="margin-top:1.5rem;">
-        <button type="submit" class="pl-btn pl-btn--primary">Save</button>
-      </div>
     </div>
   </form>
 
   {# Thank-you Email — the orientation-lifecycle email; own form + endpoint (multi-form via form_id). #}
-  <form method="post" action="{% url 'hub_guild_emails_save' guild.pk %}" class="hub-form">
+  <form method="post" action="{% url 'hub_guild_emails_save' guild.pk %}" class="hub-form" data-autosave>
     {% csrf_token %}
     <input type="hidden" name="form_id" value="thankyou_email">
     <div class="hub-card" data-help-key="guild.thankyou-email" style="padding:1.5rem; margin-bottom:1.5rem;">
@@ -563,7 +544,6 @@ confirm modal carries its own POST form, and template content can't nest a form.
       {% include "components/form_field.html" with field=thankyou_email_form.thankyou_email_enabled %}
       {% include "components/form_field.html" with field=thankyou_email_form.thankyou_email_subject %}
       {% include "components/form_field.html" with field=thankyou_email_form.thankyou_email_body %}
-      <button type="submit" class="pl-btn pl-btn--primary" style="margin-top:1rem;">Save</button>
     </div>
   </form>
 
@@ -637,16 +617,16 @@ confirm modal carries its own POST form, and template content can't nest a form.
 
   {# Guild Hours (Any Orienter) — legacy shared rules; renders only while such rows exist. #}
   {% if guild_rule_formset %}
-  <form id="guild-hours-form" method="post" action="{% url 'hub_guild_orientation_hours_save' guild.pk %}" class="hub-form">
+  <form id="guild-hours-form" method="post" action="{% url 'hub_guild_orientation_hours_save' guild.pk %}" class="hub-form" data-autosave="change" data-formset="guild_rules" data-formset-required="{{ guild_rule_formset.empty_form|required_fields }}" data-autosave-confirm="delete-guild-hours">
     {% csrf_token %}
     <input type="hidden" name="orienter_scope" value="">
     <div class="hub-card" style="padding:1.5rem; margin-bottom:1.5rem;">
       <h2 class="hub-detail-label" style="margin-top:0; margin-bottom:0.25rem;">Guild Hours (Any Orienter)</h2>
       <p class="hub-text-muted" style="font-size:0.8125rem; margin-bottom:1rem;">These shared hours predate personal hours and cannot be recreated once deleted. New recurring hours always belong to a person. For occasional shared coverage, add an Any orienter one off in Upcoming Times.</p>
       {{ guild_rule_formset.management_form }}
-      <div class="pl-hours-rows">
+      <div class="pl-hours-rows" data-formset-rows>
         {% for rule in guild_rule_formset %}
-        <div class="hub-card" style="padding:1rem; background:rgba(255,255,255,0.02);">
+        <div class="hub-card" style="padding:1rem; background:rgba(255,255,255,0.02);" data-formset-row>
           {{ rule.id }}
           <div style="display:flex; gap:0.75rem; flex-wrap:wrap;">
             <div style="flex:1; min-width:140px;">{% include "components/form_field.html" with field=rule.orientation_type %}</div>
@@ -658,23 +638,15 @@ confirm modal carries its own POST form, and template content can't nest a form.
           {% include "components/form_field.html" with field=rule.is_active %}
           {% if rule.instance.pk %}
             <div style="display:none;">{{ rule.DELETE }}</div>
-            <button type="button" class="pl-btn pl-btn--danger pl-btn--sm pl-btn--spaced"
-                    @click="$dispatch('open-confirm', 'guild-rule-del-{{ rule.instance.pk }}')">
-              Delete
-            </button>
-            {% with rpks=rule.instance.pk|stringformat:"s" ruledel="document.getElementById('"|add:rule.DELETE.id_for_label|add:"').checked = true; document.getElementById('guild-hours-form').requestSubmit();" %}
-            {% include "components/confirm_modal.html" with confirm_id="guild-rule-del-"|add:rpks confirm_title="Delete these shared hours?" confirm_message="Shared recurring hours cannot be recreated. Upcoming open slots from this window will be removed; booked slots stay until you cancel them." confirm_button_text="Delete" confirm_js=ruledel %}
-            {% endwith %}
+            <button type="button" class="pl-btn pl-btn--danger pl-btn--sm pl-btn--spaced" data-formset-remove>Delete</button>
           {% endif %}
         </div>
         {% endfor %}
       </div>
       {# Keep/edit/retire only — new shared recurring hours can't be created (the one-way door). #}
-      <div style="margin-top:1rem;">
-        <button type="submit" class="pl-btn pl-btn--primary">Save</button>
-      </div>
     </div>
   </form>
+  {% include "components/confirm_modal.html" with confirm_id="delete-guild-hours" confirm_title="Delete these shared hours?" confirm_message="Shared recurring hours cannot be recreated. Upcoming open slots from this window will be removed; booked slots stay until you cancel them." confirm_button_text="Delete" confirm_js="window.dispatchEvent(new CustomEvent('pl-guild-autosave-delete'))" %}
   {% elif guild_rules_readonly %}
   <div class="hub-card" style="padding:1.5rem; margin-bottom:1.5rem;">
     <h2 class="hub-detail-label" style="margin-top:0; margin-bottom:0.25rem;">Guild Hours (Any Orienter)</h2>
@@ -859,8 +831,7 @@ confirm modal carries its own POST form, and template content can't nest a form.
 </div>
 
 {# ── Welcome Email — the join-lifecycle email; own form + endpoint (multi-form via form_id). ──── #}
-{# Immediate-effect controls (Preview + Send test) sit ABOVE the batch Save form so Save is the #}
-{# last thing on the tab with nothing under it (Rule 21). #}
+{# Preview and Send test keep their buttons; the email form below saves itself as it is edited. #}
 {# Hidden entirely when the site-wide guild_welcome_email_enabled switch is off; a stale #}
 {# ?tab=welcome_email deep link then shows no panel (same as the my_tab Buyables precedent). #}
 {% if guild_welcome_email_enabled %}
@@ -878,14 +849,13 @@ confirm modal carries its own POST form, and template content can't nest a form.
     </div>
   </div>
 
-  <form method="post" action="{% url 'hub_guild_emails_save' guild.pk %}" class="hub-form">
+  <form method="post" action="{% url 'hub_guild_emails_save' guild.pk %}" class="hub-form" data-autosave>
     {% csrf_token %}
     <input type="hidden" name="form_id" value="welcome_email">
     <div class="hub-card" style="padding:1.5rem; margin-bottom:1.5rem;">
       {% include "components/form_field.html" with field=welcome_email_form.welcome_email_enabled %}
       {% include "components/form_field.html" with field=welcome_email_form.welcome_email_subject field_hint="Leave blank to use: Welcome to "|add:guild.name|add:"!" %}
       {% include "components/form_field.html" with field=welcome_email_form.welcome_email_body field_hint="Your personal welcome note. Leave blank to use the standard welcome." %}
-      <button type="submit" class="pl-btn pl-btn--primary" style="margin-top:1rem;">Save</button>
     </div>
   </form>
 
@@ -895,15 +865,15 @@ confirm modal carries its own POST form, and template content can't nest a form.
 
 {# ── FAQ (its own form + tab, outside the main form — you can't nest forms) ──── #}
 <div x-show="section === 'content'" x-cloak>
-  <form method="post" action="{% url 'hub_guild_faq_save' guild.pk %}" class="hub-form" enctype="multipart/form-data">
+  <form method="post" action="{% url 'hub_guild_faq_save' guild.pk %}" class="hub-form" enctype="multipart/form-data" data-autosave data-formset="faq" data-formset-required="{{ faq_formset.empty_form|required_fields }}">
     {% csrf_token %}
     <div class="hub-card" style="padding:1.5rem; margin-bottom:1.5rem;" data-help-key="guild.manage-faq">
       <h2 class="hub-detail-label" style="margin-top:0; margin-bottom:0.25rem;">{{ guild.faq_label|default:"FAQ" }}</h2>
       <p class="hub-text-muted" style="font-size:0.8125rem; margin:0 0 1rem;">Each answer can also show a video from YouTube, Instagram, or Facebook, and attach one document (upload a file <em>or</em> paste a link). Rename this section's heading on the <strong>Basic Information</strong> tab.</p>
       {{ faq_formset.management_form }}
-      <div id="faq-rows" style="display:flex; flex-direction:column; gap:1rem;">
+      <div id="faq-rows" style="display:flex; flex-direction:column; gap:1rem;" data-formset-rows>
         {% for f in faq_formset %}
-          <div class="hub-card" style="padding:1rem; background:rgba(255,255,255,0.02);">
+          <div class="hub-card" style="padding:1rem; background:rgba(255,255,255,0.02);" data-formset-row>
             {% for error in f.non_field_errors %}<p class="pl-field-error">{{ error }}</p>{% endfor %}
             {% include "components/form_field.html" with field=f.question %}
             {% include "components/form_field.html" with field=f.answer %}
@@ -911,26 +881,22 @@ confirm modal carries its own POST form, and template content can't nest a form.
             {% include "components/form_field.html" with field=f.document %}
             {% include "components/form_field.html" with field=f.document_url %}
             {% if f.instance.pk and f.instance.has_document %}
-              <p class="hub-text-muted" style="font-size:0.8125rem; margin:0.25rem 0 0;">Current document: {{ f.instance.document_display_name }}. Choosing a new file replaces it; re-attach it if the form bounces with an error — it isn't kept.</p>
+              <p class="hub-text-muted" style="font-size:0.8125rem; margin:0.25rem 0 0;">Current document: {{ f.instance.document_display_name }}. Choosing a new file replaces it.</p>
             {% endif %}
             {% if f.instance.pk %}
               <div style="display:none;">{{ f.DELETE }}</div>
-              <button type="button" class="pl-btn pl-btn--danger pl-btn--sm pl-btn--spaced"
-                      onclick="document.getElementById('{{ f.DELETE.id_for_label }}').checked = true; this.form.requestSubmit();">
-                Delete this question
-              </button>
+              <button type="button" class="pl-btn pl-btn--danger pl-btn--sm pl-btn--spaced" data-formset-remove>Delete this question</button>
             {% endif %}
             {{ f.id }}
             {{ f.sort_order }}
           </div>
-        {% empty %}
-          <p class="hub-text-muted">No questions yet. Add your first.</p>
         {% endfor %}
+        <p class="hub-text-muted" data-formset-empty{% if faq_formset.forms %} hidden{% endif %}>No questions yet. Add your first.</p>
       </div>
 
       {# Hidden empty-form template, cloned by the +Add button below. #}
-      <template id="faq-empty-template">
-        <div class="hub-card" style="padding:1rem; background:rgba(255,255,255,0.02);">
+      <template id="faq-empty-template" data-formset-template>
+        <div class="hub-card" style="padding:1rem; background:rgba(255,255,255,0.02);" data-formset-row>
           {% with faq_formset.empty_form as ef %}
             {% include "components/form_field.html" with field=ef.question %}
             {% include "components/form_field.html" with field=ef.answer %}
@@ -939,63 +905,44 @@ confirm modal carries its own POST form, and template content can't nest a form.
             {% include "components/form_field.html" with field=ef.document_url %}
             {{ ef.id }}
             {{ ef.sort_order }}
-            <button type="button" class="pl-btn pl-btn--danger pl-btn--sm pl-btn--spaced" onclick="this.closest('.hub-card').remove();">Remove</button>
+            <button type="button" class="pl-btn pl-btn--danger pl-btn--sm pl-btn--spaced" data-formset-remove>Remove</button>
           {% endwith %}
         </div>
       </template>
 
-      <button type="button" class="hub-btn hub-btn--sm" style="margin-top:1rem;"
-              onclick="
-                const tpl = document.getElementById('faq-empty-template');
-                const total = document.getElementById('id_faq-TOTAL_FORMS');
-                const idx = parseInt(total.value, 10);
-                const wrap = document.createElement('div');
-                wrap.innerHTML = tpl.innerHTML.replaceAll('__prefix__', idx);
-                document.getElementById('faq-rows').appendChild(wrap.firstElementChild);
-                total.value = idx + 1;
-              ">
-        + Add a question
-      </button>
-
-      <div style="margin-top:1rem;">
-        <button type="submit" class="pl-btn pl-btn--primary">Save FAQ</button>
-      </div>
+      <button type="button" class="hub-btn hub-btn--sm" style="margin-top:1rem;" data-formset-add>+ Add a question</button>
     </div>
   </form>
 </div>
 
 {# ── Links (its own form + tab, outside the main form) ── #}
 <div x-show="section === 'links'" x-cloak>
-  <form method="post" action="{% url 'hub_guild_links_save' guild.pk %}" class="hub-form">
+  <form method="post" action="{% url 'hub_guild_links_save' guild.pk %}" class="hub-form" data-autosave data-formset="links" data-formset-required="{{ link_formset.empty_form|required_fields }}">
     {% csrf_token %}
     <div class="hub-card" style="padding:1.5rem; margin-bottom:1.5rem;" data-help-key="guild.manage-links">
       <h2 class="hub-detail-label" style="margin-top:0; margin-bottom:1rem;">Links</h2>
       {{ link_formset.management_form }}
-      <div id="link-rows" style="display:flex; flex-direction:column; gap:1rem;">
+      <div id="link-rows" style="display:flex; flex-direction:column; gap:1rem;" data-formset-rows>
         {% for f in link_formset %}
-          <div class="hub-card" style="padding:1rem; background:rgba(255,255,255,0.02);">
+          <div class="hub-card" style="padding:1rem; background:rgba(255,255,255,0.02);" data-formset-row>
             <div style="display:flex; gap:1rem; flex-wrap:wrap;">
               <div style="flex:1; min-width:200px;">{% include "components/form_field.html" with field=f.label %}</div>
               <div style="flex:2; min-width:200px;">{% include "components/form_field.html" with field=f.url %}</div>
             </div>
             {% if f.instance.pk %}
               <div style="display:none;">{{ f.DELETE }}</div>
-              <button type="button" class="pl-btn pl-btn--danger pl-btn--sm pl-btn--spaced"
-                      onclick="document.getElementById('{{ f.DELETE.id_for_label }}').checked = true; this.form.requestSubmit();">
-                Delete this link
-              </button>
+              <button type="button" class="pl-btn pl-btn--danger pl-btn--sm pl-btn--spaced" data-formset-remove>Delete this link</button>
             {% endif %}
             {{ f.id }}
             {{ f.sort_order }}
           </div>
-        {% empty %}
-          <p class="hub-text-muted">No links yet. Add your first.</p>
         {% endfor %}
+        <p class="hub-text-muted" data-formset-empty{% if link_formset.forms %} hidden{% endif %}>No links yet. Add your first.</p>
       </div>
 
       {# Hidden empty-form template, cloned by the +Add button below. #}
-      <template id="link-empty-template">
-        <div class="hub-card" style="padding:1rem; background:rgba(255,255,255,0.02);">
+      <template id="link-empty-template" data-formset-template>
+        <div class="hub-card" style="padding:1rem; background:rgba(255,255,255,0.02);" data-formset-row>
           {% with link_formset.empty_form as ef %}
             <div style="display:flex; gap:1rem; flex-wrap:wrap;">
               <div style="flex:1; min-width:200px;">{% include "components/form_field.html" with field=ef.label %}</div>
@@ -1003,27 +950,12 @@ confirm modal carries its own POST form, and template content can't nest a form.
             </div>
             {{ ef.id }}
             {{ ef.sort_order }}
-            <button type="button" class="pl-btn pl-btn--danger pl-btn--sm pl-btn--spaced" onclick="this.closest('.hub-card').remove();">Remove</button>
+            <button type="button" class="pl-btn pl-btn--danger pl-btn--sm pl-btn--spaced" data-formset-remove>Remove</button>
           {% endwith %}
         </div>
       </template>
 
-      <button type="button" class="hub-btn hub-btn--sm" style="margin-top:1rem;"
-              onclick="
-                const tpl = document.getElementById('link-empty-template');
-                const total = document.getElementById('id_links-TOTAL_FORMS');
-                const idx = parseInt(total.value, 10);
-                const wrap = document.createElement('div');
-                wrap.innerHTML = tpl.innerHTML.replaceAll('__prefix__', idx);
-                document.getElementById('link-rows').appendChild(wrap.firstElementChild);
-                total.value = idx + 1;
-              ">
-        + Add a link
-      </button>
-
-      <div style="margin-top:1rem;">
-        <button type="submit" class="pl-btn pl-btn--primary">Save Links</button>
-      </div>
+      <button type="button" class="hub-btn hub-btn--sm" style="margin-top:1rem;" data-formset-add>+ Add a link</button>
     </div>
   </form>
 </div>
@@ -1062,16 +994,16 @@ confirm modal carries its own POST form, and template content can't nest a form.
   </div>
 
   {# Custom (non-member) addresses — its own form/endpoint. #}
-  <form method="post" action="{% url 'hub_guild_mailing_list_save' guild.pk %}" class="hub-form">
+  <form method="post" action="{% url 'hub_guild_mailing_list_save' guild.pk %}" class="hub-form" data-autosave data-formset="mailing_list" data-formset-required="{{ mailing_list_formset.empty_form|required_fields }}">
     {% csrf_token %}
     <div class="hub-card" style="padding:1.5rem; margin-bottom:1.5rem;" data-help-key="guild.contact-emails">
       <h2 class="hub-detail-label" style="margin-top:0; margin-bottom:0.25rem;">Custom addresses</h2>
       <p class="hub-text-muted" style="font-size:0.8125rem; margin:0 0 1rem;">Add non-member addresses — a booster, a partner org, your own inbox — that should also receive this guild's announcement emails.</p>
       {{ mailing_list_formset.management_form }}
       {% for error in mailing_list_formset.non_form_errors %}<p class="pl-field-error">{{ error }}</p>{% endfor %}
-      <div id="mailing-list-rows" style="display:flex; flex-direction:column; gap:1rem;">
+      <div id="mailing-list-rows" style="display:flex; flex-direction:column; gap:1rem;" data-formset-rows>
         {% for f in mailing_list_formset %}
-          <div class="hub-card" style="padding:1rem; background:rgba(255,255,255,0.02);">
+          <div class="hub-card" style="padding:1rem; background:rgba(255,255,255,0.02);" data-formset-row>
             {% for error in f.non_field_errors %}<p class="pl-field-error">{{ error }}</p>{% endfor %}
             <div style="display:flex; gap:1rem; flex-wrap:wrap;">
               <div style="flex:2; min-width:200px;">{% include "components/form_field.html" with field=f.email %}</div>
@@ -1079,22 +1011,18 @@ confirm modal carries its own POST form, and template content can't nest a form.
             </div>
             {% if f.instance.pk %}
               <div style="display:none;">{{ f.DELETE }}</div>
-              <button type="button" class="pl-btn pl-btn--danger pl-btn--sm pl-btn--spaced"
-                      onclick="document.getElementById('{{ f.DELETE.id_for_label }}').checked = true; this.form.requestSubmit();">
-                Delete this address
-              </button>
+              <button type="button" class="pl-btn pl-btn--danger pl-btn--sm pl-btn--spaced" data-formset-remove>Delete this address</button>
             {% endif %}
             {{ f.id }}
             {{ f.sort_order }}
           </div>
-        {% empty %}
-          <p class="hub-text-muted">No custom addresses yet. Add one below or import a list.</p>
         {% endfor %}
+        <p class="hub-text-muted" data-formset-empty{% if mailing_list_formset.forms %} hidden{% endif %}>No custom addresses yet. Add one below or import a list.</p>
       </div>
 
       {# Hidden empty-form template, cloned by the +Add button below. #}
-      <template id="mailing-list-empty-template">
-        <div class="hub-card" style="padding:1rem; background:rgba(255,255,255,0.02);">
+      <template id="mailing-list-empty-template" data-formset-template>
+        <div class="hub-card" style="padding:1rem; background:rgba(255,255,255,0.02);" data-formset-row>
           {% with mailing_list_formset.empty_form as ef %}
             <div style="display:flex; gap:1rem; flex-wrap:wrap;">
               <div style="flex:2; min-width:200px;">{% include "components/form_field.html" with field=ef.email %}</div>
@@ -1102,27 +1030,12 @@ confirm modal carries its own POST form, and template content can't nest a form.
             </div>
             {{ ef.id }}
             {{ ef.sort_order }}
-            <button type="button" class="pl-btn pl-btn--danger pl-btn--sm pl-btn--spaced" onclick="this.closest('.hub-card').remove();">Remove</button>
+            <button type="button" class="pl-btn pl-btn--danger pl-btn--sm pl-btn--spaced" data-formset-remove>Remove</button>
           {% endwith %}
         </div>
       </template>
 
-      <button type="button" class="hub-btn hub-btn--sm" style="margin-top:1rem;"
-              onclick="
-                const tpl = document.getElementById('mailing-list-empty-template');
-                const total = document.getElementById('id_mailing_list-TOTAL_FORMS');
-                const idx = parseInt(total.value, 10);
-                const wrap = document.createElement('div');
-                wrap.innerHTML = tpl.innerHTML.replaceAll('__prefix__', idx);
-                document.getElementById('mailing-list-rows').appendChild(wrap.firstElementChild);
-                total.value = idx + 1;
-              ">
-        + Add address
-      </button>
-
-      <div style="margin-top:1.5rem;">
-        <button type="submit" class="pl-btn pl-btn--primary">Save mailing list</button>
-      </div>
+      <button type="button" class="hub-btn hub-btn--sm" style="margin-top:1rem;" data-formset-add>+ Add address</button>
     </div>
   </form>
 
@@ -1149,13 +1062,12 @@ confirm modal carries its own POST form, and template content can't nest a form.
   {% endif %}
   {% endwith %}
   {# Member Suggestions — the toggle sits right next to the feature it governs; own form/endpoint. #}
-  <form method="post" action="{% url 'hub_guild_announcement_settings_save' guild.pk %}" class="hub-form">
+  <form method="post" action="{% url 'hub_guild_announcement_settings_save' guild.pk %}" class="hub-form" data-autosave>
     {% csrf_token %}
     <div class="hub-card" style="padding:1.5rem; margin-bottom:1.5rem;">
       <h2 class="hub-detail-label" style="margin-top:0; margin-bottom:0.25rem;">Member Suggestions</h2>
       <p class="hub-text-muted" style="font-size:0.8125rem; margin-bottom:1rem;">Members can propose announcements from your guild page. Nothing posts until you approve it. Turn this off to hide the suggestion button.</p>
       {% include "components/form_field.html" with field=announcement_settings_form.allow_member_announcement_suggestions %}
-      <button type="submit" class="pl-btn pl-btn--primary" style="margin-top:1rem;">Save</button>
     </div>
   </form>
   <div class="hub-card" style="padding:1.5rem;">
@@ -1262,5 +1174,7 @@ confirm modal carries its own POST form, and template content can't nest a form.
   {% endfor %}
 {% endfor %}
 
+{# A boosted navigation held behind a save that failed: Leave resumes it, Stay drops it. #}
+{% include "components/confirm_modal.html" with confirm_id="leave-while-saving" confirm_title="A change did not save" confirm_message="A change could not be saved. Leave anyway, or stay and try again?" confirm_button_text="Leave" confirm_cancel_text="Stay" confirm_button_style="primary" confirm_js="window.dispatchEvent(new CustomEvent('pl-guild-autosave-leave'))" %}
 </div>{# /x-data #}
 {% endblock %}

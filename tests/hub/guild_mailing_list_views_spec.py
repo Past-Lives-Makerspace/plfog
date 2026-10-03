@@ -7,6 +7,7 @@ CSV/text import) — the permission gate, and the "Guild Settings" rename + sect
 
 from __future__ import annotations
 
+
 import pytest
 from django.contrib.auth.models import User
 from django.contrib.messages import get_messages
@@ -25,6 +26,7 @@ from tests.membership.factories import (
     MemberFactory,
     MembershipPlanFactory,
 )
+from tests.hub._markup import assert_autosave_forms_have_no_submit
 
 pytestmark = pytest.mark.django_db
 
@@ -276,7 +278,9 @@ def describe_guild_settings_page():
         assert "member@example.com" in content
         # Editor + import controls.
         assert "+ Add address" in content
-        assert "Save mailing list" in content
+        # The addresses form saves itself (#575): marked for the autosave script, no submit inside.
+        assert_autosave_forms_have_no_submit(content)
+        assert 'data-formset="mailing_list"' in content
         assert "Import addresses" in content
 
     def it_shows_the_empty_state_when_there_are_no_custom_addresses(client: Client):

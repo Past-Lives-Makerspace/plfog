@@ -24,6 +24,7 @@ from tests.membership.factories import (
     MemberFactory,
     MembershipPlanFactory,
 )
+from tests.hub._markup import assert_autosave_forms_have_no_submit
 
 _PNG = (
     b"\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR\x00\x00\x00\x01\x00\x00\x00\x01"
@@ -738,11 +739,11 @@ def describe_guild_edit_delete_controls():
         client.login(username="admin_lnkbtn", password="pass")
         response = client.get(reverse("hub_guild_edit", args=[guild.pk]))
         assert response.status_code == 200
-        # A red button (not a save-time toggle switch) that submits its own form immediately.
+        # A red button (not a save-time toggle switch) that the autosave script posts at once.
         # (Links now lives in its own form posting to guild_links_save, so the old main-form
         # `after` hidden-input trick is gone — see describe_guild_content_tab_template.)
         assert b"Delete this link" in response.content
-        assert b"requestSubmit()" in response.content
+        assert b"data-formset-remove" in response.content
 
 
 @pytest.mark.django_db
@@ -780,7 +781,9 @@ def describe_guild_edit_tabs():
         assert b"+ Add event" in response.content
         # A non-leadership admin sees the overview, not a self-scoped My Hours card.
         assert b"Orientation Schedule" in response.content
-        assert b"Save orientation settings" in response.content
+        # The settings form saves itself (#575): no submit in any autosave form, the save pill instead.
+        assert_autosave_forms_have_no_submit(response.content.decode())
+        assert b"data-save-pill" in response.content
 
     def it_lays_short_inputs_out_in_two_columns(client: Client):
         _user_with_role("admin_grid", fog_role=Member.FogRole.ADMIN)
@@ -1129,8 +1132,10 @@ def describe_guild_content_tab_template():
         assert response.status_code == 200
         assert reverse("hub_guild_faq_save", args=[guild.pk]).encode() in response.content
         assert reverse("hub_guild_links_save", args=[guild.pk]).encode() in response.content
-        assert b"Save FAQ" in response.content
-        assert b"Save Links" in response.content
+        # Both forms save themselves (#575): marked for the autosave script, no submit inside.
+        assert b'data-autosave data-formset="faq"' in response.content
+        assert b'data-autosave data-formset="links"' in response.content
+        assert_autosave_forms_have_no_submit(response.content.decode())
 
     def it_renders_faq_delete_as_hidden_field_plus_danger_button_not_a_toggle(client: Client):
         _user_with_role("ct_faqdel", fog_role=Member.FogRole.ADMIN)
@@ -1141,7 +1146,7 @@ def describe_guild_content_tab_template():
         assert response.status_code == 200
         # The real Delete button is present ...
         assert b"Delete this question" in response.content
-        assert b"requestSubmit()" in response.content
+        assert b"data-formset-remove" in response.content
         # ... and the old toggle label that form_field.html would have produced is gone.
         assert b"Delete this FAQ" not in response.content
 

@@ -11017,3 +11017,41 @@ mark { background: color-mix(in srgb, var(--color-tuscan-yellow) 30%, transparen
        message input is squeezed to nothing on a phone. */
     .pl-automation-card--feature { grid-template-columns: minmax(0, 1fr); }
 }
+
+/* --- pl-guild-autosave: the guild settings page that saves as it is edited (#575) --- */
+/* The header holds the title, its lead line and the save pill (the meeting workspace's
+   .pl-meeting-savestate, defined above) beside the page actions; the main form's footer
+   keeps one link where the Save button used to be. Tokens only, so both themes hold. */
+.pl-guild-settings__header {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 0.5rem 1rem;
+    flex-wrap: wrap;
+    margin-bottom: 0.75rem;
+}
+.pl-guild-settings__title { margin: 0; }
+.pl-guild-settings__lead {
+    margin: 0.25rem 0 0;
+    font-size: 0.8125rem;
+    color: var(--hub-text-muted);
+}
+.pl-guild-settings__actions {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    flex-wrap: wrap;
+}
+.pl-guild-settings__footer {
+    display: flex;
+    gap: 1rem;
+    margin-top: 0.5rem;
+}
+/* A row flagged for deletion waits hidden for the server's answer; the empty line shows only
+   when no row is left. Stated here so no card display rule can ever override the attribute. */
+[data-formset-row][hidden],
+[data-formset-empty][hidden] { display: none; }
+@media (max-width: 768px) {
+    .pl-guild-settings__header { flex-direction: column; }
+    .pl-guild-settings__actions { width: 100%; }
+}

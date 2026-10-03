@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+
 from datetime import timedelta
 
 import pytest
@@ -28,6 +29,7 @@ from tests.membership.factories import (
     OrientationTypeFactory,
     OrientationRecordFactory,
 )
+from tests.hub._markup import assert_autosave_forms_have_no_submit
 
 pytestmark = pytest.mark.django_db
 
@@ -113,7 +115,9 @@ def describe_guild_orientation_edit():
         # Own hours are edited via the Edit Hours modal from the Orientation Schedule, not a
         # separate inline My Hours card.
         assert b"Orientation Schedule" in response.content
-        assert b"Save orientation settings" in response.content
+        # The settings form saves itself (#575): no submit inside any autosave form.
+        assert_autosave_forms_have_no_submit(response.content.decode())
+        assert b"data-save-pill" in response.content
         # Recurring hours are edited through the Edit Hours modal, loaded from its own endpoint
         # (the trigger on the viewer's Orientation Schedule row).
         assert reverse("hub_guild_orientation_hours_form", args=[guild.pk]).encode() in response.content

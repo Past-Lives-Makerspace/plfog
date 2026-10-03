@@ -1,0 +1,9 @@
+bump = "minor"
+date = "2026-10-03"
+title = "Guild Settings save themselves as you edit"
+changes = [
+  "Every section of a guild's settings saves as you change it, so a forgotten Save can no longer lose an edit. A pill at the top shows Saving, Saved or Couldn't save.",
+  "A value that cannot be saved shows its problem right under the field and keeps what you typed.",
+  "Removing a row of hours asks once first, since it takes that row's open times off the calendar. Booked times stay, as before.",
+  "If a change could not be saved, leaving the page warns you first.",
+]
