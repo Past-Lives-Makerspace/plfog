@@ -692,11 +692,80 @@ confirm modal carries its own POST form, and template content can't nest a form.
     <h2 class="hub-detail-label" style="margin-top:0; margin-bottom:0.25rem;">Upcoming Times</h2>
     <p class="hub-text-muted" style="font-size:0.8125rem; margin-bottom:1rem;">Everything members can book for the next 8 weeks: fixed times from everyone's hours, open windows, and one offs.</p>
     {% if upcoming_times_admin %}
-    <div x-data="{ page: 0, size: 5, total: {{ upcoming_times_admin|length }} }">
+    {# Bulk cancel (#574): the selection lives in the card's Alpine state as "slot:<pk>" / "window:<pk>" keys. #}
+    {# A plain function, redefined on every boosted arrival (FRONTEND.md, Scripts under hx-boost), because the #}
+    {# card's x-data calls it the moment Alpine initialises the swapped page. #}
+    <script>
+      window.plUpcomingTimesAdmin = function (total) {
+        return {
+          page: 0,
+          size: 5,
+          total: total,
+          selected: [],
+          times: [],
+          init() {
+            // Read the rows once, here, where $el is the card. The confirm body is teleported into the
+            // modal, whose own x-data answers $root and $el there, so a method that walked the DOM from
+            // either would find no rows inside the confirm and count nobody as booked.
+            this.times = Array.from(this.$el.querySelectorAll('[data-time-key]')).map(function (row) {
+              return {
+                key: row.getAttribute('data-time-key'),
+                index: Number(row.getAttribute('data-time-index')),
+                emails: Number(row.getAttribute('data-emails'))
+              };
+            });
+          },
+          toggle(key) {
+            if (this.selected.includes(key)) { this.selected = this.selected.filter(function (k) { return k !== key; }); }
+            else { this.selected = this.selected.concat([key]); }
+          },
+          selectPage() {
+            var first = this.page * this.size, last = first + this.size, picked = this.selected.slice();
+            this.times.forEach(function (time) {
+              if (time.index >= first && time.index < last && !picked.includes(time.key)) { picked.push(time.key); }
+            });
+            this.selected = picked;
+          },
+          selectAll() { this.selected = this.times.map(function (time) { return time.key; }); },
+          clear() { this.selected = []; },
+          emails() {
+            var selected = this.selected;
+            return this.times.reduce(function (sum, time) { return selected.includes(time.key) ? sum + time.emails : sum; }, 0);
+          },
+          hasWindows() { return this.selected.some(function (key) { return key.indexOf('window:') === 0; }); },
+          bulkMessage() {
+            var count = this.selected.length, emailed = this.emails();
+            var text = 'Cancel ' + count + (count === 1 ? ' upcoming time?' : ' upcoming times?');
+            if (emailed > 0) {
+              text += ' ' + emailed + (emailed === 1 ? ' booked member' : ' booked members') + ' will be emailed that their time is off.';
+            } else {
+              text += (count === 1 ? ' Nobody is booked on it.' : ' Nobody is booked on them.');
+            }
+            if (this.hasWindows()) { text += ' Open windows stop taking new bookings; anything already booked inside them stays.'; }
+            return text;
+          }
+        };
+      };
+    </script>
+    <div x-data="plUpcomingTimesAdmin({{ upcoming_times_admin|length }})">
+      <div x-show="selected.length > 0" x-cloak class="pl-slot-admin__bar">
+        <span class="pl-slot-admin__bar-count" x-text="selected.length + ' selected'"></span>
+        <button type="button" class="hub-btn hub-btn--sm hub-btn--ghost" @click="selectPage()">Select all on this page</button>
+        <button type="button" class="hub-btn hub-btn--sm hub-btn--ghost" @click="selectAll()">Select all</button>
+        <button type="button" class="hub-btn hub-btn--sm hub-btn--ghost" @click="clear()">Clear</button>
+        <button type="button" class="pl-btn pl-btn--danger pl-btn--sm" @click="$dispatch('open-confirm', 'times-bulk-cancel')">Cancel selected</button>
+      </div>
+      {# The confirm's own form is teleported out of the card and cannot carry the list, so Confirm submits this hidden form. #}
+      <form id="times-bulk-form" method="post" action="{% url 'hub_guild_orientation_times_bulk_cancel' guild.pk %}" class="pl-slot-admin__bulk-form">
+        {% csrf_token %}
+        <template x-for="key in selected" :key="key"><input type="hidden" name="selected" :value="key"></template>
+      </form>
+      {% include "components/confirm_modal.html" with confirm_id="times-bulk-cancel" confirm_title="Cancel the selected times?" confirm_body_include="hub/partials/_times_bulk_cancel_body.html" confirm_button_text="Cancel selected" confirm_js="document.getElementById('times-bulk-form').requestSubmit();" %}
       {% for entry in upcoming_times_admin %}
       {% with item=entry.item pks=entry.item.pk|stringformat:"s" %}
       {% if entry.kind == "window" %}
-      <div x-show="{{ forloop.counter0 }} >= page * size && {{ forloop.counter0 }} < (page + 1) * size" class="pl-slot-admin__row">
+      <div x-show="{{ forloop.counter0 }} >= page * size && {{ forloop.counter0 }} < (page + 1) * size" class="pl-slot-admin__row" data-time-key="window:{{ item.pk }}" data-time-index="{{ forloop.counter0 }}" data-emails="0">
+        <input type="checkbox" class="pl-slot-admin__pick" aria-label="Select {{ item.starts_at|date:'D M j' }}, {{ item.starts_at|time:'g:i A' }}" :checked="selected.includes('window:{{ item.pk }}')" @change="toggle('window:{{ item.pk }}')">
         <span class="pl-slot-admin__when">{{ item.starts_at|date:"D M j" }} · {{ item.starts_at|time:"g:i A" }}–{{ item.ends_at|time:"g:i A" }} · {{ item.type_display }}</span>
         <span class="pl-slot-admin__with">
           {% if item.orienter.profile_photo %}<img src="{{ item.orienter.profile_photo.url }}" alt="" class="pl-orient-avatar">{% else %}<span class="pl-orient-avatar pl-orient-avatar--initials">{{ item.orienter.display_name|slice:":1" }}</span>{% endif %}
@@ -716,7 +785,8 @@ confirm modal carries its own POST form, and template content can't nest a form.
         {% endif %}
       </div>
       {% else %}
-      <div x-show="{{ forloop.counter0 }} >= page * size && {{ forloop.counter0 }} < (page + 1) * size" class="pl-slot-admin__row">
+      <div x-show="{{ forloop.counter0 }} >= page * size && {{ forloop.counter0 }} < (page + 1) * size" class="pl-slot-admin__row" data-time-key="slot:{{ item.pk }}" data-time-index="{{ forloop.counter0 }}" data-emails="{{ item.active_booking_count }}">
+        <input type="checkbox" class="pl-slot-admin__pick" aria-label="Select {{ item.starts_at|date:'D M j' }}, {{ item.starts_at|time:'g:i A' }}" :checked="selected.includes('slot:{{ item.pk }}')" @change="toggle('slot:{{ item.pk }}')">
         <span class="pl-slot-admin__when">{{ item.starts_at|date:"D M j" }} · {{ item.starts_at|time:"g:i A" }}–{{ item.ends_at|time:"g:i A" }} · {{ item.orientation_type.name }}</span>
         <span class="pl-slot-admin__with">
           {% if item.orienter %}

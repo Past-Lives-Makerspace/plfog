@@ -6,6 +6,7 @@ import re
 from datetime import date, datetime, time, timedelta
 from datetime import date as date_type
 from decimal import Decimal
+import re
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, ClassVar, Self, cast
 
@@ -21,7 +22,7 @@ from django.utils.text import slugify
 if TYPE_CHECKING:
     from django.contrib.auth.models import User
     from django.core.files.uploadedfile import UploadedFile
-    from django.http import HttpRequest
+    from django.http import HttpRequest, QueryDict
 
     from classes.models import ClassOffering
 
@@ -3027,6 +3028,35 @@ class OrientationSlotForm(forms.ModelForm):
             ends_at=self.cleaned_data["ends_at"],
             location=self.cleaned_data["location"],
         )
+
+
+_TIME_KEY_RE = re.compile(r"^(slot|window):(\d+)$")
+
+
+class OrientationTimesBulkCancelForm(forms.Form):
+    """The Upcoming Times bulk cancel POST (#574): the card's ``selected`` keys, repeated.
+
+    A key is ``slot:<pk>`` or ``window:<pk>`` (the card's ``data-time-key``). The field
+    repeats, so ``clean`` reads ``self.data.getlist("selected")`` itself and sets
+    ``cleaned_data["slot_pks"]`` and ``cleaned_data["window_pks"]``; anything that is
+    not a key is ignored, so a tampered or stale value never raises. An empty
+    selection is valid (the view then says there was nothing to cancel).
+    """
+
+    def clean(self) -> dict[str, Any]:
+        cleaned = super().clean() or {}
+        slot_pks: list[int] = []
+        window_pks: list[int] = []
+        # The view binds request.POST, a QueryDict; the stubs only promise a Mapping.
+        for value in cast("QueryDict", self.data).getlist("selected"):
+            match = _TIME_KEY_RE.match(value)
+            if match is None:
+                continue
+            kind, pk = match.groups()
+            (slot_pks if kind == "slot" else window_pks).append(int(pk))
+        cleaned["slot_pks"] = slot_pks
+        cleaned["window_pks"] = window_pks
+        return cleaned
 
 
 class CommunityEventForm(forms.ModelForm):

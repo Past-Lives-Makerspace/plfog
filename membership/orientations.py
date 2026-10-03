@@ -25,6 +25,8 @@ from core.events.senders import emit_with_email_shell
 from core.models import SiteActivity
 
 if TYPE_CHECKING:
+    from collections.abc import Sequence
+
     from django.contrib.auth.models import User
     from django.db.models import QuerySet
 
@@ -1047,6 +1049,43 @@ def cancel_slot(slot: OrientationSlot, *, reason: str = "") -> None:
         release_hold_if_unpaid(hold)
     for booking in active:
         cancel_orientation(booking, actor_label="the guild")
+
+
+def cancel_times(guild: Guild, slot_pks: Sequence[int], window_pks: Sequence[int]) -> tuple[int, int]:
+    """Cancel several of ``guild``'s Upcoming Times at once (#574).
+
+    Only times the card lists are eligible: upcoming, uncancelled, this guild's, and
+    never a slot carved out of a live window (``FROM_BLOCK`` under an uncancelled block),
+    which is a booked segment under that window rather than a row of its own. A pk that
+    is not eligible (foreign, unknown, past, already cancelled, a carved segment) is
+    skipped. Each fixed slot goes through :func:`cancel_slot` (booked members emailed,
+    checkout holds released); each open window through
+    :meth:`OrientationAvailabilityBlock.cancel` (its booked segments stay).
+
+    No transaction wraps the loop: ``cancel_slot`` talks to Stripe for held checkouts
+    and must not run inside an outer atomic block.
+
+    Returns:
+        ``(cancelled, emailed)``: the number of times cancelled, and the number of active
+        bookings on the cancelled slots, counted before the cancel so it is the number
+        of members who were emailed.
+    """
+    from membership.models import OrientationSlot
+
+    slots = list(
+        guild.orientation_slots.upcoming()
+        .exclude(source=OrientationSlot.Source.FROM_BLOCK, block__is_cancelled=False)
+        .filter(pk__in=slot_pks)
+        .with_active_booking_count()
+    )
+    windows = list(guild.orientation_blocks.upcoming().filter(pk__in=window_pks))
+    emailed = 0
+    for slot in slots:
+        emailed += slot.active_booking_count
+        cancel_slot(slot)
+    for window in windows:
+        window.cancel()
+    return len(slots) + len(windows), emailed
 
 
 def complete_orientation(booking: OrientationBooking) -> None:
