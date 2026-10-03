@@ -31,10 +31,10 @@ discord_description_html, push_title, push_body.
   <h2 class="pl-compose-section__title">Who It Reached</h2>
   <dl class="pl-announcement-facts">
     <dt>Audience</dt>
-    <dd data-fact="audience">{{ row.audience_label }}{% if row.recipient_selection %} (chosen recipients){% endif %}{% if row.audience == 'class' and row.include_waitlist %} and the waitlist{% endif %}{% if row.audience == 'site' and row.include_never_logged_in %}, including members who hadn't logged in yet{% endif %}{% if row.audience == 'site' and row.added_recipients %}, plus {{ row.added_labels|length }} added{% endif %}</dd>
-    {% if row.audience == 'site' and row.added_recipients %}
+    <dd data-fact="audience">{{ row.audience_label }}{% if row.recipient_selection %} (chosen recipients){% endif %}{% if row.audience == 'class' and row.include_waitlist %} and the waitlist{% endif %}{% if row.audience == 'site' and row.include_never_logged_in %}, including members who hadn't logged in yet{% endif %}{% if row.audience == 'site' and added_labels %}, plus {{ added_labels|length }} added{% endif %}</dd>
+    {% if row.audience == 'site' and added_labels %}
     <dt>Added</dt>
-    <dd data-fact="added">{{ row.added_labels|join:", " }}</dd>
+    <dd data-fact="added">{{ added_labels|join:", " }}</dd>
     {% endif %}
     <dt>Reached</dt>
     <dd data-fact="reached">{% if row.state == 'sending' %}Not yet{% elif reach is None %}Not recorded{% else %}{{ reach.people }} {{ reach.people|pluralize:"person,people" }}{% endif %}</dd>

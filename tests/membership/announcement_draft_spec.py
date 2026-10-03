@@ -526,7 +526,7 @@ def describe_AnnouncementDraft():
                     body="<p>x</p>",
                     added_recipients={"users": [former.user_id], "custom": ["guest@example.com"]},
                 )
-                draft.send()
+                assert draft.send() == (3, 3)
                 for member in (everyone, former):
                     assert Notification.objects.filter(user=member.user, trigger="site_announcement").exists()
                 sent_to = [addr for message in mailoutbox for addr in message.to]
@@ -558,6 +558,30 @@ def describe_AnnouncementDraft():
                 assert draft.recipient_count() == 3
                 draft.send_email = False
                 assert draft.recipient_count() == 2
+
+            def it_drops_a_typed_address_that_is_a_recipients_alias(mailoutbox):
+                from allauth.account.models import EmailAddress
+
+                everyone = _activated_member(username="recip")
+                EmailAddress.objects.create(user=everyone.user, email="recip.work@example.com", verified=True)
+                Member.objects.filter(pk=everyone.pk).update(notification_email="recip.notes@example.com")
+                draft = AnnouncementDraft.objects.create(
+                    author=_author(),
+                    audience=_SITE,
+                    title="Hi",
+                    body="<p>x</p>",
+                    added_recipients={"custom": ["recip.work@example.com", "recip.notes@example.com"]},
+                )
+                assert draft._site_recipients()[1] == []
+                assert draft.recipient_count() == 1
+
+            def it_leaves_typed_addresses_off_the_sent_record_while_email_is_off():
+                former = _former("former")
+                User.objects.filter(pk=former.user_id).update(first_name="Fern", last_name="Former")
+                draft = AnnouncementDraft(
+                    send_email=False, added_recipients={"users": [former.user_id], "custom": ["guest@example.com"]}
+                )
+                assert draft.added_labels == ["Fern Former"]
 
             def it_ignores_added_people_on_a_guild_announcement():
                 guild = GuildFactory()

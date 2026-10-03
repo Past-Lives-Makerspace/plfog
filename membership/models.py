@@ -5973,13 +5973,34 @@ class AnnouncementDraft(models.Model):
             Recipients.ALL_ACTIVE_MEMBERS, {"include_never_logged_in": self.include_never_logged_in}
         )
         users = {user.pk: user for user, _reason in everyone}
-        users.update({user.pk: user for user in User.objects.filter(pk__in=added_ids).exclude(email="")})
-        account_emails = {(user.email or "").strip().lower() for user in users.values()}
-        return set(users), [addr for addr in typed if addr and addr not in account_emails]
+        users.update(
+            {user.pk: user for user in User.objects.filter(pk__in=added_ids).exclude(email="").select_related("member")}
+        )
+        # A recipient's every address: the account email, the chosen notification email and any alias.
+        taken = {(user.email or "").strip().lower() for user in users.values()}
+        taken |= {
+            (getattr(getattr(user, "member", None), "notification_email", "") or "").strip().lower()
+            for user in users.values()
+        }
+        if typed:
+            from allauth.account.models import EmailAddress
+            from django.db.models.functions import Lower
+
+            taken |= set(
+                EmailAddress.objects.filter(user_id__in=list(users))
+                .annotate(address=Lower("email"))
+                .filter(address__in=typed)
+                .values_list("address", flat=True)
+            )
+        return set(users), [addr for addr in typed if addr and addr not in taken]
 
     @property
     def added_labels(self) -> list[str]:
-        """Who the sender added to a site announcement, as the sent record lists them."""
+        """Who the sender added to a site announcement, as the sent record lists them.
+
+        A typed address with no account only ever gets the email, so with Email off it got nothing
+        and is left out.
+        """
         from django.contrib.auth.models import User
 
         added = self.added_recipients or {}
@@ -5987,7 +6008,7 @@ class AnnouncementDraft(models.Model):
             (user.get_full_name() or user.get_username()).strip()
             for user in User.objects.filter(pk__in=added.get("users") or []).order_by("first_name", "last_name")
         ]
-        return names + [str(addr) for addr in added.get("custom") or []]
+        return names + ([str(addr) for addr in added.get("custom") or []] if self.send_email else [])
 
     def _selected_recipient_ids(self) -> "set[int] | None":
         """The explicit member recipient set (bell + push + email) from the saved selection.

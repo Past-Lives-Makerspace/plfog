@@ -130,11 +130,31 @@ def describe_classify_site_additions():
         rows, _problems = _classify([f"user:{former.pk}", "former@x.com", "guest@example.com", "GUEST@example.com"])
         assert [value for value, _label, _email_only in rows] == [f"user:{former.pk}", "custom:guest@example.com"]
 
-    def it_takes_two_queries_however_many_tokens(django_assert_num_queries):
+    def it_takes_four_queries_however_many_tokens(django_assert_num_queries):
         former = _account("former", status=Member.Status.FORMER)
         tokens = [f"user:{former.pk}"] + [f"guest{n}@example.com" for n in range(10)]
-        with django_assert_num_queries(2):
+        with django_assert_num_queries(4):
             classify_site_additions(tokens, include_never_logged_in=False)
+
+    def it_knows_an_active_member_by_an_alias_address():
+        from allauth.account.models import EmailAddress
+
+        active = _account("active")
+        EmailAddress.objects.create(user=active, email="active.work@example.com", verified=True)
+        assert _classify(["Active.Work@example.com"]) == ([], ["active@x.com already gets it."])
+
+    def it_knows_an_active_member_by_their_notification_email():
+        active = _account("active")
+        Member.objects.filter(user=active).update(notification_email="active.notes@example.com")
+        assert _classify(["active.notes@example.com"]) == ([], ["active@x.com already gets it."])
+
+    def it_refuses_a_former_member_whose_account_is_turned_off():
+        former = _account("former", status=Member.Status.FORMER)
+        User.objects.filter(pk=former.pk).update(is_active=False)
+        assert _classify(["former@x.com"]) == ([], ["former@x.com's account is turned off."])
+
+    def it_reads_a_member_pick_with_non_ascii_digits_as_text():
+        assert _classify(["user:\u00b2"]) == ([], ["user:\u00b2 isn't an email address."])
 
 
 def describe_hub_compose_site_add():
@@ -166,6 +186,12 @@ def describe_hub_compose_site_add():
         response = _post_add(client, site_add="active@x.com nope")
         toast = json.loads(response["HX-Trigger"])["showToast"]
         assert toast == {"message": "active@x.com already gets it. nope isn't an email address.", "type": "error"}
+
+    def it_reads_the_toggle_to_word_a_refusal(client: Client):
+        _login_admin(client)
+        _account("never", logged_in=False)
+        response = _post_add(client, site_add="never@x.com", include_never_logged_in="on")
+        assert json.loads(response["HX-Trigger"])["showToast"]["message"] == "never@x.com already gets it."
 
     def it_refuses_a_guild_lead(client: Client):
         guild = GuildFactory()

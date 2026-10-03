@@ -4258,8 +4258,48 @@ def _site_account_row(user: Any, *, include_never_logged_in: bool) -> tuple[str,
                 'logged in yet" to reach them.'
             )
         return f"{user.email} already gets it."
+    if not user.is_active:
+        return f"{user.email}'s account is turned off."
     value, label = _member_choice(user)
     return (value, label, False)
+
+
+def _accounts_by_address(addresses: list[str]) -> dict[str, Any]:
+    """``{address: member account}`` for typed addresses, matched the way the app matches a person.
+
+    A verified or unverified alias (allauth ``EmailAddress``, as ``core.email_prefs.user_for_email``
+    reads it) wins, then a member's chosen notification email, then the account's own email. Three
+    queries, whatever the number of addresses; accounts without a member are left out.
+    """
+    from allauth.account.models import EmailAddress
+    from django.contrib.auth.models import User
+    from django.db.models.functions import Lower
+
+    if not addresses:
+        return {}
+    found: dict[str, Any] = {}
+    for user in (
+        User.objects.filter(member__isnull=False)
+        .select_related("member")
+        .annotate(address=Lower("email"))
+        .filter(address__in=addresses)
+    ):
+        found[user.address] = user
+    for member in (
+        Member.objects.filter(user__isnull=False)
+        .select_related("user")
+        .annotate(address=Lower("notification_email"))
+        .filter(address__in=addresses)
+    ):
+        found[member.address] = member.user
+    for alias in (
+        EmailAddress.objects.filter(user__member__isnull=False)
+        .select_related("user__member")
+        .annotate(address=Lower("email"))
+        .filter(address__in=addresses)
+    ):
+        found[alias.address] = alias.user
+    return found
 
 
 def classify_site_additions(
@@ -4271,18 +4311,19 @@ def classify_site_additions(
     typed address. A member account that is not active joins as that member (bell, push and
     email); a typed address with no account joins as email only (``custom:<addr>``). An active
     member is refused, since everyone or the toggle already reaches them, so every row is one more
-    person and the composer can count each as one. Rows come back once each, in order, as
-    ``(value, label, email_only)``. Two queries, whatever the number of tokens.
+    person and the composer can count each as one. A typed address is matched to its account by
+    alias, notification email or account email (:func:`_accounts_by_address`), so a member's other
+    address is still that member. Rows come back once each, in order, as
+    ``(value, label, email_only)``. At most four queries, whatever the number of tokens.
     """
     from django.contrib.auth.models import User
     from django.core.exceptions import ValidationError
     from django.core.validators import validate_email
-    from django.db.models.functions import Lower
 
     picked: list[tuple[str, str]] = []  # ("user", pk), ("email", address) or ("bad", token), in order
     for raw in tokens:
         token = raw.strip()
-        if token.startswith("user:") and token[5:].isdigit():
+        if token.startswith("user:") and token[5:].isascii() and token[5:].isdigit():
             picked.append(("user", token[5:]))
             continue
         address = token.removeprefix("custom:").lower()
@@ -4293,14 +4334,16 @@ def classify_site_additions(
             continue
         picked.append(("email", address))
 
-    accounts = User.objects.filter(is_active=True, member__isnull=False).select_related("member")
-    by_pk = {str(user.pk): user for user in accounts.filter(pk__in=[key for kind, key in picked if kind == "user"])}
-    by_email = {
-        user.email_lower: user
-        for user in accounts.annotate(email_lower=Lower("email")).filter(
-            email_lower__in=[key for kind, key in picked if kind == "email"]
-        )
-    }
+    picked_pks = [key for kind, key in picked if kind == "user"]
+    by_pk = (
+        {
+            str(user.pk): user
+            for user in User.objects.filter(member__isnull=False, pk__in=picked_pks).select_related("member")
+        }
+        if picked_pks
+        else {}
+    )
+    by_email = _accounts_by_address([key for kind, key in picked if kind == "email"])
 
     rows: list[tuple[str, str, bool]] = []
     problems: list[str] = []

@@ -4980,6 +4980,7 @@ def announcement_sent(request: HttpRequest, pk: int) -> HttpResponse:
             **_get_hub_context(request),
             "row": row,
             "reach": row.reach(),
+            "added_labels": row.added_labels if row.added_recipients else [],
             **_announcement_previews(row),
         },
     )
