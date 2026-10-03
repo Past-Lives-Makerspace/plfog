@@ -1,6 +1,6 @@
 """BDD specs for cancelling several Upcoming Times at once (issue #574): the bulk cancel view
-(fixed slots through ``cancel_slot``, open windows through ``cancel()``, foreign and stale keys
-skipped), its gate, and the card's selection markup."""
+(the form that sorts the keys, the service that cancels, foreign and stale keys skipped), its
+gate, and the card's selection markup."""
 
 from __future__ import annotations
 
@@ -9,10 +9,12 @@ from unittest.mock import patch
 
 import pytest
 from django.contrib.auth.models import User
+from django.http import HttpResponse, QueryDict
 from django.test import Client
 from django.urls import reverse
 from django.utils import timezone
 
+from hub.forms import OrientationTimesBulkCancelForm
 from membership import orientations
 from membership.models import Guild, OrientationBooking, OrientationSlot
 from tests.membership.factories import (
@@ -39,7 +41,7 @@ def _lead(username: str) -> tuple[User, Guild]:
     return user, guild
 
 
-def _slot(guild: Guild, *, days: int = 2):
+def _slot(guild: Guild, *, days: int = 2) -> OrientationSlot:
     start = timezone.now() + timedelta(days=days)
     return OrientationSlotFactory(
         guild=guild,
@@ -57,7 +59,7 @@ def _bulk_url(guild: Guild) -> str:
     return reverse("hub_guild_orientation_times_bulk_cancel", args=[guild.pk])
 
 
-def _messages(response) -> str:
+def _messages(response: HttpResponse) -> str:
     return " ".join(str(m) for m in response.context["messages"])
 
 
@@ -194,3 +196,25 @@ def describe_the_upcoming_times_card():
         content = client.get(_tab(guild)).content.decode()
         assert "pl-slot-admin__pick" not in content
         assert "times-bulk-form" not in content
+
+
+def describe_the_bulk_cancel_form():
+    def it_sorts_slot_and_window_keys():
+        form = OrientationTimesBulkCancelForm(QueryDict("selected=slot:4&selected=window:9&selected=slot:12"))
+        assert form.is_valid()
+        assert form.cleaned_data["slot_pks"] == [4, 12]
+        assert form.cleaned_data["window_pks"] == [9]
+
+    def it_ignores_anything_that_is_not_a_key():
+        form = OrientationTimesBulkCancelForm(
+            QueryDict("selected=slot:abc&selected=banana&selected=slot:&selected=window:7x&selected=window:3")
+        )
+        assert form.is_valid()
+        assert form.cleaned_data["slot_pks"] == []
+        assert form.cleaned_data["window_pks"] == [3]
+
+    def it_is_valid_and_empty_with_no_selection():
+        form = OrientationTimesBulkCancelForm(QueryDict(""))
+        assert form.is_valid()
+        assert form.cleaned_data["slot_pks"] == []
+        assert form.cleaned_data["window_pks"] == []

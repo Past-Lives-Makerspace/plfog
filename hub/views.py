@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import json
 import logging
-import re
 from dataclasses import dataclass
 from datetime import timedelta
 from decimal import Decimal
@@ -1808,26 +1807,6 @@ def guild_orientation_slot_cancel(request: HttpRequest, pk: int, slot_pk: int) -
     return redirect(f"{reverse('hub_guild_edit', args=[guild.pk])}?tab=orientations")
 
 
-_TIME_KEY_RE = re.compile(r"^(slot|window):(\d+)$")
-
-
-def _parse_time_keys(values: list[str]) -> tuple[list[int], list[int]]:
-    """Split the Upcoming Times selection keys into slot pks and window pks.
-
-    A key is ``slot:<pk>`` or ``window:<pk>`` (the card's ``data-time-key``); anything
-    else is ignored, so a tampered or stale value never raises.
-    """
-    slot_pks: list[int] = []
-    window_pks: list[int] = []
-    for value in values:
-        match = _TIME_KEY_RE.match(value)
-        if match is None:
-            continue
-        kind, pk = match.groups()
-        (slot_pks if kind == "slot" else window_pks).append(int(pk))
-    return slot_pks, window_pks
-
-
 def _bulk_cancel_message(cancelled: int, emailed: int) -> str:
     """The success line for a bulk cancel: how many times went, and how many members heard."""
     message = f"Cancelled {cancelled} upcoming time{'' if cancelled == 1 else 's'}."
@@ -1841,37 +1820,23 @@ def _bulk_cancel_message(cancelled: int, emailed: int) -> str:
 def guild_orientation_times_bulk_cancel(request: HttpRequest, pk: int) -> HttpResponse:
     """POST-only — cancel several Upcoming Times at once (#574). Editors only.
 
-    Fixed slots go through ``orientations.cancel_slot`` (booked members are emailed,
-    checkout holds released); open windows through ``cancel()`` (bookings inside them
-    stay). A key that is not one of this guild's upcoming, uncancelled times is skipped,
-    never an error page. No transaction around the loop: ``cancel_slot`` talks to Stripe
-    for held checkouts and must not run inside an outer atomic block.
+    The form reads the card's ``selected`` keys and ``orientations.cancel_times`` decides
+    what is eligible and cancels it; a key that is not one of this guild's upcoming,
+    uncancelled times is skipped, never an error page.
     """
+    from hub.forms import OrientationTimesBulkCancelForm
     from membership import orientations
-    from membership.models import OrientationSlot
 
     guild = get_object_or_404(Guild, pk=pk)
     forbidden = _require_can_manage_orientations(request, guild)
     if forbidden is not None:
         return forbidden
 
-    slot_pks, window_pks = _parse_time_keys(request.POST.getlist("selected"))
-    # Mirror the card (_upcoming_times): a slot carved out of a live window is a booked segment
-    # under that window, never a row of its own, so a crafted key must not cancel it either.
-    slots = list(
-        guild.orientation_slots.upcoming()
-        .exclude(source=OrientationSlot.Source.FROM_BLOCK, block__is_cancelled=False)
-        .filter(pk__in=slot_pks)
-        .with_active_booking_count()
+    form = OrientationTimesBulkCancelForm(request.POST)
+    form.is_valid()  # clean() never refuses: it only sorts keys and drops what is not one
+    cancelled, emailed = orientations.cancel_times(
+        guild, form.cleaned_data["slot_pks"], form.cleaned_data["window_pks"]
     )
-    windows = list(guild.orientation_blocks.upcoming().filter(pk__in=window_pks))
-    emailed = 0
-    for slot in slots:
-        emailed += slot.active_booking_count
-        orientations.cancel_slot(slot)
-    for window in windows:
-        window.cancel()
-    cancelled = len(slots) + len(windows)
     if cancelled:
         messages.success(request, _bulk_cancel_message(cancelled, emailed))
     else:
