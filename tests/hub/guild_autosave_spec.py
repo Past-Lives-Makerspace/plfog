@@ -263,14 +263,14 @@ def describe_orientation_settings_autosave():
         assert GuildOrientationSettings.objects.get(guild=guild).info == "Bring shoes"
         assert client.post(url, {"is_enabled": "on", "info": "Plain"}).status_code == 302
 
-    def it_answers_422_for_a_bad_signup_link_and_re_renders_without_the_header(client: Client):
+    def it_answers_422_for_a_bad_late_fee_and_re_renders_without_the_header(client: Client):
         _user, guild = _lead(client, "os_bad")
         url = reverse("hub_guild_orientation_edit", args=[guild.pk])
-        response = client.post(url, {"external_signup_url": "not a url"}, **AUTOSAVE)
-        assert _refused(response, "external_signup_url")
-        plain = client.post(url, {"external_signup_url": "not a url"})
+        response = client.post(url, {"late_cancel_fee": "not a fee"}, **AUTOSAVE)
+        assert _refused(response, "late_cancel_fee")
+        plain = client.post(url, {"late_cancel_fee": "not a fee"})
         assert plain.status_code == 200
-        assert plain.context["orientation_form"].errors["external_signup_url"]
+        assert plain.context["orientation_form"].errors["late_cancel_fee"]
 
 
 def describe_orientation_types_autosave():
