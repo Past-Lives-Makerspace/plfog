@@ -175,10 +175,11 @@ def describe_hub_compose_site_add():
         body = _post_add(client, site_add_member=f"user:{former.pk}").content.decode()
         assert f'data-compose-site-added-row="user:{former.pk}"' in body
 
-    def it_leaves_out_rows_already_added(client: Client):
+    def it_leaves_out_rows_already_added_and_says_so(client: Client):
         _login_admin(client)
         response = _post_add(client, site_add="guest@example.com", added_recipients="custom:guest@example.com")
         assert "data-compose-site-added-row" not in response.content.decode()
+        assert json.loads(response["HX-Trigger"])["showToast"]["message"] == "guest@example.com is already added."
 
     def it_toasts_why_anyone_was_refused(client: Client):
         _login_admin(client)

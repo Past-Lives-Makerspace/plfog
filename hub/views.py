@@ -4606,6 +4606,7 @@ def hub_compose_site_add(request: HttpRequest) -> HttpResponse:
     rows, refused = classify_site_additions(
         tokens, include_never_logged_in=bool(request.POST.get("include_never_logged_in"))
     )
+    refused += [f"{label} is already added." for value, label, _email_only in rows if value in already]
     response = render(
         request, "hub/partials/_compose_site_added_rows.html", {"rows": [row for row in rows if row[0] not in already]}
     )

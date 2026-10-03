@@ -575,6 +575,23 @@ def describe_AnnouncementDraft():
                 assert draft._site_recipients()[1] == []
                 assert draft.recipient_count() == 1
 
+            def it_counts_added_members_with_no_typed_addresses_in_a_fixed_number_of_queries(
+                django_assert_max_num_queries,
+            ):
+                for n in range(5):
+                    _activated_member(username=f"recip{n}")
+                former = _former("former")
+                draft = AnnouncementDraft(audience=_SITE, added_recipients={"users": [former.user_id], "custom": []})
+                with django_assert_max_num_queries(3):
+                    assert draft.recipient_count() == 6
+
+            def it_checks_typed_addresses_in_a_fixed_number_of_queries(django_assert_max_num_queries):
+                for n in range(5):
+                    _activated_member(username=f"recip{n}")
+                draft = AnnouncementDraft(audience=_SITE, added_recipients={"custom": ["guest@example.com"]})
+                with django_assert_max_num_queries(4):
+                    assert draft.recipient_count() == 6
+
             def it_leaves_typed_addresses_off_the_sent_record_while_email_is_off():
                 former = _former("former")
                 User.objects.filter(pk=former.user_id).update(first_name="Fern", last_name="Former")

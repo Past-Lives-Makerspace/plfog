@@ -5973,26 +5973,28 @@ class AnnouncementDraft(models.Model):
             Recipients.ALL_ACTIVE_MEMBERS, {"include_never_logged_in": self.include_never_logged_in}
         )
         users = {user.pk: user for user, _reason in everyone}
-        users.update(
-            {user.pk: user for user in User.objects.filter(pk__in=added_ids).exclude(email="").select_related("member")}
-        )
-        # A recipient's every address: the account email, the chosen notification email and any alias.
-        taken = {(user.email or "").strip().lower() for user in users.values()}
-        taken |= {
-            (getattr(getattr(user, "member", None), "notification_email", "") or "").strip().lower()
-            for user in users.values()
-        }
-        if typed:
-            from allauth.account.models import EmailAddress
-            from django.db.models.functions import Lower
+        users.update({user.pk: user for user in User.objects.filter(pk__in=added_ids).exclude(email="")})
+        if not typed:
+            return set(users), []
+        from allauth.account.models import EmailAddress
+        from django.db.models.functions import Lower
 
-            taken |= set(
-                EmailAddress.objects.filter(user_id__in=list(users))
-                .annotate(address=Lower("email"))
-                .filter(address__in=typed)
-                .values_list("address", flat=True)
-            )
-        return set(users), [addr for addr in typed if addr and addr not in taken]
+        # A recipient's every address: the account email, the chosen notification email and any
+        # alias. One query each for the last two, whatever the number of recipients.
+        taken = {(user.email or "").strip().lower() for user in users.values()}
+        taken |= set(
+            Member.objects.filter(user_id__in=list(users))
+            .annotate(address=Lower("notification_email"))
+            .filter(address__in=typed)
+            .values_list("address", flat=True)
+        )
+        taken |= set(
+            EmailAddress.objects.filter(user_id__in=list(users))
+            .annotate(address=Lower("email"))
+            .filter(address__in=typed)
+            .values_list("address", flat=True)
+        )
+        return set(users), [addr for addr in typed if addr not in taken]
 
     @property
     def added_labels(self) -> list[str]:
