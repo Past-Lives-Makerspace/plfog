@@ -5,6 +5,9 @@
   {% elif snapshot.results_announcement_sending %}
     <span class="pl-results-send__status" data-results-state="sending">The results announcement is sending. It goes out within 15 minutes.</span>
   {% elif snapshot.results_pending %}
+    {% with failure=snapshot.results_announcement_failure %}
+    {% if failure %}<span class="pl-results-send__status" data-results-state="failed">The results announcement could not be sent: {{ failure }}.</span>{% endif %}
+    {% endwith %}
     <form method="post" action="{% url 'hub_admin_voting_results_draft' snapshot.pk %}" data-results-draft-form>
       {% csrf_token %}
       <button type="submit" class="hub-btn hub-btn--primary">Draft announcement</button>

@@ -4934,6 +4934,29 @@ class AlreadySentError(Exception):
     """Raised when :meth:`AnnouncementDraft.send` is called on an already-sent draft."""
 
 
+class AnnouncementSendGaveUpError(Exception):
+    """Raised when the queue gives up on a draft whose earlier runs all died before recording why."""
+
+
+# How many runs of ``send_queued_announcements`` may try one queued draft before it is taken
+# off the queue. A transient failure (a provider hiccup, a worker restart) clears well inside
+# this; one that does not must stop retrying every 15 minutes while the Voting banner promises
+# the results "within 15 minutes". The draft keeps its error and can be sent again, and because
+# the site send's period is stable, a later send reaches only the members still not reached.
+MAX_ANNOUNCEMENT_SEND_ATTEMPTS = 3
+
+# The longest failure text kept on a draft (``send_error``); exception text can be a page long.
+_SEND_ERROR_LIMIT = 500
+
+# What a results announcement must address, and what is said when it is pointed elsewhere.
+RESULTS_ANNOUNCEMENT_AUDIENCE_ERROR = "A results announcement goes to everyone."
+
+# The part of a results announcement's Discord post its message always keeps, ahead of the
+# results block. Far more than any real message (the pre-filled one is about 250 characters), so
+# in practice only a very long guild list ever gives way, a whole line at a time.
+_DISCORD_PROSE_FLOOR = 1000
+
+
 class AnnouncementDraftManager(models.Manager["AnnouncementDraft"]):
     """Queries for the compose wizard's saved drafts."""
 
@@ -5105,6 +5128,20 @@ class AnnouncementDraft(models.Model):
             "A queued draft can no longer be resumed or edited in the composer."
         ),
     )
+    send_attempts = models.PositiveIntegerField(
+        default=0,
+        db_default=0,
+        help_text="How many runs of the background job have tried to send this queued draft. Reset when queued.",
+    )
+    send_error = models.TextField(
+        blank=True,
+        default="",
+        db_default="",
+        help_text=(
+            "Why the background job's last attempt to send this draft failed. Blank when it has not failed; "
+            "kept after the job gives up, so the Voting page can say what went wrong."
+        ),
+    )
     funding_snapshot = models.ForeignKey(
         "FundingSnapshot",
         null=True,
@@ -5196,13 +5233,29 @@ class AnnouncementDraft(models.Model):
             return "class_announcement"
         return "site_announcement"
 
+    def _landing_url(self, base_url: str) -> str:
+        """Where a tap on the bell, the push or the Discord title takes a member.
+
+        ``base_url`` for an ordinary announcement. A results announcement lands on the voting
+        results page instead: flattening the message for those channels drops its "voting
+        results page" link, so the tap is the only way there. The email keeps its own link.
+        """
+        if self.funding_snapshot_id is None:
+            return base_url
+        from membership.orientations import _absolute_url
+
+        return _absolute_url("/guilds/voting/history/")
+
     def _in_app_message(self, base_url: str) -> "Message":
         """The in-app bell / Discord :class:`Message` — the category title + the flattened body."""
         from core.events.channels import Message
         from core.html_sanitize import rich_html_to_text
 
         return Message(
-            title=self.title, body=rich_html_to_text(self.body), url=base_url, trigger_kind=self._trigger_kind()
+            title=self.title,
+            body=rich_html_to_text(self.body),
+            url=self._landing_url(base_url),
+            trigger_kind=self._trigger_kind(),
         )
 
     def build_push_message(self, base_url: str) -> "Message":
@@ -5216,7 +5269,7 @@ class AnnouncementDraft(models.Model):
         from core.html_sanitize import rich_html_to_text
 
         text = (self.push_message or "").strip() or rich_html_to_text(self.body)
-        return Message(title=self.title, body=text, url=base_url, trigger_kind=self._trigger_kind())
+        return Message(title=self.title, body=text, url=self._landing_url(base_url), trigger_kind=self._trigger_kind())
 
     def build_discord_message(self, base_url: str) -> "Message":
         """The Discord embed :class:`Message` — the composer's Discord preview card *is* this.
@@ -5224,8 +5277,11 @@ class AnnouncementDraft(models.Model):
         A plain announcement posts the in-app message (the category title + the flattened body).
         A results announcement adds the snapshot's results block under the message, one
         ``/voting`` style bar line per guild (:meth:`FundingSnapshot.allocation_discord_block`).
-        The message is shortened first so the results always fit inside Discord's embed
-        description limit.
+
+        Both share Discord's embed description limit. The message keeps at least
+        ``_DISCORD_PROSE_FLOOR`` characters (all of any realistic message); the results block takes
+        the rest and, when it would not fit, drops whole guild lines from the bottom with a note
+        that the rest are on the voting results page, so no line is cut in half.
         """
         import dataclasses
 
@@ -5236,10 +5292,11 @@ class AnnouncementDraft(models.Model):
         snapshot = self.funding_snapshot
         if snapshot is None:
             return message
-        block = snapshot.allocation_discord_block()
-        prose = truncate(message.body, max(_EMBED_DESCRIPTION_LIMIT - len(block) - 2, 0))
-        description = truncate(f"{prose}\n\n{block}", _EMBED_DESCRIPTION_LIMIT)
-        return dataclasses.replace(message, body=description)
+        full_block = snapshot.allocation_discord_block()
+        room = max(_EMBED_DESCRIPTION_LIMIT - len(full_block) - 2, min(len(message.body), _DISCORD_PROSE_FLOOR))
+        prose = truncate(message.body, room)
+        block = snapshot.allocation_discord_block(max_length=_EMBED_DESCRIPTION_LIMIT - len(prose) - 2)
+        return dataclasses.replace(message, body="\n\n".join(part for part in (prose, block) if part))
 
     def _channel_overrides(self, base_url: str) -> "dict[Channel, Message]":
         """Per-channel Message overrides handed to ``emit`` — every channel leads with the category.
@@ -5320,7 +5377,8 @@ class AnnouncementDraft(models.Model):
 
         Creates a new row or updates ``instance`` in place from the split audience/guild and
         the sanitized body. A ``GUILD`` audience without a guild fails loudly (also enforced
-        by the form and the DB check constraint).
+        by the form and the DB check constraint), and so does a results announcement pointed
+        at anyone but everyone (also enforced by the form, ``results_announcement=True``).
         """
         from django.core.exceptions import ValidationError
 
@@ -5347,6 +5405,8 @@ class AnnouncementDraft(models.Model):
             raise ValidationError("Choose a guild for this announcement.")
         if draft.audience == cls.Audience.CLASS and draft.class_offering is None:
             raise ValidationError("Choose a class for this announcement.")
+        if draft.funding_snapshot_id is not None and draft.audience != cls.Audience.SITE:
+            raise ValidationError(RESULTS_ANNOUNCEMENT_AUDIENCE_ERROR)
         # There is no member-typed subject: the title IS the auto category (audience + urgency),
         # computed here once every field it depends on (audience/guild/class/urgent) is set.
         draft.title = draft.announcement_category
@@ -5479,7 +5539,8 @@ class AnnouncementDraft(models.Model):
         with transaction.atomic():
             self.sent_at = timezone.now()
             self.send_requested_at = None
-            self.save(update_fields=["sent_at", "send_requested_at", "updated_at"])
+            self.send_error = ""
+            self.save(update_fields=["sent_at", "send_requested_at", "send_error", "updated_at"])
             snapshot = self.funding_snapshot
             if snapshot is not None:
                 snapshot.mark_results_announced()
@@ -5508,11 +5569,11 @@ class AnnouncementDraft(models.Model):
             raise ValidationError("Choose a guild for this announcement.")
         if self.audience == self.Audience.CLASS and self.class_offering is None:
             raise ValidationError("Choose a class for this announcement.")
-        if (
-            self.funding_snapshot_id is not None
-            and FundingSnapshot.objects.filter(pk=self.funding_snapshot_id, results_sent_at__isnull=False).exists()
-        ):
-            raise ResultsAlreadySentError("These results were already sent.")
+        if self.funding_snapshot_id is not None:
+            if self.audience != self.Audience.SITE:
+                raise ValidationError(RESULTS_ANNOUNCEMENT_AUDIENCE_ERROR)
+            if FundingSnapshot.objects.filter(pk=self.funding_snapshot_id, results_sent_at__isnull=False).exists():
+                raise ResultsAlreadySentError("These results were already sent.")
         return body_html
 
     def queue_send(self) -> None:
@@ -5525,7 +5586,8 @@ class AnnouncementDraft(models.Model):
         refused while another draft for the same snapshot is queued; the snapshot row is locked
         while that is checked, so two admins queueing at once cannot both get in.
 
-        Calling it on a draft that is already queued changes nothing.
+        Calling it on a draft that is already queued changes nothing. Queueing again a draft the
+        job gave up on starts its attempts and error afresh.
 
         Raises:
             AlreadySentError: If this draft was already sent.
@@ -5548,12 +5610,66 @@ class AnnouncementDraft(models.Model):
                 if already_queued:
                     raise ResultsAlreadySentError("These results are already sending.")
             self.send_requested_at = timezone.now()
-            self.save(update_fields=["send_requested_at", "updated_at"])
+            self.send_attempts = 0
+            self.send_error = ""
+            self.save(update_fields=["send_requested_at", "send_attempts", "send_error", "updated_at"])
 
     def unqueue(self) -> None:
         """Take a queued draft back off the queue without sending it (it becomes resumable again)."""
         self.send_requested_at = None
         self.save(update_fields=["send_requested_at", "updated_at"])
+
+    @property
+    def send_given_up(self) -> bool:
+        """Whether the background job tried this draft, failed and took it off the queue."""
+        return self.sent_at is None and self.send_requested_at is None and bool(self.send_error)
+
+    def send_from_queue(self) -> tuple[int, int]:
+        """One run of ``send_queued_announcements`` sending this queued draft.
+
+        Counts the attempt before sending, so a run killed outright still uses one up, then
+        calls :meth:`send`. On a failure the error is kept (capped) and the draft stays queued
+        for the next run, until :data:`MAX_ANNOUNCEMENT_SEND_ATTEMPTS` runs have failed: then it
+        is taken off the queue with its error kept, so the Voting page can say why and an admin
+        can send it again. A draft whose earlier runs all died before they could record
+        anything is given up on before a further try, which is what bounds a crash loop.
+
+        A results announcement refused because its results already went out is taken off the
+        queue at once: it can never succeed.
+
+        Returns:
+            :meth:`send`'s ``(emailed, total)`` pair.
+
+        Raises:
+            ResultsAlreadySentError: The results already went out (the draft is now off the queue).
+            AnnouncementSendGaveUpError: Earlier runs used every attempt without recording why.
+            Exception: Whatever :meth:`send` raised (the draft stays queued, or is off the queue
+                when this was the last allowed attempt).
+        """
+        if self.send_attempts >= MAX_ANNOUNCEMENT_SEND_ATTEMPTS:
+            reason = self.send_error or "Every attempt stopped before it finished."
+            self._stop_retrying(reason)
+            raise AnnouncementSendGaveUpError(reason)
+        self.send_attempts += 1
+        self.save(update_fields=["send_attempts", "updated_at"])
+        try:
+            return self.send()
+        except ResultsAlreadySentError as exc:
+            self._stop_retrying(str(exc))
+            raise
+        except Exception as exc:
+            if self.send_attempts >= MAX_ANNOUNCEMENT_SEND_ATTEMPTS:
+                self._stop_retrying(str(exc))
+            else:
+                self.send_error = str(exc)[:_SEND_ERROR_LIMIT]
+                self.save(update_fields=["send_error", "updated_at"])
+            raise
+
+    def _stop_retrying(self, reason: str) -> None:
+        """Take this draft off the queue unsent, keeping why (it becomes resumable again)."""
+        self.send_requested_at = None
+        self.send_error = reason[:_SEND_ERROR_LIMIT]
+        self.save(update_fields=["send_requested_at", "send_error", "updated_at"])
 
     def _selected_recipient_ids(self) -> "set[int] | None":
         """The explicit member recipient set (bell + push + email) from the saved selection.
@@ -9062,6 +9178,22 @@ class FundingSnapshot(models.Model):
         """Whether a results announcement for this snapshot is queued for the background send."""
         return self.announcement_drafts.filter(sent_at__isnull=True, send_requested_at__isnull=False).exists()
 
+    @property
+    def results_announcement_failure(self) -> str:
+        """Why the newest results announcement the background job gave up on failed, else ``""``.
+
+        Drives the Voting page's "could not be sent" line. The draft it describes is unsent and
+        off the queue, so Draft announcement reopens it for its author; any trailing full stop is
+        dropped because the line adds its own.
+        """
+        failed = (
+            self.announcement_drafts.filter(sent_at__isnull=True, send_requested_at__isnull=True)
+            .exclude(send_error="")
+            .order_by("-updated_at", "-pk")
+            .first()
+        )
+        return failed.send_error.rstrip(".") if failed is not None else ""
+
     @classmethod
     def most_recent_pending(cls) -> FundingSnapshot | None:
         """The newest snapshot whose results have not gone out yet.
@@ -9283,28 +9415,48 @@ class FundingSnapshot(models.Model):
         heading = style_rich_email_fragment(f"<h3>{escape(self.results_heading)}</h3>")
         return heading + self.allocation_chart_html()
 
-    def allocation_discord_block(self) -> str:
+    def allocation_discord_block(self, max_length: int | None = None) -> str:
         """The results announcement's Discord visual, in the ``/voting`` standings style.
 
         The bold heading, then one line per guild: a medal for the top three (else ``4.``), the
         block bar in inline code sized to the leader, the name (bold for the top three), then
         the dollars and share. The bar and medals are ``/voting``'s own
         (:func:`membership.discord_commands._bar`), so the two posts always look alike. Guild
-        names go out as typed: Discord shows ``<`` and ``&`` literally.
+        names have Discord's markdown characters escaped, so a name can neither bold nor break
+        the lines around it; ``<`` and ``&`` need nothing, Discord shows them as typed.
+
+        Args:
+            max_length: When given, the most characters the block may take. Guild lines are
+                dropped from the bottom, whole, until it fits, and a last line says how many more
+                are on the voting results page.
         """
+        from core.events.discord import escape_discord_markdown
         from membership.discord_commands import _MEDALS, _bar
 
         rows = self._allocation_rows()
         top = max(funding for _name, funding, _share in rows)
-        lines = [f"**{self.results_heading}**"]
+        heading = f"**{self.results_heading}**"
+        lines: list[str] = []
         for rank, (name, funding, share) in enumerate(rows, start=1):
             bar = f"`{_bar(float(funding / top * 100) if top > 0 else 0.0)}`"
             amount = f"${funding:,.2f} ({share}%)"
+            safe_name = escape_discord_markdown(name)
             if rank <= len(_MEDALS):
-                lines.append(f"{_MEDALS[rank - 1]} {bar} **{name}**: {amount}")
+                lines.append(f"{_MEDALS[rank - 1]} {bar} **{safe_name}**: {amount}")
             else:
-                lines.append(f"`{rank}.` {bar} {name}: {amount}")
-        return "\n".join(lines)
+                lines.append(f"`{rank}.` {bar} {safe_name}: {amount}")
+        block = "\n".join([heading, *lines])
+        if max_length is None or len(block) <= max_length:
+            return block
+        kept = list(lines)
+        while kept:
+            kept.pop()
+            dropped = len(lines) - len(kept)
+            more = f"And {dropped} more {'guild' if dropped == 1 else 'guilds'} on the voting results page."
+            block = "\n".join([heading, *kept, more])
+            if len(block) <= max_length:
+                return block
+        return block
 
     def results_announcement_body(self) -> str:
         """The prose a results announcement starts with, stored exactly as the composer would store it.
@@ -9342,11 +9494,14 @@ class FundingSnapshot(models.Model):
         (as the old results post did), the sender shown, not urgent.
 
         Raises:
-            ResultsAlreadySentError: If this snapshot's results already went out.
+            ResultsAlreadySentError: If this snapshot's results already went out, or a results
+                announcement for it is queued (a stale tab must not open a second, unsendable draft).
             NoResultsToAnnounceError: If the snapshot has no per-guild results (legacy or vote-less).
         """
         if self.results_sent_at is not None:
             raise ResultsAlreadySentError("These results were already sent.")
+        if self.results_announcement_sending:
+            raise ResultsAlreadySentError("These results are already sending.")
         if not self.allocation_summary():
             raise NoResultsToAnnounceError(f"'{self.cycle_label}' has no results to announce.")
         existing = AnnouncementDraft.objects.for_user(author).filter(funding_snapshot=self).first()
@@ -9571,6 +9726,17 @@ class FundingSnapshot(models.Model):
             from airtable_sync.service import sync_snapshot_to_airtable
 
             sync_snapshot_to_airtable(self)
+
+    @property
+    def deletion_blocker(self) -> str:
+        """Why this snapshot cannot be deleted right now, else ``""``.
+
+        While its results announcement is queued, deleting the snapshot would unlink the draft,
+        and the job would then email everyone the snapshot's prose with no results under it.
+        """
+        if self.results_announcement_sending:
+            return "Its results announcement is sending. Delete it after the announcement has gone out."
+        return ""
 
     def delete(self, *args: Any, **kwargs: Any) -> tuple[int, dict[str, int]]:
         """Hard-delete the snapshot and clean up its Airtable mirror row.

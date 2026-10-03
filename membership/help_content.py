@@ -429,7 +429,7 @@ A voting cycle is one calendar month. The voting page shows the current cycle, t
 
 ![The voting page shows when the current cycle closes and the next begins.](/static/help/guild-voting/02-cycle-dates.png)
 
-Minutes into the new month, the Member Portal automatically freezes the closed cycle's standings into a snapshot. An admin checks the numbers and then announces the results to members by email, app notification and Discord, with a chart of how the funding was split. There's nothing to do at month's end — your standing ballot was your vote.
+Minutes into the new month, the Member Portal automatically freezes the closed cycle's standings into a snapshot. An admin checks the numbers and then announces the results to members by email, app notification and Discord, with a chart of how the funding was split. There's nothing to do at month's end: your standing ballot was your vote.
 
 ## Watch the Standings {#voting-live-standings}
 

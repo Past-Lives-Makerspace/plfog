@@ -259,21 +259,53 @@ def post_embed(webhook_url: str, message: Message) -> bool:
     return False
 
 
-# The two pieces of Discord markdown the app's own embeds use: ``**bold**`` and `` `inline code` ``.
-_INLINE_CODE_RE = re.compile(r"`([^`\n]+)`")
-_BOLD_RE = re.compile(r"\*\*(.+?)\*\*")
+# The characters that make Discord markdown: escaping each with a backslash shows it as typed.
+_MARKDOWN_SPECIALS_RE = re.compile(r"([\\*_`~|>])")
+
+# What the preview renders: a backslash escape, `inline code`, or **bold** (whose inner text may
+# itself hold escapes). One alternation scanned left to right, so an escaped asterisk or backtick
+# never opens bold or code.
+_PREVIEW_TOKEN_RE = re.compile(r"\\([\\*_`~|>])|`([^`\n]+)`|\*\*((?:\\.|[^*\\\n])+?)\*\*")
+
+
+def escape_discord_markdown(text: str) -> str:
+    """Backslash-escape Discord's markdown characters so ``text`` shows exactly as typed.
+
+    For text the app did not write, placed inside markup it did (a guild name inside the
+    results announcement's bold): ``Wood`work **Bold**`` must not open code or bold.
+    """
+    return _MARKDOWN_SPECIALS_RE.sub(r"\\\1", text)
 
 
 def discord_markdown_html(text: str) -> SafeString:
     """Render an embed description as HTML the way Discord would show it, for a preview card.
 
-    Everything is HTML-escaped first, so whatever a member typed shows as text. Then the two
-    pieces of markdown the app's embeds use become markup: inline code (the ``/voting`` style
-    bars, kept monospace) and bold. Anything else Discord would format stays as typed. The
-    caller keeps the line breaks (``white-space: pre-line``).
+    Everything is HTML-escaped, so whatever a member typed shows as text. The markdown the
+    app's embeds use becomes markup: inline code (the ``/voting`` style bars, kept monospace)
+    and bold, and a backslash escape shows its character as typed, just as Discord does.
+    Anything else Discord would format stays as written. The caller keeps the line breaks
+    (``white-space: pre-line``).
     """
-    from django.utils.html import escape
     from django.utils.safestring import mark_safe
 
-    html = _INLINE_CODE_RE.sub(r'<code class="pl-discord-preview__code">\1</code>', escape(text))
-    return mark_safe(_BOLD_RE.sub(r"<strong>\1</strong>", html))
+    return mark_safe(_preview_html(text))
+
+
+def _preview_html(text: str) -> str:
+    """The escaped, marked-up HTML for :func:`discord_markdown_html` (recursing into bold)."""
+    from django.utils.html import escape
+
+    parts: list[str] = []
+    position = 0
+    for match in _PREVIEW_TOKEN_RE.finditer(text):
+        parts.append(escape(text[position : match.start()]))
+        escaped, code, bold = match.groups()
+        if escaped is not None:
+            parts.append(escape(escaped))
+        elif code is not None:
+            parts.append(f'<code class="pl-discord-preview__code">{escape(code)}</code>')
+        else:
+            parts.append(f"<strong>{_preview_html(bold)}</strong>")
+        position = match.end()
+    parts.append(escape(text[position:]))
+    return "".join(parts)

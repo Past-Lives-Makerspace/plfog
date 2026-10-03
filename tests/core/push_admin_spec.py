@@ -132,3 +132,21 @@ def describe_send_test_push():
             push_admin.send_test_push(user, url="/x/", title="Makerspace Announcement", body="")
         assert mock_fcm.call_args.kwargs["title"] == "Makerspace Announcement"
         assert mock_fcm.call_args.kwargs["body"] == "You're set. If you can see this, push notifications are working."
+
+    def it_flattens_and_caps_the_text_like_the_real_push():
+        user = _user()
+        _device(user, "d1")
+        with patch("core.push_admin.send_fcm", return_value=True) as mock_fcm:
+            push_admin.send_test_push(user, url="/x/", title="<b>Results</b>", body="<p>" + "word " * 100 + "</p>")
+        kwargs = mock_fcm.call_args.kwargs
+        assert kwargs["title"] == "Results"
+        assert len(kwargs["body"]) == 200
+        assert kwargs["body"].endswith("…")
+        assert "<p>" not in kwargs["body"]
+
+    def it_rides_the_channel_it_is_given():
+        user = _user()
+        _device(user, "d1")
+        with patch("core.push_admin.send_fcm", return_value=True) as mock_fcm:
+            push_admin.send_test_push(user, url="/x/", channel_id="guilds")
+        assert mock_fcm.call_args.kwargs["channel_id"] == "guilds"

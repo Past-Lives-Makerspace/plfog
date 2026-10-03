@@ -163,3 +163,88 @@ def describe_send_queued_announcements():
             out = StringIO()
             call_command("send_queued_announcements", stdout=out)
             assert out.getvalue().strip() == "No queued announcements."
+
+
+def describe_the_retry_cap():
+    def it_keeps_retrying_and_keeps_the_error_until_the_third_failed_run():
+        draft = _queued(_author())
+        with patch.object(AnnouncementDraft, "send", side_effect=RuntimeError("provider down")):
+            for attempt in (1, 2):
+                with pytest.raises(CommandError) as raised:
+                    call_command("send_queued_announcements")
+                assert (
+                    str(raised.value)
+                    == f"Could not send announcement #{draft.pk} (Makerspace Announcement): provider down"
+                )
+                draft.refresh_from_db()
+                assert draft.send_attempts == attempt
+                assert draft.send_error == "provider down"
+                assert draft.send_requested_at is not None
+
+    def it_takes_the_draft_off_the_queue_after_the_third_failed_run():
+        draft = _queued(_author())
+        with patch.object(AnnouncementDraft, "send", side_effect=RuntimeError("provider down")):
+            for _attempt in range(2):
+                with pytest.raises(CommandError):
+                    call_command("send_queued_announcements")
+            with pytest.raises(CommandError) as raised:
+                call_command("send_queued_announcements")
+        assert str(raised.value) == (
+            f"Could not send announcement #{draft.pk} (Makerspace Announcement): provider down "
+            "It was taken off the queue after 3 attempt(s)."
+        )
+        draft.refresh_from_db()
+        assert draft.send_requested_at is None
+        assert draft.sent_at is None
+        assert draft.send_attempts == 3
+        assert draft.send_error == "provider down"
+        assert draft.send_given_up is True
+        # Off the queue: the next tick is quiet.
+        out = StringIO()
+        call_command("send_queued_announcements", stdout=out)
+        assert out.getvalue().strip() == "No queued announcements."
+
+    def it_gives_up_before_another_try_when_every_run_died_without_a_word():
+        """A worker killed mid-send never reaches the handler; the count alone must bound the loop."""
+        draft = _queued(_author())
+        AnnouncementDraft.objects.filter(pk=draft.pk).update(send_attempts=3)
+        with patch.object(AnnouncementDraft, "send") as send:
+            with pytest.raises(CommandError) as raised:
+                call_command("send_queued_announcements")
+        send.assert_not_called()
+        assert str(raised.value) == (
+            f"Could not send announcement #{draft.pk} (Makerspace Announcement): Every attempt stopped before it "
+            "finished. It was taken off the queue after 3 attempt(s)."
+        )
+        draft.refresh_from_db()
+        assert draft.send_requested_at is None
+        assert draft.send_error == "Every attempt stopped before it finished."
+
+    def it_counts_an_attempt_even_when_the_run_is_killed():
+        draft = _queued(_author())
+        with patch.object(AnnouncementDraft, "send", side_effect=KeyboardInterrupt("worker killed")):
+            with pytest.raises(KeyboardInterrupt):
+                call_command("send_queued_announcements")
+        draft.refresh_from_db()
+        assert draft.send_attempts == 1
+        assert draft.send_error == ""
+        assert draft.send_requested_at is not None
+
+    def it_keeps_only_the_start_of_a_long_error():
+        draft = _queued(_author())
+        with patch.object(AnnouncementDraft, "send", side_effect=RuntimeError("x" * 2000)):
+            with pytest.raises(CommandError):
+                call_command("send_queued_announcements")
+        draft.refresh_from_db()
+        assert draft.send_error == "x" * 500
+
+    def it_clears_the_error_once_a_later_run_sends():
+        draft = _queued(_author())
+        with patch.object(AnnouncementDraft, "send", side_effect=RuntimeError("provider down")):
+            with pytest.raises(CommandError):
+                call_command("send_queued_announcements")
+        call_command("send_queued_announcements")
+        draft.refresh_from_db()
+        assert draft.sent_at is not None
+        assert draft.send_error == ""
+        assert draft.send_attempts == 2

@@ -4222,6 +4222,34 @@ def _compose_lock(requested: str | None, want_lock: bool) -> tuple[bool, str, st
     return False, "", "", ""
 
 
+def _results_compose_lock(draft: AnnouncementDraft | None) -> tuple[bool, str, str, str] | None:
+    """The locked "Sending to: Everyone" row for a results announcement, else ``None``.
+
+    A draft linked to a funding snapshot only ever goes to everyone, so the composer shows the
+    audience fixed (the same locked row and hidden ``audience`` input as a pre-scoped class or
+    guild) rather than a picker that would let it be retargeted. The server refuses a retarget
+    regardless (``AnnouncementComposeForm(results_announcement=True)``).
+    """
+    if draft is None or draft.funding_snapshot_id is None:
+        return None
+    return True, AnnouncementDraft.Audience.SITE.label, "", ""
+
+
+def _compose_send_refused(request: HttpRequest, draft: AnnouncementDraft, exc: Exception) -> HttpResponse:
+    """Turn a send or queue the model refused into a message and a redirect, never a 500.
+
+    A results announcement lands on its snapshot's page, which says whether the results went out;
+    anything else returns to the composer.
+    """
+    from django.core.exceptions import ValidationError
+
+    reason = exc.messages[0] if isinstance(exc, ValidationError) else str(exc)
+    messages.error(request, reason)
+    if draft.funding_snapshot_id is not None:
+        return redirect("hub_admin_voting_history_detail", pk=draft.funding_snapshot_id)
+    return redirect("hub_compose")
+
+
 def _compose_preselection(request: HttpRequest, requested: str | None) -> dict[str, Any]:
     """The pre-checked recipient set carried in on a fresh compose URL, as form ``initial``.
 
@@ -4292,6 +4320,7 @@ def hub_compose(request: HttpRequest, draft_pk: int | None = None) -> HttpRespon
         draft = get_object_or_404(AnnouncementDraft.objects.for_user(cast(User, request.user)), pk=draft_pk)
         initial = _draft_initial(draft)
         requested = initial["audience"]
+        locked, locked_label, heading, lead = _results_compose_lock(draft) or (False, "", "", "")
     else:
         requested = request.GET.get("audience")
         if requested:
@@ -4450,9 +4479,16 @@ def hub_compose_push_test(request: HttpRequest) -> HttpResponse:
 
     if not _can_enter_compose(request, _get_member(request), request.POST.get("audience")):
         return _compose_refused(request)
-    url = request.build_absolute_uri("/")
-    push = _compose_preview_draft(request).build_push_message(url)
-    result = send_test_push(cast(User, request.user), url=url, title=push.title, body=push.body)
+    from core.events.channels import push_channel_for
+
+    push = _compose_preview_draft(request).build_push_message(request.build_absolute_uri("/"))
+    result = send_test_push(
+        cast(User, request.user),
+        url=push.url,
+        title=push.title,
+        body=push.body,
+        channel_id=push_channel_for(push.trigger_kind),
+    )
     response = HttpResponse(status=204)
     if result.attempted == 0:
         trigger_toast(response, "No push devices are registered on your account yet.", "error")
@@ -4556,7 +4592,11 @@ def hub_compose_save_draft(request: HttpRequest) -> HttpResponse:
     instance = None
     if draft_pk:
         instance = get_object_or_404(AnnouncementDraft.objects.for_user(cast(User, request.user)), pk=draft_pk)
-    form = AnnouncementComposeForm(request.POST, **_compose_form_kwargs(request))
+    form = AnnouncementComposeForm(
+        request.POST,
+        results_announcement=_results_compose_lock(instance) is not None,
+        **_compose_form_kwargs(request),
+    )
     if not form.is_valid():
         response = HttpResponse(status=204)
         trigger_toast(response, _compose_first_error(form), "error")
@@ -4579,11 +4619,14 @@ def hub_compose_send(request: HttpRequest) -> HttpResponse:
     A site-wide send is queued rather than sent here (:meth:`AnnouncementDraft.queue_send`):
     reaching every active member outlives a web worker, so ``send_queued_announcements`` sends it
     within 15 minutes. Guild and class sends are small and still go out in the request. A results
-    announcement whose results already went out (or are already sending) is refused and the admin
-    lands on that snapshot's page, which says when they were sent.
+    announcement only goes to everyone: a POST retargeting it is a form error, and nothing is
+    saved. A send or queue the model refuses (already sent, results already out or already
+    sending) becomes a message and a redirect, never a 500 (:func:`_compose_send_refused`).
     """
+    from django.core.exceptions import ValidationError
+
     from hub.forms import AnnouncementComposeForm
-    from membership.models import AnnouncementDraft, ResultsAlreadySentError
+    from membership.models import AlreadySentError, AnnouncementDraft, ResultsAlreadySentError
 
     raw = request.POST.get("audience") or ""
     forbidden = _compose_audience_forbidden(request, raw)
@@ -4593,9 +4636,15 @@ def hub_compose_send(request: HttpRequest) -> HttpResponse:
     instance = None
     if draft_pk:
         instance = get_object_or_404(AnnouncementDraft.objects.for_user(cast(User, request.user)), pk=draft_pk)
-    form = AnnouncementComposeForm(request.POST, require_body=True, **_compose_form_kwargs(request))
+    results_lock = _results_compose_lock(instance)
+    form = AnnouncementComposeForm(
+        request.POST,
+        require_body=True,
+        results_announcement=results_lock is not None,
+        **_compose_form_kwargs(request),
+    )
     if not form.is_valid():
-        locked, locked_label, heading, lead = _compose_lock(raw, bool(request.POST.get("lock")))
+        locked, locked_label, heading, lead = results_lock or _compose_lock(raw, bool(request.POST.get("lock")))
         return _render_compose(
             request,
             form=form,
@@ -4606,19 +4655,22 @@ def hub_compose_send(request: HttpRequest) -> HttpResponse:
             compose_lead=lead,
         )
     draft = AnnouncementDraft.save_from_form(form, cast(User, request.user), instance=instance)
+    refusals = (AlreadySentError, ResultsAlreadySentError, ValidationError)
     if draft.audience == AnnouncementDraft.Audience.SITE:
         try:
             draft.queue_send()
-        except ResultsAlreadySentError as exc:
-            messages.error(request, str(exc))
-            return redirect("hub_admin_voting_history_detail", pk=draft.funding_snapshot_id)
+        except refusals as exc:
+            return _compose_send_refused(request, draft, exc)
         messages.success(
             request,
             "Your announcement is sending in the background. "
             f"It reaches {draft.recipient_count()} recipient(s) within 15 minutes.",
         )
         return redirect("hub_compose")
-    emailed, total = draft.send()
+    try:
+        emailed, total = draft.send()
+    except refusals as exc:
+        return _compose_send_refused(request, draft, exc)
     messages.success(request, f"Announcement sent to {total} recipient(s).")
     return redirect("hub_compose")
 
@@ -6919,8 +6971,15 @@ def voting_snapshot_take(request: HttpRequest) -> HttpResponse:
 @fog_admin_required
 @require_POST
 def voting_snapshot_delete(request: HttpRequest, pk: int) -> HttpResponse:
-    """Hard-delete a snapshot (and its Airtable mirror) and return to the Funding History list."""
+    """Hard-delete a snapshot (and its Airtable mirror) and return to the Funding History list.
+
+    Refused while the snapshot's results announcement is queued (:attr:`FundingSnapshot.deletion_blocker`).
+    """
     snapshot = get_object_or_404(FundingSnapshot, pk=pk)
+    blocker = snapshot.deletion_blocker
+    if blocker:
+        messages.error(request, blocker)
+        return redirect("hub_admin_voting_history_detail", pk=snapshot.pk)
     cycle_label = snapshot.cycle_label
     snapshot.delete()
     messages.success(request, f"Deleted snapshot '{cycle_label}'.")

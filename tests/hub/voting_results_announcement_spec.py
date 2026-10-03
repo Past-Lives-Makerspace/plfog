@@ -365,8 +365,9 @@ def describe_sending_from_the_composer():
         MembershipPlanFactory()
         robin = User.objects.create_user("robin", "robin@x.com", "p")
         snapshot = _snapshot()
-        snapshot.draft_results_announcement(robin).queue_send()
+        theirs = snapshot.draft_results_announcement(robin)
         mine = snapshot.draft_results_announcement(_admin_user())
+        theirs.queue_send()
         response = admin_client.post(reverse("hub_compose_send"), _compose_post(mine))
         assert _messages(response) == ["These results are already sending."]
         mine.refresh_from_db()
@@ -385,3 +386,276 @@ def describe_sending_from_the_composer():
         draft = AnnouncementDraft.objects.get(guild=guild)
         assert draft.sent_at is not None
         assert draft.send_requested_at is None
+
+
+def describe_a_results_draft_only_goes_to_everyone():
+    def _results_draft() -> AnnouncementDraft:
+        return _snapshot().draft_results_announcement(_admin_user())
+
+    def _guild_with_a_member():
+        from tests.membership.factories import GuildMembershipFactory
+
+        guild = GuildFactory(name="Metal Guild")
+        reader = _activated("guildie")
+        GuildMembershipFactory(guild=guild, member=reader.member)
+        return guild
+
+    def _nothing_went_out(draft: AnnouncementDraft, mailoutbox) -> None:
+        from membership.models import GuildAnnouncement
+
+        draft.refresh_from_db()
+        assert draft.audience == AnnouncementDraft.Audience.SITE
+        assert draft.guild is None
+        assert draft.class_offering is None
+        assert draft.sent_at is None
+        assert draft.send_requested_at is None
+        assert draft.funding_snapshot.results_sent_at is None
+        assert not GuildAnnouncement.objects.exists()
+        assert not Notification.objects.exists()
+        assert mailoutbox == []
+
+    def it_shows_the_audience_locked_to_everyone(admin_client):
+        draft = _results_draft()
+        html = admin_client.get(reverse("hub_compose_resume", args=[draft.pk])).content.decode()
+        assert (
+            '<div class="pl-compose-locked"><span class="pl-compose-locked__label">Sending to:</span> '
+            "Everyone (site-wide)</div>"
+        ) in html
+        assert '<input type="hidden" name="audience" value="site">' in html
+        assert 'select name="audience"' not in html
+
+    def it_keeps_the_audience_locked_when_a_send_is_sent_back(admin_client):
+        draft = _results_draft()
+        response = admin_client.post(reverse("hub_compose_send"), _compose_post(draft, body="<p><br></p>"))
+        assert response.status_code == 200
+        assert '<span class="pl-compose-locked__label">Sending to:</span> Everyone (site-wide)' in (
+            response.content.decode()
+        )
+
+    def it_refuses_a_retarget_to_a_guild_and_sends_nothing(admin_client, mailoutbox):
+        guild = _guild_with_a_member()
+        draft = _results_draft()
+        response = admin_client.post(reverse("hub_compose_send"), _compose_post(draft, audience=f"guild:{guild.pk}"))
+        assert response.status_code == 200
+        assert response.context["form"].non_field_errors() == ["A results announcement goes to everyone."]
+        assert '<span class="pl-compose-locked__label">Sending to:</span>' in response.content.decode()
+        _nothing_went_out(draft, mailoutbox)
+
+    def it_refuses_a_retarget_to_a_class_and_sends_nothing(admin_client, mailoutbox):
+        from classes.factories import ClassOfferingFactory, RegistrationFactory
+        from classes.models import ClassOffering, Registration
+
+        offering = ClassOfferingFactory(status=ClassOffering.Status.PUBLISHED)
+        student = _activated("student")
+        RegistrationFactory(class_offering=offering, member=student.member, status=Registration.Status.CONFIRMED)
+        draft = _results_draft()
+        response = admin_client.post(
+            reverse("hub_compose_send"), _compose_post(draft, audience=f"class:{offering.pk}", lock="1")
+        )
+        assert response.status_code == 200
+        assert response.context["form"].non_field_errors() == ["A results announcement goes to everyone."]
+        _nothing_went_out(draft, mailoutbox)
+
+    def it_refuses_a_retarget_on_save_too(admin_client, mailoutbox):
+        import json
+
+        guild = _guild_with_a_member()
+        draft = _results_draft()
+        response = admin_client.post(
+            reverse("hub_compose_save_draft"), _compose_post(draft, audience=f"guild:{guild.pk}")
+        )
+        assert response.status_code == 204
+        toast = json.loads(response["HX-Trigger"])["showToast"]
+        assert toast["message"] == "A results announcement goes to everyone."
+        assert toast["type"] == "error"
+        _nothing_went_out(draft, mailoutbox)
+
+    def it_answers_a_retarget_of_results_already_sent_without_a_500(admin_client, mailoutbox):
+        guild = _guild_with_a_member()
+        draft = _results_draft()
+        FundingSnapshot.objects.filter(pk=draft.funding_snapshot_id).update(results_sent_at=timezone.now())
+        response = admin_client.post(reverse("hub_compose_send"), _compose_post(draft, audience=f"guild:{guild.pk}"))
+        assert response.status_code == 200
+        assert response.context["form"].non_field_errors() == ["A results announcement goes to everyone."]
+        assert mailoutbox == []
+
+
+def describe_a_refused_inline_send():
+    """Guild and class sends run in the request; a send the model refuses is a message, never a 500."""
+
+    def _lead_with_a_guild(client: Client):
+        MembershipPlanFactory()
+        user = User.objects.create_user("lead", "lead@x.com", "p")
+        guild = GuildFactory(guild_lead=user.member)
+        client.login(username="lead", password="p")
+        return guild
+
+    def _post(client: Client, guild) -> object:
+        return client.post(
+            reverse("hub_compose_send"),
+            {"audience": f"guild:{guild.pk}", "body": "<p>Forge night</p>", "discord_channel": "none"},
+        )
+
+    def it_says_results_already_sent_and_returns_to_the_composer(client: Client):
+        from unittest.mock import patch
+
+        from membership.models import ResultsAlreadySentError
+
+        guild = _lead_with_a_guild(client)
+        with patch.object(
+            AnnouncementDraft, "send", side_effect=ResultsAlreadySentError("These results were already sent.")
+        ):
+            response = _post(client, guild)
+        assert response.status_code == 302
+        assert response.url == reverse("hub_compose")
+        assert _messages(response) == ["These results were already sent."]
+
+    def it_says_an_announcement_was_already_sent(client: Client):
+        from unittest.mock import patch
+
+        from membership.models import AlreadySentError
+
+        guild = _lead_with_a_guild(client)
+        with patch.object(
+            AnnouncementDraft, "send", side_effect=AlreadySentError("This announcement was already sent.")
+        ):
+            response = _post(client, guild)
+        assert response.status_code == 302
+        assert _messages(response) == ["This announcement was already sent."]
+
+    def it_says_why_the_model_refused_the_message(client: Client):
+        from unittest.mock import patch
+
+        from django.core.exceptions import ValidationError
+
+        guild = _lead_with_a_guild(client)
+        with patch.object(AnnouncementDraft, "send", side_effect=ValidationError("Add a message before sending.")):
+            response = _post(client, guild)
+        assert response.status_code == 302
+        assert _messages(response) == ["Add a message before sending."]
+
+    def it_returns_a_refused_results_queue_to_its_snapshot(admin_client):
+        from unittest.mock import patch
+
+        from django.core.exceptions import ValidationError
+
+        snapshot = _snapshot()
+        draft = snapshot.draft_results_announcement(_admin_user())
+        with patch.object(
+            AnnouncementDraft, "queue_send", side_effect=ValidationError("Add a message before sending.")
+        ):
+            response = admin_client.post(reverse("hub_compose_send"), _compose_post(draft))
+        assert response.url == reverse("hub_admin_voting_history_detail", args=[snapshot.pk])
+        assert _messages(response) == ["Add a message before sending."]
+
+
+def describe_deleting_a_snapshot():
+    def it_refuses_while_its_results_announcement_is_sending(admin_client):
+        snapshot = _snapshot()
+        snapshot.draft_results_announcement(_admin_user()).queue_send()
+        response = admin_client.post(reverse("hub_admin_voting_snapshot_delete", args=[snapshot.pk]))
+        assert response.status_code == 302
+        assert response.url == reverse("hub_admin_voting_history_detail", args=[snapshot.pk])
+        assert _messages(response) == [
+            "Its results announcement is sending. Delete it after the announcement has gone out."
+        ]
+        assert FundingSnapshot.objects.filter(pk=snapshot.pk).exists()
+        assert AnnouncementDraft.objects.get().funding_snapshot == snapshot
+
+    def it_still_deletes_a_snapshot_whose_draft_is_not_queued(admin_client):
+        snapshot = _snapshot()
+        snapshot.draft_results_announcement(_admin_user())
+        response = admin_client.post(reverse("hub_admin_voting_snapshot_delete", args=[snapshot.pk]))
+        assert response.url == reverse("hub_admin_voting_history")
+        assert not FundingSnapshot.objects.filter(pk=snapshot.pk).exists()
+
+
+def describe_drafting_while_one_is_sending():
+    def it_refuses_a_second_draft_from_a_stale_tab(admin_client):
+        MembershipPlanFactory()
+        robin = User.objects.create_user("robin", "robin@x.com", "p")
+        snapshot = _snapshot()
+        snapshot.draft_results_announcement(robin).queue_send()
+        response = admin_client.post(_draft_url(snapshot))
+        assert response.url == reverse("hub_admin_voting_history_detail", args=[snapshot.pk])
+        assert _messages(response) == ["These results are already sending."]
+        assert AnnouncementDraft.objects.count() == 1
+
+
+def describe_a_results_announcement_the_queue_gave_up_on():
+    def _given_up(snapshot: FundingSnapshot) -> AnnouncementDraft:
+        draft = snapshot.draft_results_announcement(_admin_user())
+        draft.queue_send()
+        AnnouncementDraft.objects.filter(pk=draft.pk).update(
+            send_requested_at=None, send_attempts=3, send_error="provider down."
+        )
+        return draft
+
+    def it_says_why_on_the_banner_and_offers_the_draft_again(admin_client):
+        snapshot = _snapshot()
+        _given_up(snapshot)
+        html = admin_client.get(reverse("hub_admin_voting_overview")).content.decode()
+        assert (
+            '<span class="pl-results-send__status" data-results-state="failed">The results announcement could not '
+            "be sent: provider down.</span>"
+        ) in html
+        assert f'action="{_draft_url(snapshot)}" data-results-draft-form' in html
+
+    def it_says_why_on_the_history_page(admin_client):
+        snapshot = _snapshot()
+        _given_up(snapshot)
+        html = admin_client.get(reverse("hub_admin_voting_history_detail", args=[snapshot.pk])).content.decode()
+        assert 'data-results-state="failed"' in html
+        assert "data-results-draft-form" in html
+
+    def it_reopens_the_same_draft(admin_client):
+        snapshot = _snapshot()
+        draft = _given_up(snapshot)
+        response = admin_client.post(_draft_url(snapshot))
+        assert response.url == reverse("hub_compose_resume", args=[draft.pk])
+        assert admin_client.get(response.url).status_code == 200
+
+    def it_shows_no_failure_line_for_an_untried_draft(admin_client):
+        snapshot = _snapshot()
+        snapshot.draft_results_announcement(_admin_user())
+        html = admin_client.get(reverse("hub_admin_voting_overview")).content.decode()
+        assert 'data-results-state="failed"' not in html
+
+
+def describe_the_push_test_fidelity():
+    """The composer's push test goes through the push adapter's own flattening, caps and channel."""
+
+    def _device(user: User):
+        from core.models import FcmDevice
+
+        return FcmDevice.objects.create(user=user, token="t1", platform=FcmDevice.Platform.ANDROID)
+
+    def it_caps_a_long_message_used_as_the_phone_line(admin_client, settings):
+        from unittest.mock import patch
+
+        settings.MEMBER_BASE_URL = "https://members.example"
+        _device(_admin_user())
+        draft = _snapshot().draft_results_announcement(_admin_user())
+        data = _compose_post(draft, push_message="", body="<p>" + "word " * 200 + "</p>")
+        with patch("core.push_admin.send_fcm", return_value=True) as send_fcm:
+            admin_client.post(reverse("hub_compose_push_test"), data)
+        kwargs = send_fcm.call_args.kwargs
+        assert kwargs["title"] == _TITLE
+        assert len(kwargs["body"]) == 200
+        assert kwargs["body"].endswith("…")
+        assert "<p>" not in kwargs["body"]
+        assert kwargs["channel_id"] == "general"
+        assert kwargs["url"] == "https://members.example/guilds/voting/history/"
+
+    def it_rides_the_channel_the_real_push_would(client: Client):
+        from unittest.mock import patch
+
+        MembershipPlanFactory()
+        user = User.objects.create_user("lead", "lead@x.com", "p")
+        guild = GuildFactory(guild_lead=user.member)
+        client.login(username="lead", password="p")
+        _device(user)
+        with patch("core.push_admin.send_fcm", return_value=True) as send_fcm:
+            client.post(reverse("hub_compose_push_test"), {"audience": f"guild:{guild.pk}", "body": "<p>Forge</p>"})
+        assert send_fcm.call_args.kwargs["channel_id"] == "guilds"
+        assert send_fcm.call_args.kwargs["body"] == "Forge"

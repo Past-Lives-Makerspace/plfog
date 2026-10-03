@@ -9,9 +9,11 @@ Re-running is safe, and is the recovery path. A site send's delivery period is t
 own pk, so a run that died partway skips every member and the Discord post it already
 delivered and reaches only the rest. A draft whose send raises stays queued for the next
 tick; the run still sends the others and then fails loudly, naming every draft it could not
-send, so the run record is red. The one exception is a results announcement whose results
-already went out (another admin's draft got there first): it can never send, so it is taken
-off the queue rather than failing every 15 minutes forever.
+send, so the run record is red. After ``MAX_ANNOUNCEMENT_SEND_ATTEMPTS`` failed runs a draft
+is taken off the queue with its error kept (``AnnouncementDraft.send_from_queue``), so the
+Voting page stops promising it within 15 minutes and can say why. A results announcement
+whose results already went out (another admin's draft got there first) can never send, so
+it comes off the queue at once.
 """
 
 from __future__ import annotations
@@ -35,13 +37,15 @@ class Command(BaseCommand):
         for draft in queued:
             label = f"announcement #{draft.pk} ({draft.title})"
             try:
-                _emailed, total = draft.send()
+                _emailed, total = draft.send_from_queue()
             except ResultsAlreadySentError as exc:
-                draft.unqueue()
                 failed.append(f"{label}: {exc} It was taken off the queue.")
                 continue
             except Exception as exc:  # noqa: BLE001 — one bad draft must not block the rest; reported below
-                failed.append(f"{label}: {exc}")
+                if draft.send_requested_at is None:
+                    failed.append(f"{label}: {exc} It was taken off the queue after {draft.send_attempts} attempt(s).")
+                else:
+                    failed.append(f"{label}: {exc}")
                 continue
             self.stdout.write(self.style.SUCCESS(f"Sent {label} to {total} recipient(s)."))
         if failed:

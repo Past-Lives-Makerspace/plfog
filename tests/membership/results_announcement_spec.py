@@ -10,6 +10,7 @@ snapshot's results sent once it has gone.
 from __future__ import annotations
 
 import json
+from datetime import timedelta
 from decimal import Decimal
 from unittest.mock import patch
 
@@ -139,13 +140,21 @@ def describe_draft_results_announcement():
         theirs = snapshot.draft_results_announcement(_author("robin"))
         assert theirs.pk != mine.pk
 
-    def it_does_not_reopen_a_draft_already_queued():
+    def it_refuses_a_second_draft_while_one_is_sending():
+        """A stale tab must not open a second draft that could never send."""
+        snapshot = _snapshot()
+        snapshot.draft_results_announcement(_author("felix")).queue_send()
+        with pytest.raises(ResultsAlreadySentError, match="These results are already sending."):
+            snapshot.draft_results_announcement(_author("robin"))
+        assert AnnouncementDraft.objects.count() == 1
+
+    def it_reopens_the_draft_the_queue_gave_up_on():
         author = _author()
         snapshot = _snapshot()
-        queued = snapshot.draft_results_announcement(author)
-        queued.queue_send()
-        fresh = snapshot.draft_results_announcement(author)
-        assert fresh.pk != queued.pk
+        draft = snapshot.draft_results_announcement(author)
+        draft.queue_send()
+        AnnouncementDraft.objects.filter(pk=draft.pk).update(send_requested_at=None, send_error="provider down")
+        assert snapshot.draft_results_announcement(author).pk == draft.pk
 
     def it_does_not_reopen_another_snapshots_draft():
         author = _author()
@@ -216,7 +225,8 @@ def describe_results_visual():
         snapshot = _snapshot(rows=[_row("B&W <Darkroom>", "1000.00", 100.0)])
         assert "B&amp;W &lt;Darkroom&gt;" in snapshot.results_visual_html()
         assert "<Darkroom>" not in snapshot.results_visual_html()
-        assert f"🥇 {_bar(12)} **B&W <Darkroom>**: $1,000.00 (100.0%)" in snapshot.allocation_discord_block()
+        # Discord shows "<" and "&" as typed; ">" is escaped with the other markdown characters.
+        assert f"🥇 {_bar(12)} **B&W <Darkroom\\>**: $1,000.00 (100.0%)" in snapshot.allocation_discord_block()
 
     def it_draws_voting_style_bars_sized_to_the_leader_on_discord():
         assert _four_guild_snapshot().allocation_discord_block() == "\n".join(
@@ -228,6 +238,57 @@ def describe_results_visual():
                 f"`4.` {_bar(2)} Delta: $100.00 (10.0%)",
             ]
         )
+
+    def it_escapes_discord_markdown_in_a_guild_name():
+        snapshot = _snapshot(rows=[_row("Wood`work **Bold**", "600.00", 60.0), _row("a_b|c~d>e\\f", "400.00", 40.0)])
+        lines = snapshot.allocation_discord_block().split("\n")
+        assert lines[1] == f"🥇 {_bar(12)} **Wood\\`work \\*\\*Bold\\*\\***: $600.00 (60.0%)"
+        assert lines[2] == f"🥈 {_bar(8)} **a\\_b\\|c\\~d\\>e\\\\f**: $400.00 (40.0%)"
+
+    def describe_with_a_length_limit():
+        def _forty() -> FundingSnapshot:
+            rows = [
+                _row(
+                    f"The Very Long Named Guild Of Example Crafts And Fine Woodworking Restoration Society Number {n:02d}",
+                    "25.00",
+                    2.5,
+                )
+                for n in range(40)
+            ]
+            return _snapshot(rows=rows)
+
+        def it_leaves_a_block_that_fits_alone():
+            snapshot = _four_guild_snapshot()
+            assert snapshot.allocation_discord_block(max_length=4096) == snapshot.allocation_discord_block()
+
+        def it_drops_whole_guild_lines_from_the_bottom_and_says_how_many():
+            snapshot = _forty()
+            full = snapshot.allocation_discord_block().split("\n")
+            block = snapshot.allocation_discord_block(max_length=2000)
+            lines = block.split("\n")
+            assert len(block) <= 2000
+            kept = lines[1:-1]
+            assert kept == full[1 : 1 + len(kept)]
+            assert lines[-1] == f"And {40 - len(kept)} more guilds on the voting results page."
+
+        def it_keeps_only_the_heading_and_the_note_when_no_guild_line_fits():
+            assert _four_guild_snapshot().allocation_discord_block(max_length=10) == (
+                "**How the $1,000.00 funding pool was split**\nAnd 4 more guilds on the voting results page."
+            )
+
+        def it_says_guild_when_only_one_is_left_out():
+            snapshot = _snapshot(
+                rows=[
+                    _row("Alpha", "600.00", 60.0),
+                    _row("Delta Woodworking and Furniture Restoration Guild", "400.00", 40.0),
+                ]
+            )
+            full = snapshot.allocation_discord_block()
+            last_line = full.split("\n")[-1]
+            note = "And 1 more guild on the voting results page."
+            block = snapshot.allocation_discord_block(max_length=len(full) - len(last_line) + len(note))
+            assert block.split("\n")[-1] == note
+            assert last_line not in block
 
     def it_draws_a_sliver_for_every_guild_when_the_pool_is_empty():
         snapshot = _snapshot(pool="0.00", rows=[_row("Alpha", "0.00", 50.0), _row("Bravo", "0.00", 50.0)])
@@ -291,7 +352,8 @@ def describe_a_results_draft():
             assert message.body == "Makerspace Announcement\n\nFrom Felix\n\nHello\n\nhttps://members.example/"
 
     def describe_build_discord_message():
-        def it_posts_the_message_then_the_results_block():
+        def it_posts_the_message_then_the_results_block(settings):
+            settings.MEMBER_BASE_URL = "https://members.example"
             draft = _draft()
             message = draft.build_discord_message("https://members.example/")
             prose = (
@@ -301,7 +363,7 @@ def describe_a_results_draft():
             block = draft.funding_snapshot.allocation_discord_block()
             assert message.title == "September 2026 Voting Results"
             assert message.body == f"{prose}\n\n{block}"
-            assert message.url == "https://members.example/"
+            assert message.url == "https://members.example/guilds/voting/history/"
             assert message.trigger_kind == "site_announcement"
 
         def it_shortens_a_long_message_so_the_results_always_fit():
@@ -311,12 +373,49 @@ def describe_a_results_draft():
             assert len(body) <= 4096
             assert body.endswith(f"…\n\n{block}")
 
+        def it_keeps_the_whole_message_and_drops_guild_lines_for_forty_long_names():
+            rows = [
+                _row(
+                    f"The Very Long Named Guild Of Example Crafts And Fine Woodworking Restoration Society Number {n:02d}",
+                    "25.00",
+                    2.5,
+                )
+                for n in range(40)
+            ]
+            draft = _snapshot(rows=rows).draft_results_announcement(_author("forty"))
+            body = draft.build_discord_message("https://members.example/").body
+            prose = (
+                "The votes for September 2026 are in. 12 members voted on how the $1,000.00 guild funding pool "
+                "is split. Thank you to everyone who voted. See the full breakdown on the voting results page."
+            )
+            assert len(body) <= 4096
+            assert body.startswith(prose + "\n\n**How the $1,000.00 funding pool was split**\n")
+            lines = body.split("\n")
+            assert lines[-1].startswith("And ") and lines[-1].endswith(" more guilds on the voting results page.")
+            assert all(line.endswith("(2.5%)") for line in lines[3:-1])
+
         def it_hands_the_bold_and_the_bars_to_discord_unescaped():
             message = _draft().build_discord_message("https://members.example/")
             description = build_embed_payload(message)["embeds"][0]["description"]
             assert description == message.body
             assert "**Metal Guild**" in description
             assert f"🥇 {_bar(12)}" in description
+
+        def it_points_every_tap_but_the_emails_at_the_voting_results_page(settings):
+            from core.events.channels import Channel
+
+            settings.MEMBER_BASE_URL = "https://members.example"
+            overrides = _draft()._channel_overrides("https://members.example/")
+            results_page = "https://members.example/guilds/voting/history/"
+            assert overrides[Channel.IN_APP].url == results_page
+            assert overrides[Channel.PUSH].url == results_page
+            assert overrides[Channel.DISCORD].url == results_page
+            assert overrides[Channel.EMAIL].url == "https://members.example/"
+
+        def it_leaves_a_plain_drafts_taps_on_the_site():
+            plain = AnnouncementDraft(author=_author("plain"), title="Makerspace Announcement", body="<p>Hello</p>")
+            overrides = plain._channel_overrides("https://members.example/")
+            assert {message.url for message in overrides.values()} == {"https://members.example/"}
 
         def it_posts_a_plain_draft_as_the_in_app_message():
             plain = AnnouncementDraft(author=_author("plain"), title="Makerspace Announcement", body="<p>Hello</p>")
@@ -341,6 +440,16 @@ def describe_queue_send():
         assert mailoutbox == []
         assert not Notification.objects.exists()
         assert not EventDelivery.objects.exists()
+
+    def it_starts_the_attempts_and_error_afresh_when_queued_again():
+        draft = _site_draft()
+        AnnouncementDraft.objects.filter(pk=draft.pk).update(send_attempts=3, send_error="provider down")
+        draft.refresh_from_db()
+        draft.queue_send()
+        draft.refresh_from_db()
+        assert draft.send_attempts == 0
+        assert draft.send_error == ""
+        assert draft.send_requested_at is not None
 
     def it_changes_nothing_on_a_draft_already_queued():
         draft = _site_draft()
@@ -387,8 +496,9 @@ def describe_queue_send():
 
         def it_refuses_a_second_admins_draft_while_the_first_is_sending():
             snapshot = _snapshot()
-            snapshot.draft_results_announcement(_author("felix")).queue_send()
+            first = snapshot.draft_results_announcement(_author("felix"))
             second = snapshot.draft_results_announcement(_author("robin"))
+            first.queue_send()
             with pytest.raises(ResultsAlreadySentError, match="These results are already sending."):
                 second.queue_send()
             second.refresh_from_db()
@@ -400,6 +510,32 @@ def describe_queue_send():
             september.queue_send()
             september.refresh_from_db()
             assert september.send_requested_at is not None
+
+        def it_blocks_deleting_the_snapshot_only_while_queued():
+            snapshot = _snapshot()
+            draft = snapshot.draft_results_announcement(_author())
+            assert snapshot.deletion_blocker == ""
+            draft.queue_send()
+            assert snapshot.deletion_blocker == (
+                "Its results announcement is sending. Delete it after the announcement has gone out."
+            )
+
+        def it_says_why_the_newest_given_up_draft_failed():
+            snapshot = _snapshot()
+            older = snapshot.draft_results_announcement(_author("felix"))
+            newer = snapshot.draft_results_announcement(_author("robin"))
+            AnnouncementDraft.objects.filter(pk=older.pk).update(send_error="old trouble.")
+            AnnouncementDraft.objects.filter(pk=newer.pk).update(send_error="Provider down.")
+            AnnouncementDraft.objects.filter(pk=older.pk).update(updated_at=timezone.now() - timedelta(hours=1))
+            assert snapshot.results_announcement_failure == "Provider down"
+
+        def it_reports_no_failure_while_queued_or_untried():
+            snapshot = _snapshot()
+            draft = snapshot.draft_results_announcement(_author())
+            assert snapshot.results_announcement_failure == ""
+            draft.queue_send()
+            AnnouncementDraft.objects.filter(pk=draft.pk).update(send_error="provider down")
+            assert snapshot.results_announcement_failure == ""
 
         def it_says_the_snapshot_is_sending_while_queued():
             snapshot = _snapshot()
@@ -440,6 +576,63 @@ def describe_send_for_a_results_announcement():
         assert mailoutbox == []
         theirs.refresh_from_db()
         assert theirs.sent_at is None
+
+    def describe_pointed_at_anyone_but_everyone():
+        def it_refuses_to_send_a_guild_retarget_and_stamps_nothing(mailoutbox):
+            guild = GuildFactory()
+            snapshot = _snapshot()
+            draft = snapshot.draft_results_announcement(_author())
+            draft.audience = AnnouncementDraft.Audience.GUILD
+            draft.guild = guild
+            with pytest.raises(ValidationError, match="A results announcement goes to everyone."):
+                draft.send()
+            snapshot.refresh_from_db()
+            assert snapshot.results_sent_at is None
+            assert not GuildAnnouncement.objects.exists()
+            assert mailoutbox == []
+
+        def it_refuses_to_queue_a_class_retarget():
+            from classes.factories import ClassOfferingFactory
+
+            draft = _snapshot().draft_results_announcement(_author())
+            draft.audience = AnnouncementDraft.Audience.CLASS
+            draft.class_offering = ClassOfferingFactory()
+            with pytest.raises(ValidationError, match="A results announcement goes to everyone."):
+                draft.queue_send()
+            assert AnnouncementDraft.objects.get(pk=draft.pk).send_requested_at is None
+
+        def it_refuses_to_save_a_retarget_from_the_form():
+            import types
+
+            guild = GuildFactory()
+            author = _author()
+            draft = _snapshot().draft_results_announcement(author)
+            cleaned = {
+                "audience": AnnouncementDraft.Audience.GUILD,
+                "guild": guild,
+                "body": draft.body,
+                "send_email": True,
+                "discord_channel": "none",
+                "mention": "none",
+            }
+            with pytest.raises(ValidationError, match="A results announcement goes to everyone."):
+                AnnouncementDraft.save_from_form(types.SimpleNamespace(cleaned_data=cleaned), author, instance=draft)
+            draft.refresh_from_db()
+            assert draft.audience == AnnouncementDraft.Audience.SITE
+            assert draft.guild is None
+
+    def it_points_the_bell_and_the_discord_title_at_the_voting_results_page(settings):
+        settings.MEMBER_BASE_URL = "https://members.example"
+        _general_webhook()
+        reader = _activated("reader")
+        draft = _snapshot().draft_results_announcement(_author())
+        with respx.mock:
+            route = respx.post(_WEBHOOK).mock(return_value=httpx.Response(204))
+            draft.send()
+        payload = json.loads(route.calls.last.request.content)
+        assert payload["embeds"][0]["url"] == "https://members.example/guilds/voting/history/"
+        bell = Notification.objects.get(user=reader, trigger="site_announcement")
+        assert bell.url == "https://members.example/guilds/voting/history/"
 
     def it_counts_the_results_once_however_often_the_stamp_runs():
         snapshot = _snapshot()
@@ -535,4 +728,41 @@ def describe_a_retried_site_send():
             assert _sent_to(reader.email) == 1
         draft.refresh_from_db()
         assert draft.sent_at is not None
+        assert draft.funding_snapshot.results_sent_at is not None
+
+    def it_reaches_only_the_missed_members_when_sent_again_after_the_queue_gave_up():
+        from core.events.channels import EmailAdapter
+
+        _general_webhook()
+        readers = _three_readers()
+        draft = _queued_results_draft()
+        real_deliver = EmailAdapter.deliver
+
+        def provider_down_for_bo(self, user, message, *, attachments=None):
+            if user.email == "bo@x.com":
+                raise RuntimeError("provider down")
+            return real_deliver(self, user, message, attachments=attachments)
+
+        with respx.mock:
+            route = respx.post(_WEBHOOK).mock(return_value=httpx.Response(204))
+            with patch.object(EmailAdapter, "deliver", provider_down_for_bo):
+                for _attempt in range(3):
+                    with pytest.raises(CommandError):
+                        call_command("send_queued_announcements")
+            draft.refresh_from_db()
+            assert draft.send_requested_at is None
+            assert draft.sent_at is None
+            assert draft.send_attempts == 3
+            assert draft.send_error == "provider down"
+            assert draft.funding_snapshot.results_announcement_failure == "provider down"
+
+            draft.queue_send()
+            call_command("send_queued_announcements")
+
+            assert route.call_count == 1
+        for reader in readers:
+            assert _sent_to(reader.email) == 1
+        draft.refresh_from_db()
+        assert draft.sent_at is not None
+        assert draft.send_error == ""
         assert draft.funding_snapshot.results_sent_at is not None

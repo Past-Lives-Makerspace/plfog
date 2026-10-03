@@ -53,19 +53,25 @@ def _sign_in_as_admin(login_via_code) -> None:
     user.save(update_fields=["is_staff", "is_superuser"])
 
 
+def _open_the_draft_from_the_banner(page, live_server, snapshot) -> None:
+    """Overview banner, Draft announcement, and the composer it lands on."""
+    page.goto(f"{live_server.url}{reverse('hub_admin_voting_overview')}")
+    banner = page.locator(f'[data-results-banner="{snapshot.pk}"]')
+    expect(banner).to_be_visible()
+    banner.locator("form[data-results-draft-form] button[type=submit]").click()
+    page.wait_for_url(re.compile(r"/announcements/compose/\d+/$"))
+    expect(page.locator(EDITOR)).to_contain_text("The votes for September 2026 are in.")
+
+
 def describe_the_results_announcement():
     def it_opens_the_prefilled_draft_and_previews_the_chart_and_the_discord_bars(live_server, page, login_via_code):
         snapshot = _seed_snapshot()
         _sign_in_as_admin(login_via_code)
 
-        # The Overview banner offers the results as a draft announcement.
-        page.goto(f"{live_server.url}{reverse('hub_admin_voting_overview')}")
-        banner = page.locator(f'[data-results-banner="{snapshot.pk}"]')
-        expect(banner).to_be_visible()
-        banner.locator("form[data-results-draft-form] button[type=submit]").click()
-
-        # The composer opens on the new draft, with the prose already in the Quill editor.
-        page.wait_for_url(re.compile(r"/announcements/compose/\d+/$"))
+        # The Overview banner offers the results as a draft announcement; the composer opens on
+        # the new draft, with the prose already in the Quill editor and the audience fixed.
+        _open_the_draft_from_the_banner(page, live_server, snapshot)
+        expect(page.locator(".pl-compose-locked")).to_contain_text("Everyone (site-wide)")
         editor = page.locator(EDITOR)
         expect(editor).to_contain_text("The votes for September 2026 are in.")
         expect(editor).to_contain_text("12 members voted on how the $1,000.00 guild funding pool is split.")
@@ -92,3 +98,20 @@ def describe_the_results_announcement():
         expect(bars).to_have_count(2)
         expect(bars.first).to_have_text("█" * 12)
         expect(bars.nth(1)).to_have_text("█" * 8 + "░" * 4)
+
+    def it_fills_the_discord_card_with_the_email_turned_off(live_server, page, login_via_code):
+        snapshot = _seed_snapshot()
+        _sign_in_as_admin(login_via_code)
+        _open_the_draft_from_the_banner(page, live_server, snapshot)
+
+        # Email off, Discord still on: Preview & send must still build the Discord card.
+        page.locator("label.pl-toggle:has(#id_send_email)").click()
+        expect(page.locator("#id_send_email")).not_to_be_checked()
+        expect(page.locator("#id_discord_enabled")).to_be_checked()
+        page.get_by_role("tab", name="2. Preview & send").click()
+
+        expect(page.locator("#compose-preview")).to_be_hidden()
+        expect(page.locator("[data-discord-preview-title]")).to_have_text(TITLE)
+        card = page.locator("[data-discord-preview-description]")
+        expect(card).to_contain_text("Metal Guild: $600.00 (60.0%)")
+        expect(card.locator("code.pl-discord-preview__code")).to_have_count(2)

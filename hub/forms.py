@@ -4296,6 +4296,7 @@ class AnnouncementComposeForm(forms.Form):
         editable_classes: Any = None,
         config: SiteConfiguration | None = None,
         require_body: bool = False,
+        results_announcement: bool = False,
         **kwargs: Any,
     ) -> None:
         super().__init__(*args, **kwargs)
@@ -4304,6 +4305,9 @@ class AnnouncementComposeForm(forms.Form):
         # ``require_body`` is set by the send path — a blank body is fine while drafting but
         # must be rejected before an announcement actually goes out.
         self._require_body = require_body
+        # Set when the posted draft is a results announcement, which only ever goes to everyone:
+        # a crafted or stale POST retargeting it at a guild or class is refused here.
+        self._results_announcement = results_announcement
         self._config = config or SiteConfiguration.load()
         # Audience choices: "site" (admins only) + one per editable guild + one per class you teach.
         choices: list[tuple[str, str]] = []
@@ -4464,6 +4468,12 @@ class AnnouncementComposeForm(forms.Form):
             self.add_error("audience", "Choose a guild for this announcement.")
         if audience == AnnouncementDraft.Audience.CLASS.value and offering is None:
             self.add_error("audience", "Choose a class for this announcement.")
+        if self._results_announcement and audience != AnnouncementDraft.Audience.SITE.value:
+            # Not an "audience" field error: a results draft's audience is locked (hidden), so a
+            # field error would never show. The composer renders non-field errors at the top.
+            from membership.models import RESULTS_ANNOUNCEMENT_AUDIENCE_ERROR
+
+            self.add_error(None, RESULTS_ANNOUNCEMENT_AUDIENCE_ERROR)
         cleaned["mention"] = cleaned.get("mention") or AnnouncementDraft.Mention.NONE.value
         cleaned["push_enabled"] = bool(cleaned.get("push_enabled"))
         cleaned["send_email"] = bool(cleaned.get("send_email"))
