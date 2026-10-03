@@ -1830,7 +1830,7 @@ def _parse_time_keys(values: list[str]) -> tuple[list[int], list[int]]:
 
 def _bulk_cancel_message(cancelled: int, emailed: int) -> str:
     """The success line for a bulk cancel: how many times went, and how many members heard."""
-    message = f"Cancelled {cancelled} time{'' if cancelled == 1 else 's'}."
+    message = f"Cancelled {cancelled} upcoming time{'' if cancelled == 1 else 's'}."
     if emailed:
         message += f" {emailed} booked member{' was' if emailed == 1 else 's were'} emailed."
     return message
@@ -1848,6 +1848,7 @@ def guild_orientation_times_bulk_cancel(request: HttpRequest, pk: int) -> HttpRe
     for held checkouts and must not run inside an outer atomic block.
     """
     from membership import orientations
+    from membership.models import OrientationSlot
 
     guild = get_object_or_404(Guild, pk=pk)
     forbidden = _require_can_manage_orientations(request, guild)
@@ -1855,7 +1856,14 @@ def guild_orientation_times_bulk_cancel(request: HttpRequest, pk: int) -> HttpRe
         return forbidden
 
     slot_pks, window_pks = _parse_time_keys(request.POST.getlist("selected"))
-    slots = list(guild.orientation_slots.upcoming().filter(pk__in=slot_pks).with_active_booking_count())
+    # Mirror the card (_upcoming_times): a slot carved out of a live window is a booked segment
+    # under that window, never a row of its own, so a crafted key must not cancel it either.
+    slots = list(
+        guild.orientation_slots.upcoming()
+        .exclude(source=OrientationSlot.Source.FROM_BLOCK, block__is_cancelled=False)
+        .filter(pk__in=slot_pks)
+        .with_active_booking_count()
+    )
     windows = list(guild.orientation_blocks.upcoming().filter(pk__in=window_pks))
     emailed = 0
     for slot in slots:

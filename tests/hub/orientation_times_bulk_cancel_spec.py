@@ -13,10 +13,12 @@ from django.test import Client
 from django.urls import reverse
 from django.utils import timezone
 
-from membership.models import Guild, OrientationBooking
+from membership import orientations
+from membership.models import Guild, OrientationBooking, OrientationSlot
 from tests.membership.factories import (
     GuildFactory,
     GuildOrientationSettingsFactory,
+    MemberFactory,
     MembershipPlanFactory,
     OrientationAvailabilityBlockFactory,
     OrientationBookingFactory,
@@ -77,7 +79,7 @@ def describe_bulk_cancel():
         assert sorted(call.args[0].pk for call in cancel_slot.call_args_list) == sorted([booked.pk, empty.pk])
         window.refresh_from_db()
         assert window.is_cancelled is True
-        assert "Cancelled 3 times. 2 booked members were emailed." in _messages(response)
+        assert "Cancelled 3 upcoming times. 2 booked members were emailed." in _messages(response)
 
     def it_really_cancels_the_rows_and_their_bookings(client: Client):
         user, guild = _lead("bc2")
@@ -89,7 +91,7 @@ def describe_bulk_cancel():
         booking.refresh_from_db()
         assert slot.is_cancelled is True
         assert booking.status == OrientationBooking.Status.CANCELLED
-        assert "Cancelled 1 time. 1 booked member was emailed." in _messages(response)
+        assert "Cancelled 1 upcoming time. 1 booked member was emailed." in _messages(response)
 
     def it_skips_a_foreign_pk_a_cancelled_slot_and_a_nonsense_value(client: Client):
         user, guild = _lead("bc3")
@@ -110,7 +112,7 @@ def describe_bulk_cancel():
         foreign.refresh_from_db()
         assert mine.is_cancelled is True
         assert foreign.is_cancelled is False
-        assert "Cancelled 1 time." in _messages(response)
+        assert "Cancelled 1 upcoming time." in _messages(response)
         assert "emailed" not in _messages(response)
 
     def it_says_so_when_nothing_matched(client: Client):
@@ -127,6 +129,24 @@ def describe_bulk_cancel():
         cancel_slot.assert_not_called()
         foreign_window.refresh_from_db()
         assert foreign_window.is_cancelled is False
+        assert "Nothing to cancel." in _messages(response)
+
+    def it_skips_a_slot_carved_out_of_a_live_window(client: Client):
+        user, guild = _lead("bc9")
+        later = timezone.now() + timedelta(days=5)
+        window = OrientationAvailabilityBlockFactory(
+            guild=guild, orienter=user.member, starts_at=later, ends_at=later + timedelta(hours=3)
+        )
+        booking = orientations.request_block_orientation(
+            window, MemberFactory(), later + timedelta(hours=1), orientation_type=guild.orientation_types.first()
+        )
+        client.login(username="bc9", password="pass")
+        response = client.post(_bulk_url(guild), {"selected": [f"slot:{booking.slot.pk}"]}, follow=True)
+        booking.refresh_from_db()
+        booking.slot.refresh_from_db()
+        assert booking.slot.source == OrientationSlot.Source.FROM_BLOCK
+        assert booking.slot.is_cancelled is False
+        assert booking.status != OrientationBooking.Status.CANCELLED
         assert "Nothing to cancel." in _messages(response)
 
     def it_forbids_a_member_who_cannot_manage_orientations(client: Client):

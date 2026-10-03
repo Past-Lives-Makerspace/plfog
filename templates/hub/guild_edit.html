@@ -702,34 +702,43 @@ confirm modal carries its own POST form, and template content can't nest a form.
           size: 5,
           total: total,
           selected: [],
-          rows() { return Array.from(this.$root.querySelectorAll('[data-time-key]')); },
+          times: [],
+          init() {
+            // Read the rows once, here, where $el is the card. The confirm body is teleported into the
+            // modal, whose own x-data answers $root and $el there, so a method that walked the DOM from
+            // either would find no rows inside the confirm and count nobody as booked.
+            this.times = Array.from(this.$el.querySelectorAll('[data-time-key]')).map(function (row) {
+              return {
+                key: row.getAttribute('data-time-key'),
+                index: Number(row.getAttribute('data-time-index')),
+                emails: Number(row.getAttribute('data-emails'))
+              };
+            });
+          },
           toggle(key) {
             if (this.selected.includes(key)) { this.selected = this.selected.filter(function (k) { return k !== key; }); }
             else { this.selected = this.selected.concat([key]); }
           },
           selectPage() {
             var first = this.page * this.size, last = first + this.size, picked = this.selected.slice();
-            this.rows().forEach(function (row) {
-              var index = Number(row.getAttribute('data-time-index')), key = row.getAttribute('data-time-key');
-              if (index >= first && index < last && !picked.includes(key)) { picked.push(key); }
+            this.times.forEach(function (time) {
+              if (time.index >= first && time.index < last && !picked.includes(time.key)) { picked.push(time.key); }
             });
             this.selected = picked;
           },
-          selectAll() { this.selected = this.rows().map(function (row) { return row.getAttribute('data-time-key'); }); },
+          selectAll() { this.selected = this.times.map(function (time) { return time.key; }); },
           clear() { this.selected = []; },
           emails() {
             var selected = this.selected;
-            return this.rows().reduce(function (sum, row) {
-              return selected.includes(row.getAttribute('data-time-key')) ? sum + Number(row.getAttribute('data-emails')) : sum;
-            }, 0);
+            return this.times.reduce(function (sum, time) { return selected.includes(time.key) ? sum + time.emails : sum; }, 0);
           },
           hasWindows() { return this.selected.some(function (key) { return key.indexOf('window:') === 0; }); },
           bulkMessage() {
             var count = this.selected.length, emailed = this.emails();
-            var text = 'Cancel ' + count + (count === 1 ? ' time?' : ' times?');
+            var text = 'Cancel ' + count + (count === 1 ? ' upcoming time?' : ' upcoming times?');
             if (emailed > 0) {
               text += ' ' + emailed + (emailed === 1 ? ' booked member' : ' booked members') + ' will be emailed that their time is off.';
-            } else if (!this.hasWindows()) {
+            } else {
               text += (count === 1 ? ' Nobody is booked on it.' : ' Nobody is booked on them.');
             }
             if (this.hasWindows()) { text += ' Open windows stop taking new bookings; anything already booked inside them stays.'; }
@@ -756,7 +765,7 @@ confirm modal carries its own POST form, and template content can't nest a form.
       {% with item=entry.item pks=entry.item.pk|stringformat:"s" %}
       {% if entry.kind == "window" %}
       <div x-show="{{ forloop.counter0 }} >= page * size && {{ forloop.counter0 }} < (page + 1) * size" class="pl-slot-admin__row" data-time-key="window:{{ item.pk }}" data-time-index="{{ forloop.counter0 }}" data-emails="0">
-        <input type="checkbox" class="pl-slot-admin__pick" aria-label="Select this time" :checked="selected.includes('window:{{ item.pk }}')" @change="toggle('window:{{ item.pk }}')">
+        <input type="checkbox" class="pl-slot-admin__pick" aria-label="Select {{ item.starts_at|date:'D M j' }}, {{ item.starts_at|time:'g:i A' }}" :checked="selected.includes('window:{{ item.pk }}')" @change="toggle('window:{{ item.pk }}')">
         <span class="pl-slot-admin__when">{{ item.starts_at|date:"D M j" }} · {{ item.starts_at|time:"g:i A" }}–{{ item.ends_at|time:"g:i A" }} · {{ item.type_display }}</span>
         <span class="pl-slot-admin__with">
           {% if item.orienter.profile_photo %}<img src="{{ item.orienter.profile_photo.url }}" alt="" class="pl-orient-avatar">{% else %}<span class="pl-orient-avatar pl-orient-avatar--initials">{{ item.orienter.display_name|slice:":1" }}</span>{% endif %}
@@ -777,7 +786,7 @@ confirm modal carries its own POST form, and template content can't nest a form.
       </div>
       {% else %}
       <div x-show="{{ forloop.counter0 }} >= page * size && {{ forloop.counter0 }} < (page + 1) * size" class="pl-slot-admin__row" data-time-key="slot:{{ item.pk }}" data-time-index="{{ forloop.counter0 }}" data-emails="{{ item.active_booking_count }}">
-        <input type="checkbox" class="pl-slot-admin__pick" aria-label="Select this time" :checked="selected.includes('slot:{{ item.pk }}')" @change="toggle('slot:{{ item.pk }}')">
+        <input type="checkbox" class="pl-slot-admin__pick" aria-label="Select {{ item.starts_at|date:'D M j' }}, {{ item.starts_at|time:'g:i A' }}" :checked="selected.includes('slot:{{ item.pk }}')" @change="toggle('slot:{{ item.pk }}')">
         <span class="pl-slot-admin__when">{{ item.starts_at|date:"D M j" }} · {{ item.starts_at|time:"g:i A" }}–{{ item.ends_at|time:"g:i A" }} · {{ item.orientation_type.name }}</span>
         <span class="pl-slot-admin__with">
           {% if item.orienter %}
