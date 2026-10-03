@@ -5331,14 +5331,14 @@ class AnnouncementDraft(models.Model):
     def author_label(self) -> str:
         """Who last saved it (a draft) or sent it, as the Announcements page names them.
 
-        The name ``_sender_line`` uses. A blank author on a row still in the composer's hands is the
-        results draft the snapshot job made ("Automatic", the word the Voting history uses for a
-        snapshot the system took); on a row that went out or is going out, the sender's account was
-        deleted since ("Unknown").
+        The name ``_sender_line`` uses. A blank author on a results draft still in the composer's
+        hands is the one the snapshot job made ("Automatic", the word the Voting history uses for a
+        snapshot the system took). Any other blank author is an account deleted since ("Unknown"):
+        a plain draft's last saver, or the sender of a row that went out or is going out.
         """
         if self.author is not None:
             return self.author.get_full_name() or self.author.get_username()
-        return "Automatic" if self.is_resumable else "Unknown"
+        return "Automatic" if self.is_resumable and self.funding_snapshot_id is not None else "Unknown"
 
     @property
     def message_excerpt(self) -> str:
@@ -9397,8 +9397,8 @@ class FundingSnapshot(models.Model):
         null=True,
         blank=True,
         help_text=(
-            "When this snapshot's results draft was made automatically, or found already open. "
-            "Set once, so a draft an admin deletes is never made again on its own."
+            "When this snapshot's results draft was first made or opened, by the snapshot job or an "
+            "admin's Draft announcement. Set once, so a draft an admin deletes is never made again on its own."
         ),
     )
 
@@ -9786,6 +9786,10 @@ class FundingSnapshot(models.Model):
         its author. The snapshot row is locked first, the same lock :meth:`make_results_draft`
         takes, so a click and the job in the same instant make one draft, not two.
 
+        A click also sets ``results_draft_created_at`` when it is still blank (with ``update``, so
+        nothing is pushed to Airtable), so the job never makes the draft again on its own after
+        an admin opened one and deleted it: the delete modal and the help guide promise that.
+
         Raises:
             ResultsAlreadySentError: If this snapshot's results already went out, or a results
                 announcement for it is queued (a stale tab must not open a second, unsendable draft).
@@ -9799,6 +9803,9 @@ class FundingSnapshot(models.Model):
                 raise ResultsAlreadySentError("These results are already sending.")
             if not self.allocation_summary():
                 raise NoResultsToAnnounceError(f"'{self.cycle_label}' has no results to announce.")
+            FundingSnapshot.objects.filter(pk=self.pk, results_draft_created_at__isnull=True).update(
+                results_draft_created_at=timezone.now()
+            )
             existing = self._open_results_draft()
             if existing is not None:
                 return existing

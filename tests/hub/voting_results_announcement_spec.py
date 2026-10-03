@@ -384,7 +384,8 @@ def describe_sending_from_the_composer():
     def it_refuses_to_resume_or_resend_a_queued_draft(admin_client):
         draft = _snapshot().draft_results_announcement(_admin_user())
         draft.queue_send()
-        assert admin_client.get(reverse("hub_compose_resume", args=[draft.pk])).status_code == 404
+        resumed = admin_client.get(reverse("hub_compose_resume", args=[draft.pk]))
+        assert resumed.url == reverse("hub_announcement_sent", args=[draft.pk])
         sent = admin_client.post(reverse("hub_compose_send"), _compose_post(draft))
         assert sent.url == reverse("hub_announcements")
         assert _messages(sent) == ["This draft can no longer be edited. It may have been sent or deleted."]

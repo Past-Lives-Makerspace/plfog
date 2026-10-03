@@ -4424,7 +4424,8 @@ def hub_compose(request: HttpRequest, draft_pk: int | None = None) -> HttpRespon
     """The compose wizard page. GET renders the Compose and Preview & send phases.
 
     A ``draft_pk`` resumes a draft this request may handle (:func:`_handled_draft`: shared by
-    everyone who may address its audience; a sent, queued, foreign-audience or missing pk 404s);
+    everyone who may address its audience). A sent or queued row the viewer may see redirects to
+    its record (:func:`announcement_sent`); a foreign-audience or missing pk 404s.
     ``?audience=guild:<pk>`` pre-scopes a fresh compose, and ``?recipients=<token>`` (repeatable,
     with ``?include_waitlist=1``) narrows the checklist to a roster hand-off — see
     :func:`_compose_preselection`. A member who can compose nothing (not an admin, leads no
@@ -4444,6 +4445,12 @@ def hub_compose(request: HttpRequest, draft_pk: int | None = None) -> HttpRespon
         # class, no general compose rights) could save a draft yet never resume it.
         draft = _handled_draft(request, draft_pk)
         if draft is None:
+            # A row this viewer may see that _handled_draft refused is sent or queued: Save draft
+            # wrote its resume URL into the address bar, so a reload after the send lands on its
+            # record rather than a 404. A row the viewer may not see stays a 404.
+            seen = _announcement_rows(request, member, within=AnnouncementDraft.objects.filter(pk=draft_pk)).first()
+            if seen is not None:
+                return redirect("hub_announcement_sent", pk=seen.pk)
             raise Http404("No such draft.")
         initial = _draft_initial(draft)
         requested = initial["audience"]
@@ -4824,12 +4831,18 @@ def hub_compose_delete_draft(request: HttpRequest, draft_pk: int) -> HttpRespons
     draft deletes only that row: a results draft's snapshot keeps its numbers and its "made"
     stamp, so the job does not make it again. The toast crosses the boosted redirect through
     ``ToastFlashMiddleware``.
+
+    Someone who could open the page only because of this draft (an instructor who reaches the
+    composer through a class page's locked link) can no longer open it once it is gone, so they
+    land on their home page with just the toast, not on the page's refusal.
     """
     draft = _handled_draft(request, draft_pk)
     if draft is None:
         raise Http404("No such draft.")
     draft.delete()
     messages.success(request, "Draft deleted.")
+    if not _can_open_announcements(request, _get_member(request)):
+        return redirect("hub_home")
     return redirect("hub_announcements")
 
 

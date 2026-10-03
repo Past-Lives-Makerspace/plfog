@@ -31,6 +31,7 @@ from membership.models import (
 )
 from tests.membership.factories import (
     AnnouncementDraftFactory,
+    FundingSnapshotFactory,
     GuildFactory,
     GuildMembershipFactory,
     MemberFactory,
@@ -181,11 +182,30 @@ def describe_AnnouncementDraft():
             assert AnnouncementDraftFactory(author=named).author_label == "Ana Ruiz"
             assert AnnouncementDraftFactory(author=unnamed).author_label == "jo"
 
-        def it_reads_automatic_for_a_blank_author_on_a_draft_and_unknown_once_it_went_out():
-            assert AnnouncementDraftFactory(author=None).author_label == "Automatic"
-            assert AnnouncementDraftFactory(author=None, given_up=True).author_label == "Automatic"
+        def it_reads_automatic_for_a_results_draft_with_a_blank_author():
+            snapshot = FundingSnapshotFactory()
+            assert AnnouncementDraftFactory(author=None, funding_snapshot=snapshot).author_label == "Automatic"
+            assert (
+                AnnouncementDraftFactory(author=None, funding_snapshot=snapshot, given_up=True).author_label
+                == "Automatic"
+            )
+
+        def it_reads_unknown_for_a_blank_author_anywhere_else():
+            snapshot = FundingSnapshotFactory()
+            # A plain draft whose last saver's account was deleted, and rows that went or are going out.
+            assert AnnouncementDraftFactory(author=None).author_label == "Unknown"
             assert AnnouncementDraftFactory(author=None, sent=True).author_label == "Unknown"
-            assert AnnouncementDraftFactory(author=None, queued=True).author_label == "Unknown"
+            assert (
+                AnnouncementDraftFactory(author=None, funding_snapshot=snapshot, queued=True).author_label == "Unknown"
+            )
+            assert AnnouncementDraftFactory(author=None, funding_snapshot=snapshot, sent=True).author_label == "Unknown"
+
+        def it_reads_unknown_for_a_plain_draft_whose_author_was_deleted():
+            author = _author("leaver")
+            row = AnnouncementDraftFactory(author=author)
+            author.delete()
+            row.refresh_from_db()
+            assert row.author_label == "Unknown"
 
         def it_keeps_a_sent_row_when_its_author_is_deleted():
             author = _author("gone")

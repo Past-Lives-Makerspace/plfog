@@ -292,9 +292,11 @@ def describe_the_columns():
         _login_admin(client)
         named = User.objects.create_user(username="ana", first_name="Factory", last_name="Ruiz")
         by_ana = AnnouncementDraftFactory(author=named)
-        automatic = AnnouncementDraftFactory(author=None)
+        automatic = AnnouncementDraftFactory(author=None, funding_snapshot=FundingSnapshotFactory())
+        left = AnnouncementDraftFactory(author=None)
         orphaned = AnnouncementDraftFactory(author=None, sent=True)
         drafts = _page(client)
+        assert '<td data-label="Edited by" class="pl-announcements-table__who">Unknown</td>' in _row(drafts, left.pk)
         assert '<td data-label="Edited by" class="pl-announcements-table__who">Factory Ruiz</td>' in _row(
             drafts, by_ana.pk
         )

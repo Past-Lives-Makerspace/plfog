@@ -210,12 +210,29 @@ def describe_draft_results_announcement():
         with pytest.raises(ResultsAlreadySentError, match="These results were already sent."):
             snapshot.draft_results_announcement(_author())
         assert not AnnouncementDraft.objects.exists()
+        assert FundingSnapshot.objects.get(pk=snapshot.pk).results_draft_created_at is None
+
+    def it_stamps_the_snapshot_so_the_job_never_makes_it_again():
+        snapshot = _snapshot()
+        with patch("airtable_sync.service.sync_snapshot_to_airtable") as sync:
+            snapshot.draft_results_announcement(_author())
+        sync.assert_not_called()
+        assert FundingSnapshot.objects.get(pk=snapshot.pk).results_draft_created_at is not None
+
+    def it_keeps_the_first_stamp_on_a_later_click():
+        snapshot = _snapshot()
+        snapshot.draft_results_announcement(_author("felix"))
+        first = FundingSnapshot.objects.get(pk=snapshot.pk).results_draft_created_at
+        FundingSnapshot.objects.filter(pk=snapshot.pk).update(results_draft_created_at=first - timedelta(days=1))
+        snapshot.draft_results_announcement(_author("robin"))
+        assert FundingSnapshot.objects.get(pk=snapshot.pk).results_draft_created_at == first - timedelta(days=1)
 
     def it_refuses_a_snapshot_with_no_per_guild_results():
         snapshot = FundingSnapshotFactory(cycle_label="Legacy", results={})
         with pytest.raises(NoResultsToAnnounceError, match="'Legacy' has no results to announce."):
             snapshot.draft_results_announcement(_author())
         assert not AnnouncementDraft.objects.exists()
+        assert FundingSnapshot.objects.get(pk=snapshot.pk).results_draft_created_at is None
 
 
 def describe_results_announcement_body():
@@ -934,6 +951,13 @@ def describe_make_results_draft():
         snapshot.make_results_draft()
         assert snapshot.make_results_draft() is None
         assert AnnouncementDraft.objects.count() == 1
+
+    def it_never_makes_a_draft_an_admin_opened_and_then_deleted():
+        """The click, delete, tick sequence: the click stamps, so the tick after the delete makes nothing."""
+        snapshot = _snapshot()
+        snapshot.draft_results_announcement(_author()).delete()
+        assert FundingSnapshot.make_newest_results_draft() is None
+        assert not AnnouncementDraft.objects.exists()
 
     def it_never_makes_it_again_after_it_is_deleted():
         snapshot = _snapshot()

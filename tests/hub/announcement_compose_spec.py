@@ -208,15 +208,32 @@ def describe_hub_compose_page():
         theirs = AnnouncementDraftFactory(audience=AnnouncementDraft.Audience.GUILD, guild=other)
         assert client.get(reverse("hub_compose_resume", args=[theirs.pk])).status_code == 404
 
-    def it_404s_resuming_a_queued_draft(client: Client):
+    def it_sends_a_reload_of_a_queued_drafts_resume_url_to_its_record(client: Client):
         admin = _login_admin(client)
         draft = AnnouncementDraftFactory(author=admin, queued=True)
-        assert client.get(reverse("hub_compose_resume", args=[draft.pk])).status_code == 404
+        response = client.get(reverse("hub_compose_resume", args=[draft.pk]))
+        assert response.status_code == 302
+        assert response.url == reverse("hub_announcement_sent", args=[draft.pk])
 
-    def it_404s_resuming_an_already_sent_draft(client: Client):
+    def it_sends_a_reload_of_an_already_sent_drafts_resume_url_to_its_record(client: Client):
+        # Replaces it_404s_resuming_an_already_sent_draft: Save draft writes the resume URL into
+        # the address bar, so a reload after the send must land on the record, not a 404.
         admin = _login_admin(client)
-        draft = AnnouncementDraft.objects.create(author=admin, title="Gone", sent_at=timezone.now())
-        assert client.get(reverse("hub_compose_resume", args=[draft.pk])).status_code == 404
+        draft = AnnouncementDraftFactory(author=admin, sent=True)
+        response = client.get(reverse("hub_compose_resume", args=[draft.pk]))
+        assert response.status_code == 302
+        assert response.url == reverse("hub_announcement_sent", args=[draft.pk])
+        assert client.get(response.url).status_code == 200
+
+    def it_404s_a_lead_reloading_another_guilds_sent_announcement(client: Client):
+        own, other = GuildFactory(), GuildFactory()
+        _login_lead(client, own)
+        theirs = AnnouncementDraftFactory(audience=AnnouncementDraft.Audience.GUILD, guild=other, sent=True)
+        assert client.get(reverse("hub_compose_resume", args=[theirs.pk])).status_code == 404
+
+    def it_404s_resuming_a_missing_draft(client: Client):
+        _login_admin(client)
+        assert client.get(reverse("hub_compose_resume", args=[999999])).status_code == 404
 
 
 def describe_hub_compose_save_draft():
@@ -497,6 +514,31 @@ def describe_hub_compose_delete_draft():
         draft = AnnouncementDraftFactory(author=admin, **{trait: True})
         assert client.post(reverse("hub_compose_delete_draft", args=[draft.pk])).status_code == 404
         assert AnnouncementDraft.objects.filter(pk=draft.pk).exists()
+
+    def it_sends_a_lock_only_instructor_home_after_their_last_draft_goes(client: Client):
+        """They could open the page only because of this draft, so the page would refuse them."""
+        user, _member, offering = _instructor(
+            client, username="lastdraft", slug=False, status=ClassOffering.Status.DRAFT
+        )
+        draft = AnnouncementDraftFactory(
+            author=user, audience=AnnouncementDraft.Audience.CLASS, class_offering=offering
+        )
+        response = client.post(reverse("hub_compose_delete_draft", args=[draft.pk]))
+        assert response.status_code == 302
+        assert response.url == reverse("hub_home")
+        assert [m.message for m in get_messages(response.wsgi_request)] == ["Draft deleted."]
+        assert not AnnouncementDraft.objects.filter(pk=draft.pk).exists()
+
+    def it_keeps_a_lock_only_instructor_on_the_page_while_they_have_another_draft(client: Client):
+        user, _member, offering = _instructor(
+            client, username="twodrafts", slug=False, status=ClassOffering.Status.DRAFT
+        )
+        first, _second = (
+            AnnouncementDraftFactory(author=user, audience=AnnouncementDraft.Audience.CLASS, class_offering=offering)
+            for _ in range(2)
+        )
+        response = client.post(reverse("hub_compose_delete_draft", args=[first.pk]))
+        assert response.url == reverse("hub_announcements")
 
     def it_answers_a_get_with_405(client: Client):
         admin = _login_admin(client)

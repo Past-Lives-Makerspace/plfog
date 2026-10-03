@@ -28,7 +28,7 @@ class Migration(migrations.Migration):
             name="results_draft_created_at",
             field=models.DateTimeField(
                 blank=True,
-                help_text="When this snapshot's results draft was made automatically, or found already open. Set once, so a draft an admin deletes is never made again on its own.",
+                help_text="When this snapshot's results draft was first made or opened, by the snapshot job or an admin's Draft announcement. Set once, so a draft an admin deletes is never made again on its own.",
                 null=True,
             ),
         ),

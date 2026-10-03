@@ -152,6 +152,17 @@ def describe_the_results_draft_phase():
         assert AnnouncementDraft.objects.get().funding_snapshot == snapshot
         assert not FundingSnapshot.objects.filter(is_auto=True).exists()
 
+    def it_makes_nothing_after_an_admin_opened_the_draft_and_deleted_it(monkeypatch):
+        """Click, delete, tick: a draft thrown away never comes back on its own."""
+        _freeze(monkeypatch, _july())
+        snapshot = _manual_snapshot()
+        admin = _admin("admin@x.com")
+        snapshot.draft_results_announcement(admin).delete()
+
+        call_command("take_cycle_snapshot")
+
+        assert not AnnouncementDraft.objects.exists()
+
     def it_makes_it_once_however_many_ticks_run(monkeypatch):
         _freeze(monkeypatch, _july())
         _manual_snapshot()

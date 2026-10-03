@@ -266,22 +266,17 @@ def _seed_help_extras(personas: dict[str, Member]) -> None:
 def _seed_announcements(personas: dict[str, Member], ceramics: Guild) -> None:
     """The Announcements page shot: two drafts and one sent announcement, so no tab is captured empty.
 
-    The "Automatic" row is an author-less draft carrying the results title rather than a real
-    FundingSnapshot, because a pending snapshot would add the results banner to the Voting
-    overview shots captured from this same database.
+    No results draft: an "Automatic" row needs a real FundingSnapshot, and a pending snapshot
+    would add the results banner to the Voting overview shots captured from this same database.
     """
-    from membership.models import AnnouncementDraft, GuildAnnouncement
+    from membership.models import AnnouncementDraft
     from tests.membership.factories import AnnouncementDraftFactory
 
     AnnouncementDraftFactory(
-        author=None,
-        title="September 2026 Voting Results",
-        body=(
-            "<p>The votes for September 2026 are in. 24 members voted on how the $1,000.00 guild "
-            "funding pool is split. Thank you to everyone who voted.</p>"
-        ),
-        discord_channel=GuildAnnouncement.DiscordChannel.GENERAL,
-        mention=AnnouncementDraft.Mention.EVERYONE,
+        author=personas["guild_lead"].user,
+        audience=AnnouncementDraft.Audience.GUILD,
+        guild=ceramics,
+        body="<p>Glaze night moves to Thursday this week. Bring your bisqueware.</p>",
     )
     AnnouncementDraftFactory(
         author=personas["admin"].user,
