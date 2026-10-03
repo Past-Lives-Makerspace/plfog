@@ -209,6 +209,7 @@ def describe_the_voting_admin_article():
         body = _body("voting-admin")
         assert "**Draft announcement**" in body
         assert "within 15 minutes" in body
+        assert "Sending it again reaches only the members who did not get it" in body
         assert "Send results" not in body
         assert "**Resend**" not in body
         assert "Results are in... review & send" not in body

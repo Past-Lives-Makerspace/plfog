@@ -476,14 +476,6 @@ def describe_queue_send():
         assert draft not in AnnouncementDraft.objects.for_user(draft.author)
         assert list(AnnouncementDraft.objects.queued()) == [draft]
 
-    def it_puts_a_draft_back_in_the_composers_hands_when_unqueued():
-        draft = _site_draft()
-        draft.queue_send()
-        draft.unqueue()
-        draft.refresh_from_db()
-        assert draft.send_requested_at is None
-        assert list(AnnouncementDraft.objects.for_user(draft.author)) == [draft]
-
     def describe_for_a_results_announcement():
         def it_refuses_results_already_sent():
             snapshot = _snapshot()
@@ -766,3 +758,82 @@ def describe_a_retried_site_send():
         assert draft.sent_at is not None
         assert draft.send_error == ""
         assert draft.funding_snapshot.results_sent_at is not None
+
+    def it_reaches_nobody_twice_when_another_admins_draft_sends_after_the_first_gave_up():
+        """The reviewer's double send: a second admin's fresh draft must share the first one's slots."""
+        from core.events.channels import EmailAdapter
+
+        _general_webhook()
+        readers = _three_readers()
+        snapshot = _snapshot()
+        felix_draft = snapshot.draft_results_announcement(_author("felix"))
+        felix_draft.queue_send()
+        real_deliver = EmailAdapter.deliver
+
+        def provider_down_for_bo(self, user, message, *, attachments=None):
+            if user.email == "bo@x.com":
+                raise RuntimeError("provider down")
+            return real_deliver(self, user, message, attachments=attachments)
+
+        with respx.mock:
+            route = respx.post(_WEBHOOK).mock(return_value=httpx.Response(204))
+            with patch.object(EmailAdapter, "deliver", provider_down_for_bo):
+                for _attempt in range(3):
+                    with pytest.raises(CommandError):
+                        call_command("send_queued_announcements")
+            felix_draft.refresh_from_db()
+            assert felix_draft.send_given_up is True
+
+            robin_draft = snapshot.draft_results_announcement(_author("robin"))
+            assert robin_draft.pk != felix_draft.pk
+            robin_draft.queue_send()
+            call_command("send_queued_announcements")
+
+            assert route.call_count == 1
+        for reader in readers:
+            assert _sent_to(reader.email) == 1
+            assert Notification.objects.filter(user=reader, trigger="site_announcement").count() == 1
+        robin_draft.refresh_from_db()
+        snapshot.refresh_from_db()
+        assert robin_draft.sent_at is not None
+        assert snapshot.results_sent_at is not None
+        assert snapshot.results_send_count == 1
+
+    def it_posts_to_discord_once_when_another_admins_draft_sends_after_the_first_posted():
+        _general_webhook()
+        readers = _three_readers()
+        snapshot = _snapshot()
+        felix_draft = snapshot.draft_results_announcement(_author("felix"))
+        felix_draft.queue_send()
+
+        with respx.mock:
+            route = respx.post(_WEBHOOK).mock(return_value=httpx.Response(204))
+            with patch.object(FundingSnapshot, "mark_results_announced", side_effect=RuntimeError("worker killed")):
+                for _attempt in range(3):
+                    with pytest.raises(CommandError):
+                        call_command("send_queued_announcements")
+            assert route.call_count == 1
+
+            robin_draft = snapshot.draft_results_announcement(_author("robin"))
+            robin_draft.queue_send()
+            call_command("send_queued_announcements")
+
+            assert route.call_count == 1
+        for reader in readers:
+            assert _sent_to(reader.email) == 1
+            assert Notification.objects.filter(user=reader, trigger="site_announcement").count() == 1
+        snapshot.refresh_from_db()
+        assert snapshot.results_sent_at is not None
+
+
+def describe_site_delivery_period():
+    def it_keys_a_plain_draft_on_its_own_pk():
+        draft = AnnouncementDraft.objects.create(author=_author(), title="Makerspace Announcement", body="<p>x</p>")
+        assert draft._site_delivery_period() == f"announce:{draft.pk}"
+
+    def it_keys_every_results_draft_for_one_snapshot_on_the_snapshot():
+        snapshot = _snapshot()
+        felix = snapshot.draft_results_announcement(_author("felix"))
+        robin = snapshot.draft_results_announcement(_author("robin"))
+        assert felix._site_delivery_period() == f"announce:results:{snapshot.pk}"
+        assert robin._site_delivery_period() == felix._site_delivery_period()

@@ -248,3 +248,15 @@ def describe_the_retry_cap():
         assert draft.sent_at is not None
         assert draft.send_error == ""
         assert draft.send_attempts == 2
+
+    def it_counts_two_overlapping_failed_runs_as_two_attempts():
+        draft = _queued(_author())
+        first_run = AnnouncementDraft.objects.get(pk=draft.pk)
+        second_run = AnnouncementDraft.objects.get(pk=draft.pk)
+        with patch.object(AnnouncementDraft, "send", side_effect=RuntimeError("provider down")):
+            for run in (first_run, second_run):
+                with pytest.raises(RuntimeError):
+                    run.send_from_queue()
+        draft.refresh_from_db()
+        assert draft.send_attempts == 2
+        assert second_run.send_attempts == 2

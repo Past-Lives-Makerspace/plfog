@@ -5423,10 +5423,11 @@ class AnnouncementDraft(models.Model):
         ``recipient_selection`` as the explicit recipient set (bell + push + email) plus the
         narrowed custom mailing-list addresses.
 
-        The site send's ``period`` is the draft's own pk, stable across attempts, so a run killed
-        partway and retried by the queue skips every member and the Discord post the first attempt
-        already delivered (the ledger keys on it) and reaches only the rest. Stamping ``sent_at``,
-        clearing ``send_requested_at`` and marking a linked snapshot's results sent happen together.
+        The site send's ``period`` is stable across attempts (:meth:`_site_delivery_period`), so a
+        run killed partway and retried by the queue skips every member and the Discord post the
+        first attempt already delivered (the ledger keys on it) and reaches only the rest. Stamping
+        ``sent_at``, clearing ``send_requested_at`` and marking a linked snapshot's results sent
+        happen together.
 
         Returns:
             An ``(emailed, total)`` pair for the post-send summary. ``total`` is the full
@@ -5468,7 +5469,7 @@ class AnnouncementDraft(models.Model):
                     "discord_broadcast_webhook": webhook,
                 },
                 url=site_url,
-                period=f"announce:{self.pk}",
+                period=self._site_delivery_period(),
                 messages=self._channel_overrides(site_url),
                 suppress_broadcast=(webhook == ""),
                 suppress_email=not self.send_email,
@@ -5546,6 +5547,18 @@ class AnnouncementDraft(models.Model):
                 snapshot.mark_results_announced()
         return counts
 
+    def _site_delivery_period(self) -> str:
+        """The delivery ledger period a site send claims its slots under, the same on every attempt.
+
+        A plain announcement keys on its own pk. A results announcement keys on its snapshot
+        instead, so every results draft for one snapshot shares one set of slots: when one admin's
+        draft gives up partway and another admin's draft then sends, nobody already reached is
+        emailed, belled or pushed again, and Discord is posted to once.
+        """
+        if self.funding_snapshot_id is not None:
+            return f"announce:results:{self.funding_snapshot_id}"
+        return f"announce:{self.pk}"
+
     def _check_sendable(self) -> str:
         """The guards :meth:`send` and :meth:`queue_send` share; returns the sanitized body.
 
@@ -5614,11 +5627,6 @@ class AnnouncementDraft(models.Model):
             self.send_error = ""
             self.save(update_fields=["send_requested_at", "send_attempts", "send_error", "updated_at"])
 
-    def unqueue(self) -> None:
-        """Take a queued draft back off the queue without sending it (it becomes resumable again)."""
-        self.send_requested_at = None
-        self.save(update_fields=["send_requested_at", "updated_at"])
-
     @property
     def send_given_up(self) -> bool:
         """Whether the background job tried this draft, failed and took it off the queue."""
@@ -5650,8 +5658,11 @@ class AnnouncementDraft(models.Model):
             reason = self.send_error or "Every attempt stopped before it finished."
             self._stop_retrying(reason)
             raise AnnouncementSendGaveUpError(reason)
-        self.send_attempts += 1
-        self.save(update_fields=["send_attempts", "updated_at"])
+        # Counted in the database, not on this instance, so two overlapping runs count two.
+        AnnouncementDraft.objects.filter(pk=self.pk).update(
+            send_attempts=F("send_attempts") + 1, updated_at=timezone.now()
+        )
+        self.refresh_from_db(fields=["send_attempts", "updated_at"])
         try:
             return self.send()
         except ResultsAlreadySentError as exc:

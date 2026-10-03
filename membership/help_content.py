@@ -1220,6 +1220,8 @@ The commit always captures the full, unfiltered live state; the analyzer's filte
 3. Open **Preview & send** to see the email with its chart and the Discord post exactly as they will go out. You can send yourself a test first.
 4. Click **Send announcement**. It sends in the background and reaches everyone within 15 minutes. The banner says it is sending, then moves on once it has gone, and the snapshot's history page shows when the results were sent.
 
+If the announcement could not be sent, the banner and the snapshot's history page say why. Sending it again reaches only the members who did not get it, so edits you make after a failure do not reach people who already have the first version.
+
 Clicking **Draft announcement** again reopens the same draft. Each snapshot's results go out once: after they are sent, another results announcement for that snapshot is refused. The announcement follows each member's settings for makerspace-wide announcements, and members no longer get a recap of their own ballot with the results.
 
 ### Funding History
