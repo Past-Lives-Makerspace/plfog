@@ -1,0 +1,8 @@
+bump = "patch"
+date = "2026-10-03"
+title = "The class card photo sliders say which way the photo can move"
+changes = [
+  "When a photo already fills the card from side to side, the left and right slider is switched off with a note saying only up and down moves it, instead of doing nothing.",
+  "A slider that moves the photo in only one of the two card sizes says which one.",
+  "Picking a different photo rechecks both sliders right away.",
+]
