@@ -9219,9 +9219,10 @@ mark { background: color-mix(in srgb, var(--color-tuscan-yellow) 30%, transparen
     color: var(--hub-text);
     border: 1px solid var(--hub-border);
 }
+/* Positioned, with no z-index of their own: they sit above the stretched name link by tree order,
+   and the help bubble's own z-index stays in the grid's stacking context instead of being trapped here. */
 .pl-equip-card__state {
     position: relative;
-    z-index: 1;
     display: flex;
     align-items: center;
     gap: 0.4rem;
@@ -9229,7 +9230,6 @@ mark { background: color-mix(in srgb, var(--color-tuscan-yellow) 30%, transparen
 }
 .pl-equip-card__cta {
     position: relative;
-    z-index: 1;
     align-self: flex-start;
     font-size: 0.85rem;
 }
