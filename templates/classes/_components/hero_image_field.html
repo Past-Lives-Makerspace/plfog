@@ -119,6 +119,8 @@ static/js/hero_cropper.js defines to mount Cropper.js on the new img once it has
                 .then(r => r.json())
                 .then(data => {
                     if (data.error) { alert(data.error); return; }
+                    const previousImg = preview.querySelector('img');
+                    const previous = previousImg ? previousImg.getAttribute('src') : '';
                     preview.innerHTML = '<img src="' + data.url + '" alt="Hero image" data-hero-cropper-preview style="max-width:100%;max-height:320px;object-fit:contain;border-radius:6px;border:1px solid var(--hub-border,#1a4568);display:block;">';
                     zone.querySelector('.cls-image-upload-label').textContent = 'Replace image';
                     // The upload replaced an imported photo: its note no longer applies.
@@ -136,6 +138,12 @@ static/js/hero_cropper.js defines to mount Cropper.js on the new img once it has
                     document.querySelectorAll('img[data-hero-source]').forEach(img => {
                         img.setAttribute('src', data.url);
                         img.removeAttribute('data-hero-source');
+                    });
+                    // A class with no copy showed the previous photo itself in its frames;
+                    // they follow the upload too, so the card and the sliders' measure of it
+                    // (card_focus.js) are of the photo the class now has, not the old one.
+                    document.querySelectorAll('.pl-card-focus__frame img.cls-img').forEach(img => {
+                        if (previous && img.getAttribute('src') === previous) img.setAttribute('src', data.url);
                     });
                     // Mount the cropper on the new photo once it has loaded.
                     if (window.initHeroCropper) window.initHeroCropper();

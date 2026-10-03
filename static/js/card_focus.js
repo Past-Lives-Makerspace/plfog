@@ -12,6 +12,10 @@
  * the create-mode fallback writes into #hero-preview) is mirrored into the frames, so
  * the instructor sees the card before the first save.
  *
+ * The frames are cover fitted, so the photo overflows each frame on one axis only and the
+ * other slider has nothing to move there. measure() works out which axis has slack in
+ * which frame and the field's template disables a dead slider and says why (issue #427).
+ *
  * Loaded once, deferred, from hub/base.html's <head> with the other Alpine components,
  * never from the composer's body: Alpine initialises a boosted page a microtask after
  * htmx inserts it, before a script the page itself loads could arrive, so the component
@@ -33,6 +37,45 @@
     const FRAME_IMGS = ".pl-card-focus__frame .cls-img";
     const BOXED_CLASS = "pl-card-focus__img--boxed";
     const BOXED_PROPS = ["--pl-boxed-w", "--pl-boxed-h", "--pl-boxed-left", "--pl-boxed-top"];
+    /* The two Photos step frames measure() reads, by the name the copy uses for each. */
+    const PHOTOS_FRAMES = {
+        laptop: ".pl-card-focus__frame--laptop .cls-media",
+        phone: ".pl-card-focus__frame--phone .cls-media",
+    };
+    /* Less than a pixel of overflow is no room to move. */
+    const MIN_SLACK = 1;
+    /* What each slider's line says for every answer measure() can give. */
+    const WHY = {
+        x: {
+            both: "",
+            laptop: "Moves the laptop card. The phone card already fits side to side.",
+            phone: "Moves the phone card. The laptop card already fits side to side.",
+            none: "This photo already fits side to side, so only up and down moves it.",
+        },
+        y: {
+            both: "",
+            laptop: "Moves the laptop card. The phone card already fits top to bottom.",
+            phone: "Moves the phone card. The laptop card already fits top to bottom.",
+            none: "This photo already fits top to bottom, so only left and right moves it.",
+        },
+    };
+
+    /* Cover fit a w by h region into a frame: the scale, and the pixels left over on each
+     * axis once the region covers the frame. Exactly one axis has slack unless the shapes
+     * match. render() lays the box out with it and measure() reads the slack, so the two
+     * cannot drift. */
+    function coverFit(frameW, frameH, w, h) {
+        const s = Math.max(frameW / w, frameH / h);
+        return { s: s, slackX: w * s - frameW, slackY: h * s - frameH };
+    }
+
+    /* "both", "laptop", "phone" or "none": where an axis can move. */
+    function movesIn(laptop, phone) {
+        if (laptop && phone) { return "both"; }
+        if (laptop) { return "laptop"; }
+        if (phone) { return "phone"; }
+        return "none";
+    }
 
     const registerComponent = () => {
         Alpine.data("cardFocus", (config) => ({
@@ -46,6 +89,10 @@
              * show, and that photo's natural size; null until a box is announced. */
             box: null,
             natural: null,
+            /* Where each slider can move anything: "both", "laptop", "phone" or "none".
+             * "both" until a frame has been measured, so nothing is disabled on a guess. */
+            xMoves: "both",
+            yMoves: "both",
 
             init() {
                 const banner = parsePosition(config.banner);
@@ -58,14 +105,32 @@
                 this.watchHeroPreview();
                 // The frames are two widths, and the Review step's frame has no size until
                 // that step is on screen, so the box is laid out again on both.
-                this.rerender = () => this.render();
+                this.rerender = () => { this.render(); this.measure(); };
                 window.addEventListener("resize", this.rerender);
                 window.addEventListener("composer-step-shown", this.rerender);
+                // A plain frame cannot be measured until its img has pixels. load and error
+                // do not bubble, so they are caught in the capture phase on the root: one
+                // listener covers every frame img, including the ones x-if renders later. A
+                // photo that never arrives has nothing to measure, so neither slider is off.
+                this.remeasure = (event) => {
+                    if (!(event.target && event.target.matches && event.target.matches(FRAME_IMGS))) { return; }
+                    if (event.type === "error") {
+                        this.xMoves = "both";
+                        this.yMoves = "both";
+                        return;
+                    }
+                    this.measure();
+                };
+                this.$root.addEventListener("load", this.remeasure, true);
+                this.$root.addEventListener("error", this.remeasure, true);
+                this.measure();
             },
 
             destroy() {
                 window.removeEventListener("resize", this.rerender);
                 window.removeEventListener("composer-step-shown", this.rerender);
+                this.$root.removeEventListener("load", this.remeasure, true);
+                this.$root.removeEventListener("error", this.remeasure, true);
             },
 
             input() {
@@ -124,6 +189,7 @@
                     this.announce();
                 }
                 this.render();
+                this.measure();
             },
 
             /* Show the box region in every frame, cover fitted, exactly what the saved copy
@@ -148,15 +214,64 @@
                     const frameW = media.clientWidth;
                     const frameH = media.clientHeight;
                     if (!frameW || !frameH) { return; }
-                    const s = Math.max(frameW / this.box.w, frameH / this.box.h);
-                    const left = -(this.box.x * s) - (this.box.w * s - frameW) * this.posX / 100;
-                    const top = -(this.box.y * s) - (this.box.h * s - frameH) * this.posY / 100;
-                    media.style.setProperty("--pl-boxed-w", (this.natural.w * s) + "px");
-                    media.style.setProperty("--pl-boxed-h", (this.natural.h * s) + "px");
+                    const fit = coverFit(frameW, frameH, this.box.w, this.box.h);
+                    const left = -(this.box.x * fit.s) - fit.slackX * this.posX / 100;
+                    const top = -(this.box.y * fit.s) - fit.slackY * this.posY / 100;
+                    media.style.setProperty("--pl-boxed-w", (this.natural.w * fit.s) + "px");
+                    media.style.setProperty("--pl-boxed-h", (this.natural.h * fit.s) + "px");
                     media.style.setProperty("--pl-boxed-left", left + "px");
                     media.style.setProperty("--pl-boxed-top", top + "px");
                     img.classList.add(BOXED_CLASS);
                 });
+            },
+
+            /* Which axis has room to move in each Photos step frame (issue #427). A frame
+             * shows the box (or, without one, the whole photo) cover fitted, so it overflows
+             * on one axis only; the other slider writes a value that frame cannot show. The
+             * answer per axis is "both", "laptop", "phone" or "none"; the template disables
+             * a "none" slider and whyX() / whyY() say what the others move. Never touches
+             * posX, posY or the hidden input. A frame with no size (its step is off screen)
+             * keeps the previous answer, which is still that photo's; the step reveal calls
+             * back. A plain img whose pixels have not arrived keeps the answer too, so a
+             * photo switch resets both flags first (watchHeroPreview) and the img's load or
+             * error settles them. */
+            measure() {
+                const laptop = this.frameSlack(PHOTOS_FRAMES.laptop);
+                const phone = this.frameSlack(PHOTOS_FRAMES.phone);
+                if (!laptop || !phone) { return; }
+                this.xMoves = movesIn(laptop.x, phone.x);
+                this.yMoves = movesIn(laptop.y, phone.y);
+            },
+
+            /* {x, y}: whether each axis has slack in the sized frame matching selector, or
+             * null when there is nothing to measure yet. The field's template can hold two
+             * frames per shape (a hidden placeholder and the one the mirrored photo fills),
+             * so the sized one is the one that counts. */
+            frameSlack(selector) {
+                const media = Array.from(this.$root.querySelectorAll(selector)).find((el) => el.clientWidth > 0);
+                if (!media) { return null; }
+                let w, h;
+                if (this.box) {
+                    w = this.box.w;
+                    h = this.box.h;
+                } else {
+                    // A pending src keeps reporting the previous photo's size until the new
+                    // response starts, and complete is false the whole way: no verdict until then.
+                    const img = media.querySelector(".cls-img");
+                    if (!img || !img.complete || !img.naturalWidth || !img.naturalHeight) { return null; }
+                    w = img.naturalWidth;
+                    h = img.naturalHeight;
+                }
+                const fit = coverFit(media.clientWidth, media.clientHeight, w, h);
+                return { x: fit.slackX >= MIN_SLACK, y: fit.slackY >= MIN_SLACK };
+            },
+
+            whyX() {
+                return WHY.x[this.xMoves];
+            },
+
+            whyY() {
+                return WHY.y[this.yMoves];
             },
 
             /* A class that already has a cropped copy shows that copy in the frames, and a
@@ -193,6 +308,12 @@
                         this.natural = null;
                         this.render();
                     }
+                    // The old photo's verdict means nothing for the new one, and a frame img
+                    // keeps reporting the old pixels until the new ones decode: nothing is off
+                    // until the new photo's load (or error) says so.
+                    this.xMoves = "both";
+                    this.yMoves = "both";
+                    this.$nextTick(() => this.measure());
                 };
                 new MutationObserver(sync).observe(preview, { childList: true, subtree: true });
                 sync();
