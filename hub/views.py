@@ -66,6 +66,7 @@ from hub.forms import (
     TourStateForm,
     VotePreferenceForm,
 )
+from hub.autosave import autosave_refused, autosave_saved, formset_rows, wants_autosave
 from hub.toast import trigger_toast
 from membership.cycle import get_cycle_context
 from membership.vote_calculator import compute_live_standings, compute_new_votes_since
@@ -1210,10 +1211,14 @@ def guild_edit(request: HttpRequest, pk: int) -> HttpResponse:
         if form.is_valid():
             form.save()
             guild.add_gallery_images(request.FILES.getlist("gallery_images"))
+            if wants_autosave(request):
+                return autosave_saved()
             messages.success(request, "Guild page updated.")
             if request.POST.get("after") == "edit":
                 return redirect("hub_guild_edit", pk=guild.pk)
             return redirect("hub_guild_detail", slug=guild.slug)
+        if wants_autosave(request):
+            return autosave_refused(form)
         return render(request, "hub/guild_edit.html", _guild_edit_context(request, guild, form=form))
 
     return render(
@@ -1285,6 +1290,8 @@ def guild_visibility_save(request: HttpRequest, pk: int) -> HttpResponse:
     form = GuildVisibilityForm(request.POST, instance=guild)
     form.is_valid()  # single-boolean form; populates cleaned_data. save() below raises loudly if ever invalid.
     form.save()
+    if wants_autosave(request):
+        return autosave_saved()
     messages.success(
         request,
         "This guild is now visible to members." if guild.is_active else "This guild is now hidden from members.",
@@ -1323,9 +1330,13 @@ def guild_orientation_edit(request: HttpRequest, pk: int) -> HttpResponse:
         from membership import orientations
 
         orientations.generate_slots(guild=guild)
+        if wants_autosave(request):
+            return autosave_saved()
         messages.success(request, "Orientation settings updated.")
         return redirect(orientations_tab)
 
+    if wants_autosave(request):
+        return autosave_refused(form)
     ctx = _guild_edit_context(request, guild, orientation_form=form)
     ctx["active_tab"] = "orientations"
     return render(request, "hub/guild_edit.html", ctx)
@@ -1353,8 +1364,12 @@ def guild_orientation_types_save(request: HttpRequest, pk: int) -> HttpResponse:
     if formset.is_valid():
         formset.save()
         orientations.generate_slots(guild=guild)
+        if wants_autosave(request):
+            return autosave_saved({"otypes": formset_rows(formset)})
         messages.success(request, "Orientation types saved.")
         return redirect(f"{reverse('hub_guild_edit', args=[guild.pk])}?tab=orientations")
+    if wants_autosave(request):
+        return autosave_refused(formset)
     ctx = _guild_edit_context(request, guild, orientation_type_formset=formset)
     ctx["active_tab"] = "orientations"
     return render(request, "hub/guild_edit.html", ctx)
@@ -1457,6 +1472,9 @@ def guild_orientation_hours_save(request: HttpRequest, pk: int) -> HttpResponse:
         deleted_rules, removed, kept = _apply_hours_formset(formset, target=target)
         # Same side effect the combined save had — saved hours materialize slots immediately.
         orientations.generate_slots(guild=guild)
+        if wants_autosave(request):
+            # The page's Guild Hours form (the modal keeps its HX-Redirect round trip).
+            return autosave_saved({prefix: formset_rows(formset)})
         shared_emptied = target is None and not guild.orientation_rules.guild_level().exists()
         messages.success(
             request,
@@ -1491,6 +1509,8 @@ def guild_orientation_hours_save(request: HttpRequest, pk: int) -> HttpResponse:
                 "offer_open": target is not None,
             },
         )
+    if wants_autosave(request):
+        return autosave_refused(formset)
     # Guild scope is the only other path here — re-render the full page with the bound formset.
     ctx = _guild_edit_context(request, guild, guild_rule_formset=formset)
     # The invalid POST lands on the hours-save URL (no ?tab) — keep the Orientations tab open.
@@ -1627,9 +1647,13 @@ def guild_studio_hours_save(request: HttpRequest, pk: int) -> HttpResponse:
         for event in saved:
             event.push_to_google()  # best-effort, gated — mirrors the row to the Public calendar
             event.push_to_discord()  # no-op for studio hours (never a Scheduled Event)
+        if wants_autosave(request):
+            return autosave_saved({"studio_hours": formset_rows(formset)})
         messages.success(request, "Studio hours saved.")
         return redirect(f"{reverse('hub_guild_edit', args=[guild.pk])}?tab=studio_hours")
 
+    if wants_autosave(request):
+        return autosave_refused(formset)
     ctx = _guild_edit_context(request, guild, studio_hours_formset=formset)
     return render(request, "hub/guild_edit.html", ctx)
 
@@ -4992,6 +5016,23 @@ def announcement_sent(request: HttpRequest, pk: int) -> HttpResponse:
     )
 
 
+def _save_guild_email_form(
+    request: HttpRequest, guild: Guild, form: Any, *, flash: str, tab: str, context_key: str
+) -> HttpResponse:
+    """Save one of the guild's email forms: JSON for the autosave, else the redirect or the bound re-render."""
+    if form.is_valid():
+        form.save()
+        if wants_autosave(request):
+            return autosave_saved()
+        messages.success(request, flash)
+        return redirect(f"{reverse('hub_guild_edit', args=[guild.pk])}?tab={tab}")
+    if wants_autosave(request):
+        return autosave_refused(form)
+    ctx = _guild_edit_context(request, guild, **{context_key: form})
+    ctx["active_tab"] = tab
+    return render(request, "hub/guild_edit.html", ctx)
+
+
 @login_required
 def guild_emails_save(request: HttpRequest, pk: int) -> HttpResponse:
     """Save the guild's thank-you email from the Orientations tab. Editor only.
@@ -5016,24 +5057,23 @@ def guild_emails_save(request: HttpRequest, pk: int) -> HttpResponse:
     form_id = request.POST.get("form_id")
     settings_obj, _ = GuildOrientationSettings.objects.get_or_create(guild=guild)
     if form_id == "thankyou_email":
-        form = GuildThankyouEmailForm(request.POST, instance=settings_obj)
-        if form.is_valid():
-            form.save()
-            messages.success(request, "Thank-you email saved.")
-            return redirect(orientations_tab)
-        ctx = _guild_edit_context(request, guild, thankyou_email_form=form)
-        ctx["active_tab"] = "orientations"
-        return render(request, "hub/guild_edit.html", ctx)
+        return _save_guild_email_form(
+            request,
+            guild,
+            GuildThankyouEmailForm(request.POST, instance=settings_obj),
+            flash="Thank-you email saved.",
+            tab="orientations",
+            context_key="thankyou_email_form",
+        )
     if form_id == "welcome_email":
-        welcome_tab = f"{reverse('hub_guild_edit', args=[guild.pk])}?tab=welcome_email"
-        welcome_form = GuildWelcomeEmailForm(request.POST, instance=settings_obj)
-        if welcome_form.is_valid():
-            welcome_form.save()
-            messages.success(request, "Welcome email saved.")
-            return redirect(welcome_tab)
-        ctx = _guild_edit_context(request, guild, welcome_email_form=welcome_form)
-        ctx["active_tab"] = "welcome_email"
-        return render(request, "hub/guild_edit.html", ctx)
+        return _save_guild_email_form(
+            request,
+            guild,
+            GuildWelcomeEmailForm(request.POST, instance=settings_obj),
+            flash="Welcome email saved.",
+            tab="welcome_email",
+            context_key="welcome_email_form",
+        )
     raise Http404("Unknown email form.")
 
 
@@ -5054,6 +5094,8 @@ def guild_announcement_settings_save(request: HttpRequest, pk: int) -> HttpRespo
     form = GuildAnnouncementSettingsForm(request.POST, instance=guild)
     form.is_valid()  # single-boolean form; populates cleaned_data. save() below raises loudly if ever invalid.
     form.save()
+    if wants_autosave(request):
+        return autosave_saved()
     messages.success(request, "Announcement settings saved.")
     return redirect(f"{reverse('hub_guild_edit', args=[guild.pk])}?tab=announcements")
 
@@ -5095,8 +5137,12 @@ def guild_faq_save(request: HttpRequest, pk: int) -> HttpResponse:
     formset = GuildFAQItemFormSet(request.POST, request.FILES, instance=guild, prefix="faq")
     if formset.is_valid():
         formset.save()
+        if wants_autosave(request):
+            return autosave_saved({"faq": formset_rows(formset)})
         messages.success(request, "FAQ saved.")
     else:
+        if wants_autosave(request):
+            return autosave_refused(formset)
         messages.error(request, "Couldn't save the FAQ — check the highlighted fields.")
     return redirect(f"{reverse('hub_guild_edit', args=[guild.pk])}?tab=content")
 
@@ -5114,8 +5160,12 @@ def guild_links_save(request: HttpRequest, pk: int) -> HttpResponse:
     formset = GuildLinkFormSet(request.POST, instance=guild, prefix="links")
     if formset.is_valid():
         formset.save()
+        if wants_autosave(request):
+            return autosave_saved({"links": formset_rows(formset)})
         messages.success(request, "Links saved.")
     else:
+        if wants_autosave(request):
+            return autosave_refused(formset)
         messages.error(request, "Couldn't save the links — check the highlighted fields.")
     return redirect(f"{reverse('hub_guild_edit', args=[guild.pk])}?tab=links")
 
@@ -5142,9 +5192,13 @@ def guild_mailing_list_save(request: HttpRequest, pk: int) -> HttpResponse:
     formset = GuildMailingListFormSet(request.POST, instance=guild, prefix="mailing_list")
     if formset.is_valid():
         formset.save()
+        if wants_autosave(request):
+            return autosave_saved({"mailing_list": formset_rows(formset)})
         messages.success(request, "Mailing list saved.")
         return redirect(announcements_tab)
 
+    if wants_autosave(request):
+        return autosave_refused(formset)
     ctx = _guild_edit_context(request, guild, mailing_list_formset=formset)
     ctx["active_tab"] = "announcements"
     return render(request, "hub/guild_edit.html", ctx)

@@ -276,7 +276,9 @@ def describe_guild_settings_page():
         assert "member@example.com" in content
         # Editor + import controls.
         assert "+ Add address" in content
-        assert "Save mailing list" in content
+        # The addresses form saves itself (#575): no Save button, marked for the autosave script.
+        assert "Save mailing list" not in content
+        assert 'data-formset="mailing_list"' in content
         assert "Import addresses" in content
 
     def it_shows_the_empty_state_when_there_are_no_custom_addresses(client: Client):

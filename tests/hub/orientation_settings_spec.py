@@ -113,7 +113,9 @@ def describe_guild_orientation_edit():
         # Own hours are edited via the Edit Hours modal from the Orientation Schedule, not a
         # separate inline My Hours card.
         assert b"Orientation Schedule" in response.content
-        assert b"Save orientation settings" in response.content
+        # The settings form saves itself (#575): no Save button.
+        assert b"Save orientation settings" not in response.content
+        assert b"data-save-pill" in response.content
         # Recurring hours are edited through the Edit Hours modal, loaded from its own endpoint
         # (the trigger on the viewer's Orientation Schedule row).
         assert reverse("hub_guild_orientation_hours_form", args=[guild.pk]).encode() in response.content

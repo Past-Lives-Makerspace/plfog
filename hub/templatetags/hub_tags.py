@@ -171,3 +171,19 @@ def by_kind(contacts: Any, kind: str) -> list[Any]:
 def guild_logo_prefix(name: str) -> str | None:
     """Map a guild name string to its logo prefix, through the one shared name map."""
     return logo_prefix_for(name)
+
+
+@register.filter
+def required_fields(form: Any) -> str:
+    """The names of a form's required, visible fields, space separated, for a formset row's completeness test.
+
+    Formset rows render without the ``required`` attribute (Django switches it off so a blank
+    extra row never blocks a submit), so the autosave script reads this instead to tell a half
+    typed new row, posted as rendered and skipped, from a complete one that saves. Hidden fields
+    (the row's ``id``, a parent key, a sort order with a default) are left out.
+    """
+    return " ".join(
+        name
+        for name, field in form.fields.items()
+        if field.required and getattr(field.widget, "input_type", None) != "hidden"
+    )

@@ -46,7 +46,7 @@ from playwright.sync_api import TimeoutError as PlaywrightTimeoutError
 
 from classes.factories import ClassOfferingFactory, InstructorFactory, UserFactory
 from classes.models import ClassOffering
-from membership.models import MapHotspot, Member, WikiPage
+from membership.models import MapHotspot, Member, OrgInfoPage, WikiPage
 from tests.features import turn_on
 from tests.membership.factories import (
     EquipmentFactory,
@@ -54,6 +54,7 @@ from tests.membership.factories import (
     GuildFactory,
     MapHotspotFactory,
     MembershipPlanFactory,
+    OrgFAQItemFactory,
     SpaceFactory,
 )
 
@@ -698,11 +699,14 @@ def describe_browser_back_onto_a_rich_text_editor():
 # Saving a page that redirects back to itself is a boosted swap of a page onto a copy of
 # itself, and that is the one swap in which htmx's settle step has something to match.
 
-THANKYOU_EMAIL = "boosted-thankyou@example.com"
-THANKYOU_MOUNT = '.pl-rte[data-rte-for="id_thankyou_email_body"]'
-THANKYOU_SAVE = 'form:has(input[name="form_id"][value="thankyou_email"]) button[type="submit"]'
+# The guild thank-you email used to be the walk; its form saves itself without a navigation
+# since #575, so the Help editor's FAQ Save, which redirects back onto its own page with a
+# rich-text answer in every row, is the swap of a page onto itself now.
+HELP_EDITOR_EMAIL = "boosted-help-editor@example.com"
+FAQ_ANSWER_MOUNT = '.pl-rte[data-rte-for="id_faq-0-answer"]'
+FAQ_SAVE = 'form[action="{action}"] button[type="submit"]'
 # A mount this document's init claimed, and not the node that was on the page before Save.
-THANKYOU_MOUNT_REPLACED = """(selector) => {
+FAQ_MOUNT_REPLACED = """(selector) => {
     const mount = document.querySelector(selector);
     return Boolean(mount && mount.plRteReady && !mount.plBeforeSave);
 }"""
@@ -710,7 +714,7 @@ THANKYOU_MOUNT_REPLACED = """(selector) => {
 
 def describe_saving_a_page_onto_itself_with_a_rich_text_editor():
     def it_keeps_the_editor_framed_after_the_swap_settles(live_server, page, login_via_code):
-        """Save on the thank-you email used to leave the editor unframed and broken-looking.
+        """Save on a page that redirects to itself used to leave the editor unframed and broken-looking.
 
         For every element in the incoming body whose ``id`` is also on the outgoing one,
         htmx copies the old ``class`` and ``style`` onto it for the swap and puts the
@@ -727,25 +731,25 @@ def describe_saving_a_page_onto_itself_with_a_rich_text_editor():
         Reading it the moment the new mount is claimed would pass on the broken build too.
         """
         MembershipPlanFactory()  # so the login signal auto-creates the member
-        guild = GuildFactory(name="Ceramics Guild")
+        OrgFAQItemFactory(page=OrgInfoPage.load(), question="Where do I park?")
         errors = _watch_for_errors(page)
-        login_via_code(THANKYOU_EMAIL)
-        user = User.objects.get(username=THANKYOU_EMAIL)
+        login_via_code(HELP_EDITOR_EMAIL)
+        user = User.objects.get(username=HELP_EDITOR_EMAIL)
         user.is_staff = True
         user.is_superuser = True
         user.save(update_fields=["is_staff", "is_superuser"])
 
-        page.goto(f"{live_server.url}{reverse('hub_guild_edit', args=[guild.pk])}?tab=orientations")
-        page.wait_for_function(THANKYOU_MOUNT_REPLACED, arg=THANKYOU_MOUNT)
-        page.evaluate("(selector) => { document.querySelector(selector).plBeforeSave = true; }", THANKYOU_MOUNT)
+        page.goto(f"{live_server.url}{reverse('hub_help_edit')}?tab=faq")
+        page.wait_for_function(FAQ_MOUNT_REPLACED, arg=FAQ_ANSWER_MOUNT)
+        page.evaluate("(selector) => { document.querySelector(selector).plBeforeSave = true; }", FAQ_ANSWER_MOUNT)
 
-        page.locator(THANKYOU_SAVE).click()
-        page.wait_for_function(THANKYOU_MOUNT_REPLACED, arg=THANKYOU_MOUNT)
+        page.locator(FAQ_SAVE.format(action=reverse("hub_org_info_faq_save"))).click()
+        page.wait_for_function(FAQ_MOUNT_REPLACED, arg=FAQ_ANSWER_MOUNT)
         settled_classes = page.evaluate(
             """(selector) => new Promise((resolve) => {
                 setTimeout(() => resolve(document.querySelector(selector).className), 100);
             })""",
-            THANKYOU_MOUNT,
+            FAQ_ANSWER_MOUNT,
         )
 
         assert "ql-container" in settled_classes.split(), f"the settle stripped Quill's frame: {settled_classes!r}"

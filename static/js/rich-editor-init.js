@@ -141,8 +141,8 @@
             }
             mount.plQuill = quill;
             sync(ta, quill);
-            quill.on("text-change", function () {
-                sync(ta, quill);
+            quill.on("text-change", function (delta, oldDelta, source) {
+                sync(ta, quill, source === "user");
             });
         });
     };
@@ -151,9 +151,14 @@
        nothing else sees a keystroke land in it: the composer's draft copy listens for input on
        the form, and the description count wants the editor's TEXT, not its HTML, so the event
        carries it (static/js/composer_description_count.js). */
-    function sync(ta, quill) {
+    function sync(ta, quill, userEdit) {
         ta.value = quill.root.innerHTML;
         ta.dispatchEvent(new CustomEvent("pl-rte-change", { bubbles: true, detail: { text: quill.getText() } }));
+        /* A member's edit also fires a plain bubbling input on the textarea, so a page that saves
+           as it is edited (the guild settings autosave) hears the editor like any other field. Not
+           on the seed or a programmatic write: those are not changes to save. The wiki and meeting
+           editors listen on their own inputs, never on a bubbling input, so nothing else hears it. */
+        if (userEdit) ta.dispatchEvent(new Event("input", { bubbles: true }));
     }
 
     /* The reverse direction: something wrote the textarea behind the editor (the composer's
