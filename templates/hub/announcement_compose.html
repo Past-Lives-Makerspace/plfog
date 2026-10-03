@@ -45,7 +45,10 @@
        siteCount() {
          const never = document.querySelector('input[name=include_never_logged_in]');
          let n = never && never.checked ? this.siteReach.everyone : this.siteReach.loggedIn;
+         const seen = new Set();
          document.querySelectorAll('input[name=added_recipients]:checked').forEach(b => {
+           if (seen.has(b.value)) { return; }
+           seen.add(b.value);
            if (this.emailOn || !b.hasAttribute('data-email-only')) { n += 1; }
          });
          return n;
