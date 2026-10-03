@@ -176,3 +176,26 @@ def describe_the_announcements_page():
         page.locator('[data-announcements-tab="sent"]').click()
         expect(page.locator('[data-announcement-state="sent"]')).to_be_visible()
         assert _no_horizontal_scroll(page)
+
+    def it_widens_the_results_draft_to_members_who_never_logged_in(live_server, page, login_via_code):
+        made, _guild, _reader = _seed()
+        never = get_user_model().objects.create_user(username="never@example.com", email="never@example.com")
+        Member.objects.filter(user=never).update(status=Member.Status.ACTIVE)
+        _sign_in_as_admin(login_via_code)
+        logged_in = AnnouncementDraft(audience=AnnouncementDraft.Audience.SITE).recipient_count()
+
+        page.goto(f"{live_server.url}{reverse('hub_compose_resume', args=[made.pk])}")
+        expect(page.locator(EDITOR)).to_contain_text("The votes for September 2026 are in.")
+        expect(page.locator("[data-compose-site-reach]")).to_contain_text("1 more has never logged in.")
+
+        # Flipping the toggle re-counts on the server; the reach line on Preview & send follows it.
+        page.locator("label.pl-toggle:has(input[name=include_never_logged_in])").click()
+        page.get_by_role("tab", name="2. Preview & send").click()
+        expect(page.locator(".pl-wizard-reach strong")).to_have_text(str(logged_in + 1))
+
+        page.get_by_role("button", name="Send announcement").click()
+        page.get_by_role("button", name="Yes, send it").click()
+        expect(page.locator('[data-announcements-tab="sent"]')).to_have_attribute("aria-current", "page")
+        queued = AnnouncementDraft.objects.get(pk=made.pk)
+        assert queued.send_requested_at is not None
+        assert queued.include_never_logged_in is True

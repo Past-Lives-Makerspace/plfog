@@ -1,0 +1,7 @@
+bump = "minor"
+date = "2026-10-03"
+title = "Site-wide announcements can reach members who haven't logged in yet"
+changes = [
+  "A site-wide announcement goes to active members who have logged in to the app, and the Announcement Composer now says how many that is and how many more have never logged in.",
+  "Turn on Also include members who haven't logged in yet to reach every active member. Members who have never logged in get it by email, and in their notification bell once they log in.",
+]

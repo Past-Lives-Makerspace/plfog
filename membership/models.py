@@ -5158,6 +5158,15 @@ class AnnouncementDraft(models.Model):
         default=False,
         help_text="Class announcements only: also notify waitlisted registrants, not just confirmed ones.",
     )
+    include_never_logged_in = models.BooleanField(
+        default=False,
+        db_default=False,
+        help_text=(
+            "Site announcements only: also reach active members who have never logged in, by email "
+            "and in their notification bell once they do. Off, a site announcement reaches only "
+            "members who have logged in at least once."
+        ),
+    )
     recipient_selection = models.JSONField(
         default=dict,
         blank=True,
@@ -5580,8 +5589,9 @@ class AnnouncementDraft(models.Model):
     def recipient_count(self) -> int:
         """How many activated members this draft reaches right now (the confirm-dialog count).
 
-        ``SITE`` → the all-active-members audience; ``GUILD`` → the guild's joined-member
-        audience — the exact resolvers the send fans out to, so the count matches delivery.
+        ``SITE`` → the all-active-members audience (widened by :attr:`include_never_logged_in`);
+        ``GUILD`` → the guild's joined-member audience — the exact resolvers the send fans out to,
+        so the count matches delivery.
         """
         from core.events import resolvers
         from core.events.registry import Recipients
@@ -5591,7 +5601,9 @@ class AnnouncementDraft(models.Model):
         if self.audience == self.Audience.CLASS:
             offering = cast("ClassOffering", self.class_offering)
             return len(offering.announcement_recipients(include_waitlist=self.include_waitlist))
-        return len(resolvers.resolve(Recipients.ALL_ACTIVE_MEMBERS, {}))
+        return len(
+            resolvers.resolve(Recipients.ALL_ACTIVE_MEMBERS, {"include_never_logged_in": self.include_never_logged_in})
+        )
 
     @classmethod
     def save_from_form(
@@ -5620,6 +5632,7 @@ class AnnouncementDraft(models.Model):
         draft.mark_as_urgent = cd.get("mark_as_urgent", False)
         draft.show_sender = cd.get("show_sender", True)
         draft.include_waitlist = cd.get("include_waitlist", False)
+        draft.include_never_logged_in = cd.get("include_never_logged_in", False)
         # Empty dict = "everyone" (the default); a present selection = exactly these recipients.
         draft.recipient_selection = cd.get("recipient_selection") or {}
         draft.discord_channel = cd["discord_channel"]
@@ -5699,6 +5712,7 @@ class AnnouncementDraft(models.Model):
                     "announcement_body": rich_html_to_text(body_html),
                     "site_url": site_url,
                     "discord_broadcast_webhook": webhook,
+                    "include_never_logged_in": self.include_never_logged_in,
                 },
                 url=site_url,
                 period=period,

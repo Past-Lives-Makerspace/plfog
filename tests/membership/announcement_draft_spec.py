@@ -65,6 +65,13 @@ def _activated_member(*, guild=None, username: str = "m"):
     return member
 
 
+def _never_logged_in_member(username: str):
+    """An ACTIVE member whose provisioned account has never logged in: off the default broadcast."""
+    member = _activated_member(username=username)
+    User.objects.filter(pk=member.user_id).update(last_login=None)
+    return member
+
+
 def _confirmed_registrant(offering, username: str):
     """An activated member holding a CONFIRMED registration in ``offering`` — a class recipient."""
     member = _activated_member(username=username)
@@ -312,6 +319,13 @@ def describe_AnnouncementDraft():
                 AnnouncementDraft.objects.create(author=author, audience=_CLASS, class_offering=None, title="x")
 
     def describe_save_from_form():
+        def it_stores_include_never_logged_in_off_unless_the_form_turned_it_on():
+            author = _author()
+            assert AnnouncementDraft.save_from_form(_cleaned(), author).include_never_logged_in is False
+            draft = AnnouncementDraft.save_from_form(_cleaned(include_never_logged_in=True), author)
+            draft.refresh_from_db()
+            assert draft.include_never_logged_in is True
+
         def it_upserts_an_existing_instance_without_duplicating():
             author = _author()
             existing = AnnouncementDraft.objects.create(author=author, title="Old")
@@ -409,6 +423,14 @@ def describe_AnnouncementDraft():
             draft.include_waitlist = True
             assert draft.recipient_count() == 2  # + the waitlisted guest
 
+        def it_counts_members_who_never_logged_in_only_when_include_never_logged_in_is_set():
+            _activated_member(username="s1")
+            _never_logged_in_member(username="s2")
+            draft = AnnouncementDraft(audience=_SITE)
+            assert draft.recipient_count() == 1  # logged in only by default
+            draft.include_never_logged_in = True
+            assert draft.recipient_count() == 2
+
     def describe_resolve_channel_webhook():
         def it_returns_the_guild_webhook_for_the_guild_channel():
             guild = GuildFactory(discord_webhook_url="https://d/guild")
@@ -467,6 +489,25 @@ def describe_AnnouncementDraft():
             author = _author()
             AnnouncementDraft.objects.create(author=author, audience=_SITE, title="Site", body="<p>x</p>").send()
             assert not GuildAnnouncement.objects.exists()
+
+        def describe_members_who_never_logged_in():
+            def it_skips_them_by_default(mailoutbox):
+                never = _never_logged_in_member(username="never")
+                draft = AnnouncementDraft.objects.create(author=_author(), audience=_SITE, title="Hi", body="<p>x</p>")
+                draft.send()
+                assert not Notification.objects.filter(user=never.user).exists()
+                assert "never@x.com" not in [addr for message in mailoutbox for addr in message.to]
+
+            def it_emails_and_notifies_them_when_include_never_logged_in_is_set(mailoutbox):
+                logged_in = _activated_member(username="recip")
+                never = _never_logged_in_member(username="never")
+                draft = AnnouncementDraft.objects.create(
+                    author=_author(), audience=_SITE, title="Hi", body="<p>x</p>", include_never_logged_in=True
+                )
+                draft.send()
+                for member in (logged_in, never):
+                    assert Notification.objects.filter(user=member.user, trigger="site_announcement").exists()
+                assert "never@x.com" in [addr for message in mailoutbox for addr in message.to]
 
         def it_suppresses_email_but_keeps_the_bell_when_send_email_is_off(mailoutbox):
             author = _author()

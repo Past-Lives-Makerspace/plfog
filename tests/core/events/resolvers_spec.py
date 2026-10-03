@@ -258,6 +258,21 @@ def describe_all_active_members():
         recipients = resolvers.all_active_members({})
         assert never.user_id not in _user_pks(recipients)
 
+    def describe_when_include_never_logged_in_is_set():
+        def it_adds_active_members_who_never_logged_in(linked_member):
+            logged_in = linked_member(status=Member.Status.ACTIVE)
+            never = linked_member(status=Member.Status.ACTIVE, last_login=None)
+            recipients = resolvers.all_active_members({"include_never_logged_in": True})
+            assert {logged_in.user_id, never.user_id} <= _user_pks(recipients)
+
+        def it_still_excludes_inactive_members_and_blank_emails(linked_member):
+            former = linked_member(status=Member.Status.FORMER, last_login=None)
+            blank = linked_member(status=Member.Status.ACTIVE, last_login=None)
+            User.objects.filter(pk=blank.user_id).update(email="")
+            recipients = resolvers.all_active_members({"include_never_logged_in": True})
+            assert former.user_id not in _user_pks(recipients)
+            assert blank.user_id not in _user_pks(recipients)
+
 
 def describe_all_voters():
     def it_returns_paying_active_members(linked_member):
