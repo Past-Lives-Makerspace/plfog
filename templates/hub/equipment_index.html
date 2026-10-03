@@ -1,12 +1,12 @@
 {% extends "hub/base.html" %}
-{% block title %}Equipment{% endblock %}
+{% block title %}Reservations{% endblock %}
 
 {% block content %}
 {% if can_create %}
 {% url 'hub_equipment_add' as add_url %}
-{% include "components/page_header.html" with title="Equipment" description="Reserve time on shared tools and rooms." action_url=add_url action_label="+ Add Equipment" action_class="pl-btn pl-btn--primary" %}
+{% include "components/page_header.html" with title="Reservations" description="Book a room, a space, or a tool you are trained on." action_url=add_url action_label="+ Add" action_class="pl-btn pl-btn--primary" %}
 {% else %}
-{% include "components/page_header.html" with title="Equipment" description="Reserve time on shared tools and rooms." %}
+{% include "components/page_header.html" with title="Reservations" description="Book a room, a space, or a tool you are trained on." %}
 {% endif %}
 
 {% if has_any_equipment %}
@@ -30,11 +30,13 @@
        class="pl-equip-chip {% if kind_filter == 'tool' %}pl-equip-chip--active{% endif %}">Tools</a>
     <a href="{% url 'hub_equipment_index' %}?guild={{ guild_filter|urlencode }}&kind=room&q={{ query|urlencode }}"
        class="pl-equip-chip {% if kind_filter == 'room' %}pl-equip-chip--active{% endif %}">Rooms</a>
+    <a href="{% url 'hub_equipment_index' %}?guild={{ guild_filter|urlencode }}&kind=space&q={{ query|urlencode }}"
+       class="pl-equip-chip {% if kind_filter == 'space' %}pl-equip-chip--active{% endif %}">Spaces</a>
   </div>
   <form method="get" class="pl-equip-search hub-form-group">
     <input type="hidden" name="guild" value="{{ guild_filter }}">
     <input type="hidden" name="kind" value="{{ kind_filter }}">
-    <input type="search" name="q" value="{{ query }}" placeholder="Search equipment" aria-label="Search equipment">
+    <input type="search" name="q" value="{{ query }}" placeholder="Search reservations" aria-label="Search reservations">
   </form>
 </div>
 {% endif %}
@@ -47,7 +49,7 @@
 </div>
 {% else %}
 <div class="hub-card" style="padding:1.5rem;">
-  <p class="hub-text-muted" style="margin:0;">No equipment is bookable yet. Check back soon.</p>
+  <p class="hub-text-muted" style="margin:0;">Nothing is bookable yet. Check back soon.</p>
 </div>
 {% endif %}
 {% endblock %}

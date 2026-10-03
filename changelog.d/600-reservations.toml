@@ -1,0 +1,8 @@
+bump = "minor"
+date = "2026-10-03"
+title = "Equipment is now Reservations, and spaces like the loading dock can be booked"
+changes = [
+  "The sidebar entry and page formerly called Equipment are now Reservations: book a room, a space, or a tool you are trained on. Spaces are a new kind alongside tools and rooms.",
+  "A tool you are not trained on now shows locked, with a Book the orientation link. If you were trained before the Member Portal went live, the card's help bubble says how to get access.",
+  "Admins can grant a Space Manager role on Manage Members, which lets a member add rooms and spaces and manage the ones they add.",
+]

@@ -24,6 +24,7 @@ from membership.models import (
     EquipmentError,
     EquipmentStaffMembership,
     Member,
+    OrientationBooking,
     OrientationType,
 )
 from tests.membership.factories import (
@@ -32,9 +33,11 @@ from tests.membership.factories import (
     EquipmentStaffMembershipFactory,
     GuildFactory,
     GuildOrientationSettingsFactory,
+    GuildStaffMembershipFactory,
     MemberFactory,
     MembershipPlanFactory,
     OrientationBookingFactory,
+    OrientationRecordFactory,
     OrientationSlotFactory,
     OrientationTypeFactory,
     tiny_png_bytes,
@@ -72,14 +75,14 @@ def describe_equipment_index():
         _login(client, "eq_empty")
         response = client.get(reverse("hub_equipment_index"))
         assert response.status_code == 200
-        assert b"No equipment is bookable yet. Check back soon." in response.content
+        assert b"Nothing is bookable yet. Check back soon." in response.content
 
     def it_hides_inactive_equipment(client: Client):
         _login(client, "eq_retired")
         EquipmentFactory(name="Old Bandsaw", is_active=False)
         response = client.get(reverse("hub_equipment_index"))
         assert b"Old Bandsaw" not in response.content
-        assert b"No equipment is bookable yet. Check back soon." in response.content
+        assert b"Nothing is bookable yet. Check back soon." in response.content
 
     def it_renders_cards_with_access_badges(client: Client):
         user = _login(client, "eq_badges")
@@ -202,6 +205,17 @@ def describe_equipment_index():
             assert b"Media Room" in response.content
             assert b"Table Saw" not in response.content
 
+        def it_filters_to_spaces(client: Client):
+            # #502: Space is the third kind; the view's `kind in Kind.values` gate admits it as is.
+            _login(client, "eq_fspace")
+            EquipmentFactory(name="Loading Dock", kind=Equipment.Kind.SPACE)
+            EquipmentFactory(name="Table Saw", kind=Equipment.Kind.TOOL)
+            response = client.get(reverse("hub_equipment_index"), {"kind": "space"})
+            assert b"Loading Dock" in response.content
+            assert b"Table Saw" not in response.content
+            assert b'<span class="hub-badge">Space</span>' in response.content
+            assert b"kind=space&q=" in response.content and b"pl-equip-chip--active" in response.content
+
         def it_searches_by_name(client: Client):
             _login(client, "eq_fq")
             EquipmentFactory(name="Table Saw")
@@ -221,18 +235,26 @@ def describe_equipment_index():
         def it_shows_for_an_admin(client: Client):
             _login(client, "eq_addbtn_admin", fog_role=Member.FogRole.ADMIN)
             response = client.get(reverse("hub_equipment_index"))
-            assert b"+ Add Equipment" in response.content
+            assert reverse("hub_equipment_add").encode() in response.content
+            assert b">+ Add</a>" in response.content
 
         def it_shows_for_an_equipment_capability_holder(client: Client):
             user = _login(client, "eq_addbtn_cap")
             user.member.admin_capabilities.create(capability=AdminCapability.Capability.EQUIPMENT)
             response = client.get(reverse("hub_equipment_index"))
-            assert b"+ Add Equipment" in response.content
+            assert reverse("hub_equipment_add").encode() in response.content
+
+        def it_shows_for_a_space_manager(client: Client):
+            # #502: a Space Manager creates rooms and spaces, so the action shows for them too.
+            user = _login(client, "eq_addbtn_space_mgr")
+            user.member.admin_capabilities.create(capability=AdminCapability.Capability.SPACE_MANAGER)
+            response = client.get(reverse("hub_equipment_index"))
+            assert reverse("hub_equipment_add").encode() in response.content
 
         def it_hides_from_a_plain_member(client: Client):
             _login(client, "eq_addbtn_plain")
             response = client.get(reverse("hub_equipment_index"))
-            assert b"+ Add Equipment" not in response.content
+            assert reverse("hub_equipment_add").encode() not in response.content
 
     def it_treats_a_user_with_no_member_as_inactive(client: Client):
         user = _member_user("eq_no_member")
@@ -247,6 +269,106 @@ def describe_equipment_index():
         _login(client, "eq_nav")
         response = client.get(reverse("hub_equipment_index"))
         assert reverse("hub_equipment_index").encode() in response.content
+
+    def it_is_the_reservations_page_with_four_kind_chips(client: Client):
+        """#502: the Equipment page reads Reservations; URLs, names and the feature key stay."""
+        import re
+
+        _login(client, "eq_title")
+        EquipmentFactory(name="Open Bench")
+        content = client.get(reverse("hub_equipment_index")).content.decode()
+        assert re.search(r"<title>[^<]*Reservations", content)
+        assert ">Reservations</h1>" in content
+        assert "Book a room, a space, or a tool you are trained on." in content
+        assert 'aria-label="Search reservations"' in content
+        assert 'placeholder="Search reservations"' in content
+        for chip in ("Tools", "Rooms", "Spaces"):
+            assert f">{chip}</a>" in content
+        assert "kind=space&q=" in content
+
+    def describe_locked_card():
+        """#502: a tool the member is not trained on locks, with the pre portal bubble and a Book link."""
+
+        def it_locks_an_untrained_members_card(client: Client):
+            from django.utils.html import escape
+
+            _login(client, "eq_lock")
+            orientation_type = OrientationTypeFactory(name="Lathe")
+            EquipmentFactory(name="Gated Lathe", required_orientation=orientation_type)
+            content = client.get(reverse("hub_equipment_index")).content.decode()
+            assert 'class="hub-card pl-equip-card pl-equip-card--locked"' in content
+            assert 'class="pl-equip-card__lock" aria-hidden="true"' in content
+            assert "pl-equip-card__lock-glyph" in content
+            card = content.split("pl-equip-card--locked", 1)[1].split("pl-equip-card__cta", 1)[0]
+            assert 'class="pl-equip-card__state"' in card
+            assert "Orientation needed" in card
+            sentence = (
+                "Trained on this before the Member Portal went live? Message us in #member-portal-general "
+                "on Discord and say you need access to the Gated Lathe."
+            )
+            assert f'<span class="pl-help__bubble">{sentence}</span>' in card
+            assert f'aria-label="Already trained: {sentence}"' in card
+            assert "title=" not in card  # FRONTEND.md rule 19: the bubble, never a native tooltip
+            expected = (
+                f'href="{escape(orientation_type.orientation_anchor_path())}" '
+                'class="pl-equip-card__cta">Book the orientation</a>'
+            )
+            assert expected in content
+
+        def it_leaves_a_trained_members_card_unlocked(client: Client):
+            user = _login(client, "eq_trained")
+            orientation_type = OrientationTypeFactory(name="Lathe")
+            OrientationRecordFactory(member=user.member, orientation_type=orientation_type)
+            EquipmentFactory(name="Gated Lathe", required_orientation=orientation_type)
+            content = client.get(reverse("hub_equipment_index")).content.decode()
+            assert "You're all set" in content
+            assert "pl-equip-card--locked" not in content
+            assert "pl-equip-card__lock" not in content
+            assert "pl-equip-card__cta" not in content
+            assert "say you need access to the Gated Lathe." not in content
+
+        def it_leaves_the_other_states_as_they_were(client: Client):
+            # The fee state wins over the orientation gap, so the card is not locked (#456 order).
+            from tests.billing.factories import LateCancellationFeeFactory
+
+            user = _login(client, "eq_lock_fee")
+            EquipmentFactory(name="Gated Lathe", required_orientation=OrientationTypeFactory(name="Lathe"))
+            LateCancellationFeeFactory(
+                orientation_booking=OrientationBookingFactory(member=user.member, status="cancelled")
+            )
+            content = client.get(reverse("hub_equipment_index")).content.decode()
+            assert "Pay your late cancellation fee to book again" in content
+            assert "pl-equip-card--locked" not in content
+            assert "pl-equip-card__cta" not in content
+
+        def it_renders_the_grid_in_a_fixed_number_of_queries(client: Client):
+            """The lock reads only prefetched rows: one gated card costs what six mixed cards cost."""
+            from django.db import connection
+            from django.test.utils import CaptureQueriesContext
+
+            _login(client, "eq_lock_queries")
+            url = reverse("hub_equipment_index")
+
+            def count_queries() -> int:
+                client.get(url)  # warm the session and per-request caches so both samples are steady state
+                with CaptureQueriesContext(connection) as ctx:
+                    assert client.get(url).status_code == 200
+                return len(ctx.captured_queries)
+
+            def gated(name: str, **kwargs) -> None:
+                EquipmentFactory(
+                    name=name, required_orientation=OrientationTypeFactory(name=f"{name} basics"), **kwargs
+                )
+
+            gated("Lathe")
+            with_one = count_queries()
+            gated("Mill", guild=GuildFactory(name="Metal"))
+            gated("Dark Room", kind=Equipment.Kind.ROOM)
+            gated("Loading Dock", kind=Equipment.Kind.SPACE)
+            gated("Press")
+            EquipmentFactory(name="Open Bench")
+            assert Equipment.objects.count() == 6
+            assert count_queries() == with_one
 
 
 def describe_equipment_add():
@@ -287,6 +409,112 @@ def describe_equipment_add():
         response = client.post(reverse("hub_equipment_add"), {"name": "Cap Saw", "kind": "tool", "is_active": "on"})
         assert response.status_code == 302
         assert Equipment.objects.filter(name="Cap Saw").exists()
+
+    def it_offers_every_kind_to_an_admin(client: Client):
+        _login(client, "eq_add_kinds_admin", fog_role=Member.FogRole.ADMIN)
+        content = client.get(reverse("hub_equipment_add")).content.decode()
+        for value in ("tool", "room", "space"):
+            assert f'<option value="{value}"' in content
+
+    def it_offers_every_guild_to_an_admin(client: Client):
+        _login(client, "eq_add_admin_guilds", fog_role=Member.FogRole.ADMIN)
+        other = GuildFactory(name="Ceramics")
+        content = client.get(reverse("hub_equipment_add")).content.decode()
+        assert f'<option value="{other.pk}"' in content
+
+    def it_uses_the_plain_invalid_choice_for_an_admins_crafted_kind(client: Client):
+        # The Space Manager sentence is for Space Managers; an admin's garbage kind gets Django's own refusal.
+        _login(client, "eq_add_admin_badkind", fog_role=Member.FogRole.ADMIN)
+        response = client.post(reverse("hub_equipment_add"), {"name": "Odd Saw", "kind": "banana", "is_active": "on"})
+        assert response.status_code == 200
+        assert b"Select a valid choice" in response.content
+        assert EquipmentForm.KIND_NOT_ALLOWED.encode() not in response.content
+        assert not Equipment.objects.filter(name="Odd Saw").exists()
+
+    def it_gives_no_staff_row_to_a_creator_who_already_manages(client: Client):
+        _login(client, "eq_add_admin_nostaff", fog_role=Member.FogRole.ADMIN)
+        client.post(reverse("hub_equipment_add"), {"name": "Admin Saw", "kind": "tool", "is_active": "on"})
+        assert Equipment.objects.filter(name="Admin Saw").exists()
+        assert not EquipmentStaffMembership.objects.filter(equipment__name="Admin Saw").exists()
+
+    def describe_space_manager():
+        """#502: a Space Manager adds rooms and spaces, never tools, and manages what they add."""
+
+        def _space_manager(client: Client, username: str) -> User:
+            user = _login(client, username)
+            user.member.admin_capabilities.create(capability=AdminCapability.Capability.SPACE_MANAGER)
+            return user
+
+        def it_sees_room_and_space_only(client: Client):
+            _space_manager(client, "eq_add_sm_get")
+            response = client.get(reverse("hub_equipment_add"))
+            assert response.status_code == 200
+            content = response.content.decode()
+            assert '<option value="room"' in content
+            assert '<option value="space"' in content
+            assert '<option value="tool"' not in content
+
+        def it_creates_a_space_and_lands_on_its_page_as_its_manager(client: Client):
+            user = _space_manager(client, "eq_add_sm_post")
+            response = client.post(
+                reverse("hub_equipment_add"), {"name": "Loading Dock", "kind": "space", "is_active": "on"}
+            )
+            equipment = Equipment.objects.get(name="Loading Dock")
+            assert equipment.kind == Equipment.Kind.SPACE
+            assert response.status_code == 302
+            assert response["Location"] == reverse("hub_equipment_detail", args=[equipment.slug])
+            staff_row = EquipmentStaffMembership.objects.get(equipment=equipment)
+            assert staff_row.member == user.member
+            assert staff_row.granted_by == user.member
+            assert client.get(reverse("hub_equipment_manage", args=[equipment.slug])).status_code == 200
+
+        def it_refuses_a_posted_tool_with_the_sentence(client: Client):
+            _space_manager(client, "eq_add_sm_tool")
+            response = client.post(
+                reverse("hub_equipment_add"), {"name": "Sneaky Saw", "kind": "tool", "is_active": "on"}
+            )
+            assert response.status_code == 200
+            assert EquipmentForm.KIND_NOT_ALLOWED.encode() in response.content
+            assert not Equipment.objects.filter(name="Sneaky Saw").exists()
+
+        def it_offers_only_the_guilds_they_lead_or_staff_plus_standalone(client: Client):
+            user = _space_manager(client, "eq_add_sm_guilds")
+            staffed = GuildFactory(name="Woodworking")
+            GuildStaffMembershipFactory(guild=staffed, member=user.member)
+            led = GuildFactory(name="Metal", guild_lead=user.member)
+            other = GuildFactory(name="Ceramics")
+            content = client.get(reverse("hub_equipment_add")).content.decode()
+            assert f'<option value="{staffed.pk}"' in content
+            assert f'<option value="{led.pk}"' in content
+            assert f'<option value="{other.pk}"' not in content
+            assert "Standalone (run by the makerspace)" in content
+
+        def it_refuses_a_posted_guild_they_are_not_part_of(client: Client):
+            _space_manager(client, "eq_add_sm_other_guild")
+            other = GuildFactory(name="Ceramics")
+            response = client.post(
+                reverse("hub_equipment_add"),
+                {"name": "Sneaky Dock", "kind": "space", "guild": other.pk, "is_active": "on"},
+            )
+            assert response.status_code == 200
+            assert b"Select a valid choice" in response.content
+            assert not Equipment.objects.filter(name="Sneaky Dock").exists()
+
+        def it_files_a_space_under_a_guild_they_staff(client: Client):
+            user = _space_manager(client, "eq_add_sm_own_guild")
+            staffed = GuildFactory(name="Woodworking")
+            GuildStaffMembershipFactory(guild=staffed, member=user.member)
+            response = client.post(
+                reverse("hub_equipment_add"),
+                {"name": "Wood Dock", "kind": "space", "guild": staffed.pk, "is_active": "on"},
+            )
+            assert response.status_code == 302
+            assert Equipment.objects.get(name="Wood Dock").guild == staffed
+
+        def it_keeps_every_kind_on_the_form_when_none_are_given():
+            # The manage panel's Details tab passes nothing and keeps today's rules.
+            form = EquipmentForm()
+            assert [value for value, _label in form.fields["kind"].choices] == ["tool", "room", "space"]
 
     def it_rejects_requires_guild_membership_without_a_guild(client: Client):
         _login(client, "eq_add_bad", fog_role=Member.FogRole.ADMIN)
@@ -455,6 +683,74 @@ def describe_equipment_detail():
         EquipmentStaffMembershipFactory(equipment=equipment, member=user.member)
         response = client.get(reverse("hub_equipment_detail", args=[equipment.slug]))
         assert manage_url.encode() in response.content
+
+    def describe_pre_portal_sentence():
+        """#502: the needs orientation banner says how a member trained before the portal gets access."""
+
+        sentence = (
+            "Trained on this before the Member Portal went live? Message us in #member-portal-general on "
+            "Discord and say you need access to the Gated Lathe."
+        )
+
+        def _gated(**kwargs) -> tuple[Equipment, OrientationType]:
+            orientation_type = OrientationTypeFactory(name="Lathe")
+            return EquipmentFactory(
+                name="Gated Lathe", required_orientation=orientation_type, **kwargs
+            ), orientation_type
+
+        def it_follows_the_book_leaf(client: Client):
+            _login(client, "eq_det_pre_book")
+            equipment, orientation_type = _gated()
+            GuildOrientationSettingsFactory(guild=orientation_type.guild, is_enabled=True)
+            content = client.get(reverse("hub_equipment_detail", args=[equipment.slug])).content.decode()
+            assert f"You need the Lathe orientation before you can book time here. {sentence}</p>" in content
+            assert "Book the Orientation" in content
+
+        def it_follows_the_paused_leaf(client: Client):
+            _login(client, "eq_det_pre_paused")
+            equipment, _orientation_type = _gated()  # no settings row: the guild is not taking bookings
+            content = client.get(reverse("hub_equipment_detail", args=[equipment.slug])).content.decode()
+            assert (
+                f"You need the Lathe orientation before you can book time here. {sentence} "
+                "Orientation bookings for this tool are paused. Check back soon.</p>"
+            ) in content
+            assert "Book the Orientation" not in content
+
+        def it_names_a_rooms_kind_in_the_paused_leaf(client: Client):
+            _login(client, "eq_det_pre_room")
+            equipment, _orientation_type = _gated(kind=Equipment.Kind.ROOM)
+            content = client.get(reverse("hub_equipment_detail", args=[equipment.slug])).content.decode()
+            assert "Orientation bookings for this room are paused." in content
+
+        def it_stays_off_the_booked_leaf(client: Client):
+            user = _login(client, "eq_det_pre_booked")
+            equipment, orientation_type = _gated()
+            OrientationBookingFactory(
+                slot=OrientationSlotFactory(orientation_type=orientation_type),
+                member=user.member,
+                status=OrientationBooking.Status.CONFIRMED,
+            )
+            content = client.get(reverse("hub_equipment_detail", args=[equipment.slug])).content.decode()
+            assert "Your orientation is booked for" in content
+            assert sentence not in content
+
+        def it_stays_off_the_requested_leaf(client: Client):
+            user = _login(client, "eq_det_pre_requested")
+            equipment, orientation_type = _gated()
+            OrientationBookingFactory(
+                slot=OrientationSlotFactory(orientation_type=orientation_type), member=user.member
+            )
+            content = client.get(reverse("hub_equipment_detail", args=[equipment.slug])).content.decode()
+            assert "Your orientation request is in." in content
+            assert sentence not in content
+
+        def it_stays_off_for_a_trained_member(client: Client):
+            user = _login(client, "eq_det_pre_trained")
+            equipment, orientation_type = _gated()
+            OrientationRecordFactory(member=user.member, orientation_type=orientation_type)
+            content = client.get(reverse("hub_equipment_detail", args=[equipment.slug])).content.decode()
+            assert "You're all set." in content
+            assert sentence not in content
 
 
 def describe_orientation_deep_link_on_the_guild_page():
@@ -638,6 +934,89 @@ def describe_equipment_details_save():
         assert b"Pick a guild first, or turn this off." in response.content
         equipment.refresh_from_db()
         assert equipment.name == "Solid Saw"
+
+    def describe_space_manager_on_the_details_tab():
+        """#502 fix round: the Details tab narrows like the add page, so a space cannot become a tool."""
+
+        def _managed_space(client: Client, username: str, **kwargs) -> tuple[User, Equipment]:
+            user = _login(client, username)
+            user.member.admin_capabilities.create(capability=AdminCapability.Capability.SPACE_MANAGER)
+            equipment = EquipmentFactory(name="Loading Dock", kind=Equipment.Kind.SPACE, **kwargs)
+            EquipmentStaffMembershipFactory(equipment=equipment, member=user.member)
+            return user, equipment
+
+        def it_refuses_turning_their_space_into_a_tool(client: Client):
+            _user, equipment = _managed_space(client, "eq_save_sm_tool")
+            response = client.post(
+                reverse("hub_equipment_details_save", args=[equipment.slug]),
+                {"name": "Loading Dock", "kind": "tool", "is_active": "on"},
+            )
+            assert response.status_code == 200
+            assert EquipmentForm.KIND_NOT_ALLOWED.encode() in response.content
+            equipment.refresh_from_db()
+            assert equipment.kind == Equipment.Kind.SPACE
+
+        def it_lets_them_make_it_a_room(client: Client):
+            _user, equipment = _managed_space(client, "eq_save_sm_room")
+            response = client.post(
+                reverse("hub_equipment_details_save", args=[equipment.slug]),
+                {"name": "Loading Dock", "kind": "room", "is_active": "on"},
+            )
+            assert response.status_code == 302
+            equipment.refresh_from_db()
+            assert equipment.kind == Equipment.Kind.ROOM
+
+        def it_shows_room_and_space_only_on_the_details_tab(client: Client):
+            _user, equipment = _managed_space(client, "eq_manage_sm_get")
+            content = client.get(reverse("hub_equipment_manage", args=[equipment.slug])).content.decode()
+            assert '<option value="room"' in content
+            assert '<option value="space"' in content
+            assert '<option value="tool"' not in content
+
+        def it_keeps_a_tool_they_manage_through_a_guild_valid(client: Client):
+            user = _login(client, "eq_save_sm_guild_tool")
+            user.member.admin_capabilities.create(capability=AdminCapability.Capability.SPACE_MANAGER)
+            guild = GuildFactory(name="Woodworking", guild_lead=user.member)
+            equipment = EquipmentFactory(name="Table Saw", kind=Equipment.Kind.TOOL, guild=guild)
+            content = client.get(reverse("hub_equipment_manage", args=[equipment.slug])).content.decode()
+            assert '<option value="tool"' in content
+            response = client.post(
+                reverse("hub_equipment_details_save", args=[equipment.slug]),
+                {"name": "Table Saw", "kind": "tool", "guild": guild.pk, "is_active": "on"},
+            )
+            assert response.status_code == 302
+            equipment.refresh_from_db()
+            assert equipment.kind == Equipment.Kind.TOOL
+
+        def it_narrows_the_guild_picker_to_their_guilds_and_the_current_one(client: Client):
+            current = GuildFactory(name="Ceramics")
+            user, equipment = _managed_space(client, "eq_save_sm_guilds", guild=current)
+            staffed = GuildFactory(name="Woodworking")
+            GuildStaffMembershipFactory(guild=staffed, member=user.member)
+            other = GuildFactory(name="Metal")
+            content = client.get(reverse("hub_equipment_manage", args=[equipment.slug])).content.decode()
+            assert f'<option value="{current.pk}"' in content
+            assert f'<option value="{staffed.pk}"' in content
+            assert f'<option value="{other.pk}"' not in content
+            response = client.post(
+                reverse("hub_equipment_details_save", args=[equipment.slug]),
+                {"name": "Loading Dock", "kind": "space", "guild": other.pk, "is_active": "on"},
+            )
+            assert response.status_code == 200
+            assert b"Select a valid choice" in response.content
+            equipment.refresh_from_db()
+            assert equipment.guild == current
+
+        def it_keeps_every_kind_and_guild_for_a_guild_lead(client: Client):
+            user = _login(client, "eq_manage_lead_kinds")
+            guild = GuildFactory(name="Woodworking", guild_lead=user.member)
+            other = GuildFactory(name="Ceramics")
+            equipment = EquipmentFactory(name="Table Saw", guild=guild)
+            content = client.get(reverse("hub_equipment_manage", args=[equipment.slug])).content.decode()
+            for value in ("tool", "room", "space"):
+                assert f'<option value="{value}"' in content
+            assert f'<option value="{other.pk}"' in content
+            assert EquipmentForm.KIND_NOT_ALLOWED not in content
 
 
 def describe_equipment_photo_delete():

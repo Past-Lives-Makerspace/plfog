@@ -154,21 +154,34 @@ def can_manage_equipment(request: HttpRequest, equipment: Equipment) -> bool:
     return equipment.staff_memberships.filter(member=member).exists()
 
 
-def can_create_equipment(request: HttpRequest) -> bool:
-    """True when this request may create equipment — full admin or EQUIPMENT capability only.
+def creatable_equipment_kinds(request: HttpRequest) -> list[str]:
+    """The :class:`Equipment.Kind` values this request may create, in choice order.
 
-    Guild leads and per-equipment managers edit and run equipment they manage but do not
-    create it (locked decision #3). The admin leg honors ``view_as`` preview; the
-    capability leg is preview-independent, matching :func:`can_manage_equipment` and the
-    house capability gates.
+    Every kind for a full admin (``view_as``-aware, as today) or an EQUIPMENT holder;
+    rooms and spaces only for a Space Manager (#502: they add the loading dock, never a
+    tool); an empty list for everyone else. Guild leads and per-equipment managers edit
+    and run equipment they manage but do not create it (locked decision #3). The
+    capability legs are preview-independent, matching :func:`can_manage_equipment` and
+    the house capability gates: they read the request's actual linked member.
     """
-    from membership.models import AdminCapability
+    from membership.models import AdminCapability, Equipment
 
     view_as = getattr(request, "view_as", None)
     if view_as is not None and view_as.is_admin:
-        return True
+        return list(Equipment.Kind.values)
     actual_member: Member | None = getattr(request.user, "member", None)
-    return actual_member is not None and actual_member.has_admin_capability(AdminCapability.Capability.EQUIPMENT)
+    if actual_member is None:
+        return []
+    if actual_member.has_admin_capability(AdminCapability.Capability.EQUIPMENT):
+        return list(Equipment.Kind.values)
+    if actual_member.has_admin_capability(AdminCapability.Capability.SPACE_MANAGER):
+        return [Equipment.Kind.ROOM, Equipment.Kind.SPACE]
+    return []
+
+
+def can_create_equipment(request: HttpRequest) -> bool:
+    """True when this request may create equipment of any kind — see :func:`creatable_equipment_kinds`."""
+    return bool(creatable_equipment_kinds(request))
 
 
 def can_edit_class(request: HttpRequest, offering: ClassOffering) -> bool:

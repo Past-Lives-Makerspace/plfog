@@ -11,7 +11,7 @@ from __future__ import annotations
 import logging
 from collections.abc import Sequence
 from datetime import date, datetime, time, timedelta
-from typing import Any
+from typing import Any, cast
 
 from django.contrib import messages
 from django.contrib.auth.decorators import login_required
@@ -46,7 +46,7 @@ from membership.models import (
     Guild,
     Member,
 )
-from membership.permissions import can_create_equipment, can_manage_equipment
+from membership.permissions import can_create_equipment, can_manage_equipment, creatable_equipment_kinds
 
 logger = logging.getLogger("hub")
 
@@ -390,14 +390,52 @@ def hub_equipment_index(request: HttpRequest) -> HttpResponse:
     )
 
 
+def _form_scope(request: HttpRequest, equipment: Equipment | None = None) -> dict[str, Any]:
+    """The ``kinds`` and ``guilds`` kwargs an :class:`EquipmentForm` gets for this request (#502).
+
+    Empty (the full pickers, today's rules) for anyone who may create a tool: full admins,
+    EQUIPMENT holders, and, through the manage panel, guild leads and per item managers,
+    whose list is empty. A Space Manager's list has no TOOL in it, so they get their kinds
+    plus the item's current kind (a tool they manage through a guild still validates) in
+    ``Equipment.Kind`` order, and the guilds they lead or staff plus the item's current
+    guild, so they cannot file a space under a guild they are not part of and hand its
+    management to that guild's staff. Standalone always stays available.
+    """
+    kinds = creatable_equipment_kinds(request)
+    if not kinds or Equipment.Kind.TOOL in kinds:
+        return {}
+    # A narrowed list only ever comes from the SPACE_MANAGER capability, which lives on the
+    # request's linked member, so there is one here.
+    member = cast(Member, _get_member(request))
+    allowed = set(kinds)
+    guild_filter = Q(pk__in=member.staffed_guilds.values("pk"))
+    if equipment is not None:
+        allowed.add(equipment.kind)
+        guild_filter |= Q(pk=equipment.guild_id)
+    return {
+        "kinds": [value for value in Equipment.Kind.values if value in allowed],
+        "guilds": Guild.objects.filter(guild_filter),
+    }
+
+
 @login_required
 def hub_equipment_add(request: HttpRequest) -> HttpResponse:
-    """Admin-gated create form — full admins and EQUIPMENT capability holders only."""
-    if not can_create_equipment(request):
+    """The create form, gated on the kinds this request may create (#502).
+
+    Full admins and EQUIPMENT holders create every kind; a Space Manager creates rooms and
+    spaces only, under the guilds they lead or staff or standalone, and the form itself
+    narrows the pickers and refuses the rest (:func:`_form_scope`). A creator who could
+    not otherwise manage what they just made (a Space Manager has no site tier) gets an
+    ``EquipmentStaffMembership`` row so the manage page opens for them.
+    """
+    if not creatable_equipment_kinds(request):
         return HttpResponse("Forbidden", status=403)
-    form = EquipmentForm(request.POST or None, request.FILES or None)
+    form = EquipmentForm(request.POST or None, request.FILES or None, **_form_scope(request))
     if request.method == "POST" and form.is_valid():
         equipment = form.save()
+        creator = _get_member(request)
+        if creator is not None and not can_manage_equipment(request, equipment):
+            EquipmentStaffMembership.objects.create(equipment=equipment, member=creator, granted_by=creator)
         messages.success(request, "Equipment added.")
         return redirect("hub_equipment_detail", slug=equipment.slug)
     return render(request, "hub/equipment_add.html", {**_get_hub_context(request), "form": form})
@@ -823,7 +861,7 @@ def _render_manage(
             **_get_hub_context(request),
             **orientation_ctx,
             "equipment": equipment,
-            "form": form if form is not None else EquipmentForm(instance=equipment),
+            "form": form if form is not None else EquipmentForm(instance=equipment, **_form_scope(request, equipment)),
             "staff_memberships": list(equipment.staff_memberships.select_related("member", "granted_by")),
             "staff_add_form": staff_add_form
             if staff_add_form is not None
@@ -876,7 +914,7 @@ def hub_equipment_details_save(request: HttpRequest, slug: str) -> HttpResponse:
     forbidden = _require_can_manage(request, equipment)
     if forbidden is not None:
         return forbidden
-    form = EquipmentForm(request.POST, request.FILES, instance=equipment)
+    form = EquipmentForm(request.POST, request.FILES, instance=equipment, **_form_scope(request, equipment))
     if form.is_valid():
         form.save()
         messages.success(request, "Saved.")

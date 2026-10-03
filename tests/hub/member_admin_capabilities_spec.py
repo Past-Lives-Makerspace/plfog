@@ -61,6 +61,26 @@ def describe_capabilities_form():
         member.admin_capabilities.create(capability=AdminCapability.Capability.REFUNDS)
         assert MemberCapabilitiesForm.initial_for(member)["cap_refunds"] is True
 
+    def it_offers_the_equipment_and_space_manager_toggles():
+        # #502: EQUIPMENT was never on the form; SPACE_MANAGER is new. Both after Refunds.
+        form = MemberCapabilitiesForm({"cap_equipment": "on", "cap_space_manager": "on"})
+        assert form.is_valid()
+        assert form.selected() == ["equipment", "space_manager"]
+        assert list(form.fields)[-2:] == ["cap_equipment", "cap_space_manager"]
+        assert form.fields["cap_equipment"].label == "Equipment Administrator"
+        assert form.fields["cap_space_manager"].label == "Space Manager"
+        assert (
+            form.fields["cap_space_manager"].help_text
+            == (AdminCapability.DESCRIPTIONS[AdminCapability.Capability.SPACE_MANAGER])
+        )
+
+    def it_initializes_the_new_toggles_from_existing_grants():
+        member = _member_user("spaceinit").member
+        member.admin_capabilities.create(capability=AdminCapability.Capability.SPACE_MANAGER)
+        initial = MemberCapabilitiesForm.initial_for(member)
+        assert initial["cap_space_manager"] is True
+        assert initial["cap_equipment"] is False
+
 
 def describe_admin_member_edit_permissions():
     def it_grants_the_checked_capabilities(client: Client):
@@ -101,6 +121,33 @@ def describe_admin_member_edit_permissions():
         # Notifications live on their own tab (not under Permissions), rendering the matrix.
         assert "section === 'notifications'" in content
         assert "pl-notif-matrix" in content
+
+    def it_renders_the_equipment_and_space_manager_toggles_on_the_permissions_tab(client: Client):
+        _member_user("boss5", fog_role=Member.FogRole.ADMIN)
+        target = _member_user("target5").member
+        target.admin_capabilities.create(capability=AdminCapability.Capability.SPACE_MANAGER)
+        client.login(username="boss5", password="pass")
+        content = client.get(reverse("hub_admin_member_edit", args=[target.pk])).content.decode()
+        assert 'name="cap_equipment"' in content
+        assert 'name="cap_space_manager"' in content
+        assert "Equipment Administrator" in content
+        assert "Space Manager" in content
+        assert "Cannot add tools." in content
+
+    def it_grants_and_revokes_the_equipment_and_space_manager_capabilities(client: Client):
+        _member_user("boss6", fog_role=Member.FogRole.ADMIN)
+        target = _member_user("target6").member
+        client.login(username="boss6", password="pass")
+        url = reverse("hub_admin_member_edit", args=[target.pk])
+
+        client.post(url, _cap_post(cap_equipment=True, cap_space_manager=True))
+        assert set(target.admin_capabilities.values_list("capability", flat=True)) == {"equipment", "space_manager"}
+
+        client.post(url, _cap_post(cap_space_manager=True))
+        assert set(target.admin_capabilities.values_list("capability", flat=True)) == {"space_manager"}
+
+        client.post(url, _cap_post())
+        assert target.admin_capabilities.count() == 0
 
     def it_revokes_unchecked_capabilities(client: Client):
         _member_user("boss2", fog_role=Member.FogRole.ADMIN)

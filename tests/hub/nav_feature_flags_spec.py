@@ -113,7 +113,7 @@ _NAV_MARKERS: dict[str, tuple[bytes, bytes]] = {
     "directory": (b'href="/members/" class="hub-sidebar__link', b"Member Directory"),
     "leadership": (b'href="/leadership/" class="hub-sidebar__link', b"Leadership Directory"),
     "spaces": (b'href="/spaces/" class="hub-sidebar__link', b"Spaces"),
-    "equipment": (b'href="/equipment/" class="hub-sidebar__link', b"Equipment"),
+    "equipment": (b'href="/equipment/" class="hub-sidebar__link', b"Reservations"),
     "voting": (b'href="/manage/voting/" class="hub-sidebar__link', b"Voting"),
     "wiki": (b'href="/wiki/" class="hub-sidebar__link', b"Member Wiki"),
     "my_tab": (b'href="/tab/" class="hub-sidebar__link', b"My Tab"),
@@ -228,6 +228,22 @@ def describe_both_sidebar_blocks():
         body = _sidebar(client)
         assert b"hub-sidebar__link--soon" in body
         assert b"Back in spring" in body
+
+    def it_names_the_reservations_entry_in_both_blocks(client: Client):
+        """#502: the Equipment entry reads Reservations for admins and members alike; its URL stays."""
+        turn_on("equipment")
+        href, label = _NAV_MARKERS["equipment"]
+        _login_admin(client)
+        admin_body = _sidebar(client)
+        assert href in admin_body
+        assert label in admin_body
+        assert b"Equipment" not in admin_body
+        client.logout()
+        _login_member(client, "navmember_reservations")
+        member_body = _sidebar(client)
+        assert href in member_body
+        assert label in member_body
+        assert b"Equipment" not in member_body
 
 
 def describe_the_guilds_section():

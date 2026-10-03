@@ -7,6 +7,7 @@ from datetime import date as date_type
 from decimal import Decimal
 import re
 from dataclasses import dataclass
+from collections.abc import Collection
 from typing import TYPE_CHECKING, Any, ClassVar, Self, cast
 
 from django.db import transaction
@@ -1310,6 +1311,16 @@ class MemberCapabilitiesForm(forms.Form):
         label=AdminCapability.Capability.REFUNDS.label,
         help_text=AdminCapability.DESCRIPTIONS[AdminCapability.Capability.REFUNDS],
     )
+    cap_equipment = forms.BooleanField(
+        required=False,
+        label=AdminCapability.Capability.EQUIPMENT.label,
+        help_text=AdminCapability.DESCRIPTIONS[AdminCapability.Capability.EQUIPMENT],
+    )
+    cap_space_manager = forms.BooleanField(
+        required=False,
+        label=AdminCapability.Capability.SPACE_MANAGER.label,
+        help_text=AdminCapability.DESCRIPTIONS[AdminCapability.Capability.SPACE_MANAGER],
+    )
 
     # Field name → the capability it grants. The single source of truth both
     # ``initial_for`` and ``selected`` read, so the two never drift.
@@ -1320,6 +1331,8 @@ class MemberCapabilitiesForm(forms.Form):
         "cap_events_approver": AdminCapability.Capability.EVENTS_APPROVER,
         "cap_billing_approver": AdminCapability.Capability.BILLING_APPROVER,
         "cap_refunds": AdminCapability.Capability.REFUNDS,
+        "cap_equipment": AdminCapability.Capability.EQUIPMENT,
+        "cap_space_manager": AdminCapability.Capability.SPACE_MANAGER,
     }
 
     @classmethod
@@ -5160,6 +5173,8 @@ class EquipmentForm(forms.ModelForm):
     NEW_TYPE_CHOICE = "new"
     # The nested type form's fields the partial renders; the rest keep their model defaults.
     NEW_TYPE_FIELDS = ("name", "duration_minutes", "default_seats", "price", "default_location")
+    #: The refusal when a posted kind falls outside the kinds this form was opened with (#502).
+    KIND_NOT_ALLOWED = "Space Managers can add rooms and spaces. Ask an Equipment Administrator to add a tool."
 
     class Meta:
         model = Equipment
@@ -5183,10 +5198,32 @@ class EquipmentForm(forms.ModelForm):
             "location_note": forms.TextInput(attrs={"placeholder": "e.g. Back corner of the wood shop"}),
         }
 
-    def __init__(self, *args: Any, **kwargs: Any) -> None:
+    def __init__(
+        self,
+        *args: Any,
+        kinds: Collection[str] | None = None,
+        guilds: QuerySet[Guild] | None = None,
+        **kwargs: Any,
+    ) -> None:
+        """``kinds`` and ``guilds`` narrow the Kind and Guild pickers (#502); ``None`` offers everything.
+
+        The add page and the manage panel's Details tab pass the viewer's scope
+        (``hub.equipment_views._form_scope``): a Space Manager sees Room and Space (plus
+        the item's current kind) and the guilds they lead or staff (plus the item's current
+        guild); everyone else passes nothing and keeps today's full pickers. The
+        restriction lives here, not in the view: the kind field refuses a posted kind
+        outside the set with ``KIND_NOT_ALLOWED`` (Django rejects an out-of-choices value
+        before ``clean`` runs, so this is where the refusal has to live), and the guild
+        field refuses a guild outside the set with Django's own invalid choice, so a
+        crafted POST gets the same answer as the picker. Standalone is always offered.
+        """
         super().__init__(*args, **kwargs)
+        kind_field = cast(forms.ChoiceField, self.fields["kind"])
+        if kinds is not None:
+            kind_field.choices = [(value, label) for value, label in Equipment.Kind.choices if value in kinds]
+            kind_field.error_messages["invalid_choice"] = self.KIND_NOT_ALLOWED
         guild_field = cast(forms.ModelChoiceField, self.fields["guild"])
-        guild_field.queryset = Guild.objects.order_by("name")
+        guild_field.queryset = (Guild.objects.all() if guilds is None else guilds).order_by("name")
         guild_field.empty_label = "Standalone (run by the makerspace)"
         guild_field.required = False
         space_field = cast(forms.ModelChoiceField, self.fields["space"])

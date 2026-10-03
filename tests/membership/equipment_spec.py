@@ -414,6 +414,34 @@ def describe_member_can_create_equipment():
         assert lead.can_create_equipment() is False
         assert MemberFactory().can_create_equipment() is False
 
+    def it_allows_a_space_manager():
+        holder = MemberFactory()
+        holder.admin_capabilities.create(capability=AdminCapability.Capability.SPACE_MANAGER)
+        assert holder.can_create_equipment() is True
+
+
+def describe_member_creatable_equipment_kinds():
+    """#502: the role twin of ``membership.permissions.creatable_equipment_kinds``."""
+
+    def it_gives_every_kind_to_a_full_admin():
+        assert MemberFactory(fog_role=Member.FogRole.ADMIN).creatable_equipment_kinds() == ["tool", "room", "space"]
+
+    def it_gives_every_kind_to_an_equipment_capability_holder():
+        holder = MemberFactory()
+        holder.admin_capabilities.create(capability=AdminCapability.Capability.EQUIPMENT)
+        assert holder.creatable_equipment_kinds() == ["tool", "room", "space"]
+
+    def it_gives_rooms_and_spaces_to_a_space_manager():
+        holder = MemberFactory()
+        holder.admin_capabilities.create(capability=AdminCapability.Capability.SPACE_MANAGER)
+        assert holder.creatable_equipment_kinds() == ["room", "space"]
+
+    def it_gives_nothing_to_a_guild_lead_or_a_plain_member():
+        lead = MemberFactory()
+        GuildFactory(guild_lead=lead)
+        assert lead.creatable_equipment_kinds() == []
+        assert MemberFactory().creatable_equipment_kinds() == []
+
 
 # ── Orientation hours reconcile (equipment-orientation-hours spec §5.3) ─────────────
 

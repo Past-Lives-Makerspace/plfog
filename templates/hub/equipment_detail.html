@@ -61,9 +61,9 @@
   <p style="margin:0;"><a href="{{ orientation_url }}">Your orientation request is in. {% if required_orientation_is_equipment_owned %}A manager will confirm a time.{% else %}The guild will confirm a time.{% endif %}</a></p>
   {% elif required_orientation_paused %}
   {# A paused gate must never render a dead Book link (spec: the honest CTA rule). #}
-  <p style="margin:0;">You need the {{ equipment.required_orientation.name }} orientation before you can book time here. Orientation bookings for this tool are paused. Check back soon.</p>
+  <p style="margin:0;">You need the {{ equipment.required_orientation.name }} orientation before you can book time here. Trained on this before the Member Portal went live? Message us in #member-portal-general on Discord and say you need access to the {{ equipment.name }}. Orientation bookings for this {{ equipment.get_kind_display|lower }} are paused. Check back soon.</p>
   {% else %}
-  <p style="margin:0 0 0.75rem;">You need the {{ equipment.required_orientation.name }} orientation before you can book time here.</p>
+  <p style="margin:0 0 0.75rem;">You need the {{ equipment.required_orientation.name }} orientation before you can book time here. Trained on this before the Member Portal went live? Message us in #member-portal-general on Discord and say you need access to the {{ equipment.name }}.</p>
   <a href="{{ orientation_url }}" class="pl-btn pl-btn--primary">Book the Orientation</a>
   {% endif %}
 </div>

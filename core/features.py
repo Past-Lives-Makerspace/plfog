@@ -123,8 +123,8 @@ FEATURES: list[Feature] = [
     ),
     Feature(
         key="equipment",
-        name="Equipment",
-        off_description="Takes Equipment out of the sidebar.",
+        name="Reservations",
+        off_description="Takes Reservations out of the sidebar.",
     ),
     Feature(
         key="voting",

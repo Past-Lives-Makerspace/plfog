@@ -9189,6 +9189,50 @@ mark { background: color-mix(in srgb, var(--color-tuscan-yellow) 30%, transparen
     color: var(--hub-text-muted);
     background: var(--hub-surface);
 }
+/* A locked Reservations card (#502): a tool the member is not trained on. The photo dims
+   under a lock, and the state line and the Book the orientation link rise above the card's
+   stretched name link so they stay clickable and the badge's help bubble stays hoverable. */
+.pl-equip-card--locked .pl-equip-card__photo,
+.pl-equip-card--locked .pl-equip-card__placeholder {
+    opacity: 0.45;
+    filter: grayscale(0.5);
+}
+.pl-equip-card__lock {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 140px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    pointer-events: none;
+}
+.pl-equip-card__lock-glyph {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 2.75rem;
+    height: 2.75rem;
+    border-radius: 50%;
+    background: var(--hub-card-bg);
+    color: var(--hub-text);
+    border: 1px solid var(--hub-border);
+}
+/* Positioned, with no z-index of their own: they sit above the stretched name link by tree order,
+   and the help bubble's own z-index stays in the grid's stacking context instead of being trapped here. */
+.pl-equip-card__state {
+    position: relative;
+    display: flex;
+    align-items: center;
+    gap: 0.4rem;
+    flex-wrap: wrap;
+}
+.pl-equip-card__cta {
+    position: relative;
+    align-self: flex-start;
+    font-size: 0.85rem;
+}
 
 /* Filter row — chips scroll horizontally in their own contained region on phones. */
 .pl-equip-filters {
