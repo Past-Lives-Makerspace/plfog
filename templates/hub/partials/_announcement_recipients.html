@@ -1,0 +1,53 @@
+{% comment %}
+The body of the Who It Reached modal (components/modal.html, id announcement-recipients) for a
+sent or sending announcement, loaded by hub_announcement_recipients into
+#announcement-recipients-body. Everyone the delivery ledger says it reached, with each channel,
+plus anyone of this send's own whose email failed and the provider's reason. The search box
+filters rows in place.
+
+Params:
+  row            — the AnnouncementDraft
+  recipient_list — AnnouncementRecipientList
+{% endcomment %}
+<div x-data="{ q: '' }" data-announcement-recipients="{{ row.pk }}">
+  {% with summary=recipient_list %}
+  <p class="pl-recipients__summary" data-recipients-summary>{{ summary.reached }} {{ summary.reached|pluralize:"person,people" }} reached. Emails: {{ summary.emailed }} sent{% if summary.failed %}, {{ summary.failed }} failed{% endif %}. In the app: {{ summary.in_app }}. Push: {{ summary.pushed }}.</p>
+  {% endwith %}
+  <p class="pl-field-hint" data-recipients-push-note>Push says yes for members who have the app or browser notifications set up.</p>
+  {% if row.state == 'sending' %}
+  <p class="pl-field-hint" data-recipients-sending>Still sending. This is everyone it has reached so far.</p>
+  {% endif %}
+  {% if recipient_list.recipients %}
+  <div class="pl-form-group pl-recipients__search">
+    <label class="sr-only" for="announcement-recipients-search">Search recipients</label>
+    <input type="search" id="announcement-recipients-search" placeholder="Search by name or email" x-model="q" autocomplete="off">
+  </div>
+  <div class="pl-recipients__scroll">
+    <table class="pl-members-table pl-recipients-table">
+      <thead>
+        <tr>
+          <th scope="col">Name</th>
+          <th scope="col">Email address</th>
+          <th scope="col">Email</th>
+          <th scope="col">In the app</th>
+          <th scope="col">Push</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for r in recipient_list.recipients %}
+        <tr data-recipient="{{ r.address|default:r.name }}" data-search="{{ r.name|lower }} {{ r.address|lower }}"
+            x-show="!q || $el.dataset.search.includes(q.toLowerCase())">
+          <td data-label="Name">{{ r.name|default:"No account" }}</td>
+          <td data-label="Email address" class="pl-recipients__address">{{ r.address }}</td>
+          <td data-label="Email" data-recipient-email="{{ r.email|default:'none' }}">{% if r.email == 'sent' %}Sent{% elif r.email == 'failed' %}<span class="pl-recipients__failed">Failed</span>{% if r.email_error %}<span class="pl-recipients__error">{{ r.email_error|truncatechars:120 }}</span>{% endif %}{% else %}No{% endif %}</td>
+          <td data-label="In the app">{% if r.in_app %}Yes{% else %}No{% endif %}</td>
+          <td data-label="Push">{% if r.push %}Yes{% else %}No{% endif %}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% else %}
+  <p class="pl-recipients__empty" data-recipients-empty>{% if row.ledger_period %}Nobody yet.{% else %}Who this reached was not recorded for announcements sent before the Announcements page existed.{% endif %}</p>
+  {% endif %}
+</div>

@@ -269,10 +269,15 @@ def describe_AnnouncementDraft():
             )
 
         def it_counts_people_and_each_channel_from_the_ledger():
+            from core.models import FcmDevice
+
             row = AnnouncementDraftFactory(sent=True, delivery_period="announce:77")
-            _delivered(row, "user:1", "in_app")
-            _delivered(row, "user:1", "email")
-            _delivered(row, "user:1", "push")
+            phone = User.objects.create_user(username="phone", email="phone@x.com")
+            FcmDevice.objects.create(user=phone, token="fcm-token")
+            _delivered(row, f"user:{phone.pk}", "in_app")
+            _delivered(row, f"user:{phone.pk}", "email")
+            _delivered(row, f"user:{phone.pk}", "push")
+            _delivered(row, "user:2", "push")  # no device: the channel spends the slot, nobody's phone buzzes
             _delivered(row, "user:2", "in_app")
             _delivered(row, "email:guest@x.com", "email")
             _delivered(row, "broadcast", "discord")

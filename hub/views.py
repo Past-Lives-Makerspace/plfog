@@ -4122,7 +4122,7 @@ def _compose_audience_forbidden(request: HttpRequest, raw_audience: str) -> Http
     from membership.models import AnnouncementDraft
 
     audience, guild, offering = split_audience(raw_audience)
-    if audience == AnnouncementDraft.Audience.SITE.value:
+    if audience in (AnnouncementDraft.Audience.SITE.value, AnnouncementDraft.Audience.LEADS.value):
         return None if _viewing_as_admin(request) else HttpResponse("Forbidden", status=403)
     if audience == AnnouncementDraft.Audience.GUILD.value and guild is not None and _can_edit_guild(request, guild):
         return None
@@ -4971,7 +4971,8 @@ def announcements_overview(request: HttpRequest) -> HttpResponse:
     :func:`_announcement_rows` (admins see every row; leads, staff and instructors see their
     audiences'). Drafts sort by last edit; Sent by when it went out or was queued
     (``Coalesce(sent_at, send_requested_at)``), so a queued row heads the list. The Sent tab reads
-    reach for its page in one ledger query (:meth:`AnnouncementDraftQuerySet.reach_for`).
+    reach and emails sent for its page in one ledger query each (``reach_for``, ``emails_for``), and
+    a sending row's progress (:meth:`AnnouncementDraft.send_progress`).
 
     Whoever may neither compose nor see a row is refused the way the composer refuses, view-as
     aware: a message and the propose flow.
@@ -5000,13 +5001,17 @@ def announcements_overview(request: HttpRequest) -> HttpResponse:
     )
     page_rows = list(table["page"].object_list)
     reach = AnnouncementDraft.objects.reach_for(page_rows) if tab == "sent" else {}
+    emails = AnnouncementDraft.objects.emails_for(page_rows) if tab == "sent" else {}
     return render(
         request,
         "hub/announcements.html",
         {
             **_get_hub_context(request),
             "tab": tab,
-            "rows": [(row, reach.get(row.pk)) for row in page_rows],
+            "rows": [
+                (row, reach.get(row.pk), emails.get(row.pk), row.send_progress() if tab == "sent" else None)
+                for row in page_rows
+            ],
             "page": table["page"],
             "base_params": table["base_params"],
             "drafts_count": drafts.count(),
@@ -5044,6 +5049,54 @@ def announcement_sent(request: HttpRequest, pk: int) -> HttpResponse:
             "added_labels": row.added_labels if row.added_recipients else [],
             **_announcement_previews(row),
         },
+    )
+
+
+def _visible_row(request: HttpRequest, pk: int) -> AnnouncementDraft | None:
+    """The announcement ``pk`` if this request may see it (:func:`_announcement_rows`), else ``None``."""
+    one = AnnouncementDraft.objects.filter(pk=pk).select_related(
+        "guild", "class_offering", "author", "funding_snapshot"
+    )
+    return _announcement_rows(request, _get_member(request), within=one).first()
+
+
+def _visible_sent_row(request: HttpRequest, pk: int) -> AnnouncementDraft:
+    """The sent or sending announcement ``pk`` if this request may see it, else 404."""
+    row = _visible_row(request, pk)
+    if row is None or row.is_resumable:
+        raise Http404("No such announcement.")
+    return row
+
+
+@login_required
+def announcement_progress(request: HttpRequest, pk: int) -> HttpResponse:
+    """HTMX poll: a sending announcement's progress line, or a page refresh once it is not sending.
+
+    While the row is sending, returns the line again (it polls itself). Once it has sent, the
+    queue gave up on it (a draft again, Could not send), it was deleted, or this request may no
+    longer see it, ``HX-Refresh`` reloads the page so every count and state on it is current; after
+    the reload nothing polls that row. Never a 404, which htmx would keep polling.
+    """
+    row = _visible_row(request, pk)
+    if row is None or row.state != AnnouncementDraft.DraftState.SENDING:
+        response = HttpResponse(status=204)
+        response["HX-Refresh"] = "true"
+        return response
+    return render(request, "hub/partials/_announcement_progress.html", {"row": row, "progress": row.send_progress()})
+
+
+@login_required
+def announcement_recipients(request: HttpRequest, pk: int) -> HttpResponse:
+    """HTMX: the recipients modal for a sent or sending announcement, from the delivery ledger.
+
+    Everyone it reached, with which channels each got, and anyone whose email failed and why
+    (:meth:`AnnouncementDraft.recipient_list`). The same visibility as the record page.
+    """
+    row = _visible_sent_row(request, pk)
+    return render(
+        request,
+        "hub/partials/_announcement_recipients.html",
+        {"row": row, "recipient_list": row.recipient_list()},
     )
 
 

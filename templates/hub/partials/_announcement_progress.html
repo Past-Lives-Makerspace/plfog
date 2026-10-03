@@ -1,0 +1,14 @@
+{% comment %}
+A sending announcement's progress line (Sent tab status cell and the record page's sentline,
+which restyles it inline). It polls hub_announcement_progress, every 30 seconds while it waits
+for the queue and every 5 once it is sending, and swaps itself; when the row is no longer
+sending that view answers HX-Refresh, so the page reloads with its final state. data-quiet-poll
+keeps the polls off the global loading bar.
+
+Params:
+  row      — the sending AnnouncementDraft
+  progress — AnnouncementProgress, or None before the send starts
+{% endcomment %}
+<span class="pl-announcements-table__note" data-quiet-poll
+      data-send-progress="{% if progress %}{{ progress.done }}/{{ progress.total }}{% elif row.send_error %}retrying{% else %}queued{% endif %}"
+      hx-get="{% url 'hub_announcement_progress' row.pk %}" hx-trigger="every {% if progress %}5s{% else %}30s{% endif %}" hx-swap="outerHTML">{% if progress %}Sent to {{ progress.done }} of {{ progress.total }} so far.{% if row.send_error %} The last try failed. It tries again on the next run.{% endif %}{% elif row.send_error %}The last try failed: {{ row.failure_reason|truncatechars:80 }}. It tries again on the next run.{% else %}Goes out within 15 minutes.{% endif %}</span>
