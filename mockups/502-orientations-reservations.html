@@ -1,0 +1,1080 @@
+<!DOCTYPE html>
+<html lang="en" class="dark">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<title>#502 mockup · Orientations and Reservations</title>
+<!--
+  #502 Orientations and Reservations mockup (static; not served by Django).
+  Links the real stylesheets and uses the real class names so the build can lift the markup.
+  Views: ?view=orientations (default) · orientations-calendar · reservations · reservations-calendar
+         · settings · settings-reservations · guild-tabs · permissions
+  Theme: ?theme=light   Screenshot chrome off: ?shot=1   Phone (no sidebar): ?phone=1
+  Open the locked card's help bubble (lifted the way pl_help.js lifts it): ?bubble=1
+  CSS: the first <style> block is NEW product CSS for hub.css; the second is mockup-only.
+  Placeholder photos are gradients labelled with what the real page would show there.
+-->
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;700&family=Lato:wght@400;700;900&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="../static/css/hub.css">
+<link rel="stylesheet" href="../static/css/components.css">
+<link rel="stylesheet" href="../static/css/calendar.css">
+<link rel="stylesheet" href="../static/css/member-edit.css">
+<style>
+/* ==========================================================================
+   NEW PRODUCT CSS for static/css/hub.css (#502), next to the Equipment directory
+   rules (.pl-equip-*). Tokens only; both themes come from the tokens.
+   ========================================================================== */
+
+/* Orientation cards: the Orientations page and the guild page's Orientations pane share
+   them. The frame, the photo strip and the body padding come from .hub-card.pl-equip-card
+   (the Reservations card), so the two pages read as one layout. These rules add what an
+   orientation card carries that an equipment card does not: an owner line, a meta line,
+   the member's state, and the next three bookable times. No stretched name link here:
+   the Book buttons are the tap targets. */
+.pl-orient-card__owner { display: flex; gap: 0.4rem; flex-wrap: wrap; align-items: center; }
+.pl-orient-card__owner-guild { font-size: 0.8125rem; color: var(--hub-text-muted); }
+.pl-orient-card__name { margin: 0; font-size: 1.05rem; font-weight: 700; color: var(--hub-text); }
+.pl-orient-card__meta { display: flex; gap: 0.6rem; align-items: center; flex-wrap: wrap; font-size: 0.85rem; color: var(--hub-text-muted); }
+.pl-orient-card__note { margin: 0; font-size: 0.85rem; color: var(--hub-text-muted); }
+.pl-orient-card__booked { margin: 0; font-size: 0.95rem; color: var(--hub-text); }
+.pl-orient-card__slots { list-style: none; margin: 0.25rem 0 0; padding: 0; display: flex; flex-direction: column; gap: 0.4rem; }
+.pl-orient-card__slot { display: flex; align-items: center; gap: 0.5rem; }
+.pl-orient-card__when { flex: 1; min-width: 0; font-size: 0.875rem; color: var(--hub-text); }
+.pl-orient-card__when small { display: block; font-size: 0.78rem; color: var(--hub-text-muted); }
+.pl-orient-card__slot .hub-btn { flex: 0 0 auto; }
+.pl-orient-card__more { display: inline-block; margin-top: 0.25rem; font-size: 0.85rem; }
+.pl-orient-card__actions { display: flex; gap: 0.5rem; flex-wrap: wrap; margin-top: 0.25rem; }
+
+/* Completed types fold away under the grid (.pl-disclosure, FRONTEND.md Disclosure). */
+.pl-orient-done { margin-top: 1.5rem; }
+
+/* A locked Reservations card: a tool the member is not trained on. The photo dims under a
+   lock, and the state line and the Book the orientation link rise above the card's
+   stretched name link so they stay clickable and the badge's help bubble stays hoverable. */
+.pl-equip-card--locked .pl-equip-card__photo,
+.pl-equip-card--locked .pl-equip-card__placeholder { opacity: 0.45; filter: grayscale(0.5); }
+.pl-equip-card__lock { position: absolute; top: 0; left: 0; width: 100%; height: 140px; display: flex; align-items: center; justify-content: center; pointer-events: none; }
+.pl-equip-card__lock-glyph { display: inline-flex; align-items: center; justify-content: center; width: 2.75rem; height: 2.75rem; border-radius: 50%; background: var(--hub-card-bg); color: var(--hub-text); border: 1px solid var(--hub-border); }
+.pl-equip-card__state { position: relative; z-index: 1; display: flex; align-items: center; gap: 0.4rem; flex-wrap: wrap; }
+.pl-equip-card__cta { position: relative; z-index: 1; align-self: flex-start; font-size: 0.85rem; }
+
+/* Guild settings > Reservations: the guild's reservable items, each linking to its manage page. */
+.pl-guild-reservables { list-style: none; margin: 0; padding: 0; }
+.pl-guild-reservables__row { display: flex; align-items: center; gap: 0.75rem; flex-wrap: wrap; padding: 0.75rem 0; border-top: 1px solid var(--hub-border); }
+.pl-guild-reservables__row:first-child { border-top: 0; }
+.pl-guild-reservables__name { flex: 1; min-width: 0; font-weight: 600; color: var(--hub-text); }
+</style>
+<style>
+/* ---------- mockup-only ---------- */
+.mock-view { display: contents; }
+html[data-mock-view="orientations"] .mock-view:not([data-mock-view="orientations"]),
+html[data-mock-view="orientations-calendar"] .mock-view:not([data-mock-view="orientations-calendar"]),
+html[data-mock-view="reservations"] .mock-view:not([data-mock-view="reservations"]),
+html[data-mock-view="reservations-calendar"] .mock-view:not([data-mock-view="reservations-calendar"]),
+html[data-mock-view="settings"] .mock-view:not([data-mock-view="settings"]),
+html[data-mock-view="settings-reservations"] .mock-view:not([data-mock-view="settings-reservations"]),
+html[data-mock-view="guild-tabs"] .mock-view:not([data-mock-view="guild-tabs"]),
+html[data-mock-view="permissions"] .mock-view:not([data-mock-view="permissions"]) { display: none; }
+.mock-switcher { position: fixed; right: 1rem; bottom: 1rem; z-index: 900; display: flex; gap: 0.75rem; align-items: center; flex-wrap: wrap; max-width: 90vw; padding: 0.5rem 0.75rem; border-radius: 8px; background: var(--hub-elevated); border: 1px solid var(--hub-border); font-size: 0.8rem; }
+.mock-switcher__title { font-weight: 700; color: var(--hub-text-muted); }
+.mock-switcher a { color: var(--hub-link); text-decoration: none; }
+html.mock-shot .mock-switcher, html.mock-shot .hub-feedback-fab { display: none; }
+html.mock-phone .hub-sidebar { display: none; }
+html.mock-phone .hub-main-wrapper { margin-left: 0 !important; }
+.mock-collapsed { display: flex; justify-content: space-between; align-items: center; gap: 1rem; flex-wrap: wrap; padding: 0.75rem 1.5rem; margin-bottom: 0.75rem; opacity: 0.6; }
+.mock-collapsed span:last-child { font-size: 0.75rem; color: var(--hub-text-muted); }
+.mock-card { padding: 1.5rem; margin-bottom: 1.5rem; }
+.mock-card h2 { margin-top: 0; margin-bottom: 0.25rem; }
+.mock-card .mock-hint { font-size: 0.8125rem; margin-bottom: 1rem; }
+.mock-page-title { margin-bottom: 0.25rem; }
+.mock-crumb { font-size: 0.85rem; margin: 0 0 1rem; }
+.mock-row { padding: 1rem; background: rgba(255,255,255,0.02); }
+.mock-row + .mock-row { margin-top: 1rem; }
+.mock-line { display: flex; gap: 0.75rem; flex-wrap: wrap; }
+.mock-line > * { flex: 1; min-width: 110px; }
+.mock-line > .mock-wide { flex: 2; min-width: 160px; }
+/* Placeholder photos: a gradient with a label saying what the real page shows there. */
+.mock-photo { display: flex; align-items: flex-end; padding: 0.5rem 0.75rem; font-size: 0.7rem; font-weight: 700; letter-spacing: 0.05em; text-transform: uppercase; color: rgba(255,255,255,0.9); text-shadow: 0 1px 2px rgba(0,0,0,0.5); }
+.mock-photo--wood { background: linear-gradient(135deg, #3b2a1a, #8a5a2b 60%, #c9823a); }
+.mock-photo--own { background: linear-gradient(135deg, #10253a, #1f5f7a 55%, #3ab0c9); }
+.mock-photo--print { background: linear-gradient(135deg, #2a1f4a, #5a3f9a 60%, #8d6ad6); }
+.mock-photo--metal { background: linear-gradient(135deg, #1b2a44, #3a5a94 60%, #6f93d8); }
+.mock-photo--fab { background: linear-gradient(135deg, #3a1a1a, #8a2f2f 60%, #e05d5d); }
+.mock-photo--ceramics { background: linear-gradient(135deg, #16302a, #2a6f5a 60%, #3aa883); }
+.mock-photo--glass { background: linear-gradient(135deg, #10343a, #1f7a86 60%, #2bb5c9); }
+.mock-photo--textiles { background: linear-gradient(135deg, #3a1a30, #8a2f6a 60%, #d65db1); }
+.mock-photo--jewelry { background: linear-gradient(135deg, #3a2e10, #8a6a1f 60%, #eeb44b); }
+.mock-photo--room { background: linear-gradient(135deg, #23262e, #4a5060 60%, #7d8696); }
+.mock-photo--dock { background: linear-gradient(135deg, #1e2a24, #3c6a4e 60%, #6fae87); }
+.mock-thumb { width: 240px; max-width: 100%; height: 80px; border-radius: 6px; border: 1px solid var(--hub-border); }
+.mock-help-open .pl-help__bubble { opacity: 1; visibility: visible; transform: none; top: 50%; left: calc(100% + 0.5rem); transform: translateY(-50%); }
+.mock-calendar-filters { margin-top: 0.25rem; }
+</style>
+<script>
+  (function () {
+    var p = new URLSearchParams(location.search);
+    var view = p.get('view') || 'orientations';
+    document.documentElement.setAttribute('data-mock-view', view);
+    if (p.get('theme') === 'light') document.documentElement.setAttribute('data-theme', 'light');
+    if (p.get('shot') === '1') document.documentElement.classList.add('mock-shot');
+    if (p.get('phone') === '1') document.documentElement.classList.add('mock-phone');
+    document.addEventListener('DOMContentLoaded', function () {
+      var nav = { 'orientations': 'nav-orientations', 'orientations-calendar': 'nav-orientations', 'reservations': 'nav-reservations', 'reservations-calendar': 'nav-reservations' }[view];
+      if (nav) document.getElementById(nav).classList.add('active');
+      if (p.get('bubble') === '1') {
+        // What static/js/pl_help.js does on hover: lift the bubble out of the card's
+        // overflow clip by anchoring it to the viewport.
+        var h = document.querySelector('.mock-bubble');
+        if (h) {
+          var b = h.querySelector('.pl-help__bubble'), r = h.getBoundingClientRect();
+          b.style.position = 'fixed'; b.style.top = (r.bottom + 8) + 'px'; b.style.left = r.left + 'px';
+          b.style.opacity = '1'; b.style.visibility = 'visible'; b.style.transform = 'none';
+        }
+      }
+    });
+  })();
+  function mockToggleTheme() {
+    var p = new URLSearchParams(location.search);
+    if (p.get('theme') === 'light') p.delete('theme'); else p.set('theme', 'light');
+    location.search = p.toString();
+  }
+</script>
+</head>
+<body>
+  <nav class="mock-switcher" aria-label="Mockup views">
+    <span class="mock-switcher__title">#502 mockup</span>
+    <a href="?view=orientations">Orientations</a>
+    <a href="?view=orientations-calendar">Orientations calendar</a>
+    <a href="?view=reservations">Reservations</a>
+    <a href="?view=reservations-calendar">Reservations calendar</a>
+    <a href="?view=settings">Guild settings: Orientations</a>
+    <a href="?view=settings-reservations">Guild settings: Reservations</a>
+    <a href="?view=guild-tabs">Guild tabs</a>
+    <a href="?view=permissions">Permissions</a>
+    <a href="#" onclick="mockToggleTheme(); return false;">Theme</a>
+  </nav>
+
+  <aside class="hub-sidebar">
+    <a href="#" class="pl-brand">
+      <span class="pl-brand__info"><span class="pl-brand__text">Member Portal</span></span>
+    </a>
+    <nav class="hub-sidebar__nav" aria-label="Hub navigation">
+      <a href="#" class="hub-sidebar__link"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg>Home</a>
+      <hr class="hub-sidebar__divider" />
+      <a href="#" class="hub-sidebar__link"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z"/><path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z"/></svg>Class Catalog</a>
+      <a href="#" class="hub-sidebar__link"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>Calendar</a>
+      <a href="#" class="hub-sidebar__link"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/><path d="M9 16l2 2 4-4"/></svg>Meetings</a>
+      <a href="#" class="hub-sidebar__link"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>Member Directory</a>
+      <a href="#" class="hub-sidebar__link"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="8" r="6"/><path d="M15.5 13 17 22l-5-3-5 3 1.5-9"/></svg>Leadership Directory</a>
+      <a href="#" class="hub-sidebar__link"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 8h1a4 4 0 0 1 0 8h-1"/><path d="M2 8h16v9a4 4 0 0 1-4 4H6a4 4 0 0 1-4-4z"/><line x1="6" y1="1" x2="6" y2="4"/><line x1="10" y1="1" x2="10" y2="4"/><line x1="14" y1="1" x2="14" y2="4"/></svg>My Tab</a>
+      <a href="#" class="hub-sidebar__link"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="1 6 1 22 8 18 16 22 23 18 23 2 16 6 8 2 1 6"/><line x1="8" y1="2" x2="8" y2="18"/><line x1="16" y1="6" x2="16" y2="22"/></svg>Spaces</a>
+      <!-- NEW: Orientations, directly above Reservations. Icon partial: nav_icons/_orientations.html -->
+      <a href="?view=orientations" id="nav-orientations" class="hub-sidebar__link"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 10v6M2 10l10-5 10 5-10 5z"/><path d="M6 12v5c3 3 9 3 12 0v-5"/></svg>Orientations</a>
+      <!-- RENAMED: Equipment becomes Reservations; keeps the wrench (nav_icons/_equipment.html). -->
+      <a href="?view=reservations" id="nav-reservations" class="hub-sidebar__link"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"/></svg>Reservations</a>
+      <a href="#" class="hub-sidebar__link"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg>Voting</a>
+      <hr class="hub-sidebar__divider" />
+      <a href="#" class="hub-sidebar__link"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/></svg>Help</a>
+      <a href="#" class="hub-sidebar__link"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M2 12h20"/><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/></svg>Member Wiki</a>
+      <hr class="hub-sidebar__divider" />
+      <div>
+        <button class="hub-sidebar__section-toggle" aria-expanded="true"><span>Guilds</span>
+          <svg class="hub-sidebar__chevron" width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 4.5l3 3 3-3"/></svg>
+        </button>
+        <div class="hub-sidebar__collapsible open">
+          <div class="hub-sidebar__collapsible-inner">
+            <a href="#" class="hub-sidebar__link">Fabrication Guild</a>
+            <a href="#" class="hub-sidebar__link">Printmaking Guild</a>
+            <a href="#" class="hub-sidebar__link">Woodworking Guild</a>
+          </div>
+        </div>
+      </div>
+    </nav>
+  </aside>
+  <a href="#" class="hub-feedback-fab" aria-label="Send feedback">
+    <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
+  </a>
+
+  <div class="hub-main-wrapper">
+    <header class="pl-topbar">
+      <button class="pl-topbar__toggle" aria-label="Toggle sidebar">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M9 3v18"/></svg>
+      </button>
+      <span class="pl-topbar__divider"></span>
+      <div class="pl-topbar__spacer"></div>
+      <a href="#" class="pl-bell__btn" aria-label="Notifications">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></svg>
+      </a>
+      <button class="pl-topbar__theme-toggle" aria-label="Toggle theme" onclick="mockToggleTheme()">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="5"/><path d="M12 1v2"/><path d="M12 21v2"/><path d="M4.22 4.22l1.42 1.42"/><path d="M18.36 18.36l1.42 1.42"/><path d="M1 12h2"/><path d="M21 12h2"/><path d="M4.22 19.78l1.42-1.42"/><path d="M18.36 5.64l1.42-1.42"/></svg>
+      </button>
+      <div class="pl-profile"><button class="pl-profile__avatar" aria-label="User menu">SR</button></div>
+    </header>
+
+    <main id="main-content" class="hub-content" tabindex="-1">
+
+      <!-- ============================ VIEW: orientations (List) ============================ -->
+      <div class="mock-view" data-mock-view="orientations">
+        <!-- components/page_header.html -->
+        <h1 class="hub-page-title">Orientations</h1>
+        <p class="hub-text-muted" style="margin-bottom:1.5rem;max-width:65ch;">Get trained on a guild or a tool before you book it.</p>
+
+        <!-- The List / Calendar pair: the Spaces page tablist (role=tablist + .vote-tab) in the shared .pl-tabs strip. -->
+        <nav class="pl-tabs" role="tablist" aria-label="Orientations views">
+          <button type="button" role="tab" class="vote-tab vote-tab--active" aria-selected="true">List</button>
+          <button type="button" role="tab" class="vote-tab" aria-selected="false">Calendar</button>
+        </nav>
+
+        <!-- Filters: the Reservations page's chip row and search, reused as is. -->
+        <div class="pl-equip-filters">
+          <div class="pl-equip-chips">
+            <a href="#" class="pl-equip-chip pl-equip-chip--active">All</a>
+            <a href="#" class="pl-equip-chip">Guilds</a>
+            <a href="#" class="pl-equip-chip">Equipment</a>
+          </div>
+          <form class="pl-equip-search hub-form-group" onsubmit="return false;">
+            <input type="search" name="q" placeholder="Search orientations" aria-label="Search orientations">
+          </form>
+        </div>
+
+        <div class="pl-equip-grid">
+
+          <!-- Card: guild owned, nothing booked, three slots. Photo: the guild banner (default). -->
+          <div class="hub-card pl-equip-card" id="orientation-type-1">
+            <div class="pl-equip-card__photo mock-photo mock-photo--wood" aria-hidden="true">Guild banner</div>
+            <div class="pl-equip-card__body">
+              <div class="pl-orient-card__owner"><a href="#" class="hub-badge pl-equip-card__guild">Woodworking Guild</a></div>
+              <h3 class="pl-orient-card__name">Shop Basics</h3>
+              <div class="pl-orient-card__meta"><span>90 min</span><span>Free</span></div>
+              <ul class="pl-orient-card__slots">
+                <li class="pl-orient-card__slot"><span class="pl-orient-card__when">Sun, Oct 4 · 11:00 AM<small>with Amber</small></span><button type="button" class="hub-btn hub-btn--sm hub-btn--primary">Book</button></li>
+                <li class="pl-orient-card__slot"><span class="pl-orient-card__when">Mon, Oct 5 · 6:00 PM<small>with Morgan</small></span><button type="button" class="hub-btn hub-btn--sm hub-btn--primary">Book</button></li>
+                <li class="pl-orient-card__slot"><span class="pl-orient-card__when">Sun, Oct 11 · 11:00 AM<small>with Amber</small></span><button type="button" class="hub-btn hub-btn--sm hub-btn--primary">Book</button></li>
+              </ul>
+              <a href="#" class="pl-orient-card__more">More times</a>
+            </div>
+          </div>
+
+          <!-- Card: equipment owned, paid, three slots. Photo: this orientation's OWN image. -->
+          <div class="hub-card pl-equip-card" id="orientation-type-2">
+            <div class="pl-equip-card__photo mock-photo mock-photo--own" aria-hidden="true">This orientation's own photo</div>
+            <div class="pl-equip-card__body">
+              <div class="pl-orient-card__owner"><a href="#" class="hub-badge">Lathe</a><span class="pl-orient-card__owner-guild">Woodworking Guild</span></div>
+              <h3 class="pl-orient-card__name">Lathe Orientation</h3>
+              <div class="pl-orient-card__meta"><span>60 min</span><span class="pl-price-chip">$25.00</span></div>
+              <p class="pl-orient-card__note">You pay when you book. If the guild can't make it work, you get an automatic full refund.</p>
+              <ul class="pl-orient-card__slots">
+                <li class="pl-orient-card__slot"><span class="pl-orient-card__when">Mon, Oct 5 · 7:00 PM<small>with Lane</small></span><button type="button" class="hub-btn hub-btn--sm hub-btn--primary">Book</button></li>
+                <li class="pl-orient-card__slot"><span class="pl-orient-card__when">Mon, Oct 19 · 7:00 PM<small>with Lane</small></span><button type="button" class="hub-btn hub-btn--sm hub-btn--primary">Book</button></li>
+                <li class="pl-orient-card__slot"><span class="pl-orient-card__when">Sat, Oct 31 · 1:00 PM<small>with Lane</small></span><button type="button" class="hub-btn hub-btn--sm hub-btn--primary">Book</button></li>
+              </ul>
+              <a href="#" class="pl-orient-card__more">More times</a>
+            </div>
+          </div>
+
+          <!-- Card: guild owned with open windows (#532): the same Pick a time control as the guild page. -->
+          <div class="hub-card pl-equip-card" id="orientation-type-3">
+            <div class="pl-equip-card__photo mock-photo mock-photo--print" aria-hidden="true">Guild banner</div>
+            <div class="pl-equip-card__body">
+              <div class="pl-orient-card__owner"><a href="#" class="hub-badge pl-equip-card__guild">Printmaking Guild</a></div>
+              <h3 class="pl-orient-card__name">Print Studio Orientation</h3>
+              <div class="pl-orient-card__meta"><span>60 min</span><span class="pl-price-chip">$50.00</span></div>
+              <p class="pl-orient-card__note">Open windows of orienter time. Choose one and pick the start that suits you.</p>
+              <ul class="pl-orient-card__slots">
+                <li class="pl-orient-card__slot"><span class="pl-orient-card__when">Sun, Oct 4 · 11:00 AM to 6:00 PM<small>with Amber</small></span><button type="button" class="hub-btn hub-btn--sm hub-btn--primary">Pick a time</button></li>
+                <li class="pl-orient-card__slot"><span class="pl-orient-card__when">Thu, Oct 8 · 11:00 AM to 6:00 PM<small>with Amber</small></span><button type="button" class="hub-btn hub-btn--sm hub-btn--primary">Pick a time</button></li>
+              </ul>
+              <a href="#" class="pl-orient-card__more">More times</a>
+            </div>
+          </div>
+
+          <!-- Card: Requested (awaiting confirmation). -->
+          <div class="hub-card pl-equip-card" id="orientation-type-4">
+            <div class="pl-equip-card__photo mock-photo mock-photo--metal" aria-hidden="true">Guild banner</div>
+            <div class="pl-equip-card__body">
+              <div class="pl-orient-card__owner"><a href="#" class="hub-badge pl-equip-card__guild">Metal Guild</a></div>
+              <h3 class="pl-orient-card__name">Metal Shop Basics</h3>
+              <div class="pl-orient-card__meta"><span>120 min</span><span>Free</span></div>
+              <div><span class="pl-equip-badge pl-equip-badge--warn">Requested</span></div>
+              <p class="pl-orient-card__booked">Saturday, October 10 at 10:00 AM <span class="hub-text-muted">· Metal Shop · with Jordan</span></p>
+              <p class="pl-orient-card__note">Awaiting confirmation from Jordan. This isn't official yet.</p>
+              <div class="pl-orient-card__actions"><button type="button" class="hub-btn hub-btn--sm hub-btn--danger">Cancel my orientation</button></div>
+            </div>
+          </div>
+
+          <!-- Card: Confirmed for a date (equipment owned). -->
+          <div class="hub-card pl-equip-card" id="orientation-type-5">
+            <div class="pl-equip-card__photo mock-photo mock-photo--fab" aria-hidden="true">Guild banner</div>
+            <div class="pl-equip-card__body">
+              <div class="pl-orient-card__owner"><a href="#" class="hub-badge">Laser cutter</a><span class="pl-orient-card__owner-guild">Fabrication Guild</span></div>
+              <h3 class="pl-orient-card__name">Laser Cutter Orientation</h3>
+              <div class="pl-orient-card__meta"><span>45 min</span><span class="pl-price-chip">$15.00</span></div>
+              <div><span class="pl-equip-badge pl-equip-badge--ok">Confirmed</span></div>
+              <p class="pl-orient-card__booked">Tuesday, October 13 at 6:30 PM <span class="hub-text-muted">· Fab Lab · with Priya</span></p>
+              <p class="pl-orient-card__note">Paid $15.00. Automatic refund if this is declined or cancelled.</p>
+              <div class="pl-orient-card__actions"><button type="button" class="hub-btn hub-btn--sm hub-btn--danger">Cancel my orientation</button></div>
+            </div>
+          </div>
+
+          <!-- Card: Payment pending (a checkout hold). -->
+          <div class="hub-card pl-equip-card" id="orientation-type-6">
+            <div class="pl-equip-card__photo mock-photo mock-photo--ceramics" aria-hidden="true">Guild banner</div>
+            <div class="pl-equip-card__body">
+              <div class="pl-orient-card__owner"><a href="#" class="hub-badge pl-equip-card__guild">Ceramics Guild</a></div>
+              <h3 class="pl-orient-card__name">Kiln Orientation</h3>
+              <div class="pl-orient-card__meta"><span>60 min</span><span class="pl-price-chip">$30.00</span></div>
+              <div><span class="pl-equip-badge pl-equip-badge--warn">Payment pending</span></div>
+              <p class="pl-orient-card__note">Your payment for the Thursday, October 15 at 5:00 PM orientation hasn't come through yet.</p>
+              <div class="pl-orient-card__actions">
+                <button type="button" class="pl-btn pl-btn--primary pl-btn--sm">Resume payment</button>
+                <button type="button" class="pl-btn pl-btn--danger pl-btn--sm">Cancel</button>
+              </div>
+            </div>
+          </div>
+
+          <!-- Card: Paused owner. No buttons. -->
+          <div class="hub-card pl-equip-card" id="orientation-type-7">
+            <div class="pl-equip-card__photo mock-photo mock-photo--glass" aria-hidden="true">Guild banner</div>
+            <div class="pl-equip-card__body">
+              <div class="pl-orient-card__owner"><a href="#" class="hub-badge pl-equip-card__guild">Glass Guild</a></div>
+              <h3 class="pl-orient-card__name">Hot Shop Orientation</h3>
+              <div class="pl-orient-card__meta"><span>90 min</span><span class="pl-price-chip">$40.00</span></div>
+              <div><span class="pl-equip-badge pl-equip-badge--muted">Paused</span></div>
+              <p class="pl-orient-card__note">This guild isn't taking orientation bookings right now. Check back soon.</p>
+            </div>
+          </div>
+
+          <!-- Card: external signup. -->
+          <div class="hub-card pl-equip-card" id="orientation-type-8">
+            <div class="pl-equip-card__photo mock-photo mock-photo--textiles" aria-hidden="true">Guild banner</div>
+            <div class="pl-equip-card__body">
+              <div class="pl-orient-card__owner"><a href="#" class="hub-badge pl-equip-card__guild">Textiles Guild</a></div>
+              <h3 class="pl-orient-card__name">Loom Orientation</h3>
+              <div class="pl-orient-card__meta"><span>60 min</span><span>Free</span></div>
+              <p class="pl-orient-card__note">Signing up for this orientation happens on another site.</p>
+              <div class="pl-orient-card__actions"><a href="#" class="hub-btn hub-btn--sm hub-btn--primary">See how to sign up</a></div>
+            </div>
+          </div>
+
+          <!-- Card: no slot and no block, guild allows custom requests. The form stays closed. -->
+          <div class="hub-card pl-equip-card" id="orientation-type-9">
+            <div class="pl-equip-card__photo mock-photo mock-photo--jewelry" aria-hidden="true">Guild banner</div>
+            <div class="pl-equip-card__body">
+              <div class="pl-orient-card__owner"><a href="#" class="hub-badge pl-equip-card__guild">Jewelry Guild</a></div>
+              <h3 class="pl-orient-card__name">Bench Basics</h3>
+              <div class="pl-orient-card__meta"><span>60 min</span><span>Free</span></div>
+              <p class="pl-orient-card__note">No times are posted yet.</p>
+              <div class="pl-orient-card__actions"><button type="button" class="hub-btn hub-btn--sm hub-btn--primary">None of these times work? Request a custom time</button></div>
+            </div>
+          </div>
+
+        </div>
+
+        <!-- Completed types, folded away (rendered open here so the card shows; closed by default in the build). -->
+        <details class="pl-disclosure pl-orient-done" open>
+          <summary class="pl-disclosure__summary">
+            <span class="pl-disclosure__text">
+              <span class="pl-disclosure__title">Completed</span>
+              <span class="pl-disclosure__hint">1 orientation you have finished.</span>
+            </span>
+            <span class="pl-disclosure__chevron" aria-hidden="true"></span>
+          </summary>
+          <div class="pl-disclosure__body">
+            <div class="pl-equip-grid">
+              <div class="hub-card pl-equip-card" id="orientation-type-10">
+                <div class="pl-equip-card__photo mock-photo mock-photo--fab" aria-hidden="true">Guild banner</div>
+                <div class="pl-equip-card__body">
+                  <div class="pl-orient-card__owner"><a href="#" class="hub-badge pl-equip-card__guild">Fabrication Guild</a></div>
+                  <h3 class="pl-orient-card__name">Shop Safety</h3>
+                  <div class="pl-orient-card__meta"><span>30 min</span><span>Free</span></div>
+                  <div><span class="pl-equip-badge pl-equip-badge--ok">Completed</span></div>
+                  <p class="pl-orient-card__note">Recorded on Aug 12, 2026.</p>
+                </div>
+              </div>
+            </div>
+          </div>
+        </details>
+      </div>
+
+      <!-- ============================ VIEW: orientations-calendar ============================ -->
+      <div class="mock-view" data-mock-view="orientations-calendar">
+        <h1 class="hub-page-title">Orientations</h1>
+        <p class="hub-text-muted" style="margin-bottom:1.5rem;max-width:65ch;">Get trained on a guild or a tool before you book it.</p>
+        <nav class="pl-tabs" role="tablist" aria-label="Orientations views">
+          <button type="button" role="tab" class="vote-tab" aria-selected="false">List</button>
+          <button type="button" role="tab" class="vote-tab vote-tab--active" aria-selected="true">Calendar</button>
+        </nav>
+
+        <!-- hub/partials/guild_calendar_app.html wrapping calendar_content.html (month parts shown). -->
+        <div class="pl-calendar-page" style="margin-bottom:1.5rem;">
+          <div class="pl-calendar-topbar">
+            <div class="pl-calendar-topbar__left">
+              <div class="pl-calendar-view-toggle">
+                <button class="pl-calendar-view-toggle__btn">Week</button>
+                <button class="pl-calendar-view-toggle__btn pl-calendar-view-toggle__btn--active">Month</button>
+              </div>
+            </div>
+          </div>
+          <div class="pl-calendar-filters">
+            <button class="pl-calendar-filter pl-calendar-filter--active" style="--filter-color: #c9823a;"><span class="pl-calendar-filter__dot" style="background: #c9823a;"></span>Woodworking Guild</button>
+            <button class="pl-calendar-filter pl-calendar-filter--active" style="--filter-color: #8d6ad6;"><span class="pl-calendar-filter__dot" style="background: #8d6ad6;"></span>Printmaking Guild</button>
+            <button class="pl-calendar-filter pl-calendar-filter--active" style="--filter-color: #6f93d8;"><span class="pl-calendar-filter__dot" style="background: #6f93d8;"></span>Metal Guild</button>
+            <button class="pl-calendar-filter pl-calendar-filter--active" style="--filter-color: #e05d5d;"><span class="pl-calendar-filter__dot" style="background: #e05d5d;"></span>Fabrication Guild</button>
+            <button class="pl-calendar-filter pl-calendar-filter--active" style="--filter-color: #3aa883;"><span class="pl-calendar-filter__dot" style="background: #3aa883;"></span>Ceramics Guild</button>
+          </div>
+          <div style="position:relative;">
+            <div id="pl-calendar-events-area">
+              <div class="pl-calendar-nav">
+                <button type="button" class="pl-calendar-nav__btn" aria-label="Previous month"><svg aria-hidden="true" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 18 9 12 15 6"/></svg></button>
+                <span class="pl-calendar-nav__label">October 2026</span>
+                <button type="button" class="pl-calendar-nav__btn" aria-label="Next month"><svg aria-hidden="true" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"/></svg></button>
+              </div>
+              <div class="pl-calendar-grid pl-calendar-grid--month">
+                <div class="pl-calendar-grid__week-header">Mon</div><div class="pl-calendar-grid__week-header">Tue</div><div class="pl-calendar-grid__week-header">Wed</div><div class="pl-calendar-grid__week-header">Thu</div><div class="pl-calendar-grid__week-header">Fri</div><div class="pl-calendar-grid__week-header">Sat</div><div class="pl-calendar-grid__week-header">Sun</div>
+                <!-- week of Sep 28 -->
+                <div class="pl-calendar-grid__day pl-calendar-grid__day--faded"><div class="pl-calendar-grid__day-header"><span class="pl-calendar-grid__day-num">28</span></div><div class="pl-calendar-grid__day-chips pl-calendar-grid__day-chips--compact"></div></div>
+                <div class="pl-calendar-grid__day pl-calendar-grid__day--faded"><div class="pl-calendar-grid__day-header"><span class="pl-calendar-grid__day-num">29</span></div><div class="pl-calendar-grid__day-chips pl-calendar-grid__day-chips--compact"></div></div>
+                <div class="pl-calendar-grid__day pl-calendar-grid__day--faded"><div class="pl-calendar-grid__day-header"><span class="pl-calendar-grid__day-num">30</span></div><div class="pl-calendar-grid__day-chips pl-calendar-grid__day-chips--compact"></div></div>
+                <div class="pl-calendar-grid__day"><div class="pl-calendar-grid__day-header"><span class="pl-calendar-grid__day-num">1</span></div><div class="pl-calendar-grid__day-chips pl-calendar-grid__day-chips--compact"></div></div>
+                <div class="pl-calendar-grid__day"><div class="pl-calendar-grid__day-header"><span class="pl-calendar-grid__day-num">2</span></div><div class="pl-calendar-grid__day-chips pl-calendar-grid__day-chips--compact"></div></div>
+                <div class="pl-calendar-grid__day pl-calendar-grid__day--today"><div class="pl-calendar-grid__day-header"><span class="pl-calendar-grid__day-num pl-calendar-grid__day-num--today">3</span></div><div class="pl-calendar-grid__day-chips pl-calendar-grid__day-chips--compact">
+                  <button type="button" class="pl-calendar-grid__chip" style="--chip-color: #6f93d8;" title="Metal Shop Basics · Metal Guild · 6 seats left"><span class="pl-calendar-grid__chip-title">Metal Shop Basics · Metal Guild · 6 seats left</span></button>
+                </div></div>
+                <div class="pl-calendar-grid__day"><div class="pl-calendar-grid__day-header"><span class="pl-calendar-grid__day-num">4</span></div><div class="pl-calendar-grid__day-chips pl-calendar-grid__day-chips--compact">
+                  <button type="button" class="pl-calendar-grid__chip" style="--chip-color: #c9823a;" title="Shop Basics · Woodworking Guild · 3 seats left"><span class="pl-calendar-grid__chip-title">Shop Basics · Woodworking Guild · 3 seats left</span></button>
+                  <button type="button" class="pl-calendar-grid__chip" style="--chip-color: #8d6ad6;" title="Print Studio Orientation · Printmaking Guild · 2 seats left"><span class="pl-calendar-grid__chip-title">Print Studio Orientation · Printmaking Guild · 2 seats left</span></button>
+                </div></div>
+                <!-- week of Oct 5 -->
+                <div class="pl-calendar-grid__day"><div class="pl-calendar-grid__day-header"><span class="pl-calendar-grid__day-num">5</span></div><div class="pl-calendar-grid__day-chips pl-calendar-grid__day-chips--compact">
+                  <button type="button" class="pl-calendar-grid__chip" style="--chip-color: #c9823a;" title="Shop Basics · Woodworking Guild · 4 seats left"><span class="pl-calendar-grid__chip-title">Shop Basics · Woodworking Guild · 4 seats left</span></button>
+                  <button type="button" class="pl-calendar-grid__chip" style="--chip-color: #c9823a;" title="Lathe Orientation · Lathe · 1 seat left"><span class="pl-calendar-grid__chip-title">Lathe Orientation · Lathe · 1 seat left</span></button>
+                  <button type="button" class="pl-calendar-grid__more pl-calendar-grid__more--toggle">+1</button>
+                </div></div>
+                <div class="pl-calendar-grid__day"><div class="pl-calendar-grid__day-header"><span class="pl-calendar-grid__day-num">6</span></div><div class="pl-calendar-grid__day-chips pl-calendar-grid__day-chips--compact"></div></div>
+                <div class="pl-calendar-grid__day"><div class="pl-calendar-grid__day-header"><span class="pl-calendar-grid__day-num">7</span></div><div class="pl-calendar-grid__day-chips pl-calendar-grid__day-chips--compact"></div></div>
+                <div class="pl-calendar-grid__day"><div class="pl-calendar-grid__day-header"><span class="pl-calendar-grid__day-num">8</span></div><div class="pl-calendar-grid__day-chips pl-calendar-grid__day-chips--compact">
+                  <button type="button" class="pl-calendar-grid__chip" style="--chip-color: #8d6ad6;" title="Print Studio Orientation · Printmaking Guild · 4 seats left"><span class="pl-calendar-grid__chip-title">Print Studio Orientation · Printmaking Guild · 4 seats left</span></button>
+                </div></div>
+                <div class="pl-calendar-grid__day"><div class="pl-calendar-grid__day-header"><span class="pl-calendar-grid__day-num">9</span></div><div class="pl-calendar-grid__day-chips pl-calendar-grid__day-chips--compact"></div></div>
+                <div class="pl-calendar-grid__day"><div class="pl-calendar-grid__day-header"><span class="pl-calendar-grid__day-num">10</span></div><div class="pl-calendar-grid__day-chips pl-calendar-grid__day-chips--compact">
+                  <button type="button" class="pl-calendar-grid__chip" style="--chip-color: #6f93d8;" title="Metal Shop Basics · Metal Guild · 6 seats left"><span class="pl-calendar-grid__chip-title">Metal Shop Basics · Metal Guild · 6 seats left</span></button>
+                </div></div>
+                <div class="pl-calendar-grid__day"><div class="pl-calendar-grid__day-header"><span class="pl-calendar-grid__day-num">11</span></div><div class="pl-calendar-grid__day-chips pl-calendar-grid__day-chips--compact">
+                  <button type="button" class="pl-calendar-grid__chip" style="--chip-color: #c9823a;" title="Shop Basics · Woodworking Guild · 5 seats left"><span class="pl-calendar-grid__chip-title">Shop Basics · Woodworking Guild · 5 seats left</span></button>
+                </div></div>
+                <!-- week of Oct 12 -->
+                <div class="pl-calendar-grid__day"><div class="pl-calendar-grid__day-header"><span class="pl-calendar-grid__day-num">12</span></div><div class="pl-calendar-grid__day-chips pl-calendar-grid__day-chips--compact"></div></div>
+                <div class="pl-calendar-grid__day"><div class="pl-calendar-grid__day-header"><span class="pl-calendar-grid__day-num">13</span></div><div class="pl-calendar-grid__day-chips pl-calendar-grid__day-chips--compact">
+                  <button type="button" class="pl-calendar-grid__chip" style="--chip-color: #e05d5d;" title="Laser Cutter Orientation · Laser cutter · 2 seats left"><span class="pl-calendar-grid__chip-title">Laser Cutter Orientation · Laser cutter · 2 seats left</span></button>
+                </div></div>
+                <div class="pl-calendar-grid__day"><div class="pl-calendar-grid__day-header"><span class="pl-calendar-grid__day-num">14</span></div><div class="pl-calendar-grid__day-chips pl-calendar-grid__day-chips--compact"></div></div>
+                <div class="pl-calendar-grid__day"><div class="pl-calendar-grid__day-header"><span class="pl-calendar-grid__day-num">15</span></div><div class="pl-calendar-grid__day-chips pl-calendar-grid__day-chips--compact">
+                  <button type="button" class="pl-calendar-grid__chip" style="--chip-color: #3aa883;" title="Kiln Orientation · Ceramics Guild · 3 seats left"><span class="pl-calendar-grid__chip-title">Kiln Orientation · Ceramics Guild · 3 seats left</span></button>
+                </div></div>
+                <div class="pl-calendar-grid__day"><div class="pl-calendar-grid__day-header"><span class="pl-calendar-grid__day-num">16</span></div><div class="pl-calendar-grid__day-chips pl-calendar-grid__day-chips--compact"></div></div>
+                <div class="pl-calendar-grid__day"><div class="pl-calendar-grid__day-header"><span class="pl-calendar-grid__day-num">17</span></div><div class="pl-calendar-grid__day-chips pl-calendar-grid__day-chips--compact"></div></div>
+                <div class="pl-calendar-grid__day"><div class="pl-calendar-grid__day-header"><span class="pl-calendar-grid__day-num">18</span></div><div class="pl-calendar-grid__day-chips pl-calendar-grid__day-chips--compact">
+                  <button type="button" class="pl-calendar-grid__chip" style="--chip-color: #c9823a;" title="Shop Basics · Woodworking Guild · 6 seats left"><span class="pl-calendar-grid__chip-title">Shop Basics · Woodworking Guild · 6 seats left</span></button>
+                </div></div>
+                <!-- week of Oct 19 -->
+                <div class="pl-calendar-grid__day"><div class="pl-calendar-grid__day-header"><span class="pl-calendar-grid__day-num">19</span></div><div class="pl-calendar-grid__day-chips pl-calendar-grid__day-chips--compact">
+                  <button type="button" class="pl-calendar-grid__chip" style="--chip-color: #c9823a;" title="Lathe Orientation · Lathe · 2 seats left"><span class="pl-calendar-grid__chip-title">Lathe Orientation · Lathe · 2 seats left</span></button>
+                </div></div>
+                <div class="pl-calendar-grid__day"><div class="pl-calendar-grid__day-header"><span class="pl-calendar-grid__day-num">20</span></div><div class="pl-calendar-grid__day-chips pl-calendar-grid__day-chips--compact"></div></div>
+                <div class="pl-calendar-grid__day"><div class="pl-calendar-grid__day-header"><span class="pl-calendar-grid__day-num">21</span></div><div class="pl-calendar-grid__day-chips pl-calendar-grid__day-chips--compact">
+                  <button type="button" class="pl-calendar-grid__chip" style="--chip-color: #6f93d8;" title="Metal Shop Basics · Metal Guild · 4 seats left"><span class="pl-calendar-grid__chip-title">Metal Shop Basics · Metal Guild · 4 seats left</span></button>
+                </div></div>
+                <div class="pl-calendar-grid__day"><div class="pl-calendar-grid__day-header"><span class="pl-calendar-grid__day-num">22</span></div><div class="pl-calendar-grid__day-chips pl-calendar-grid__day-chips--compact"></div></div>
+                <div class="pl-calendar-grid__day"><div class="pl-calendar-grid__day-header"><span class="pl-calendar-grid__day-num">23</span></div><div class="pl-calendar-grid__day-chips pl-calendar-grid__day-chips--compact"></div></div>
+                <div class="pl-calendar-grid__day"><div class="pl-calendar-grid__day-header"><span class="pl-calendar-grid__day-num">24</span></div><div class="pl-calendar-grid__day-chips pl-calendar-grid__day-chips--compact">
+                  <button type="button" class="pl-calendar-grid__chip" style="--chip-color: #e05d5d;" title="Laser Cutter Orientation · Laser cutter · 3 seats left"><span class="pl-calendar-grid__chip-title">Laser Cutter Orientation · Laser cutter · 3 seats left</span></button>
+                </div></div>
+                <div class="pl-calendar-grid__day"><div class="pl-calendar-grid__day-header"><span class="pl-calendar-grid__day-num">25</span></div><div class="pl-calendar-grid__day-chips pl-calendar-grid__day-chips--compact"></div></div>
+              </div>
+
+              <div class="pl-calendar-divider"></div>
+
+              <div class="pl-calendar-list">
+                <div class="pl-calendar-list__item" style="--event-color: #6f93d8;">
+                  <div class="pl-calendar-list__time"><span class="pl-calendar-list__time-day">Sat, Oct 3</span><span class="pl-calendar-list__time-hour">10:00 AM – 12:00 PM</span></div>
+                  <div class="pl-calendar-list__body">
+                    <a href="?view=orientations#orientation-type-4" class="pl-calendar-list__title pl-calendar-list__title--link">Metal Shop Basics · Metal Guild · 6 seats left</a>
+                    <div class="pl-calendar-list__desc">120 min · Free · with Jordan</div>
+                    <div class="pl-calendar-list__location"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"/><circle cx="12" cy="10" r="3"/></svg>Metal Shop</div>
+                    <div class="pl-calendar-list__guild" style="color: #6f93d8;">Metal Guild</div>
+                  </div>
+                </div>
+                <div class="pl-calendar-list__item" style="--event-color: #c9823a;">
+                  <div class="pl-calendar-list__time"><span class="pl-calendar-list__time-day">Sun, Oct 4</span><span class="pl-calendar-list__time-hour">11:00 AM – 12:30 PM</span></div>
+                  <div class="pl-calendar-list__body">
+                    <a href="?view=orientations#orientation-type-1" class="pl-calendar-list__title pl-calendar-list__title--link">Shop Basics · Woodworking Guild · 3 seats left</a>
+                    <div class="pl-calendar-list__desc">90 min · Free · with Amber</div>
+                    <div class="pl-calendar-list__location"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"/><circle cx="12" cy="10" r="3"/></svg>Wood Shop</div>
+                    <div class="pl-calendar-list__guild" style="color: #c9823a;">Woodworking Guild</div>
+                  </div>
+                </div>
+                <div class="pl-calendar-list__item" style="--event-color: #8d6ad6;">
+                  <div class="pl-calendar-list__time"><span class="pl-calendar-list__time-day">Sun, Oct 4</span><span class="pl-calendar-list__time-hour">11:00 AM – 6:00 PM</span></div>
+                  <div class="pl-calendar-list__body">
+                    <a href="?view=orientations#orientation-type-3" class="pl-calendar-list__title pl-calendar-list__title--link">Print Studio Orientation · Printmaking Guild · 2 seats left</a>
+                    <div class="pl-calendar-list__desc">60 min · $50.00 · open window with Amber, pick your start</div>
+                    <div class="pl-calendar-list__location"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"/><circle cx="12" cy="10" r="3"/></svg>Print Studio</div>
+                    <div class="pl-calendar-list__guild" style="color: #8d6ad6;">Printmaking Guild</div>
+                  </div>
+                </div>
+                <div class="pl-calendar-list__item" style="--event-color: #c9823a;">
+                  <div class="pl-calendar-list__time"><span class="pl-calendar-list__time-day">Mon, Oct 5</span><span class="pl-calendar-list__time-hour">7:00 PM – 8:00 PM</span></div>
+                  <div class="pl-calendar-list__body">
+                    <a href="?view=orientations#orientation-type-2" class="pl-calendar-list__title pl-calendar-list__title--link">Lathe Orientation · Lathe · 1 seat left</a>
+                    <div class="pl-calendar-list__desc">60 min · $25.00 · with Lane</div>
+                    <div class="pl-calendar-list__location"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"/><circle cx="12" cy="10" r="3"/></svg>Wood Shop</div>
+                    <div class="pl-calendar-list__guild" style="color: #c9823a;">Lathe · Woodworking Guild</div>
+                  </div>
+                </div>
+              </div>
+              <div class="pl-calendar-pagination">
+                <button class="pl-calendar-pagination__btn pl-calendar-pagination__btn--disabled" disabled><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 18 9 12 15 6"/></svg>Prev</button>
+                <span class="pl-calendar-pagination__label">1 / 4</span>
+                <button class="pl-calendar-pagination__btn">Next<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"/></svg></button>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- ============================ VIEW: reservations (List) ============================ -->
+      <div class="mock-view" data-mock-view="reservations">
+        <!-- components/page_header.html with an action: Add shows for anyone who can create, now including a Space Manager. -->
+        <div class="hub-page-header" style="display:flex;align-items:flex-start;justify-content:space-between;gap:1rem;flex-wrap:wrap;margin-bottom:1.5rem;">
+          <div>
+            <h1 class="hub-page-title" style="margin-bottom:0.5rem;">Reservations</h1>
+            <p class="hub-text-muted" style="margin:0;max-width:65ch;">Book a room, a space, or a tool you are trained on.</p>
+          </div>
+          <a href="#" class="pl-btn pl-btn--primary">+ Add</a>
+        </div>
+
+        <nav class="pl-tabs" role="tablist" aria-label="Reservations views">
+          <button type="button" role="tab" class="vote-tab vote-tab--active" aria-selected="true">List</button>
+          <button type="button" role="tab" class="vote-tab" aria-selected="false">Calendar</button>
+        </nav>
+
+        <div class="pl-equip-filters">
+          <div class="pl-equip-chips">
+            <a href="#" class="pl-equip-chip pl-equip-chip--active">All</a>
+            <a href="#" class="pl-equip-chip">Fabrication Guild</a>
+            <a href="#" class="pl-equip-chip">Woodworking Guild</a>
+            <a href="#" class="pl-equip-chip">Standalone</a>
+          </div>
+          <div class="pl-equip-chips">
+            <a href="#" class="pl-equip-chip pl-equip-chip--active">All</a>
+            <a href="#" class="pl-equip-chip">Tools</a>
+            <a href="#" class="pl-equip-chip">Rooms</a>
+            <a href="#" class="pl-equip-chip">Spaces</a>
+          </div>
+          <form class="pl-equip-search hub-form-group" onsubmit="return false;">
+            <input type="search" name="q" placeholder="Search reservations" aria-label="Search reservations">
+          </form>
+        </div>
+
+        <div class="pl-equip-grid">
+          <!-- hub/partials/equipment_cards.html, unchanged for a card the member can book. -->
+          <div class="hub-card pl-equip-card">
+            <div class="pl-equip-card__photo mock-photo mock-photo--fab" aria-hidden="true">Item photo</div>
+            <div class="pl-equip-card__body">
+              <a href="#" class="pl-equip-card__name">Laser cutter</a>
+              <div class="pl-equip-card__meta"><a href="#" class="hub-badge pl-equip-card__guild">Fabrication Guild</a><span class="hub-badge">Tool</span></div>
+              <div class="pl-equip-card__state"><span class="pl-equip-badge pl-equip-badge--ok">You're all set</span></div>
+              <div class="pl-equip-avail pl-equip-avail--free">Free now until 9:00 PM</div>
+            </div>
+          </div>
+
+          <!-- LOCKED: a tool the member is not trained on. -->
+          <div class="hub-card pl-equip-card pl-equip-card--locked">
+            <div class="pl-equip-card__photo mock-photo mock-photo--wood" aria-hidden="true">Item photo</div>
+            <div class="pl-equip-card__lock" aria-hidden="true"><span class="pl-equip-card__lock-glyph"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg></span></div>
+            <div class="pl-equip-card__body">
+              <a href="#" class="pl-equip-card__name">Lathe</a>
+              <div class="pl-equip-card__meta"><a href="#" class="hub-badge pl-equip-card__guild">Woodworking Guild</a><span class="hub-badge">Tool</span></div>
+              <div class="pl-equip-card__state">
+                <span class="pl-equip-badge pl-equip-badge--warn">Orientation needed</span>
+                <span class="pl-help mock-bubble">
+                  <span class="pl-help__icon" tabindex="0" role="img" aria-label="Already trained: Trained on this before the Member Portal went live? Message us in #member-portal-general on Discord and say you need access to the Lathe.">?</span>
+                  <span class="pl-help__bubble">Trained on this before the Member Portal went live? Message us in #member-portal-general on Discord and say you need access to the Lathe.</span>
+                </span>
+              </div>
+              <a href="?view=orientations#orientation-type-2" class="pl-equip-card__cta">Book the orientation</a>
+            </div>
+          </div>
+
+          <div class="hub-card pl-equip-card">
+            <div class="pl-equip-card__photo mock-photo mock-photo--wood" aria-hidden="true">Item photo</div>
+            <div class="pl-equip-card__body">
+              <a href="#" class="pl-equip-card__name">Table saw</a>
+              <div class="pl-equip-card__meta"><a href="#" class="hub-badge pl-equip-card__guild">Woodworking Guild</a><span class="hub-badge">Tool</span></div>
+              <div class="pl-equip-card__state"><span class="pl-equip-badge pl-equip-badge--ok">You're all set</span></div>
+              <div class="pl-equip-avail pl-equip-avail--busy">Busy until 4:00 PM</div>
+            </div>
+          </div>
+
+          <div class="hub-card pl-equip-card">
+            <div class="pl-equip-card__placeholder" aria-hidden="true"><svg width="34" height="34" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg></div>
+            <div class="pl-equip-card__body">
+              <a href="#" class="pl-equip-card__name">Classroom A</a>
+              <div class="pl-equip-card__meta"><span class="hub-badge pl-equip-badge--muted">Makerspace</span><span class="hub-badge">Room</span></div>
+              <div class="pl-equip-card__state"><span class="pl-equip-badge pl-equip-badge--ok">You're all set</span></div>
+              <div class="pl-equip-avail pl-equip-avail--free">Free now until 6:00 PM</div>
+            </div>
+          </div>
+
+          <!-- A Space: the new Equipment.Kind. -->
+          <div class="hub-card pl-equip-card">
+            <div class="pl-equip-card__photo mock-photo mock-photo--dock" aria-hidden="true">Item photo</div>
+            <div class="pl-equip-card__body">
+              <a href="#" class="pl-equip-card__name">Loading dock</a>
+              <div class="pl-equip-card__meta"><span class="hub-badge pl-equip-badge--muted">Makerspace</span><span class="hub-badge">Space</span></div>
+              <div class="pl-equip-card__state"><span class="pl-equip-badge pl-equip-badge--ok">You're all set</span></div>
+              <div class="pl-equip-avail pl-equip-avail--free">Free now until 8:00 PM</div>
+            </div>
+          </div>
+
+          <div class="hub-card pl-equip-card">
+            <div class="pl-equip-card__photo mock-photo mock-photo--room" aria-hidden="true">Item photo</div>
+            <div class="pl-equip-card__body">
+              <a href="#" class="pl-equip-card__name">Photo studio</a>
+              <div class="pl-equip-card__meta"><a href="#" class="hub-badge pl-equip-card__guild">Fabrication Guild</a><span class="hub-badge">Room</span></div>
+              <div class="pl-equip-card__state"><span class="pl-equip-badge pl-equip-badge--ok">You're all set</span></div>
+              <div class="pl-equip-avail pl-equip-avail--busy">Busy until 2:30 PM</div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- ============================ VIEW: reservations-calendar ============================ -->
+      <div class="mock-view" data-mock-view="reservations-calendar">
+        <div class="hub-page-header" style="display:flex;align-items:flex-start;justify-content:space-between;gap:1rem;flex-wrap:wrap;margin-bottom:1.5rem;">
+          <div>
+            <h1 class="hub-page-title" style="margin-bottom:0.5rem;">Reservations</h1>
+            <p class="hub-text-muted" style="margin:0;max-width:65ch;">Book a room, a space, or a tool you are trained on.</p>
+          </div>
+          <a href="#" class="pl-btn pl-btn--primary">+ Add</a>
+        </div>
+        <nav class="pl-tabs" role="tablist" aria-label="Reservations views">
+          <button type="button" role="tab" class="vote-tab" aria-selected="false">List</button>
+          <button type="button" role="tab" class="vote-tab vote-tab--active" aria-selected="true">Calendar</button>
+        </nav>
+
+        <div class="pl-calendar-page" style="margin-bottom:1.5rem;">
+          <div class="pl-calendar-topbar">
+            <div class="pl-calendar-topbar__left">
+              <div class="pl-calendar-view-toggle">
+                <button class="pl-calendar-view-toggle__btn">Week</button>
+                <button class="pl-calendar-view-toggle__btn pl-calendar-view-toggle__btn--active">Month</button>
+              </div>
+            </div>
+          </div>
+          <!-- One filter chip per item, using the shell's existing filter toggles. -->
+          <div class="pl-calendar-filters">
+            <button class="pl-calendar-filter pl-calendar-filter--active" style="--filter-color: #e05d5d;"><span class="pl-calendar-filter__dot" style="background: #e05d5d;"></span>Laser cutter</button>
+            <button class="pl-calendar-filter pl-calendar-filter--active" style="--filter-color: #c9823a;"><span class="pl-calendar-filter__dot" style="background: #c9823a;"></span>Lathe</button>
+            <button class="pl-calendar-filter pl-calendar-filter--active" style="--filter-color: #a86b2d;"><span class="pl-calendar-filter__dot" style="background: #a86b2d;"></span>Table saw</button>
+            <button class="pl-calendar-filter pl-calendar-filter--active" style="--filter-color: #6f93d8;"><span class="pl-calendar-filter__dot" style="background: #6f93d8;"></span>Classroom A</button>
+            <button class="pl-calendar-filter pl-calendar-filter--active" style="--filter-color: #3aa883;"><span class="pl-calendar-filter__dot" style="background: #3aa883;"></span>Loading dock</button>
+            <button class="pl-calendar-filter" style="--filter-color: #8d6ad6;"><span class="pl-calendar-filter__dot" style="background: #8d6ad6;"></span>Photo studio</button>
+          </div>
+          <div style="position:relative;">
+            <div id="pl-calendar-events-area-res">
+              <div class="pl-calendar-nav">
+                <button type="button" class="pl-calendar-nav__btn" aria-label="Previous month"><svg aria-hidden="true" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 18 9 12 15 6"/></svg></button>
+                <span class="pl-calendar-nav__label">October 2026</span>
+                <button type="button" class="pl-calendar-nav__btn" aria-label="Next month"><svg aria-hidden="true" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"/></svg></button>
+              </div>
+              <div class="pl-calendar-grid pl-calendar-grid--month">
+                <div class="pl-calendar-grid__week-header">Mon</div><div class="pl-calendar-grid__week-header">Tue</div><div class="pl-calendar-grid__week-header">Wed</div><div class="pl-calendar-grid__week-header">Thu</div><div class="pl-calendar-grid__week-header">Fri</div><div class="pl-calendar-grid__week-header">Sat</div><div class="pl-calendar-grid__week-header">Sun</div>
+                <div class="pl-calendar-grid__day pl-calendar-grid__day--faded"><div class="pl-calendar-grid__day-header"><span class="pl-calendar-grid__day-num">28</span></div><div class="pl-calendar-grid__day-chips pl-calendar-grid__day-chips--compact"></div></div>
+                <div class="pl-calendar-grid__day pl-calendar-grid__day--faded"><div class="pl-calendar-grid__day-header"><span class="pl-calendar-grid__day-num">29</span></div><div class="pl-calendar-grid__day-chips pl-calendar-grid__day-chips--compact"></div></div>
+                <div class="pl-calendar-grid__day pl-calendar-grid__day--faded"><div class="pl-calendar-grid__day-header"><span class="pl-calendar-grid__day-num">30</span></div><div class="pl-calendar-grid__day-chips pl-calendar-grid__day-chips--compact"></div></div>
+                <div class="pl-calendar-grid__day"><div class="pl-calendar-grid__day-header"><span class="pl-calendar-grid__day-num">1</span></div><div class="pl-calendar-grid__day-chips pl-calendar-grid__day-chips--compact"></div></div>
+                <div class="pl-calendar-grid__day"><div class="pl-calendar-grid__day-header"><span class="pl-calendar-grid__day-num">2</span></div><div class="pl-calendar-grid__day-chips pl-calendar-grid__day-chips--compact">
+                  <button type="button" class="pl-calendar-grid__chip" style="--chip-color: #8d6ad6;" title="Photo studio · Alex T."><span class="pl-calendar-grid__chip-title">Photo studio · Alex T.</span></button>
+                </div></div>
+                <div class="pl-calendar-grid__day pl-calendar-grid__day--today"><div class="pl-calendar-grid__day-header"><span class="pl-calendar-grid__day-num pl-calendar-grid__day-num--today">3</span></div><div class="pl-calendar-grid__day-chips pl-calendar-grid__day-chips--compact">
+                  <button type="button" class="pl-calendar-grid__chip pl-calendar-grid__chip--live" style="--chip-color: #e05d5d;" title="Laser cutter · Sam R. (in progress)"><span class="pl-calendar-grid__chip-title">Laser cutter · Sam R.</span></button>
+                </div></div>
+                <div class="pl-calendar-grid__day"><div class="pl-calendar-grid__day-header"><span class="pl-calendar-grid__day-num">4</span></div><div class="pl-calendar-grid__day-chips pl-calendar-grid__day-chips--compact">
+                  <button type="button" class="pl-calendar-grid__chip" style="--chip-color: #3aa883;" title="Loading dock · Dee O."><span class="pl-calendar-grid__chip-title">Loading dock · Dee O.</span></button>
+                  <button type="button" class="pl-calendar-grid__chip" style="--chip-color: #6f93d8;" title="Classroom A · Jordan P."><span class="pl-calendar-grid__chip-title">Classroom A · Jordan P.</span></button>
+                </div></div>
+                <div class="pl-calendar-grid__day"><div class="pl-calendar-grid__day-header"><span class="pl-calendar-grid__day-num">5</span></div><div class="pl-calendar-grid__day-chips pl-calendar-grid__day-chips--compact">
+                  <button type="button" class="pl-calendar-grid__chip" style="--chip-color: #c9823a;" title="Lathe · Orientation"><span class="pl-calendar-grid__chip-title">Lathe · Orientation</span></button>
+                  <button type="button" class="pl-calendar-grid__chip" style="--chip-color: #e05d5d;" title="Laser cutter · Sam R."><span class="pl-calendar-grid__chip-title">Laser cutter · Sam R.</span></button>
+                  <button type="button" class="pl-calendar-grid__more pl-calendar-grid__more--toggle">+1</button>
+                </div></div>
+                <div class="pl-calendar-grid__day"><div class="pl-calendar-grid__day-header"><span class="pl-calendar-grid__day-num">6</span></div><div class="pl-calendar-grid__day-chips pl-calendar-grid__day-chips--compact"></div></div>
+                <div class="pl-calendar-grid__day"><div class="pl-calendar-grid__day-header"><span class="pl-calendar-grid__day-num">7</span></div><div class="pl-calendar-grid__day-chips pl-calendar-grid__day-chips--compact">
+                  <button type="button" class="pl-calendar-grid__chip" style="--chip-color: #8d6ad6;" title="Photo studio · Alex T."><span class="pl-calendar-grid__chip-title">Photo studio · Alex T.</span></button>
+                </div></div>
+                <div class="pl-calendar-grid__day"><div class="pl-calendar-grid__day-header"><span class="pl-calendar-grid__day-num">8</span></div><div class="pl-calendar-grid__day-chips pl-calendar-grid__day-chips--compact"></div></div>
+                <div class="pl-calendar-grid__day"><div class="pl-calendar-grid__day-header"><span class="pl-calendar-grid__day-num">9</span></div><div class="pl-calendar-grid__day-chips pl-calendar-grid__day-chips--compact">
+                  <button type="button" class="pl-calendar-grid__chip" style="--chip-color: #e05d5d;" title="Laser cutter · Priya N."><span class="pl-calendar-grid__chip-title">Laser cutter · Priya N.</span></button>
+                </div></div>
+                <div class="pl-calendar-grid__day"><div class="pl-calendar-grid__day-header"><span class="pl-calendar-grid__day-num">10</span></div><div class="pl-calendar-grid__day-chips pl-calendar-grid__day-chips--compact">
+                  <button type="button" class="pl-calendar-grid__chip" style="--chip-color: #3aa883;" title="Loading dock · Dee O."><span class="pl-calendar-grid__chip-title">Loading dock · Dee O.</span></button>
+                </div></div>
+                <div class="pl-calendar-grid__day"><div class="pl-calendar-grid__day-header"><span class="pl-calendar-grid__day-num">11</span></div><div class="pl-calendar-grid__day-chips pl-calendar-grid__day-chips--compact"></div></div>
+                <div class="pl-calendar-grid__day"><div class="pl-calendar-grid__day-header"><span class="pl-calendar-grid__day-num">12</span></div><div class="pl-calendar-grid__day-chips pl-calendar-grid__day-chips--compact">
+                  <button type="button" class="pl-calendar-grid__chip" style="--chip-color: #6f93d8;" title="Classroom A · Jordan P."><span class="pl-calendar-grid__chip-title">Classroom A · Jordan P.</span></button>
+                </div></div>
+                <div class="pl-calendar-grid__day"><div class="pl-calendar-grid__day-header"><span class="pl-calendar-grid__day-num">13</span></div><div class="pl-calendar-grid__day-chips pl-calendar-grid__day-chips--compact">
+                  <button type="button" class="pl-calendar-grid__chip" style="--chip-color: #e05d5d;" title="Laser cutter · Orientation"><span class="pl-calendar-grid__chip-title">Laser cutter · Orientation</span></button>
+                </div></div>
+                <div class="pl-calendar-grid__day"><div class="pl-calendar-grid__day-header"><span class="pl-calendar-grid__day-num">14</span></div><div class="pl-calendar-grid__day-chips pl-calendar-grid__day-chips--compact"></div></div>
+                <div class="pl-calendar-grid__day"><div class="pl-calendar-grid__day-header"><span class="pl-calendar-grid__day-num">15</span></div><div class="pl-calendar-grid__day-chips pl-calendar-grid__day-chips--compact"></div></div>
+                <div class="pl-calendar-grid__day"><div class="pl-calendar-grid__day-header"><span class="pl-calendar-grid__day-num">16</span></div><div class="pl-calendar-grid__day-chips pl-calendar-grid__day-chips--compact">
+                  <button type="button" class="pl-calendar-grid__chip" style="--chip-color: #c9823a;" title="Lathe · Sam R."><span class="pl-calendar-grid__chip-title">Lathe · Sam R.</span></button>
+                </div></div>
+                <div class="pl-calendar-grid__day"><div class="pl-calendar-grid__day-header"><span class="pl-calendar-grid__day-num">17</span></div><div class="pl-calendar-grid__day-chips pl-calendar-grid__day-chips--compact"></div></div>
+                <div class="pl-calendar-grid__day"><div class="pl-calendar-grid__day-header"><span class="pl-calendar-grid__day-num">18</span></div><div class="pl-calendar-grid__day-chips pl-calendar-grid__day-chips--compact"></div></div>
+                <div class="pl-calendar-grid__day"><div class="pl-calendar-grid__day-header"><span class="pl-calendar-grid__day-num">19</span></div><div class="pl-calendar-grid__day-chips pl-calendar-grid__day-chips--compact">
+                  <button type="button" class="pl-calendar-grid__chip" style="--chip-color: #c9823a;" title="Lathe · Orientation"><span class="pl-calendar-grid__chip-title">Lathe · Orientation</span></button>
+                </div></div>
+                <div class="pl-calendar-grid__day"><div class="pl-calendar-grid__day-header"><span class="pl-calendar-grid__day-num">20</span></div><div class="pl-calendar-grid__day-chips pl-calendar-grid__day-chips--compact"></div></div>
+                <div class="pl-calendar-grid__day"><div class="pl-calendar-grid__day-header"><span class="pl-calendar-grid__day-num">21</span></div><div class="pl-calendar-grid__day-chips pl-calendar-grid__day-chips--compact">
+                  <button type="button" class="pl-calendar-grid__chip" style="--chip-color: #3aa883;" title="Loading dock · Casey M."><span class="pl-calendar-grid__chip-title">Loading dock · Casey M.</span></button>
+                </div></div>
+                <div class="pl-calendar-grid__day"><div class="pl-calendar-grid__day-header"><span class="pl-calendar-grid__day-num">22</span></div><div class="pl-calendar-grid__day-chips pl-calendar-grid__day-chips--compact"></div></div>
+                <div class="pl-calendar-grid__day"><div class="pl-calendar-grid__day-header"><span class="pl-calendar-grid__day-num">23</span></div><div class="pl-calendar-grid__day-chips pl-calendar-grid__day-chips--compact"></div></div>
+                <div class="pl-calendar-grid__day"><div class="pl-calendar-grid__day-header"><span class="pl-calendar-grid__day-num">24</span></div><div class="pl-calendar-grid__day-chips pl-calendar-grid__day-chips--compact">
+                  <button type="button" class="pl-calendar-grid__chip" style="--chip-color: #e05d5d;" title="Laser cutter · Orientation"><span class="pl-calendar-grid__chip-title">Laser cutter · Orientation</span></button>
+                </div></div>
+                <div class="pl-calendar-grid__day"><div class="pl-calendar-grid__day-header"><span class="pl-calendar-grid__day-num">25</span></div><div class="pl-calendar-grid__day-chips pl-calendar-grid__day-chips--compact">
+                  <button type="button" class="pl-calendar-grid__chip" style="--chip-color: #8d6ad6;" title="Photo studio · Alex T."><span class="pl-calendar-grid__chip-title">Photo studio · Alex T.</span></button>
+                </div></div>
+              </div>
+
+              <div class="pl-calendar-divider"></div>
+
+              <div class="pl-calendar-list">
+                <div class="pl-calendar-list__item pl-calendar-list__item--live" style="--event-color: #e05d5d;">
+                  <span class="pl-calendar-list__live-pill"><span class="pl-calendar-list__live-dot"></span>Live now</span>
+                  <div class="pl-calendar-list__time"><span class="pl-calendar-list__time-day">Sat, Oct 3</span><span class="pl-calendar-list__time-hour">1:00 PM – 3:00 PM</span></div>
+                  <div class="pl-calendar-list__body">
+                    <a href="#" class="pl-calendar-list__title pl-calendar-list__title--link">Laser cutter · Sam R.</a>
+                    <div class="pl-calendar-list__guild" style="color: #e05d5d;">Laser cutter · Fabrication Guild</div>
+                  </div>
+                </div>
+                <div class="pl-calendar-list__item" style="--event-color: #3aa883;">
+                  <div class="pl-calendar-list__time"><span class="pl-calendar-list__time-day">Sun, Oct 4</span><span class="pl-calendar-list__time-hour">9:00 AM – 11:00 AM</span></div>
+                  <div class="pl-calendar-list__body">
+                    <a href="#" class="pl-calendar-list__title pl-calendar-list__title--link">Loading dock · Dee O.</a>
+                    <div class="pl-calendar-list__guild" style="color: #3aa883;">Loading dock · Makerspace</div>
+                  </div>
+                </div>
+                <div class="pl-calendar-list__item" style="--event-color: #6f93d8;">
+                  <div class="pl-calendar-list__time"><span class="pl-calendar-list__time-day">Sun, Oct 4</span><span class="pl-calendar-list__time-hour">2:00 PM – 4:00 PM</span></div>
+                  <div class="pl-calendar-list__body">
+                    <a href="#" class="pl-calendar-list__title pl-calendar-list__title--link">Classroom A · Jordan P.</a>
+                    <div class="pl-calendar-list__guild" style="color: #6f93d8;">Classroom A · Makerspace</div>
+                  </div>
+                </div>
+                <div class="pl-calendar-list__item" style="--event-color: #c9823a;">
+                  <div class="pl-calendar-list__time"><span class="pl-calendar-list__time-day">Mon, Oct 5</span><span class="pl-calendar-list__time-hour">7:00 PM – 8:00 PM</span></div>
+                  <div class="pl-calendar-list__body">
+                    <a href="#" class="pl-calendar-list__title pl-calendar-list__title--link">Lathe · Orientation</a>
+                    <div class="pl-calendar-list__desc">Lathe Orientation, seats held for the people booked on it.</div>
+                    <div class="pl-calendar-list__guild" style="color: #c9823a;">Lathe · Woodworking Guild</div>
+                  </div>
+                </div>
+              </div>
+              <div class="pl-calendar-pagination">
+                <button class="pl-calendar-pagination__btn pl-calendar-pagination__btn--disabled" disabled><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 18 9 12 15 6"/></svg>Prev</button>
+                <span class="pl-calendar-pagination__label">1 / 5</span>
+                <button class="pl-calendar-pagination__btn">Next<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"/></svg></button>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- ============================ VIEW: settings (guild settings > Orientations) ============================ -->
+      <div class="mock-view" data-mock-view="settings">
+        <h1 class="hub-page-title mock-page-title">Woodworking Guild</h1>
+        <p class="hub-text-muted mock-crumb">Guild Settings</p>
+        <div class="pl-tabs">
+          <button type="button" class="vote-tab">Basic Information</button>
+          <button type="button" class="vote-tab">Meetings</button>
+          <button type="button" class="vote-tab">Studio Hours</button>
+          <button type="button" class="vote-tab">Meeting Notes</button>
+          <button type="button" class="vote-tab">Events</button>
+          <button type="button" class="vote-tab vote-tab--active">Orientations</button>
+          <button type="button" class="vote-tab">Reservations</button>
+          <button type="button" class="vote-tab">Images</button>
+          <button type="button" class="vote-tab">FAQ</button>
+          <button type="button" class="vote-tab">Links</button>
+          <button type="button" class="vote-tab">Announcements</button>
+          <button type="button" class="vote-tab">Staff</button>
+        </div>
+
+        <div class="hub-card mock-collapsed"><span class="hub-detail-label" style="margin:0;">Booking</span><span>unchanged</span></div>
+
+        <form class="hub-form" onsubmit="return false;">
+          <div class="hub-card mock-card">
+            <h2 class="hub-detail-label">Orientation Types</h2>
+            <p class="hub-text-muted mock-hint">The kinds of orientation your guild offers, e.g. Shop Basics, Lathe, CNC. Each has its own length, price, seats, and location. Members book each one separately; completing any one counts as oriented for the guild. Set a price and members pay by card when they book; declines and cancellations refund automatically.</p>
+
+            <div id="otype-rows">
+              <!-- Row 1: has its own photo. -->
+              <div class="hub-card mock-row">
+                <div class="mock-line">
+                  <div class="pl-form-group mock-wide"><label class="pl-form-label">Name</label><input type="text" value="Shop Basics"></div>
+                  <div class="pl-form-group"><label class="pl-form-label">Duration (minutes)</label><input type="number" value="90"></div>
+                  <div class="pl-form-group"><label class="pl-form-label">Price</label><input type="text" value=""><p class="pl-field-hint">In dollars. Blank means free.</p></div>
+                </div>
+                <div class="mock-line">
+                  <div class="pl-form-group"><label class="pl-form-label">Default seats</label><input type="number" value="4"></div>
+                  <div class="pl-form-group mock-wide"><label class="pl-form-label">Default location</label><input type="text" value="Wood Shop"></div>
+                  <div class="pl-form-group"><label class="pl-form-label">Sort order</label><input type="number" value="1"></div>
+                </div>
+                <div class="pl-form-group"><label class="pl-form-label">Description</label><textarea rows="2">The whole shop: dust collection, the table saw, the jointer and planer, and cleanup.</textarea></div>
+                <div class="pl-form-group"><label class="pl-form-label">External signup URL</label><input type="url" value=""></div>
+
+                <!-- NEW: Photo, via components/image_field.html shape="rect" (markup copied from the component). -->
+                <div class="pl-form-group" data-image-field>
+                  <label class="pl-form-label" style="display:inline-flex;align-items:center;gap:0.4rem;">
+                    Photo
+                    <span class="pl-help mock-help-open" tabindex="0" aria-label="More info">
+                      <span class="pl-help__icon" aria-hidden="true">?</span>
+                      <span class="pl-help__bubble" role="tooltip">Wide photo, about 1600x900, JPG or PNG. Shown on this orientation's card. Leave empty to use the guild banner.</span>
+                    </span>
+                  </label>
+                  <div style="margin-bottom:0.75rem;">
+                    <div class="mock-photo mock-photo--own mock-thumb" role="img" aria-label="Current photo">This orientation's own photo</div>
+                  </div>
+                  <label class="cls-image-upload-zone">
+                    <input type="file" accept="image/*" style="display:none;">
+                    <span class="cls-image-upload-label">Replace image</span>
+                    <span class="cls-image-upload-hint">Click or drag a file here</span>
+                  </label>
+                  <div style="margin-top:0.5rem;">
+                    <button type="button" class="pl-btn pl-btn--secondary pl-btn--sm" style="font-size:0.75rem;padding:0.25rem 0.6rem;min-height:unset;">Delete photo</button>
+                  </div>
+                </div>
+
+                <div class="pl-toggle-row">
+                  <div class="pl-toggle-info"><div class="pl-toggle-label">Active</div></div>
+                  <label class="pl-toggle"><input type="checkbox" checked><span class="pl-toggle__slider"></span></label>
+                </div>
+                <button type="button" class="pl-btn pl-btn--danger pl-btn--sm pl-btn--spaced">Delete</button>
+              </div>
+
+              <!-- Row 2: no photo of its own, so the card uses the guild banner. -->
+              <div class="hub-card mock-row">
+                <div class="mock-line">
+                  <div class="pl-form-group mock-wide"><label class="pl-form-label">Name</label><input type="text" value="Finishing Basics"></div>
+                  <div class="pl-form-group"><label class="pl-form-label">Duration (minutes)</label><input type="number" value="60"></div>
+                  <div class="pl-form-group"><label class="pl-form-label">Price</label><input type="text" value="20"><p class="pl-field-hint">In dollars. Blank means free.</p></div>
+                </div>
+                <div class="mock-line">
+                  <div class="pl-form-group"><label class="pl-form-label">Default seats</label><input type="number" value="3"></div>
+                  <div class="pl-form-group mock-wide"><label class="pl-form-label">Default location</label><input type="text" value="Finishing room"></div>
+                  <div class="pl-form-group"><label class="pl-form-label">Sort order</label><input type="number" value="2"></div>
+                </div>
+                <div class="pl-form-group"><label class="pl-form-label">Description</label><textarea rows="2">Stains, oils and spray finishes, and how to leave the booth clean.</textarea></div>
+                <div class="pl-form-group"><label class="pl-form-label">External signup URL</label><input type="url" value=""></div>
+
+                <div class="pl-form-group" data-image-field>
+                  <label class="pl-form-label" style="display:inline-flex;align-items:center;gap:0.4rem;">
+                    Photo
+                    <span class="pl-help" tabindex="0" aria-label="More info">
+                      <span class="pl-help__icon" aria-hidden="true">?</span>
+                      <span class="pl-help__bubble" role="tooltip">Wide photo, about 1600x900, JPG or PNG. Shown on this orientation's card. Leave empty to use the guild banner.</span>
+                    </span>
+                  </label>
+                  <label class="cls-image-upload-zone">
+                    <input type="file" accept="image/*" style="display:none;">
+                    <span class="cls-image-upload-label">+ Upload photo</span>
+                    <span class="cls-image-upload-hint">Click or drag a file here</span>
+                  </label>
+                  <p class="pl-field-hint">Using the guild banner.</p>
+                </div>
+
+                <div class="pl-toggle-row">
+                  <div class="pl-toggle-info"><div class="pl-toggle-label">Active</div></div>
+                  <label class="pl-toggle"><input type="checkbox" checked><span class="pl-toggle__slider"></span></label>
+                </div>
+                <button type="button" class="pl-btn pl-btn--danger pl-btn--sm pl-btn--spaced">Delete</button>
+              </div>
+            </div>
+
+            <button type="button" class="hub-btn hub-btn--sm" style="margin-top:1rem;">+ Add an orientation type</button>
+
+            <div style="margin-top:1.5rem;">
+              <button type="submit" class="pl-btn pl-btn--primary">Save</button>
+            </div>
+          </div>
+        </form>
+
+        <div class="hub-card mock-collapsed"><span class="hub-detail-label" style="margin:0;">Thank-you Email</span><span>unchanged</span></div>
+      </div>
+
+      <!-- ============================ VIEW: settings-reservations (guild settings > Reservations) ============================ -->
+      <div class="mock-view" data-mock-view="settings-reservations">
+        <h1 class="hub-page-title mock-page-title">Woodworking Guild</h1>
+        <p class="hub-text-muted mock-crumb">Guild Settings</p>
+        <div class="pl-tabs">
+          <button type="button" class="vote-tab">Basic Information</button>
+          <button type="button" class="vote-tab">Meetings</button>
+          <button type="button" class="vote-tab">Studio Hours</button>
+          <button type="button" class="vote-tab">Meeting Notes</button>
+          <button type="button" class="vote-tab">Events</button>
+          <button type="button" class="vote-tab">Orientations</button>
+          <button type="button" class="vote-tab vote-tab--active">Reservations</button>
+          <button type="button" class="vote-tab">Images</button>
+          <button type="button" class="vote-tab">FAQ</button>
+          <button type="button" class="vote-tab">Links</button>
+          <button type="button" class="vote-tab">Announcements</button>
+          <button type="button" class="vote-tab">Staff</button>
+        </div>
+
+        <form class="hub-form" onsubmit="return false;">
+          <div class="hub-card mock-card">
+            <h2 class="hub-detail-label">Reservations</h2>
+            <p class="hub-text-muted mock-hint">Put this guild's reservable rooms, spaces and tools on the guild page.</p>
+            <!-- components/toggle.html -->
+            <div class="pl-toggle-row">
+              <div class="pl-toggle-info">
+                <div class="pl-toggle-label">Show a Reservations tab on the guild page</div>
+                <div class="pl-toggle-desc">The tab lists every active item below. A tool a member is not trained on shows locked, with a link to its orientation.</div>
+              </div>
+              <label class="pl-toggle"><input type="checkbox" checked><span class="pl-toggle__slider"></span></label>
+            </div>
+            <div style="margin-top:1.5rem;">
+              <button type="submit" class="pl-btn pl-btn--primary">Save</button>
+            </div>
+          </div>
+        </form>
+
+        <div class="hub-card mock-card">
+          <h2 class="hub-detail-label">Reservable items</h2>
+          <p class="hub-text-muted mock-hint">Everything members can reserve from this guild. Hours, managers and photos live on each item's manage page.</p>
+          <ul class="pl-guild-reservables">
+            <li class="pl-guild-reservables__row"><span class="pl-guild-reservables__name">Lathe</span><span class="hub-badge">Tool</span><span class="hub-pill hub-pill--ok">Active</span><a href="#" class="hub-btn hub-btn--sm">Manage</a></li>
+            <li class="pl-guild-reservables__row"><span class="pl-guild-reservables__name">Table saw</span><span class="hub-badge">Tool</span><span class="hub-pill hub-pill--ok">Active</span><a href="#" class="hub-btn hub-btn--sm">Manage</a></li>
+            <li class="pl-guild-reservables__row"><span class="pl-guild-reservables__name">Finishing room</span><span class="hub-badge">Room</span><span class="hub-pill hub-pill--ok">Active</span><a href="#" class="hub-btn hub-btn--sm">Manage</a></li>
+            <li class="pl-guild-reservables__row"><span class="pl-guild-reservables__name">CNC router</span><span class="hub-badge">Tool</span><span class="hub-pill hub-pill--neutral">Inactive</span><a href="#" class="hub-btn hub-btn--sm">Manage</a></li>
+          </ul>
+        </div>
+      </div>
+
+      <!-- ============================ VIEW: guild-tabs (guild page > Reservations pane) ============================ -->
+      <div class="mock-view" data-mock-view="guild-tabs">
+        <h1 class="hub-page-title mock-page-title">Woodworking Guild</h1>
+        <div class="pl-guild-statbar" style="margin-bottom:1rem;">
+          <div class="pl-guild-statbar__chips">
+            <span class="hub-badge">38 members</span>
+            <span class="hub-badge">4 current classes</span>
+            <span class="hub-badge">Next meeting Oct 14</span>
+          </div>
+        </div>
+        <nav role="tablist" class="pl-tabs">
+          <button type="button" class="vote-tab">Overview</button>
+          <button type="button" class="vote-tab">Guild Calendar</button>
+          <button type="button" class="vote-tab">Orientations</button>
+          <button type="button" class="vote-tab vote-tab--active">Reservations</button>
+          <button type="button" class="vote-tab">Wiki</button>
+          <button type="button" class="vote-tab">FAQ</button>
+          <button type="button" class="vote-tab">Meetings</button>
+          <button type="button" class="vote-tab">Gallery</button>
+        </nav>
+
+        <!-- The pane: the shared card grid (hub/partials/equipment_cards.html) filtered to this guild. -->
+        <p class="hub-text-muted" style="margin:0 0 1rem;">Book a tool you are trained on, or the finishing room. <a href="?view=reservations">All reservations</a></p>
+        <div class="pl-equip-grid">
+          <div class="hub-card pl-equip-card pl-equip-card--locked">
+            <div class="pl-equip-card__photo mock-photo mock-photo--wood" aria-hidden="true">Item photo</div>
+            <div class="pl-equip-card__lock" aria-hidden="true"><span class="pl-equip-card__lock-glyph"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg></span></div>
+            <div class="pl-equip-card__body">
+              <a href="#" class="pl-equip-card__name">Lathe</a>
+              <div class="pl-equip-card__meta"><a href="#" class="hub-badge pl-equip-card__guild">Woodworking Guild</a><span class="hub-badge">Tool</span></div>
+              <div class="pl-equip-card__state">
+                <span class="pl-equip-badge pl-equip-badge--warn">Orientation needed</span>
+                <span class="pl-help">
+                  <span class="pl-help__icon" tabindex="0" role="img" aria-label="Already trained: Trained on this before the Member Portal went live? Message us in #member-portal-general on Discord and say you need access to the Lathe.">?</span>
+                  <span class="pl-help__bubble">Trained on this before the Member Portal went live? Message us in #member-portal-general on Discord and say you need access to the Lathe.</span>
+                </span>
+              </div>
+              <a href="?view=orientations#orientation-type-2" class="pl-equip-card__cta">Book the orientation</a>
+            </div>
+          </div>
+          <div class="hub-card pl-equip-card">
+            <div class="pl-equip-card__photo mock-photo mock-photo--wood" aria-hidden="true">Item photo</div>
+            <div class="pl-equip-card__body">
+              <a href="#" class="pl-equip-card__name">Table saw</a>
+              <div class="pl-equip-card__meta"><a href="#" class="hub-badge pl-equip-card__guild">Woodworking Guild</a><span class="hub-badge">Tool</span></div>
+              <div class="pl-equip-card__state"><span class="pl-equip-badge pl-equip-badge--ok">You're all set</span></div>
+              <div class="pl-equip-avail pl-equip-avail--busy">Busy until 4:00 PM</div>
+            </div>
+          </div>
+          <div class="hub-card pl-equip-card">
+            <div class="pl-equip-card__placeholder" aria-hidden="true"><svg width="34" height="34" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg></div>
+            <div class="pl-equip-card__body">
+              <a href="#" class="pl-equip-card__name">Finishing room</a>
+              <div class="pl-equip-card__meta"><a href="#" class="hub-badge pl-equip-card__guild">Woodworking Guild</a><span class="hub-badge">Room</span></div>
+              <div class="pl-equip-card__state"><span class="pl-equip-badge pl-equip-badge--ok">You're all set</span></div>
+              <div class="pl-equip-avail pl-equip-avail--free">Free now until 9:00 PM</div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- ============================ VIEW: permissions (Manage Members > Permissions) ============================ -->
+      <div class="mock-view" data-mock-view="permissions">
+        <div class="pl-person-header">
+          <div>
+            <h1 class="hub-page-title pl-person-header__name">Sam Rivera</h1>
+            <div class="pl-person-header__meta"><span class="hub-pill hub-pill--ok">Active</span><span class="pl-person-header__email">sam.rivera@example.org</span></div>
+          </div>
+        </div>
+        <div class="pl-person-tabs" role="tablist">
+          <button type="button" class="vote-tab">Details</button>
+          <button type="button" class="vote-tab">Emails</button>
+          <button type="button" class="vote-tab vote-tab--active">Permissions</button>
+          <button type="button" class="vote-tab">Notifications</button>
+          <button type="button" class="vote-tab">Orientations</button>
+        </div>
+
+        <h2 class="hub-detail-label">Instructor</h2>
+        <div class="pl-toggle-row">
+          <div class="pl-toggle-info">
+            <div class="pl-toggle-label">Instructor</div>
+            <div class="pl-toggle-desc">Gives a public instructor page and the ability to create classes. Turning it off removes both (existing classes are untouched).</div>
+          </div>
+          <label class="pl-toggle"><input type="checkbox" aria-label="Instructor permission"><span class="pl-toggle__slider"></span></label>
+        </div>
+
+        <form class="pl-person-form" onsubmit="return false;">
+          <h2 class="hub-detail-label pl-permissions-section">Admin capabilities</h2>
+          <p class="hub-text-muted pl-permissions-hint">
+            Site-wide duties. Each one both sends this member the matching approval or alert emails and
+            lets them act on it, without granting full admin. Per-guild lead and staff roles are managed
+            on each guild's own Staff tab, not here.
+          </p>
+          <div class="pl-toggle-row"><div class="pl-toggle-info"><div class="pl-toggle-label">CMS Administrator</div><div class="pl-toggle-desc">Approves and publishes classes for every guild. Gets the class-review emails, and the requests from members who want to host a class.</div></div><label class="pl-toggle"><input type="checkbox"><span class="pl-toggle__slider"></span><span class="sr-only">CMS Administrator</span></label></div>
+          <div class="pl-toggle-row"><div class="pl-toggle-info"><div class="pl-toggle-label">Space &amp; Cubby Administrator</div><div class="pl-toggle-desc">Reviews space and cubby requests, and gets those request emails.</div></div><label class="pl-toggle"><input type="checkbox"><span class="pl-toggle__slider"></span><span class="sr-only">Space &amp; Cubby Administrator</span></label></div>
+          <div class="pl-toggle-row"><div class="pl-toggle-info"><div class="pl-toggle-label">Discount Code Administrator</div><div class="pl-toggle-desc">Approves discount codes, and gets discount-request emails.</div></div><label class="pl-toggle"><input type="checkbox"><span class="pl-toggle__slider"></span><span class="sr-only">Discount Code Administrator</span></label></div>
+          <div class="pl-toggle-row"><div class="pl-toggle-info"><div class="pl-toggle-label">Calendar Administrator</div><div class="pl-toggle-desc">Reviews Calendar and meeting proposals, and gets those emails.</div></div><label class="pl-toggle"><input type="checkbox"><span class="pl-toggle__slider"></span><span class="sr-only">Calendar Administrator</span></label></div>
+          <div class="pl-toggle-row"><div class="pl-toggle-info"><div class="pl-toggle-label">Billing Administrator</div><div class="pl-toggle-desc">Sees the admin Payments dashboard and gets an alert when a member's automatic payment fails.</div></div><label class="pl-toggle"><input type="checkbox"><span class="pl-toggle__slider"></span><span class="sr-only">Billing Administrator</span></label></div>
+          <div class="pl-toggle-row"><div class="pl-toggle-info"><div class="pl-toggle-label">Refunds</div><div class="pl-toggle-desc">Sends Stripe refunds for class and orientation payments. Adds Refund buttons to payment pages that are already reachable, and opens no new pages, so pair it with Billing Administrator for the Payments panel.</div></div><label class="pl-toggle"><input type="checkbox"><span class="pl-toggle__slider"></span><span class="sr-only">Refunds</span></label></div>
+          <!-- NEW on this tab: Equipment Administrator (the existing capability the form never offered). -->
+          <div class="pl-toggle-row"><div class="pl-toggle-info"><div class="pl-toggle-label">Equipment Administrator</div><div class="pl-toggle-desc">Adds new equipment and manages every tool site-wide, including its details, staff, orientations, and hours.</div></div><label class="pl-toggle"><input type="checkbox"><span class="pl-toggle__slider"></span><span class="sr-only">Equipment Administrator</span></label></div>
+          <!-- NEW capability: Space Manager. -->
+          <div class="pl-toggle-row"><div class="pl-toggle-info"><div class="pl-toggle-label">Space Manager</div><div class="pl-toggle-desc">Adds rooms and spaces members can reserve, such as the loading dock, and manages the ones they add. Cannot add tools.</div></div><label class="pl-toggle"><input type="checkbox" checked><span class="pl-toggle__slider"></span><span class="sr-only">Space Manager</span></label></div>
+          <div class="pl-person-actions">
+            <button type="submit" class="hub-btn hub-btn--primary">Save</button>
+          </div>
+        </form>
+      </div>
+
+    </main>
+  </div>
+</body>
+</html>
