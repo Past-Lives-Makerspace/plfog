@@ -1807,6 +1807,43 @@ def guild_orientation_slot_cancel(request: HttpRequest, pk: int, slot_pk: int) -
     return redirect(f"{reverse('hub_guild_edit', args=[guild.pk])}?tab=orientations")
 
 
+def _bulk_cancel_message(cancelled: int, emailed: int) -> str:
+    """The success line for a bulk cancel: how many times went, and how many members heard."""
+    message = f"Cancelled {cancelled} upcoming time{'' if cancelled == 1 else 's'}."
+    if emailed:
+        message += f" {emailed} booked member{' was' if emailed == 1 else 's were'} emailed."
+    return message
+
+
+@login_required
+@require_POST
+def guild_orientation_times_bulk_cancel(request: HttpRequest, pk: int) -> HttpResponse:
+    """POST-only — cancel several Upcoming Times at once (#574). Editors only.
+
+    The form reads the card's ``selected`` keys and ``orientations.cancel_times`` decides
+    what is eligible and cancels it; a key that is not one of this guild's upcoming,
+    uncancelled times is skipped, never an error page.
+    """
+    from hub.forms import OrientationTimesBulkCancelForm
+    from membership import orientations
+
+    guild = get_object_or_404(Guild, pk=pk)
+    forbidden = _require_can_manage_orientations(request, guild)
+    if forbidden is not None:
+        return forbidden
+
+    form = OrientationTimesBulkCancelForm(request.POST)
+    form.is_valid()  # clean() never refuses: it only sorts keys and drops what is not one
+    cancelled, emailed = orientations.cancel_times(
+        guild, form.cleaned_data["slot_pks"], form.cleaned_data["window_pks"]
+    )
+    if cancelled:
+        messages.success(request, _bulk_cancel_message(cancelled, emailed))
+    else:
+        messages.info(request, "Nothing to cancel. Those times were already cancelled or are not this guild's.")
+    return redirect(f"{reverse('hub_guild_edit', args=[guild.pk])}?tab=orientations")
+
+
 @login_required
 @require_POST
 def orientation_book(request: HttpRequest, slot_pk: int) -> HttpResponse:
