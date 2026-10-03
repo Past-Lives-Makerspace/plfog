@@ -48,7 +48,8 @@ Match the Banner is unchanged. The slider labels "Up and down" and "Left and rig
 `tests/e2e/card_focus_slack_spec.py`, marked `e2e`, following `tests/e2e/class_composer_cropper_spec.py` (its `_png` helper, `login_via_code`, `serve_media`, and the way it uploads a hero on a saved class):
 
 1. **Portrait** (a 600 by 900 PNG, no crop box): Left and right is disabled and its line reads "This photo already fits side to side, so only up and down moves it."; Up and down is enabled, and dragging it changes the frame img's computed `object-position` (or `--pl-boxed-top` when boxed) in both frames.
-2. **Wide landscape** (a 3000 by 600 PNG, wider than both frames' ratios): both sliders are enabled, no line shows, and each slider moves the image in both frames.
+2. **Wide landscape** (a 3000 by 600 PNG, wider than both frames' ratios): the mirror of the portrait case. Up and down is disabled with "This photo already fits top to bottom, so only left and right moves it."; Left and right moves the image in both frames. (A cover fitted photo has slack on one axis per frame, so no photo lights both sliders in both frames.)
+2b. **The split case** (a 2000 by 1000 PNG, a shape between the laptop frame's ratio and the phone frame's): both sliders are enabled, each moving one frame, with the lines "Moves the laptop card. The phone card already fits side to side." and "Moves the phone card. The laptop card already fits top to bottom."
 3. **Switching the photo** from portrait to wide landscape with no reload (the instant upload on a saved class) flips Left and right from disabled to enabled.
 4. **The `localSrc` path**: on a class with no saved hero, picking the portrait photo in create mode shows the sliders with Left and right disabled.
 

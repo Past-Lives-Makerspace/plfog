@@ -105,14 +105,21 @@ are derived in the CSS comment above .pl-card-focus__frame--laptop.
     <p class="pl-card-focus__note" x-show="localSrc" x-cloak>Your photo, title, dates, price and spots, exactly as members see them. Dates and price update when you save.</p>
   {% endif %}
   {# The sliders render in every state; without a saved hero they wait for the mirrored photo. #}
+  {# A cover fitted frame overflows on one axis only: cardFocus.measure() says where each slider can move, a dead one is disabled and its line says why (issue #427). #}
   <div class="pl-card-focus__sliders"{% if not offering.hero_image_url %} x-show="localSrc" x-cloak{% endif %}>
-    <label class="pl-card-focus__slider-row">
+    <label class="pl-card-focus__slider-row" :class="{ 'pl-card-focus__slider-row--off': yMoves === 'none' }">
       <span class="pl-card-focus__slider-label">Up and down</span>
-      <input type="range" min="0" max="100" class="pl-card-focus__range" x-model.number="posY" @input="update()">
+      <span class="pl-card-focus__slider-track">
+        <input type="range" min="0" max="100" class="pl-card-focus__range" x-model.number="posY" @input="update()" :disabled="yMoves === 'none'">
+        <span class="pl-card-focus__slider-why" x-show="yMoves !== 'both'" x-text="whyY()"></span>
+      </span>
     </label>
-    <label class="pl-card-focus__slider-row">
+    <label class="pl-card-focus__slider-row" :class="{ 'pl-card-focus__slider-row--off': xMoves === 'none' }">
       <span class="pl-card-focus__slider-label">Left and right</span>
-      <input type="range" min="0" max="100" class="pl-card-focus__range" x-model.number="posX" @input="update()">
+      <span class="pl-card-focus__slider-track">
+        <input type="range" min="0" max="100" class="pl-card-focus__range" x-model.number="posX" @input="update()" :disabled="xMoves === 'none'">
+        <span class="pl-card-focus__slider-why" x-show="xMoves !== 'both'" x-text="whyX()"></span>
+      </span>
     </label>
     <div class="pl-card-focus__reset">
       <button type="button" class="hub-btn hub-btn--sm hub-btn--ghost" @click="matchBanner()">Match the Banner</button>
