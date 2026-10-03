@@ -5198,15 +5198,24 @@ class EquipmentForm(forms.ModelForm):
             "location_note": forms.TextInput(attrs={"placeholder": "e.g. Back corner of the wood shop"}),
         }
 
-    def __init__(self, *args: Any, kinds: Collection[str] | None = None, **kwargs: Any) -> None:
-        """``kinds`` narrows the Kind picker to those values (#502); ``None`` offers every kind.
+    def __init__(
+        self,
+        *args: Any,
+        kinds: Collection[str] | None = None,
+        guilds: QuerySet[Guild] | None = None,
+        **kwargs: Any,
+    ) -> None:
+        """``kinds`` and ``guilds`` narrow the Kind and Guild pickers (#502); ``None`` offers everything.
 
-        The add page passes the creator's ``creatable_equipment_kinds`` so a Space Manager
-        sees Room and Space only; the manage panel's Details tab passes nothing and keeps
-        today's rules. The restriction lives here, not in the view: the field itself
-        refuses a posted kind outside the set with ``KIND_NOT_ALLOWED`` (Django rejects an
-        out-of-choices value before ``clean`` runs, so this is where the refusal has to
-        live), and a crafted POST gets the same answer as the picker.
+        The add page and the manage panel's Details tab pass the viewer's scope
+        (``hub.equipment_views._form_scope``): a Space Manager sees Room and Space (plus
+        the item's current kind) and the guilds they lead or staff (plus the item's current
+        guild); everyone else passes nothing and keeps today's full pickers. The
+        restriction lives here, not in the view: the kind field refuses a posted kind
+        outside the set with ``KIND_NOT_ALLOWED`` (Django rejects an out-of-choices value
+        before ``clean`` runs, so this is where the refusal has to live), and the guild
+        field refuses a guild outside the set with Django's own invalid choice, so a
+        crafted POST gets the same answer as the picker. Standalone is always offered.
         """
         super().__init__(*args, **kwargs)
         kind_field = cast(forms.ChoiceField, self.fields["kind"])
@@ -5214,7 +5223,7 @@ class EquipmentForm(forms.ModelForm):
             kind_field.choices = [(value, label) for value, label in Equipment.Kind.choices if value in kinds]
             kind_field.error_messages["invalid_choice"] = self.KIND_NOT_ALLOWED
         guild_field = cast(forms.ModelChoiceField, self.fields["guild"])
-        guild_field.queryset = Guild.objects.order_by("name")
+        guild_field.queryset = (Guild.objects.all() if guilds is None else guilds).order_by("name")
         guild_field.empty_label = "Standalone (run by the makerspace)"
         guild_field.required = False
         space_field = cast(forms.ModelChoiceField, self.fields["space"])

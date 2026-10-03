@@ -33,6 +33,7 @@ from tests.membership.factories import (
     EquipmentStaffMembershipFactory,
     GuildFactory,
     GuildOrientationSettingsFactory,
+    GuildStaffMembershipFactory,
     MemberFactory,
     MembershipPlanFactory,
     OrientationBookingFactory,
@@ -415,6 +416,21 @@ def describe_equipment_add():
         for value in ("tool", "room", "space"):
             assert f'<option value="{value}"' in content
 
+    def it_offers_every_guild_to_an_admin(client: Client):
+        _login(client, "eq_add_admin_guilds", fog_role=Member.FogRole.ADMIN)
+        other = GuildFactory(name="Ceramics")
+        content = client.get(reverse("hub_equipment_add")).content.decode()
+        assert f'<option value="{other.pk}"' in content
+
+    def it_uses_the_plain_invalid_choice_for_an_admins_crafted_kind(client: Client):
+        # The Space Manager sentence is for Space Managers; an admin's garbage kind gets Django's own refusal.
+        _login(client, "eq_add_admin_badkind", fog_role=Member.FogRole.ADMIN)
+        response = client.post(reverse("hub_equipment_add"), {"name": "Odd Saw", "kind": "banana", "is_active": "on"})
+        assert response.status_code == 200
+        assert b"Select a valid choice" in response.content
+        assert EquipmentForm.KIND_NOT_ALLOWED.encode() not in response.content
+        assert not Equipment.objects.filter(name="Odd Saw").exists()
+
     def it_gives_no_staff_row_to_a_creator_who_already_manages(client: Client):
         _login(client, "eq_add_admin_nostaff", fog_role=Member.FogRole.ADMIN)
         client.post(reverse("hub_equipment_add"), {"name": "Admin Saw", "kind": "tool", "is_active": "on"})
@@ -460,6 +476,40 @@ def describe_equipment_add():
             assert response.status_code == 200
             assert EquipmentForm.KIND_NOT_ALLOWED.encode() in response.content
             assert not Equipment.objects.filter(name="Sneaky Saw").exists()
+
+        def it_offers_only_the_guilds_they_lead_or_staff_plus_standalone(client: Client):
+            user = _space_manager(client, "eq_add_sm_guilds")
+            staffed = GuildFactory(name="Woodworking")
+            GuildStaffMembershipFactory(guild=staffed, member=user.member)
+            led = GuildFactory(name="Metal", guild_lead=user.member)
+            other = GuildFactory(name="Ceramics")
+            content = client.get(reverse("hub_equipment_add")).content.decode()
+            assert f'<option value="{staffed.pk}"' in content
+            assert f'<option value="{led.pk}"' in content
+            assert f'<option value="{other.pk}"' not in content
+            assert "Standalone (run by the makerspace)" in content
+
+        def it_refuses_a_posted_guild_they_are_not_part_of(client: Client):
+            _space_manager(client, "eq_add_sm_other_guild")
+            other = GuildFactory(name="Ceramics")
+            response = client.post(
+                reverse("hub_equipment_add"),
+                {"name": "Sneaky Dock", "kind": "space", "guild": other.pk, "is_active": "on"},
+            )
+            assert response.status_code == 200
+            assert b"Select a valid choice" in response.content
+            assert not Equipment.objects.filter(name="Sneaky Dock").exists()
+
+        def it_files_a_space_under_a_guild_they_staff(client: Client):
+            user = _space_manager(client, "eq_add_sm_own_guild")
+            staffed = GuildFactory(name="Woodworking")
+            GuildStaffMembershipFactory(guild=staffed, member=user.member)
+            response = client.post(
+                reverse("hub_equipment_add"),
+                {"name": "Wood Dock", "kind": "space", "guild": staffed.pk, "is_active": "on"},
+            )
+            assert response.status_code == 302
+            assert Equipment.objects.get(name="Wood Dock").guild == staffed
 
         def it_keeps_every_kind_on_the_form_when_none_are_given():
             # The manage panel's Details tab passes nothing and keeps today's rules.
@@ -884,6 +934,89 @@ def describe_equipment_details_save():
         assert b"Pick a guild first, or turn this off." in response.content
         equipment.refresh_from_db()
         assert equipment.name == "Solid Saw"
+
+    def describe_space_manager_on_the_details_tab():
+        """#502 fix round: the Details tab narrows like the add page, so a space cannot become a tool."""
+
+        def _managed_space(client: Client, username: str, **kwargs) -> tuple[User, Equipment]:
+            user = _login(client, username)
+            user.member.admin_capabilities.create(capability=AdminCapability.Capability.SPACE_MANAGER)
+            equipment = EquipmentFactory(name="Loading Dock", kind=Equipment.Kind.SPACE, **kwargs)
+            EquipmentStaffMembershipFactory(equipment=equipment, member=user.member)
+            return user, equipment
+
+        def it_refuses_turning_their_space_into_a_tool(client: Client):
+            _user, equipment = _managed_space(client, "eq_save_sm_tool")
+            response = client.post(
+                reverse("hub_equipment_details_save", args=[equipment.slug]),
+                {"name": "Loading Dock", "kind": "tool", "is_active": "on"},
+            )
+            assert response.status_code == 200
+            assert EquipmentForm.KIND_NOT_ALLOWED.encode() in response.content
+            equipment.refresh_from_db()
+            assert equipment.kind == Equipment.Kind.SPACE
+
+        def it_lets_them_make_it_a_room(client: Client):
+            _user, equipment = _managed_space(client, "eq_save_sm_room")
+            response = client.post(
+                reverse("hub_equipment_details_save", args=[equipment.slug]),
+                {"name": "Loading Dock", "kind": "room", "is_active": "on"},
+            )
+            assert response.status_code == 302
+            equipment.refresh_from_db()
+            assert equipment.kind == Equipment.Kind.ROOM
+
+        def it_shows_room_and_space_only_on_the_details_tab(client: Client):
+            _user, equipment = _managed_space(client, "eq_manage_sm_get")
+            content = client.get(reverse("hub_equipment_manage", args=[equipment.slug])).content.decode()
+            assert '<option value="room"' in content
+            assert '<option value="space"' in content
+            assert '<option value="tool"' not in content
+
+        def it_keeps_a_tool_they_manage_through_a_guild_valid(client: Client):
+            user = _login(client, "eq_save_sm_guild_tool")
+            user.member.admin_capabilities.create(capability=AdminCapability.Capability.SPACE_MANAGER)
+            guild = GuildFactory(name="Woodworking", guild_lead=user.member)
+            equipment = EquipmentFactory(name="Table Saw", kind=Equipment.Kind.TOOL, guild=guild)
+            content = client.get(reverse("hub_equipment_manage", args=[equipment.slug])).content.decode()
+            assert '<option value="tool"' in content
+            response = client.post(
+                reverse("hub_equipment_details_save", args=[equipment.slug]),
+                {"name": "Table Saw", "kind": "tool", "guild": guild.pk, "is_active": "on"},
+            )
+            assert response.status_code == 302
+            equipment.refresh_from_db()
+            assert equipment.kind == Equipment.Kind.TOOL
+
+        def it_narrows_the_guild_picker_to_their_guilds_and_the_current_one(client: Client):
+            current = GuildFactory(name="Ceramics")
+            user, equipment = _managed_space(client, "eq_save_sm_guilds", guild=current)
+            staffed = GuildFactory(name="Woodworking")
+            GuildStaffMembershipFactory(guild=staffed, member=user.member)
+            other = GuildFactory(name="Metal")
+            content = client.get(reverse("hub_equipment_manage", args=[equipment.slug])).content.decode()
+            assert f'<option value="{current.pk}"' in content
+            assert f'<option value="{staffed.pk}"' in content
+            assert f'<option value="{other.pk}"' not in content
+            response = client.post(
+                reverse("hub_equipment_details_save", args=[equipment.slug]),
+                {"name": "Loading Dock", "kind": "space", "guild": other.pk, "is_active": "on"},
+            )
+            assert response.status_code == 200
+            assert b"Select a valid choice" in response.content
+            equipment.refresh_from_db()
+            assert equipment.guild == current
+
+        def it_keeps_every_kind_and_guild_for_a_guild_lead(client: Client):
+            user = _login(client, "eq_manage_lead_kinds")
+            guild = GuildFactory(name="Woodworking", guild_lead=user.member)
+            other = GuildFactory(name="Ceramics")
+            equipment = EquipmentFactory(name="Table Saw", guild=guild)
+            content = client.get(reverse("hub_equipment_manage", args=[equipment.slug])).content.decode()
+            for value in ("tool", "room", "space"):
+                assert f'<option value="{value}"' in content
+            assert f'<option value="{other.pk}"' in content
+            assert EquipmentForm.KIND_NOT_ALLOWED not in content
 
 
 def describe_equipment_photo_delete():
