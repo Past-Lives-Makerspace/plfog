@@ -1369,7 +1369,7 @@ def describe_site_members_who_never_logged_in():
         _login_admin(client)
         toggle = _toggle_input(client.get(reverse("hub_compose")).content.decode())
         assert "hx-get" not in toggle
-        assert "recipientCount = $event.target.checked ? siteReach.everyone : siteReach.loggedIn" in toggle
+        assert 'x-on:change="recipientCount = siteCount()"' in toggle
 
     def it_skips_the_site_counts_for_an_admin_locked_to_a_guild(client: Client):
         _login_admin(client)
