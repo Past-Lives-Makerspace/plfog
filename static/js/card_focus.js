@@ -108,15 +108,21 @@
                 this.rerender = () => { this.render(); this.measure(); };
                 window.addEventListener("resize", this.rerender);
                 window.addEventListener("composer-step-shown", this.rerender);
-                // A plain frame cannot be measured until its img has pixels. load does not
-                // bubble, so it is caught in the capture phase on the root: one listener
-                // covers every frame img, including the ones x-if renders later.
+                // A plain frame cannot be measured until its img has pixels. load and error
+                // do not bubble, so they are caught in the capture phase on the root: one
+                // listener covers every frame img, including the ones x-if renders later. A
+                // photo that never arrives has nothing to measure, so neither slider is off.
                 this.remeasure = (event) => {
-                    if (event.target && event.target.matches && event.target.matches(FRAME_IMGS)) {
-                        this.measure();
+                    if (!(event.target && event.target.matches && event.target.matches(FRAME_IMGS))) { return; }
+                    if (event.type === "error") {
+                        this.xMoves = "both";
+                        this.yMoves = "both";
+                        return;
                     }
+                    this.measure();
                 };
                 this.$root.addEventListener("load", this.remeasure, true);
+                this.$root.addEventListener("error", this.remeasure, true);
                 this.measure();
             },
 
@@ -124,6 +130,7 @@
                 window.removeEventListener("resize", this.rerender);
                 window.removeEventListener("composer-step-shown", this.rerender);
                 this.$root.removeEventListener("load", this.remeasure, true);
+                this.$root.removeEventListener("error", this.remeasure, true);
             },
 
             input() {
@@ -223,9 +230,11 @@
              * on one axis only; the other slider writes a value that frame cannot show. The
              * answer per axis is "both", "laptop", "phone" or "none"; the template disables
              * a "none" slider and whyX() / whyY() say what the others move. Never touches
-             * posX, posY or the hidden input. A frame that cannot be measured yet (no size
-             * because its step is off screen, or a plain img whose pixels have not arrived)
-             * keeps the previous answer; the step reveal and the img's load call back. */
+             * posX, posY or the hidden input. A frame with no size (its step is off screen)
+             * keeps the previous answer, which is still that photo's; the step reveal calls
+             * back. A plain img whose pixels have not arrived keeps the answer too, so a
+             * photo switch resets both flags first (watchHeroPreview) and the img's load or
+             * error settles them. */
             measure() {
                 const laptop = this.frameSlack(PHOTOS_FRAMES.laptop);
                 const phone = this.frameSlack(PHOTOS_FRAMES.phone);
@@ -297,7 +306,11 @@
                         this.natural = null;
                         this.render();
                     }
-                    // After Alpine has swapped the frames to the new photo; its load measures again.
+                    // The old photo's verdict means nothing for the new one, and a frame img
+                    // keeps reporting the old pixels until the new ones decode: nothing is off
+                    // until the new photo's load (or error) says so.
+                    this.xMoves = "both";
+                    this.yMoves = "both";
                     this.$nextTick(() => this.measure());
                 };
                 new MutationObserver(sync).observe(preview, { childList: true, subtree: true });

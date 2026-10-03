@@ -38,6 +38,8 @@ OFF = re.compile(r"pl-card-focus__slider-row--off")
 # tall media strip each measures is 2px narrower: shapes of 1.74 and 2.27.
 LAPTOP = f"{STEP} .pl-card-focus__frame--laptop"
 PHONE = f"{STEP} .pl-card-focus__frame--phone"
+CROPPER = ".cropper-container"
+BOXED = re.compile(r"pl-card-focus__img--boxed")
 
 X_NONE = "This photo already fits side to side, so only up and down moves it."
 Y_NONE = "This photo already fits top to bottom, so only left and right moves it."
@@ -156,8 +158,8 @@ def describe_card_focus_slack():
     def it_names_the_frame_each_slider_moves_when_the_photo_sits_between_the_two_shapes(
         live_server, page, login_via_code, serve_media
     ):
-        # 2000 by 1000 (2.0) is wider than the laptop frame (1.75) and narrower than the phone
-        # frame (2.28): sideways slack on the laptop, vertical slack on the phone. Both sliders
+        # 2000 by 1000 (2.0) is wider than the laptop frame (1.74) and narrower than the phone
+        # frame (2.27): sideways slack on the laptop, vertical slack on the phone. Both sliders
         # live, and each line names the one card it moves. The only shape where neither is off.
         offering = _seed_draft(_seed_instructor(), 2000, 1000)
         login_via_code(EMAIL)
@@ -173,6 +175,36 @@ def describe_card_focus_slack():
         expect(_range(down)).to_be_enabled()
         expect(across).not_to_have_class(OFF)
         expect(down).not_to_have_class(OFF)
+
+    def it_measures_the_crop_box_instead_of_the_photo_once_a_box_is_announced(
+        live_server, page, login_via_code, serve_media
+    ):
+        # The wide landscape alone leaves Up and down dead. Square hands Cropper a 1:1 ratio,
+        # and hero_cropper.js writes and announces the box it fits (600 by 600, as tall as the
+        # photo allows) with no drag: a box narrower than both frames is width fitted, so the
+        # slack flips to vertical and the verdict follows the box, not the photo behind it.
+        offering = _seed_draft(_seed_instructor(), 3000, 600)
+        login_via_code(EMAIL)
+        _open_photos_step(page, live_server, "classes:teach_class_edit", pk=offering.pk)
+        across, down = _row(page, "Left and right"), _row(page, "Up and down")
+        expect(_range(down)).to_be_disabled()
+        expect(_range(across)).to_be_enabled()
+        expect(page.locator(CROPPER)).to_be_visible()
+        page.wait_for_function(
+            "() => { const img = document.querySelector('[data-hero-cropper-preview]');"
+            " return !!(img && img.cropper && img.cropper.ready); }"
+        )
+
+        page.locator('input[name="hero_crop_shape"][value="square"]').check()
+
+        photos = page.locator(CARD_PHOTOS)
+        expect(photos).to_have_count(2)
+        for photo in photos.all():
+            expect(photo).to_have_class(BOXED)
+        expect(_range(across)).to_be_disabled()
+        expect(_why(across)).to_have_text(X_NONE)
+        expect(_range(down)).to_be_enabled()
+        expect(_why(down)).to_be_hidden()
 
     def it_flips_left_and_right_on_when_the_instant_upload_swaps_a_portrait_for_a_wide_one(
         live_server, page, login_via_code, serve_media, tmp_path
