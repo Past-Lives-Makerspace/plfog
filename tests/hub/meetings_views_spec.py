@@ -882,7 +882,7 @@ def describe_delete():
         guild = GuildFactory()
         user = _lead_client(client, guild)
         meeting = MeetingFactory(guild=guild, scheduled_time=time(18, 0))
-        with patch.object(CommunityEvent, "schedule_or_go_live"):
+        with patch.object(CommunityEvent, "push_live"):
             meeting.create_calendar_event(by=user)
         meeting.refresh_from_db()
         event_pk = meeting.event_id
@@ -1434,7 +1434,7 @@ def describe_workspace_lifecycle_rendering():
             guild = GuildFactory()
             user = _lead_client(client, guild)
             meeting = MeetingFactory(guild=guild, scheduled_time=time(18, 0))
-            with patch.object(CommunityEvent, "schedule_or_go_live"):
+            with patch.object(CommunityEvent, "push_live"):
                 meeting.create_calendar_event(by=user)
             content = client.get(reverse("hub_meeting", args=[meeting.pk])).content.decode()
             assert "Its calendar event is also removed from the calendar, Google, and Discord." in content
@@ -2244,11 +2244,11 @@ def describe_guild_meetings_tab():
 @pytest.mark.django_db
 def describe_calendar_rails():
     def describe_the_create_endpoint():
-        def it_creates_an_owned_event_riding_schedule_or_go_live(client: Client):
+        def it_creates_an_owned_event_and_pushes_it_live(client: Client):
             guild = GuildFactory()
             _lead_client(client, guild)
             meeting = MeetingFactory(guild=guild, scheduled_time=time(18, 0))
-            with patch.object(CommunityEvent, "schedule_or_go_live") as go_live:
+            with patch.object(CommunityEvent, "push_live") as go_live:
                 resp = client.post(reverse("hub_meeting_event", args=[meeting.pk]))
             assert resp.status_code == 204
             assert resp["HX-Redirect"] == reverse("hub_meeting", args=[meeting.pk])
@@ -2257,7 +2257,7 @@ def describe_calendar_rails():
             assert meeting.event is not None
             assert meeting.owns_event is True
             assert meeting.event_occurrence == meeting.scheduled_date
-            assert "On the calendar — Google and Discord will sync." in _messages(resp)
+            assert "On the calendar. Its announcement is waiting in your Announcements drafts." in _messages(resp)
 
         def it_422s_without_a_date_and_time(client: Client):
             guild = GuildFactory()

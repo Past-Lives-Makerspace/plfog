@@ -4122,7 +4122,7 @@ def _compose_audience_forbidden(request: HttpRequest, raw_audience: str) -> Http
     from membership.models import AnnouncementDraft
 
     audience, guild, offering = split_audience(raw_audience)
-    if audience == AnnouncementDraft.Audience.SITE.value:
+    if audience in (AnnouncementDraft.Audience.SITE.value, AnnouncementDraft.Audience.LEADS.value):
         return None if _viewing_as_admin(request) else HttpResponse("Forbidden", status=403)
     if audience == AnnouncementDraft.Audience.GUILD.value and guild is not None and _can_edit_guild(request, guild):
         return None

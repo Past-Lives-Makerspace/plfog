@@ -431,7 +431,7 @@ Quill, the eager notes Quills, and the savestate pill's full §5.2 error contrac
       <button type="button" @click="open = false" class="pl-modal__close" aria-label="Close">&times;</button>
     </div>
     <div class="pl-modal__body">
-      {# Create + own: rides schedule_or_go_live — announce + Google + Discord + reminders. #}
+      {# Create + own: Google + Discord + reminders, and a draft announcement instead of an announcement (#596). #}
       <form hx-post="{% url 'hub_meeting_event' meeting.pk %}" hx-swap="none" hx-disabled-elt="find button">
         {% csrf_token %}
         {% if can_add_to_calendar %}

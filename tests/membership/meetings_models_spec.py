@@ -491,11 +491,11 @@ def describe_Meeting():
                 MeetingFactory(approved=True).propose_item(by=_user("p3"), title="Nope", why="")
 
     def describe_create_calendar_event():
-        def it_builds_a_guild_meeting_event_and_rides_schedule_or_go_live():
+        def it_builds_a_guild_meeting_event_and_pushes_it_live():
             by = _user("creator")
             guild = GuildFactory(name="Forge", meeting_location="Studio B")
             meeting = MeetingFactory(guild=guild, scheduled_time=time(18, 0))
-            with patch.object(CommunityEvent, "schedule_or_go_live") as go_live:
+            with patch.object(CommunityEvent, "push_live") as go_live:
                 event = meeting.create_calendar_event(by=by)
             go_live.assert_called_once_with(actor=by)
             meeting.refresh_from_db()
@@ -512,26 +512,26 @@ def describe_Meeting():
 
         def it_uses_the_scheduled_end_time_for_the_event_end():
             meeting = MeetingFactory(scheduled_time=time(18, 0), scheduled_end_time=time(19, 30))
-            with patch.object(CommunityEvent, "schedule_or_go_live"):
+            with patch.object(CommunityEvent, "push_live"):
                 event = meeting.create_calendar_event(by=_user("cend"))
             assert event.ends_at == meeting.ends_at
 
         def it_falls_back_to_a_default_length_without_an_end_time():
             meeting = MeetingFactory(scheduled_time=time(18, 0), scheduled_end_time=None)
-            with patch.object(CommunityEvent, "schedule_or_go_live"):
+            with patch.object(CommunityEvent, "push_live"):
                 event = meeting.create_calendar_event(by=_user("cdef"))
             assert event.ends_at == event.starts_at + timedelta(minutes=90)
 
         def it_prefers_the_video_call_url_as_the_location():
             guild = GuildFactory(meeting_location="Studio B")
             meeting = MeetingFactory(guild=guild, scheduled_time=time(18, 0), video_call_url="https://meet.example/x")
-            with patch.object(CommunityEvent, "schedule_or_go_live"):
+            with patch.object(CommunityEvent, "push_live"):
                 event = meeting.create_calendar_event(by=_user("c2"))
             assert event.location == "https://meet.example/x"
 
         def it_targets_the_public_calendar_for_a_guild_meeting():
             meeting = MeetingFactory(guild=GuildFactory(), scheduled_time=time(18, 0))
-            with patch.object(CommunityEvent, "schedule_or_go_live"):
+            with patch.object(CommunityEvent, "push_live"):
                 event = meeting.create_calendar_event(by=_user("cpub"))
             assert event.google_calendar_target == CommunityEvent.GoogleCalendarTarget.PUBLIC
 
@@ -539,13 +539,13 @@ def describe_Meeting():
             # Internal leadership meeting — its location can carry the leads' video link,
             # so it must never ride the public default.
             meeting = MeetingFactory(guild=None, scheduled_time=time(19, 0))
-            with patch.object(CommunityEvent, "schedule_or_go_live"):
+            with patch.object(CommunityEvent, "push_live"):
                 event = meeting.create_calendar_event(by=_user("cmem"))
             assert event.google_calendar_target == CommunityEvent.GoogleCalendarTarget.MEMBER
 
         def it_builds_a_lead_meeting_for_the_council_without_touching_a_guild():
             meeting = MeetingFactory(guild=None, scheduled_time=time(19, 0))
-            with patch.object(CommunityEvent, "schedule_or_go_live"):
+            with patch.object(CommunityEvent, "push_live"):
                 event = meeting.create_calendar_event(by=_user("c3"))  # guild=None must not raise
             assert event.event_type == CommunityEvent.EventType.LEAD_MEETING
             assert event.guild is None
@@ -559,7 +559,7 @@ def describe_Meeting():
 
         def it_refuses_a_double_link():
             meeting = MeetingFactory(scheduled_time=time(18, 0))
-            with patch.object(CommunityEvent, "schedule_or_go_live"):
+            with patch.object(CommunityEvent, "push_live"):
                 meeting.create_calendar_event(by=_user("c6"))
             with pytest.raises(ValueError, match="already linked"):
                 meeting.create_calendar_event(by=_user("c7"))
@@ -606,7 +606,7 @@ def describe_Meeting():
             """A meeting owning its calendar event (created through the workspace path)."""
             guild = GuildFactory(meeting_location="Studio B")
             meeting = MeetingFactory(guild=guild, scheduled_time=time(18, 0))
-            with patch.object(CommunityEvent, "schedule_or_go_live"):
+            with patch.object(CommunityEvent, "push_live"):
                 meeting.create_calendar_event(by=_user("owner"))
             meeting.refresh_from_db()
             return meeting
@@ -694,7 +694,7 @@ def describe_Meeting():
         def it_leaves_even_a_formerly_owned_event_on_the_calendar():
             editor = _user("u3")
             meeting = MeetingFactory(scheduled_time=time(18, 0))
-            with patch.object(CommunityEvent, "schedule_or_go_live"):
+            with patch.object(CommunityEvent, "push_live"):
                 event = meeting.create_calendar_event(by=editor)
             meeting.refresh_from_db()
             meeting.unlink_event(by=editor)
@@ -710,7 +710,7 @@ def describe_Meeting():
         def it_unwinds_and_deletes_an_owned_event_then_the_meeting():
             editor = _user("r1")
             meeting = MeetingFactory(scheduled_time=time(18, 0))
-            with patch.object(CommunityEvent, "schedule_or_go_live"):
+            with patch.object(CommunityEvent, "push_live"):
                 meeting.create_calendar_event(by=editor)
             meeting.refresh_from_db()
             event_pk = meeting.event_id
