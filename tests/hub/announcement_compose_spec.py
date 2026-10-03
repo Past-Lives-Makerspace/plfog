@@ -1340,6 +1340,12 @@ def describe_site_members_who_never_logged_in():
         assert match
         return match.group(0)
 
+    def _is_checked(tag: str) -> bool:
+        # The attribute itself, not the word: the toggle's x-on:change reads $event.target.checked.
+        import re
+
+        return re.search(r"\schecked(?=[\s>/])", tag) is not None
+
     def it_shows_both_counts_and_the_toggle_off_to_an_admin(client: Client):
         _login_admin(client)
         _never_logged_in()
@@ -1355,7 +1361,7 @@ def describe_site_members_who_never_logged_in():
         assert f"Everyone means the {logged_in} active member" in content
         assert "1 more has never logged in." in content
         assert "Also include members who haven" in content
-        assert "checked" not in _toggle_input(content)
+        assert not _is_checked(_toggle_input(content))
         assert response.context["initial_recipient_count"] == logged_in
 
     def it_switches_the_count_in_the_browser_without_refreshing_the_discord_picker(client: Client):
@@ -1414,7 +1420,7 @@ def describe_site_members_who_never_logged_in():
         _never_logged_in()
         draft = AnnouncementDraftFactory(audience="site", include_never_logged_in=True)
         response = client.get(reverse("hub_compose_resume", args=[draft.pk]))
-        assert "checked" in _toggle_input(response.content.decode())
+        assert _is_checked(_toggle_input(response.content.decode()))
         assert response.context["initial_recipient_count"] == _compose_count_for(
             "site", None, include_never_logged_in=True
         )
