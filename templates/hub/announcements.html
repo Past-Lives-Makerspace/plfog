@@ -1,0 +1,115 @@
+{% extends "hub/base.html" %}
+{% load static %}
+{% block title %}Announcements{% endblock %}
+{% block extra_head %}
+<link rel="stylesheet" href="{% static 'css/announcements.css' %}">
+{% endblock %}
+{% block content %}
+{% comment %}
+The Announcements page: Drafts and Sent tabs over every announcement this viewer may handle
+(hub.views._announcement_rows). Server rendered tabs (?tab=drafts|sent), so links, Back and
+pagination work. Rows stack into labelled cards at 768px and below (the members table stacking).
+
+Context: tab, rows ([(AnnouncementDraft, people reached or None)]), page, base_params,
+drafts_count, sent_count.
+{% endcomment %}
+{% url 'hub_compose' as compose_url %}
+{% include "components/page_header.html" with title="Announcements" description="Announcements waiting to go out and the ones already sent. Open a draft to finish it in the Announcement Composer." action_url=compose_url action_label="New announcement" action_class="hub-btn hub-btn--primary" action_help_key="announcements.new" %}
+
+<nav class="pl-announcements-tabs" aria-label="Announcements">
+  <a href="{% url 'hub_announcements' %}?tab=drafts" class="vote-tab{% if tab == 'drafts' %} vote-tab--active{% endif %}"{% if tab == 'drafts' %} aria-current="page"{% endif %} data-announcements-tab="drafts">Drafts <span class="hub-badge" data-announcements-count="drafts">{{ drafts_count }}</span></a>
+  <a href="{% url 'hub_announcements' %}?tab=sent" class="vote-tab{% if tab == 'sent' %} vote-tab--active{% endif %}"{% if tab == 'sent' %} aria-current="page"{% endif %} data-announcements-tab="sent">Sent <span class="hub-badge" data-announcements-count="sent">{{ sent_count }}</span></a>
+</nav>
+
+<div class="hub-card pl-announcements-card" x-data>
+  {% if rows %}
+  <table class="pl-members-table pl-announcements-table" data-announcements-table="{{ tab }}">
+    <thead>
+      <tr>
+        <th scope="col">Announcement</th>
+        <th scope="col">Audience</th>
+        <th scope="col">Channels
+          <span class="pl-help">
+            <span class="pl-help__icon" tabindex="0" role="img" aria-label="Channels: Everyone it goes to also gets it in their notification bell.">?</span>
+            <span class="pl-help__bubble">Everyone it goes to also gets it in their notification bell.</span>
+          </span>
+        </th>
+        <th scope="col">Status</th>
+        {% if tab == 'sent' %}
+        <th scope="col">Sent</th>
+        <th scope="col">Sent by</th>
+        <th scope="col">Reached</th>
+        {% else %}
+        <th scope="col">Last edited</th>
+        <th scope="col">Edited by</th>
+        {% endif %}
+        <th scope="col"><span class="sr-only">Actions</span></th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for row, reached in rows %}
+      <tr data-announcement-row="{{ row.pk }}" data-announcement-state="{{ row.state }}">
+        <td data-label="Announcement" class="pl-announcements-table__lead">
+          {% if tab == 'sent' %}
+          <a href="{% url 'hub_announcement_sent' row.pk %}" class="pl-announcements-table__title">{{ row.title }}</a>
+          {% else %}
+          <a href="{% url 'hub_compose_resume' row.pk %}" class="pl-announcements-table__title">{{ row.title }}</a>
+          {% endif %}
+          <span class="pl-announcements-table__excerpt">{{ row.message_excerpt|default:"No message yet." }}</span>
+        </td>
+        <td data-label="Audience">{{ row.audience_label }}</td>
+        <td data-label="Channels" data-channels>{{ row.channel_labels|join:" · " }}</td>
+        <td data-label="Status">
+          <span class="hub-pill {% if row.state == 'sent' %}hub-pill--ok{% elif row.state == 'sending' %}hub-pill--warn{% elif row.state == 'could_not_send' %}hub-pill--danger{% else %}hub-pill--neutral{% endif %}">{{ row.state.label }}</span>
+          {% if row.state == 'could_not_send' %}
+          <span class="pl-announcements-table__note" data-send-error>{{ row.send_error|truncatechars:80 }}</span>
+          {% elif row.state == 'sending' %}
+          <span class="pl-announcements-table__note" data-sending-note="{% if row.send_error %}retrying{% else %}queued{% endif %}">{% if row.send_error %}The last try failed. Trying again.{% else %}Goes out within 15 minutes.{% endif %}</span>
+          {% endif %}
+        </td>
+        {% if tab == 'sent' %}
+        <td data-label="Sent" class="pl-announcements-table__when">{% if row.sent_at %}{{ row.sent_at|date:"M j, g:i a" }}{% else %}Queued {{ row.send_requested_at|date:"M j, g:i a" }}{% endif %}</td>
+        <td data-label="Sent by" class="pl-announcements-table__who">{{ row.author_label }}</td>
+        <td data-label="Reached" data-reach="{% if row.state == 'sending' %}not-yet{% elif reached is None %}not-recorded{% else %}{{ reached }}{% endif %}">{% if row.state == 'sending' %}Not yet{% elif reached is None %}Not recorded{% else %}{{ reached }}{% endif %}</td>
+        <td data-label="Actions" class="pl-announcements-table__actions-cell">
+          <div class="pl-announcements-table__actions">
+            <a href="{% url 'hub_announcement_sent' row.pk %}" class="pl-btn pl-btn--ghost pl-btn--sm" data-announcement-view>View</a>
+          </div>
+        </td>
+        {% else %}
+        <td data-label="Last edited" class="pl-announcements-table__when">{{ row.updated_at|date:"M j, g:i a" }}</td>
+        <td data-label="Edited by" class="pl-announcements-table__who">{{ row.author_label }}</td>
+        <td data-label="Actions" class="pl-announcements-table__actions-cell">
+          <div class="pl-announcements-table__actions">
+            <a href="{% url 'hub_compose_resume' row.pk %}" class="pl-btn pl-btn--secondary pl-btn--sm" data-announcement-edit>Edit</a>
+            <button type="button" class="pl-btn pl-btn--danger pl-btn--sm" data-announcement-delete
+                    @click="$dispatch('open-confirm', 'del-draft-{{ row.pk }}')">Delete</button>
+          </div>
+        </td>
+        {% endif %}
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+
+  {% include "components/table_pagination.html" %}
+
+  {% if tab == 'drafts' %}
+  {% for row, reached in rows %}
+    {% url 'hub_compose_delete_draft' row.pk as delete_url %}
+    {% with pks=row.pk|stringformat:"s" %}
+      {% if row.funding_snapshot_id %}
+      {% include "components/confirm_modal.html" with confirm_id="del-draft-"|add:pks confirm_title="Delete this draft?" confirm_message="It has not been sent to anyone. It will not be made again on its own; you can start a new one from the Voting page." confirm_action_url=delete_url confirm_button_text="Delete draft" %}
+      {% else %}
+      {% include "components/confirm_modal.html" with confirm_id="del-draft-"|add:pks confirm_title="Delete this draft?" confirm_message="It has not been sent to anyone. Deleting it cannot be undone." confirm_action_url=delete_url confirm_button_text="Delete draft" %}
+      {% endif %}
+    {% endwith %}
+  {% endfor %}
+  {% endif %}
+  {% elif tab == 'sent' %}
+  <p class="pl-announcements-empty" data-announcements-empty="sent">Nothing sent yet. Each announcement sent is listed here with when it went out and how many people it reached.</p>
+  {% else %}
+  <p class="pl-announcements-empty" data-announcements-empty="drafts">No drafts right now. Press Save draft in the Announcement Composer and the draft waits here until it is sent.</p>
+  {% endif %}
+</div>
+{% endblock %}

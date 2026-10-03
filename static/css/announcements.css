@@ -1,0 +1,217 @@
+/* ----------------------------------------------------------------------------
+   The Announcements page (hub/announcements.html) and the read-only record of a
+   sent announcement (hub/announcement_sent.html).
+
+   The list is a .pl-members-table, so it inherits that table's stacking into
+   labelled cards at 768px and below (td[data-label]). Its eight columns need
+   more room than the hub's content column has beside the sidebar on a laptop,
+   so the card is also a size container and the same stacking applies whenever
+   the card itself is narrower than the table needs, whatever the viewport.
+   The tab row copies the few .pl-vote-tabs rules from voting-admin.css rather
+   than loading the voting sheet; the .vote-tab item is styled in hub.css.
+   ------------------------------------------------------------------------- */
+
+.pl-announcements-tabs {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0;
+    border-bottom: 1px solid var(--hub-border);
+    margin-bottom: 1.5rem;
+}
+.pl-announcements-tabs .vote-tab {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.5rem;
+    text-decoration: none;
+}
+
+.pl-announcements-empty {
+    margin: 0;
+    color: var(--hub-text-muted);
+}
+
+/* --- The list -------------------------------------------------------------- */
+
+.pl-announcements-table th,
+.pl-announcements-table td {
+    padding-left: 0.5rem;
+    padding-right: 0.5rem;
+}
+.pl-announcements-table td {
+    vertical-align: top;
+}
+.pl-announcements-table__title {
+    color: var(--hub-text);
+    font-weight: 700;
+    text-decoration: none;
+}
+.pl-announcements-table__title:hover {
+    color: var(--hub-link);
+    text-decoration: underline;
+}
+.pl-announcements-table__excerpt,
+.pl-announcements-table__note {
+    display: block;
+    margin-top: 0.25rem;
+    color: var(--hub-text-muted);
+    font-size: 0.8125rem;
+    line-height: 1.4;
+}
+.pl-announcements-table__excerpt {
+    max-width: 36ch;
+}
+.pl-announcements-table__note {
+    max-width: 24ch;
+}
+.pl-announcements-table__actions {
+    display: flex;
+    gap: 0.5rem;
+    justify-content: flex-end;
+}
+/* A pill or a date broken over lines reads as broken. */
+.pl-announcements-table .hub-pill,
+.pl-announcements-table__when {
+    white-space: nowrap;
+}
+
+/* Light theme (Slate) contrast for the status pills, matching the overrides the
+   members table and the invite list use; warn takes the darker amber the
+   proposals list uses. */
+[data-theme="light"] .pl-announcements-table .hub-pill--ok { color: #1f7a52; }
+[data-theme="light"] .pl-announcements-table .hub-pill--neutral { color: #5b6675; }
+[data-theme="light"] .pl-announcements-table .hub-pill--danger { color: #b03030; }
+[data-theme="light"] .pl-announcements-table .hub-pill--warn { color: #9a6a00; }
+
+/* One labelled card per row when the card is narrower than the table needs: the
+   .pl-members-table stacking, keyed to the card's width rather than the viewport's.
+   The title and excerpt lead each card with no label, and the buttons close it. */
+.pl-announcements-card {
+    container-type: inline-size;
+}
+@container (max-width: 910px) {
+    .pl-announcements-table thead {
+        display: none;
+    }
+    .pl-announcements-table tr {
+        display: block;
+        border: 1px solid var(--hub-border);
+        border-radius: 8px;
+        margin-bottom: 0.75rem;
+        padding: 0.25rem 0.75rem;
+    }
+    .pl-announcements-table td[data-label] {
+        display: block;
+        padding: 0.5rem 0;
+        overflow-wrap: anywhere;
+    }
+    .pl-announcements-table td[data-label]::before {
+        content: attr(data-label);
+        display: block;
+        color: var(--hub-text-muted);
+        font-weight: 500;
+        font-size: 0.75rem;
+        text-transform: uppercase;
+        letter-spacing: 0.04em;
+        margin-bottom: 0.25rem;
+    }
+    .pl-announcements-table td.pl-announcements-table__lead::before,
+    .pl-announcements-table td.pl-announcements-table__actions-cell::before {
+        content: none;
+        display: none;
+    }
+    .pl-announcements-table__excerpt,
+    .pl-announcements-table__note {
+        max-width: none;
+    }
+    .pl-announcements-table td.pl-announcements-table__actions-cell {
+        padding-top: 0.75rem;
+        padding-bottom: 0.75rem;
+    }
+    .pl-announcements-table__actions {
+        justify-content: stretch;
+    }
+    .pl-announcements-table__actions > .pl-btn {
+        flex: 1 1 0;
+    }
+}
+/* With room for it (a laptop beside the sidebar), a card sets its facts three across under
+   the title and keeps its buttons at their own width, rather than one tall column. */
+@container (min-width: 560px) and (max-width: 910px) {
+    .pl-announcements-table tr {
+        display: grid;
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+        column-gap: 1.5rem;
+    }
+    .pl-announcements-table td.pl-announcements-table__lead,
+    .pl-announcements-table td.pl-announcements-table__actions-cell {
+        grid-column: 1 / -1;
+    }
+    .pl-announcements-table__actions {
+        justify-content: flex-end;
+    }
+    .pl-announcements-table__actions > .pl-btn {
+        flex: 0 0 auto;
+    }
+}
+
+/* --- The sent view ---------------------------------------------------------- */
+
+.pl-announcements-back {
+    margin: 0 0 1rem;
+}
+.pl-announcement-heading {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.75rem;
+    margin-bottom: 0.5rem;
+}
+.pl-announcement-heading .hub-page-title {
+    margin: 0;
+}
+.pl-announcement-sentline {
+    margin: 0 0 1.5rem;
+    max-width: 65ch;
+    color: var(--hub-text-muted);
+}
+.pl-announcement-card {
+    margin-bottom: 1.5rem;
+}
+.pl-announcement-facts {
+    display: grid;
+    grid-template-columns: max-content minmax(0, 1fr);
+    gap: 0.5rem 1.5rem;
+    margin: 0;
+}
+.pl-announcement-facts dt {
+    color: var(--hub-text-muted);
+    font-weight: 500;
+}
+.pl-announcement-facts dd {
+    margin: 0;
+    color: var(--hub-text);
+    overflow-wrap: anywhere;
+}
+.pl-announcement-card__note {
+    margin: 1rem 0 0;
+    color: var(--hub-text-muted);
+    font-size: 0.875rem;
+}
+[data-theme="light"] .pl-announcement-heading .hub-pill--ok { color: #1f7a52; }
+[data-theme="light"] .pl-announcement-heading .hub-pill--warn { color: #9a6a00; }
+
+@media (max-width: 768px) {
+    /* Label over value, as the list's cards read. */
+    .pl-announcement-facts {
+        grid-template-columns: minmax(0, 1fr);
+        gap: 0.25rem;
+    }
+    .pl-announcement-facts dt {
+        font-size: 0.75rem;
+        text-transform: uppercase;
+        letter-spacing: 0.04em;
+    }
+    .pl-announcement-facts dd {
+        margin-bottom: 0.5rem;
+    }
+}

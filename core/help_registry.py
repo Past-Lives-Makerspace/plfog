@@ -375,6 +375,15 @@ HELP_KEYS: dict[str, HelpKeyEntry] = {
         "article_slug": "guild-announcements",
         "anchor": "announcements-compose",
     },
+    "announcements.new": {
+        "title": "Start a new announcement",
+        "short_text": (
+            "Opens the Announcement Composer. Press Save draft there to keep it on the Drafts tab "
+            "until someone sends it."
+        ),
+        "article_slug": "announcement-composer",
+        "anchor": "composer-drafts",
+    },
     "announcements.review-proposals": {
         "title": "Review member proposals",
         "short_text": (

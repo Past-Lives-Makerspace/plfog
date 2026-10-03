@@ -240,6 +240,10 @@ urlpatterns = [
     path("tools/", views.hub_admin_tools, name="hub_admin_tools"),
     # Push notification diagnostics (admin-only): inspect a member's devices, send a test push.
     path("announcements/push-test/", views.hub_push_test, name="hub_push_test"),
+    # The Announcements page: drafts and sent, shared by everyone who may address each audience.
+    # The sent view is not announcements/<pk>/: announcements/<pk>/withdraw/ is a member's proposal.
+    path("announcements/", views.announcements_overview, name="hub_announcements"),
+    path("announcements/sent/<int:pk>/", views.announcement_sent, name="hub_announcement_sent"),
     # Announcement compose wizard (admins: site-wide; guild leads/staff: their guilds).
     path("announcements/compose/", views.hub_compose, name="hub_compose"),
     path("announcements/compose/preview/", views.hub_compose_preview, name="hub_compose_preview"),

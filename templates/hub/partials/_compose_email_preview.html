@@ -8,12 +8,5 @@ Params:
   discord_title, discord_description_html — the Discord embed, swapped out of band into the
                     Discord preview card so both previews refresh in one request
 {% endcomment %}
-<div class="pl-email-preview__inbox">
-  <span class="pl-email-preview__from">Past Lives</span>
-  <span class="pl-email-preview__subject">{{ preview_subject|default:"(no subject yet)" }}</span>
-</div>
-<div class="pl-email-preview__frame pl-wizard-preview__frame">
-  {# force_escape: preview_html may be a SafeString (render_to_string), and a raw quote would close srcdoc and blank the preview. #}
-  <iframe srcdoc="{{ preview_html|force_escape }}" title="Email preview" class="pl-email-preview__iframe pl-wizard-preview__iframe"></iframe>
-</div>
+{% include "hub/partials/_email_preview_frame.html" %}
 {% include "hub/partials/_compose_discord_preview.html" with oob=True %}

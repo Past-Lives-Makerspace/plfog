@@ -1218,6 +1218,15 @@
     margin-top: 0.75rem;
 }
 
+/* Buttons side by side that wrap on a narrow screen, e.g. a primary action and its ghost
+   companion (the guild edit Announcements tab's Compose announcement and Drafts and sent). */
+.pl-btn-row {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.75rem;
+}
+
 .pl-btn--icon {
     width: 36px;
     height: 36px;

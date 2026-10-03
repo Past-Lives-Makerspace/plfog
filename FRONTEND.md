@@ -380,7 +380,8 @@ All under `static/css/`. The pattern in use: one stylesheet per surface, linked 
 | `member-edit.css` | `hub/admin/member_edit.html` | One admin page. |
 | `leadership.css` | `hub/leadership_directory.html`, `hub/admin/leadership.html` | The Leadership Directory cards and its admin page. |
 | `voting-admin.css` | `hub/admin/voting_*.html` | Voting admin pages. |
-| `announcement-compose.css` | `hub/announcement_compose.html` | The announcement composer's own additions (the Discord preview card); its older styles still live in `hub.css`. |
+| `announcement-compose.css` | `hub/announcement_compose.html`, `hub/announcement_sent.html` | The announcement composer's own additions (the Discord preview card, the back link, the line about a resumed draft); its older styles still live in `hub.css`. The sent view loads it for the preview cards. |
+| `announcements.css` | `hub/announcements.html`, `hub/announcement_sent.html` | The Announcements page (Drafts and Sent tabs, the list on top of `.pl-members-table` stacking) and the sent view's facts list. |
 | `notifications-catalogue.css`, `notifications-edit-copy.css`, `notifications-edit-discord.css` | `hub/admin/notifications/*.html` | Notification admin pages. |
 | `signage.css` | `signage/base.html` | The lobby signage display. |
 | `wiki-stickers.css` | `hub/wiki_sticker_sheet.html` | The QR sticker sheet. |

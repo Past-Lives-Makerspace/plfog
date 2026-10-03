@@ -5818,36 +5818,7 @@ mark { background: color-mix(in srgb, var(--color-tuscan-yellow) 30%, transparen
 .htmx-request .pl-spin, .pl-spin.htmx-request { display: inline-block; }
 @keyframes pl-spin { to { transform: rotate(360deg); } }
 
-/* "Your drafts" list (below the wizard) */
-.pl-drafts { margin-top: 1.5rem; }
-.pl-drafts__header {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: 1rem;
-    flex-wrap: wrap;
-    margin-bottom: 1rem;
-}
-.pl-drafts__title { margin: 0; font-size: 1.05rem; }
-.pl-drafts__empty { color: var(--hub-text-muted); margin: 0; }
-.pl-draft-row {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: 1rem;
-    flex-wrap: wrap;
-    padding: 0.85rem 0;
-    border-top: 1px solid var(--hub-border);
-}
-.pl-draft-row__meta { display: flex; flex-direction: column; gap: 0.15rem; min-width: 0; }
-.pl-draft-row__title { color: var(--hub-text); }
-.pl-draft-row__sub { color: var(--hub-text-muted); font-size: 0.8125rem; }
-.pl-draft-row__actions { display: flex; gap: 0.5rem; flex-shrink: 0; }
-.pl-draft-row__delete { margin-left: 0.25rem; }
-
 @media (max-width: 480px) {
-    .pl-draft-row { align-items: flex-start; }
-    .pl-draft-row__actions { width: 100%; }
     .pl-wizard-actions .hub-btn { flex: 1 1 auto; }
 }
 

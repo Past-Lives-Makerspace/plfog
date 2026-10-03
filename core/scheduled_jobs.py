@@ -74,7 +74,9 @@ SCHEDULED_JOBS: list[ScheduledJob] = [
     ScheduledJob(
         key="take_cycle_snapshot",
         name="Funding cycle snapshots",
-        description="Records the current funding-cycle vote tallies so results are preserved.",
+        description=(
+            "Records each month's vote tallies so results are preserved, and makes that month's voting results draft."
+        ),
         command="take_cycle_snapshot",
         schedule_label="Every 15 min",
         cadence=Cadence.ALWAYS,

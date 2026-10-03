@@ -21,9 +21,21 @@ from factory.django import mute_signals
 
 from classes.factories import ClassOfferingFactory, RegistrationFactory
 from classes.models import Registration
-from core.models import Notification, SiteConfiguration
-from membership.models import AlreadySentError, AnnouncementDraft, GuildAnnouncement, resolve_channel_webhook
-from tests.membership.factories import GuildFactory, GuildMembershipFactory, MemberFactory, MembershipPlanFactory
+from core.models import EventDelivery, Notification, SiteConfiguration
+from membership.models import (
+    AlreadySentError,
+    AnnouncementDraft,
+    AnnouncementReach,
+    GuildAnnouncement,
+    resolve_channel_webhook,
+)
+from tests.membership.factories import (
+    AnnouncementDraftFactory,
+    GuildFactory,
+    GuildMembershipFactory,
+    MemberFactory,
+    MembershipPlanFactory,
+)
 
 pytestmark = pytest.mark.django_db
 
@@ -83,15 +95,190 @@ def describe_AnnouncementDraft():
             draft.sent_at = timezone.now()
             assert "sent" in str(draft)
 
-    def describe_for_user():
-        def it_returns_only_the_authors_unsent_drafts_newest_first():
-            author = _author("a")
-            other = _author("b")
-            older = AnnouncementDraft.objects.create(author=author, title="Older")
-            newer = AnnouncementDraft.objects.create(author=author, title="Newer")
-            AnnouncementDraft.objects.create(author=author, title="Sent", sent_at=timezone.now())
-            AnnouncementDraft.objects.create(author=other, title="Other's")
-            assert list(AnnouncementDraft.objects.for_user(author)) == [newer, older]
+    def describe_states():
+        """Drafts and Sent split every row by state, whoever wrote it (drafts are shared)."""
+
+        def _one_of_each():
+            return {
+                "draft": AnnouncementDraftFactory(),
+                "given_up": AnnouncementDraftFactory(given_up=True),
+                "queued": AnnouncementDraftFactory(queued=True),
+                "sent": AnnouncementDraftFactory(sent=True),
+            }
+
+        def it_keeps_unsent_unqueued_rows_from_any_author_as_resumable():
+            rows = _one_of_each()
+            assert set(AnnouncementDraft.objects.resumable()) == {rows["draft"], rows["given_up"]}
+
+        def it_counts_sent_and_queued_rows_as_sent_or_sending():
+            rows = _one_of_each()
+            assert set(AnnouncementDraft.objects.sent_or_sending()) == {rows["queued"], rows["sent"]}
+
+        def it_names_each_state_from_the_fields():
+            rows = _one_of_each()
+            assert {name: row.state for name, row in rows.items()} == {
+                "draft": AnnouncementDraft.DraftState.DRAFT,
+                "given_up": AnnouncementDraft.DraftState.COULD_NOT_SEND,
+                "queued": AnnouncementDraft.DraftState.SENDING,
+                "sent": AnnouncementDraft.DraftState.SENT,
+            }
+            assert [row.is_resumable for row in rows.values()] == [True, True, False, False]
+
+    def describe_audience_value_and_label():
+        def it_names_a_site_row():
+            row = AnnouncementDraftFactory()
+            assert (row.audience_value, row.audience_label) == ("site", "Everyone (site-wide)")
+
+        def it_names_a_guild_row():
+            guild = GuildFactory(name="Woodshop Guild")
+            row = AnnouncementDraftFactory(audience=_GUILD, guild=guild)
+            assert (row.audience_value, row.audience_label) == (f"guild:{guild.pk}", "Woodshop Guild")
+
+        def it_names_a_class_row():
+            offering = ClassOfferingFactory(title="Intro to Blacksmithing")
+            row = AnnouncementDraftFactory(audience=_CLASS, class_offering=offering)
+            assert (row.audience_value, row.audience_label) == (f"class:{offering.pk}", "Intro to Blacksmithing")
+
+        def it_keys_the_ledger_on_the_audiences_event():
+            guild = GuildFactory()
+            offering = ClassOfferingFactory()
+            assert [
+                AnnouncementDraftFactory().event_key,
+                AnnouncementDraftFactory(audience=_GUILD, guild=guild).event_key,
+                AnnouncementDraftFactory(audience=_CLASS, class_offering=offering).event_key,
+            ] == ["site_announcement", "guild_announcement", "class_announcement"]
+
+    def describe_channel_labels():
+        def it_lists_email_push_and_discord_when_all_are_on():
+            row = AnnouncementDraftFactory(discord_channel=_CHANNEL.GENERAL)
+            assert row.channel_labels == ["Email", "Push", "Discord"]
+
+        def it_leaves_discord_out_when_it_is_off_or_has_no_channel():
+            switched_off = AnnouncementDraftFactory(discord_enabled=False, discord_channel=_CHANNEL.GENERAL)
+            no_channel = AnnouncementDraftFactory(discord_channel=_CHANNEL.NONE)
+            assert switched_off.channel_labels == ["Email", "Push"]
+            assert no_channel.channel_labels == ["Email", "Push"]
+
+        def it_never_lists_discord_for_a_class():
+            row = AnnouncementDraftFactory(
+                audience=_CLASS, class_offering=ClassOfferingFactory(), discord_channel=_CHANNEL.GENERAL
+            )
+            assert row.channel_labels == ["Email", "Push"]
+            assert row.discord_on is False
+
+        def it_reads_app_only_when_every_channel_is_off():
+            row = AnnouncementDraftFactory(send_email=False, push_enabled=False, discord_enabled=False)
+            assert row.channel_labels == ["App only"]
+
+        def it_lists_each_channel_on_its_own():
+            assert AnnouncementDraftFactory(push_enabled=False, discord_enabled=False).channel_labels == ["Email"]
+            assert AnnouncementDraftFactory(send_email=False, discord_enabled=False).channel_labels == ["Push"]
+
+    def describe_author_label():
+        def it_names_the_author_by_full_name_else_username():
+            named = User.objects.create_user(username="ana", first_name="Ana", last_name="Ruiz")
+            unnamed = User.objects.create_user(username="jo")
+            assert AnnouncementDraftFactory(author=named).author_label == "Ana Ruiz"
+            assert AnnouncementDraftFactory(author=unnamed).author_label == "jo"
+
+        def it_reads_automatic_for_a_blank_author_on_a_draft_and_unknown_once_it_went_out():
+            assert AnnouncementDraftFactory(author=None).author_label == "Automatic"
+            assert AnnouncementDraftFactory(author=None, given_up=True).author_label == "Automatic"
+            assert AnnouncementDraftFactory(author=None, sent=True).author_label == "Unknown"
+            assert AnnouncementDraftFactory(author=None, queued=True).author_label == "Unknown"
+
+        def it_keeps_a_sent_row_when_its_author_is_deleted():
+            author = _author("gone")
+            row = AnnouncementDraftFactory(author=author, sent=True)
+            author.delete()
+            row.refresh_from_db()
+            assert row.author is None
+            assert row.author_label == "Unknown"
+            assert row._sender_line() == ""
+
+    def describe_message_excerpt():
+        def it_flattens_the_message_and_cuts_it_to_ninety_characters():
+            row = AnnouncementDraftFactory(body="<p>" + "abcde " * 30 + "</p>")
+            assert row.message_excerpt == ("abcde " * 15).strip()[:89] + "…"
+            assert len(row.message_excerpt) == 90
+
+        def it_keeps_a_short_message_whole_and_reads_blank_with_none():
+            assert AnnouncementDraftFactory(body="<p>Bring <b>gloves</b>.</p>").message_excerpt == "Bring gloves."
+            assert AnnouncementDraftFactory(body="").message_excerpt == ""
+
+    def describe_discord_and_mention_labels():
+        def it_names_the_guild_channel_by_the_guild():
+            guild = GuildFactory(name="Ceramics Guild")
+            row = AnnouncementDraftFactory(audience=_GUILD, guild=guild, discord_channel=_CHANNEL.GUILD)
+            assert row.discord_target_label == "the Ceramics Guild channel"
+
+        def it_names_a_shared_channel_by_its_label():
+            assert AnnouncementDraftFactory(discord_channel=_CHANNEL.GENERAL).discord_target_label == "#general-chat"
+
+        def it_names_the_ping_or_nothing():
+            guild = GuildFactory(name="Ceramics Guild")
+            assert AnnouncementDraftFactory(mention=AnnouncementDraft.Mention.NONE).mention_label == ""
+            assert AnnouncementDraftFactory(mention=AnnouncementDraft.Mention.EVERYONE).mention_label == "@everyone"
+            role = AnnouncementDraftFactory(audience=_GUILD, guild=guild, mention=AnnouncementDraft.Mention.ROLE)
+            assert role.mention_label == "@Ceramics Guild"
+
+        def it_names_a_role_ping_without_a_guild_by_its_choice_label():
+            row = AnnouncementDraftFactory(mention=AnnouncementDraft.Mention.ROLE)
+            assert row.mention_label == "@[Guild role]"
+
+        def it_drops_a_trailing_full_stop_from_the_failure_reason():
+            assert AnnouncementDraftFactory(send_error="Provider down.").failure_reason == "Provider down"
+            assert AnnouncementDraftFactory(send_error="Provider down").failure_reason == "Provider down"
+
+    def describe_reach():
+        def _delivered(row, target_ref, channel, *, status=EventDelivery.Status.SENT, period=None, event_key=None):
+            return EventDelivery.objects.create(
+                event_key=event_key or row.event_key,
+                target_ref=target_ref,
+                channel=channel,
+                period=row.delivery_period if period is None else period,
+                status=status,
+            )
+
+        def it_counts_people_and_each_channel_from_the_ledger():
+            row = AnnouncementDraftFactory(sent=True, delivery_period="announce:77")
+            _delivered(row, "user:1", "in_app")
+            _delivered(row, "user:1", "email")
+            _delivered(row, "user:1", "push")
+            _delivered(row, "user:2", "in_app")
+            _delivered(row, "email:guest@x.com", "email")
+            _delivered(row, "broadcast", "discord")
+            _delivered(row, "user:3", "email", status=EventDelivery.Status.PENDING)
+            _delivered(row, "user:4", "email", period="announce:78")
+            _delivered(row, "user:5", "email", event_key="guild_announcement")
+            assert row.reach() == AnnouncementReach(people=3, in_app=2, email=2, push=1, discord_posted=True)
+
+        def it_says_discord_was_not_posted_without_a_discord_row():
+            row = AnnouncementDraftFactory(sent=True, delivery_period="announce:79")
+            _delivered(row, "user:1", "in_app")
+            assert row.reach() == AnnouncementReach(people=1, in_app=1, email=0, push=0, discord_posted=False)
+
+        def it_has_no_reach_without_a_recorded_period():
+            assert AnnouncementDraftFactory(sent=True).reach() is None
+
+        def it_reads_a_whole_page_in_one_query(django_assert_num_queries):
+            first = AnnouncementDraftFactory(sent=True, delivery_period="announce:80")
+            second = AnnouncementDraftFactory(sent=True, delivery_period="announce:81")
+            silent = AnnouncementDraftFactory(sent=True, delivery_period="announce:82")
+            unrecorded = AnnouncementDraftFactory(sent=True)
+            for target in ("user:1", "user:2", "email:a@x.com"):
+                _delivered(first, target, "email")
+            _delivered(first, "broadcast", "discord")
+            _delivered(second, "user:1", "in_app")
+            _delivered(second, "user:1", "push")
+            with django_assert_num_queries(1):
+                reach = AnnouncementDraft.objects.reach_for([first, second, silent, unrecorded])
+            assert reach == {first.pk: 3, second.pk: 1, silent.pk: 0}
+
+        def it_runs_no_query_for_a_page_with_nothing_recorded(django_assert_num_queries):
+            rows = [AnnouncementDraftFactory(sent=True), AnnouncementDraftFactory()]
+            with django_assert_num_queries(0):
+                assert AnnouncementDraft.objects.reach_for(rows) == {}
 
     def describe_check_constraint():
         def it_rejects_a_guild_audience_without_a_guild():
@@ -618,3 +805,49 @@ def describe_AnnouncementDraft():
                 messages = mock_emit.call_args.kwargs["messages"]
                 assert messages[Channel.PUSH].body == "Thu 6pm"
                 assert messages[Channel.PUSH].trigger_kind == "class_announcement"
+
+
+def describe_delivery_period_and_sender():
+    """``send()`` stamps the ledger period it claimed, so the Announcements page can read the reach back."""
+
+    def it_stamps_a_plain_site_send_with_its_own_pk():
+        _activated_member(username="reader")
+        draft = AnnouncementDraftFactory(author=_author())
+        draft.send()
+        draft.refresh_from_db()
+        assert draft.delivery_period == f"announce:{draft.pk}"
+        assert EventDelivery.objects.filter(event_key="site_announcement", period=draft.delivery_period).exists()
+
+    def it_stamps_a_guild_send_with_its_guild_posts_period():
+        guild = GuildFactory()
+        _activated_member(guild=guild, username="gm")
+        draft = AnnouncementDraftFactory(author=_author(), audience=_GUILD, guild=guild, discord_channel=_CHANNEL.NONE)
+        draft.send()
+        draft.refresh_from_db()
+        post = GuildAnnouncement.objects.get()
+        assert draft.delivery_period == f"announcement:{post.pk}"
+        assert post.delivery_period == draft.delivery_period
+        assert EventDelivery.objects.filter(event_key="guild_announcement", period=draft.delivery_period).exists()
+
+    def it_stamps_a_class_send_with_the_exact_period_its_emit_used():
+        offering = ClassOfferingFactory()
+        _confirmed_registrant(offering, username="cr")
+        draft = AnnouncementDraftFactory(author=_author(), audience=_CLASS, class_offering=offering)
+        draft.send()
+        draft.refresh_from_db()
+        assert draft.delivery_period.startswith(f"announce:{draft.pk}:")
+        assert EventDelivery.objects.filter(event_key="class_announcement", period=draft.delivery_period).exists()
+
+    def it_refuses_to_send_without_a_sender(mailoutbox):
+        _activated_member(username="reader")
+        draft = AnnouncementDraftFactory(author=None)
+        with pytest.raises(ValueError, match="An announcement needs a sender before it goes out."):
+            draft.send()
+        draft.refresh_from_db()
+        assert (draft.sent_at, draft.delivery_period) == (None, "")
+        assert mailoutbox == []
+        assert not EventDelivery.objects.exists()
+
+    def it_renders_the_email_with_no_from_line_for_a_blank_author():
+        draft = AnnouncementDraftFactory(author=None, show_sender=True)
+        assert "From " not in draft.build_email_message("https://x/").body

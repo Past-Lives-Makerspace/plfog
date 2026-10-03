@@ -170,6 +170,17 @@ def describe_voting_results_draft():
         assert AnnouncementDraft.objects.count() == 1
         assert second.url == first.url
 
+    def it_opens_the_draft_the_snapshot_job_made(admin_client):
+        """Drafts are shared: the banner opens the job's draft rather than making the admin their own."""
+        snapshot = _snapshot()
+        made = snapshot.make_results_draft()
+        response = admin_client.post(_draft_url(snapshot))
+        assert response.url == reverse("hub_compose_resume", args=[made.pk])
+        assert AnnouncementDraft.objects.count() == 1
+        html = admin_client.get(response.url).content.decode()
+        assert f'name="draft_pk" value="{made.pk}"' in html
+        assert "data-compose-draft-automatic" in html
+
     def it_never_creates_a_draft_on_a_get(admin_client):
         snapshot = _snapshot()
         assert admin_client.get(_draft_url(snapshot)).status_code == 405
@@ -263,13 +274,23 @@ def describe_the_composer_for_a_results_draft():
             assert "data-discord-preview-description>Hello all</div>" in html
             assert "funding pool was split" not in html
 
-        def it_gives_another_authors_results_title_to_nobody(admin_client):
+        def it_gives_the_results_title_to_nobody_who_may_not_handle_the_draft(client: Client):
+            """A lead may preview, but an admin's site draft is not theirs to handle, so its pk gives no title."""
+            admin_draft = _snapshot().draft_results_announcement(User.objects.create_superuser("boss", "b@x.com", "p"))
             MembershipPlanFactory()
-            robin = User.objects.create_user("robin", "robin@x.com", "p")
-            theirs = _snapshot().draft_results_announcement(robin)
-            html = admin_client.post(reverse("hub_compose_preview"), _compose_post(theirs)).content.decode()
-            assert '<span class="pl-email-preview__subject">Makerspace Announcement</span>' in html
+            lead = User.objects.create_user("lead", "lead@x.com", "p")
+            guild = GuildFactory(guild_lead=lead.member)
+            client.login(username="lead", password="p")
+            data = _compose_post(admin_draft, audience=f"guild:{guild.pk}")
+            html = client.post(reverse("hub_compose_preview"), data).content.decode()
+            assert f'<span class="pl-email-preview__subject">{guild.name} Announcement</span>' in html
             assert _TITLE not in html
+
+        def it_gives_another_admins_results_title_to_an_admin(admin_client):
+            """Drafts are shared, so an admin previewing another admin's results draft sees its title."""
+            theirs = _snapshot().draft_results_announcement(User.objects.create_superuser("robin", "r@x.com", "p"))
+            html = admin_client.post(reverse("hub_compose_preview"), _compose_post(theirs)).content.decode()
+            assert f'<span class="pl-email-preview__subject">{_TITLE}</span>' in html
 
         def it_gives_a_queued_drafts_results_title_to_nobody(admin_client):
             draft = _results_draft()
@@ -330,7 +351,7 @@ def describe_sending_from_the_composer():
         with patch("core.events.discord.post_embed") as post_embed:
             response = admin_client.post(reverse("hub_compose_send"), _compose_post(draft))
         assert response.status_code == 302
-        assert response.url == reverse("hub_compose")
+        assert response.url == f"{reverse('hub_announcements')}?tab=sent"
         assert _messages(response) == [
             "Your announcement is sending in the background. It reaches 1 recipient(s) within 15 minutes."
         ]
@@ -342,11 +363,31 @@ def describe_sending_from_the_composer():
         assert not Notification.objects.exists()
         post_embed.assert_not_called()
 
+    def it_names_the_sender_of_the_jobs_draft_before_it_queues(admin_client, mailoutbox):
+        from django.core.management import call_command
+
+        from core.models import SiteActivity
+
+        _activated("reader")
+        made = _snapshot().make_results_draft()
+        assert made.author is None
+        admin_client.post(reverse("hub_compose_send"), _compose_post(made))
+        made.refresh_from_db()
+        assert made.author == _admin_user()
+        assert made.send_requested_at is not None
+        call_command("send_queued_announcements")
+        made.refresh_from_db()
+        assert made.sent_at is not None
+        assert "From felix" in mailoutbox[0].body
+        assert SiteActivity.objects.filter(actor=_admin_user()).exists()
+
     def it_refuses_to_resume_or_resend_a_queued_draft(admin_client):
         draft = _snapshot().draft_results_announcement(_admin_user())
         draft.queue_send()
         assert admin_client.get(reverse("hub_compose_resume", args=[draft.pk])).status_code == 404
-        assert admin_client.post(reverse("hub_compose_send"), _compose_post(draft)).status_code == 404
+        sent = admin_client.post(reverse("hub_compose_send"), _compose_post(draft))
+        assert sent.url == reverse("hub_announcements")
+        assert _messages(sent) == ["This draft can no longer be edited. It may have been sent or deleted."]
         assert admin_client.post(reverse("hub_compose_save_draft"), _compose_post(draft)).status_code == 404
         assert admin_client.post(reverse("hub_compose_delete_draft", args=[draft.pk])).status_code == 404
         assert AnnouncementDraft.objects.filter(pk=draft.pk).exists()
@@ -362,11 +403,13 @@ def describe_sending_from_the_composer():
         assert draft.send_requested_at is None
 
     def it_refuses_a_second_results_draft_while_the_first_is_sending(admin_client):
+        # Drafts are shared now, so a second open results draft for one snapshot can only be one
+        # made before that (built here directly); the queue's lock still refuses it.
         MembershipPlanFactory()
         robin = User.objects.create_user("robin", "robin@x.com", "p")
         snapshot = _snapshot()
         theirs = snapshot.draft_results_announcement(robin)
-        mine = snapshot.draft_results_announcement(_admin_user())
+        mine = snapshot._new_results_draft(_admin_user())
         theirs.queue_send()
         response = admin_client.post(reverse("hub_compose_send"), _compose_post(mine))
         assert _messages(response) == ["These results are already sending."]
@@ -496,7 +539,7 @@ def describe_a_refused_inline_send():
             {"audience": f"guild:{guild.pk}", "body": "<p>Forge night</p>", "discord_channel": "none"},
         )
 
-    def it_says_results_already_sent_and_returns_to_the_composer(client: Client):
+    def it_says_results_already_sent_and_reopens_the_saved_draft(client: Client):
         from unittest.mock import patch
 
         from membership.models import ResultsAlreadySentError
@@ -506,9 +549,27 @@ def describe_a_refused_inline_send():
             AnnouncementDraft, "send", side_effect=ResultsAlreadySentError("These results were already sent.")
         ):
             response = _post(client, guild)
+        draft = AnnouncementDraft.objects.get()
         assert response.status_code == 302
-        assert response.url == reverse("hub_compose")
+        assert response.url == reverse("hub_compose_resume", args=[draft.pk])
         assert _messages(response) == ["These results were already sent."]
+
+    def it_lands_on_the_sent_tab_when_the_refused_draft_is_no_longer_resumable(client: Client):
+        from unittest.mock import patch
+
+        from membership.models import AlreadySentError
+
+        guild = _lead_with_a_guild(client)
+
+        def already_out(draft):
+            AnnouncementDraft.objects.filter(pk=draft.pk).update(sent_at=timezone.now())
+            draft.sent_at = timezone.now()
+            raise AlreadySentError("This announcement was already sent.")
+
+        with patch.object(AnnouncementDraft, "send", autospec=True, side_effect=already_out):
+            response = _post(client, guild)
+        assert response.url == f"{reverse('hub_announcements')}?tab=sent"
+        assert _messages(response) == ["This announcement was already sent."]
 
     def it_says_an_announcement_was_already_sent(client: Client):
         from unittest.mock import patch
