@@ -1,0 +1,8 @@
+bump = "minor"
+date = "2026-10-03"
+title = "Meetings land on the calendar on their own"
+changes = [
+  "Give a council or guild meeting a date and a time, and it goes onto the calendar and into Discord Events by itself.",
+  "No announcement goes out then. A draft waits in Announcements, so an admin can send it or not.",
+  "Admins can now address an announcement to Guild leads: every guild lead, officer and staffer.",
+]

@@ -216,12 +216,13 @@ _EVENT_SYNC_FIELDS = frozenset(
 )
 
 
-def _apply_meeting_save(meeting: Meeting, field: str, value: Any) -> None:
+def _apply_meeting_save(meeting: Meeting, field: str, value: Any, *, by: User) -> None:
     """One meeting-level field save, with the §5.2 coupled-field rule.
 
     Turning ``is_special`` off clears ``special_title`` in the SAME save, so the
     §4.1 check constraint can never trip from a lone-field autosave; symmetrically,
-    ``special_title`` can't be set on a Monthly meeting.
+    ``special_title`` can't be set on a Monthly meeting. The save that gives the
+    meeting both a date and a time also gives it its calendar event (#596).
     """
     if field == "special_title" and not meeting.is_special and value:
         raise ValueError("Turn on Special meeting before naming it.")
@@ -241,6 +242,7 @@ def _apply_meeting_save(meeting: Meeting, field: str, value: Any) -> None:
         and value >= meeting.scheduled_end_time
     ):
         raise ValueError("Start time must be before the end time.")
+    was_scheduled = meeting.has_schedule
     setattr(meeting, field, value)
     update_fields = [field, "updated_at"]
     if field == "is_special" and value is False:
@@ -249,6 +251,8 @@ def _apply_meeting_save(meeting: Meeting, field: str, value: Any) -> None:
     meeting.save(update_fields=update_fields)
     if field in _EVENT_SYNC_FIELDS:
         meeting.sync_event()
+    if not was_scheduled:
+        meeting.add_to_calendar_if_scheduled(by=by)
 
 
 @login_required
@@ -259,7 +263,8 @@ def hub_meeting_save(request: HttpRequest, pk: int) -> HttpResponse:
     guard = _guard(request, meeting)
     if guard is not None:
         return guard
-    return _autosave(request, fields=_MEETING_FIELDS, apply=partial(_apply_meeting_save, meeting))
+    user: User = request.user  # type: ignore[assignment]  # @login_required guarantees User
+    return _autosave(request, fields=_MEETING_FIELDS, apply=partial(_apply_meeting_save, meeting, by=user))
 
 
 # --- Workspace GET ------------------------------------------------------------
@@ -457,6 +462,7 @@ def hub_meeting_create(request: HttpRequest) -> HttpResponse:
     )
     # That scope's next agenda is now started — pull in any proposals waiting to carry over.
     meeting.attach_carried_over_proposals()
+    meeting.add_to_calendar_if_scheduled(by=user)
     return redirect("hub_meeting", pk=meeting.pk)
 
 
@@ -1171,8 +1177,8 @@ def hub_meetings(request: HttpRequest) -> HttpResponse:
 def hub_meeting_event(request: HttpRequest, pk: int) -> HttpResponse:
     """The Add-to-calendar modal POST: create + own an event, or link an existing one.
 
-    No ``event`` in the body → ``create_calendar_event`` (rides ``schedule_or_go_live``
-    — announce + Google + Discord + reminders on the existing rails). An ``event`` pk →
+    No ``event`` in the body → ``create_calendar_event`` (Google + Discord + reminders on
+    the existing rails, and a draft announcement instead of an announcement). An ``event`` pk →
     ``link_event`` with the posted occurrence date (defaulting to the event's own start
     date for a non-recurring event). ValueErrors surface as 422 toasts (§6.3).
     """
@@ -1194,7 +1200,7 @@ def hub_meeting_event(request: HttpRequest, pk: int) -> HttpResponse:
             messages.success(request, "Linked to the calendar event.")
         else:
             meeting.create_calendar_event(by=user)
-            messages.success(request, "On the calendar — Google and Discord will sync.")
+            messages.success(request, "On the calendar. Its announcement is waiting in your Announcements drafts.")
     except ValueError as exc:
         return _invalid(str(exc))
     return _hx_redirect(reverse("hub_meeting", args=[meeting.pk]))

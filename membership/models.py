@@ -5071,6 +5071,7 @@ class AnnouncementDraft(models.Model):
         SITE = "site", "Everyone (site-wide)"
         GUILD = "guild", "A specific guild"
         CLASS = "class", "A class you teach"
+        LEADS = "leads", "Guild leads"
 
     class Mention(models.TextChoices):
         NONE = "none", "No ping"
@@ -5101,7 +5102,10 @@ class AnnouncementDraft(models.Model):
         max_length=10,
         choices=Audience.choices,
         default=Audience.SITE,
-        help_text="Who hears it: everyone site-wide, or one guild's joined members.",
+        help_text=(
+            "Who hears it: everyone site-wide, one guild's joined members, a class's registrants, "
+            "or every guild lead, officer and staffer."
+        ),
     )
     guild = models.ForeignKey(
         Guild,
@@ -5296,7 +5300,7 @@ class AnnouncementDraft(models.Model):
 
     @property
     def audience_value(self) -> str:
-        """The composer's combined audience value: ``"site"``, ``"guild:<pk>"`` or ``"class:<pk>"``.
+        """The composer's combined audience value: ``"site"``, ``"leads"``, ``"guild:<pk>"`` or ``"class:<pk>"``.
 
         The value the composer's picker posts and :func:`hub.views._compose_audience_forbidden`
         judges, so asking that gate with it asks exactly what the composer would let a request
@@ -5306,15 +5310,19 @@ class AnnouncementDraft(models.Model):
             return f"class:{self.class_offering_id}"
         if self.audience == self.Audience.GUILD:
             return f"guild:{self.guild_id}"
+        if self.audience == self.Audience.LEADS:
+            return self.Audience.LEADS.value
         return self.Audience.SITE.value
 
     @property
     def audience_label(self) -> str:
-        """Who it is for, as the Announcements page shows it: everyone, the guild's name or the class title."""
+        """Who it is for, as the Announcements page shows it: everyone, the guild leads, the guild's name or the class title."""
         if self.audience == self.Audience.CLASS:
             return cast("ClassOffering", self.class_offering).title
         if self.audience == self.Audience.GUILD:
             return cast(Guild, self.guild).name
+        if self.audience == self.Audience.LEADS:
+            return self.Audience.LEADS.label
         return self.Audience.SITE.label
 
     @property
@@ -5449,6 +5457,8 @@ class AnnouncementDraft(models.Model):
             base = "Class Announcement"
         elif self.audience == self.Audience.GUILD and self.guild is not None:
             base = f"{self.guild.name} Announcement"
+        elif self.audience == self.Audience.LEADS:
+            base = "Guild Leads Announcement"
         else:
             base = "Makerspace Announcement"
         return f"Urgent: {base}" if self.mark_as_urgent else base
@@ -5602,12 +5612,15 @@ class AnnouncementDraft(models.Model):
 
         ``SITE`` → the all-active-members audience (widened by :attr:`include_never_logged_in`), plus
         anyone the sender added (:attr:`added_recipients`; a typed address only while Email is on);
-        ``GUILD`` → the guild's joined-member audience — the exact resolvers the send fans out to,
-        so the count matches delivery.
+        ``GUILD`` → the guild's joined-member audience; ``LEADS`` → every guild lead (the
+        ``all_guild_leads`` resolver) — the exact resolvers the send fans out to, so the count
+        matches delivery.
         """
         from core.events import resolvers
         from core.events.registry import Recipients
 
+        if self.audience == self.Audience.LEADS:
+            return len(self._leads_recipient_ids())
         if self.audience == self.Audience.GUILD:
             return len(resolvers.resolve(Recipients.GUILD_MEMBERS, {"guild": self.guild}))
         if self.audience == self.Audience.CLASS:
@@ -5745,6 +5758,36 @@ class AnnouncementDraft(models.Model):
             )
             total = result.recipient_count + len(extra_emails)
             counts = (total if self.send_email else 0, total)
+        elif self.audience == self.Audience.LEADS:
+            # Every guild lead, officer and staffer, by the same rule the Guild Lead Meeting's
+            # own announcement uses (``all_guild_leads``). The set is passed explicitly, so the
+            # site_announcement key's everyone audience never receives it; each lead's own
+            # makerspace announcement preferences still apply. Sent in the request: a few dozen.
+            leads_url = _absolute_url("/")
+            webhook = resolve_channel_webhook(self.discord_channel, None) if discord_on else ""
+            period = self._site_delivery_period()
+            result = emit(
+                "site_announcement",
+                actor=self.author,
+                context={
+                    "member_name": "there",
+                    "announcement_title": self.title,
+                    "announcement_body": rich_html_to_text(body_html),
+                    "site_url": leads_url,
+                    "discord_broadcast_webhook": webhook,
+                },
+                url=leads_url,
+                period=period,
+                messages=self._channel_overrides(leads_url),
+                suppress_broadcast=(webhook == ""),
+                suppress_email=not self.send_email,
+                suppress_push=suppress_push,
+                recipient_user_ids=self._leads_recipient_ids(),
+                discord_mention=mention_str,
+                override_preferences=self.mark_as_urgent,
+            )
+            total = result.recipient_count
+            counts = (total if self.send_email else 0, total)
         elif self.audience == self.Audience.CLASS:
             # Scoped to the class roster: confirmed registrants (and waitlisted ones when the
             # sender opted in). A registrant with a linked account gets the in-app bell + push +
@@ -5815,6 +5858,13 @@ class AnnouncementDraft(models.Model):
             if snapshot is not None:
                 snapshot.mark_results_announced()
         return counts
+
+    def _leads_recipient_ids(self) -> set[int]:
+        """The user pks a ``LEADS`` announcement reaches: the ``all_guild_leads`` resolver, nothing added."""
+        from core.events import resolvers
+        from core.events.registry import Recipients
+
+        return {user.pk for user, _reason in resolvers.resolve(Recipients.ALL_GUILD_LEADS, {})}
 
     def _site_delivery_period(self) -> str:
         """The delivery ledger period a site send claims its slots under, the same on every attempt.
@@ -7316,14 +7366,22 @@ class CommunityEvent(models.Model):
     def publish(self, *, actor: User | None = None) -> None:
         """Make a PUBLISHED event live everywhere: the single "it's live now" choke point.
 
-        Fires the one-shot announcement (idempotent via its ``period``), marks the event as
-        needing a Google push (``IDLE`` → ``PENDING``), then pushes it to the linked Google
-        Calendar, and likewise marks + pushes it to the Discord server's Scheduled Events
-        (both best-effort — an outage records ``FAILED`` and never blocks this call; the
-        Discord push self-gates to a no-op for studio hours and when Discord Events sync is
-        off). Called by :meth:`approve` and by the direct-create views.
+        Fires the one-shot announcement (idempotent via its ``period``), then
+        :meth:`push_live`. Called by :meth:`approve` and by the direct-create views.
         """
         self.announce(actor=actor)
+        self.push_live(actor=actor)
+
+    def push_live(self, *, actor: User | None = None) -> None:
+        """Push a live event to Google Calendar and Discord Events, without announcing it.
+
+        Marks the event as needing a Google push (``IDLE`` → ``PENDING``) and pushes it to the
+        linked Google Calendar, then likewise marks + pushes it to the Discord server's Scheduled
+        Events (both best-effort — an outage records ``FAILED`` and never blocks this call; the
+        Discord push self-gates to a no-op for studio hours and when Discord Events sync is off).
+        :meth:`publish` calls it after the announcement; a meeting's own event calls it alone
+        (:meth:`Meeting.create_calendar_event`), because its announcement waits as a draft.
+        """
         if self.sync_state == self.SyncState.IDLE:
             self.sync_state = self.SyncState.PENDING
             self.save(update_fields=["sync_state", "updated_at"])
@@ -8473,14 +8531,32 @@ class Meeting(models.Model):
 
         SiteActivity.log(SiteActivity.Kind.MEETING_UNLOCKED, actor=by, target=self)
 
+    @property
+    def has_schedule(self) -> bool:
+        """Whether both a date and a start time are set: what a calendar event needs."""
+        return self.scheduled_date is not None and self.scheduled_time is not None
+
+    def add_to_calendar_if_scheduled(self, *, by: User) -> CommunityEvent | None:
+        """Give a newly scheduled meeting its own calendar event, once.
+
+        Called when the meeting gains both a date and a time (created with them, or the
+        autosave that sets the second of the two). A meeting already linked to an event, or
+        still missing either, is left alone and ``None`` comes back.
+        """
+        if self.event_id is not None or not self.has_schedule:
+            return None
+        return self.create_calendar_event(by=by)
+
     def create_calendar_event(self, *, by: User) -> CommunityEvent:
-        """Create + publish a calendar event from the workspace and link it as owned.
+        """Create a live calendar event from the workspace, link it as owned, and draft its announcement.
 
         Builds the scope's event type (guild meeting / lead meeting), seeds the location
         from the video link or the guild's meeting location (a council meeting has no
-        guild — the expression must not raise), and rides
-        :meth:`CommunityEvent.schedule_or_go_live` — announce + Google + Discord +
-        reminders all on the existing rails.
+        guild — the expression must not raise), and publishes it straight to Google
+        Calendar and Discord Events (:meth:`CommunityEvent.push_live`) with **no**
+        announcement: the announcement waits in the composer as a draft
+        (:meth:`draft_announcement`) for an admin to send or not. The event, the link and
+        the draft are written together; the pushes run after, best-effort.
 
         Raises:
             MeetingLockedError: If the minutes are locked.
@@ -8513,15 +8589,47 @@ class Meeting(models.Model):
                 if self.guild_id is not None
                 else CommunityEvent.GoogleCalendarTarget.MEMBER
             ),
+            # Live from the start, but never announced: the draft below is the announcement.
+            moderation_state=CommunityEvent.ModerationState.PUBLISHED,
             created_by=by,
         )
-        event.save()
-        event.schedule_or_go_live(actor=by)
-        self.event = event
-        self.event_occurrence = self.scheduled_date
-        self.owns_event = True
-        self.save(update_fields=["event", "event_occurrence", "owns_event", "updated_at"])
+        with transaction.atomic():
+            event.save()
+            self.event = event
+            self.event_occurrence = self.scheduled_date
+            self.owns_event = True
+            self.save(update_fields=["event", "event_occurrence", "owns_event", "updated_at"])
+            self.draft_announcement(event, by=by)
+        event.push_live(actor=by)
         return event
+
+    def draft_announcement(self, event: CommunityEvent, *, by: User) -> AnnouncementDraft:
+        """Save an unsent announcement of this meeting for the composer's Drafts tab.
+
+        Prefilled with the meeting's title, its date and time (the event's own
+        ``when_display``) and its location. A council meeting is addressed to the guild
+        leads with no Discord channel, because its location often carries the leads' video
+        link; a guild meeting is addressed to that guild and its own Discord channel.
+        """
+        lines = [f"<strong>{escape(self.display_title)}</strong>", escape(event.when_display)]
+        if event.location:
+            lines.append(escape(event.location))
+        if self.guild is None:
+            draft = AnnouncementDraft(
+                audience=AnnouncementDraft.Audience.LEADS,
+                discord_channel=GuildAnnouncement.DiscordChannel.NONE,
+            )
+        else:
+            draft = AnnouncementDraft(
+                audience=AnnouncementDraft.Audience.GUILD,
+                guild=self.guild,
+                discord_channel=GuildAnnouncement.DiscordChannel.GUILD,
+            )
+        draft.author = by
+        draft.body = "".join(f"<p>{line}</p>" for line in lines)
+        draft.title = draft.announcement_category
+        draft.save()
+        return draft
 
     def link_event(self, event: CommunityEvent, occurrence_date: date_type, *, by: User) -> None:
         """Link a pre-existing calendar event (never mutated by the meeting).
