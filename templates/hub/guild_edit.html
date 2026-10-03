@@ -1175,6 +1175,6 @@ confirm modal carries its own POST form, and template content can't nest a form.
 {% endfor %}
 
 {# A boosted navigation held behind a save that failed: Leave resumes it, Stay drops it. #}
-{% include "components/confirm_modal.html" with confirm_id="leave-while-saving" confirm_title="Changes are still saving" confirm_message="Changes are still saving. Leave anyway?" confirm_button_text="Leave" confirm_cancel_text="Stay" confirm_button_style="primary" confirm_js="window.dispatchEvent(new CustomEvent('pl-guild-autosave-leave'))" %}
+{% include "components/confirm_modal.html" with confirm_id="leave-while-saving" confirm_title="A change did not save" confirm_message="A change could not be saved. Leave anyway, or stay and try again?" confirm_button_text="Leave" confirm_cancel_text="Stay" confirm_button_style="primary" confirm_js="window.dispatchEvent(new CustomEvent('pl-guild-autosave-leave'))" %}
 </div>{# /x-data #}
 {% endblock %}

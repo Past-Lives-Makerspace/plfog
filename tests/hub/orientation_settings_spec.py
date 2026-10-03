@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import re
+
 from datetime import timedelta
 
 import pytest
@@ -101,6 +103,17 @@ def _future_date(days: int = 2) -> str:
     return (timezone.localtime() + timedelta(days=days)).strftime("%Y-%m-%d")
 
 
+_AUTOSAVE_FORM = re.compile(r"<form\b[^>]*\bdata-autosave\b[^>]*>.*?</form>", re.S)
+
+
+def _assert_autosave_forms_have_no_submit(content: str) -> int:
+    """Every self saving form on the page carries no submit button; anchored on markup, not copy (STANDARDS 8)."""
+    blocks = _AUTOSAVE_FORM.findall(content)
+    assert blocks, "no data-autosave form on the page"
+    assert [block[:120] for block in blocks if 'type="submit"' in block] == []
+    return len(blocks)
+
+
 def describe_guild_orientation_edit():
     def it_renders_the_editor_inside_the_orientations_tab(client: Client):
         # The editor is now an in-page tab on the guild edit page, not a standalone page.
@@ -113,8 +126,8 @@ def describe_guild_orientation_edit():
         # Own hours are edited via the Edit Hours modal from the Orientation Schedule, not a
         # separate inline My Hours card.
         assert b"Orientation Schedule" in response.content
-        # The settings form saves itself (#575): no Save button.
-        assert b"Save orientation settings" not in response.content
+        # The settings form saves itself (#575): no submit inside any autosave form.
+        _assert_autosave_forms_have_no_submit(response.content.decode())
         assert b"data-save-pill" in response.content
         # Recurring hours are edited through the Edit Hours modal, loaded from its own endpoint
         # (the trigger on the viewer's Orientation Schedule row).

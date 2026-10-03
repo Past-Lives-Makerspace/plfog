@@ -13,8 +13,12 @@
  * skips it while the rest of the form saves. A 200 stamps every returned pk into its row's
  * hidden id, drops the rows that were flagged for deletion, and renumbers the rows so the
  * saved ones come first (INITIAL_FORMS counts them), which is what keeps a new row from
- * ever being posted as new twice. Delete flips the row's DELETE field (made on the fly for a
- * row saved since the page loaded) and posts; a form with `data-autosave-confirm` asks first.
+ * ever being posted as new twice. A 200 also clears every file input, so a banner or a FAQ
+ * document posted once is never re-sent with the next edit of that form. Delete flips the
+ * row's DELETE field (made on the fly for a row saved since the page loaded) and posts; a form
+ * with `data-autosave-confirm` asks first. A refusal keeps the flag, so a delete clicked while
+ * another row is invalid completes with the next good post; only a `<prefix>-__all__` error
+ * (where the model's delete blockers land) or a failed request unflags it.
  *
  * Leaving: a pending typing timer is flushed (with keepalive, so a hard navigation cannot
  * lose it) and the page holds while a save is pending or failed: the native prompt on a hard
@@ -202,7 +206,8 @@
     row.hidden = true;
   }
 
-  // A refused or failed post leaves nothing flagged: the rows come back and the next edit posts clean.
+  // The rows come back and the next edit posts clean: after a failed request, or a refusal that
+  // names the formset itself (a delete blocker), never for another row's field error.
   function unflagDeletes(form) {
     form.querySelectorAll('input[name$="-DELETE"]').forEach(function (input) {
       var row = rowOf(input);
@@ -210,6 +215,16 @@
       if (input.hasAttribute("data-autosave-synthetic")) input.remove();
       else input.checked = false;
     });
+  }
+
+  // A posted file stays selected in its input, and the next post of the form would send it again
+  // (a new storage object each time, and a body no keepalive flush could carry).
+  function clearFiles(form) {
+    form.querySelectorAll('input[type="file"]').forEach(function (input) { input.value = ""; });
+  }
+
+  function refusesFormset(form, errors) {
+    return Object.prototype.hasOwnProperty.call(errors, prefixOf(form) + "-__all__");
   }
 
   function applyRows(form, rows) {
@@ -326,6 +341,7 @@
       return {
         section: options.section,
         state: "idle",
+        reason: "",
         pending: 0,
         saves: 0,
 
@@ -342,7 +358,7 @@
 
         label() {
           if (this.pending > 0) return "Saving…";
-          if (this.state === "error") return "Couldn't save. Check your connection.";
+          if (this.state === "error") return this.reason === "http" ? "Couldn't save." : "Couldn't save. Check your connection.";
           return "Saved";
         },
 
@@ -356,7 +372,7 @@
           self.pending += 1;
           chain = chain
             .then(job)
-            .catch(function () { self.state = "error"; })
+            .catch(function () { self.reason = "connection"; self.state = "error"; })
             .then(function () { self.pending -= 1; });
         },
         done() {
@@ -430,7 +446,10 @@
             var saved = await response.json();
             clearErrors(form);
             applyRows(form, saved.rows);
-            form.plAutosaveSaved = sig;
+            clearFiles(form);
+            // The form as it now reads is what the server holds, unless an edit queued up or a
+            // timer is waiting behind this save: then that edit must post, so nothing is remembered.
+            form.plAutosaveSaved = this.pending === 1 && !timers.has(form) ? signature(payload(form)) : null;
             this.done();
           } else if (response.status === 422) {
             var refused = await response.json();
@@ -438,10 +457,11 @@
             Object.keys(refused.errors).forEach(function (key) {
               placeErrors(form, key, refused.errors[key]);
             });
-            unflagDeletes(form);
+            if (refusesFormset(form, refused.errors)) unflagDeletes(form);
             this.state = "saved";
           } else {
             unflagDeletes(form);
+            this.reason = "http";
             this.state = "error";
           }
         },

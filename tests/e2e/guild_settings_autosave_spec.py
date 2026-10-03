@@ -25,6 +25,11 @@ from membership.models import Guild, GuildFAQItem, GuildLink
 from tests.membership.factories import GuildFactory, GuildLinkFactory, MembershipPlanFactory
 
 ADMIN_EMAIL = "guild-autosave-admin@example.com"
+_PNG = (
+    b"\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR\x00\x00\x00\x01\x00\x00\x00\x01"
+    b"\x08\x06\x00\x00\x00\x1f\x15\xc4\x89\x00\x00\x00\nIDATx\x9cc\x00\x01"
+    b"\x00\x00\x05\x00\x01\r\n-\xb4\x00\x00\x00\x00IEND\xaeB`\x82"
+)
 ALPINE_READY = "() => !!(document.querySelector('[data-guild-autosave]') || {})._x_dataStack"
 SAVED_PAST = (
     "(n) => { const pill = document.querySelector('[data-save-pill]');"
@@ -53,6 +58,11 @@ def _open(page, live_server, guild: Guild, tab: str) -> None:
 
 def _saves(page) -> int:
     return int(page.locator("[data-save-pill]").get_attribute("data-saves") or 0)
+
+
+def _link_row(page, link: GuildLink):
+    """A saved link's row, found by its hidden id (a row's label is an input value, not text)."""
+    return page.locator(f'#link-rows [data-formset-row]:has(input[name$="-id"][value="{link.pk}"])')
 
 
 def _wait_saved(page, at_least: int) -> None:
@@ -89,6 +99,56 @@ def describe_guild_settings_autosave():
         page.wait_for_function(ALPINE_READY)
         expect(page.locator("#id_about")).to_have_value("A guild for people who like mud.")
 
+    def it_posts_a_banner_once_and_never_again_with_the_next_edit(live_server, page, login_via_code):
+        guild = _admin_guild()
+        _sign_in_as_admin(login_via_code)
+        _open(page, live_server, guild, "images")
+
+        page.locator('input[name="banner_image"]').set_input_files(
+            {"name": "banner.png", "mimeType": "image/png", "buffer": _PNG}
+        )
+        _wait_saved(page, 1)
+        guild.refresh_from_db()
+        stored = guild.banner_image.name
+        assert stored
+        expect(page.locator('input[name="banner_image"]')).to_have_value("")
+
+        # The next edit of the same form posts no file: the stored banner stays as it was.
+        page.get_by_role("button", name="Basic Information").click()
+        page.locator("#id_about").fill("Still the same banner.")
+        _wait_saved(page, 2)
+        guild.refresh_from_db()
+        assert guild.banner_image.name == stored
+        assert guild.about == "Still the same banner."
+
+    def it_completes_a_delete_clicked_while_another_row_is_invalid(live_server, page, login_via_code):
+        guild = _admin_guild()
+        GuildLinkFactory(guild=guild, label="Discord", url="https://discord.gg/ceramics")
+        wiki = GuildLinkFactory(guild=guild, label="Wiki", url="https://example.com/wiki")
+        _sign_in_as_admin(login_via_code)
+        _open(page, live_server, guild, "links")
+
+        # A new row with a bad URL makes the form refused; the Delete on a saved row then
+        # comes back refused too, and the row keeps its flag.
+        page.get_by_role("button", name="+ Add a link").click()
+        page.locator('input[name="links-2-label"]').fill("Docs")
+        url = page.locator('input[name="links-2-url"]')
+        url.fill("not a url")
+        url.press("Tab")
+        page.locator("#link-rows .pl-field-error").wait_for()
+        _link_row(page, wiki).get_by_role("button", name="Delete this link").click()
+        page.locator("#link-rows .pl-field-error").wait_for()
+        assert GuildLink.objects.filter(pk=wiki.pk).exists()
+
+        # Fixing the URL lands the whole form, the queued delete with it.
+        before = _saves(page)
+        url.fill("https://example.com/docs")
+        url.press("Tab")
+        _wait_saved(page, before + 1)
+        expect(page.locator("#link-rows [data-formset-row]")).to_have_count(2)
+        assert not GuildLink.objects.filter(pk=wiki.pk).exists()
+        assert GuildLink.objects.filter(guild=guild, label="Docs").exists()
+
     def it_refuses_a_bad_link_inline_keeps_what_was_typed_and_deletes_a_saved_link(live_server, page, login_via_code):
         guild = _admin_guild()
         discord = GuildLinkFactory(guild=guild, label="Discord", url="https://discord.gg/ceramics")
@@ -117,9 +177,7 @@ def describe_guild_settings_autosave():
 
         # Delete the saved link: the row goes, and so does the database row.
         before = _saves(page)
-        page.locator("#link-rows [data-formset-row]", has_text="Discord").get_by_role(
-            "button", name="Delete this link"
-        ).click()
+        _link_row(page, discord).get_by_role("button", name="Delete this link").click()
         _wait_saved(page, before + 1)
         expect(page.locator("#link-rows [data-formset-row]")).to_have_count(1)
         assert not GuildLink.objects.filter(pk=discord.pk).exists()

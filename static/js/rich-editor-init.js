@@ -157,7 +157,10 @@
         /* A member's edit also fires a plain bubbling input on the textarea, so a page that saves
            as it is edited (the guild settings autosave) hears the editor like any other field. Not
            on the seed or a programmatic write: those are not changes to save. The wiki and meeting
-           editors listen on their own inputs, never on a bubbling input, so nothing else hears it. */
+           editors listen on their own inputs, so they never hear it; the class composer's draft
+           copy (composer_draft.js) and validity reconcile (composer_validation.js) listen for
+           input on the document, so a Quill edit there now schedules both, as a keystroke in any
+           other field already does (debounced, and harmless). */
         if (userEdit) ta.dispatchEvent(new Event("input", { bubbles: true }));
     }
 

@@ -17,6 +17,7 @@ from unittest.mock import patch
 import pytest
 from django import forms
 from django.contrib.auth.models import User
+from django.core.files.uploadedfile import SimpleUploadedFile
 from django.test import Client
 from django.urls import reverse
 
@@ -46,6 +47,21 @@ from tests.membership.factories import (
 pytestmark = pytest.mark.django_db
 
 AUTOSAVE = {"HTTP_X_AUTOSAVE": "1"}
+_PNG = (
+    b"\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR\x00\x00\x00\x01\x00\x00\x00\x01"
+    b"\x08\x06\x00\x00\x00\x1f\x15\xc4\x89\x00\x00\x00\nIDATx\x9cc\x00\x01"
+    b"\x00\x00\x05\x00\x01\r\n-\xb4\x00\x00\x00\x00IEND\xaeB`\x82"
+)
+
+_AUTOSAVE_FORM = re.compile(r"<form\b[^>]*\bdata-autosave\b[^>]*>.*?</form>", re.S)
+
+
+def _assert_autosave_forms_have_no_submit(content: str) -> int:
+    """Every self saving form on the page carries no submit button; anchored on markup, not copy (STANDARDS 8)."""
+    blocks = _AUTOSAVE_FORM.findall(content)
+    assert blocks, "no data-autosave form on the page"
+    assert [block[:120] for block in blocks if 'type="submit"' in block] == []
+    return len(blocks)
 
 
 def _user_with_role(username: str, *, fog_role: str = Member.FogRole.MEMBER) -> User:
@@ -203,6 +219,23 @@ def describe_main_form_autosave():
         plain = client.post(url, {"name": "", "about": "x"})
         assert plain.status_code == 200
         assert plain.context["form"].errors["name"]
+
+    def it_keeps_a_banner_posted_once_when_the_next_post_carries_no_file(client: Client):
+        # The script clears the file input after a 200; the server side of that contract is
+        # that a post without the field leaves the stored image alone.
+        _user, guild = _lead(client, "main_banner")
+        url = reverse("hub_guild_edit", args=[guild.pk])
+        banner = SimpleUploadedFile("banner.png", _PNG, content_type="image/png")
+        first = client.post(url, {"name": "Banners", "about": "", "banner_image": banner}, **AUTOSAVE)
+        assert first.status_code == 200
+        guild.refresh_from_db()
+        stored = guild.banner_image.name
+        assert stored
+        second = client.post(url, {"name": "Banners", "about": "Typed later"}, **AUTOSAVE)
+        assert second.status_code == 200
+        guild.refresh_from_db()
+        assert guild.banner_image.name == stored
+        assert guild.about == "Typed later"
 
     def it_still_answers_403_to_someone_who_cannot_edit_the_guild(client: Client):
         _user_with_role("main_nope")
@@ -620,17 +653,9 @@ def describe_guild_edit_page_autosave_markup():
         assert "data-save-pill" in content
         assert "Every change saves as you make it." in content
         assert 'x-data="plGuildAutosave(' in content
-        for label in (
-            "Save Changes",
-            "Save Studio Hours",
-            "Save orientation settings",
-            "Save FAQ",
-            "Save Links",
-            "Save mailing list",
-        ):
-            assert label not in content, label
-        # The one off slot form keeps its Save; nothing else on the page submits.
-        assert content.count('type="submit" class="pl-btn pl-btn--primary">Save</button>') == 1
+        # Main, visibility, orientation settings, types, thank-you, guild hours, FAQ, links,
+        # mailing list and announcement settings (the welcome form rides a feature switch).
+        assert _assert_autosave_forms_have_no_submit(content) >= 10
         assert "requestSubmit()" not in content.replace(
             "document.getElementById('times-bulk-form').requestSubmit();", ""
         )

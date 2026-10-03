@@ -3456,8 +3456,11 @@ class StudioHoursForm(forms.ModelForm):
     """
 
     weekday = forms.ChoiceField(choices=_STUDIO_HOURS_WEEKDAYS, label="Day")
-    start_time = forms.ChoiceField(choices=half_hour_time_choices(required=True), label="From")
-    end_time = forms.ChoiceField(choices=half_hour_time_choices(required=True), label="To")
+    # Both times open on a blank choice so a new row on the self saving editor (#575) stays a
+    # half typed row, skipped rather than refused, until both are picked; the fields are still
+    # required, so a blank one posted for real is refused as before.
+    start_time = forms.ChoiceField(choices=half_hour_time_choices(required=False), label="From")
+    end_time = forms.ChoiceField(choices=half_hour_time_choices(required=False), label="To")
     location = forms.CharField(label="Location", required=False, max_length=200)
     note = forms.CharField(label="Note", required=False, max_length=500)
 

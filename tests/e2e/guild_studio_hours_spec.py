@@ -3,8 +3,9 @@
 The Studio Hours tab's editor is its OWN ``<form>`` (outside the main guild form) and, since
 #575, saves itself on every change: there is no Save button. Unit tests cover the formset
 logic; only a real browser proves the whole structure works: the tab reveals, the "+ Add"
-clone-empty_form JS builds a live row, each pick posts the form (the first picks are refused
-inline until the window makes sense, then the row lands and its hidden id is stamped), and
+clone-empty_form JS builds a live row, each pick posts the form (a row with a time still
+blank is skipped, not refused; once both are picked the row lands and its hidden id is
+stamped), and
 the row's Delete asks once and then takes the window off the page and the calendar. Run
 with ``pytest -m e2e``.
 """
@@ -50,12 +51,14 @@ def describe_guild_studio_hours_editor():
         expect(page.locator("[data-formset-empty]", has_text="No studio hours yet")).to_be_visible()
 
         # Add a row (clones #studio-hours-empty-template, bumps TOTAL_FORMS to index 0). Every
-        # pick posts at once; with both times still at the first option the window is refused
-        # inline, and nothing lands until it makes sense.
+        # pick posts at once, but with both times still blank the row is half typed: it posts
+        # as rendered and is skipped, with no error and nothing landed.
         page.get_by_role("button", name="+ Add studio hours", exact=True).click()
         page.select_option('select[name="studio_hours-0-weekday"]', "1")  # Tuesday
-        page.locator("#studio-hours-rows .pl-field-error", has_text="End time must be after start time.").wait_for()
+        page.wait_for_function(SAVED_PAST, arg=1)
+        expect(page.locator("#studio-hours-rows .pl-field-error")).to_have_count(0)
         assert not guild.events.studio_hours().exists()
+        assert page.locator('input[name="studio_hours-0-id"]').input_value() == ""
         page.select_option('select[name="studio_hours-0-start_time"]', "14:00")
         page.select_option('select[name="studio_hours-0-end_time"]', "17:00")
         # The row's hidden pk distinguishes a landed row from the pre-save DOM, whose visible
