@@ -5684,6 +5684,20 @@ mark { background: color-mix(in srgb, var(--color-tuscan-yellow) 30%, transparen
 .pl-recipient-add select {
     max-width: 28rem;
 }
+/* The site announcement's added people sit above its two add controls, as the guild roster does. */
+.pl-site-added {
+    margin-bottom: 0.75rem;
+}
+/* The site announcement's typed addresses: the box and its Add button on one line. */
+.pl-site-add {
+    display: flex;
+    gap: 0.5rem;
+    max-width: 28rem;
+}
+.pl-site-add input {
+    flex: 1 1 auto;
+    min-width: 0;
+}
 .pl-compose-locked {
     display: flex;
     align-items: center;

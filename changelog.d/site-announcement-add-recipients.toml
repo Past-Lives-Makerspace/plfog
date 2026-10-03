@@ -1,0 +1,8 @@
+bump = "minor"
+date = "2026-10-03"
+title = "Add people to a site-wide announcement"
+changes = [
+  "A site-wide announcement can now go to people beyond the active membership. Under Recipients, \"Add a member\" adds a former, invited or suspended member, and \"Add email addresses\" adds anyone else.",
+  "Someone with no account gets the email only, and only when Email is on. Uncheck a row to take that person off before you send.",
+  "The sent announcement's record lists who was added.",
+]

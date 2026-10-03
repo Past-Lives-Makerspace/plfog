@@ -27,6 +27,7 @@ from membership.models import (
     AnnouncementDraft,
     AnnouncementReach,
     GuildAnnouncement,
+    Member,
     resolve_channel_webhook,
 )
 from tests.membership.factories import (
@@ -508,6 +509,68 @@ def describe_AnnouncementDraft():
                 for member in (logged_in, never):
                     assert Notification.objects.filter(user=member.user, trigger="site_announcement").exists()
                 assert "never@x.com" in [addr for message in mailoutbox for addr in message.to]
+
+        def describe_people_added_on_top_of_everyone():
+            def _former(username: str):
+                member = _activated_member(username=username)
+                Member.objects.filter(pk=member.pk).update(status=Member.Status.FORMER)
+                return member
+
+            def it_reaches_everyone_plus_an_added_member_and_a_typed_address(mailoutbox):
+                everyone = _activated_member(username="recip")
+                former = _former("former")
+                draft = AnnouncementDraft.objects.create(
+                    author=_author(),
+                    audience=_SITE,
+                    title="Hi",
+                    body="<p>x</p>",
+                    added_recipients={"users": [former.user_id], "custom": ["guest@example.com"]},
+                )
+                draft.send()
+                for member in (everyone, former):
+                    assert Notification.objects.filter(user=member.user, trigger="site_announcement").exists()
+                sent_to = [addr for message in mailoutbox for addr in message.to]
+                assert {"recip@x.com", "former@x.com", "guest@example.com"} <= set(sent_to)
+                assert sent_to.count("recip@x.com") == 1
+
+            def it_sends_a_typed_address_nothing_while_email_is_off(mailoutbox):
+                former = _former("former")
+                draft = AnnouncementDraft.objects.create(
+                    author=_author(),
+                    audience=_SITE,
+                    title="Hi",
+                    body="<p>x</p>",
+                    send_email=False,
+                    added_recipients={"users": [former.user_id], "custom": ["guest@example.com"]},
+                )
+                draft.send()
+                assert mailoutbox == []
+                assert Notification.objects.filter(user=former.user, trigger="site_announcement").exists()
+
+            def it_counts_each_added_person_once():
+                _activated_member(username="recip")
+                former = _former("former")
+                draft = AnnouncementDraft(
+                    audience=_SITE,
+                    # The typed address is the former member's own, so it is the same person.
+                    added_recipients={"users": [former.user_id], "custom": ["former@x.com", "guest@example.com"]},
+                )
+                assert draft.recipient_count() == 3
+                draft.send_email = False
+                assert draft.recipient_count() == 2
+
+            def it_ignores_added_people_on_a_guild_announcement():
+                guild = GuildFactory()
+                draft = AnnouncementDraft(
+                    audience=_GUILD, guild=guild, added_recipients={"custom": ["guest@example.com"]}
+                )
+                assert draft._site_recipients() == (None, [])
+
+            def it_lists_who_was_added_for_the_sent_record():
+                former = _former("former")
+                User.objects.filter(pk=former.user_id).update(first_name="Fern", last_name="Former")
+                draft = AnnouncementDraft(added_recipients={"users": [former.user_id], "custom": ["guest@example.com"]})
+                assert draft.added_labels == ["Fern Former", "guest@example.com"]
 
         def it_suppresses_email_but_keeps_the_bell_when_send_email_is_off(mailoutbox):
             author = _author()

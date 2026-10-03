@@ -5176,6 +5176,17 @@ class AnnouncementDraft(models.Model):
             "where custom addresses are email-only extras (a guild mailing list)."
         ),
     )
+    added_recipients = models.JSONField(
+        default=dict,
+        blank=True,
+        db_default={},
+        help_text=(
+            "Site announcements only: people added on top of everyone, by the sender. Same shape as "
+            'recipient_selection, {"users": [pk, ...], "custom": ["addr", ...]}: users are member '
+            "accounts everyone does not reach (a former member), custom are typed addresses with no "
+            "account, which get the email only."
+        ),
+    )
     discord_channel = models.CharField(
         max_length=20,
         choices=GuildAnnouncement.DiscordChannel.choices,
@@ -5589,7 +5600,8 @@ class AnnouncementDraft(models.Model):
     def recipient_count(self) -> int:
         """How many activated members this draft reaches right now (the confirm-dialog count).
 
-        ``SITE`` → the all-active-members audience (widened by :attr:`include_never_logged_in`);
+        ``SITE`` → the all-active-members audience (widened by :attr:`include_never_logged_in`), plus
+        anyone the sender added (:attr:`added_recipients`; a typed address only while Email is on);
         ``GUILD`` → the guild's joined-member audience — the exact resolvers the send fans out to,
         so the count matches delivery.
         """
@@ -5601,6 +5613,9 @@ class AnnouncementDraft(models.Model):
         if self.audience == self.Audience.CLASS:
             offering = cast("ClassOffering", self.class_offering)
             return len(offering.announcement_recipients(include_waitlist=self.include_waitlist))
+        site_user_ids, site_emails = self._site_recipients()
+        if site_user_ids is not None:
+            return len(site_user_ids) + (len(site_emails) if self.send_email else 0)
         return len(
             resolvers.resolve(Recipients.ALL_ACTIVE_MEMBERS, {"include_never_logged_in": self.include_never_logged_in})
         )
@@ -5633,6 +5648,7 @@ class AnnouncementDraft(models.Model):
         draft.show_sender = cd.get("show_sender", True)
         draft.include_waitlist = cd.get("include_waitlist", False)
         draft.include_never_logged_in = cd.get("include_never_logged_in", False)
+        draft.added_recipients = cd.get("added_recipients") or {}
         # Empty dict = "everyone" (the default); a present selection = exactly these recipients.
         draft.recipient_selection = cd.get("recipient_selection") or {}
         draft.discord_channel = cd["discord_channel"]
@@ -5703,6 +5719,8 @@ class AnnouncementDraft(models.Model):
             site_url = _absolute_url("/")
             webhook = resolve_channel_webhook(self.discord_channel, None) if discord_on else ""
             period = self._site_delivery_period()
+            site_user_ids, site_emails = self._site_recipients()
+            extra_emails = site_emails if self.send_email else []
             result = emit(
                 "site_announcement",
                 actor=self.author,
@@ -5720,11 +5738,12 @@ class AnnouncementDraft(models.Model):
                 suppress_broadcast=(webhook == ""),
                 suppress_email=not self.send_email,
                 suppress_push=suppress_push,
-                recipient_user_ids=recipient_ids,
+                recipient_user_ids=site_user_ids if site_user_ids is not None else recipient_ids,
+                extra_emails=extra_emails or None,
                 discord_mention=mention_str,
                 override_preferences=self.mark_as_urgent,
             )
-            total = result.recipient_count
+            total = result.recipient_count + len(extra_emails)
             counts = (total if self.send_email else 0, total)
         elif self.audience == self.Audience.CLASS:
             # Scoped to the class roster: confirmed registrants (and waitlisted ones when the
@@ -5931,6 +5950,44 @@ class AnnouncementDraft(models.Model):
         self.send_requested_at = None
         self.send_error = reason[:_SEND_ERROR_LIMIT]
         self.save(update_fields=["send_requested_at", "send_error", "updated_at"])
+
+    def _site_recipients(self) -> "tuple[set[int] | None, list[str]]":
+        """A site send's ``(member user-pks, email-only addresses)``: everyone, plus anyone added.
+
+        ``(None, [])`` when nobody was added, so the send falls through to the resolver exactly as a
+        plain site send does. Otherwise the pks are everyone (widened by
+        :attr:`include_never_logged_in`) joined by each added account that still has an email, and
+        the addresses are the typed ones no recipient's account already uses, so nobody gets it twice.
+        """
+        from django.contrib.auth.models import User
+
+        from core.events import resolvers
+        from core.events.registry import Recipients
+
+        added = (self.added_recipients or {}) if self.audience == self.Audience.SITE else {}
+        added_ids = {int(pk) for pk in added.get("users") or []}
+        typed = list(dict.fromkeys(str(addr).strip().lower() for addr in added.get("custom") or []))
+        if not added_ids and not typed:
+            return None, []
+        everyone = resolvers.resolve(
+            Recipients.ALL_ACTIVE_MEMBERS, {"include_never_logged_in": self.include_never_logged_in}
+        )
+        users = {user.pk: user for user, _reason in everyone}
+        users.update({user.pk: user for user in User.objects.filter(pk__in=added_ids).exclude(email="")})
+        account_emails = {(user.email or "").strip().lower() for user in users.values()}
+        return set(users), [addr for addr in typed if addr and addr not in account_emails]
+
+    @property
+    def added_labels(self) -> list[str]:
+        """Who the sender added to a site announcement, as the sent record lists them."""
+        from django.contrib.auth.models import User
+
+        added = self.added_recipients or {}
+        names = [
+            (user.get_full_name() or user.get_username()).strip()
+            for user in User.objects.filter(pk__in=added.get("users") or []).order_by("first_name", "last_name")
+        ]
+        return names + [str(addr) for addr in added.get("custom") or []]
 
     def _selected_recipient_ids(self) -> "set[int] | None":
         """The explicit member recipient set (bell + push + email) from the saved selection.

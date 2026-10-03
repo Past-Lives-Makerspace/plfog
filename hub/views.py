@@ -4239,6 +4239,8 @@ def _draft_initial(draft: AnnouncementDraft) -> dict[str, Any]:
         "show_sender": draft.show_sender,
         "include_waitlist": draft.include_waitlist,
         "include_never_logged_in": draft.include_never_logged_in,
+        "added_recipients": [f"user:{pk}" for pk in (draft.added_recipients or {}).get("users", [])]
+        + [f"custom:{addr}" for addr in (draft.added_recipients or {}).get("custom", [])],
         "discord_channel": draft.discord_channel,
         "mention": draft.mention,
         "expires_at": draft.expires_at,
@@ -4294,11 +4296,11 @@ def _render_compose(
         logged_in = _compose_count_for(site, None)
         everyone = _compose_count_for(site, None, include_never_logged_in=True)
         site_reach = {"logged_in": logged_in, "never_logged_in": everyone - logged_in, "everyone": everyone}
-        form.fields["include_never_logged_in"].widget.attrs["x-on:change"] = (
-            "recipientCount = $event.target.checked ? siteReach.everyone : siteReach.loggedIn"
-        )
+        form.fields["include_never_logged_in"].widget.attrs["x-on:change"] = "recipientCount = siteCount()"
     if site_reach is not None and form.current_audience == site:
         count = site_reach["everyone"] if form.never_logged_in_included else site_reach["logged_in"]
+        email_on = bool(form["send_email"].value())
+        count += sum(1 for _value, _label, email_only in form.site_added_rows if email_on or not email_only)
     else:
         count = _compose_count_for(
             form.current_audience, form.current_guild, form.current_class, include_waitlist=form.waitlist_included
@@ -4581,6 +4583,34 @@ def hub_compose_count(request: HttpRequest) -> HttpResponse:
     )
     response = render(request, "hub/partials/_compose_oob_refresh.html", {"form": form})
     response["HX-Trigger"] = json.dumps({"compose-count": {"count": count}})
+    return response
+
+
+@login_required
+@require_POST
+def hub_compose_site_add(request: HttpRequest) -> HttpResponse:
+    """HTMX: vet people added to a site announcement and return a recipient row for each new one.
+
+    Takes the typed addresses (``site_add``) or a member picked from the list (``site_add_member``),
+    checks each with :func:`hub.forms.classify_site_additions` against who everyone already
+    reaches, and returns the rows not already added, to append to the composer's added list.
+    Anything refused comes back as one toast. Admins only, as the site audience is.
+    """
+    from hub.forms import classify_site_additions, split_site_additions
+
+    forbidden = _compose_audience_forbidden(request, AnnouncementDraft.Audience.SITE.value)
+    if forbidden is not None:
+        return forbidden
+    tokens = split_site_additions(f"{request.POST.get('site_add') or ''} {request.POST.get('site_add_member') or ''}")
+    already = set(request.POST.getlist("added_recipients"))
+    rows, refused = classify_site_additions(
+        tokens, include_never_logged_in=bool(request.POST.get("include_never_logged_in"))
+    )
+    response = render(
+        request, "hub/partials/_compose_site_added_rows.html", {"rows": [row for row in rows if row[0] not in already]}
+    )
+    if refused:
+        trigger_toast(response, " ".join(refused), "error")
     return response
 
 
