@@ -968,7 +968,10 @@ def describe_make_results_draft():
 
     def it_stamps_and_makes_nothing_when_an_admin_opened_one_first():
         snapshot = _snapshot()
-        opened = snapshot.draft_results_announcement(_author())
+        # Built directly, not clicked: a click now stamps the snapshot itself, and this is the
+        # unstamped open draft the release before this one leaves behind.
+        opened = snapshot._new_results_draft(_author())
+        assert FundingSnapshot.objects.get(pk=snapshot.pk).results_draft_created_at is None
         assert snapshot.make_results_draft() is None
         assert list(AnnouncementDraft.objects.all()) == [opened]
         snapshot.refresh_from_db()
