@@ -224,8 +224,8 @@ def describe_the_columns():
         fresh = AnnouncementDraftFactory(queued=True)
         html = _page(client, "sent")
         assert 'class="hub-pill hub-pill--warn"' in _row(html, retrying.pk)
-        assert 'data-sending-note="retrying"' in _row(html, retrying.pk)
-        assert 'data-sending-note="queued"' in _row(html, fresh.pk)
+        assert 'data-send-progress="retrying"' in _row(html, retrying.pk)
+        assert 'data-send-progress="queued"' in _row(html, fresh.pk)
 
     def it_truncates_a_long_send_error_to_80_characters(client: Client):
         _login_admin(client)
@@ -683,12 +683,17 @@ def describe_the_sent_view():
         return match.group(1)
 
     def it_reads_each_channel_from_the_ledger(client: Client):
+        from core.models import PushSubscription
+
         admin = _login_admin(client)
         row = _sent_site_row(author=admin)
+        # A push counts only for a member with a device: the channel keeps a row for everyone.
+        PushSubscription.objects.create(user=admin, endpoint="https://push.example/1", p256dh="k", auth="a")
         for target, channel in (
-            ("user:1", "in_app"),
-            ("user:1", "email"),
-            ("user:1", "push"),
+            (f"user:{admin.pk}", "in_app"),
+            (f"user:{admin.pk}", "email"),
+            (f"user:{admin.pk}", "push"),
+            ("user:2", "push"),
             ("user:2", "in_app"),
             ("user:2", "email"),
             ("email:g@x.com", "email"),

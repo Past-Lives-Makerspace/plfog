@@ -244,6 +244,12 @@ urlpatterns = [
     # The sent view is not announcements/<pk>/: announcements/<pk>/withdraw/ is a member's proposal.
     path("announcements/", views.announcements_overview, name="hub_announcements"),
     path("announcements/sent/<int:pk>/", views.announcement_sent, name="hub_announcement_sent"),
+    path("announcements/sent/<int:pk>/progress/", views.announcement_progress, name="hub_announcement_progress"),
+    path(
+        "announcements/sent/<int:pk>/recipients/",
+        views.announcement_recipients,
+        name="hub_announcement_recipients",
+    ),
     # Announcement compose wizard (admins: site-wide; guild leads/staff: their guilds).
     path("announcements/compose/", views.hub_compose, name="hub_compose"),
     path("announcements/compose/preview/", views.hub_compose_preview, name="hub_compose_preview"),
