@@ -255,8 +255,10 @@
                     w = this.box.w;
                     h = this.box.h;
                 } else {
+                    // A pending src keeps reporting the previous photo's size until the new
+                    // response starts, and complete is false the whole way: no verdict until then.
                     const img = media.querySelector(".cls-img");
-                    if (!img || !img.naturalWidth || !img.naturalHeight) { return null; }
+                    if (!img || !img.complete || !img.naturalWidth || !img.naturalHeight) { return null; }
                     w = img.naturalWidth;
                     h = img.naturalHeight;
                 }
