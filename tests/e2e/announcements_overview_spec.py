@@ -214,6 +214,51 @@ def describe_the_announcements_page():
         assert queued.include_never_logged_in is True
         assert queued.discord_channel == "none"
 
+    def it_shows_a_sends_progress_then_who_it_reached(live_server, page, login_via_code):
+        from core.models import EventDelivery
+
+        _seed()
+        _sign_in_as_admin(login_via_code)
+        sending = AnnouncementDraft.objects.create(
+            title="Factory Open House",
+            audience=AnnouncementDraft.Audience.SITE,
+            body="<p>Factory open house this Saturday.</p>",
+            send_requested_at=timezone.now(),
+        )
+        reader = get_user_model().objects.get(username="forge-reader@example.com")
+        for channel in ("in_app", "email"):
+            EventDelivery.objects.create(
+                event_key="site_announcement",
+                target_ref=f"user:{reader.pk}",
+                channel=channel,
+                period=sending.ledger_period,
+            )
+        total = sending.recipient_count()
+
+        page.goto(f"{live_server.url}{reverse('hub_announcements')}?tab=sent")
+        progress = _row(page, sending.pk).locator("[data-send-progress]")
+        expect(progress).to_have_text(f"Sent to 1 of {total} so far.")
+
+        # The send finishes: the line's next poll reloads the page with the final counts.
+        AnnouncementDraft.objects.filter(pk=sending.pk).update(
+            sent_at=timezone.now(), send_requested_at=None, delivery_period=sending.ledger_period
+        )
+        expect(_row(page, sending.pk)).to_have_attribute("data-announcement-state", "sent", timeout=15000)
+        emails = _row(page, sending.pk).locator("[data-announcement-recipients-open]")
+        expect(emails).to_have_text("1")
+
+        emails.click()
+        modal = page.locator("[data-announcement-recipients]")
+        expect(modal).to_be_visible()
+        expect(modal.locator("[data-recipients-summary]")).to_have_text(
+            "1 person reached. Emails: 1 sent. In the app: 1. Push: 0."
+        )
+        expect(modal.locator('[data-recipient="forge-reader@example.com"]')).to_be_visible()
+        modal.locator("input[type=search]").fill("nobody")
+        expect(modal.locator('[data-recipient="forge-reader@example.com"]')).to_be_hidden()
+        page.keyboard.press("Escape")
+        expect(modal).to_be_hidden()
+
     def it_adds_people_on_top_of_everyone_to_a_site_announcement(live_server, page, login_via_code):
         made, _guild, _reader = _seed()
         former = get_user_model().objects.create_user(

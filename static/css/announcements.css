@@ -197,6 +197,60 @@
     color: var(--hub-text-muted);
     font-size: 0.875rem;
 }
+/* The progress line reads inline in the record page's sentence, not as the table's small note. */
+.pl-announcement-sentline .pl-announcements-table__note {
+    display: inline;
+    max-width: none;
+    margin: 0;
+    color: inherit;
+    font-size: inherit;
+}
+.pl-announcement-card__actions {
+    margin: 1rem 0 0;
+}
+
+/* --- Who it reached: the Emails count that opens it, and the modal -------- */
+
+.pl-announcements-table__count {
+    padding: 0;
+    border: 0;
+    background: none;
+    color: var(--hub-link);
+    font: inherit;
+    font-weight: 700;
+    text-decoration: underline;
+    cursor: pointer;
+}
+.pl-recipients__summary {
+    margin: 0 0 0.75rem;
+    color: var(--hub-text);
+}
+.pl-recipients__search {
+    margin-bottom: 0.75rem;
+}
+/* The list scrolls inside the modal, so its header and search stay in view. */
+.pl-recipients__scroll {
+    max-height: 60vh;
+    overflow-y: auto;
+}
+.pl-recipients__address {
+    overflow-wrap: anywhere;
+}
+.pl-recipients__failed {
+    color: var(--hub-danger-text);
+    font-weight: 700;
+}
+.pl-recipients__error {
+    display: block;
+    margin-top: 0.25rem;
+    color: var(--hub-text-muted);
+    font-size: 0.8125rem;
+    overflow-wrap: anywhere;
+}
+.pl-recipients__empty {
+    margin: 0;
+    color: var(--hub-text-muted);
+}
 [data-theme="light"] .pl-announcement-heading .hub-pill--ok { color: #1f7a52; }
 [data-theme="light"] .pl-announcement-heading .hub-pill--warn { color: #9a6a00; }
 

@@ -10,7 +10,8 @@ The Announcements page: Drafts and Sent tabs over every announcement this viewer
 (hub.views._announcement_rows). Server rendered tabs (?tab=drafts|sent), so links, Back and
 pagination work. Rows stack into labelled cards at 768px and below (the members table stacking).
 
-Context: tab, rows ([(AnnouncementDraft, people reached or None)]), page, base_params,
+Context: tab, rows ([(AnnouncementDraft, people reached or None, emails sent or None,
+AnnouncementProgress or None)]; the last three only on the Sent tab), page, base_params,
 drafts_count, sent_count.
 {% endcomment %}
 {% url 'hub_compose' as compose_url %}
@@ -39,6 +40,7 @@ drafts_count, sent_count.
         <th scope="col">Sent</th>
         <th scope="col">Sent by</th>
         <th scope="col">Reached</th>
+        <th scope="col">Emails</th>
         {% else %}
         <th scope="col">Last edited</th>
         <th scope="col">Edited by</th>
@@ -47,7 +49,7 @@ drafts_count, sent_count.
       </tr>
     </thead>
     <tbody>
-      {% for row, reached in rows %}
+      {% for row, reached, emailed, progress in rows %}
       <tr data-announcement-row="{{ row.pk }}" data-announcement-state="{{ row.state }}">
         <td data-label="Announcement" class="pl-announcements-table__lead">
           {% if tab == 'sent' %}
@@ -64,13 +66,17 @@ drafts_count, sent_count.
           {% if row.state == 'could_not_send' %}
           <span class="pl-announcements-table__note" data-send-error>{{ row.send_error|truncatechars:80 }}</span>
           {% elif row.state == 'sending' %}
-          <span class="pl-announcements-table__note" data-sending-note="{% if row.send_error %}retrying{% else %}queued{% endif %}">{% if row.send_error %}The last try failed. Trying again.{% else %}Goes out within 15 minutes.{% endif %}</span>
+          {% include "hub/partials/_announcement_progress.html" %}
           {% endif %}
         </td>
         {% if tab == 'sent' %}
         <td data-label="Sent" class="pl-announcements-table__when">{% if row.sent_at %}{{ row.sent_at|date:"M j, g:i a" }}{% else %}Queued {{ row.send_requested_at|date:"M j, g:i a" }}{% endif %}</td>
         <td data-label="Sent by" class="pl-announcements-table__who">{{ row.author_label }}</td>
         <td data-label="Reached" data-reach="{% if row.state == 'sending' %}not-yet{% elif reached is None %}not-recorded{% else %}{{ reached }}{% endif %}">{% if row.state == 'sending' %}Not yet{% elif reached is None %}Not recorded{% else %}{{ reached }}{% endif %}</td>
+        <td data-label="Emails" data-emails="{% if not row.send_email %}off{% elif row.state == 'sending' %}not-yet{% elif emailed is None %}not-recorded{% else %}{{ emailed }}{% endif %}">{% if not row.send_email %}Off{% elif row.state == 'sending' %}Not yet{% elif emailed is None %}Not recorded{% else %}<button type="button" class="pl-announcements-table__count" data-announcement-recipients-open
+                  hx-get="{% url 'hub_announcement_recipients' row.pk %}" hx-target="#announcement-recipients-body" hx-swap="innerHTML"
+                  @click="document.getElementById('announcement-recipients-body').replaceChildren(); $dispatch('open-modal', 'announcement-recipients')"
+                  aria-label="See who the {{ emailed }} email{{ emailed|pluralize }} went to">{{ emailed }}</button>{% endif %}</td>
         <td data-label="Actions" class="pl-announcements-table__actions-cell">
           <div class="pl-announcements-table__actions">
             <a href="{% url 'hub_announcement_sent' row.pk %}" class="pl-btn pl-btn--ghost pl-btn--sm" data-announcement-view>View</a>
@@ -95,7 +101,7 @@ drafts_count, sent_count.
   {% include "components/table_pagination.html" %}
 
   {% if tab == 'drafts' %}
-  {% for row, reached in rows %}
+  {% for row, reached, emailed, progress in rows %}
     {% url 'hub_compose_delete_draft' row.pk as delete_url %}
     {% with pks=row.pk|stringformat:"s" %}
       {% if row.funding_snapshot_id %}
@@ -112,4 +118,6 @@ drafts_count, sent_count.
   <p class="pl-announcements-empty" data-announcements-empty="drafts">No drafts right now. Press Save draft in the Announcement Composer and the draft waits here until it is sent.</p>
   {% endif %}
 </div>
+{# The Who It Reached modal; hub_announcement_recipients loads its body. #}
+{% include "components/modal.html" with modal_id="announcement-recipients" modal_title="Who It Reached" modal_size="lg" %}
 {% endblock %}

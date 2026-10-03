@@ -5022,13 +5022,108 @@ class AnnouncementDraftQuerySet(models.QuerySet["AnnouncementDraft"]):
         }
         return {pk: counts.get(pair, 0) for pk, pair in keyed.items()}
 
+    def emails_for(self, rows: "Iterable[AnnouncementDraft]") -> dict[int, int]:
+        """How many emails each of ``rows`` sent, read from the delivery ledger in one query.
+
+        The email rows that remain on the ledger (a send that did not land is released), keyed
+        like :meth:`reach_for`: a row sent before its period was recorded is absent.
+        """
+        from core.events.registry import Channel
+
+        keyed = {row.pk: (row.event_key, row.delivery_period) for row in rows if row.delivery_period}
+        if not keyed:
+            return {}
+        pairs = Q()
+        for event_key, period in set(keyed.values()):
+            pairs |= Q(event_key=event_key, period=period)
+        counts = {
+            (entry["event_key"], entry["period"]): entry["emails"]
+            for entry in EventDelivery.objects.filter(
+                pairs, status=EventDelivery.Status.SENT, channel=Channel.EMAIL.value
+            )
+            .values("event_key", "period")
+            .annotate(emails=Count("pk"))
+        }
+        return {pk: counts.get(pair, 0) for pk, pair in keyed.items()}
+
+
+def _push_reachable(user_pks: "Iterable[int]") -> set[int]:
+    """Of ``user_pks``, the members with a device a push can reach (a browser or the app), two queries.
+
+    The push channel spends its ledger slot for every member, device or not
+    (``core.events.channels.PushAdapter``), so a push row alone does not mean a phone buzzed. This
+    reads today's devices, the nearest record of who could have got it.
+    """
+    from core.models import FcmDevice, PushSubscription
+
+    pks = list(user_pks)
+    if not pks:
+        return set()
+    return set(PushSubscription.objects.filter(user_id__in=pks).values_list("user_id", flat=True)) | set(
+        FcmDevice.objects.filter(user_id__in=pks).values_list("user_id", flat=True)
+    )
+
+
+@dataclass(frozen=True)
+class AnnouncementProgress:
+    """How far a queued site send has got: ``done`` people reached so far, of ``total``."""
+
+    done: int
+    total: int
+
+
+@dataclass(frozen=True)
+class AnnouncementRecipient:
+    """One person a sent announcement reached, or whose email failed, for the recipients list.
+
+    ``name`` is blank for an address with no account. ``email`` is ``"sent"``, ``"failed"`` (with
+    the provider's ``email_error``) or ``""`` when no email went to them (Email was off, or they
+    turned these emails off).
+    """
+
+    name: str
+    address: str
+    in_app: bool
+    push: bool
+    email: str
+    email_error: str = ""
+
+
+@dataclass(frozen=True)
+class AnnouncementRecipientList:
+    """Everyone on one announcement's recipients list, with the totals its summary line reads."""
+
+    recipients: list[AnnouncementRecipient]
+
+    @property
+    def reached(self) -> int:
+        """People who got it on at least one channel; a failed email alone is not a reach."""
+        return sum(1 for r in self.recipients if r.in_app or r.push or r.email == "sent")
+
+    @property
+    def emailed(self) -> int:
+        return sum(1 for r in self.recipients if r.email == "sent")
+
+    @property
+    def failed(self) -> int:
+        return sum(1 for r in self.recipients if r.email == "failed")
+
+    @property
+    def in_app(self) -> int:
+        return sum(1 for r in self.recipients if r.in_app)
+
+    @property
+    def pushed(self) -> int:
+        return sum(1 for r in self.recipients if r.push)
+
 
 @dataclass(frozen=True)
 class AnnouncementReach:
     """Who one sent announcement reached, per channel, from the delivery ledger.
 
-    ``people`` counts distinct members and email-only addresses across every channel; ``in_app``,
-    ``email`` and ``push`` count ledger rows on that channel; ``discord_posted`` says whether the
+    ``people`` counts distinct members and email-only addresses across every channel; ``in_app``
+    and ``email`` count ledger rows on that channel, and ``push`` the members among its push rows
+    with a device a push can reach (the channel keeps a row for everyone, device or not); ``discord_posted`` says whether the
     ledger holds a Discord row. The ledger keeps that row even when the webhook post failed, so it
     means the post was sent, not that Discord accepted it.
     """
@@ -5390,6 +5485,189 @@ class AnnouncementDraft(models.Model):
             return f"@{self.guild.name}"
         return self.get_mention_display()
 
+    @property
+    def ledger_period(self) -> str:
+        """The delivery ledger period this announcement's deliveries are read under, or ``""``.
+
+        The stamped :attr:`delivery_period` once it is sent. While a site send is queued or partway
+        through, the period it claims (:meth:`_site_delivery_period`), which is fixed before the
+        send starts, so its progress and recipients can be read as it goes.
+        """
+        if self.delivery_period:
+            return self.delivery_period
+        if self.audience == self.Audience.SITE and self.state == self.DraftState.SENDING:
+            return self._site_delivery_period()
+        return ""
+
+    def send_progress(self) -> "AnnouncementProgress | None":
+        """How far a queued site send has got, or ``None`` when it has not started (or is not sending).
+
+        ``done`` is the distinct people the ledger holds a delivery for so far, ``total`` the
+        people it is going to (:meth:`recipient_count`, never below ``done``). A results
+        announcement shares its month's period, so anyone an earlier try already reached counts
+        as done: the send skips them.
+        """
+        if self.state != self.DraftState.SENDING or not self.ledger_period:
+            return None
+        done = (
+            EventDelivery.objects.filter(
+                event_key=self.event_key, period=self.ledger_period, status=EventDelivery.Status.SENT
+            )
+            .exclude(target_ref__startswith="broadcast")
+            .values("target_ref")
+            .distinct()
+            .count()
+        )
+        if not done:
+            return None
+        return AnnouncementProgress(done=done, total=max(self.recipient_count(), done))
+
+    def recipient_list(self) -> AnnouncementRecipientList:
+        """Everyone this announcement reached, per channel, plus anyone whose email failed.
+
+        Built from the delivery ledger (one row per person and channel that landed) and, for the
+        failures the ledger releases, the email log (:meth:`_email_failures`). Push reads yes only
+        for a member with a device (:func:`_push_reachable`): the ledger keeps a push row for all. Members show their
+        name and account email; an address with no account shows the address alone. Failed emails
+        come first, so a problem is the first thing seen; then by name, then address. Empty when no period was recorded (sent before this was kept).
+        """
+        from django.contrib.auth.models import User
+
+        from core.events.registry import Channel
+
+        period = self.ledger_period
+        if not period:
+            return AnnouncementRecipientList(recipients=[])
+        channels: dict[str, set[str]] = {}
+        for ref, channel in (
+            EventDelivery.objects.filter(event_key=self.event_key, period=period, status=EventDelivery.Status.SENT)
+            .exclude(target_ref__startswith="broadcast")
+            .values_list("target_ref", "channel")
+        ):
+            channels.setdefault(ref, set()).add(channel)
+        users = User.objects.select_related("member").in_bulk(
+            [int(ref[5:]) for ref in channels if ref.startswith("user:") and ref[5:].isdigit()]
+        )
+        sent_to = self._notification_addresses(users.values())
+        failures = self._email_failures()
+        reachable = _push_reachable(
+            int(ref[5:]) for ref, got in channels.items() if Channel.PUSH.value in got and ref[5:].isdigit()
+        )
+        recipients: list[AnnouncementRecipient] = []
+        seen: set[str] = set()
+        for ref, got in channels.items():
+            user = users.get(int(ref[5:])) if ref.startswith("user:") and ref[5:].isdigit() else None
+            if user is not None:
+                name = (user.get_full_name() or user.get_username()).strip()
+                address = sent_to.get(user.pk) or user.email or ""
+                member = getattr(user, "member", None)
+                addresses = {
+                    address.lower(),
+                    (user.email or "").lower(),
+                    (getattr(member, "notification_email", "") or "").strip().lower(),
+                }
+            else:
+                name, address = ("Deleted account", "") if ref.startswith("user:") else ("", ref[6:])
+                addresses = {address.lower()}
+            addresses.discard("")
+            seen |= addresses
+            failed = next((failures[addr] for addr in addresses if addr in failures), None)
+            emailed = Channel.EMAIL.value in got
+            recipients.append(
+                AnnouncementRecipient(
+                    name=name,
+                    address=address,
+                    in_app=Channel.IN_APP.value in got,
+                    push=Channel.PUSH.value in got and user is not None and user.pk in reachable,
+                    email="sent" if emailed else ("failed" if failed is not None else ""),
+                    email_error="" if emailed or failed is None else failed,
+                )
+            )
+        # A failure for nobody on the ledger is listed only when the address was this send's own
+        # (an email-only guest or mailing-list address): an announcement sharing the title and
+        # kind, sent in the same minutes, must not show its people here.
+        leftover = {addr: error for addr, error in failures.items() if addr not in seen}
+        own = self._email_only_audience() if leftover else set()
+        recipients += [
+            AnnouncementRecipient(name="", address=addr, in_app=False, push=False, email="failed", email_error=error)
+            for addr, error in leftover.items()
+            if addr in own
+        ]
+        recipients.sort(key=lambda r: (r.email != "failed", (r.name or r.address).lower(), r.address.lower()))
+        return AnnouncementRecipientList(recipients=recipients)
+
+    @staticmethod
+    def _notification_addresses(users: "Iterable[User]") -> dict[int, str]:
+        """``{user pk: address}`` for members whose email goes to a chosen notification address.
+
+        The rule ``core.events.channels.notification_email_for`` applies per send (the chosen
+        address while it is a verified address on the account), read for every user in one query.
+        Anyone absent gets their account email.
+        """
+        from allauth.account.models import EmailAddress
+        from django.db.models.functions import Lower
+
+        chosen = {
+            user.pk: address
+            for user in users
+            if (address := (getattr(getattr(user, "member", None), "notification_email", "") or "").strip())
+        }
+        if not chosen:
+            return {}
+        verified = set(
+            EmailAddress.objects.filter(user_id__in=list(chosen), verified=True)
+            .annotate(address=Lower("email"))
+            .values_list("user_id", "address")
+        )
+        return {pk: address for pk, address in chosen.items() if (pk, address.lower()) in verified}
+
+    def _email_only_audience(self) -> set[str]:
+        """The addresses with no account this announcement was meant to email.
+
+        A class's guests (:meth:`_class_recipients`), a guild's mailing list (the saved selection,
+        else the whole list) and a site announcement's typed addresses. A typed address that turned
+        out to be a member's goes out as that member, whose row already shows its failure.
+        """
+        if self.audience == self.Audience.SITE:
+            return {str(addr).strip().lower() for addr in (self.added_recipients or {}).get("custom") or []}
+        if self.audience == self.Audience.CLASS and self.class_offering_id is not None:
+            return set(self._class_recipients()[1])
+        if self.audience == self.Audience.GUILD and self.guild is not None:
+            selected = self._selected_custom_emails()
+            return set(selected) if selected is not None else set(self.guild.mailing_list_emails_deduped(set()))
+        return set()
+
+    def _email_failures(self) -> dict[str, str]:
+        """``{address: provider error}`` for this announcement's emails that failed.
+
+        The ledger releases a delivery that did not land, so failures are read from the email log:
+        this announcement's kind and subject (with the staging prefix there), failed, between its first ledger row (less a minute)
+        and when it was sent (or now, while sending). An address that later went through on a
+        retry is overridden by its ledger row in :meth:`recipient_list`.
+        """
+        from datetime import timedelta
+
+        from core.models import TransactionalEmailLog
+
+        first = (
+            EventDelivery.objects.filter(event_key=self.event_key, period=self.ledger_period)
+            .order_by("created_at")
+            .values_list("created_at", flat=True)
+            .first()
+        )
+        if first is None:
+            return {}
+        from core.email_policy import staging_subject
+
+        logs = TransactionalEmailLog.objects.filter(
+            trigger_kind=self._trigger_kind(),
+            subject__in={self.title, staging_subject(self.title)},
+            status=TransactionalEmailLog.Status.FAILED,
+            created_at__gte=first - timedelta(minutes=1),
+            created_at__lte=(self.sent_at or timezone.now()) + timedelta(minutes=1),
+        ).order_by("created_at")
+        return {log.to_email.strip().lower(): log.error_message for log in logs}
+
     def reach(self) -> "AnnouncementReach | None":
         """Who this announcement reached, per channel, read from the delivery ledger in one query.
 
@@ -5409,11 +5687,19 @@ class AnnouncementDraft(models.Model):
             push=Count("pk", filter=Q(channel=Channel.PUSH.value)),
             discord=Count("pk", filter=Q(channel=Channel.DISCORD.value)),
         )
+        push_refs = EventDelivery.objects.filter(
+            event_key=self.event_key,
+            period=self.delivery_period,
+            status=EventDelivery.Status.SENT,
+            channel=Channel.PUSH.value,
+            target_ref__startswith="user:",
+        ).values_list("target_ref", flat=True)
+        pushed = len(_push_reachable(int(ref[5:]) for ref in push_refs if ref[5:].isdigit())) if totals["push"] else 0
         return AnnouncementReach(
             people=totals["people"],
             in_app=totals["in_app"],
             email=totals["email"],
-            push=totals["push"],
+            push=pushed,
             discord_posted=totals["discord"] > 0,
         )
 

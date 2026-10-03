@@ -60,10 +60,19 @@ Listens on `document` (htmx events bubble there, so it survives body swaps) and 
     }, 150);
   }
 
-  document.addEventListener('htmx:beforeRequest', begin);
-  document.addEventListener('htmx:afterRequest', end);
-  document.addEventListener('htmx:responseError', end);
-  document.addEventListener('htmx:sendError', end);
-  document.addEventListener('htmx:timeout', end);
+  // A background poll (an element inside [data-quiet-poll]) never shows the bar: it is not
+  // something the member asked for, and it would flash every few seconds.
+  function loud(handler) {
+    return function (e) {
+      var elt = e && e.detail && e.detail.elt;
+      if (elt && elt.closest && elt.closest('[data-quiet-poll]')) return;
+      handler();
+    };
+  }
+  document.addEventListener('htmx:beforeRequest', loud(begin));
+  document.addEventListener('htmx:afterRequest', loud(end));
+  document.addEventListener('htmx:responseError', loud(end));
+  document.addEventListener('htmx:sendError', loud(end));
+  document.addEventListener('htmx:timeout', loud(end));
 })();
 </script>

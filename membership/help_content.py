@@ -1650,7 +1650,9 @@ Ways in: **Admin Tools → Announcements** opens the Announcements page, where *
 ![The Announcements page: drafts waiting to go out, and the Sent tab beside them.](/static/help/announcement-composer/03-announcements-page.png)
 
 - **Drafts** lists announcements that have not gone out yet. Press **Save draft** in the composer to keep one here. Use **Edit** to pick it up again, or **Delete** to throw it away.
-- **Sent** lists what already went out: when, who sent it, and how many people it reached. **View** shows what went out on each channel. People reached are counted for announcements sent since this page arrived; older ones show **Not recorded**.
+- **Sent** lists what already went out: when, who sent it, how many people it reached, and how many emails it sent. **View** shows what went out on each channel. People reached are counted for announcements sent since this page arrived; older ones show **Not recorded**.
+- A site-wide announcement sends in the background. While it does, its status reads **Sent to 50 of 298 so far**, and the page updates on its own when it finishes.
+- Click the **Emails** number (or **See who it reached** on the announcement's own page) for the list of everyone it reached: each person's email address and whether they got the email, the notification bell and a push. An email that failed shows the reason. Push says yes only for members who have the app or browser notifications set up.
 
 Drafts are shared. Admins see every draft. Guild leads and staff see the drafts and sent announcements for the guilds they help run, and instructors see the ones for their classes. Whoever saved a draft last shows as its editor. Whoever sends it is the sender, and their name is on the email's From line when **Show who it's from** is on.
 

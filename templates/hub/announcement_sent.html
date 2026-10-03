@@ -24,7 +24,7 @@ discord_description_html, push_title, push_body.
   <span class="hub-pill {% if row.state == 'sent' %}hub-pill--ok{% else %}hub-pill--warn{% endif %}" data-announcement-state="{{ row.state }}">{{ row.state.label }}</span>
 </div>
 <p class="pl-announcement-sentline" data-announcement-sentline>
-  {% if row.state == 'sent' %}Sent {{ row.sent_at|date:"M j, Y, g:i a" }} by {{ row.author_label }}.{% else %}Queued {{ row.send_requested_at|date:"M j, Y, g:i a" }} by {{ row.author_label }}. It goes out within 15 minutes.{% if row.send_error %} The last try failed: {{ row.failure_reason }}. It tries again on the next run.{% endif %}{% endif %}
+  {% if row.state == 'sent' %}Sent {{ row.sent_at|date:"M j, Y, g:i a" }} by {{ row.author_label }}.{% else %}Queued {{ row.send_requested_at|date:"M j, Y, g:i a" }} by {{ row.author_label }}. {% include "hub/partials/_announcement_progress.html" with progress=row.send_progress %}{% endif %}
 </p>
 
 <section class="hub-card pl-announcement-card" data-announcement-facts>
@@ -43,12 +43,21 @@ discord_description_html, push_title, push_body.
     <dt>Email</dt>
     <dd data-fact="email">{% if not row.send_email %}Off{% elif row.state == 'sending' %}Not yet{% elif reach is None %}Not recorded{% else %}{{ reach.email }}{% endif %}</dd>
     <dt>Push</dt>
-    <dd data-fact="push">{% if not row.push_enabled %}Off{% elif row.state == 'sending' %}Not yet{% elif reach is None %}Not recorded{% else %}{{ reach.push }} member{{ reach.push|pluralize }}{% endif %}</dd>
+    <dd data-fact="push">{% if not row.push_enabled %}Off{% elif row.state == 'sending' %}Not yet{% elif reach is None %}Not recorded{% else %}{{ reach.push }} member{{ reach.push|pluralize }} with the app or browser notifications{% endif %}</dd>
     {% if row.audience != 'class' %}
     <dt>Discord</dt>
     <dd data-fact="discord">{% if not row.discord_on %}Off{% elif row.state == 'sending' %}Not yet{% elif reach is None %}Not recorded{% elif reach.discord_posted %}Sent to {{ row.discord_target_label }}{% if row.mention_label %} with {{ row.mention_label }}{% endif %}{% else %}Not posted{% endif %}</dd>
     {% endif %}
   </dl>
+  {% if row.ledger_period %}
+  <p class="pl-announcement-card__actions">
+    <button type="button" class="hub-btn hub-btn--sm hub-btn--ghost" data-announcement-recipients-open
+            hx-get="{% url 'hub_announcement_recipients' row.pk %}" hx-target="#announcement-recipients-body" hx-swap="innerHTML"
+            @click="document.getElementById('announcement-recipients-body').replaceChildren(); $dispatch('open-modal', 'announcement-recipients')">
+      <span class="htmx-indicator pl-spin" aria-hidden="true"></span> {% if row.state == 'sending' %}See who it has reached so far{% else %}See who it reached{% endif %}
+    </button>
+  </p>
+  {% endif %}
   {% if row.state == 'sent' and reach is None %}
   <p class="pl-announcement-card__note" data-reach-not-recorded>How many people this reached was not recorded for announcements sent before this page existed.</p>
   {% endif %}
@@ -89,4 +98,6 @@ discord_description_html, push_title, push_body.
   {% endif %}
 </section>
 {% endif %}
+{# The Who It Reached modal; hub_announcement_recipients loads its body. #}
+{% include "components/modal.html" with modal_id="announcement-recipients" modal_title="Who It Reached" modal_size="lg" %}
 {% endblock %}
