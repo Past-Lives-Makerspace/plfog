@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import re
 from datetime import date, datetime, time, timedelta
 from datetime import date as date_type
 from decimal import Decimal
