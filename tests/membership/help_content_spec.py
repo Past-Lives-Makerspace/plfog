@@ -194,3 +194,27 @@ def describe_the_notifications_article():
         body = _body()
         assert "**Admin / Permissions** at the top of the page, grouped by the permission" in body
         assert "turn all Email, all Push or all Discord on or off at once" in body
+
+
+def describe_the_voting_admin_article():
+    def _body(slug: str) -> str:
+        from membership.help_content import ARTICLES
+
+        return next(article["body"] for article in ARTICLES if article["slug"] == slug)
+
+    def it_keeps_the_send_results_anchor_for_existing_links():
+        assert "### Send the Results Announcement {#voting-send-results}" in _body("voting-admin")
+
+    def it_describes_the_draft_announcement_flow_not_the_retired_buttons():
+        body = _body("voting-admin")
+        assert "**Draft announcement**" in body
+        assert "within 15 minutes" in body
+        assert "Sending it again reaches only the members who did not get it" in body
+        assert "Send results" not in body
+        assert "**Resend**" not in body
+        assert "Results are in... review & send" not in body
+
+    def it_stops_promising_members_an_automatic_results_email():
+        body = _body("guild-voting")
+        assert "emails the results to every active member" not in body
+        assert "recap of your own ballot" not in body

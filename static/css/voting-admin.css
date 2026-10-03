@@ -322,7 +322,7 @@
 }
 
 /* ----------------------------------------------------------------------------
-   "Results are in — review & send" banner + Send/Resend control
+   "Results are in" banner + the results control (Draft announcement / sending / sent)
    ------------------------------------------------------------------------- */
 .pl-results-banner {
     border: 1px solid var(--hub-blue);

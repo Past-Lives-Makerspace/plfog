@@ -98,3 +98,55 @@ def describe_send_test_push():
         assert result.attempted == 0
         assert result.delivered == 0
         assert result.all_delivered is False
+
+    def it_sends_the_canned_test_notification_by_default():
+        user = _user()
+        _device(user, "d1")
+        _sub(user, "https://push/1")
+        with (
+            patch("core.push_admin.send_fcm", return_value=True) as mock_fcm,
+            patch("core.push_admin.send_web_push", return_value=True) as mock_web,
+        ):
+            push_admin.send_test_push(user, url="/x/")
+        for call in (mock_fcm.call_args, mock_web.call_args):
+            assert call.kwargs["title"] == "Test notification"
+            assert call.kwargs["body"] == "You're set. If you can see this, push notifications are working."
+
+    def it_sends_the_composers_own_title_and_line_when_given():
+        user = _user()
+        _device(user, "d1")
+        _sub(user, "https://push/1")
+        with (
+            patch("core.push_admin.send_fcm", return_value=True) as mock_fcm,
+            patch("core.push_admin.send_web_push", return_value=True) as mock_web,
+        ):
+            push_admin.send_test_push(user, url="/x/", title="September 2026 Voting Results", body="Results are in.")
+        for call in (mock_fcm.call_args, mock_web.call_args):
+            assert call.kwargs["title"] == "September 2026 Voting Results"
+            assert call.kwargs["body"] == "Results are in."
+
+    def it_falls_back_to_the_canned_line_when_the_message_is_still_empty():
+        user = _user()
+        _device(user, "d1")
+        with patch("core.push_admin.send_fcm", return_value=True) as mock_fcm:
+            push_admin.send_test_push(user, url="/x/", title="Makerspace Announcement", body="")
+        assert mock_fcm.call_args.kwargs["title"] == "Makerspace Announcement"
+        assert mock_fcm.call_args.kwargs["body"] == "You're set. If you can see this, push notifications are working."
+
+    def it_flattens_and_caps_the_text_like_the_real_push():
+        user = _user()
+        _device(user, "d1")
+        with patch("core.push_admin.send_fcm", return_value=True) as mock_fcm:
+            push_admin.send_test_push(user, url="/x/", title="<b>Results</b>", body="<p>" + "word " * 100 + "</p>")
+        kwargs = mock_fcm.call_args.kwargs
+        assert kwargs["title"] == "Results"
+        assert len(kwargs["body"]) == 200
+        assert kwargs["body"].endswith("…")
+        assert "<p>" not in kwargs["body"]
+
+    def it_rides_the_channel_it_is_given():
+        user = _user()
+        _device(user, "d1")
+        with patch("core.push_admin.send_fcm", return_value=True) as mock_fcm:
+            push_admin.send_test_push(user, url="/x/", channel_id="guilds")
+        assert mock_fcm.call_args.kwargs["channel_id"] == "guilds"

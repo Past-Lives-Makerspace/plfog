@@ -1,0 +1,10 @@
+bump = "minor"
+date = "2026-10-02"
+title = "Voting results go out as an announcement you can edit"
+changes = [
+  "Admins: once a month's votes are counted, the Voting page shows a Draft announcement button. It opens the Announcement Composer with the results already written in, ready to edit.",
+  "The results email shows a bar chart of every guild's share of the funding pool, and the Discord post shows the same bars as /voting.",
+  "The results email is now the same for everyone, so it no longer repeats your own vote.",
+  "Preview & send now shows how the Discord post will look, next to the email and push previews.",
+  "Makerspace-wide announcements from the composer now send in the background and reach everyone within 15 minutes.",
+]

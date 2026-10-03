@@ -274,3 +274,45 @@ def describe_render_states():
         _superuser(client)
         html = client.get(f"{URL}?tab=legacy-cms").content.decode()
         assert 'href="?tab=automations"' in html
+
+
+def describe_a_retired_job_key():
+    """``send_pending_funding_results`` left the registry in October 2026; its history stays.
+
+    ``ScheduledTaskRun.task_key`` and ``ScheduledJobState.task_key`` are free strings, so the
+    rows a retired job wrote survive it. The page, the toggles and Run now all walk the
+    registry, so those rows must neither break the page nor come back as a job.
+    """
+
+    _RETIRED = "send_pending_funding_results"
+
+    def _leave_retired_rows() -> None:
+        ScheduledTaskRunFactory(task_key=_RETIRED, status=ScheduledTaskRun.Status.FAILED, error="old")
+        ScheduledJobState.objects.create(task_key=_RETIRED, enabled=True)
+
+    def it_renders_the_page_without_listing_the_retired_job(client: Client):
+        _superuser(client)
+        _leave_retired_rows()
+        response = client.get(f"{URL}?tab=automations")
+        assert response.status_code == 200
+        html = response.content.decode()
+        assert _RETIRED not in html
+        toggleable = sum(1 for job in SCHEDULED_JOBS if job.toggleable)
+        assert f'name="jobstates-TOTAL_FORMS" value="{toggleable}"' in html
+
+    def it_saves_the_toggles_with_the_retired_state_row_present(client: Client):
+        _superuser(client)
+        _leave_retired_rows()
+        response = client.post(URL, data=_settings_post(_disabled_keys=("send_class_reminders",)))
+        assert response.status_code == 302
+        assert ScheduledJobState.objects.get(task_key="send_class_reminders").enabled is False
+        assert ScheduledJobState.objects.get(task_key=_RETIRED).enabled is True
+
+    def it_will_not_run_the_retired_job_by_hand(client: Client):
+        _superuser(client)
+        _leave_retired_rows()
+        with patch("django.core.management.call_command") as cc:
+            response = client.post(URL, data={"run_job": _RETIRED}, follow=True)
+        cc.assert_not_called()
+        assert any("Unknown automation" in m.message for m in response.context["messages"])
+        assert ScheduledTaskRun.objects.filter(task_key=_RETIRED).count() == 1

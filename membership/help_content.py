@@ -429,7 +429,7 @@ A voting cycle is one calendar month. The voting page shows the current cycle, t
 
 ![The voting page shows when the current cycle closes and the next begins.](/static/help/guild-voting/02-cycle-dates.png)
 
-Minutes into the new month, the Member Portal automatically freezes the closed cycle's standings into a snapshot and emails the results to every active member. If you voted, your results email includes a recap of your own ballot. There's nothing to do at month's end — your standing ballot was your vote.
+Minutes into the new month, the Member Portal automatically freezes the closed cycle's standings into a snapshot. An admin checks the numbers and then announces the results to members by email, app notification and Discord, with a chart of how the funding was split. There's nothing to do at month's end: your standing ballot was your vote.
 
 ## Watch the Standings {#voting-live-standings}
 
@@ -1184,7 +1184,7 @@ Discount codes are created by admins — instructors ask you when they want one 
         "sort_order": 30,
         "related": ["guild-voting", "members-and-invites"],
         "body": """\
-Guild voting mostly runs itself. Members keep one ranked ballot each, editable any time, and it counts every month until they change it. The cycle is the calendar month, closing on the last day, and the standings are always live; there is no hard lock. Your job as admin is to watch turnout, freeze the month's results into a snapshot, and send members their results.
+Guild voting mostly runs itself. Members keep one ranked ballot each, editable any time, and it counts every month until they change it. The cycle is the calendar month, closing on the last day, and the standings are always live; there is no hard lock. Your job as admin is to watch turnout, freeze the month's results into a snapshot, and announce the results to members.
 
 As an admin, the Guild Voting page grows a tab bar: **Overview** (the same ballot page members see), **At a Glance**, **Funding History**, **Snapshots**, and **Settings**.
 
@@ -1192,13 +1192,13 @@ As an admin, the Guild Voting page grows a tab bar: **Overview** (the same ballo
 
 The read-only dashboard for the current cycle: members with votes, active members, participation rate, paying voters, and the funding pool. The pool is the larger of paying voters times $10 and the pool floor from Settings.
 
-When a snapshot exists whose results have not been emailed yet, a "Results are in... review & send" banner sits at the top with **Review numbers** and **Send results** buttons.
+When a snapshot exists whose results have not gone out yet, a "Results are in" banner sits at the top with **Review numbers** and **Draft announcement** buttons. While the results announcement is sending, the banner says so in place of the button.
 
 ![At a Glance: this cycle's turnout, pool, and live leaders.](/static/help/voting-admin/01-at-a-glance.png)
 
 ### The Automatic Month-End Snapshot
 
-You usually do not have to do anything at month end. On the first cron tick of a new month, the app snapshots the cycle that just closed, exactly once, and then automatically emails the results to everyone who voted. Two guards keep it sane:
+You usually do not have to take the snapshot yourself. On the first cron tick of a new month, the app snapshots the cycle that just closed, exactly once, and lets the admins know the results are ready. It sends members nothing: the results go out when you send the results announcement (below). Two guards keep it sane:
 
 - It is gated on the **Auto snapshot enabled** switch in Settings.
 - It skips itself if any snapshot was already taken during that cycle's window. So if you took a manual snapshot, the automatic one stands down; you will not get doubles.
@@ -1213,9 +1213,16 @@ The commit always captures the full, unfiltered live state; the analyzer's filte
 
 ![The Take a snapshot form on the Snapshots tab.](/static/help/voting-admin/02-take-snapshot.png)
 
-### Send Results Emails {#voting-send-results}
+### Send the Results Announcement {#voting-send-results}
 
-**Send results** (on the At a Glance banner or a snapshot's history page) emails every member who voted in that snapshot their guild allocations plus their own recorded vote, and drops an in-app notification too. Each snapshot's results send once; asking again gets you "already sent" unless you explicitly **Resend**, which confirms first and then re-emails everyone.
+1. Click **Draft announcement** on the At a Glance banner or on the snapshot's history page. The Announcement Composer opens with the results announcement already written: a short message with the turnout, the pool and a link to the results page. It is set to go to every active member who has signed in, by email, push and the app, and to post in #general-chat with an @everyone ping.
+2. Check the numbers and edit the message as you like. The title is the month and "Voting Results", for example "September 2026 Voting Results". Under your message, the email shows a bar chart of how the pool was split and the Discord post shows one bar per guild. Those numbers come straight from the snapshot, so they can't be mistyped.
+3. Open **Preview & send** to see the email with its chart and the Discord post exactly as they will go out. You can send yourself a test first.
+4. Click **Send announcement**. It sends in the background and reaches everyone within 15 minutes. The banner says it is sending, then moves on once it has gone, and the snapshot's history page shows when the results were sent.
+
+If the announcement could not be sent, the banner and the snapshot's history page say why. Sending it again reaches only the members who did not get it, so edits you make after a failure do not reach people who already have the first version.
+
+Clicking **Draft announcement** again reopens the same draft. Each snapshot's results go out once: after they are sent, another results announcement for that snapshot is refused. The announcement follows each member's settings for makerspace-wide announcements, and members no longer get a recap of their own ballot with the results.
 
 ### Funding History
 

@@ -66,20 +66,29 @@ def status_for(user: User) -> PushStatus:
     )
 
 
-def send_test_push(user: User, *, url: str) -> TestSendResult:
-    """Fire the canned test push at every one of ``user``'s devices; report the tally.
+def send_test_push(
+    user: User, *, url: str, title: str = "", body: str = "", channel_id: str = PUSH_CHANNEL_GENERAL
+) -> TestSendResult:
+    """Fire a test push at every one of ``user``'s devices; report the tally.
 
-    A dead token is reaped by the sender mid-loop (and counts as not delivered), so the
-    result doubles as a live cleanup pass.
+    ``title``, ``body`` and ``channel_id`` let the announcement composer send the push its draft
+    will send; a blank title or body falls back to the canned test notification (the admin
+    support tool always sends the canned one). Both go through the real push adapter's own
+    flattening and caps (:func:`core.events.channels._push_safe`), so the test shows what the
+    tray will. A dead token is reaped by the sender mid-loop (and counts as not delivered), so
+    the result doubles as a live cleanup pass.
     """
+    from core.events.channels import _push_safe
+
+    title, body = _push_safe(title or _TEST_TITLE, body or _TEST_BODY)
     delivered = 0
     attempted = 0
     for subscription in PushSubscription.objects.filter(user=user):
         attempted += 1
-        if send_web_push(subscription, title=_TEST_TITLE, body=_TEST_BODY, url=url):
+        if send_web_push(subscription, title=title, body=body, url=url):
             delivered += 1
     for device in FcmDevice.objects.filter(user=user):
         attempted += 1
-        if send_fcm(device, title=_TEST_TITLE, body=_TEST_BODY, url=url, channel_id=PUSH_CHANNEL_GENERAL):
+        if send_fcm(device, title=title, body=body, url=url, channel_id=channel_id):
             delivered += 1
     return TestSendResult(delivered=delivered, attempted=attempted)

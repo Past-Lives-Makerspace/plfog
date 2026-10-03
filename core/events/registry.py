@@ -616,10 +616,12 @@ _NEW_EVENTS: list[EventType] = [
         activity_kind=None,
         email_shell="light",
     ),
-    # 5. voting.results_published — the personalized member results email, sent only on
-    #    the admin's Send results click (FundingSnapshot.send_results loops raw_votes
-    #    and emits once per voter). Per-member (REGISTRANT); the snapshot-taken activity
-    #    is logged once in take(), so this writes no activity row.
+    # 5. voting.results_published — the personalized member results email, now the headless
+    #    fallback only (manage.py send_funding_results → FundingSnapshot.send_results loops
+    #    raw_votes and emits once per voter). The normal path is the results announcement an
+    #    admin drafts from the Voting page and sends through the composer (site_announcement).
+    #    Per-member (REGISTRANT); the snapshot-taken activity is logged once in take(), so
+    #    this writes no activity row.
     EventType(
         key=VOTING_RESULTS_PUBLISHED,
         label="Guild funding results published",
@@ -629,8 +631,9 @@ _NEW_EVENTS: list[EventType] = [
         channels=(_IN_APP_ON, _EMAIL_ON),
         activity_kind=None,
     ),
-    # 5b. voting.results_ready — the admin-facing "results are in, review & send" ping,
-    #    emitted by take(). Email + in-app to FOG admins; logs no activity (take does).
+    # 5b. voting.results_ready — the admin-facing "results are in" ping, emitted by take(),
+    #    so admins review the numbers and draft the results announcement. Email + in-app to
+    #    FOG admins; logs no activity (take does).
     EventType(
         key=VOTING_RESULTS_READY,
         label="Funding results ready to send",
@@ -918,7 +921,8 @@ _NEW_EVENTS: list[EventType] = [
     ),
     # 27. voting.results_discord — a single @everyone Discord post (no email/in-app) announcing
     #     this month's allocation. Emitted once per send_results call alongside the per-member
-    #     results emails so the public channel hears the outcome.
+    #     results emails, so only on the headless fallback; the composer's results announcement
+    #     posts its own embed to the channel the admin picks.
     EventType(
         key=VOTING_RESULTS_DISCORD,
         label="Funding results to #general-member-chat",

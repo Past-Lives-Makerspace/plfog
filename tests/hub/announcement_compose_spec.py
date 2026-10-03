@@ -225,6 +225,10 @@ def describe_hub_compose_send():
         response = client.post(reverse("hub_compose_send"), _valid_send_data(audience=f"guild:{guild.pk}"))
         assert response.status_code == 302
         assert GuildAnnouncement.objects.filter(guild=guild, moderation_state="published").exists()
+        # A guild send still goes out in the request; only site-wide sends are queued.
+        draft = AnnouncementDraft.objects.get(guild=guild)
+        assert draft.sent_at is not None
+        assert draft.send_requested_at is None
 
 
 def describe_hub_compose_count():
@@ -327,12 +331,20 @@ def describe_compose_edge_cases():
         assert response.status_code == 200
 
     def it_sends_a_resumed_draft_by_pk(client: Client):
+        from django.core.management import call_command
+
         admin = _login_admin(client)
         draft = AnnouncementDraft.objects.create(author=admin, title="Resume then send", body="<p>hi</p>")
         response = client.post(reverse("hub_compose_send"), _valid_send_data(title="R", draft_pk=str(draft.pk)))
         assert response.status_code == 302
         draft.refresh_from_db()
+        # A site send is queued on the request and sent by the background job.
+        assert draft.sent_at is None
+        assert draft.send_requested_at is not None
+        call_command("send_queued_announcements")
+        draft.refresh_from_db()
         assert draft.sent_at is not None
+        assert draft.send_requested_at is None
 
     def it_error_toasts_a_test_when_the_author_has_no_email(client: Client):
         MembershipPlanFactory()
@@ -595,6 +607,10 @@ def describe_class_audience_views():
         )
         assert resp.status_code == 302
         assert Notification.objects.filter(user=student_user, trigger="class_announcement").exists()
+        # A class send still goes out in the request; only site-wide sends are queued.
+        draft = AnnouncementDraft.objects.get(class_offering=offering)
+        assert draft.sent_at is not None
+        assert draft.send_requested_at is None
 
     def it_forbids_sending_to_a_class_you_do_not_teach(client: Client):
         _instructor(client, username="teacher")

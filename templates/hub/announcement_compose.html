@@ -1,5 +1,9 @@
 {% extends "hub/base.html" %}
+{% load static %}
 {% block title %}Compose announcement{% endblock %}
+{% block extra_head %}
+<link rel="stylesheet" href="{% static 'css/announcement-compose.css' %}">
+{% endblock %}
 {% block content %}
 {% include "_components/rich_editor_assets.html" %}
 
@@ -34,7 +38,7 @@
          this.refreshRecipientCount();
        },
        goPreview() {
-         if (this.emailOn && $refs.refreshPreview) { $refs.refreshPreview.click(); }
+         if ((this.emailOn || this.discordOn) && $refs.refreshPreview) { $refs.refreshPreview.click(); }
          this.phase = 2;
        }
      }"
@@ -159,6 +163,7 @@
       <div class="pl-compose-channel" x-show="discordOn &amp;&amp; !audience.startsWith('class')" x-cloak>
         <h3 class="pl-compose-channel__title">Discord</h3>
         {% include "hub/partials/_compose_channel_picker.html" %}
+        {% include "hub/partials/_compose_discord_preview.html" with oob=False %}
       </div>
 
       <p class="pl-wizard-reach">
@@ -183,7 +188,7 @@
         <button type="button" @click="sendModalOpen = false" class="pl-modal__close" aria-label="Close">&times;</button>
       </div>
       <div class="pl-modal__body">
-        <p style="margin: 0 0 1.5rem;">This will send the announcement to <strong x-text="recipientCount"></strong> recipient(s) right now. This can't be undone.</p>
+        <p style="margin: 0 0 1.5rem;">This will send the announcement to <strong x-text="recipientCount"></strong> recipient(s) <span data-send-timing x-text="audience === 'site' ? 'within 15 minutes' : 'right now'">right now</span>. This can't be undone.</p>
         <div class="pl-modal__actions">
           <button type="button" class="hub-btn hub-btn--primary" @click="$refs.wizardForm.submit()">Yes, send it</button>
           <button type="button" class="hub-btn hub-btn--ghost" @click="sendModalOpen = false">Cancel</button>
@@ -205,7 +210,9 @@
     return (tmp.textContent || "").replace(/\s+/g, " ").trim();
   }
   function truncate(s) { return s.length > 180 ? s.slice(0, 179).replace(/\s+$/, "") + "…" : s; }
-  var pushEdited = false;
+  // A resumed draft's own push line (a results announcement arrives with one) is kept: only a
+  // field that is empty or still the auto-fill keeps following the message body.
+  var pushEdited = !!(push && push.value.trim() && push.value.trim() !== truncate(bodyText()));
   function sync() {
     // The push preview TITLE is the auto category (Alpine-driven). Here we keep the body/hasBody live.
     window.dispatchEvent(new CustomEvent("compose-body", { detail: { has: bodyText().length > 0 } }));

@@ -37,7 +37,7 @@ _DISPATCHER_ALWAYS = {
     "expire_orientation_payment_holds",
     "release_abandoned_class_holds",
     "take_reconciliation_snapshot",
-    "send_pending_funding_results",
+    "send_queued_announcements",
 }
 _DISPATCHER_DAILY = {
     "sync_all_sources",
@@ -94,11 +94,18 @@ def describe_registry():
         assert JOBS_BY_KEY["bill_tabs"].toggleable is False
 
     def it_pins_only_the_jobs_that_must_never_be_paused():
-        # send_pending_funding_results: the dispatcher skips a disabled job BEFORE it
-        # records a run, so pausing this one would leave an admin's queued results email
-        # unsent, with no run record and nothing in the voting UI to show it had stalled.
+        # send_queued_announcements: the dispatcher skips a disabled job BEFORE it records a
+        # run, so pausing this one would leave an admin's queued announcement unsent, with no
+        # run record and nothing in the composer or the voting UI to show it had stalled.
         pinned = {job.key for job in SCHEDULED_JOBS if not job.toggleable}
-        assert pinned == {"bill_tabs", "send_pending_funding_results"}
+        assert pinned == {"bill_tabs", "send_queued_announcements"}
+
+    def it_no_longer_registers_or_ships_the_retired_results_email_queue():
+        # Retired with the results announcement (October 2026): nothing may re-add the job
+        # without its command, which is gone. Its ScheduledTaskRun history rows stay.
+        assert "send_pending_funding_results" not in JOBS_BY_KEY
+        assert "send_pending_funding_results" not in get_commands()
+        assert JOBS_BY_KEY["send_queued_announcements"].cadence == Cadence.ALWAYS
 
     def it_marks_welcome_new_members_default_off():
         # The new-member welcome automation must ship OFF and be turned on deliberately.

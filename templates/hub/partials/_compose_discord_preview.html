@@ -1,0 +1,16 @@
+{# The composer's Discord preview card: the embed title and description exactly as they post. Expects: discord_title, discord_description_html, oob. #}
+<div id="compose-discord-preview" class="pl-push-preview pl-discord-preview" data-discord-preview{% if oob %} hx-swap-oob="true"{% endif %}>
+  <div class="pl-push-preview__label">Discord Preview</div>
+  {% if discord_title %}
+  <div class="pl-push-preview__card pl-discord-preview__card">
+    <div class="pl-push-preview__icon" aria-hidden="true">&#128172;</div>
+    <div class="pl-push-preview__meta">
+      <div class="pl-push-preview__app">Past Lives Makerspace</div>
+      <div class="pl-push-preview__title" data-discord-preview-title>{{ discord_title }}</div>
+      <div class="pl-discord-preview__description" data-discord-preview-description>{{ discord_description_html }}</div>
+    </div>
+  </div>
+  {% else %}
+  <p class="pl-wizard-preview__loading">Building your preview&hellip;</p>
+  {% endif %}
+</div>
