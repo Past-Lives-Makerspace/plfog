@@ -12,6 +12,7 @@ from django.utils import timezone
 from factory.django import mute_signals
 
 from membership.models import (
+    AnnouncementDraft,
     CommunityEvent,
     DiscordGuildEmoji,
     Equipment,
@@ -502,6 +503,40 @@ class FundingSnapshotFactory(factory.django.DjangoModelFactory):
     contributor_count = 10
     funding_pool = Decimal("100.00")
     results = factory.LazyFunction(dict)
+
+
+class AnnouncementDraftFactory(factory.django.DjangoModelFactory):
+    """A composer announcement: a site draft by default, titled the way the composer titles it.
+
+    Pass ``audience`` with ``guild`` or ``class_offering`` for a guild or class row (the title
+    follows). Traits: ``sent`` (sent now), ``queued`` (queued for the background send now) and
+    ``given_up`` (off the queue with its error kept: the Could not send state).
+    """
+
+    class Meta:
+        model = AnnouncementDraft
+
+    author = factory.SubFactory(UserFactory)
+    audience = AnnouncementDraft.Audience.SITE
+    guild = None
+    class_offering = None
+    funding_snapshot = None
+    body = "<p>Factory announcement message.</p>"
+    title = factory.LazyAttribute(
+        lambda o: (
+            AnnouncementDraft(
+                audience=o.audience,
+                guild=o.guild,
+                class_offering=o.class_offering,
+                funding_snapshot=o.funding_snapshot,
+            ).announcement_category
+        )
+    )
+
+    class Params:
+        sent = factory.Trait(sent_at=factory.LazyFunction(timezone.now))
+        queued = factory.Trait(send_requested_at=factory.LazyFunction(timezone.now))
+        given_up = factory.Trait(send_error="Factory provider timed out.")
 
 
 class GuildOrientationSettingsFactory(factory.django.DjangoModelFactory):

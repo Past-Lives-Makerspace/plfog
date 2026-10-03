@@ -134,11 +134,51 @@ def describe_draft_results_announcement():
         assert second.pk == first.pk
         assert AnnouncementDraft.objects.count() == 1
 
-    def it_gives_another_admin_their_own_draft():
+    def it_gives_a_second_admin_the_same_shared_draft():
+        # Replaces it_gives_another_admin_their_own_draft: drafts are shared.
         snapshot = _snapshot()
-        mine = snapshot.draft_results_announcement(_author("felix"))
+        felix = _author("felix")
+        mine = snapshot.draft_results_announcement(felix)
         theirs = snapshot.draft_results_announcement(_author("robin"))
-        assert theirs.pk != mine.pk
+        assert theirs.pk == mine.pk
+        assert AnnouncementDraft.objects.count() == 1
+        theirs.refresh_from_db()
+        assert theirs.author == felix
+
+    def it_returns_the_snapshot_jobs_draft():
+        snapshot = _snapshot()
+        made = snapshot.make_results_draft()
+        opened = snapshot.draft_results_announcement(_author())
+        assert opened.pk == made.pk
+        assert opened.author is None
+
+    def it_returns_the_newest_edit_when_two_are_open():
+        snapshot = _snapshot()
+        older = snapshot._new_results_draft(_author("felix"))
+        newer = snapshot._new_results_draft(_author("robin"))
+        AnnouncementDraft.objects.filter(pk=older.pk).update(updated_at=timezone.now() - timedelta(hours=1))
+        assert snapshot.draft_results_announcement(_author("sam")).pk == newer.pk
+
+    def it_locks_the_snapshot_row_before_it_looks_for_an_open_draft(monkeypatch):
+        """The lock the job takes too, so a click and the job in one instant make one draft."""
+        from django.db.models import QuerySet
+
+        steps: list[str] = []
+        real_lock = QuerySet.select_for_update
+        real_open = FundingSnapshot._open_results_draft
+
+        def lock(self, *args, **kwargs):
+            steps.append(f"lock {self.model.__name__}")
+            return real_lock(self, *args, **kwargs)
+
+        def open_draft(self):
+            steps.append("look")
+            return real_open(self)
+
+        monkeypatch.setattr(QuerySet, "select_for_update", lock)
+        monkeypatch.setattr(FundingSnapshot, "_open_results_draft", open_draft)
+        _snapshot().draft_results_announcement(_author())
+        assert steps[:2] == ["lock FundingSnapshot", "look"]
 
     def it_refuses_a_second_draft_while_one_is_sending():
         """A stale tab must not open a second draft that could never send."""
@@ -170,12 +210,29 @@ def describe_draft_results_announcement():
         with pytest.raises(ResultsAlreadySentError, match="These results were already sent."):
             snapshot.draft_results_announcement(_author())
         assert not AnnouncementDraft.objects.exists()
+        assert FundingSnapshot.objects.get(pk=snapshot.pk).results_draft_created_at is None
+
+    def it_stamps_the_snapshot_so_the_job_never_makes_it_again():
+        snapshot = _snapshot()
+        with patch("airtable_sync.service.sync_snapshot_to_airtable") as sync:
+            snapshot.draft_results_announcement(_author())
+        sync.assert_not_called()
+        assert FundingSnapshot.objects.get(pk=snapshot.pk).results_draft_created_at is not None
+
+    def it_keeps_the_first_stamp_on_a_later_click():
+        snapshot = _snapshot()
+        snapshot.draft_results_announcement(_author("felix"))
+        first = FundingSnapshot.objects.get(pk=snapshot.pk).results_draft_created_at
+        FundingSnapshot.objects.filter(pk=snapshot.pk).update(results_draft_created_at=first - timedelta(days=1))
+        snapshot.draft_results_announcement(_author("robin"))
+        assert FundingSnapshot.objects.get(pk=snapshot.pk).results_draft_created_at == first - timedelta(days=1)
 
     def it_refuses_a_snapshot_with_no_per_guild_results():
         snapshot = FundingSnapshotFactory(cycle_label="Legacy", results={})
         with pytest.raises(NoResultsToAnnounceError, match="'Legacy' has no results to announce."):
             snapshot.draft_results_announcement(_author())
         assert not AnnouncementDraft.objects.exists()
+        assert FundingSnapshot.objects.get(pk=snapshot.pk).results_draft_created_at is None
 
 
 def describe_results_announcement_body():
@@ -473,7 +530,7 @@ def describe_queue_send():
     def it_takes_a_queued_draft_out_of_the_composers_hands():
         draft = _site_draft()
         draft.queue_send()
-        assert draft not in AnnouncementDraft.objects.for_user(draft.author)
+        assert draft not in AnnouncementDraft.objects.resumable()
         assert list(AnnouncementDraft.objects.queued()) == [draft]
 
     def describe_for_a_results_announcement():
@@ -487,9 +544,11 @@ def describe_queue_send():
             assert draft.send_requested_at is None
 
         def it_refuses_a_second_admins_draft_while_the_first_is_sending():
+            # A second open results draft for one snapshot can only be one made before drafts were
+            # shared, so it is built directly; the queue still refuses it.
             snapshot = _snapshot()
             first = snapshot.draft_results_announcement(_author("felix"))
-            second = snapshot.draft_results_announcement(_author("robin"))
+            second = snapshot._new_results_draft(_author("robin"))
             first.queue_send()
             with pytest.raises(ResultsAlreadySentError, match="These results are already sending."):
                 second.queue_send()
@@ -514,8 +573,8 @@ def describe_queue_send():
 
         def it_says_why_the_newest_given_up_draft_failed():
             snapshot = _snapshot()
-            older = snapshot.draft_results_announcement(_author("felix"))
-            newer = snapshot.draft_results_announcement(_author("robin"))
+            older = snapshot._new_results_draft(_author("felix"))
+            newer = snapshot._new_results_draft(_author("robin"))
             AnnouncementDraft.objects.filter(pk=older.pk).update(send_error="old trouble.")
             AnnouncementDraft.objects.filter(pk=newer.pk).update(send_error="Provider down.")
             AnnouncementDraft.objects.filter(pk=older.pk).update(updated_at=timezone.now() - timedelta(hours=1))
@@ -556,11 +615,20 @@ def describe_send_for_a_results_announcement():
         assert snapshot.results_pending is False
         assert snapshot.results_announcement_sending is False
 
+    def it_stamps_the_snapshots_shared_period_as_the_delivery_period():
+        _activated("reader")
+        snapshot = _snapshot()
+        draft = snapshot.draft_results_announcement(_author())
+        draft.send()
+        draft.refresh_from_db()
+        assert draft.delivery_period == f"announce:results:{snapshot.pk}"
+        assert EventDelivery.objects.filter(event_key="site_announcement", period=draft.delivery_period).exists()
+
     def it_refuses_at_send_when_another_draft_already_sent_the_results(mailoutbox):
         _activated("reader")
         snapshot = _snapshot()
         mine = snapshot.draft_results_announcement(_author("felix"))
-        theirs = snapshot.draft_results_announcement(_author("robin"))
+        theirs = snapshot._new_results_draft(_author("robin"))
         mine.send()
         mailoutbox.clear()
         with pytest.raises(ResultsAlreadySentError, match="These results were already sent."):
@@ -784,7 +852,8 @@ def describe_a_retried_site_send():
             felix_draft.refresh_from_db()
             assert felix_draft.send_given_up is True
 
-            robin_draft = snapshot.draft_results_announcement(_author("robin"))
+            # A second admin's own draft, as could exist from before drafts were shared.
+            robin_draft = snapshot._new_results_draft(_author("robin"))
             assert robin_draft.pk != felix_draft.pk
             robin_draft.queue_send()
             call_command("send_queued_announcements")
@@ -814,7 +883,7 @@ def describe_a_retried_site_send():
                         call_command("send_queued_announcements")
             assert route.call_count == 1
 
-            robin_draft = snapshot.draft_results_announcement(_author("robin"))
+            robin_draft = snapshot._new_results_draft(_author("robin"))
             robin_draft.queue_send()
             call_command("send_queued_announcements")
 
@@ -834,6 +903,154 @@ def describe_site_delivery_period():
     def it_keys_every_results_draft_for_one_snapshot_on_the_snapshot():
         snapshot = _snapshot()
         felix = snapshot.draft_results_announcement(_author("felix"))
-        robin = snapshot.draft_results_announcement(_author("robin"))
+        robin = snapshot._new_results_draft(_author("robin"))
         assert felix._site_delivery_period() == f"announce:results:{snapshot.pk}"
         assert robin._site_delivery_period() == felix._site_delivery_period()
+
+
+def describe_make_results_draft():
+    """The snapshot job's results draft: made once per snapshot, with nobody as its author."""
+
+    def it_makes_one_draft_identical_to_a_clicked_one_with_a_blank_author():
+        snapshot = _snapshot()
+        made = snapshot.make_results_draft()
+        clicked = _snapshot(label="October 2026").draft_results_announcement(_author())
+        made.refresh_from_db()
+        assert made.author is None
+        assert made.funding_snapshot == snapshot
+        assert made.title == "September 2026 Voting Results"
+        assert made.body == snapshot.results_announcement_body()
+        same = (
+            "audience",
+            "push_message",
+            "push_enabled",
+            "send_email",
+            "discord_enabled",
+            "discord_channel",
+            "mention",
+            "show_sender",
+            "mark_as_urgent",
+        )
+        expected = {field: getattr(clicked, field) for field in same}
+        expected["push_message"] = snapshot.results_announcement_push
+        assert {field: getattr(made, field) for field in same} == expected
+        assert (made.sent_at, made.send_requested_at) == (None, None)
+
+    def it_stamps_the_snapshot_without_pushing_it_to_airtable():
+        snapshot = _snapshot()
+        with patch("airtable_sync.service.sync_snapshot_to_airtable") as sync:
+            snapshot.make_results_draft()
+        sync.assert_not_called()
+        stamped = snapshot.results_draft_created_at
+        snapshot.refresh_from_db()
+        assert snapshot.results_draft_created_at is not None
+        assert snapshot.results_draft_created_at == stamped
+
+    def it_makes_nothing_the_second_time():
+        snapshot = _snapshot()
+        snapshot.make_results_draft()
+        assert snapshot.make_results_draft() is None
+        assert AnnouncementDraft.objects.count() == 1
+
+    def it_never_makes_a_draft_an_admin_opened_and_then_deleted():
+        """The click, delete, tick sequence: the click stamps, so the tick after the delete makes nothing."""
+        snapshot = _snapshot()
+        snapshot.draft_results_announcement(_author()).delete()
+        assert FundingSnapshot.make_newest_results_draft() is None
+        assert not AnnouncementDraft.objects.exists()
+
+    def it_never_makes_it_again_after_it_is_deleted():
+        snapshot = _snapshot()
+        snapshot.make_results_draft().delete()
+        assert snapshot.make_results_draft() is None
+        assert FundingSnapshot.objects.get(pk=snapshot.pk).make_results_draft() is None
+        assert not AnnouncementDraft.objects.exists()
+
+    def it_stamps_and_makes_nothing_when_an_admin_opened_one_first():
+        snapshot = _snapshot()
+        # Built directly, not clicked: a click now stamps the snapshot itself, and this is the
+        # unstamped open draft the release before this one leaves behind.
+        opened = snapshot._new_results_draft(_author())
+        assert FundingSnapshot.objects.get(pk=snapshot.pk).results_draft_created_at is None
+        assert snapshot.make_results_draft() is None
+        assert list(AnnouncementDraft.objects.all()) == [opened]
+        snapshot.refresh_from_db()
+        assert snapshot.results_draft_created_at is not None
+        opened.delete()
+        assert snapshot.make_results_draft() is None
+
+    def it_makes_nothing_and_stamps_nothing_once_the_results_went_out():
+        snapshot = _snapshot()
+        FundingSnapshot.objects.filter(pk=snapshot.pk).update(results_sent_at=timezone.now())
+        assert snapshot.make_results_draft() is None
+        assert not AnnouncementDraft.objects.exists()
+        assert FundingSnapshot.objects.get(pk=snapshot.pk).results_draft_created_at is None
+
+    def it_makes_nothing_and_stamps_nothing_while_the_results_are_sending():
+        snapshot = _snapshot()
+        snapshot._new_results_draft(_author()).queue_send()
+        assert snapshot.make_results_draft() is None
+        assert AnnouncementDraft.objects.count() == 1
+        assert FundingSnapshot.objects.get(pk=snapshot.pk).results_draft_created_at is None
+
+    def it_makes_nothing_and_stamps_nothing_without_per_guild_results():
+        snapshot = FundingSnapshotFactory(cycle_label="Legacy", results={})
+        assert snapshot.make_results_draft() is None
+        assert not AnnouncementDraft.objects.exists()
+        assert FundingSnapshot.objects.get(pk=snapshot.pk).results_draft_created_at is None
+
+    def it_locks_the_snapshot_row(monkeypatch):
+        from django.db.models import QuerySet
+
+        locked: list[str] = []
+        real_lock = QuerySet.select_for_update
+
+        def lock(self, *args, **kwargs):
+            locked.append(self.model.__name__)
+            return real_lock(self, *args, **kwargs)
+
+        monkeypatch.setattr(QuerySet, "select_for_update", lock)
+        _snapshot().make_results_draft()
+        assert locked == ["FundingSnapshot"]
+
+    def it_lets_whoever_sends_it_become_the_sender(mailoutbox):
+        """The made draft names nobody; Send through the composer saves first, so the sender is named."""
+        from core.models import SiteActivity
+
+        reader = _activated("reader")
+        sender = _author("sam")
+        made = _snapshot().make_results_draft()
+        made.author = sender
+        made.save(update_fields=["author"])
+        made.queue_send()
+        call_command("send_queued_announcements")
+        made.refresh_from_db()
+        assert made.sent_at is not None
+        assert "From Felix" in mailoutbox[0].body
+        assert reader.email in mailoutbox[0].to
+        assert SiteActivity.objects.filter(actor=sender).exists()
+
+
+def describe_make_newest_results_draft():
+    def _aged(snapshot: FundingSnapshot, days: int) -> FundingSnapshot:
+        FundingSnapshot.objects.filter(pk=snapshot.pk).update(snapshot_at=timezone.now() - timedelta(days=days))
+        snapshot.refresh_from_db()
+        return snapshot
+
+    def it_makes_the_newest_snapshots_draft_only():
+        august = _aged(_snapshot(label="August 2026"), 30)
+        september = _snapshot()
+        made = FundingSnapshot.make_newest_results_draft()
+        assert made.funding_snapshot == september
+        assert not AnnouncementDraft.objects.filter(funding_snapshot=august).exists()
+
+    def it_makes_none_for_an_older_snapshot_after_the_newest_is_sent():
+        august = _aged(_snapshot(label="August 2026"), 30)
+        september = _snapshot()
+        FundingSnapshot.make_newest_results_draft()
+        FundingSnapshot.objects.filter(pk=september.pk).update(results_sent_at=timezone.now())
+        assert FundingSnapshot.make_newest_results_draft() is None
+        assert not AnnouncementDraft.objects.filter(funding_snapshot=august).exists()
+
+    def it_makes_nothing_without_any_snapshot():
+        assert FundingSnapshot.make_newest_results_draft() is None

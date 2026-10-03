@@ -826,8 +826,8 @@ All four are covered in [Run Your Class](/help/teaching/run-your-class/).
 
 **Reach further:**
 
-- **Announce to your class** — open **Admin Tools** in the sidebar, then **Announcements**, and pick one of your published classes as the recipient group: everyone registered for it gets the announcement in the app, by push, and by email — see [The Announcement Composer](/help/running-a-guild/announcement-composer/). (Admin Tools shows up once an admin has given you the Instructor role — ask if you don't see it.)
-- **Your public instructor page** — with the Instructor role, the catalog links your bio and your classes from every class you teach.
+- **Announce to your class**: open **Admin Tools** in the sidebar, then **Announcements** and **New announcement**, and pick one of your published classes as the recipient group. Everyone registered for it gets the announcement in the app, by push, and by email. See [The Announcement Composer](/help/running-a-guild/announcement-composer/). (Admin Tools shows up once an admin has given you the Instructor role. Ask if you don't see it.)
+- **Your public instructor page**: with the Instructor role, the catalog links your bio and your classes from every class you teach.
 
 ### The Ground Rules {#instructor-ground-rules}
 
@@ -1009,7 +1009,7 @@ Discount codes are created by admins. Want one for your class — a percent off,
 
 ### Announce to Your Class {#teach-announce-class}
 
-For bigger news — a schedule change, a supply list — send a real announcement instead of a plain email: open **Admin Tools** in the sidebar, then **Announcements**. Your published classes appear as audiences, and the announcement reaches every registrant in the app, by push notification on their phones, and by email. [The Announcement Composer](/help/running-a-guild/announcement-composer/) guide walks the whole tool. (Admin Tools appears once an admin has given you the Instructor role.)
+For bigger news, like a schedule change or a supply list, send a real announcement instead of a plain email: open **Admin Tools** in the sidebar, then **Announcements** and **New announcement**. Your published classes appear as audiences, and the announcement reaches every registrant in the app, by push notification on their phones, and by email. [The Announcement Composer](/help/running-a-guild/announcement-composer/) guide walks the whole tool. (Admin Tools appears once an admin has given you the Instructor role.)
 
 ### The Waitlist
 
@@ -1641,7 +1641,22 @@ One composer sends an announcement everywhere it needs to go: the notification b
 - **Guild leads and staff** can send to the guilds they help run.
 - **Instructors** can send to the roster of any published class they teach. (Admins reach a class's roster from that class's page — its **Send Announcement** button.)
 
-Ways in: **Admin Tools → Announcements**, the **Send Announcement** button on your guild page or class pages (those arrive already aimed at that guild or class), and **Compose announcement** on your guild's Announcements tab.
+Ways in: **Admin Tools → Announcements** opens the Announcements page, where **New announcement** starts one. The other ways in are the **Send Announcement** button on your guild page or class pages (those arrive already aimed at that guild or class), and **Compose announcement** on your guild's Announcements tab.
+
+### Drafts and Sent Announcements {#composer-drafts}
+
+**Admin Tools → Announcements** opens the Announcements page. It has two tabs.
+
+![The Announcements page: drafts waiting to go out, and the Sent tab beside them.](/static/help/announcement-composer/03-announcements-page.png)
+
+- **Drafts** lists announcements that have not gone out yet. Press **Save draft** in the composer to keep one here. Use **Edit** to pick it up again, or **Delete** to throw it away.
+- **Sent** lists what already went out: when, who sent it, and how many people it reached. **View** shows what went out on each channel. People reached are counted for announcements sent since this page arrived; older ones show **Not recorded**.
+
+Drafts are shared. Admins see every draft. Guild leads and staff see the drafts and sent announcements for the guilds they help run, and instructors see the ones for their classes. Whoever saved a draft last shows as its editor. Whoever sends it is the sender, and their name is on the email's From line when **Show who it's from** is on.
+
+Once a month's voting results are in, a draft called "September 2026 Voting Results" (with that month's name) appears on the Drafts tab on its own, ready for an admin to check and send. If you delete it, it does not come back. You can start a new one from the Voting page with **Draft announcement**.
+
+An announcement to everyone shows as **Sending** until it goes out, within 15 minutes. If it could not be sent, it moves back to Drafts marked **Could not send**, with the reason.
 
 ### Tab 1: Compose {#composer-compose}
 
@@ -1701,6 +1716,13 @@ Urgent is the break-glass switch: it bypasses each recipient's notification pref
                 "selector": ".pl-compose-section:has(#id_push_enabled)",
                 "caption": "The Delivery switches: push, email, Discord, and the urgent toggle.",
                 "as_role": "guild_lead",
+            },
+            {
+                "file": "03-announcements-page.png",
+                "page": "hub_announcements",
+                "selector": None,
+                "caption": "The Announcements page: drafts waiting to go out, and the Sent tab beside them.",
+                "as_role": "admin",
             },
         ],
     },

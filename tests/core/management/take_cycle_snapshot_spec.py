@@ -1,4 +1,4 @@
-"""BDD specs for the take_cycle_snapshot auto-snapshot command.
+"""BDD specs for the take_cycle_snapshot auto-snapshot command and its results-draft phase.
 
 Time is frozen so the "just-closed cycle" is deterministic across the year boundary:
 with ``now`` in July 2026 the closed cycle is June 2026 (period voting_close:2026-06).
@@ -15,9 +15,10 @@ from django.db.models.signals import post_save
 from django.utils import timezone
 from factory.django import mute_signals
 
-from core.models import EventDelivery, Notification, TransactionalEmailLog
+from core.models import EventDelivery, Notification, ScheduledTaskRun, TransactionalEmailLog
+from core.scheduled_jobs import Trigger, record_run
 from membership.models import AnnouncementDraft, FundingSnapshot, Member, VotingSettings
-from tests.membership.factories import GuildFactory, MemberFactory, VotePreferenceFactory
+from tests.membership.factories import FundingSnapshotFactory, GuildFactory, MemberFactory, VotePreferenceFactory
 
 pytestmark = pytest.mark.django_db
 
@@ -51,6 +52,20 @@ def _july():
     return timezone.make_aware(datetime(2026, 7, 5, 9, 0))
 
 
+def _manual_snapshot(label: str = "June 2026") -> FundingSnapshot:
+    """A snapshot an admin took by hand, with per-guild results to announce."""
+    return FundingSnapshotFactory(
+        cycle_label=label,
+        results={"votes_cast": 4, "results": [{"guild_name": "Metal", "funding": "100.00", "share_pct": 100.0}]},
+    )
+
+
+def _claim_the_cycle_slot() -> None:
+    EventDelivery.objects.create(
+        event_key="voting.auto_snapshot", target_ref="cycle", channel="system", period="voting_close:2026-06"
+    )
+
+
 def describe_take_cycle_snapshot():
     def it_auto_takes_once_per_cycle_flagging_is_auto_and_pinging_admins(monkeypatch):
         _freeze(monkeypatch, _july())
@@ -68,15 +83,17 @@ def describe_take_cycle_snapshot():
         # Admins are pinged straight away.
         assert Notification.objects.filter(user=admin_user, trigger="voting.results_ready").exists()
 
-        # Members hear nothing from the auto snapshot. An admin drafts the results
-        # announcement from the Voting page; sending here as well would give everyone the old
+        # Members hear nothing from the auto snapshot. The same tick makes the month's results
+        # draft for an admin to check and send; sending here as well would give everyone the old
         # results email first and the admin's announcement second.
         assert snap.results_sent_at is None
         assert snap.results_send_requested_at is None
         assert snap.results_pending is True
         assert not Notification.objects.filter(user=voter.user).exists()
         assert not TransactionalEmailLog.objects.filter(trigger_kind="voting.results_published").exists()
-        assert not AnnouncementDraft.objects.exists()
+        draft = AnnouncementDraft.objects.get()
+        assert (draft.funding_snapshot, draft.author, draft.title) == (snap, None, "June 2026 Voting Results")
+        assert (draft.sent_at, draft.send_requested_at) == (None, None)
 
     def it_is_a_noop_when_auto_snapshot_is_disabled(monkeypatch):
         settings = VotingSettings.load()
@@ -108,3 +125,66 @@ def describe_take_cycle_snapshot():
         # The window guard (snapshot_at >= cycle_start) suppresses the auto-take.
         assert not FundingSnapshot.objects.filter(is_auto=True).exists()
         assert FundingSnapshot.objects.count() == 1
+
+
+def describe_the_results_draft_phase():
+    def it_makes_the_draft_on_a_tick_after_the_months_slot_is_claimed(monkeypatch):
+        _freeze(monkeypatch, _july())
+        snapshot = _manual_snapshot()
+        _claim_the_cycle_slot()
+
+        call_command("take_cycle_snapshot")
+
+        draft = AnnouncementDraft.objects.get()
+        assert (draft.funding_snapshot, draft.author) == (snapshot, None)
+        snapshot.refresh_from_db()
+        assert snapshot.results_draft_created_at is not None
+
+    def it_makes_the_draft_with_the_auto_snapshot_switched_off(monkeypatch):
+        settings = VotingSettings.load()
+        settings.auto_snapshot_enabled = False
+        settings.save()
+        _freeze(monkeypatch, _july())
+        snapshot = _manual_snapshot()
+
+        call_command("take_cycle_snapshot")
+
+        assert AnnouncementDraft.objects.get().funding_snapshot == snapshot
+        assert not FundingSnapshot.objects.filter(is_auto=True).exists()
+
+    def it_makes_nothing_after_an_admin_opened_the_draft_and_deleted_it(monkeypatch):
+        """Click, delete, tick: a draft thrown away never comes back on its own."""
+        _freeze(monkeypatch, _july())
+        snapshot = _manual_snapshot()
+        admin = _admin("admin@x.com")
+        snapshot.draft_results_announcement(admin).delete()
+
+        call_command("take_cycle_snapshot")
+
+        assert not AnnouncementDraft.objects.exists()
+
+    def it_makes_it_once_however_many_ticks_run(monkeypatch):
+        _freeze(monkeypatch, _july())
+        _manual_snapshot()
+        call_command("take_cycle_snapshot")
+        call_command("take_cycle_snapshot")
+        assert AnnouncementDraft.objects.count() == 1
+
+    def it_says_which_draft_it_made(monkeypatch, capsys):
+        _freeze(monkeypatch, _july())
+        _manual_snapshot()
+        call_command("take_cycle_snapshot")
+        assert "Made the 'June 2026 Voting Results' draft on the Announcements page." in capsys.readouterr().out
+
+    def it_fails_the_run_when_making_the_draft_raises(monkeypatch):
+        _freeze(monkeypatch, _july())
+        _manual_snapshot()
+
+        def broken() -> None:
+            raise RuntimeError("draft builder broke")
+
+        monkeypatch.setattr(FundingSnapshot, "make_newest_results_draft", broken)
+        with pytest.raises(RuntimeError, match="draft builder broke"):
+            with record_run("take_cycle_snapshot", trigger=Trigger.SCHEDULED):
+                call_command("take_cycle_snapshot")
+        assert ScheduledTaskRun.objects.get(task_key="take_cycle_snapshot").status == ScheduledTaskRun.Status.FAILED

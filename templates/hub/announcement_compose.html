@@ -7,11 +7,23 @@
 {% block content %}
 {% include "_components/rich_editor_assets.html" %}
 
+{% if can_open_announcements %}
+<p class="pl-compose-back">
+  <a href="{% url 'hub_announcements' %}" class="hub-btn hub-btn--sm hub-btn--ghost" data-compose-back>&larr; Back to Announcements</a>
+</p>
+{% endif %}
 <h1 class="hub-page-title">{{ compose_heading|default:"Compose announcement" }}</h1>
 {% if compose_lead %}
 <p class="pl-wizard-lead">{{ compose_lead }}</p>
 {% else %}
 <p class="pl-wizard-lead">Write your message and pick who gets it, then preview each channel before it goes out. Everyone in your recipient list always gets it in their notification bell.</p>
+{% endif %}
+{% if draft.author or draft.funding_snapshot or draft.send_given_up %}
+{# A resumed draft says who saved it last (drafts are shared), or that the snapshot job made it. #}
+<p class="pl-compose-draft-meta" data-compose-draft-meta>
+  {% if draft.author %}<span class="pl-compose-draft-meta__line" data-compose-draft-saver>Draft last saved by {{ draft.author_label }}, {{ draft.updated_at|date:"M j, g:i a" }}.</span>{% elif draft.funding_snapshot %}<span class="pl-compose-draft-meta__line" data-compose-draft-automatic>Draft made automatically {{ draft.updated_at|date:"M j, g:i a" }} from the {{ draft.funding_snapshot.cycle_label }} voting results.</span>{% endif %}
+  {% if draft.send_given_up %}<span class="pl-compose-draft-meta__line pl-compose-draft-meta__line--failed" data-compose-draft-failed>This announcement could not be sent: {{ draft.failure_reason }}. Check it and send it again.</span>{% endif %}
+</p>
 {% endif %}
 
 <div class="hub-card pl-wizard"
@@ -110,6 +122,11 @@
       </div>
 
       <div class="pl-wizard-actions">
+        <button type="button" class="hub-btn hub-btn--ghost" data-compose-save-draft
+                hx-post="{% url 'hub_compose_save_draft' %}" hx-include="closest form" hx-swap="none"
+                :disabled="!hasBody">
+          <span class="htmx-indicator pl-spin" aria-hidden="true"></span> Save draft
+        </button>
         <button type="button" class="hub-btn hub-btn--primary" @click="goPreview()" :disabled="!hasBody">
           Preview &amp; send &rarr;
         </button>
@@ -172,6 +189,11 @@
 
       <div class="pl-wizard-actions">
         <button type="button" class="hub-btn hub-btn--ghost" @click="phase = 1">&larr; Back</button>
+        <button type="button" class="hub-btn hub-btn--ghost" data-compose-save-draft
+                hx-post="{% url 'hub_compose_save_draft' %}" hx-include="closest form" hx-swap="none"
+                :disabled="!hasBody">
+          <span class="htmx-indicator pl-spin" aria-hidden="true"></span> Save draft
+        </button>
         <button type="button" class="hub-btn hub-btn--primary" :disabled="!hasBody"
                 @click="sendModalOpen = true">
           Send announcement

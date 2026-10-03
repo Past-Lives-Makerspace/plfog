@@ -1,0 +1,9 @@
+bump = "minor"
+date = "2026-10-02"
+title = "Announcements has its own page, with drafts and sent announcements"
+changes = [
+  "Admin Tools → Announcements now opens a page with two tabs, Drafts and Sent. Admins see every announcement. Guild leads and staff see the ones for their guilds, and instructors the ones for their classes.",
+  "The Announcement Composer has a Save draft button again. A saved draft waits on the Drafts tab until someone sends it.",
+  "The Sent tab shows who sent each announcement and when, and for announcements sent from now on, how many people it reached. View shows the email, push notification and Discord post it sent.",
+  "Once a month's voting results are in, that month's results draft appears on the Drafts tab on its own, ready for an admin to check and send.",
+]

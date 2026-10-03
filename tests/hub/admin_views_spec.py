@@ -1186,13 +1186,15 @@ def describe_admin_site_settings_features():
 def describe_admin_site_settings_announcements():
     # The plain sitewide composer moved to the /announcements/compose/ wizard (covered by
     # tests/hub/announcement_compose_spec.py + tests/membership/announcement_draft_spec.py).
-    # The Announcements tab now links to it and still hosts the sectioned Release composer.
-    def it_renders_the_announcements_tab_linking_to_the_wizard(client):
+    # The Announcements tab now links to the Announcements page and still hosts the sectioned
+    # Release composer.
+    def it_renders_the_announcements_tab_linking_to_the_announcements_page(client):
         _create_superuser(client)
         response = client.get(reverse("hub_admin_site_settings") + "?tab=announcements")
         assert response.status_code == 200
-        assert reverse("hub_compose").encode() in response.content
-        assert b"Compose an announcement" in response.content
+        link = f'<a href="{reverse("hub_announcements")}" class="hub-btn hub-btn--primary" data-open-announcements>'
+        assert link.encode() in response.content
+        assert f'href="{reverse("hub_compose")}"'.encode() not in response.content
 
     def it_prefills_a_release_draft(client):
         _create_superuser(client)

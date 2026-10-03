@@ -260,6 +260,37 @@ def _seed_help_extras(personas: dict[str, Member]) -> None:
     ClassApproval.objects.create(class_offering=pending, role=ClassApproval.Role.GUILD_LEAD)
     ClassApproval.objects.create(class_offering=pending, role=ClassApproval.Role.ADMIN)
 
+    _seed_announcements(personas, ceramics)
+
+
+def _seed_announcements(personas: dict[str, Member], ceramics: Guild) -> None:
+    """The Announcements page shot: two drafts and one sent announcement, so no tab is captured empty.
+
+    No results draft: an "Automatic" row needs a real FundingSnapshot, and a pending snapshot
+    would add the results banner to the Voting overview shots captured from this same database.
+    """
+    from membership.models import AnnouncementDraft
+    from tests.membership.factories import AnnouncementDraftFactory
+
+    AnnouncementDraftFactory(
+        author=personas["guild_lead"].user,
+        audience=AnnouncementDraft.Audience.GUILD,
+        guild=ceramics,
+        body="<p>Glaze night moves to Thursday this week. Bring your bisqueware.</p>",
+    )
+    AnnouncementDraftFactory(
+        author=personas["admin"].user,
+        body="<p>The shop closes at 6 p.m. on Friday while the floor is refinished.</p>",
+        send_error="The email provider timed out.",
+    )
+    AnnouncementDraftFactory(
+        author=personas["guild_lead"].user,
+        audience=AnnouncementDraft.Audience.GUILD,
+        guild=ceramics,
+        body="<p>The kiln is back from repair. Firings start again Saturday.</p>",
+        sent=True,
+    )
+
 
 def _resolve_path(page_ref: str) -> str:
     """Resolve a ShotSpec ``page`` — a URL name via ``reverse``, else a literal path."""

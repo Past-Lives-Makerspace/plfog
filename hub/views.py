@@ -72,6 +72,7 @@ from membership.vote_calculator import compute_live_standings, compute_new_votes
 from membership.models import (
     AdminCapability,
     AnnouncementDraft,
+    AnnouncementDraftQuerySet,
     CommunityEvent,
     FundingSnapshot,
     Guild,
@@ -4074,6 +4075,128 @@ def _compose_audience_forbidden(request: HttpRequest, raw_audience: str) -> Http
     return HttpResponse("Forbidden", status=403)
 
 
+# The refusal when a draft the composer was asked to save over or send is no longer the
+# requester's to handle: sent, queued, deleted, or addressed to an audience they may not reach.
+_DRAFT_GONE_MESSAGE = "This draft can no longer be edited. It may have been sent or deleted."
+
+
+def _announcement_rows(
+    request: HttpRequest,
+    member: Member | None,
+    *,
+    within: AnnouncementDraftQuerySet | None = None,
+) -> AnnouncementDraftQuerySet:
+    """Every announcement this request may see and act on: the one predicate behind the Announcements page.
+
+    A request may see, open, save over, send or delete an announcement exactly when the composer
+    would let it address that announcement's stored audience: :func:`_compose_audience_forbidden`
+    with :attr:`AnnouncementDraft.audience_value` answers ``None``. The gate is asked, never
+    re-derived, and the list, the sent view and every composer lookup (:func:`_handled_draft`) read
+    this one helper, so nothing is shown that cannot be acted on and nothing is acted on that is
+    not shown.
+
+    An admin (view-as aware) short-circuits to every row: an effective admin passes the gate on
+    every audience. Anyone else gets the candidates that concern them, then the gate is asked
+    **once per distinct audience** among those candidates, never per row:
+
+    * rows addressed to a guild they lead or staff (:func:`_compose_editable_guilds`),
+    * rows addressed to a class they teach, or a class in one of those guilds (#371),
+    * rows they last saved, which catches a target reached through a class page's locked link.
+
+    So a site-wide guild officer, whose gate would admit every guild, sees their own guilds' rows
+    and their own saves rather than every guild's mail.
+
+    Args:
+        request: The request, carrying ``view_as`` from the middleware.
+        member: The request's member, or ``None`` for an unlinked account.
+        within: Narrow the candidates first (a single pk lookup), so the gate is asked only about
+            the rows that matter. Defaults to every announcement.
+
+    Returns:
+        The rows this request may handle, a queryset ready for the state filters.
+    """
+    rows = AnnouncementDraft.objects.all() if within is None else within
+    if _viewing_as_admin(request):
+        return rows
+    candidates = Q(author=request.user)
+    if member is not None:
+        guild_ids = list(_compose_editable_guilds(request, member).values_list("pk", flat=True))
+        candidates |= (
+            Q(guild_id__in=guild_ids)
+            | Q(class_offering__in=ClassOffering.objects.for_instructor(member))
+            | Q(class_offering__category__guild_id__in=guild_ids)
+        )
+    candidate_rows = rows.filter(candidates)
+    targets = {
+        (audience, guild_id, class_id): AnnouncementDraft(
+            audience=audience, guild_id=guild_id, class_offering_id=class_id
+        ).audience_value
+        for audience, guild_id, class_id in candidate_rows.values_list(
+            "audience", "guild_id", "class_offering_id"
+        ).distinct()
+    }
+    addressable = {target for target in set(targets.values()) if _compose_audience_forbidden(request, target) is None}
+    allowed = Q(pk__in=[])
+    for (audience, guild_id, class_id), target in targets.items():
+        if target in addressable:
+            allowed |= Q(audience=audience, guild_id=guild_id, class_offering_id=class_id)
+    return candidate_rows.filter(allowed)
+
+
+def _can_open_announcements(request: HttpRequest, member: Member | None) -> bool:
+    """Whether this request may open the Announcements page: it can compose, or it has rows to see.
+
+    The second clause admits an instructor who reaches the composer only through a class page's
+    locked link and so holds no general compose rights, once they have saved something there.
+    """
+    return _can_compose(request, member) or _announcement_rows(request, member).exists()
+
+
+def _handled_draft(request: HttpRequest, raw_pk: str | int | None) -> AnnouncementDraft | None:
+    """The resumable draft ``raw_pk`` names, when this request may handle its stored audience, else ``None``.
+
+    Every composer path that takes a ``draft_pk`` resolves it here: resume, Save draft, Send,
+    Delete, and the preview, test email and push test (which learn from it whether they render a
+    results announcement). A sent or queued row, one addressed to an audience the request may not
+    reach (:func:`_announcement_rows`), a vanished pk and garbage all answer ``None``, so a crafted
+    pk can neither take a row over nor give its results title to someone who may not handle it.
+    """
+    raw = "" if raw_pk is None else str(raw_pk)
+    if not (raw.isascii() and raw.isdigit()):
+        return None
+    resumable = (
+        AnnouncementDraft.objects.resumable()
+        .filter(pk=int(raw))
+        .select_related("guild", "class_offering", "author", "funding_snapshot")
+    )
+    return _announcement_rows(request, _get_member(request), within=resumable).first()
+
+
+def _announcement_previews(draft: AnnouncementDraft) -> dict[str, Any]:
+    """What each channel shows for ``draft``, built exactly as the send builds it.
+
+    The composer's preview and the sent view both render from here, so the two cannot drift: the
+    email from :meth:`AnnouncementDraft.build_email_message`, the Discord card from
+    :meth:`AnnouncementDraft.build_discord_message` through the embed builder the send posts with,
+    and the push line from :meth:`AnnouncementDraft.build_push_message`.
+    """
+    from core.events.discord import build_embed_payload, discord_markdown_html
+    from membership.orientations import _absolute_url
+
+    site_url = _absolute_url("/")
+    message = draft.build_email_message(site_url)
+    embeds = cast(list[dict[str, str]], build_embed_payload(draft.build_discord_message(site_url))["embeds"])
+    push = draft.build_push_message(site_url)
+    return {
+        "preview_html": message.html_body,
+        "preview_subject": draft.title,
+        "discord_title": embeds[0]["title"],
+        "discord_description_html": discord_markdown_html(embeds[0]["description"]),
+        "push_title": push.title,
+        "push_body": push.body,
+    }
+
+
 def _compose_count_for(
     audience: str, guild: Guild | None, offering: ClassOffering | None = None, *, include_waitlist: bool = False
 ) -> int:
@@ -4096,18 +4219,10 @@ def _compose_count_for(
     ).recipient_count()
 
 
-def _draft_initial(draft: Any) -> dict[str, Any]:
+def _draft_initial(draft: AnnouncementDraft) -> dict[str, Any]:
     """Form ``initial`` for resuming a draft — the combined audience value + the saved fields."""
-    from membership.models import AnnouncementDraft
-
-    if draft.audience == AnnouncementDraft.Audience.SITE.value:
-        audience_value = AnnouncementDraft.Audience.SITE.value
-    elif draft.audience == AnnouncementDraft.Audience.CLASS.value:
-        audience_value = f"class:{draft.class_offering_id}"
-    else:
-        audience_value = f"guild:{draft.guild_id}"
     initial = {
-        "audience": audience_value,
+        "audience": draft.audience_value,
         "body": draft.body,
         "push_message": draft.push_message,
         "push_enabled": draft.push_enabled,
@@ -4121,8 +4236,7 @@ def _draft_initial(draft: Any) -> dict[str, Any]:
         "expires_at": draft.expires_at,
     }
     # A present selection resumes exactly those recipients; an empty one (the default) is left
-    # unset so the form falls back to all-selected. (The drafts UI is dormant — this keeps the
-    # resume path faithful for when it returns.)
+    # unset so the form falls back to all-selected.
     selection = draft.recipient_selection or {}
     if selection:
         initial["recipients"] = [f"user:{pk}" for pk in selection.get("users", [])] + [
@@ -4141,8 +4255,11 @@ def _render_compose(
     compose_heading: str = "",
     compose_lead: str = "",
 ) -> HttpResponse:
-    """Render the single-screen composer for GET and for an invalid-POST re-render (with errors)."""
-    from membership.models import AnnouncementDraft
+    """Render the single-screen composer for GET and for an invalid-POST re-render (with errors).
+
+    ``can_open_announcements`` shows the Back to Announcements link to whoever may open that page;
+    a resumed ``draft`` carries the line saying who last saved it (or that the job made it).
+    """
 
     # The URL-bearing live-count refresh (fires on audience change; the form can't reverse URLs).
     # The waitlist toggle fires the same refresh so the roster + count re-scope when it flips; both
@@ -4186,7 +4303,7 @@ def _render_compose(
             "audience_value": form.audience_value,
             "initial_recipient_count": count,
             "announcement_category": category_draft.announcement_category,
-            "drafts": AnnouncementDraft.objects.for_user(cast(User, request.user)),
+            "can_open_announcements": _can_open_announcements(request, _get_member(request)),
             "locked": locked,
             "locked_label": locked_label,
             "compose_heading": compose_heading,
@@ -4238,8 +4355,9 @@ def _results_compose_lock(draft: AnnouncementDraft | None) -> tuple[bool, str, s
 def _compose_send_refused(request: HttpRequest, draft: AnnouncementDraft, exc: Exception) -> HttpResponse:
     """Turn a send or queue the model refused into a message and a redirect, never a 500.
 
-    A results announcement lands on its snapshot's page, which says whether the results went out;
-    anything else returns to the composer.
+    A results announcement lands on its snapshot's page, which says whether the results went out.
+    A draft still resumable (it was saved before the send was refused) reopens in the composer, so
+    the work typed is kept. Anything else lands on the Sent tab of the Announcements page.
     """
     from django.core.exceptions import ValidationError
 
@@ -4247,7 +4365,14 @@ def _compose_send_refused(request: HttpRequest, draft: AnnouncementDraft, exc: E
     messages.error(request, reason)
     if draft.funding_snapshot_id is not None:
         return redirect("hub_admin_voting_history_detail", pk=draft.funding_snapshot_id)
-    return redirect("hub_compose")
+    if draft.is_resumable:
+        return redirect("hub_compose_resume", draft_pk=draft.pk)
+    return redirect(_announcements_sent_url())
+
+
+def _announcements_sent_url() -> str:
+    """The Sent tab of the Announcements page, where a send lands."""
+    return f"{reverse('hub_announcements')}?tab=sent"
 
 
 def _compose_preselection(request: HttpRequest, requested: str | None) -> dict[str, Any]:
@@ -4296,9 +4421,11 @@ def _compose_first_error(form: Any) -> str:
 
 @login_required
 def hub_compose(request: HttpRequest, draft_pk: int | None = None) -> HttpResponse:
-    """The compose wizard page. GET renders all three steps + the drafts list.
+    """The compose wizard page. GET renders the Compose and Preview & send phases.
 
-    A ``draft_pk`` resumes an unsent draft you own (a foreign, already-sent or queued pk 404s);
+    A ``draft_pk`` resumes a draft this request may handle (:func:`_handled_draft`: shared by
+    everyone who may address its audience). A sent or queued row the viewer may see redirects to
+    its record (:func:`announcement_sent`); a foreign-audience or missing pk 404s.
     ``?audience=guild:<pk>`` pre-scopes a fresh compose, and ``?recipients=<token>`` (repeatable,
     with ``?include_waitlist=1``) narrows the checklist to a roster hand-off — see
     :func:`_compose_preselection`. A member who can compose nothing (not an admin, leads no
@@ -4306,7 +4433,6 @@ def hub_compose(request: HttpRequest, draft_pk: int | None = None) -> HttpRespon
     :func:`_compose_refusal_message` so the landing is explained rather than silent.
     """
     from hub.forms import AnnouncementComposeForm
-    from membership.models import AnnouncementDraft
 
     member = _get_member(request)
     draft = None
@@ -4317,7 +4443,15 @@ def hub_compose(request: HttpRequest, draft_pk: int | None = None) -> HttpRespon
         # Resolve the draft before the gate: a resume URL carries no ?audience, so the gate must
         # judge the draft's own audience — otherwise a lock-only instructor (admitted via their
         # class, no general compose rights) could save a draft yet never resume it.
-        draft = get_object_or_404(AnnouncementDraft.objects.for_user(cast(User, request.user)), pk=draft_pk)
+        draft = _handled_draft(request, draft_pk)
+        if draft is None:
+            # A row this viewer may see that _handled_draft refused is sent or queued: Save draft
+            # wrote its resume URL into the address bar, so a reload after the send lands on its
+            # record rather than a 404. A row the viewer may not see stays a 404.
+            seen = _announcement_rows(request, member, within=AnnouncementDraft.objects.filter(pk=draft_pk)).first()
+            if seen is not None:
+                return redirect("hub_announcement_sent", pk=seen.pk)
+            raise Http404("No such draft.")
         initial = _draft_initial(draft)
         requested = initial["audience"]
         locked, locked_label, heading, lead = _results_compose_lock(draft) or (False, "", "", "")
@@ -4353,15 +4487,16 @@ def _compose_preview_draft(request: HttpRequest) -> AnnouncementDraft:
     """An unsaved draft built from the posted composer form: what the preview and both tests render.
 
     The title is the auto category, so a results announcement reads "<cycle> Voting Results".
-    The snapshot that makes it one comes only from the posted ``draft_pk``, resolved to the
-    requesting author's own resumable draft (:meth:`AnnouncementDraftManager.results_snapshot_of`),
-    never from a posted snapshot id: someone else's ``draft_pk`` gets the plain category.
+    The snapshot that makes it one comes only from the posted ``draft_pk``, resolved to a resumable
+    draft this request may handle (:func:`_handled_draft`), never from a posted snapshot id: the
+    ``draft_pk`` of a draft the requester may not handle gets the plain category.
     """
     from core.html_sanitize import sanitize_rich_html
     from hub.forms import split_audience
 
     user = cast(User, request.user)
     audience, guild, offering = split_audience(request.POST.get("audience") or "")
+    handled = _handled_draft(request, request.POST.get("draft_pk"))
     draft = AnnouncementDraft(
         author=user,
         audience=audience or AnnouncementDraft.Audience.SITE.value,
@@ -4371,7 +4506,7 @@ def _compose_preview_draft(request: HttpRequest) -> AnnouncementDraft:
         show_sender=bool(request.POST.get("show_sender")),
         body=sanitize_rich_html(request.POST.get("body") or ""),
         push_message=(request.POST.get("push_message") or "").strip(),
-        funding_snapshot=AnnouncementDraft.objects.results_snapshot_of(user, request.POST.get("draft_pk") or ""),
+        funding_snapshot=handled.funding_snapshot if handled is not None else None,
     )
     draft.title = draft.announcement_category
     return draft
@@ -4387,26 +4522,15 @@ def hub_compose_preview(request: HttpRequest) -> HttpResponse:
     reusing its own :meth:`AnnouncementDraft.build_email_message` keeps the preview identical to
     the sent email. The same response refreshes the Discord preview card out of band, from
     :meth:`AnnouncementDraft.build_discord_message` through the embed builder the send posts with,
-    so the card shows exactly the title and description Discord gets.
+    so the card shows exactly the title and description Discord gets. Built by
+    :func:`_announcement_previews`, the helper the sent view also renders from.
     """
-    from core.events.discord import build_embed_payload, discord_markdown_html
-    from membership.orientations import _absolute_url
-
     if not _can_enter_compose(request, _get_member(request), request.POST.get("audience")):
         return _compose_refused(request)
-    draft = _compose_preview_draft(request)
-    site_url = _absolute_url("/")
-    message = draft.build_email_message(site_url)
-    embeds = cast(list[dict[str, str]], build_embed_payload(draft.build_discord_message(site_url))["embeds"])
     return render(
         request,
         "hub/partials/_compose_email_preview.html",
-        {
-            "preview_html": message.html_body,
-            "preview_subject": draft.title,
-            "discord_title": embeds[0]["title"],
-            "discord_description_html": discord_markdown_html(embeds[0]["description"]),
-        },
+        _announcement_previews(_compose_preview_draft(request)),
     )
 
 
@@ -4580,9 +4704,21 @@ def hub_admin_tools(request: HttpRequest) -> HttpResponse:
 @login_required
 @require_POST
 def hub_compose_save_draft(request: HttpRequest) -> HttpResponse:
-    """HTMX: upsert the draft. Valid → toast + OOB (draft_pk + list); invalid → error toast, no row."""
+    """HTMX Save draft: upsert the draft and stay in the composer.
+
+    Two audience checks, both needed: the **posted** audience must be one the request may address
+    (403), and a posted ``draft_pk`` must name a draft whose **stored** audience it may handle
+    (:func:`_handled_draft`). Without the second, a lead could post an admin's site draft pk with
+    their own guild as the audience and take the row over.
+
+    Valid: 200 carrying only the out-of-band ``#compose-draft-pk`` input (so the next save updates
+    the same row), an ``HX-Replace-Url`` of the draft's resume URL (a reload, or Back after leaving,
+    reopens the draft instead of a blank composer) and a success toast. Invalid: 204 with the
+    first error as an error toast, no row. A draft that can no longer be saved (sent, queued,
+    deleted, or not the requester's to handle): 404 with an error toast in ``HX-Trigger`` (htmx
+    swaps no 4xx but reads the header), and no new row.
+    """
     from hub.forms import AnnouncementComposeForm
-    from membership.models import AnnouncementDraft
 
     raw = request.POST.get("audience") or ""
     forbidden = _compose_audience_forbidden(request, raw)
@@ -4591,7 +4727,11 @@ def hub_compose_save_draft(request: HttpRequest) -> HttpResponse:
     draft_pk = request.POST.get("draft_pk") or ""
     instance = None
     if draft_pk:
-        instance = get_object_or_404(AnnouncementDraft.objects.for_user(cast(User, request.user)), pk=draft_pk)
+        instance = _handled_draft(request, draft_pk)
+        if instance is None:
+            gone = HttpResponse("Not found", status=404)
+            trigger_toast(gone, _DRAFT_GONE_MESSAGE, "error")
+            return gone
     form = AnnouncementComposeForm(
         request.POST,
         results_announcement=_results_compose_lock(instance) is not None,
@@ -4602,11 +4742,8 @@ def hub_compose_save_draft(request: HttpRequest) -> HttpResponse:
         trigger_toast(response, _compose_first_error(form), "error")
         return response
     draft = AnnouncementDraft.save_from_form(form, cast(User, request.user), instance=instance)
-    response = render(
-        request,
-        "hub/partials/_compose_save_result.html",
-        {"draft": draft, "drafts": AnnouncementDraft.objects.for_user(cast(User, request.user))},
-    )
+    response = render(request, "hub/partials/_compose_save_result.html", {"draft": draft})
+    response["HX-Replace-Url"] = reverse("hub_compose_resume", args=[draft.pk])
     trigger_toast(response, "Draft saved.")
     return response
 
@@ -4622,11 +4759,17 @@ def hub_compose_send(request: HttpRequest) -> HttpResponse:
     announcement only goes to everyone: a POST retargeting it is a form error, and nothing is
     saved. A send or queue the model refuses (already sent, results already out or already
     sending) becomes a message and a redirect, never a 500 (:func:`_compose_send_refused`).
+
+    The posted audience is checked (403), and a posted ``draft_pk`` must name a draft whose stored
+    audience the request may handle (:func:`_handled_draft`); one that is gone, sent, queued or
+    someone else's audience lands on the Announcements page with a message, and nothing is saved.
+    A send lands on the Sent tab with the existing message; saving names the sender, so the
+    email's From line and the send actor are whoever pressed Send.
     """
     from django.core.exceptions import ValidationError
 
     from hub.forms import AnnouncementComposeForm
-    from membership.models import AlreadySentError, AnnouncementDraft, ResultsAlreadySentError
+    from membership.models import AlreadySentError, ResultsAlreadySentError
 
     raw = request.POST.get("audience") or ""
     forbidden = _compose_audience_forbidden(request, raw)
@@ -4635,7 +4778,10 @@ def hub_compose_send(request: HttpRequest) -> HttpResponse:
     draft_pk = request.POST.get("draft_pk") or ""
     instance = None
     if draft_pk:
-        instance = get_object_or_404(AnnouncementDraft.objects.for_user(cast(User, request.user)), pk=draft_pk)
+        instance = _handled_draft(request, draft_pk)
+        if instance is None:
+            messages.error(request, _DRAFT_GONE_MESSAGE)
+            return redirect("hub_announcements")
     results_lock = _results_compose_lock(instance)
     form = AnnouncementComposeForm(
         request.POST,
@@ -4666,30 +4812,122 @@ def hub_compose_send(request: HttpRequest) -> HttpResponse:
             "Your announcement is sending in the background. "
             f"It reaches {draft.recipient_count()} recipient(s) within 15 minutes.",
         )
-        return redirect("hub_compose")
+        return redirect(_announcements_sent_url())
     try:
         emailed, total = draft.send()
     except refusals as exc:
         return _compose_send_refused(request, draft, exc)
     messages.success(request, f"Announcement sent to {total} recipient(s).")
-    return redirect("hub_compose")
+    return redirect(_announcements_sent_url())
 
 
 @login_required
 @require_POST
 def hub_compose_delete_draft(request: HttpRequest, draft_pk: int) -> HttpResponse:
-    """HTMX (confirm modal): delete an unsent draft you own, then swap the refreshed list + toast."""
-    from membership.models import AnnouncementDraft
+    """Full-page POST (the overview's confirm modal): delete a draft, back to the Drafts tab.
 
-    draft = get_object_or_404(AnnouncementDraft.objects.for_user(cast(User, request.user)), pk=draft_pk)
+    The pk is looked up among the resumable drafts this request may handle (:func:`_handled_draft`);
+    a sent, queued, foreign-audience or missing row is a 404 and nothing is deleted. Deleting a
+    draft deletes only that row: a results draft's snapshot keeps its numbers and its "made"
+    stamp, so the job does not make it again. The toast crosses the boosted redirect through
+    ``ToastFlashMiddleware``.
+
+    Someone who could open the page only because of this draft (an instructor who reaches the
+    composer through a class page's locked link) can no longer open it once it is gone, so they
+    land on their home page with just the toast, not on the page's refusal.
+    """
+    draft = _handled_draft(request, draft_pk)
+    if draft is None:
+        raise Http404("No such draft.")
     draft.delete()
-    response = render(
+    messages.success(request, "Draft deleted.")
+    if not _can_open_announcements(request, _get_member(request)):
+        return redirect("hub_home")
+    return redirect("hub_announcements")
+
+
+@login_required
+def announcements_overview(request: HttpRequest) -> HttpResponse:
+    """The Announcements page: every draft and every sent announcement this request may see.
+
+    Two tabs by query string, ``?tab=drafts`` (the default, and the reading of any other value)
+    and ``?tab=sent``, server rendered so links, Back and pagination work. Rows come from
+    :func:`_announcement_rows` (admins see every row; leads, staff and instructors see their
+    audiences'). Drafts sort by last edit; Sent by when it went out or was queued
+    (``Coalesce(sent_at, send_requested_at)``), so a queued row heads the list. The Sent tab reads
+    reach for its page in one ledger query (:meth:`AnnouncementDraftQuerySet.reach_for`).
+
+    Whoever may neither compose nor see a row is refused the way the composer refuses, view-as
+    aware: a message and the propose flow.
+    """
+    from django.db.models.functions import Coalesce
+
+    from classes.table import prepare_table
+
+    member = _get_member(request)
+    if not _can_open_announcements(request, member):
+        messages.error(request, _compose_refusal_message(request))
+        return redirect("hub_guild_announcement_propose")
+    tab = "sent" if request.GET.get("tab") == "sent" else "drafts"
+    rows = _announcement_rows(request, member).select_related("guild", "class_offering", "author", "funding_snapshot")
+    drafts = rows.resumable()
+    sent = rows.sent_or_sending().annotate(activity_at=Coalesce("sent_at", "send_requested_at"))
+    sort_key = "activity_at" if tab == "sent" else "updated_at"
+    table = prepare_table(
         request,
-        "hub/partials/_compose_drafts_list.html",
-        {"drafts": AnnouncementDraft.objects.for_user(cast(User, request.user))},
+        sent if tab == "sent" else drafts,
+        search_fields=[],
+        default_sort=sort_key,
+        default_dir="desc",
+        per_page=25,
+        sortable=frozenset({sort_key}),
     )
-    trigger_toast(response, "Draft deleted.")
-    return response
+    page_rows = list(table["page"].object_list)
+    reach = AnnouncementDraft.objects.reach_for(page_rows) if tab == "sent" else {}
+    return render(
+        request,
+        "hub/announcements.html",
+        {
+            **_get_hub_context(request),
+            "tab": tab,
+            "rows": [(row, reach.get(row.pk)) for row in page_rows],
+            "page": table["page"],
+            "base_params": table["base_params"],
+            "drafts_count": drafts.count(),
+            "sent_count": sent.count(),
+        },
+    )
+
+
+@login_required
+def announcement_sent(request: HttpRequest, pk: int) -> HttpResponse:
+    """The read-only record of a sent (or sending) announcement: who it reached and what went out.
+
+    The pk must be one this request may see (:func:`_announcement_rows`), else 404. A pk that is
+    still a draft redirects to its resume URL, so an old link never dead ends. Reach comes from
+    :meth:`AnnouncementDraft.reach`; the channel previews from :func:`_announcement_previews`, the
+    same build the composer's preview uses. The page is rebuilt from the saved row, not a stored
+    copy: the message, title and results chart are what went out, while a class renamed since, or
+    a sender who changed their name, shows the new name. Nothing here sends, edits or deletes.
+    """
+    one = AnnouncementDraft.objects.filter(pk=pk).select_related(
+        "guild", "class_offering", "author", "funding_snapshot"
+    )
+    row = _announcement_rows(request, _get_member(request), within=one).first()
+    if row is None:
+        raise Http404("No such announcement.")
+    if row.is_resumable:
+        return redirect("hub_compose_resume", draft_pk=row.pk)
+    return render(
+        request,
+        "hub/announcement_sent.html",
+        {
+            **_get_hub_context(request),
+            "row": row,
+            "reach": row.reach(),
+            **_announcement_previews(row),
+        },
+    )
 
 
 @login_required
@@ -6930,10 +7168,11 @@ def voting_settings(request: HttpRequest) -> HttpResponse:
 def voting_results_draft(request: HttpRequest, pk: int) -> HttpResponse:
     """Open this snapshot's results announcement in the composer (the banner's Draft announcement).
 
-    POST only, so a link preview or a stray GET never creates a draft. The model returns the
-    admin's own unsent draft for this snapshot when there is one, so a second click reopens it.
-    Results that already went out, or a snapshot with nothing to announce, come back to the
-    snapshot's page with the reason.
+    POST only, so a link preview or a stray GET never creates a draft. Drafts are shared, so the
+    model returns the snapshot's open results draft whoever made it (the one the snapshot job made
+    on its own, usually) and every admin's click reopens that one; only when none is open is a new
+    one made. Results that already went out, or a snapshot with nothing to announce, come back to
+    the snapshot's page with the reason.
     """
     from membership.models import NoResultsToAnnounceError, ResultsAlreadySentError
 

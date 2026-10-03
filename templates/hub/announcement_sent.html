@@ -1,0 +1,88 @@
+{% extends "hub/base.html" %}
+{% load static %}
+{% block title %}{{ row.title }}{% endblock %}
+{% block extra_head %}
+<link rel="stylesheet" href="{% static 'css/announcement-compose.css' %}">
+<link rel="stylesheet" href="{% static 'css/announcements.css' %}">
+{% endblock %}
+{% block content %}
+{% comment %}
+The read-only record of a sent or sending announcement (hub.views.announcement_sent): who it
+reached, from the delivery ledger (AnnouncementDraft.reach), and what went out on each channel,
+rebuilt from the saved row by the composer preview's own builder. Nothing here sends, edits or
+deletes. The email frame is the shared partial, never _compose_email_preview.html, whose out of
+band Discord swap a boosted arrival would try to apply.
+
+Context: row, reach (AnnouncementReach or None), preview_html, preview_subject, discord_title,
+discord_description_html, push_title, push_body.
+{% endcomment %}
+<p class="pl-announcements-back">
+  <a href="{% url 'hub_announcements' %}?tab=sent" class="hub-btn hub-btn--sm hub-btn--ghost" data-announcement-back>&larr; Back to Announcements</a>
+</p>
+<div class="pl-announcement-heading">
+  <h1 class="hub-page-title">{{ row.title }}</h1>
+  <span class="hub-pill {% if row.state == 'sent' %}hub-pill--ok{% else %}hub-pill--warn{% endif %}" data-announcement-state="{{ row.state }}">{{ row.state.label }}</span>
+</div>
+<p class="pl-announcement-sentline" data-announcement-sentline>
+  {% if row.state == 'sent' %}Sent {{ row.sent_at|date:"M j, Y, g:i a" }} by {{ row.author_label }}.{% else %}Queued {{ row.send_requested_at|date:"M j, Y, g:i a" }} by {{ row.author_label }}. It goes out within 15 minutes.{% if row.send_error %} The last try failed: {{ row.failure_reason }}. It tries again on the next run.{% endif %}{% endif %}
+</p>
+
+<section class="hub-card pl-announcement-card" data-announcement-facts>
+  <h2 class="pl-compose-section__title">Who It Reached</h2>
+  <dl class="pl-announcement-facts">
+    <dt>Audience</dt>
+    <dd data-fact="audience">{{ row.audience_label }}{% if row.recipient_selection %} (chosen recipients){% endif %}{% if row.audience == 'class' and row.include_waitlist %} and the waitlist{% endif %}</dd>
+    <dt>Reached</dt>
+    <dd data-fact="reached">{% if row.state == 'sending' %}Not yet{% elif reach is None %}Not recorded{% else %}{{ reach.people }} {{ reach.people|pluralize:"person,people" }}{% endif %}</dd>
+    <dt>In the app</dt>
+    <dd data-fact="in_app">{% if row.state == 'sending' %}Not yet{% elif reach is None %}Not recorded{% else %}{{ reach.in_app }} member{{ reach.in_app|pluralize }}{% endif %}</dd>
+    <dt>Email</dt>
+    <dd data-fact="email">{% if not row.send_email %}Off{% elif row.state == 'sending' %}Not yet{% elif reach is None %}Not recorded{% else %}{{ reach.email }}{% endif %}</dd>
+    <dt>Push</dt>
+    <dd data-fact="push">{% if not row.push_enabled %}Off{% elif row.state == 'sending' %}Not yet{% elif reach is None %}Not recorded{% else %}{{ reach.push }} member{{ reach.push|pluralize }}{% endif %}</dd>
+    {% if row.audience != 'class' %}
+    <dt>Discord</dt>
+    <dd data-fact="discord">{% if not row.discord_on %}Off{% elif row.state == 'sending' %}Not yet{% elif reach is None %}Not recorded{% elif reach.discord_posted %}Sent to {{ row.discord_target_label }}{% if row.mention_label %} with {{ row.mention_label }}{% endif %}{% else %}Not posted{% endif %}</dd>
+    {% endif %}
+  </dl>
+  {% if row.state == 'sent' and reach is None %}
+  <p class="pl-announcement-card__note" data-reach-not-recorded>How many people this reached was not recorded for announcements sent before this page existed.</p>
+  {% endif %}
+</section>
+
+{% if row.push_enabled or row.send_email or row.discord_on %}
+<section class="hub-card pl-announcement-card" data-announcement-previews>
+  <h2 class="pl-compose-section__title">What Went Out</h2>
+  {% if row.push_enabled %}
+  <div class="pl-compose-channel" data-announcement-channel="push">
+    <h3 class="pl-compose-channel__title">Push Notification</h3>
+    <div class="pl-push-preview">
+      <div class="pl-push-preview__label">Push Preview</div>
+      <div class="pl-push-preview__card">
+        <div class="pl-push-preview__icon" aria-hidden="true">&#128276;</div>
+        <div class="pl-push-preview__meta">
+          <div class="pl-push-preview__app">Past Lives Makerspace</div>
+          <div class="pl-push-preview__title" data-push-preview-title>{{ push_title }}</div>
+          <div class="pl-push-preview__body" data-push-preview-body>{{ push_body }}</div>
+        </div>
+      </div>
+    </div>
+  </div>
+  {% endif %}
+  {% if row.send_email %}
+  <div class="pl-compose-channel" data-announcement-channel="email">
+    <h3 class="pl-compose-channel__title">Email</h3>
+    <div class="pl-wizard-preview">
+      {% include "hub/partials/_email_preview_frame.html" %}
+    </div>
+  </div>
+  {% endif %}
+  {% if row.discord_on %}
+  <div class="pl-compose-channel" data-announcement-channel="discord">
+    <h3 class="pl-compose-channel__title">Discord</h3>
+    {% include "hub/partials/_compose_discord_preview.html" with oob=False %}
+  </div>
+  {% endif %}
+</section>
+{% endif %}
+{% endblock %}

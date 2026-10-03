@@ -860,10 +860,9 @@
     <div>
       <h2 style="margin:0 0 0.25rem;font-size:1rem;color:var(--hub-text);">Sitewide Announcement</h2>
       <p style="color:var(--hub-text-muted);margin:0 0 1rem;">
-        The sitewide announcement composer moved to the new step-through wizard — pick who it's for,
-        design the email with a live preview, choose the Discord channel, and save a draft to finish later.
+        Announcements has its own page now. Write one in the Announcement Composer, save a draft to finish later, and see everything already sent.
       </p>
-      <a href="{% url 'hub_compose' %}" class="hub-btn hub-btn--primary">Compose an announcement &rarr;</a>
+      <a href="{% url 'hub_announcements' %}" class="hub-btn hub-btn--primary" data-open-announcements>Open Announcements</a>
     </div>
 
     <div style="border-top:1px solid var(--hub-border);padding-top:1.25rem;">

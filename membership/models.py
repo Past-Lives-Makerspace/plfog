@@ -45,7 +45,7 @@ from django.utils.safestring import SafeString
 
 from core.files import delete_orphan_on_replace
 from core.images import normalize_field_if_uploaded
-from core.models import HeroCropMixin
+from core.models import EventDelivery, HeroCropMixin
 from core.validators import (
     ALLOWED_WIKI_IMAGE_EXTENSIONS,
     validate_document,
@@ -4510,6 +4510,16 @@ class GuildAnnouncement(models.Model):
         """Visible on the page — never expires, or the expiry is today or later."""
         return self.expires_at is None or self.expires_at >= timezone.localdate()
 
+    @property
+    def delivery_period(self) -> str:
+        """The delivery ledger period :meth:`notify_members` claims its slots under.
+
+        Keyed to this announcement's pk, so re-saving never notifies twice while another
+        announcement still does. A composer send stamps it on its :class:`AnnouncementDraft`
+        so the Announcements page can read the reach back from ``EventDelivery``.
+        """
+        return f"announcement:{self.pk}"
+
     def resolve_discord_webhook(self) -> str:
         """Map :attr:`discord_channel` to the webhook URL this announcement posts to.
 
@@ -4621,7 +4631,7 @@ class GuildAnnouncement(models.Model):
                 "discord_broadcast_webhook": webhook,
             },
             url=guild_url,
-            period=f"announcement:{self.pk}",
+            period=self.delivery_period,
             messages=channel_messages or None,
             suppress_email=not self.send_email,
             suppress_push=suppress_push,
@@ -4957,34 +4967,77 @@ RESULTS_ANNOUNCEMENT_AUDIENCE_ERROR = "A results announcement goes to everyone."
 _DISCORD_PROSE_FLOOR = 1000
 
 
-class AnnouncementDraftManager(models.Manager["AnnouncementDraft"]):
-    """Queries for the compose wizard's saved drafts."""
+class AnnouncementDraftQuerySet(models.QuerySet["AnnouncementDraft"]):
+    """Queries for the composer's announcements: the Drafts and Sent tabs, the queue, and reach.
 
-    def for_user(self, user: "User") -> "models.QuerySet[AnnouncementDraft]":
-        """This user's resumable drafts, newest first, guild pre-fetched.
+    Who may see a row is decided in the view (``hub.views._announcement_rows``), by the audience
+    the composer would let the request address; these methods only split rows by state.
+    """
 
-        Resumable means unsent AND not queued: a site send queued for the background job is out
-        of the composer's hands, so resuming, re-sending, saving over or deleting it is refused
-        (every composer lookup goes through here).
+    def resumable(self) -> "AnnouncementDraftQuerySet":
+        """Rows still in the composer's hands: unsent AND not queued (the Drafts tab).
+
+        A site send queued for the background job is out of the composer's hands, so resuming,
+        re-sending, saving over or deleting it is refused. A send the queue gave up on is
+        resumable again and sits here, marked Could not send.
         """
-        return self.filter(author=user, sent_at__isnull=True, send_requested_at__isnull=True).select_related("guild")
+        return self.filter(sent_at__isnull=True, send_requested_at__isnull=True)
 
-    def queued(self) -> "models.QuerySet[AnnouncementDraft]":
+    def sent_or_sending(self) -> "AnnouncementDraftQuerySet":
+        """Rows that went out or are queued to go out (the Sent tab)."""
+        return self.filter(Q(sent_at__isnull=False) | Q(send_requested_at__isnull=False))
+
+    def queued(self) -> "AnnouncementDraftQuerySet":
         """Drafts waiting for ``send_queued_announcements``, oldest request first."""
         return self.filter(sent_at__isnull=True, send_requested_at__isnull=False).order_by("send_requested_at", "pk")
 
-    def results_snapshot_of(self, user: "User", draft_pk: str) -> "FundingSnapshot | None":
-        """The funding snapshot linked to ``user``'s own resumable draft ``draft_pk``, else ``None``.
+    def reach_for(self, rows: "Iterable[AnnouncementDraft]") -> dict[int, int]:
+        """How many people each of ``rows`` reached, read from the delivery ledger in one query.
 
-        How the composer's preview, test email and push test learn that they are rendering a
-        results announcement. Only the requesting author's own draft is consulted, and only a
-        snapshot already linked to it is returned, so a crafted ``draft_pk`` (someone else's draft,
-        a sent or queued one, garbage) yields ``None`` and the plain category title.
+        People reached are the distinct members and email-only addresses that got it on at least
+        one channel (``status=SENT``); the Discord broadcast is a post, not a person, so its
+        ``broadcast`` rows are left out. A per-recipient row is deleted again when its send did not
+        land (``core.events.emit._release_delivery``), so a row that remains is a real delivery.
+
+        Args:
+            rows: The announcements on one page of the Sent tab.
+
+        Returns:
+            ``{pk: people}`` for every row with a recorded :attr:`AnnouncementDraft.delivery_period`
+            (``0`` when nobody was reached). A row sent before the period was recorded is absent,
+            and reads "Not recorded".
         """
-        if not draft_pk.isdigit():
-            return None
-        draft = self.for_user(user).filter(pk=int(draft_pk)).select_related("funding_snapshot").first()
-        return draft.funding_snapshot if draft is not None else None
+        keyed = {row.pk: (row.event_key, row.delivery_period) for row in rows if row.delivery_period}
+        if not keyed:
+            return {}
+        pairs = Q()
+        for event_key, period in set(keyed.values()):
+            pairs |= Q(event_key=event_key, period=period)
+        counts = {
+            (entry["event_key"], entry["period"]): entry["people"]
+            for entry in EventDelivery.objects.filter(pairs, status=EventDelivery.Status.SENT)
+            .exclude(target_ref__startswith="broadcast")
+            .values("event_key", "period")
+            .annotate(people=Count("target_ref", distinct=True))
+        }
+        return {pk: counts.get(pair, 0) for pk, pair in keyed.items()}
+
+
+@dataclass(frozen=True)
+class AnnouncementReach:
+    """Who one sent announcement reached, per channel, from the delivery ledger.
+
+    ``people`` counts distinct members and email-only addresses across every channel; ``in_app``,
+    ``email`` and ``push`` count ledger rows on that channel; ``discord_posted`` says whether the
+    ledger holds a Discord row. The ledger keeps that row even when the webhook post failed, so it
+    means the post was sent, not that Discord accepted it.
+    """
+
+    people: int
+    in_app: int
+    email: int
+    push: int
+    discord_posted: bool
 
 
 class AnnouncementDraft(models.Model):
@@ -5007,6 +5060,11 @@ class AnnouncementDraft(models.Model):
     :class:`FundingSnapshot` is that month's **results announcement**: it takes the
     "<cycle> Voting Results" title, carries the results chart in its email and Discord post, and
     marks the snapshot's results sent once it goes out.
+
+    Drafts are shared: anyone the composer would let address a row's audience may open, save over,
+    send or delete it, and the Announcements page lists them (``hub.views._announcement_rows``).
+    Every save sets :attr:`author` to whoever saved, so it reads "last saved by" while unsent and
+    "sent by" once sent, and the email's From line and the send actor are the sender.
     """
 
     class Audience(models.TextChoices):
@@ -5020,11 +5078,24 @@ class AnnouncementDraft(models.Model):
         EVERYONE = "everyone", "@everyone"
         ROLE = "role", "@[Guild role]"
 
+    class DraftState(models.TextChoices):
+        """Where an announcement is, derived from its fields and never stored (:attr:`state`)."""
+
+        DRAFT = "draft", "Draft"
+        COULD_NOT_SEND = "could_not_send", "Could not send"
+        SENDING = "sending", "Sending"
+        SENT = "sent", "Sent"
+
     author = models.ForeignKey(
         settings.AUTH_USER_MODEL,
-        on_delete=models.CASCADE,
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
         related_name="announcement_drafts",
-        help_text="Whose draft this is — drives the resume list and the send actor.",
+        help_text=(
+            "Who last saved this announcement, and the sender once it is sent (the send actor and the "
+            "email's From line). Blank on a results draft the system made, until someone saves or sends it."
+        ),
     )
     audience = models.CharField(
         max_length=10,
@@ -5154,8 +5225,18 @@ class AnnouncementDraft(models.Model):
             "Deleting the snapshot leaves a plain site announcement."
         ),
     )
+    delivery_period = models.CharField(
+        max_length=120,
+        blank=True,
+        default="",
+        db_default="",
+        help_text=(
+            "The delivery ledger period this announcement's send used, stamped when it is sent, so its "
+            "reach can be read back from EventDelivery. Blank for announcements sent before it was recorded."
+        ),
+    )
 
-    objects = AnnouncementDraftManager()
+    objects = AnnouncementDraftQuerySet.as_manager()
 
     class Meta:
         ordering = ["-updated_at"]
@@ -5176,6 +5257,145 @@ class AnnouncementDraft(models.Model):
     def __str__(self) -> str:
         state = "sent" if self.sent_at else "draft"
         return f"{self.title} — {self.get_audience_display()} ({state})"
+
+    @property
+    def state(self) -> "AnnouncementDraft.DraftState":
+        """Draft, Could not send (the queue gave up), Sending (queued) or Sent, from the fields."""
+        if self.sent_at is not None:
+            return self.DraftState.SENT
+        if self.send_requested_at is not None:
+            return self.DraftState.SENDING
+        if self.send_given_up:
+            return self.DraftState.COULD_NOT_SEND
+        return self.DraftState.DRAFT
+
+    @property
+    def is_resumable(self) -> bool:
+        """Whether the composer may still open, save over, send or delete this row (unsent, not queued)."""
+        return self.sent_at is None and self.send_requested_at is None
+
+    @property
+    def audience_value(self) -> str:
+        """The composer's combined audience value: ``"site"``, ``"guild:<pk>"`` or ``"class:<pk>"``.
+
+        The value the composer's picker posts and :func:`hub.views._compose_audience_forbidden`
+        judges, so asking that gate with it asks exactly what the composer would let a request
+        address.
+        """
+        if self.audience == self.Audience.CLASS:
+            return f"class:{self.class_offering_id}"
+        if self.audience == self.Audience.GUILD:
+            return f"guild:{self.guild_id}"
+        return self.Audience.SITE.value
+
+    @property
+    def audience_label(self) -> str:
+        """Who it is for, as the Announcements page shows it: everyone, the guild's name or the class title."""
+        if self.audience == self.Audience.CLASS:
+            return cast("ClassOffering", self.class_offering).title
+        if self.audience == self.Audience.GUILD:
+            return cast(Guild, self.guild).name
+        return self.Audience.SITE.label
+
+    @property
+    def event_key(self) -> str:
+        """The notification event this announcement emits, which keys its rows on the delivery ledger."""
+        return self._trigger_kind()
+
+    @property
+    def discord_on(self) -> bool:
+        """Whether this send posts to Discord: switched on, a channel chosen, and not a class audience."""
+        return (
+            self.discord_enabled
+            and self.discord_channel != GuildAnnouncement.DiscordChannel.NONE
+            and self.audience != self.Audience.CLASS
+        )
+
+    @property
+    def channel_labels(self) -> list[str]:
+        """The channels this send uses beyond the bell: Email, Push, Discord, or ``["App only"]``.
+
+        A class send never posts to Discord, whatever its toggle says. Everyone it goes to also gets
+        it in their notification bell, so "App only" means the bell alone.
+        """
+        labels = []
+        if self.send_email:
+            labels.append("Email")
+        if self.push_enabled:
+            labels.append("Push")
+        if self.discord_on:
+            labels.append("Discord")
+        return labels or ["App only"]
+
+    @property
+    def author_label(self) -> str:
+        """Who last saved it (a draft) or sent it, as the Announcements page names them.
+
+        The name ``_sender_line`` uses. A blank author on a results draft still in the composer's
+        hands is the one the snapshot job made ("Automatic", the word the Voting history uses for a
+        snapshot the system took). Any other blank author is an account deleted since ("Unknown"):
+        a plain draft's last saver, or the sender of a row that went out or is going out.
+        """
+        if self.author is not None:
+            return self.author.get_full_name() or self.author.get_username()
+        return "Automatic" if self.is_resumable and self.funding_snapshot_id is not None else "Unknown"
+
+    @property
+    def message_excerpt(self) -> str:
+        """The message flattened to plain text and cut to 90 characters: what tells rows apart in a list."""
+        from django.utils.text import Truncator
+
+        from core.html_sanitize import rich_html_to_text
+
+        return Truncator(rich_html_to_text(self.body)).chars(90)
+
+    @property
+    def failure_reason(self) -> str:
+        """Why the last try to send failed, without a closing full stop (the lines add their own)."""
+        return self.send_error.rstrip(".")
+
+    @property
+    def discord_target_label(self) -> str:
+        """Where the Discord post went: the channel's label, or "the <guild> channel" for a guild's own."""
+        if self.discord_channel == GuildAnnouncement.DiscordChannel.GUILD and self.guild is not None:
+            return f"the {self.guild.name} channel"
+        return self.get_discord_channel_display()
+
+    @property
+    def mention_label(self) -> str:
+        """The ping that rode the Discord post, ``""`` for none; a role ping is named as the composer names it."""
+        if self.mention == self.Mention.NONE:
+            return ""
+        if self.mention == self.Mention.ROLE and self.guild is not None:
+            return f"@{self.guild.name}"
+        return self.get_mention_display()
+
+    def reach(self) -> "AnnouncementReach | None":
+        """Who this announcement reached, per channel, read from the delivery ledger in one query.
+
+        ``None`` when no :attr:`delivery_period` was recorded: it is still sending, or it was sent
+        before the period was kept.
+        """
+        if not self.delivery_period:
+            return None
+        from core.events.registry import Channel
+
+        totals = EventDelivery.objects.filter(
+            event_key=self.event_key, period=self.delivery_period, status=EventDelivery.Status.SENT
+        ).aggregate(
+            people=Count("target_ref", distinct=True, filter=~Q(target_ref__startswith="broadcast")),
+            in_app=Count("pk", filter=Q(channel=Channel.IN_APP.value)),
+            email=Count("pk", filter=Q(channel=Channel.EMAIL.value)),
+            push=Count("pk", filter=Q(channel=Channel.PUSH.value)),
+            discord=Count("pk", filter=Q(channel=Channel.DISCORD.value)),
+        )
+        return AnnouncementReach(
+            people=totals["people"],
+            in_app=totals["in_app"],
+            email=totals["email"],
+            push=totals["push"],
+            discord_posted=totals["discord"] > 0,
+        )
 
     def _mention_literal(self) -> str:
         """The Discord ping string for :attr:`mention`.
@@ -5220,8 +5440,12 @@ class AnnouncementDraft(models.Model):
         return ""
 
     def _sender_line(self) -> str:
-        """The "From <name>" the email shows when :attr:`show_sender` is on (never in push)."""
-        if not self.show_sender:
+        """The "From <name>" the email shows when :attr:`show_sender` is on (never in push).
+
+        ``""`` when nobody is named: the sender is switched off, or the author is blank (a results
+        draft the job made, or a sent row whose account was deleted since, which must still render).
+        """
+        if not self.show_sender or self.author is None:
             return ""
         return self.author.get_full_name() or self.author.get_username()
 
@@ -5437,7 +5661,12 @@ class AnnouncementDraft(models.Model):
             the chosen subset when one was, and ``0`` when "Also send email" is off. Everyone
             in ``total`` still gets the in-app bell regardless.
 
+        The ledger period the send claimed is stamped as :attr:`delivery_period` with ``sent_at``,
+        so the Announcements page can read back how many people it reached.
+
         Raises:
+            ValueError: If nobody is named as the sender (a blank author). No path reaches it: the
+                composer saves, which names the sender, before it sends or queues.
             AlreadySentError: If this draft was already sent.
             ValidationError: If the body sanitizes empty, or a guild audience has no guild.
             ResultsAlreadySentError: If this is a results announcement whose results were already sent.
@@ -5448,6 +5677,8 @@ class AnnouncementDraft(models.Model):
         from core.html_sanitize import rich_html_to_text
         from membership.orientations import _absolute_url
 
+        if self.author is None:
+            raise ValueError("An announcement needs a sender before it goes out.")
         body_html = self._check_sendable()
 
         discord_on = self.discord_enabled
@@ -5458,6 +5689,7 @@ class AnnouncementDraft(models.Model):
         if self.audience == self.Audience.SITE:
             site_url = _absolute_url("/")
             webhook = resolve_channel_webhook(self.discord_channel, None) if discord_on else ""
+            period = self._site_delivery_period()
             result = emit(
                 "site_announcement",
                 actor=self.author,
@@ -5469,7 +5701,7 @@ class AnnouncementDraft(models.Model):
                     "discord_broadcast_webhook": webhook,
                 },
                 url=site_url,
-                period=self._site_delivery_period(),
+                period=period,
                 messages=self._channel_overrides(site_url),
                 suppress_broadcast=(webhook == ""),
                 suppress_email=not self.send_email,
@@ -5490,6 +5722,8 @@ class AnnouncementDraft(models.Model):
             offering = cast("ClassOffering", self.class_offering)  # the guard above guarantees a class
             class_url = _absolute_url(reverse("classes:public_class_detail", kwargs={"slug": offering.slug}))
             class_user_ids, class_emails = self._class_recipients()
+            # Hoisted so the exact timestamped period the emit claims is the one stamped below.
+            period = f"announce:{self.pk}:{timezone.now():%Y%m%d%H%M%S%f}"
             result = emit(
                 "class_announcement",
                 actor=self.author,
@@ -5501,7 +5735,7 @@ class AnnouncementDraft(models.Model):
                     "class_offering": offering,
                 },
                 url=class_url,
-                period=f"announce:{self.pk}:{timezone.now():%Y%m%d%H%M%S%f}",
+                period=period,
                 messages=self._channel_overrides(class_url),
                 suppress_email=not self.send_email,
                 suppress_push=suppress_push,
@@ -5536,12 +5770,14 @@ class AnnouncementDraft(models.Model):
                 suppress_push=suppress_push,
                 override_preferences=self.mark_as_urgent,
             )
+            period = announcement.delivery_period
 
         with transaction.atomic():
             self.sent_at = timezone.now()
             self.send_requested_at = None
             self.send_error = ""
-            self.save(update_fields=["sent_at", "send_requested_at", "send_error", "updated_at"])
+            self.delivery_period = period
+            self.save(update_fields=["sent_at", "send_requested_at", "send_error", "delivery_period", "updated_at"])
             snapshot = self.funding_snapshot
             if snapshot is not None:
                 snapshot.mark_results_announced()
@@ -9157,6 +9393,14 @@ class FundingSnapshot(models.Model):
         default=0,
         help_text="Attempts made on the currently queued send; reset to 0 once it finishes.",
     )
+    results_draft_created_at = models.DateTimeField(
+        null=True,
+        blank=True,
+        help_text=(
+            "When this snapshot's results draft was first made or opened, by the snapshot job or an "
+            "admin's Draft announcement. Set once, so a draft an admin deletes is never made again on its own."
+        ),
+    )
 
     class Meta:
         ordering = ["-snapshot_at"]
@@ -9194,8 +9438,8 @@ class FundingSnapshot(models.Model):
         """Why the newest results announcement the background job gave up on failed, else ``""``.
 
         Drives the Voting page's "could not be sent" line. The draft it describes is unsent and
-        off the queue, so Draft announcement reopens it for its author; any trailing full stop is
-        dropped because the line adds its own.
+        off the queue, so Draft announcement reopens it; any trailing full stop is dropped because
+        the line adds its own.
         """
         failed = (
             self.announcement_drafts.filter(sent_at__isnull=True, send_requested_at__isnull=True)
@@ -9496,28 +9740,15 @@ class FundingSnapshot(models.Model):
         """The phone line a results announcement starts with."""
         return f"{self.cycle_label} voting results are in. See how the guild funding was split."
 
-    def draft_results_announcement(self, author: User) -> AnnouncementDraft:
-        """Open this snapshot's results announcement for ``author``: their own draft, or a new one.
+    def _new_results_draft(self, author: User | None) -> AnnouncementDraft:
+        """Create this snapshot's results announcement, pre-filled for everyone, and return it.
 
-        Returns ``author``'s existing resumable (unsent, not queued) results draft for this
-        snapshot, so a second click reopens the same draft; otherwise creates one pre-filled for
-        everyone: email, push and Discord on, posting to #general-chat with an @everyone ping
-        (as the old results post did), the sender shown, not urgent.
-
-        Raises:
-            ResultsAlreadySentError: If this snapshot's results already went out, or a results
-                announcement for it is queued (a stale tab must not open a second, unsendable draft).
-            NoResultsToAnnounceError: If the snapshot has no per-guild results (legacy or vote-less).
+        The one builder behind both a Draft announcement click and the snapshot job, so a draft
+        the job made and one an admin opened are identical: email, push and Discord on, posting to
+        #general-chat with an @everyone ping (as the old results post did), the sender shown, not
+        urgent, titled "<cycle> Voting Results". ``author`` is blank for the job's draft; whoever
+        saves or sends it becomes its author.
         """
-        if self.results_sent_at is not None:
-            raise ResultsAlreadySentError("These results were already sent.")
-        if self.results_announcement_sending:
-            raise ResultsAlreadySentError("These results are already sending.")
-        if not self.allocation_summary():
-            raise NoResultsToAnnounceError(f"'{self.cycle_label}' has no results to announce.")
-        existing = AnnouncementDraft.objects.for_user(author).filter(funding_snapshot=self).first()
-        if existing is not None:
-            return existing
         draft = AnnouncementDraft(
             author=author,
             audience=AnnouncementDraft.Audience.SITE,
@@ -9535,6 +9766,99 @@ class FundingSnapshot(models.Model):
         draft.title = draft.announcement_category
         draft.save()
         return draft
+
+    def _open_results_draft(self) -> AnnouncementDraft | None:
+        """This snapshot's open (unsent, unqueued) results draft from any author, the newest edit first."""
+        return (
+            AnnouncementDraft.objects.resumable()
+            .filter(funding_snapshot=self)
+            .select_related("funding_snapshot")
+            .order_by("-updated_at", "-pk")
+            .first()
+        )
+
+    def draft_results_announcement(self, author: User) -> AnnouncementDraft:
+        """Open this snapshot's results announcement: the shared open draft, or a new one by ``author``.
+
+        Drafts are shared, so this returns the snapshot's open (unsent, not queued) results draft
+        whoever made it, the snapshot job included, so every admin's click opens the one draft.
+        Only when none is open is a new one made (:meth:`_new_results_draft`), with ``author`` as
+        its author. The snapshot row is locked first, the same lock :meth:`make_results_draft`
+        takes, so a click and the job in the same instant make one draft, not two.
+
+        A click also sets ``results_draft_created_at`` when it is still blank (with ``update``, so
+        nothing is pushed to Airtable), so the job never makes the draft again on its own after
+        an admin opened one and deleted it: the delete modal and the help guide promise that.
+
+        Raises:
+            ResultsAlreadySentError: If this snapshot's results already went out, or a results
+                announcement for it is queued (a stale tab must not open a second, unsendable draft).
+            NoResultsToAnnounceError: If the snapshot has no per-guild results (legacy or vote-less).
+        """
+        with transaction.atomic():
+            FundingSnapshot.objects.select_for_update().filter(pk=self.pk).first()
+            if self.results_sent_at is not None:
+                raise ResultsAlreadySentError("These results were already sent.")
+            if self.results_announcement_sending:
+                raise ResultsAlreadySentError("These results are already sending.")
+            if not self.allocation_summary():
+                raise NoResultsToAnnounceError(f"'{self.cycle_label}' has no results to announce.")
+            FundingSnapshot.objects.filter(pk=self.pk, results_draft_created_at__isnull=True).update(
+                results_draft_created_at=timezone.now()
+            )
+            existing = self._open_results_draft()
+            if existing is not None:
+                return existing
+            return self._new_results_draft(author)
+
+    def make_results_draft(self) -> AnnouncementDraft | None:
+        """Make this snapshot's results draft on its own, once, for an admin to check and send.
+
+        Called by the snapshot job on every tick (:meth:`make_newest_results_draft`). Inside one
+        transaction, with this snapshot's row locked (the lock :meth:`draft_results_announcement`
+        takes too):
+
+        1. Already made (``results_draft_created_at`` set): nothing, deleted since or not. A draft
+           an admin threw away is never made again on its own.
+        2. Results sent, or a results announcement for them queued: nothing, and no stamp.
+        3. No per-guild results to announce: nothing, and no stamp.
+        4. An open results draft already exists (an admin pressed Draft announcement first): no
+           second one; the stamp is set, so none is made after it is deleted either.
+        5. Otherwise the draft is made with a blank author, and the stamp is set.
+
+        The stamp is written with ``update``, not ``save``, so it does not push the snapshot to
+        Airtable: it is bookkeeping, not a number Airtable mirrors.
+
+        Returns:
+            The draft made, or ``None`` when none was made.
+        """
+        with transaction.atomic():
+            locked = FundingSnapshot.objects.select_for_update().get(pk=self.pk)
+            if locked.results_draft_created_at is not None:
+                return None
+            if locked.results_sent_at is not None or locked.results_announcement_sending:
+                return None
+            if not locked.allocation_summary():
+                return None
+            draft = None if locked._open_results_draft() is not None else locked._new_results_draft(None)
+            stamped_at = timezone.now()
+            FundingSnapshot.objects.filter(pk=self.pk).update(results_draft_created_at=stamped_at)
+        self.results_draft_created_at = stamped_at
+        return draft
+
+    @classmethod
+    def make_newest_results_draft(cls) -> AnnouncementDraft | None:
+        """Make the newest snapshot's results draft (:meth:`make_results_draft`), and only the newest.
+
+        A results announcement is news: an older month's numbers announced late with an @everyone
+        ping would be noise, and a second results draft beside the newest invites sending the
+        wrong one. An older snapshot can still be drafted by hand from its Voting page.
+
+        Returns:
+            The draft made, or ``None`` when none was (no snapshots, or nothing to make).
+        """
+        newest = cls.objects.order_by("-snapshot_at", "-pk").first()
+        return newest.make_results_draft() if newest is not None else None
 
     def mark_results_announced(self) -> None:
         """Stamp this snapshot's results as sent, once, after its results announcement went out.

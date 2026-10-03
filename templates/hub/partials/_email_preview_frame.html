@@ -1,0 +1,17 @@
+{% comment %}
+The branded email as it sends: the inbox row and the email in an iframe. Shared by the composer's
+live preview (_compose_email_preview.html) and the sent view (announcement_sent.html), so the two
+render one way. Carries no out of band swap, so a boosted arrival can include it safely.
+
+Params:
+  preview_html    — the full branded email HTML (escaped into the iframe srcdoc)
+  preview_subject — the subject line for the inbox row
+{% endcomment %}
+<div class="pl-email-preview__inbox">
+  <span class="pl-email-preview__from">Past Lives</span>
+  <span class="pl-email-preview__subject">{{ preview_subject|default:"(no subject yet)" }}</span>
+</div>
+<div class="pl-email-preview__frame pl-wizard-preview__frame">
+  {# force_escape: preview_html may be a SafeString (render_to_string), and a raw quote would close srcdoc and blank the preview. #}
+  <iframe srcdoc="{{ preview_html|force_escape }}" title="Email preview" class="pl-email-preview__iframe pl-wizard-preview__iframe"></iframe>
+</div>

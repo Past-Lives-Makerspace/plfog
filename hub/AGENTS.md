@@ -16,6 +16,12 @@ Member-facing views. All views are `@login_required`. No models — reads from `
 | `beta_feedback` | `hub_beta_feedback` | `/feedback/` |
 | `tab_detail` | `hub_tab_detail` | `/tab/` |
 | `tab_history` | `hub_tab_history` | `/tab/history/` |
+| `announcements_overview` | `hub_announcements` | `/announcements/` (Drafts and Sent tabs, `?tab=drafts\|sent`) |
+| `announcement_sent` | `hub_announcement_sent` | `/announcements/sent/<pk>/` (read-only record of a sent or sending announcement) |
+
+## Announcements
+
+The composer (`hub_compose*`) and the Announcements page share one visibility rule, `_announcement_rows(request, member)` in `hub/views.py`: a row is visible and actionable exactly when `_compose_audience_forbidden(request, draft.audience_value)` is `None` (admins short-circuit to every row). Every composer lookup that takes a `draft_pk` goes through `_handled_draft`, which applies it to resumable rows only. Drafts are shared; `author` is whoever saved last, and the sender once sent.
 
 ## Common Pattern
 

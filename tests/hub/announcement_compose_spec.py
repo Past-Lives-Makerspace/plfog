@@ -1,10 +1,12 @@
 """The announcement compose wizard views (/announcements/compose/) — page, drafts, send, mention.
 
-Covers: GET renders the three steps + the send path (the drafts UI is hidden as of 2026-07-13 —
-backend intact); audience gating (admins see site-wide, leads see their guilds, plain members get
-bounced to propose); resume robustness (foreign/sent pk → 404); save-draft upsert + error toast;
-the recipient-count HTMX endpoint; the direct test-send (never the spine); send permission
-re-checks + the guild materialization; delete via confirm.
+Covers: GET renders both phases, the Back to Announcements link and both Save draft buttons;
+audience gating (admins see site-wide, leads see their guilds, plain members get bounced to
+propose); shared drafts (anyone who may address a draft's stored audience may resume, save over,
+send or delete it; anyone else gets a 404 or a refusal, never the row); Save draft's upsert, its
+HX-Replace-Url and toasts; the recipient-count HTMX endpoint; the direct test-send (never the
+spine); send permission re-checks, the guild materialization and the landing on the Sent tab;
+delete as a full-page POST from the Announcements page.
 """
 
 from __future__ import annotations
@@ -14,6 +16,7 @@ import types
 
 import pytest
 from django.contrib.auth.models import User
+from django.contrib.messages import get_messages
 from django.db.models.signals import post_save
 from django.test import Client
 from django.urls import reverse
@@ -28,7 +31,7 @@ from core.models import EventDelivery, Notification
 from hub.forms import AnnouncementComposeForm, discord_channel_choices, split_audience
 from hub.views import _compose_count_for, _compose_editable_guilds, _compose_first_error
 from membership.models import AnnouncementDraft, GuildAnnouncement
-from tests.membership.factories import GuildFactory, MemberFactory, MembershipPlanFactory
+from tests.membership.factories import AnnouncementDraftFactory, GuildFactory, MemberFactory, MembershipPlanFactory
 
 pytestmark = pytest.mark.django_db
 
@@ -58,6 +61,18 @@ def _login_plain(client: Client, username: str = "plain") -> User:
 
 def _trigger(response) -> dict:
     return json.loads(response["HX-Trigger"])
+
+
+def _sent_tab() -> str:
+    return f"{reverse('hub_announcements')}?tab=sent"
+
+
+def _draft_gone_toast(response) -> None:
+    toast = _trigger(response)["showToast"]
+    assert toast == {
+        "message": "This draft can no longer be edited. It may have been sent or deleted.",
+        "type": "error",
+    }
 
 
 def _valid_send_data(**overrides) -> dict:
@@ -95,17 +110,47 @@ def describe_hub_compose_page():
         assert f'action="{reverse("hub_compose_send")}"' in content
         assert "Send announcement" in content
 
-    def it_hides_the_drafts_panel_and_the_save_draft_button(client: Client):
-        # The drafts UI was hidden on 2026-07-13 (backend intact); neither the "Save draft"
-        # button nor the "Your drafts" panel include should reach the composer any more.
+    def it_renders_the_back_link_and_both_save_draft_buttons(client: Client):
+        # Replaces it_hides_the_drafts_panel_and_the_save_draft_button: Save draft is back, in
+        # both phases' action rows, and the dead drafts panel stays gone.
         _login_admin(client)
         content = client.get(reverse("hub_compose")).content.decode()
-        assert reverse("hub_compose_save_draft") not in content
-        assert ">Save draft<" not in content
+        back = f'<a href="{reverse("hub_announcements")}" class="hub-btn hub-btn--sm hub-btn--ghost" data-compose-back>'
+        assert content.count(back) == 1
+        assert content.count("data-compose-save-draft") == 2
+        assert (
+            content.count(f'hx-post="{reverse("hub_compose_save_draft")}" hx-include="closest form" hx-swap="none"')
+            == 2
+        )
         assert 'id="compose-drafts"' not in content
-        assert "Your drafts" not in content
-        assert "No saved drafts yet" not in content
-        assert "+ New announcement" not in content
+
+    def it_has_no_drafts_list_partial_left_for_anything_to_include(settings):
+        from pathlib import Path
+
+        from django.template import TemplateDoesNotExist
+        from django.template.loader import get_template
+
+        with pytest.raises(TemplateDoesNotExist):
+            get_template("hub/partials/_compose_drafts_list.html")
+        root = Path(settings.BASE_DIR)
+        sources = [*(root / "templates").rglob("*.html"), root / "hub" / "views.py"]
+        assert [str(path) for path in sources if "_compose_drafts_list" in path.read_text(encoding="utf-8")] == []
+
+    def it_puts_save_draft_before_the_primary_in_each_action_row(client: Client):
+        _login_admin(client)
+        content = client.get(reverse("hub_compose")).content.decode()
+        first_save = content.index("data-compose-save-draft")
+        assert first_save < content.index('goPreview()" :disabled')
+        second_save = content.index("data-compose-save-draft", first_save + 1)
+        assert content.index('@click="phase = 1">&larr; Back</button>') < second_save
+        assert second_save < content.index('@click="sendModalOpen = true"')
+
+    def it_shows_no_back_link_to_a_lock_only_instructor_with_nothing_saved(client: Client):
+        _user, _member, offering = _instructor(
+            client, username="lockonly", slug=False, status=ClassOffering.Status.DRAFT
+        )
+        content = client.get(f"{reverse('hub_compose')}?audience=class:{offering.pk}&lock=1").content.decode()
+        assert "data-compose-back" not in content
 
     def it_offers_the_site_option_to_an_admin(client: Client):
         _login_admin(client)
@@ -148,16 +193,47 @@ def describe_hub_compose_page():
         content = client.get(reverse("hub_compose_resume", args=[draft.pk])).content.decode()
         assert "Resume this body" in content
 
-    def it_404s_resuming_another_users_draft(client: Client):
-        other = User.objects.create_user(username="other", password="p")
-        draft = AnnouncementDraft.objects.create(author=other, title="Not yours")
+    def it_lets_an_admin_resume_another_admins_draft(client: Client):
+        # Replaces it_404s_resuming_another_users_draft: drafts are shared by audience.
+        other = User.objects.create_superuser(username="other", email="other@x.com", password="p")
+        draft = AnnouncementDraftFactory(author=other, body="<p>Shared draft body</p>")
         _login_admin(client)
-        assert client.get(reverse("hub_compose_resume", args=[draft.pk])).status_code == 404
+        response = client.get(reverse("hub_compose_resume", args=[draft.pk]))
+        assert response.status_code == 200
+        assert f'name="draft_pk" value="{draft.pk}"' in response.content.decode()
 
-    def it_404s_resuming_an_already_sent_draft(client: Client):
+    def it_404s_a_lead_resuming_another_guilds_draft(client: Client):
+        own, other = GuildFactory(), GuildFactory()
+        _login_lead(client, own)
+        theirs = AnnouncementDraftFactory(audience=AnnouncementDraft.Audience.GUILD, guild=other)
+        assert client.get(reverse("hub_compose_resume", args=[theirs.pk])).status_code == 404
+
+    def it_sends_a_reload_of_a_queued_drafts_resume_url_to_its_record(client: Client):
         admin = _login_admin(client)
-        draft = AnnouncementDraft.objects.create(author=admin, title="Gone", sent_at=timezone.now())
-        assert client.get(reverse("hub_compose_resume", args=[draft.pk])).status_code == 404
+        draft = AnnouncementDraftFactory(author=admin, queued=True)
+        response = client.get(reverse("hub_compose_resume", args=[draft.pk]))
+        assert response.status_code == 302
+        assert response.url == reverse("hub_announcement_sent", args=[draft.pk])
+
+    def it_sends_a_reload_of_an_already_sent_drafts_resume_url_to_its_record(client: Client):
+        # Replaces it_404s_resuming_an_already_sent_draft: Save draft writes the resume URL into
+        # the address bar, so a reload after the send must land on the record, not a 404.
+        admin = _login_admin(client)
+        draft = AnnouncementDraftFactory(author=admin, sent=True)
+        response = client.get(reverse("hub_compose_resume", args=[draft.pk]))
+        assert response.status_code == 302
+        assert response.url == reverse("hub_announcement_sent", args=[draft.pk])
+        assert client.get(response.url).status_code == 200
+
+    def it_404s_a_lead_reloading_another_guilds_sent_announcement(client: Client):
+        own, other = GuildFactory(), GuildFactory()
+        _login_lead(client, own)
+        theirs = AnnouncementDraftFactory(audience=AnnouncementDraft.Audience.GUILD, guild=other, sent=True)
+        assert client.get(reverse("hub_compose_resume", args=[theirs.pk])).status_code == 404
+
+    def it_404s_resuming_a_missing_draft(client: Client):
+        _login_admin(client)
+        assert client.get(reverse("hub_compose_resume", args=[999999])).status_code == 404
 
 
 def describe_hub_compose_save_draft():
@@ -167,17 +243,84 @@ def describe_hub_compose_save_draft():
         assert response.status_code == 200
         # The title is the auto category (site → "Makerspace Announcement"), not a member subject.
         assert AnnouncementDraft.objects.filter(author=admin, title="Makerspace Announcement").exists()
-        assert "Draft saved." in _trigger(response)["showToast"]["message"]
+        assert _trigger(response)["showToast"] == {"message": "Draft saved.", "type": "success"}
+
+    def it_returns_only_the_draft_pk_out_of_band_and_replaces_the_url(client: Client):
+        _login_admin(client)
+        response = client.post(reverse("hub_compose_save_draft"), _valid_send_data(body="<p>v1</p>"))
+        draft = AnnouncementDraft.objects.get()
+        content = response.content.decode().strip()
+        assert (
+            content
+            == f'<input type="hidden" id="compose-draft-pk" name="draft_pk" value="{draft.pk}" hx-swap-oob="true">'
+        )
+        assert "compose-drafts" not in content
+        assert response["HX-Replace-Url"] == reverse("hub_compose_resume", args=[draft.pk])
 
     def it_upserts_the_same_row_on_a_second_save(client: Client):
         admin = _login_admin(client)
-        first = client.post(reverse("hub_compose_save_draft"), _valid_send_data(body="<p>v1</p>"))
+        client.post(reverse("hub_compose_save_draft"), _valid_send_data(body="<p>v1</p>"))
         draft = AnnouncementDraft.objects.get(author=admin)
-        client.post(reverse("hub_compose_save_draft"), _valid_send_data(body="<p>v2 body</p>", draft_pk=str(draft.pk)))
-        assert AnnouncementDraft.objects.filter(author=admin).count() == 1
+        second = client.post(
+            reverse("hub_compose_save_draft"), _valid_send_data(body="<p>v2 body</p>", draft_pk=str(draft.pk))
+        )
+        assert AnnouncementDraft.objects.count() == 1
         draft.refresh_from_db()
-        assert "v2 body" in draft.body
-        assert 'id="compose-draft-pk"' in first.content.decode()
+        assert draft.body == "<p>v2 body</p>"
+        assert second["HX-Replace-Url"] == reverse("hub_compose_resume", args=[draft.pk])
+
+    def it_makes_the_second_admin_the_author_of_a_shared_draft(client: Client):
+        first = User.objects.create_superuser(username="first", email="first@x.com", password="p")
+        draft = AnnouncementDraftFactory(author=first)
+        second = _login_admin(client, username="second")
+        response = client.post(reverse("hub_compose_save_draft"), _valid_send_data(draft_pk=str(draft.pk)))
+        assert response.status_code == 200
+        draft.refresh_from_db()
+        assert draft.author == second
+
+    @pytest.mark.parametrize("state", ["sent", "queued", "deleted"])
+    def it_404s_with_a_toast_and_makes_no_row_for_a_draft_gone_since_it_was_opened(client: Client, state: str):
+        admin = _login_admin(client)
+        draft = AnnouncementDraftFactory(author=admin)
+        if state == "sent":
+            AnnouncementDraft.objects.filter(pk=draft.pk).update(sent_at=timezone.now())
+        elif state == "queued":
+            AnnouncementDraft.objects.filter(pk=draft.pk).update(send_requested_at=timezone.now())
+        else:
+            draft.delete()
+        response = client.post(reverse("hub_compose_save_draft"), _valid_send_data(draft_pk=str(draft.pk)))
+        assert response.status_code == 404
+        _draft_gone_toast(response)
+        assert AnnouncementDraft.objects.count() == (0 if state == "deleted" else 1)
+
+    def it_refuses_a_lead_saving_over_another_guilds_draft_and_leaves_it(client: Client):
+        own, other = GuildFactory(), GuildFactory()
+        _login_lead(client, own)
+        theirs = AnnouncementDraftFactory(audience=AnnouncementDraft.Audience.GUILD, guild=other, body="<p>Theirs</p>")
+        posted_own = client.post(
+            reverse("hub_compose_save_draft"), _valid_send_data(audience=f"guild:{own.pk}", draft_pk=str(theirs.pk))
+        )
+        posted_theirs = client.post(
+            reverse("hub_compose_save_draft"), _valid_send_data(audience=f"guild:{other.pk}", draft_pk=str(theirs.pk))
+        )
+        assert posted_own.status_code == 404
+        assert posted_theirs.status_code == 403
+        theirs.refresh_from_db()
+        assert (theirs.audience, theirs.guild, theirs.body) == ("guild", other, "<p>Theirs</p>")
+        assert AnnouncementDraft.objects.count() == 1
+
+    def it_refuses_a_lead_retargeting_an_admins_site_draft_to_their_guild(client: Client):
+        """The stored audience check: the posted audience alone would let the lead take the row."""
+        admin = User.objects.create_superuser(username="boss", email="boss@x.com", password="p")
+        site = AnnouncementDraftFactory(author=admin, body="<p>Site wide</p>")
+        guild = GuildFactory()
+        _login_lead(client, guild)
+        response = client.post(
+            reverse("hub_compose_save_draft"), _valid_send_data(audience=f"guild:{guild.pk}", draft_pk=str(site.pk))
+        )
+        assert response.status_code == 404
+        site.refresh_from_db()
+        assert (site.audience, site.guild, site.author, site.body) == ("site", None, admin, "<p>Site wide</p>")
 
     def it_returns_an_error_toast_and_no_row_on_an_invalid_channel(client: Client):
         admin = _login_admin(client)
@@ -194,11 +337,69 @@ def describe_hub_compose_save_draft():
 
 
 def describe_hub_compose_send():
-    def it_sends_a_site_announcement_and_redirects_with_a_message(client: Client):
+    def it_queues_a_site_announcement_and_lands_on_the_sent_tab(client: Client):
         _login_admin(client)
         response = client.post(reverse("hub_compose_send"), _valid_send_data())
         assert response.status_code == 302
-        assert response.url == reverse("hub_compose")
+        assert response.url == _sent_tab()
+        listing = client.get(response.url).content.decode()
+        draft = AnnouncementDraft.objects.get()
+        assert f'data-announcement-row="{draft.pk}" data-announcement-state="sending"' in listing
+
+    def it_lands_a_guild_send_on_the_sent_tab(client: Client):
+        guild = GuildFactory()
+        _login_lead(client, guild)
+        response = client.post(reverse("hub_compose_send"), _valid_send_data(audience=f"guild:{guild.pk}"))
+        assert response.url == _sent_tab()
+
+    def it_refuses_a_draft_that_can_no_longer_be_edited_and_saves_nothing(client: Client):
+        admin = _login_admin(client)
+        draft = AnnouncementDraftFactory(author=admin, sent=True, body="<p>Already out</p>")
+        response = client.post(reverse("hub_compose_send"), _valid_send_data(draft_pk=str(draft.pk)))
+        assert response.status_code == 302
+        assert response.url == reverse("hub_announcements")
+        assert [m.message for m in get_messages(response.wsgi_request)] == [
+            "This draft can no longer be edited. It may have been sent or deleted."
+        ]
+        draft.refresh_from_db()
+        assert draft.body == "<p>Already out</p>"
+        assert AnnouncementDraft.objects.count() == 1
+
+    def it_refuses_a_lead_sending_an_admins_site_draft_as_their_guild(client: Client, mailoutbox):
+        admin = User.objects.create_superuser(username="boss", email="boss@x.com", password="p")
+        site = AnnouncementDraftFactory(author=admin, body="<p>Site wide</p>")
+        guild = GuildFactory()
+        _login_lead(client, guild)
+        response = client.post(
+            reverse("hub_compose_send"), _valid_send_data(audience=f"guild:{guild.pk}", draft_pk=str(site.pk))
+        )
+        assert response.url == reverse("hub_announcements")
+        site.refresh_from_db()
+        assert (site.audience, site.author, site.sent_at, site.send_requested_at) == ("site", admin, None, None)
+        assert not GuildAnnouncement.objects.exists()
+        assert mailoutbox == []
+
+    def it_refuses_a_lead_sending_another_guilds_draft_and_leaves_it(client: Client):
+        own, other = GuildFactory(), GuildFactory()
+        _login_lead(client, own)
+        theirs = AnnouncementDraftFactory(audience=AnnouncementDraft.Audience.GUILD, guild=other)
+        response = client.post(
+            reverse("hub_compose_send"), _valid_send_data(audience=f"guild:{own.pk}", draft_pk=str(theirs.pk))
+        )
+        assert response.url == reverse("hub_announcements")
+        theirs.refresh_from_db()
+        assert (theirs.guild, theirs.sent_at) == (other, None)
+
+    def it_names_whoever_presses_send_as_the_sender(client: Client):
+        first = User.objects.create_superuser(username="first", email="first@x.com", password="p")
+        guild = GuildFactory()
+        draft = AnnouncementDraftFactory(author=first, audience=AnnouncementDraft.Audience.GUILD, guild=guild)
+        second = _login_admin(client, username="second")
+        client.post(reverse("hub_compose_send"), _valid_send_data(audience=f"guild:{guild.pk}", draft_pk=str(draft.pk)))
+        draft.refresh_from_db()
+        assert draft.sent_at is not None
+        assert draft.author == second
+        assert GuildAnnouncement.objects.get().author == second
 
     def it_re_renders_on_a_blank_body(client: Client):
         _login_admin(client)
@@ -283,19 +484,81 @@ def describe_hub_compose_push_test():
 
 
 def describe_hub_compose_delete_draft():
-    def it_deletes_the_draft_and_returns_the_list_with_a_toast(client: Client):
+    def it_deletes_the_draft_and_returns_to_the_drafts_tab_with_a_message(client: Client):
         admin = _login_admin(client)
-        draft = AnnouncementDraft.objects.create(author=admin, title="Bye")
+        draft = AnnouncementDraftFactory(author=admin)
         response = client.post(reverse("hub_compose_delete_draft", args=[draft.pk]))
-        assert response.status_code == 200
+        assert response.status_code == 302
+        assert response.url == reverse("hub_announcements")
         assert not AnnouncementDraft.objects.filter(pk=draft.pk).exists()
-        assert "Draft deleted." in _trigger(response)["showToast"]["message"]
+        assert [m.message for m in get_messages(response.wsgi_request)] == ["Draft deleted."]
 
-    def it_404s_deleting_another_users_draft(client: Client):
-        other = User.objects.create_user(username="other", password="p")
-        draft = AnnouncementDraft.objects.create(author=other, title="Not yours")
+    def it_lets_an_admin_delete_another_admins_draft(client: Client):
+        # Replaces it_404s_deleting_another_users_draft: drafts are shared by audience.
+        other = User.objects.create_superuser(username="other", email="other@x.com", password="p")
+        draft = AnnouncementDraftFactory(author=other)
         _login_admin(client)
+        assert client.post(reverse("hub_compose_delete_draft", args=[draft.pk])).status_code == 302
+        assert not AnnouncementDraft.objects.filter(pk=draft.pk).exists()
+
+    def it_404s_a_lead_deleting_another_guilds_draft_and_keeps_it(client: Client):
+        own, other = GuildFactory(), GuildFactory()
+        _login_lead(client, own)
+        theirs = AnnouncementDraftFactory(audience=AnnouncementDraft.Audience.GUILD, guild=other)
+        assert client.post(reverse("hub_compose_delete_draft", args=[theirs.pk])).status_code == 404
+        assert AnnouncementDraft.objects.filter(pk=theirs.pk).exists()
+
+    @pytest.mark.parametrize("trait", ["sent", "queued"])
+    def it_404s_deleting_a_sent_or_queued_row_and_keeps_it(client: Client, trait: str):
+        admin = _login_admin(client)
+        draft = AnnouncementDraftFactory(author=admin, **{trait: True})
         assert client.post(reverse("hub_compose_delete_draft", args=[draft.pk])).status_code == 404
+        assert AnnouncementDraft.objects.filter(pk=draft.pk).exists()
+
+    def it_sends_a_lock_only_instructor_home_after_their_last_draft_goes(client: Client):
+        """They could open the page only because of this draft, so the page would refuse them."""
+        user, _member, offering = _instructor(
+            client, username="lastdraft", slug=False, status=ClassOffering.Status.DRAFT
+        )
+        draft = AnnouncementDraftFactory(
+            author=user, audience=AnnouncementDraft.Audience.CLASS, class_offering=offering
+        )
+        response = client.post(reverse("hub_compose_delete_draft", args=[draft.pk]))
+        assert response.status_code == 302
+        assert response.url == reverse("hub_home")
+        assert [m.message for m in get_messages(response.wsgi_request)] == ["Draft deleted."]
+        assert not AnnouncementDraft.objects.filter(pk=draft.pk).exists()
+
+    def it_keeps_a_lock_only_instructor_on_the_page_while_they_have_another_draft(client: Client):
+        user, _member, offering = _instructor(
+            client, username="twodrafts", slug=False, status=ClassOffering.Status.DRAFT
+        )
+        first, _second = (
+            AnnouncementDraftFactory(author=user, audience=AnnouncementDraft.Audience.CLASS, class_offering=offering)
+            for _ in range(2)
+        )
+        response = client.post(reverse("hub_compose_delete_draft", args=[first.pk]))
+        assert response.url == reverse("hub_announcements")
+
+    def it_answers_a_get_with_405(client: Client):
+        admin = _login_admin(client)
+        draft = AnnouncementDraftFactory(author=admin)
+        assert client.get(reverse("hub_compose_delete_draft", args=[draft.pk])).status_code == 405
+        assert AnnouncementDraft.objects.filter(pk=draft.pk).exists()
+
+    def it_keeps_a_deleted_results_drafts_snapshot_and_its_stamp(client: Client):
+        from tests.membership.factories import FundingSnapshotFactory
+
+        _login_admin(client)
+        snapshot = FundingSnapshotFactory(
+            results={"votes_cast": 3, "results": [{"guild_name": "Metal", "funding": "100.00", "share_pct": 100.0}]}
+        )
+        made = snapshot.make_results_draft()
+        client.post(reverse("hub_compose_delete_draft", args=[made.pk]))
+        snapshot.refresh_from_db()
+        assert snapshot.results_draft_created_at is not None
+        assert snapshot.make_results_draft() is None
+        assert not AnnouncementDraft.objects.exists()
 
 
 def describe_hub_compose_preview():
@@ -901,7 +1164,7 @@ def describe_admin_tools_page():
     def it_shows_every_tool_to_an_admin(client: Client):
         _login_admin(client)
         content = client.get(reverse("hub_admin_tools")).content.decode()
-        assert reverse("hub_compose") in content
+        assert f'<a class="hub-card pl-tool-card" href="{reverse("hub_announcements")}">' in content
         assert reverse("hub_orientations_dashboard") in content
         assert reverse("hub_admin_members") in content
         assert reverse("hub_push_test") in content
@@ -910,7 +1173,7 @@ def describe_admin_tools_page():
         guild = GuildFactory()
         _login_lead(client, guild)
         content = client.get(reverse("hub_admin_tools")).content.decode()
-        assert reverse("hub_compose") in content
+        assert f'<a class="hub-card pl-tool-card" href="{reverse("hub_announcements")}">' in content
         assert reverse("hub_orientations_dashboard") in content
         assert reverse("hub_admin_members") not in content  # admin-only card
         assert reverse("hub_push_test") not in content
@@ -918,7 +1181,7 @@ def describe_admin_tools_page():
     def it_shows_only_announcements_to_a_pure_instructor(client: Client):
         _instructor(client)
         content = client.get(reverse("hub_admin_tools")).content.decode()
-        assert reverse("hub_compose") in content
+        assert f'<a class="hub-card pl-tool-card" href="{reverse("hub_announcements")}">' in content
         assert reverse("hub_orientations_dashboard") not in content  # lead/staff only
         assert reverse("hub_push_test") not in content  # admin-only
 

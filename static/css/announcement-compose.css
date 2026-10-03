@@ -23,3 +23,24 @@
     border-radius: 0.25rem;
     background: #1e293b;
 }
+
+/* ----------------------------------------------------------------------------
+   The way back to the Announcements page, and the line about the draft you opened
+   (who saved it last, or that the snapshot job made it, and why a send gave up).
+   ------------------------------------------------------------------------- */
+.pl-compose-back {
+    margin: 0 0 1rem;
+}
+.pl-compose-draft-meta {
+    margin: -0.5rem 0 1.5rem;
+    color: var(--hub-text-muted);
+    font-size: 0.875rem;
+    line-height: 1.5;
+}
+.pl-compose-draft-meta__line {
+    display: block;
+}
+.pl-compose-draft-meta__line--failed {
+    margin-top: 0.25rem;
+    color: var(--hub-danger-text);
+}
