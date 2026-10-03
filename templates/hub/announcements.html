@@ -10,7 +10,8 @@ The Announcements page: Drafts and Sent tabs over every announcement this viewer
 (hub.views._announcement_rows). Server rendered tabs (?tab=drafts|sent), so links, Back and
 pagination work. Rows stack into labelled cards at 768px and below (the members table stacking).
 
-Context: tab, rows ([(AnnouncementDraft, people reached or None)]), page, base_params,
+Context: tab, rows ([(AnnouncementDraft, people reached or None, emails sent or None,
+AnnouncementProgress or None)]; the last three only on the Sent tab), page, base_params,
 drafts_count, sent_count.
 {% endcomment %}
 {% url 'hub_compose' as compose_url %}
@@ -73,7 +74,8 @@ drafts_count, sent_count.
         <td data-label="Sent by" class="pl-announcements-table__who">{{ row.author_label }}</td>
         <td data-label="Reached" data-reach="{% if row.state == 'sending' %}not-yet{% elif reached is None %}not-recorded{% else %}{{ reached }}{% endif %}">{% if row.state == 'sending' %}Not yet{% elif reached is None %}Not recorded{% else %}{{ reached }}{% endif %}</td>
         <td data-label="Emails" data-emails="{% if not row.send_email %}off{% elif row.state == 'sending' %}not-yet{% elif emailed is None %}not-recorded{% else %}{{ emailed }}{% endif %}">{% if not row.send_email %}Off{% elif row.state == 'sending' %}Not yet{% elif emailed is None %}Not recorded{% else %}<button type="button" class="pl-announcements-table__count" data-announcement-recipients-open
-                  hx-get="{% url 'hub_announcement_recipients' row.pk %}" hx-target="#announcement-recipients" hx-swap="innerHTML"
+                  hx-get="{% url 'hub_announcement_recipients' row.pk %}" hx-target="#announcement-recipients-body" hx-swap="innerHTML"
+                  @click="document.getElementById('announcement-recipients-body').replaceChildren(); $dispatch('open-modal', 'announcement-recipients')"
                   aria-label="See who the {{ emailed }} email{{ emailed|pluralize }} went to">{{ emailed }}</button>{% endif %}</td>
         <td data-label="Actions" class="pl-announcements-table__actions-cell">
           <div class="pl-announcements-table__actions">
@@ -116,6 +118,6 @@ drafts_count, sent_count.
   <p class="pl-announcements-empty" data-announcements-empty="drafts">No drafts right now. Press Save draft in the Announcement Composer and the draft waits here until it is sent.</p>
   {% endif %}
 </div>
-{# The recipients modal (hub_announcement_recipients) is swapped in here. #}
-<div id="announcement-recipients"></div>
+{# The Who It Reached modal; hub_announcement_recipients loads its body. #}
+{% include "components/modal.html" with modal_id="announcement-recipients" modal_title="Who It Reached" modal_size="lg" %}
 {% endblock %}

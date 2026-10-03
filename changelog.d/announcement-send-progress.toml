@@ -3,6 +3,6 @@ date = "2026-10-03"
 title = "See a site-wide announcement's progress, and everyone it reached"
 changes = [
   "For admins: while a site-wide announcement sends, the Announcements page shows how far it has got, like \"Sent to 50 of 298 so far\", and updates on its own.",
-  "For anyone who sends announcements: the Sent tab has an Emails column. Click the number for everyone the announcement reached, with whether each person got the email, the notification bell and a push, and the reason for any email that failed.",
+  "For anyone who sends announcements: the Sent tab has an Emails column. Click the number, or \"See who it reached\" on the announcement's own page, for everyone it reached, with whether each person got the email, the notification bell and a push, and the reason for any email that failed. This works for announcements sent since the Announcements page arrived.",
   "Push now counts only members who have the app or browser notifications set up.",
 ]

@@ -39,7 +39,7 @@ discord_description_html, push_title, push_body.
     <dt>Email</dt>
     <dd data-fact="email">{% if not row.send_email %}Off{% elif row.state == 'sending' %}Not yet{% elif reach is None %}Not recorded{% else %}{{ reach.email }}{% endif %}</dd>
     <dt>Push</dt>
-    <dd data-fact="push">{% if not row.push_enabled %}Off{% elif row.state == 'sending' %}Not yet{% elif reach is None %}Not recorded{% else %}{{ reach.push }} member{{ reach.push|pluralize }}{% endif %}</dd>
+    <dd data-fact="push">{% if not row.push_enabled %}Off{% elif row.state == 'sending' %}Not yet{% elif reach is None %}Not recorded{% else %}{{ reach.push }} member{{ reach.push|pluralize }} with the app or browser notifications{% endif %}</dd>
     {% if row.audience != 'class' %}
     <dt>Discord</dt>
     <dd data-fact="discord">{% if not row.discord_on %}Off{% elif row.state == 'sending' %}Not yet{% elif reach is None %}Not recorded{% elif reach.discord_posted %}Sent to {{ row.discord_target_label }}{% if row.mention_label %} with {{ row.mention_label }}{% endif %}{% else %}Not posted{% endif %}</dd>
@@ -48,7 +48,8 @@ discord_description_html, push_title, push_body.
   {% if row.ledger_period %}
   <p class="pl-announcement-card__actions">
     <button type="button" class="hub-btn hub-btn--sm hub-btn--ghost" data-announcement-recipients-open
-            hx-get="{% url 'hub_announcement_recipients' row.pk %}" hx-target="#announcement-recipients" hx-swap="innerHTML">
+            hx-get="{% url 'hub_announcement_recipients' row.pk %}" hx-target="#announcement-recipients-body" hx-swap="innerHTML"
+            @click="document.getElementById('announcement-recipients-body').replaceChildren(); $dispatch('open-modal', 'announcement-recipients')">
       <span class="htmx-indicator pl-spin" aria-hidden="true"></span> {% if row.state == 'sending' %}See who it has reached so far{% else %}See who it reached{% endif %}
     </button>
   </p>
@@ -93,6 +94,6 @@ discord_description_html, push_title, push_body.
   {% endif %}
 </section>
 {% endif %}
-{# The recipients modal (hub_announcement_recipients) is swapped in here. #}
-<div id="announcement-recipients"></div>
+{# The Who It Reached modal; hub_announcement_recipients loads its body. #}
+{% include "components/modal.html" with modal_id="announcement-recipients" modal_title="Who It Reached" modal_size="lg" %}
 {% endblock %}

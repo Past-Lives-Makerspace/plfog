@@ -5537,6 +5537,7 @@ class AnnouncementDraft(models.Model):
         users = User.objects.select_related("member").in_bulk(
             [int(ref[5:]) for ref in channels if ref.startswith("user:") and ref[5:].isdigit()]
         )
+        sent_to = self._notification_addresses(users.values())
         failures = self._email_failures()
         reachable = _push_reachable(
             int(ref[5:]) for ref, got in channels.items() if Channel.PUSH.value in got and ref[5:].isdigit()
@@ -5547,9 +5548,13 @@ class AnnouncementDraft(models.Model):
             user = users.get(int(ref[5:])) if ref.startswith("user:") and ref[5:].isdigit() else None
             if user is not None:
                 name = (user.get_full_name() or user.get_username()).strip()
-                address = user.email or ""
+                address = sent_to.get(user.pk) or user.email or ""
                 member = getattr(user, "member", None)
-                addresses = {address.lower(), (getattr(member, "notification_email", "") or "").strip().lower()}
+                addresses = {
+                    address.lower(),
+                    (user.email or "").lower(),
+                    (getattr(member, "notification_email", "") or "").strip().lower(),
+                }
             else:
                 name, address = ("Deleted account", "") if ref.startswith("user:") else ("", ref[6:])
                 addresses = {address.lower()}
@@ -5567,19 +5572,62 @@ class AnnouncementDraft(models.Model):
                     email_error="" if emailed or failed is None else failed,
                 )
             )
+        # A failure for nobody on the ledger is listed only when the address was this send's own
+        # (an email-only guest or mailing-list address): an announcement sharing the title and
+        # kind, sent in the same minutes, must not show its people here.
+        leftover = {addr: error for addr, error in failures.items() if addr not in seen}
+        own = self._email_only_audience() if leftover else set()
         recipients += [
             AnnouncementRecipient(name="", address=addr, in_app=False, push=False, email="failed", email_error=error)
-            for addr, error in failures.items()
-            if addr not in seen
+            for addr, error in leftover.items()
+            if addr in own
         ]
         recipients.sort(key=lambda r: (r.email != "failed", (r.name or r.address).lower(), r.address.lower()))
         return AnnouncementRecipientList(recipients=recipients)
+
+    @staticmethod
+    def _notification_addresses(users: "Iterable[User]") -> dict[int, str]:
+        """``{user pk: address}`` for members whose email goes to a chosen notification address.
+
+        The rule ``core.events.channels.notification_email_for`` applies per send (the chosen
+        address while it is a verified address on the account), read for every user in one query.
+        Anyone absent gets their account email.
+        """
+        from allauth.account.models import EmailAddress
+        from django.db.models.functions import Lower
+
+        chosen = {
+            user.pk: address
+            for user in users
+            if (address := (getattr(getattr(user, "member", None), "notification_email", "") or "").strip())
+        }
+        if not chosen:
+            return {}
+        verified = set(
+            EmailAddress.objects.filter(user_id__in=list(chosen), verified=True)
+            .annotate(address=Lower("email"))
+            .values_list("user_id", "address")
+        )
+        return {pk: address for pk, address in chosen.items() if (pk, address.lower()) in verified}
+
+    def _email_only_audience(self) -> set[str]:
+        """The addresses with no account this announcement was meant to email.
+
+        A class's guests (:meth:`_class_recipients`) and a guild's mailing list (the saved
+        selection, else the whole list). A site announcement has none.
+        """
+        if self.audience == self.Audience.CLASS and self.class_offering_id is not None:
+            return set(self._class_recipients()[1])
+        if self.audience == self.Audience.GUILD and self.guild is not None:
+            selected = self._selected_custom_emails()
+            return set(selected) if selected is not None else set(self.guild.mailing_list_emails_deduped(set()))
+        return set()
 
     def _email_failures(self) -> dict[str, str]:
         """``{address: provider error}`` for this announcement's emails that failed.
 
         The ledger releases a delivery that did not land, so failures are read from the email log:
-        this announcement's kind and subject, failed, between its first ledger row (less a minute)
+        this announcement's kind and subject (with the staging prefix there), failed, between its first ledger row (less a minute)
         and when it was sent (or now, while sending). An address that later went through on a
         retry is overridden by its ledger row in :meth:`recipient_list`.
         """
@@ -5595,9 +5643,11 @@ class AnnouncementDraft(models.Model):
         )
         if first is None:
             return {}
+        from core.email_policy import staging_subject
+
         logs = TransactionalEmailLog.objects.filter(
             trigger_kind=self._trigger_kind(),
-            subject=self.title,
+            subject__in={self.title, staging_subject(self.title)},
             status=TransactionalEmailLog.Status.FAILED,
             created_at__gte=first - timedelta(minutes=1),
             created_at__lte=(self.sent_at or timezone.now()) + timedelta(minutes=1),

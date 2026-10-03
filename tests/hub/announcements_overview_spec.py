@@ -705,7 +705,7 @@ def describe_the_sent_view():
             "3 people",
             "2 members",
             "3",
-            "1 member",
+            "1 member with the app or browser notifications",
         )
         assert _fact(html, "discord") == "Sent to #general-chat with @everyone"
         assert _fact(html, "audience") == "Everyone (site-wide)"

@@ -197,6 +197,14 @@
     color: var(--hub-text-muted);
     font-size: 0.875rem;
 }
+/* The progress line reads inline in the record page's sentence, not as the table's small note. */
+.pl-announcement-sentline .pl-announcements-table__note {
+    display: inline;
+    max-width: none;
+    margin: 0;
+    color: inherit;
+    font-size: inherit;
+}
 .pl-announcement-card__actions {
     margin: 1rem 0 0;
 }

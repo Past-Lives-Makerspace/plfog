@@ -4960,25 +4960,38 @@ def announcement_sent(request: HttpRequest, pk: int) -> HttpResponse:
     )
 
 
-def _visible_sent_row(request: HttpRequest, pk: int) -> AnnouncementDraft:
-    """The sent or sending announcement ``pk`` if this request may see it (:func:`_announcement_rows`), else 404."""
+def _visible_row(request: HttpRequest, pk: int) -> AnnouncementDraft | None:
+    """The announcement ``pk`` if this request may see it (:func:`_announcement_rows`), else ``None``."""
     one = AnnouncementDraft.objects.filter(pk=pk).select_related(
         "guild", "class_offering", "author", "funding_snapshot"
     )
-    row = _announcement_rows(request, _get_member(request), within=one).first()
+    return _announcement_rows(request, _get_member(request), within=one).first()
+
+
+def _visible_sent_row(request: HttpRequest, pk: int) -> AnnouncementDraft:
+    """The sent or sending announcement ``pk`` if this request may see it, else 404."""
+    row = _visible_row(request, pk)
     if row is None or row.is_resumable:
         raise Http404("No such announcement.")
     return row
 
 
+# htmx stops a polling element when its request answers 286.
+_STOP_POLLING = 286
+
+
 @login_required
 def announcement_progress(request: HttpRequest, pk: int) -> HttpResponse:
-    """HTMX poll: a sending announcement's progress line, or a page refresh once it is sent.
+    """HTMX poll: a sending announcement's progress line, or a page refresh once it is not sending.
 
-    While the row is sending, returns the line again (it polls itself every few seconds); once it
-    has sent, or could not, ``HX-Refresh`` reloads the page so every count on it is final.
+    While the row is sending, returns the line again (it polls itself). Once it has sent, or the
+    queue gave up on it (a draft again, Could not send), ``HX-Refresh`` reloads the page so every
+    count and state on it is current. A row this request may not see, or one deleted since,
+    answers 286, which stops the poll: htmx re-arms a poll after a 404.
     """
-    row = _visible_sent_row(request, pk)
+    row = _visible_row(request, pk)
+    if row is None:
+        return HttpResponse(status=_STOP_POLLING)
     if row.state != AnnouncementDraft.DraftState.SENDING:
         response = HttpResponse(status=204)
         response["HX-Refresh"] = "true"

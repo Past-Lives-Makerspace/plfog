@@ -143,15 +143,87 @@ def describe_recipient_list():
         _failed_email(row, "Ada.Work@example.com")
         assert row.recipient_list().recipients[0].email == "failed"
 
-    def it_lists_a_typed_address_whose_only_email_failed():
-        row = _sent_row()
-        _delivered(row, "broadcast", "discord")
-        _failed_email(row, "guest@example.com", error="bounced")
+    def it_lists_a_class_guest_whose_only_email_failed():
+        from classes.factories import ClassOfferingFactory, RegistrationFactory
+        from classes.models import Registration
+
+        offering = ClassOfferingFactory()
+        RegistrationFactory(
+            class_offering=offering, member=None, email="Guest@Example.com", status=Registration.Status.CONFIRMED
+        )
+        row = _sent_row(audience=AnnouncementDraft.Audience.CLASS, class_offering=offering)
+        _delivered(row, "email:someone-else@example.com", "email")
+        _failed_email(row, "guest@example.com", error="bounced", trigger_kind="class_announcement")
         listed = row.recipient_list()
-        assert [(r.address, r.email, r.email_error) for r in listed.recipients] == [
-            ("guest@example.com", "failed", "bounced")
+        assert ("guest@example.com", "failed", "bounced") in [
+            (r.address, r.email, r.email_error) for r in listed.recipients
         ]
-        assert (listed.reached, listed.failed) == (0, 1)
+        assert listed.failed == 1
+
+    def it_never_lists_a_failure_from_outside_this_sends_audience():
+        from classes.factories import ClassOfferingFactory
+
+        site = _sent_row()
+        _delivered(site, "broadcast", "discord")
+        _failed_email(site, "stranger@elsewhere.org")
+        assert site.recipient_list().recipients == []
+        offering = ClassOfferingFactory()
+        lesson = _sent_row(audience=AnnouncementDraft.Audience.CLASS, class_offering=offering)
+        _delivered(lesson, "broadcast", "discord")
+        _failed_email(lesson, "other-class-student@example.com", trigger_kind="class_announcement")
+        assert lesson.recipient_list().recipients == []
+
+    def it_lists_a_guild_mailing_list_address_whose_email_failed():
+        from membership.models import GuildMailingListEmail
+
+        guild = GuildFactory()
+        GuildMailingListEmail.objects.create(guild=guild, email="List@Example.com")
+        row = _sent_row(audience=AnnouncementDraft.Audience.GUILD, guild=guild)
+        _delivered(row, "broadcast", "discord")
+        _failed_email(row, "list@example.com", trigger_kind="guild_announcement")
+        assert [r.address for r in row.recipient_list().recipients] == ["list@example.com"]
+
+    def it_shows_the_address_the_email_went_to():
+        from allauth.account.models import EmailAddress
+
+        ada = _member("ada")
+        EmailAddress.objects.create(user=ada, email="ada.work@example.com", verified=True)
+        ada.member.notification_email = "ada.work@example.com"
+        ada.member.save(update_fields=["notification_email"])
+        bob = _member("bob")
+        bob.member.notification_email = "bob.unverified@example.com"
+        bob.member.save(update_fields=["notification_email"])
+        row = _sent_row()
+        _delivered(row, f"user:{ada.pk}", "email")
+        _delivered(row, f"user:{bob.pk}", "email")
+        assert [r.address for r in row.recipient_list().recipients] == ["ada.work@example.com", "bob@x.com"]
+
+    def it_counts_only_failed_emails_inside_the_send_as_failures():
+        ada = _member("ada")
+        row = _sent_row()
+        _delivered(row, f"user:{ada.pk}", "in_app")
+        TransactionalEmailLog.objects.create(
+            to_email="ada@x.com", subject=row.title, trigger_kind=_SITE_KIND, status=TransactionalEmailLog.Status.SENT
+        )
+        late = TransactionalEmailLog.objects.create(
+            to_email="ada@x.com",
+            subject=row.title,
+            trigger_kind=_SITE_KIND,
+            status=TransactionalEmailLog.Status.FAILED,
+            error_message="a later send",
+        )
+        TransactionalEmailLog.objects.filter(pk=late.pk).update(created_at=row.sent_at + timedelta(minutes=5))
+        assert row.recipient_list().recipients[0].email == ""
+
+    def it_matches_the_staging_subject(settings):
+        from core.email_policy import SUBJECT_PREFIX
+
+        settings.IS_STAGING = True
+        ada = _member("ada")
+        row = _sent_row()
+        _delivered(row, f"user:{ada.pk}", "in_app")
+        _failed_email(row, "ada@x.com", subject=f"{SUBJECT_PREFIX}{row.title}")
+        assert row.recipient_list().recipients[0].email == "failed"
 
     def it_shows_sent_when_a_retry_went_through_after_a_failure():
         ada = _member("ada")
@@ -247,6 +319,14 @@ def describe_the_sent_tab():
         assert f'data-send-progress="1/{total}"' in body
         assert f"Sent to 1 of {total} so far." in body
         assert f'hx-get="{reverse("hub_announcement_progress", args=[row.pk])}" hx-trigger="every 5s"' in body
+        assert "data-quiet-poll" in body
+
+    def it_polls_slowly_while_waiting_for_the_queue(client: Client):
+        _login_admin(client)
+        row = AnnouncementDraftFactory(queued=True)
+        assert f'hx-get="{reverse("hub_announcement_progress", args=[row.pk])}" hx-trigger="every 30s"' in _sent_tab(
+            client
+        )
 
     def it_says_a_queued_row_goes_out_soon_or_is_retrying(client: Client):
         _login_admin(client)
@@ -261,7 +341,7 @@ def describe_the_sent_tab():
         one = _member("one")
         row = AnnouncementDraftFactory(queued=True, send_error="Provider down.")
         _delivered(row, f"user:{one.pk}", "in_app")
-        assert "so far. The last try failed, so it is trying again." in _sent_tab(client)
+        assert "so far. The last try failed. It tries again on the next run." in _sent_tab(client)
 
 
 def describe_announcement_progress():
@@ -278,28 +358,40 @@ def describe_announcement_progress():
         assert response.status_code == 204
         assert response["HX-Refresh"] == "true"
 
-    def it_404s_for_a_draft_or_a_row_the_viewer_may_not_see(client: Client):
+    def it_refreshes_the_page_once_the_queue_gives_up(client: Client):
         _login_admin(client)
-        assert client.get(reverse("hub_announcement_progress", args=[AnnouncementDraftFactory().pk])).status_code == 404
-        client.logout()
+        given_up = AnnouncementDraftFactory(given_up=True, send_attempts=3)
+        response = client.get(reverse("hub_announcement_progress", args=[given_up.pk]))
+        assert response.status_code == 204
+        assert response["HX-Refresh"] == "true"
+
+    def it_stops_polling_for_a_row_the_viewer_may_not_see_or_that_is_gone(client: Client):
         _member("plain")
         client.login(username="plain", password="p")
-        assert client.get(reverse("hub_announcement_progress", args=[_sent_row().pk])).status_code == 404
+        assert client.get(reverse("hub_announcement_progress", args=[_sent_row().pk])).status_code == 286
+        assert client.get(reverse("hub_announcement_progress", args=[99999])).status_code == 286
+
+    def it_404s_the_list_for_a_draft(client: Client):
+        _login_admin(client)
+        assert (
+            client.get(reverse("hub_announcement_recipients", args=[AnnouncementDraftFactory().pk])).status_code == 404
+        )
 
 
 def describe_announcement_recipients():
     def it_renders_the_modal_with_each_person_and_the_summary(client: Client):
         _login_admin(client)
         ada = _member("ada", first_name="Ada")
+        bob = _member("bob", first_name="Bob")
         row = _sent_row()
         _delivered(row, f"user:{ada.pk}", "in_app", "email")
-        _failed_email(row, "guest@example.com", error="Mailbox <full>")
+        _delivered(row, f"user:{bob.pk}", "in_app")
+        _failed_email(row, "bob@x.com", error="Mailbox <full>")
         body = client.get(reverse("hub_announcement_recipients", args=[row.pk])).content.decode()
         assert f'data-announcement-recipients="{row.pk}"' in body
-        assert "1 person reached. Emails: 1 sent, 1 failed. In the app: 1. Push: 0." in body
+        assert "2 people reached. Emails: 1 sent, 1 failed. In the app: 2. Push: 0." in body
         assert 'data-recipient="ada@x.com"' in body
         assert "Mailbox &lt;full&gt;" in body
-        assert "No account" in body
 
     def it_says_a_sending_list_is_so_far(client: Client):
         _login_admin(client)
@@ -332,8 +424,8 @@ def describe_the_record_page():
         _login_admin(client)
         row = _sent_row()
         body = client.get(reverse("hub_announcement_sent", args=[row.pk])).content.decode()
-        assert "See who it reached" in body
-        assert 'id="announcement-recipients"' in body
+        assert f'hx-get="{reverse("hub_announcement_recipients", args=[row.pk])}"' in body
+        assert 'id="announcement-recipients-body"' in body
 
     def it_offers_the_list_so_far_and_the_progress_while_sending(client: Client):
         _login_admin(client)
@@ -345,4 +437,8 @@ def describe_the_record_page():
     def it_hides_the_list_for_a_row_sent_before_periods_were_kept(client: Client):
         _login_admin(client)
         row = AnnouncementDraftFactory(sent=True)
-        assert "See who it reached" not in client.get(reverse("hub_announcement_sent", args=[row.pk])).content.decode()
+        # The button, not its words: the changelog renders on every hub page and quotes them.
+        assert (
+            "data-announcement-recipients-open"
+            not in client.get(reverse("hub_announcement_sent", args=[row.pk])).content.decode()
+        )
