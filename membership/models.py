@@ -1385,14 +1385,24 @@ class Member(models.Model):
             return True
         return equipment.staff_memberships.filter(member=self).exists()
 
-    def can_create_equipment(self) -> bool:
-        """True when this member may create equipment — full admin or EQUIPMENT capability only.
+    def creatable_equipment_kinds(self) -> list[str]:
+        """The :class:`Equipment.Kind` values this member may create, in choice order.
 
-        Guild leads and per-equipment managers edit and run equipment they manage but do
-        not create it (locked decision #3). Role-based — use
-        ``membership.permissions.can_create_equipment`` in views to honor ``view_as``.
+        Every kind for a full admin or an EQUIPMENT holder; rooms and spaces only for a
+        Space Manager (#502: they add the loading dock, never a tool); nothing for anyone
+        else. Guild leads and per-equipment managers edit and run equipment they manage
+        but do not create it (locked decision #3). Role-based — use
+        ``membership.permissions.creatable_equipment_kinds`` in views to honor ``view_as``.
         """
-        return self.is_fog_admin or self.has_admin_capability(AdminCapability.Capability.EQUIPMENT)
+        if self.is_fog_admin or self.has_admin_capability(AdminCapability.Capability.EQUIPMENT):
+            return list(Equipment.Kind.values)
+        if self.has_admin_capability(AdminCapability.Capability.SPACE_MANAGER):
+            return [Equipment.Kind.ROOM, Equipment.Kind.SPACE]
+        return []
+
+    def can_create_equipment(self) -> bool:
+        """True when this member may create equipment of any kind — see :meth:`creatable_equipment_kinds`."""
+        return bool(self.creatable_equipment_kinds())
 
     @property
     def is_guild_lead(self) -> bool:
@@ -3004,6 +3014,7 @@ class AdminCapability(models.Model):
         BILLING_APPROVER = "billing_approver", "Billing Administrator"
         REFUNDS = "refunds", "Refunds"
         EQUIPMENT = "equipment", "Equipment Administrator"
+        SPACE_MANAGER = "space_manager", "Space Manager"
 
     #: What each duty actually does, in one plain sentence — the SINGLE source of the
     #: human explanation. The member edit Permissions tab reads it for its toggle help
@@ -3029,6 +3040,10 @@ class AdminCapability(models.Model):
         ),
         Capability.EQUIPMENT: (
             "Adds new equipment and manages every tool site-wide, including its details, staff, orientations, and hours."
+        ),
+        Capability.SPACE_MANAGER: (
+            "Adds rooms and spaces members can reserve, such as the loading dock, and manages the ones they add. "
+            "Cannot add tools."
         ),
     }
 
@@ -13284,6 +13299,7 @@ class Equipment(HeroCropMixin, models.Model):
     class Kind(models.TextChoices):
         TOOL = "tool", "Tool"
         ROOM = "room", "Room"
+        SPACE = "space", "Space"
 
     class AccessState(models.TextChoices):
         """What stands between a member and this equipment — one state at a time.
@@ -13309,7 +13325,7 @@ class Equipment(HeroCropMixin, models.Model):
         max_length=10,
         choices=Kind.choices,
         default=Kind.TOOL,
-        help_text="Whether this is a tool or a room. Both live on the Equipment page.",
+        help_text="Whether this is a tool, a room, or a space. All of them live on the Reservations page.",
     )
     guild = models.ForeignKey(
         Guild,

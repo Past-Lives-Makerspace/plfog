@@ -46,7 +46,7 @@ from membership.models import (
     Guild,
     Member,
 )
-from membership.permissions import can_create_equipment, can_manage_equipment
+from membership.permissions import can_create_equipment, can_manage_equipment, creatable_equipment_kinds
 
 logger = logging.getLogger("hub")
 
@@ -392,12 +392,22 @@ def hub_equipment_index(request: HttpRequest) -> HttpResponse:
 
 @login_required
 def hub_equipment_add(request: HttpRequest) -> HttpResponse:
-    """Admin-gated create form — full admins and EQUIPMENT capability holders only."""
-    if not can_create_equipment(request):
+    """The create form, gated on the kinds this request may create (#502).
+
+    Full admins and EQUIPMENT holders create every kind; a Space Manager creates rooms and
+    spaces only, and the form itself narrows the picker and refuses the rest. A creator
+    who could not otherwise manage what they just made (a Space Manager has no site tier)
+    gets an ``EquipmentStaffMembership`` row so the manage page opens for them.
+    """
+    kinds = creatable_equipment_kinds(request)
+    if not kinds:
         return HttpResponse("Forbidden", status=403)
-    form = EquipmentForm(request.POST or None, request.FILES or None)
+    form = EquipmentForm(request.POST or None, request.FILES or None, kinds=kinds)
     if request.method == "POST" and form.is_valid():
         equipment = form.save()
+        creator = _get_member(request)
+        if creator is not None and not can_manage_equipment(request, equipment):
+            EquipmentStaffMembership.objects.create(equipment=equipment, member=creator, granted_by=creator)
         messages.success(request, "Equipment added.")
         return redirect("hub_equipment_detail", slug=equipment.slug)
     return render(request, "hub/equipment_add.html", {**_get_hub_context(request), "form": form})

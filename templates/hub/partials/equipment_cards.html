@@ -1,22 +1,29 @@
 {% comment %}
-Equipment card grid — shared by the Equipment index (PR 1) and the guild page (PR 3).
+Reservations card grid — the Reservations page (PR 1; renamed from Equipment in #502).
 Context:
   cards — list of dicts: {equipment, access_state} where access_state is an
           Equipment.AccessState value ("ok" / "needs_fee" / "needs_orientation" /
           "needs_guild" / "inactive_member"). The badge renders from that one state so
           the card and the detail banner can't drift.
 The whole card is the tap target (a stretched link on the name); the guild chip sits
-above it with its own link.
+above it with its own link. A tool the member is not trained on renders LOCKED (#502):
+the photo dims under a lock glyph, the state row gains the pre portal help bubble, and a
+Book the orientation link points at the required type's anchor. The state row and the
+link sit above the stretched name link (z-index) so they stay clickable and hoverable.
 {% endcomment %}
 <div class="pl-equip-grid">
   {% for card in cards %}
   {% with equipment=card.equipment %}
+  {% if card.access_state == "needs_orientation" and equipment.required_orientation %}
+  <div class="hub-card pl-equip-card pl-equip-card--locked">
+  {% else %}
   <div class="hub-card pl-equip-card">
+  {% endif %}
     {% if equipment.photo %}
     <img src="{{ equipment.photo.url }}" alt="" class="pl-equip-card__photo" style="object-position: {{ equipment.hero_object_position }};">
     {% else %}
     <div class="pl-equip-card__placeholder" aria-hidden="true">
-      {% if equipment.kind == "room" %}
+      {% if equipment.kind == "room" or equipment.kind == "space" %}
       <svg width="34" height="34" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
         <path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/>
         <polyline points="9 22 9 12 15 12 15 22"/>
@@ -28,6 +35,9 @@ above it with its own link.
       {% endif %}
     </div>
     {% endif %}
+    {% if card.access_state == "needs_orientation" and equipment.required_orientation %}
+    <div class="pl-equip-card__lock" aria-hidden="true"><span class="pl-equip-card__lock-glyph"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg></span></div>
+    {% endif %}
     <div class="pl-equip-card__body">
       <a href="{% url 'hub_equipment_detail' equipment.slug %}" class="pl-equip-card__name">{{ equipment.name }}</a>
       <div class="pl-equip-card__meta">
@@ -38,6 +48,16 @@ above it with its own link.
         {% endif %}
         <span class="hub-badge">{{ equipment.get_kind_display }}</span>
       </div>
+      {% if card.access_state == "needs_orientation" and equipment.required_orientation %}
+      <div class="pl-equip-card__state">
+        <span class="pl-equip-badge pl-equip-badge--warn">Orientation needed</span>
+        <span class="pl-help">
+          <span class="pl-help__icon" tabindex="0" role="img" aria-label="Already trained: Trained on this before the Member Portal went live? Message us in #member-portal-general on Discord and say you need access to the {{ equipment.name }}.">?</span>
+          <span class="pl-help__bubble">Trained on this before the Member Portal went live? Message us in #member-portal-general on Discord and say you need access to the {{ equipment.name }}.</span>
+        </span>
+      </div>
+      <a href="{{ equipment.required_orientation.orientation_anchor_path }}" class="pl-equip-card__cta">Book the orientation</a>
+      {% else %}
       <div>
         {% if card.access_state == "ok" %}
         <span class="pl-equip-badge pl-equip-badge--ok">You're all set</span>
@@ -51,6 +71,7 @@ above it with its own link.
         <span class="pl-equip-badge pl-equip-badge--muted">Membership inactive</span>
         {% endif %}
       </div>
+      {% endif %}
       {% if card.availability %}
       <div class="pl-equip-avail pl-equip-avail--{{ card.availability.0 }}">{{ card.availability.1 }}</div>
       {% endif %}

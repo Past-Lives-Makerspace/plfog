@@ -70,7 +70,7 @@ on day taps, week arrows, bookings, and cancels, so every list stays fresh.
       {% endfor %}
     </ul>
     {% if has_orientations %}
-    <p class="hub-text-muted pl-equip-timeline__note">Orientations booked on this tool show here too.</p>
+    <p class="hub-text-muted pl-equip-timeline__note">Orientations booked on this {{ equipment.get_kind_display|lower }} show here too.</p>
     {% endif %}
     {% endif %}
   </div>

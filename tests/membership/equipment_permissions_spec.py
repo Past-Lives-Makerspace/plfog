@@ -15,7 +15,12 @@ from django.test import RequestFactory
 from classes.factories import UserFactory
 from hub.view_as import ROLE_ADMIN, ROLE_GUILD_OFFICER, ROLE_GUEST, ROLE_MEMBER, ViewAs
 from membership.models import AdminCapability, GuildStaffMembership, Member
-from membership.permissions import can_create_equipment, can_edit_equipment_orienter_hours, can_manage_equipment
+from membership.permissions import (
+    can_create_equipment,
+    can_edit_equipment_orienter_hours,
+    can_manage_equipment,
+    creatable_equipment_kinds,
+)
 from tests.membership.factories import (
     EquipmentFactory,
     EquipmentStaffMembershipFactory,
@@ -148,6 +153,59 @@ def describe_can_create_equipment():
 
     def it_denies_an_anonymous_request():
         assert can_create_equipment(_request(AnonymousUser())) is False
+
+
+def describe_creatable_equipment_kinds():
+    """#502: the kinds a request may create — every kind, rooms and spaces, or nothing."""
+
+    def it_gives_every_kind_to_an_effective_admin():
+        request = _request(UserFactory(), roles={ROLE_ADMIN, ROLE_MEMBER})
+        assert creatable_equipment_kinds(request) == ["tool", "room", "space"]
+
+    def it_gives_every_kind_to_an_equipment_capability_holder():
+        member = _member_user()
+        member.admin_capabilities.create(capability=AdminCapability.Capability.EQUIPMENT)
+        request = _request(member.user, roles={ROLE_MEMBER})
+        assert creatable_equipment_kinds(request) == ["tool", "room", "space"]
+
+    def it_gives_rooms_and_spaces_to_a_space_manager():
+        member = _member_user()
+        member.admin_capabilities.create(capability=AdminCapability.Capability.SPACE_MANAGER)
+        request = _request(member.user, roles={ROLE_MEMBER})
+        assert creatable_equipment_kinds(request) == ["room", "space"]
+        assert can_create_equipment(request) is True
+
+    def it_prefers_the_equipment_grant_when_both_are_held():
+        member = _member_user()
+        member.admin_capabilities.create(capability=AdminCapability.Capability.EQUIPMENT)
+        member.admin_capabilities.create(capability=AdminCapability.Capability.SPACE_MANAGER)
+        request = _request(member.user, roles={ROLE_MEMBER})
+        assert creatable_equipment_kinds(request) == ["tool", "room", "space"]
+
+    def it_gives_nothing_to_a_guild_lead():
+        lead = _member_user()
+        GuildFactory(guild_lead=lead)
+        assert creatable_equipment_kinds(_request(lead.user, roles={ROLE_MEMBER})) == []
+
+    def it_gives_nothing_to_a_plain_member():
+        member = _member_user()
+        assert creatable_equipment_kinds(_request(member.user, roles={ROLE_MEMBER})) == []
+        assert can_create_equipment(_request(member.user, roles={ROLE_MEMBER})) is False
+
+    def it_gives_nothing_to_an_anonymous_request():
+        assert creatable_equipment_kinds(_request(AnonymousUser())) == []
+
+    def it_demotes_an_admin_previewing_as_member_who_holds_no_grant():
+        member = _member_user()
+        request = _request(member.user, roles={ROLE_ADMIN, ROLE_MEMBER}, picked=ROLE_MEMBER)
+        assert creatable_equipment_kinds(request) == []
+
+    def it_keeps_a_space_managers_kinds_under_preview():
+        # The capability legs are preview-independent, like every house capability gate.
+        member = _member_user()
+        member.admin_capabilities.create(capability=AdminCapability.Capability.SPACE_MANAGER)
+        request = _request(member.user, roles={ROLE_ADMIN, ROLE_MEMBER}, picked=ROLE_GUEST)
+        assert creatable_equipment_kinds(request) == ["room", "space"]
 
 
 def describe_can_edit_equipment_orienter_hours():
