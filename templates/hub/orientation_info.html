@@ -1,5 +1,5 @@
 {% extends "hub/base.html" %}
-{% load classes_tags %}
+{% load classes_tags rich_text %}
 {% block title %}Orientation · {{ guild.name }}{% endblock %}
 {% block content %}
 <h1 class="hub-page-title">Orientation · {{ guild.name }}</h1>
@@ -17,7 +17,7 @@
 </div>
 {% endif %}
 {% if orientation and orientation.info %}
-<div class="hub-card" style="padding:1.5rem;">{{ orientation.info|linebreaks }}</div>
+<div class="hub-card" style="padding:1.5rem;">{{ orientation.info|rich_body }}</div>
 {% else %}
 <p class="hub-text-muted">No orientation details have been posted yet.</p>
 {% endif %}

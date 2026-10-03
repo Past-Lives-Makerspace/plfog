@@ -719,8 +719,8 @@ def guild_detail(request: HttpRequest, slug: str) -> HttpResponse:
     show_orientation = orientation is not None and orientation.is_enabled
     # Per-type booking state (issue #282): the tab renders one section per active
     # orientation type — a member can be oriented for one type while booking another.
-    # select_related the settings row: OrientationType.resolved_external_signup_url falls
-    # back to the guild's link, so without it the section builder costs a query per type.
+    # select_related the settings row: the section builder reads each type's late cancel
+    # policy from its guild's settings, so without it that costs a query per type.
     orientation_types = (
         list(guild.orientation_types.active().select_related("guild__orientation_settings")) if show_orientation else []
     )
@@ -1882,9 +1882,8 @@ def orientation_book(request: HttpRequest, slot_pk: int) -> HttpResponse:
     if member is None:
         messages.error(request, "You need a member profile to book an orientation.")
         return _owner_redirect(slot.orientation_type)
-    # An off-site-signup refusal arrives as ExternalSignupRequiredError from
-    # OrientationSlot.ensure_bookable_for — the choke point every booking road shares —
-    # and the OrientationError handler below turns it into the member-facing sentence.
+    # Every refusal arrives as an OrientationError from OrientationSlot.ensure_bookable_for,
+    # the choke point every booking road shares, and the handler below shows its sentence.
     try:
         if slot.orientation_type.is_paid:
             checkout_url = orientations.start_orientation_checkout(slot, member, note=request.POST.get("note", ""))
@@ -2743,8 +2742,8 @@ def orientation_add_member(request: HttpRequest) -> HttpResponse:
     form = OrientationAddMemberForm(request.POST, slot_queryset=_manageable_slots(request))
     if form.is_valid():
         try:
-            # by_staff: seating someone on an orientation whose signups happen off site is
-            # exactly what this form is for — it is the manual completion path (issue #368).
+            # by_staff: a staffer seating a member by hand is not the member booking their
+            # own way around an unpaid late fee (#456), so that one guard stands aside.
             orientations.request_orientation(form.cleaned_data["slot"], form.cleaned_data["member"], by_staff=True)
             messages.success(request, f"Added {form.cleaned_data['member'].display_name} — they've been emailed.")
         except OrientationError as exc:

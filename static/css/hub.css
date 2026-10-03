@@ -9363,6 +9363,23 @@ mark { background: color-mix(in srgb, var(--color-tuscan-yellow) 30%, transparen
     margin: 0.25rem 0 0;
     font-size: 0.85rem;
 }
+/* The guild wide Orientation info is rich text (#502): its paragraphs and lists keep the muted size. */
+.pl-orientation-info {
+    margin: 0 0 0.75rem;
+    font-size: 0.9rem;
+}
+.pl-orientation-info p,
+.pl-orientation-info ul,
+.pl-orientation-info ol,
+.pl-orientation-info h2,
+.pl-orientation-info h3,
+.pl-orientation-info blockquote {
+    margin: 0 0 0.75rem;
+    font-size: 0.9rem;
+}
+.pl-orientation-info > :last-child {
+    margin-bottom: 0;
+}
 
 @media (max-width: 768px) {
     .pl-equip-grid {

@@ -25,12 +25,12 @@ if TYPE_CHECKING:
 
     from classes.models import ClassOffering
 
-from core.html_sanitize import sanitize_rich_html
+from core.html_sanitize import clean_rich_body, sanitize_rich_html
 from core.validators import ALLOWED_WIKI_IMAGE_EXTENSIONS, validate_image_size, validate_wiki_upload
 from core.features import DEFAULT_SOON_MESSAGE
 from core.events.scheduling import next_tick
 from core.models import CalendarFeed, FeatureSwitch, ScheduledJobState, SiteConfiguration
-from core.widgets import PageContentEditorWidget, RichTextEditorWidget
+from core.widgets import PageContentEditorWidget, RichBodyEditorWidget, RichTextEditorWidget
 from membership.markdown import sanitize_page_submission, sanitize_wiki_submission
 from membership.models import (
     AdminCapability,
@@ -81,7 +81,6 @@ from membership.models import (
     WikiPageFact,
     WikiWantedPage,
     normalize_wiki_ask,
-    validate_signup_url,
 )
 
 
@@ -2196,40 +2195,6 @@ class MeetingAttachmentForm(forms.ModelForm):
         return cleaned
 
 
-# The consequence of pointing signups outside, stated on the field the lead edits rather
-# than only in the ticket. Both editors (guild settings, and each orientation type on the
-# guild and equipment tabs) render it as the field hint, so it cannot drift between them.
-EXTERNAL_SIGNUP_URL_WARNING = (
-    "Signups that go through this link are not recorded here, so finishing one does not mark "
-    "anyone oriented. To mark someone oriented by hand, do three things in order: add a time "
-    "from the Upcoming card on this tab, add the member to that time from the "
-    "Orientations dashboard, then tick Completed on their row there."
-)
-GUILD_EXTERNAL_SIGNUP_HINT = (
-    "Send signups to an outside form, e.g. a Google Form. Members see this link where the "
-    "orientation times used to be, so leave the booking switch above turned on or there is no "
-    f"orientation section to show it in. Leave blank to keep booking here. {EXTERNAL_SIGNUP_URL_WARNING}"
-)
-TYPE_EXTERNAL_SIGNUP_HINT = (
-    "Sends signups for this orientation only to an outside form. Overrides the guild's link. "
-    f"Leave blank to follow the guild. {EXTERNAL_SIGNUP_URL_WARNING}"
-)
-
-
-def clean_external_signup_url(url: str) -> str:
-    """Scheme-check an orientation signup link; blank stays blank.
-
-    ``forms.URLField`` accepts ftp and ftps out of the box (its validator's default
-    scheme list), so without this the only thing catching ``ftp://…`` would be the
-    model's validator during post-clean. Running it here puts the failure on the field
-    with the message the lead should read. No trimming: ``forms.URLField`` is a
-    ``CharField`` with ``strip=True``, so whitespace is already gone by now.
-    """
-    if url:
-        validate_signup_url(url)
-    return url
-
-
 class LateCancelFeeFormMixin(forms.ModelForm):
     """A ``late_cancel_fee`` field in dollars, mapped to ``late_cancel_fee_cents`` on save (#456).
 
@@ -2284,6 +2249,10 @@ class GuildOrientationSettingsForm(LateCancelFeeFormMixin):
     (also on the Orientations tab). Per-orientation config — duration, price, seats,
     location — is edited per type on :class:`OrientationTypeFormSet`, not here. The late
     cancellation fee comes from :class:`LateCancelFeeFormMixin`.
+
+    ``info`` is written in the rich-text editor and stored as its sanitized HTML, the way a
+    class description is (``classes.forms._RichDescriptionMixin``): a body saved before the
+    editor existed is plain text and stays as typed, so the page renders either.
     """
 
     class Meta:
@@ -2294,12 +2263,10 @@ class GuildOrientationSettingsForm(LateCancelFeeFormMixin):
             "info",
             "is_closed",
             "closed_message",
-            "external_signup_url",
         ]
         widgets = {
-            "info": forms.Textarea(attrs={"rows": 4}),
+            "info": RichBodyEditorWidget(),
             "closed_message": forms.TextInput(attrs={"placeholder": "On vacation till Sept 8"}),
-            "external_signup_url": forms.URLInput(attrs={"placeholder": "https://forms.gle/your-form"}),
         }
         labels = {
             "is_enabled": "Offer orientation booking on this guild's page",
@@ -2307,12 +2274,10 @@ class GuildOrientationSettingsForm(LateCancelFeeFormMixin):
             "info": "Orientation info",
             "is_closed": "Temporarily closed for orientations",
             "closed_message": "Closed message",
-            "external_signup_url": "External signup link",
         }
-        help_texts = {"external_signup_url": GUILD_EXTERNAL_SIGNUP_HINT}
 
-    def clean_external_signup_url(self) -> str:
-        return clean_external_signup_url(self.cleaned_data["external_signup_url"])
+    def clean_info(self) -> str:
+        return clean_rich_body(self.cleaned_data["info"])
 
 
 class OrientationTypeForm(forms.ModelForm):
@@ -2342,12 +2307,10 @@ class OrientationTypeForm(forms.ModelForm):
             "default_location",
             "sort_order",
             "is_active",
-            "external_signup_url",
         ]
         widgets = {
             "name": forms.TextInput(attrs={"placeholder": "Shop Basics"}),
             "description": forms.Textarea(attrs={"rows": 2}),
-            "external_signup_url": forms.URLInput(attrs={"placeholder": "https://forms.gle/your-form"}),
         }
         labels = {
             "name": "Name",
@@ -2357,17 +2320,12 @@ class OrientationTypeForm(forms.ModelForm):
             "default_location": "Location",
             "sort_order": "Sort order",
             "is_active": "Active",
-            "external_signup_url": "External signup link",
         }
-        help_texts = {"external_signup_url": TYPE_EXTERNAL_SIGNUP_HINT}
 
     def __init__(self, *args: Any, **kwargs: Any) -> None:
         super().__init__(*args, **kwargs)
         if self.instance.pk and self.instance.price_cents:
             self.fields["price"].initial = Decimal(self.instance.price_cents) / 100
-
-    def clean_external_signup_url(self) -> str:
-        return clean_external_signup_url(self.cleaned_data["external_signup_url"])
 
     def clean_price(self) -> int:
         """Normalize the dollar input to cents — blank means free."""
@@ -3569,10 +3527,8 @@ class OrientationCustomRequestForm(forms.Form):
     """A member proposing their own orientation time when no posted slot works.
 
     ``orientation_type`` picks which of the guild's orientations they want — its
-    duration and price size the one-off slot and the checkout (issue #282). An
-    orientation whose signups go to an outside form is not in the picker at all
-    (issue #368): proposing a time in here would land a request the guild has
-    already said it takes somewhere else.
+    duration and price size the one-off slot and the checkout (issue #282). Every
+    active type of the guild is offered.
     """
 
     orientation_type = forms.ModelChoiceField(
@@ -3589,24 +3545,18 @@ class OrientationCustomRequestForm(forms.Form):
     )
     note = forms.CharField(label="Note (optional)", required=False, widget=forms.Textarea(attrs={"rows": 2}))
 
-    #: False whenever the picker would be empty, so the page can hide the whole block
-    #: rather than offer a dropdown with nothing in it. Guild-level and per-type links
-    #: both land here, which a template check on the guild's own field would miss.
-    has_internal_types = False
+    #: False whenever the picker would be empty (the guild has no active type), so the
+    #: page can hide the whole block rather than offer a dropdown with nothing in it.
+    has_types = False
 
     def __init__(self, *args: Any, guild: Guild | None = None, **kwargs: Any) -> None:
         super().__init__(*args, **kwargs)
         if guild is not None:
             type_field = cast(forms.ModelChoiceField, self.fields["orientation_type"])
-            # The resolver is the one source of truth for "does this type go outside",
-            # so the filter runs in Python over one select_related read rather than
-            # restating guild-overrides-type as a second query.
-            active = OrientationType.objects.filter(guild=guild).active().select_related("guild__orientation_settings")
-            internal_pks = [t.pk for t in active if not t.resolved_external_signup_url]
-            type_field.queryset = OrientationType.objects.filter(pk__in=internal_pks)
+            type_field.queryset = OrientationType.objects.filter(guild=guild).active()
             type_field.error_messages["invalid_choice"] = "Pick one of this guild's orientations."
-            self.has_internal_types = bool(internal_pks)
             first_type = type_field.queryset.first()
+            self.has_types = first_type is not None
             if first_type is not None:
                 type_field.initial = first_type.pk
 
