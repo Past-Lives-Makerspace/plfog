@@ -24,14 +24,7 @@
       </p>
     </div>
     <div class="pl-vote-detail-actions">
-      {% comment %}
-      results_send_queued is load bearing: a queued snapshot is neither pending nor sent,
-      so without it the control vanishes on the next page load and an in-flight send has
-      no visible state anywhere in the admin.
-      {% endcomment %}
-      {% if snapshot.results_pending or snapshot.results_send_queued or snapshot.results_sent_at %}
-        {% include "hub/admin/_results_send_control.html" with snapshot=snapshot %}
-      {% endif %}
+      {% include "hub/admin/_results_announcement_control.html" with snapshot=snapshot %}
       <button type="button" class="hub-btn hub-btn--sm hub-btn--danger"
               @click="$dispatch('open-confirm', 'del-snapshot-{{ snapshot.pk }}')">Delete Snapshot</button>
       <a href="{% url 'hub_admin_voting_history' %}" class="hub-btn hub-btn--ghost">Back to Funding History</a>

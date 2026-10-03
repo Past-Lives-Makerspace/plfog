@@ -80,15 +80,15 @@ SCHEDULED_JOBS: list[ScheduledJob] = [
         cadence=Cadence.ALWAYS,
     ),
     ScheduledJob(
-        key="send_pending_funding_results",
-        name="Guild funding results emails",
-        description="Sends the results email for any funding snapshot an admin has queued.",
-        command="send_pending_funding_results",
+        key="send_queued_announcements",
+        name="Queued announcements",
+        description="Sends the site-wide announcements queued from the composer, such as the monthly voting results.",
+        command="send_queued_announcements",
         schedule_label="Every 15 min",
         cadence=Cadence.ALWAYS,
         # Not toggleable. The dispatcher skips a disabled job before it records a run, so
-        # pausing this one would leave an admin's queued results email never sent, with no
-        # run record and nothing in the voting UI to show it had stalled.
+        # pausing this one would leave an admin's queued announcement never sent, with no
+        # run record and nothing in the composer or the voting UI to show it had stalled.
         toggleable=False,
     ),
     ScheduledJob(

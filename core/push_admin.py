@@ -66,20 +66,24 @@ def status_for(user: User) -> PushStatus:
     )
 
 
-def send_test_push(user: User, *, url: str) -> TestSendResult:
-    """Fire the canned test push at every one of ``user``'s devices; report the tally.
+def send_test_push(user: User, *, url: str, title: str = "", body: str = "") -> TestSendResult:
+    """Fire a test push at every one of ``user``'s devices; report the tally.
 
-    A dead token is reaped by the sender mid-loop (and counts as not delivered), so the
-    result doubles as a live cleanup pass.
+    ``title`` and ``body`` let the announcement composer send the push its draft will send;
+    either left blank falls back to the canned test notification (the admin support tool
+    always sends the canned one). A dead token is reaped by the sender mid-loop (and counts
+    as not delivered), so the result doubles as a live cleanup pass.
     """
+    title = title or _TEST_TITLE
+    body = body or _TEST_BODY
     delivered = 0
     attempted = 0
     for subscription in PushSubscription.objects.filter(user=user):
         attempted += 1
-        if send_web_push(subscription, title=_TEST_TITLE, body=_TEST_BODY, url=url):
+        if send_web_push(subscription, title=title, body=body, url=url):
             delivered += 1
     for device in FcmDevice.objects.filter(user=user):
         attempted += 1
-        if send_fcm(device, title=_TEST_TITLE, body=_TEST_BODY, url=url, channel_id=PUSH_CHANNEL_GENERAL):
+        if send_fcm(device, title=title, body=body, url=url, channel_id=PUSH_CHANNEL_GENERAL):
             delivered += 1
     return TestSendResult(delivered=delivered, attempted=attempted)

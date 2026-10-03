@@ -1,8 +1,11 @@
 """Send a funding snapshot's member results email headlessly (with an optional note).
 
-The admin UI (``voting_send_results``) is the normal path; this command exists so a
-results send can run as a one-off job (e.g. a Render job) without an admin session —
-and so a late/overdue send can carry an organizer note at the top of the email.
+The normal path is now the results announcement: an admin clicks Draft announcement on
+the Voting page (``hub_admin_voting_results_draft``), checks it in the composer and sends
+it to everyone and Discord. This command is the fallback: the old personalised results
+email (each voter's own ballot recap included), run as a one-off job (e.g. a Render job)
+without an admin session, optionally carrying an organizer note at the top of the email.
+It stamps the snapshot's results as sent, so the Voting banner moves on either way.
 
 The note is passed **base64-encoded** (``--note-b64``) on purpose: a one-off job runner
 may split the command on whitespace, which would mangle a plain ``--note "long text"``.

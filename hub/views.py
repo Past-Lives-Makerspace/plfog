@@ -71,6 +71,7 @@ from membership.cycle import get_cycle_context
 from membership.vote_calculator import compute_live_standings, compute_new_votes_since
 from membership.models import (
     AdminCapability,
+    AnnouncementDraft,
     CommunityEvent,
     FundingSnapshot,
     Guild,
@@ -4167,10 +4168,12 @@ def _render_compose(
         form.current_audience, form.current_guild, form.current_class, include_waitlist=form.waitlist_included
     )
     # The auto category (title) for the current audience, without the client-side "Urgent: " lead.
+    # A resumed results announcement keeps its "<cycle> Voting Results" title.
     category_draft = AnnouncementDraft(
         audience=form.current_audience or AnnouncementDraft.Audience.SITE.value,
         guild=form.current_guild,
         class_offering=form.current_class,
+        funding_snapshot=draft.funding_snapshot if draft is not None else None,
     )
     ctx = _get_hub_context(request)
     return render(
@@ -4267,7 +4270,7 @@ def _compose_first_error(form: Any) -> str:
 def hub_compose(request: HttpRequest, draft_pk: int | None = None) -> HttpResponse:
     """The compose wizard page. GET renders all three steps + the drafts list.
 
-    A ``draft_pk`` resumes an unsent draft you own (a foreign / already-sent pk 404s);
+    A ``draft_pk`` resumes an unsent draft you own (a foreign, already-sent or queued pk 404s);
     ``?audience=guild:<pk>`` pre-scopes a fresh compose, and ``?recipients=<token>`` (repeatable,
     with ``?include_waitlist=1``) narrows the checklist to a roster hand-off — see
     :func:`_compose_preselection`. A member who can compose nothing (not an admin, leads no
@@ -4286,7 +4289,7 @@ def hub_compose(request: HttpRequest, draft_pk: int | None = None) -> HttpRespon
         # Resolve the draft before the gate: a resume URL carries no ?audience, so the gate must
         # judge the draft's own audience — otherwise a lock-only instructor (admitted via their
         # class, no general compose rights) could save a draft yet never resume it.
-        draft = get_object_or_404(AnnouncementDraft, pk=draft_pk, author=request.user, sent_at__isnull=True)
+        draft = get_object_or_404(AnnouncementDraft.objects.for_user(cast(User, request.user)), pk=draft_pk)
         initial = _draft_initial(draft)
         requested = initial["audience"]
     else:
@@ -4317,6 +4320,34 @@ def hub_compose(request: HttpRequest, draft_pk: int | None = None) -> HttpRespon
     )
 
 
+def _compose_preview_draft(request: HttpRequest) -> AnnouncementDraft:
+    """An unsaved draft built from the posted composer form: what the preview and both tests render.
+
+    The title is the auto category, so a results announcement reads "<cycle> Voting Results".
+    The snapshot that makes it one comes only from the posted ``draft_pk``, resolved to the
+    requesting author's own resumable draft (:meth:`AnnouncementDraftManager.results_snapshot_of`),
+    never from a posted snapshot id: someone else's ``draft_pk`` gets the plain category.
+    """
+    from core.html_sanitize import sanitize_rich_html
+    from hub.forms import split_audience
+
+    user = cast(User, request.user)
+    audience, guild, offering = split_audience(request.POST.get("audience") or "")
+    draft = AnnouncementDraft(
+        author=user,
+        audience=audience or AnnouncementDraft.Audience.SITE.value,
+        guild=guild,
+        class_offering=offering,
+        mark_as_urgent=bool(request.POST.get("mark_as_urgent")),
+        show_sender=bool(request.POST.get("show_sender")),
+        body=sanitize_rich_html(request.POST.get("body") or ""),
+        push_message=(request.POST.get("push_message") or "").strip(),
+        funding_snapshot=AnnouncementDraft.objects.results_snapshot_of(user, request.POST.get("draft_pk") or ""),
+    )
+    draft.title = draft.announcement_category
+    return draft
+
+
 @login_required
 @require_POST
 def hub_compose_preview(request: HttpRequest) -> HttpResponse:
@@ -4325,31 +4356,28 @@ def hub_compose_preview(request: HttpRequest) -> HttpResponse:
     There is no member-typed subject: the title is the auto category (audience + urgency), the
     email carries the class subline + optional "From <sender>". Building an unsaved draft and
     reusing its own :meth:`AnnouncementDraft.build_email_message` keeps the preview identical to
-    the sent email.
+    the sent email. The same response refreshes the Discord preview card out of band, from
+    :meth:`AnnouncementDraft.build_discord_message` through the embed builder the send posts with,
+    so the card shows exactly the title and description Discord gets.
     """
-    from core.html_sanitize import sanitize_rich_html
-    from hub.forms import split_audience
-    from membership.models import AnnouncementDraft
+    from core.events.discord import build_embed_payload, discord_markdown_html
     from membership.orientations import _absolute_url
 
     if not _can_enter_compose(request, _get_member(request), request.POST.get("audience")):
         return _compose_refused(request)
-    audience, guild, offering = split_audience(request.POST.get("audience") or "")
-    draft = AnnouncementDraft(
-        author=cast(User, request.user),
-        audience=audience or AnnouncementDraft.Audience.SITE.value,
-        guild=guild,
-        class_offering=offering,
-        mark_as_urgent=bool(request.POST.get("mark_as_urgent")),
-        show_sender=bool(request.POST.get("show_sender")),
-        body=sanitize_rich_html(request.POST.get("body") or ""),
-    )
-    draft.title = draft.announcement_category
-    message = draft.build_email_message(_absolute_url("/"))
+    draft = _compose_preview_draft(request)
+    site_url = _absolute_url("/")
+    message = draft.build_email_message(site_url)
+    embeds = cast(list[dict[str, str]], build_embed_payload(draft.build_discord_message(site_url))["embeds"])
     return render(
         request,
         "hub/partials/_compose_email_preview.html",
-        {"preview_html": message.html_body, "preview_subject": draft.title},
+        {
+            "preview_html": message.html_body,
+            "preview_subject": draft.title,
+            "discord_title": embeds[0]["title"],
+            "discord_description_html": discord_markdown_html(embeds[0]["description"]),
+        },
     )
 
 
@@ -4383,9 +4411,6 @@ def hub_compose_count(request: HttpRequest) -> HttpResponse:
 def hub_compose_test(request: HttpRequest) -> HttpResponse:
     """HTMX: send a branded test of the current draft to the author's own inbox (never the spine)."""
     from core.email import send as send_email
-    from core.html_sanitize import sanitize_rich_html
-    from hub.forms import split_audience
-    from membership.models import AnnouncementDraft
     from membership.orientations import _absolute_url
 
     if not _can_enter_compose(request, _get_member(request), request.POST.get("audience")):
@@ -4395,17 +4420,7 @@ def hub_compose_test(request: HttpRequest) -> HttpResponse:
         response = HttpResponse(status=204)
         trigger_toast(response, "Your account has no email address to send a test to.", "error")
         return response
-    audience, guild, offering = split_audience(request.POST.get("audience") or "")
-    draft = AnnouncementDraft(
-        author=cast(User, request.user),
-        audience=audience or AnnouncementDraft.Audience.SITE.value,
-        guild=guild,
-        class_offering=offering,
-        mark_as_urgent=bool(request.POST.get("mark_as_urgent")),
-        show_sender=bool(request.POST.get("show_sender")),
-        body=sanitize_rich_html(request.POST.get("body") or ""),
-    )
-    draft.title = draft.announcement_category
+    draft = _compose_preview_draft(request)
     message = draft.build_email_message(_absolute_url("/"))
     send_email(
         to=to,
@@ -4423,17 +4438,21 @@ def hub_compose_test(request: HttpRequest) -> HttpResponse:
 @login_required
 @require_POST
 def hub_compose_push_test(request: HttpRequest) -> HttpResponse:
-    """HTMX: fire a canned test push at the author's own devices (never the spine).
+    """HTMX: fire the draft's own push notification at the author's devices (never the spine).
 
     The push equivalent of :func:`hub_compose_test` — lets the composer confirm their own
-    phone/browser is actually registered before sending the announcement. Best-effort; a dead
-    token is reaped by the sender mid-loop, so it doubles as a cleanup pass.
+    phone/browser is actually registered before sending the announcement, and see the title and
+    line members will get (:meth:`AnnouncementDraft.build_push_message`; the canned test line
+    stands in while the message is still empty). Best-effort; a dead token is reaped by the
+    sender mid-loop, so it doubles as a cleanup pass.
     """
     from core.push_admin import send_test_push
 
     if not _can_enter_compose(request, _get_member(request), request.POST.get("audience")):
         return _compose_refused(request)
-    result = send_test_push(cast(User, request.user), url=request.build_absolute_uri("/"))
+    url = request.build_absolute_uri("/")
+    push = _compose_preview_draft(request).build_push_message(url)
+    result = send_test_push(cast(User, request.user), url=url, title=push.title, body=push.body)
     response = HttpResponse(status=204)
     if result.attempted == 0:
         trigger_toast(response, "No push devices are registered on your account yet.", "error")
@@ -4536,7 +4555,7 @@ def hub_compose_save_draft(request: HttpRequest) -> HttpResponse:
     draft_pk = request.POST.get("draft_pk") or ""
     instance = None
     if draft_pk:
-        instance = get_object_or_404(AnnouncementDraft, pk=draft_pk, author=request.user, sent_at__isnull=True)
+        instance = get_object_or_404(AnnouncementDraft.objects.for_user(cast(User, request.user)), pk=draft_pk)
     form = AnnouncementComposeForm(request.POST, **_compose_form_kwargs(request))
     if not form.is_valid():
         response = HttpResponse(status=204)
@@ -4555,9 +4574,16 @@ def hub_compose_save_draft(request: HttpRequest) -> HttpResponse:
 @login_required
 @require_POST
 def hub_compose_send(request: HttpRequest) -> HttpResponse:
-    """Full-page POST: re-check the audience server-side, persist the draft, send, then redirect."""
+    """Full-page POST: re-check the audience server-side, persist the draft, send, then redirect.
+
+    A site-wide send is queued rather than sent here (:meth:`AnnouncementDraft.queue_send`):
+    reaching every active member outlives a web worker, so ``send_queued_announcements`` sends it
+    within 15 minutes. Guild and class sends are small and still go out in the request. A results
+    announcement whose results already went out (or are already sending) is refused and the admin
+    lands on that snapshot's page, which says when they were sent.
+    """
     from hub.forms import AnnouncementComposeForm
-    from membership.models import AnnouncementDraft
+    from membership.models import AnnouncementDraft, ResultsAlreadySentError
 
     raw = request.POST.get("audience") or ""
     forbidden = _compose_audience_forbidden(request, raw)
@@ -4566,7 +4592,7 @@ def hub_compose_send(request: HttpRequest) -> HttpResponse:
     draft_pk = request.POST.get("draft_pk") or ""
     instance = None
     if draft_pk:
-        instance = get_object_or_404(AnnouncementDraft, pk=draft_pk, author=request.user, sent_at__isnull=True)
+        instance = get_object_or_404(AnnouncementDraft.objects.for_user(cast(User, request.user)), pk=draft_pk)
     form = AnnouncementComposeForm(request.POST, require_body=True, **_compose_form_kwargs(request))
     if not form.is_valid():
         locked, locked_label, heading, lead = _compose_lock(raw, bool(request.POST.get("lock")))
@@ -4580,6 +4606,18 @@ def hub_compose_send(request: HttpRequest) -> HttpResponse:
             compose_lead=lead,
         )
     draft = AnnouncementDraft.save_from_form(form, cast(User, request.user), instance=instance)
+    if draft.audience == AnnouncementDraft.Audience.SITE:
+        try:
+            draft.queue_send()
+        except ResultsAlreadySentError as exc:
+            messages.error(request, str(exc))
+            return redirect("hub_admin_voting_history_detail", pk=draft.funding_snapshot_id)
+        messages.success(
+            request,
+            "Your announcement is sending in the background. "
+            f"It reaches {draft.recipient_count()} recipient(s) within 15 minutes.",
+        )
+        return redirect("hub_compose")
     emailed, total = draft.send()
     messages.success(request, f"Announcement sent to {total} recipient(s).")
     return redirect("hub_compose")
@@ -4591,7 +4629,7 @@ def hub_compose_delete_draft(request: HttpRequest, draft_pk: int) -> HttpRespons
     """HTMX (confirm modal): delete an unsent draft you own, then swap the refreshed list + toast."""
     from membership.models import AnnouncementDraft
 
-    draft = get_object_or_404(AnnouncementDraft, pk=draft_pk, author=request.user, sent_at__isnull=True)
+    draft = get_object_or_404(AnnouncementDraft.objects.for_user(cast(User, request.user)), pk=draft_pk)
     draft.delete()
     response = render(
         request,
@@ -6837,39 +6875,23 @@ def voting_settings(request: HttpRequest) -> HttpResponse:
 
 @fog_admin_required
 @require_POST
-def voting_send_results(request: HttpRequest, pk: int) -> HttpResponse:
-    """Queue this cycle's results email (HTMX → toast + re-rendered control).
+def voting_results_draft(request: HttpRequest, pk: int) -> HttpResponse:
+    """Open this snapshot's results announcement in the composer (the banner's Draft announcement).
 
-    The click records the request rather than performing it: the fan-out emails every
-    active member and runs far longer than a request is allowed to, so doing it here
-    got the worker killed mid-loop and reported a failure for a send that had mostly
-    happened. ``send_pending_funding_results`` picks the request up on the scheduler.
-    Returns the re-rendered Send/Resend control (its new "queued" state) plus an
-    out-of-band swap of the Overview "review & send" banner, and a toast.
+    POST only, so a link preview or a stray GET never creates a draft. The model returns the
+    admin's own unsent draft for this snapshot when there is one, so a second click reopens it.
+    Results that already went out, or a snapshot with nothing to announce, come back to the
+    snapshot's page with the reason.
     """
-    from membership.models import ResultsAlreadySentError
+    from membership.models import NoResultsToAnnounceError, ResultsAlreadySentError
 
     snapshot = get_object_or_404(FundingSnapshot, pk=pk)
-    resend = request.POST.get("resend") == "1"
     try:
-        snapshot.queue_results_send(resend=resend)
-    except ResultsAlreadySentError:
-        response = _render_results_send_control(request, snapshot)
-        trigger_toast(response, "Those results were already sent.", "error")
-        return response
-
-    response = _render_results_send_control(request, snapshot)
-    trigger_toast(response, "Results are on their way. Sending runs in the background.", "success")
-    return response
-
-
-def _render_results_send_control(request: HttpRequest, snapshot: FundingSnapshot) -> HttpResponse:
-    """Render the Send/Resend control + an OOB refresh of the Overview pending banner."""
-    return render(
-        request,
-        "hub/admin/_results_send_control.html",
-        {"snapshot": snapshot, "pending_results_snapshot": FundingSnapshot.most_recent_pending(), "oob": True},
-    )
+        draft = snapshot.draft_results_announcement(cast(User, request.user))
+    except (ResultsAlreadySentError, NoResultsToAnnounceError) as exc:
+        messages.error(request, str(exc))
+        return redirect("hub_admin_voting_history_detail", pk=snapshot.pk)
+    return redirect("hub_compose_resume", draft_pk=draft.pk)
 
 
 @fog_admin_required

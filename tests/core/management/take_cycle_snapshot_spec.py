@@ -15,8 +15,8 @@ from django.db.models.signals import post_save
 from django.utils import timezone
 from factory.django import mute_signals
 
-from core.models import EventDelivery, Notification
-from membership.models import FundingSnapshot, Member, VotingSettings
+from core.models import EventDelivery, Notification, TransactionalEmailLog
+from membership.models import AnnouncementDraft, FundingSnapshot, Member, VotingSettings
 from tests.membership.factories import GuildFactory, MemberFactory, VotePreferenceFactory
 
 pytestmark = pytest.mark.django_db
@@ -68,19 +68,15 @@ def describe_take_cycle_snapshot():
         # Admins are pinged straight away.
         assert Notification.objects.filter(user=admin_user, trigger="voting.results_ready").exists()
 
-        # The results email is QUEUED, not sent inline. The auto path is the one that runs
-        # every month, so it is the one that most needs the scheduler's retry: sending here
-        # would stamp the snapshot even when members were missed, leaving a resend to the
-        # whole membership as the only way to reach them.
-        assert snap.results_send_queued is True
-        assert not Notification.objects.filter(trigger="voting.results_published").exists()
-
-        call_command("send_pending_funding_results")
-
-        snap.refresh_from_db()
-        assert snap.results_sent_at is not None
-        assert Notification.objects.filter(user=voter.user, trigger="voting.results_published").exists()
-        assert Notification.objects.filter(user=admin_user, trigger="voting.results_published").exists()
+        # Members hear nothing from the auto snapshot. An admin drafts the results
+        # announcement from the Voting page; sending here as well would give everyone the old
+        # results email first and the admin's announcement second.
+        assert snap.results_sent_at is None
+        assert snap.results_send_requested_at is None
+        assert snap.results_pending is True
+        assert not Notification.objects.filter(user=voter.user).exists()
+        assert not TransactionalEmailLog.objects.filter(trigger_kind="voting.results_published").exists()
+        assert not AnnouncementDraft.objects.exists()
 
     def it_is_a_noop_when_auto_snapshot_is_disabled(monkeypatch):
         settings = VotingSettings.load()

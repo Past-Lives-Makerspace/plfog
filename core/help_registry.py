@@ -286,10 +286,10 @@ HELP_KEYS: dict[str, HelpKeyEntry] = {
         "anchor": "voting-take-snapshot",
     },
     "voting.send-results": {
-        "title": "Send results emails",
+        "title": "Send the results announcement",
         "short_text": (
-            "Emails every voter their allocations and recorded vote, once per snapshot. "
-            "The month-end auto-snapshot sends these on its own."
+            "Draft announcement opens the month's results in the composer for you to check and send "
+            "to everyone and Discord, once per snapshot. The month-end auto-snapshot never sends it."
         ),
         "article_slug": "voting-admin",
         "anchor": "voting-send-results",

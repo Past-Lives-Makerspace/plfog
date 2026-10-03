@@ -1,0 +1,25 @@
+/* ----------------------------------------------------------------------------
+   Announcement composer: the Discord preview card on Preview & send.
+   Built on the push preview card (.pl-push-preview* in hub.css), which stays dark in
+   both themes because it pictures a device; the embed is wider than a phone banner,
+   carries Discord's accent stripe, keeps its line breaks, and shows the inline code
+   (the results bars) monospace.
+   ------------------------------------------------------------------------- */
+.pl-discord-preview__card {
+    max-width: 34rem;
+    border-left: 4px solid #5865f2;
+}
+.pl-discord-preview__description {
+    margin-top: 0.35rem;
+    font-size: 0.85rem;
+    line-height: 1.45;
+    white-space: pre-line;
+    overflow-wrap: anywhere;
+}
+.pl-discord-preview__code {
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    font-size: 0.8rem;
+    padding: 0 0.2rem;
+    border-radius: 0.25rem;
+    background: #1e293b;
+}

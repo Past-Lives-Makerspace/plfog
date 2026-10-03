@@ -1,9 +1,10 @@
-"""Auto-take the month-end funding snapshot once per cycle, then auto-send results.
+"""Auto-take the month-end funding snapshot once per cycle, and stop there.
 
 Runs on the 15-minute cron (always-run list). Once the calendar rolls into a new
-month it captures the cycle that just closed and immediately calls
-``snapshot.send_results()`` — every active member is emailed the funding split
-(voters get their own ballot recap) with no admin action required.
+month it captures the cycle that just closed. It sends members nothing: taking the
+snapshot pings admins (``voting.results_ready``), and an admin drafts the results
+announcement from the Voting page and sends it through the composer. Sending here as
+well would give members the old results email first and the admin's announcement second.
 
 Idempotency is layered, modeled on ``send_lease_expiry_reminders``:
 
@@ -64,9 +65,3 @@ class Command(BaseCommand):
             self.stdout.write("No votes — nothing to snapshot.")
         else:
             self.stdout.write(self.style.SUCCESS(f"Auto-took snapshot '{label}'."))
-            # Queue rather than send inline. This is the path that actually runs every
-            # month, so it is the one that most needs the retry: sending here would stamp
-            # the snapshot even when members were missed, and the only way to reach them
-            # afterwards would be a resend to the entire membership.
-            snapshot.queue_results_send()
-            self.stdout.write(self.style.SUCCESS(f"Queued the results email for '{label}'."))

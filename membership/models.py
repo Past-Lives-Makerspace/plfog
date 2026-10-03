@@ -4899,13 +4899,17 @@ def resolve_channel_webhook(channel: str, guild: "Guild | None" = None) -> str:
     raise ValueError(f"Unknown Discord channel '{channel}'.")
 
 
-def build_announcement_email_html(title: str, body: str, *, subline: str = "", sender: str = "") -> str:
+def build_announcement_email_html(
+    title: str, body: str, *, subline: str = "", sender: str = "", results_html: str = ""
+) -> str:
     """Branded announcement email HTML — one builder for the preview and the real send.
 
     ``title`` is the auto-derived category ("Ceramics Guild Announcement" / "Class Announcement",
     with an "Urgent: " lead when urgent). ``subline`` is an optional line under it (the class title
     for a class announcement). ``sender`` is an optional "From <name>" line. ``body`` is the
-    rich-text editor's sanitized HTML, inline-styled for the light card. The branded shell wraps
+    rich-text editor's sanitized HTML, inline-styled for the light card. ``results_html`` is an
+    app-built block placed under the message (a results announcement's heading and bar chart,
+    :meth:`FundingSnapshot.results_visual_html`); it is never author input. The branded shell wraps
     the whole fragment. Shared by the compose wizard's live preview and the EMAIL override handed
     to the spine, so the two are byte-faithful.
     """
@@ -4922,6 +4926,7 @@ def build_announcement_email_html(title: str, body: str, *, subline: str = "", s
     if sender:
         fragment += f'<p style="margin:0 0 20px;color:#5b6b78;font-size:14px;">From {escape(sender)}</p>'
     fragment += render_rich_email_body(body)
+    fragment += results_html
     return wrap_email_html(fragment)
 
 
@@ -4933,8 +4938,30 @@ class AnnouncementDraftManager(models.Manager["AnnouncementDraft"]):
     """Queries for the compose wizard's saved drafts."""
 
     def for_user(self, user: "User") -> "models.QuerySet[AnnouncementDraft]":
-        """This user's resumable (unsent) drafts, newest first, guild pre-fetched."""
-        return self.filter(author=user, sent_at__isnull=True).select_related("guild")
+        """This user's resumable drafts, newest first, guild pre-fetched.
+
+        Resumable means unsent AND not queued: a site send queued for the background job is out
+        of the composer's hands, so resuming, re-sending, saving over or deleting it is refused
+        (every composer lookup goes through here).
+        """
+        return self.filter(author=user, sent_at__isnull=True, send_requested_at__isnull=True).select_related("guild")
+
+    def queued(self) -> "models.QuerySet[AnnouncementDraft]":
+        """Drafts waiting for ``send_queued_announcements``, oldest request first."""
+        return self.filter(sent_at__isnull=True, send_requested_at__isnull=False).order_by("send_requested_at", "pk")
+
+    def results_snapshot_of(self, user: "User", draft_pk: str) -> "FundingSnapshot | None":
+        """The funding snapshot linked to ``user``'s own resumable draft ``draft_pk``, else ``None``.
+
+        How the composer's preview, test email and push test learn that they are rendering a
+        results announcement. Only the requesting author's own draft is consulted, and only a
+        snapshot already linked to it is returned, so a crafted ``draft_pk`` (someone else's draft,
+        a sent or queued one, garbage) yields ``None`` and the plain category title.
+        """
+        if not draft_pk.isdigit():
+            return None
+        draft = self.for_user(user).filter(pk=int(draft_pk)).select_related("funding_snapshot").first()
+        return draft.funding_snapshot if draft is not None else None
 
 
 class AnnouncementDraft(models.Model):
@@ -4950,6 +4977,13 @@ class AnnouncementDraft(models.Model):
     post today and gain none here). A **guild** send additionally materializes a published
     :class:`GuildAnnouncement` so the post shows on the guild page, the edit list, and the
     slideshow — see :meth:`send`.
+
+    A site send from the composer is **queued** (:meth:`queue_send`) rather than sent in the
+    request: fanning out to every active member outlives a web worker's timeout. The
+    ``send_queued_announcements`` job then calls :meth:`send`. A draft linked to a
+    :class:`FundingSnapshot` is that month's **results announcement**: it takes the
+    "<cycle> Voting Results" title, carries the results chart in its email and Discord post, and
+    marks the snapshot's results sent once it goes out.
     """
 
     class Audience(models.TextChoices):
@@ -5063,6 +5097,26 @@ class AnnouncementDraft(models.Model):
         blank=True,
         help_text="Set on send. NULL = a resumable draft; non-null = an immutable sent record.",
     )
+    send_requested_at = models.DateTimeField(
+        null=True,
+        blank=True,
+        help_text=(
+            "When a site-wide send was queued for the background job. Cleared once it sends. "
+            "A queued draft can no longer be resumed or edited in the composer."
+        ),
+    )
+    funding_snapshot = models.ForeignKey(
+        "FundingSnapshot",
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="announcement_drafts",
+        help_text=(
+            "Set when this draft announces a funding snapshot's results: it takes the "
+            "'<cycle> Voting Results' title, carries the results chart, and marks the results sent. "
+            "Deleting the snapshot leaves a plain site announcement."
+        ),
+    )
 
     objects = AnnouncementDraftManager()
 
@@ -5107,10 +5161,14 @@ class AnnouncementDraft(models.Model):
         """The auto-derived headline used as the title everywhere (email + push + bell + Discord).
 
         Guild → ``"<Guild> Announcement"``; class → ``"Class Announcement"`` (the class title rides
-        as a subline in the email); site → ``"Makerspace Announcement"``. When the send is marked
-        urgent, ``"Urgent: "`` leads the title. There is no member-typed subject — this is it.
+        as a subline in the email); site → ``"Makerspace Announcement"``. A results announcement
+        (linked to a :class:`FundingSnapshot`) is ``"<cycle> Voting Results"`` whatever the
+        audience. When the send is marked urgent, ``"Urgent: "`` leads the title. There is no
+        member-typed subject — this is it.
         """
-        if self.audience == self.Audience.CLASS:
+        if self.funding_snapshot is not None:
+            base = f"{self.funding_snapshot.cycle_label} Voting Results"
+        elif self.audience == self.Audience.CLASS:
             base = "Class Announcement"
         elif self.audience == self.Audience.GUILD and self.guild is not None:
             base = f"{self.guild.name} Announcement"
@@ -5147,11 +5205,12 @@ class AnnouncementDraft(models.Model):
             title=self.title, body=rich_html_to_text(self.body), url=base_url, trigger_kind=self._trigger_kind()
         )
 
-    def _push_override(self, base_url: str) -> "Message":
+    def build_push_message(self, base_url: str) -> "Message":
         """The phone-notification :class:`Message` — the category title + the short push line.
 
         The push line is the author's custom :attr:`push_message` when set, else the flattened
         message body (the phone caps it). No "From" line — push leads with the category title.
+        The composer's push test sends this same message, so the test is what members get.
         """
         from core.events.channels import Message
         from core.html_sanitize import rich_html_to_text
@@ -5159,20 +5218,43 @@ class AnnouncementDraft(models.Model):
         text = (self.push_message or "").strip() or rich_html_to_text(self.body)
         return Message(title=self.title, body=text, url=base_url, trigger_kind=self._trigger_kind())
 
+    def build_discord_message(self, base_url: str) -> "Message":
+        """The Discord embed :class:`Message` — the composer's Discord preview card *is* this.
+
+        A plain announcement posts the in-app message (the category title + the flattened body).
+        A results announcement adds the snapshot's results block under the message, one
+        ``/voting`` style bar line per guild (:meth:`FundingSnapshot.allocation_discord_block`).
+        The message is shortened first so the results always fit inside Discord's embed
+        description limit.
+        """
+        import dataclasses
+
+        from core.events.discord_replies import truncate
+        from membership.discord_commands import _EMBED_DESCRIPTION_LIMIT
+
+        message = self._in_app_message(base_url)
+        snapshot = self.funding_snapshot
+        if snapshot is None:
+            return message
+        block = snapshot.allocation_discord_block()
+        prose = truncate(message.body, max(_EMBED_DESCRIPTION_LIMIT - len(block) - 2, 0))
+        description = truncate(f"{prose}\n\n{block}", _EMBED_DESCRIPTION_LIMIT)
+        return dataclasses.replace(message, body=description)
+
     def _channel_overrides(self, base_url: str) -> "dict[Channel, Message]":
         """Per-channel Message overrides handed to ``emit`` — every channel leads with the category.
 
         With no member-typed subject, the auto category is the title on the in-app bell, push,
         Discord embed, and email, so nothing falls back to the copy catalogue's guild-name-prefixed
-        default. Email additionally carries the class subline + optional "From" line.
+        default. Email additionally carries the class subline + optional "From" line, and a results
+        announcement's email and Discord post carry the results visual.
         """
         from core.events.channels import Channel
 
-        in_app = self._in_app_message(base_url)
         return {
-            Channel.IN_APP: in_app,
-            Channel.PUSH: self._push_override(base_url),
-            Channel.DISCORD: in_app,
+            Channel.IN_APP: self._in_app_message(base_url),
+            Channel.PUSH: self.build_push_message(base_url),
+            Channel.DISCORD: self.build_discord_message(base_url),
             Channel.EMAIL: self.build_email_message(base_url),
         }
 
@@ -5183,7 +5265,9 @@ class AnnouncementDraft(models.Model):
         (``emit`` for a site send, ``notify_members(email_message=…)`` for a guild send), so
         the preview is always byte-faithful to what sends. ``base_url`` is the site root for a
         site send and the guild-detail URL for a guild send. The text part is the flattened
-        rich body (matching the bell / Discord render).
+        rich body (matching the bell / Discord render). A results announcement adds the results
+        visual under the message: the heading and bar chart in the HTML, the heading and one line
+        per guild in the text part.
         """
         from core.events.channels import Message
         from core.html_sanitize import rich_html_to_text
@@ -5197,11 +5281,18 @@ class AnnouncementDraft(models.Model):
         if sender:
             text_parts.append(f"From {sender}")
         text_parts.append(body_text)
+        results_html = ""
+        snapshot = self.funding_snapshot
+        if snapshot is not None:
+            text_parts.append(snapshot.results_heading + "\n" + "\n".join(snapshot.allocation_lines()))
+            results_html = snapshot.results_visual_html()
         return Message(
             title=self.title,
             body="\n\n".join(text_parts) + f"\n\n{base_url}",
             url=base_url,
-            html_body=build_announcement_email_html(self.title, self.body, subline=subline, sender=sender),
+            html_body=build_announcement_email_html(
+                self.title, self.body, subline=subline, sender=sender, results_html=results_html
+            ),
             trigger_kind=self._trigger_kind(),
         )
 
@@ -5272,6 +5363,11 @@ class AnnouncementDraft(models.Model):
         ``recipient_selection`` as the explicit recipient set (bell + push + email) plus the
         narrowed custom mailing-list addresses.
 
+        The site send's ``period`` is the draft's own pk, stable across attempts, so a run killed
+        partway and retried by the queue skips every member and the Discord post the first attempt
+        already delivered (the ledger keys on it) and reaches only the rest. Stamping ``sent_at``,
+        clearing ``send_requested_at`` and marking a linked snapshot's results sent happen together.
+
         Returns:
             An ``(emailed, total)`` pair for the post-send summary. ``total`` is the full
             addressable set (a site send: all active members; a guild send: the guild's
@@ -5283,23 +5379,15 @@ class AnnouncementDraft(models.Model):
         Raises:
             AlreadySentError: If this draft was already sent.
             ValidationError: If the body sanitizes empty, or a guild audience has no guild.
+            ResultsAlreadySentError: If this is a results announcement whose results were already sent.
         """
-        from django.core.exceptions import ValidationError
         from django.urls import reverse
 
         from core.events.emit import emit
-        from core.html_sanitize import rich_html_to_text, sanitize_rich_html
+        from core.html_sanitize import rich_html_to_text
         from membership.orientations import _absolute_url
 
-        if self.sent_at is not None:
-            raise AlreadySentError("This announcement was already sent.")
-        body_html = sanitize_rich_html(self.body)
-        if not body_html:
-            raise ValidationError("Add a message before sending.")
-        if self.audience == self.Audience.GUILD and self.guild is None:
-            raise ValidationError("Choose a guild for this announcement.")
-        if self.audience == self.Audience.CLASS and self.class_offering is None:
-            raise ValidationError("Choose a class for this announcement.")
+        body_html = self._check_sendable()
 
         discord_on = self.discord_enabled
         mention_str = self._mention_literal() if discord_on else ""
@@ -5320,7 +5408,7 @@ class AnnouncementDraft(models.Model):
                     "discord_broadcast_webhook": webhook,
                 },
                 url=site_url,
-                period=f"announce:{self.pk}:{timezone.now():%Y%m%d%H%M%S%f}",
+                period=f"announce:{self.pk}",
                 messages=self._channel_overrides(site_url),
                 suppress_broadcast=(webhook == ""),
                 suppress_email=not self.send_email,
@@ -5388,9 +5476,84 @@ class AnnouncementDraft(models.Model):
                 override_preferences=self.mark_as_urgent,
             )
 
-        self.sent_at = timezone.now()
-        self.save(update_fields=["sent_at", "updated_at"])
+        with transaction.atomic():
+            self.sent_at = timezone.now()
+            self.send_requested_at = None
+            self.save(update_fields=["sent_at", "send_requested_at", "updated_at"])
+            snapshot = self.funding_snapshot
+            if snapshot is not None:
+                snapshot.mark_results_announced()
         return counts
+
+    def _check_sendable(self) -> str:
+        """The guards :meth:`send` and :meth:`queue_send` share; returns the sanitized body.
+
+        The results check reads the snapshot row afresh rather than trusting the instance this
+        draft holds, because the queue job sends drafts one after another in one process: a
+        snapshot an earlier draft just marked sent must stop the next one.
+
+        Raises:
+            AlreadySentError: If this draft was already sent.
+            ValidationError: If the body sanitizes empty, or the audience has no target.
+            ResultsAlreadySentError: If this is a results announcement whose results were already sent.
+        """
+        from core.html_sanitize import sanitize_rich_html
+
+        if self.sent_at is not None:
+            raise AlreadySentError("This announcement was already sent.")
+        body_html = sanitize_rich_html(self.body)
+        if not body_html:
+            raise ValidationError("Add a message before sending.")
+        if self.audience == self.Audience.GUILD and self.guild is None:
+            raise ValidationError("Choose a guild for this announcement.")
+        if self.audience == self.Audience.CLASS and self.class_offering is None:
+            raise ValidationError("Choose a class for this announcement.")
+        if (
+            self.funding_snapshot_id is not None
+            and FundingSnapshot.objects.filter(pk=self.funding_snapshot_id, results_sent_at__isnull=False).exists()
+        ):
+            raise ResultsAlreadySentError("These results were already sent.")
+        return body_html
+
+    def queue_send(self) -> None:
+        """Hand this draft to the background job instead of sending it in the request.
+
+        A site-wide send fans out to every active member, which takes longer than a web worker
+        may live, so the composer queues it and ``send_queued_announcements`` sends it within
+        15 minutes. Runs the same guards as :meth:`send` first, so a draft that could never
+        send is refused now rather than failing on the job. A results announcement is also
+        refused while another draft for the same snapshot is queued; the snapshot row is locked
+        while that is checked, so two admins queueing at once cannot both get in.
+
+        Calling it on a draft that is already queued changes nothing.
+
+        Raises:
+            AlreadySentError: If this draft was already sent.
+            ValidationError: If the body sanitizes empty, or the audience has no target.
+            ResultsAlreadySentError: If the linked results were already sent, or are already sending.
+        """
+        if self.send_requested_at is not None:
+            return
+        with transaction.atomic():
+            if self.funding_snapshot_id is not None:
+                FundingSnapshot.objects.select_for_update().filter(pk=self.funding_snapshot_id).first()
+            self._check_sendable()
+            if self.funding_snapshot_id is not None:
+                already_queued = (
+                    AnnouncementDraft.objects.queued()
+                    .filter(funding_snapshot_id=self.funding_snapshot_id)
+                    .exclude(pk=self.pk)
+                    .exists()
+                )
+                if already_queued:
+                    raise ResultsAlreadySentError("These results are already sending.")
+            self.send_requested_at = timezone.now()
+            self.save(update_fields=["send_requested_at", "updated_at"])
+
+    def unqueue(self) -> None:
+        """Take a queued draft back off the queue without sending it (it becomes resumable again)."""
+        self.send_requested_at = None
+        self.save(update_fields=["send_requested_at", "updated_at"])
 
     def _selected_recipient_ids(self) -> "set[int] | None":
         """The explicit member recipient set (bell + push + email) from the saved selection.
@@ -8779,16 +8942,16 @@ class VotePreference(models.Model):
 
 
 class ResultsAlreadySentError(Exception):
-    """Raised when a snapshot's member results email is sent twice without an explicit resend."""
+    """Raised when a snapshot's results would go out twice.
+
+    The headless results email sent again without an explicit resend, or a results
+    announcement drafted, queued or sent for a snapshot whose results already went out
+    (or are already on their way).
+    """
 
 
-# How many times the scheduler retries one queued results send before giving up and
-# stamping it anyway. A transient failure (a provider hiccup, a worker restart, a single
-# rejected message) clears well inside this; a genuinely undeliverable address never
-# will, and must not keep the request queued forever. Retries cannot conjure send budget
-# either — if the provider is refusing on quota, the fix is the mail plan, not this
-# number. (The account is on Resend Pro as of September 2026: no daily cap, 50k/month.)
-MAX_RESULTS_SEND_ATTEMPTS = 3
+class NoResultsToAnnounceError(Exception):
+    """Raised when a results announcement is asked for a snapshot with no per-guild results."""
 
 
 class FundingSnapshot(models.Model):
@@ -8883,60 +9046,28 @@ class FundingSnapshot(models.Model):
 
     @property
     def results_pending(self) -> bool:
-        """Whether real per-guild results exist for this snapshot and still need the admin.
+        """Whether real per-guild results exist for this snapshot and have not gone out yet.
 
-        A legacy or vote-less snapshot (no allocation) is never "pending" — there is
-        nothing meaningful to send. Neither is one whose send is already queued: the
-        admin has acted and the scheduler owns it now, so the "review & send" banner
-        must move on to the next cycle instead of offering the same one again.
+        A legacy or vote-less snapshot (no allocation) is never "pending": there is nothing
+        meaningful to announce. A snapshot stays pending while its results announcement is
+        queued, so the banner keeps it and says it is sending; it moves on once the send
+        stamps ``results_sent_at``. The retired results-email queue
+        (``results_send_requested_at``) no longer counts: nothing drains it any more, so a
+        snapshot it left queued must still be offered rather than stranded.
         """
-        return self.results_sent_at is None and not self.results_send_queued and bool(self.allocation_summary())
+        return self.results_sent_at is None and bool(self.allocation_summary())
 
     @property
-    def results_send_queued(self) -> bool:
-        """Whether a results send is waiting for the background worker to pick it up."""
-        return self.results_send_requested_at is not None
-
-    def queue_results_send(self, *, resend: bool = False) -> None:
-        """Ask for this snapshot's results email without sending it on this thread.
-
-        Emailing the whole membership is a fan-out of roughly twenty queries per member
-        and takes over a minute at current size, which is longer than the web worker's
-        request timeout — the worker is killed mid-loop and the admin is told the send
-        failed when most of it already happened. So the admin's click only records the
-        request here; ``send_pending_funding_results`` performs it on the scheduler.
-
-        Args:
-            resend: True to re-email everyone with a fresh delivery generation.
-
-        Raises:
-            ResultsAlreadySentError: If results were already sent and ``resend`` is False.
-        """
-        if self.results_sent_at is not None and not resend:
-            raise ResultsAlreadySentError(f"Results for '{self.cycle_label}' were already sent.")
-        self.results_send_requested_at = timezone.now()
-        self.results_send_resend = resend
-        if resend:
-            # A resend is a genuinely new request, so it starts a new generation and a
-            # fresh budget. A plain Send is NOT: it may be picking up an earlier send that
-            # died partway (headless run killed, worker restarted), and zeroing the budget
-            # here would make the next attempt look like a first attempt, open a new
-            # generation, and re-email everyone that dead run had already reached.
-            self.results_send_attempts = 0
-        else:
-            # Carry the count over so the next attempt continues the unfinished
-            # generation, but never hand the scheduler a budget that is already spent.
-            # Enough crashed runs would otherwise make the admin's next click abandon
-            # before sending anything, and stamp the cycle as sent having emailed nobody.
-            self.results_send_attempts = min(self.results_send_attempts, MAX_RESULTS_SEND_ATTEMPTS - 1)
-        self.save(update_fields=["results_send_requested_at", "results_send_resend", "results_send_attempts"])
+    def results_announcement_sending(self) -> bool:
+        """Whether a results announcement for this snapshot is queued for the background send."""
+        return self.announcement_drafts.filter(sent_at__isnull=True, send_requested_at__isnull=False).exists()
 
     @classmethod
     def most_recent_pending(cls) -> FundingSnapshot | None:
-        """The newest snapshot whose member results are still pending review & send.
+        """The newest snapshot whose results have not gone out yet.
 
-        Drives the Overview "Results are in — review & send" banner. Walks unsent
-        snapshots newest-first and returns the first with a real allocation.
+        Drives the Overview "Results are in" banner. Walks unsent snapshots newest-first and
+        returns the first with a real allocation.
         """
         for snapshot in cls.objects.filter(results_sent_at__isnull=True).order_by("-snapshot_at"):
             if snapshot.results_pending:
@@ -8956,7 +9087,8 @@ class FundingSnapshot(models.Model):
 
         Taking a snapshot freezes the votes and runs the allocation, but does NOT
         email members — it logs the snapshot-taken activity once and pings admins via
-        ``voting.results_ready`` so they can review the numbers and click Send results.
+        ``voting.results_ready`` so they can review the numbers and draft the results
+        announcement (:meth:`draft_results_announcement`).
 
         Args:
             title: Custom label for the snapshot. Defaults to current month/year.
@@ -9122,10 +9254,146 @@ class FundingSnapshot(models.Model):
             )
         return mark_safe(render_to_string("membership/emails/_allocation_chart.html", {"rows": rows}))
 
+    def _allocation_rows(self) -> list[tuple[str, Decimal, Any]]:
+        """``(guild name, funding, share pct)`` per guild, in the results' own funding-descending order.
+
+        ``funding`` is a Decimal fresh from ``calculate_results`` or a string once the JSON has
+        round-tripped the database, so it is coerced. Fails loudly on a snapshot with no results.
+        """
+        return [(row["guild_name"], Decimal(str(row["funding"])), row["share_pct"]) for row in self.results["results"]]
+
+    @property
+    def results_heading(self) -> str:
+        """The line that leads a results announcement's visual: ``"How the $1,000.00 funding pool was split"``."""
+        return f"How the ${self.funding_pool:,.2f} funding pool was split"
+
+    def allocation_lines(self) -> list[str]:
+        """One plain line per guild for a results announcement's text email: ``"Metal: $600.00 (45.0%)"``."""
+        return [f"{name}: ${funding:,.2f} ({share}%)" for name, funding, share in self._allocation_rows()]
+
+    def results_visual_html(self) -> str:
+        """The results announcement's email visual: the heading, then :meth:`allocation_chart_html`.
+
+        Built from the snapshot's numbers at render time, never from the editable message, and
+        placed under it by :func:`build_announcement_email_html`. The heading is escaped and
+        styled like an ``h3`` in the message so the two read as one email.
+        """
+        from core.events.templates import style_rich_email_fragment
+
+        heading = style_rich_email_fragment(f"<h3>{escape(self.results_heading)}</h3>")
+        return heading + self.allocation_chart_html()
+
+    def allocation_discord_block(self) -> str:
+        """The results announcement's Discord visual, in the ``/voting`` standings style.
+
+        The bold heading, then one line per guild: a medal for the top three (else ``4.``), the
+        block bar in inline code sized to the leader, the name (bold for the top three), then
+        the dollars and share. The bar and medals are ``/voting``'s own
+        (:func:`membership.discord_commands._bar`), so the two posts always look alike. Guild
+        names go out as typed: Discord shows ``<`` and ``&`` literally.
+        """
+        from membership.discord_commands import _MEDALS, _bar
+
+        rows = self._allocation_rows()
+        top = max(funding for _name, funding, _share in rows)
+        lines = [f"**{self.results_heading}**"]
+        for rank, (name, funding, share) in enumerate(rows, start=1):
+            bar = f"`{_bar(float(funding / top * 100) if top > 0 else 0.0)}`"
+            amount = f"${funding:,.2f} ({share}%)"
+            if rank <= len(_MEDALS):
+                lines.append(f"{_MEDALS[rank - 1]} {bar} **{name}**: {amount}")
+            else:
+                lines.append(f"`{rank}.` {bar} {name}: {amount}")
+        return "\n".join(lines)
+
+    def results_announcement_body(self) -> str:
+        """The prose a results announcement starts with, stored exactly as the composer would store it.
+
+        Two paragraphs: the cycle, turnout and pool with a thank you, then the link to the
+        results page the old results email used. The numbers per guild are not here: they ride
+        in the results visual, so nothing in the editable message can be mistyped. Returned
+        already through :func:`core.html_sanitize.sanitize_rich_html`, the same function the
+        composer's form runs on save, so the stored body is the shape the editor loads and the
+        sanitizer keeps.
+        """
+        from core.html_sanitize import sanitize_rich_html
+        from membership.orientations import _absolute_url
+
+        votes_cast = self.results["votes_cast"]
+        voters = "member" if votes_cast == 1 else "members"
+        voting_url = _absolute_url("/guilds/voting/history/")
+        return sanitize_rich_html(
+            f"<p>The votes for {escape(self.cycle_label)} are in. {votes_cast} {voters} voted on how the "
+            f"${self.funding_pool:,.2f} guild funding pool is split. Thank you to everyone who voted.</p>"
+            f'<p>See the full breakdown on the <a href="{escape(voting_url)}">voting results page</a>.</p>'
+        )
+
+    @property
+    def results_announcement_push(self) -> str:
+        """The phone line a results announcement starts with."""
+        return f"{self.cycle_label} voting results are in. See how the guild funding was split."
+
+    def draft_results_announcement(self, author: User) -> AnnouncementDraft:
+        """Open this snapshot's results announcement for ``author``: their own draft, or a new one.
+
+        Returns ``author``'s existing resumable (unsent, not queued) results draft for this
+        snapshot, so a second click reopens the same draft; otherwise creates one pre-filled for
+        everyone: email, push and Discord on, posting to #general-chat with an @everyone ping
+        (as the old results post did), the sender shown, not urgent.
+
+        Raises:
+            ResultsAlreadySentError: If this snapshot's results already went out.
+            NoResultsToAnnounceError: If the snapshot has no per-guild results (legacy or vote-less).
+        """
+        if self.results_sent_at is not None:
+            raise ResultsAlreadySentError("These results were already sent.")
+        if not self.allocation_summary():
+            raise NoResultsToAnnounceError(f"'{self.cycle_label}' has no results to announce.")
+        existing = AnnouncementDraft.objects.for_user(author).filter(funding_snapshot=self).first()
+        if existing is not None:
+            return existing
+        draft = AnnouncementDraft(
+            author=author,
+            audience=AnnouncementDraft.Audience.SITE,
+            funding_snapshot=self,
+            body=self.results_announcement_body(),
+            push_message=self.results_announcement_push,
+            push_enabled=True,
+            send_email=True,
+            discord_enabled=True,
+            discord_channel=GuildAnnouncement.DiscordChannel.GENERAL,
+            mention=AnnouncementDraft.Mention.EVERYONE,
+            show_sender=True,
+            mark_as_urgent=False,
+        )
+        draft.title = draft.announcement_category
+        draft.save()
+        return draft
+
+    def mark_results_announced(self) -> None:
+        """Stamp this snapshot's results as sent, once, after its results announcement went out.
+
+        Locks the row and stamps only when nothing has yet, so two runs finishing the same
+        announcement count it once. The send count goes up by one, as the headless email's does.
+        """
+        with transaction.atomic():
+            locked = FundingSnapshot.objects.select_for_update().get(pk=self.pk)
+            if locked.results_sent_at is None:
+                locked.results_sent_at = timezone.now()
+                locked.results_send_count += 1
+                locked.save(update_fields=["results_sent_at", "results_send_count"])
+        self.results_sent_at = locked.results_sent_at
+        self.results_send_count = locked.results_send_count
+
     def send_results(
         self, *, actor: Any | None = None, resend: bool = False, intro_note: str = "", discord: bool = True
     ) -> int:
         """Email every active member their results and post one @everyone Discord summary.
+
+        The headless fallback (``manage.py send_funding_results``). The normal path is now the
+        results announcement an admin drafts from the Voting page and sends through the
+        composer (:meth:`draft_results_announcement`); this personalised email, with each
+        voter's own ballot recap, stays for a one-off job run without an admin session.
 
         Loops the snapshot's frozen ``raw_votes`` and emits ``voting.results_published``
         once per still-active voter with a personalized ballot recap, then emits the same
@@ -9134,10 +9402,9 @@ class FundingSnapshot(models.Model):
         ``voting.results_discord`` broadcast fires so #general-member-chat hears the outcome.
 
         Bookkeeping lives in :meth:`_begin_results_send` (which generation to send under)
-        and :meth:`_finish_results_send` (stamp it, or leave it queued for a retry when
-        members were missed). This is safe to re-run: the ledger skips anyone already
-        emailed on the current generation, so a re-run reaches only the members a previous
-        attempt did not.
+        and :meth:`_finish_results_send` (stamp it). This is safe to re-run after a run that
+        died partway: the ledger skips anyone already emailed on the current generation, so
+        a re-run reaches only the members the dead run did not.
 
         Args:
             actor: The admin who triggered the send (unused in per-member emit, kept for
@@ -9164,7 +9431,6 @@ class FundingSnapshot(models.Model):
         from membership.orientations import _absolute_url
 
         n = self._begin_results_send(resend=resend)
-        missed = 0
         sent = 0
         allocation = self.allocation_summary()
         allocation_chart = self.allocation_chart_html()
@@ -9211,7 +9477,6 @@ class FundingSnapshot(models.Model):
             )
             if any(channel is Channel.EMAIL for _pk, channel in result.delivered):
                 sent += 1
-            missed += sum(1 for _pk, channel in result.released if channel is Channel.EMAIL)
 
         # --- 2. Non-voters: allocation only, no ballot recap ---
         non_voters = Member.objects.active().filter(user__isnull=False).exclude(pk__in=voter_ids).select_related("user")
@@ -9237,7 +9502,6 @@ class FundingSnapshot(models.Model):
             )
             if any(channel is Channel.EMAIL for _pk, channel in result.delivered):
                 sent += 1
-            missed += sum(1 for _pk, channel in result.released if channel is Channel.EMAIL)
 
         # --- 3. Discord: one @everyone broadcast to #general-member-chat ---
         if discord:
@@ -9253,19 +9517,19 @@ class FundingSnapshot(models.Model):
                 period=f"snapshot_discord:{self.pk}:send:{n}",
             )
 
-        self._finish_results_send(missed=missed)
+        self._finish_results_send()
         return sent
 
     def _begin_results_send(self, *, resend: bool) -> int:
         """Claim one send attempt and return the delivery generation to send under.
 
-        The generation belongs to the admin's REQUEST, not to each attempt at fulfilling
-        it. The period embeds the generation, so a retry that bumped the number would get
-        fresh periods and re-email everyone instead of reaching only the members the
-        previous attempt missed. Any attempt after the first is therefore a retry —
-        queued or not, since the headless command can be re-run by hand after a worker
-        was killed. Both counters are persisted before any email goes out, so a run that
-        dies mid-fan-out still leaves the next one on the same generation.
+        The generation belongs to the send that was asked for, not to each attempt at
+        fulfilling it. The period embeds the generation, so a retry that bumped the number
+        would get fresh periods and re-email everyone instead of reaching only the members
+        the previous attempt missed. Any attempt after the first is therefore a retry: the
+        headless command can be re-run by hand after a worker was killed. Both counters are
+        persisted before any email goes out, so a run that dies mid-fan-out still leaves the
+        next one on the same generation.
 
         Raises:
             ResultsAlreadySentError: If results were already sent and ``resend`` is False.
@@ -9278,46 +9542,15 @@ class FundingSnapshot(models.Model):
         self.save(update_fields=["results_send_count", "results_send_attempts"])
         return self.results_send_count
 
-    @property
-    def results_send_budget_spent(self) -> bool:
-        """Whether this queued send has used every attempt it is allowed.
+    def _finish_results_send(self) -> None:
+        """Stamp the send as done.
 
-        Checked by the scheduler BEFORE it tries again, which is what bounds a send that
-        crashes mid-fan-out: such a run never reaches :meth:`_finish_results_send`, so a
-        budget consulted only at the end would never stop it retrying.
+        Always stamps, even when some members were missed: nothing retries a headless send,
+        so leaving it unstamped would hang the cycle in the admin UI forever. (A run that dies
+        before getting here leaves the snapshot unstamped, and re-running the command then
+        reaches only the members it missed.) The retired results-email queue columns are
+        cleared too, so a snapshot that queue left behind stops looking queued.
         """
-        return self.results_send_attempts >= MAX_RESULTS_SEND_ATTEMPTS
-
-    def abandon_queued_send(self) -> None:
-        """Give up on a queued send that has spent its attempt budget.
-
-        Stamps the snapshot so it stops being retried and stops looking queued. Callers
-        must say out loud that members were missed — a silent give-up is the exact
-        failure this whole path exists to prevent.
-        """
-        self._finish_results_send(missed=0)
-
-    def _finish_results_send(self, *, missed: int) -> bool:
-        """Stamp the send as done, or leave it queued for the scheduler to retry.
-
-        Members who were claimed but not reached (no address on file, a provider
-        rejection) had their ledger slots handed back. While the request is still queued,
-        leave the snapshot unstamped so the next scheduler tick retries on this same
-        generation: the ledger skips everyone already emailed and only the missed members
-        are tried again. The attempt budget that stops this repeating forever is enforced
-        by the caller before it starts (:attr:`results_send_budget_spent`), because a run
-        that dies mid-fan-out never gets here at all.
-
-        A send that is NOT queued (the headless command, the auto cycle snapshot) always
-        stamps: nothing would ever pick it back up, so leaving it unstamped would hang the
-        cycle in the admin UI forever.
-
-        Returns:
-            True when the snapshot was stamped as sent, False when it stays queued.
-        """
-        still_queued = self.results_send_requested_at is not None
-        if missed and still_queued:
-            return False
         self.results_sent_at = timezone.now()
         self.results_send_requested_at = None
         self.results_send_resend = False
@@ -9331,7 +9564,6 @@ class FundingSnapshot(models.Model):
                 "results_send_attempts",
             ]
         )
-        return True
 
     def save(self, *args: Any, **kwargs: Any) -> None:
         super().save(*args, **kwargs)

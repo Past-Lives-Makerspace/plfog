@@ -1,7 +1,9 @@
 """BDD specs for the admin-confirmed results model — take() + send_results().
 
 take() freezes votes, logs ONE activity, pings admins (voting.results_ready), and
-does NOT email members. send_results() is the admin's explicit, idempotent send.
+does NOT email members. send_results() is the headless fallback
+(``manage.py send_funding_results``): explicit and idempotent. Results normally go out as
+the announcement an admin drafts from the Voting page (results_announcement_spec.py).
 """
 
 from __future__ import annotations
@@ -12,6 +14,7 @@ import pytest
 from django.contrib.auth.models import User
 from django.core import mail
 from django.db.models.signals import post_save
+from django.utils import timezone
 from factory.django import mute_signals
 
 from core.models import Notification, NotificationPreference, SiteActivity, TransactionalEmailLog
@@ -133,6 +136,16 @@ def describe_results_pending():
             cycle_label="Old", contributor_count=0, funding_pool=Decimal("0"), results={}
         )
         assert snap.results_pending is False
+
+    def it_still_offers_a_snapshot_the_retired_results_queue_left_queued():
+        """Nothing drains the old results-email queue any more, so its flag must not hide a cycle."""
+        _voter("v@x.com")
+        snap = FundingSnapshot.take()
+        assert snap is not None
+        FundingSnapshot.objects.filter(pk=snap.pk).update(results_send_requested_at=timezone.now())
+        snap.refresh_from_db()
+        assert snap.results_pending is True
+        assert FundingSnapshot.most_recent_pending() == snap
 
 
 def describe_most_recent_pending():
@@ -333,3 +346,89 @@ def describe_allocation_chart_html():
                 cycle_label="Legacy", contributor_count=0, funding_pool=Decimal("0"), results={}
             )
             assert str(snap.allocation_chart_html()) == ""
+
+
+def describe_headless_send_bookkeeping():
+    """``send_results`` always stamps: nothing retries it, so an unstamped cycle would hang."""
+
+    def _flaky_for(victim, exc):
+        from core.email import _deliver as real_send
+
+        def flaky(*args, **kwargs):
+            if victim in kwargs.get("recipients", []):
+                raise exc
+            return real_send(*args, **kwargs)
+
+        return flaky
+
+    def _sent_addresses() -> set[str]:
+        return set(
+            TransactionalEmailLog.objects.filter(trigger_kind="voting.results_published", status="sent").values_list(
+                "to_email", flat=True
+            )
+        )
+
+    def _snapshot_with(*emails):
+        for email in emails:
+            _voter(email)
+        snap = FundingSnapshot.take()
+        assert snap is not None
+        mail.outbox.clear()
+        return snap
+
+    def it_stamps_even_though_a_member_was_missed():
+        from unittest.mock import patch
+
+        snap = _snapshot_with("reached@x.com", "missed@x.com")
+        with patch("core.email._deliver", side_effect=_flaky_for("missed@x.com", RuntimeError("rejected"))):
+            snap.send_results()
+        snap.refresh_from_db()
+        assert snap.results_sent_at is not None
+        assert _sent_addresses() == {"reached@x.com"}
+
+    def it_reports_only_the_members_actually_emailed():
+        """A written bell row is not a delivered results email."""
+        from unittest.mock import patch
+
+        snap = _snapshot_with("reached@x.com", "missed@x.com")
+        with patch("core.email._deliver", side_effect=_flaky_for("missed@x.com", RuntimeError("rejected"))):
+            assert snap.send_results() == 1
+
+    def it_clears_what_the_retired_results_queue_left_on_the_snapshot():
+        snap = _snapshot_with("a@x.com")
+        FundingSnapshot.objects.filter(pk=snap.pk).update(
+            results_send_requested_at=timezone.now(), results_send_resend=True
+        )
+        snap.refresh_from_db()
+        snap.send_results()
+        snap.refresh_from_db()
+        assert snap.results_sent_at is not None
+        assert snap.results_send_requested_at is None
+        assert snap.results_send_resend is False
+        assert snap.results_send_attempts == 0
+
+    def describe_when_a_run_died_partway():
+        def it_continues_the_dead_generation_instead_of_re_emailing_everyone():
+            """Re-running the command after a killed job reaches only who it missed."""
+            from unittest.mock import patch
+
+            snap = _snapshot_with("reached@x.com", "missed@x.com")
+            with patch("core.email._deliver", side_effect=_flaky_for("missed@x.com", KeyboardInterrupt("killed"))):
+                with pytest.raises(KeyboardInterrupt):
+                    snap.send_results()
+            snap.refresh_from_db()
+            assert snap.results_sent_at is None
+            assert snap.results_send_count == 1
+
+            snap.send_results()
+
+            snap.refresh_from_db()
+            assert snap.results_send_count == 1, "the re-run must not open a new generation"
+            assert snap.results_sent_at is not None
+            assert _sent_addresses() == {"reached@x.com", "missed@x.com"}
+            assert (
+                TransactionalEmailLog.objects.filter(
+                    trigger_kind="voting.results_published", status="sent", to_email="reached@x.com"
+                ).count()
+                == 1
+            ), "nobody emailed twice"

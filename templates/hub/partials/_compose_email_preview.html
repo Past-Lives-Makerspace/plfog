@@ -5,6 +5,8 @@ replaces the "Building your preview…" placeholder on the first (auto-fired) re
 Params:
   preview_html    — the full branded email HTML (autoescaped into the iframe srcdoc)
   preview_subject — the subject line for the inbox row
+  discord_title, discord_description_html — the Discord embed, swapped out of band into the
+                    Discord preview card so both previews refresh in one request
 {% endcomment %}
 <div class="pl-email-preview__inbox">
   <span class="pl-email-preview__from">Past Lives</span>
@@ -14,3 +16,4 @@ Params:
   {# force_escape: preview_html may be a SafeString (render_to_string), and a raw quote would close srcdoc and blank the preview. #}
   <iframe srcdoc="{{ preview_html|force_escape }}" title="Email preview" class="pl-email-preview__iframe pl-wizard-preview__iframe"></iframe>
 </div>
+{% include "hub/partials/_compose_discord_preview.html" with oob=True %}

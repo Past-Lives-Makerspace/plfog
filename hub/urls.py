@@ -600,9 +600,9 @@ urlpatterns = [
     path("manage/voting/snapshots/", views.voting_snapshots, name="hub_admin_voting_snapshots"),
     path("manage/voting/snapshots/take/", views.voting_snapshot_take, name="hub_admin_voting_snapshot_take"),
     path(
-        "manage/voting/history/<int:pk>/send-results/",
-        views.voting_send_results,
-        name="hub_admin_voting_send_results",
+        "manage/voting/history/<int:pk>/draft-announcement/",
+        views.voting_results_draft,
+        name="hub_admin_voting_results_draft",
     ),
     path("manage/voting/settings/", views.voting_settings, name="hub_admin_voting_settings"),
     path("manage/members/", views.admin_members, name="hub_admin_members"),

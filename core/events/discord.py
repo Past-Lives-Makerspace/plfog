@@ -36,6 +36,8 @@ import httpx
 from django.conf import settings
 
 if TYPE_CHECKING:
+    from django.utils.safestring import SafeString
+
     from core.events.channels import Message
     from core.models import DiscordWebhookRoute
 
@@ -255,3 +257,23 @@ def post_embed(webhook_url: str, message: Message) -> bool:
         response.text[:300],
     )
     return False
+
+
+# The two pieces of Discord markdown the app's own embeds use: ``**bold**`` and `` `inline code` ``.
+_INLINE_CODE_RE = re.compile(r"`([^`\n]+)`")
+_BOLD_RE = re.compile(r"\*\*(.+?)\*\*")
+
+
+def discord_markdown_html(text: str) -> SafeString:
+    """Render an embed description as HTML the way Discord would show it, for a preview card.
+
+    Everything is HTML-escaped first, so whatever a member typed shows as text. Then the two
+    pieces of markdown the app's embeds use become markup: inline code (the ``/voting`` style
+    bars, kept monospace) and bold. Anything else Discord would format stays as typed. The
+    caller keeps the line breaks (``white-space: pre-line``).
+    """
+    from django.utils.html import escape
+    from django.utils.safestring import mark_safe
+
+    html = _INLINE_CODE_RE.sub(r'<code class="pl-discord-preview__code">\1</code>', escape(text))
+    return mark_safe(_BOLD_RE.sub(r"<strong>\1</strong>", html))

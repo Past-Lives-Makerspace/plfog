@@ -787,8 +787,9 @@ _TRIGGER_NOTES: dict[str, str] = {
         "with live turnout so they can rally their guilds."
     ),
     "voting.results_published": (
-        "Sent when an admin clicks Send results after a monthly funding snapshot — each voter "
-        "gets their personalized results."
+        "The headless fallback: sent only when send_funding_results is run by hand for a funding "
+        "snapshot, each voter getting their personalized results. Results normally go out as an "
+        "announcement the admin drafts from the Voting page and sends through the composer."
     ),
     "voting.results_ready": (
         "Sent to admins when a funding snapshot is taken and the results are ready to review and send."

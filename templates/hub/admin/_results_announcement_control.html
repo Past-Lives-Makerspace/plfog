@@ -1,0 +1,13 @@
+{# One snapshot's results control (Overview banner and snapshot page): sent date, sending line, or Draft announcement. Expects: snapshot. #}
+<div class="pl-results-send" data-results-control="{{ snapshot.pk }}">
+  {% if snapshot.results_sent_at %}
+    <span class="pl-results-send__status" data-results-state="sent">Results sent {{ snapshot.results_sent_at|date:"M j, g:i a" }}</span>
+  {% elif snapshot.results_announcement_sending %}
+    <span class="pl-results-send__status" data-results-state="sending">The results announcement is sending. It goes out within 15 minutes.</span>
+  {% elif snapshot.results_pending %}
+    <form method="post" action="{% url 'hub_admin_voting_results_draft' snapshot.pk %}" data-results-draft-form>
+      {% csrf_token %}
+      <button type="submit" class="hub-btn hub-btn--primary">Draft announcement</button>
+    </form>
+  {% endif %}
+</div>
