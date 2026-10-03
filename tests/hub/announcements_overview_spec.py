@@ -750,6 +750,11 @@ def describe_the_sent_view():
         assert "The last try failed: Factory provider down. It tries again" in html
         assert "data-reach-not-recorded" not in html
 
+    def it_says_a_site_send_included_members_who_had_not_logged_in(client: Client):
+        _login_admin(client)
+        html = _view(client, _sent_site_row(include_never_logged_in=True))
+        assert _fact(html, "audience") == "Everyone (site-wide), including members who hadn't logged in yet"
+
     def it_names_the_waitlist_on_a_class_send_and_has_no_discord(client: Client):
         _login_admin(client)
         offering = ClassOfferingFactory(title="Factory Forging")

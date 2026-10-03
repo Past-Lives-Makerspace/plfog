@@ -1323,3 +1323,104 @@ def describe_hub_compose_roster_handoff():
         )
         response = client.get(reverse("hub_compose_resume", args=[draft.pk]))
         assert response.context["form"].initial["recipients"] == [f"user:{admin.pk}"]
+
+
+def describe_site_members_who_never_logged_in():
+    """Everyone means members who have logged in; the toggle widens a site send to the rest."""
+
+    def _never_logged_in(username: str = "never") -> User:
+        # create_user provisions an ACTIVE member whose account has never logged in.
+        MembershipPlanFactory()
+        return User.objects.create_user(username=username, email=f"{username}@x.com", password="p")
+
+    def _toggle_input(content: str) -> str:
+        import re
+
+        match = re.search(r'<input[^>]*name="include_never_logged_in"[^>]*>', content)
+        assert match
+        return match.group(0)
+
+    def _is_checked(tag: str) -> bool:
+        # The attribute itself, not the word: the toggle's x-on:change reads $event.target.checked.
+        import re
+
+        return re.search(r"\schecked(?=[\s>/])", tag) is not None
+
+    def it_shows_both_counts_and_the_toggle_off_to_an_admin(client: Client):
+        _login_admin(client)
+        _never_logged_in()
+        response = client.get(reverse("hub_compose"))
+        logged_in = _compose_count_for("site", None)
+        assert response.context["site_reach"] == {
+            "logged_in": logged_in,
+            "never_logged_in": 1,
+            "everyone": logged_in + 1,
+        }
+        content = response.content.decode()
+        assert "data-compose-site-recipients" in content
+        assert f"Everyone means the {logged_in} active member" in content
+        assert "1 more has never logged in." in content
+        assert "Also include members who haven" in content
+        assert not _is_checked(_toggle_input(content))
+        assert response.context["initial_recipient_count"] == logged_in
+
+    def it_switches_the_count_in_the_browser_without_refreshing_the_discord_picker(client: Client):
+        # The count refresh re-renders the Discord picker, which would drop the sender's channel.
+        _login_admin(client)
+        toggle = _toggle_input(client.get(reverse("hub_compose")).content.decode())
+        assert "hx-get" not in toggle
+        assert "recipientCount = $event.target.checked ? siteReach.everyone : siteReach.loggedIn" in toggle
+
+    def it_skips_the_site_counts_for_an_admin_locked_to_a_guild(client: Client):
+        _login_admin(client)
+        guild = GuildFactory()
+        response = client.get(f"{reverse('hub_compose')}?audience=guild:{guild.pk}&lock=1")
+        assert response.context["site_reach"] is None
+        assert "data-compose-site-recipients" not in response.content.decode()
+
+    def it_counts_the_guild_for_an_admin_who_starts_on_a_guild(client: Client):
+        _login_admin(client)
+        guild = GuildFactory()
+        response = client.get(f"{reverse('hub_compose')}?audience=guild:{guild.pk}")
+        assert response.context["site_reach"] is not None  # they can still switch to everyone
+        assert response.context["initial_recipient_count"] == _compose_count_for("guild", guild)
+
+    def it_hides_the_site_recipients_section_from_a_guild_lead(client: Client):
+        _login_lead(client, GuildFactory())
+        response = client.get(reverse("hub_compose"))
+        assert response.context["site_reach"] is None
+        assert "data-compose-site-recipients" not in response.content.decode()
+
+    def it_counts_the_widened_site_audience_when_the_audience_changes_with_the_toggle_on(client: Client):
+        _login_admin(client)
+        _never_logged_in()
+        url = reverse("hub_compose_count")
+        base = _trigger(client.get(url, {"audience": "site"}))["compose-count"]["count"]
+        widened = _trigger(client.get(url, {"audience": "site", "include_never_logged_in": "on"}))
+        assert widened["compose-count"]["count"] == base + 1
+
+    def it_queues_a_site_send_with_the_toggle_on(client: Client):
+        _login_admin(client)
+        client.post(reverse("hub_compose_send"), data=_valid_send_data(include_never_logged_in="on", send_email="on"))
+        draft = AnnouncementDraft.objects.get()
+        assert draft.send_requested_at is not None
+        assert draft.include_never_logged_in is True
+
+    def it_drops_the_toggle_for_a_guild_audience(client: Client):
+        _login_admin(client)
+        guild = GuildFactory()
+        client.post(
+            reverse("hub_compose_save_draft"),
+            data=_valid_send_data(audience=f"guild:{guild.pk}", include_never_logged_in="on"),
+        )
+        assert AnnouncementDraft.objects.get().include_never_logged_in is False
+
+    def it_resumes_a_draft_with_the_toggle_on_and_the_widened_count(client: Client):
+        _login_admin(client)
+        _never_logged_in()
+        draft = AnnouncementDraftFactory(audience="site", include_never_logged_in=True)
+        response = client.get(reverse("hub_compose_resume", args=[draft.pk]))
+        assert _is_checked(_toggle_input(response.content.decode()))
+        assert response.context["initial_recipient_count"] == _compose_count_for(
+            "site", None, include_never_logged_in=True
+        )

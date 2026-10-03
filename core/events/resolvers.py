@@ -510,12 +510,19 @@ def all_active_members(context: dict[str, Any]) -> list[Recipient]:
     User for every member, but we never broadcast (site/guild announcements, community
     events) to an account that has never logged in — logging in is what "activates" a
     member. Same rule the voting reminders use (``membership/voting.py``).
+
+    ``context["include_never_logged_in"]`` lifts the gate for one send: a site announcement
+    whose sender turned on "Also include members who haven't logged in yet" reaches every
+    active member with an email.
     """
     from core.notifications import active_member_users
 
+    users = active_member_users()
+    if not context.get("include_never_logged_in"):
+        users = users.filter(last_login__isnull=False)
     out: list[Recipient] = []
     seen: set[int] = set()
-    for user in active_member_users().filter(last_login__isnull=False).iterator():
+    for user in users.iterator():
         if user.pk in seen or not (user.email or "").strip():
             continue
         seen.add(user.pk)

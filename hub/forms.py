@@ -4270,6 +4270,12 @@ class AnnouncementComposeForm(forms.Form):
         label="Also include the waitlist",
         help_text="Class announcements only — send to waitlisted registrants too, not just confirmed ones.",
     )
+    include_never_logged_in = forms.BooleanField(
+        required=False,
+        initial=False,
+        label="Also include members who haven't logged in yet",
+        help_text="Site announcements only: also reach active members who have never logged in.",
+    )
     recipients = _RecipientChoiceField(
         required=False,
         widget=forms.CheckboxSelectMultiple,
@@ -4329,7 +4335,8 @@ class AnnouncementComposeForm(forms.Form):
         # Named ``waitlist_included`` (not ``include_waitlist``) so it does not shadow the
         # declared ``include_waitlist`` BooleanField — the field stays reachable as
         # ``form["include_waitlist"]`` for rendering; this is the resolved bool for scoping.
-        self.waitlist_included = self._raw_include_waitlist()
+        self.waitlist_included = self._raw_flag("include_waitlist")
+        self.never_logged_in_included = self._raw_flag("include_never_logged_in")
         self.recipient_choices = announcement_recipient_choices(
             self.current_audience, self.current_guild, self.current_class, include_waitlist=self.waitlist_included
         )
@@ -4391,15 +4398,16 @@ class AnnouncementComposeForm(forms.Form):
             return str(initial)
         return choices[0][0] if choices else ""
 
-    def _raw_include_waitlist(self) -> bool:
-        """Whether the waitlist is folded into the roster: bound data, else initial (default off).
+    def _raw_flag(self, name: str) -> bool:
+        """A recipient toggle's state (the waitlist, members who never logged in): bound data, else
+        initial (default off).
 
-        Read the same way as the audience so the recipient checklist is built correctly on the
-        first GET, on the HTMX re-render when the toggle flips, and on the send POST.
+        Read the same way as the audience so the recipient checklist and count are built correctly
+        on the first GET, on the HTMX re-render when the toggle flips, and on the send POST.
         """
         if self.is_bound:
-            return bool(self.data.get("include_waitlist"))
-        return bool(self.initial.get("include_waitlist"))
+            return bool(self.data.get(name))
+        return bool(self.initial.get(name))
 
     def clean_discord_channel(self) -> str:
         channel = cast(str, self.cleaned_data.get("discord_channel") or "")
@@ -4480,6 +4488,11 @@ class AnnouncementComposeForm(forms.Form):
         cleaned["discord_enabled"] = bool(cleaned.get("discord_enabled"))
         cleaned["show_sender"] = bool(cleaned.get("show_sender"))
         cleaned["include_waitlist"] = bool(cleaned.get("include_waitlist"))
+        # Only a site announcement widens to members who never logged in; a guild or class
+        # audience has its own roster, so a stale toggle left on from "Everyone" is dropped.
+        cleaned["include_never_logged_in"] = audience == AnnouncementDraft.Audience.SITE.value and bool(
+            cleaned.get("include_never_logged_in")
+        )
         cleaned["recipient_selection"] = self._clean_recipients(cleaned, audience)
         return cleaned
 

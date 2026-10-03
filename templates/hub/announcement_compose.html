@@ -41,6 +41,7 @@
        category: '{{ announcement_category|escapejs }}',
        urgentOn: {{ form.mark_as_urgent.value|yesno:'true,false' }},
        includeWaitlist: {{ form.include_waitlist.value|yesno:'true,false' }},
+       siteReach: { loggedIn: {{ site_reach.logged_in|default:0 }}, everyone: {{ site_reach.everyone|default:0 }} },
        refreshRecipientCount() {
          const boxes = document.querySelectorAll('input[name=recipients]');
          if (boxes.length) { this.recipientCount = document.querySelectorAll('input[name=recipients]:checked').length; }
@@ -91,6 +92,14 @@
         </div>
         {% include "hub/partials/_compose_recipient_picker.html" %}
       </div>
+
+      {% if site_reach %}
+      <div class="pl-compose-section" x-show="audience === 'site'" x-cloak data-compose-site-recipients>
+        <h2 class="pl-compose-section__title">Recipients</h2>
+        <p class="pl-compose-section__note" data-compose-site-reach>Everyone means the {{ site_reach.logged_in }} active member{{ site_reach.logged_in|pluralize }} who {{ site_reach.logged_in|pluralize:"has,have" }} logged in to the app. {{ site_reach.never_logged_in }} more {{ site_reach.never_logged_in|pluralize:"has,have" }} never logged in.</p>
+        {% include "components/toggle.html" with field=form.include_never_logged_in toggle_label="Also include members who haven't logged in yet" toggle_description="They get it by email when Email is on, and in their notification bell once they log in." %}
+      </div>
+      {% endif %}
 
       <div class="pl-compose-section">
         <h2 class="pl-compose-section__title">Delivery</h2>

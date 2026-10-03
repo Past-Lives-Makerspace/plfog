@@ -1665,6 +1665,7 @@ An announcement to everyone shows as **Sending** until it goes out, within 15 mi
 - **Who is this for?** — pick the audience. If you came from a guild or class page, it's locked to that audience.
 - **Message** — a rich-text editor. The formatted version goes out by email; the bell, push, and Discord get a plain-text version.
 - **Recipients** (guild and class audiences) — everyone is checked by default. Uncheck anyone, or add a member who isn't on the list. Class audiences also get an **Also include the waitlist** toggle.
+- **Recipients** (site-wide): **Everyone** means active members who have logged in to the app at least once, and the note under Recipients gives the count. Turn on **Also include members who haven't logged in yet** to reach every active member: those who have never logged in get it by email when **Email** is on, and in their notification bell once they log in.
 - **Delivery** — three switches, all on to start: **Push notification**, **Email**, and **Post to Discord**. (Class announcements never post to Discord — they go straight to your students.)
 - **Mark as urgent** — see below. Use sparingly.
 - **Hide after** (guild announcements only) — an optional date after which the post hides from your guild page.
