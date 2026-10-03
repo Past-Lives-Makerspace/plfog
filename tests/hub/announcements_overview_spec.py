@@ -760,6 +760,12 @@ def describe_the_sent_view():
         html = _view(client, _sent_site_row(include_never_logged_in=True))
         assert _fact(html, "audience") == "Everyone (site-wide), including members who hadn't logged in yet"
 
+    def it_lists_the_people_added_to_a_site_send(client: Client):
+        _login_admin(client)
+        html = _view(client, _sent_site_row(added_recipients={"users": [], "custom": ["guest@example.com"]}))
+        assert _fact(html, "audience") == "Everyone (site-wide), plus 1 added"
+        assert _fact(html, "added") == "guest@example.com"
+
     def it_names_the_waitlist_on_a_class_send_and_has_no_discord(client: Client):
         _login_admin(client)
         offering = ClassOfferingFactory(title="Factory Forging")

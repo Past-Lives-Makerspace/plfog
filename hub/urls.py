@@ -132,6 +132,11 @@ urlpatterns = [
         views.guild_orientation_slot_cancel,
         name="hub_guild_orientation_slot_cancel",
     ),
+    path(
+        "guilds/<int:pk>/orientation/times/bulk-cancel/",
+        views.guild_orientation_times_bulk_cancel,
+        name="hub_guild_orientation_times_bulk_cancel",
+    ),
     path("guilds/<int:pk>/orientation/", views.orientation_info, name="hub_orientation_info"),
     path("guilds/<int:pk>/calendar/events/", views.guild_calendar_events_partial, name="hub_guild_calendar_events"),
     path(
@@ -254,6 +259,7 @@ urlpatterns = [
     path("announcements/compose/", views.hub_compose, name="hub_compose"),
     path("announcements/compose/preview/", views.hub_compose_preview, name="hub_compose_preview"),
     path("announcements/compose/count/", views.hub_compose_count, name="hub_compose_count"),
+    path("announcements/compose/site-add/", views.hub_compose_site_add, name="hub_compose_site_add"),
     path("announcements/compose/test/", views.hub_compose_test, name="hub_compose_test"),
     path("announcements/compose/push-test/", views.hub_compose_push_test, name="hub_compose_push_test"),
     path("announcements/compose/save/", views.hub_compose_save_draft, name="hub_compose_save_draft"),

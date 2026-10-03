@@ -1,0 +1,15 @@
+{% comment %}
+The people a sender added to a site announcement, one checked row each (compose phase). Rendered
+inline for a resumed draft and returned by hub_compose_site_add to append to #compose-site-added.
+Unchecking a row drops that person; an email only row (no account) reaches them by email alone.
+Each row recounts on arrival, since every row is one person everyone does not already reach.
+
+Params:
+  rows — (value, label, email_only) tuples from hub.forms.classify_site_additions
+{% endcomment %}
+{% for value, label, email_only in rows %}
+<label class="pl-recipient-checklist__row" data-compose-site-added-row="{{ value }}" x-init="recipientCount = siteCount()">
+  <input type="checkbox" name="added_recipients" value="{{ value }}" checked{% if email_only %} data-email-only{% endif %}>
+  <span class="pl-recipient-checklist__label">{{ label }}{% if email_only %} (email only){% endif %}</span>
+</label>
+{% endfor %}

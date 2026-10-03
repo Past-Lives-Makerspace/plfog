@@ -5,6 +5,7 @@ from __future__ import annotations
 from datetime import date, datetime, time, timedelta
 from datetime import date as date_type
 from decimal import Decimal
+import re
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, ClassVar, Self, cast
 
@@ -20,7 +21,7 @@ from django.utils.text import slugify
 if TYPE_CHECKING:
     from django.contrib.auth.models import User
     from django.core.files.uploadedfile import UploadedFile
-    from django.http import HttpRequest
+    from django.http import HttpRequest, QueryDict
 
     from classes.models import ClassOffering
 
@@ -3028,6 +3029,35 @@ class OrientationSlotForm(forms.ModelForm):
         )
 
 
+_TIME_KEY_RE = re.compile(r"^(slot|window):(\d+)$")
+
+
+class OrientationTimesBulkCancelForm(forms.Form):
+    """The Upcoming Times bulk cancel POST (#574): the card's ``selected`` keys, repeated.
+
+    A key is ``slot:<pk>`` or ``window:<pk>`` (the card's ``data-time-key``). The field
+    repeats, so ``clean`` reads ``self.data.getlist("selected")`` itself and sets
+    ``cleaned_data["slot_pks"]`` and ``cleaned_data["window_pks"]``; anything that is
+    not a key is ignored, so a tampered or stale value never raises. An empty
+    selection is valid (the view then says there was nothing to cancel).
+    """
+
+    def clean(self) -> dict[str, Any]:
+        cleaned = super().clean() or {}
+        slot_pks: list[int] = []
+        window_pks: list[int] = []
+        # The view binds request.POST, a QueryDict; the stubs only promise a Mapping.
+        for value in cast("QueryDict", self.data).getlist("selected"):
+            match = _TIME_KEY_RE.match(value)
+            if match is None:
+                continue
+            kind, pk = match.groups()
+            (slot_pks if kind == "slot" else window_pks).append(int(pk))
+        cleaned["slot_pks"] = slot_pks
+        cleaned["window_pks"] = window_pks
+        return cleaned
+
+
 class CommunityEventForm(forms.ModelForm):
     """Add/edit a FOG-native community event.
 
@@ -3426,8 +3456,11 @@ class StudioHoursForm(forms.ModelForm):
     """
 
     weekday = forms.ChoiceField(choices=_STUDIO_HOURS_WEEKDAYS, label="Day")
-    start_time = forms.ChoiceField(choices=half_hour_time_choices(required=True), label="From")
-    end_time = forms.ChoiceField(choices=half_hour_time_choices(required=True), label="To")
+    # Both times open on a blank choice so a new row on the self saving editor (#575) stays a
+    # half typed row, skipped rather than refused, until both are picked; the fields are still
+    # required, so a blank one posted for real is refused as before.
+    start_time = forms.ChoiceField(choices=half_hour_time_choices(required=False), label="From")
+    end_time = forms.ChoiceField(choices=half_hour_time_choices(required=False), label="To")
     location = forms.CharField(label="Location", required=False, max_length=200)
     note = forms.CharField(label="Note", required=False, max_length=500)
 
@@ -4215,6 +4248,157 @@ def announcement_add_member_choices() -> list[tuple[str, str]]:
     return [_member_choice(user) for user in members]
 
 
+_SITE_ADD_SEPARATORS = re.compile(r"[\s,;]+")
+
+
+def split_site_additions(text: str) -> list[str]:
+    """The addresses typed into a site announcement's "Add email addresses" box, one per token."""
+    return [token for token in _SITE_ADD_SEPARATORS.split(text or "") if token]
+
+
+def site_addable_member_choices() -> list[tuple[str, str]]:
+    """Accounts everyone never reaches, for a site announcement's "Add a member" list.
+
+    A member account with an email whose membership is not active (former, invited, suspended),
+    labelled with that status. Active members are left out: everyone, or the "haven't logged in
+    yet" toggle, already reaches them.
+    """
+    from django.contrib.auth.models import User
+
+    users = (
+        User.objects.filter(is_active=True, member__isnull=False)
+        .exclude(member__status=Member.Status.ACTIVE)
+        .exclude(email="")
+        .select_related("member")
+        .order_by("first_name", "last_name", "username")
+    )
+    choices = []
+    for user in users:
+        value, label = _member_choice(user)
+        choices.append((value, f"{label} ({user.member.get_status_display()})"))
+    return choices
+
+
+def _site_account_row(user: Any, *, include_never_logged_in: bool) -> tuple[str, str, bool] | str:
+    """One member account added to a site announcement: its ``(value, label, False)`` row, or why not."""
+    if not (user.email or "").strip():
+        return f"{(user.get_full_name() or user.get_username()).strip()} has no email address."
+    if user.member.status == Member.Status.ACTIVE:
+        if user.last_login is None and not include_never_logged_in:
+            return (
+                f"{user.email} hasn't logged in yet. Turn on \"Also include members who haven't "
+                'logged in yet" to reach them.'
+            )
+        return f"{user.email} already gets it."
+    if not user.is_active:
+        return f"{user.email}'s account is turned off."
+    value, label = _member_choice(user)
+    return (value, label, False)
+
+
+def _accounts_by_address(addresses: list[str]) -> dict[str, Any]:
+    """``{address: member account}`` for typed addresses, matched the way the app matches a person.
+
+    A verified or unverified alias (allauth ``EmailAddress``, as ``core.email_prefs.user_for_email``
+    reads it) wins, then a member's chosen notification email, then the account's own email. Three
+    queries, whatever the number of addresses; accounts without a member are left out.
+    """
+    from allauth.account.models import EmailAddress
+    from django.contrib.auth.models import User
+    from django.db.models.functions import Lower
+
+    if not addresses:
+        return {}
+    found: dict[str, Any] = {}
+    for user in (
+        User.objects.filter(member__isnull=False)
+        .select_related("member")
+        .annotate(address=Lower("email"))
+        .filter(address__in=addresses)
+    ):
+        found[user.address] = user
+    for member in (
+        Member.objects.filter(user__isnull=False)
+        .select_related("user")
+        .annotate(address=Lower("notification_email"))
+        .filter(address__in=addresses)
+    ):
+        found[member.address] = member.user
+    for alias in (
+        EmailAddress.objects.filter(user__member__isnull=False)
+        .select_related("user__member")
+        .annotate(address=Lower("email"))
+        .filter(address__in=addresses)
+    ):
+        found[alias.address] = alias.user
+    return found
+
+
+def classify_site_additions(
+    tokens: list[str], *, include_never_logged_in: bool
+) -> tuple[list[tuple[str, str, bool]], list[str]]:
+    """Vet what a sender added to a site announcement: the rows to add, and why any were refused.
+
+    Each token is a ``user:<pk>`` from the member list, a ``custom:<addr>`` row already added, or a
+    typed address. A member account that is not active joins as that member (bell, push and
+    email); a typed address with no account joins as email only (``custom:<addr>``). An active
+    member is refused, since everyone or the toggle already reaches them, so every row is one more
+    person and the composer can count each as one. A typed address is matched to its account by
+    alias, notification email or account email (:func:`_accounts_by_address`), so a member's other
+    address is still that member. Rows come back once each, in order, as
+    ``(value, label, email_only)``. At most four queries, whatever the number of tokens.
+    """
+    from django.contrib.auth.models import User
+    from django.core.exceptions import ValidationError
+    from django.core.validators import validate_email
+
+    picked: list[tuple[str, str]] = []  # ("user", pk), ("email", address) or ("bad", token), in order
+    for raw in tokens:
+        token = raw.strip()
+        if token.startswith("user:") and token[5:].isascii() and token[5:].isdigit():
+            picked.append(("user", token[5:]))
+            continue
+        address = token.removeprefix("custom:").lower()
+        try:
+            validate_email(address)
+        except ValidationError:
+            picked.append(("bad", token))
+            continue
+        picked.append(("email", address))
+
+    picked_pks = [key for kind, key in picked if kind == "user"]
+    by_pk = (
+        {
+            str(user.pk): user
+            for user in User.objects.filter(member__isnull=False, pk__in=picked_pks).select_related("member")
+        }
+        if picked_pks
+        else {}
+    )
+    by_email = _accounts_by_address([key for kind, key in picked if kind == "email"])
+
+    rows: list[tuple[str, str, bool]] = []
+    problems: list[str] = []
+    for kind, key in picked:
+        if kind == "bad":
+            problems.append(f"{key} isn't an email address.")
+            continue
+        user = (by_pk if kind == "user" else by_email).get(key)
+        if user is None and kind == "user":
+            problems.append("A member you picked can no longer be added.")
+            continue
+        row = (
+            (f"custom:{key}", key, True)
+            if user is None
+            else _site_account_row(user, include_never_logged_in=include_never_logged_in)
+        )
+        if isinstance(row, str):
+            problems.append(row)
+        elif row[0] not in {value for value, _label, _email_only in rows}:
+            rows.append(row)
+    return rows, problems
+
+
 class _RecipientChoiceField(forms.MultipleChoiceField):
     """A multi-select that silently DROPS values no longer in the roster (never errors).
 
@@ -4280,6 +4464,11 @@ class AnnouncementComposeForm(forms.Form):
         required=False,
         widget=forms.CheckboxSelectMultiple,
         label="Recipients",
+    )
+    added_recipients = _RecipientChoiceField(
+        required=False,
+        widget=forms.CheckboxSelectMultiple,
+        label="Added people",
     )
     discord_channel = forms.ChoiceField(required=False, widget=forms.Select, label="Discord channel")
     mention = forms.ChoiceField(
@@ -4347,6 +4536,16 @@ class AnnouncementComposeForm(forms.Form):
             recipient_field.initial = [value for value, _label in self.recipient_choices]
         recipient_field.widget.attrs.setdefault("class", "pl-recipient-checklist__box")
 
+        # A site announcement's added people (admins only, as the site audience is): the "Add a
+        # member" list, and the rows already added, vetted as the add endpoint vets them.
+        self.site_add_member_choices: list[tuple[str, str]] = []
+        self.site_added_rows: list[tuple[str, str, bool]] = []
+        if is_admin:
+            self.site_add_member_choices = site_addable_member_choices()
+            self.site_added_rows, _refused = classify_site_additions(
+                self._raw_added(), include_never_logged_in=self.never_logged_in_included
+            )
+
         # Discord channel: a plain dropdown of the CONFIGURED channels (+ "Don't post"), with the
         # guild's own channel shown by its real #name when the sync command has fetched it.
         self._configured_channels = _configured_discord_channels(self.current_guild, self._config)
@@ -4397,6 +4596,15 @@ class AnnouncementComposeForm(forms.Form):
         if initial:
             return str(initial)
         return choices[0][0] if choices else ""
+
+    def _raw_added(self) -> list[str]:
+        """The added people's row values (``user:<pk>`` / ``custom:<addr>``): bound data, else initial."""
+        if self.is_bound:
+            field = self.fields["added_recipients"]
+            return list(
+                field.widget.value_from_datadict(self.data, self.files, self.add_prefix("added_recipients")) or []
+            )
+        return list(self.initial.get("added_recipients") or [])
 
     def _raw_flag(self, name: str) -> bool:
         """A recipient toggle's state (the waitlist, members who never logged in): bound data, else
@@ -4494,7 +4702,23 @@ class AnnouncementComposeForm(forms.Form):
             cleaned.get("include_never_logged_in")
         )
         cleaned["recipient_selection"] = self._clean_recipients(cleaned, audience)
+        cleaned["added_recipients"] = self._clean_added(audience)
         return cleaned
+
+    def _clean_added(self, audience: str) -> dict[str, list[Any]]:
+        """The added people to store, ``{"users": [pk, ...], "custom": ["addr", ...]}``, or ``{}``.
+
+        Only a site announcement adds people; the rows were vetted again in ``__init__``, never
+        taken from the post as they came, so an active member or a bad address is never stored.
+        """
+        from membership.models import AnnouncementDraft
+
+        if audience != AnnouncementDraft.Audience.SITE.value or not self.site_added_rows:
+            return {}
+        return {
+            "users": [int(value[5:]) for value, _label, email_only in self.site_added_rows if not email_only],
+            "custom": [value[7:] for value, _label, email_only in self.site_added_rows if email_only],
+        }
 
     @property
     def has_email_only_recipients(self) -> bool:

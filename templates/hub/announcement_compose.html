@@ -42,6 +42,17 @@
        urgentOn: {{ form.mark_as_urgent.value|yesno:'true,false' }},
        includeWaitlist: {{ form.include_waitlist.value|yesno:'true,false' }},
        siteReach: { loggedIn: {{ site_reach.logged_in|default:0 }}, everyone: {{ site_reach.everyone|default:0 }} },
+       siteCount() {
+         const never = document.querySelector('input[name=include_never_logged_in]');
+         let n = never && never.checked ? this.siteReach.everyone : this.siteReach.loggedIn;
+         const seen = new Set();
+         document.querySelectorAll('input[name=added_recipients]:checked').forEach(b => {
+           if (seen.has(b.value)) { return; }
+           seen.add(b.value);
+           if (this.emailOn || !b.hasAttribute('data-email-only')) { n += 1; }
+         });
+         return n;
+       },
        refreshRecipientCount() {
          const boxes = document.querySelectorAll('input[name=recipients]');
          if (boxes.length) { this.recipientCount = document.querySelectorAll('input[name=recipients]:checked').length; }
@@ -55,7 +66,7 @@
          this.phase = 2;
        }
      }"
-     @compose-count.window="recipientCount = $event.detail.count"
+     @compose-count.window="recipientCount = audience === 'site' ? siteCount() : $event.detail.count"
      @compose-body.window="hasBody = $event.detail.has">
 
   <div class="pl-phase-tabs" role="tablist" aria-label="Compose steps">
@@ -98,6 +109,42 @@
         <h2 class="pl-compose-section__title">Recipients</h2>
         <p class="pl-compose-section__note" data-compose-site-reach>Everyone means the {{ site_reach.logged_in }} active member{{ site_reach.logged_in|pluralize }} who {{ site_reach.logged_in|pluralize:"has,have" }} logged in to the app. {{ site_reach.never_logged_in }} more {{ site_reach.never_logged_in|pluralize:"has,have" }} never logged in.</p>
         {% include "components/toggle.html" with field=form.include_never_logged_in toggle_label="Also include members who haven't logged in yet" toggle_description="They get it by email when Email is on, and in their notification bell once they log in." %}
+        {# People added on top of everyone. The server vets each one (hub_compose_site_add), so every row is one more person. #}
+        <div class="pl-recipient-add" data-compose-site-add x-init="$watch('emailOn', () => { if (audience === 'site') { recipientCount = siteCount(); } })">
+          <div class="pl-recipient-checklist pl-site-added" role="group" aria-label="Added people" id="compose-site-added" @change="recipientCount = siteCount()">
+            {% include "hub/partials/_compose_site_added_rows.html" with rows=form.site_added_rows %}
+          </div>
+          <div class="pl-form-group">
+            <label class="pl-form-label" for="compose-site-add-member">Add a member</label>
+            <select id="compose-site-add-member" name="site_add_member" autocomplete="off"
+                    hx-post="{% url 'hub_compose_site_add' %}" hx-trigger="change"
+                    hx-params="site_add_member,added_recipients,include_never_logged_in"
+                    hx-target="#compose-site-added" hx-swap="beforeend"
+                    @htmx:after-request="$el.value = ''">
+              <option value="">Pick someone everyone doesn't reach&hellip;</option>
+              {% for value, label in form.site_add_member_choices %}
+              <option value="{{ value }}">{{ label }}</option>
+              {% endfor %}
+            </select>
+            <p class="pl-field-hint">Former, invited and suspended members. Active members are already included, or reached with the toggle above if they haven't logged in yet.</p>
+          </div>
+          <div class="pl-form-group">
+            <label class="pl-form-label" for="compose-site-add-email">Add email addresses</label>
+            <div class="pl-site-add">
+              <input type="text" id="compose-site-add-email" name="site_add" autocomplete="off"
+                     placeholder="name@example.com, another@example.com"
+                     @keydown.enter.prevent="$refs.siteAddButton.click()">
+              <button type="button" class="hub-btn hub-btn--sm hub-btn--ghost" x-ref="siteAddButton" data-compose-site-add-button
+                      hx-post="{% url 'hub_compose_site_add' %}"
+                      hx-params="site_add,added_recipients,include_never_logged_in"
+                      hx-target="#compose-site-added" hx-swap="beforeend"
+                      @htmx:after-request="if ($event.detail.successful) { document.getElementById('compose-site-add-email').value = ''; }">
+                <span class="htmx-indicator pl-spin" aria-hidden="true"></span> Add
+              </button>
+            </div>
+            <p class="pl-field-hint">Separate several with commas. An address with no account gets the email only, and only when Email is on.</p>
+          </div>
+        </div>
       </div>
       {% endif %}
 

@@ -258,3 +258,43 @@ def describe_the_announcements_page():
         expect(modal.locator('[data-recipient="forge-reader@example.com"]')).to_be_hidden()
         page.keyboard.press("Escape")
         expect(modal).to_be_hidden()
+
+    def it_adds_people_on_top_of_everyone_to_a_site_announcement(live_server, page, login_via_code):
+        made, _guild, _reader = _seed()
+        former = get_user_model().objects.create_user(
+            username="former@example.com", email="former@example.com", first_name="Fern"
+        )
+        Member.objects.filter(user=former).update(status=Member.Status.FORMER)
+        _sign_in_as_admin(login_via_code)
+        everyone = AnnouncementDraft(audience=AnnouncementDraft.Audience.SITE).recipient_count()
+
+        page.goto(f"{live_server.url}{reverse('hub_compose_resume', args=[made.pk])}")
+        expect(page.locator(EDITOR)).to_contain_text("The votes for September 2026 are in.")
+        added = page.locator("#compose-site-added")
+
+        # Enter in the address box adds the addresses; it never submits the announcement.
+        page.locator("#compose-site-add-email").fill("guest@example.org, not-an-address")
+        page.locator("#compose-site-add-email").press("Enter")
+        expect(added.locator('[data-compose-site-added-row="custom:guest@example.org"]')).to_be_visible()
+        expect(page.locator("#compose-site-add-email")).to_have_value("")
+        assert AnnouncementDraft.objects.get(pk=made.pk).send_requested_at is None
+
+        page.locator("#compose-site-add-member").select_option(f"user:{former.pk}")
+        expect(added.locator(f'[data-compose-site-added-row="user:{former.pk}"]')).to_be_visible()
+
+        page.get_by_role("tab", name="2. Preview & send").click()
+        reach = page.locator(".pl-wizard-reach strong")
+        expect(reach).to_have_text(str(everyone + 2))
+
+        # Unchecking a row drops that person.
+        page.get_by_role("tab", name="1. Compose").click()
+        added.locator('[data-compose-site-added-row="custom:guest@example.org"] input').uncheck()
+        page.get_by_role("tab", name="2. Preview & send").click()
+        expect(reach).to_have_text(str(everyone + 1))
+
+        page.get_by_role("button", name="Send announcement").click()
+        page.get_by_role("button", name="Yes, send it").click()
+        expect(page.locator('[data-announcements-tab="sent"]')).to_have_attribute("aria-current", "page")
+        queued = AnnouncementDraft.objects.get(pk=made.pk)
+        assert queued.send_requested_at is not None
+        assert queued.added_recipients == {"users": [former.pk], "custom": []}

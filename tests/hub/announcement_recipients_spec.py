@@ -183,6 +183,14 @@ def describe_recipient_list():
         _failed_email(row, "list@example.com", trigger_kind="guild_announcement")
         assert [r.address for r in row.recipient_list().recipients] == ["list@example.com"]
 
+    def it_lists_an_address_typed_into_a_site_send_whose_email_failed():
+        row = _sent_row(added_recipients={"users": [], "custom": ["Guest@Example.org"]})
+        _delivered(row, "broadcast", "discord")
+        _failed_email(row, "guest@example.org", error="bounced")
+        _failed_email(row, "stranger@elsewhere.org")
+        listed = row.recipient_list()
+        assert [(r.address, r.email_error) for r in listed.recipients] == [("guest@example.org", "bounced")]
+
     def it_shows_the_address_the_email_went_to():
         from allauth.account.models import EmailAddress
 

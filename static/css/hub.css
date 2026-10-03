@@ -4186,6 +4186,28 @@ mark { background: color-mix(in srgb, var(--color-tuscan-yellow) 30%, transparen
 .pl-slot-admin__seats { color: var(--hub-text-muted); font-size: 0.85rem; }
 .pl-slot-admin__source { font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0.04em; }
 
+/* Bulk cancel on Upcoming Times (#574): a pick box per row, and the selection bar that appears
+   once something is picked. Flex wrap so the bar folds at phone width. Tokens only, both themes. */
+.pl-slot-admin__pick { width: 1.1rem; height: 1.1rem; margin: 0; flex-shrink: 0; accent-color: var(--color-tuscan-yellow); cursor: pointer; }
+.pl-slot-admin__bar {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+    margin-bottom: 0.75rem;
+    padding: 0.5rem 0.75rem;
+    background: var(--hub-surface);
+    border: 1px solid var(--hub-border);
+    border-radius: 8px;
+}
+.pl-slot-admin__bar-count { font-weight: 600; color: var(--hub-text); margin-right: 0.25rem; }
+.pl-slot-admin__bulk-form { display: none; }
+.pl-slot-admin__bulk-message { margin: 0 0 1.5rem; }
+@media (max-width: 600px) {
+    /* The time span takes the rest of the pick box's line instead of dropping under it. */
+    .pl-slot-admin__row .pl-slot-admin__when { flex: 1 1 calc(100% - 2.1rem); }
+}
+
 /* Orientations tab (#532): the How members book chips (.pl-chip is the shared radio chip), the
    Edit Hours rows, booked segments under an open window on Upcoming Times, and Add a one off.
    Layout lives in classes so an x-show can toggle display (FRONTEND.md rule 12). Tokens only. */
@@ -5683,6 +5705,20 @@ mark { background: color-mix(in srgb, var(--color-tuscan-yellow) 30%, transparen
 }
 .pl-recipient-add select {
     max-width: 28rem;
+}
+/* The site announcement's added people sit above its two add controls, as the guild roster does. */
+.pl-site-added {
+    margin-bottom: 0.75rem;
+}
+/* The site announcement's typed addresses: the box and its Add button on one line. */
+.pl-site-add {
+    display: flex;
+    gap: 0.5rem;
+    max-width: 28rem;
+}
+.pl-site-add input {
+    flex: 1 1 auto;
+    min-width: 0;
 }
 .pl-compose-locked {
     display: flex;
@@ -10980,4 +11016,42 @@ mark { background: color-mix(in srgb, var(--color-tuscan-yellow) 30%, transparen
     /* The five-column automation grid already stacks here; the feature card must too, or the
        message input is squeezed to nothing on a phone. */
     .pl-automation-card--feature { grid-template-columns: minmax(0, 1fr); }
+}
+
+/* --- pl-guild-autosave: the guild settings page that saves as it is edited (#575) --- */
+/* The header holds the title, its lead line and the save pill (the meeting workspace's
+   .pl-meeting-savestate, defined above) beside the page actions; the main form's footer
+   keeps one link where the Save button used to be. Tokens only, so both themes hold. */
+.pl-guild-settings__header {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 0.5rem 1rem;
+    flex-wrap: wrap;
+    margin-bottom: 0.75rem;
+}
+.pl-guild-settings__title { margin: 0; }
+.pl-guild-settings__lead {
+    margin: 0.25rem 0 0;
+    font-size: 0.8125rem;
+    color: var(--hub-text-muted);
+}
+.pl-guild-settings__actions {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    flex-wrap: wrap;
+}
+.pl-guild-settings__footer {
+    display: flex;
+    gap: 1rem;
+    margin-top: 0.5rem;
+}
+/* A row flagged for deletion waits hidden for the server's answer; the empty line shows only
+   when no row is left. Stated here so no card display rule can ever override the attribute. */
+[data-formset-row][hidden],
+[data-formset-empty][hidden] { display: none; }
+@media (max-width: 768px) {
+    .pl-guild-settings__header { flex-direction: column; }
+    .pl-guild-settings__actions { width: 100%; }
 }

@@ -203,7 +203,7 @@ Mandatory for any page that edits a list of rows (a Django formset) or deletes s
 
 ### Deleting a saved row saves the whole page (no lost work)
 
-For a row already in the DB (`form.instance.pk`), the Delete button flips the hidden `DELETE` field and submits the form, so every other edit on the page is preserved:
+For a row already in the DB (`form.instance.pk`), the Delete button flips the hidden `DELETE` field and submits the form, so every other edit on the page is preserved (the Help editor's FAQ rows in `templates/hub/org_info_edit.html`):
 
 ```html
 {% if form.instance.pk %}
@@ -223,7 +223,11 @@ A formset with `extra=1` renders a perpetual blank row that can **block save** �
 - Add rows on demand with a **"+ Add …" button** that clones a hidden `<template>` of `formset.empty_form`, replaces `__prefix__` with the new index, and bumps `id_<prefix>-TOTAL_FORMS`.
 - Cloned (un-saved) rows get a **"Remove" button** that just removes the DOM node — no save needed, and a half-filled row the user abandons never blocks the save.
 
-Canonical implementations to copy: the FAQ and Links editors, and the orientation recurring-hours editor, all in `templates/hub/guild_edit.html`.
+Canonical implementations to copy: the Help editor's FAQ and Links rows in `templates/hub/org_info_edit.html`.
+
+### A list that saves itself (the guild settings idiom)
+
+On a page whose forms autosave (`templates/hub/guild_edit.html`, driven by `static/js/guild_autosave.js` and answered by `hub/autosave.py`) there is no submit at all: the form carries `data-autosave` (or `data-autosave="change"` to skip the typing pause), `data-formset="<prefix>"` and `data-formset-required="{{ formset.empty_form|required_fields }}"`; each row is `[data-formset-row]`, the rows live in `[data-formset-rows]`, the clone source is `<template data-formset-template>`, and the add and the per row Delete / Remove buttons are `data-formset-add` / `data-formset-remove` with no `onclick`. The script posts the whole form on every change, stamps each returned pk into the row's hidden `id`, renumbers the rows saved first, and on Delete flips the row's `DELETE` field (made on the fly for a row saved since the page loaded) and posts; a form with `data-autosave-confirm="<confirm_id>"` opens that confirm first, whose `confirm_js` dispatches `pl-guild-autosave-delete`. A half typed new row (a required field still blank) is posted as it rendered, so Django skips it while the rest of the form saves.
 
 ## Interaction Patterns
 
@@ -281,7 +285,7 @@ def add_to_cart(request, pk):
 | Script | Where | Why |
 |--------|-------|-----|
 | htmx, head-support, Alpine, `hub_boot.js`, `biometric-auth.js`, `pl_help.js` | `hub/base.html` `<head>`, `defer` | Run **once per document**. A second htmx replaces `window.onpopstate` and breaks Back; a second Alpine initialises the page before page scripts have registered their components. Never load either again from a page. |
-| **Every** static file that registers an `Alpine.data(...)` component (`hero_placement.js`, `session_calendar.js`, `card_focus.js`, `space_map.js`), even one only a single page uses | `hub/base.html` `<head>`, `defer`, **before** `alpine.min.js` | Alpine initialises a swapped page a microtask after htmx inserts it, before any script the page itself loads could arrive, so the component has to be registered before the navigation starts. A body or `extra_head` copy is dead on every in-app arrival (`cardFocus is not defined`). Register defensively, on whichever side of `alpine:init` the script lands: `if (window.Alpine) register(); else document.addEventListener('alpine:init', register);` |
+| **Every** static file that registers an `Alpine.data(...)` component (`hero_placement.js`, `session_calendar.js`, `card_focus.js`, `space_map.js`, `guild_autosave.js`), even one only a single page uses | `hub/base.html` `<head>`, `defer`, **before** `alpine.min.js` | Alpine initialises a swapped page a microtask after htmx inserts it, before any script the page itself loads could arrive, so the component has to be registered before the navigation starts. A body or `extra_head` copy is dead on every in-app arrival (`cardFocus is not defined`). Register defensively, on whichever side of `alpine:init` the script lands: `if (window.Alpine) register(); else document.addEventListener('alpine:init', register);` |
 | An inline `<script>` in a page or partial that registers a component or defines a function `x-data` calls | In the body content, as today | htmx runs it synchronously as it inserts the page, before Alpine initialises anything. Use the same defensive registration (`hub/wiki_edit.html`, `hub/meeting_workspace.html`); a plain `alpine:init` listener never fires on a boosted arrival. |
 | Anything else in `<body>` (`_tour.html`, the toast and loading bar scripts, `hero_cropper.js`) | Body | Re-runs on **every** boosted arrival. Make it a guarded IIFE (`if (window.__x) return; window.__x = true;`) or delegate on `document`; per-page boot logic that needs the fresh DOM belongs here on purpose. |
 
