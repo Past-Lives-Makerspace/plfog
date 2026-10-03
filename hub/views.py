@@ -4976,23 +4976,17 @@ def _visible_sent_row(request: HttpRequest, pk: int) -> AnnouncementDraft:
     return row
 
 
-# htmx stops a polling element when its request answers 286.
-_STOP_POLLING = 286
-
-
 @login_required
 def announcement_progress(request: HttpRequest, pk: int) -> HttpResponse:
     """HTMX poll: a sending announcement's progress line, or a page refresh once it is not sending.
 
-    While the row is sending, returns the line again (it polls itself). Once it has sent, or the
-    queue gave up on it (a draft again, Could not send), ``HX-Refresh`` reloads the page so every
-    count and state on it is current. A row this request may not see, or one deleted since,
-    answers 286, which stops the poll: htmx re-arms a poll after a 404.
+    While the row is sending, returns the line again (it polls itself). Once it has sent, the
+    queue gave up on it (a draft again, Could not send), it was deleted, or this request may no
+    longer see it, ``HX-Refresh`` reloads the page so every count and state on it is current; after
+    the reload nothing polls that row. Never a 404, which htmx would keep polling.
     """
     row = _visible_row(request, pk)
-    if row is None:
-        return HttpResponse(status=_STOP_POLLING)
-    if row.state != AnnouncementDraft.DraftState.SENDING:
+    if row is None or row.state != AnnouncementDraft.DraftState.SENDING:
         response = HttpResponse(status=204)
         response["HX-Refresh"] = "true"
         return response

@@ -365,11 +365,13 @@ def describe_announcement_progress():
         assert response.status_code == 204
         assert response["HX-Refresh"] == "true"
 
-    def it_stops_polling_for_a_row_the_viewer_may_not_see_or_that_is_gone(client: Client):
+    def it_refreshes_for_a_row_the_viewer_may_not_see_or_that_is_gone(client: Client):
         _member("plain")
         client.login(username="plain", password="p")
-        assert client.get(reverse("hub_announcement_progress", args=[_sent_row().pk])).status_code == 286
-        assert client.get(reverse("hub_announcement_progress", args=[99999])).status_code == 286
+        hidden = AnnouncementDraftFactory(queued=True)
+        for pk in (hidden.pk, 99999):
+            response = client.get(reverse("hub_announcement_progress", args=[pk]))
+            assert (response.status_code, response["HX-Refresh"]) == (204, "true")
 
     def it_404s_the_list_for_a_draft(client: Client):
         _login_admin(client)
