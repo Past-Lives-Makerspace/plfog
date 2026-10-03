@@ -43,6 +43,7 @@ from tests.membership.factories import (
     OrientationAvailabilityFactory,
     OrientationTypeFactory,
 )
+from tests.hub._markup import assert_autosave_forms_have_no_submit
 
 pytestmark = pytest.mark.django_db
 
@@ -52,16 +53,6 @@ _PNG = (
     b"\x08\x06\x00\x00\x00\x1f\x15\xc4\x89\x00\x00\x00\nIDATx\x9cc\x00\x01"
     b"\x00\x00\x05\x00\x01\r\n-\xb4\x00\x00\x00\x00IEND\xaeB`\x82"
 )
-
-_AUTOSAVE_FORM = re.compile(r"<form\b[^>]*\bdata-autosave\b[^>]*>.*?</form>", re.S)
-
-
-def _assert_autosave_forms_have_no_submit(content: str) -> int:
-    """Every self saving form on the page carries no submit button; anchored on markup, not copy (STANDARDS 8)."""
-    blocks = _AUTOSAVE_FORM.findall(content)
-    assert blocks, "no data-autosave form on the page"
-    assert [block[:120] for block in blocks if 'type="submit"' in block] == []
-    return len(blocks)
 
 
 def _user_with_role(username: str, *, fog_role: str = Member.FogRole.MEMBER) -> User:
@@ -655,7 +646,7 @@ def describe_guild_edit_page_autosave_markup():
         assert 'x-data="plGuildAutosave(' in content
         # Main, visibility, orientation settings, types, thank-you, guild hours, FAQ, links,
         # mailing list and announcement settings (the welcome form rides a feature switch).
-        assert _assert_autosave_forms_have_no_submit(content) >= 10
+        assert assert_autosave_forms_have_no_submit(content) >= 10
         assert "requestSubmit()" not in content.replace(
             "document.getElementById('times-bulk-form').requestSubmit();", ""
         )

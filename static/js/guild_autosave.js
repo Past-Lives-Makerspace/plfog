@@ -13,8 +13,9 @@
  * skips it while the rest of the form saves. A 200 stamps every returned pk into its row's
  * hidden id, drops the rows that were flagged for deletion, and renumbers the rows so the
  * saved ones come first (INITIAL_FORMS counts them), which is what keeps a new row from
- * ever being posted as new twice. A 200 also clears every file input, so a banner or a FAQ
- * document posted once is never re-sent with the next edit of that form. Delete flips the
+ * ever being posted as new twice. A 200 also clears every file input whose file went out, so
+ * a banner or a FAQ document posted once is never re-sent with the next edit of that form,
+ * while one picked on a half typed row waits until the row posts for real. Delete flips the
  * row's DELETE field (made on the fly for a row saved since the page loaded) and posts; a form
  * with `data-autosave-confirm` asks first. A refusal keeps the flag, so a delete clicked while
  * another row is invalid completes with the next good post; only a `<prefix>-__all__` error
@@ -218,9 +219,26 @@
   }
 
   // A posted file stays selected in its input, and the next post of the form would send it again
-  // (a new storage object each time, and a body no keepalive flush could carry).
-  function clearFiles(form) {
-    form.querySelectorAll('input[type="file"]').forEach(function (input) { input.value = ""; });
+  // (a new storage object each time, and a body no keepalive flush could carry). Only a file that
+  // went out is cleared: a row posted as rendered had its file taken out of the data.
+  function clearFiles(form, data) {
+    form.querySelectorAll('input[type="file"]').forEach(function (input) {
+      if (input.name && data.get(input.name) instanceof File) input.value = "";
+    });
+  }
+
+  // A row flagged for deletion whose post has not landed yet (kept through a sibling's refusal).
+  function hasPendingDelete(form) {
+    return !!form.querySelector('input[name$="-DELETE"]:checked');
+  }
+
+  function formsWithPendingDeletes(root) {
+    return Array.prototype.filter.call(root.querySelectorAll("form[data-autosave]"), hasPendingDelete);
+  }
+
+  // Anything that changes what a form would post, so a save finishing mid edit remembers nothing.
+  function markEdited(form) {
+    form.plAutosaveEdited = true;
   }
 
   function refusesFormset(form, errors) {
@@ -363,7 +381,7 @@
         },
 
         hasWork() {
-          return timers.size > 0 || this.pending > 0 || this.state === "error";
+          return timers.size > 0 || this.pending > 0 || this.state === "error" || formsWithPendingDeletes(root).length > 0;
         },
 
         // --- The queue: one request at a time, each reading the page as it is when it runs ---
@@ -406,6 +424,7 @@
           var form = formOf(el);
           if (!form || ignored(el) || !isTyped(el) || form.dataset.autosave === "change") return;
           var self = this;
+          markEdited(form);
           clearTimeout(timers.get(form));
           timers.delete(form);
           if (isRequired(el, form) && !el.value.trim()) return;
@@ -417,6 +436,7 @@
         onChange(el) {
           var form = formOf(el);
           if (!form || ignored(el) || !el.name) return;
+          markEdited(form);
           this.saveNow(form);
         },
         save(form, keepalive) {
@@ -430,7 +450,11 @@
         },
         flushAll(keepalive) {
           var self = this;
-          Array.from(timers.keys()).forEach(function (form) {
+          var forms = Array.from(timers.keys());
+          formsWithPendingDeletes(root).forEach(function (form) {
+            if (forms.indexOf(form) === -1) forms.push(form);
+          });
+          forms.forEach(function (form) {
             clearTimeout(timers.get(form));
             timers.delete(form);
             self.save(form, keepalive);
@@ -438,6 +462,7 @@
         },
         async saveForm(form, keepalive) {
           if (!form.isConnected) return;
+          form.plAutosaveEdited = false;
           var data = payload(form);
           var sig = signature(data);
           if (sig === form.plAutosaveSaved) return;
@@ -446,10 +471,10 @@
             var saved = await response.json();
             clearErrors(form);
             applyRows(form, saved.rows);
-            clearFiles(form);
-            // The form as it now reads is what the server holds, unless an edit queued up or a
-            // timer is waiting behind this save: then that edit must post, so nothing is remembered.
-            form.plAutosaveSaved = this.pending === 1 && !timers.has(form) ? signature(payload(form)) : null;
+            clearFiles(form, data);
+            // The form as it now reads is what the server holds, unless it was edited while this
+            // save ran: then that edit must post, so nothing is remembered.
+            form.plAutosaveSaved = form.plAutosaveEdited ? null : signature(payload(form));
             this.done();
           } else if (response.status === 422) {
             var refused = await response.json();
@@ -502,6 +527,7 @@
           var holder = document.createElement("div");
           holder.innerHTML = template.innerHTML.replaceAll("__prefix__", index);
           var row = holder.firstElementChild;
+          markEdited(form);
           form.querySelector("[data-formset-rows]").appendChild(row);
           total.value = index + 1;
           var empty = form.querySelector("[data-formset-empty]");
@@ -513,10 +539,13 @@
         // goes after that save (which may have just created it, and then it is a delete).
         removeRow(form, row) {
           var self = this;
+          markEdited(form);
           if (!hasId(row)) {
             if (self.pending === 0 && !timers.has(form)) {
               row.remove();
               renumber(form);
+              // The row that kept the form refused is gone: a delete waiting behind it posts now.
+              if (hasPendingDelete(form)) self.saveNow(form);
               return;
             }
             self.enqueue(function () {
@@ -543,6 +572,7 @@
           if (held) this.deleteRow(held.form, held.row);
         },
         deleteRow(form, row) {
+          markEdited(form);
           flagDelete(row);
           this.saveNow(form);
         },

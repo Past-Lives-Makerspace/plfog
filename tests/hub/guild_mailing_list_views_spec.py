@@ -7,7 +7,6 @@ CSV/text import) — the permission gate, and the "Guild Settings" rename + sect
 
 from __future__ import annotations
 
-import re
 
 import pytest
 from django.contrib.auth.models import User
@@ -27,6 +26,7 @@ from tests.membership.factories import (
     MemberFactory,
     MembershipPlanFactory,
 )
+from tests.hub._markup import assert_autosave_forms_have_no_submit
 
 pytestmark = pytest.mark.django_db
 
@@ -71,17 +71,6 @@ def _formset_payload(rows: list[dict[str, str]], *, initial: int) -> dict[str, s
 
 def _msgs(response) -> list[str]:
     return [str(m) for m in get_messages(response.wsgi_request)]
-
-
-_AUTOSAVE_FORM = re.compile(r"<form\b[^>]*\bdata-autosave\b[^>]*>.*?</form>", re.S)
-
-
-def _assert_autosave_forms_have_no_submit(content: str) -> int:
-    """Every self saving form on the page carries no submit button; anchored on markup, not copy (STANDARDS 8)."""
-    blocks = _AUTOSAVE_FORM.findall(content)
-    assert blocks, "no data-autosave form on the page"
-    assert [block[:120] for block in blocks if 'type="submit"' in block] == []
-    return len(blocks)
 
 
 def describe_guild_mailing_list_save():
@@ -290,7 +279,7 @@ def describe_guild_settings_page():
         # Editor + import controls.
         assert "+ Add address" in content
         # The addresses form saves itself (#575): marked for the autosave script, no submit inside.
-        _assert_autosave_forms_have_no_submit(content)
+        assert_autosave_forms_have_no_submit(content)
         assert 'data-formset="mailing_list"' in content
         assert "Import addresses" in content
 

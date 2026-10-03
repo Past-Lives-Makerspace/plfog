@@ -31,6 +31,7 @@ _PNG = (
     b"\x00\x00\x05\x00\x01\r\n-\xb4\x00\x00\x00\x00IEND\xaeB`\x82"
 )
 ALPINE_READY = "() => !!(document.querySelector('[data-guild-autosave]') || {})._x_dataStack"
+QUEUE_IDLE = "() => document.querySelector('[data-guild-autosave]')._x_dataStack[0].pending === 0"
 SAVED_PAST = (
     "(n) => { const pill = document.querySelector('[data-save-pill]');"
     " return !!pill && Number(pill.dataset.saves) >= n && pill.textContent.trim() === 'Saved'; }"
@@ -58,6 +59,30 @@ def _open(page, live_server, guild: Guild, tab: str) -> None:
 
 def _saves(page) -> int:
     return int(page.locator("[data-save-pill]").get_attribute("data-saves") or 0)
+
+
+def _flag_a_delete_behind_a_bad_row(page, live_server, login_via_code):
+    """Two saved links, a new row with a bad URL, and a Delete on a saved row refused behind it.
+
+    Returns the guild, the flagged link and the bad row's URL input; the link is still in the
+    database and its row is hidden, flagged, waiting for the next good post.
+    """
+    guild = _admin_guild()
+    GuildLinkFactory(guild=guild, label="Discord", url="https://discord.gg/ceramics")
+    wiki = GuildLinkFactory(guild=guild, label="Wiki", url="https://example.com/wiki")
+    _sign_in_as_admin(login_via_code)
+    _open(page, live_server, guild, "links")
+    page.get_by_role("button", name="+ Add a link").click()
+    page.locator('input[name="links-2-label"]').fill("Docs")
+    url = page.locator('input[name="links-2-url"]')
+    url.fill("not a url")
+    url.press("Tab")
+    page.locator("#link-rows .pl-field-error").wait_for()
+    _link_row(page, wiki).get_by_role("button", name="Delete this link").click()
+    page.locator("#link-rows .pl-field-error").wait_for()
+    assert GuildLink.objects.filter(pk=wiki.pk).exists()
+    expect(_link_row(page, wiki)).to_be_hidden()
+    return guild, wiki, url
 
 
 def _link_row(page, link: GuildLink):
@@ -122,23 +147,7 @@ def describe_guild_settings_autosave():
         assert guild.about == "Still the same banner."
 
     def it_completes_a_delete_clicked_while_another_row_is_invalid(live_server, page, login_via_code):
-        guild = _admin_guild()
-        GuildLinkFactory(guild=guild, label="Discord", url="https://discord.gg/ceramics")
-        wiki = GuildLinkFactory(guild=guild, label="Wiki", url="https://example.com/wiki")
-        _sign_in_as_admin(login_via_code)
-        _open(page, live_server, guild, "links")
-
-        # A new row with a bad URL makes the form refused; the Delete on a saved row then
-        # comes back refused too, and the row keeps its flag.
-        page.get_by_role("button", name="+ Add a link").click()
-        page.locator('input[name="links-2-label"]').fill("Docs")
-        url = page.locator('input[name="links-2-url"]')
-        url.fill("not a url")
-        url.press("Tab")
-        page.locator("#link-rows .pl-field-error").wait_for()
-        _link_row(page, wiki).get_by_role("button", name="Delete this link").click()
-        page.locator("#link-rows .pl-field-error").wait_for()
-        assert GuildLink.objects.filter(pk=wiki.pk).exists()
+        guild, wiki, url = _flag_a_delete_behind_a_bad_row(page, live_server, login_via_code)
 
         # Fixing the URL lands the whole form, the queued delete with it.
         before = _saves(page)
@@ -148,6 +157,22 @@ def describe_guild_settings_autosave():
         expect(page.locator("#link-rows [data-formset-row]")).to_have_count(2)
         assert not GuildLink.objects.filter(pk=wiki.pk).exists()
         assert GuildLink.objects.filter(guild=guild, label="Docs").exists()
+
+    def it_completes_a_flagged_delete_when_the_bad_row_is_removed_instead(live_server, page, login_via_code):
+        guild, wiki, _url = _flag_a_delete_behind_a_bad_row(page, live_server, login_via_code)
+
+        # Removing the bad row takes the refusal away, so the waiting delete posts at once.
+        before = _saves(page)
+        page.locator("#link-rows [data-formset-row]").last.get_by_role("button", name="Remove").click()
+        _wait_saved(page, before + 1)
+        expect(page.locator("#link-rows [data-formset-row]")).to_have_count(1)
+        assert not GuildLink.objects.filter(pk=wiki.pk).exists()
+        assert GuildLink.objects.filter(guild=guild).count() == 1
+
+        page.reload()
+        page.wait_for_function(ALPINE_READY)
+        expect(page.locator("#link-rows [data-formset-row]")).to_have_count(1)
+        expect(page.locator('input[name="links-0-label"]')).to_have_value("Discord")
 
     def it_refuses_a_bad_link_inline_keeps_what_was_typed_and_deletes_a_saved_link(live_server, page, login_via_code):
         guild = _admin_guild()
@@ -200,14 +225,26 @@ def describe_guild_settings_autosave():
         assert GuildFAQItem.objects.filter(guild=guild).count() == 0
         assert page.locator('input[name="faq-0-id"]').input_value() == ""
 
-        # The answer completes it: one row, with its id on the page.
+        # A document picked on the half typed row goes nowhere yet (as rendered, the row posts
+        # exactly what it did a moment ago, so nothing is sent) and stays picked: only a file
+        # that went out is cleared after a save.
+        page.locator('input[name="faq-0-document"]').set_input_files(
+            {"name": "packing-list.pdf", "mimeType": "application/pdf", "buffer": b"%PDF-1.4 packing list"}
+        )
+        page.wait_for_function(QUEUE_IDLE)
+        assert GuildFAQItem.objects.filter(guild=guild).count() == 0
+        assert page.evaluate("() => document.querySelector('input[name=\"faq-0-document\"]').files.length") == 1
+
+        # The answer completes it: one row, with its id on the page and the document on the item.
         before = _saves(page)
         answer = page.locator('textarea[name="faq-0-answer"]')
         answer.fill("Closed toe shoes and an apron.")
         answer.press("Tab")
         _wait_saved(page, before + 1)
         expect(page.locator('input[name="faq-0-id"]')).not_to_have_value("")
-        assert GuildFAQItem.objects.filter(guild=guild).count() == 1
+        item = GuildFAQItem.objects.get(guild=guild)
+        assert item.document_display_name.endswith(".pdf")
+        assert page.evaluate("() => document.querySelector('input[name=\"faq-0-document\"]').files.length") == 0
 
         # Editing it again updates that row rather than adding a second one.
         before = _saves(page)

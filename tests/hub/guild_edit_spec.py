@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import re
 from decimal import Decimal
 
 import pytest
@@ -25,23 +24,13 @@ from tests.membership.factories import (
     MemberFactory,
     MembershipPlanFactory,
 )
+from tests.hub._markup import assert_autosave_forms_have_no_submit
 
 _PNG = (
     b"\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR\x00\x00\x00\x01\x00\x00\x00\x01"
     b"\x08\x06\x00\x00\x00\x1f\x15\xc4\x89\x00\x00\x00\nIDATx\x9cc\x00\x01"
     b"\x00\x00\x05\x00\x01\r\n-\xb4\x00\x00\x00\x00IEND\xaeB`\x82"
 )
-
-
-_AUTOSAVE_FORM = re.compile(r"<form\b[^>]*\bdata-autosave\b[^>]*>.*?</form>", re.S)
-
-
-def _assert_autosave_forms_have_no_submit(content: str) -> int:
-    """Every self saving form on the page carries no submit button; anchored on markup, not copy (STANDARDS 8)."""
-    blocks = _AUTOSAVE_FORM.findall(content)
-    assert blocks, "no data-autosave form on the page"
-    assert [block[:120] for block in blocks if 'type="submit"' in block] == []
-    return len(blocks)
 
 
 def _user_with_role(username: str, *, fog_role: str = Member.FogRole.MEMBER) -> User:
@@ -793,7 +782,7 @@ def describe_guild_edit_tabs():
         # A non-leadership admin sees the overview, not a self-scoped My Hours card.
         assert b"Orientation Schedule" in response.content
         # The settings form saves itself (#575): no submit in any autosave form, the save pill instead.
-        _assert_autosave_forms_have_no_submit(response.content.decode())
+        assert_autosave_forms_have_no_submit(response.content.decode())
         assert b"data-save-pill" in response.content
 
     def it_lays_short_inputs_out_in_two_columns(client: Client):
@@ -1146,7 +1135,7 @@ def describe_guild_content_tab_template():
         # Both forms save themselves (#575): marked for the autosave script, no submit inside.
         assert b'data-autosave data-formset="faq"' in response.content
         assert b'data-autosave data-formset="links"' in response.content
-        _assert_autosave_forms_have_no_submit(response.content.decode())
+        assert_autosave_forms_have_no_submit(response.content.decode())
 
     def it_renders_faq_delete_as_hidden_field_plus_danger_button_not_a_toggle(client: Client):
         _user_with_role("ct_faqdel", fog_role=Member.FogRole.ADMIN)
