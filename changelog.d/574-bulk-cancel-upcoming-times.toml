@@ -1,0 +1,7 @@
+bump = "minor"
+date = "2026-10-03"
+title = "Guild leads can cancel several upcoming orientation times at once"
+changes = [
+  "On the guild settings Orientations tab, each row in Upcoming Times has a checkbox. Tick a few, or select every time on the page or across all pages, and cancel them with one confirm.",
+  "The confirm says how many times are going and how many booked members will be emailed. Each time is cancelled the same way a single Cancel does it today.",
+]
