@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 from dataclasses import dataclass
 from datetime import timedelta
 from decimal import Decimal
@@ -1804,6 +1805,69 @@ def guild_orientation_slot_cancel(request: HttpRequest, pk: int, slot_pk: int) -
     slot = get_object_or_404(guild.orientation_slots, pk=slot_pk)
     orientations.cancel_slot(slot, reason=request.POST.get("reason", ""))
     messages.success(request, "Orientation slot cancelled.")
+    return redirect(f"{reverse('hub_guild_edit', args=[guild.pk])}?tab=orientations")
+
+
+_TIME_KEY_RE = re.compile(r"^(slot|window):(\d+)$")
+
+
+def _parse_time_keys(values: list[str]) -> tuple[list[int], list[int]]:
+    """Split the Upcoming Times selection keys into slot pks and window pks.
+
+    A key is ``slot:<pk>`` or ``window:<pk>`` (the card's ``data-time-key``); anything
+    else is ignored, so a tampered or stale value never raises.
+    """
+    slot_pks: list[int] = []
+    window_pks: list[int] = []
+    for value in values:
+        match = _TIME_KEY_RE.match(value)
+        if match is None:
+            continue
+        kind, pk = match.groups()
+        (slot_pks if kind == "slot" else window_pks).append(int(pk))
+    return slot_pks, window_pks
+
+
+def _bulk_cancel_message(cancelled: int, emailed: int) -> str:
+    """The success line for a bulk cancel: how many times went, and how many members heard."""
+    message = f"Cancelled {cancelled} time{'' if cancelled == 1 else 's'}."
+    if emailed:
+        message += f" {emailed} booked member{' was' if emailed == 1 else 's were'} emailed."
+    return message
+
+
+@login_required
+@require_POST
+def guild_orientation_times_bulk_cancel(request: HttpRequest, pk: int) -> HttpResponse:
+    """POST-only — cancel several Upcoming Times at once (#574). Editors only.
+
+    Fixed slots go through ``orientations.cancel_slot`` (booked members are emailed,
+    checkout holds released); open windows through ``cancel()`` (bookings inside them
+    stay). A key that is not one of this guild's upcoming, uncancelled times is skipped,
+    never an error page. No transaction around the loop: ``cancel_slot`` talks to Stripe
+    for held checkouts and must not run inside an outer atomic block.
+    """
+    from membership import orientations
+
+    guild = get_object_or_404(Guild, pk=pk)
+    forbidden = _require_can_manage_orientations(request, guild)
+    if forbidden is not None:
+        return forbidden
+
+    slot_pks, window_pks = _parse_time_keys(request.POST.getlist("selected"))
+    slots = list(guild.orientation_slots.upcoming().filter(pk__in=slot_pks).with_active_booking_count())
+    windows = list(guild.orientation_blocks.upcoming().filter(pk__in=window_pks))
+    emailed = 0
+    for slot in slots:
+        emailed += slot.active_booking_count
+        orientations.cancel_slot(slot)
+    for window in windows:
+        window.cancel()
+    cancelled = len(slots) + len(windows)
+    if cancelled:
+        messages.success(request, _bulk_cancel_message(cancelled, emailed))
+    else:
+        messages.info(request, "Nothing to cancel. Those times were already cancelled or are not this guild's.")
     return redirect(f"{reverse('hub_guild_edit', args=[guild.pk])}?tab=orientations")
 
 

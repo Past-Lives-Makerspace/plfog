@@ -4186,6 +4186,24 @@ mark { background: color-mix(in srgb, var(--color-tuscan-yellow) 30%, transparen
 .pl-slot-admin__seats { color: var(--hub-text-muted); font-size: 0.85rem; }
 .pl-slot-admin__source { font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0.04em; }
 
+/* Bulk cancel on Upcoming Times (#574): a pick box per row, and the selection bar that appears
+   once something is picked. Flex wrap so the bar folds at phone width. Tokens only, both themes. */
+.pl-slot-admin__pick { width: 1.1rem; height: 1.1rem; margin: 0; flex-shrink: 0; accent-color: var(--color-tuscan-yellow); cursor: pointer; }
+.pl-slot-admin__bar {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+    margin-bottom: 0.75rem;
+    padding: 0.5rem 0.75rem;
+    background: var(--hub-surface);
+    border: 1px solid var(--hub-border);
+    border-radius: 8px;
+}
+.pl-slot-admin__bar-count { font-weight: 600; color: var(--hub-text); margin-right: 0.25rem; }
+.pl-slot-admin__bulk-form { display: none; }
+.pl-slot-admin__bulk-message { margin: 0 0 1.5rem; }
+
 /* Orientations tab (#532): the How members book chips (.pl-chip is the shared radio chip), the
    Edit Hours rows, booked segments under an open window on Upcoming Times, and Add a one off.
    Layout lives in classes so an x-show can toggle display (FRONTEND.md rule 12). Tokens only. */
