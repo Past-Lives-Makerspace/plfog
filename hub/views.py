@@ -4270,11 +4270,11 @@ def _render_compose(
     """
 
     # The URL-bearing live-count refresh (fires on audience change; the form can't reverse URLs).
-    # The waitlist and never-logged-in toggles fire the same refresh so the roster + count re-scope
-    # when one flips; every control includes the others' values so switching audience keeps each
-    # toggle's choice (and back).
+    # The waitlist toggle fires the same refresh so the roster + count re-scope when it flips; both
+    # controls include the other's value (and the never-logged-in toggle's) so switching audience
+    # keeps each choice (and back).
     count_url = reverse("hub_compose_count")
-    for name in ("audience", "include_waitlist", "include_never_logged_in"):
+    for name in ("audience", "include_waitlist"):
         form.fields[name].widget.attrs.update(
             {
                 "hx-get": count_url,
@@ -4283,22 +4283,26 @@ def _render_compose(
                 "hx-swap": "none",
             }
         )
-    count = _compose_count_for(
-        form.current_audience,
-        form.current_guild,
-        form.current_class,
-        include_waitlist=form.waitlist_included,
-        include_never_logged_in=form.never_logged_in_included,
-    )
-    # Who "Everyone" reaches, for the site Recipients note: shown only to a sender offered that audience.
-    site_reach = None
+    # Who "Everyone" reaches, for the site Recipients note: worked out only for a sender who may pick
+    # that audience here. The never-logged-in toggle switches the count between the two totals in the
+    # browser, with no refresh: the refresh re-renders the Discord picker, which would drop the
+    # channel the sender chose.
     site = AnnouncementDraft.Audience.SITE.value
-    if any(value == site for value, _label in form.fields["audience"].choices):
+    site_reach = None
+    site_offered = any(value == site for value, _label in form.fields["audience"].choices)
+    if site_offered and not (locked and form.current_audience != site):
         logged_in = _compose_count_for(site, None)
-        site_reach = {
-            "logged_in": logged_in,
-            "never_logged_in": _compose_count_for(site, None, include_never_logged_in=True) - logged_in,
-        }
+        everyone = _compose_count_for(site, None, include_never_logged_in=True)
+        site_reach = {"logged_in": logged_in, "never_logged_in": everyone - logged_in, "everyone": everyone}
+        form.fields["include_never_logged_in"].widget.attrs["x-on:change"] = (
+            "recipientCount = $event.target.checked ? siteReach.everyone : siteReach.loggedIn"
+        )
+    if site_reach is not None and form.current_audience == site:
+        count = site_reach["everyone"] if form.never_logged_in_included else site_reach["logged_in"]
+    else:
+        count = _compose_count_for(
+            form.current_audience, form.current_guild, form.current_class, include_waitlist=form.waitlist_included
+        )
     # The auto category (title) for the current audience, without the client-side "Urgent: " lead.
     # A resumed results announcement keeps its "<cycle> Voting Results" title.
     category_draft = AnnouncementDraft(

@@ -1345,7 +1345,11 @@ def describe_site_members_who_never_logged_in():
         _never_logged_in()
         response = client.get(reverse("hub_compose"))
         logged_in = _compose_count_for("site", None)
-        assert response.context["site_reach"] == {"logged_in": logged_in, "never_logged_in": 1}
+        assert response.context["site_reach"] == {
+            "logged_in": logged_in,
+            "never_logged_in": 1,
+            "everyone": logged_in + 1,
+        }
         content = response.content.decode()
         assert "data-compose-site-recipients" in content
         assert f"Everyone means the {logged_in} active member" in content
@@ -1354,13 +1358,34 @@ def describe_site_members_who_never_logged_in():
         assert "checked" not in _toggle_input(content)
         assert response.context["initial_recipient_count"] == logged_in
 
+    def it_switches_the_count_in_the_browser_without_refreshing_the_discord_picker(client: Client):
+        # The count refresh re-renders the Discord picker, which would drop the sender's channel.
+        _login_admin(client)
+        toggle = _toggle_input(client.get(reverse("hub_compose")).content.decode())
+        assert "hx-get" not in toggle
+        assert "recipientCount = $event.target.checked ? siteReach.everyone : siteReach.loggedIn" in toggle
+
+    def it_skips_the_site_counts_for_an_admin_locked_to_a_guild(client: Client):
+        _login_admin(client)
+        guild = GuildFactory()
+        response = client.get(f"{reverse('hub_compose')}?audience=guild:{guild.pk}&lock=1")
+        assert response.context["site_reach"] is None
+        assert "data-compose-site-recipients" not in response.content.decode()
+
+    def it_counts_the_guild_for_an_admin_who_starts_on_a_guild(client: Client):
+        _login_admin(client)
+        guild = GuildFactory()
+        response = client.get(f"{reverse('hub_compose')}?audience=guild:{guild.pk}")
+        assert response.context["site_reach"] is not None  # they can still switch to everyone
+        assert response.context["initial_recipient_count"] == _compose_count_for("guild", guild)
+
     def it_hides_the_site_recipients_section_from_a_guild_lead(client: Client):
         _login_lead(client, GuildFactory())
         response = client.get(reverse("hub_compose"))
         assert response.context["site_reach"] is None
         assert "data-compose-site-recipients" not in response.content.decode()
 
-    def it_rescopes_the_live_count_when_the_toggle_is_on(client: Client):
+    def it_counts_the_widened_site_audience_when_the_audience_changes_with_the_toggle_on(client: Client):
         _login_admin(client)
         _never_logged_in()
         url = reverse("hub_compose_count")

@@ -18,6 +18,7 @@ from django.urls import reverse
 from django.utils import timezone
 from playwright.sync_api import expect
 
+from core.models import SiteConfiguration
 from membership.models import AnnouncementDraft, FundingSnapshot, Member
 from tests.membership.factories import (
     FundingSnapshotFactory,
@@ -181,6 +182,10 @@ def describe_the_announcements_page():
         made, _guild, _reader = _seed()
         never = get_user_model().objects.create_user(username="never@example.com", email="never@example.com")
         Member.objects.filter(user=never).update(status=Member.Status.ACTIVE)
+        # With a channel configured the picker defaults to it, so a reset would show.
+        config = SiteConfiguration.load()
+        config.discord_general_webhook_url = "https://discord.invalid/general"
+        config.save()
         _sign_in_as_admin(login_via_code)
         logged_in = AnnouncementDraft(audience=AnnouncementDraft.Audience.SITE).recipient_count()
 
@@ -188,10 +193,18 @@ def describe_the_announcements_page():
         expect(page.locator(EDITOR)).to_contain_text("The votes for September 2026 are in.")
         expect(page.locator("[data-compose-site-reach]")).to_contain_text("1 more has never logged in.")
 
-        # Flipping the toggle re-counts on the server; the reach line on Preview & send follows it.
+        # A channel picked on Preview & send survives the toggle, which recounts in the browser; the
+        # reach line follows it.
+        page.get_by_role("tab", name="2. Preview & send").click()
+        reach = page.locator(".pl-wizard-reach strong")
+        expect(reach).to_have_text(str(logged_in))
+        expect(page.locator("select[name=discord_channel]")).to_have_value("general")
+        page.locator("select[name=discord_channel]").select_option("none")
+        page.get_by_role("tab", name="1. Compose").click()
         page.locator("label.pl-toggle:has(input[name=include_never_logged_in])").click()
         page.get_by_role("tab", name="2. Preview & send").click()
-        expect(page.locator(".pl-wizard-reach strong")).to_have_text(str(logged_in + 1))
+        expect(reach).to_have_text(str(logged_in + 1))
+        expect(page.locator("select[name=discord_channel]")).to_have_value("none")
 
         page.get_by_role("button", name="Send announcement").click()
         page.get_by_role("button", name="Yes, send it").click()
@@ -199,3 +212,4 @@ def describe_the_announcements_page():
         queued = AnnouncementDraft.objects.get(pk=made.pk)
         assert queued.send_requested_at is not None
         assert queued.include_never_logged_in is True
+        assert queued.discord_channel == "none"
