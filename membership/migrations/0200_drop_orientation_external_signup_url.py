@@ -11,7 +11,7 @@ from django.db import migrations
 
 class Migration(migrations.Migration):
     dependencies = [
-        ("membership", "0198_equipment_space_kind_and_space_manager"),
+        ("membership", "0199_equipment_space_kind_and_space_manager"),
     ]
 
     operations = [
