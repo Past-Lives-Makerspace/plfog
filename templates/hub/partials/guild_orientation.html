@@ -11,7 +11,7 @@ Member-facing orientation section on the guild page, grouped by orientation type
   orientation_all_done — bool, member completed every active type
   custom_request_form  — OrientationCustomRequestForm (carries the type picker)
 {% endcomment %}
-{% load classes_tags %}
+{% load classes_tags rich_text %}
 <section id="guild-orientation" class="hub-card" style="padding:1.25rem 1.5rem; margin-bottom:1.5rem;" aria-label="Orientation">
   {% if orientation.is_closed %}
     <h2 class="hub-detail-label" style="margin:0 0 0.5rem;">Orientations paused</h2>
@@ -28,7 +28,8 @@ Member-facing orientation section on the guild page, grouped by orientation type
         <span class="pl-help__bubble">Your primary email is what receives the notification for bookings. Change your primary email in your User Settings.</span>
       </span>
     </h2>
-    {% if orientation.info %}<p class="hub-text-muted" style="margin:0 0 0.75rem; font-size:0.9rem;">{{ orientation.info|truncatewords:40 }}</p>{% endif %}
+    {# The lead's whole instructions to the member, rich text (#502), never a teaser. #}
+    {% if orientation.info %}<div class="hub-text-muted pl-orientation-info">{{ orientation.info|rich_body }}</div>{% endif %}
     {% if unpaid_late_fee %}
     {# The block until paid (#456): every booking road below refuses until the fee is paid. #}
     {% include "hub/partials/late_fee_notice.html" with fee=unpaid_late_fee %}
@@ -90,11 +91,6 @@ Member-facing orientation section on the guild page, grouped by orientation type
       {% include "components/confirm_modal.html" with confirm_id="cancel-my-orientation-"|add:bpks confirm_title="Cancel your orientation?" confirm_message="You can request a new orientation any time. "|add:sec.late_cancel_warning confirm_action_url=cancel_mine_url confirm_button_text="Cancel orientation" confirm_no_boost=True %}
       {% endif %}
       {% endwith %}
-
-      {% elif sec.type.resolved_external_signup_url %}
-      {# External signup (issue #368): the outside link stands in for the whole booking UI. #}
-      <p class="hub-text-muted" style="margin:0 0 0.75rem; font-size:0.9rem;">Signing up for this orientation happens on another site.</p>
-      <a href="{{ sec.type.resolved_external_signup_url }}" class="hub-btn hub-btn--sm hub-btn--primary" target="_blank" rel="noopener">Sign up for this orientation</a>
 
       {% else %}
       {% if sec.type.is_paid %}
@@ -194,8 +190,8 @@ Member-facing orientation section on the guild page, grouped by orientation type
     </div>
     {% endfor %}
 
-    {# has_internal_types is false once every remaining orientation signs up elsewhere, guild-wide link or per type. #}
-    {% if orientation.allow_custom_requests and not orientation_all_done and custom_request_form.has_internal_types %}
+    {# has_types is false when the guild has no active orientation type, so the picker would be empty. #}
+    {% if orientation.allow_custom_requests and not orientation_all_done and custom_request_form.has_types %}
     {% if user.is_authenticated %}
     <div x-data="{ showCustom: false }" style="margin-top:1rem; padding-top:1rem; border-top:1px solid var(--hub-border);" data-help-key="orientation.request-custom-time">
       <button type="button" class="hub-btn hub-btn--sm {% if orientation_has_posted_times %}hub-btn--ghost{% else %}hub-btn--primary{% endif %}" x-show="!showCustom" @click="showCustom = true">

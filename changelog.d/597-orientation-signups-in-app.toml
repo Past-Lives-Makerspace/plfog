@@ -1,0 +1,7 @@
+bump = "minor"
+date = "2026-10-03"
+title = "Orientation info can carry links, and every orientation books here"
+changes = [
+  "A guild's Orientation info now takes links, lists and headings, written in the same editor as class descriptions and emails. Members see all of it on the guild page's Orientations tab, not a shortened teaser.",
+  "Every orientation is booked in the Member Portal. The option to send members to an outside form is gone from guild settings and from orientation types.",
+]

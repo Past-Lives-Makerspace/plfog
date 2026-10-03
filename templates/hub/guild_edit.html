@@ -431,7 +431,6 @@ confirm modal carries its own POST form, and template content can't nest a form.
       {% include "components/form_field.html" with field=orientation_form.is_enabled %}
       {% include "components/form_field.html" with field=orientation_form.allow_custom_requests %}
       {% include "components/form_field.html" with field=orientation_form.info %}
-      {% include "components/form_field.html" with field=orientation_form.external_signup_url %}
       {% if late_cancel_fees_enabled %}
       {% include "components/form_field.html" with field=orientation_form.late_cancel_fee %}
       {% endif %}
@@ -481,7 +480,6 @@ confirm modal carries its own POST form, and template content can't nest a form.
               <div style="flex:1; min-width:100px;">{% include "components/form_field.html" with field=t.sort_order %}</div>
             </div>
             {% include "components/form_field.html" with field=t.description %}
-            {% include "components/form_field.html" with field=t.external_signup_url %}
             {% include "components/form_field.html" with field=t.is_active %}
             {% if t.instance.pk %}
               <div style="display:none;">{{ t.DELETE }}</div>
@@ -508,7 +506,6 @@ confirm modal carries its own POST form, and template content can't nest a form.
               <div style="flex:1; min-width:100px;">{% include "components/form_field.html" with field=ef.sort_order %}</div>
             </div>
             {% include "components/form_field.html" with field=ef.description %}
-            {% include "components/form_field.html" with field=ef.external_signup_url %}
             {% include "components/form_field.html" with field=ef.is_active %}
             {{ ef.id }}
             <button type="button" class="pl-btn pl-btn--danger pl-btn--sm pl-btn--spaced" data-formset-remove>Remove</button>

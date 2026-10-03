@@ -275,7 +275,7 @@ def request_orientation(
     reservation landing at the same moment. Guild-owned slots are untouched.
 
     ``by_staff=True`` is the dashboard's add-a-member path seating someone by hand; it
-    licenses only the off-site-signup guard (see :meth:`OrientationSlot.ensure_bookable_for`).
+    licenses only the unpaid late fee guard (see :meth:`OrientationSlot.ensure_bookable_for`).
 
     Raises:
         OrientationError: Propagated from ``slot.book`` when the slot can't be booked.

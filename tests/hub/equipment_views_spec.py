@@ -1196,7 +1196,7 @@ def describe_equipment_own_orientation():
             assert '<div x-show="newOrientation" x-cloak class="pl-equip-new-type">' in content
             for rendered in EquipmentForm.NEW_TYPE_FIELDS:
                 assert f'name="new_type-{rendered}"' in content
-            for unrendered in ("description", "sort_order", "is_active", "external_signup_url"):
+            for unrendered in ("description", "sort_order", "is_active"):
                 assert f'name="new_type-{unrendered}"' not in content
             # No browser-side required attribute: the inputs sit hidden until the choice is made.
             name_input = content[content.index('name="new_type-name"') :].split(">", 1)[0]
@@ -1220,7 +1220,7 @@ def describe_equipment_own_orientation():
             assert new_type.default_seats == 2
             assert new_type.price_cents == 1500
             assert new_type.default_location == "Wood shop"
-            assert (new_type.description, new_type.sort_order, new_type.external_signup_url) == ("", 0, "")
+            assert (new_type.description, new_type.sort_order) == ("", 0)
             assert equipment.required_orientation == new_type
             assert list(equipment.owned_orientation_types.all()) == [new_type]
 
