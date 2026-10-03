@@ -221,8 +221,9 @@ def _apply_meeting_save(meeting: Meeting, field: str, value: Any, *, by: User) -
 
     Turning ``is_special`` off clears ``special_title`` in the SAME save, so the
     §4.1 check constraint can never trip from a lone-field autosave; symmetrically,
-    ``special_title`` can't be set on a Monthly meeting. The save that gives the
-    meeting both a date and a time also gives it its calendar event (#596).
+    ``special_title`` can't be set on a Monthly meeting. The save that makes the
+    meeting :attr:`Meeting.is_calendar_ready` (a time and a date today or later) also gives
+    it its calendar event (#596).
     """
     if field == "special_title" and not meeting.is_special and value:
         raise ValueError("Turn on Special meeting before naming it.")
@@ -242,7 +243,7 @@ def _apply_meeting_save(meeting: Meeting, field: str, value: Any, *, by: User) -
         and value >= meeting.scheduled_end_time
     ):
         raise ValueError("Start time must be before the end time.")
-    was_scheduled = meeting.has_schedule
+    was_ready = meeting.is_calendar_ready
     setattr(meeting, field, value)
     update_fields = [field, "updated_at"]
     if field == "is_special" and value is False:
@@ -251,7 +252,7 @@ def _apply_meeting_save(meeting: Meeting, field: str, value: Any, *, by: User) -
     meeting.save(update_fields=update_fields)
     if field in _EVENT_SYNC_FIELDS:
         meeting.sync_event()
-    if not was_scheduled:
+    if not was_ready:
         meeting.add_to_calendar_if_scheduled(by=by)
 
 

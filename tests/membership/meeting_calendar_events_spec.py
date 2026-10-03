@@ -7,7 +7,7 @@ Guild leads announcement audience (who it reaches, by the ``all_guild_leads`` ru
 
 from __future__ import annotations
 
-from datetime import time
+from datetime import date, time, timedelta
 from unittest.mock import patch
 
 import pytest
@@ -152,6 +152,25 @@ def describe_Meeting_add_to_calendar_if_scheduled():
         meeting.refresh_from_db()
         assert meeting.event == event
         assert meeting.owns_event is True
+
+    def it_creates_the_event_for_a_meeting_today():
+        meeting = MeetingFactory(guild=None, scheduled_date=timezone.localdate(), scheduled_time=time(23, 30))
+        with patch.object(CommunityEvent, "push_live"):
+            assert meeting.add_to_calendar_if_scheduled(by=_user("today")) is not None
+
+    def it_does_nothing_for_a_past_date():
+        meeting = MeetingFactory(
+            guild=None, scheduled_date=timezone.localdate() - timedelta(days=1), scheduled_time=time(18, 0)
+        )
+        assert meeting.add_to_calendar_if_scheduled(by=_user("past")) is None
+        assert CommunityEvent.objects.count() == 0
+        assert AnnouncementDraft.objects.count() == 0
+
+    def it_does_nothing_for_a_partly_typed_year():
+        meeting = MeetingFactory(guild=None, scheduled_date=date(2, 10, 6), scheduled_time=time(18, 0))
+        assert meeting.add_to_calendar_if_scheduled(by=_user("year2")) is None
+        assert CommunityEvent.objects.count() == 0
+        assert AnnouncementDraft.objects.count() == 0
 
     def it_does_nothing_without_a_time():
         meeting = MeetingFactory(scheduled_time=None)

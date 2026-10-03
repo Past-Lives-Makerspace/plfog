@@ -84,6 +84,37 @@ def describe_scheduling_a_meeting():
             assert meeting.event.google_calendar_target == CommunityEvent.GoogleCalendarTarget.MEMBER
             assert AnnouncementDraft.objects.resumable().get().audience == AnnouncementDraft.Audience.LEADS
 
+        def it_waits_out_a_year_being_typed_then_sets_up_one_event_and_draft(client: Client):
+            _admin(client)
+            meeting = MeetingFactory(guild=None, scheduled_date=None, scheduled_time=time(18, 30))
+            target = timezone.localdate() + timedelta(days=5)
+            with patch.object(CommunityEvent, "push_live"):
+                for year in ("0002", "0020", "0202"):
+                    resp = _autosave(client, meeting, "scheduled_date", f"{year}-{target:%m-%d}")
+                    assert resp.status_code == 204
+                    assert CommunityEvent.objects.count() == 0
+                    assert AnnouncementDraft.objects.count() == 0
+                _autosave(client, meeting, "scheduled_date", target.isoformat())
+            meeting.refresh_from_db()
+            event = CommunityEvent.objects.get()
+            assert meeting.event == event
+            assert timezone.localtime(event.starts_at).date() == target
+            draft = AnnouncementDraft.objects.get()
+            assert event.when_display in draft.body
+
+        def it_sets_nothing_up_for_a_past_date_then_does_once_it_moves_to_the_future(client: Client):
+            guild = GuildFactory()
+            _lead(client, guild)
+            meeting = MeetingFactory(guild=guild, scheduled_time=time(18, 0))
+            past = timezone.localdate() - timedelta(days=2)
+            future = timezone.localdate() + timedelta(days=8)
+            with patch.object(CommunityEvent, "push_live"):
+                _autosave(client, meeting, "scheduled_date", past.isoformat())
+                assert CommunityEvent.objects.count() == 0
+                _autosave(client, meeting, "scheduled_date", future.isoformat())
+            assert timezone.localtime(CommunityEvent.objects.get().starts_at).date() == future
+            assert AnnouncementDraft.objects.count() == 1
+
         def it_does_nothing_while_the_time_is_still_missing(client: Client):
             guild = GuildFactory()
             _lead(client, guild)
@@ -147,6 +178,17 @@ def describe_scheduling_a_meeting():
             assert meeting.owns_event is True
             assert meeting.event.event_type == CommunityEvent.EventType.LEAD_MEETING
             assert AnnouncementDraft.objects.resumable().get().audience == AnnouncementDraft.Audience.LEADS
+
+        def it_creates_no_event_for_a_meeting_created_with_a_past_date(client: Client):
+            _admin(client)
+            day = timezone.localdate() - timedelta(days=1)
+            client.post(
+                reverse("hub_meeting_create"),
+                {"scope": "council", "kind": "monthly", "date": day.isoformat(), "time": "18:30"},
+            )
+            assert Meeting.objects.count() == 1
+            assert CommunityEvent.objects.count() == 0
+            assert AnnouncementDraft.objects.count() == 0
 
         def it_creates_no_event_for_a_meeting_created_without_a_time(client: Client):
             _admin(client)

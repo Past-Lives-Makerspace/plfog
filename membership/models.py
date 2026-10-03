@@ -8532,18 +8532,29 @@ class Meeting(models.Model):
         SiteActivity.log(SiteActivity.Kind.MEETING_UNLOCKED, actor=by, target=self)
 
     @property
-    def has_schedule(self) -> bool:
-        """Whether both a date and a start time are set: what a calendar event needs."""
-        return self.scheduled_date is not None and self.scheduled_time is not None
+    def is_calendar_ready(self) -> bool:
+        """Whether the meeting may get its calendar event automatically: a date and a start
+        time are both set, and the date is today or later in local time.
+
+        The date rule matters because the date input autosaves while a year is typed, so it
+        passes through partial years (0002, 0020, 0202) on the way to 2026; none of those may
+        set up an event or freeze a draft. A past meeting never gets one automatically (the
+        Add to calendar button still can).
+        """
+        return (
+            self.scheduled_date is not None
+            and self.scheduled_time is not None
+            and self.scheduled_date >= timezone.localdate()
+        )
 
     def add_to_calendar_if_scheduled(self, *, by: User) -> CommunityEvent | None:
         """Give a newly scheduled meeting its own calendar event, once.
 
-        Called when the meeting gains both a date and a time (created with them, or the
-        autosave that sets the second of the two). A meeting already linked to an event, or
-        still missing either, is left alone and ``None`` comes back.
+        Called when the meeting becomes :attr:`is_calendar_ready` (created that way, or the
+        autosave that completes a future date and time). A meeting already linked to an
+        event, or not ready, is left alone and ``None`` comes back.
         """
-        if self.event_id is not None or not self.has_schedule:
+        if self.event_id is not None or not self.is_calendar_ready:
             return None
         return self.create_calendar_event(by=by)
 
