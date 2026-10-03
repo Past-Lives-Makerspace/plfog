@@ -390,6 +390,52 @@ def _window_day_widget() -> forms.DateInput:
     )
 
 
+def _booking_text_widget() -> forms.Textarea:
+    return forms.Textarea(attrs={"rows": 3})
+
+
+def setup_flexible_booking_text(form: forms.ModelForm) -> None:
+    """Label the booking text box and pre-fill it with the line the class page shows today.
+
+    The instructor edits the page's own words, not a blank box with a placeholder to decode.
+    The pre-fill is only shown, never stored on its own: :func:`clean_flexible_booking_text`
+    stores blank when what comes back is still the standard line, so the page keeps building
+    it live (a renamed instructor, a window added later). ``form.initial`` is read at render
+    time, so setting it here, after the ModelForm has copied the instance in, is enough.
+
+    The line the box was filled with rides along in a hidden field, so the compare on the way
+    back is against what the instructor actually saw: an instructor renamed while the composer
+    sat open (58 classes moved from "Billy" to his full name on 2026-09-30) still counts an
+    untouched box as untouched, instead of freezing the old name as their own words.
+    """
+    field = form.fields["flexible_booking_text"]
+    field.label = "How booking works"
+    field.help_text = "Shown on the class page under Flexible Scheduling. Change it to say how students book with you."
+    form.fields["flexible_booking_text_default"] = forms.CharField(required=False, widget=forms.HiddenInput())
+    form.initial["flexible_booking_text_default"] = form.instance.default_flexible_booking_line
+    if not form.instance.flexible_booking_text:
+        form.initial["flexible_booking_text"] = form.instance.default_flexible_booking_line
+
+
+def _folded(text: str) -> str:
+    return " ".join(text.split())
+
+
+def clean_flexible_booking_text(form: forms.ModelForm) -> str:
+    """The posted text, or blank when it is still the standard line the box was pre-filled with.
+
+    Untouched means equal to the line the box was rendered with (the hidden field) or to
+    today's standard line, both with the spacing folded so a wrapped paste of the same words
+    still counts; a kept text is stored as typed, line breaks included. The hidden field is
+    read from the raw POST because Django cleans it after this field; a POST without it (an
+    older page still open) falls back to today's line alone.
+    """
+    text: str = form.cleaned_data["flexible_booking_text"]
+    rendered = form.data.get(form.add_prefix("flexible_booking_text_default"), "")
+    untouched = {_folded(rendered), _folded(form.instance.default_flexible_booking_line)}
+    return "" if _folded(text) in untouched else text
+
+
 class _FlexibleWindowMixin:
     """The optional date window of a flexible class, on both composer forms.
 
@@ -415,6 +461,10 @@ class _FlexibleWindowMixin:
             "Optional. Hours you teach, what to bring to the first meeting, "
             "anything students should know before they book."
         )
+        setup_flexible_booking_text(self)  # type: ignore[arg-type]
+
+    def clean_flexible_booking_text(self) -> str:
+        return clean_flexible_booking_text(self)  # type: ignore[arg-type]
 
     def clean_flexible_window(self) -> None:
         data = self.cleaned_data  # type: ignore[attr-defined]
@@ -531,6 +581,7 @@ class ClassOfferingForm(
             "scheduling_model",
             "scheduling_type",
             "flexible_note",
+            "flexible_booking_text",
             "flexible_starts_on",
             "flexible_ends_on",
             "registration_cutoff_hours",
@@ -546,6 +597,7 @@ class ClassOfferingForm(
             "description": RichBodyEditorWidget(attrs={"rows": 4}),
             "flexible_starts_on": _window_day_widget(),
             "flexible_ends_on": _window_day_widget(),
+            "flexible_booking_text": _booking_text_widget(),
         }
         # The window's one hint sits under the pair on step 3, so neither day repeats it.
         help_texts = {
@@ -621,6 +673,7 @@ class TeachClassOfferingForm(
             "scheduling_model",
             "scheduling_type",
             "flexible_note",
+            "flexible_booking_text",
             "flexible_starts_on",
             "flexible_ends_on",
             "registration_cutoff_hours",
@@ -634,6 +687,7 @@ class TeachClassOfferingForm(
             "description": RichBodyEditorWidget(attrs={"rows": 4}),
             "flexible_starts_on": _window_day_widget(),
             "flexible_ends_on": _window_day_widget(),
+            "flexible_booking_text": _booking_text_widget(),
         }
         # The window's one hint sits under the pair on step 3, so neither day repeats it.
         help_texts = {
@@ -646,6 +700,11 @@ class TeachClassOfferingForm(
     def __init__(self, *args, teaching_member: "Member | None" = None, **kwargs) -> None:
         self.teaching_member = teaching_member
         super().__init__(*args, **kwargs)
+        # What save() will set, set now, so the booking line box on a new class names the
+        # instructor and not "your instructor". The instructor is not one of this form's fields,
+        # so nothing posted can overwrite it.
+        if teaching_member is not None and not self.instance.instructor_id:
+            self.instance.instructor = teaching_member
         self.fields["category"].label = "Class Type"
         self.add_hero_crop_field()
         self.add_card_focus_field()
@@ -920,11 +979,28 @@ class TeachPublishedClassForm(_RichDescriptionMixin, forms.ModelForm):
             "materials_to_bring",
             "safety_requirements",
             "age_guardian_note",
+            "flexible_booking_text",
             "flexible_note",
             "video_url",
         ]
-        widgets = {"video_url": _video_url_widget(), "description": RichBodyEditorWidget(attrs={"rows": 4})}
+        widgets = {
+            "video_url": _video_url_widget(),
+            "description": RichBodyEditorWidget(attrs={"rows": 4}),
+            "flexible_booking_text": _booking_text_widget(),
+        }
         help_texts = {"subtitle": SUBTITLE_HELP_TEXT}
+
+    def __init__(self, *args: Any, **kwargs: Any) -> None:
+        super().__init__(*args, **kwargs)
+        # The booking line exists only on a flexible class's page, so a fixed class does not
+        # get the box (the page renders every field of this form).
+        if self.instance.is_flexible:
+            setup_flexible_booking_text(self)
+        else:
+            del self.fields["flexible_booking_text"]
+
+    def clean_flexible_booking_text(self) -> str:
+        return clean_flexible_booking_text(self)
 
     def clean_video_url(self) -> str:
         return validate_video_url(self.cleaned_data.get("video_url", ""))

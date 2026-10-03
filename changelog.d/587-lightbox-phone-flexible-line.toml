@@ -1,0 +1,8 @@
+bump = "patch"
+date = "2026-10-02"
+title = "Gallery photos open clear of the title, and phone numbers dial"
+changes = [
+  "Opening a gallery photo on a class page no longer shows the class title across it.",
+  "A phone number in the Member Directory is a link: tap it to call.",
+  "A flexible class can say in its own words how students book. On the Dates & Price step, or a live class's Edit page, edit the line under Flexible Scheduling, or leave it for the standard one.",
+]

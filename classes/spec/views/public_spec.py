@@ -1364,6 +1364,13 @@ def describe_a_flexible_class_page():
         assert section.index("Billy Anvil") < section.index("Weekday mornings only.")
         assert "cp-detail__flex-instructor-note" not in _section(_page(client, _flexible(slug="quiet")))
 
+    def it_shows_the_instructors_own_booking_text_in_place_of_the_standard_line(db, client):
+        offering = _flexible(flexible_booking_text="Email me and we will pick a Saturday.\nMornings are best.")
+        section = _section(_page(client, offering))
+        how = section.split('<p class="cp-detail__flex-how">')[1].split("</p>")[0]
+        assert how == "Email me and we will pick a Saturday.<br>Mornings are best."
+        assert "book your session directly" not in section
+
     def it_never_renders_the_schedule_for_a_class_still_carrying_a_month_long_session(db, client):
         # The shape of production class 665: a flexible class with one 703 hour session row.
         offering = _flexible(slug="billy-november")

@@ -223,7 +223,8 @@ def describe_a_post_to_a_legacy_path():
         assert ClassOffering.objects.count() == before + 1
         run = ClassOffering.objects.exclude(pk=offering.pk).latest("pk")
         assert run.status == Status.DRAFT
-        assert response["Location"] == reverse("classes:teach_class_edit", kwargs={"pk": run.pk})
+        # The new run opens on its Dates & Price step (#582), through the legacy path as through the new one.
+        assert response["Location"] == reverse("classes:teach_class_edit", kwargs={"pk": run.pk}) + "?step=3"
 
     def it_dispatches_a_cancel_post_rather_than_bouncing_it(admin_user, client, db):
         offering = ClassOfferingFactory(slug="legacy-cancel", status=Status.PUBLISHED)

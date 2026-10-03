@@ -245,7 +245,7 @@ appends and runs it on the first boosted arrival here (FRONTEND.md, Scripts unde
           <h2 class="cp-detail__h2">{{ flexible_heading }}</h2>
           <div class="cp-detail__flex-note">
             {% if has_flexible_window %}<p class="cp-detail__flex-window"><strong>{{ flexible_window_label }}</strong></p>{% endif %}
-            <p class="cp-detail__flex-how">After you register, you'll book your session directly with {% if offering.instructor %}{{ offering.instructor.display_name }}{% else %}your instructor{% endif %} and pick a day {% if has_flexible_window %}inside this window {% endif %}that works for both of you.</p>
+            <p class="cp-detail__flex-how">{{ offering.flexible_booking_line|linebreaksbr }}</p>
             {% if offering.flexible_note %}<div class="cp-detail__flex-instructor-note">{{ offering.flexible_note|linebreaks }}</div>{% endif %}
           </div>
         </section>

@@ -133,7 +133,8 @@
             {% if member.phone and phone_visible %}
             <div class="directory-card__contact-row">
                 <span class="directory-card__contact-label">Phone</span>
-                <span>{{ member.phone }}</span>
+                {# A tel: link so a phone dials it on a tap; a number with no digits in it stays plain text. #}
+                {% with tel=member.phone|tel_href %}{% if tel %}<a href="tel:{{ tel }}">{{ member.phone }}</a>{% else %}<span>{{ member.phone }}</span>{% endif %}{% endwith %}
             </div>
             {% endif %}
             {% if member.discord_handle and discord_visible %}

@@ -141,3 +141,31 @@ def describe_guild_logo_prefix():
         from hub.templatetags.hub_tags import guild_logo_prefix
 
         assert guild_logo_prefix("Quantum Computing") is None
+
+
+def describe_tel_href():
+    """The number part of a tel: link from whatever a member typed."""
+
+    @pytest.mark.parametrize(
+        ("typed", "href"),
+        [
+            ("(503) 555 0199", "5035550199"),
+            ("+1 503.555.0199", "+15035550199"),
+            ("503 555 0199 x12", "5035550199;ext=12"),
+            ("503-555-0199 ext. 12", "5035550199;ext=12"),
+            ("503-555-0199 extension 12", "5035550199;ext=12"),
+            ("(503) 555 0199, ext 12", "5035550199;ext=12"),
+            ("5035550199x12", "5035550199;ext=12"),
+            ("503-555-0199 #12", "5035550199;ext=12"),
+            ("503 555 0199 / 503 555 0200", "5035550199"),
+            ("503 555 0199, 503 555 0200", "5035550199"),
+            ("ext. 12 503-555-0199", ""),
+            ("ask at the desk", ""),
+            ("+", ""),
+            ("\u00b2\u00b3", ""),
+        ],
+    )
+    def it_keeps_the_digits_an_extension_and_a_leading_plus(typed: str, href: str):
+        from hub.templatetags.hub_tags import tel_href
+
+        assert tel_href(typed) == href
