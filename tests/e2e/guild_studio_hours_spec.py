@@ -12,6 +12,9 @@ with ``pytest -m e2e``.
 
 from __future__ import annotations
 
+import time
+from unittest.mock import patch
+
 from django.contrib.auth import get_user_model
 from django.urls import reverse
 from playwright.sync_api import expect
@@ -27,8 +30,19 @@ SAVED_PAST = (
 )
 
 
+QUEUE_IDLE = "() => document.querySelector('[data-guild-autosave]').plGuildAutosave.pending === 0"
+
+
 def _saves(page) -> int:
     return int(page.locator("[data-save-pill]").get_attribute("data-saves") or 0)
+
+
+def _sign_in_as_admin(login_via_code) -> None:
+    login_via_code(ADMIN_EMAIL)
+    user = get_user_model().objects.get(username=ADMIN_EMAIL)
+    user.is_staff = True
+    user.is_superuser = True
+    user.save(update_fields=["is_staff", "is_superuser"])
 
 
 def describe_guild_studio_hours_editor():
@@ -39,11 +53,7 @@ def describe_guild_studio_hours_editor():
 
         # Sign in through the real code flow, then elevate to admin so the
         # guild-editor gate passes (compute_actual_roles grants admin from is_superuser).
-        login_via_code(ADMIN_EMAIL)
-        user = get_user_model().objects.get(username=ADMIN_EMAIL)
-        user.is_staff = True
-        user.is_superuser = True
-        user.save(update_fields=["is_staff", "is_superuser"])
+        _sign_in_as_admin(login_via_code)
 
         # Open the guild editor straight onto the Studio Hours tab (?tab= seeds Alpine's section).
         page.goto(f"{live_server.url}{reverse('hub_guild_edit', args=[guild.pk])}?tab=studio_hours")
@@ -93,3 +103,44 @@ def describe_guild_studio_hours_editor():
         expect(page.locator("[data-formset-empty]", has_text="No studio hours yet")).to_be_visible()
         expect(page.locator("#studio-hours-rows [data-formset-row]")).to_have_count(0)
         assert not guild.events.studio_hours().exists()
+
+    def it_lands_a_location_typed_while_a_save_is_in_flight(live_server, page, login_via_code):
+        # An hours form saves on change only, so a keystroke mid flight schedules nothing; it
+        # still has to mark the form edited, or the save that finishes meanwhile remembers the
+        # form with the text already in it and the blur's post is skipped as already saved.
+        MembershipPlanFactory()
+        guild = GuildFactory(name="Ceramics Guild")
+        _sign_in_as_admin(login_via_code)
+        page.goto(f"{live_server.url}{reverse('hub_guild_edit', args=[guild.pk])}?tab=studio_hours")
+        page.wait_for_function(ALPINE_READY)
+        page.get_by_role("button", name="+ Add studio hours", exact=True).click()
+        page.select_option('select[name="studio_hours-0-weekday"]', "1")
+        page.select_option('select[name="studio_hours-0-start_time"]', "14:00")
+        page.select_option('select[name="studio_hours-0-end_time"]', "17:00")
+        expect(page.locator('input[name="studio_hours-0-id"]')).not_to_have_value("")
+        page.wait_for_function(QUEUE_IDLE)
+
+        original_save = CommunityEvent.save
+
+        def slow_save(self, *args, **kwargs):
+            time.sleep(1.5)
+            return original_save(self, *args, **kwargs)
+
+        before = _saves(page)
+        location = page.locator('input[name="studio_hours-0-location"]')
+        with patch.object(CommunityEvent, "save", slow_save):
+            page.select_option('select[name="studio_hours-0-weekday"]', "2")  # the slow save is in flight
+            page.wait_for_function("() => document.querySelector('[data-guild-autosave]').plGuildAutosave.pending > 0")
+            location.press_sequentially("Kiln room")
+            page.wait_for_function(SAVED_PAST, arg=before + 1)
+            location.press("Tab")
+            page.wait_for_function(SAVED_PAST, arg=before + 2)
+        event = guild.events.studio_hours().get()
+        assert event.location == "Kiln room"
+        assert timezone_weekday(event) == 2
+
+
+def timezone_weekday(event: CommunityEvent) -> int:
+    from django.utils import timezone
+
+    return timezone.localtime(event.starts_at).weekday()

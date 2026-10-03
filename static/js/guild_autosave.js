@@ -157,7 +157,12 @@
   function signature(data) {
     var parts = [];
     data.forEach(function (value, key) {
-      var text = typeof value === "string" ? value : "file:" + value.name + ":" + value.size + ":" + value.lastModified;
+      var text;
+      if (typeof value === "string") text = value;
+      // An empty file input yields a nameless empty File stamped with the current time on
+      // every FormData, which would never match: it reads as nothing chosen.
+      else if (value.size === 0 && value.name === "") text = "";
+      else text = "file:" + value.name + ":" + value.size + ":" + value.lastModified;
       parts.push(key + "=" + text);
     });
     return parts.join("\n");
@@ -422,9 +427,12 @@
         // is a field being retyped, not a value to refuse. An hours form saves on change only.
         onInput(el) {
           var form = formOf(el);
-          if (!form || ignored(el) || !isTyped(el) || form.dataset.autosave === "change") return;
-          var self = this;
+          if (!form || ignored(el)) return;
+          // Marked before the mode check: a keystroke in an hours form's Location saves on the
+          // blur, and a save finishing meanwhile must not remember the form with it typed in.
           markEdited(form);
+          if (!isTyped(el) || form.dataset.autosave === "change") return;
+          var self = this;
           clearTimeout(timers.get(form));
           timers.delete(form);
           if (isRequired(el, form) && !el.value.trim()) return;
@@ -497,7 +505,8 @@
           heldNavigation = resume;
           chain.then(function () {
             if (heldNavigation !== resume) return;
-            if (self.state !== "error") {
+            // A delete kept behind a sibling's refusal is a change that did not save either.
+            if (self.state !== "error" && formsWithPendingDeletes(root).length === 0) {
               heldNavigation = null;
               resume();
               return;

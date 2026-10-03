@@ -174,6 +174,26 @@ def describe_guild_settings_autosave():
         expect(page.locator("#link-rows [data-formset-row]")).to_have_count(1)
         expect(page.locator('input[name="links-0-label"]')).to_have_value("Discord")
 
+    def it_holds_a_boosted_leave_behind_a_kept_delete_until_it_lands(live_server, page, login_via_code):
+        guild, wiki, url = _flag_a_delete_behind_a_bad_row(page, live_server, login_via_code)
+
+        # The boosted link is held; with the delete still waiting the page asks, and Stay keeps it.
+        page.get_by_role("link", name="Back to Guild Page").click()
+        dialog = page.get_by_role("dialog").filter(has_text="A change did not save")
+        expect(dialog).to_be_visible()
+        dialog.get_by_role("button", name="Stay").click()
+        expect(dialog).to_be_hidden()
+        assert "/edit/" in page.url
+        assert GuildLink.objects.filter(pk=wiki.pk).exists()
+
+        # Fixing the URL lands the form and the delete with it.
+        before = _saves(page)
+        url.fill("https://example.com/docs")
+        url.press("Tab")
+        _wait_saved(page, before + 1)
+        assert not GuildLink.objects.filter(pk=wiki.pk).exists()
+        assert GuildLink.objects.filter(guild=guild, label="Docs").exists()
+
     def it_refuses_a_bad_link_inline_keeps_what_was_typed_and_deletes_a_saved_link(live_server, page, login_via_code):
         guild = _admin_guild()
         discord = GuildLinkFactory(guild=guild, label="Discord", url="https://discord.gg/ceramics")
