@@ -1,0 +1,7 @@
+bump = "minor"
+date = "2026-10-04"
+title = "Equipment pages show who looks after each tool"
+changes = [
+  "Each equipment page has a Staff section listing the people who look after it, so you know who to ask.",
+  "Equipment cards on the Reservations page and on guild pages name the staff in one line.",
+]

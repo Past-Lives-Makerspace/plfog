@@ -432,8 +432,8 @@ def describe_equipment_index():
             _grid(client)
             url = reverse("hub_equipment_index")
             client.get(url)  # warm the session and per-request caches
-            # Measured on this grid before the extraction; the helper must not add a query.
-            with django_assert_num_queries(36):
+            # Measured on this grid before the extraction (36), plus the one staff prefetch (#615).
+            with django_assert_num_queries(37):
                 assert client.get(url).status_code == 200
 
         def it_answers_an_empty_grid_without_the_member_lookups(django_assert_num_queries):
