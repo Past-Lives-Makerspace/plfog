@@ -300,6 +300,6 @@ def describe_guild_detail():
             )
             response = client.get(f"/guilds/{guild.slug}/")
             body = response.content.decode()
-            # The <script> tag is stripped by bleach; its payload survives only as inert text.
+            # The <script> tag is stripped by the sanitizer; its payload survives only as inert text.
             assert "<script>alert" not in body
             assert "<p>Hi alert('x') there.</p>" in body

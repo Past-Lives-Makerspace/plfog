@@ -16,7 +16,7 @@ from django.forms import inlineformset_factory
 from django.utils import timezone
 from django.utils.text import slugify
 
-from core.html_sanitize import clean_rich_body, sanitize_rich_html
+from core.html_sanitize import clean_rich_body, clean_rich_html
 from core.widgets import PageContentEditorWidget, RichBodyEditorWidget, RichTextEditorWidget
 
 from classes.models import (
@@ -2134,7 +2134,7 @@ class TeachWelcomeEmailForm(forms.ModelForm):
         }
 
     def clean_welcome_email_body(self) -> str:
-        return sanitize_rich_html(self.cleaned_data.get("welcome_email_body") or "")
+        return clean_rich_html(self.cleaned_data.get("welcome_email_body") or "")
 
     def clean(self) -> dict[str, object]:
         cleaned = super().clean()

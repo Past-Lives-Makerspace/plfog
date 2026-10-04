@@ -137,7 +137,7 @@ def describe_render_markdown():
 
     def it_strips_script_tags():
         out = render_markdown("hello <script>alert('x')</script> world")
-        # bleach drops the <script> tag (so it can't execute) but keeps the inner
+        # The sanitizer drops the <script> tag (so it can't execute) but keeps the inner
         # text as inert plain text — the security guarantee is "no executable tag".
         assert "<script>" not in out
         assert "</script>" not in out

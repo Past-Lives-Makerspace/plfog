@@ -5558,8 +5558,8 @@ class ClassSettings(models.Model):
         everything up to the next heading is its answer. Content before the first heading
         is the section's intro (``teach_page_faq_intro_html``). No headings means no
         items, and the template then renders the whole field as one block. A heading with
-        no text, or one with nothing under it (two headings in a row, or bleach repairing
-        a heading nested in another), is skipped rather than shown as an empty item.
+        no text, or one with nothing under it (two headings in a row, or the sanitizer
+        repairing a heading nested in another), is skipped rather than shown as an empty item.
         """
         from core.html_sanitize import rich_html_to_text
 

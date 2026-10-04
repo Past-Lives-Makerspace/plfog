@@ -439,9 +439,8 @@ def describe_WikiPage():
 
                 def it_never_leaks_a_tag_the_window_cut_in_half():
                     # 1140 empty paragraphs is 7980 characters, so the 8000-character window
-                    # lands inside "</strong>". bleach renders an unterminated tag as literal
-                    # text rather than dropping it, so without the trim the excerpt reads
-                    # "bold</strong".
+                    # lands inside "</strong>". The trim keeps the excerpt from ever reading
+                    # "bold</strong", whatever the sanitizer does with an unterminated tag.
                     page = WikiPageFactory(body="<p></p>" * 1140 + "<strong>bold</strong>" + "x" * 3000)
                     assert page.lead_text() == "bold"
 

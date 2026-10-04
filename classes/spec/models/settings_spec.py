@@ -206,7 +206,7 @@ def describe_ClassSettings():
             assert [i.question for i in items] == ["Real"]
 
         def it_skips_a_heading_with_nothing_under_it():
-            """Two headings in a row, or a heading bleach split out of another, never make an empty item."""
+            """Two headings in a row, or a heading the sanitizer split out of another, never make an empty item."""
             items = ClassSettings(
                 teach_page_faq=(
                     "<h3>Empty</h3><h3>Enter</h3><p><br></p><h3>Space</h3><p>&nbsp;</p>"

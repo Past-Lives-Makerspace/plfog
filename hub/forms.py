@@ -26,7 +26,7 @@ if TYPE_CHECKING:
 
     from classes.models import ClassOffering
 
-from core.html_sanitize import clean_rich_body, sanitize_rich_html
+from core.html_sanitize import clean_rich_body, clean_rich_html, limit_rich_text
 from core.validators import ALLOWED_WIKI_IMAGE_EXTENSIONS, validate_image_size, validate_wiki_upload
 from core.features import DEFAULT_SOON_MESSAGE
 from core.events.scheduling import next_tick
@@ -281,6 +281,10 @@ class GuildEditForm(forms.ModelForm):
     def clean_meeting_cadence(self) -> str:
         # An omitted/blank cadence means "no regular meeting", not an empty string.
         return self.cleaned_data.get("meeting_cadence") or Guild.MeetingCadence.NONE
+
+    def clean_wishlist(self) -> str:
+        """The Markdown wishlist, refused when over the rich text size limit."""
+        return limit_rich_text(self.cleaned_data.get("wishlist") or "")
 
     def clean_faq_label(self) -> str:
         # A blank label falls back to the default heading rather than an empty string,
@@ -2079,6 +2083,10 @@ class GuildMeetingNoteForm(forms.ModelForm):
             "body": forms.Textarea(attrs={"rows": 6}),
         }
 
+    def clean_body(self) -> str:
+        """The Markdown body, refused when over the rich text size limit."""
+        return limit_rich_text(self.cleaned_data["body"])
+
 
 class GuildMeetingNoteAttachmentForm(forms.ModelForm):
     """A single attachment row — exactly one of file / url, enforced here (the user-facing guard)."""
@@ -2466,7 +2474,7 @@ class GuildThankyouEmailForm(forms.ModelForm):
         }
 
     def clean_thankyou_email_body(self) -> str:
-        return sanitize_rich_html(self.cleaned_data.get("thankyou_email_body") or "")
+        return clean_rich_html(self.cleaned_data.get("thankyou_email_body") or "")
 
     _THANKYOU_EMAIL_FIELDS = ("thankyou_email_enabled", "thankyou_email_subject", "thankyou_email_body")
 
@@ -2505,7 +2513,7 @@ class GuildWelcomeEmailForm(forms.ModelForm):
         }
 
     def clean_welcome_email_body(self) -> str:
-        return sanitize_rich_html(self.cleaned_data.get("welcome_email_body") or "")
+        return clean_rich_html(self.cleaned_data.get("welcome_email_body") or "")
 
     _WELCOME_EMAIL_FIELDS = ("welcome_email_enabled", "welcome_email_subject", "welcome_email_body")
 
@@ -4656,7 +4664,7 @@ class AnnouncementComposeForm(forms.Form):
 
     def clean_body(self) -> str:
         # Blank allowed while drafting; required (and always sanitized) when sending.
-        body = sanitize_rich_html(self.cleaned_data.get("body") or "")
+        body = clean_rich_html(self.cleaned_data.get("body") or "")
         if self._require_body and not body:
             raise forms.ValidationError("Add a message before sending.")
         return body
@@ -4824,7 +4832,7 @@ class ReleaseAnnouncementForm(forms.Form):
         return sum(1 for i in range(len(self.cards)) if self[f"include_{i}"].value())
 
     def clean_intro(self) -> str:
-        return sanitize_rich_html(self.cleaned_data.get("intro") or "")
+        return clean_rich_html(self.cleaned_data.get("intro") or "")
 
     def clean(self) -> dict[str, Any]:
         cleaned = cast(dict[str, Any], super().clean())

@@ -273,7 +273,7 @@ def describe_render_markdown():
                 assert 'target="_blank"' in html
 
             def it_hardens_a_link_whose_unsafe_href_was_stripped():
-                # bleach drops the javascript: href; the hrefless anchor is treated as external.
+                # The sanitizer drops the javascript: href; the hrefless anchor is treated as external.
                 html = render_markdown('<a href="javascript:alert(1)">Bad</a>', profile="help")
                 assert "javascript:" not in html
                 assert 'rel="noopener nofollow noreferrer"' in html
