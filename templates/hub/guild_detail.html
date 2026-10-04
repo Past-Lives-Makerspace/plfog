@@ -6,6 +6,7 @@
 
 {% block extra_head %}{{ block.super }}
 <link rel="stylesheet" href="{% static 'css/calendar.css' %}">
+<link rel="stylesheet" href="{% static 'css/locations.css' %}">
 {% if is_guilds_surface %}{# ── OG / SEO — only where the guild link is shared publicly ── #}
 <link rel="canonical" href="{{ GUILDS_BASE_URL }}{% url 'hub_guild_detail' guild.slug %}">
 <meta property="og:type" content="website">
@@ -119,6 +120,7 @@
     </div>
     {% include "hub/partials/_guild_join_cta.html" %}
 </div>
+{% include "hub/partials/_guild_location_status.html" %}
 
 {% comment %} Legacy ?tab=notes deep links land on the renamed Meetings tab (spec §6.4); only the two known values map, so a garbage ?tab can't blank every pane. {% endcomment %}
 <div x-data="{ section: 'overview' }"

@@ -14,6 +14,7 @@ Core domain models for Past Lives Makerspace.
 | `FundingSnapshot` | cycle_label, funding_pool, results JSON | Immutable calc; created via `FundingSnapshot.take()` |
 | `Space` | space_id, space_type, status, size_sqft | Physical space; read from Airtable |
 | `Lease` | GenericFK tenant (Member or Guild), space FK | Active when start_date≤today and end_date null/≥today |
+| `Location` | name, guild FK, note, shares_space_with (symmetric M2M), is_active | A named area of the building (#616). `ClassOffering`, `CommunityEvent`, `OrientationType` and `Equipment` carry a nullable `area` FK to it (label "Location"); slots and reservations take their type's or equipment's. `services/location_status.guild_location_statuses` lights a guild's locations on its page in a fixed number of queries. Managed at `/manage/locations/`. |
 
 ## Email Model — Three Stores (IMPORTANT)
 

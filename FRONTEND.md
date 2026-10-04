@@ -389,6 +389,7 @@ All under `static/css/`. The pattern in use: one stylesheet per surface, linked 
 | `guild-settings.css` | `hub/guild_edit.html` | Guild settings styles added since #502: the settings card and the Reservations tab's item list. The page's older rules stay in `hub.css`. |
 | `announcements.css` | `hub/announcements.html`, `hub/announcement_sent.html` | The Announcements page (Drafts and Sent tabs, the list on top of `.pl-members-table` stacking) and the sent view's facts list. |
 | `notifications-catalogue.css`, `notifications-edit-copy.css`, `notifications-edit-discord.css` | `hub/admin/notifications/*.html` | Notification admin pages. |
+| `locations.css` | `hub/guild_detail.html`, `hub/admin/locations.html`, `hub/admin/location_edit.html` | The guild page's location lights (with token fallbacks, since the guilds surface does not load the hub tokens) and the admin Locations page. |
 | `signage.css` | `signage/base.html` | The lobby signage display. |
 | `wiki-stickers.css` | `hub/wiki_sticker_sheet.html` | The QR sticker sheet. |
 | `rich-editor.css` | `_components/rich_editor_assets.html` | Styling around the Quill editor. |

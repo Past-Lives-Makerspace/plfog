@@ -32,6 +32,15 @@
     <span class="pl-tool-card__desc">The Leadership Directory's tabs, who is on each, in what order, and the words around them.</span>
   </a>
   {% endif %}
+  {% if tool_locations %}
+  <a class="hub-card pl-tool-card" href="{% url 'hub_admin_locations' %}">
+    <span class="pl-tool-card__icon">
+      <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"/><circle cx="12" cy="10" r="3"/></svg>
+    </span>
+    <span class="pl-tool-card__title">Locations</span>
+    <span class="pl-tool-card__desc">The areas of the building that classes, events, orientations and equipment use, and which guild each belongs to.</span>
+  </a>
+  {% endif %}
   {% if tool_manage_classes %}
   <a class="hub-card pl-tool-card" href="{% url 'classes:admin_overview' %}">
     <span class="pl-tool-card__icon">

@@ -29,6 +29,7 @@ identically. Layout stays in CSS classes — never inline display on an x-show e
     {% include "components/image_field.html" with field=form.photo current_image=None label="Photo" shape="rect" tooltip_html="Wide photo, about 1600x900, JPG or PNG." %}
     {% endif %}
     {% include "components/form_field.html" with field=form.description %}
+    {% include "components/form_field.html" with field=form.area %}
     {% include "components/form_field.html" with field=form.location_note %}
     {% include "components/form_field.html" with field=form.required_orientation %}
     {% if equipment and equipment.guild %}

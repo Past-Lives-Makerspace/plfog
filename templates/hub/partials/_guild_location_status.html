@@ -1,0 +1,21 @@
+{% comment %}
+The guild's locations, each with its light (#616): free now, starting soon, or in use. Built by
+membership.services.location_status.guild_location_statuses; renders nothing when the guild has
+no active location. The words carry the state too, so the dot is never the only signal. No
+member's name ever appears here.
+{% endcomment %}
+{% if location_statuses %}
+<section class="pl-area-status" aria-label="Locations" data-area-status>
+  <ul class="pl-area-status__list">
+    {% for status in location_statuses %}
+    <li class="pl-area-status__item pl-area-status__item--{{ status.light }}" data-area-light="{{ status.light }}">
+      <span class="pl-area-status__dot" aria-hidden="true"></span>
+      <span class="pl-area-status__text">
+        <span class="pl-area-status__name">{{ status.location.name }}</span>
+        <span class="pl-area-status__message">{{ status.message }}</span>
+      </span>
+    </li>
+    {% endfor %}
+  </ul>
+</section>
+{% endif %}

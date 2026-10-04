@@ -7061,6 +7061,15 @@ class CommunityEvent(models.Model):
         default="",
         help_text="Where it happens — a room name, address, or a video link. Optional.",
     )
+    area = models.ForeignKey(
+        "Location",
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="events",
+        verbose_name="Location",
+        help_text="The area of the building it uses. Its guild page shows the area in use while it runs. Optional.",
+    )
     video_url = models.URLField(
         max_length=500,
         blank=True,
@@ -10993,6 +11002,82 @@ class Lease(models.Model):
 
 
 # ---------------------------------------------------------------------------
+# Location (#616)
+# ---------------------------------------------------------------------------
+
+
+class LocationQuerySet(models.QuerySet["Location"]):
+    """Query helpers for :class:`Location`."""
+
+    def active(self) -> LocationQuerySet:
+        """Locations that can still be picked on a form."""
+        return self.filter(is_active=True)
+
+    def offered(self, current_id: int | None = None) -> LocationQuerySet:
+        """What a Location picker lists: the active locations, plus the one a record already holds.
+
+        Keeping the saved one choosable means a later save of a record whose location was
+        since deactivated does not fail validation (the inactive selected bug the equipment
+        orientation picker guards the same way).
+        """
+        condition = Q(is_active=True)
+        if current_id is not None:
+            condition |= Q(pk=current_id)
+        return self.filter(condition).select_related("guild").order_by("name")
+
+
+class Location(models.Model):
+    """A named area of the building that classes, events, orientations and equipment can be tied to.
+
+    Not :class:`Space` (the Airtable rental lease record). A location may belong to a guild,
+    whose page then shows whether the area is free, about to be used, or in use now
+    (``membership.services.location_status``). Locations linked through
+    ``shares_space_with`` share one floor: activity in either makes both in use.
+    """
+
+    name = models.CharField(max_length=100, unique=True, help_text="Name members see, e.g. 'Hot Glass Room'.")
+    guild = models.ForeignKey(
+        Guild,
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="locations",
+        help_text="The guild whose area this is. Its guild page shows whether the area is in use. Optional.",
+    )
+    note = models.CharField(
+        max_length=200,
+        blank=True,
+        default="",
+        help_text="Optional short note, e.g. 'Upstairs next to the Kitchen'.",
+    )
+    shares_space_with = models.ManyToManyField(
+        "self",
+        symmetrical=True,
+        blank=True,
+        help_text="Locations on the same floor space. Activity in a linked location makes this one in use too.",
+    )
+    is_active = models.BooleanField(
+        default=True,
+        help_text="Offer this location on forms. A deactivated location keeps what it is already set on.",
+    )
+
+    objects = LocationQuerySet.as_manager()
+
+    class Meta:
+        ordering = ["name"]
+
+    def __str__(self) -> str:
+        return self.name
+
+    @property
+    def picker_label(self) -> str:
+        """How a Location picker lists it: the name, with its guild when it has one."""
+        if self.guild is not None:
+            return f"{self.name} ({self.guild.name})"
+        return self.name
+
+
+# ---------------------------------------------------------------------------
 # CalendarEvent
 # ---------------------------------------------------------------------------
 
@@ -11388,6 +11473,18 @@ class OrientationType(models.Model):
     )
     default_location = models.CharField(
         max_length=200, blank=True, default="", help_text="Where this orientation usually happens, e.g. 'Woodshop'."
+    )
+    area = models.ForeignKey(
+        "Location",
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="orientation_types",
+        verbose_name="Location",
+        help_text=(
+            "The area of the building its slots use. A slot with a booking shows the area in use on its "
+            "guild page. Optional."
+        ),
     )
     sort_order = models.PositiveIntegerField(
         default=0, help_text="Lower numbers sort first on the guild page and in pickers."
@@ -14155,6 +14252,15 @@ class Equipment(HeroCropMixin, models.Model):
     )
     location_note = models.CharField(
         max_length=200, blank=True, default="", help_text="Wayfinding note, e.g. 'Back corner of the wood shop.'"
+    )
+    area = models.ForeignKey(
+        "Location",
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="equipment",
+        verbose_name="Location",
+        help_text="The area of the building it sits in. A reservation shows the area in use on its guild page. Optional.",
     )
     required_orientation = models.ForeignKey(
         OrientationType,

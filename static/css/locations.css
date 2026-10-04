@@ -1,0 +1,56 @@
+/* Locations (#616): the guild page's area lights and the admin Locations page.
+   The guild page also renders on the guilds surface, which does not load the hub tokens,
+   so every token here carries a fallback. The three light colours are fixed: they mean
+   the same thing in both themes, and the words beside each dot carry the state as well. */
+
+.pl-area-status { margin: 0 0 1rem; }
+.pl-area-status__list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 0.5rem; }
+.pl-area-status__item {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.625rem;
+  padding: 0.625rem 0.875rem;
+  border: 1px solid var(--hub-border, rgba(127, 127, 127, 0.25));
+  border-radius: 10px;
+  background: var(--hub-card-bg, transparent);
+  min-width: 0;
+}
+.pl-area-status__dot {
+  flex: none;
+  width: 0.75rem;
+  height: 0.75rem;
+  margin-top: 0.3rem;
+  border-radius: 50%;
+  background: #34d399;
+  box-shadow: 0 0 0 3px rgba(52, 211, 153, 0.2);
+}
+.pl-area-status__item--soon .pl-area-status__dot { background: #fbbf24; box-shadow: 0 0 0 3px rgba(251, 191, 36, 0.2); }
+.pl-area-status__item--in_use .pl-area-status__dot { background: #ef4444; box-shadow: 0 0 0 3px rgba(239, 68, 68, 0.2); }
+.pl-area-status__item--in_use { border-color: rgba(239, 68, 68, 0.45); }
+.pl-area-status__item--soon { border-color: rgba(251, 191, 36, 0.45); }
+.pl-area-status__text { display: flex; flex-wrap: wrap; column-gap: 0.5rem; min-width: 0; overflow-wrap: anywhere; }
+.pl-area-status__name { font-weight: 700; color: var(--hub-text, inherit); }
+.pl-area-status__message { color: var(--hub-text-muted, inherit); }
+
+/* Admin > Locations */
+.pl-locations-admin__lead { margin: 0 0 1rem; }
+.pl-locations-admin__card { padding: 1.5rem; margin-bottom: 1.5rem; }
+.pl-locations-admin__list { list-style: none; margin: 0; padding: 0; }
+.pl-locations-admin__row {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+  padding: 0.75rem 0;
+  border-top: 1px solid var(--hub-border);
+}
+.pl-locations-admin__row:first-child { border-top: 0; }
+.pl-locations-admin__main { flex: 1; min-width: 12rem; }
+.pl-locations-admin__name { font-weight: 600; color: var(--hub-text); }
+.pl-locations-admin__meta { font-size: 0.8125rem; color: var(--hub-text-muted); }
+.pl-locations-admin__back { margin-bottom: 0.75rem; }
+.pl-locations-admin__save { margin-top: 1.5rem; }
+.pl-locations-admin__shares { display: flex; flex-direction: column; gap: 0.375rem; }
+.pl-locations-admin__shares label { display: flex; align-items: center; justify-content: flex-start; gap: 0.5rem; color: var(--hub-text); }
+.pl-locations-admin__shares input[type="checkbox"] { flex: none; width: auto; margin: 0; }
+[data-theme="light"] .pl-locations-admin .hub-pill--neutral { color: #5b6675; }

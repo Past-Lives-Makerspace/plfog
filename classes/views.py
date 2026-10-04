@@ -475,7 +475,7 @@ def _class_detail_context(request: HttpRequest, offering: ClassOffering) -> dict
 def public_class_detail(request: HttpRequest, slug: str) -> HttpResponse:
     """Full class detail page — schedule, info grid, (future: registration form)."""
     offering = get_object_or_404(
-        ClassOffering.objects.public().select_related("category", "instructor").prefetch_related("sessions"),
+        ClassOffering.objects.public().select_related("category", "instructor", "area").prefetch_related("sessions"),
         slug=slug,
     )
     from hub.view_as import ROLE_ADMIN, ROLE_GUILD_OFFICER

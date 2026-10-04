@@ -948,6 +948,15 @@ class ClassOffering(HeroCropMixin, models.Model):
         blank=True,
         help_text="Member who teaches this class.",
     )
+    area = models.ForeignKey(
+        "membership.Location",
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="class_offerings",
+        verbose_name="Location",
+        help_text="The area of the building it meets in. Its guild page shows the area in use during sessions.",
+    )
     description = models.TextField(blank=True, help_text="Class description — markdown-safe.")
     prerequisites = models.TextField(blank=True, help_text="What a student should know/own.")
     materials_included = models.TextField(blank=True, help_text="Included materials.")

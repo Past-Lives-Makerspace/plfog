@@ -20,6 +20,7 @@ Member-facing views. All views are `@login_required`. No models — reads from `
 | `announcement_sent` | `hub_announcement_sent` | `/announcements/sent/<pk>/` (read-only record of a sent or sending announcement) |
 | `orientations_views.hub_orientations` | `hub_orientations` | `/orientations/` (every bookable orientation as a card; its controls post `next` so the member lands back, `views._orientation_return`) |
 | `orientations_views.hub_orientations_calendar_events` | `hub_orientations_calendar_events` | `/orientations/calendar/events/` (the Orientations page's Calendar view: grid and list for its navigation, `?shell=1` for the whole calendar on first open) |
+| `location_views.hub_admin_locations` | `hub_admin_locations` | `/manage/locations/` (admin only: every Location, with the add form; `hub_admin_location_edit` at `/manage/locations/<pk>/`) |
 | `orientations_dashboard` | `hub_orientations_dashboard` | `/orientations/manage/` (staff dashboard; export and add member sit under it) |
 | `equipment_views.hub_equipment_calendar_events` | `hub_equipment_calendar_events` | `/equipment/calendar/events/` (the Reservations page's Calendar view, the same way) |
 

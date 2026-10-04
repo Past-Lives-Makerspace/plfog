@@ -30,7 +30,7 @@ from classes.factories import (
 from classes.forms import ClassOfferingForm, TeachClassOfferingForm
 from classes.models import READINESS_DESCRIPTION_HINT, ClassApproval, ClassOffering, CmsActivity
 from classes.views import COMPOSER_SAVED_LIMIT, COMPOSER_SAVED_SESSION_KEY, _mark_composer_saved
-from tests.membership.factories import GuildFactory, GuildStaffMembershipFactory
+from tests.membership.factories import GuildFactory, GuildStaffMembershipFactory, LocationFactory
 
 # Issue #536: the Review step says the checklist reads the saved row and Submit saves first.
 SUBMIT_NOTE = (
@@ -268,6 +268,7 @@ def _full_payload(category, **extra) -> dict:
         "flexible_ends_on": "2026-12-01",
         "registration_cutoff_enabled": "on",
         "registration_cutoff_hours": "36",
+        "area": "",
         "video_url": VIDEO,
         "hero_crop": json.dumps({"x": 10, "y": 20, "w": 320, "h": 180}),
         "card_focus": json.dumps({"x": 30, "y": 70}),
@@ -2317,3 +2318,71 @@ def describe_a_session_saved_at_six_pm():
         # not 01:00 UTC, or every save shifts the session seven hours later.
         assert '"starts_at": "2026-10-28T18:00"' in sessions, sessions
         assert '"ends_at": "2026-10-28T20:00"' in sessions, sessions
+
+
+def describe_the_location_picker():
+    """The composer sets and clears a class's Location on step 3 (#616)."""
+
+    def it_offers_active_locations_by_name_and_guild_on_the_dates_step(instructor_fixture, client):
+        LocationFactory(name="Hot Glass Room", guild=GuildFactory(name="Glass"))
+        LocationFactory(name="Retired Room", is_active=False)
+        client.force_login(instructor_fixture.user)
+        response = client.get(reverse("classes:teach_class_create"))
+        field = response.context["form"].fields["area"]
+        assert [label for _value, label in field.choices] == ["No location", "Hot Glass Room (Glass)"]
+        step_three = response.content.decode().split('data-composer-step="3"')[1].split('data-composer-step="4"')[0]
+        assert 'name="area"' in step_three
+        assert "Where It Meets" in step_three
+
+    def it_sets_the_location_from_the_teach_composer(instructor_fixture, client):
+        location = LocationFactory(name="Cold Glass Room")
+        client.force_login(instructor_fixture.user)
+        client.post(reverse("classes:teach_class_create"), _full_payload(CategoryFactory(), area=str(location.pk)))
+        assert ClassOffering.objects.get(title="Round Trip").area == location
+
+    def it_clears_the_location_from_the_teach_composer(instructor_fixture, client):
+        offering = ClassOfferingFactory(
+            instructor=instructor_fixture, status=Status.DRAFT, area=LocationFactory(name="Metal Shop")
+        )
+        client.force_login(instructor_fixture.user)
+        response = client.post(
+            reverse("classes:teach_class_edit", kwargs={"pk": offering.pk}), _full_payload(offering.category)
+        )
+        assert response.status_code == 302
+        offering.refresh_from_db()
+        assert offering.area is None
+
+    def it_keeps_a_deactivated_location_the_class_already_has(instructor_fixture, client):
+        retired = LocationFactory(name="Old Annex", is_active=False)
+        offering = ClassOfferingFactory(instructor=instructor_fixture, status=Status.DRAFT, area=retired)
+        client.force_login(instructor_fixture.user)
+        edit = reverse("classes:teach_class_edit", kwargs={"pk": offering.pk})
+        assert retired in client.get(edit).context["form"].fields["area"].queryset
+        client.post(edit, _full_payload(offering.category, area=str(retired.pk)))
+        offering.refresh_from_db()
+        assert offering.area == retired
+
+    def it_refuses_a_deactivated_location_the_class_does_not_have(instructor_fixture, client):
+        offering = ClassOfferingFactory(instructor=instructor_fixture, status=Status.DRAFT)
+        retired = LocationFactory(is_active=False)
+        client.force_login(instructor_fixture.user)
+        response = client.post(
+            reverse("classes:teach_class_edit", kwargs={"pk": offering.pk}),
+            _full_payload(offering.category, area=str(retired.pk)),
+        )
+        assert response.status_code == 200
+        assert "area" in response.context["form"].errors
+        offering.refresh_from_db()
+        assert offering.area is None
+
+    def it_sets_and_clears_the_location_from_the_admin_composer(admin_user, client):
+        location = LocationFactory(name="Print Studio")
+        offering = ClassOfferingFactory(status=Status.DRAFT)
+        client.force_login(admin_user)
+        edit = reverse("classes:admin_class_edit", kwargs={"pk": offering.pk})
+        client.post(edit, _admin_payload(offering.category, offering.instructor, area=str(location.pk)))
+        offering.refresh_from_db()
+        assert offering.area == location
+        client.post(edit, _admin_payload(offering.category, offering.instructor))
+        offering.refresh_from_db()
+        assert offering.area is None

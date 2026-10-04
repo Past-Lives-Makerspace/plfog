@@ -1,0 +1,17 @@
+{# The Shares space with checkboxes: a multiple choice, not a yes or no, so it is a list of checkboxes rather than form_field.html's toggle. #}
+<div class="pl-form-group">
+  <span class="pl-form-label">{{ form.shares_space_with.label }}</span>
+  {% if form.shares_space_with.field.queryset.exists %}
+  <div class="pl-locations-admin__shares">
+    {% for choice in form.shares_space_with %}
+    <label for="{{ choice.id_for_label }}">{{ choice.tag }} {{ choice.choice_label }}</label>
+    {% endfor %}
+  </div>
+  {% else %}
+  <p class="pl-field-hint">No other locations yet.</p>
+  {% endif %}
+  {% if form.shares_space_with.errors %}
+  <ul class="pl-field-errors">{% for error in form.shares_space_with.errors %}<li class="pl-field-error">{{ error }}</li>{% endfor %}</ul>
+  {% endif %}
+  <p class="pl-field-hint">{{ form.shares_space_with.help_text }}</p>
+</div>

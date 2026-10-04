@@ -9,7 +9,33 @@ from django.core.exceptions import ValidationError
 
 from core.models import Invite
 
-from .models import Member, MembershipPlan
+from .models import Location, Member, MembershipPlan
+
+#: The hint under every Location picker (#616).
+LOCATION_HINT = "The area of the building it uses. Its guild page shows when the area is in use. Optional."
+
+
+class LocationChoiceField(forms.ModelChoiceField):
+    """A Location picker: each choice reads "Name (Guild)" so areas of different guilds stay apart."""
+
+    def label_from_instance(self, obj: Any) -> str:
+        return str(obj.picker_label)
+
+
+def setup_location_field(form: forms.ModelForm, hint: str = LOCATION_HINT) -> None:
+    """Turn a model form's ``area`` field into the Location picker.
+
+    Lists the active locations plus the one the record already holds (``offered``), so a
+    location deactivated since does not refuse every later save. Blank is always allowed.
+    """
+    current_id = form.instance.area_id
+    form.fields["area"] = LocationChoiceField(
+        queryset=Location.objects.offered(current_id=current_id),
+        required=False,
+        label="Location",
+        empty_label="No location",
+        help_text=hint,
+    )
 
 
 class MemberAdminForm(forms.ModelForm):
