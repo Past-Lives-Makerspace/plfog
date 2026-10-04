@@ -3625,7 +3625,7 @@ class OrientationAddMemberForm(forms.Form):
     """Admin/lead adds a member to an orientation slot from the dashboard."""
 
     member = forms.ModelChoiceField(
-        queryset=Member.objects.filter(status=Member.Status.ACTIVE).order_by("full_legal_name"),
+        queryset=Member.objects.filter(status=Member.Status.ACTIVE).without_hidden().order_by("full_legal_name"),
         label="Member",
     )
     slot = OrientationSlotChoiceField(queryset=OrientationSlot.objects.none(), label="Slot")
@@ -4242,11 +4242,16 @@ def announcement_add_member_choices() -> list[tuple[str, str]]:
     """Every active linked member as ``("user:<pk>", "<name> · <email>")`` — the "add anyone" list.
 
     Backs the composer's member-search datalist so a sender can add ANY member to the recipient
-    set, even one outside the guild/class roster.
+    set, even one outside the guild/class roster. Members under the ``hide_from_directory``
+    override are left out (#614); one already on the audience's roster is still reached.
     """
     from django.contrib.auth.models import User
 
-    members = User.objects.filter(is_active=True, member__isnull=False).order_by("first_name", "last_name", "username")
+    members = (
+        User.objects.filter(is_active=True, member__isnull=False)
+        .exclude(member__hide_from_directory=True)
+        .order_by("first_name", "last_name", "username")
+    )
     return [_member_choice(user) for user in members]
 
 
@@ -5719,8 +5724,8 @@ class EquipmentStaffAddForm(forms.Form):
     def __init__(self, *args: Any, equipment: Equipment | None = None, **kwargs: Any) -> None:
         super().__init__(*args, **kwargs)
         self._equipment: Equipment | None = equipment
-        cast(forms.ModelChoiceField, self.fields["member"]).queryset = Member.objects.active().order_by(
-            "full_legal_name"
+        cast(forms.ModelChoiceField, self.fields["member"]).queryset = (
+            Member.objects.active().without_hidden().order_by("full_legal_name")
         )
 
     def clean_member(self) -> Member:

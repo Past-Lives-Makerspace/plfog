@@ -1707,7 +1707,7 @@ def _staff_candidates(guild: Guild) -> Any:
     """Active members who can be added as guild staff — excludes the guild's lead."""
     from membership.models import Member
 
-    qs = Member.objects.filter(status=Member.Status.ACTIVE)
+    qs = Member.objects.filter(status=Member.Status.ACTIVE).without_hidden()
     if guild.guild_lead_id is not None:
         qs = qs.exclude(pk=guild.guild_lead_id)
     return qs.order_by("full_legal_name")
@@ -7088,8 +7088,12 @@ def event_detail(request: HttpRequest, pk: int) -> HttpResponse:
     can_edit = on_member_surface and can_edit_event(request, event)
     is_recurring = event.recurrence != CommunityEvent.Recurrence.NONE
     # "Who's coming": names for signed-in viewers, count only for an anonymous QR scan.
-    rsvps = list(event.rsvps.select_related("member"))
+    # A hidden member (#614) is left out of the names and the count, except to themselves.
     member = _get_member(request)
+    hidden_rsvp = Q(member__hide_from_directory=True)
+    if member is not None:
+        hidden_rsvp &= ~Q(member=member)
+    rsvps = list(event.rsvps.select_related("member").exclude(hidden_rsvp))
     viewer_rsvped = member is not None and any(rsvp.member_id == member.pk for rsvp in rsvps)
     # The page speaks about one date: the one the link names, or else the next. Add to
     # calendar puts the event in the viewer's own calendar from that date. Its link back is the

@@ -338,6 +338,34 @@ def describe_whos_coming():
         assert b"Who's coming (1)" in resp.content  # the count is public
         assert b"Zzytrix Quon" not in resp.content  # names are not
 
+    def it_leaves_a_hidden_member_out_of_the_names_and_the_count(client: Client):
+        _user_with_role("evt_rsvp_hidden_viewer")
+        event = CommunityEventFactory(community=True)
+        EventRSVPFactory(event=event, member=MemberFactory(full_legal_name="Zzytrix Quon"))
+        EventRSVPFactory(event=event, member=MemberFactory(full_legal_name="Qwyll Reviewbot", hide_from_directory=True))
+        client.login(username="evt_rsvp_hidden_viewer", password="pass")
+        resp = client.get(reverse("hub_event_detail", args=[event.pk]))
+        assert b"Who's coming (1)" in resp.content
+        assert b"Zzytrix Quon" in resp.content
+        assert b"Qwyll Reviewbot" not in resp.content
+
+    def it_still_shows_a_hidden_member_their_own_rsvp(client: Client):
+        user = _user_with_role("evt_rsvp_hidden_self")
+        Member.objects.filter(user=user).update(full_legal_name="Qwyll Reviewbot", hide_from_directory=True)
+        event = CommunityEventFactory(community=True)
+        EventRSVPFactory(event=event, member=user.member)
+        client.login(username="evt_rsvp_hidden_self", password="pass")
+        resp = client.get(reverse("hub_event_detail", args=[event.pk]))
+        assert b"Who's coming (1)" in resp.content
+        assert b"Qwyll Reviewbot" in resp.content
+        assert resp.context["viewer_rsvped"] is True
+
+    def it_leaves_a_hidden_member_out_of_the_anonymous_count(client: Client):
+        event = CommunityEventFactory(community=True)
+        EventRSVPFactory(event=event, member=MemberFactory(hide_from_directory=True))
+        resp = client.get(reverse("hub_event_detail", args=[event.pk]))
+        assert b"Who's coming (0)" in resp.content
+
     def it_offers_the_rsvp_button_to_a_signed_in_member(client: Client):
         _user_with_role("evt_rsvp_btn")
         event = CommunityEventFactory(community=True)

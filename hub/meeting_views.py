@@ -277,10 +277,14 @@ def _attendee_picker_context(meeting: Meeting) -> dict[str, Any]:
         roster = meeting.guild.roster_members()
     else:
         # Council roster: everyone holding lead/staff authority in any guild.
-        roster = Member.objects.filter(
-            Q(pk__in=Guild.objects.filter(guild_lead__isnull=False).values("guild_lead"))
-            | Q(guild_staff_roles__isnull=False)
-        ).distinct()
+        roster = (
+            Member.objects.filter(
+                Q(pk__in=Guild.objects.filter(guild_lead__isnull=False).values("guild_lead"))
+                | Q(guild_staff_roles__isnull=False)
+            )
+            .without_hidden()
+            .distinct()
+        )
     added = meeting.attendees.filter(member__isnull=False).values("member")
     return {"roster_options": roster.exclude(pk__in=added).order_by("full_legal_name")}
 

@@ -423,6 +423,15 @@ class MemberQuerySet(models.QuerySet):
             .distinct()
         )
 
+    def without_hidden(self) -> MemberQuerySet:
+        """Drop members under the ops override (``hide_from_directory``).
+
+        For the pickers leads, staff and instructors use to choose another member (#614): the
+        app store review account and the Help Center's example accounts never appear there.
+        Admin management lists do not use it, so those accounts can still be managed.
+        """
+        return self.exclude(hide_from_directory=True)
+
 
 @dataclass(frozen=True)
 class ProfileCompleteness:
