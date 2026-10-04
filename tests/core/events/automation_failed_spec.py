@@ -14,9 +14,11 @@ from datetime import datetime
 from unittest.mock import patch
 from zoneinfo import ZoneInfo
 
+import httpx
 import pytest
 from django.conf import settings
 from django.core import mail
+from django.db import IntegrityError
 from django.urls import reverse
 
 from core.events.channels import EmailAdapter
@@ -29,6 +31,23 @@ pytestmark = pytest.mark.django_db
 PACIFIC = ZoneInfo("America/Los_Angeles")
 EVENT = "automation.failed"
 INCIDENT = "Missing staticfiles manifest entry for 'img/favicon.png'"
+
+
+def _httpx_status_error() -> httpx.HTTPStatusError:
+    """A real httpx error: its str ends with a "For more information check: <url>" line."""
+    response = httpx.Response(404, request=httpx.Request("GET", "https://discord.com/api/v10/channels/1"))
+    try:
+        response.raise_for_status()
+    except httpx.HTTPStatusError as exc:
+        return exc
+    raise AssertionError("raise_for_status did not raise")
+
+
+# psycopg's unique violation, as Django re-raises it: the DETAIL line carries member data.
+UNIQUE_VIOLATION = (
+    'duplicate key value violates unique constraint "auth_user_username_key"\n'
+    "DETAIL:  Key (username)=(jane@example.com) already exists."
+)
 
 
 def _webmaster(linked_member, **member_kwargs):
@@ -114,14 +133,43 @@ def describe_the_alert():
         alert_webmasters(_failed_run("retired_job", datetime(2026, 10, 3, 6, 15, tzinfo=PACIFIC)), ValueError())
         assert _bells(holder)[0].title == "retired_job failed"
 
-    def it_quotes_only_the_last_non_empty_line_of_the_error(linked_member, pushed):
+    def it_quotes_only_the_first_non_empty_line_of_the_error(linked_member, pushed):
+        # run.error is str(exc), not a traceback: the first line is the headline, the rest detail.
         holder = _webmaster(linked_member)
         run = _failed_run(
-            "bill_tabs", datetime(2026, 10, 3, 6, 15, tzinfo=PACIFIC), "first line\n  the real cause  \n\n"
+            "bill_tabs", datetime(2026, 10, 3, 6, 15, tzinfo=PACIFIC), "\n  the real cause  \nsome detail\n\n"
         )
         alert_webmasters(run, ValueError())
         assert "\nError: the real cause\n" in _bells(holder)[0].body
-        assert "first line" not in _bells(holder)[0].body
+        assert "some detail" not in _bells(holder)[0].body
+
+    @pytest.mark.parametrize(
+        ("error", "headline", "detail"),
+        [
+            (
+                _httpx_status_error(),
+                "Client error '404 Not Found' for url 'https://discord.com/api/v10/channels/1'",
+                "developer.mozilla.org",
+            ),
+            (
+                IntegrityError(UNIQUE_VIOLATION),
+                'duplicate key value violates unique constraint "auth_user_username_key"',
+                "jane@example.com",
+            ),
+        ],
+        ids=["httpx", "psycopg"],
+    )
+    def it_keeps_the_errors_second_line_out_of_every_channel(linked_member, pushed, error, headline, detail):
+        holder = _webmaster(linked_member)
+        _fail(error=error)
+        assert detail in ScheduledTaskRun.objects.get().error  # the run history keeps it all
+
+        [bell] = _bells(holder)
+        [message] = mail.outbox
+        push = pushed.call_args.kwargs
+        assert f"\nError: {headline}\n" in bell.body
+        for text in (bell.body, message.body, push["title"], push["body"]):
+            assert detail not in text
 
     def it_truncates_a_long_error_line_to_300_characters(linked_member, pushed):
         holder = _webmaster(linked_member)
@@ -161,12 +209,14 @@ def describe_the_hook_in_record_run():
         pushed.assert_not_called()
 
     def it_sends_a_plain_admin_without_the_capability_nothing(linked_member, pushed):
+        holder = _webmaster(linked_member)
         admin = linked_member(fog_role=Member.FogRole.ADMIN)
         PushSubscription.objects.create(user=admin.user, endpoint="https://push/admin", p256dh="k", auth="a")
         _fail()
+        assert len(_bells(holder)) == 1
         assert _bells(admin) == []
-        assert mail.outbox == []
-        pushed.assert_not_called()
+        assert [message.to for message in mail.outbox] == [[holder.user.email]]
+        assert [call.args[0].user for call in pushed.call_args_list] == [holder.user]
 
     def it_alerts_from_the_run_now_button(linked_member, pushed, client):
         from django.contrib.auth.models import User

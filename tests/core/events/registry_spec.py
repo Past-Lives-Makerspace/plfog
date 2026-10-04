@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import pytest
+from django.urls import reverse
 
 from core import triggers
 from core.events import registry
@@ -355,8 +356,12 @@ def describe_the_automation_failed_alert():
         )
         assert event.activity_kind is None
 
-    def it_reads_as_a_sentence_after_sent_when_on_the_emails_tab():
-        # The Emails tab renders "Sent when <description>".
-        assert get_event("automation.failed").description == (
-            "An automation, such as the reminder emails, failed to run. At most one alert a day per automation."
-        )
+    def it_reads_as_a_sentence_after_sent_when_on_the_emails_tab(db, client, django_user_model):
+        # The tab builds "Sent when <description, first letter lowered>"; pin what it renders.
+        django_user_model.objects.create_superuser(username="emails_tab", email="emails_tab@x.com", password="p")
+        client.login(username="emails_tab", password="p")
+        body = client.get(f"{reverse('hub_admin_site_settings')}?tab=emails").content.decode()
+        assert (
+            "<strong>When:</strong> Sent when an automation, such as the reminder emails, failed to run. "
+            "At most one alert a day per automation.</span>"
+        ) in body

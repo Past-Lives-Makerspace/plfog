@@ -90,8 +90,8 @@ def describe_capabilities_form():
         assert list(form.fields)[-1] == "cap_webmaster"
         assert form.fields["cap_webmaster"].label == "Webmaster"
         assert form.fields["cap_webmaster"].help_text == (
-            "Gets an alert when an automation fails, such as the reminder emails, with what broke and a link "
-            "to the Automations page."
+            "Gets an alert when an automation fails, such as the reminder emails, saying what broke and when. "
+            "Admins can open its run history from the alert."
         )
 
     def it_initializes_the_webmaster_toggle_from_an_existing_grant():

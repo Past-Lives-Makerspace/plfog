@@ -405,11 +405,16 @@ def _alert_pass(
     from core.events.registry import AUTOMATION_FAILED, Channel
 
     try:
-        job = JOBS_BY_KEY.get(run.task_key)  # history can outlive a registry entry; name it by key then
+        # .get, not [key]: a KeyError here would be swallowed by the except below and cost the
+        # whole alert, so a key the registry no longer knows is named by its key instead.
+        job = JOBS_BY_KEY.get(run.task_key)
         title = f"{job.name if job is not None else run.task_key} failed"
         failed_at = timezone.localtime(run.finished_at)
         error_lines = [line.strip() for line in run.error.splitlines() if line.strip()]
-        error = Truncator(error_lines[-1]).chars(ALERT_ERROR_LIMIT) if error_lines else type(exc).__name__
+        # run.error is str(exc), not a traceback, so the headline is the FIRST line. Later lines are
+        # detail that must stay out of an inbox and a push tray: psycopg's "DETAIL: Key (email)=(...)"
+        # carries member data, and httpx ends with a "For more information check: <url>" footer.
+        error = Truncator(error_lines[0]).chars(ALERT_ERROR_LIMIT) if error_lines else type(exc).__name__
         when = date_format(failed_at, r"l, F j \a\t g:i A")  # Saturday, October 3 at 6:15 AM
         body = "\n".join(
             [

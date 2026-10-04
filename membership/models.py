@@ -3049,8 +3049,8 @@ class AdminCapability(models.Model):
             "Cannot add tools."
         ),
         Capability.WEBMASTER: (
-            "Gets an alert when an automation fails, such as the reminder emails, with what broke and a link "
-            "to the Automations page."
+            "Gets an alert when an automation fails, such as the reminder emails, saying what broke and when. "
+            "Admins can open its run history from the alert."
         ),
     }
 
