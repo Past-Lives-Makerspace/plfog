@@ -1,0 +1,8 @@
+bump = "minor"
+date = "2026-10-03"
+title = "One Orientations page for every guild and tool"
+changes = [
+  "A new Orientations entry in the sidebar lists every orientation a guild or a tool offers, each as a card with its next times and a Book button. Filter by guilds or equipment, or search by name.",
+  "Each card shows the guild's banner, or a photo of its own that guild leads and equipment managers can add, replace or delete on their orientation settings.",
+  "When no times are posted yet, the card says so and offers Schedule an Orientation if the guild takes custom requests. Orientations you have finished fold away under the list.",
+]
