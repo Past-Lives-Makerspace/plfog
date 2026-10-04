@@ -10,6 +10,7 @@ from __future__ import annotations
 import pytest
 
 from core.events import resolvers
+from core.events.registry import Recipients
 from membership.models import AdminCapability, Member
 from tests.membership.factories import GuildFactory
 
@@ -47,6 +48,14 @@ def describe_capability_recipients():
 
     def it_returns_nobody_when_there_are_no_holders(db):
         assert resolvers.billing_approvers({}) == []
+
+    def it_returns_only_the_webmasters(linked_member):
+        holder = linked_member()
+        _grant(holder, AdminCapability.Capability.WEBMASTER)
+        linked_member(fog_role=Member.FogRole.ADMIN)  # a plain admin without the grant
+        other = linked_member()
+        _grant(other, AdminCapability.Capability.BILLING_APPROVER)
+        assert resolvers.resolve(Recipients.WEBMASTERS, {}) == [(holder.user, "capability:webmaster")]
 
     def it_drops_a_holder_without_a_usable_user(db):
         from tests.membership.factories import MemberFactory

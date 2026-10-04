@@ -294,6 +294,7 @@ def describe_permission_groups():
             "Space & Cubby Administrator",
             "Discount Code Administrator",
             "Equipment Administrator",
+            "Webmaster",
             "Guild leadership",
             "Equipment manager",
         ]
@@ -310,6 +311,7 @@ def describe_permission_groups():
             "Space & Cubby Administrator",
             "Discount Code Administrator",
             "Equipment Administrator",
+            "Webmaster",
             "Guild leadership",
         ]
 
@@ -328,6 +330,14 @@ def describe_permission_groups():
         keys = [row.event_key for row in _rows(settings_matrix.build_matrix(user))]
         assert keys.count("class_review_requested") == 1
         assert _placement(user, "class_review_requested") == (ADMIN_SECTION, "CMS Administrator")
+
+    def it_files_the_automation_alert_under_webmaster_for_a_holder_only(db):
+        holder = _member_user("webmaster1")
+        _grant(holder, AdminCapability.Capability.WEBMASTER)
+        assert _admin_headings(holder) == ["Webmaster"]
+        assert _placement(holder, "automation.failed") == (ADMIN_SECTION, "Webmaster")
+        # A plain admin without the grant receives nothing, so the page shows them nothing.
+        assert _placement(_member_user("webmaster2", fog_role=Member.FogRole.ADMIN), "automation.failed") is None
 
     def it_renders_no_empty_group(db):
         user = _member_user("empty1")

@@ -116,6 +116,7 @@ STAFF_RECIPIENTS: frozenset[Recipients] = frozenset(
         Recipients.EVENTS_APPROVERS,
         Recipients.GUILD_LEADERSHIP_OR_EVENTS_APPROVERS,
         Recipients.BILLING_APPROVERS,
+        Recipients.WEBMASTERS,
         Recipients.REFUND_AUTHORITY,
         Recipients.EQUIPMENT_MANAGERS,
         # A report routes to a guild's leadership or the admins — a staff row.
@@ -130,7 +131,7 @@ STAFF_RECIPIENTS: frozenset[Recipients] = frozenset(
 class PermissionGroup(str, Enum):
     """The groups inside Admin / Permissions: the permission that brings a row, in page order.
 
-    The seven capability groups share their value with :class:`membership.models.AdminCapability`
+    The eight capability groups share their value with :class:`membership.models.AdminCapability`
     ``Capability`` and read their heading from its label, so the settings page and the
     Permissions tab use the same words. Which of these a viewer holds is
     :meth:`_StaffProfile.holds`; which a row can reach them through is
@@ -145,6 +146,7 @@ class PermissionGroup(str, Enum):
     SPACE_APPROVER = "space_approver"
     DISCOUNT_APPROVER = "discount_approver"
     EQUIPMENT = "equipment"
+    WEBMASTER = "webmaster"
     GUILD_LEADERSHIP = "guild_leadership"
     EQUIPMENT_MANAGER = "equipment_manager"
 
@@ -161,6 +163,7 @@ _GROUPS_BY_RECIPIENT: dict[Recipients, tuple[PermissionGroup, ...]] = {
     Recipients.CLASS_APPROVERS: (PermissionGroup.CLASS_APPROVER,),
     Recipients.GUILD_LEADERSHIP_OR_CLASS_APPROVERS: (PermissionGroup.CLASS_APPROVER, PermissionGroup.GUILD_LEADERSHIP),
     Recipients.BILLING_APPROVERS: (PermissionGroup.BILLING_APPROVER,),
+    Recipients.WEBMASTERS: (PermissionGroup.WEBMASTER,),
     Recipients.EVENTS_APPROVERS: (PermissionGroup.EVENTS_APPROVER,),
     Recipients.GUILD_LEADERSHIP_OR_EVENTS_APPROVERS: (
         PermissionGroup.EVENTS_APPROVER,
@@ -465,6 +468,7 @@ class _StaffProfile:
             PermissionGroup.SPACE_APPROVER: capability.SPACE_APPROVER in caps,
             PermissionGroup.DISCOUNT_APPROVER: capability.DISCOUNT_APPROVER in caps,
             PermissionGroup.EQUIPMENT: capability.EQUIPMENT in caps,
+            PermissionGroup.WEBMASTER: capability.WEBMASTER in caps,
             PermissionGroup.GUILD_LEADERSHIP: self.is_leadership or self.is_officer,
             PermissionGroup.EQUIPMENT_MANAGER: self.manages_equipment,
         }
@@ -527,6 +531,7 @@ def _eligible_for(recipient: Recipients, profile: _StaffProfile) -> bool:
         Recipients.EVENTS_APPROVERS: cap.EVENTS_APPROVER in caps,
         Recipients.GUILD_LEADERSHIP_OR_EVENTS_APPROVERS: lead or cap.EVENTS_APPROVER in caps,
         Recipients.BILLING_APPROVERS: cap.BILLING_APPROVER in caps,
+        Recipients.WEBMASTERS: cap.WEBMASTER in caps,
         # Everyone who may refund: the Admin role OR the REFUNDS capability (a union, unlike
         # the other capability audiences), mirroring the refund_authority resolver.
         Recipients.REFUND_AUTHORITY: profile.is_admin or cap.REFUNDS in caps,
@@ -570,6 +575,7 @@ def _group_headings() -> dict[PermissionGroup, str]:
         PermissionGroup.SPACE_APPROVER: capability.SPACE_APPROVER.label,
         PermissionGroup.DISCOUNT_APPROVER: capability.DISCOUNT_APPROVER.label,
         PermissionGroup.EQUIPMENT: capability.EQUIPMENT.label,
+        PermissionGroup.WEBMASTER: capability.WEBMASTER.label,
         PermissionGroup.GUILD_LEADERSHIP: "Guild leadership",
         PermissionGroup.EQUIPMENT_MANAGER: "Equipment manager",
     }

@@ -14,6 +14,7 @@ scheduled or manual — is recorded uniformly.
 from __future__ import annotations
 
 import contextlib
+import logging
 from collections.abc import Iterator
 from dataclasses import dataclass
 from datetime import datetime, timedelta
@@ -22,7 +23,12 @@ from typing import TYPE_CHECKING
 from django.db import models
 from django.utils import timezone
 
+logger = logging.getLogger(__name__)
+
 RUN_HISTORY_RETENTION_DAYS = 90
+
+# How much of a failed run's error line the Webmaster alert quotes (push trims it further).
+ALERT_ERROR_LIMIT = 300
 
 if TYPE_CHECKING:
     from django.contrib.auth.models import User
@@ -332,6 +338,9 @@ def record_run(
     clean exit or FAILED (capturing the error) on an exception — and **re-raise**, so the
     dispatcher's per-task try/except still logs and continues. This is the single writer of
     ``ScheduledTaskRun``: the dispatcher, ``airtable_pull``, and the Run-now view all use it.
+
+    A failure also alerts the Webmasters (:func:`alert_webmasters`) before the re-raise, for
+    every trigger. The alert never raises, so the job's own exception is what propagates.
     """
     from core.models import ScheduledTaskRun
 
@@ -345,10 +354,95 @@ def record_run(
         yield run
     except Exception as exc:
         run.mark_failed(exc)
+        alert_webmasters(run, exc)
         raise
     else:
         run.mark_ok()
         _prune_run_history(key)
+
+
+def automations_path() -> str:
+    """The Site Settings Automations tab, where every job's run history lives."""
+    from django.urls import reverse
+
+    return f"{reverse('hub_admin_site_settings')}?tab=automations"
+
+
+def alert_webmasters(run: ScheduledTaskRun, exc: Exception) -> None:
+    """Tell the Webmasters that ``run`` failed: at most one alert per job per Pacific day.
+
+    The ``automation.failed`` event reaches the WEBMASTER capability holders only. Its
+    period is the job key plus the Pacific date of the failure, so the delivery ledger
+    lets one alert through per job, per person, per day: a job failing every 15 minutes
+    alerts once, and two jobs failing the same day alert twice.
+
+    The alert has to survive the kind of failure it reports. The incident behind it was an
+    email template that could not render in the cron, so the alert carries plain text with
+    no template (``html_body`` stays ``None``, so nothing loads ``{% static %}``), and it goes
+    out in two passes: the bell and push for every Webmaster first, then the email. Within
+    one ``emit`` a raising channel stops the rest of that person's channels and every
+    later person, so a failing email would otherwise cost the push and the other
+    Webmasters their alerts. The bell and push slots are already claimed when the email
+    pass runs, so it sends the email alone. An email that fails releases its slot and is
+    retried on the job's next failure that day.
+
+    Never raises: each pass logs its own failure with ``logger.exception``.
+    """
+    _alert_pass(run, exc, suppress_email=True)
+    _alert_pass(run, exc, suppress_push=True)
+
+
+def _alert_pass(
+    run: ScheduledTaskRun, exc: Exception, *, suppress_email: bool = False, suppress_push: bool = False
+) -> None:
+    """One emit of the failure alert, logging instead of raising (see :func:`alert_webmasters`)."""
+    from django.conf import settings
+    from django.utils.formats import date_format
+    from django.utils.text import Truncator
+
+    from core.events.channels import Message
+    from core.events.emit import emit
+    from core.events.registry import AUTOMATION_FAILED, Channel
+
+    try:
+        job = JOBS_BY_KEY.get(run.task_key)  # history can outlive a registry entry; name it by key then
+        title = f"{job.name if job is not None else run.task_key} failed"
+        failed_at = timezone.localtime(run.finished_at)
+        error_lines = [line.strip() for line in run.error.splitlines() if line.strip()]
+        error = Truncator(error_lines[-1]).chars(ALERT_ERROR_LIMIT) if error_lines else type(exc).__name__
+        when = date_format(failed_at, r"l, F j \a\t g:i A")  # Saturday, October 3 at 6:15 AM
+        body = "\n".join(
+            [
+                f"It failed on {when} Pacific time.",
+                f"Error: {error}",
+                "You will get at most one alert a day for this automation.",
+            ]
+        )
+        path = automations_path()
+        link = f"{settings.MEMBER_BASE_URL.rstrip('/')}{path}"
+        email = Message(
+            title=title,
+            body=f"{body}\n\nSee the run history on the Automations page: {link}",
+            url=link,
+            trigger_kind=AUTOMATION_FAILED,
+        )
+        emit(
+            AUTOMATION_FAILED,
+            context={},
+            title=title,
+            body=body,
+            url=path,
+            period=f"{AUTOMATION_FAILED}:{run.task_key}:{failed_at:%Y-%m-%d}",
+            messages={Channel.EMAIL: email},
+            suppress_email=suppress_email,
+            suppress_push=suppress_push,
+        )
+    except Exception:
+        logger.exception(
+            "Could not send the Webmasters the %s alert that the %s automation failed",
+            "email" if suppress_push else "bell and push",
+            run.task_key,
+        )
 
 
 def _prune_run_history(key: str) -> None:

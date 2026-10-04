@@ -114,6 +114,7 @@ _AUDIENCE_DESCRIPTIONS: dict[Recipients, str] = {
         "The guild's lead and staff; for a site-wide or council proposal, the Calendar Administrators (holders only)."
     ),
     Recipients.BILLING_APPROVERS: "The Billing Administrators (holders only).",
+    Recipients.WEBMASTERS: "The Webmasters (holders only).",
     Recipients.REFUND_AUTHORITY: "Everyone who can issue a refund: all FOG admins plus the Refunds holders.",
     Recipients.GUILD_LEAD: "The guild's lead only.",
     Recipients.GUILD_MEMBERS: "Every active member of the guild.",

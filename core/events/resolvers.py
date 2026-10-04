@@ -259,6 +259,13 @@ def billing_approvers(context: dict[str, Any]) -> list[Recipient]:
     return _capability_recipients(AdminCapability.Capability.BILLING_APPROVER)
 
 
+def webmasters(context: dict[str, Any]) -> list[Recipient]:
+    """Webmasters, who hear when an automation fails. Holders only; a plain admin gets nothing until granted."""
+    from membership.models import AdminCapability
+
+    return _capability_recipients(AdminCapability.Capability.WEBMASTER)
+
+
 def refund_authority(context: dict[str, Any]) -> list[Recipient]:
     """COMPOSITION — everyone who may issue a refund: fog admins OR ``REFUNDS`` holders.
 
@@ -700,6 +707,7 @@ _RESOLVERS: dict[Recipients, ResolverFn] = {
     Recipients.EVENTS_APPROVERS: events_approvers,
     Recipients.GUILD_LEADERSHIP_OR_EVENTS_APPROVERS: guild_leadership_or_events_approvers,
     Recipients.BILLING_APPROVERS: billing_approvers,
+    Recipients.WEBMASTERS: webmasters,
     Recipients.REFUND_AUTHORITY: refund_authority,
     Recipients.GUILD_LEAD: guild_lead,
     Recipients.GUILD_MEMBERS: guild_members,

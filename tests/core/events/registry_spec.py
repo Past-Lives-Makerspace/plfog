@@ -73,6 +73,7 @@ _BRAND_NEW_KEYS = {
     "classes.orphaned_payment_alert",
     "billing.late_fee_orphan_payment",
     "membership.orientation_orphan_payment",
+    "automation.failed",
 }
 
 # The five staff emails #524 moved off fixed address lists, pinned as a literal: who gets
@@ -337,3 +338,25 @@ def describe_the_orientation_request_row():
         email = get_event("orientation_requested").channel(Channel.EMAIL)
         assert email is not None
         assert email.default is ChannelDefault.ON
+
+
+def describe_the_automation_failed_alert():
+    def it_reaches_the_webmasters_on_the_bell_email_and_push_by_default():
+        event = get_event("automation.failed")
+        assert (event.label, event.category, event.recipient) == (
+            "Automation failed (webmaster alert)",
+            "Membership",
+            Recipients.WEBMASTERS,
+        )
+        assert event.channels == (
+            registry.ChannelSpec(Channel.IN_APP, ChannelDefault.ON),
+            registry.ChannelSpec(Channel.EMAIL, ChannelDefault.ON),
+            registry.ChannelSpec(Channel.PUSH, ChannelDefault.ON),
+        )
+        assert event.activity_kind is None
+
+    def it_reads_as_a_sentence_after_sent_when_on_the_emails_tab():
+        # The Emails tab renders "Sent when <description>".
+        assert get_event("automation.failed").description == (
+            "An automation, such as the reminder emails, failed to run. At most one alert a day per automation."
+        )

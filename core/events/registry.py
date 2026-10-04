@@ -83,6 +83,7 @@ class Recipients(str, Enum):
     EVENTS_APPROVERS = "events_approvers"
     GUILD_LEADERSHIP_OR_EVENTS_APPROVERS = "guild_leadership_or_events_approvers"
     BILLING_APPROVERS = "billing_approvers"
+    WEBMASTERS = "webmasters"
     # Composed union: fog admins OR REFUNDS capability holders — everyone who may issue
     # a refund (exactly the set ``refund_authority_required`` admits).
     REFUND_AUTHORITY = "refund_authority"
@@ -230,6 +231,8 @@ _PUSH_ON_BY_DEFAULT: frozenset[str] = frozenset(
         "discount_code.request_declined",
         # Equipment — your reservation is set (time-sensitive, carries the invite)
         "equipment.reservation_confirmed",
+        # Webmaster — an automation broke; at most one a day per automation
+        "automation.failed",
     }
 )
 
@@ -500,6 +503,7 @@ CLASSES_DUPLICATE_PAYMENT_ALERT = "classes.duplicate_payment_alert"  # a settled
 CLASSES_ORPHANED_PAYMENT_ALERT = "classes.orphaned_payment_alert"  # paid on a registration that lost its seat
 BILLING_LATE_FEE_ORPHAN_PAYMENT = "billing.late_fee_orphan_payment"  # a paid fee Checkout with no fee to mark
 MEMBERSHIP_ORIENTATION_ORPHAN_PAYMENT = "membership.orientation_orphan_payment"  # a paid Checkout, no booking
+AUTOMATION_FAILED = "automation.failed"  # a scheduled job failed (Webmasters, once a day per job)
 
 # event.reminder keeps Discord OFF (the bell is enough; per-offset channel posts would
 # clutter the guild channel) but declares it so a lead can flip it on later; happening-now
@@ -1316,6 +1320,25 @@ _NEW_EVENTS: list[EventType] = [
         category="Billing",
         recipient=Recipients.BILLING_APPROVERS,
         channels=(_EMAIL_FORCED,),
+        activity_kind=None,
+    ),
+    # automation.failed — a scheduled job raised and its ScheduledTaskRun was marked FAILED
+    # (core.scheduled_jobs.record_run). Routes to the Webmasters (holders only). In-app, email
+    # and push all default ON (push via _PUSH_ON_BY_DEFAULT): five weeks of failed reminder
+    # emails once went unnoticed because nothing told anyone. The sender passes a period of
+    # job + Pacific date, so a job failing every 15 minutes alerts once a day. No activity
+    # row: the run history on the Automations page is the record. Category only sets the
+    # X-Category header and the push channel; the settings page files the row under
+    # Admin / Permissions because WEBMASTERS is a staff recipient.
+    EventType(
+        key=AUTOMATION_FAILED,
+        label="Automation failed (webmaster alert)",
+        description=(
+            "An automation, such as the reminder emails, failed to run. At most one alert a day per automation."
+        ),
+        category="Membership",
+        recipient=Recipients.WEBMASTERS,
+        channels=(_IN_APP_ON, _EMAIL_ON),
         activity_kind=None,
     ),
 ]
