@@ -54,8 +54,9 @@ _BLOCK_TAG_RE = re.compile(r"<(?:p|br|h2|h3|ul|ol|li|blockquote)\b", re.IGNORECA
 # A close tag (or ``<br>``) that marks a line break when flattening HTML to text.
 _LINE_BREAK_RE = re.compile(r"<br\s*/?>|</(?:p|li|h2|h3|blockquote|ul|ol)>", re.IGNORECASE)
 # Quill 2.x emits a bullet list as ``<ol>`` whose items carry ``data-list="bullet"``. A list
-# with no end tag runs to the end of the input, which keeps the scan linear: an opener never
-# rescans the rest for a closer it lacks (thousands of bare ``<ol>`` once took a minute).
+# with no end tag runs to the end of the input, which keeps this scan linear: an opener never
+# rescans the rest for a closer it lacks. (``bleach``'s own parse is still slow on deeply
+# nested input; that is not bounded here.)
 _OL_BLOCK_RE = re.compile(r"<ol(\s[^>]*)?(?:>(.*?)(?:</ol>|\Z)|\Z)", re.IGNORECASE | re.DOTALL)
 _BULLET_ITEM_RE = re.compile(r"""data-list\s*=\s*["']bullet["']""", re.IGNORECASE)
 # A script or style element, contents and all. ``bleach`` strips the tags but keeps what
@@ -63,38 +64,6 @@ _BULLET_ITEM_RE = re.compile(r"""data-list\s*=\s*["']bullet["']""", re.IGNORECAS
 # element with no end tag runs to the end of the input, as it does in a browser; that also
 # keeps the scan linear, since an opener never rescans the rest for a closer it lacks.
 _RAW_TEXT_ELEMENT_RE = re.compile(r"<(script|style)\b[^>]*(?:>.*?(?:</\1\s*>|\Z)|\Z)", re.IGNORECASE | re.DOTALL)
-
-# Every start or end tag, for the depth cap below. ``[^<>]*`` stops at the next ``<``, so a
-# tag left open never makes the scan revisit the rest of the input.
-_TAG_RE = re.compile(r"<(/?)([a-zA-Z][a-zA-Z0-9]*)\b[^<>]*>")
-_VOID_TAGS = frozenset({"area", "base", "br", "col", "embed", "hr", "img", "input", "link", "meta", "source", "wbr"})
-#: Deeper than any editor writes. html5lib (inside ``bleach``) slows quadratically with how
-#: deeply tags nest: 32,000 bare ``<ol>`` took over 40 seconds, on a two worker server.
-_MAX_TAG_DEPTH = 64
-
-
-def _cap_tag_depth(raw: str) -> str:
-    """Drop every start tag that would open past :data:`_MAX_TAG_DEPTH`, keeping the text.
-
-    The depth is counted, not matched: an end tag closes one level whatever its name, and an
-    end tag left over after a dropped start tag is dropped by ``bleach`` in turn.
-    """
-    depth = 0
-
-    def repl(match: re.Match[str]) -> str:
-        nonlocal depth
-        closing, name = match.group(1), match.group(2).lower()
-        if closing:
-            depth = max(depth - 1, 0)
-            return match.group(0)
-        if name in _VOID_TAGS or match.group(0).endswith("/>"):
-            return match.group(0)
-        if depth >= _MAX_TAG_DEPTH:
-            return ""
-        depth += 1
-        return match.group(0)
-
-    return _TAG_RE.sub(repl, raw)
 
 
 def _harden_link(attrs: dict[Any, Any], new: bool = False) -> dict[Any, Any]:
@@ -146,12 +115,13 @@ def sanitize_rich_html(raw: str) -> str:
         Sanitized HTML — ``script`` and ``style`` elements are dropped with their contents;
         ``iframe``/event handlers/inline ``style=``/``class=`` and any other tag outside the
         allowlist are dropped (inner text kept); every link gets
-        ``rel="noopener nofollow noreferrer" target="_blank"``; Quill bullet lists become semantic ``<ul>``. Empty, blank, or contentless input
-        (an empty Quill editor is ``<p><br></p>``) returns ``""``.
+        ``rel="noopener nofollow noreferrer" target="_blank"``; Quill bullet lists become
+        semantic ``<ul>``. Empty, blank, or contentless input (an empty Quill editor is
+        ``<p><br></p>``) returns ``""``.
     """
     if not raw or not raw.strip():
         return ""
-    normalized = _normalize_quill_lists(_cap_tag_depth(_RAW_TEXT_ELEMENT_RE.sub("", raw)))
+    normalized = _normalize_quill_lists(_RAW_TEXT_ELEMENT_RE.sub("", raw))
     cleaned = bleach.clean(normalized, tags=_ALLOWED_TAGS, attributes=_ALLOWED_ATTRS, strip=True)
     hardened = bleach.linkify(cleaned, callbacks=[_harden_link], parse_email=False)
     if not rich_html_to_text(hardened):
