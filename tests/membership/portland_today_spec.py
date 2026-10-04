@@ -1,11 +1,10 @@
-""" "Today" is Portland's date wherever a day is decided, not the UTC one.
+"""Wherever a day is decided, "today" is Portland's date, not the UTC one.
 
 The UTC date runs a day ahead from 5 PM Pacific (4 PM in winter), so reading "today" off
 ``timezone.now().date()`` dropped tonight's events from Home's Upcoming list, ended a space
 agreement on the evening before its last day, and sent the 30 day reminder a day early, on
-the evening before. The
-clock is frozen at 17:30 Pacific on day D, when the UTC date is already D + 1, the repo's
-way: by patching ``django.utils.timezone.now``.
+the evening before. The clock is frozen at 17:30 Pacific on day D, when the UTC date is
+already D + 1, the repo's way: by patching ``django.utils.timezone.now``.
 """
 
 from __future__ import annotations

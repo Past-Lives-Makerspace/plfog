@@ -54,8 +54,9 @@ def describe_send_lease_expiry_reminders():
     def it_waits_for_the_morning_after_the_date_turns_over():
         user = UserFactory()
         LeaseFactory(tenant_obj=user.member, end_date=timezone.localdate() + timedelta(days=30))  # type: ignore[attr-defined]
-        with patch("django.utils.timezone.now", return_value=_at(0, 30)):
-            call_command("send_lease_expiry_reminders")
+        for early in (_at(0, 30), _at(8, 59)):
+            with patch("django.utils.timezone.now", return_value=early):
+                call_command("send_lease_expiry_reminders")
         assert Notification.objects.filter(trigger="lease_expiring").count() == 0
 
         with patch("django.utils.timezone.now", return_value=_at(9)):
