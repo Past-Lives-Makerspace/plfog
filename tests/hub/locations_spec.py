@@ -12,7 +12,9 @@ from unittest.mock import patch
 
 import pytest
 from django.contrib.auth.models import User
-from django.test import Client
+from django.db import connection
+from django.test import Client, override_settings
+from django.test.utils import CaptureQueriesContext
 from django.urls import reverse
 from django.utils import timezone
 
@@ -33,6 +35,15 @@ from tests.membership.factories import (
 )
 
 pytestmark = pytest.mark.django_db
+
+GUILDS_HOST = "guilds.pastlives.space"
+GUILDS_SETTINGS = dict(
+    ALLOWED_HOSTS=[GUILDS_HOST, "testserver"],
+    GUILDS_HOSTS=[GUILDS_HOST],
+    GUILDS_BASE_URL=f"https://{GUILDS_HOST}",
+    BOOK_BASE_URL="https://book.pastlives.space",
+    MEMBER_BASE_URL="https://members.pastlives.space",
+)
 
 
 def _login(client: Client, username: str, *, fog_role: str = Member.FogRole.MEMBER) -> User:
@@ -228,6 +239,47 @@ def describe_equipment_details():
         assert "Where to find it" in html
 
 
+def describe_a_new_orientation_made_from_the_equipment_form():
+    def it_starts_in_the_equipments_location(client: Client):
+        _login(client, "loc_new_type_add", fog_role=Member.FogRole.ADMIN)
+        location = LocationFactory(name="CNC Area")
+        payload = {
+            "name": "CNC Machine",
+            "kind": Equipment.Kind.TOOL,
+            "is_active": "on",
+            "area": str(location.pk),
+            "required_orientation": EquipmentForm.NEW_TYPE_CHOICE,
+            "new_type-name": "Operator Basics",
+            "new_type-duration_minutes": "60",
+            "new_type-default_seats": "2",
+            "new_type-price": "",
+            "new_type-default_location": "",
+        }
+        assert client.post(reverse("hub_equipment_add"), payload).status_code == 302
+        equipment = Equipment.objects.get(name="CNC Machine")
+        assert equipment.area == location
+        assert equipment.required_orientation is not None
+        assert equipment.required_orientation.area == location
+
+    def it_starts_with_no_location_when_the_equipment_has_none(client: Client):
+        _login(client, "loc_new_type_none", fog_role=Member.FogRole.ADMIN)
+        payload = {
+            "name": "Band Saw",
+            "kind": Equipment.Kind.TOOL,
+            "is_active": "on",
+            "required_orientation": EquipmentForm.NEW_TYPE_CHOICE,
+            "new_type-name": "Saw Basics",
+            "new_type-duration_minutes": "60",
+            "new_type-default_seats": "2",
+            "new_type-price": "",
+            "new_type-default_location": "",
+        }
+        client.post(reverse("hub_equipment_add"), payload)
+        equipment = Equipment.objects.get(name="Band Saw")
+        assert equipment.required_orientation is not None
+        assert equipment.required_orientation.area is None
+
+
 def describe_the_admin_locations_page():
     def it_turns_away_a_member(client: Client):
         _login(client, "loc_page_member")
@@ -254,6 +306,36 @@ def describe_the_admin_locations_page():
         assert "Set on 1 class, 0 events, 0 orientations, 0 equipment" in html
         assert "Inactive" in html
         assert reverse("hub_admin_location_edit", args=[front.pk]) in html
+
+    def it_counts_each_kind_without_multiplying_the_others(client: Client):
+        _login(client, "loc_page_counts", fog_role=Member.FogRole.ADMIN)
+        location = LocationFactory(name="Busy Room")
+        for _ in range(2):
+            ClassOfferingFactory(area=location)
+        for _ in range(3):
+            CommunityEventFactory(area=location)
+        OrientationTypeFactory(name="Kiln Basics", area=location)
+        OrientationTypeFactory(name="Wheel Basics", area=location)
+        EquipmentFactory(area=location)
+        html = client.get(reverse("hub_admin_locations")).content.decode()
+        assert "Set on 2 classes, 3 events, 2 orientations, 1 equipment" in html
+
+    def it_lists_every_location_in_the_same_number_of_queries(client: Client):
+        _login(client, "loc_page_queries", fog_role=Member.FogRole.ADMIN)
+        url = reverse("hub_admin_locations")
+        LocationFactory(guild=GuildFactory())
+        client.get(url)  # warm the per session reads
+        with CaptureQueriesContext(connection) as one:
+            client.get(url)
+        for _ in range(4):
+            busy = LocationFactory(guild=GuildFactory())
+            busy.shares_space_with.add(LocationFactory())
+            ClassOfferingFactory(area=busy)
+            CommunityEventFactory(area=busy)
+            EquipmentFactory(area=busy)
+        with CaptureQueriesContext(connection) as many:
+            client.get(url)
+        assert len(many.captured_queries) == len(one.captured_queries)
 
     def it_adds_a_location_with_a_guild_and_a_link(client: Client):
         _login(client, "loc_page_add", fog_role=Member.FogRole.ADMIN)
@@ -340,6 +422,41 @@ def describe_the_guild_page():
         assert 'data-area-light="in_use"' in block
         assert "In use: Reserved: Kiln Zq until" in block
         assert html.index("pl-guild-statbar") < html.index("data-area-status")
+
+    def it_names_a_private_class_only_as_a_private_class(client: Client):
+        _login(client, "loc_guild_private")
+        guild = GuildFactory()
+        location = LocationFactory(name="Print Studio", guild=guild)
+        offering = ClassOfferingFactory(
+            title="Secret Workshop Qv", status=ClassOffering.Status.PUBLISHED, is_private=True, area=location
+        )
+        ClassSessionFactory(class_offering=offering, starts_at=timezone.now() - timedelta(minutes=10))
+        html = client.get(reverse("hub_guild_detail", args=[guild.slug])).content.decode()
+        block = html.split("data-area-status")[1].split("</section>")[0]
+        assert "In use: Private class until" in block
+        assert "Secret Workshop Qv" not in html
+
+    def it_renders_the_lights_on_the_public_guilds_site_without_private_titles(client: Client):
+        guild = GuildFactory()
+        location = LocationFactory(name="Print Studio", guild=guild)
+        private = ClassOfferingFactory(
+            title="Secret Workshop Qw", status=ClassOffering.Status.PUBLISHED, is_private=True, area=location
+        )
+        ClassSessionFactory(class_offering=private, starts_at=timezone.now() - timedelta(minutes=10))
+        EquipmentReservationFactory(
+            equipment=EquipmentFactory(name="Etching Press", area=location),
+            starts_at=timezone.now() + timedelta(minutes=20),
+            ends_at=timezone.now() + timedelta(minutes=80),
+        )
+        with override_settings(**GUILDS_SETTINGS):
+            response = client.get(f"/guilds/{guild.slug}/", HTTP_HOST=GUILDS_HOST)
+        assert response.status_code == 200
+        html = response.content.decode()
+        assert "css/locations.css" in html
+        block = html.split("data-area-status")[1].split("</section>")[0]
+        assert 'data-area-light="in_use"' in block
+        assert "In use: Private class until" in block
+        assert "Secret Workshop Qw" not in html
 
     def it_renders_nothing_without_a_location(client: Client):
         _login(client, "loc_guild_none")

@@ -146,6 +146,13 @@ def describe_guild_location_statuses():
             _class_session(location, start=NOW - timedelta(minutes=10), status=status)
             assert _only(location.guild).light == Light.FREE
 
+        def it_counts_a_private_class_but_names_it_only_a_private_class():
+            location = LocationFactory(guild=GuildFactory())
+            _class_session(location, start=NOW - timedelta(minutes=30), title="Members Only Qv", is_private=True)
+            status = _only(location.guild)
+            assert status.light == Light.IN_USE
+            assert status.message == "In use: Private class until 3:30 PM. This area might not be available."
+
         def it_hides_a_demo_class_while_demo_classes_are_off():
             location = LocationFactory(guild=GuildFactory())
             _class_session(location, start=NOW - timedelta(minutes=10), title="Demo Glass", slug="demo-glass")
@@ -279,6 +286,32 @@ def describe_guild_location_statuses():
             location = LocationFactory(guild=GuildFactory())
             _event(location, start=NOW - timedelta(days=7, hours=4), recurrence=CommunityEvent.Recurrence.WEEKLY)
             assert _only(location.guild).light == Light.FREE
+
+        def describe_across_a_daylight_saving_change():
+            # Clocks fall back on Sunday 1 November 2026. A weekly 6 PM event anchored the
+            # Tuesday before stays at 6 PM on the wall clock, an hour later in UTC.
+            def _weekly_six_pm(location):
+                anchor = timezone.make_aware(datetime(2026, 10, 27, 18, 0))
+                return _event(location, start=anchor, minutes=120, recurrence=CommunityEvent.Recurrence.WEEKLY)
+
+            def it_is_red_at_six_thirty_by_the_clock_after_the_change():
+                location = LocationFactory(guild=GuildFactory())
+                _weekly_six_pm(location)
+                [status] = guild_location_statuses(
+                    location.guild, now=timezone.make_aware(datetime(2026, 11, 3, 18, 30))
+                )
+                assert status.light == Light.IN_USE
+                assert status.message == "In use: Glass Night until 8:00 PM. This area might not be available."
+
+            def it_is_amber_at_five_thirty_by_the_clock_after_the_change():
+                # 5:30 PM PST is 6:30 PM PDT: a date that drifted with UTC would read in use here.
+                location = LocationFactory(guild=GuildFactory())
+                _weekly_six_pm(location)
+                [status] = guild_location_statuses(
+                    location.guild, now=timezone.make_aware(datetime(2026, 11, 3, 17, 30))
+                )
+                assert status.light == Light.SOON
+                assert status.message == "Starting soon: Glass Night at 6:00 PM"
 
         def it_stays_green_on_a_day_a_repeating_event_does_not_meet():
             location = LocationFactory(guild=GuildFactory())

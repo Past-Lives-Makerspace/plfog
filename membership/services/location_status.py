@@ -3,7 +3,8 @@
 One function, :func:`guild_location_statuses`, feeds the light on the guild page. It reads
 four sources, each in one query whatever the number of locations:
 
-- sessions of published classes (``ClassOffering.area``),
+- sessions of published classes (``ClassOffering.area``); a private class counts but is named
+  only "Private class",
 - orientation slots that are not cancelled and hold at least one active booking
   (``OrientationType.area``; a slot takes its type's location),
 - published events, a repeating one through :meth:`CommunityEvent.occurrences_in`
@@ -28,6 +29,10 @@ from django.utils import timezone
 
 if TYPE_CHECKING:
     from membership.models import Guild, Location
+
+#: What a private class is called on the light. It still takes the area, but its title stays off the
+#: guild page, which also renders on the public guilds site, as it stays off every other public surface.
+PRIVATE_CLASS_TITLE = "Private class"
 
 #: How far ahead something starting counts as "starting soon".
 SOON_WINDOW = timedelta(minutes=60)
@@ -96,7 +101,7 @@ def _class_activities(area_ids: set[int], now: datetime, horizon: datetime) -> l
     return [
         AreaActivity(
             location_id=session.class_offering.area_id,  # type: ignore[arg-type]  # filtered non null above
-            title=session.class_offering.title,
+            title=PRIVATE_CLASS_TITLE if session.class_offering.is_private else session.class_offering.title,
             starts_at=session.starts_at,
             ends_at=session.ends_at,
         )

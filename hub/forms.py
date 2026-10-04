@@ -5507,6 +5507,8 @@ class EquipmentForm(forms.ModelForm):
                 new_type = self.new_type_form.save(commit=False)
                 new_type.equipment = equipment
                 new_type.guild = None
+                # Its slots happen at the equipment, so the type starts in the equipment's Location (#616).
+                new_type.area = equipment.area
                 # The Active toggle is not rendered here, and an unchecked checkbox posts as False.
                 new_type.is_active = True
                 new_type.save()
