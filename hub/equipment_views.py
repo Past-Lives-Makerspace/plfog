@@ -236,7 +236,7 @@ def _schedule_context(
     days: list[dict[str, Any]] = []
     for i in range(7):
         day = strip_start + timedelta(days=i)
-        disabled = day < today or day > horizon or day.weekday() not in active_weekdays
+        disabled = not equipment.is_within_horizon(day) or day.weekday() not in active_weekdays
         days.append({"date": day, "disabled": disabled})
     if selected_day is None or not equipment.is_within_horizon(selected_day):
         selected_day = next((entry["date"] for entry in days if not entry["disabled"]), None)
