@@ -2998,7 +2998,9 @@ class AdminCapability(models.Model):
     registrations need refunds (via the ``refund_authority`` resolver: fog admins OR
     holders, the same set ``refund_authority_required`` admits); refund *failure* alerts
     still go to the Billing Administrators. ``BILLING_APPROVER`` additionally gates the
-    admin Payments dashboard views.
+    admin Payments dashboard views. ``WEBMASTER`` is alert-only: it routes the
+    ``automation.failed`` alert (:func:`core.scheduled_jobs.alert_webmasters`) and grants
+    no action or page.
     For every capability but ``REFUNDS`` the capability is the master switch: ONLY holders
     receive the matching notifications (and see them on the settings page); the refund
     notice above is the one union with the Admin role. A plain Admin who does not hold it gets nothing
@@ -3015,6 +3017,7 @@ class AdminCapability(models.Model):
         REFUNDS = "refunds", "Refunds"
         EQUIPMENT = "equipment", "Equipment Administrator"
         SPACE_MANAGER = "space_manager", "Space Manager"
+        WEBMASTER = "webmaster", "Webmaster"
 
     #: What each duty actually does, in one plain sentence — the SINGLE source of the
     #: human explanation. The member edit Permissions tab reads it for its toggle help
@@ -3044,6 +3047,10 @@ class AdminCapability(models.Model):
         Capability.SPACE_MANAGER: (
             "Adds rooms and spaces members can reserve, such as the loading dock, and manages the ones they add. "
             "Cannot add tools."
+        ),
+        Capability.WEBMASTER: (
+            "Gets an alert when an automation fails, such as the reminder emails, saying what broke and when. "
+            "Admins can open its run history from the alert."
         ),
     }
 

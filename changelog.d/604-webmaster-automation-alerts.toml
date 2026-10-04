@@ -1,0 +1,7 @@
+bump = "minor"
+date = "2026-10-03"
+title = "A Webmaster hears when an automation fails"
+changes = [
+  "For admins: a new Webmaster duty on a member's Permissions tab. When an automation such as the reminder emails fails, the Webmaster gets an alert in the notification bell, by push and by email, saying what broke and when. Admins can open the automation's run history from the alert.",
+  "At most one alert a day per automation, so a job that keeps failing does not flood anyone.",
+]

@@ -262,6 +262,21 @@ def describe_admin_permissions_on_every_surface():
         assert "Manage your admin duties" in section
         assert note < section.index("pl-notif-group__title")
 
+    def it_names_the_failed_automation_alert_among_the_capability_alerts(client):
+        section = _section_markup(_own_page(client, "ap_note_text", admin=True), ADMIN_SLUG)
+        assert (
+            "Class, space, discount, calendar, billing, and failed automation alerts are controlled by your "
+            "admin capabilities."
+        ) in section
+
+    def it_counts_no_capability_alerts_when_an_admin_edits_a_member(client):
+        # A count went stale once (it said five); the member-edit note names no number now.
+        target = User.objects.create_user(username="ap_note_target", email="ap_note_target@example.com").member
+        target.fog_role = Member.FogRole.ADMIN
+        target.save()
+        section = _section_markup(_admin_edit_page(client, target, "ap_note_editor"), ADMIN_SLUG)
+        assert "The capability alerts follow their admin capabilities on the Permissions tab." in section
+
     def it_renders_when_an_admin_edits_another_admin(client):
         target = User.objects.create_user(username="ap_target", email="ap_target@example.com").member
         target.fog_role = Member.FogRole.ADMIN

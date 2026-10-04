@@ -66,7 +66,9 @@ def describe_capabilities_form():
         form = MemberCapabilitiesForm({"cap_equipment": "on", "cap_space_manager": "on"})
         assert form.is_valid()
         assert form.selected() == ["equipment", "space_manager"]
-        assert list(form.fields)[-2:] == ["cap_equipment", "cap_space_manager"]
+        fields = list(form.fields)
+        after_refunds = fields.index("cap_refunds") + 1
+        assert fields[after_refunds : after_refunds + 2] == ["cap_equipment", "cap_space_manager"]
         assert form.fields["cap_equipment"].label == "Equipment Administrator"
         assert form.fields["cap_space_manager"].label == "Space Manager"
         assert (
@@ -80,6 +82,22 @@ def describe_capabilities_form():
         initial = MemberCapabilitiesForm.initial_for(member)
         assert initial["cap_space_manager"] is True
         assert initial["cap_equipment"] is False
+
+    def it_offers_the_webmaster_toggle_last():
+        form = MemberCapabilitiesForm({"cap_webmaster": "on"})
+        assert form.is_valid()
+        assert form.selected() == ["webmaster"]
+        assert list(form.fields)[-1] == "cap_webmaster"
+        assert form.fields["cap_webmaster"].label == "Webmaster"
+        assert form.fields["cap_webmaster"].help_text == (
+            "Gets an alert when an automation fails, such as the reminder emails, saying what broke and when. "
+            "Admins can open its run history from the alert."
+        )
+
+    def it_initializes_the_webmaster_toggle_from_an_existing_grant():
+        member = _member_user("webinit").member
+        member.admin_capabilities.create(capability=AdminCapability.Capability.WEBMASTER)
+        assert MemberCapabilitiesForm.initial_for(member)["cap_webmaster"] is True
 
 
 def describe_admin_member_edit_permissions():
@@ -145,6 +163,24 @@ def describe_admin_member_edit_permissions():
 
         client.post(url, _cap_post(cap_space_manager=True))
         assert set(target.admin_capabilities.values_list("capability", flat=True)) == {"space_manager"}
+
+        client.post(url, _cap_post())
+        assert target.admin_capabilities.count() == 0
+
+    def it_renders_and_grants_the_webmaster_toggle_on_the_permissions_tab(client: Client):
+        _member_user("boss7", fog_role=Member.FogRole.ADMIN)
+        target = _member_user("target7").member
+        client.login(username="boss7", password="pass")
+        url = reverse("hub_admin_member_edit", args=[target.pk])
+
+        content = client.get(url).content.decode()
+        assert 'name="cap_webmaster"' in content
+        # Anchored on the toggle's markup: a changelog entry quoting the copy cannot satisfy it.
+        description = AdminCapability.DESCRIPTIONS[AdminCapability.Capability.WEBMASTER]
+        assert f'<div class="pl-toggle-desc">{description}</div>' in content
+
+        client.post(url, _cap_post(cap_webmaster=True))
+        assert set(target.admin_capabilities.values_list("capability", flat=True)) == {"webmaster"}
 
         client.post(url, _cap_post())
         assert target.admin_capabilities.count() == 0

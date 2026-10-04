@@ -1267,10 +1267,11 @@ class MemberCapabilitiesForm(forms.Form):
     Each field renders as a labeled toggle (``components/toggle.html``) on the member
     edit Permissions tab. A capability is the master switch: holding it usually both
     routes the matching approval/alert emails to this member AND lets them act on that
-    object type, without granting full admin. Two exceptions: Refunds is action-only
-    (routes nothing), and Billing Administrator additionally gates the admin Payments
-    dashboard. These are SITE-WIDE — per-guild lead/staff authority is managed on the
-    guild's own Staff tab, not here.
+    object type, without granting full admin. Exceptions: Refunds is action-only
+    (routes nothing), Billing Administrator additionally gates the admin Payments
+    dashboard, and Webmaster is alert-only (a failed automation alert, no action).
+    These are SITE-WIDE — per-guild lead/staff authority is managed on the guild's own
+    Staff tab, not here.
 
     Labels and help text come from :class:`membership.models.AdminCapability` (its
     ``Capability`` labels and ``DESCRIPTIONS`` map) so this page and the "View As"
@@ -1321,6 +1322,11 @@ class MemberCapabilitiesForm(forms.Form):
         label=AdminCapability.Capability.SPACE_MANAGER.label,
         help_text=AdminCapability.DESCRIPTIONS[AdminCapability.Capability.SPACE_MANAGER],
     )
+    cap_webmaster = forms.BooleanField(
+        required=False,
+        label=AdminCapability.Capability.WEBMASTER.label,
+        help_text=AdminCapability.DESCRIPTIONS[AdminCapability.Capability.WEBMASTER],
+    )
 
     # Field name → the capability it grants. The single source of truth both
     # ``initial_for`` and ``selected`` read, so the two never drift.
@@ -1333,6 +1339,7 @@ class MemberCapabilitiesForm(forms.Form):
         "cap_refunds": AdminCapability.Capability.REFUNDS,
         "cap_equipment": AdminCapability.Capability.EQUIPMENT,
         "cap_space_manager": AdminCapability.Capability.SPACE_MANAGER,
+        "cap_webmaster": AdminCapability.Capability.WEBMASTER,
     }
 
     @classmethod
