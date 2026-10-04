@@ -1,0 +1,7 @@
+bump = "patch"
+date = "2026-10-03"
+title = "Tonight's events stay on your Home page"
+changes = [
+  "Home's Upcoming list kept dropping tonight's events in the evening. They now stay until they start.",
+  "A space agreement now counts as active through the evening of its last day, and its 30 day reminder arrives in the morning, 30 days out.",
+]

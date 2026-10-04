@@ -150,7 +150,7 @@ def _upcoming_items(member: Member) -> list[UpcomingItem]:
     sessions already materialized onto the calendar (``source="classes"``).
     """
     now = timezone.now()
-    today = now.date()
+    today = timezone.localdate()
     horizon = today + timedelta(days=UPCOMING_HORIZON_DAYS)
     calendar_url = reverse("hub_community_calendar")
 

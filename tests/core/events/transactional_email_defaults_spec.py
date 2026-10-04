@@ -17,7 +17,8 @@ installs); bell rows on :class:`core.models.Notification`.
 
 from __future__ import annotations
 
-from datetime import timedelta
+from collections.abc import Iterator
+from datetime import datetime, time, timedelta
 from decimal import Decimal
 from unittest.mock import patch
 
@@ -290,9 +291,16 @@ def describe_tab_email():
 
 
 def describe_lease_expiring_email():
+    @pytest.fixture(autouse=True)
+    def _mid_morning() -> Iterator[None]:
+        # The reminder goes out from 9 AM Portland time.
+        noon = timezone.make_aware(datetime.combine(timezone.localdate(), time(12)))
+        with patch("django.utils.timezone.now", return_value=noon):
+            yield
+
     def it_emails_the_tenant_thirty_days_out():
         member = _linked_member(email="tenant@example.com", username="tenant_member")
-        LeaseFactory(tenant_obj=member, end_date=timezone.now().date() + timedelta(days=30))
+        LeaseFactory(tenant_obj=member, end_date=timezone.localdate() + timedelta(days=30))
         mail.outbox.clear()
 
         call_command("send_lease_expiry_reminders")
@@ -304,7 +312,7 @@ def describe_lease_expiring_email():
 
     def it_sends_only_once_across_reruns():
         member = _linked_member(email="oncetenant@example.com", username="once_tenant")
-        LeaseFactory(tenant_obj=member, end_date=timezone.now().date() + timedelta(days=30))
+        LeaseFactory(tenant_obj=member, end_date=timezone.localdate() + timedelta(days=30))
         mail.outbox.clear()
 
         call_command("send_lease_expiry_reminders")

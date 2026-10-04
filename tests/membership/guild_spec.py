@@ -109,7 +109,7 @@ def describe_Guild_assign_lead():
 def describe_Guild_active_leases():
     def it_returns_active_leases():
         guild = GuildFactory()
-        today = timezone.now().date()
+        today = timezone.localdate()
         space = SpaceFactory()
         lease = LeaseFactory(
             tenant_obj=guild,
@@ -122,7 +122,7 @@ def describe_Guild_active_leases():
 
     def it_excludes_ended_leases():
         guild = GuildFactory()
-        today = timezone.now().date()
+        today = timezone.localdate()
         space = SpaceFactory()
         LeaseFactory(
             tenant_obj=guild,
@@ -135,7 +135,7 @@ def describe_Guild_active_leases():
 
     def it_excludes_future_leases():
         guild = GuildFactory()
-        today = timezone.now().date()
+        today = timezone.localdate()
         space = SpaceFactory()
         LeaseFactory(
             tenant_obj=guild,
@@ -218,7 +218,7 @@ def describe_lease_with_guild_tenant():
     def it_creates_lease_for_guild():
         guild = GuildFactory(name="Pottery Guild")
         space = SpaceFactory()
-        today = timezone.now().date()
+        today = timezone.localdate()
         lease = LeaseFactory(
             tenant_obj=guild,
             space=space,
@@ -240,7 +240,7 @@ def describe_lease_with_guild_tenant():
     def it_appears_in_space_current_occupants():
         guild = GuildFactory(name="Current Occupant Guild")
         space = SpaceFactory()
-        today = timezone.now().date()
+        today = timezone.localdate()
         LeaseFactory(
             tenant_obj=guild,
             space=space,
@@ -254,7 +254,7 @@ def describe_lease_with_guild_tenant():
         member = MemberFactory()
         guild = GuildFactory()
         space = SpaceFactory()
-        today = timezone.now().date()
+        today = timezone.localdate()
         LeaseFactory(
             tenant_obj=member,
             space=space,
@@ -276,7 +276,7 @@ def describe_lease_with_guild_tenant():
     def it_calculates_space_revenue_with_guild_lease():
         guild = GuildFactory()
         space = SpaceFactory(manual_price=Decimal("800.00"))
-        today = timezone.now().date()
+        today = timezone.localdate()
         LeaseFactory(
             tenant_obj=guild,
             space=space,
@@ -303,7 +303,7 @@ def describe_fixture_loading():
         space_a = SpaceFactory(space_id="A-100", name="Studio A", sublet_guild=guild_a)
         space_b = SpaceFactory(space_id="B-200", name="Workshop B")
         member = MemberFactory(full_legal_name="Fixture Test Member")
-        today = timezone.now().date()
+        today = timezone.localdate()
         lease = LeaseFactory(
             tenant_obj=guild_a,
             space=space_a,

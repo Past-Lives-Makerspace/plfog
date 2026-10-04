@@ -1,4 +1,4 @@
-"""Notify tenants 30 days before a lease end_date. Daily cron; idempotent per lease.
+"""Notify tenants 30 days before a lease end_date, from 9 AM Portland time; idempotent per lease.
 
 Runs on the event spine: one ``lease_expiring`` :func:`core.events.emit.emit` per due
 lease. Idempotency is the spine's :class:`core.models.EventDelivery` ledger — the
@@ -25,11 +25,20 @@ from core.events.emit import emit
 from membership.models import Lease, Member
 
 
+#: The reminder is a forced email and, for a tenant who turned push on, an urgent phone alert,
+#: so it waits for the morning instead of going out the minute the Portland date turns over.
+EARLIEST_LOCAL_HOUR = 9
+
+
 class Command(BaseCommand):
     help = "Dispatch 'lease expiring' notifications for leases ending in 30 days."
 
     def handle(self, *args: Any, **options: Any) -> None:
-        target = timezone.now().date() + timedelta(days=30)
+        now = timezone.localtime()
+        if now.hour < EARLIEST_LOCAL_HOUR:
+            self.stdout.write(f"Before {EARLIEST_LOCAL_HOUR} AM Portland time; reminders wait for the morning.")
+            return
+        target = now.date() + timedelta(days=30)
         leases = Lease.objects.filter(end_date=target)
         sent = 0
         for lease in leases:
