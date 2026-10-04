@@ -31,18 +31,24 @@ HTML into the same columns that historically held Markdown, and a single sniff
 from __future__ import annotations
 
 import re
-from typing import Any
 
-import bleach
 import markdown as md
 from django.conf import settings
 from django.utils.html import strip_tags
 from django.utils.text import slugify
 
-# Reused, not re-invented: the email rich-editor's Quill bullet-list normalizer and its
-# HTML→text flattener (both battle-tested against Quill 2.x output). core.html_sanitize
-# has no module-level project imports, so this cross-app import cannot cycle.
-from core.html_sanitize import _normalize_quill_lists, rich_html_to_text
+# Reused, not re-invented: the email rich-editor's Quill bullet-list normalizer, its
+# HTML→text flattener (both battle-tested against Quill 2.x output), its link schemes and
+# size limit, and the shared linkifier. Neither core module imports an app, so this
+# cross-app import cannot cycle.
+from core.html_sanitize import (
+    AllowlistCleaner,
+    AttrFilter,
+    _normalize_quill_lists,
+    limit_rich_text,
+    rich_html_to_text,
+)
+from core.linkify import linkify
 
 # Only these tags survive sanitization. Everything else is stripped (text kept).
 _ALLOWED_TAGS = [
@@ -75,7 +81,7 @@ _ALLOWED_TAGS = [
 # alignment as inline ``style=`` instead, which we deliberately strip — so alignment
 # only survives when an author hand-writes ``<td align="right">``). No ``style``, no
 # event handlers: the sanitizer stays strict.
-_ALLOWED_ATTRS = {"a": ["href", "title"], "th": ["align"], "td": ["align"]}
+_ALLOWED_ATTRS = {"a": {"href", "title"}, "th": {"align"}, "td": {"align"}}
 
 # Help profile: images, admonition ``div`` wrappers, and video ``iframe`` embeds
 # join the allowlist (image/iframe sources and div/p classes restricted below).
@@ -121,23 +127,28 @@ _HELP_IFRAME_REFERRERPOLICIES = frozenset(
 )
 
 # An ``img`` whose ``src`` was rejected (or never present) is removed entirely in
-# a follow-up pass — bleach only drops the attribute, leaving a useless tag.
+# a follow-up pass — the sanitizer only drops the attribute, leaving a useless tag.
 _SRCLESS_IMG_RE = re.compile(r"<img\b(?![^>]*\bsrc=)[^>]*>")
 
-# Same follow-up pass for an ``iframe`` whose ``src`` was rejected: bleach keeps the
+# Same follow-up pass for an ``iframe`` whose ``src`` was rejected: the sanitizer keeps the
 # now-useless (and src-less, hence harmless) tag pair; strip it entirely.
 _SRCLESS_IFRAME_RE = re.compile(r"<iframe\b(?![^>]*\bsrc=)[^>]*>\s*</iframe>")
 
+# Whatever an author put between ``<iframe>`` and ``</iframe>``. A browser never shows it,
+# and the sanitizer writes it out unescaped (to a browser it is raw text), so it is emptied
+# rather than kept: nothing after the sanitizer then has to know iframe content is special.
+_IFRAME_CONTENT_RE = re.compile(r"(<iframe\b[^>]*>)[^<]*(?:<(?!/iframe>)[^<]*)*</iframe>")
+
 
 def _allow_help_img_attr(tag: str, name: str, value: str) -> bool:
-    """Bleach attribute filter for help-profile ``img``: src/alt/title only, local src."""
+    """Attribute filter for help-profile ``img``: src/alt/title only, local src."""
     if name in ("alt", "title"):
         return True
     return name == "src" and value.startswith(_HELP_IMG_SRC_PREFIX)
 
 
 def _allow_help_iframe_attr(tag: str, name: str, value: str) -> bool:
-    """Bleach attribute filter for help-profile ``iframe``: allowlisted video src only.
+    """Attribute filter for help-profile ``iframe``: allowlisted video src only.
 
     ``src`` must start with a :data:`_HELP_IFRAME_SRC_PREFIXES` prefix (Loom or
     privacy-mode YouTube). ``title`` (accessibility), ``allowfullscreen``, and
@@ -154,67 +165,72 @@ def _allow_help_iframe_attr(tag: str, name: str, value: str) -> bool:
 
 
 def _allow_help_heading_attr(tag: str, name: str, value: str) -> bool:
-    """Bleach attribute filter for help-profile headings: pattern-valid ``id`` only."""
+    """Attribute filter for help-profile headings: pattern-valid ``id`` only."""
     return name == "id" and bool(_HEADING_ID_PATTERN.match(value))
 
 
 def _allow_help_div_attr(tag: str, name: str, value: str) -> bool:
-    """Bleach attribute filter for help-profile ``div``: admonition classes only.
+    """Attribute filter for help-profile ``div``: admonition classes only.
 
     Every whitespace-separated token must come from the admonition allowlist —
     a smuggled class (``admonition evil``) drops the whole attribute, so a
     ``div`` can never carry an arbitrary class into the page.
     """
-    if name != "class":
-        return False
     tokens = value.split()
-    return bool(tokens) and all(token in _ADMONITION_DIV_CLASSES for token in tokens)
+    return name == "class" and bool(tokens) and all(token in _ADMONITION_DIV_CLASSES for token in tokens)
 
 
 def _allow_help_p_attr(tag: str, name: str, value: str) -> bool:
-    """Bleach attribute filter for help-profile ``p``: the admonition title row only."""
+    """Attribute filter for help-profile ``p``: the admonition title row only."""
     return name == "class" and value == "admonition-title"
 
 
+_IMG_ATTRS = {"src", "alt", "title"}
+_HEADING_ATTRS = {"h2": {"id"}, "h3": {"id"}, "h4": {"id"}}
+_HEADING_FILTERS = {"h2": _allow_help_heading_attr, "h3": _allow_help_heading_attr, "h4": _allow_help_heading_attr}
+
 _HELP_ATTRS = {
-    "a": ["href", "title"],
-    "th": ["align"],
-    "td": ["align"],
+    **_ALLOWED_ATTRS,
+    "img": _IMG_ATTRS,
+    "iframe": {"src", "title", "allowfullscreen", "loading", "referrerpolicy"},
+    **_HEADING_ATTRS,
+    "div": {"class"},
+    "p": {"class"},
+}
+_HELP_FILTERS: dict[str, AttrFilter] = {
     "img": _allow_help_img_attr,
     "iframe": _allow_help_iframe_attr,
-    "h2": _allow_help_heading_attr,
-    "h3": _allow_help_heading_attr,
-    "h4": _allow_help_heading_attr,
+    **_HEADING_FILTERS,
     "div": _allow_help_div_attr,
     "p": _allow_help_p_attr,
 }
 
 
-def _harden_link(attrs: dict[Any, Any], new: bool = False) -> dict[Any, Any]:
-    """Bleach linkify callback: harden every anchor's ``rel`` and ``target``.
+def _harden_link(attrs: dict[str, str]) -> dict[str, str]:
+    """Link hardener: every anchor opens in a new tab with ``rel="noopener nofollow noreferrer"``.
 
     Applies to both author-written links (that survived the allowlist) and any
-    bare URLs auto-linked by ``bleach.linkify``.
+    bare URLs auto-linked by :func:`core.linkify.linkify`.
     """
-    attrs[(None, "rel")] = "noopener nofollow noreferrer"
-    attrs[(None, "target")] = "_blank"
+    attrs["rel"] = "noopener nofollow noreferrer"
+    attrs["target"] = "_blank"
     return attrs
 
 
-def _harden_link_help(attrs: dict[Any, Any], new: bool = False) -> dict[Any, Any]:
-    """Bleach linkify callback for the help profile.
+def _harden_link_help(attrs: dict[str, str]) -> dict[str, str]:
+    """Link hardener for the help profile.
 
     Internal links (href starting with ``/`` or ``#``) stay same-tab with
     ``rel="noopener"`` — help articles constantly deep-link into the app, and
     bouncing a member to a new tab for ``/guilds/voting/`` is hostile. External
     links keep the full member-profile hardening.
     """
-    href = attrs.get((None, "href"), "")
+    href = attrs.get("href", "")
     if href.startswith(("/", "#")):
-        attrs[(None, "rel")] = "noopener"
-        attrs.pop((None, "target"), None)
+        attrs["rel"] = "noopener"
+        attrs.pop("target", None)
         return attrs
-    return _harden_link(attrs, new)
+    return _harden_link(attrs)
 
 
 # Wiki profile (member-authored wiki pages, brief §4 "Sanitizer"): the member tag set
@@ -240,21 +256,18 @@ def wiki_image_src_prefixes() -> tuple[str, ...]:
 
 
 def _allow_wiki_img_attr(tag: str, name: str, value: str) -> bool:
-    """Bleach attribute filter for wiki-profile ``img``: alt/title pass; src must be ours."""
+    """Attribute filter for wiki-profile ``img``: alt/title pass; src must be ours."""
     if name in ("alt", "title"):
         return True
     return name == "src" and value.startswith(wiki_image_src_prefixes())
 
 
-_WIKI_ATTRS = {
-    "a": ["href", "title"],
-    "th": ["align"],
-    "td": ["align"],
-    "img": _allow_wiki_img_attr,
-    "h2": _allow_help_heading_attr,
-    "h3": _allow_help_heading_attr,
-    "h4": _allow_help_heading_attr,
-}
+_WIKI_ATTRS = {**_ALLOWED_ATTRS, "img": _IMG_ATTRS, **_HEADING_ATTRS}
+_WIKI_FILTERS: dict[str, AttrFilter] = {"img": _allow_wiki_img_attr, **_HEADING_FILTERS}
+
+_MEMBER_CLEANER = AllowlistCleaner(_ALLOWED_TAGS, _ALLOWED_ATTRS)
+_WIKI_CLEANER = AllowlistCleaner(_WIKI_TAGS, _WIKI_ATTRS, _WIKI_FILTERS)
+_HELP_CLEANER = AllowlistCleaner(_HELP_TAGS, _HELP_ATTRS, _HELP_FILTERS)
 
 
 def render_markdown(source: str, *, profile: str = "member") -> str:
@@ -280,18 +293,16 @@ def render_markdown(source: str, *, profile: str = "member") -> str:
         return ""
     if profile == "member":
         raw = md.markdown(source, extensions=_MEMBER_EXTENSIONS)
-        cleaned = bleach.clean(raw, tags=_ALLOWED_TAGS, attributes=_ALLOWED_ATTRS, strip=True)
-        return bleach.linkify(cleaned, callbacks=[_harden_link], parse_email=False)
+        return linkify(_MEMBER_CLEANER.clean(raw), _harden_link)
     if profile == "wiki":
         raw = md.markdown(source, extensions=_WIKI_EXTENSIONS)
-        cleaned = bleach.clean(raw, tags=_WIKI_TAGS, attributes=_WIKI_ATTRS, strip=True)
-        cleaned = _SRCLESS_IMG_RE.sub("", cleaned)
-        return bleach.linkify(cleaned, callbacks=[_harden_link_help], parse_email=False)
+        cleaned = _SRCLESS_IMG_RE.sub("", _WIKI_CLEANER.clean(raw))
+        return linkify(cleaned, _harden_link_help)
     raw = md.markdown(source, extensions=_HELP_EXTENSIONS)
-    cleaned = bleach.clean(raw, tags=_HELP_TAGS, attributes=_HELP_ATTRS, strip=True)
+    cleaned = _IFRAME_CONTENT_RE.sub(r"\1</iframe>", _HELP_CLEANER.clean(raw))
     cleaned = _SRCLESS_IMG_RE.sub("", cleaned)
     cleaned = _SRCLESS_IFRAME_RE.sub("", cleaned)
-    return bleach.linkify(cleaned, callbacks=[_harden_link_help], parse_email=False)
+    return linkify(cleaned, _harden_link_help)
 
 
 # Page-content profile: exactly the /help/edit/ Quill toolbar's output and nothing more.
@@ -313,9 +324,10 @@ _PAGE_TAGS = [
     "a",
     "blockquote",
 ]
-# ``href`` only — Quill's own target/rel are stripped and re-applied by the linkify
-# callback below, and Quill classes (ql-*) never survive. No free attributes anywhere.
-_PAGE_ATTRS = {"a": ["href"]}
+# ``href`` only — Quill's own target/rel are stripped and re-applied by the link
+# hardener below, and Quill classes (ql-*) never survive. No free attributes anywhere.
+_PAGE_ATTRS = {"a": {"href"}}
+_PAGE_CLEANER = AllowlistCleaner(_PAGE_TAGS, _PAGE_ATTRS)
 
 
 def looks_like_html(source: str) -> bool:
@@ -345,9 +357,7 @@ def sanitize_page_html(raw: str) -> str:
     """
     if not raw or not raw.strip():
         return ""
-    normalized = _normalize_quill_lists(raw)
-    cleaned = bleach.clean(normalized, tags=_PAGE_TAGS, attributes=_PAGE_ATTRS, strip=True)
-    hardened = bleach.linkify(cleaned, callbacks=[_harden_link_help], parse_email=False)
+    hardened = linkify(_PAGE_CLEANER.clean(_normalize_quill_lists(raw)), _harden_link_help)
     if not rich_html_to_text(hardened):
         return ""
     return hardened
@@ -382,9 +392,12 @@ def sanitize_page_submission(value: str) -> str:
     A normal /help/edit/ save carries Quill HTML and gets sanitized before storage; a
     save whose value doesn't sniff as HTML (a no-JS fallback typing into the raw
     textarea, or an untouched Markdown value) is stored unchanged so it keeps rendering
-    through the Markdown path.
+    through the Markdown path. Either way the size limit applies first.
+
+    Raises:
+        RichTextTooLongError: ``value`` is longer than ``RICH_TEXT_MAX_CHARS``.
     """
-    if looks_like_html(value):
+    if looks_like_html(limit_rich_text(value)):
         return sanitize_page_html(value)
     return value
 
@@ -398,12 +411,8 @@ def sanitize_page_submission(value: str) -> str:
 # sheet from a supplier's page should keep it), inline code, and a rule. Still no
 # iframe, no div — those stay the admin-authored help profile's privilege.
 _WIKI_TAGS_HTML = [*_PAGE_TAGS, "img", "h4", "table", "thead", "tbody", "tr", "th", "td", "code", "pre", "hr"]
-_WIKI_ATTRS_HTML = {
-    "a": ["href"],
-    "img": _allow_wiki_img_attr,
-    "th": ["align"],
-    "td": ["align"],
-}
+_WIKI_ATTRS_HTML = {"a": {"href"}, "img": _IMG_ATTRS, "th": {"align"}, "td": {"align"}}
+_WIKI_HTML_CLEANER = AllowlistCleaner(_WIKI_TAGS_HTML, _WIKI_ATTRS_HTML, {"img": _allow_wiki_img_attr})
 
 # One pass over rendered wiki HTML: an h2/h3 with no id (or an invalid one) gets a
 # slugified id computed from its own text, deduped -2/-3 within the same body.
@@ -414,18 +423,16 @@ _HEADING_EXISTING_ID_RE = re.compile(r'\bid="([^"]*)"')
 def sanitize_wiki_html(raw: str) -> str:
     """Sanitize a Quill wiki-page body: the page tag set plus images, no iframe/div.
 
-    The Quill path for :func:`render_wiki_content` — bullet-list normalize, then
-    ``bleach.clean`` with the wiki HTML allowlist, then drop any src-less ``img`` bleach
-    left behind (a rejected external/`data:` source leaves a useless tag), then hardened
-    auto-linking (internal links stay same-tab, matching the help profile). Empty,
+    The Quill path for :func:`render_wiki_content` — bullet-list normalize, then clean
+    with the wiki HTML allowlist, then drop any src-less ``img`` the sanitizer left behind
+    (a rejected external/`data:` source leaves a useless tag), then hardened auto-linking
+    (internal links stay same-tab, matching the help profile). Empty,
     blank, or contentless input (an empty Quill editor is ``<p><br></p>``) returns ``""``.
     """
     if not raw or not raw.strip():
         return ""
-    normalized = _normalize_quill_lists(raw)
-    cleaned = bleach.clean(normalized, tags=_WIKI_TAGS_HTML, attributes=_WIKI_ATTRS_HTML, strip=True)
-    cleaned = _SRCLESS_IMG_RE.sub("", cleaned)
-    hardened = bleach.linkify(cleaned, callbacks=[_harden_link_help], parse_email=False)
+    cleaned = _SRCLESS_IMG_RE.sub("", _WIKI_HTML_CLEANER.clean(_normalize_quill_lists(raw)))
+    hardened = linkify(cleaned, _harden_link_help)
     # An image counts as content here, unlike the help-page sanitizer this is modelled on
     # (which strips img outright, so its text-only emptiness test can never be wrong). On a
     # phone the primary contribution is a photo, not prose, so a body that is only a photo
@@ -494,8 +501,11 @@ def sanitize_wiki_submission(value: str) -> str:
     profiles must stay independently editable. A normal wiki save carries Quill HTML and
     gets sanitized before storage; a value that doesn't sniff as HTML (a no-JS fallback,
     or a legacy Markdown value) is stored unchanged so it keeps rendering through the
-    Markdown path.
+    Markdown path. Either way the size limit applies first.
+
+    Raises:
+        RichTextTooLongError: ``value`` is longer than ``RICH_TEXT_MAX_CHARS``.
     """
-    if looks_like_html(value):
+    if looks_like_html(limit_rich_text(value)):
         return sanitize_wiki_html(value)
     return value

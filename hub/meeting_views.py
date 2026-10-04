@@ -34,7 +34,7 @@ from django.urls import reverse
 from django.utils import timezone
 from django.views.decorators.http import require_POST
 
-from core.html_sanitize import sanitize_rich_html
+from core.html_sanitize import clean_rich_html
 from hub.forms import (
     MeetingAttachmentForm,
     MeetingCreateForm,
@@ -205,8 +205,8 @@ _MEETING_FIELDS: dict[str, Callable[[str], Any]] = {
     "scheduled_time": _clean_half_hour,
     "scheduled_end_time": _clean_half_hour,
     "video_call_url": _clean_url,
-    "special_notes": sanitize_rich_html,
-    "other_notes": sanitize_rich_html,
+    "special_notes": clean_rich_html,
+    "other_notes": clean_rich_html,
 }
 
 # Saves that must reach an OWNED calendar event (§5.2) — sync_event() itself
@@ -472,7 +472,7 @@ def hub_meeting_create(request: HttpRequest) -> HttpResponse:
 _ITEM_FIELDS: dict[str, Callable[[str], Any]] = {
     "name": _clean_char(200),
     "description": _clean_text,
-    "minutes": sanitize_rich_html,
+    "minutes": clean_rich_html,
 }
 
 

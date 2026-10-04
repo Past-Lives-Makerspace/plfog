@@ -70,7 +70,7 @@ def describe_migration_0112_migrate_meeting_notes():
             assert monthly.special_title == ""
             assert monthly.special_notes == ""
             # Markdown rendered and sanitized: bold survives; the script tag is stripped
-            # (bleach keeps the now-inert inner text, drops the executable tag).
+            # (the sanitizer keeps the now-inert inner text, drops the executable tag).
             assert "<strong>Decisions</strong>" in monthly.other_notes
             assert "<script>" not in monthly.other_notes
             # Approval stamps come from the note's author and post date.

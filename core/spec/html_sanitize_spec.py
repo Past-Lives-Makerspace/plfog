@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import time
 
+import pytest
+
 from core.html_sanitize import (
     _RAW_TEXT_ELEMENT_RE,
     _normalize_quill_lists,
@@ -26,7 +28,7 @@ def describe_sanitize_rich_html():
         assert result == "<p>Hello</p>"
 
     def it_drops_a_style_block_with_its_css():
-        # bleach keeps the text between stripped tags, so CSS used to show as words.
+        # Stripping keeps the text between stripped tags, so CSS used to show as words.
         result = sanitize_rich_html('<p>a</p><STYLE type="text/css">body{display:none}</STYLE >\n<p>b</p>')
         assert result == "<p>a</p>\n<p>b</p>"
 
@@ -35,8 +37,7 @@ def describe_sanitize_rich_html():
 
     def it_scans_unclosed_openers_in_linear_time():
         # The two pre-passes once rescanned to the end from every unclosed opener: 112 KB of
-        # <style> took about 4 seconds, 125 KB of <ol> most of a minute. Timed without bleach,
-        # whose own parse of deep nesting is a separate cost.
+        # <style> took about 4 seconds, 125 KB of <ol> most of a minute.
         started = time.monotonic()
         for raw in ("<style>" * 64_000, "<style " * 64_000, "<script><style>" * 32_000):
             _RAW_TEXT_ELEMENT_RE.sub("", raw)
@@ -220,3 +221,126 @@ def describe_rich_body_to_text():
         from core.html_sanitize import rich_body_to_text
 
         assert rich_body_to_text("Line one\n\nLine <two>") == "Line one\n\nLine <two>"
+
+
+def describe_stripping_tags_outside_the_allowlist():
+    # Each expectation here is also what bleach produced for the same input.
+    def it_leaves_a_line_break_where_a_block_tag_was_stripped():
+        assert rich_html_to_text("<div>1</div><div>Class</div>") == "1 Class"
+        assert sanitize_rich_html("<p>a</p><div>b</div>") == "<p>a</p>\nb"
+
+    def it_leaves_no_line_break_for_the_very_first_tag():
+        from core.html_sanitize import AllowlistCleaner
+
+        assert AllowlistCleaner((), {}).clean("<div>a</div>") == "a"
+
+    def it_does_not_let_a_stripped_block_tag_split_a_paragraph():
+        assert sanitize_rich_html("<p>a<div>b</div>c</p>") == "<p>a\nbc</p>"
+
+    def it_keeps_a_less_than_sign_that_starts_no_tag_as_text():
+        assert sanitize_rich_html("<p>1 &lt; 2 and 3 < 4 <<b>x</b></p>") == "<p>1 &lt; 2 and 3 &lt; 4 &lt;<b>x</b></p>"
+
+    def it_never_joins_text_around_a_stripped_tag_into_a_new_tag():
+        out = sanitize_rich_html("<p><<div>script>alert(1)<</div>/script></p>")
+        assert out == "<p>&lt;\nscript&gt;alert(1)&lt;/script&gt;</p>"
+
+    def it_drops_comments_of_every_shape():
+        assert sanitize_rich_html("<p><!-- note -->a<!---->b<!-->c<!--->d<!x>e<?x>f</p>") == "<p>abcdef</p>"
+
+    def it_reads_a_greater_than_sign_inside_a_quoted_value_as_part_of_the_value():
+        out = sanitize_rich_html("<p><a title=\"a>b\" href='/x'>t</a></p>")
+        assert out.startswith('<p><a title="a&gt;b" href="/x" ')
+
+    def it_strips_a_tag_with_an_unquoted_attribute():
+        assert sanitize_rich_html("<p><span x=y>z</span></p>") == "<p>z</p>"
+
+    def it_keeps_a_tag_cut_off_by_the_end_of_the_input_as_text():
+        assert sanitize_rich_html("<p>tag <stro") == "<p>tag &lt;stro</p>"
+        assert sanitize_rich_html('<p>a <b x="<i>"') == '<p>a &lt;b x="&lt;i&gt;"</p>'
+        assert rich_html_to_text("<p>tag <stro") == "tag <stro"
+
+    def it_reads_tag_names_in_any_case():
+        assert sanitize_rich_html("<P>Up<BR>per</P>") == "<p>Up<br>per</p>"
+
+
+def describe_allowlist_cleaner():
+    def it_keeps_an_attribute_only_when_its_filter_accepts_it():
+        from core.html_sanitize import AllowlistCleaner
+
+        cleaner = AllowlistCleaner(
+            ["p", "img"],
+            {"img": {"src", "alt"}},
+            {"img": lambda tag, name, value: name != "src" or value.startswith("/ok/")},
+        )
+        out = cleaner.clean('<p title="t"><img src="/ok/a.png" alt="a"><img src="/no/b.png" alt="b"></p>')
+        assert out == '<p><img src="/ok/a.png" alt="a"><img alt="b"></p>'
+
+    def it_keeps_tel_links_and_drops_script_links():
+        out = sanitize_rich_html('<p><a href="tel:+15035550199">call</a> <a href="javascript:alert(1)">x</a></p>')
+        assert 'href="tel:+15035550199"' in out
+        assert "javascript" not in out
+
+
+def describe_the_rich_text_size_limit():
+    def it_passes_text_at_the_limit_through_unchanged():
+        from core.html_sanitize import RICH_TEXT_MAX_CHARS, limit_rich_text
+
+        value = "x" * RICH_TEXT_MAX_CHARS
+        assert limit_rich_text(value) is value
+
+    def it_refuses_text_over_the_limit_with_plain_copy():
+        from django.core.exceptions import ValidationError
+
+        from core.html_sanitize import RICH_TEXT_MAX_CHARS, RichTextTooLongError, limit_rich_text
+
+        with pytest.raises(RichTextTooLongError) as caught:
+            limit_rich_text("x" * (RICH_TEXT_MAX_CHARS + 1))
+        assert str(caught.value) == "This is too long to save. Shorten it to under 100,000 characters."
+        assert isinstance(caught.value, ValidationError)
+        assert isinstance(caught.value, ValueError)
+        assert caught.value.messages == [str(caught.value)]
+        assert caught.value.code == "too_long"
+
+    def it_applies_to_editor_html_before_sanitizing():
+        from core.html_sanitize import RICH_TEXT_MAX_CHARS, RichTextTooLongError, clean_rich_html
+
+        assert clean_rich_html('<p onclick="x()">Hi</p>') == "<p>Hi</p>"
+        with pytest.raises(RichTextTooLongError):
+            clean_rich_html("<p>" + "x" * RICH_TEXT_MAX_CHARS + "</p>")
+
+    def it_applies_to_a_body_that_may_be_plain_text():
+        from core.html_sanitize import RICH_TEXT_MAX_CHARS, RichTextTooLongError, clean_rich_body
+
+        with pytest.raises(RichTextTooLongError):
+            clean_rich_body("x" * (RICH_TEXT_MAX_CHARS + 1))
+        with pytest.raises(RichTextTooLongError):
+            clean_rich_body("<p>" + "x" * RICH_TEXT_MAX_CHARS + "</p>")
+
+    def it_applies_to_page_and_wiki_saves_markdown_included():
+        from core.html_sanitize import RICH_TEXT_MAX_CHARS, RichTextTooLongError
+        from membership.markdown import sanitize_page_submission, sanitize_wiki_submission
+
+        for save in (sanitize_page_submission, sanitize_wiki_submission):
+            with pytest.raises(RichTextTooLongError):
+                save("**bold** " + "x" * RICH_TEXT_MAX_CHARS)
+            with pytest.raises(RichTextTooLongError):
+                save("<p>" + "x" * RICH_TEXT_MAX_CHARS + "</p>")
+
+
+def describe_the_sanitizer_dependency():
+    def it_uses_nh3_and_never_bleach():
+        from pathlib import Path
+
+        root = Path(__file__).resolve().parents[2]
+        requirements = (root / "requirements.txt").read_text().splitlines()
+        assert any(line.startswith("nh3") for line in requirements)
+        assert not any(line.startswith("bleach") for line in requirements)
+        importers = [
+            str(path.relative_to(root))
+            for path in root.rglob("*.py")
+            if ".venv" not in path.parts
+            and any(
+                line.lstrip().startswith(("import bleach", "from bleach")) for line in path.read_text().splitlines()
+            )
+        ]
+        assert importers == []
