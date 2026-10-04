@@ -1106,7 +1106,7 @@ def describe_detail_hero_shape():
         # Nothing is clipped, so nothing is adjustable: no component, no sliders, no bound style.
         assert "heroPlacement(" not in body
         assert 'title="Adjust Placement"' not in body
-        assert 'x-ref="heroImg"' not in body
+        assert "data-hero-img" not in body
         assert "object-position" not in _banner_tag(body)
         # The Edit link stays, and no longer leans on the component's state.
         assert f'href="{response.context["edit_url"]}"' in body
@@ -1151,7 +1151,7 @@ def describe_detail_hero_shape():
         banner = re.search(r'<img class="cp-detail__hero-img cp-detail__hero-img--cover"[^>]*>', body)
         assert banner is not None, "no category banner rendered"
         assert f'src="{offering.category.hero_image.url}"' in banner.group(0)
-        assert 'x-ref="heroImg"' in banner.group(0)
+        assert "data-hero-img" in banner.group(0)
         assert "heroPlacement({" in body
         assert f"contentTypeId: {ContentType.objects.get_for_model(Category).pk}," in body
         assert f"objectId: {offering.category.pk}," in body

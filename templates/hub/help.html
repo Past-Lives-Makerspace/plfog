@@ -39,11 +39,13 @@ OrgInfoPage.intro_parts, and admins keep Edit this page / Adjust in the top corn
      })"
      {% endif %}>
     {% if page.banner_image %}
+    {# Frame shapes, width over height (heroPlacement), as measured: widest 3.26 on the members site (1240 by 380, .pl-guild-hero in hub.css) and 2.98 on the guilds site; at 320px 0.79 with the default intro and 0.44 with a 400 character one, and the intro has no length limit, so the floor is 0.25. tests/e2e/hero_placement_slack_spec.py checks these. #}
     <img class="pl-guild-hero__img"
          src="{{ page.banner_image.url }}"
          alt="Past Lives Makerspace"
+         data-frame-min="0.25" data-frame-max="3.4"
          {% if can_edit %}
-         x-ref="heroImg"
+         data-hero-img
          :style="'object-position: ' + objectPosition"
          {% else %}
          style="object-position: {{ page.hero_object_position }};"
@@ -60,15 +62,17 @@ OrgInfoPage.intro_parts, and admins keep Edit this page / Adjust in the top corn
             </svg>
             <span x-text="isLoading ? '...' : 'Adjust'"></span>
         </button>
+        {# heroPlacement.measure() turns off a slider that moves nothing on any screen, and the line under them says which are on and why. #}
         <div x-show="isAdjusting" x-cloak class="pl-hero-adjust" style="background:rgba(0,0,0,0.5); padding:0.5rem 1rem; border-radius:8px; border:1px solid rgba(255,255,255,0.1);">
             <div style="display:flex; flex-direction:column; gap:2px;">
-                <label style="font-size:10px; text-transform:uppercase; color:#96ACBB;">Vertical</label>
-                <input type="range" min="0" max="100" x-model="posY" style="width:120px; cursor:pointer;">
+                <label for="hero-adjust-y" style="font-size:10px; text-transform:uppercase; color:#96ACBB;">Vertical</label>
+                <input type="range" min="0" max="100" id="hero-adjust-y" aria-describedby="hero-adjust-why" x-model="posY" :disabled="!yMoves" style="width:120px;">
             </div>
             <div style="display:flex; flex-direction:column; gap:2px;">
-                <label style="font-size:10px; text-transform:uppercase; color:#96ACBB;">Horizontal</label>
-                <input type="range" min="0" max="100" x-model="posX" style="width:120px; cursor:pointer;">
+                <label for="hero-adjust-x" style="font-size:10px; text-transform:uppercase; color:#96ACBB;">Horizontal</label>
+                <input type="range" min="0" max="100" id="hero-adjust-x" aria-describedby="hero-adjust-why" x-model="posX" :disabled="!xMoves" style="width:120px;">
             </div>
+            <p class="pl-hero-adjust__why" id="hero-adjust-why" x-show="why()" x-text="why()"></p>
         </div>
         <button type="button" class="pl-btn pl-btn--primary pl-btn--sm" @click="save()" x-show="isAdjusting" :disabled="isLoading">
             <span x-text="isLoading ? '...' : 'Save'"></span>

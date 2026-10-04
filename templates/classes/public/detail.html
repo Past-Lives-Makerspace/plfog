@@ -67,11 +67,13 @@ appends and runs it on the first boosted arrival here (FRONTEND.md, Scripts unde
            alt="{{ offering.title }}">
       {% endwith %}
     {% elif offering.category.hero_image %}
+      {# Frame shapes, width over height (heroPlacement), as measured: widest 2.38 (1240 by 520, .cp-detail__hero in cms-public.css); at 320px 1.03 with a short title and 0.65 with a 108 character title and 150 character subtitle, and a title runs to 255, so the floor is 0.25. tests/e2e/hero_placement_slack_spec.py checks these. #}
       <img class="cp-detail__hero-img cp-detail__hero-img--cover"
            src="{{ offering.category.hero_image.url }}"
            alt="{{ offering.category.name }}"
+           data-frame-min="0.25" data-frame-max="2.5"
            {% if can_edit_category %}
-           x-ref="heroImg"
+           data-hero-img
            :style="'object-position: ' + objectPosition"
            {% else %}
            style="object-position: {{ offering.category.hero_object_position }};"
@@ -187,15 +189,15 @@ appends and runs it on the first boosted arrival here (FRONTEND.md, Scripts unde
                 <span x-text="isLoading ? '...' : 'Adjust'"></span>
             </button>
 
-            {# Sliders #}
-            <div x-show="isAdjusting" x-cloak style="display:flex; align-items:center; gap:0.75rem; background:rgba(0,0,0,0.7); padding:6px 10px; border-radius:6px; border:1px solid rgba(255,255,255,0.2); backdrop-filter:blur(8px);">
+            {# Sliders. heroPlacement.measure() turns off a slider that moves nothing on any screen, and the line under them says which are on and why. #}
+            <div x-show="isAdjusting" x-cloak class="pl-hero-adjust" style="display:flex; align-items:center; gap:0.75rem; background:rgba(0,0,0,0.7); padding:6px 10px; border-radius:6px; border:1px solid rgba(255,255,255,0.2); backdrop-filter:blur(8px);">
                 <div style="display:flex; align-items:center; gap:8px;">
-                    <label style="font-size:9px; text-transform:uppercase; color:#96ACBB; font-weight:bold;">V</label>
-                    <input type="range" min="0" max="100" x-model="posY" style="width:70px; height:4px; cursor:pointer;">
+                    <label for="hero-adjust-y" style="font-size:9px; text-transform:uppercase; color:#96ACBB; font-weight:bold;">V</label>
+                    <input type="range" min="0" max="100" id="hero-adjust-y" aria-describedby="hero-adjust-why" x-model="posY" :disabled="!yMoves" style="width:70px; height:4px;">
                 </div>
                 <div style="display:flex; align-items:center; gap:8px;">
-                    <label style="font-size:9px; text-transform:uppercase; color:#96ACBB; font-weight:bold;">H</label>
-                    <input type="range" min="0" max="100" x-model="posX" style="width:70px; height:4px; cursor:pointer;">
+                    <label for="hero-adjust-x" style="font-size:9px; text-transform:uppercase; color:#96ACBB; font-weight:bold;">H</label>
+                    <input type="range" min="0" max="100" id="hero-adjust-x" aria-describedby="hero-adjust-why" x-model="posX" :disabled="!xMoves" style="width:70px; height:4px;">
                 </div>
                 <div style="display:flex; gap:0.5rem; margin-left: 0.5rem; border-left: 1px solid rgba(255,255,255,0.1); padding-left: 0.75rem;">
                     <button type="button" style="background: var(--gold); border: none; padding: 3px 10px; border-radius: 4px; color: black; font-weight: 700; font-size: 10px; cursor: pointer;"
@@ -207,6 +209,7 @@ appends and runs it on the first boosted arrival here (FRONTEND.md, Scripts unde
                         Cancel
                     </button>
                 </div>
+                <p class="pl-hero-adjust__why" id="hero-adjust-why" x-show="why()" x-text="why()"></p>
             </div>
             {% endif %}
         </div>
