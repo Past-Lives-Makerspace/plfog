@@ -13,6 +13,7 @@ the photo dims under a lock glyph, the state row gains the pre portal help bubbl
 Book the orientation link points at the required type's card on the Orientations page, or at
 its owner page when that page does not list it (equipment.required_orientation_link). The state row and the
 link sit above the stretched name link (z-index) so they stay clickable and hoverable.
+The Staff line (#615) names the item's staff from equipment.staff_roster, and is absent when there are none.
 {% endcomment %}
 <div class="pl-equip-grid">
   {% for card in cards %}
@@ -77,6 +78,9 @@ link sit above the stretched name link (z-index) so they stay clickable and hove
       {% endif %}
       {% if card.availability %}
       <div class="pl-equip-avail pl-equip-avail--{{ card.availability.0 }}">{{ card.availability.1 }}</div>
+      {% endif %}
+      {% if equipment.staff_roster %}
+      <div class="pl-equip-avail pl-equip-avail--muted" data-equip-card-staff>Staff: {% for staff in equipment.staff_roster %}{{ staff.member.display_name }}{% if not forloop.last %}, {% endif %}{% endfor %}</div>
       {% endif %}
     </div>
   </div>

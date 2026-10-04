@@ -1543,6 +1543,8 @@ a:hover { color: var(--hub-link-hover); }
 .hub-member-avatar {
     width: 36px;
     height: 36px;
+    /* Stays a circle when a long name wraps beside it at phone width (#615). */
+    flex-shrink: 0;
     border-radius: 50%;
     background-color: rgba(238, 180, 75, 0.15);
     color: var(--color-tuscan-yellow);

@@ -330,9 +330,10 @@ def reservation_cards(member: Member | None, queryset: EquipmentQuerySet) -> lis
     The Reservations page and the guild page's Reservations tab both build their grid here,
     so a card cannot read differently on the two. ``queryset`` is the caller's filtered
     :func:`_equipment_queryset`; this adds everything the partial reads, in a fixed number of
-    queries however many cards there are: the locked card's link annotation, the hours and the
-    right now reservations behind the availability line, the running orientations, the
-    member's access sets and one fee lookup. An empty grid costs only its own read.
+    queries however many cards there are: the locked card's link annotation, the staff behind
+    the Staff line (#615), the hours and the right now reservations behind the availability
+    line, the running orientations, the member's access sets and one fee lookup. An empty
+    grid costs only its own read.
 
     Args:
         member: The viewer, or ``None`` for an unlinked account (every card then reads
@@ -346,7 +347,9 @@ def reservation_cards(member: Member | None, queryset: EquipmentQuerySet) -> lis
 
     now = timezone.now()
     equipment_list = list(
-        queryset.with_required_orientation_listed().prefetch_related(
+        queryset.with_required_orientation_listed()
+        .with_staff()
+        .prefetch_related(
             "hours_rules",
             Prefetch(
                 "reservations",
@@ -519,12 +522,12 @@ def _equipment_orientation_sections(equipment: Equipment, member: Member | None)
 
 @login_required
 def hub_equipment_detail(request: HttpRequest, slug: str) -> HttpResponse:
-    """The equipment mini-page — hero, requirements banner, Orientation section, schedule, About.
+    """The equipment mini-page — hero, requirements banner, Orientation section, schedule, Staff, About.
 
     ``?day=YYYY-MM-DD`` opens the schedule on that day (the Reservations calendar links here
     that way), with the week strip paged to show it.
     """
-    equipment = get_object_or_404(_equipment_queryset(), slug=slug)
+    equipment = get_object_or_404(_equipment_queryset().with_staff(), slug=slug)
     manages = can_manage_equipment(request, equipment)
     if not equipment.is_active and not manages:
         raise Http404("This equipment has been retired.")

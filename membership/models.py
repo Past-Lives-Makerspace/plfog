@@ -14068,6 +14068,18 @@ class EquipmentQuerySet(models.QuerySet["Equipment"]):
         )
         return self.annotate(required_orientation_listed=Exists(listed))
 
+    def with_staff(self) -> EquipmentQuerySet:
+        """Prefetch each item's staff into ``staff_roster``, ordered by name, in one query (#615).
+
+        The list the equipment page's Staff card and each reservation card's Staff line read.
+        Ordered like the guild page's Guild Staff card (:meth:`Guild.staff_by_member`): by legal
+        name, case insensitive. No hidden member filter, matching that card.
+        """
+        roster = EquipmentStaffMembership.objects.select_related("member").order_by(
+            Lower("member__full_legal_name"), "pk"
+        )
+        return self.prefetch_related(models.Prefetch("staff_memberships", queryset=roster, to_attr="staff_roster"))
+
 
 class Equipment(HeroCropMixin, models.Model):
     """A shared tool or room members can find (and, from PR 2, reserve) on the Equipment page.

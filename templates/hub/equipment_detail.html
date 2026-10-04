@@ -86,6 +86,22 @@
 {# ── Schedule + Book a Time + reservation lists — one HTMX-swapped unit (spec §7.3 items 3 to 6). ── #}
 {% include "hub/partials/equipment_schedule.html" %}
 
+{# ── Staff — who looks after this equipment, the guild page's Guild Staff markup (#615). ── #}
+{% if equipment.staff_roster %}
+<div class="hub-card" data-equip-staff>
+  <h2 class="hub-detail-label">Staff</h2>
+  {% for staff in equipment.staff_roster %}
+  <div class="hub-member-row">
+    <div class="hub-member-avatar">{{ staff.member.display_name|make_list|first|upper }}</div>
+    <div class="hub-member-info">
+      <span class="hub-member-name">{{ staff.member.display_name }}</span>
+      <span class="hub-badge">{{ staff.get_role_display }}</span>
+    </div>
+  </div>
+  {% endfor %}
+</div>
+{% endif %}
+
 {# ── About — description, wayfinding, and the read-only linked space (spec §7.3 item 7). ── #}
 {% if equipment.description or equipment.location_note or equipment.space %}
 <div class="hub-card" style="padding:1.25rem 1.5rem;">
