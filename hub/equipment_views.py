@@ -324,6 +324,55 @@ def _attach_running_orientations(equipment_list: Sequence[Equipment], *, now: da
         equipment.current_orientation_slots = by_equipment.get(equipment.pk, [])
 
 
+def reservation_cards(member: Member | None, queryset: EquipmentQuerySet) -> list[dict[str, Any]]:
+    """The card dicts ``hub/partials/equipment_cards.html`` renders: the one definition of a card (#502).
+
+    The Reservations page and the guild page's Reservations tab both build their grid here,
+    so a card cannot read differently on the two. ``queryset`` is the caller's filtered
+    :func:`_equipment_queryset`; this adds everything the partial reads, in a fixed number of
+    queries however many cards there are: the locked card's link annotation, the hours and the
+    right now reservations behind the availability line, the running orientations, the
+    member's access sets and one fee lookup. An empty grid costs only its own read.
+
+    Args:
+        member: The viewer, or ``None`` for an unlinked account (every card then reads
+            "Membership inactive").
+        queryset: The items to show, in display order.
+
+    Returns:
+        One ``{"equipment", "access_state", "availability"}`` dict per item.
+    """
+    from billing.late_fees import unpaid_fee_for
+
+    now = timezone.now()
+    equipment_list = list(
+        queryset.with_required_orientation_listed().prefetch_related(
+            "hours_rules",
+            Prefetch(
+                "reservations",
+                queryset=EquipmentReservation.objects.confirmed().filter(starts_at__lte=now, ends_at__gt=now),
+                to_attr="current_reservations",
+            ),
+        )
+    )
+    if not equipment_list:
+        return []
+    _attach_running_orientations(equipment_list, now=now)
+    oriented_ids, guild_ids = _member_access_sets(member)
+    # The block until paid (#456) is a per-member state: one lookup for the whole grid.
+    has_unpaid_fee = member is not None and unpaid_fee_for(member) is not None
+    return [
+        {
+            "equipment": equipment,
+            "access_state": equipment.access_state(
+                member, oriented_type_ids=oriented_ids, member_guild_ids=guild_ids, has_unpaid_fee=has_unpaid_fee
+            ),
+            "availability": equipment.availability_line(),
+        }
+        for equipment in equipment_list
+    ]
+
+
 @login_required
 def hub_equipment_index(request: HttpRequest) -> HttpResponse:
     """The Equipment directory — card grid with guild/kind/search filters and access badges.
@@ -334,8 +383,7 @@ def hub_equipment_index(request: HttpRequest) -> HttpResponse:
     """
     member = _get_member(request)
     pane = "calendar" if request.GET.get("view") == "calendar" else "list"
-    # The locked cards' Book the orientation links read whether the Orientations page lists the type.
-    base = _equipment_queryset().active().with_required_orientation_listed()
+    base = _equipment_queryset().active()
     guild_filter = request.GET.get("guild", "")
     kind_filter = request.GET.get("kind", "")
     query = request.GET.get("q", "").strip()
@@ -348,34 +396,7 @@ def hub_equipment_index(request: HttpRequest) -> HttpResponse:
         filtered = filtered.filter(kind=kind_filter)
     if query:
         filtered = filtered.filter(name__icontains=query)
-    # The availability line reads hours + right-now reservations from these prefetches —
-    # one queryset for the whole grid, no per-card queries.
-    now = timezone.now()
-    filtered = filtered.prefetch_related(
-        "hours_rules",
-        Prefetch(
-            "reservations",
-            queryset=EquipmentReservation.objects.confirmed().filter(starts_at__lte=now, ends_at__gt=now),
-            to_attr="current_reservations",
-        ),
-    )
-    equipment_list = list(filtered)
-    _attach_running_orientations(equipment_list, now=now)
-    oriented_ids, guild_ids = _member_access_sets(member)
-    # One fee lookup for the whole grid (#456): the block until paid is a per-member state.
-    from billing.late_fees import unpaid_fee_for
-
-    has_unpaid_fee = member is not None and unpaid_fee_for(member) is not None
-    cards = [
-        {
-            "equipment": equipment,
-            "access_state": equipment.access_state(
-                member, oriented_type_ids=oriented_ids, member_guild_ids=guild_ids, has_unpaid_fee=has_unpaid_fee
-            ),
-            "availability": equipment.availability_line(),
-        }
-        for equipment in equipment_list
-    ]
+    cards = reservation_cards(member, filtered)
     return render(
         request,
         "hub/equipment_index.html",

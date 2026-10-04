@@ -1,0 +1,18 @@
+/* Guild settings (hub/guild_edit.html): styles added since #502. The page's older rules
+   (.pl-guild-settings__header and friends) still live in hub.css. Colours come from the
+   theme tokens, except the two light-theme pill text colours at the bottom, which are hard
+   coded to match the same contrast bumps in member-edit.css and announcements.css. */
+
+/* A settings card: a heading, a short lead line, then its controls. */
+.pl-guild-settings-card { padding: 1.5rem; margin-bottom: 1.5rem; }
+.pl-guild-settings-card__title { margin-top: 0; margin-bottom: 0.25rem; }
+.pl-guild-settings-card__lead { font-size: 0.8125rem; margin: 0 0 1rem; }
+
+/* Guild settings > Reservations: the guild's reservable items, each linking to its manage page. */
+.pl-guild-reservables { list-style: none; margin: 0; padding: 0; }
+.pl-guild-reservables__row { display: flex; align-items: center; gap: 0.75rem; flex-wrap: wrap; padding: 0.75rem 0; border-top: 1px solid var(--hub-border); }
+.pl-guild-reservables__row:first-child { border-top: 0; }
+.pl-guild-reservables__name { flex: 1; min-width: 0; font-weight: 600; color: var(--hub-text); }
+.pl-guild-reservables__empty { margin: 0; }
+[data-theme="light"] .pl-guild-reservables .hub-pill--ok { color: #1f7a52; }
+[data-theme="light"] .pl-guild-reservables .hub-pill--neutral { color: #5b6675; }

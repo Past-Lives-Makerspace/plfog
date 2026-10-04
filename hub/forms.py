@@ -3575,7 +3575,9 @@ class OrientationCustomRequestForm(forms.Form):
         super().__init__(*args, **kwargs)
         if guild is not None:
             type_field = cast(forms.ModelChoiceField, self.fields["orientation_type"])
-            type_field.queryset = OrientationType.objects.filter(guild=guild).active()
+            type_field.queryset = (
+                OrientationType.objects.filter(guild=guild).active().select_related("guild", "equipment")
+            )
             type_field.error_messages["invalid_choice"] = "Pick one of this guild's orientations."
             first_type = type_field.queryset.first()
             self.has_types = first_type is not None
@@ -4009,6 +4011,20 @@ class GuildAnnouncementSettingsForm(forms.ModelForm):
         model = Guild
         fields = ["allow_member_announcement_suggestions"]
         labels = {"allow_member_announcement_suggestions": "Let members suggest announcements"}
+
+
+class GuildReservationsSettingsForm(forms.ModelForm):
+    """Guild-lead toggle for the guild page's Reservations tab (#502).
+
+    A single boolean on :class:`~membership.models.Guild`, rendered as a toggle on the
+    Reservations tab of the guild editor. The tab shows while it is on and the guild owns an
+    active item (:meth:`~membership.models.EquipmentQuerySet.on_guild_page`).
+    """
+
+    class Meta:
+        model = Guild
+        fields = ["show_reservations_tab"]
+        labels = {"show_reservations_tab": "Show a Reservations tab on the guild page"}
 
 
 class GuildVisibilityForm(forms.ModelForm):

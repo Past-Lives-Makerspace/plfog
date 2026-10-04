@@ -1,8 +1,11 @@
 {% comment %}
 Member-facing orientation section on the guild page, grouped by orientation type
-(issue #282). Context:
+(issue #282). Rendered only while orientation_sections is non empty (#502: the guild page
+hides the Orientations tab otherwise), so there is no empty state here. Context:
   orientation          — GuildOrientationSettings (enabled)
-  orientation_sections — one dict per ACTIVE OrientationType:
+  orientation_sections — one dict per OrientationType from GuildOrientationSettings.guild_page_types:
+                         every active type, plus a retired one the member still has a booking
+                         or checkout hold ahead on:
       type        — the OrientationType
       is_oriented — bool, member completed THIS type
       booking     — the member's live booking for this type, or None
@@ -10,7 +13,7 @@ Member-facing orientation section on the guild page, grouped by orientation type
       slots       — bookable upcoming slots of this type (only when none of the above)
   The hold and booking blocks and the slot confirm modals are the shared partials
   _orientation_type_state.html and _orientation_slot_confirm.html (#502).
-  orientation_all_done — bool, member completed every active type
+  orientation_all_done — bool, member completed every type in orientation_sections
   custom_request_form  — OrientationCustomRequestForm (carries the type picker)
 {% endcomment %}
 {% load classes_tags rich_text %}
@@ -18,10 +21,6 @@ Member-facing orientation section on the guild page, grouped by orientation type
   {% if orientation.is_closed %}
     <h2 class="hub-detail-label" style="margin:0 0 0.5rem;">Orientations paused</h2>
     <p class="hub-text-muted" style="margin:0; font-size:0.9rem;">{% if orientation.closed_message %}{{ orientation.closed_message }}{% else %}This guild isn't taking orientation bookings right now — check back soon.{% endif %}</p>
-
-  {% elif not orientation_sections %}
-    <h2 class="hub-detail-label" style="margin:0 0 0.5rem;">Get oriented for {{ guild.name }}</h2>
-    <p class="hub-text-muted" style="margin:0; font-size:0.9rem;">No orientations are set up yet. Check back soon.</p>
 
   {% else %}
     <h2 class="hub-detail-label" style="margin:0 0 0.5rem;">Get oriented for {{ guild.name }}

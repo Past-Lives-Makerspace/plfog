@@ -14,12 +14,13 @@ from django.test import RequestFactory
 
 from classes.factories import UserFactory
 from hub.view_as import ROLE_ADMIN, ROLE_GUILD_OFFICER, ROLE_GUEST, ROLE_MEMBER, ViewAs
-from membership.models import AdminCapability, GuildStaffMembership, Member
+from membership.models import AdminCapability, Equipment, GuildStaffMembership, Member
 from membership.permissions import (
     can_create_equipment,
     can_edit_equipment_orienter_hours,
     can_manage_equipment,
     creatable_equipment_kinds,
+    manageable_equipment_ids,
 )
 from tests.membership.factories import (
     EquipmentFactory,
@@ -120,6 +121,92 @@ def describe_can_manage_equipment():
         member.admin_capabilities.create(capability=AdminCapability.Capability.EQUIPMENT)
         request = _request(member.user, roles={ROLE_ADMIN, ROLE_MEMBER}, picked=ROLE_GUEST)
         assert can_manage_equipment(request, EquipmentFactory()) is True
+
+
+def describe_manageable_equipment_ids():
+    """The bulk form of ``can_manage_equipment`` (#502): the guild settings item list asks once."""
+
+    def _world() -> dict[str, object]:
+        lead = _member_user()
+        guild_a = GuildFactory(guild_lead=lead)
+        guild_b = GuildFactory()
+        staff = _member_user()
+        GuildStaffMembershipFactory(guild=guild_a, member=staff, role=GuildStaffMembership.Role.SECRETARY)
+        names = {"a1": guild_a, "a2": guild_a, "b1": guild_b, "solo": None, "solo2": None}
+        made = {name: EquipmentFactory(name=f"Parity {name}", guild=guild) for name, guild in names.items()}
+        manager = _member_user()
+        EquipmentStaffMembershipFactory(equipment=made["solo"], member=manager)
+        # A lead who also manages one item of another guild: the guild and resource tiers together.
+        EquipmentStaffMembershipFactory(equipment=made["b1"], member=lead)
+        capability = _member_user()
+        capability.admin_capabilities.create(capability=AdminCapability.Capability.EQUIPMENT)
+        return {"lead": lead, "staff": staff, "manager": manager, "capability": capability, "items": made}
+
+    def _items() -> list[Equipment]:
+        return list(Equipment.objects.select_related("guild").filter(name__startswith="Parity "))
+
+    def it_agrees_with_can_manage_equipment_for_every_tier():
+        world = _world()
+        made = world["items"]
+        everything = set(made)
+        cases = [
+            ("admin", _request(UserFactory(), roles={ROLE_ADMIN, ROLE_MEMBER}), everything),
+            (
+                "admin previewing as member",
+                _request(_member_user().user, roles={ROLE_ADMIN, ROLE_MEMBER}, picked=ROLE_MEMBER),
+                set(),
+            ),
+            ("capability holder", _request(world["capability"].user, roles={ROLE_MEMBER}), everything),
+            (
+                "capability holder previewing as guest",
+                _request(world["capability"].user, roles={ROLE_ADMIN, ROLE_MEMBER}, picked=ROLE_GUEST),
+                everything,
+            ),
+            ("guild officer", _request(_member_user().user, roles={ROLE_GUILD_OFFICER, ROLE_MEMBER}), set()),
+            ("lead", _request(world["lead"].user, roles={ROLE_MEMBER}), {"a1", "a2", "b1"}),
+            ("guild staff", _request(world["staff"].user, roles={ROLE_MEMBER}), {"a1", "a2"}),
+            ("equipment manager", _request(world["manager"].user, roles={ROLE_MEMBER}), {"solo"}),
+            ("plain member", _request(_member_user().user, roles={ROLE_MEMBER}), set()),
+            ("anonymous", _request(AnonymousUser()), set()),
+        ]
+        items = _items()
+        for label, request, expected_names in cases:
+            expected = {made[name].pk for name in expected_names}
+            assert manageable_equipment_ids(request, items) == expected, label
+            for item in items:
+                assert can_manage_equipment(request, item) is (item.pk in expected), (label, item.name)
+
+    def it_answers_an_empty_list_without_a_query(django_assert_num_queries):
+        request = _request(_member_user().user, roles={ROLE_MEMBER})
+        with django_assert_num_queries(0):
+            assert manageable_equipment_ids(request, []) == set()
+
+    def describe_query_count():
+        def _count(request: object, items: list[Equipment]) -> int:
+            from django.db import connection
+            from django.test.utils import CaptureQueriesContext
+
+            with CaptureQueriesContext(connection) as ctx:
+                manageable_equipment_ids(request, items)
+            return len(ctx.captured_queries)
+
+        def _guild_items(guild: object, count: int) -> list[Equipment]:
+            for index in range(count):
+                EquipmentFactory(name=f"Counted {guild.pk} {index}", guild=guild)
+            return list(Equipment.objects.select_related("guild").filter(guild=guild))
+
+        def it_asks_the_same_for_one_item_or_six_for_guild_staff():
+            staff = _member_user()
+            one, six = GuildFactory(), GuildFactory()
+            for guild in (one, six):
+                GuildStaffMembershipFactory(guild=guild, member=staff, role=GuildStaffMembership.Role.TREASURER)
+            request = _request(staff.user, roles={ROLE_MEMBER})
+            assert _count(request, _guild_items(one, 1)) == _count(request, _guild_items(six, 6))
+
+        def it_asks_the_same_for_one_item_or_six_for_an_officer():
+            officer = _member_user()
+            request = _request(officer.user, roles={ROLE_GUILD_OFFICER, ROLE_MEMBER})
+            assert _count(request, _guild_items(GuildFactory(), 1)) == _count(request, _guild_items(GuildFactory(), 6))
 
 
 def describe_can_create_equipment():

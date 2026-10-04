@@ -40,6 +40,7 @@ def describe_orientations_tab():
         _member("ot1")
         guild = GuildFactory()
         GuildOrientationSettingsFactory(guild=guild, is_enabled=True)
+        OrientationTypeFactory(guild=guild)
         client.login(username="ot1", password="pass")
         content = client.get(reverse("hub_guild_detail", args=[guild.slug])).content
         # The tab button and its panel both key off section === 'orientations'.
@@ -60,6 +61,7 @@ def describe_orientations_tab():
         _member("ot3")
         enabled = GuildFactory()
         GuildOrientationSettingsFactory(guild=enabled, is_enabled=True)
+        OrientationTypeFactory(guild=enabled)
         disabled = GuildFactory()
         client.login(username="ot3", password="pass")
         on = client.get(reverse("hub_guild_detail", args=[enabled.slug])).content
@@ -71,9 +73,112 @@ def describe_orientations_tab():
         _member("ot4")
         guild = GuildFactory()
         GuildOrientationSettingsFactory(guild=guild, is_enabled=True)
+        OrientationTypeFactory(guild=guild)
         client.login(username="ot4", password="pass")
         content = client.get(reverse("hub_guild_detail", args=[guild.slug])).content
         assert b"Open the Orientations tab." in content
+
+
+def describe_the_tab_gate():
+    """The Orientations tab shows only when there is something to book or to cancel (#502)."""
+
+    def _enabled_guild():
+        guild = GuildFactory()
+        GuildOrientationSettingsFactory(guild=guild, is_enabled=True)
+        return guild
+
+    def _page(client: Client, username: str, guild) -> str:
+        client.login(username=username, password="pass")
+        return client.get(reverse("hub_guild_detail", args=[guild.slug])).content.decode()
+
+    def it_hides_the_tab_with_orientations_on_and_no_active_type(client: Client):
+        _member("gate1")
+        guild = _enabled_guild()
+        OrientationTypeFactory(guild=guild, name="Retired Walkthrough", is_active=False)
+        content = _page(client, "gate1", guild)
+        assert ">Orientations</button>" not in content
+        assert 'id="guild-orientation"' not in content
+        assert "t === 'orientations'" not in content
+        # The Overview and Guild Calendar pointers to the tab go with it, so none points at nothing.
+        assert "section = 'orientations'" not in content
+
+    def it_shows_the_tab_with_one_active_type(client: Client):
+        _member("gate2")
+        guild = _enabled_guild()
+        OrientationTypeFactory(guild=guild, name="Shop Basics")
+        content = _page(client, "gate2", guild)
+        assert ">Orientations</button>" in content
+        assert 'id="guild-orientation"' in content
+
+    def it_keeps_the_tab_and_the_cancel_for_a_live_booking_on_a_retired_type(client: Client):
+        user = _member("gate3")
+        guild = _enabled_guild()
+        retired = OrientationTypeFactory(guild=guild, name="Retired Walkthrough")
+        booking = OrientationBookingFactory(
+            slot=OrientationSlotFactory(guild=guild, orientation_type=retired), member=user.member
+        )
+        retired.is_active = False
+        retired.save(update_fields=["is_active"])
+        content = _page(client, "gate3", guild)
+        assert ">Orientations</button>" in content
+        assert f'id="orientation-type-{retired.pk}"' in content
+        assert reverse("hub_orientation_cancel_mine", args=[booking.pk]) in content
+
+    def _booking_on_a_retired_type(username: str, *, days: int, **booking_fields):
+        """A booking on a type retired after it was made, its slot ``days`` from now (negative: past)."""
+        user = _member(username)
+        guild = _enabled_guild()
+        retired = OrientationTypeFactory(guild=guild, name="Retired Walkthrough")
+        starts = timezone.now() + timedelta(days=days)
+        booking = OrientationBookingFactory(
+            slot=OrientationSlotFactory(
+                guild=guild, orientation_type=retired, starts_at=starts, ends_at=starts + timedelta(hours=1)
+            ),
+            member=user.member,
+            **booking_fields,
+        )
+        retired.is_active = False
+        retired.save(update_fields=["is_active"])
+        return guild, booking
+
+    def it_keeps_the_tab_for_a_future_confirmed_booking_on_a_retired_type(client: Client):
+        guild, booking = _booking_on_a_retired_type("gate6", days=2, status="confirmed")
+        content = _page(client, "gate6", guild)
+        assert ">Orientations</button>" in content
+        assert reverse("hub_orientation_cancel_mine", args=[booking.pk]) in content
+
+    def it_keeps_the_tab_for_a_checkout_hold_on_a_retired_type(client: Client):
+        guild, booking = _booking_on_a_retired_type("gate7", days=2, status="pending_payment")
+        content = _page(client, "gate7", guild)
+        assert ">Orientations</button>" in content
+        assert f'id="orientation-type-{booking.orientation_type_id}"' in content
+
+    def it_hides_the_tab_once_the_booking_on_a_retired_type_is_completed(client: Client):
+        guild, booking = _booking_on_a_retired_type("gate8", days=2, status="confirmed")
+        booking.mark_completed()
+        assert ">Orientations</button>" not in _page(client, "gate8", guild)
+
+    def it_hides_the_tab_for_a_past_unmarked_booking_on_a_retired_type(client: Client):
+        guild, _booking = _booking_on_a_retired_type("gate9", days=-2, status="confirmed")
+        assert ">Orientations</button>" not in _page(client, "gate9", guild)
+
+    def it_hides_the_tab_once_that_booking_is_cancelled(client: Client):
+        user = _member("gate4")
+        guild = _enabled_guild()
+        retired = OrientationTypeFactory(guild=guild, name="Retired Walkthrough", is_active=False)
+        OrientationBookingFactory(
+            slot=OrientationSlotFactory(guild=guild, orientation_type=retired),
+            member=user.member,
+            status="cancelled",
+        )
+        assert ">Orientations</button>" not in _page(client, "gate4", guild)
+
+    def it_hides_the_tab_while_orientations_are_off_even_with_active_types(client: Client):
+        _member("gate5")
+        guild = GuildFactory()
+        GuildOrientationSettingsFactory(guild=guild, is_enabled=False)
+        OrientationTypeFactory(guild=guild, name="Shop Basics")
+        assert ">Orientations</button>" not in _page(client, "gate5", guild)
 
 
 def describe_per_type_sections():
@@ -135,13 +240,6 @@ def describe_per_type_sections():
         client.login(username="pt4", password="pass")
         content = client.get(reverse("hub_guild_detail", args=[guild.slug])).content.decode()
         assert "completed every orientation this guild offers" in content
-
-    def it_shows_the_setup_empty_state_with_no_active_types(client: Client):
-        _member("pt5")
-        guild = _enabled_guild()
-        client.login(username="pt5", password="pass")
-        content = client.get(reverse("hub_guild_detail", args=[guild.slug])).content.decode()
-        assert "No orientations are set up yet" in content
 
     def it_puts_the_type_picker_on_the_custom_request_form(client: Client):
         _member("pt6")

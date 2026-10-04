@@ -27,6 +27,10 @@ Member-facing views. All views are `@login_required`. No models — reads from `
 
 The Orientations and Reservations pages (#502) open on List and build their calendar only for `?view=calendar`; otherwise the Calendar pane fetches the shell once on first open (`static/js/list_calendar.js`). Both reuse the guild page's shell (`partials/guild_calendar_app.html`) with `cal_key` and `cal.legend`; `hub/calendar_pages.py` builds their context on `hub/calendar_window.py` (`calendar_window_context`), the one place every calendar's date arithmetic lives, from rows in `hub/calendar_entries.py`.
 
+## Reservation cards
+
+The Reservations page and the guild page's Reservations tab (#502) build their grid with `equipment_views.reservation_cards(member, queryset)`, the one definition of a card. `partials/equipment_cards.html` reads the annotation and prefetches it adds, so render that partial only from its output; a bare queryset 500s the page.
+
 ## Announcements
 
 The composer (`hub_compose*`) and the Announcements page share one visibility rule, `_announcement_rows(request, member)` in `hub/views.py`: a row is visible and actionable exactly when `_compose_audience_forbidden(request, draft.audience_value)` is `None` (admins short-circuit to every row). Every composer lookup that takes a `draft_pk` goes through `_handled_draft`, which applies it to resumable rows only. Drafts are shared; `author` is whoever saved last, and the sender once sent.

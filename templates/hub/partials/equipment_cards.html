@@ -1,7 +1,9 @@
 {% comment %}
-Reservations card grid — the Reservations page (PR 1; renamed from Equipment in #502).
+Reservations card grid — the Reservations page (PR 1; renamed from Equipment in #502) and the
+guild page's Reservations tab (#502 part 4).
 Context:
-  cards — list of dicts: {equipment, access_state} where access_state is an
+  cards — built by hub.equipment_views.reservation_cards, which adds the annotation and the
+          prefetches read here. List of dicts: {equipment, access_state, availability} where access_state is an
           Equipment.AccessState value ("ok" / "needs_fee" / "needs_orientation" /
           "needs_guild" / "inactive_member"). The badge renders from that one state so
           the card and the detail banner can't drift.
