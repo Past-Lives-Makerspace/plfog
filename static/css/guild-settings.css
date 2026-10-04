@@ -1,6 +1,7 @@
 /* Guild settings (hub/guild_edit.html): styles added since #502. The page's older rules
-   (.pl-guild-settings__header and friends) still live in hub.css. Tokens only, so both
-   themes come from the tokens; the light-theme pill bumps match the other pages'. */
+   (.pl-guild-settings__header and friends) still live in hub.css. Colours come from the
+   theme tokens, except the two light-theme pill text colours at the bottom, which are hard
+   coded to match the same contrast bumps in member-edit.css and announcements.css. */
 
 /* A settings card: a heading, a short lead line, then its controls. */
 .pl-guild-settings-card { padding: 1.5rem; margin-bottom: 1.5rem; }

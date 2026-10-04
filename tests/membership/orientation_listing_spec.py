@@ -80,6 +80,53 @@ def describe_active_or_held_by():
         assert set(equipment.owned_orientation_types.active_or_held_by(None)) == {active}
 
 
+def describe_active_or_ahead_for():
+    """The guild page's narrower pin (#502 part 4): a retired type stays only while something is ahead."""
+
+    def it_keeps_a_retired_type_only_for_a_booking_or_hold_still_ahead():
+        from datetime import timedelta
+
+        from django.utils import timezone
+
+        member = MemberFactory()
+        guild = _enabled("Ahead Guild")
+        now = timezone.now()
+
+        def retired_with(name: str, *, hours: int, **booking_fields: object) -> OrientationType:
+            orientation_type = OrientationTypeFactory(guild=guild, name=name)
+            starts = now + timedelta(hours=hours)
+            OrientationBookingFactory(
+                slot=OrientationSlotFactory(
+                    guild=guild,
+                    orientation_type=orientation_type,
+                    starts_at=starts,
+                    ends_at=starts + timedelta(hours=1),
+                ),
+                member=member,
+                **booking_fields,
+            )
+            orientation_type.is_active = False
+            orientation_type.save(update_fields=["is_active"])
+            return orientation_type
+
+        active = OrientationTypeFactory(guild=guild, name="Active")
+        requested = retired_with("Requested ahead", hours=48)
+        confirmed = retired_with("Confirmed ahead", hours=48, status=OrientationBooking.Status.CONFIRMED)
+        running = retired_with("Running now", hours=0, status=OrientationBooking.Status.CONFIRMED)
+        hold = retired_with("Checkout hold", hours=-48, status=OrientationBooking.Status.PENDING_PAYMENT)
+        past = retired_with("Past unmarked", hours=-48, status=OrientationBooking.Status.CONFIRMED)
+        done = retired_with("Completed", hours=48, status=OrientationBooking.Status.CONFIRMED)
+        done.bookings.get().mark_completed()
+        cancelled = retired_with("Cancelled", hours=48, status=OrientationBooking.Status.CANCELLED)
+
+        types = OrientationType.objects.filter(guild=guild)
+        assert set(types.active_or_ahead_for(member)) == {active, requested, confirmed, running, hold}
+        assert set(types.active_or_ahead_for(None)) == {active}
+        # The wider rule the equipment and Orientations pages share is unchanged.
+        assert {past, done} <= set(types.active_or_held_by(member))
+        assert cancelled not in set(types.active_or_held_by(member))
+
+
 def describe_paused_message():
     def _listed(orientation_type: OrientationType) -> OrientationType:
         return OrientationType.objects.listed_for(None).get(pk=orientation_type.pk)

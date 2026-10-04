@@ -89,6 +89,18 @@ def describe_the_tab_gate():
         assert "if (t === 'reservations') section = 'reservations';" in content
         assert "x-show=\"section === 'reservations'\"" in content
 
+    def it_is_absent_for_an_anonymous_visitor_on_the_members_host(client: Client):
+        """No linked Member, no tab: every card would read "Membership inactive" behind a login."""
+        guild = GuildFactory(show_reservations_tab=True)
+        EquipmentFactory(name="Quillwood Bandsaw", guild=guild)
+        response = client.get(reverse("hub_guild_detail", args=[guild.slug]))
+        assert response.status_code == 200
+        content = response.content.decode()
+        assert TAB_BUTTON not in content
+        assert PANE not in content
+        assert "t === 'reservations'" not in content
+        assert response.context["reservation_cards"] == []
+
     def it_is_absent_on_the_guest_guilds_surface(client: Client):
         """The cards link to item pages the guilds host does not resolve, so the tab stays on the members host."""
         guild = GuildFactory(show_reservations_tab=True)

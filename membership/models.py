@@ -2499,6 +2499,7 @@ class Guild(HeroCropMixin, models.Model):
     )
     show_reservations_tab = models.BooleanField(
         default=False,
+        db_default=False,
         help_text="Show a Reservations tab on the guild page listing this guild's reservable rooms, spaces and tools.",
     )
     created_at = models.DateTimeField(auto_now_add=True)
@@ -11156,16 +11157,17 @@ class GuildOrientationSettings(models.Model):
         """The guild page's Orientations tab sections (#502); the tab shows exactly when this is non empty.
 
         Nothing while orientations are off. Otherwise the guild's active types plus any retired
-        one ``member`` holds a live booking or checkout hold on (the equipment page's pinning
-        rule), so a guild with nothing to book shows no tab, and retiring a type never takes a
-        member's Cancel away. Each type carries its guild's settings row, which the section
-        builder reads for the late cancel policy.
+        one ``member`` still has a booking or checkout hold ahead on
+        (:meth:`OrientationTypeQuerySet.ahead_condition`), so a guild with nothing to book shows
+        no tab, retiring a type never takes a member's Cancel away, and a finished or past
+        booking on a retired type stops pinning the tab. Each type carries its guild's settings
+        row, which the section builder reads for the late cancel policy.
         """
         if not self.is_enabled:
             return []
         return list(
             OrientationType.objects.filter(guild_id=self.guild_id)
-            .active_or_held_by(member)
+            .active_or_ahead_for(member)
             .select_related("guild__orientation_settings")
         )
 
@@ -11259,6 +11261,35 @@ class OrientationTypeQuerySet(models.QuerySet):
     def active_or_held_by(self, member: Member | None) -> OrientationTypeQuerySet:
         """Active types plus any retired one ``member`` is holding: the equipment page's sections."""
         return self.filter(Q(is_active=True) | self.held_condition(member))
+
+    @staticmethod
+    def ahead_condition(member: Member | None) -> Q:
+        """Types ``member`` still has something ahead on (nothing for no member).
+
+        A requested or confirmed booking not marked completed whose slot has not ended, or a
+        checkout hold. Narrower than :meth:`held_condition`, which also counts a completed or
+        long past booking: the guild page's Orientations tab (#502) pins a retired type only
+        while the member can still act on it, so a finished orientation never keeps the tab.
+        """
+        if member is None:
+            return Q(pk__in=[])
+        ahead = (
+            OrientationBooking.objects.filter(member=member)
+            .filter(
+                Q(
+                    status__in=(OrientationBooking.Status.REQUESTED, OrientationBooking.Status.CONFIRMED),
+                    is_completed=False,
+                    slot__ends_at__gt=timezone.now(),
+                )
+                | Q(status=OrientationBooking.Status.PENDING_PAYMENT)
+            )
+            .values("orientation_type_id")
+        )
+        return Q(pk__in=ahead)
+
+    def active_or_ahead_for(self, member: Member | None) -> OrientationTypeQuerySet:
+        """Active types plus any retired one ``member`` still has a booking or hold ahead on."""
+        return self.filter(Q(is_active=True) | self.ahead_condition(member))
 
 
 class OrientationType(models.Model):

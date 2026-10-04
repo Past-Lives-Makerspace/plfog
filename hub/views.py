@@ -796,12 +796,16 @@ def guild_detail(request: HttpRequest, slug: str) -> HttpResponse:
         wiki_tab_context = guild_wiki_tab_block(request, guild)
 
     # The Reservations tab (#502): the guild's items as the Reservations page's own cards, while
-    # the guild has the tab on. Never on the guest guilds surface, where the cards' item pages
-    # and the Reservations page do not resolve.
+    # the guild has the tab on. Two gates, as the Wiki tab has: the members surface (the guest
+    # guilds surface does not resolve the item pages or the Reservations page) and a linked
+    # Member (an anonymous visitor would see every card read "Membership inactive", and the
+    # pages behind them are login required).
     from hub.equipment_views import _equipment_queryset, reservation_cards
 
     guild_reservation_cards = (
-        [] if guilds_surface else reservation_cards(member, _equipment_queryset().on_guild_page(guild))
+        reservation_cards(member, _equipment_queryset().on_guild_page(guild))
+        if member is not None and not guilds_surface
+        else []
     )
 
     guild_ct = ContentType.objects.get_for_model(Guild)
@@ -1106,7 +1110,7 @@ def _guild_edit_context(
         StudioHoursFormSet,
     )
     from membership.models import GuildOrientationSettings
-    from membership.permissions import can_create_equipment, can_edit_orienter_hours, can_manage_equipment
+    from membership.permissions import can_create_equipment, can_edit_orienter_hours, manageable_equipment_ids
 
     settings_obj, _ = GuildOrientationSettings.objects.get_or_create(guild=guild)
     ctx = _get_hub_context(request)
@@ -1140,6 +1144,11 @@ def _guild_edit_context(
     guild_rules_qs = guild.orientation_rules.guild_level()
     has_guild_rules = guild_rules_qs.exists()
     upcoming_times_admin = _upcoming_times(guild)
+    # The Reservations tab's item list (#502): every item the guild owns, active first, with a
+    # Manage link only where the viewer may manage that item (an officer edits the guild but
+    # does not manage its items), decided for the whole list at once.
+    reservable_items = list(guild.equipment.order_by("-is_active", "name"))
+    manageable_ids = manageable_equipment_ids(request, reservable_items)
 
     return {
         **ctx,
@@ -1202,14 +1211,9 @@ def _guild_edit_context(
             thankyou_email_form if thankyou_email_form is not None else GuildThankyouEmailForm(instance=settings_obj)
         ),
         "announcement_settings_form": GuildAnnouncementSettingsForm(instance=guild),
-        # The Reservations tab (#502): the guild page toggle, then every item the guild owns,
-        # active first, with a Manage link only where the viewer may manage that item (an
-        # officer edits the guild but does not manage its items).
+        # The Reservations tab (#502): the guild page toggle, then the guild's items.
         "reservations_settings_form": GuildReservationsSettingsForm(instance=guild),
-        "reservable_items": [
-            {"equipment": item, "can_manage": can_manage_equipment(request, item)}
-            for item in guild.equipment.order_by("-is_active", "name")
-        ],
+        "reservable_items": [{"equipment": item, "can_manage": item.pk in manageable_ids} for item in reservable_items],
         "can_create_equipment": can_create_equipment(request),
         "viewer_member_pk": viewer.pk if viewer is not None else None,
         "show_my_hours_card": show_my_hours_card,

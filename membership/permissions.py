@@ -19,6 +19,8 @@ from typing import TYPE_CHECKING
 from django.utils import timezone
 
 if TYPE_CHECKING:
+    from collections.abc import Iterable
+
     from django.http import HttpRequest
 
     from classes.models import Category, ClassOffering
@@ -124,10 +126,18 @@ def can_edit_equipment_orienter_hours(request: HttpRequest, equipment: Equipment
 def can_manage_equipment(request: HttpRequest, equipment: Equipment) -> bool:
     """True when this request may manage the equipment (its manage panel, details, staff).
 
+    The rules live in :func:`manageable_equipment_ids`; this asks it about one item.
+    """
+    return equipment.pk in manageable_equipment_ids(request, [equipment])
+
+
+def manageable_equipment_ids(request: HttpRequest, items: Iterable[Equipment]) -> set[int]:
+    """The pks of ``items`` this request may manage, in a fixed number of queries however many.
+
     Three tiers (the locked equipment-permissions decision):
-    site tier — full admin (``view_as``-aware) or the EQUIPMENT capability;
-    guild tier — the owning guild's lead or any staff member;
-    resource tier — an ``EquipmentStaffMembership`` row.
+    site tier — full admin (``view_as``-aware) or the EQUIPMENT capability: every item;
+    guild tier — the owning guild's lead or any staff member: that guild's items;
+    resource tier — an ``EquipmentStaffMembership`` row: that item.
     Guild officers get no blanket grant here — the site tier is deliberately
     narrower than ``is_effective_staff``.
 
@@ -136,22 +146,43 @@ def can_manage_equipment(request: HttpRequest, equipment: Equipment) -> bool:
     house capability gate (``hub.view_as._capability_or_admin_required``): a granted
     duty follows the person, not the preview. Migration 0161 backfills EQUIPMENT onto
     every existing admin, so in practice a previewing admin keeps manage access.
-    """
-    from membership.models import AdminCapability
 
+    At most three queries: the capability, the viewer's staff roles on the items' guilds
+    they do not lead, and their equipment staff rows on whatever is left. Each item's
+    ``guild`` should be loaded (``select_related`` or the guild's own related manager).
+    """
+    from membership.models import AdminCapability, EquipmentStaffMembership, GuildStaffMembership
+
+    items = list(items)
+    if not items:
+        return set()
+    every_id = {item.pk for item in items}
     view_as = getattr(request, "view_as", None)
     if view_as is not None and view_as.is_admin:
-        return True
+        return every_id
     actual_member: Member | None = getattr(request.user, "member", None)
     if actual_member is not None and actual_member.has_admin_capability(AdminCapability.Capability.EQUIPMENT):
-        return True
+        return every_id
     member = _editing_member(request)
     if member is None:
-        return False
-    guild = equipment.guild
-    if guild is not None and (guild.guild_lead_id == member.pk or guild.is_staffed_by(member)):
-        return True
-    return equipment.staff_memberships.filter(member=member).exists()
+        return set()
+    allowed = {item.pk for item in items if item.guild is not None and item.guild.guild_lead_id == member.pk}
+    guild_ids = {item.guild_id for item in items if item.guild_id is not None and item.pk not in allowed}
+    if guild_ids:
+        staffed = set(
+            GuildStaffMembership.objects.filter(member=member, guild_id__in=guild_ids).values_list(
+                "guild_id", flat=True
+            )
+        )
+        allowed |= {item.pk for item in items if item.guild_id in staffed}
+    rest = every_id - allowed
+    if rest:
+        allowed |= set(
+            EquipmentStaffMembership.objects.filter(member=member, equipment_id__in=rest).values_list(
+                "equipment_id", flat=True
+            )
+        )
+    return allowed
 
 
 def creatable_equipment_kinds(request: HttpRequest) -> list[str]:

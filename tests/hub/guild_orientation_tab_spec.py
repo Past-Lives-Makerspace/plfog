@@ -124,6 +124,44 @@ def describe_the_tab_gate():
         assert f'id="orientation-type-{retired.pk}"' in content
         assert reverse("hub_orientation_cancel_mine", args=[booking.pk]) in content
 
+    def _booking_on_a_retired_type(username: str, *, days: int, **booking_fields):
+        """A booking on a type retired after it was made, its slot ``days`` from now (negative: past)."""
+        user = _member(username)
+        guild = _enabled_guild()
+        retired = OrientationTypeFactory(guild=guild, name="Retired Walkthrough")
+        starts = timezone.now() + timedelta(days=days)
+        booking = OrientationBookingFactory(
+            slot=OrientationSlotFactory(
+                guild=guild, orientation_type=retired, starts_at=starts, ends_at=starts + timedelta(hours=1)
+            ),
+            member=user.member,
+            **booking_fields,
+        )
+        retired.is_active = False
+        retired.save(update_fields=["is_active"])
+        return guild, booking
+
+    def it_keeps_the_tab_for_a_future_confirmed_booking_on_a_retired_type(client: Client):
+        guild, booking = _booking_on_a_retired_type("gate6", days=2, status="confirmed")
+        content = _page(client, "gate6", guild)
+        assert ">Orientations</button>" in content
+        assert reverse("hub_orientation_cancel_mine", args=[booking.pk]) in content
+
+    def it_keeps_the_tab_for_a_checkout_hold_on_a_retired_type(client: Client):
+        guild, booking = _booking_on_a_retired_type("gate7", days=2, status="pending_payment")
+        content = _page(client, "gate7", guild)
+        assert ">Orientations</button>" in content
+        assert f'id="orientation-type-{booking.orientation_type_id}"' in content
+
+    def it_hides_the_tab_once_the_booking_on_a_retired_type_is_completed(client: Client):
+        guild, booking = _booking_on_a_retired_type("gate8", days=2, status="confirmed")
+        booking.mark_completed()
+        assert ">Orientations</button>" not in _page(client, "gate8", guild)
+
+    def it_hides_the_tab_for_a_past_unmarked_booking_on_a_retired_type(client: Client):
+        guild, _booking = _booking_on_a_retired_type("gate9", days=-2, status="confirmed")
+        assert ">Orientations</button>" not in _page(client, "gate9", guild)
+
     def it_hides_the_tab_once_that_booking_is_cancelled(client: Client):
         user = _member("gate4")
         guild = _enabled_guild()

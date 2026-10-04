@@ -128,6 +128,44 @@ def describe_the_settings_tab():
         assert f'<a href="{reverse("hub_equipment_add")}">Add one on the Reservations page.</a>' in empty
 
 
+def describe_the_item_list_query_count():
+    """The Manage links are decided for the whole list at once: six items cost what one costs."""
+
+    def _count(client: Client, guild) -> int:
+        from django.db import connection
+        from django.test.utils import CaptureQueriesContext
+
+        url = reverse("hub_guild_edit", args=[guild.pk])
+        client.get(url)  # warm the session and per-request caches so both samples are steady state
+        with CaptureQueriesContext(connection) as ctx:
+            assert client.get(url).status_code == 200
+        return len(ctx.captured_queries)
+
+    def _one_then_six(client: Client, guild) -> tuple[int, int]:
+        EquipmentFactory(name="Counted Item 0", guild=guild)
+        with_one = _count(client, guild)
+        for index in range(1, 6):
+            EquipmentFactory(name=f"Counted Item {index}", guild=guild)
+        return with_one, _count(client, guild)
+
+    def it_holds_steady_for_guild_staff(client: Client):
+        from membership.models import GuildStaffMembership
+        from tests.membership.factories import GuildStaffMembershipFactory
+
+        user = _user("rs_q_staff")
+        guild = GuildFactory()
+        GuildStaffMembershipFactory(guild=guild, member=user.member, role=GuildStaffMembership.Role.SECRETARY)
+        client.login(username="rs_q_staff", password="pass")
+        with_one, with_six = _one_then_six(client, guild)
+        assert with_six == with_one
+
+    def it_holds_steady_for_an_officer(client: Client):
+        _user("rs_q_officer", fog_role=Member.FogRole.GUILD_OFFICER)
+        client.login(username="rs_q_officer", password="pass")
+        with_one, with_six = _one_then_six(client, GuildFactory())
+        assert with_six == with_one
+
+
 def describe_the_save():
     def it_forbids_a_plain_member(client: Client):
         _user(username="rs_plain")
