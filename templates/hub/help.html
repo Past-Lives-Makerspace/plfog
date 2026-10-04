@@ -43,7 +43,7 @@ OrgInfoPage.intro_parts, and admins keep Edit this page / Adjust in the top corn
          src="{{ page.banner_image.url }}"
          alt="Past Lives Makerspace"
          {% if can_edit %}
-         x-ref="heroImg"
+         data-hero-img
          :style="'object-position: ' + objectPosition"
          {% else %}
          style="object-position: {{ page.hero_object_position }};"
@@ -60,15 +60,17 @@ OrgInfoPage.intro_parts, and admins keep Edit this page / Adjust in the top corn
             </svg>
             <span x-text="isLoading ? '...' : 'Adjust'"></span>
         </button>
+        {# The banner is cover fitted, so one axis has nothing to move: heroPlacement.measure() finds it, its slider is off and the line says why. #}
         <div x-show="isAdjusting" x-cloak class="pl-hero-adjust" style="background:rgba(0,0,0,0.5); padding:0.5rem 1rem; border-radius:8px; border:1px solid rgba(255,255,255,0.1);">
             <div style="display:flex; flex-direction:column; gap:2px;">
                 <label style="font-size:10px; text-transform:uppercase; color:#96ACBB;">Vertical</label>
-                <input type="range" min="0" max="100" x-model="posY" style="width:120px; cursor:pointer;">
+                <input type="range" min="0" max="100" x-model="posY" :disabled="!yMoves" style="width:120px; cursor:pointer;">
             </div>
             <div style="display:flex; flex-direction:column; gap:2px;">
                 <label style="font-size:10px; text-transform:uppercase; color:#96ACBB;">Horizontal</label>
-                <input type="range" min="0" max="100" x-model="posX" style="width:120px; cursor:pointer;">
+                <input type="range" min="0" max="100" x-model="posX" :disabled="!xMoves" style="width:120px; cursor:pointer;">
             </div>
+            <p class="pl-hero-adjust__why" x-show="why()" x-text="why()"></p>
         </div>
         <button type="button" class="pl-btn pl-btn--primary pl-btn--sm" @click="save()" x-show="isAdjusting" :disabled="isLoading">
             <span x-text="isLoading ? '...' : 'Save'"></span>

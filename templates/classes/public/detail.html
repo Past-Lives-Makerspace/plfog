@@ -71,7 +71,7 @@ appends and runs it on the first boosted arrival here (FRONTEND.md, Scripts unde
            src="{{ offering.category.hero_image.url }}"
            alt="{{ offering.category.name }}"
            {% if can_edit_category %}
-           x-ref="heroImg"
+           data-hero-img
            :style="'object-position: ' + objectPosition"
            {% else %}
            style="object-position: {{ offering.category.hero_object_position }};"
@@ -187,15 +187,15 @@ appends and runs it on the first boosted arrival here (FRONTEND.md, Scripts unde
                 <span x-text="isLoading ? '...' : 'Adjust'"></span>
             </button>
 
-            {# Sliders #}
-            <div x-show="isAdjusting" x-cloak style="display:flex; align-items:center; gap:0.75rem; background:rgba(0,0,0,0.7); padding:6px 10px; border-radius:6px; border:1px solid rgba(255,255,255,0.2); backdrop-filter:blur(8px);">
+            {# Sliders. The category hero is cover fitted, so one axis has nothing to move: heroPlacement.measure() finds it, its slider is off and the line says why. #}
+            <div x-show="isAdjusting" x-cloak class="pl-hero-adjust" style="display:flex; align-items:center; gap:0.75rem; background:rgba(0,0,0,0.7); padding:6px 10px; border-radius:6px; border:1px solid rgba(255,255,255,0.2); backdrop-filter:blur(8px);">
                 <div style="display:flex; align-items:center; gap:8px;">
                     <label style="font-size:9px; text-transform:uppercase; color:#96ACBB; font-weight:bold;">V</label>
-                    <input type="range" min="0" max="100" x-model="posY" style="width:70px; height:4px; cursor:pointer;">
+                    <input type="range" min="0" max="100" x-model="posY" :disabled="!yMoves" style="width:70px; height:4px; cursor:pointer;">
                 </div>
                 <div style="display:flex; align-items:center; gap:8px;">
                     <label style="font-size:9px; text-transform:uppercase; color:#96ACBB; font-weight:bold;">H</label>
-                    <input type="range" min="0" max="100" x-model="posX" style="width:70px; height:4px; cursor:pointer;">
+                    <input type="range" min="0" max="100" x-model="posX" :disabled="!xMoves" style="width:70px; height:4px; cursor:pointer;">
                 </div>
                 <div style="display:flex; gap:0.5rem; margin-left: 0.5rem; border-left: 1px solid rgba(255,255,255,0.1); padding-left: 0.75rem;">
                     <button type="button" style="background: var(--gold); border: none; padding: 3px 10px; border-radius: 4px; color: black; font-weight: 700; font-size: 10px; cursor: pointer;"
@@ -207,6 +207,7 @@ appends and runs it on the first boosted arrival here (FRONTEND.md, Scripts unde
                         Cancel
                     </button>
                 </div>
+                <p class="pl-hero-adjust__why" x-show="why()" x-text="why()"></p>
             </div>
             {% endif %}
         </div>

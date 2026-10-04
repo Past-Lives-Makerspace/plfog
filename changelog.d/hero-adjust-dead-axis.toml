@@ -1,0 +1,6 @@
+bump = "patch"
+date = "2026-10-03"
+title = "Banner sliders say which way a photo can move"
+changes = [
+  "When you adjust the banner on a guild page, the Help Center or a class page, a slider that cannot move the photo is turned off, and a line says why.",
+]
