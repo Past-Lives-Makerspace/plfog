@@ -18,9 +18,9 @@ welcome emails). Editor HTML is treated as **hostile**:
 * :func:`limit_rich_text` is the size limit every form and autosave applies before it
   sanitizes what a member typed.
 
-Cleaning is :class:`AllowlistCleaner` (``nh3``, the Rust ``ammonia`` sanitizer, linear in its
-input); auto-linking and link hardening is :func:`core.linkify.linkify`.
-:mod:`membership.markdown` shares both.
+Cleaning is :class:`AllowlistCleaner` (``nh3``, the Rust ``ammonia`` sanitizer; it slows only
+on list nesting thousands deep, under a second at the size limit); auto-linking and link
+hardening is :func:`core.linkify.linkify`. :mod:`membership.markdown` shares both.
 """
 
 from __future__ import annotations
@@ -74,8 +74,8 @@ def _strip_disallowed_tags(html: str, allowed: frozenset[str], bare: frozenset[s
     allowed never reaches the HTML parser, so it cannot close an open paragraph or turn what
     follows into raw text (a ``<style>``'s contents are read as markup and their tags stripped
     too). A block-level start tag becomes a newline once any tag has been read. A ``<`` that
-    starts no tag is text. Comments, and a tag cut off by the end of the input, are left for
-    the sanitizer, which drops them (bleach kept some cut-off tags as text).
+    starts no tag is text, and so is a tag cut off by the end of the input, as bleach kept it.
+    Comments are left for the sanitizer, which drops them.
 
     A tag in ``bare`` (allowed, but with no attribute it may keep) loses its attributes here,
     before parsing rather than after: the output is the same and the parser does less work.
@@ -85,8 +85,11 @@ def _strip_disallowed_tags(html: str, allowed: frozenset[str], bare: frozenset[s
     def replace(match: re.Match[str]) -> str:
         nonlocal seen_tag
         token, name = match.group(0), match.group(2)
-        if name is None or not match.group(3):
+        if name is None:
             return "&lt;" if token == "<" else token
+        if not match.group(3):
+            # Cut off by the end of the input ("tag <stro"): what was typed stays, as text.
+            return token.replace("<", "&lt;")
         follows_tag, seen_tag = seen_tag, True
         tag = name.lower()
         if tag in bare:

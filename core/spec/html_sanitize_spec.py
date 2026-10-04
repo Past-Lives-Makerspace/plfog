@@ -254,8 +254,10 @@ def describe_stripping_tags_outside_the_allowlist():
     def it_strips_a_tag_with_an_unquoted_attribute():
         assert sanitize_rich_html("<p><span x=y>z</span></p>") == "<p>z</p>"
 
-    def it_drops_a_tag_cut_off_by_the_end_of_the_input():
-        assert sanitize_rich_html("<p>hello</p><stro") == "<p>hello</p>"
+    def it_keeps_a_tag_cut_off_by_the_end_of_the_input_as_text():
+        assert sanitize_rich_html("<p>tag <stro") == "<p>tag &lt;stro</p>"
+        assert sanitize_rich_html('<p>a <b x="<i>"') == '<p>a &lt;b x="&lt;i&gt;"</p>'
+        assert rich_html_to_text("<p>tag <stro") == "tag <stro"
 
     def it_reads_tag_names_in_any_case():
         assert sanitize_rich_html("<P>Up<BR>per</P>") == "<p>Up<br>per</p>"

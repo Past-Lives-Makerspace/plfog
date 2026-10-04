@@ -72,9 +72,11 @@ _HOST_RUN_RE = re.compile(r"[\w.-]+")
 _START_RE = re.compile(r"(?<![\w@.])\w|(?<=\w)-")
 _WORD_RE = re.compile(r"\w+")
 _DIGITS_RE = re.compile(r"[0-9]+")
-_PATH_RE = re.compile(r"""[^\s{}|\\^`<>"]*""")
+# A path runs to a space, a character no URL holds, or an "&nbsp;" (a typed space, escaped). The
+# "&nbsp;" stop is part of the pattern: matching to the end of the run and cutting back would
+# rescan the same tail from every address in it.
+_PATH_RE = re.compile(r"""[^\s{}|\\^`<>"&]*(?:&(?!nbsp;)[^\s{}|\\^`<>"&]*)*""")
 _SCHEME_PREFIX_RE = re.compile(r"([\w-]+):")
-_NBSP = "&nbsp;"
 
 
 def _is_word(char: str) -> bool:
@@ -250,9 +252,7 @@ def linkify_text(text: str, harden: LinkHardener) -> str:
             search = start + 1
             continue
         if end < len(text) and text[end] in "/?":
-            path_end = _match_end(_PATH_RE, text, end + 1)
-            nbsp = text.find(_NBSP, end, path_end)
-            end = path_end if nbsp < 0 else nbsp
+            end = _match_end(_PATH_RE, text, end + 1)
         while start > resume and text[start - 1] == "(":
             start -= 1
         prefix, address, suffix = _trim(text[start:end])

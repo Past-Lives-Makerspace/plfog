@@ -1825,6 +1825,10 @@ class GuildFAQItemForm(forms.ModelForm):
 
         return validate_video_url(self.cleaned_data.get("video_url"))
 
+    def clean_answer(self) -> str:
+        """The Markdown answer, refused when over the rich text size limit."""
+        return limit_rich_text(self.cleaned_data.get("answer") or "")
+
     def clean(self) -> dict[str, Any]:
         cleaned = cast(dict[str, Any], super().clean())
         # Rows flagged for deletion skip the check — mirrors the meeting-note form.

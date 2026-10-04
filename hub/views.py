@@ -4624,7 +4624,7 @@ def _compose_preview_draft(request: HttpRequest) -> AnnouncementDraft:
     draft this request may handle (:func:`_handled_draft`), never from a posted snapshot id: the
     ``draft_pk`` of a draft the requester may not handle gets the plain category.
     """
-    from core.html_sanitize import sanitize_rich_html
+    from core.html_sanitize import RICH_TEXT_MAX_CHARS, sanitize_rich_html
     from hub.forms import split_audience
 
     user = cast(User, request.user)
@@ -4637,7 +4637,9 @@ def _compose_preview_draft(request: HttpRequest) -> AnnouncementDraft:
         class_offering=offering,
         mark_as_urgent=bool(request.POST.get("mark_as_urgent")),
         show_sender=bool(request.POST.get("show_sender")),
-        body=sanitize_rich_html(request.POST.get("body") or ""),
+        # Clipped to the size limit: a preview never saves, and the save itself refuses a longer
+        # body with its own message, so this only bounds the work an oversized POST can cost.
+        body=sanitize_rich_html((request.POST.get("body") or "")[:RICH_TEXT_MAX_CHARS]),
         push_message=(request.POST.get("push_message") or "").strip(),
         funding_snapshot=handled.funding_snapshot if handled is not None else None,
     )

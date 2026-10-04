@@ -12,7 +12,7 @@ from django.test import Client
 from django.urls import reverse
 
 from core.html_sanitize import RICH_TEXT_MAX_CHARS, RICH_TEXT_TOO_LONG
-from hub.forms import GuildEditForm, GuildMeetingNoteForm
+from hub.forms import GuildEditForm, GuildFAQItemForm, GuildMeetingNoteForm
 from membership.models import Member, WikiDraft
 from tests.features import turn_on
 from tests.membership.factories import GuildFactory, MeetingFactory, MembershipPlanFactory, WikiPageFactory
@@ -71,6 +71,18 @@ def describe_guild_meeting_note_form():
         form = GuildMeetingNoteForm({"meeting_date": "2026-10-01", "title": "October", "body": "We met."})
         assert form.is_valid(), form.errors
         assert form.cleaned_data["body"] == "We met."
+
+
+def describe_guild_faq_item_form():
+    def it_refuses_an_answer_over_the_limit():
+        form = GuildFAQItemForm({"question": "Hours?", "answer": TOO_LONG, "sort_order": 0})
+        assert not form.is_valid()
+        assert form.errors["answer"] == [COPY]
+
+    def it_accepts_an_answer_under_the_limit():
+        form = GuildFAQItemForm({"question": "Hours?", "answer": "**Evenings**", "sort_order": 0})
+        assert form.is_valid(), form.errors
+        assert form.cleaned_data["answer"] == "**Evenings**"
 
 
 def describe_meeting_notes_autosave():

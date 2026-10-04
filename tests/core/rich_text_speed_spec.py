@@ -31,6 +31,10 @@ INPUTS = {
     "deep_quotes": _fill("", "<blockquote>"),
     "deep_lists": _fill("", "<ul><li>"),
     "many_tags": _fill("", '<p><b>x</b> <a href="http://a.com">a.com</a> b.com</p>'),
+    # A non-breaking space is one character typed but six ("&nbsp;") once sanitized, and each
+    # one ends a link's path; a scan that cut back from the end of the run went quadratic.
+    "nbsp_in_paths": _fill("<p>", "a.co/\u00a0"),
+    "nbsp_entity_in_paths": _fill("<p>", "a.co/&nbsp;"),
 }
 
 ENTRY_POINTS: dict[str, Callable[[str], object]] = {

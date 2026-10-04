@@ -574,6 +574,16 @@ def describe_hub_compose_preview():
         _login_plain(client)
         assert client.post(reverse("hub_compose_preview"), _valid_send_data()).status_code == 403
 
+    def it_previews_only_up_to_the_rich_text_size_limit(client: Client):
+        from core.html_sanitize import RICH_TEXT_MAX_CHARS
+
+        _login_admin(client)
+        body = "<p>STARTMARK" + "x" * RICH_TEXT_MAX_CHARS + "ENDMARK</p>"
+        response = client.post(reverse("hub_compose_preview"), _valid_send_data(body=body))
+        assert response.status_code == 200
+        assert b"STARTMARK" in response.content
+        assert b"ENDMARK" not in response.content
+
 
 def describe_compose_edge_cases():
     def it_403s_an_unrecognized_audience_value(client: Client):

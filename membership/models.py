@@ -4173,8 +4173,8 @@ _HTML_HEADING_RE = re.compile(r"<h[1-6]\b[^>]*>.*?</h[1-6]\s*>", re.IGNORECASE |
 # contribute one, and bounding the window makes the cost constant.
 _LEAD_SCAN_LIMIT = 8000
 # A bounded window can end mid-"<stro". Trim exactly that, and nothing else, so the excerpt
-# never depends on what the sanitizer does with an unterminated final tag (bleach printed it
-# as literal text; nh3 drops it). Cutting back to the
+# never depends on what the sanitizer does with an unterminated final tag (it prints it as
+# literal text). Cutting back to the
 # last ">" instead (the round-2 approach) collapsed a tag-sparse window to almost nothing and
 # emptied the lead of every body over the limit.
 _TRAILING_PARTIAL_TAG_RE = re.compile(r"<[^>]*$")
