@@ -2,7 +2,11 @@
 
 from __future__ import annotations
 
+import time
+
 from core.html_sanitize import (
+    _RAW_TEXT_ELEMENT_RE,
+    _normalize_quill_lists,
     render_rich_email_body,
     render_rich_email_text,
     rich_html_to_text,
@@ -17,10 +21,32 @@ def describe_sanitize_rich_html():
         for tag in ("<h2>", "<h3>", "<p>", "<strong>", "<em>", "<u>", "<blockquote>"):
             assert tag in result
 
-    def it_strips_script_but_keeps_inner_text():
+    def it_drops_a_script_with_its_code():
         result = sanitize_rich_html("<p>Hello</p><script>alert(1)</script>")
-        assert "<script" not in result
-        assert "Hello" in result
+        assert result == "<p>Hello</p>"
+
+    def it_drops_a_style_block_with_its_css():
+        # bleach keeps the text between stripped tags, so CSS used to show as words.
+        result = sanitize_rich_html('<p>a</p><STYLE type="text/css">body{display:none}</STYLE >\n<p>b</p>')
+        assert result == "<p>a</p>\n<p>b</p>"
+
+    def it_drops_an_unclosed_style_to_the_end_as_a_browser_does():
+        assert sanitize_rich_html("<p>keep</p><style>body{display:none}<p>gone</p>") == "<p>keep</p>"
+
+    def it_scans_unclosed_openers_in_linear_time():
+        # The two pre-passes once rescanned to the end from every unclosed opener: 112 KB of
+        # <style> took about 4 seconds, 125 KB of <ol> most of a minute. Timed without bleach,
+        # whose own parse of deep nesting is a separate cost.
+        started = time.monotonic()
+        for raw in ("<style>" * 64_000, "<style " * 64_000, "<script><style>" * 32_000):
+            _RAW_TEXT_ELEMENT_RE.sub("", raw)
+        for raw in ("<ol>" * 64_000, "<ol " * 64_000):
+            _normalize_quill_lists(raw)
+        assert time.monotonic() - started < 1
+
+    def it_drops_a_style_block_and_nothing_else():
+        assert sanitize_rich_html("<style>p{}</style>") == ""
+        assert sanitize_rich_html("<p>keep</p><style>x</style><p>this</p><style>y</style>") == "<p>keep</p><p>this</p>"
 
     def it_strips_style_tags_iframes_and_event_handlers():
         result = sanitize_rich_html('<style>body{}</style><iframe src="x"></iframe><p onclick="evil()">Hi</p>')

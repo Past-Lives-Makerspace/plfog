@@ -134,12 +134,10 @@ def can_manage_equipment(request: HttpRequest, equipment: Equipment) -> bool:
 def manageable_equipment_ids(request: HttpRequest, items: Iterable[Equipment]) -> set[int]:
     """The pks of ``items`` this request may manage, in a fixed number of queries however many.
 
-    Three tiers (the locked equipment-permissions decision):
-    site tier — full admin (``view_as``-aware) or the EQUIPMENT capability: every item;
-    guild tier — the owning guild's lead or any staff member: that guild's items;
-    resource tier — an ``EquipmentStaffMembership`` row: that item.
-    Guild officers get no blanket grant here — the site tier is deliberately
-    narrower than ``is_effective_staff``.
+    The request side of :meth:`Member.manageable_equipment_ids`, which holds the three tiers:
+    the site tier is read here, the guild and resource tiers are the editing member's
+    :meth:`Member.led_or_staffed_equipment_ids`. Guild officers get no blanket grant — the
+    site tier is deliberately narrower than ``is_effective_staff``.
 
     The admin leg honors ``view_as`` preview, but the capability leg is deliberately
     **preview-independent** — it reads the request's actual linked member, like every
@@ -147,42 +145,24 @@ def manageable_equipment_ids(request: HttpRequest, items: Iterable[Equipment]) -
     duty follows the person, not the preview. Migration 0161 backfills EQUIPMENT onto
     every existing admin, so in practice a previewing admin keeps manage access.
 
-    At most three queries: the capability, the viewer's staff roles on the items' guilds
-    they do not lead, and their equipment staff rows on whatever is left. Each item's
+    At most three queries: the capability, then the two below the site tier. Each item's
     ``guild`` should be loaded (``select_related`` or the guild's own related manager).
     """
-    from membership.models import AdminCapability, EquipmentStaffMembership, GuildStaffMembership
+    from membership.models import AdminCapability
 
     items = list(items)
     if not items:
         return set()
-    every_id = {item.pk for item in items}
     view_as = getattr(request, "view_as", None)
     if view_as is not None and view_as.is_admin:
-        return every_id
+        return {item.pk for item in items}
     actual_member: Member | None = getattr(request.user, "member", None)
     if actual_member is not None and actual_member.has_admin_capability(AdminCapability.Capability.EQUIPMENT):
-        return every_id
+        return {item.pk for item in items}
     member = _editing_member(request)
     if member is None:
         return set()
-    allowed = {item.pk for item in items if item.guild is not None and item.guild.guild_lead_id == member.pk}
-    guild_ids = {item.guild_id for item in items if item.guild_id is not None and item.pk not in allowed}
-    if guild_ids:
-        staffed = set(
-            GuildStaffMembership.objects.filter(member=member, guild_id__in=guild_ids).values_list(
-                "guild_id", flat=True
-            )
-        )
-        allowed |= {item.pk for item in items if item.guild_id in staffed}
-    rest = every_id - allowed
-    if rest:
-        allowed |= set(
-            EquipmentStaffMembership.objects.filter(member=member, equipment_id__in=rest).values_list(
-                "equipment_id", flat=True
-            )
-        )
-    return allowed
+    return member.led_or_staffed_equipment_ids(items)
 
 
 def creatable_equipment_kinds(request: HttpRequest) -> list[str]:

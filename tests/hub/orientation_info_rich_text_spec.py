@@ -97,7 +97,7 @@ def describe_saving_editor_html():
         assert response.status_code == 302
         stored = GuildOrientationSettings.objects.get(guild=guild).info
         assert "<script>" not in stored
-        assert "alert(1)" in stored  # the sanitizer keeps the text and drops the tag
+        assert "alert(1)" not in stored  # the sanitizer drops a script with its code
         assert 'href="https://example.com/safety"' in stored
         assert 'rel="noopener nofollow noreferrer"' in stored
         assert 'target="_blank"' in stored

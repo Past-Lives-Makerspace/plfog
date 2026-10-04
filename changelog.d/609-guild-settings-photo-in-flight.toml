@@ -1,0 +1,6 @@
+bump = "patch"
+date = "2026-10-03"
+title = "Photos picked in Guild Settings always save"
+changes = [
+  "A photo picked in Guild Settings while your last edit was still saving used to show its preview and then never save. It now saves.",
+]

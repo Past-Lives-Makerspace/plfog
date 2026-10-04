@@ -176,10 +176,39 @@ def describe_manageable_equipment_ids():
             for item in items:
                 assert can_manage_equipment(request, item) is (item.pk in expected), (label, item.name)
 
+    def it_gives_the_members_own_answer_when_nobody_is_previewing():
+        # The role side (Member.manageable_equipment_ids) holds the tiers; the request side
+        # only adds view_as. With no preview the two must agree for every tier.
+        world = _world()
+        made = world["items"]
+        admin = _member_user()
+        admin.fog_role = Member.FogRole.ADMIN
+        admin.save(update_fields=["fog_role"])
+        members = {
+            "admin": (admin, {ROLE_ADMIN, ROLE_MEMBER}),
+            "capability holder": (world["capability"], {ROLE_MEMBER}),
+            "lead": (world["lead"], {ROLE_MEMBER}),
+            "guild staff": (world["staff"], {ROLE_MEMBER}),
+            "equipment manager": (world["manager"], {ROLE_MEMBER}),
+            "plain member": (_member_user(), {ROLE_MEMBER}),
+        }
+        items = _items()
+        for label, (member, roles) in members.items():
+            own = member.manageable_equipment_ids(items)
+            assert own == manageable_equipment_ids(_request(member.user, roles=roles), items), label
+            for item in items:
+                assert member.can_manage_equipment(item) is (item.pk in own), (label, item.name)
+        assert members["lead"][0].manageable_equipment_ids(items) == {made[n].pk for n in ("a1", "a2", "b1")}
+
     def it_answers_an_empty_list_without_a_query(django_assert_num_queries):
         request = _request(_member_user().user, roles={ROLE_MEMBER})
         with django_assert_num_queries(0):
             assert manageable_equipment_ids(request, []) == set()
+
+    def it_answers_an_empty_list_without_a_query_on_the_member_side(django_assert_num_queries):
+        member = _member_user()
+        with django_assert_num_queries(0):
+            assert member.manageable_equipment_ids([]) == set()
 
     def describe_query_count():
         def _count(request: object, items: list[Equipment]) -> int:

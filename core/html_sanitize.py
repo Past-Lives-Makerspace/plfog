@@ -53,9 +53,17 @@ _ALLOWED_ATTRS = {"a": ["href", "title"]}
 _BLOCK_TAG_RE = re.compile(r"<(?:p|br|h2|h3|ul|ol|li|blockquote)\b", re.IGNORECASE)
 # A close tag (or ``<br>``) that marks a line break when flattening HTML to text.
 _LINE_BREAK_RE = re.compile(r"<br\s*/?>|</(?:p|li|h2|h3|blockquote|ul|ol)>", re.IGNORECASE)
-# Quill 2.x emits a bullet list as ``<ol>`` whose items carry ``data-list="bullet"``.
-_OL_BLOCK_RE = re.compile(r"<ol(\s[^>]*)?>(.*?)</ol>", re.IGNORECASE | re.DOTALL)
+# Quill 2.x emits a bullet list as ``<ol>`` whose items carry ``data-list="bullet"``. A list
+# with no end tag runs to the end of the input, which keeps this scan linear: an opener never
+# rescans the rest for a closer it lacks. (``bleach``'s own parse is still slow on deeply
+# nested input; that is not bounded here.)
+_OL_BLOCK_RE = re.compile(r"<ol(\s[^>]*)?(?:>(.*?)(?:</ol>|\Z)|\Z)", re.IGNORECASE | re.DOTALL)
 _BULLET_ITEM_RE = re.compile(r"""data-list\s*=\s*["']bullet["']""", re.IGNORECASE)
+# A script or style element, contents and all. ``bleach`` strips the tags but keeps what
+# is between them, so CSS or code pasted in would otherwise survive as visible text. An
+# element with no end tag runs to the end of the input, as it does in a browser; that also
+# keeps the scan linear, since an opener never rescans the rest for a closer it lacks.
+_RAW_TEXT_ELEMENT_RE = re.compile(r"<(script|style)\b[^>]*(?:>.*?(?:</\1\s*>|\Z)|\Z)", re.IGNORECASE | re.DOTALL)
 
 
 def _harden_link(attrs: dict[Any, Any], new: bool = False) -> dict[Any, Any]:
@@ -75,7 +83,7 @@ def _normalize_quill_lists(raw: str) -> str:
     """
 
     def repl(match: re.Match[str]) -> str:
-        attrs, inner = match.group(1) or "", match.group(2)
+        attrs, inner = match.group(1) or "", match.group(2) or ""
         if _BULLET_ITEM_RE.search(inner):
             return f"<ul>{inner}</ul>"
         return f"<ol{attrs}>{inner}</ol>"
@@ -104,15 +112,16 @@ def sanitize_rich_html(raw: str) -> str:
         raw: The editor's HTML. Treated as hostile input.
 
     Returns:
-        Sanitized HTML — ``script``/``style``/``iframe``/event handlers/inline
-        ``style=``/``class=`` and any tag outside the allowlist are dropped (inner text
-        kept); every link gets ``rel="noopener nofollow noreferrer" target="_blank"``;
-        Quill bullet lists become semantic ``<ul>``. Empty, blank, or contentless input
-        (an empty Quill editor is ``<p><br></p>``) returns ``""``.
+        Sanitized HTML — ``script`` and ``style`` elements are dropped with their contents;
+        ``iframe``/event handlers/inline ``style=``/``class=`` and any other tag outside the
+        allowlist are dropped (inner text kept); every link gets
+        ``rel="noopener nofollow noreferrer" target="_blank"``; Quill bullet lists become
+        semantic ``<ul>``. Empty, blank, or contentless input (an empty Quill editor is
+        ``<p><br></p>``) returns ``""``.
     """
     if not raw or not raw.strip():
         return ""
-    normalized = _normalize_quill_lists(raw)
+    normalized = _normalize_quill_lists(_RAW_TEXT_ELEMENT_RE.sub("", raw))
     cleaned = bleach.clean(normalized, tags=_ALLOWED_TAGS, attributes=_ALLOWED_ATTRS, strip=True)
     hardened = bleach.linkify(cleaned, callbacks=[_harden_link], parse_email=False)
     if not rich_html_to_text(hardened):

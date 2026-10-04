@@ -1384,18 +1384,54 @@ class Member(models.Model):
     def can_manage_equipment(self, equipment: Equipment) -> bool:
         """True when this member may manage the given equipment.
 
-        Three tiers (the locked equipment-permissions decision): site tier — full admin
-        or the EQUIPMENT capability; guild tier — the owning guild's lead or any staff
-        member; resource tier — an :class:`EquipmentStaffMembership` row. Role-based —
-        use ``membership.permissions.can_manage_equipment`` in views to honor
+        The rules live in :meth:`manageable_equipment_ids`; this asks it about one item.
+        Role-based — use ``membership.permissions.can_manage_equipment`` in views to honor
         ``view_as`` preview mode.
         """
+        return equipment.pk in self.manageable_equipment_ids([equipment])
+
+    def manageable_equipment_ids(self, items: Iterable[Equipment]) -> set[int]:
+        """The pks of ``items`` this member may manage, in a fixed number of queries however many.
+
+        Three tiers (the locked equipment-permissions decision): site tier — full admin or
+        the EQUIPMENT capability: every item; guild and resource tiers — see
+        :meth:`led_or_staffed_equipment_ids`. Role-based — use
+        ``membership.permissions.manageable_equipment_ids`` in views to honor ``view_as``.
+        """
+        items = list(items)
+        if not items:
+            return set()
         if self.is_fog_admin or self.has_admin_capability(AdminCapability.Capability.EQUIPMENT):
-            return True
-        guild = equipment.guild
-        if guild is not None and (guild.guild_lead_id == self.pk or guild.is_staffed_by(self)):
-            return True
-        return equipment.staff_memberships.filter(member=self).exists()
+            return {item.pk for item in items}
+        return self.led_or_staffed_equipment_ids(items)
+
+    def led_or_staffed_equipment_ids(self, items: Iterable[Equipment]) -> set[int]:
+        """The pks of ``items`` this member manages below the site tier.
+
+        Guild tier — the owning guild's lead or any staff member: that guild's items;
+        resource tier — an :class:`EquipmentStaffMembership` row: that item. Guild officers
+        get no blanket grant. At most two queries: the member's staff roles on the items'
+        guilds they do not lead, and their equipment staff rows on whatever is left. Each
+        item's ``guild`` should be loaded (``select_related`` or the guild's own manager).
+        """
+        items = list(items)
+        allowed = {item.pk for item in items if item.guild is not None and item.guild.guild_lead_id == self.pk}
+        guild_ids = {item.guild_id for item in items if item.guild_id is not None and item.pk not in allowed}
+        if guild_ids:
+            staffed = set(
+                GuildStaffMembership.objects.filter(member=self, guild_id__in=guild_ids).values_list(
+                    "guild_id", flat=True
+                )
+            )
+            allowed |= {item.pk for item in items if item.guild_id in staffed}
+        rest = {item.pk for item in items} - allowed
+        if rest:
+            allowed |= set(
+                EquipmentStaffMembership.objects.filter(member=self, equipment_id__in=rest).values_list(
+                    "equipment_id", flat=True
+                )
+            )
+        return allowed
 
     def creatable_equipment_kinds(self) -> list[str]:
         """The :class:`Equipment.Kind` values this member may create, in choice order.

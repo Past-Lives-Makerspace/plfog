@@ -5,8 +5,10 @@ typing in About saves after the pause and survives a reload; a bad link URL is r
 inline with the typed value kept and nothing saved; a FAQ question typed in two steps is
 created once and edited in place, never duplicated; a saved link's Delete takes it off the
 page and the database; the member suggestions and Reservations toggles save at once (the
-second puts a Reservations tab on the guild page); and typing then leaving at once, by a
-boosted in page link and by a hard sidebar link, still lands the save.
+second puts a Reservations tab on the guild page); typing then leaving at once, by a
+boosted in page link and by a hard sidebar link, still lands the save; and a photo dropped
+on a new orientation type while the row's first save is in flight still saves, because that
+save's answer clears only a file it sent.
 
 Waits are on what the page shows, never a fixed sleep: the save pill reads Saved with its
 ``data-saves`` count past the last one, a new row carries its hidden id. Run with
@@ -15,6 +17,7 @@ Waits are on what the page shows, never a fixed sleep: the save pill reads Saved
 
 from __future__ import annotations
 
+import base64
 import re
 import time
 
@@ -22,7 +25,7 @@ from django.contrib.auth import get_user_model
 from django.urls import reverse
 from playwright.sync_api import expect
 
-from membership.models import Guild, GuildFAQItem, GuildLink
+from membership.models import Guild, GuildFAQItem, GuildLink, OrientationType
 from tests.membership.factories import EquipmentFactory, GuildFactory, GuildLinkFactory, MembershipPlanFactory
 
 ADMIN_EMAIL = "guild-autosave-admin@example.com"
@@ -84,6 +87,45 @@ def _flag_a_delete_behind_a_bad_row(page, live_server, login_via_code):
     assert GuildLink.objects.filter(pk=wiki.pk).exists()
     expect(_link_row(page, wiki)).to_be_hidden()
     return guild, wiki, url
+
+
+# Drops a one pixel PNG on an image field's zone the way a browser does: a DragEvent whose
+# DataTransfer carries the file. Only the field's own inline script listens for it.
+DROP_PNG = """(zoneId) => {
+    const bytes = Uint8Array.from(atob('%s'), (c) => c.charCodeAt(0));
+    const transfer = new DataTransfer();
+    transfer.items.add(new File([bytes], 'card.png', { type: 'image/png' }));
+    const zone = document.getElementById(zoneId);
+    zone.dispatchEvent(new DragEvent('drop', { dataTransfer: transfer, bubbles: true, cancelable: true }));
+}""" % base64.b64encode(_PNG).decode()
+
+
+# Holds every autosave answer (a request carrying X-Autosave) until plReleaseSaves() runs;
+# plHeldSaves counts them. Any other fetch the page makes goes through untouched.
+HOLD_SAVES = """() => {
+    const realFetch = window.fetch;
+    let release;
+    const gate = new Promise((resolve) => { release = resolve; });
+    window.plHeldSaves = 0;
+    window.plReleaseSaves = release;
+    window.fetch = (url, options) => {
+        const headers = (options && options.headers) || {};
+        if (!headers["X-Autosave"]) return realFetch(url, options);
+        window.plHeldSaves += 1;
+        return realFetch(url, options).then((response) => gate.then(() => response));
+    };
+}"""
+
+
+def _wait_for_photo(guild: Guild, name: str) -> None:
+    """The photo's save follows the held one through the queue."""
+    deadline = time.monotonic() + 10
+    while time.monotonic() < deadline:
+        row = OrientationType.objects.filter(guild=guild, name=name).first()
+        if row is not None and row.photo.name:
+            return
+        time.sleep(0.1)
+    raise AssertionError(f"{name!r} never saved its photo")
 
 
 def _link_row(page, link: GuildLink):
@@ -332,3 +374,47 @@ def describe_guild_settings_autosave():
         page.locator(".hub-sidebar__nav a").first.click()
         page.wait_for_url(lambda url: "/edit/" not in url)
         _wait_for_about(guild, "Left by the sidebar.")
+
+    def it_keeps_a_photo_dropped_while_the_rows_first_save_is_in_flight(live_server, page, login_via_code):
+        guild = _admin_guild()
+        _sign_in_as_admin(login_via_code)
+        _open(page, live_server, guild, "orientations")
+        # The name's save is held open, so the photo lands while it is in flight: its answer must
+        # not clear a file it never sent.
+        page.evaluate(HOLD_SAVES)
+
+        page.get_by_role("button", name="+ Add an orientation type").click()
+        page.locator('input[name="otypes-0-name"]').fill("Wheel basics")
+        page.locator('input[name="otypes-0-duration_minutes"]').fill("60")
+        page.wait_for_function("() => window.plHeldSaves > 0")
+        page.evaluate(DROP_PNG, "image-upload-zone-id_otypes-0-photo")
+        page.evaluate("() => window.plReleaseSaves()")
+
+        expect(page.locator("#image-preview-id_otypes-0-photo img")).to_have_attribute(
+            "src", re.compile(r"^data:image/png")
+        )
+        expect(page.locator("#image-upload-zone-id_otypes-0-photo .cls-image-upload-label")).to_have_text(
+            "Replace image"
+        )
+        _wait_for_photo(guild, "Wheel basics")
+
+    def it_clears_a_sent_photo_even_when_the_save_renumbers_the_rows(live_server, page, login_via_code):
+        # A blank new row ahead of a saved one swaps places when the answer renumbers them; the
+        # sent photo must still be cleared, or the next edit uploads it again.
+        guild = _admin_guild()
+        _sign_in_as_admin(login_via_code)
+        _open(page, live_server, guild, "orientations")
+
+        add = page.get_by_role("button", name="+ Add an orientation type")
+        add.click()
+        add.click()
+        # The photo waits on the half typed row; filling the name sends both in the save whose
+        # answer renumbers the rows.
+        photo = page.locator("#otypes-form [data-formset-row]").nth(1).locator('input[type="file"]')
+        photo.set_input_files({"name": "glaze.png", "mimeType": "image/png", "buffer": _PNG})
+        page.locator('input[name="otypes-1-name"]').fill("Glaze basics")
+
+        _wait_for_photo(guild, "Glaze basics")
+        page.wait_for_function(QUEUE_IDLE)
+        expect(photo).to_have_attribute("name", "otypes-0-photo")
+        assert photo.evaluate("(input) => input.files.length") == 0

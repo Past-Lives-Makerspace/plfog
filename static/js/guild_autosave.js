@@ -236,10 +236,16 @@
 
   // A posted file stays selected in its input, and the next post of the form would send it again
   // (a new storage object each time, and a body no keepalive flush could carry). Only a file that
-  // went out is cleared: a row posted as rendered had its file taken out of the data.
+  // went out is cleared, and only while the input still holds it: a row posted as rendered had its
+  // file taken out of the data, and a file picked while the save was in flight has not been sent.
   function clearFiles(form, data) {
     form.querySelectorAll('input[type="file"]').forEach(function (input) {
-      if (input.name && data.get(input.name) instanceof File) input.value = "";
+      var sent = input.name ? data.get(input.name) : null;
+      if (!(sent instanceof File) || (sent.size === 0 && sent.name === "")) return;
+      var held = input.files && input.files[0];
+      if (held && held.name === sent.name && held.size === sent.size && held.lastModified === sent.lastModified) {
+        input.value = "";
+      }
     });
   }
 
@@ -489,8 +495,9 @@
           if (response.ok) {
             var saved = await response.json();
             clearErrors(form);
-            applyRows(form, saved.rows);
+            // Before applyRows renumbers the rows: the sent data is keyed by the names they had.
             clearFiles(form, data);
+            applyRows(form, saved.rows);
             // The form as it now reads is what the server holds, unless it was edited while this
             // save ran: then that edit must post, so nothing is remembered.
             form.plAutosaveSaved = form.plAutosaveEdited ? null : signature(payload(form));
