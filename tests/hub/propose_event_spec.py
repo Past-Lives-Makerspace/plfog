@@ -44,12 +44,24 @@ def describe_create():
         assert resp.status_code == 302
         assert "login" in resp["Location"]
 
-    def it_403s_when_the_policy_is_disabled(client: Client):
+    def it_sends_a_member_to_host_a_class_when_the_policy_is_disabled(client: Client):
         _member("d1")
         _set_policy(SiteConfiguration.MemberEventPolicy.DISABLED)
         client.login(username="d1", password="pass")
-        assert client.get(reverse("hub_propose_event")).status_code == 403
-        assert client.post(reverse("hub_propose_event"), data=_payload()).status_code == 403
+        assert client.get(reverse("hub_propose_event"))["Location"] == reverse("classes:teach_overview")
+        resp = client.post(reverse("hub_propose_event"), data=_payload(), follow=True)
+        assert resp.redirect_chain[0][0] == reverse("classes:teach_overview")
+        assert "Host a Class to get yours started" in resp.content.decode()
+        assert not CommunityEvent.objects.exists()
+
+    def it_still_lets_a_proposer_edit_their_pending_proposal_when_disabled(client: Client):
+        user = _member("d2")
+        event = CommunityEventFactory(
+            community=True, submitted_by=user, moderation_state=CommunityEvent.ModerationState.PENDING
+        )
+        _set_policy(SiteConfiguration.MemberEventPolicy.DISABLED)
+        client.login(username="d2", password="pass")
+        assert client.get(reverse("hub_propose_event_edit", args=[event.pk])).status_code == 200
 
     def it_submits_for_review_under_the_approval_policy(client: Client):
         user = _member("a1")

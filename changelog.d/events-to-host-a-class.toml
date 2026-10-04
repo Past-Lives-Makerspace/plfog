@@ -1,0 +1,8 @@
+bump = "minor"
+date = "2026-10-03"
+title = "Run your own session as a class"
+changes = [
+  "When member event proposals are switched off, the Calendar shows a Host a Class button where Propose an event used to be.",
+  "An old Propose an event link, or /create in Discord, now points you to Host a Class instead of a dead end.",
+  "A proposal you already sent can still be edited or withdrawn.",
+]
