@@ -57,8 +57,10 @@ _LINE_BREAK_RE = re.compile(r"<br\s*/?>|</(?:p|li|h2|h3|blockquote|ul|ol)>", re.
 _OL_BLOCK_RE = re.compile(r"<ol(\s[^>]*)?>(.*?)</ol>", re.IGNORECASE | re.DOTALL)
 _BULLET_ITEM_RE = re.compile(r"""data-list\s*=\s*["']bullet["']""", re.IGNORECASE)
 # A script or style element, contents and all. ``bleach`` strips the tags but keeps what
-# is between them, so CSS or code pasted in would otherwise survive as visible text.
-_RAW_TEXT_ELEMENT_RE = re.compile(r"<(script|style)\b[^>]*>.*?</\1\s*>", re.IGNORECASE | re.DOTALL)
+# is between them, so CSS or code pasted in would otherwise survive as visible text. An
+# element with no end tag runs to the end of the input, as it does in a browser; that also
+# keeps the scan linear, since an opener never rescans the rest for a closer it lacks.
+_RAW_TEXT_ELEMENT_RE = re.compile(r"<(script|style)\b[^>]*(?:>.*?(?:</\1\s*>|\Z)|\Z)", re.IGNORECASE | re.DOTALL)
 
 
 def _harden_link(attrs: dict[Any, Any], new: bool = False) -> dict[Any, Any]:

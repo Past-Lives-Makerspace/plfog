@@ -495,8 +495,9 @@
           if (response.ok) {
             var saved = await response.json();
             clearErrors(form);
-            applyRows(form, saved.rows);
+            // Before applyRows renumbers the rows: the sent data is keyed by the names they had.
             clearFiles(form, data);
+            applyRows(form, saved.rows);
             // The form as it now reads is what the server holds, unless it was edited while this
             // save ran: then that edit must post, so nothing is remembered.
             form.plAutosaveSaved = form.plAutosaveEdited ? null : signature(payload(form));

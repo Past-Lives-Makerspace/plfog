@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import time
+
 from core.html_sanitize import (
     render_rich_email_body,
     render_rich_email_text,
@@ -25,6 +27,16 @@ def describe_sanitize_rich_html():
         # bleach keeps the text between stripped tags, so CSS used to show as words.
         result = sanitize_rich_html('<p>a</p><STYLE type="text/css">body{display:none}</STYLE >\n<p>b</p>')
         assert result == "<p>a</p>\n<p>b</p>"
+
+    def it_drops_an_unclosed_style_to_the_end_as_a_browser_does():
+        assert sanitize_rich_html("<p>keep</p><style>body{display:none}<p>gone</p>") == "<p>keep</p>"
+
+    def it_stays_linear_on_thousands_of_unclosed_openers():
+        # The first pattern rescanned to the end from every opener: 112 KB took about 4 seconds.
+        started = time.monotonic()
+        sanitize_rich_html("<p>a</p>" + "<style>" * 64_000)
+        sanitize_rich_html("<p>a</p>" + "<style " * 64_000)
+        assert time.monotonic() - started < 2
 
     def it_drops_a_style_block_and_nothing_else():
         assert sanitize_rich_html("<style>p{}</style>") == ""

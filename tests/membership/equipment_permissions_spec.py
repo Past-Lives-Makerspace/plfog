@@ -205,6 +205,11 @@ def describe_manageable_equipment_ids():
         with django_assert_num_queries(0):
             assert manageable_equipment_ids(request, []) == set()
 
+    def it_answers_an_empty_list_without_a_query_on_the_member_side(django_assert_num_queries):
+        member = _member_user()
+        with django_assert_num_queries(0):
+            assert member.manageable_equipment_ids([]) == set()
+
     def describe_query_count():
         def _count(request: object, items: list[Equipment]) -> int:
             from django.db import connection

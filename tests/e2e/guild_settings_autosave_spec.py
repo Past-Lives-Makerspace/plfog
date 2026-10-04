@@ -100,16 +100,19 @@ DROP_PNG = """(zoneId) => {
 }""" % base64.b64encode(_PNG).decode()
 
 
-# Holds every response the page fetches until plReleaseSaves() runs; plHeldSaves counts them.
+# Holds every autosave answer (a request carrying X-Autosave) until plReleaseSaves() runs;
+# plHeldSaves counts them. Any other fetch the page makes goes through untouched.
 HOLD_SAVES = """() => {
     const realFetch = window.fetch;
     let release;
     const gate = new Promise((resolve) => { release = resolve; });
     window.plHeldSaves = 0;
     window.plReleaseSaves = release;
-    window.fetch = (...args) => {
+    window.fetch = (url, options) => {
+        const headers = (options && options.headers) || {};
+        if (!headers["X-Autosave"]) return realFetch(url, options);
         window.plHeldSaves += 1;
-        return realFetch(...args).then((response) => gate.then(() => response));
+        return realFetch(url, options).then((response) => gate.then(() => response));
     };
 }"""
 
@@ -394,3 +397,24 @@ def describe_guild_settings_autosave():
             "Replace image"
         )
         _wait_for_photo(guild, "Wheel basics")
+
+    def it_clears_a_sent_photo_even_when_the_save_renumbers_the_rows(live_server, page, login_via_code):
+        # A blank new row ahead of a saved one swaps places when the answer renumbers them; the
+        # sent photo must still be cleared, or the next edit uploads it again.
+        guild = _admin_guild()
+        _sign_in_as_admin(login_via_code)
+        _open(page, live_server, guild, "orientations")
+
+        add = page.get_by_role("button", name="+ Add an orientation type")
+        add.click()
+        add.click()
+        # The photo waits on the half typed row; filling the name sends both in the save whose
+        # answer renumbers the rows.
+        photo = page.locator("#otypes-form [data-formset-row]").nth(1).locator('input[type="file"]')
+        photo.set_input_files({"name": "glaze.png", "mimeType": "image/png", "buffer": _PNG})
+        page.locator('input[name="otypes-1-name"]').fill("Glaze basics")
+
+        _wait_for_photo(guild, "Glaze basics")
+        page.wait_for_function(QUEUE_IDLE)
+        expect(photo).to_have_attribute("name", "otypes-0-photo")
+        assert photo.evaluate("(input) => input.files.length") == 0
