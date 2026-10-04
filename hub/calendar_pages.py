@@ -3,7 +3,7 @@
 Both pages gain a Calendar view that reuses the guild page's shell
 (``hub/partials/guild_calendar_app.html`` around ``calendar_content.html``) with a legend of
 their own instead of the guild legend. The window, the grid and the pagination come from
-``hub.views._calendar_window_context``, the one place the calendars' date arithmetic lives;
+``hub.calendar_window``, the one place the calendars' date arithmetic lives;
 the rows come from ``hub.calendar_entries``. The views only parse the navigation params and
 render.
 """
@@ -12,7 +12,7 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from datetime import date
-from typing import TYPE_CHECKING, Any, TypedDict
+from typing import TYPE_CHECKING, Any, TypedDict, cast
 
 from django.urls import reverse
 
@@ -23,6 +23,7 @@ from hub.calendar_entries import (
     orientation_page_entries,
     reservation_entries,
 )
+from hub.calendar_window import calendar_window, calendar_window_context
 
 if TYPE_CHECKING:
     from django.http import HttpRequest
@@ -83,12 +84,10 @@ def entries_calendar_context(
     keys a legend chip (``CalendarEntry.legend_key``). ``entries_calendar`` tells the
     content partial to drop the guild calendar's notes about subscribed feeds.
     """
-    from hub.views import _calendar_window, _calendar_window_context
-
-    window = _calendar_window(week_offset, month_offset)
+    window = calendar_window(week_offset, month_offset)
     entries = sorted(entries_for(window.fetch_from, window.fetch_to), key=lambda entry: entry.start_dt)
     return {
-        **_calendar_window_context(
+        **calendar_window_context(
             entries, window, week_offset=week_offset, month_offset=month_offset, event_page=event_page
         ),
         "legend": legend,
@@ -124,9 +123,9 @@ def orientations_calendar_context(
         if key == MAKERSPACE_LEGEND_KEY:
             has_makerspace = True
             continue
+        # A key other than Makerspace always names a guild: the type's own or its equipment's.
         owner = orientation_type.guild if orientation_type.equipment is None else orientation_type.equipment.guild
-        assert owner is not None  # a guild key always comes from a guild
-        guilds[key] = owner
+        guilds[key] = cast("Guild", owner)
     legend: list[LegendChip] = [
         {"key": key, "label": guild.name, "color": guild.calendar_color, "logo_prefix": guild.logo_prefix}
         for key, guild in sorted(guilds.items(), key=lambda item: item[1].name.lower())

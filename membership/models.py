@@ -14334,6 +14334,14 @@ class Equipment(HeroCropMixin, models.Model):
                 free.append((cursor, window_end))
         return free
 
+    def is_within_horizon(self, day: date_type) -> bool:
+        """Whether ``day`` is today or later and within ``max_advance_days`` of today (local dates).
+
+        The days the item's schedule shows and takes bookings for.
+        """
+        today = timezone.localdate()
+        return today <= day <= today + timedelta(days=self.max_advance_days)
+
     def free_starts_for_day(self, day: date_type) -> list[datetime_type]:
         """Future, half-hour-aligned starts on ``day`` that fit at least the minimum duration.
 
@@ -14341,8 +14349,7 @@ class Equipment(HeroCropMixin, models.Model):
         math — closure and member blockers are the caller's checks (``reserve()``
         re-validates everything under the row lock).
         """
-        today = timezone.localdate()
-        if day < today or day > today + timedelta(days=self.max_advance_days):
+        if not self.is_within_horizon(day):
             return []
         now = timezone.now()
         min_duration = timedelta(minutes=self.min_duration_minutes)

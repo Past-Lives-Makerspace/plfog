@@ -13,7 +13,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import UTC, date, datetime, time, timedelta
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, cast
 from urllib.parse import quote, quote_plus, urlencode
 
 from django.utils import timezone
@@ -230,11 +230,17 @@ def orientation_page_entries(types: Iterable[OrientationType], fetch_from: date,
 
 
 def _item_day_url(equipment: Equipment, moment: datetime) -> str:
-    """The item's page opened on the local day of ``moment``, where its schedule shows that booking."""
+    """The item's page, opened on the local day of ``moment`` when its schedule can show that day.
+
+    The schedule shows today through the booking horizon (:meth:`Equipment.is_within_horizon`);
+    a past booking, or one beyond the horizon, links the bare page rather than a ``?day=``
+    the page would ignore.
+    """
     from django.urls import reverse
 
+    page = reverse("hub_equipment_detail", args=[equipment.slug])
     day = timezone.localdate(moment)
-    return f"{reverse('hub_equipment_detail', args=[equipment.slug])}?day={day.isoformat()}"
+    return f"{page}?day={day.isoformat()}" if equipment.is_within_horizon(day) else page
 
 
 def reservation_entries(items: Iterable[Equipment], fetch_from: date, fetch_to: date) -> list[CalendarEntry]:
@@ -281,8 +287,8 @@ def reservation_entries(items: Iterable[Equipment], fetch_from: date, fetch_to: 
         .order_by("starts_at")
     )
     for slot in holds:
-        item = slot.orientation_type.equipment
-        assert item is not None  # filtered to equipment owned types
+        # The query keeps equipment owned types only, so the type always has its item.
+        item = cast("Equipment", slot.orientation_type.equipment)
         entries.append(
             CalendarEntry(
                 pk=ORIENTATION_PK_OFFSET + slot.pk,

@@ -25,7 +25,7 @@ Member-facing views. All views are `@login_required`. No models — reads from `
 
 ## List / Calendar pages
 
-The Orientations and Reservations pages (#502) open on List and build their calendar only for `?view=calendar`; otherwise the Calendar pane fetches the shell once on first open (`static/js/list_calendar.js`). Both reuse the guild page's shell (`partials/guild_calendar_app.html`) with `cal_key` and `cal.legend`; `hub/calendar_pages.py` builds their context on `views._calendar_window_context`, the one place the calendars' date arithmetic lives, from rows in `hub/calendar_entries.py`.
+The Orientations and Reservations pages (#502) open on List and build their calendar only for `?view=calendar`; otherwise the Calendar pane fetches the shell once on first open (`static/js/list_calendar.js`). Both reuse the guild page's shell (`partials/guild_calendar_app.html`) with `cal_key` and `cal.legend`; `hub/calendar_pages.py` builds their context on `hub/calendar_window.py` (`calendar_window_context`), the one place every calendar's date arithmetic lives, from rows in `hub/calendar_entries.py`.
 
 ## Announcements
 

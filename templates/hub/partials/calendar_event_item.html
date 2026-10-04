@@ -22,10 +22,10 @@ Params:
     {% if event.is_in_progress %}<span class="pl-calendar-list__live-pill"><span class="pl-calendar-list__live-dot"></span>Live now</span>{% endif %}
     <div class="pl-calendar-list__time">
         {% if event.all_day %}
-        <span class="pl-calendar-list__time-day">{{ event.start_dt|date:"D, M j" }}</span>
+        <span class="pl-calendar-list__time-day">{{ event|calendar_day|date:"D, M j" }}</span>
         <span class="pl-calendar-list__time-hour">All day</span>
         {% else %}
-        <span class="pl-calendar-list__time-day">{{ event.start_dt|date:"D, M j" }}</span>
+        <span class="pl-calendar-list__time-day">{{ event|calendar_day|date:"D, M j" }}</span>
         <span class="pl-calendar-list__time-hour">{{ event.start_dt|date:"g:i A" }}{% if event.source == "orientation" or event.source == "community" or event.source == "reservation" %} – {{ event.end_dt|date:"g:i A" }}{% endif %}</span>
         {% endif %}
     </div>

@@ -21,7 +21,13 @@
             pane: initialPane,
 
             init() {
-                const id = decodeURIComponent(window.location.hash.slice(1));
+                let id = "";
+                try {
+                    id = decodeURIComponent(window.location.hash.slice(1));
+                } catch (e) {
+                    // A malformed hash (#%) names no card: open the pane the server chose.
+                    return;
+                }
                 const target = id ? document.getElementById(id) : null;
                 if (target && this.$refs.listPane && this.$refs.listPane.contains(target)) {
                     this.pane = "list";

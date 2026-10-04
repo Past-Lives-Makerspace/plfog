@@ -197,3 +197,75 @@ def describe_each_calendar_at_half_past_five_pacific():
             for grid in ("week_days", "month_days"):
                 assert event.pk in _cell_pks(context[grid], DAY), (event.uid, grid)
                 assert event.pk not in _cell_pks(context[grid], DAY - timedelta(days=1)), (event.uid, grid)
+
+
+def describe_the_windows_edges():
+    """A legacy all-day row stored at UTC midnight belongs to its UTC date, the day after its
+    local one, so the database read reaches a day past each end of the window."""
+
+    def _utc_midnight_row(day: date, uid: str, **kwargs: Any) -> CalendarEvent:
+        kwargs.setdefault("source", CalendarEvent.Source.GENERAL)
+        return CalendarEvent.objects.create(
+            uid=uid,
+            title=f"Fair {uid}",
+            start_dt=datetime.combine(day, time.min, tzinfo=UTC),
+            end_dt=datetime.combine(day + timedelta(days=1), time.min, tzinfo=UTC),
+            all_day=True,
+            fetched_at=FROZEN_NOW,
+            **kwargs,
+        )
+
+    def _label(content: str, pk: int) -> str:
+        item = content[content.index(f'data-event-pk="{pk}"') :]
+        return re.search(r'pl-calendar-list__time-day">([^<]*)<', item).group(1)  # type: ignore[union-attr]
+
+    def it_draws_a_first_day_row_on_the_first_day_and_labels_it_so(client: Client, frozen: None):
+        _login(client, "edge_first")
+        context_week_start = DAY - timedelta(days=DAY.weekday())
+        row = _utc_midnight_row(context_week_start, "first-day")
+        response = client.get(reverse("hub_community_calendar_events"))
+        for grid in ("week_days", "month_days"):
+            assert row.pk in _cell_pks(response.context[grid], context_week_start), grid
+        assert row.pk in [event.pk for event in response.context["week_events"]]
+        assert _label(response.content.decode(), row.pk) == context_week_start.strftime("%a, %b %-d")
+
+    def it_draws_a_last_day_row_on_the_last_day(client: Client, frozen: None):
+        _login(client, "edge_last")
+        response = client.get(reverse("hub_community_calendar_events"))
+        last_day = response.context["month_days"][-1]["date"]
+        row = _utc_midnight_row(last_day, "last-day")
+        response = client.get(reverse("hub_community_calendar_events"))
+        assert row.pk in _cell_pks(response.context["month_days"], last_day)
+        assert _label(response.content.decode(), row.pk) == last_day.strftime("%a, %b %-d")
+
+    def it_leaves_out_a_row_that_belongs_to_the_day_after_the_window(client: Client, frozen: None):
+        _login(client, "edge_after")
+        last_day = client.get(reverse("hub_community_calendar_events")).context["month_days"][-1]["date"]
+        guild = GuildFactory(name="Day After Guild")
+        row = _utc_midnight_row(
+            last_day + timedelta(days=1), "day-after", guild=guild, source=CalendarEvent.Source.GUILD
+        )
+        context = client.get(reverse("hub_community_calendar_events")).context
+        assert row.pk not in [event.pk for cell in context["month_days"] for event in cell["events"]]
+        assert row.pk not in [event.pk for event in context["month_events"]]
+        # The wider read added it; the trim keeps it off the legend too.
+        assert guild not in context["legend_guilds"]
+
+    def it_leaves_out_an_evening_event_the_wider_read_pulls_in_before_the_window(client: Client, frozen: None):
+        _login(client, "edge_before")
+        week_start = DAY - timedelta(days=DAY.weekday())
+        guild = GuildFactory(name="Evening Before Guild")
+        evening_before = timezone.make_aware(datetime.combine(week_start - timedelta(days=1), time(20, 0)))
+        row = CalendarEvent.objects.create(
+            guild=guild,
+            source=CalendarEvent.Source.GUILD,
+            uid="evening-before",
+            title="Sunday Night Open Shop",
+            start_dt=evening_before,
+            end_dt=evening_before + timedelta(hours=2),
+            fetched_at=FROZEN_NOW,
+        )
+        context = client.get(reverse("hub_community_calendar_events")).context
+        assert row.pk not in [event.pk for cell in context["week_days"] for event in cell["events"]]
+        assert row.pk not in [event.pk for event in context["month_events"]]
+        assert guild not in context["legend_guilds"]

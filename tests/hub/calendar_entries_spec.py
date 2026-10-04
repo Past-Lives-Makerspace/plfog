@@ -473,6 +473,33 @@ def describe_reservation_entries():
         assert entry.location == "Wood Shop"
         assert entry.url == f"/equipment/{item.slug}/?day={timezone.localdate(slot.starts_at).isoformat()}"
 
+    def it_links_the_bare_items_page_for_a_past_reservation():
+        item = _item(name="Past saw")
+        yesterday = timezone.now() - timedelta(days=1)
+        EquipmentReservationFactory(equipment=item, starts_at=yesterday)
+        [entry] = reservation_entries([item], timezone.localdate() - timedelta(days=3), timezone.localdate())
+        assert entry.url == f"/equipment/{item.slug}/"
+
+    def it_links_the_bare_items_page_for_a_hold_beyond_the_horizon():
+        item = EquipmentFactory(name="Far lathe", max_advance_days=7)
+        later = timezone.now() + timedelta(days=20)
+        slot = OrientationSlotFactory(
+            guild=None,
+            orientation_type=OrientationTypeFactory(guild=None, equipment=item),
+            starts_at=later,
+            ends_at=later + timedelta(hours=1),
+        )
+        OrientationBookingFactory(slot=slot, status=OrientationBooking.Status.CONFIRMED)
+        [entry] = reservation_entries([item], timezone.localdate(), timezone.localdate() + timedelta(days=30))
+        assert entry.url == f"/equipment/{item.slug}/"
+
+    def it_keeps_the_day_on_the_last_day_of_the_horizon():
+        item = EquipmentFactory(name="Edge saw", max_advance_days=7)
+        last = timezone.localtime().replace(hour=10, minute=0, second=0, microsecond=0) + timedelta(days=7)
+        EquipmentReservationFactory(equipment=item, starts_at=last)
+        [entry] = reservation_entries([item], timezone.localdate(), timezone.localdate() + timedelta(days=30))
+        assert entry.url == f"/equipment/{item.slug}/?day={last.date().isoformat()}"
+
     def it_leaves_out_a_cancelled_reservation_and_an_open_unbooked_slot():
         item = _item()
         EquipmentReservationFactory(equipment=item, status=EquipmentReservation.Status.CANCELLED)

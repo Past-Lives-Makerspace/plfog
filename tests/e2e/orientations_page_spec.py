@@ -170,6 +170,17 @@ def describe_the_orientations_calendar():
         expect(page.locator(f"#orientation-type-{orientation_type.pk}")).to_be_hidden()
         expect(page.get_by_role("tab", name="Calendar")).to_have_attribute("aria-selected", "true")
 
+    def it_shrugs_off_a_malformed_hash(live_server, page, login_via_code):
+        MembershipPlanFactory()
+        login_via_code(MEMBER_EMAIL)
+        errors: list[str] = []
+        page.on("pageerror", lambda error: errors.append(str(error)))
+        page.goto(f"{live_server.url}{reverse('hub_orientations')}?view=calendar#%")
+        expect(page.get_by_role("tab", name="Calendar")).to_have_attribute("aria-selected", "true")
+        page.get_by_role("tab", name="List").click()
+        expect(page.get_by_role("tab", name="List")).to_have_attribute("aria-selected", "true")
+        assert errors == []
+
 
 def describe_the_guild_page_calendar():
     def it_still_files_its_filters_under_the_guild(live_server, page, login_via_code):
