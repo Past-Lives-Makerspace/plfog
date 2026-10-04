@@ -1,0 +1,8 @@
+bump = "minor"
+date = "2026-10-03"
+title = "Guild pages can show their rooms and tools"
+changes = [
+  "Guild leads can turn on a Reservations tab in guild settings. It lists the guild's rooms, spaces and tools on the guild page, with a lock on any tool you still need an orientation for.",
+  "Guild settings list every item the guild owns, whether it is active, and a Manage link for those who look after it.",
+  "A guild's Orientations tab now only appears when there is an orientation to book.",
+]
