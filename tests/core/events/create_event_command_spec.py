@@ -274,6 +274,7 @@ def describe_submitting_the_modal():
         _set_policy(SiteConfiguration.MemberEventPolicy.DISABLED)
         content = _submit(linked_member())["data"]["content"]
         assert "limited to guild leads and admins" in content
+        assert "/classes/teach/" in content
         assert not CommunityEventDraft.objects.exists()
 
 
@@ -921,6 +922,7 @@ def describe_confirm_time_rechecks():
 
         result = _confirm(member, draft.pk)
         assert "limited to guild leads and admins" in result["data"]["content"]
+        assert "/classes/teach/" in result["data"]["content"]
         assert not CommunityEventDraft.objects.exists()
         assert not CommunityEvent.objects.exists()
 

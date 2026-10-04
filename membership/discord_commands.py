@@ -902,10 +902,6 @@ _CREATE_DURATION_CHOICES: list[tuple[int, str]] = [
     (1440, "All day"),
 ]
 
-_NOT_PERMITTED = (
-    "Posting an event straight to the calendar is limited to guild leads and admins right now. "
-    "Ask a lead to post it for you, or reach out to a Past Lives organizer."
-)
 _SETUP_INCOMPLETE = (
     "Your Past Lives account isn't fully set up yet, so I can't create an event under your name. "
     "Please reach out to a Past Lives organizer."
@@ -915,6 +911,14 @@ _PREVIEW_CANCELLED = "Cancelled. Nothing was created."
 _CREATE_FANOUT_FAILED = (
     "Something went wrong on our side and the event was not fully posted. Please check the calendar or try again."
 )
+
+
+def _not_permitted() -> str:
+    """The refusal under the Disabled member-event policy: a member's own session is a class now."""
+    return (
+        "Posting an event straight to the calendar is limited to guild leads and admins right now. "
+        f"To run your own session, host it as a class: {hub_url('classes:teach_overview')}"
+    )
 
 
 def _when_error_copy(error: WhenError) -> str:
@@ -1460,7 +1464,7 @@ def _create_submit(interaction: Interaction, member: Member | None) -> dict:
     policy = SiteConfiguration.load().member_event_policy
     authored = member.is_fog_admin or (guild is not None and member.can_edit_guild(guild))
     if not authored and policy == SiteConfiguration.MemberEventPolicy.DISABLED:
-        return reply(_NOT_PERMITTED, ephemeral=True)
+        return reply(_not_permitted(), ephemeral=True)
 
     CommunityEventDraft.objects.claimable_for(member.user).delete()
     cleaned = form.cleaned_data
@@ -1611,7 +1615,7 @@ def _confirm_create(interaction: Interaction, member: Member, draft: CommunityEv
     authored = member.is_fog_admin or (guild is not None and member.can_edit_guild(guild))
     if not authored and policy == SiteConfiguration.MemberEventPolicy.DISABLED:
         draft.delete()
-        return update_message(_NOT_PERMITTED)
+        return update_message(_not_permitted())
     if not keyed_within_limits(
         _CREATE_RATE_SCOPE, str(member.pk), hourly_limit=_CREATE_HOURLY_LIMIT, daily_limit=_CREATE_DAILY_LIMIT
     ):
