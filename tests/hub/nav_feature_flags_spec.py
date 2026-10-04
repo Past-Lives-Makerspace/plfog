@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import re
+
 import pytest
 from django.contrib.auth.models import User
 from django.test import Client
@@ -113,6 +115,7 @@ _NAV_MARKERS: dict[str, tuple[bytes, bytes]] = {
     "directory": (b'href="/members/" class="hub-sidebar__link', b"Member Directory"),
     "leadership": (b'href="/leadership/" class="hub-sidebar__link', b"Leadership Directory"),
     "spaces": (b'href="/spaces/" class="hub-sidebar__link', b"Spaces"),
+    "orientations": (b'href="/orientations/" class="hub-sidebar__link', b"Orientations"),
     "equipment": (b'href="/equipment/" class="hub-sidebar__link', b"Reservations"),
     "voting": (b'href="/manage/voting/" class="hub-sidebar__link', b"Voting"),
     "wiki": (b'href="/wiki/" class="hub-sidebar__link', b"Member Wiki"),
@@ -244,6 +247,25 @@ def describe_both_sidebar_blocks():
         assert href in member_body
         assert label in member_body
         assert b"Equipment" not in member_body
+
+    def it_puts_orientations_directly_above_reservations_in_both_blocks(client: Client):
+        """#502: Orientations joins the sidebar right above Reservations, for admins and members alike."""
+        turn_on("orientations")
+        turn_on("equipment")
+
+        def entry_after_orientations(body: bytes) -> bytes:
+            entries = re.findall(rb'href="(/[^"]*)" class="hub-sidebar__link', body)
+            return entries[entries.index(b"/orientations/") + 1]
+
+        _login_admin(client)
+        admin_body = _sidebar(client)
+        assert entry_after_orientations(admin_body) == b"/equipment/"
+        assert b'data-help-key="nav.orientations"' in admin_body
+        client.logout()
+        _login_member(client, "navmember_orientations")
+        member_body = _sidebar(client)
+        assert entry_after_orientations(member_body) == b"/equipment/"
+        assert b'data-help-key="nav.orientations"' in member_body
 
 
 def describe_the_guilds_section():

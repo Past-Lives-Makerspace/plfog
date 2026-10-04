@@ -41,4 +41,4 @@ def describe_orientation_booking():
         page.get_by_role("button", name="Send request", exact=True).click()
 
         # 4. Back on the guild page, the section now shows the pending request.
-        expect(page.locator("body")).to_contain_text("awaiting confirmation")
+        expect(page.locator("body")).to_contain_text("Awaiting confirmation")

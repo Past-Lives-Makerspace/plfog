@@ -2327,6 +2327,7 @@ class OrientationTypeForm(forms.ModelForm):
             "default_location",
             "sort_order",
             "is_active",
+            "photo",
         ]
         widgets = {
             "name": forms.TextInput(attrs={"placeholder": "Shop Basics"}),
@@ -2340,6 +2341,7 @@ class OrientationTypeForm(forms.ModelForm):
             "default_location": "Location",
             "sort_order": "Sort order",
             "is_active": "Active",
+            "photo": "Photo",
         }
 
     def __init__(self, *args: Any, **kwargs: Any) -> None:

@@ -28,6 +28,7 @@ from django.db.models import (
     Count,
     DecimalField,
     Exists,
+    ExpressionWrapper,
     F,
     Max,
     OuterRef,
@@ -36,7 +37,7 @@ from django.db.models import (
     Value,
     When,
 )
-from django.db.models.functions import Coalesce
+from django.db.models.functions import Coalesce, Lower
 from django.urls import reverse
 from django.utils import timezone
 from django.utils.functional import cached_property
@@ -2838,7 +2839,33 @@ class Guild(HeroCropMixin, models.Model):
         ``OrientationSlot.with_label`` stays the cheap first-name form. A member with no
         splittable name yields no entry (callers fall back to ``with_label``).
         """
-        members = self.leadership_members()
+        return self._first_name_labels(self.leadership_members())
+
+    @classmethod
+    def orienter_name_labels_for(cls, guilds: Iterable[Guild]) -> dict[int, dict[int, str]]:
+        """:meth:`orienter_name_labels` for many guilds in two queries, keyed by guild pk.
+
+        For a page that lists several guilds' times at once (the Orientations page, #502):
+        one read of every guild's staff and one of their leads, then the same labelling.
+        """
+        guild_list = list(guilds)
+        if not guild_list:
+            return {}
+        leads = {
+            member.pk: member
+            for member in Member.objects.filter(pk__in={g.guild_lead_id for g in guild_list if g.guild_lead_id})
+        }
+        members_by_guild: dict[int, dict[int, Member]] = {
+            g.pk: ({g.guild_lead_id: leads[g.guild_lead_id]} if g.guild_lead_id in leads else {}) for g in guild_list
+        }
+        staff_rows = GuildStaffMembership.objects.filter(guild__in=guild_list).select_related("member")
+        for staff in staff_rows:
+            members_by_guild[staff.guild_id].setdefault(staff.member_id, staff.member)
+        return {pk: cls._first_name_labels(members.values()) for pk, members in members_by_guild.items()}
+
+    @staticmethod
+    def _first_name_labels(members: Iterable[Member]) -> dict[int, str]:
+        """First names keyed by member pk, with a last initial where two share a first name."""
         tokens: dict[int, list[str]] = {}
         counts: dict[str, int] = {}
         for member in members:
@@ -11154,6 +11181,53 @@ class OrientationTypeQuerySet(models.QuerySet):
         """Types currently offered — shown to members and valid for new rules and slots."""
         return self.filter(is_active=True)
 
+    @staticmethod
+    def listed_condition() -> Q:
+        """What puts a type on the Orientations page (#502), as one condition.
+
+        An active type of a visible guild whose orientations are enabled, or an active type
+        of active equipment. One condition so the page's list, its ``is_listed`` annotation
+        and the locked Reservations card's link (:meth:`EquipmentQuerySet.with_required_orientation_listed`)
+        can never disagree. Reads the site configuration once, for the demo guild switch.
+        """
+        return Q(is_active=True) & (
+            Q(guild__in=Guild.objects.visible(), guild__orientation_settings__is_enabled=True)
+            | Q(equipment__is_active=True)
+        )
+
+    @staticmethod
+    def held_condition(member: Member | None) -> Q:
+        """Types ``member`` holds a live booking or a checkout hold on (nothing for no member).
+
+        The pinning rule: retiring a type or pausing its owner never takes a member's Cancel
+        or Resume payment control away, so a page that lists types adds these back.
+        """
+        if member is None:
+            return Q(pk__in=[])
+        held = OrientationBooking.objects.filter(member=member, status__in=OrientationBooking.LIVE_STATUSES).values(
+            "orientation_type_id"
+        )
+        return Q(pk__in=held)
+
+    def listed_for(self, member: Member | None) -> OrientationTypeQuerySet:
+        """The Orientations page's types: every listed type plus the ones ``member`` is holding.
+
+        Each row carries ``is_listed`` (False for a type kept only by the pinning rule, which
+        renders its state block alone), the owner rows the cards read, and the page's order:
+        owner name, then the owner's own order.
+        """
+        listed = self.listed_condition()
+        return (
+            self.filter(listed | self.held_condition(member))
+            .annotate(is_listed=ExpressionWrapper(listed, output_field=BooleanField()))
+            .select_related("guild", "guild__orientation_settings", "equipment", "equipment__guild")
+            .order_by(Lower(Coalesce("guild__name", "equipment__name")), "sort_order", "name")
+        )
+
+    def active_or_held_by(self, member: Member | None) -> OrientationTypeQuerySet:
+        """Active types plus any retired one ``member`` is holding: the equipment page's sections."""
+        return self.filter(Q(is_active=True) | self.held_condition(member))
+
 
 class OrientationType(models.Model):
     """One kind of orientation a guild offers (e.g. Shop Basics, Lathe, CNC).
@@ -11212,6 +11286,15 @@ class OrientationType(models.Model):
         default=True,
         help_text="Offer this type to members. An inactive type keeps its history but takes no new bookings.",
     )
+    photo = models.ImageField(
+        upload_to="orientations/photos/",
+        blank=True,
+        validators=[validate_image_size],
+        help_text=(
+            "Photo shown on this orientation's card. Leave empty to use the guild banner, "
+            "or the equipment photo for an equipment orientation."
+        ),
+    )
     created_at = models.DateTimeField(auto_now_add=True)
 
     objects = OrientationTypeQuerySet.as_manager()
@@ -11238,6 +11321,10 @@ class OrientationType(models.Model):
 
     def __str__(self) -> str:
         return f"{self.owner_name} — {self.name}"
+
+    def save(self, *args: Any, **kwargs: Any) -> None:
+        delete_orphan_on_replace(self, "photo")
+        super().save(*args, **kwargs)
 
     @property
     def is_paid(self) -> bool:
@@ -11281,6 +11368,83 @@ class OrientationType(models.Model):
         if self.is_equipment_owned:
             return f"{self.owner_page_path()}?type={self.pk}#equipment-orientation"
         return f"{self.owner_page_path()}?tab=orientations&type={self.pk}#guild-orientation"
+
+    def orientations_page_path(self) -> str:
+        """This type's card on the Orientations page (#502), where a locked Reservations card sends members."""
+        return f"{reverse('hub_orientations')}#orientation-type-{self.pk}"
+
+    def booking_link(self, *, listed: bool) -> str:
+        """Where "Book the orientation" sends a member: its card when the page lists it, else its owner page.
+
+        ``listed`` is whether the Orientations page lists this type
+        (:meth:`OrientationTypeQuerySet.listed_condition`); a caller rendering many links
+        reads it for all of them in its own query instead of one per link.
+        """
+        return self.orientations_page_path() if listed else self.orientation_anchor_path()
+
+    @property
+    def paused_message(self) -> str:
+        """Why the Orientations page's card for this type takes no bookings, or "" when it does.
+
+        Reads the ``is_listed`` annotation :meth:`OrientationTypeQuerySet.listed_for` puts on
+        the row: a type kept only for the member's own booking reads plainly paused. Otherwise a
+        closed guild says its closed message and closed equipment says its own.
+        """
+        if not self.is_listed:  # type: ignore[attr-defined]
+            return "This orientation is paused."
+        if self.equipment is not None:
+            if self.equipment.is_closed:
+                return self.equipment.closed_message or "This orientation is paused."
+            return ""
+        settings_obj = cast(Guild, self.guild).orientation_settings
+        if settings_obj.is_closed:
+            return (
+                settings_obj.closed_message
+                or "This guild isn't taking orientation bookings right now. Check back soon."
+            )
+        return ""
+
+    def _card_image_source(self) -> tuple[Any, Guild | Equipment | None]:
+        """The picture a card shows and the owner whose crop positions it (``None`` for the type's own photo).
+
+        Fallback order (#502): the type's own photo, then the equipment's photo for an
+        equipment owned type, then the owning guild's banner (the equipment's guild for an
+        equipment owned type with no photo of its own). ``(None, None)`` when nothing is set.
+        """
+        if self.photo:
+            return self.photo, None
+        guild: Guild | None
+        if self.equipment is not None:
+            if self.equipment.photo:
+                return self.equipment.photo, self.equipment
+            guild = self.equipment.guild
+        else:
+            guild = self.guild
+        if guild is not None and guild.banner_image:
+            return guild.banner_image, guild
+        return None, None
+
+    @property
+    def card_image(self) -> Any:
+        """The image file a card shows (own photo, equipment photo, guild banner), or ``None``."""
+        return self._card_image_source()[0]
+
+    @property
+    def card_image_owner(self) -> Guild | Equipment | None:
+        """The guild or equipment whose picture the card borrows; ``None`` for an own photo or no picture.
+
+        A page rendering many cards keys its ``hero_object_position`` reads on this, so a
+        box crop (which reads the image's dimensions from storage) is read once per owner.
+        """
+        return self._card_image_source()[1]
+
+    @property
+    def card_image_position(self) -> str:
+        """CSS ``object-position`` for :attr:`card_image`: centred for an own photo, else the owner's crop."""
+        owner = self.card_image_owner
+        if owner is None:
+            return "50% 50%"
+        return owner.hero_object_position
 
     @property
     def is_accepting(self) -> bool:
@@ -11832,19 +11996,85 @@ class OrientationAvailabilityBlock(models.Model):
             .exclude(block_id=self.pk)
             .values_list("starts_at", "ends_at")
         )
+        return self._merge_spans([*occupied, *elsewhere])
+
+    @staticmethod
+    def _merge_spans(
+        spans: Iterable[tuple[datetime_type, datetime_type]],
+    ) -> list[tuple[datetime_type, datetime_type]]:
+        """Sort spans and fold the overlapping or touching ones together."""
         merged: list[tuple[datetime_type, datetime_type]] = []
-        for start, end in sorted([*occupied, *elsewhere]):
+        for start, end in sorted(spans):
             if merged and start <= merged[-1][1]:
                 merged[-1] = (merged[-1][0], max(merged[-1][1], end))
             else:
                 merged.append((start, end))
         return merged
 
-    def free_intervals(self) -> list[tuple[datetime_type, datetime_type]]:
-        """The block's open time: its span minus the occupied segments, in order."""
+    @classmethod
+    def free_intervals_by_block(
+        cls, blocks: list[OrientationAvailabilityBlock]
+    ) -> dict[int, list[tuple[datetime_type, datetime_type]]]:
+        """:meth:`free_intervals` for many windows in two queries, however many windows there are.
+
+        The same occupancy rule as :meth:`_busy_spans` (each window's own live carved slots,
+        plus its orienter's seat holding slots anywhere else over its span), read for every
+        window at once and split up in Python. Pages that list many windows (the
+        Orientations page, #502) use it so their query count does not grow with the list.
+        """
+        if not blocks:
+            return {}
+        seat_holding = [
+            OrientationBooking.Status.PENDING_PAYMENT,
+            OrientationBooking.Status.REQUESTED,
+            OrientationBooking.Status.CONFIRMED,
+        ]
+        occupied_rows = (
+            OrientationSlot.objects.filter(block__in=[block.pk for block in blocks], is_cancelled=False)
+            .annotate(
+                holder_count=Count("bookings", filter=Q(bookings__status__in=seat_holding)),
+                booking_count=Count("bookings"),
+            )
+            .filter(Q(holder_count__gt=0) | Q(booking_count=0))
+            .values_list("block_id", "starts_at", "ends_at")
+        )
+        occupied: dict[int, list[tuple[datetime_type, datetime_type]]] = {}
+        for block_id, starts_at, ends_at in occupied_rows:
+            occupied.setdefault(block_id, []).append((starts_at, ends_at))
+        elsewhere_rows = list(
+            OrientationSlot.objects.holding_seats()
+            .filter(
+                orienter_id__in={block.orienter_id for block in blocks},
+                starts_at__lt=max(block.ends_at for block in blocks),
+                ends_at__gt=min(block.starts_at for block in blocks),
+            )
+            .values_list("orienter_id", "block_id", "starts_at", "ends_at")
+        )
+        free_by_block: dict[int, list[tuple[datetime_type, datetime_type]]] = {}
+        for block in blocks:
+            elsewhere = [
+                (starts_at, ends_at)
+                for orienter_id, block_id, starts_at, ends_at in elsewhere_rows
+                if orienter_id == block.orienter_id
+                and block_id != block.pk
+                and starts_at < block.ends_at
+                and ends_at > block.starts_at
+            ]
+            busy = cls._merge_spans([*occupied.get(block.pk, []), *elsewhere])
+            free_by_block[block.pk] = block.free_intervals(busy=busy)
+        return free_by_block
+
+    def free_intervals(
+        self, *, busy: list[tuple[datetime_type, datetime_type]] | None = None
+    ) -> list[tuple[datetime_type, datetime_type]]:
+        """The block's open time: its span minus the occupied segments, in order.
+
+        ``busy`` takes merged occupied segments already read (:meth:`free_intervals_by_block`);
+        left out, they are read for this block alone.
+        """
         free: list[tuple[datetime_type, datetime_type]] = []
         cursor = self.starts_at
-        for busy_start, busy_end in self._busy_spans():
+        for busy_start, busy_end in self._busy_spans() if busy is None else busy:
             if busy_start > cursor:
                 free.append((cursor, min(busy_start, self.ends_at)))
             cursor = max(cursor, busy_end)
@@ -11854,17 +12084,24 @@ class OrientationAvailabilityBlock(models.Model):
             free.append((cursor, self.ends_at))
         return free
 
-    def valid_starts_for(self, orientation_type: OrientationType) -> list[datetime_type]:
+    def valid_starts_for(
+        self,
+        orientation_type: OrientationType,
+        *,
+        free: list[tuple[datetime_type, datetime_type]] | None = None,
+    ) -> list[datetime_type]:
         """Future 15-minute-aligned starts (measured from the block start) that fit the type's duration.
 
-        A cancelled window, or one for another orientation only, offers none.
+        A cancelled window, or one for another orientation only, offers none. ``free``
+        takes this block's :meth:`free_intervals` already read; left out, they are read here.
         """
         if self.is_cancelled or not self.admits(orientation_type):
             return []
         duration = timedelta(minutes=orientation_type.duration_minutes)
         step = timedelta(minutes=self.SNAP_MINUTES)
         now = timezone.now()
-        free = self.free_intervals()
+        if free is None:
+            free = self.free_intervals()
         starts: list[datetime_type] = []
         candidate = self.starts_at
         while candidate + duration <= self.ends_at:
@@ -12432,6 +12669,9 @@ class OrientationBooking(models.Model):
         CONFIRMED = "confirmed", "Confirmed"
         DECLINED = "declined", "Declined"
         CANCELLED = "cancelled", "Cancelled"
+
+    #: The statuses that keep a booking alive for its member: a Cancel or Resume payment control.
+    LIVE_STATUSES: ClassVar[tuple[str, ...]] = (Status.REQUESTED, Status.CONFIRMED, Status.PENDING_PAYMENT)
 
     slot = models.ForeignKey(
         OrientationSlot, on_delete=models.CASCADE, related_name="bookings", help_text="The slot booked."
@@ -13697,6 +13937,17 @@ class EquipmentQuerySet(models.QuerySet["Equipment"]):
         """Equipment with no owning guild."""
         return self.filter(guild__isnull=True)
 
+    def with_required_orientation_listed(self) -> EquipmentQuerySet:
+        """Annotate ``required_orientation_listed``: whether the Orientations page lists the gating type.
+
+        A subquery in the same read, so a grid of locked cards decides every Book the
+        orientation link without a query per card (:attr:`Equipment.required_orientation_link`).
+        """
+        listed = OrientationType.objects.filter(
+            OrientationTypeQuerySet.listed_condition(), pk=OuterRef("required_orientation_id")
+        )
+        return self.annotate(required_orientation_listed=Exists(listed))
+
 
 class Equipment(HeroCropMixin, models.Model):
     """A shared tool or room members can find (and, from PR 2, reserve) on the Equipment page.
@@ -13836,6 +14087,17 @@ class Equipment(HeroCropMixin, models.Model):
 
     def get_hero_image_field_name(self) -> str:
         return "photo"
+
+    @property
+    def required_orientation_link(self) -> str:
+        """Where a locked card's Book the orientation link goes (#502).
+
+        The gating type's card on the Orientations page when the page lists it, else the
+        type's owner page. Reads the ``required_orientation_listed`` annotation from
+        :meth:`EquipmentQuerySet.with_required_orientation_listed`.
+        """
+        orientation_type = cast(OrientationType, self.required_orientation)
+        return orientation_type.booking_link(listed=self.required_orientation_listed)  # type: ignore[attr-defined]
 
     def save(self, *args: Any, **kwargs: Any) -> None:
         if not self.slug:

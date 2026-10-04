@@ -623,6 +623,15 @@ HELP_KEYS: dict[str, HelpKeyEntry] = {
         "article_slug": None,
         "anchor": None,
     },
+    "nav.orientations": {
+        "title": "Orientations",
+        "short_text": (
+            "Every orientation you can sign up for, guild and equipment alike, with its next times. "
+            "Book one here and the card shows where your booking stands."
+        ),
+        "article_slug": "getting-oriented",
+        "anchor": "orientation-orientations-page",
+    },
     "nav.knowledge-base": {
         "title": "The Knowledge Base",
         "short_text": (

@@ -7,6 +7,7 @@ from . import (
     leadership_views,
     meeting_views,
     notification_views,
+    orientations_views,
     views,
     wiki_views,
 )
@@ -203,11 +204,18 @@ urlpatterns = [
         views.hub_late_fee_checkout_cancelled,
         name="hub_late_fee_checkout_cancelled",
     ),
-    path("orientations/", views.orientations_dashboard, name="hub_orientations_dashboard"),
-    path("orientations/export/", views.orientations_export, name="hub_orientations_export"),
-    path("orientations/add-member/", views.orientation_add_member, name="hub_orientation_add_member"),
+    # The member Orientations page (#502); the staff dashboard lives under manage/.
+    path("orientations/", orientations_views.hub_orientations, name="hub_orientations"),
     path(
-        "orientations/bookings/<int:booking_pk>/toggle-completed/",
+        "orientations/types/<int:pk>/photo/delete/",
+        orientations_views.hub_orientation_type_photo_delete,
+        name="hub_orientation_type_photo_delete",
+    ),
+    path("orientations/manage/", views.orientations_dashboard, name="hub_orientations_dashboard"),
+    path("orientations/manage/export/", views.orientations_export, name="hub_orientations_export"),
+    path("orientations/manage/add-member/", views.orientation_add_member, name="hub_orientation_add_member"),
+    path(
+        "orientations/manage/bookings/<int:booking_pk>/toggle-completed/",
         views.orientation_toggle_completed,
         name="hub_orientation_toggle_completed",
     ),

@@ -6,6 +6,7 @@ hub_orientation_block_starts. Context:
   orientation_type — the OrientationType being booked
   form             — OrientationBlockBookingForm (starts_at select carries the choices)
   has_starts       — bool, False when every interval was taken since the page rendered
+  next_url         — a local path to land back on after booking (the Orientations page), or ""
 {% endcomment %}
 {% load classes_tags %}
 <p style="margin:0 0 0.25rem; font-weight:700; color:var(--hub-text);">{{ orientation_type.name }} · {{ orientation_type.duration_minutes }} min</p>
@@ -17,6 +18,7 @@ hub_orientation_block_starts. Context:
 {% if has_starts %}
 <form method="post" action="{% url 'hub_orientation_block_book' block.pk %}" class="hub-form" hx-boost="false">
   {% csrf_token %}
+  {% if next_url %}<input type="hidden" name="next" value="{{ next_url }}">{% endif %}
   {{ form.orientation_type }}
   {% include "components/form_field.html" with field=form.starts_at %}
   {% include "components/form_field.html" with field=form.note %}

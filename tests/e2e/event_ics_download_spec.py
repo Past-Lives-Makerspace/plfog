@@ -124,5 +124,5 @@ def describe_export_csv_on_the_orientations_dashboard():
         _seed_admin()
         login_via_code(ADMIN_EMAIL)
         _open(page, live_server, reverse("hub_orientations_dashboard"))
-        fetched, report = _click_and_report(page, page.locator(EXPORT_CSV), "orientations/export/")
+        fetched, report = _click_and_report(page, page.locator(EXPORT_CSV), "orientations/manage/export/")
         assert fetched, f"htmx took the click instead of the browser; {report}"

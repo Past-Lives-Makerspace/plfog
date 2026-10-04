@@ -294,6 +294,7 @@ def describe_equipment_index():
 
             _login(client, "eq_lock")
             orientation_type = OrientationTypeFactory(name="Lathe")
+            GuildOrientationSettingsFactory(guild=orientation_type.guild, is_enabled=True)
             EquipmentFactory(name="Gated Lathe", required_orientation=orientation_type)
             content = client.get(reverse("hub_equipment_index")).content.decode()
             assert 'class="hub-card pl-equip-card pl-equip-card--locked"' in content
@@ -310,10 +311,43 @@ def describe_equipment_index():
             assert f'aria-label="Already trained: {sentence}"' in card
             assert "title=" not in card  # FRONTEND.md rule 19: the bubble, never a native tooltip
             expected = (
-                f'href="{escape(orientation_type.orientation_anchor_path())}" '
+                f'href="{escape(orientation_type.orientations_page_path())}" '
                 'class="pl-equip-card__cta">Book the orientation</a>'
             )
             assert expected in content
+
+        def it_falls_back_to_the_owner_page_when_the_orientations_page_does_not_list_the_type(client: Client):
+            from django.utils.html import escape
+
+            _login(client, "eq_lock_unlisted")
+            hidden = OrientationTypeFactory(name="Hidden Lathe Basics")  # its guild never enabled orientations
+            retired = OrientationTypeFactory(name="Retired Lathe Basics", is_active=False)
+            GuildOrientationSettingsFactory(guild=retired.guild, is_enabled=True)
+            EquipmentFactory(name="Hidden Gate", required_orientation=hidden)
+            EquipmentFactory(name="Retired Gate", required_orientation=retired)
+            content = client.get(reverse("hub_equipment_index")).content.decode()
+            for orientation_type in (hidden, retired):
+                assert (
+                    f'href="{escape(orientation_type.orientation_anchor_path())}" class="pl-equip-card__cta"' in content
+                )
+                assert orientation_type.orientations_page_path() not in content
+
+        def it_decides_every_cards_link_in_the_grids_own_query(client: Client, django_assert_num_queries):
+            from django.db import connection
+            from django.test.utils import CaptureQueriesContext
+
+            _login(client, "eq_lock_queries")
+            first = OrientationTypeFactory(name="Query Gate One")
+            EquipmentFactory(name="Gate One", required_orientation=first)
+            client.get(reverse("hub_equipment_index"))
+            with CaptureQueriesContext(connection) as one:
+                client.get(reverse("hub_equipment_index"))
+            for index in range(4):
+                gate = OrientationTypeFactory(name=f"Query Gate {index + 2}")
+                GuildOrientationSettingsFactory(guild=gate.guild, is_enabled=True)
+                EquipmentFactory(name=f"Gate {index + 2}", required_orientation=gate)
+            with django_assert_num_queries(len(one.captured_queries)):
+                client.get(reverse("hub_equipment_index"))
 
         def it_leaves_a_trained_members_card_unlocked(client: Client):
             user = _login(client, "eq_trained")
@@ -1151,7 +1185,7 @@ def describe_equipment_orientation_surface():
         assert "You've completed this orientation." in content
         assert "Waiting for a manager to confirm." in content
         assert "Resume payment" in content
-        assert "Finishing Your Booking" in content
+        assert '<span class="pl-equip-badge pl-equip-badge--warn">Payment pending</span>' in content
 
     def it_shows_the_empty_state_with_a_manager_link_for_managers(client: Client):
         user = _login(client, "eqo_empty_mgr")

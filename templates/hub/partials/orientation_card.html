@@ -1,0 +1,118 @@
+{% comment %}
+One orientation's card on the Orientations page (#502). The frame, photo strip and body
+come from the Reservations card (.hub-card.pl-equip-card); the .pl-orient-card__* rules add
+the owner line, the meta line, the member's state and the next times. Context:
+  sec      — a section from hub.orientations_views.hub_orientations: the shared builder's
+             type / is_oriented / record / booking / hold / slots (up to three), plus
+             blocks (up to three open windows), more_times, all_full (every posted time is
+             taken), paused_message, custom_form, image and image_position
+  next_url — this page's own path, posted as ``next`` by every control so the member
+             lands back here
+Exactly one state renders: completed, the hold or booking (shared partial), paused, or open.
+No stretched name link: the Book buttons are the tap targets.
+{% endcomment %}
+{% load classes_tags %}
+<div class="hub-card pl-equip-card" id="orientation-type-{{ sec.type.pk }}">
+  {% if sec.image %}
+  <img src="{{ sec.image.url }}" alt="" class="pl-equip-card__photo" style="object-position: {{ sec.image_position }};">
+  {% else %}
+  <div class="pl-equip-card__placeholder" aria-hidden="true">
+    <svg width="34" height="34" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/>
+      <polyline points="9 22 9 12 15 12 15 22"/>
+    </svg>
+  </div>
+  {% endif %}
+  <div class="pl-equip-card__body">
+    <div class="pl-orient-card__owner">
+      {% if sec.type.is_equipment_owned %}
+      <a href="{% url 'hub_equipment_detail' sec.type.equipment.slug %}" class="hub-badge">{{ sec.type.equipment.name }}</a>
+      {% if sec.type.equipment.guild %}<span class="pl-orient-card__owner-guild">{{ sec.type.equipment.guild.name }}</span>{% endif %}
+      {% else %}
+      <a href="{% url 'hub_guild_detail' sec.type.guild.slug %}" class="hub-badge pl-equip-card__guild">{{ sec.type.guild.name }}</a>
+      {% endif %}
+    </div>
+    <h2 class="pl-orient-card__name">{{ sec.type.name }}</h2>
+    <div class="pl-orient-card__meta">
+      <span>{{ sec.type.duration_minutes }} min</span>
+      {% if sec.type.is_paid %}<span class="pl-price-chip">{{ sec.type.price_cents|cents_as_price }}</span>{% else %}<span>Free</span>{% endif %}
+    </div>
+
+    {% if sec.is_oriented %}
+    <p class="pl-orient-card__booked">✓ You've completed this orientation.</p>
+    {% if sec.record %}<p class="pl-orient-card__note">Recorded on {{ sec.record.completed_on|date:"M j, Y" }}.</p>{% endif %}
+
+    {% elif sec.hold or sec.booking %}
+    {% include "hub/partials/_orientation_type_state.html" %}
+
+    {% elif sec.paused_message %}
+    <div><span class="pl-equip-badge pl-equip-badge--muted">Paused</span></div>
+    <p class="pl-orient-card__note">{{ sec.paused_message }}</p>
+
+    {% else %}
+    {% if sec.type.is_paid %}
+    <p class="pl-orient-card__note">You pay when you book. If {% if sec.type.is_equipment_owned %}it can't happen{% else %}the guild can't make it work{% endif %}, you get an automatic full refund.</p>
+    {% endif %}
+    {% if sec.slots or sec.blocks %}
+    <ul class="pl-orient-card__slots">
+      {% for slot in sec.slots %}
+      {% with pks=slot.pk|stringformat:"s" %}
+      <li class="pl-orient-card__slot">
+        <span class="pl-orient-card__when">{{ slot.starts_at|date:"D, M j" }} · {{ slot.starts_at|time:"g:i A" }}{% if slot.with_display %}<small>{{ slot.with_display }}</small>{% endif %}</span>
+        <button type="button" class="hub-btn hub-btn--sm hub-btn--primary" @click="$dispatch('open-confirm', 'book-slot-{{ slot.pk }}')">Book</button>
+        {% include "hub/partials/_orientation_slot_confirm.html" with confirm_id="book-slot-"|add:pks %}
+      </li>
+      {% endwith %}
+      {% endfor %}
+      {% for block in sec.blocks %}
+      <li class="pl-orient-card__slot">
+        <span class="pl-orient-card__when">{{ block.starts_at|date:"D, M j" }} · {{ block.starts_at|time:"g:i A" }} to {{ block.ends_at|time:"g:i A" }}<small>with {{ block.orienter.display_name }}</small></span>
+        <button type="button" class="hub-btn hub-btn--sm hub-btn--primary"
+                @click="$dispatch('open-modal', 'block-pick-{{ sec.type.pk }}')"
+                hx-get="{% url 'hub_orientation_block_starts' block.pk sec.type.pk %}?next={{ next_url|urlencode }}"
+                hx-target="#block-pick-{{ sec.type.pk }}-body"
+                hx-swap="innerHTML">
+          Pick a time
+        </button>
+      </li>
+      {% endfor %}
+    </ul>
+    {% if sec.blocks %}
+    {% with tpks=sec.type.pk|stringformat:"s" %}
+    {% include "components/modal.html" with modal_id="block-pick-"|add:tpks modal_title="Pick a Time" %}
+    {% endwith %}
+    {% endif %}
+    {% if sec.more_times %}<a href="{{ sec.type.orientation_anchor_path }}" class="pl-orient-card__more">More times</a>{% endif %}
+    {% else %}
+    {% if sec.all_full %}
+    {# Times are posted but all taken: the owner page lists them as Full. #}
+    <p class="pl-orient-card__note">Every posted time is full.</p>
+    <a href="{{ sec.type.orientation_anchor_path }}" class="pl-orient-card__more">More times</a>
+    {% else %}
+    <p class="pl-orient-card__note">No times are posted yet.</p>
+    {% endif %}
+    {% if sec.custom_form %}
+    <div x-data="{ showCustom: false }">
+      <div class="pl-orient-card__actions" x-show="!showCustom">
+        <button type="button" class="hub-btn hub-btn--sm hub-btn--primary" @click="showCustom = true">Schedule an Orientation</button>
+      </div>
+      <div x-show="showCustom" x-cloak>
+        <p class="pl-orient-card__note">Propose your own time and the guild lead will confirm it.</p>
+        <form method="post" action="{% url 'hub_guild_orientation_request_custom' sec.type.guild.pk %}" class="hub-form" hx-boost="false">
+          {% csrf_token %}
+          <input type="hidden" name="orientation_type" value="{{ sec.type.pk }}">
+          <input type="hidden" name="next" value="{{ next_url }}">
+          {% include "components/form_field.html" with field=sec.custom_form.starts_at %}
+          {% include "components/form_field.html" with field=sec.custom_form.note %}
+          <div class="pl-orient-card__actions">
+            <button type="submit" class="hub-btn hub-btn--sm hub-btn--primary">Send request</button>
+            <button type="button" class="hub-btn hub-btn--sm hub-btn--ghost" @click="showCustom = false">Cancel</button>
+          </div>
+        </form>
+      </div>
+    </div>
+    {% endif %}
+    {% endif %}
+    {% endif %}
+  </div>
+</div>

@@ -203,7 +203,7 @@
   </div>
 
   {# Orientation Types — the shared row form + delete guards, scoped to this equipment. #}
-  <form method="post" action="{% url 'hub_equipment_orientation_types_save' equipment.slug %}" class="hub-form">
+  <form method="post" action="{% url 'hub_equipment_orientation_types_save' equipment.slug %}" enctype="multipart/form-data" class="hub-form">
     {% csrf_token %}
     <div class="hub-card" style="padding:1.5rem; margin-bottom:1.5rem;">
       <h2 class="hub-detail-label" style="margin-top:0; margin-bottom:0.25rem;">Orientation Types</h2>
@@ -217,6 +217,11 @@
           {% for error in row.non_field_errors %}<p class="pl-field-error">{{ error }}</p>{% endfor %}
           {% include "components/form_field.html" with field=row.name %}
           {% include "components/form_field.html" with field=row.description %}
+          {# The card photo (#502); a saved row also gets the delete control. #}
+          {% if row.instance.pk %}{% url 'hub_orientation_type_photo_delete' row.instance.pk as otype_photo_delete_url %}{% endif %}
+          {% with opk=row.instance.pk|stringformat:"s" %}
+          {% include "components/image_field.html" with field=row.photo current_image=row.instance.photo delete_url=otype_photo_delete_url modal_id="delete-otype-photo-"|add:opk label="Photo" shape="rect" max_bytes=max_upload_image_bytes tooltip_html="Wide photo, about 1600x900, JPG or PNG. Shown on this orientation's card. Leave empty to use the equipment photo." delete_button_text="Delete photo" confirm_title="Delete this photo?" confirm_message="The card goes back to the equipment photo. This can't be undone." %}
+          {% endwith %}
           <div class="pl-equip-hours-row__fields">
             <div class="pl-equip-hours-row__field">{% include "components/form_field.html" with field=row.duration_minutes %}</div>
             <div class="pl-equip-hours-row__field">{% include "components/form_field.html" with field=row.price %}</div>
@@ -249,6 +254,7 @@
             {{ empty_row.id }}
             {% include "components/form_field.html" with field=empty_row.name %}
             {% include "components/form_field.html" with field=empty_row.description %}
+            {% include "components/image_field.html" with field=empty_row.photo current_image=None label="Photo" shape="rect" max_bytes=max_upload_image_bytes tooltip_html="Wide photo, about 1600x900, JPG or PNG. Shown on this orientation's card. Leave empty to use the equipment photo." %}
             <div class="pl-equip-hours-row__fields">
               <div class="pl-equip-hours-row__field">{% include "components/form_field.html" with field=empty_row.duration_minutes %}</div>
               <div class="pl-equip-hours-row__field">{% include "components/form_field.html" with field=empty_row.price %}</div>
@@ -271,7 +277,9 @@
                   const idx = parseInt(total.value, 10);
                   const wrap = document.createElement('div');
                   wrap.innerHTML = tpl.innerHTML.replaceAll('__prefix__', idx);
-                  document.getElementById('equip-otype-rows').appendChild(wrap.firstElementChild);
+                  const row = wrap.firstElementChild;
+                  document.getElementById('equip-otype-rows').appendChild(row);
+                  row.querySelectorAll('script').forEach((old) => { const fresh = document.createElement('script'); fresh.textContent = old.textContent; old.replaceWith(fresh); });
                   total.value = idx + 1;
                 ">
           + Add Orientation Type

@@ -133,7 +133,7 @@ def describe_guild_orientation_section():
         user, guild = _setup(client, "sec3")
         OrientationBookingFactory(slot=OrientationSlotFactory(guild=guild), member=user.member)
         response = client.get(reverse("hub_guild_detail", args=[guild.slug]))
-        assert b"awaiting confirmation" in response.content
+        assert b"Awaiting confirmation" in response.content
 
     def it_hides_the_section_when_orientation_is_disabled(client: Client):
         _user_with_role("sec4")

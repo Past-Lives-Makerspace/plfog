@@ -122,7 +122,7 @@ def describe_booking_status_copy():
         OrientationBookingFactory(slot=slot, member=user.member)
         client.login(username="ms_wait", password="pass")
         response = client.get(reverse("hub_guild_detail", args=[guild.slug]))
-        assert b"awaiting confirmation from Bob." in response.content
+        assert b"Awaiting confirmation from Bob." in response.content
         assert b"with Bob" in response.content
 
     def it_awaits_confirmation_from_the_guild_for_a_guild_slot(client: Client):
@@ -132,7 +132,7 @@ def describe_booking_status_copy():
         OrientationBookingFactory(slot=slot, member=user.member)
         client.login(username="ms_wait_g", password="pass")
         response = client.get(reverse("hub_guild_detail", args=[guild.slug]))
-        assert b"awaiting confirmation from the guild." in response.content
+        assert b"Awaiting confirmation from the guild." in response.content
 
 
 def describe_respond_page():

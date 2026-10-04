@@ -8,7 +8,8 @@ Context:
 The whole card is the tap target (a stretched link on the name); the guild chip sits
 above it with its own link. A tool the member is not trained on renders LOCKED (#502):
 the photo dims under a lock glyph, the state row gains the pre portal help bubble, and a
-Book the orientation link points at the required type's anchor. The state row and the
+Book the orientation link points at the required type's card on the Orientations page, or at
+its owner page when that page does not list it (equipment.required_orientation_link). The state row and the
 link sit above the stretched name link (z-index) so they stay clickable and hoverable.
 {% endcomment %}
 <div class="pl-equip-grid">
@@ -56,7 +57,7 @@ link sit above the stretched name link (z-index) so they stay clickable and hove
           <span class="pl-help__bubble">Trained on this before the Member Portal went live? Message us in #member-portal-general on Discord and say you need access to the {{ equipment.name }}.</span>
         </span>
       </div>
-      <a href="{{ equipment.required_orientation.orientation_anchor_path }}" class="pl-equip-card__cta">Book the orientation</a>
+      <a href="{{ equipment.required_orientation_link }}" class="pl-equip-card__cta">Book the orientation</a>
       {% else %}
       <div>
         {% if card.access_state == "ok" %}

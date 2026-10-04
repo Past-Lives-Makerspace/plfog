@@ -354,6 +354,16 @@ Following is free, and you can follow as many guilds as you want. It gets you th
         "related": ["guilds-and-guild-pages"],
         "body": """An orientation is how a guild shows you its space, its tools, and its safety rules. You do one per guild, and many guilds ask for it before you use their equipment.
 
+## The Orientations Page {#orientation-orientations-page}
+
+Every orientation you can sign up for is on one page. Click **Orientations** in the sidebar. Each card shows the guild or tool it is for, how long it takes, the price, and the next few times.
+
+1. Click **Book** next to a time, or **Pick a time** on an open window, and confirm.
+2. The card then shows where your booking stands: **Requested** until someone confirms it, then **Confirmed**.
+3. A card with no times yet says so. If the guild takes custom requests, click **Schedule an Orientation** and propose a time.
+
+Orientations you have finished fold away under **Completed**.
+
 ## Book a Slot {#orientation-book-slot}
 
 1. Open the guild's page and click **Join an Orientation** in the **Get Involved** panel. It jumps you to the booking section on the **Orientations** tab.
@@ -366,7 +376,7 @@ Following is free, and you can follow as many guilds as you want. It gets you th
 
 3. Click **Send request** to confirm.
 
-Your request goes to the guild's leads, and it is not official until one of them approves it. Until then the guild page shows your booking as **Requested — awaiting confirmation from the guild lead**. You'll get an email right away confirming the request was received, with a tentative calendar invite attached — and an "Orientation confirmed" email with a real invite once a lead locks it in.
+Your request goes to the guild's leads, and it is not official until one of them approves it. Until then your booking shows as **Requested**. You'll get an email right away confirming the request was received, with a tentative calendar invite attached — and an "Orientation confirmed" email with a real invite once a lead locks it in.
 
 ## Pick a Time {#orientation-pick-a-time}
 
@@ -1548,7 +1558,7 @@ Every 15 minutes, a background job marks confirmed orientations complete once th
             {
                 "file": "04-add-member.png",
                 "page": "hub_orientations_dashboard",
-                "selector": "form[action='/orientations/add-member/']",
+                "selector": "form[action='/orientations/manage/add-member/']",
                 "caption": "Add a member to a slot puts someone into an upcoming orientation for you.",
                 "as_role": "guild_lead",
             },

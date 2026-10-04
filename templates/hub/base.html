@@ -206,6 +206,10 @@
             {% url 'hub_spaces' as spaces_url %}
             {% include "hub/partials/_sidebar_feature_link.html" with feature=features.spaces url=spaces_url label="Spaces" icon="hub/partials/nav_icons/_spaces.html" active=spaces_active %}
 
+            {% active_nav 'hub_orientations' as orientations_active %}
+            {% url 'hub_orientations' as orientations_url %}
+            {% include "hub/partials/_sidebar_feature_link.html" with feature=features.orientations url=orientations_url label="Orientations" icon="hub/partials/nav_icons/_orientations.html" active=orientations_active help_key="nav.orientations" %}
+
             {% active_nav 'hub_equipment_index' as equipment_active %}
             {% url 'hub_equipment_index' as equipment_url %}
             {% include "hub/partials/_sidebar_feature_link.html" with feature=features.equipment url=equipment_url label="Reservations" icon="hub/partials/nav_icons/_equipment.html" active=equipment_active %}
@@ -318,6 +322,10 @@
             {% active_nav 'hub_spaces' as spaces_active %}
             {% url 'hub_spaces' as spaces_url %}
             {% include "hub/partials/_sidebar_feature_link.html" with feature=features.spaces url=spaces_url label="Spaces" icon="hub/partials/nav_icons/_spaces.html" active=spaces_active %}
+
+            {% active_nav 'hub_orientations' as orientations_active %}
+            {% url 'hub_orientations' as orientations_url %}
+            {% include "hub/partials/_sidebar_feature_link.html" with feature=features.orientations url=orientations_url label="Orientations" icon="hub/partials/nav_icons/_orientations.html" active=orientations_active help_key="nav.orientations" %}
 
             {% active_nav 'hub_equipment_index' as equipment_active %}
             {% url 'hub_equipment_index' as equipment_url %}

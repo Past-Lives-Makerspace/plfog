@@ -1,0 +1,71 @@
+/* The Orientations page (#502, hub/orientations.html). The frame, the photo strip and the body
+   padding come from .hub-card.pl-equip-card (the Reservations card), so the two pages read as one
+   layout. These rules add what an orientation card carries that an equipment card does not: an
+   owner line, a meta line and the next three bookable times. No stretched name link: the Book
+   buttons are the tap targets. The member's state rules are shared and live in hub.css. */
+.pl-orient-card__owner {
+    display: flex;
+    gap: 0.4rem;
+    flex-wrap: wrap;
+    align-items: center;
+}
+.pl-orient-card__owner-guild {
+    font-size: 0.8125rem;
+    color: var(--hub-text-muted);
+}
+.pl-orient-card__name {
+    margin: 0;
+    font-size: 1.05rem;
+    font-weight: 700;
+    color: var(--hub-text);
+}
+.pl-orient-card__meta {
+    display: flex;
+    gap: 0.6rem;
+    align-items: center;
+    flex-wrap: wrap;
+    font-size: 0.85rem;
+    color: var(--hub-text-muted);
+}
+.pl-orient-card__slots {
+    list-style: none;
+    margin: 0.25rem 0 0;
+    padding: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 0.4rem;
+}
+.pl-orient-card__slot {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+}
+.pl-orient-card__when {
+    flex: 1;
+    min-width: 0;
+    font-size: 0.875rem;
+    color: var(--hub-text);
+}
+.pl-orient-card__when small {
+    display: block;
+    font-size: 0.78rem;
+    color: var(--hub-text-muted);
+}
+.pl-orient-card__slot .hub-btn {
+    flex: 0 0 auto;
+}
+.pl-orient-card__more {
+    display: inline-block;
+    margin-top: 0.25rem;
+    font-size: 0.85rem;
+}
+/* Completed types fold away under the grid (.pl-disclosure, FRONTEND.md Disclosure). */
+.pl-orient-done {
+    margin-top: 1.5rem;
+}
+.pl-orient-empty {
+    padding: 1.5rem;
+}
+.pl-orient-empty p {
+    margin: 0;
+}
