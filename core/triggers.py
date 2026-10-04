@@ -61,13 +61,15 @@ TRIGGERS: list[Trigger] = [
         "Classes",
         force_email=True,
     ),
-    # Classes — instructor-side
+    # Classes — instructor-side. Email defaults ON: an instructor who never opens the
+    # settings page still hears about their own class (a missed signup once cost a class).
     Trigger(
         "instructor_class_approved",
         "Your class was approved",
         "A reviewer approved your class.",
         "Teaching",
         Audience.INSTRUCTORS_ONLY,
+        email_default=True,
     ),
     Trigger(
         "instructor_changes_requested",
@@ -75,6 +77,7 @@ TRIGGERS: list[Trigger] = [
         "A reviewer asked for edits.",
         "Teaching",
         Audience.INSTRUCTORS_ONLY,
+        email_default=True,
     ),
     Trigger(
         "instructor_new_registration",
@@ -82,6 +85,7 @@ TRIGGERS: list[Trigger] = [
         "Someone registered for your class.",
         "Teaching",
         Audience.INSTRUCTORS_ONLY,
+        email_default=True,
     ),
     Trigger(
         "class_review_requested",

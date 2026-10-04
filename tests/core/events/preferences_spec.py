@@ -47,6 +47,19 @@ def describe_wants():
             # registration_confirmed defaults email OFF.
             assert preferences.wants(_user(), "registration_confirmed", Channel.EMAIL) is False
 
+        @pytest.mark.parametrize(
+            "event_key",
+            ["instructor_class_approved", "instructor_changes_requested", "instructor_new_registration"],
+        )
+        def it_defaults_instructor_email_on_with_no_row(event_key):
+            # An instructor who never opened the settings page still hears about their class.
+            assert preferences.wants(_user(), event_key, Channel.EMAIL) is True
+
+        def it_keeps_an_instructors_explicit_opt_out():
+            user = _user()
+            _pref(user, "instructor_class_approved", Channel.EMAIL, False)
+            assert preferences.wants(user, "instructor_class_approved", Channel.EMAIL) is False
+
     def describe_push_per_channel_row():
         def it_reads_enabled_from_an_explicit_row():
             user = _user()
