@@ -71,6 +71,16 @@ def describe_member():
             )
             assert member.display_name == "Jane Doe"
 
+    def describe_short_name():
+        def it_keeps_the_first_name_and_the_last_names_initial():
+            assert MemberFactory(full_legal_name="Sam Lee Reyes", preferred_name="").short_name == "Sam R."
+
+        def it_reads_the_preferred_name():
+            assert MemberFactory(full_legal_name="Samantha Reyes", preferred_name="Sam Ortiz").short_name == "Sam O."
+
+        def it_leaves_a_one_word_name_as_it_is():
+            assert MemberFactory(full_legal_name="Cher", preferred_name="").short_name == "Cher"
+
     def it_defaults_to_active_status():
         member = MemberFactory()
         assert member.status == Member.Status.ACTIVE

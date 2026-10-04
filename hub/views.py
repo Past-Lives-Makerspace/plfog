@@ -5,9 +5,9 @@ from __future__ import annotations
 import json
 import logging
 from dataclasses import dataclass
-from datetime import timedelta
+from datetime import date, timedelta
 from decimal import Decimal
-from typing import Any, cast
+from typing import Any, NamedTuple, cast
 
 from django.utils import timezone as dj_timezone
 
@@ -6723,76 +6723,80 @@ def _calendar_legend_guilds(
     return sorted(scoped_guilds, key=lambda g: g.name)
 
 
-def _get_calendar_context(
-    request: HttpRequest,
-    week_offset: int = 0,
-    month_offset: int = 0,
-    event_page: int = 1,
-    guild: "Guild | None" = None,
-) -> dict[str, Any]:
-    """Build context for both the full calendar page and the HTMX partial.
+class _CalendarWindow(NamedTuple):
+    """The dates one calendar render covers: the navigated week and the rolling 4-week window."""
 
-    The "month" view is a rolling 4-week window starting from the current week
-    (current week + 3 upcoming weeks). ``month_offset`` shifts that window in
-    4-week chunks, so members navigating forward see the next 4 weeks rather
-    than jumping to a calendar month boundary.
+    today: date
+    week_start: date
+    week_end: date
+    window_start: date
+    window_end: date
+
+    @property
+    def fetch_from(self) -> date:
+        """The first date any event must be read for: the earlier of the week and the window."""
+        return min(self.week_start, self.window_start)
+
+    @property
+    def fetch_to(self) -> date:
+        """The last date any event must be read for."""
+        return max(self.week_end, self.window_end)
+
+
+def _calendar_window(week_offset: int, month_offset: int) -> _CalendarWindow:
+    """The week and the rolling 4-week window for these offsets.
+
+    The "month" view is a rolling 4-week window starting from the current week (current
+    week + 3 upcoming weeks); ``month_offset`` shifts it in 4-week chunks, so members
+    navigating forward see the next 4 weeks rather than jumping to a calendar month boundary.
+    """
+    # The local date: from 5 PM in Portland the UTC date is tomorrow, which moved "today".
+    today = dj_timezone.localdate()
+    current_week_start = today - timedelta(days=today.weekday())
+    week_start = current_week_start + timedelta(weeks=week_offset)
+    window_start = current_week_start + timedelta(weeks=4 * month_offset)
+    return _CalendarWindow(
+        today=today,
+        week_start=week_start,
+        week_end=week_start + timedelta(days=6),
+        window_start=window_start,
+        window_end=window_start + timedelta(days=27),
+    )
+
+
+def _calendar_window_context(
+    all_events: list[Any], window: _CalendarWindow, *, week_offset: int, month_offset: int, event_page: int
+) -> dict[str, Any]:
+    """The grid, labels and paginated lists ``calendar_content.html`` draws from ``all_events``.
+
+    Shared by every calendar (the Community Calendar, a guild's, the Orientations and the
+    Reservations calendars), so the date arithmetic lives once. ``all_events`` is every
+    event read for ``window.fetch_from`` to ``window.fetch_to``, sorted by start.
 
     Args:
+        all_events: CalendarEvent rows and duck-typed CalendarEntry objects, sorted by start.
+        window: The dates these offsets cover (:func:`_calendar_window`).
         week_offset: Weeks relative to the current week (negative = past, positive = future).
         month_offset: 4-week chunks relative to the current window (negative = past, positive = future).
         event_page: 1-based page number for the event list (PAGE_SIZE events per page).
     """
     from collections import defaultdict
 
-    from core.models import CalendarFeed, SiteConfiguration
-    from membership.models import CalendarEvent, CommunityEvent, Guild
+    from hub.calendar_entries import calendar_day
 
     now = dj_timezone.now()
-    today = now.date()
+    today, week_start, week_end = window.today, window.week_start, window.week_end
+    window_start, window_end = window.window_start, window.window_end
 
-    # Navigated week
-    current_week_start = today - timedelta(days=today.weekday())
-    week_start = current_week_start + timedelta(weeks=week_offset)
-    week_end = week_start + timedelta(days=6)
-
-    # Rolling 4-week window: current week + 3 upcoming weeks (Mon–Sun rows).
-    # month_offset shifts the window by 4 weeks so navigation stays aligned to weeks.
-    window_start = current_week_start + timedelta(weeks=4 * month_offset)
-    window_end = window_start + timedelta(days=27)
-
-    # Fetch only events covering the navigated week and 4-week window
-    fetch_from = min(week_start, window_start)
-    fetch_to = max(week_end, window_end)
-
-    events_qs = CalendarEvent.objects.filter(start_dt__date__gte=fetch_from, start_dt__date__lte=fetch_to)
-    if guild is not None:
-        events_qs = events_qs.filter(guild=guild)
-    # Echo de-dup: hide the iCal copy of any event FOG itself pushed to Google (the daily
-    # read re-imports it as a CalendarEvent whose UID matches our stored google_ical_uid),
-    # so a FOG event never shows twice on the calendar.
-    events_qs = events_qs.exclude(uid__in=CommunityEvent.objects.pushed().values_list("google_ical_uid", flat=True))
-    # CalendarEvent rows, optionally merged with synthetic guild entries (classes/orientations)
-    # that duck-type CalendarEvent — hence the Any element type.
-    all_events: list[Any] = list(events_qs.select_related("guild", "feed").order_by("start_dt"))
-    # Merge FOG-native synthetic entries (they aren't CalendarEvent rows) into BOTH the
-    # community calendar (all events) and a guild calendar (that guild's events), then
-    # re-sort by start so they interleave with the iCal/class/orientation entries.
-    from hub.calendar_entries import community_event_entries, guild_calendar_entries
-
-    if guild is not None:
-        synthetic = [
-            *guild_calendar_entries(guild, fetch_from, fetch_to),
-            *community_event_entries(fetch_from, fetch_to, guild=guild),
-        ]
-    else:
-        synthetic = community_event_entries(fetch_from, fetch_to)
-    all_events = sorted([*all_events, *synthetic], key=lambda e: e.start_dt)
+    # Every event's local date, read once: the grids, the lists and the window all use it,
+    # so an evening event sits on its own day (a UTC date put it on the next one).
+    dated = [(calendar_day(e), e) for e in all_events]
 
     # Week event list: events whose start date falls within the navigated week
-    week_events = [e for e in all_events if week_start <= e.start_dt.date() <= week_end]
+    week_events = [e for day, e in dated if week_start <= day <= week_end]
 
     # Month-view event list: events whose start date falls within the 4-week window (paginated)
-    raw_month_events = [e for e in all_events if window_start <= e.start_dt.date() <= window_end]
+    raw_month_events = [e for day, e in dated if window_start <= day <= window_end]
     total_pages = max(1, (len(raw_month_events) + _CALENDAR_PAGE_SIZE - 1) // _CALENDAR_PAGE_SIZE)
     event_page = max(1, min(event_page, total_pages))
     page_start = (event_page - 1) * _CALENDAR_PAGE_SIZE
@@ -6804,39 +6808,10 @@ def _get_calendar_context(
         evt.pk: (idx // _CALENDAR_PAGE_SIZE) + 1 for idx, evt in enumerate(raw_month_events)
     }
 
-    guilds_with_calendars = list(Guild.objects.filter(is_active=True, calendar_url__gt="").order_by("name"))
-
-    config = SiteConfiguration.load()
-    calendar_feeds = list(CalendarFeed.objects.filter(ical_url__gt=""))
-    classes_enabled = config.sync_classes_enabled
-    classes_color = config.classes_calendar_color
-
-    source_colors: dict[str, str] = {
-        "classes": classes_color,
-        "orientation": "#EEB44B",
-        "community": _COMMUNITY_CALENDAR_COLOR,
-    }
-    for feed in calendar_feeds:
-        source_colors[f"feed-{feed.pk}"] = feed.color
-
-    legend_guilds = _calendar_legend_guilds(all_events, guilds_with_calendars, guild)
-    for g in legend_guilds:
-        source_colors[str(g.pk)] = g.calendar_color
-
-    # True when a class in this window has no guild → keep the generic "Other classes"
-    # fallback toggle/color for it (a class with a guild groups under that guild instead).
-    has_ungrouped_classes = any(e.source_key == "classes" for e in all_events)
-
-    # True when a FOG event in this window didn't map to a feed chip (its Google
-    # target has no configured calendar id or no matching feed) → render the generic
-    # "Events" fallback toggle for it. Mirrors has_ungrouped_classes. Only synthetic
-    # community entries can key "community", so real CalendarEvent rows never trip this.
-    has_unmapped_events = any(e.source_key == "community" for e in all_events)
-
     # Group events by date for calendar grid dots
     events_by_date: dict = defaultdict(list)
-    for evt in all_events:
-        events_by_date[evt.start_dt.date()].append(evt)
+    for day, evt in dated:
+        events_by_date[day].append(evt)
 
     # Week label (e.g. "Apr 14 – 20, 2026" or "Apr 28 – May 4, 2026")
     if week_start.month == week_end.month and week_start.year == week_end.year:
@@ -6869,16 +6844,109 @@ def _get_calendar_context(
         d = window_start + timedelta(days=i)
         month_days.append({"date": d, "is_today": d == today, "in_month": True, "events": events_by_date.get(d, [])})
 
+    return {
+        "week_events": week_events,
+        "month_events": month_events,
+        "event_page": event_page,
+        "event_total_pages": total_pages,
+        "week_days": week_days,
+        "week_label": week_label,
+        "week_offset": week_offset,
+        "month_days": month_days,
+        "month_headers": month_headers,
+        "month_label": month_label,
+        "month_offset": month_offset,
+        "month_event_pages_json": json.dumps(month_event_pages),
+        "now": now,
+    }
+
+
+def _get_calendar_context(
+    request: HttpRequest,
+    week_offset: int = 0,
+    month_offset: int = 0,
+    event_page: int = 1,
+    guild: "Guild | None" = None,
+) -> dict[str, Any]:
+    """Build context for both the full calendar page and the HTMX partial.
+
+    The window, the grid and the paginated lists come from :func:`_calendar_window_context`;
+    this adds the Community Calendar's and a guild calendar's own sources and legend.
+
+    Args:
+        week_offset: Weeks relative to the current week (negative = past, positive = future).
+        month_offset: 4-week chunks relative to the current window (negative = past, positive = future).
+        event_page: 1-based page number for the event list (PAGE_SIZE events per page).
+    """
+    from core.models import CalendarFeed, SiteConfiguration
+    from membership.models import CalendarEvent, CommunityEvent, Guild
+
+    # Fetch only events covering the navigated week and 4-week window
+    window = _calendar_window(week_offset, month_offset)
+    fetch_from, fetch_to = window.fetch_from, window.fetch_to
+
+    events_qs = CalendarEvent.objects.filter(start_dt__date__gte=fetch_from, start_dt__date__lte=fetch_to)
+    if guild is not None:
+        events_qs = events_qs.filter(guild=guild)
+    # Echo de-dup: hide the iCal copy of any event FOG itself pushed to Google (the daily
+    # read re-imports it as a CalendarEvent whose UID matches our stored google_ical_uid),
+    # so a FOG event never shows twice on the calendar.
+    events_qs = events_qs.exclude(uid__in=CommunityEvent.objects.pushed().values_list("google_ical_uid", flat=True))
+    # CalendarEvent rows, optionally merged with synthetic guild entries (classes/orientations)
+    # that duck-type CalendarEvent — hence the Any element type.
+    all_events: list[Any] = list(events_qs.select_related("guild", "feed").order_by("start_dt"))
+    # Merge FOG-native synthetic entries (they aren't CalendarEvent rows) into BOTH the
+    # community calendar (all events) and a guild calendar (that guild's events), then
+    # re-sort by start so they interleave with the iCal/class/orientation entries.
+    from hub.calendar_entries import community_event_entries, guild_calendar_entries
+
+    if guild is not None:
+        synthetic = [
+            *guild_calendar_entries(guild, fetch_from, fetch_to),
+            *community_event_entries(fetch_from, fetch_to, guild=guild),
+        ]
+    else:
+        synthetic = community_event_entries(fetch_from, fetch_to)
+    all_events = sorted([*all_events, *synthetic], key=lambda e: e.start_dt)
+
+    guilds_with_calendars = list(Guild.objects.filter(is_active=True, calendar_url__gt="").order_by("name"))
+
+    config = SiteConfiguration.load()
+    calendar_feeds = list(CalendarFeed.objects.filter(ical_url__gt=""))
+    classes_enabled = config.sync_classes_enabled
+    classes_color = config.classes_calendar_color
+
+    source_colors: dict[str, str] = {
+        "classes": classes_color,
+        "orientation": "#EEB44B",
+        "community": _COMMUNITY_CALENDAR_COLOR,
+    }
+    for feed in calendar_feeds:
+        source_colors[f"feed-{feed.pk}"] = feed.color
+
+    legend_guilds = _calendar_legend_guilds(all_events, guilds_with_calendars, guild)
+    for g in legend_guilds:
+        source_colors[str(g.pk)] = g.calendar_color
+
+    # True when a class in this window has no guild → keep the generic "Other classes"
+    # fallback toggle/color for it (a class with a guild groups under that guild instead).
+    has_ungrouped_classes = any(e.source_key == "classes" for e in all_events)
+
+    # True when a FOG event in this window didn't map to a feed chip (its Google
+    # target has no configured calendar id or no matching feed) → render the generic
+    # "Events" fallback toggle for it. Mirrors has_ungrouped_classes. Only synthetic
+    # community entries can key "community", so real CalendarEvent rows never trip this.
+    has_unmapped_events = any(e.source_key == "community" for e in all_events)
+
     # The Google-sync flag stays admin-only and gated by both sync switches (the same
     # contract as the wordy badge), so it renders on the calendar list only for a
     # manager when sync is on — never for a plain member.
     sync_flag_visible = _google_sync_enabled() and _viewing_as_admin(request)
 
     return {
-        "week_events": week_events,
-        "month_events": month_events,
-        "event_page": event_page,
-        "event_total_pages": total_pages,
+        **_calendar_window_context(
+            all_events, window, week_offset=week_offset, month_offset=month_offset, event_page=event_page
+        ),
         "sync_flag_visible": sync_flag_visible,
         "guilds_with_calendars": guilds_with_calendars,
         "legend_guilds": legend_guilds,
@@ -6889,15 +6957,6 @@ def _get_calendar_context(
         "classes_color": classes_color,
         "community_color": _COMMUNITY_CALENDAR_COLOR,
         "source_colors": source_colors,
-        "week_days": week_days,
-        "week_label": week_label,
-        "week_offset": week_offset,
-        "month_days": month_days,
-        "month_headers": month_headers,
-        "month_label": month_label,
-        "month_offset": month_offset,
-        "month_event_pages_json": json.dumps(month_event_pages),
-        "now": now,
     }
 
 

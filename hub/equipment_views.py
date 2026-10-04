@@ -24,6 +24,7 @@ from django.urls import reverse
 from django.utils import timezone
 from django.views.decorators.http import require_POST
 
+from hub.calendar_pages import calendar_nav_params, reservations_calendar_context
 from hub.forms import (
     EquipmentForm,
     EquipmentHoursWindowFormSet,
@@ -50,6 +51,9 @@ from membership.models import (
 from membership.permissions import can_create_equipment, can_manage_equipment, creatable_equipment_kinds
 
 logger = logging.getLogger("hub")
+
+#: The Reservations page Calendar pane's localStorage salt in the shared calendar shell.
+CALENDAR_KEY = "reservations"
 
 
 def _equipment_queryset() -> EquipmentQuerySet:
@@ -97,14 +101,6 @@ def _duration_label(minutes: int) -> str:
     return f"{hours:g} hours"
 
 
-def _short_name(display_name: str) -> str:
-    """ "Sam Reyes" -> "Sam R.": the reserver-name norm, shortened for a busy timeline row."""
-    parts = display_name.split()
-    if len(parts) < 2:
-        return display_name
-    return f"{parts[0]} {parts[-1][0]}."
-
-
 def _orientation_busy_items(equipment: Equipment, day_start: datetime, day_end: datetime) -> list[dict[str, Any]]:
     """The day's seat-holding orientation slots as busy timeline items labeled "Orientation · Sam R."."""
     from membership.models import OrientationBooking, OrientationSlot
@@ -127,7 +123,7 @@ def _orientation_busy_items(equipment: Equipment, day_start: datetime, day_end: 
     )
     items: list[dict[str, Any]] = []
     for slot in slots:
-        names = ", ".join(_short_name(booking.member.display_name) for booking in slot.seat_holders)
+        names = ", ".join(booking.member.short_name for booking in slot.seat_holders)
         items.append(
             {
                 "kind": "orientation",
@@ -330,8 +326,14 @@ def _attach_running_orientations(equipment_list: Sequence[Equipment], *, now: da
 
 @login_required
 def hub_equipment_index(request: HttpRequest) -> HttpResponse:
-    """The Equipment directory — card grid with guild/kind/search filters and access badges."""
+    """The Equipment directory — card grid with guild/kind/search filters and access badges.
+
+    ``?view=calendar`` opens the Calendar pane, the only time this view builds the calendar;
+    otherwise the pane fetches it from :func:`hub_equipment_calendar_events` when the member
+    first switches to it, so the List view costs no calendar queries.
+    """
     member = _get_member(request)
+    pane = "calendar" if request.GET.get("view") == "calendar" else "list"
     # The locked cards' Book the orientation links read whether the Orientations page lists the type.
     base = _equipment_queryset().active().with_required_orientation_listed()
     guild_filter = request.GET.get("guild", "")
@@ -388,8 +390,25 @@ def hub_equipment_index(request: HttpRequest) -> HttpResponse:
             "query": query,
             "is_filtered": bool(guild_filter or kind_filter or query),
             "can_create": can_create_equipment(request),
+            "pane": pane,
+            "calendar": reservations_calendar_context() if pane == "calendar" else None,
+            "calendar_key": CALENDAR_KEY,
         },
     )
+
+
+@login_required
+def hub_equipment_calendar_events(request: HttpRequest) -> HttpResponse:
+    """HTMX partial: the Reservations calendar's grid and list, for its Week and Month navigation.
+
+    ``?shell=1`` returns the whole calendar (view toggle and legend too), which the page's
+    Calendar pane loads the first time a member opens it.
+    """
+    week_offset, month_offset, event_page = calendar_nav_params(request)
+    cal = reservations_calendar_context(week_offset=week_offset, month_offset=month_offset, event_page=event_page)
+    if request.GET.get("shell"):
+        return render(request, "hub/partials/guild_calendar_app.html", {"cal": cal, "cal_key": CALENDAR_KEY})
+    return render(request, "hub/partials/calendar_content.html", cal)
 
 
 def _form_scope(request: HttpRequest, equipment: Equipment | None = None) -> dict[str, Any]:
@@ -479,13 +498,18 @@ def _equipment_orientation_sections(equipment: Equipment, member: Member | None)
 
 @login_required
 def hub_equipment_detail(request: HttpRequest, slug: str) -> HttpResponse:
-    """The equipment mini-page — hero, requirements banner, Orientation section, schedule, About."""
+    """The equipment mini-page — hero, requirements banner, Orientation section, schedule, About.
+
+    ``?day=YYYY-MM-DD`` opens the schedule on that day (the Reservations calendar links here
+    that way), with the week strip paged to show it.
+    """
     equipment = get_object_or_404(_equipment_queryset(), slug=slug)
     manages = can_manage_equipment(request, equipment)
     if not equipment.is_active and not manages:
         raise Http404("This equipment has been retired.")
     member = _get_member(request)
-    schedule = _schedule_context(equipment, member, manages=manages)
+    day = _parse_day(request.GET.get("day", ""))
+    schedule = _schedule_context(equipment, member, week_offset=_strip_week_of(day), selected_day=day, manages=manages)
     # The schedule builder already looked the fee up once; the banner state reads the same answer.
     access_state = equipment.access_state(member, has_unpaid_fee=schedule["unpaid_late_fee"] is not None)
     orientation_type = equipment.required_orientation
@@ -536,6 +560,13 @@ def _parse_day(raw: str) -> date | None:
         return date.fromisoformat(raw)
     except ValueError:
         return None
+
+
+def _strip_week_of(day: date | None) -> int:
+    """The week strip page that shows ``day``: 0 for no day or a past one (the strip clamps past the horizon)."""
+    if day is None:
+        return 0
+    return max((day - timezone.localdate()).days // 7, 0)
 
 
 def _render_schedule(

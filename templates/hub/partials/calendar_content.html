@@ -45,7 +45,7 @@
                     style="--chip-color: {{ source_colors|get_item:src|default:'#888888' }};"
                     title="{{ event.title|strip_date_suffix }}{% if event.is_in_progress %} (in progress){% endif %}">
                 {% if not event.all_day %}<span class="pl-calendar-grid__chip-time">{{ event.start_dt|date:"g:ia" }}</span>{% endif %}
-                <span class="pl-calendar-grid__chip-title">{{ event.title|strip_date_suffix }}</span>
+                <span class="pl-calendar-grid__chip-title">{{ event.chip_title|default:event.title|strip_date_suffix }}</span>
             </button>
             {% endwith %}
             {% endfor %}
@@ -102,7 +102,7 @@
                     @mouseenter="hoverEvent({{ event.pk }})" @mouseleave="unhoverEvent({{ event.pk }})"
                     style="--chip-color: {{ source_colors|get_item:src|default:'#888888' }};"
                     title="{{ event.title|strip_date_suffix }}{% if event.is_in_progress %} (in progress){% endif %}">
-                <span class="pl-calendar-grid__chip-title">{{ event.title|strip_date_suffix }}</span>
+                <span class="pl-calendar-grid__chip-title">{{ event.chip_title|default:event.title|strip_date_suffix }}</span>
             </button>
             {% endwith %}
             {% endfor %}
@@ -121,8 +121,8 @@
 {# Divider #}
 <div class="pl-calendar-divider"></div>
 
-{# Legend note — colored events come from subscribed/guild calendars and are not all Past Lives classes #}
-<p class="pl-calendar-list-note">Colored events are pulled from subscribed and guild calendars — some aren't Past Lives classes, so they won't all show up in the Class Catalog.</p>
+{# Legend note — colored events come from subscribed/guild calendars; the Orientations and Reservations calendars (entries_calendar) read only their own rows #}{% if not entries_calendar %}
+<p class="pl-calendar-list-note">Colored events are pulled from subscribed and guild calendars — some aren't Past Lives classes, so they won't all show up in the Class Catalog.</p>{% endif %}
 
 {# Week event list — all events within the navigated week #}
 <div x-show="calView === 'week'">
@@ -134,7 +134,7 @@
         {% else %}
         <div class="pl-calendar-empty">
             <p>No events scheduled for this week.</p>
-            <p class="pl-calendar-empty__hint">Guild officers can add a Google Calendar link from their guild page.</p>
+            {% if not entries_calendar %}<p class="pl-calendar-empty__hint">Guild officers can add a Google Calendar link from their guild page.</p>{% endif %}
         </div>
         {% endif %}
     </div>
@@ -150,7 +150,7 @@
         {% else %}
         <div class="pl-calendar-empty">
             <p>No events scheduled for this month.</p>
-            <p class="pl-calendar-empty__hint">Guild officers can add a Google Calendar link from their guild page.</p>
+            {% if not entries_calendar %}<p class="pl-calendar-empty__hint">Guild officers can add a Google Calendar link from their guild page.</p>{% endif %}
         </div>
         {% endif %}
     </div>

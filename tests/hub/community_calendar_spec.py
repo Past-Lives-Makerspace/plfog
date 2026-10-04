@@ -730,8 +730,7 @@ def describe_calendar_week_label_cross_month():
 
         # Freeze "today" to Monday April 28 2026 — week is Apr 28–May 4 (cross month)
         fake_now = dj_tz.now().replace(year=2026, month=4, day=28, hour=12, minute=0, second=0, microsecond=0)
-        with patch("hub.views.dj_timezone") as mock_tz:
-            mock_tz.now.return_value = fake_now
+        with patch("django.utils.timezone.now", return_value=fake_now):
             response = client.get("/calendar/events/?week_offset=0")
         assert response.status_code == 200
         week_label = response.context["week_label"]

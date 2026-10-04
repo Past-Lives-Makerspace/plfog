@@ -21,6 +21,7 @@ from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse
 from django.views.decorators.http import require_POST
 
+from hub.calendar_pages import calendar_nav_params, orientations_calendar_context
 from hub.forms import OrientationCustomRequestForm
 from hub.views import (
     _can_access_orientations,
@@ -37,6 +38,9 @@ CARD_TIME_CAP = 3
 
 #: The owner chips: All, Guilds, Equipment (``?owner=``).
 OWNER_FILTERS = ("guild", "equipment")
+
+#: The Calendar pane's localStorage salt in the shared calendar shell.
+CALENDAR_KEY = "orientations"
 
 
 def _filtered_types(member: Member | None, owner_filter: str, query: str) -> list[OrientationType]:
@@ -135,10 +139,15 @@ def hub_orientations(request: HttpRequest) -> HttpResponse:
     their guilds' orienter labels, their bookable slots, the open windows of their guilds
     (with every window's free time read in two queries), the member's state through the
     shared section builder, and the late fee.
+
+    ``?view=calendar`` opens the Calendar pane, the only time this view builds the calendar;
+    otherwise the pane fetches it from :func:`hub_orientations_calendar_events` when the member
+    first switches to it, so the List view costs no calendar queries.
     """
     from billing.late_fees import unpaid_fee_for
 
     member = _get_member(request)
+    pane = "calendar" if request.GET.get("view") == "calendar" else "list"
     owner_filter = request.GET.get("owner", "")
     if owner_filter not in OWNER_FILTERS:
         owner_filter = ""
@@ -195,8 +204,25 @@ def hub_orientations(request: HttpRequest) -> HttpResponse:
             # The dashboard's own gate: leads, staff and admins get a way into it.
             "can_manage_orientations": _can_access_orientations(request),
             "unpaid_late_fee": unpaid_fee_for(member) if member is not None else None,
+            "pane": pane,
+            "calendar": orientations_calendar_context() if pane == "calendar" else None,
+            "calendar_key": CALENDAR_KEY,
         },
     )
+
+
+@login_required
+def hub_orientations_calendar_events(request: HttpRequest) -> HttpResponse:
+    """HTMX partial: the Orientations calendar's grid and list, for its Week and Month navigation.
+
+    ``?shell=1`` returns the whole calendar (view toggle and legend too), which the page's
+    Calendar pane loads the first time a member opens it.
+    """
+    week_offset, month_offset, event_page = calendar_nav_params(request)
+    cal = orientations_calendar_context(week_offset=week_offset, month_offset=month_offset, event_page=event_page)
+    if request.GET.get("shell"):
+        return render(request, "hub/partials/guild_calendar_app.html", {"cal": cal, "cal_key": CALENDAR_KEY})
+    return render(request, "hub/partials/calendar_content.html", cal)
 
 
 @login_required

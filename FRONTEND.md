@@ -285,7 +285,7 @@ def add_to_cart(request, pk):
 | Script | Where | Why |
 |--------|-------|-----|
 | htmx, head-support, Alpine, `hub_boot.js`, `biometric-auth.js`, `pl_help.js` | `hub/base.html` `<head>`, `defer` | Run **once per document**. A second htmx replaces `window.onpopstate` and breaks Back; a second Alpine initialises the page before page scripts have registered their components. Never load either again from a page. |
-| **Every** static file that registers an `Alpine.data(...)` component (`hero_placement.js`, `session_calendar.js`, `card_focus.js`, `space_map.js`, `guild_autosave.js`), even one only a single page uses | `hub/base.html` `<head>`, `defer`, **before** `alpine.min.js` | Alpine initialises a swapped page a microtask after htmx inserts it, before any script the page itself loads could arrive, so the component has to be registered before the navigation starts. A body or `extra_head` copy is dead on every in-app arrival (`cardFocus is not defined`). Register defensively, on whichever side of `alpine:init` the script lands: `if (window.Alpine) register(); else document.addEventListener('alpine:init', register);` |
+| **Every** static file that registers an `Alpine.data(...)` component (`hero_placement.js`, `session_calendar.js`, `card_focus.js`, `space_map.js`, `guild_autosave.js`, `list_calendar.js`), even one only a single page uses | `hub/base.html` `<head>`, `defer`, **before** `alpine.min.js` | Alpine initialises a swapped page a microtask after htmx inserts it, before any script the page itself loads could arrive, so the component has to be registered before the navigation starts. A body or `extra_head` copy is dead on every in-app arrival (`cardFocus is not defined`). Register defensively, on whichever side of `alpine:init` the script lands: `if (window.Alpine) register(); else document.addEventListener('alpine:init', register);` |
 | An inline `<script>` in a page or partial that registers a component or defines a function `x-data` calls | In the body content, as today | htmx runs it synchronously as it inserts the page, before Alpine initialises anything. Use the same defensive registration (`hub/wiki_edit.html`, `hub/meeting_workspace.html`); a plain `alpine:init` listener never fires on a boosted arrival. |
 | Anything else in `<body>` (`_tour.html`, the toast and loading bar scripts, `hero_cropper.js`) | Body | Re-runs on **every** boosted arrival. Make it a guarded IIFE (`if (window.__x) return; window.__x = true;`) or delegate on `document`; per-page boot logic that needs the fresh DOM belongs here on purpose. |
 
@@ -380,7 +380,7 @@ All under `static/css/`. The pattern in use: one stylesheet per surface, linked 
 | `classes-register.css` | `classes/public/register.html` | The public registration form. |
 | `book-account.css` | `account/*.html` | Login code and signup screens. |
 | `class-flyer.css`, `guild-flyer.css` | the two flyer pages | Printable flyers. |
-| `calendar.css`, `session-calendar.css` | community calendar, guild pages, class composer | Calendar grids. |
+| `calendar.css`, `session-calendar.css` | community calendar, guild pages, the Orientations and Reservations pages, class composer | Calendar grids. |
 | `member-edit.css` | `hub/admin/member_edit.html` | One admin page. |
 | `leadership.css` | `hub/leadership_directory.html`, `hub/admin/leadership.html` | The Leadership Directory cards and its admin page. |
 | `voting-admin.css` | `hub/admin/voting_*.html` | Voting admin pages. |

@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, date, datetime, timedelta
 from urllib.parse import parse_qs, urlsplit
 from zoneinfo import ZoneInfo
 
@@ -13,15 +13,30 @@ from classes.factories import CategoryFactory, ClassOfferingFactory, ClassSessio
 from classes.models import ClassOffering
 from core.models import SiteConfiguration
 from hub.calendar_entries import (
+    MAKERSPACE_LEGEND_KEY,
+    ORIENTATION_PK_OFFSET,
+    RESERVATION_PK_OFFSET,
     CalendarEntry,
     calendar_subscribe_links,
     google_calendar_add_url,
     google_calendar_event_url,
     google_calendar_subscribe_url,
     google_target_feed_keys,
+    orientation_legend_key,
+    orientation_page_entries,
+    reservation_entries,
 )
-from membership.models import CommunityEvent
-from tests.membership.factories import CommunityEventFactory, GuildFactory
+from membership.models import CommunityEvent, EquipmentReservation, OrientationBooking
+from tests.membership.factories import (
+    CommunityEventFactory,
+    EquipmentFactory,
+    EquipmentReservationFactory,
+    GuildFactory,
+    MemberFactory,
+    OrientationBookingFactory,
+    OrientationSlotFactory,
+    OrientationTypeFactory,
+)
 
 
 def describe_google_calendar_subscribe_url():
@@ -83,6 +98,15 @@ def describe_CalendarEntry_source_key():
     def it_prefers_a_stamped_feed_key_even_when_a_guild_is_set():
         guild = GuildFactory()
         assert _entry(source="community", guild=guild, feed_key="feed-7").source_key == "feed-7"
+
+    def it_prefers_a_page_legend_key_over_a_feed_key_and_a_guild():
+        guild = GuildFactory()
+        entry = _entry(source="classes", guild=guild, feed_key="feed-7", legend_key="makerspace")
+        assert entry.source_key == "makerspace"
+
+    def it_carries_no_chip_title_or_owner_label_unless_given():
+        entry = _entry()
+        assert (entry.legend_key, entry.chip_title, entry.owner_label) == ("", "", "")
 
 
 @pytest.mark.django_db
@@ -300,3 +324,177 @@ def describe_google_calendar_event_url():
         params = _params(google_calendar_event_url(event, november))
         assert params["dates"] == "20261104T180000/20261104T203000"
         assert params["recur"] == "RRULE:FREQ=MONTHLY;BYDAY=1WE"
+
+
+def _calendar_range() -> tuple[date, date]:
+    today = timezone.localdate()
+    return today - timedelta(days=1), today + timedelta(days=30)
+
+
+@pytest.mark.django_db
+def describe_orientation_legend_key():
+    def it_files_a_guild_type_under_its_guild():
+        guild = GuildFactory(name="Legend Guild")
+        assert orientation_legend_key(OrientationTypeFactory(guild=guild)) == str(guild.pk)
+
+    def it_files_an_items_type_under_the_items_guild():
+        guild = GuildFactory(name="Legend Item Guild")
+        orientation_type = OrientationTypeFactory(guild=None, equipment=EquipmentFactory(guild=guild))
+        assert orientation_legend_key(orientation_type) == str(guild.pk)
+
+    def it_files_a_standalone_items_type_under_makerspace():
+        orientation_type = OrientationTypeFactory(equipment_owned=True)
+        assert orientation_legend_key(orientation_type) == MAKERSPACE_LEGEND_KEY == "makerspace"
+
+
+@pytest.mark.django_db
+def describe_orientation_page_entries():
+    def it_makes_one_entry_per_bookable_slot_with_the_type_on_the_chip():
+        guild = GuildFactory(name="Entries Guild")
+        orientation_type = OrientationTypeFactory(guild=guild, name="Shop Basics")
+        slot = OrientationSlotFactory(guild=guild, orientation_type=orientation_type, seats=4, location="Wood Shop")
+        [entry] = orientation_page_entries([orientation_type], *_calendar_range())
+        assert entry.pk == ORIENTATION_PK_OFFSET + slot.pk
+        assert entry.chip_title == "Shop Basics"
+        assert entry.title == "Shop Basics · Entries Guild · 4 seats left"
+        assert entry.source == "orientation"
+        assert entry.source_key == entry.legend_key == str(guild.pk)
+        assert entry.owner_label == "Entries Guild"
+        assert entry.location == "Wood Shop"
+        assert (entry.start_dt, entry.end_dt) == (slot.starts_at, slot.ends_at)
+
+    def it_links_the_types_card_on_the_list_view():
+        orientation_type = OrientationTypeFactory(guild=GuildFactory(name="Link Guild"))
+        OrientationSlotFactory(guild=orientation_type.guild, orientation_type=orientation_type)
+        [entry] = orientation_page_entries([orientation_type], *_calendar_range())
+        assert (
+            entry.url
+            == orientation_type.orientations_page_path()
+            == f"/orientations/#orientation-type-{orientation_type.pk}"
+        )
+
+    def it_says_seat_for_the_last_one():
+        orientation_type = OrientationTypeFactory(guild=GuildFactory(name="One Seat Guild"), name="Lathe")
+        slot = OrientationSlotFactory(guild=orientation_type.guild, orientation_type=orientation_type, seats=2)
+        OrientationBookingFactory(slot=slot, status=OrientationBooking.Status.CONFIRMED)
+        [entry] = orientation_page_entries([orientation_type], *_calendar_range())
+        assert entry.title == "Lathe · One Seat Guild · 1 seat left"
+
+    def it_names_an_items_owner_and_files_it_under_the_items_guild():
+        guild = GuildFactory(name="Woodworking Guild")
+        item = EquipmentFactory(name="Lathe", guild=guild)
+        orientation_type = OrientationTypeFactory(guild=None, equipment=item, name="Lathe Orientation")
+        OrientationSlotFactory(guild=None, orientation_type=orientation_type, seats=3)
+        [entry] = orientation_page_entries([orientation_type], *_calendar_range())
+        assert entry.title == "Lathe Orientation · Lathe · 3 seats left"
+        assert entry.legend_key == str(guild.pk)
+        assert entry.owner_label == "Lathe · Woodworking Guild"
+
+    def it_files_a_standalone_items_slot_under_makerspace():
+        item = EquipmentFactory(name="Loading dock")
+        orientation_type = OrientationTypeFactory(guild=None, equipment=item, name="Dock Basics")
+        OrientationSlotFactory(guild=None, orientation_type=orientation_type)
+        [entry] = orientation_page_entries([orientation_type], *_calendar_range())
+        assert entry.legend_key == "makerspace"
+        assert entry.owner_label == "Loading dock · Makerspace"
+
+    def it_leaves_out_a_full_slot_and_a_cancelled_one():
+        orientation_type = OrientationTypeFactory(guild=GuildFactory(name="Full Guild"))
+        open_slot = OrientationSlotFactory(guild=orientation_type.guild, orientation_type=orientation_type)
+        full = OrientationSlotFactory(guild=orientation_type.guild, orientation_type=orientation_type, seats=1)
+        OrientationBookingFactory(slot=full, status=OrientationBooking.Status.PENDING_PAYMENT)
+        OrientationSlotFactory(guild=orientation_type.guild, orientation_type=orientation_type, is_cancelled=True)
+        entries = orientation_page_entries([orientation_type], *_calendar_range())
+        assert [entry.pk for entry in entries] == [ORIENTATION_PK_OFFSET + open_slot.pk]
+
+    def it_leaves_out_slots_of_types_outside_the_set_and_outside_the_range():
+        guild = GuildFactory(name="Range Guild")
+        listed = OrientationTypeFactory(guild=guild, name="Listed")
+        other = OrientationTypeFactory(guild=guild, name="Other")
+        OrientationSlotFactory(guild=guild, orientation_type=other)
+        far = timezone.now() + timedelta(days=60)
+        OrientationSlotFactory(guild=guild, orientation_type=listed, starts_at=far, ends_at=far + timedelta(hours=1))
+        assert orientation_page_entries([listed], *_calendar_range()) == []
+
+    def it_leaves_out_a_slot_its_owner_is_not_taking_bookings_for():
+        orientation_type = OrientationTypeFactory(guild=GuildFactory(name="Closed Guild"))
+        OrientationSlotFactory(guild=orientation_type.guild, orientation_type=orientation_type)
+        orientation_type.guild.orientation_settings.is_closed = True
+        orientation_type.guild.orientation_settings.save()
+        assert orientation_page_entries([orientation_type], *_calendar_range()) == []
+
+    def it_reads_every_slot_in_one_query(django_assert_num_queries):
+        guild = GuildFactory(name="Query Guild")
+        types = [OrientationTypeFactory(guild=guild, name=f"Type {n}") for n in range(3)]
+        for orientation_type in types:
+            OrientationSlotFactory(guild=guild, orientation_type=orientation_type)
+        with django_assert_num_queries(1):
+            assert len(orientation_page_entries(types, *_calendar_range())) == 3
+
+
+@pytest.mark.django_db
+def describe_reservation_entries():
+    def _item(name: str = "Laser cutter", guild_name: str = "") -> object:
+        return EquipmentFactory(name=name, guild=GuildFactory(name=guild_name) if guild_name else None)
+
+    def it_lists_a_confirmed_reservation_under_its_item():
+        item = _item(guild_name="Fabrication Guild")
+        reservation = EquipmentReservationFactory(
+            equipment=item, member=MemberFactory(full_legal_name="Sam Reyes", preferred_name="")
+        )
+        [entry] = reservation_entries([item], *_calendar_range())
+        assert entry.pk == RESERVATION_PK_OFFSET + reservation.pk
+        assert entry.title == "Laser cutter · Sam R."
+        assert entry.source == "reservation"
+        assert entry.source_key == entry.legend_key == str(item.pk)
+        assert entry.owner_label == "Laser cutter · Fabrication Guild"
+        assert (entry.start_dt, entry.end_dt) == (reservation.starts_at, reservation.ends_at)
+
+    def it_links_the_items_page_on_the_reservations_local_day():
+        item = _item(name="Table saw")
+        # 03:30 UTC is the evening before in Portland: the link names the local day.
+        starts_at = (timezone.now() + timedelta(days=3)).replace(hour=3, minute=30, second=0, microsecond=0)
+        reservation = EquipmentReservationFactory(equipment=item, starts_at=starts_at)
+        [entry] = reservation_entries([item], *_calendar_range())
+        day = timezone.localdate(reservation.starts_at)
+        assert day != reservation.starts_at.date()
+        assert entry.url == f"/equipment/{item.slug}/?day={day.isoformat()}"
+
+    def it_lists_a_booked_orientation_on_an_items_own_type():
+        item = _item(name="Lathe", guild_name="Woodworking Guild")
+        orientation_type = OrientationTypeFactory(guild=None, equipment=item)
+        slot = OrientationSlotFactory(guild=None, orientation_type=orientation_type, location="Wood Shop")
+        OrientationBookingFactory(slot=slot, status=OrientationBooking.Status.REQUESTED)
+        [entry] = reservation_entries([item], *_calendar_range())
+        assert entry.pk == ORIENTATION_PK_OFFSET + slot.pk
+        assert entry.title == "Lathe · Orientation"
+        assert entry.source == "orientation"
+        assert entry.legend_key == str(item.pk)
+        assert entry.location == "Wood Shop"
+        assert entry.url == f"/equipment/{item.slug}/?day={timezone.localdate(slot.starts_at).isoformat()}"
+
+    def it_leaves_out_a_cancelled_reservation_and_an_open_unbooked_slot():
+        item = _item()
+        EquipmentReservationFactory(equipment=item, status=EquipmentReservation.Status.CANCELLED)
+        orientation_type = OrientationTypeFactory(guild=None, equipment=item)
+        OrientationSlotFactory(guild=None, orientation_type=orientation_type)
+        assert reservation_entries([item], *_calendar_range()) == []
+
+    def it_leaves_out_other_items_and_a_cancelled_booked_slot():
+        item, other = _item(name="Mine"), _item(name="Other")
+        EquipmentReservationFactory(equipment=other)
+        orientation_type = OrientationTypeFactory(guild=None, equipment=item)
+        slot = OrientationSlotFactory(guild=None, orientation_type=orientation_type, is_cancelled=True)
+        OrientationBookingFactory(slot=slot, status=OrientationBooking.Status.CONFIRMED)
+        assert reservation_entries([item], *_calendar_range()) == []
+
+    def it_reads_everything_in_two_queries(django_assert_num_queries):
+        items = [_item(name=f"Item {n}") for n in range(3)]
+        for item in items:
+            EquipmentReservationFactory(equipment=item)
+            slot = OrientationSlotFactory(
+                guild=None, orientation_type=OrientationTypeFactory(guild=None, equipment=item)
+            )
+            OrientationBookingFactory(slot=slot, status=OrientationBooking.Status.CONFIRMED)
+        with django_assert_num_queries(2):
+            assert len(reservation_entries(items, *_calendar_range())) == 6

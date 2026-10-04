@@ -12,27 +12,47 @@ location, description, guild, feed``.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import date, datetime, timedelta
+from datetime import UTC, date, datetime, time, timedelta
 from typing import TYPE_CHECKING, Any
 from urllib.parse import quote, quote_plus, urlencode
 
 from django.utils import timezone
 
 if TYPE_CHECKING:
+    from collections.abc import Iterable
+
     from core.models import SiteConfiguration
-    from membership.models import CommunityEvent, Guild
+    from membership.models import CommunityEvent, Equipment, Guild, OrientationType
 
 # Offsets keep synthetic pks clear of real CalendarEvent pks so the shared
 # focusEvent() JS and the month_event_pages map keep working untouched.
 CLASS_PK_OFFSET = 1_000_000_000
 ORIENTATION_PK_OFFSET = 2_000_000_000
 EVENT_PK_OFFSET = 3_000_000_000
+RESERVATION_PK_OFFSET = 4_000_000_000
 _OCC_STRIDE = 100  # max occurrences per event per window (a few months of monthly « 100)
 
 # How far ahead the Events tab looks for a recurring series' next occurrence. A
 # year comfortably contains the next hit for any monthly/weekly cadence, so each
 # recurring event resolves to one upcoming row instead of its stale anchor date.
 _EVENTS_TAB_HORIZON_DAYS = 365
+
+
+def calendar_day(event: Any) -> date:
+    """The local (Portland) date a calendar grid and list draw ``event`` on.
+
+    ``start_dt`` is stored in UTC, so its own ``.date()`` put every event from 5 PM Pacific
+    (4 PM in winter) on the next day's cell. A synced all-day event is anchored to local
+    midnight (``hub.calendar_service._to_datetime``), which local time keeps on its day; one
+    stored at UTC midnight (a bare date read without that anchor) keeps the date it names
+    rather than sliding back to the evening before.
+    """
+    start = event.start_dt
+    if event.all_day:
+        utc_start = start.astimezone(UTC)
+        if utc_start.time() == time.min:
+            return utc_start.date()
+    return timezone.localtime(start).date()
 
 
 @dataclass
@@ -60,10 +80,22 @@ class CalendarEntry:
     # groups under the matching feed chip instead of a separate "Events" chip.
     # Empty = no mapping → source_key falls back to the raw source ("community").
     feed_key: str = ""
+    # The legend chip this entry toggles and colors with on a calendar that passes its own
+    # legend (the Orientations and Reservations calendars, #502): an owning guild's pk,
+    # "makerspace", or an item's pk. Wins over feed_key; empty everywhere else.
+    legend_key: str = ""
+    # Shorter text for the grid chip; the list below and the chip's title= keep ``title``.
+    chip_title: str = ""
+    # The owner line under the title in the list ("Lathe · Woodworking Guild"), for entries
+    # whose owner is not simply ``guild``. Empty = the list's usual guild / feed line.
+    owner_label: str = ""
 
     @property
     def source_key(self) -> str:
-        # A stamped feed key wins: the entry toggles and colors with that feed's chip.
+        # A page legend key wins first, then a stamped feed key: the entry toggles and
+        # colors with that chip.
+        if self.legend_key:
+            return self.legend_key
         if self.feed_key:
             return self.feed_key
         # Only classes route by their guild's color. Orientation stays "orientation"
@@ -127,6 +159,143 @@ def guild_calendar_entries(guild: Guild, fetch_from: date, fetch_to: date) -> li
             )
         )
 
+    return entries
+
+
+#: The Orientations calendar's legend key for types of equipment no guild owns.
+MAKERSPACE_LEGEND_KEY = "makerspace"
+
+
+def _equipment_owner_label(equipment: Equipment) -> str:
+    """ "Lathe · Woodworking Guild", or "Loading dock · Makerspace" for a standalone item."""
+    return f"{equipment.name} · {equipment.guild.name if equipment.guild else 'Makerspace'}"
+
+
+def orientation_legend_key(orientation_type: OrientationType) -> str:
+    """The Orientations calendar chip a type files under: its guild, its equipment's guild, or Makerspace."""
+    if orientation_type.equipment is not None:
+        guild_id = orientation_type.equipment.guild_id
+        return str(guild_id) if guild_id is not None else MAKERSPACE_LEGEND_KEY
+    return str(orientation_type.guild_id)
+
+
+def orientation_page_entries(types: Iterable[OrientationType], fetch_from: date, fetch_to: date) -> list[CalendarEntry]:
+    """Every bookable slot with a seat left, of ``types``, starting in ``[fetch_from, fetch_to]``.
+
+    The Orientations calendar (#502): the chip says the type, the list says the type, its
+    owner and the seats left, and each entry links the type's card on the List view. A
+    full slot and a cancelled one are absent: ``bookable()`` drops the cancelled, closed
+    and departed, and the seat annotation drops the full, all in one query.
+    """
+    from membership.models import OrientationSlot
+
+    slots = (
+        OrientationSlot.objects.bookable()
+        .filter(orientation_type__in=list(types), starts_at__date__gte=fetch_from, starts_at__date__lte=fetch_to)
+        .with_seat_holding_count()
+        .select_related(
+            "orientation_type",
+            "orientation_type__guild",
+            "orientation_type__equipment",
+            "orientation_type__equipment__guild",
+        )
+        .order_by("starts_at")
+    )
+    entries: list[CalendarEntry] = []
+    for slot in slots:
+        if slot.is_full:
+            continue
+        orientation_type = slot.orientation_type
+        seats = slot.seats_remaining
+        owner_label = (
+            _equipment_owner_label(orientation_type.equipment)
+            if orientation_type.equipment is not None
+            else orientation_type.owner_name
+        )
+        entries.append(
+            CalendarEntry(
+                pk=ORIENTATION_PK_OFFSET + slot.pk,
+                title=f"{orientation_type.name} · {orientation_type.owner_name} · {seats} seat{'' if seats == 1 else 's'} left",
+                chip_title=orientation_type.name,
+                start_dt=slot.starts_at,
+                end_dt=slot.ends_at,
+                source="orientation",
+                url=orientation_type.orientations_page_path(),
+                location=slot.location,
+                legend_key=orientation_legend_key(orientation_type),
+                owner_label=owner_label,
+            )
+        )
+    return entries
+
+
+def _item_day_url(equipment: Equipment, moment: datetime) -> str:
+    """The item's page opened on the local day of ``moment``, where its schedule shows that booking."""
+    from django.urls import reverse
+
+    day = timezone.localdate(moment)
+    return f"{reverse('hub_equipment_detail', args=[equipment.slug])}?day={day.isoformat()}"
+
+
+def reservation_entries(items: Iterable[Equipment], fetch_from: date, fetch_to: date) -> list[CalendarEntry]:
+    """What is taken on ``items`` in ``[fetch_from, fetch_to]``: confirmed reservations and booked orientations.
+
+    The Reservations calendar (#502). A reservation reads "Laser cutter · Sam R."; an
+    orientation slot holding a seat on an item's own type reads "Lathe · Orientation",
+    because a booked orientation occupies the machine. Every entry files under its item's
+    legend chip and links the item's page on that day. A cancelled reservation and an
+    open, unbooked slot are absent. Two queries however many items.
+    """
+    from membership.models import EquipmentReservation, OrientationSlot
+
+    item_list = list(items)
+    entries: list[CalendarEntry] = []
+    reservations = (
+        EquipmentReservation.objects.confirmed()
+        .filter(equipment__in=item_list, starts_at__date__gte=fetch_from, starts_at__date__lte=fetch_to)
+        .select_related("equipment", "equipment__guild", "member")
+        .order_by("starts_at")
+    )
+    for reservation in reservations:
+        item = reservation.equipment
+        entries.append(
+            CalendarEntry(
+                pk=RESERVATION_PK_OFFSET + reservation.pk,
+                title=f"{item.name} · {reservation.member.short_name}",
+                start_dt=reservation.starts_at,
+                end_dt=reservation.ends_at,
+                source="reservation",
+                url=_item_day_url(item, reservation.starts_at),
+                legend_key=str(item.pk),
+                owner_label=_equipment_owner_label(item),
+            )
+        )
+    holds = (
+        OrientationSlot.objects.holding_seats()
+        .filter(
+            orientation_type__equipment__in=item_list,
+            starts_at__date__gte=fetch_from,
+            starts_at__date__lte=fetch_to,
+        )
+        .select_related("orientation_type__equipment", "orientation_type__equipment__guild")
+        .order_by("starts_at")
+    )
+    for slot in holds:
+        item = slot.orientation_type.equipment
+        assert item is not None  # filtered to equipment owned types
+        entries.append(
+            CalendarEntry(
+                pk=ORIENTATION_PK_OFFSET + slot.pk,
+                title=f"{item.name} · Orientation",
+                start_dt=slot.starts_at,
+                end_dt=slot.ends_at,
+                source="orientation",
+                url=_item_day_url(item, slot.starts_at),
+                location=slot.location,
+                legend_key=str(item.pk),
+                owner_label=_equipment_owner_label(item),
+            )
+        )
     return entries
 
 

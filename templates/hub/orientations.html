@@ -4,6 +4,7 @@
 
 {% block extra_head %}
 <link rel="stylesheet" href="{% static 'css/orientations.css' %}">
+<link rel="stylesheet" href="{% static 'css/calendar.css' %}">
 {% endblock %}
 
 {% block content %}
@@ -19,6 +20,14 @@
 {% include "hub/partials/late_fee_notice.html" with fee=unpaid_late_fee %}
 {% endif %}
 
+{# The List / Calendar pair (#502): plListCalendar in static/js/list_calendar.js; the calendar is built only when it opens. #}
+<div x-data="plListCalendar('{{ pane }}')">
+<nav class="pl-tabs" role="tablist" aria-label="Orientations views">
+  <button type="button" role="tab" class="vote-tab" :class="{ 'vote-tab--active': pane === 'list' }" :aria-selected="pane === 'list' ? 'true' : 'false'" @click="setPane('list')">List</button>
+  <button type="button" role="tab" class="vote-tab" :class="{ 'vote-tab--active': pane === 'calendar' }" :aria-selected="pane === 'calendar' ? 'true' : 'false'" @click="setPane('calendar')">Calendar</button>
+</nav>
+
+<div x-ref="listPane" x-show="pane === 'list'" {% if pane != "list" %}x-cloak{% endif %}>
 {# The Reservations page's chip row and search, reused as is. #}
 <div class="pl-equip-filters">
   <div class="pl-equip-chips">
@@ -70,4 +79,16 @@
   </div>
 </details>
 {% endif %}
+</div>
+
+<div x-show="pane === 'calendar'" {% if pane != "calendar" %}x-cloak{% endif %}>
+  {% if calendar %}
+  {% include "hub/partials/guild_calendar_app.html" with cal=calendar cal_key=calendar_key %}
+  {% else %}
+  <div x-ref="calendarLazy" data-calendar-src="{% url 'hub_orientations_calendar_events' %}?shell=1">
+    <p class="hub-text-muted">Loading the calendar…</p>
+  </div>
+  {% endif %}
+</div>
+</div>
 {% endblock %}

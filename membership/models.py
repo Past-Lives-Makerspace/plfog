@@ -835,6 +835,17 @@ class Member(models.Model):
         return self.preferred_name if self.preferred_name else self.full_legal_name
 
     @property
+    def short_name(self) -> str:
+        """ "Sam Reyes" -> "Sam R.": the reserver-name norm for busy rows and calendar chips.
+
+        A one word name stays as it is.
+        """
+        parts = self.display_name.split()
+        if len(parts) < 2:
+            return self.display_name
+        return f"{parts[0]} {parts[-1][0]}."
+
+    @property
     def discord_is_linked(self) -> bool:
         """Whether this member has a verified Discord account linked for DM notifications."""
         return bool(self.discord_user_id)
