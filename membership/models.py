@@ -94,7 +94,7 @@ def _active_lease_q(prefix: str = "", today: date_type | None = None) -> Q:
         today: Reference date; defaults to today.
     """
     if today is None:
-        today = timezone.now().date()
+        today = timezone.localdate()
     start = f"{prefix}start_date__lte"
     end_null = f"{prefix}end_date__isnull"
     end_gte = f"{prefix}end_date__gte"
@@ -10934,7 +10934,7 @@ class Lease(models.Model):
 
     @property
     def is_active(self) -> bool:
-        today = timezone.now().date()
+        today = timezone.localdate()
         if self.start_date is None or self.start_date > today:
             return False
         if self.end_date is not None and self.end_date < today:

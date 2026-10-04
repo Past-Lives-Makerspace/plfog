@@ -164,7 +164,7 @@ def describe_member_computed_properties():
     def it_calculates_studio_storage_total_with_active_leases():
         plan = MembershipPlanFactory(monthly_price=Decimal("150.00"))
         member = MemberFactory(membership_plan=plan)
-        today = timezone.now().date()
+        today = timezone.localdate()
 
         space_a = SpaceFactory(space_id="S-A")
         space_b = SpaceFactory(space_id="S-B")
@@ -191,7 +191,7 @@ def describe_member_computed_properties():
     def it_calculates_total_monthly_spend():
         plan = MembershipPlanFactory(monthly_price=Decimal("200.00"))
         member = MemberFactory(membership_plan=plan)
-        today = timezone.now().date()
+        today = timezone.localdate()
 
         space = SpaceFactory(space_id="S-TMS")
         LeaseFactory(
@@ -307,7 +307,7 @@ def describe_member_leases_and_spaces():
     def describe_active_leases():
         def it_returns_active_leases():
             member = MemberFactory()
-            today = timezone.now().date()
+            today = timezone.localdate()
 
             space_active = SpaceFactory(space_id="S-ACT")
             space_ended = SpaceFactory(space_id="S-END")
@@ -336,7 +336,7 @@ def describe_member_leases_and_spaces():
 
         def it_includes_ongoing_lease_with_no_end_date():
             member = MemberFactory()
-            today = timezone.now().date()
+            today = timezone.localdate()
             space = SpaceFactory(space_id="S-ONG")
             ongoing = LeaseFactory(
                 tenant_obj=member,
@@ -351,7 +351,7 @@ def describe_member_leases_and_spaces():
     def describe_current_spaces():
         def it_returns_current_spaces():
             member = MemberFactory()
-            today = timezone.now().date()
+            today = timezone.localdate()
 
             space = SpaceFactory(space_id="S-CUR")
             LeaseFactory(
@@ -468,7 +468,7 @@ def describe_space_occupants_and_revenue():
         def it_returns_current_occupants():
             plan = MembershipPlanFactory(name="Occ Plan")
             member = MemberFactory(membership_plan=plan)
-            today = timezone.now().date()
+            today = timezone.localdate()
             space = SpaceFactory(space_id="S-OCC")
 
             LeaseFactory(
@@ -484,7 +484,7 @@ def describe_space_occupants_and_revenue():
         def it_excludes_ended_leases():
             plan = MembershipPlanFactory(name="Occ Plan 2")
             member = MemberFactory(membership_plan=plan)
-            today = timezone.now().date()
+            today = timezone.localdate()
             space = SpaceFactory(space_id="S-OC2")
 
             LeaseFactory(
@@ -504,7 +504,7 @@ def describe_space_occupants_and_revenue():
                 membership_plan=plan, full_legal_name="Alice", _pre_signup_email="alice@example.com"
             )
             member_b = MemberFactory(membership_plan=plan, full_legal_name="Bob", _pre_signup_email="bob@example.com")
-            today = timezone.now().date()
+            today = timezone.localdate()
             space = SpaceFactory(space_id="S-REV", manual_price=Decimal("600.00"))
 
             LeaseFactory(
@@ -533,7 +533,7 @@ def describe_space_occupants_and_revenue():
             )
             plan = MembershipPlanFactory(name="RL Plan")
             member = MemberFactory(membership_plan=plan, _pre_signup_email="rl@example.com")
-            today = timezone.now().date()
+            today = timezone.localdate()
 
             LeaseFactory(
                 tenant_obj=member,
@@ -611,7 +611,7 @@ def describe_lease():
 def describe_lease_is_active():
     def it_is_active_when_ongoing():
         """Ongoing lease: started in the past, no end_date."""
-        today = timezone.now().date()
+        today = timezone.localdate()
         lease = LeaseFactory(
             start_date=today - timedelta(days=30),
             end_date=None,
@@ -619,7 +619,7 @@ def describe_lease_is_active():
         assert lease.is_active is True
 
     def it_is_active_when_within_date_range():
-        today = timezone.now().date()
+        today = timezone.localdate()
         lease = LeaseFactory(
             start_date=today - timedelta(days=30),
             end_date=today + timedelta(days=30),
@@ -627,7 +627,7 @@ def describe_lease_is_active():
         assert lease.is_active is True
 
     def it_is_active_when_end_date_is_today():
-        today = timezone.now().date()
+        today = timezone.localdate()
         lease = LeaseFactory(
             start_date=today - timedelta(days=30),
             end_date=today,
@@ -635,7 +635,7 @@ def describe_lease_is_active():
         assert lease.is_active is True
 
     def it_is_active_when_start_date_is_today():
-        today = timezone.now().date()
+        today = timezone.localdate()
         lease = LeaseFactory(
             start_date=today,
             end_date=None,
@@ -643,7 +643,7 @@ def describe_lease_is_active():
         assert lease.is_active is True
 
     def it_is_not_active_when_ended():
-        today = timezone.now().date()
+        today = timezone.localdate()
         lease = LeaseFactory(
             start_date=today - timedelta(days=60),
             end_date=today - timedelta(days=1),
@@ -651,7 +651,7 @@ def describe_lease_is_active():
         assert lease.is_active is False
 
     def it_is_not_active_when_not_started():
-        today = timezone.now().date()
+        today = timezone.localdate()
         lease = LeaseFactory(
             start_date=today + timedelta(days=1),
         )
@@ -672,7 +672,7 @@ def describe_lease_is_active_start_date_boundary():
         Kills ``> → >=``: with ``>=``, ``today >= today`` is True so the
         guard fires and is_active incorrectly returns False.
         """
-        today = timezone.now().date()
+        today = timezone.localdate()
         lease = Lease(start_date=today, end_date=None)
         assert lease.is_active is True
 
@@ -682,7 +682,7 @@ def describe_lease_is_active_start_date_boundary():
         Kills ``> → <=``: with ``<=``, ``tomorrow <= today`` is False so the
         guard does NOT fire and is_active incorrectly returns True.
         """
-        today = timezone.now().date()
+        today = timezone.localdate()
         lease = Lease(start_date=today + timedelta(days=1), end_date=None)
         assert lease.is_active is False
 
@@ -701,7 +701,7 @@ def describe_lease_is_active_end_date_boundary():
         Kills ``< → <=``: with ``<=``, ``today <= today`` is True so the
         guard fires and is_active incorrectly returns False.
         """
-        today = timezone.now().date()
+        today = timezone.localdate()
         lease = Lease(start_date=today - timedelta(days=30), end_date=today)
         assert lease.is_active is True
 
@@ -711,7 +711,7 @@ def describe_lease_is_active_end_date_boundary():
         Kills ``< → >=``: with ``>=``, ``yesterday >= today`` is False so the
         guard does NOT fire and is_active incorrectly returns True.
         """
-        today = timezone.now().date()
+        today = timezone.localdate()
         lease = Lease(
             start_date=today - timedelta(days=30),
             end_date=today - timedelta(days=1),
@@ -763,7 +763,7 @@ def describe_guild_sublet_revenue():
     def it_calculates_revenue_from_single_active_lease():
         guild = GuildFactory(name="Single Lease Guild")
         space = SpaceFactory(sublet_guild=guild)
-        today = timezone.now().date()
+        today = timezone.localdate()
         LeaseFactory(
             space=space,
             monthly_rent=Decimal("350.00"),
@@ -775,7 +775,7 @@ def describe_guild_sublet_revenue():
         guild = GuildFactory(name="Multi Lease Guild")
         space_a = SpaceFactory(sublet_guild=guild)
         space_b = SpaceFactory(sublet_guild=guild)
-        today = timezone.now().date()
+        today = timezone.localdate()
         LeaseFactory(
             space=space_a,
             monthly_rent=Decimal("200.00"),
@@ -791,7 +791,7 @@ def describe_guild_sublet_revenue():
     def it_excludes_expired_leases():
         guild = GuildFactory(name="Expired Lease Guild")
         space = SpaceFactory(sublet_guild=guild)
-        today = timezone.now().date()
+        today = timezone.localdate()
         LeaseFactory(
             space=space,
             monthly_rent=Decimal("400.00"),
@@ -804,7 +804,7 @@ def describe_guild_sublet_revenue():
         guild = GuildFactory(name="Non-Sublet Guild")
         sublet_space = SpaceFactory(sublet_guild=guild)
         non_sublet_space = SpaceFactory()  # no sublet_guild
-        today = timezone.now().date()
+        today = timezone.localdate()
         LeaseFactory(
             space=sublet_space,
             monthly_rent=Decimal("250.00"),

@@ -18,14 +18,14 @@ def describe_send_lease_expiry_reminders():
         # UserFactory triggers ensure_user_has_member signal → ACTIVE Member auto-created.
         user = UserFactory()
         member = user.member  # type: ignore[attr-defined]
-        LeaseFactory(tenant_obj=member, end_date=timezone.now().date() + timedelta(days=30))
+        LeaseFactory(tenant_obj=member, end_date=timezone.localdate() + timedelta(days=30))
         call_command("send_lease_expiry_reminders")
         assert Notification.objects.filter(trigger="lease_expiring").count() == 1
 
     def it_is_idempotent():
         user = UserFactory()
         member = user.member  # type: ignore[attr-defined]
-        LeaseFactory(tenant_obj=member, end_date=timezone.now().date() + timedelta(days=30))
+        LeaseFactory(tenant_obj=member, end_date=timezone.localdate() + timedelta(days=30))
         call_command("send_lease_expiry_reminders")
         call_command("send_lease_expiry_reminders")
         assert Notification.objects.filter(trigger="lease_expiring").count() == 1
@@ -33,6 +33,6 @@ def describe_send_lease_expiry_reminders():
     def it_skips_tenant_with_no_user():
         # MemberFactory() creates a Member without a linked User (user=None).
         member = MemberFactory()
-        LeaseFactory(tenant_obj=member, end_date=timezone.now().date() + timedelta(days=30))
+        LeaseFactory(tenant_obj=member, end_date=timezone.localdate() + timedelta(days=30))
         call_command("send_lease_expiry_reminders")
         assert Notification.objects.filter(trigger="lease_expiring").count() == 0

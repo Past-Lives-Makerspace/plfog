@@ -19,7 +19,7 @@ def describe_active_lease_q():
     def it_builds_q_with_default_prefix_and_today():
         ref = date(2025, 6, 15)
         with patch("membership.models.timezone") as mock_tz:
-            mock_tz.now.return_value.date.return_value = ref
+            mock_tz.localdate.return_value = ref
             q = _active_lease_q()
 
         expected = Q(start_date__lte=ref) & (Q(end_date__isnull=True) | Q(end_date__gte=ref))
@@ -95,7 +95,7 @@ def describe_member_queryset():
         def it_annotates_active_lease_count():
             plan = MembershipPlanFactory()
             member = MemberFactory(membership_plan=plan, _pre_signup_email="m@x.com")
-            today = timezone.now().date()
+            today = timezone.localdate()
 
             space1 = SpaceFactory(space_id="S-001")
             space2 = SpaceFactory(space_id="S-002")
@@ -130,7 +130,7 @@ def describe_member_queryset():
         def it_annotates_total_monthly_rent():
             plan = MembershipPlanFactory()
             member = MemberFactory(membership_plan=plan, _pre_signup_email="m@x.com")
-            today = timezone.now().date()
+            today = timezone.localdate()
 
             space1 = SpaceFactory(space_id="S-001")
             space2 = SpaceFactory(space_id="S-002")
@@ -186,7 +186,7 @@ def describe_space_queryset():
             plan = MembershipPlanFactory()
             member = MemberFactory(membership_plan=plan, _pre_signup_email="m@x.com")
             space = SpaceFactory(space_id="S-001", status=Space.Status.OCCUPIED)
-            today = timezone.now().date()
+            today = timezone.localdate()
 
             LeaseFactory(
                 tenant_obj=member,
@@ -212,7 +212,7 @@ def describe_lease_queryset():
             plan = MembershipPlanFactory()
             member = MemberFactory(membership_plan=plan, _pre_signup_email="m@x.com")
             space = SpaceFactory(space_id="S-001")
-            today = timezone.now().date()
+            today = timezone.localdate()
 
             active_lease = LeaseFactory(
                 tenant_obj=member,
@@ -248,7 +248,7 @@ def describe_lease_queryset():
             plan = MembershipPlanFactory()
             member = MemberFactory(membership_plan=plan, _pre_signup_email="m@x.com")
             space = SpaceFactory(space_id="S-001")
-            today = timezone.now().date()
+            today = timezone.localdate()
 
             LeaseFactory(
                 tenant_obj=member,
@@ -263,7 +263,7 @@ def describe_lease_queryset():
             plan = MembershipPlanFactory()
             member = MemberFactory(membership_plan=plan, _pre_signup_email="m@x.com")
             space = SpaceFactory(space_id="S-001")
-            today = timezone.now().date()
+            today = timezone.localdate()
 
             LeaseFactory(
                 tenant_obj=member,
@@ -278,7 +278,7 @@ def describe_lease_queryset():
             plan = MembershipPlanFactory()
             member = MemberFactory(membership_plan=plan, _pre_signup_email="m@x.com")
             space = SpaceFactory(space_id="S-001")
-            today = timezone.now().date()
+            today = timezone.localdate()
 
             ongoing = LeaseFactory(
                 tenant_obj=member,

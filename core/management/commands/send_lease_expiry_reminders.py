@@ -29,7 +29,7 @@ class Command(BaseCommand):
     help = "Dispatch 'lease expiring' notifications for leases ending in 30 days."
 
     def handle(self, *args: Any, **options: Any) -> None:
-        target = timezone.now().date() + timedelta(days=30)
+        target = timezone.localdate() + timedelta(days=30)
         leases = Lease.objects.filter(end_date=target)
         sent = 0
         for lease in leases:
