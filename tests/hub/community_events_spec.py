@@ -838,7 +838,10 @@ def describe_header_cta():
         _set_policy(SiteConfiguration.MemberEventPolicy.DISABLED)
         client.login(username="hc_host", password="pass")
         resp = client.get(reverse("hub_community_calendar"))
-        assert f'href="{reverse("classes:teach_overview")}" class="hub-btn hub-btn--primary">Host a Class<'.encode() in resp.content
+        assert (
+            f'href="{reverse("classes:teach_overview")}" class="hub-btn hub-btn--primary">Host a Class<'.encode()
+            in resp.content
+        )
 
     def it_renders_the_cta_exactly_once(client: Client):
         # A member with an in-flight proposal also renders an edit link at
