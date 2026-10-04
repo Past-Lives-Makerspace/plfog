@@ -1,0 +1,7 @@
+bump = "patch"
+date = "2026-10-04"
+title = "Instructors get their class emails by default"
+changes = [
+  "New instructors now get an email when their class is approved, when a reviewer asks for changes, and when someone signs up, without having to switch anything on.",
+  "Anyone who already turned one of these off keeps their choice.",
+]
