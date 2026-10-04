@@ -2,7 +2,8 @@
 
 The UTC date runs a day ahead from 5 PM Pacific (4 PM in winter), so reading "today" off
 ``timezone.now().date()`` dropped tonight's events from Home's Upcoming list, ended a space
-agreement on the evening before its last day, and aimed the 30 day reminder a day late. The
+agreement on the evening before its last day, and sent the 30 day reminder a day early, on
+the evening before. The
 clock is frozen at 17:30 Pacific on day D, when the UTC date is already D + 1, the repo's
 way: by patching ``django.utils.timezone.now``.
 """
