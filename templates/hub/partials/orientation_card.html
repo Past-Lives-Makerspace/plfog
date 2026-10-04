@@ -4,8 +4,8 @@ come from the Reservations card (.hub-card.pl-equip-card); the .pl-orient-card__
 the owner line, the meta line, the member's state and the next times. Context:
   sec      — a section from hub.orientations_views.hub_orientations: the shared builder's
              type / is_oriented / record / booking / hold / slots (up to three), plus
-             blocks (up to three open windows), more_times, paused_message, custom_form,
-             image and image_position
+             blocks (up to three open windows), more_times, all_full (every posted time is
+             taken), paused_message, custom_form, image and image_position
   next_url — this page's own path, posted as ``next`` by every control so the member
              lands back here
 Exactly one state renders: completed, the hold or booking (shared partial), paused, or open.
@@ -32,7 +32,7 @@ No stretched name link: the Book buttons are the tap targets.
       <a href="{% url 'hub_guild_detail' sec.type.guild.slug %}" class="hub-badge pl-equip-card__guild">{{ sec.type.guild.name }}</a>
       {% endif %}
     </div>
-    <h3 class="pl-orient-card__name">{{ sec.type.name }}</h3>
+    <h2 class="pl-orient-card__name">{{ sec.type.name }}</h2>
     <div class="pl-orient-card__meta">
       <span>{{ sec.type.duration_minutes }} min</span>
       {% if sec.type.is_paid %}<span class="pl-price-chip">{{ sec.type.price_cents|cents_as_price }}</span>{% else %}<span>Free</span>{% endif %}
@@ -84,7 +84,13 @@ No stretched name link: the Book buttons are the tap targets.
     {% endif %}
     {% if sec.more_times %}<a href="{{ sec.type.orientation_anchor_path }}" class="pl-orient-card__more">More times</a>{% endif %}
     {% else %}
+    {% if sec.all_full %}
+    {# Times are posted but all taken: the owner page lists them as Full. #}
+    <p class="pl-orient-card__note">Every posted time is full.</p>
+    <a href="{{ sec.type.orientation_anchor_path }}" class="pl-orient-card__more">More times</a>
+    {% else %}
     <p class="pl-orient-card__note">No times are posted yet.</p>
+    {% endif %}
     {% if sec.custom_form %}
     <div x-data="{ showCustom: false }">
       <div class="pl-orient-card__actions" x-show="!showCustom">

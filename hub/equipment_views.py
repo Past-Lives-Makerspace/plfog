@@ -332,7 +332,8 @@ def _attach_running_orientations(equipment_list: Sequence[Equipment], *, now: da
 def hub_equipment_index(request: HttpRequest) -> HttpResponse:
     """The Equipment directory — card grid with guild/kind/search filters and access badges."""
     member = _get_member(request)
-    base = _equipment_queryset().active()
+    # The locked cards' Book the orientation links read whether the Orientations page lists the type.
+    base = _equipment_queryset().active().with_required_orientation_listed()
     guild_filter = request.GET.get("guild", "")
     kind_filter = request.GET.get("kind", "")
     query = request.GET.get("q", "").strip()
@@ -451,23 +452,13 @@ def _equipment_orientation_sections(equipment: Equipment, member: Member | None)
     state block only; ``bookable()`` already keeps inactive types slot-free).
     """
     from hub.views import _orientation_sections
-    from membership.models import OrientationBooking, OrientationSlot
+    from membership.models import OrientationSlot
 
-    types = list(equipment.owned_orientation_types.active())
-    if member is not None:
-        live_statuses = [
-            OrientationBooking.Status.REQUESTED,
-            OrientationBooking.Status.CONFIRMED,
-            OrientationBooking.Status.PENDING_PAYMENT,
-        ]
-        pinned = member.orientation_bookings.filter(
-            orientation_type__equipment=equipment, status__in=live_statuses
-        ).select_related("orientation_type")
-        known = {t.pk for t in types}
-        for booking in pinned:
-            if booking.orientation_type_id not in known:
-                types.append(booking.orientation_type)
-                known.add(booking.orientation_type_id)
+    # Active types first in the owner's order, then any retired one the member is holding
+    # (the same pinning rule as the Orientations page, OrientationTypeQuerySet.held_condition).
+    types = list(
+        equipment.owned_orientation_types.active_or_held_by(member).order_by("-is_active", "sort_order", "name")
+    )
     if not types:
         return []
     slots = (

@@ -636,3 +636,89 @@ def describe_coming_back_to_the_page():
         assert f'<input type="hidden" name="next" value="{PAGE}">'.encode() in local
         foreign = client.get(url, {"next": "https://evil.example/"}).content
         assert b'name="next"' not in foreign
+
+
+def describe_a_card_whose_times_are_all_full():
+    def _all_full(guild: object) -> OrientationType:
+        orientation_type = OrientationTypeFactory(guild=guild, name="Packed")
+        full = OrientationSlotFactory(guild=guild, orientation_type=orientation_type, seats=1)
+        OrientationBookingFactory(slot=full, member=MemberFactory())
+        return orientation_type
+
+    def it_says_so_links_the_owner_page_and_keeps_custom_requests(client: Client):
+        _login(client, "op_full_custom")
+        guild = _guild("Packed Custom Guild", allow_custom_requests=True)
+        orientation_type = _all_full(guild)
+        card = _card_html(client.get(PAGE).content, orientation_type.pk)
+        assert "Every posted time is full." in card
+        assert "No times are posted yet." not in card
+        more = orientation_type.orientation_anchor_path().replace("&", "&amp;")
+        assert f'href="{more}" class="pl-orient-card__more"' in card
+        assert reverse("hub_guild_orientation_request_custom", args=[guild.pk]) in card
+
+    def it_says_so_and_links_the_owner_page_without_custom_requests(client: Client):
+        _login(client, "op_full_plain")
+        guild = _guild("Packed Plain Guild", allow_custom_requests=False)
+        orientation_type = _all_full(guild)
+        card = _card_html(client.get(PAGE).content, orientation_type.pk)
+        assert "Every posted time is full." in card
+        more = orientation_type.orientation_anchor_path().replace("&", "&amp;")
+        assert f'href="{more}" class="pl-orient-card__more"' in card
+        assert "showCustom" not in card
+
+    def it_does_not_claim_full_when_an_open_time_remains(client: Client):
+        _login(client, "op_full_partly")
+        guild = _guild("Partly Full Guild")
+        orientation_type = _all_full(guild)
+        open_slot = OrientationSlotFactory(guild=guild, orientation_type=orientation_type)
+        card = _card_html(client.get(PAGE).content, orientation_type.pk)
+        assert f"book-slot-{open_slot.pk}" in card
+        assert "Every posted time is full." not in card
+
+
+def describe_the_manage_action():
+    def it_links_the_dashboard_for_a_guild_lead(client: Client):
+        user = _login(client, "op_manage_lead")
+        GuildFactory(name="Managed Guild", guild_lead=user.member)
+        content = client.get(PAGE).content.decode()
+        assert (
+            f'<a href="{reverse("hub_orientations_dashboard")}" class="hub-btn hub-btn--sm">Manage orientations</a>'
+            in content
+        )
+
+    def it_is_absent_for_a_plain_member(client: Client):
+        _login(client, "op_manage_member")
+        assert b">Manage orientations</a>" not in client.get(PAGE).content
+
+
+def describe_orienter_names_on_a_card():
+    def it_adds_a_last_initial_when_two_of_a_guilds_leadership_share_a_first_name(client: Client):
+        _login(client, "op_names")
+        guild = _guild("Names Guild")
+        bob_p = MemberFactory(preferred_name="Bob Placeholder")
+        bob_q = MemberFactory(preferred_name="Bob Quill")
+        guild.guild_lead = bob_p
+        guild.save()
+        GuildStaffMembershipFactory(guild=guild, member=bob_q)
+        orientation_type = OrientationTypeFactory(guild=guild, name="Named")
+        OrientationSlotFactory(guild=guild, orientation_type=orientation_type, orienter=bob_p)
+        OrientationSlotFactory(guild=guild, orientation_type=orientation_type, orienter=bob_q)
+        card = _card_html(client.get(PAGE).content, orientation_type.pk)
+        assert "<small>with Bob P.</small>" in card
+        assert "<small>with Bob Q.</small>" in card
+
+    def it_keeps_the_plain_first_name_when_it_is_unique(client: Client):
+        _login(client, "op_names_unique")
+        guild = _guild("Unique Names Guild")
+        amber = MemberFactory(preferred_name="Amber Lane")
+        GuildStaffMembershipFactory(guild=guild, member=amber)
+        orientation_type = OrientationTypeFactory(guild=guild, name="Unique")
+        OrientationSlotFactory(guild=guild, orientation_type=orientation_type, orienter=amber)
+        assert "<small>with Amber</small>" in _card_html(client.get(PAGE).content, orientation_type.pk)
+
+    def it_heads_each_card_with_an_h2(client: Client):
+        _login(client, "op_h2")
+        orientation_type = OrientationTypeFactory(guild=_guild("Heading Guild"), name="Heading Type")
+        assert '<h2 class="pl-orient-card__name">Heading Type</h2>' in _card_html(
+            client.get(PAGE).content, orientation_type.pk
+        )
