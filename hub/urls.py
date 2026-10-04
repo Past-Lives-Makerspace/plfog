@@ -207,6 +207,11 @@ urlpatterns = [
     # The member Orientations page (#502); the staff dashboard lives under manage/.
     path("orientations/", orientations_views.hub_orientations, name="hub_orientations"),
     path(
+        "orientations/calendar/events/",
+        orientations_views.hub_orientations_calendar_events,
+        name="hub_orientations_calendar_events",
+    ),
+    path(
         "orientations/types/<int:pk>/photo/delete/",
         orientations_views.hub_orientation_type_photo_delete,
         name="hub_orientation_type_photo_delete",
@@ -355,6 +360,11 @@ urlpatterns = [
     # Equipment directory (equipment-reservations spec §6 — PR 1). /add/ must stay above <slug>/.
     path("equipment/", equipment_views.hub_equipment_index, name="hub_equipment_index"),
     path("equipment/add/", equipment_views.hub_equipment_add, name="hub_equipment_add"),
+    path(
+        "equipment/calendar/events/",
+        equipment_views.hub_equipment_calendar_events,
+        name="hub_equipment_calendar_events",
+    ),
     path("equipment/<slug:slug>/", equipment_views.hub_equipment_detail, name="hub_equipment_detail"),
     path("equipment/<slug:slug>/manage/", equipment_views.hub_equipment_manage, name="hub_equipment_manage"),
     path(

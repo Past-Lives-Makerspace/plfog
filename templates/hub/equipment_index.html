@@ -1,5 +1,10 @@
 {% extends "hub/base.html" %}
+{% load static %}
 {% block title %}Reservations{% endblock %}
+
+{% block extra_head %}
+<link rel="stylesheet" href="{% static 'css/calendar.css' %}">
+{% endblock %}
 
 {% block content %}
 {% if can_create %}
@@ -9,6 +14,14 @@
 {% include "components/page_header.html" with title="Reservations" description="Book a room, a space, or a tool you are trained on." %}
 {% endif %}
 
+{# The List / Calendar pair (#502): plListCalendar in static/js/list_calendar.js; the calendar is built only when it opens. #}
+<div x-data="plListCalendar('{{ pane }}')">
+<nav class="pl-tabs" role="tablist" aria-label="Reservations views">
+  <button type="button" role="tab" class="vote-tab" :class="{ 'vote-tab--active': pane === 'list' }" :aria-selected="pane === 'list' ? 'true' : 'false'" @click="setPane('list')">List</button>
+  <button type="button" role="tab" class="vote-tab" :class="{ 'vote-tab--active': pane === 'calendar' }" :aria-selected="pane === 'calendar' ? 'true' : 'false'" @click="setPane('calendar')">Calendar</button>
+</nav>
+
+<div x-ref="listPane" x-show="pane === 'list'" {% if pane != "list" %}x-cloak{% endif %}>
 {% if has_any_equipment %}
 <div class="pl-equip-filters">
   <div class="pl-equip-chips">
@@ -52,4 +65,16 @@
   <p class="hub-text-muted" style="margin:0;">Nothing is bookable yet. Check back soon.</p>
 </div>
 {% endif %}
+</div>
+
+<div x-show="pane === 'calendar'" {% if pane != "calendar" %}x-cloak{% endif %}>
+  {% if calendar %}
+  {% include "hub/partials/guild_calendar_app.html" with cal=calendar cal_key=calendar_key %}
+  {% else %}
+  <div x-ref="calendarLazy" data-calendar-src="{% url 'hub_equipment_calendar_events' %}?shell=1">
+    <p class="hub-text-muted">Loading the calendar…</p>
+  </div>
+  {% endif %}
+</div>
+</div>
 {% endblock %}

@@ -112,6 +112,20 @@ def describe_overlapping():
         assert not EquipmentReservation.objects.overlapping(other, _at(day, 10), _at(day, 12)).exists()
 
 
+def describe_is_within_horizon():
+    def it_takes_today_through_the_last_bookable_day():
+        equipment = EquipmentFactory(max_advance_days=7)
+        today = timezone.localdate()
+        assert equipment.is_within_horizon(today)
+        assert equipment.is_within_horizon(today + timedelta(days=7))
+
+    def it_refuses_yesterday_and_the_day_past_the_horizon():
+        equipment = EquipmentFactory(max_advance_days=7)
+        today = timezone.localdate()
+        assert not equipment.is_within_horizon(today - timedelta(days=1))
+        assert not equipment.is_within_horizon(today + timedelta(days=8))
+
+
 def describe_free_starts_for_day():
     def it_offers_half_hour_starts_that_fit_the_minimum():
         equipment = _open_tool(start=time(9, 0), end=time(11, 0))

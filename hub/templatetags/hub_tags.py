@@ -187,3 +187,15 @@ def required_fields(form: Any) -> str:
         for name, field in form.fields.items()
         if field.required and getattr(field.widget, "input_type", None) != "hidden"
     )
+
+
+@register.filter
+def calendar_day(event: Any) -> Any:
+    """The local date a calendar grid draws ``event`` on, so the list beside it names the same day.
+
+    ``{{ event|calendar_day|date:"D, M j" }}``. See :func:`hub.calendar_entries.calendar_day`:
+    an all-day row stored at UTC midnight keeps the date it names instead of the evening before.
+    """
+    from hub.calendar_entries import calendar_day as day_of
+
+    return day_of(event)

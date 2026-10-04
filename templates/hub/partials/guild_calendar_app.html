@@ -1,19 +1,24 @@
-{% load static %}
+{% load static %}{% firstof cal_key guild.pk as cal_salt %}
 {% comment %}
 Guild calendar — reuses the community calendar grid/list (calendar_content.html),
 scoped to one guild and fed its CMS classes + orientation slots.
 Context: `cal` = the calendar context dict; `guild` = the Guild.
+The Orientations and Reservations calendars (#502) reuse this shell with no guild: they pass
+`cal_key` (the salt for the localStorage keys, read into cal_salt on the first line; the guild
+page leaves it unset, so its keys stay salted with guild.pk) and `cal.legend`, a list of
+{key, label, color, logo_prefix} rendered as the filter buttons in place of the guild legend,
+even when it is empty.
 {% endcomment %}
 <link rel="stylesheet" href="{% static 'css/calendar.css' %}">
 <div
     x-data="{
         calView: localStorage.getItem('guildCalView') || 'week',
-        disabledFilters: JSON.parse(localStorage.getItem('guildCalFiltersOff-{{ guild.pk }}') || '[]'),
+        disabledFilters: JSON.parse(localStorage.getItem('guildCalFiltersOff-{{ cal_salt }}') || '[]'),
         init() {
             // Same inversion as the Community Calendar: persist the *disabled* list so
             // every legend key — including ones added after a member's first visit —
             // defaults ON without per-addition rollout hacks. Drop the legacy keys once.
-            ['guildCalFilters-{{ guild.pk }}', 'guildCalCommunityRollout-{{ guild.pk }}', 'guildCalClassesRollout-{{ guild.pk }}'].forEach(k => localStorage.removeItem(k));
+            ['guildCalFilters-{{ cal_salt }}', 'guildCalCommunityRollout-{{ cal_salt }}', 'guildCalClassesRollout-{{ cal_salt }}'].forEach(k => localStorage.removeItem(k));
         },
         setView(v) { this.calView = v; localStorage.setItem('guildCalView', v); },
         toggleFilter(key) {
@@ -22,7 +27,7 @@ Context: `cal` = the calendar context dict; `guild` = the Guild.
             } else {
                 this.disabledFilters.push(key);
             }
-            localStorage.setItem('guildCalFiltersOff-{{ guild.pk }}', JSON.stringify(this.disabledFilters));
+            localStorage.setItem('guildCalFiltersOff-{{ cal_salt }}', JSON.stringify(this.disabledFilters));
         },
         isActive(key) { return !this.disabledFilters.includes(key); },
         flashTarget(pk) {
@@ -73,7 +78,17 @@ Context: `cal` = the calendar context dict; `guild` = the Guild.
         One toggle per guild that owns colored content here (classes + any iCal events),
         even a guild with no calendar_url — its classes key by str(pk), so gating this on
         calendar_url would leave those classes shown with no toggle to control them.
-        {% endcomment %}
+        A page legend (cal.legend) replaces all of them; its tags share lines with the guild
+        markup so the guild page renders byte for byte as before.
+        {% endcomment %}{% if cal.legend is not None %}{% for item in cal.legend %}
+        <button class="pl-calendar-filter" :class="{ 'pl-calendar-filter--active': isActive('{{ item.key }}') }" @click="toggleFilter('{{ item.key }}')" style="--filter-color: {{ item.color }};">
+            {% if item.logo_prefix %}
+            <img src="{% static 'img/guild_logos/'|add:item.logo_prefix|add:'_color.svg' %}" width="14" height="14" alt="" style="margin-right:0.25rem;">
+            {% else %}
+            <span class="pl-calendar-filter__dot" style="background: {{ item.color }};"></span>
+            {% endif %}
+            {{ item.label }}
+        </button>{% endfor %}{% else %}
         {% for g in cal.legend_guilds %}
         <button class="pl-calendar-filter" :class="{ 'pl-calendar-filter--active': isActive('{{ g.pk }}') }" @click="toggleFilter('{{ g.pk }}')" style="--filter-color: {{ g.calendar_color }};">
             {% if g.logo_prefix %}
@@ -97,13 +112,13 @@ Context: `cal` = the calendar context dict; `guild` = the Guild.
         <button class="pl-calendar-filter" :class="{ 'pl-calendar-filter--active': isActive('community') }" @click="toggleFilter('community')" style="--filter-color: {{ cal.community_color|default:'#3d8bd4' }};">
             <span class="pl-calendar-filter__dot" style="background: {{ cal.community_color|default:'#3d8bd4' }};"></span>
             Events
-        </button>
+        </button>{% endif %}
     </div>
 
     <div style="position:relative;">
         <div id="pl-calendar-loading" class="pl-calendar-loading-bar htmx-indicator"></div>
         <div id="pl-calendar-events-area">
-            {% include "hub/partials/calendar_content.html" with week_days=cal.week_days month_days=cal.month_days week_events=cal.week_events month_events=cal.month_events month_headers=cal.month_headers source_colors=cal.source_colors week_label=cal.week_label month_label=cal.month_label week_offset=cal.week_offset month_offset=cal.month_offset event_page=cal.event_page event_total_pages=cal.event_total_pages month_event_pages_json=cal.month_event_pages_json events_url=cal.events_url %}
+            {% include "hub/partials/calendar_content.html" with week_days=cal.week_days month_days=cal.month_days week_events=cal.week_events month_events=cal.month_events month_headers=cal.month_headers source_colors=cal.source_colors week_label=cal.week_label month_label=cal.month_label week_offset=cal.week_offset month_offset=cal.month_offset event_page=cal.event_page event_total_pages=cal.event_total_pages month_event_pages_json=cal.month_event_pages_json events_url=cal.events_url entries_calendar=cal.entries_calendar %}
         </div>
     </div>
 </div>

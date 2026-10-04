@@ -22,16 +22,16 @@ Params:
     {% if event.is_in_progress %}<span class="pl-calendar-list__live-pill"><span class="pl-calendar-list__live-dot"></span>Live now</span>{% endif %}
     <div class="pl-calendar-list__time">
         {% if event.all_day %}
-        <span class="pl-calendar-list__time-day">{{ event.start_dt|date:"D, M j" }}</span>
+        <span class="pl-calendar-list__time-day">{{ event|calendar_day|date:"D, M j" }}</span>
         <span class="pl-calendar-list__time-hour">All day</span>
         {% else %}
-        <span class="pl-calendar-list__time-day">{{ event.start_dt|date:"D, M j" }}</span>
-        <span class="pl-calendar-list__time-hour">{{ event.start_dt|date:"g:i A" }}{% if event.source == "orientation" or event.source == "community" %} – {{ event.end_dt|date:"g:i A" }}{% endif %}</span>
+        <span class="pl-calendar-list__time-day">{{ event|calendar_day|date:"D, M j" }}</span>
+        <span class="pl-calendar-list__time-hour">{{ event.start_dt|date:"g:i A" }}{% if event.source == "orientation" or event.source == "community" or event.source == "reservation" %} – {{ event.end_dt|date:"g:i A" }}{% endif %}</span>
         {% endif %}
     </div>
     <div class="pl-calendar-list__body">
         {% if event.url %}
-            {% if event.source == "community" %}
+            {% if event.source == "community" or event.source == "orientation" or event.source == "reservation" %}
             <a href="{{ event.url }}" class="pl-calendar-list__title pl-calendar-list__title--link">{{ event.title|strip_date_suffix }}</a>
             {% else %}
             <a href="{{ event.url }}" class="pl-calendar-list__title pl-calendar-list__title--link" target="_blank" rel="noopener noreferrer">{{ event.title|strip_date_suffix }}</a>
@@ -64,6 +64,8 @@ Params:
             <span>{% if event.guild %}{{ event.guild.name }}{% else %}Classes{% endif %}</span>
             {% if event.url %}<a href="{{ event.url }}" class="pl-calendar-list__register" target="_blank" rel="noopener noreferrer" style="margin-left:auto;">More Info →</a>{% endif %}
         </div>
+        {% elif event.owner_label %}
+        <div class="pl-calendar-list__guild" style="color: {{ source_colors|get_item:src|default:'#888888' }};">{{ event.owner_label }}</div>
         {% elif event.guild %}
         <div class="pl-calendar-list__guild" style="color: {{ source_colors|get_item:src|default:'#888888' }}; display:flex; align-items:center; gap:0.35rem;">
             {% if event.guild.logo_prefix %}
