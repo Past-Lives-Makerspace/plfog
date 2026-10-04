@@ -48,6 +48,7 @@ from core.html_sanitize import is_editor_html, rich_body_to_text, rich_html_to_t
 from core.images import normalize_field_if_uploaded
 from core.models import HeroCropMixin
 from core.validators import validate_image_content, validate_image_size
+from membership.names import user_name_or_email
 
 if TYPE_CHECKING:
     from django.contrib.auth.models import AbstractBaseUser, AnonymousUser, User
@@ -2897,7 +2898,7 @@ class ClassOffering(HeroCropMixin, models.Model):
         user = row.decided_by
         if user is None:
             return ""
-        return user.get_full_name() or user.email or user.get_username()
+        return user_name_or_email(user)
 
     def _pipeline_detail(self, row: "ClassApproval") -> str:
         """Tooltip text for a decided row: "Approved by Sam, Sep 3" / "Waiting since Sep 1"."""

@@ -17,6 +17,7 @@ from classes.emails import (
 )
 from classes.factories import CategoryFactory, ClassOfferingFactory, InstructorFactory, UserFactory
 from classes.models import ClassApproval, ClassOffering
+from membership.models import Member
 from tests.membership.factories import GuildFactory, MemberFactory
 
 Status = ClassOffering.Status
@@ -104,6 +105,21 @@ def describe_review_pipeline():
         assert pipeline.headline == "Waiting on an admin"
         assert pipeline.steps[1].detail.startswith("Approved by Sam Reed, ")
         assert pipeline.fill_percent == 67
+
+    def it_names_a_decider_by_their_member_when_the_account_has_no_name(db):
+        decider = UserFactory(username="dana@example.com", email="dana@example.com", first_name="", last_name="")
+        Member.objects.filter(user=decider).update(full_legal_name="Dana Weaver", preferred_name="")
+        decider.refresh_from_db()
+        offering = ClassOfferingFactory(status=Status.PENDING, category=_guilded_category())
+        ClassApproval.objects.create(
+            class_offering=offering,
+            role=ClassApproval.Role.GUILD_LEAD,
+            decision=ClassApproval.Decision.APPROVED,
+            decided_by=decider,
+            decided_at=timezone.now(),
+        )
+        ClassApproval.objects.create(class_offering=offering, role=ClassApproval.Role.ADMIN)
+        assert offering.review_pipeline().steps[1].detail.startswith("Approved by Dana Weaver, ")
 
     def it_marks_the_admin_current_on_a_pending_class_with_no_rows(db):
         offering = ClassOfferingFactory(status=Status.PENDING)

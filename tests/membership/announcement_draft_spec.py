@@ -599,7 +599,7 @@ def describe_AnnouncementDraft():
 
             def it_leaves_typed_addresses_off_the_sent_record_while_email_is_off():
                 former = _former("former")
-                User.objects.filter(pk=former.user_id).update(first_name="Fern", last_name="Former")
+                Member.objects.filter(pk=former.pk).update(full_legal_name="Fern Former", preferred_name="")
                 draft = AnnouncementDraft(
                     send_email=False, added_recipients={"users": [former.user_id], "custom": ["guest@example.com"]}
                 )
@@ -614,7 +614,7 @@ def describe_AnnouncementDraft():
 
             def it_lists_who_was_added_for_the_sent_record():
                 former = _former("former")
-                User.objects.filter(pk=former.user_id).update(first_name="Fern", last_name="Former")
+                Member.objects.filter(pk=former.pk).update(full_legal_name="Fern Former", preferred_name="")
                 draft = AnnouncementDraft(added_recipients={"users": [former.user_id], "custom": ["guest@example.com"]})
                 assert draft.added_labels == ["Fern Former", "guest@example.com"]
 

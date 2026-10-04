@@ -1,0 +1,8 @@
+bump = "patch"
+date = "2026-10-04"
+title = "Announcement recipients show names again"
+changes = [
+  "The Add a member list and a guild announcement's recipient checklist show each person's name and email once, sorted by name, instead of their email twice.",
+  "People you added to an announcement draft are still there when you reopen it.",
+  "A sent announcement names its sender and the people added by their member name. The From line of its email names the sender the same way.",
+]

@@ -27,7 +27,15 @@ Params:
       <span class="pl-recipient-checklist__label">{{ checkbox.choice_label }}</span>
     </label>
     {% endfor %}
-    <div id="compose-added-recipients"></div>
+    <div id="compose-added-recipients">
+      {# Members already added from Add a member (a resumed draft), checked so the next save keeps them. #}
+      {% for value, label in form.added_member_rows %}
+      <label class="pl-recipient-checklist__row">
+        <input type="checkbox" name="recipients" value="{{ value }}" class="pl-recipient-checklist__box" checked>
+        <span class="pl-recipient-checklist__label">{{ label }}</span>
+      </label>
+      {% endfor %}
+    </div>
   </div>
   <div class="pl-form-group pl-recipient-add">
     <label class="pl-form-label" for="compose-add-member">Add anyone</label>
