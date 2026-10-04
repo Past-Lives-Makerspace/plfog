@@ -1,0 +1,6 @@
+bump = "patch"
+date = "2026-10-04"
+title = "Voting is now Guild Voting"
+changes = [
+  "The sidebar entry for voting now reads Guild Voting, so it says what the vote is for.",
+]

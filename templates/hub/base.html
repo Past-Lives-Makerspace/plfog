@@ -218,7 +218,7 @@
             {# The admin destination. The member block below points the same switch at hub_guild_voting. #}
             {% active_nav 'hub_admin_voting_overview' as voting_active %}
             {% url 'hub_admin_voting_overview' as voting_url %}
-            {% include "hub/partials/_sidebar_feature_link.html" with feature=features.voting url=voting_url label="Voting" icon="hub/partials/nav_icons/_voting.html" active=voting_active %}
+            {% include "hub/partials/_sidebar_feature_link.html" with feature=features.voting url=voting_url label="Guild Voting" icon="hub/partials/nav_icons/_voting.html" active=voting_active %}
 
             <hr class="hub-sidebar__divider" />
 

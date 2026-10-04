@@ -133,8 +133,8 @@ FEATURES: list[Feature] = [
     ),
     Feature(
         key="voting",
-        name="Voting",
-        off_description="Takes Voting out of the sidebar and off the home page.",
+        name="Guild Voting",
+        off_description="Takes Guild Voting out of the sidebar and off the home page.",
     ),
     Feature(
         key="wiki",
