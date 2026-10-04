@@ -34,6 +34,7 @@ from core.events.scheduling import next_tick
 from core.models import CalendarFeed, FeatureSwitch, ScheduledJobState, SiteConfiguration
 from core.widgets import PageContentEditorWidget, RichBodyEditorWidget, RichTextEditorWidget
 from membership.markdown import sanitize_page_submission, sanitize_wiki_submission
+from membership.names import user_display_name, user_label, user_name_or_email
 from membership.models import (
     AdminCapability,
     CommunityEvent,
@@ -849,12 +850,9 @@ class BetaFeedbackForm(forms.Form):
         photos: list[UploadedFile] = self.cleaned_data["photos"]
         # The count line makes a stripped-attachment situation visible to the reader.
         photos_line = f"Photos attached: {len(photos)}\n" if photos else ""
-        body = (
-            f"From: {user.get_full_name() or user.email} ({user.email})\n"
-            f"Category: {category_label}\n"
-            f"{photos_line}\n"
-            f"{self.cleaned_data['message']}"
-        )
+        sender_name = user_display_name(user)
+        sender = f"{sender_name} ({user.email})" if sender_name else user.email
+        body = f"From: {sender}\nCategory: {category_label}\n{photos_line}\n{self.cleaned_data['message']}"
         attachments: list[Attachment] = []
         for photo in photos:
             photo.seek(0)  # ImageField's Pillow verification may leave the pointer mid-file.
@@ -4189,8 +4187,17 @@ def discord_channel_choices(audience: str) -> list[tuple[str, str]]:
 
 
 def _member_choice(user: Any) -> tuple[str, str]:
-    """One ``("user:<pk>", "<name> · <email>")`` recipient checkbox row for ``user``."""
-    return (f"user:{user.pk}", f"{(user.get_full_name() or user.get_username()).strip()} · {user.email}")
+    """One ``("user:<pk>", "<name> · <email>")`` recipient checkbox row for ``user``.
+
+    Named by the member display name (most login accounts carry no name of their own), or the
+    email alone when there is no name (#617). Load ``user.member`` with the query.
+    """
+    return (f"user:{user.pk}", user_label(user))
+
+
+def _by_label(choices: list[tuple[str, str]]) -> list[tuple[str, str]]:
+    """``choices`` ordered by their label, case-insensitively: by display name, else by email."""
+    return sorted(choices, key=lambda choice: (choice[1].casefold(), choice[0]))
 
 
 def announcement_recipient_choices(
@@ -4212,7 +4219,7 @@ def announcement_recipient_choices(
     if audience == AnnouncementDraft.Audience.GUILD.value and guild is not None:
         recipients = guild.announcement_recipients()
         member_emails = {(user.email or "").strip().lower() for user, _reason in recipients}
-        choices = [_member_choice(user) for user, _reason in recipients]
+        choices = _by_label([_member_choice(user) for user, _reason in recipients])
         choices += [(f"custom:{addr}", addr) for addr in guild.mailing_list_emails_deduped(member_emails)]
         return choices
     if audience == AnnouncementDraft.Audience.CLASS.value and offering is not None:
@@ -4251,9 +4258,9 @@ def announcement_add_member_choices() -> list[tuple[str, str]]:
     members = (
         User.objects.filter(is_active=True, member__isnull=False)
         .exclude(member__hide_from_directory=True)
-        .order_by("first_name", "last_name", "username")
+        .select_related("member")
     )
-    return [_member_choice(user) for user in members]
+    return _by_label([_member_choice(user) for user in members])
 
 
 _SITE_ADD_SEPARATORS = re.compile(r"[\s,;]+")
@@ -4278,19 +4285,18 @@ def site_addable_member_choices() -> list[tuple[str, str]]:
         .exclude(member__status=Member.Status.ACTIVE)
         .exclude(email="")
         .select_related("member")
-        .order_by("first_name", "last_name", "username")
     )
     choices = []
     for user in users:
         value, label = _member_choice(user)
         choices.append((value, f"{label} ({user.member.get_status_display()})"))
-    return choices
+    return _by_label(choices)
 
 
 def _site_account_row(user: Any, *, include_never_logged_in: bool) -> tuple[str, str, bool] | str:
     """One member account added to a site announcement: its ``(value, label, False)`` row, or why not."""
     if not (user.email or "").strip():
-        return f"{(user.get_full_name() or user.get_username()).strip()} has no email address."
+        return f"{user_name_or_email(user)} has no email address."
     if user.member.status == Member.Status.ACTIVE:
         if user.last_login is None and not include_never_logged_in:
             return (
@@ -4545,11 +4551,13 @@ class AnnouncementComposeForm(forms.Form):
             self.current_audience, self.current_guild, self.current_class, include_waitlist=self.waitlist_included
         )
         self.add_member_choices = announcement_add_member_choices()
+        self._addable_users = {value for value, _label in self.add_member_choices}
         recipient_field = cast(_RecipientChoiceField, self.fields["recipients"])
         recipient_field.choices = self.recipient_choices
         if not self.is_bound and "recipients" not in self.initial:
             recipient_field.initial = [value for value, _label in self.recipient_choices]
         recipient_field.widget.attrs.setdefault("class", "pl-recipient-checklist__box")
+        self.added_member_rows = self._added_member_rows()
 
         # A site announcement's added people (admins only, as the site audience is): the "Add a
         # member" list, and the rows already added, vetted as the add endpoint vets them.
@@ -4611,6 +4619,38 @@ class AnnouncementComposeForm(forms.Form):
         if initial:
             return str(initial)
         return choices[0][0] if choices else ""
+
+    def _addable_off_roster(self, value: str) -> bool:
+        """Whether a ``user:<pk>`` off the roster may be kept: on the "add anyone" list, or already saved."""
+        return value in self._addable_users or value in self._saved_recipient_users
+
+    def _added_member_rows(self) -> list[tuple[str, str]]:
+        """The checked members picked from "Add a member" who are not on the roster, as ``(value, label)``.
+
+        A resumed draft (its saved selection is the initial) or a re-rendered POST shows them
+        again in the added area, so the next save keeps them (#620). Only a member the save
+        would keep is shown: one on the "add anyone" list or already saved on the draft.
+        """
+        from django.contrib.auth.models import User
+
+        if self.is_bound:
+            field = self.fields["recipients"]
+            selected = field.widget.value_from_datadict(self.data, self.files, self.add_prefix("recipients")) or []
+        else:
+            selected = self.initial.get("recipients") or []
+        roster = {value for value, _label in self.recipient_choices}
+        wanted = [
+            value
+            for value in dict.fromkeys(str(value) for value in selected)
+            if value.startswith("user:")
+            and value[5:].isdigit()
+            and value not in roster
+            and self._addable_off_roster(value)
+        ]
+        if not wanted:
+            return []
+        users = User.objects.filter(pk__in=[int(value[5:]) for value in wanted]).select_related("member")
+        return _by_label([_member_choice(user) for user in users])
 
     def _raw_added(self) -> list[str]:
         """The added people's row values (``user:<pk>`` / ``custom:<addr>``): bound data, else initial."""
@@ -4756,10 +4796,10 @@ class AnnouncementComposeForm(forms.Form):
         "custom": [...]}``.
         """
         roster_values = {value for value, _label in self.recipient_choices}
-        addable_users = {value for value, _label in self.add_member_choices}
         submitted = cleaned.get("recipients") or []
-        allowed_users = roster_values | addable_users | self._saved_recipient_users
-        chosen_users = [v for v in submitted if v.startswith("user:") and v in allowed_users]
+        chosen_users = [
+            v for v in submitted if v.startswith("user:") and (v in roster_values or self._addable_off_roster(v))
+        ]
         chosen_custom = [v for v in submitted if v.startswith("custom:") and v in roster_values]
         chosen = chosen_users + chosen_custom
 

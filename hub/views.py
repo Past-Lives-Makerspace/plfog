@@ -4278,7 +4278,7 @@ def _handled_draft(request: HttpRequest, raw_pk: str | int | None) -> Announceme
     resumable = (
         AnnouncementDraft.objects.resumable()
         .filter(pk=int(raw))
-        .select_related("guild", "class_offering", "author", "funding_snapshot")
+        .select_related("guild", "class_offering", "author__member", "funding_snapshot")
     )
     return _announcement_rows(request, _get_member(request), within=resumable).first()
 
@@ -4604,7 +4604,7 @@ def hub_compose(request: HttpRequest, draft_pk: int | None = None) -> HttpRespon
         # unauthorized GET has no business making the server assemble one.
         initial.update(_compose_preselection(request, requested))
 
-    form = AnnouncementComposeForm(initial=initial, **_compose_form_kwargs(request, requested=requested))
+    form = AnnouncementComposeForm(initial=initial, draft=draft, **_compose_form_kwargs(request, requested=requested))
     return _render_compose(
         request,
         form=form,
@@ -5041,7 +5041,9 @@ def announcements_overview(request: HttpRequest) -> HttpResponse:
         messages.error(request, _compose_refusal_message(request))
         return redirect("hub_guild_announcement_propose")
     tab = "sent" if request.GET.get("tab") == "sent" else "drafts"
-    rows = _announcement_rows(request, member).select_related("guild", "class_offering", "author", "funding_snapshot")
+    rows = _announcement_rows(request, member).select_related(
+        "guild", "class_offering", "author__member", "funding_snapshot"
+    )
     drafts = rows.resumable()
     sent = rows.sent_or_sending().annotate(activity_at=Coalesce("sent_at", "send_requested_at"))
     sort_key = "activity_at" if tab == "sent" else "updated_at"

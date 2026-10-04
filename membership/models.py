@@ -55,6 +55,7 @@ from core.validators import (
     validate_wiki_upload,
 )
 from membership.managers import MemberEmailManager
+from membership.names import user_display_name, user_name_or_email
 
 if TYPE_CHECKING:
     from django import forms
@@ -5571,7 +5572,7 @@ class AnnouncementDraft(models.Model):
         a plain draft's last saver, or the sender of a row that went out or is going out.
         """
         if self.author is not None:
-            return self.author.get_full_name() or self.author.get_username()
+            return user_name_or_email(self.author)
         return "Automatic" if self.is_resumable and self.funding_snapshot_id is not None else "Unknown"
 
     @property
@@ -5677,7 +5678,7 @@ class AnnouncementDraft(models.Model):
         for ref, got in channels.items():
             user = users.get(int(ref[5:])) if ref.startswith("user:") and ref[5:].isdigit() else None
             if user is not None:
-                name = (user.get_full_name() or user.get_username()).strip()
+                name = user_display_name(user)
                 address = sent_to.get(user.pk) or user.email or ""
                 member = getattr(user, "member", None)
                 addresses = {
@@ -5874,7 +5875,7 @@ class AnnouncementDraft(models.Model):
         """
         if not self.show_sender or self.author is None:
             return ""
-        return self.author.get_full_name() or self.author.get_username()
+        return user_name_or_email(self.author)
 
     def _trigger_kind(self) -> str:
         """The notification event key for this audience — the one vocabulary shared by copy + prefs."""
@@ -6453,10 +6454,8 @@ class AnnouncementDraft(models.Model):
         from django.contrib.auth.models import User
 
         added = self.added_recipients or {}
-        names = [
-            (user.get_full_name() or user.get_username()).strip()
-            for user in User.objects.filter(pk__in=added.get("users") or []).order_by("first_name", "last_name")
-        ]
+        users = User.objects.filter(pk__in=added.get("users") or []).select_related("member")
+        names = sorted((user_name_or_email(user) for user in users), key=str.casefold)
         return names + ([str(addr) for addr in added.get("custom") or []] if self.send_email else [])
 
     def _selected_recipient_ids(self) -> "set[int] | None":
