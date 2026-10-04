@@ -1,0 +1,8 @@
+bump = "minor"
+date = "2026-10-03"
+title = "Calendar views for Orientations and Reservations"
+changes = [
+  "The Orientations page has a Calendar tab showing every open orientation time by date, with the seats left. Filter it by guild.",
+  "The Reservations page has a Calendar tab showing what is booked on each room, space and tool. Tap an entry to open that item's schedule on that day.",
+  "Calendars now show evening events on the right day. Anything starting after 5 PM used to appear on the next day on guild and community calendars.",
+]
