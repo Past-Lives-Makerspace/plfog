@@ -19,7 +19,9 @@ from factory.django import mute_signals
 
 from core.models import Notification
 from hub.forms import AnnouncementComposeForm, announcement_recipient_choices
+from membership.models import AnnouncementDraft, Member
 from tests.membership.factories import (
+    AnnouncementDraftFactory,
     GuildFactory,
     GuildMailingListEmailFactory,
     GuildMembershipFactory,
@@ -238,6 +240,32 @@ def describe_recipient_checklist_form():
         assert form.is_valid(), form.errors
         assert set(form.cleaned_data["recipient_selection"]["users"]) == {m.user_id, outsider.user_id}
 
+    def it_refuses_a_new_addition_of_a_hidden_member():
+        guild = GuildFactory()
+        m = _guild_member(guild, "m@example.com")
+        hidden = _guild_member(GuildFactory(), "hidden@example.com")
+        Member.objects.filter(pk=hidden.pk).update(hide_from_directory=True)
+        data = _guild_data(guild, send_email="on", recipients=[f"user:{m.user_id}", f"user:{hidden.user_id}"])
+        form = AnnouncementComposeForm(data, is_admin=True, editable_guilds=[guild])
+        assert form.is_valid(), form.errors
+        assert form.cleaned_data["recipient_selection"] == {}  # only the roster is left: everyone
+
+    def it_keeps_a_member_the_draft_already_held_after_they_are_hidden():
+        guild = GuildFactory()
+        m = _guild_member(guild, "m@example.com")
+        _guild_member(guild, "m2@example.com")
+        kept = _guild_member(GuildFactory(), "kept@example.com")
+        draft = AnnouncementDraftFactory(
+            audience=AnnouncementDraft.Audience.GUILD,
+            guild=guild,
+            recipient_selection={"users": [m.user_id, kept.user_id], "custom": []},
+        )
+        Member.objects.filter(pk=kept.pk).update(hide_from_directory=True)
+        data = _guild_data(guild, send_email="on", recipients=[f"user:{m.user_id}", f"user:{kept.user_id}"])
+        form = AnnouncementComposeForm(data, is_admin=True, editable_guilds=[guild], draft=draft)
+        assert form.is_valid(), form.errors
+        assert set(form.cleaned_data["recipient_selection"]["users"]) == {m.user_id, kept.user_id}
+
     def it_treats_deselect_all_as_everyone():
         guild = GuildFactory()
         _guild_member(guild, "m@example.com")
@@ -289,6 +317,27 @@ def describe_recipient_checklist_views():
         assert "b@example.com" not in recipients
         assert Notification.objects.filter(user=a.user, trigger="guild_announcement").exists()
         assert not Notification.objects.filter(user=b.user, trigger="guild_announcement").exists()
+
+    def it_keeps_a_hidden_member_the_draft_held_when_the_draft_is_saved_again(client: Client):
+        guild = GuildFactory()
+        user, _lead = _login_lead(client, guild)
+        a = _guild_member(guild, "a@example.com")
+        _guild_member(guild, "b@example.com")
+        kept = _guild_member(GuildFactory(), "kept@example.com")
+        draft = AnnouncementDraftFactory(
+            author=user,
+            audience=AnnouncementDraft.Audience.GUILD,
+            guild=guild,
+            recipient_selection={"users": [a.user_id, kept.user_id], "custom": []},
+        )
+        Member.objects.filter(pk=kept.pk).update(hide_from_directory=True)
+        data = _guild_data(
+            guild, send_email="on", draft_pk=str(draft.pk), recipients=[f"user:{a.user_id}", f"user:{kept.user_id}"]
+        )
+        response = client.post(reverse("hub_compose_save_draft"), data)
+        assert response.status_code == 200
+        draft.refresh_from_db()
+        assert set(draft.recipient_selection["users"]) == {a.user_id, kept.user_id}
 
     def it_reports_the_sent_count_on_send(client: Client):
         guild = GuildFactory()

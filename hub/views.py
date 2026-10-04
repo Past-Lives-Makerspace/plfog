@@ -4904,6 +4904,7 @@ def hub_compose_save_draft(request: HttpRequest) -> HttpResponse:
     form = AnnouncementComposeForm(
         request.POST,
         results_announcement=_results_compose_lock(instance) is not None,
+        draft=instance,
         **_compose_form_kwargs(request),
     )
     if not form.is_valid():
@@ -4956,6 +4957,7 @@ def hub_compose_send(request: HttpRequest) -> HttpResponse:
         request.POST,
         require_body=True,
         results_announcement=results_lock is not None,
+        draft=instance,
         **_compose_form_kwargs(request),
     )
     if not form.is_valid():

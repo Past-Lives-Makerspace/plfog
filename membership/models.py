@@ -8193,9 +8193,11 @@ class CommunityEvent(models.Model):
 
         Empty state names nobody and invites the first RSVP. Names are capped at
         :data:`_DISCORD_ATTENDEE_CAP` and the whole value is defensively trimmed under Discord's
-        1024-char field cap. One query with ``select_related('member')``.
+        1024-char field cap. One query with ``select_related('member')``. Members under the
+        ``hide_from_directory`` override are left out of the names and the count (#614), as on
+        the hub event page.
         """
-        rsvps = list(self.rsvps.select_related("member"))
+        rsvps = list(self.rsvps.select_related("member").exclude(member__hide_from_directory=True))
         count = len(rsvps)
         name = f"Attendees ({count})"
         if not rsvps:

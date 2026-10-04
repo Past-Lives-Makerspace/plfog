@@ -25,6 +25,7 @@ if TYPE_CHECKING:
     from django.http import HttpRequest, QueryDict
 
     from classes.models import ClassOffering
+    from membership.models import AnnouncementDraft
 
 from core.html_sanitize import clean_rich_body, clean_rich_html, limit_rich_text
 from core.validators import ALLOWED_WIKI_IMAGE_EXTENSIONS, validate_image_size, validate_wiki_upload
@@ -4499,10 +4500,16 @@ class AnnouncementComposeForm(forms.Form):
         config: SiteConfiguration | None = None,
         require_body: bool = False,
         results_announcement: bool = False,
+        draft: AnnouncementDraft | None = None,
         **kwargs: Any,
     ) -> None:
         super().__init__(*args, **kwargs)
         from membership.models import AnnouncementDraft
+
+        # Members the draft being saved already holds stay valid even when they have left the
+        # "add anyone" list since (#614: a member later hidden is not dropped on the next save).
+        saved_users = (draft.recipient_selection or {}).get("users", []) if draft is not None else []
+        self._saved_recipient_users = {f"user:{pk}" for pk in saved_users}
 
         # ``require_body`` is set by the send path — a blank body is fine while drafting but
         # must be rejected before an announcement actually goes out.
@@ -4741,7 +4748,8 @@ class AnnouncementComposeForm(forms.Form):
         """Turn the submitted recipient checklist (+ any added members) into the stored selection.
 
         Members (``user:<pk>``) may be ANY member — a roster row OR one added via the "add anyone"
-        search — so they validate against the full member list, not just the roster. Custom
+        search — so they validate against the full member list, not just the roster. One the
+        draft already held stays valid even if they have left that list since (#614). Custom
         (``custom:<addr>``) values validate against the guild's mailing-list addresses. An
         unchanged submission (exactly the roster, nothing added or removed) collapses to ``{}`` =
         "everyone in the audience" (the default); anything else stores ``{"users": [...],
@@ -4750,7 +4758,8 @@ class AnnouncementComposeForm(forms.Form):
         roster_values = {value for value, _label in self.recipient_choices}
         addable_users = {value for value, _label in self.add_member_choices}
         submitted = cleaned.get("recipients") or []
-        chosen_users = [v for v in submitted if v.startswith("user:") and v in (roster_values | addable_users)]
+        allowed_users = roster_values | addable_users | self._saved_recipient_users
+        chosen_users = [v for v in submitted if v.startswith("user:") and v in allowed_users]
         chosen_custom = [v for v in submitted if v.startswith("custom:") and v in roster_values]
         chosen = chosen_users + chosen_custom
 

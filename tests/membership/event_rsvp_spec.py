@@ -117,6 +117,18 @@ def describe_attendees_field():
         assert field["name"] == "Attendees (1)"
         assert field["value"] == "Sam K"
 
+    def it_leaves_a_hidden_member_out_of_the_names_and_the_count():
+        event = _future_event()
+        EventRSVPFactory(event=event, member=MemberFactory(full_legal_name="Sam K"))
+        EventRSVPFactory(event=event, member=MemberFactory(full_legal_name="Qwyll Reviewbot", hide_from_directory=True))
+        field = event.attendees_field()
+        assert field == {"name": "Attendees (1)", "value": "Sam K"}
+
+    def it_reads_as_empty_when_only_a_hidden_member_rsvped():
+        event = _future_event()
+        EventRSVPFactory(event=event, member=MemberFactory(hide_from_directory=True))
+        assert event.attendees_field()["name"] == "Attendees (0)"
+
     def it_lists_all_fifteen_without_an_overflow_tail():
         event = _future_event()
         for _ in range(15):
