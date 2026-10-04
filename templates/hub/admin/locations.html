@@ -1,0 +1,52 @@
+{% extends "hub/base.html" %}
+{% load static %}
+
+{% block title %}Locations{% endblock %}
+
+{% block extra_head %}
+<link rel="stylesheet" href="{% static 'css/locations.css' %}">
+{% endblock %}
+
+{% block content %}
+<div class="pl-locations-admin">
+<h1 class="hub-page-title">Locations</h1>
+<p class="hub-text-muted pl-locations-admin__lead">The areas of the building that classes, events, orientations and equipment can be set to. A guild page shows whether each of its areas is free, about to be used, or in use now.</p>
+
+<div class="hub-card pl-locations-admin__card">
+  <h2 class="hub-detail-label">All Locations</h2>
+  {% if locations %}
+  <ul class="pl-locations-admin__list" data-locations-list>
+    {% for location in locations %}
+    <li class="pl-locations-admin__row" data-location-row="{{ location.pk }}">
+      <div class="pl-locations-admin__main">
+        <div class="pl-locations-admin__name">{{ location.name }}</div>
+        <div class="pl-locations-admin__meta">
+          {% if location.guild %}{{ location.guild.name }}{% else %}No guild{% endif %}{% with linked=location.shares_space_with.all %}{% if linked %} · Shares space with {% for other in linked %}{{ other.name }}{% if not forloop.last %}, {% endif %}{% endfor %}{% endif %}{% endwith %}
+        </div>
+        <div class="pl-locations-admin__meta">Set on {{ location.class_total }} class{{ location.class_total|pluralize:"es" }}, {{ location.event_total }} event{{ location.event_total|pluralize }}, {{ location.orientation_total }} orientation{{ location.orientation_total|pluralize }}, {{ location.equipment_total }} equipment</div>
+        {% if location.note %}<div class="pl-locations-admin__meta">{{ location.note }}</div>{% endif %}
+      </div>
+      {% if not location.is_active %}<span class="hub-pill hub-pill--neutral">Inactive</span>{% endif %}
+      <a href="{% url 'hub_admin_location_edit' location.pk %}" class="hub-btn hub-btn--sm">Edit</a>
+    </li>
+    {% endfor %}
+  </ul>
+  {% else %}
+  <p class="hub-text-muted">No locations yet. Add the first one below.</p>
+  {% endif %}
+</div>
+
+<div class="hub-card pl-locations-admin__card">
+  <h2 class="hub-detail-label">Add a Location</h2>
+  <form method="post" class="hub-form" data-location-add>
+    {% csrf_token %}
+    {% for error in form.non_field_errors %}<p class="pl-field-error">{{ error }}</p>{% endfor %}
+    {% include "components/form_field.html" with field=form.name %}
+    {% include "components/form_field.html" with field=form.guild %}
+    {% include "components/form_field.html" with field=form.note %}
+    {% include "hub/admin/_location_shares_field.html" %}
+    <button type="submit" class="hub-btn hub-btn--primary pl-locations-admin__save">Save</button>
+  </form>
+</div>
+</div>
+{% endblock %}

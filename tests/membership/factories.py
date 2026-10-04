@@ -38,6 +38,7 @@ from membership.models import (
     LeadershipRole,
     LeadershipTab,
     Lease,
+    Location,
     MapHotspot,
     Meeting,
     MeetingActionItem,
@@ -178,6 +179,17 @@ class GuildFactory(factory.django.DjangoModelFactory):
         django_get_or_create = ("name",)
 
     name = factory.Sequence(lambda n: f"Guild {n}")
+    is_active = True
+
+
+class LocationFactory(factory.django.DjangoModelFactory):
+    """An active location with no guild by default (#616). Pass ``guild=`` to make it a guild's area."""
+
+    class Meta:
+        model = Location
+
+    name = factory.Sequence(lambda n: f"Location {n}")
+    guild = None
     is_active = True
 
 

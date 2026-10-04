@@ -480,6 +480,7 @@ confirm modal carries its own POST form, and template content can't nest a form.
             </div>
             <div style="display:flex; gap:0.75rem; flex-wrap:wrap;">
               <div style="flex:1; min-width:100px;">{% include "components/form_field.html" with field=t.default_seats %}</div>
+              <div style="flex:2; min-width:160px;">{% include "components/form_field.html" with field=t.area %}</div>
               <div style="flex:2; min-width:160px;">{% include "components/form_field.html" with field=t.default_location %}</div>
               <div style="flex:1; min-width:100px;">{% include "components/form_field.html" with field=t.sort_order %}</div>
             </div>
@@ -511,6 +512,7 @@ confirm modal carries its own POST form, and template content can't nest a form.
             </div>
             <div style="display:flex; gap:0.75rem; flex-wrap:wrap;">
               <div style="flex:1; min-width:100px;">{% include "components/form_field.html" with field=ef.default_seats %}</div>
+              <div style="flex:2; min-width:160px;">{% include "components/form_field.html" with field=ef.area %}</div>
               <div style="flex:2; min-width:160px;">{% include "components/form_field.html" with field=ef.default_location %}</div>
               <div style="flex:1; min-width:100px;">{% include "components/form_field.html" with field=ef.sort_order %}</div>
             </div>

@@ -336,6 +336,10 @@ Do not merge them.
           {% include "classes/_components/collapsible_field.html" with field=form.flexible_note %}
         </div>
       </div>
+      <div class="pl-compose-section" data-class-location>
+        <h3 class="pl-compose-section__title">Where It Meets</h3>
+        {% include "components/form_field.html" with field=form.area %}
+      </div>
       <div class="pl-compose-section">
         <h3 class="pl-compose-section__title">Seats</h3>
         {# The capacity field stays in the DOM under Flexible (hidden, still posted, never read for a flexible class); the note swaps with the model (#545). #}

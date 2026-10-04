@@ -33,6 +33,7 @@ from core.features import DEFAULT_SOON_MESSAGE
 from core.events.scheduling import next_tick
 from core.models import CalendarFeed, FeatureSwitch, ScheduledJobState, SiteConfiguration
 from core.widgets import PageContentEditorWidget, RichBodyEditorWidget, RichTextEditorWidget
+from membership.forms import setup_location_field
 from membership.markdown import sanitize_page_submission, sanitize_wiki_submission
 from membership.names import user_display_name, user_label, user_name_or_email
 from membership.models import (
@@ -56,6 +57,7 @@ from membership.models import (
     LeadershipPage,
     LeadershipRole,
     LeadershipTab,
+    Location,
     MapHotspot,
     MeetingAttachment,
     MeetingItemProposal,
@@ -1086,6 +1088,42 @@ class LeadershipBadgeAddForm(forms.ModelForm):
             "color": forms.TextInput(attrs={"type": "color"}),
         }
         labels = {"label": "Label", "color": "Color"}
+
+
+class LocationForm(forms.ModelForm):
+    """Add or edit a Location on the admin Locations page (#616).
+
+    ``shares_space_with`` lists every other location, active or not, so a link to a deactivated
+    one can still be seen and removed; the link is symmetric, so saving it here shows on the
+    other location too. The guild picker offers active guilds plus the one already set. A new
+    location starts active, so the Active switch shows only when editing.
+    """
+
+    class Meta:
+        model = Location
+        fields = ["name", "guild", "note", "shares_space_with", "is_active"]
+        widgets = {
+            "name": forms.TextInput(attrs={"placeholder": "e.g. Hot Glass Room"}),
+            "note": forms.TextInput(attrs={"placeholder": "e.g. Upstairs next to the Kitchen"}),
+            "shares_space_with": forms.CheckboxSelectMultiple,
+        }
+        labels = {"shares_space_with": "Shares space with", "is_active": "Active"}
+
+    def __init__(self, *args: Any, **kwargs: Any) -> None:
+        super().__init__(*args, **kwargs)
+        guild_field = cast(forms.ModelChoiceField, self.fields["guild"])
+        guild_field.queryset = Guild.objects.filter(Q(is_active=True) | Q(pk=self.instance.guild_id)).order_by("name")
+        guild_field.empty_label = "No guild"
+        guild_field.help_text = "The guild whose page shows when this area is in use. Optional."
+        self.fields["name"].help_text = ""
+        self.fields["note"].help_text = "A short note, shown here only. Optional."
+        shares = cast(forms.ModelMultipleChoiceField, self.fields["shares_space_with"])
+        shares.queryset = Location.objects.exclude(pk=self.instance.pk).order_by("name")
+        shares.help_text = "Something in a linked location makes this one show as in use too, and the other way round."
+        if self.instance.pk is None:
+            del self.fields["is_active"]
+        else:
+            self.fields["is_active"].help_text = "Offer this location on forms. Turn off to retire it."
 
 
 def badge_delete_message(holders: int) -> str:
@@ -2335,6 +2373,7 @@ class OrientationTypeForm(forms.ModelForm):
             "description",
             "duration_minutes",
             "default_seats",
+            "area",
             "default_location",
             "sort_order",
             "is_active",
@@ -2349,7 +2388,7 @@ class OrientationTypeForm(forms.ModelForm):
             "description": "Description (shown to members)",
             "duration_minutes": "Length (minutes)",
             "default_seats": "Seats per slot",
-            "default_location": "Location",
+            "default_location": "Where to meet",
             "sort_order": "Sort order",
             "is_active": "Active",
             "photo": "Photo",
@@ -2359,6 +2398,9 @@ class OrientationTypeForm(forms.ModelForm):
         super().__init__(*args, **kwargs)
         if self.instance.pk and self.instance.price_cents:
             self.fields["price"].initial = Decimal(self.instance.price_cents) / 100
+        setup_location_field(
+            self, hint="The area its slots use. A booked slot shows the area in use on its guild page. Optional."
+        )
 
     def clean_price(self) -> int:
         """Normalize the dollar input to cents — blank means free."""
@@ -3099,6 +3141,7 @@ class CommunityEventForm(forms.ModelForm):
             "title",
             "starts_at",
             "ends_at",
+            "area",
             "location",
             "video_url",
             "description",
@@ -3157,6 +3200,9 @@ class CommunityEventForm(forms.ModelForm):
         )
         self.in_review: bool = not (self.saves_announce or self.announced)
         self.fields["video_url"].label = "Video link"
+        setup_location_field(self)
+        # The free text keeps its own job beside the picker (#616): room details, an address or a link.
+        self.fields["location"].label = "Address or room details"
         self._setup_audience_field(can_choose_audience=can_choose_audience)
         self._setup_kind_field(can_choose_audience=can_choose_audience, fixed_guild=guild)
         if guild is None:
@@ -5276,6 +5322,7 @@ class EquipmentForm(forms.ModelForm):
             "space",
             "photo",
             "description",
+            "area",
             "location_note",
             "required_orientation",
             "requires_guild_membership",
@@ -5383,6 +5430,10 @@ class EquipmentForm(forms.ModelForm):
         self.fields["space"].help_text = "Optional. Link the physical room from the space map. We only read from it."
         self.fields["description"].help_text = ""
         self.fields["location_note"].help_text = "A short note that helps members find it."
+        self.fields["location_note"].label = "Where to find it"
+        setup_location_field(
+            self, hint="The area it sits in. A reservation shows the area in use on its guild page. Optional."
+        )
         self.fields["required_orientation"].help_text = "Members must complete this orientation before they can book."
         self.fields["requires_guild_membership"].help_text = "Only members of the chosen guild can book."
         self.fields["is_active"].help_text = "Members can see and book this equipment. Turn off to retire it."

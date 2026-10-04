@@ -41,6 +41,7 @@ from classes.models import (
 )
 from classes.questions import active_questions, collect_answers, inject_fields
 from classes.video_providers import validate_video_url
+from membership.forms import setup_location_field
 
 
 def _assign_provisional_slug(offering: ClassOffering) -> None:
@@ -85,6 +86,9 @@ if TYPE_CHECKING:
 STRIPE_MIN_CHARGE_CENTS = 50  # Stripe's minimum USD charge is $0.50.
 MIN_PAID_PRICE_CENTS = 100  # Floor for every class ($1.00). There is no free option (#368 item 5).
 PRICE_FLOOR_MESSAGE = "Classes cost at least $1.00."
+CLASS_LOCATION_HINT = (
+    "The area of the building it meets in. Its guild page shows the area in use during class. Optional."
+)
 PRICE_HELP_TEXT = "In dollars, e.g. 80.00 for $80. Every class costs at least $1.00."
 # Under the description box on both composers (#425): the readiness minimum, from the one constant
 # the rule reads, so the hint can never name a number the checklist would then contradict.
@@ -585,6 +589,7 @@ class ClassOfferingForm(
             "flexible_starts_on",
             "flexible_ends_on",
             "registration_cutoff_hours",
+            "area",
             "is_private",
             "private_for_name",
             "image",
@@ -615,6 +620,7 @@ class ClassOfferingForm(
         self.setup_scheduling_type_field()
         self.setup_flexible_window_fields()
         self.setup_registration_cutoff_fields()
+        setup_location_field(self, hint=CLASS_LOCATION_HINT)
 
     def clean_video_url(self) -> str:
         return validate_video_url(self.cleaned_data.get("video_url", ""))
@@ -677,6 +683,7 @@ class TeachClassOfferingForm(
             "flexible_starts_on",
             "flexible_ends_on",
             "registration_cutoff_hours",
+            "area",
             "image",
             "video_url",
         ]
@@ -711,6 +718,7 @@ class TeachClassOfferingForm(
         self.setup_scheduling_type_field()
         self.setup_flexible_window_fields()
         self.setup_registration_cutoff_fields()
+        setup_location_field(self, hint=CLASS_LOCATION_HINT)
 
     def clean_video_url(self) -> str:
         return validate_video_url(self.cleaned_data.get("video_url", ""))

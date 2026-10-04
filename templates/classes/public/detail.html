@@ -404,6 +404,7 @@ appends and runs it on the first boosted arrival here (FRONTEND.md, Scripts unde
       <section class="cp-detail__section">
         <h3 class="cp-detail__h3">Where</h3>
         <div class="cp-detail__prose">
+          {% if offering.area %}<strong data-class-area>{{ offering.area.name }}</strong><br>{% endif %}
           Past Lives Makerspace<br>
           2808 SE 9th Ave, Portland, OR 97202
         </div>

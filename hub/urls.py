@@ -5,6 +5,7 @@ from . import (
     discord_views,
     equipment_views,
     leadership_views,
+    location_views,
     meeting_views,
     notification_views,
     orientations_views,
@@ -745,6 +746,9 @@ urlpatterns = [
         views.admin_slideshow_slides_save,
         name="hub_admin_slideshow_slides_save",
     ),
+    # The Locations admin (#616): the list with its add form, and one edit page per location.
+    path("manage/locations/", location_views.hub_admin_locations, name="hub_admin_locations"),
+    path("manage/locations/<int:pk>/", location_views.hub_admin_location_edit, name="hub_admin_location_edit"),
     # The Leadership Directory editor (#476; tabs and auto save, #564): the page, then one
     # endpoint per object, every one of them POST only (hub/leadership_views.py).
     path("manage/leadership/", leadership_views.hub_admin_leadership, name="hub_admin_leadership"),

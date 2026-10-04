@@ -162,6 +162,7 @@ def describe_admin_tools_card_order():
             "Activity",
             "Announcements",
             "Leadership Directory",
+            "Locations",
             "Manage Classes",
             "Manage Members",
             "Notification Settings",

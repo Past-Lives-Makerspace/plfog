@@ -36,6 +36,7 @@ Those six plus `plfog/` are the whole of `INSTALLED_APPS` for this project. Othe
 - `VotePreference` — persistent 3-choice ranked vote per member (synced to Airtable)
 - `FundingSnapshot` — immutable historical funding calc; guild allocations stored in results JSON
 - `Space` — physical space (studio/storage/parking/desk); linked to Airtable
+- `Location` — a named area of the building, optionally a guild's (#616); classes, events, orientation types and equipment point at it through a nullable `area` FK, and `membership/services/location_status.py` lights it on the guild page
 - `Lease` — tenant→space via GenericForeignKey (tenant = Member or Guild)
 - `MemberEmail` — additional email aliases per member
 

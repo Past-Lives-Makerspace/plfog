@@ -27,7 +27,8 @@
       {% include "components/form_field.html" with field=form.title %}
       {% include "components/form_field.html" with field=form.starts_at %}
       {% include "components/form_field.html" with field=form.ends_at %}
-      {% include "components/form_field.html" with field=form.location field_hint="A room, address, or video link. Optional." %}
+      {% include "components/form_field.html" with field=form.area %}
+      {% include "components/form_field.html" with field=form.location field_hint="Which table or corner, a street address, or a video link. Optional." %}
       {% include "components/form_field.html" with field=form.video_url field_hint="For an online or hybrid meeting — a Google Meet, Zoom, or Jitsi link. Optional." %}
       {% include "components/form_field.html" with field=form.description field_hint="Optional details for members." %}
       {% comment %}

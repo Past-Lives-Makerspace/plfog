@@ -1,0 +1,28 @@
+{% extends "hub/base.html" %}
+{% load static %}
+
+{% block title %}{{ location.name }} · Locations{% endblock %}
+
+{% block extra_head %}
+<link rel="stylesheet" href="{% static 'css/locations.css' %}">
+{% endblock %}
+
+{% block content %}
+<div class="pl-locations-admin">
+<p class="pl-locations-admin__back"><a href="{% url 'hub_admin_locations' %}" class="hub-btn hub-btn--sm hub-btn--ghost">&larr; Back to Locations</a></p>
+<h1 class="hub-page-title">Edit Location</h1>
+
+<div class="hub-card pl-locations-admin__card">
+  <form method="post" class="hub-form" data-location-edit>
+    {% csrf_token %}
+    {% for error in form.non_field_errors %}<p class="pl-field-error">{{ error }}</p>{% endfor %}
+    {% include "components/form_field.html" with field=form.name %}
+    {% include "components/form_field.html" with field=form.guild %}
+    {% include "components/form_field.html" with field=form.note %}
+    {% include "hub/admin/_location_shares_field.html" %}
+    {% include "components/form_field.html" with field=form.is_active %}
+    <button type="submit" class="hub-btn hub-btn--primary pl-locations-admin__save">Save</button>
+  </form>
+</div>
+</div>
+{% endblock %}

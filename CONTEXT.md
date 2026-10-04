@@ -52,6 +52,10 @@ _Avoid_: treating the pair as duplicates; "Discord event" unqualified.
 A member-run interest group within the makerspace (woodshop, blacksmithing, etc.), with leads, staff, and a public page. The real `membership.Guild`.
 _Avoid_: using bare "guild" for a class catalog category — that is a **Class Type** (see below).
 
+**Location**:
+A named area of the building (`membership.Location`, e.g. Hot Glass Room), optionally a guild's, that a class, event, orientation type or piece of equipment can be set to; the guild page lights each of its locations free, starting soon or in use, counting locations that share space. In code the field is `area`; not a `Space` (an Airtable rental lease record).
+_Avoid_: area, room or space in member-facing copy for this concept.
+
 **Private guild** (removed concept):
 There is no such thing — every active Guild is visible on every surface (hub, public guilds site, Discord). The `is_public` flag was stripped in v22 as unused (0 of 15 guilds ever set it); "hide a guild" is `is_active` off, which removes it everywhere.
 _Avoid_: private guild, hidden guild, gating anything on guild visibility.

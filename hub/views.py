@@ -810,6 +810,8 @@ def guild_detail(request: HttpRequest, slug: str) -> HttpResponse:
 
     guild_ct = ContentType.objects.get_for_model(Guild)
 
+    from membership.services.location_status import guild_location_statuses
+
     return render(
         request,
         "hub/guild_detail.html",
@@ -856,6 +858,7 @@ def guild_detail(request: HttpRequest, slug: str) -> HttpResponse:
             "join_form": join_form,
             "wiki_tab_enabled": wiki_tab_enabled,
             **wiki_tab_context,
+            "location_statuses": guild_location_statuses(guild),
         },
     )
 
@@ -4865,6 +4868,7 @@ def hub_admin_tools(request: HttpRequest) -> HttpResponse:
             "tool_site_settings": is_admin,
             "tool_slideshow": is_admin,
             "tool_leadership": is_admin,
+            "tool_locations": is_admin,
             "tool_push_test": is_admin,
         },
     )
@@ -7086,7 +7090,7 @@ def event_detail(request: HttpRequest, pk: int) -> HttpResponse:
     from membership.models import CommunityEvent
     from membership.permissions import can_edit_event
 
-    event = get_object_or_404(CommunityEvent.objects.published().select_related("guild"), pk=pk)
+    event = get_object_or_404(CommunityEvent.objects.published().select_related("guild", "area"), pk=pk)
     ctx = _get_hub_context(request)
     on_member_surface = getattr(request, "surface", "members") == "members"
     can_edit = on_member_surface and can_edit_event(request, event)
