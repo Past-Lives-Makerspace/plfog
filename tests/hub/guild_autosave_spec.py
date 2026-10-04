@@ -645,8 +645,8 @@ def describe_guild_edit_page_autosave_markup():
         assert "Every change saves as you make it." in content
         assert 'x-data="plGuildAutosave(' in content
         # Main, visibility, orientation settings, types, thank-you, guild hours, FAQ, links,
-        # mailing list and announcement settings (the welcome form rides a feature switch).
-        assert assert_autosave_forms_have_no_submit(content) >= 10
+        # mailing list, announcement settings and reservations (the welcome form rides a feature switch).
+        assert assert_autosave_forms_have_no_submit(content) >= 11
         assert "requestSubmit()" not in content.replace(
             "document.getElementById('times-bulk-form').requestSubmit();", ""
         )
@@ -667,6 +667,7 @@ def describe_guild_edit_page_autosave_markup():
             reverse("hub_guild_links_save", args=[guild.pk]),
             reverse("hub_guild_mailing_list_save", args=[guild.pk]),
             reverse("hub_guild_announcement_settings_save", args=[guild.pk]),
+            reverse("hub_guild_reservations_settings_save", args=[guild.pk]),
         ):
             assert re.search(rf'<form[^>]*action="{re.escape(action)}"[^>]*data-autosave', content), action
         assert 'data-formset="faq" data-formset-required="question answer"' in content

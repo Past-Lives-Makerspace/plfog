@@ -2497,6 +2497,10 @@ class Guild(HeroCropMixin, models.Model):
         default=True,
         help_text="Let members suggest announcements for this guild from its guild page.",
     )
+    show_reservations_tab = models.BooleanField(
+        default=False,
+        help_text="Show a Reservations tab on the guild page listing this guild's reservable rooms, spaces and tools.",
+    )
     created_at = models.DateTimeField(auto_now_add=True)
     deleted_at = models.DateTimeField(
         null=True,
@@ -11148,6 +11152,23 @@ class GuildOrientationSettings(models.Model):
     def __str__(self) -> str:
         return f"Orientation settings for {self.guild.name}"
 
+    def guild_page_types(self, member: Member | None) -> list[OrientationType]:
+        """The guild page's Orientations tab sections (#502); the tab shows exactly when this is non empty.
+
+        Nothing while orientations are off. Otherwise the guild's active types plus any retired
+        one ``member`` holds a live booking or checkout hold on (the equipment page's pinning
+        rule), so a guild with nothing to book shows no tab, and retiring a type never takes a
+        member's Cancel away. Each type carries its guild's settings row, which the section
+        builder reads for the late cancel policy.
+        """
+        if not self.is_enabled:
+            return []
+        return list(
+            OrientationType.objects.filter(guild_id=self.guild_id)
+            .active_or_held_by(member)
+            .select_related("guild__orientation_settings")
+        )
+
     @property
     def resolved_thankyou_subject(self) -> str:
         """The guild's custom thank-you subject, or the standard one when they left it blank."""
@@ -13947,6 +13968,16 @@ class EquipmentQuerySet(models.QuerySet["Equipment"]):
     def standalone(self) -> EquipmentQuerySet:
         """Equipment with no owning guild."""
         return self.filter(guild__isnull=True)
+
+    def on_guild_page(self, guild: Guild) -> EquipmentQuerySet:
+        """The items the guild page's Reservations tab lists (#502): none until the guild turns the tab on.
+
+        The guild's active items while ``Guild.show_reservations_tab`` is on, so the tab shows
+        exactly when this is non empty. ``none()`` otherwise, which costs no query.
+        """
+        if not guild.show_reservations_tab:
+            return self.none()
+        return self.active().for_guild(guild)
 
     def with_required_orientation_listed(self) -> EquipmentQuerySet:
         """Annotate ``required_orientation_listed``: whether the Orientations page lists the gating type.

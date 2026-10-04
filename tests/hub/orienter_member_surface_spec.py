@@ -95,13 +95,14 @@ def describe_guild_page_slot_list():
         # The with-chip (avatar + name) only renders when there is a name to show.
         assert b"pl-orient-avatar" not in response.content
 
-    def it_shows_the_new_empty_state_line(client: Client):
+    def it_shows_no_tab_while_no_type_is_set_up(client: Client):
         _member_user("ms_empty")
         guild = _enabled_guild()
         client.login(username="ms_empty", password="pass")
         response = client.get(reverse("hub_guild_detail", args=[guild.slug]))
-        # An enabled guild with no orientation types yet shows the setup empty state.
-        assert b"No orientations are set up yet" in response.content
+        # An enabled guild with no orientation types yet has nothing to book, so no tab (#502).
+        assert b'id="guild-orientation"' not in response.content
+        assert b">Orientations</button>" not in response.content
 
     def it_addresses_the_confirm_modal_to_the_orienter(client: Client):
         _member_user("ms_modal")

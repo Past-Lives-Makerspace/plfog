@@ -4,8 +4,9 @@ Pytest's Django client never runs the autosave script, so this walks it in a rea
 typing in About saves after the pause and survives a reload; a bad link URL is refused
 inline with the typed value kept and nothing saved; a FAQ question typed in two steps is
 created once and edited in place, never duplicated; a saved link's Delete takes it off the
-page and the database; the member suggestions toggle saves at once; and typing then
-leaving at once, by a boosted in page link and by a hard sidebar link, still lands the save.
+page and the database; the member suggestions and Reservations toggles save at once (the
+second puts a Reservations tab on the guild page); and typing then leaving at once, by a
+boosted in page link and by a hard sidebar link, still lands the save.
 
 Waits are on what the page shows, never a fixed sleep: the save pill reads Saved with its
 ``data-saves`` count past the last one, a new row carries its hidden id. Run with
@@ -22,7 +23,7 @@ from django.urls import reverse
 from playwright.sync_api import expect
 
 from membership.models import Guild, GuildFAQItem, GuildLink
-from tests.membership.factories import GuildFactory, GuildLinkFactory, MembershipPlanFactory
+from tests.membership.factories import EquipmentFactory, GuildFactory, GuildLinkFactory, MembershipPlanFactory
 
 ADMIN_EMAIL = "guild-autosave-admin@example.com"
 _PNG = (
@@ -294,6 +295,24 @@ def describe_guild_settings_autosave():
         page.reload()
         page.wait_for_function(ALPINE_READY)
         expect(page.locator("#id_allow_member_announcement_suggestions")).to_be_checked()
+
+    def it_saves_the_reservations_toggle_and_the_guild_page_gains_the_tab(live_server, page, login_via_code):
+        guild = _admin_guild()
+        EquipmentFactory(name="Pottery Wheel Seven", guild=guild)
+        _sign_in_as_admin(login_via_code)
+        _open(page, live_server, guild, "reservations")
+
+        box = page.locator("#id_show_reservations_tab")
+        expect(box).not_to_be_checked()
+        page.locator("label.pl-toggle", has=box).click()
+        _wait_saved(page, 1)
+        guild.refresh_from_db()
+        assert guild.show_reservations_tab is True
+
+        page.goto(f"{live_server.url}{reverse('hub_guild_detail', args=[guild.slug])}")
+        page.get_by_role("button", name="Reservations", exact=True).click()
+        card = page.locator("[data-guild-reservations] .pl-equip-card", has_text="Pottery Wheel Seven")
+        expect(card).to_be_visible()
 
     def it_lands_the_save_when_the_member_types_and_leaves_at_once(live_server, page, login_via_code):
         guild = _admin_guild()

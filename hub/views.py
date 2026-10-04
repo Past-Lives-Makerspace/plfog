@@ -718,14 +718,12 @@ def guild_detail(request: HttpRequest, slug: str) -> HttpResponse:
     from membership.models import GuildOrientationSettings
 
     orientation = GuildOrientationSettings.objects.filter(guild=guild).first()
-    show_orientation = orientation is not None and orientation.is_enabled
-    # Per-type booking state (issue #282): the tab renders one section per active
-    # orientation type — a member can be oriented for one type while booking another.
-    # select_related the settings row: the section builder reads each type's late cancel
-    # policy from its guild's settings, so without it that costs a query per type.
-    orientation_types = (
-        list(guild.orientation_types.active().select_related("guild__orientation_settings")) if show_orientation else []
-    )
+    # Per-type booking state (issue #282): the tab renders one section per type — a member can
+    # be oriented for one type while booking another. The tab shows only when there is a type
+    # to book or a booking to cancel (#502), so a guild with orientations on and nothing set up
+    # shows no empty tab.
+    orientation_types = orientation.guild_page_types(member) if orientation is not None else []
+    show_orientation = bool(orientation_types)
     # Every type the guild owns, retired ones included: oriented for the guild means ANY
     # completed type, by booking or by admin record (issue #465), through the one resolver.
     completed_type_ids = (
@@ -797,6 +795,15 @@ def guild_detail(request: HttpRequest, slug: str) -> HttpResponse:
 
         wiki_tab_context = guild_wiki_tab_block(request, guild)
 
+    # The Reservations tab (#502): the guild's items as the Reservations page's own cards, while
+    # the guild has the tab on. Never on the guest guilds surface, where the cards' item pages
+    # and the Reservations page do not resolve.
+    from hub.equipment_views import _equipment_queryset, reservation_cards
+
+    guild_reservation_cards = (
+        [] if guilds_surface else reservation_cards(member, _equipment_queryset().on_guild_page(guild))
+    )
+
     guild_ct = ContentType.objects.get_for_model(Guild)
 
     return render(
@@ -836,6 +843,8 @@ def guild_detail(request: HttpRequest, slug: str) -> HttpResponse:
             "is_oriented": is_oriented,
             "orientation_all_done": orientation_all_done,
             "show_orientation": show_orientation,
+            "show_reservations": bool(guild_reservation_cards),
+            "reservation_cards": guild_reservation_cards,
             "orientation_sections": orientation_sections,
             "orientation_has_posted_times": orientation_has_posted_times,
             "unpaid_late_fee": unpaid_late_fee,
@@ -1086,6 +1095,7 @@ def _guild_edit_context(
         GuildLinkFormSet,
         GuildMailingListFormSet,
         GuildOrientationSettingsForm,
+        GuildReservationsSettingsForm,
         GuildStaffAddForm,
         GuildThankyouEmailForm,
         GuildVisibilityForm,
@@ -1096,7 +1106,7 @@ def _guild_edit_context(
         StudioHoursFormSet,
     )
     from membership.models import GuildOrientationSettings
-    from membership.permissions import can_edit_orienter_hours
+    from membership.permissions import can_create_equipment, can_edit_orienter_hours, can_manage_equipment
 
     settings_obj, _ = GuildOrientationSettings.objects.get_or_create(guild=guild)
     ctx = _get_hub_context(request)
@@ -1192,6 +1202,15 @@ def _guild_edit_context(
             thankyou_email_form if thankyou_email_form is not None else GuildThankyouEmailForm(instance=settings_obj)
         ),
         "announcement_settings_form": GuildAnnouncementSettingsForm(instance=guild),
+        # The Reservations tab (#502): the guild page toggle, then every item the guild owns,
+        # active first, with a Manage link only where the viewer may manage that item (an
+        # officer edits the guild but does not manage its items).
+        "reservations_settings_form": GuildReservationsSettingsForm(instance=guild),
+        "reservable_items": [
+            {"equipment": item, "can_manage": can_manage_equipment(request, item)}
+            for item in guild.equipment.order_by("-is_active", "name")
+        ],
+        "can_create_equipment": can_create_equipment(request),
         "viewer_member_pk": viewer.pk if viewer is not None else None,
         "show_my_hours_card": show_my_hours_card,
         "can_edit_others_hours": can_edit_others_hours,
@@ -5210,6 +5229,29 @@ def guild_announcement_settings_save(request: HttpRequest, pk: int) -> HttpRespo
         return autosave_saved()
     messages.success(request, "Announcement settings saved.")
     return redirect(f"{reverse('hub_guild_edit', args=[guild.pk])}?tab=announcements")
+
+
+@login_required
+@require_POST
+def guild_reservations_settings_save(request: HttpRequest, pk: int) -> HttpResponse:
+    """Save the Reservations tab toggle from the guild editor's Reservations tab (#502). Editor only.
+
+    A single-boolean ModelForm on ``Guild`` — it cannot fail validation, so there is no
+    error branch beyond the edit gate. Redirects back to the Reservations tab.
+    """
+    from hub.forms import GuildReservationsSettingsForm
+
+    guild = get_object_or_404(Guild, pk=pk)
+    forbidden = _require_can_edit_guild(request, guild)
+    if forbidden is not None:
+        return forbidden
+    form = GuildReservationsSettingsForm(request.POST, instance=guild)
+    form.is_valid()  # single-boolean form; populates cleaned_data. save() below raises loudly if ever invalid.
+    form.save()
+    if wants_autosave(request):
+        return autosave_saved()
+    messages.success(request, "Saved.")
+    return redirect(f"{reverse('hub_guild_edit', args=[guild.pk])}?tab=reservations")
 
 
 @login_required

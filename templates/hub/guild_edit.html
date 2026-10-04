@@ -1,6 +1,9 @@
 {% extends "hub/base.html" %}
-{% load hub_tags %}
+{% load hub_tags static %}
 {% block title %}{{ guild.name }} Settings{% endblock %}
+{% block extra_head %}{{ block.super }}
+<link rel="stylesheet" href="{% static 'css/guild-settings.css' %}">
+{% endblock %}
 {% block content %}
 {% include "_components/rich_editor_assets.html" %}
 {% comment %}
@@ -105,6 +108,7 @@ two empty lists, and "all clear" would be a lie about a guild that does have wor
   <button type="button" class="vote-tab" :class="section === 'meeting_notes' ? 'vote-tab--active' : ''" @click="section = 'meeting_notes'">Meeting Notes</button>
   <button type="button" class="vote-tab" :class="section === 'events' ? 'vote-tab--active' : ''" @click="section = 'events'">Events</button>
   <button type="button" class="vote-tab" data-help-key="guild.run-orientations" :class="section === 'orientations' ? 'vote-tab--active' : ''" @click="section = 'orientations'">Orientations</button>
+  <button type="button" class="vote-tab" :class="section === 'reservations' ? 'vote-tab--active' : ''" @click="section = 'reservations'">Reservations</button>
   {% if guild_welcome_email_enabled %}<button type="button" class="vote-tab" :class="section === 'welcome_email' ? 'vote-tab--active' : ''" @click="section = 'welcome_email'">Welcome Email</button>{% endif %}
   <button type="button" class="vote-tab" :class="section === 'images' ? 'vote-tab--active' : ''" @click="section = 'images'">Images</button>
   <button type="button" class="vote-tab" :class="section === 'content' ? 'vote-tab--active' : ''" @click="section = 'content'">FAQ</button>
@@ -830,6 +834,36 @@ confirm modal carries its own POST form, and template content can't nest a form.
         </form>
       </div>
     </div>
+  </div>
+</div>
+
+{# ── Reservations (#502): the guild page's Reservations tab toggle, then the guild's reservable items. ── #}
+<div x-show="section === 'reservations'" x-cloak>
+  <form method="post" action="{% url 'hub_guild_reservations_settings_save' guild.pk %}" class="hub-form" data-autosave>
+    {% csrf_token %}
+    <div class="hub-card pl-guild-settings-card">
+      <h2 class="hub-detail-label pl-guild-settings-card__title">Reservations</h2>
+      <p class="hub-text-muted pl-guild-settings-card__lead">Put this guild's reservable rooms, spaces and tools on the guild page.</p>
+      {% include "components/toggle.html" with field=reservations_settings_form.show_reservations_tab toggle_label="Show a Reservations tab on the guild page" toggle_description="The tab lists every active item below. A tool a member is not trained on shows locked, with a link to its orientation." %}
+    </div>
+  </form>
+  <div class="hub-card pl-guild-settings-card">
+    <h2 class="hub-detail-label pl-guild-settings-card__title">Reservable Items</h2>
+    <p class="hub-text-muted pl-guild-settings-card__lead">Everything members can reserve from this guild. Hours, managers and photos live on each item's manage page.</p>
+    {% if reservable_items %}
+    <ul class="pl-guild-reservables">
+      {% for row in reservable_items %}
+      <li class="pl-guild-reservables__row">
+        <span class="pl-guild-reservables__name">{{ row.equipment.name }}</span>
+        <span class="hub-badge">{{ row.equipment.get_kind_display }}</span>
+        {% if row.equipment.is_active %}<span class="hub-pill hub-pill--ok">Active</span>{% else %}<span class="hub-pill hub-pill--neutral">Inactive</span>{% endif %}
+        {% if row.can_manage %}<a href="{% url 'hub_equipment_manage' row.equipment.slug %}" class="hub-btn hub-btn--sm">Manage</a>{% endif %}
+      </li>
+      {% endfor %}
+    </ul>
+    {% else %}
+    <p class="hub-text-muted pl-guild-reservables__empty">No reservable items belong to this guild yet.{% if can_create_equipment %} <a href="{% url 'hub_equipment_add' %}">Add one on the Reservations page.</a>{% endif %}</p>
+    {% endif %}
   </div>
 </div>
 

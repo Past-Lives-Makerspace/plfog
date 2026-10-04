@@ -386,6 +386,7 @@ All under `static/css/`. The pattern in use: one stylesheet per surface, linked 
 | `voting-admin.css` | `hub/admin/voting_*.html` | Voting admin pages. |
 | `announcement-compose.css` | `hub/announcement_compose.html`, `hub/announcement_sent.html` | The announcement composer's own additions (the Discord preview card, the back link, the line about a resumed draft); its older styles still live in `hub.css`. The sent view loads it for the preview cards. |
 | `orientations.css` | `hub/orientations.html` | The Orientations page cards: owner line, meta line, the next bookable times, the Completed fold and the empty state. The member state rules they share with the guild and equipment pages stay in `hub.css`. |
+| `guild-settings.css` | `hub/guild_edit.html` | Guild settings styles added since #502: the settings card and the Reservations tab's item list. The page's older rules stay in `hub.css`. |
 | `announcements.css` | `hub/announcements.html`, `hub/announcement_sent.html` | The Announcements page (Drafts and Sent tabs, the list on top of `.pl-members-table` stacking) and the sent view's facts list. |
 | `notifications-catalogue.css`, `notifications-edit-copy.css`, `notifications-edit-discord.css` | `hub/admin/notifications/*.html` | Notification admin pages. |
 | `signage.css` | `signage/base.html` | The lobby signage display. |

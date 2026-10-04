@@ -155,6 +155,7 @@ def describe_guild_orientation_section():
 
     def it_shows_a_join_an_orientation_button_when_not_oriented(client: Client):
         _user, guild = _setup(client, "join1")
+        OrientationTypeFactory(guild=guild)  # the button opens the Orientations tab, which needs a type (#502)
         response = client.get(reverse("hub_guild_detail", args=[guild.slug]))
         assert b"Join an Orientation" in response.content
 

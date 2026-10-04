@@ -119,11 +119,12 @@
 
 {% comment %} Legacy ?tab=notes deep links land on the renamed Meetings tab (spec §6.4); only the two known values map, so a garbage ?tab can't blank every pane. {% endcomment %}
 <div x-data="{ section: 'overview' }"
-     x-init="const t = new URLSearchParams(window.location.search).get('tab'); if (t === 'notes' || t === 'meetings') section = 'meetings';{% if show_orientation %} if (t === 'orientations' || window.location.hash === '#guild-orientation') { section = 'orientations'; const ot = new URLSearchParams(window.location.search).get('type'); const target = ot ? 'orientation-type-' + ot : (window.location.hash === '#guild-orientation' ? 'guild-orientation' : null); if (target) $nextTick(() => document.getElementById(target)?.scrollIntoView()); }{% endif %}{% if wiki_tab_enabled %} if (t === 'wiki') section = 'wiki';{% endif %}">
+     x-init="const t = new URLSearchParams(window.location.search).get('tab'); if (t === 'notes' || t === 'meetings') section = 'meetings';{% if show_orientation %} if (t === 'orientations' || window.location.hash === '#guild-orientation') { section = 'orientations'; const ot = new URLSearchParams(window.location.search).get('type'); const target = ot ? 'orientation-type-' + ot : (window.location.hash === '#guild-orientation' ? 'guild-orientation' : null); if (target) $nextTick(() => document.getElementById(target)?.scrollIntoView()); }{% endif %}{% if show_reservations %} if (t === 'reservations') section = 'reservations';{% endif %}{% if wiki_tab_enabled %} if (t === 'wiki') section = 'wiki';{% endif %}">
 <nav role="tablist" class="pl-tabs">
     <button type="button" class="vote-tab" :class="section === 'overview' ? 'vote-tab--active' : ''" @click="section = 'overview'">Overview</button>
     <button type="button" class="vote-tab" :class="section === 'schedule' ? 'vote-tab--active' : ''" @click="section = 'schedule'">Guild Calendar</button>
     {% if show_orientation %}<button type="button" class="vote-tab" :class="section === 'orientations' ? 'vote-tab--active' : ''" @click="section = 'orientations'">Orientations</button>{% endif %}
+    {% if show_reservations %}<button type="button" class="vote-tab" :class="section === 'reservations' ? 'vote-tab--active' : ''" @click="section = 'reservations'">Reservations</button>{% endif %}
     {% if wiki_tab_enabled %}<button type="button" class="vote-tab" :class="section === 'wiki' ? 'vote-tab--active' : ''" @click="section = 'wiki'">Wiki</button>{% endif %}
     {% if features.my_tab.is_on and not is_guilds_surface %}<button type="button" class="vote-tab" :class="section === 'buyables' ? 'vote-tab--active' : ''" @click="section = 'buyables'">Buyables</button>{% endif %}
     {% if faq_items %}<button type="button" class="vote-tab" :class="section === 'faq' ? 'vote-tab--active' : ''" @click="section = 'faq'">{{ guild.faq_label|default:"FAQ" }}</button>{% endif %}
@@ -447,6 +448,14 @@
 {% if show_orientation %}
 <div x-show="section === 'orientations'" x-cloak>
     {% include "hub/partials/guild_orientation.html" %}
+</div>
+{% endif %}
+
+{% if show_reservations %}
+{# The guild's items as the Reservations page's own cards (#502), locked ones included; no filters here. #}
+<div x-show="section === 'reservations'" x-cloak data-guild-reservations>
+    <p class="hub-text-muted">Book a tool you are trained on, or a room or space. <a href="{% url 'hub_equipment_index' %}">All reservations</a></p>
+    {% include "hub/partials/equipment_cards.html" with cards=reservation_cards %}
 </div>
 {% endif %}
 

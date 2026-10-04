@@ -319,6 +319,11 @@ urlpatterns = [
         views.guild_announcement_settings_save,
         name="hub_guild_announcement_settings_save",
     ),
+    path(
+        "guilds/<int:pk>/reservations/save/",
+        views.guild_reservations_settings_save,
+        name="hub_guild_reservations_settings_save",
+    ),
     path("guilds/<int:pk>/faq/save/", views.guild_faq_save, name="hub_guild_faq_save"),
     path("guilds/<int:pk>/links/save/", views.guild_links_save, name="hub_guild_links_save"),
     path(

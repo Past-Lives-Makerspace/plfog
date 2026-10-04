@@ -404,6 +404,46 @@ def describe_equipment_index():
             assert Equipment.objects.count() == 6
             assert count_queries() == with_one
 
+    def describe_shared_card_builder():
+        """#502 part 4 moved the card building into ``reservation_cards`` so the guild page shares it."""
+
+        def _grid(client: Client) -> None:
+            from tests.membership.factories import EquipmentHoursFactory
+
+            _login(client, "eq_shared_cards")
+            woodshop = GuildFactory(name="Woodshop")
+            lathe = EquipmentFactory(
+                name="Lathe", guild=woodshop, required_orientation=OrientationTypeFactory(name="Lathe basics")
+            )
+            EquipmentFactory(name="Members Saw", guild=woodshop, requires_guild_membership=True)
+            EquipmentFactory(name="Dark Room", kind=Equipment.Kind.ROOM)
+            EquipmentHoursFactory(equipment=lathe)
+
+        def it_renders_the_same_cards(client: Client):
+            _grid(client)
+            cards = client.get(reverse("hub_equipment_index")).context["cards"]
+            assert [(c["equipment"].name, c["access_state"], c["availability"]) for c in cards] == [
+                ("Dark Room", Equipment.AccessState.OK, ("muted", "Not taking reservations yet")),
+                ("Lathe", Equipment.AccessState.NEEDS_ORIENTATION, ("muted", "Not open right now")),
+                ("Members Saw", Equipment.AccessState.NEEDS_GUILD, ("muted", "Not taking reservations yet")),
+            ]
+
+        def it_keeps_the_query_count_it_had_before_the_extraction(client: Client, django_assert_num_queries):
+            _grid(client)
+            url = reverse("hub_equipment_index")
+            client.get(url)  # warm the session and per-request caches
+            # Measured on this grid before the extraction; the helper must not add a query.
+            with django_assert_num_queries(36):
+                assert client.get(url).status_code == 200
+
+        def it_answers_an_empty_grid_without_the_member_lookups(django_assert_num_queries):
+            from hub.equipment_views import _equipment_queryset, reservation_cards
+
+            member = MemberFactory()
+            # The listing rule's site configuration read and the item read; no access sets, no fee lookup.
+            with django_assert_num_queries(2):
+                assert reservation_cards(member, _equipment_queryset().active()) == []
+
 
 def describe_equipment_add():
     def it_403s_a_plain_member_on_get_and_post(client: Client):
