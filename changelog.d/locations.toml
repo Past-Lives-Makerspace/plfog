@@ -1,0 +1,9 @@
+bump = "minor"
+date = "2026-10-04"
+title = "Guild pages show when an area is in use"
+changes = [
+  "Classes, events, orientations and equipment can now have a Location, the area of the building they use. It is optional.",
+  "A guild page lists its areas with a light: green when free, amber when something starts within the hour, and red when a class, orientation, event or reservation is using it now.",
+  "Class and event pages show their Location when one is set.",
+  "Admins manage the list of Locations from Admin Tools, including areas that share space, like the Front Studio and the Events Stage.",
+]
