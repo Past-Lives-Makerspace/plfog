@@ -2059,8 +2059,8 @@
 }
 
 /* ===== Hero placement sliders (hero_placement.js: guild banner, Help Center banner, class page category hero) ===== */
-/* The bar (.pl-hero-adjust, hub.css) wraps so the line saying where each slider moves the
-   photo sits on its own row under the sliders. The line takes no width of its own (contain), so it wraps
+/* The bar (.pl-hero-adjust, hub.css) wraps so the line saying which sliders move the photo
+   sits on its own row under the sliders. The line takes no width of its own (contain), so it wraps
    inside the width the sliders give the bar instead of stretching it. The bar is dark in
    both themes, so the line is light in both. */
 .pl-hero-adjust {

@@ -10,8 +10,10 @@
  * every screen, from a tall phone frame to a wide desktop one, so which axis is dead changes
  * with the screen. Each template states the range of frame shapes its CSS can produce
  * (data-frame-min and data-frame-max, width over height) and measure() compares the photo's
- * own shape with it: a slider is off only when it moves nothing on every screen, and when
- * both move somewhere why() says where each one does. The editor's own frame plays no part.
+ * own shape with it: a slider is off only when it moves nothing on every screen, and why()
+ * says so. Which screens each live slider moves it on depends on the photo (a 4:3 photo moves
+ * up and down on most phones too), so when both are on the line only says that each one moves
+ * it somewhere. The editor's own frame plays no part.
  */
 (function () {
     "use strict";
@@ -20,7 +22,7 @@
     const WHY = {
         x: "This photo already fits side to side on every screen, so only up and down moves it.",
         y: "This photo already fits top to bottom on every screen, so only left and right moves it.",
-        where: "Left and right moves the photo on phones. Up and down moves it on wider screens.",
+        both: "Each slider moves the photo on some screens, so both stay on.",
     };
 
     const registerComponent = () => {
@@ -107,7 +109,7 @@
                 if (!this.measured) { return ""; }
                 if (!this.xMoves) { return WHY.x; }
                 if (!this.yMoves) { return WHY.y; }
-                return WHY.where;
+                return WHY.both;
             },
 
             startAdjusting() {

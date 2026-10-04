@@ -67,12 +67,13 @@ appends and runs it on the first boosted arrival here (FRONTEND.md, Scripts unde
            alt="{{ offering.title }}">
       {% endwith %}
     {% elif offering.category.hero_image %}
-      {# Frame shapes this hero takes, width over height (heroPlacement): at most 2.38 (1240 by 520, .cp-detail__hero in cms-public.css), and a long title makes a phone frame taller (1.03 at 320px with a short one), so 0.5 to 2.5 keeps a margin both ways. #}
+      {# Frame shapes, width over height (heroPlacement), as measured: widest 2.38 (1240 by 520, .cp-detail__hero in cms-public.css); at 320px 1.03 with a short title and 0.65 with a 108 character title and 150 character subtitle, and a title runs to 255, so the floor is 0.25. tests/e2e/hero_placement_slack_spec.py checks these. #}
       <img class="cp-detail__hero-img cp-detail__hero-img--cover"
            src="{{ offering.category.hero_image.url }}"
            alt="{{ offering.category.name }}"
+           data-frame-min="0.25" data-frame-max="2.5"
            {% if can_edit_category %}
-           data-hero-img data-frame-min="0.5" data-frame-max="2.5"
+           data-hero-img
            :style="'object-position: ' + objectPosition"
            {% else %}
            style="object-position: {{ offering.category.hero_object_position }};"
@@ -188,7 +189,7 @@ appends and runs it on the first boosted arrival here (FRONTEND.md, Scripts unde
                 <span x-text="isLoading ? '...' : 'Adjust'"></span>
             </button>
 
-            {# Sliders. heroPlacement.measure() turns off a slider that moves nothing on any screen, and the line under them says where each one moves. #}
+            {# Sliders. heroPlacement.measure() turns off a slider that moves nothing on any screen, and the line under them says which are on and why. #}
             <div x-show="isAdjusting" x-cloak class="pl-hero-adjust" style="display:flex; align-items:center; gap:0.75rem; background:rgba(0,0,0,0.7); padding:6px 10px; border-radius:6px; border:1px solid rgba(255,255,255,0.2); backdrop-filter:blur(8px);">
                 <div style="display:flex; align-items:center; gap:8px;">
                     <label for="hero-adjust-y" style="font-size:9px; text-transform:uppercase; color:#96ACBB; font-weight:bold;">V</label>

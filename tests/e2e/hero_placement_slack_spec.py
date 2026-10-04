@@ -1,4 +1,4 @@
-"""End-to-end: the hero Adjust sliders say where each one moves the photo.
+"""End-to-end: the hero Adjust sliders turn off only when they move nothing on any screen.
 
 The guild banner, the Help Center banner and the class page's category hero are cover
 fitted, so in any one frame a photo overflows on one axis only. These frames are fluid and
@@ -7,8 +7,10 @@ phone frame moves a 2:1 photo sideways, a wide desktop frame moves it up and dow
 template states the frame shapes its CSS can produce (``data-frame-min`` and
 ``data-frame-max`` on the img) and ``hero_placement.js`` ``measure()`` compares the photo's
 shape with that range: a slider is disabled only when it moves nothing on every screen, and
-otherwise the line under the sliders says where each one moves. The editor's own screen
-plays no part. Only a browser decodes the photo and runs the component, so this drives the
+the line under the sliders says which are on and why. The editor's own screen plays no part.
+The ranges are copied by hand from the CSS, so the last block loads each page with long text
+at a phone width and past the content cap and checks the frame stays inside its range. Only
+a browser decodes the photo, lays out the frame and runs the component, so this drives the
 real page. Run with ``pytest -m e2e``.
 """
 
@@ -40,7 +42,7 @@ PHONE: ViewportSize = {"width": 390, "height": 844}
 
 X_DEAD = "This photo already fits side to side on every screen, so only up and down moves it."
 Y_DEAD = "This photo already fits top to bottom on every screen, so only left and right moves it."
-WHERE = "Left and right moves the photo on phones. Up and down moves it on wider screens."
+BOTH_ON = "Each slider moves the photo on some screens, so both stay on."
 
 
 def _png(name: str, width: int, height: int) -> ContentFile:
@@ -84,9 +86,9 @@ def describe_hero_placement_slack():
     def it_keeps_both_sliders_on_for_a_photo_that_moves_each_way_on_some_screen(
         live_server, page: Page, login_via_code, serve_media
     ):
-        # 2:1 sits inside the guild frame's range (0.5 to 3.4): a phone frame moves it sideways,
-        # a desktop frame up and down. Both stay on and the line says where each moves, the
-        # same on a desktop and a phone, because the editor's own frame plays no part.
+        # 2:1 sits inside the guild frame's range (0.25 to 3.4): a phone frame moves it sideways,
+        # a desktop frame up and down. Both stay on and the line says so, the same on a desktop
+        # and a phone, because the editor's own frame plays no part.
         guild = _guild(1000, 500)
         _sign_in_as_admin(login_via_code)
         for viewport in (DESKTOP, PHONE):
@@ -96,7 +98,7 @@ def describe_hero_placement_slack():
             down, across = _open_adjust(page)
             expect(down).to_be_enabled()
             expect(across).to_be_enabled()
-            expect(page.locator(WHY)).to_have_text(WHERE)
+            expect(page.locator(WHY)).to_have_text(BOTH_ON)
             # The line is tied to both sliders for keyboard and screen reader users.
             expect(down).to_have_attribute("aria-describedby", "hero-adjust-why")
             expect(across).to_have_attribute("aria-describedby", "hero-adjust-why")
@@ -121,10 +123,10 @@ def describe_hero_placement_slack():
     def it_turns_off_left_and_right_for_a_tall_photo_and_keeps_and_saves_its_saved_position(
         live_server, page: Page, login_via_code, serve_media
     ):
-        # 2:5 is narrower than the narrowest guild frame: width fitted everywhere, so left and
-        # right is off. The position saved before (20% across) still shows on the disabled
+        # 1:5 is narrower than the narrowest guild frame (0.25): width fitted everywhere, so
+        # left and right is off. The position saved before (20% across) still shows on the disabled
         # slider and rides the save untouched.
-        guild = _guild(400, 1000, hero_crop_x=20, hero_crop_y=50)
+        guild = _guild(300, 1500, hero_crop_x=20, hero_crop_y=50)
         _sign_in_as_admin(login_via_code)
         page.set_viewport_size(DESKTOP)
         page.goto(_guild_url(live_server, guild))
@@ -204,3 +206,86 @@ def describe_hero_placement_slack():
         expect(down).to_be_disabled()
         expect(across).to_be_enabled()
         expect(page.locator(WHY)).to_have_text(Y_DEAD)
+
+
+# Long content makes a phone frame taller (a narrower shape) than any default text would.
+LONG_GUILD_NAME = "The Portland Community Guild of Metalsmithing, Silversmithing, Lost Wax Casting and Enameling Arts"
+LONG_HELP_INTRO = (
+    "Guides to how the makerspace works, from booking an orientation and reserving a studio to paying a "
+    "late fee, plus parking and arrival, who to contact for what, the answers to the questions we get "
+    "asked most, and where to look when a tool is down, a class is cancelled or a key card stops working. "
+    "If you cannot find something here, ask in Discord and a volunteer will point you to the right page."
+)
+LONG_CLASS_TITLE = (
+    "Forge a Leaf Dish at the Anvil, Then Patina, Polish and Seal It for the Table in One Long Saturday Afternoon"
+)
+LONG_CLASS_SUBTITLE = (
+    "Pick Your October Time, Saturday or Sunday, Morning or Evening, Bring a Friend and Leave with a "
+    "Finished Leaf Dish of Your Own Design and Fresh Patina"
+)
+# A phone, the widest phone frame on the guild pages (the sidebar folds away below 900px),
+# and two desktops past the 1240px content cap.
+RANGE_WIDTHS = (320, 768, 1920, 2560)
+
+
+# The range rides every hero img, not only the editor's: on the guilds site an admin has no
+# Adjust bar, but visitors there see the same banner the saved position serves.
+RANGED_IMG = "img[data-frame-min]"
+
+
+def _frame_and_range(page: Page) -> tuple[float, float, float]:
+    """The hero img's shape (width over height) and the range its template states."""
+    shape, fmin, fmax = page.locator(RANGED_IMG).evaluate(
+        "img => [img.clientWidth / img.clientHeight, parseFloat(img.dataset.frameMin), parseFloat(img.dataset.frameMax)]"
+    )
+    return float(shape), float(fmin), float(fmax)
+
+
+def _assert_frames_in_range(page: Page, url: str, label: str) -> None:
+    for width in RANGE_WIDTHS:
+        page.set_viewport_size({"width": width, "height": 900})
+        page.goto(url)
+        page.wait_for_function(
+            f"() => {{ const img = document.querySelector('{RANGED_IMG}'); return !!(img && img.complete && img.naturalWidth); }}"
+        )
+        shape, fmin, fmax = _frame_and_range(page)
+        print(f"RANGE {label} {width}px shape {shape:.2f} range {fmin} to {fmax}")
+        assert fmin <= shape <= fmax, f"{label} at {width}px is {shape:.2f}, outside {fmin} to {fmax}"
+
+
+def describe_the_frame_range_each_template_states():
+    """Each template hand copies the shapes its CSS can give the hero; a CSS change that leaves
+    them stale (a new min-height, a wider column) fails here rather than misjudging a slider."""
+
+    def it_holds_for_the_guild_banner_with_a_long_name(live_server, page: Page, login_via_code, serve_media, settings):
+        guild = cast(Guild, GuildFactory(name=LONG_GUILD_NAME, banner_image=_png("range-banner.png", 1000, 500)))
+        _sign_in_as_admin(login_via_code)
+        _assert_frames_in_range(page, _guild_url(live_server, guild), "guild")
+        settings.GUILDS_HOSTS = [urlparse(live_server.url).hostname]
+        _assert_frames_in_range(page, _guild_url(live_server, guild), "guilds site guild")
+
+    def it_holds_for_the_help_center_banner_with_a_long_intro(
+        live_server, page: Page, login_via_code, serve_media, settings
+    ):
+        OrgInfoPageFactory(banner_image=_png("range-help.png", 1000, 500), intro=LONG_HELP_INTRO)
+        _sign_in_as_admin(login_via_code)
+        _assert_frames_in_range(page, f"{live_server.url}{reverse('hub_help')}", "help")
+        settings.GUILDS_HOSTS = [urlparse(live_server.url).hostname]
+        _assert_frames_in_range(page, f"{live_server.url}{reverse('hub_help')}", "guilds site help")
+
+    def it_holds_for_the_class_page_category_hero_with_a_long_title_and_subtitle(
+        live_server, page: Page, login_via_code, serve_media, settings
+    ):
+        category = CategoryFactory(hero_image=_png("range-category.png", 1000, 500))
+        offering = ClassOfferingFactory(
+            status=ClassOffering.Status.PUBLISHED,
+            category=category,
+            image="",
+            title=LONG_CLASS_TITLE,
+            slug="range-long-title",
+            subtitle=LONG_CLASS_SUBTITLE,
+        )
+        _sign_in_as_admin(login_via_code)
+        settings.PUBLIC_HOSTS = [urlparse(live_server.url).hostname]
+        url = f"{live_server.url}{reverse('classes:public_class_detail', kwargs={'slug': offering.slug})}"
+        _assert_frames_in_range(page, url, "class")
