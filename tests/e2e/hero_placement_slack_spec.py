@@ -249,7 +249,6 @@ def _assert_frames_in_range(page: Page, url: str, label: str) -> None:
             f"() => {{ const img = document.querySelector('{RANGED_IMG}'); return !!(img && img.complete && img.naturalWidth); }}"
         )
         shape, fmin, fmax = _frame_and_range(page)
-        print(f"RANGE {label} {width}px shape {shape:.2f} range {fmin} to {fmax}")
         assert fmin <= shape <= fmax, f"{label} at {width}px is {shape:.2f}, outside {fmin} to {fmax}"
 
 
