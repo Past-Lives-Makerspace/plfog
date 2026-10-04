@@ -27,6 +27,7 @@ from membership.models import (
 from tests.membership.factories import (
     CommunityEventFactory,
     GuildFactory,
+    GuildStaffMembershipFactory,
     MeetingActionItemFactory,
     MeetingAgendaItemFactory,
     MeetingAttendeeFactory,
@@ -592,10 +593,47 @@ def describe_attendee_add():
         _lead_client(client, guild)
         meeting = MeetingFactory(guild=guild)
         member = MemberFactory()
+        member.guild_memberships.create(guild=guild)
         MeetingAttendeeFactory(meeting=meeting, member=member)
         resp = client.post(reverse("hub_meeting_attendee_add", args=[meeting.pk]), {"member": str(member.pk)})
         assert resp.status_code == 422
         assert "Already on the list." in resp["HX-Trigger"]
+
+    def it_422s_a_member_who_is_not_on_the_roster(client: Client):
+        guild = GuildFactory()
+        _lead_client(client, guild)
+        meeting = MeetingFactory(guild=guild)
+        outsider = MemberFactory()
+        resp = client.post(reverse("hub_meeting_attendee_add", args=[meeting.pk]), {"member": str(outsider.pk)})
+        assert resp.status_code == 422
+        assert "Pick a member from the list." in resp["HX-Trigger"]
+        assert not meeting.attendees.exists()
+
+    def it_422s_a_hidden_member_even_on_the_roster(client: Client):
+        guild = GuildFactory()
+        _lead_client(client, guild)
+        meeting = MeetingFactory(guild=guild)
+        hidden = MemberFactory(hide_from_directory=True)
+        hidden.guild_memberships.create(guild=guild)
+        resp = client.post(reverse("hub_meeting_attendee_add", args=[meeting.pk]), {"member": str(hidden.pk)})
+        assert resp.status_code == 422
+        assert not meeting.attendees.exists()
+
+    def it_422s_an_unknown_member_pk(client: Client):
+        guild = GuildFactory()
+        _lead_client(client, guild)
+        meeting = MeetingFactory(guild=guild)
+        resp = client.post(reverse("hub_meeting_attendee_add", args=[meeting.pk]), {"member": "999999"})
+        assert resp.status_code == 422
+
+    def it_adds_a_council_member_who_holds_guild_staff(client: Client):
+        guild = GuildFactory()
+        _lead_client(client, guild)
+        meeting = MeetingFactory(guild=None)
+        staffer = GuildStaffMembershipFactory().member
+        resp = client.post(reverse("hub_meeting_attendee_add", args=[meeting.pk]), {"member": str(staffer.pk)})
+        assert resp.status_code == 200
+        assert meeting.attendees.filter(member=staffer).exists()
 
     def it_403s_a_locked_meeting(client: Client):
         guild = GuildFactory()

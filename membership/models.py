@@ -423,6 +423,15 @@ class MemberQuerySet(models.QuerySet):
             .distinct()
         )
 
+    def without_hidden(self) -> MemberQuerySet:
+        """Drop members under the ops override (``hide_from_directory``).
+
+        For the pickers leads, staff and instructors use to choose another member (#614): the
+        app store review account and the Help Center's example accounts never appear there.
+        Admin management lists do not use it, so those accounts can still be managed.
+        """
+        return self.exclude(hide_from_directory=True)
+
 
 @dataclass(frozen=True)
 class ProfileCompleteness:
@@ -8184,9 +8193,11 @@ class CommunityEvent(models.Model):
 
         Empty state names nobody and invites the first RSVP. Names are capped at
         :data:`_DISCORD_ATTENDEE_CAP` and the whole value is defensively trimmed under Discord's
-        1024-char field cap. One query with ``select_related('member')``.
+        1024-char field cap. One query with ``select_related('member')``. Members under the
+        ``hide_from_directory`` override are left out of the names and the count (#614), as on
+        the hub event page.
         """
-        rsvps = list(self.rsvps.select_related("member"))
+        rsvps = list(self.rsvps.select_related("member").exclude(member__hide_from_directory=True))
         count = len(rsvps)
         name = f"Attendees ({count})"
         if not rsvps:

@@ -271,18 +271,25 @@ def hub_meeting_save(request: HttpRequest, pk: int) -> HttpResponse:
 # --- Workspace GET ------------------------------------------------------------
 
 
-def _attendee_picker_context(meeting: Meeting) -> dict[str, Any]:
-    """The roster ``<select>`` options: scope roster minus already-added members."""
+def _attendee_roster(meeting: Meeting) -> Any:
+    """The members a meeting may list as attendees: its guild's roster, or the council's."""
     if meeting.guild is not None:
-        roster = meeting.guild.roster_members()
-    else:
-        # Council roster: everyone holding lead/staff authority in any guild.
-        roster = Member.objects.filter(
+        return meeting.guild.roster_members()
+    # Council roster: everyone holding lead/staff authority in any guild.
+    return (
+        Member.objects.filter(
             Q(pk__in=Guild.objects.filter(guild_lead__isnull=False).values("guild_lead"))
             | Q(guild_staff_roles__isnull=False)
-        ).distinct()
+        )
+        .without_hidden()
+        .distinct()
+    )
+
+
+def _attendee_picker_context(meeting: Meeting) -> dict[str, Any]:
+    """The roster ``<select>`` options: scope roster minus already-added members."""
     added = meeting.attendees.filter(member__isnull=False).values("member")
-    return {"roster_options": roster.exclude(pk__in=added).order_by("full_legal_name")}
+    return {"roster_options": _attendee_roster(meeting).exclude(pk__in=added).order_by("full_legal_name")}
 
 
 # Mirrors Guild.next_meeting_occurrence's forward window — a year of occurrences.
@@ -706,7 +713,10 @@ def hub_meeting_attendee_add(request: HttpRequest, pk: int) -> HttpResponse:
     if member_pk:
         if not member_pk.isdigit():
             return _invalid("Pick a member from the list.")
-        member = get_object_or_404(Member, pk=int(member_pk))
+        # Only a member the picker offers (#614): never a hidden account or someone off the roster.
+        member = _attendee_roster(meeting).filter(pk=int(member_pk)).first()
+        if member is None:
+            return _invalid("Pick a member from the list.")
     try:
         attendee = meeting.add_attendee(member=member, guest_name=guest_name)
     except ValueError as exc:  # duplicate member — the stale-select backstop
