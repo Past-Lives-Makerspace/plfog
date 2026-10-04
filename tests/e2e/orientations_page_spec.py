@@ -3,7 +3,8 @@
 A member books a slot from a card and lands back on the page with the card reading
 Requested; a lead adds an orientation type on the guild editor, picks a photo on the
 freshly added row and sees its preview (the row's cloned image field script has to run),
-and the autosave stores it. On the Calendar view (part 3) a member finds a seeded slot's
+and the autosave stores it; the equipment editor's own "+ Add Orientation Type" row does the
+same through its Save button. On the Calendar view (part 3) a member finds a seeded slot's
 chip, follows its entry and lands on that type's card; the guild page's own calendar
 still files its filters under the guild. Waits are on what the page shows. Run with
 ``pytest -m e2e`` on PostgreSQL.
@@ -23,6 +24,7 @@ from hub.calendar_entries import ORIENTATION_PK_OFFSET
 
 from membership.models import OrientationBooking, OrientationType
 from tests.membership.factories import (
+    EquipmentFactory,
     GuildFactory,
     GuildOrientationSettingsFactory,
     MembershipPlanFactory,
@@ -90,6 +92,33 @@ def describe_the_orientations_page():
         expect(page.locator('input[name="otypes-0-id"]')).not_to_have_value("")
         page.wait_for_function(SAVED_PAST, arg=1)
         saved = OrientationType.objects.get(guild=guild, name="Press Basics")
+        assert saved.photo.name.startswith("orientations/photos/")
+
+    def it_previews_and_saves_a_photo_on_an_equipment_type_row_added_by_hand(live_server, page, login_via_code):
+        # The equipment editor clones its row with its own inline handler, not the guild autosave,
+        # so the row's image field script has a second place it must be re-run.
+        MembershipPlanFactory()
+        equipment = EquipmentFactory(name="Laser cutter")
+        login_via_code(ADMIN_EMAIL)
+        user = get_user_model().objects.get(username=ADMIN_EMAIL)
+        user.is_staff = True
+        user.is_superuser = True
+        user.save(update_fields=["is_staff", "is_superuser"])
+
+        page.goto(f"{live_server.url}{reverse('hub_equipment_manage', args=[equipment.slug])}?tab=orientation")
+        page.get_by_role("button", name="+ Add Orientation Type").click()
+        page.locator('input[name="otypes-0-photo"]').set_input_files(
+            {"name": "laser.png", "mimeType": "image/png", "buffer": _PNG}
+        )
+        expect(page.locator("#image-preview-id_otypes-0-photo img")).to_be_visible()
+        expect(page.locator("#image-upload-zone-id_otypes-0-photo .cls-image-upload-label")).to_have_text(
+            "Replace image"
+        )
+
+        page.locator('input[name="otypes-0-name"]').fill("Laser Basics")
+        page.locator("#equip-otype-rows").locator("..").get_by_role("button", name="Save").click()
+        expect(page.get_by_text("Laser Basics").first).to_be_attached()
+        saved = OrientationType.objects.get(equipment=equipment, name="Laser Basics")
         assert saved.photo.name.startswith("orientations/photos/")
 
 

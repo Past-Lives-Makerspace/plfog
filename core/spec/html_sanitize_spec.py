@@ -17,10 +17,18 @@ def describe_sanitize_rich_html():
         for tag in ("<h2>", "<h3>", "<p>", "<strong>", "<em>", "<u>", "<blockquote>"):
             assert tag in result
 
-    def it_strips_script_but_keeps_inner_text():
+    def it_drops_a_script_with_its_code():
         result = sanitize_rich_html("<p>Hello</p><script>alert(1)</script>")
-        assert "<script" not in result
-        assert "Hello" in result
+        assert result == "<p>Hello</p>"
+
+    def it_drops_a_style_block_with_its_css():
+        # bleach keeps the text between stripped tags, so CSS used to show as words.
+        result = sanitize_rich_html('<p>a</p><STYLE type="text/css">body{display:none}</STYLE >\n<p>b</p>')
+        assert result == "<p>a</p>\n<p>b</p>"
+
+    def it_drops_a_style_block_and_nothing_else():
+        assert sanitize_rich_html("<style>p{}</style>") == ""
+        assert sanitize_rich_html("<p>keep</p><style>x</style><p>this</p><style>y</style>") == "<p>keep</p><p>this</p>"
 
     def it_strips_style_tags_iframes_and_event_handlers():
         result = sanitize_rich_html('<style>body{}</style><iframe src="x"></iframe><p onclick="evil()">Hi</p>')

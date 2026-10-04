@@ -56,6 +56,9 @@ _LINE_BREAK_RE = re.compile(r"<br\s*/?>|</(?:p|li|h2|h3|blockquote|ul|ol)>", re.
 # Quill 2.x emits a bullet list as ``<ol>`` whose items carry ``data-list="bullet"``.
 _OL_BLOCK_RE = re.compile(r"<ol(\s[^>]*)?>(.*?)</ol>", re.IGNORECASE | re.DOTALL)
 _BULLET_ITEM_RE = re.compile(r"""data-list\s*=\s*["']bullet["']""", re.IGNORECASE)
+# A script or style element, contents and all. ``bleach`` strips the tags but keeps what
+# is between them, so CSS or code pasted in would otherwise survive as visible text.
+_RAW_TEXT_ELEMENT_RE = re.compile(r"<(script|style)\b[^>]*>.*?</\1\s*>", re.IGNORECASE | re.DOTALL)
 
 
 def _harden_link(attrs: dict[Any, Any], new: bool = False) -> dict[Any, Any]:
@@ -104,15 +107,15 @@ def sanitize_rich_html(raw: str) -> str:
         raw: The editor's HTML. Treated as hostile input.
 
     Returns:
-        Sanitized HTML — ``script``/``style``/``iframe``/event handlers/inline
-        ``style=``/``class=`` and any tag outside the allowlist are dropped (inner text
-        kept); every link gets ``rel="noopener nofollow noreferrer" target="_blank"``;
-        Quill bullet lists become semantic ``<ul>``. Empty, blank, or contentless input
+        Sanitized HTML — ``script`` and ``style`` elements are dropped with their contents;
+        ``iframe``/event handlers/inline ``style=``/``class=`` and any other tag outside the
+        allowlist are dropped (inner text kept); every link gets
+        ``rel="noopener nofollow noreferrer" target="_blank"``; Quill bullet lists become semantic ``<ul>``. Empty, blank, or contentless input
         (an empty Quill editor is ``<p><br></p>``) returns ``""``.
     """
     if not raw or not raw.strip():
         return ""
-    normalized = _normalize_quill_lists(raw)
+    normalized = _normalize_quill_lists(_RAW_TEXT_ELEMENT_RE.sub("", raw))
     cleaned = bleach.clean(normalized, tags=_ALLOWED_TAGS, attributes=_ALLOWED_ATTRS, strip=True)
     hardened = bleach.linkify(cleaned, callbacks=[_harden_link], parse_email=False)
     if not rich_html_to_text(hardened):
