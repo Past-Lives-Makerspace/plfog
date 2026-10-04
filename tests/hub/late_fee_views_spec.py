@@ -409,7 +409,7 @@ def describe_equipment_page_block():
         )
         booking = OrientationBookingFactory(slot=slot, member=user.member, status=OrientationBooking.Status.CONFIRMED)
         content = client.get(reverse("hub_equipment_detail", args=[equipment.slug])).content.decode()
-        start = content.index(f"=== 'cancel-equip-orientation-{booking.pk}') open = true")
+        start = content.index(f"=== 'cancel-my-orientation-{booking.pk}') open = true")
         modal = content[start : content.index("</template>", start)]
         assert "so a $25.00 late cancellation fee applies" in modal
         assert 'hx-boost="false"' in modal

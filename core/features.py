@@ -122,6 +122,11 @@ FEATURES: list[Feature] = [
         off_description="Takes Spaces out of the sidebar, and the Spaces card off the Help page.",
     ),
     Feature(
+        key="orientations",
+        name="Orientations",
+        off_description="Takes Orientations out of the sidebar.",
+    ),
+    Feature(
         key="equipment",
         name="Reservations",
         off_description="Takes Reservations out of the sidebar.",

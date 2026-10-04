@@ -70,7 +70,7 @@ def describe_guild_page():
         )
         client.login(username="gp3", password="pass")
         content = client.get(reverse("hub_guild_detail", args=[slot.guild.slug])).content.decode()
-        assert "Finishing Your Booking" in content
+        assert '<span class="pl-equip-badge pl-equip-badge--warn">Payment pending</span>' in content
         assert "Resume payment" in content
         assert reverse("hub_orientation_checkout_cancel_hold", args=[hold.pk]) in content
 

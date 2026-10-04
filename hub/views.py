@@ -857,6 +857,24 @@ def _owner_redirect(orientation_type: Any) -> HttpResponse:
     return redirect(orientation_type.orientation_anchor_path())
 
 
+def _orientation_return(request: HttpRequest, owner: Any) -> HttpResponse:
+    """Where a booking road lands: the posted ``next`` when it is a local path, else the owner page.
+
+    The Orientations page (#502) posts ``next=/orientations/`` so a member who books, picks
+    a time, asks for a custom time or cancels from a card comes back to it; the guild and
+    equipment pages post nothing and land where they always did. ``owner`` is the
+    :class:`OrientationType` (its owner page and anchor) or, for the guild only roads that
+    may fail before a type is known, the :class:`Guild` (its page). A ``next`` naming
+    another host or a scheme is ignored, so the field can never send anyone off site.
+    """
+    next_url = request.POST.get("next", "")
+    if next_url and url_has_allowed_host_and_scheme(next_url, allowed_hosts={request.get_host()}):
+        return redirect(next_url)
+    if isinstance(owner, Guild):
+        return redirect("hub_guild_detail", slug=owner.slug)
+    return _owner_redirect(owner)
+
+
 def _require_can_manage_booking(request: HttpRequest, booking: Any) -> HttpResponse | None:
     """403 unless the request may run this booking's orientation, whichever owner type.
 
@@ -1163,6 +1181,8 @@ def _guild_edit_context(
         ),
         "orientation_is_paid": guild.orientation_types.active().filter(price_cents__gt=0).exists(),
         "orientation_split": _orientation_split_percents(),
+        # The per type photo field (#502) rejects an oversized file before it posts.
+        "max_upload_image_bytes": settings.MAX_UPLOAD_IMAGE_BYTES,
         "welcome_email_form": (
             welcome_email_form if welcome_email_form is not None else GuildWelcomeEmailForm(instance=settings_obj)
         ),
@@ -1360,7 +1380,7 @@ def guild_orientation_types_save(request: HttpRequest, pk: int) -> HttpResponse:
     forbidden = _require_can_manage_orientations(request, guild)
     if forbidden is not None:
         return forbidden
-    formset = OrientationTypeFormSet(request.POST, instance=guild, prefix="otypes")
+    formset = OrientationTypeFormSet(request.POST, request.FILES, instance=guild, prefix="otypes")
     if formset.is_valid():
         formset.save()
         orientations.generate_slots(guild=guild)
@@ -1881,7 +1901,7 @@ def orientation_book(request: HttpRequest, slot_pk: int) -> HttpResponse:
     member = _get_member(request)
     if member is None:
         messages.error(request, "You need a member profile to book an orientation.")
-        return _owner_redirect(slot.orientation_type)
+        return _orientation_return(request, slot.orientation_type)
     # Every refusal arrives as an OrientationError from OrientationSlot.ensure_bookable_for,
     # the choke point every booking road shares, and the handler below shows its sentence.
     try:
@@ -1899,7 +1919,7 @@ def orientation_book(request: HttpRequest, slot_pk: int) -> HttpResponse:
     except Exception:
         logger.exception("Orientation checkout failed for slot %s.", slot.pk)
         messages.error(request, "We couldn't start the payment checkout. Please try again in a minute.")
-    return _owner_redirect(slot.orientation_type)
+    return _orientation_return(request, slot.orientation_type)
 
 
 @login_required
@@ -1918,15 +1938,15 @@ def guild_orientation_request_custom(request: HttpRequest, pk: int) -> HttpRespo
     member = _get_member(request)
     if member is None:
         messages.error(request, "You need a member profile to request an orientation.")
-        return redirect("hub_guild_detail", slug=guild.slug)
+        return _orientation_return(request, guild)
     settings_obj = GuildOrientationSettings.objects.filter(guild=guild).first()
     if settings_obj is None or not settings_obj.is_accepting or not settings_obj.allow_custom_requests:
         messages.error(request, "This guild isn't taking custom orientation requests right now.")
-        return redirect("hub_guild_detail", slug=guild.slug)
+        return _orientation_return(request, guild)
     form = OrientationCustomRequestForm(request.POST, guild=guild)
     if not form.is_valid():
         messages.error(request, "Pick one of this guild's orientations and a valid future time.")
-        return redirect("hub_guild_detail", slug=guild.slug)
+        return _orientation_return(request, guild)
     starts = form.cleaned_data["starts_at"]
     orientation_type = form.cleaned_data["orientation_type"]
     if orientation_type.is_paid:
@@ -1936,11 +1956,11 @@ def guild_orientation_request_custom(request: HttpRequest, pk: int) -> HttpRespo
             )
         except OrientationError as exc:
             messages.error(request, str(exc))
-            return redirect("hub_guild_detail", slug=guild.slug)
+            return _orientation_return(request, guild)
         except Exception:
             logger.exception("Custom orientation checkout failed for guild %s.", guild.pk)
             messages.error(request, "We couldn't start the payment checkout. Please try again in a minute.")
-            return redirect("hub_guild_detail", slug=guild.slug)
+            return _orientation_return(request, guild)
         return redirect(checkout_url)
     try:
         orientations.request_custom_orientation(
@@ -1948,9 +1968,9 @@ def guild_orientation_request_custom(request: HttpRequest, pk: int) -> HttpRespo
         )
     except OrientationError as exc:
         messages.error(request, str(exc))
-        return redirect("hub_guild_detail", slug=guild.slug)
+        return _orientation_return(request, guild)
     messages.success(request, "Your orientation request was sent — the guild lead will confirm a time.")
-    return redirect("hub_guild_detail", slug=guild.slug)
+    return _orientation_return(request, guild)
 
 
 @login_required
@@ -1969,6 +1989,11 @@ def orientation_block_starts(request: HttpRequest, block_pk: int, type_pk: int) 
     orientation_type = get_object_or_404(OrientationType.objects.active(), pk=type_pk, guild_id=block.guild_id)
     form = OrientationBlockBookingForm(block=block, orientation_type=orientation_type)
     start_choices = list(form.fields["starts_at"].widget.choices)
+    # The Orientations page asks with ?next= so the booking lands back on it; only a local
+    # path is carried into the form (the POST side checks it again).
+    next_url = request.GET.get("next", "")
+    if not url_has_allowed_host_and_scheme(next_url, allowed_hosts={request.get_host()}):
+        next_url = ""
     return render(
         request,
         "hub/partials/orientation_block_start_form.html",
@@ -1977,6 +2002,7 @@ def orientation_block_starts(request: HttpRequest, block_pk: int, type_pk: int) 
             "orientation_type": orientation_type,
             "form": form,
             "has_starts": bool(start_choices),
+            "next_url": next_url,
         },
     )
 
@@ -1998,11 +2024,11 @@ def orientation_block_book(request: HttpRequest, block_pk: int) -> HttpResponse:
     member = _get_member(request)
     if member is None:
         messages.error(request, "You need a member profile to book an orientation.")
-        return redirect("hub_guild_detail", slug=block.guild.slug)
+        return _orientation_return(request, block.guild)
     form = OrientationBlockBookingForm(request.POST, block=block)
     if not form.is_valid():
         messages.error(request, "Pick one of this guild's orientations and one of the listed times.")
-        return redirect("hub_guild_detail", slug=block.guild.slug)
+        return _orientation_return(request, block.guild)
     starts = form.cleaned_data["starts_at"]
     orientation_type = form.cleaned_data["orientation_type"]
     note = form.cleaned_data["note"]
@@ -2013,11 +2039,11 @@ def orientation_block_book(request: HttpRequest, block_pk: int) -> HttpResponse:
             )
         except OrientationError as exc:
             messages.error(request, str(exc))
-            return redirect("hub_guild_detail", slug=block.guild.slug)
+            return _orientation_return(request, block.guild)
         except Exception:
             logger.exception("Block orientation checkout failed for block %s.", block.pk)
             messages.error(request, "We couldn't start the payment checkout. Please try again in a minute.")
-            return redirect("hub_guild_detail", slug=block.guild.slug)
+            return _orientation_return(request, block.guild)
         return redirect(checkout_url)
     try:
         orientations.request_block_orientation(block, member, starts, orientation_type=orientation_type, note=note)
@@ -2027,7 +2053,7 @@ def orientation_block_book(request: HttpRequest, block_pk: int) -> HttpResponse:
         )
     except OrientationError as exc:
         messages.error(request, str(exc))
-    return redirect("hub_guild_detail", slug=block.guild.slug)
+    return _orientation_return(request, block.guild)
 
 
 @login_required
@@ -2159,10 +2185,10 @@ def orientation_cancel_mine(request: HttpRequest, booking_pk: int) -> HttpRespon
         )
     except OrientationError as exc:
         messages.error(request, str(exc))
-        return _owner_redirect(booking.orientation_type)
+        return _orientation_return(request, booking.orientation_type)
     if fee is None:
         messages.success(request, "Your orientation was cancelled.")
-        return _owner_redirect(booking.orientation_type)
+        return _orientation_return(request, booking.orientation_type)
     # A late cancel (#456): straight to Stripe Checkout. The modal's form is unboosted for
     # exactly this redirect, so the browser follows it to Stripe's page.
     from billing import late_fees
@@ -2175,7 +2201,7 @@ def orientation_cancel_mine(request: HttpRequest, booking_pk: int) -> HttpRespon
             request,
             "Your orientation was cancelled. A late cancellation fee applies; use the Pay button to pay it.",
         )
-        return _owner_redirect(booking.orientation_type)
+        return _orientation_return(request, booking.orientation_type)
     return redirect(checkout_url)
 
 
@@ -2300,7 +2326,7 @@ def orientation_checkout_cancel_hold(request: HttpRequest, booking_pk: int) -> H
     if member is None or booking.member_id != member.pk:
         return HttpResponse("Forbidden", status=403)
     if booking.status != OrientationBooking.Status.PENDING_PAYMENT:
-        return _owner_redirect(booking.orientation_type)
+        return _orientation_return(request, booking.orientation_type)
     outcome = orientations.release_hold_if_unpaid(booking)
     if outcome == "released":
         messages.success(request, "Booking cancelled. You were not charged.")
@@ -2312,7 +2338,7 @@ def orientation_checkout_cancel_hold(request: HttpRequest, booking_pk: int) -> H
         )
     else:
         messages.error(request, "We couldn't check your payment status just now. Try again in a minute.")
-    return _owner_redirect(booking.orientation_type)
+    return _orientation_return(request, booking.orientation_type)
 
 
 @login_required

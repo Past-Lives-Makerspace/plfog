@@ -194,6 +194,17 @@
     if (empty) empty.hidden = rows.length > 0;
   }
 
+  // Markup set through innerHTML never runs its <script> tags, so a cloned row's own scripts (the
+  // image field's preview and drag and drop, #502) are swapped for fresh copies once the row is in
+  // the page, where their getElementById lookups find the row's renamed elements.
+  function runInlineScripts(row) {
+    row.querySelectorAll("script").forEach(function (stale) {
+      var fresh = document.createElement("script");
+      fresh.textContent = stale.textContent;
+      stale.replaceWith(fresh);
+    });
+  }
+
   function deleteInput(row) {
     return row.querySelector('input[name$="-DELETE"]');
   }
@@ -538,6 +549,7 @@
           var row = holder.firstElementChild;
           markEdited(form);
           form.querySelector("[data-formset-rows]").appendChild(row);
+          runInlineScripts(row);
           total.value = index + 1;
           var empty = form.querySelector("[data-formset-empty]");
           if (empty) empty.hidden = true;

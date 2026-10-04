@@ -18,6 +18,8 @@ Member-facing views. All views are `@login_required`. No models — reads from `
 | `tab_history` | `hub_tab_history` | `/tab/history/` |
 | `announcements_overview` | `hub_announcements` | `/announcements/` (Drafts and Sent tabs, `?tab=drafts\|sent`) |
 | `announcement_sent` | `hub_announcement_sent` | `/announcements/sent/<pk>/` (read-only record of a sent or sending announcement) |
+| `orientations_views.hub_orientations` | `hub_orientations` | `/orientations/` (every bookable orientation as a card; its controls post `next` so the member lands back, `views._orientation_return`) |
+| `orientations_dashboard` | `hub_orientations_dashboard` | `/orientations/manage/` (staff dashboard; export and add member sit under it) |
 
 ## Announcements
 

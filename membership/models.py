@@ -11205,6 +11205,15 @@ class OrientationType(models.Model):
         default=True,
         help_text="Offer this type to members. An inactive type keeps its history but takes no new bookings.",
     )
+    photo = models.ImageField(
+        upload_to="orientations/photos/",
+        blank=True,
+        validators=[validate_image_size],
+        help_text=(
+            "Photo shown on this orientation's card. Leave empty to use the guild banner, "
+            "or the equipment photo for an equipment orientation."
+        ),
+    )
     created_at = models.DateTimeField(auto_now_add=True)
 
     objects = OrientationTypeQuerySet.as_manager()
@@ -11231,6 +11240,10 @@ class OrientationType(models.Model):
 
     def __str__(self) -> str:
         return f"{self.owner_name} — {self.name}"
+
+    def save(self, *args: Any, **kwargs: Any) -> None:
+        delete_orphan_on_replace(self, "photo")
+        super().save(*args, **kwargs)
 
     @property
     def is_paid(self) -> bool:
@@ -11274,6 +11287,52 @@ class OrientationType(models.Model):
         if self.is_equipment_owned:
             return f"{self.owner_page_path()}?type={self.pk}#equipment-orientation"
         return f"{self.owner_page_path()}?tab=orientations&type={self.pk}#guild-orientation"
+
+    def orientations_page_path(self) -> str:
+        """This type's card on the Orientations page (#502), where a locked Reservations card sends members."""
+        return f"{reverse('hub_orientations')}#orientation-type-{self.pk}"
+
+    def _card_image_source(self) -> tuple[Any, Guild | Equipment | None]:
+        """The picture a card shows and the owner whose crop positions it (``None`` for the type's own photo).
+
+        Fallback order (#502): the type's own photo, then the equipment's photo for an
+        equipment owned type, then the owning guild's banner (the equipment's guild for an
+        equipment owned type with no photo of its own). ``(None, None)`` when nothing is set.
+        """
+        if self.photo:
+            return self.photo, None
+        guild: Guild | None
+        if self.equipment is not None:
+            if self.equipment.photo:
+                return self.equipment.photo, self.equipment
+            guild = self.equipment.guild
+        else:
+            guild = self.guild
+        if guild is not None and guild.banner_image:
+            return guild.banner_image, guild
+        return None, None
+
+    @property
+    def card_image(self) -> Any:
+        """The image file a card shows (own photo, equipment photo, guild banner), or ``None``."""
+        return self._card_image_source()[0]
+
+    @property
+    def card_image_owner(self) -> Guild | Equipment | None:
+        """The guild or equipment whose picture the card borrows; ``None`` for an own photo or no picture.
+
+        A page rendering many cards keys its ``hero_object_position`` reads on this, so a
+        box crop (which reads the image's dimensions from storage) is read once per owner.
+        """
+        return self._card_image_source()[1]
+
+    @property
+    def card_image_position(self) -> str:
+        """CSS ``object-position`` for :attr:`card_image`: centred for an own photo, else the owner's crop."""
+        owner = self.card_image_owner
+        if owner is None:
+            return "50% 50%"
+        return owner.hero_object_position
 
     @property
     def is_accepting(self) -> bool:
@@ -11825,19 +11884,85 @@ class OrientationAvailabilityBlock(models.Model):
             .exclude(block_id=self.pk)
             .values_list("starts_at", "ends_at")
         )
+        return self._merge_spans([*occupied, *elsewhere])
+
+    @staticmethod
+    def _merge_spans(
+        spans: Iterable[tuple[datetime_type, datetime_type]],
+    ) -> list[tuple[datetime_type, datetime_type]]:
+        """Sort spans and fold the overlapping or touching ones together."""
         merged: list[tuple[datetime_type, datetime_type]] = []
-        for start, end in sorted([*occupied, *elsewhere]):
+        for start, end in sorted(spans):
             if merged and start <= merged[-1][1]:
                 merged[-1] = (merged[-1][0], max(merged[-1][1], end))
             else:
                 merged.append((start, end))
         return merged
 
-    def free_intervals(self) -> list[tuple[datetime_type, datetime_type]]:
-        """The block's open time: its span minus the occupied segments, in order."""
+    @classmethod
+    def free_intervals_by_block(
+        cls, blocks: list[OrientationAvailabilityBlock]
+    ) -> dict[int, list[tuple[datetime_type, datetime_type]]]:
+        """:meth:`free_intervals` for many windows in two queries, however many windows there are.
+
+        The same occupancy rule as :meth:`_busy_spans` (each window's own live carved slots,
+        plus its orienter's seat holding slots anywhere else over its span), read for every
+        window at once and split up in Python. Pages that list many windows (the
+        Orientations page, #502) use it so their query count does not grow with the list.
+        """
+        if not blocks:
+            return {}
+        seat_holding = [
+            OrientationBooking.Status.PENDING_PAYMENT,
+            OrientationBooking.Status.REQUESTED,
+            OrientationBooking.Status.CONFIRMED,
+        ]
+        occupied_rows = (
+            OrientationSlot.objects.filter(block__in=[block.pk for block in blocks], is_cancelled=False)
+            .annotate(
+                holder_count=Count("bookings", filter=Q(bookings__status__in=seat_holding)),
+                booking_count=Count("bookings"),
+            )
+            .filter(Q(holder_count__gt=0) | Q(booking_count=0))
+            .values_list("block_id", "starts_at", "ends_at")
+        )
+        occupied: dict[int, list[tuple[datetime_type, datetime_type]]] = {}
+        for block_id, starts_at, ends_at in occupied_rows:
+            occupied.setdefault(block_id, []).append((starts_at, ends_at))
+        elsewhere_rows = list(
+            OrientationSlot.objects.holding_seats()
+            .filter(
+                orienter_id__in={block.orienter_id for block in blocks},
+                starts_at__lt=max(block.ends_at for block in blocks),
+                ends_at__gt=min(block.starts_at for block in blocks),
+            )
+            .values_list("orienter_id", "block_id", "starts_at", "ends_at")
+        )
+        free_by_block: dict[int, list[tuple[datetime_type, datetime_type]]] = {}
+        for block in blocks:
+            elsewhere = [
+                (starts_at, ends_at)
+                for orienter_id, block_id, starts_at, ends_at in elsewhere_rows
+                if orienter_id == block.orienter_id
+                and block_id != block.pk
+                and starts_at < block.ends_at
+                and ends_at > block.starts_at
+            ]
+            busy = cls._merge_spans([*occupied.get(block.pk, []), *elsewhere])
+            free_by_block[block.pk] = block.free_intervals(busy=busy)
+        return free_by_block
+
+    def free_intervals(
+        self, *, busy: list[tuple[datetime_type, datetime_type]] | None = None
+    ) -> list[tuple[datetime_type, datetime_type]]:
+        """The block's open time: its span minus the occupied segments, in order.
+
+        ``busy`` takes merged occupied segments already read (:meth:`free_intervals_by_block`);
+        left out, they are read for this block alone.
+        """
         free: list[tuple[datetime_type, datetime_type]] = []
         cursor = self.starts_at
-        for busy_start, busy_end in self._busy_spans():
+        for busy_start, busy_end in self._busy_spans() if busy is None else busy:
             if busy_start > cursor:
                 free.append((cursor, min(busy_start, self.ends_at)))
             cursor = max(cursor, busy_end)
@@ -11847,17 +11972,24 @@ class OrientationAvailabilityBlock(models.Model):
             free.append((cursor, self.ends_at))
         return free
 
-    def valid_starts_for(self, orientation_type: OrientationType) -> list[datetime_type]:
+    def valid_starts_for(
+        self,
+        orientation_type: OrientationType,
+        *,
+        free: list[tuple[datetime_type, datetime_type]] | None = None,
+    ) -> list[datetime_type]:
         """Future 15-minute-aligned starts (measured from the block start) that fit the type's duration.
 
-        A cancelled window, or one for another orientation only, offers none.
+        A cancelled window, or one for another orientation only, offers none. ``free``
+        takes this block's :meth:`free_intervals` already read; left out, they are read here.
         """
         if self.is_cancelled or not self.admits(orientation_type):
             return []
         duration = timedelta(minutes=orientation_type.duration_minutes)
         step = timedelta(minutes=self.SNAP_MINUTES)
         now = timezone.now()
-        free = self.free_intervals()
+        if free is None:
+            free = self.free_intervals()
         starts: list[datetime_type] = []
         candidate = self.starts_at
         while candidate + duration <= self.ends_at:

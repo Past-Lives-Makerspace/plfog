@@ -9234,6 +9234,37 @@ mark { background: color-mix(in srgb, var(--color-tuscan-yellow) 30%, transparen
     font-size: 0.85rem;
 }
 
+/* Orientation state (#502): a member's hold or booking on a type, rendered by
+   _orientation_type_state.html on the Orientations page cards and under the type heading on the
+   guild and equipment pages. The card's own layout lives in orientations.css. */
+.pl-orient-card__note {
+    margin: 0;
+    font-size: 0.85rem;
+    color: var(--hub-text-muted);
+}
+.pl-orient-card__booked {
+    margin: 0;
+    font-size: 0.95rem;
+    color: var(--hub-text);
+}
+.pl-orient-card__actions {
+    display: flex;
+    gap: 0.5rem;
+    flex-wrap: wrap;
+    margin-top: 0.25rem;
+}
+.pl-orient-card__actions form {
+    margin: 0;
+}
+/* On the guild and equipment pages the state block sits under the type heading, not in a card body. */
+.pl-orient-type .pl-orient-card__note,
+.pl-orient-type .pl-orient-card__booked {
+    margin-top: 0.4rem;
+}
+.pl-orient-type .pl-orient-card__actions {
+    margin-top: 0.75rem;
+}
+
 /* Filter row — chips scroll horizontally in their own contained region on phones. */
 .pl-equip-filters {
     display: flex;
@@ -9665,12 +9696,6 @@ mark { background: color-mix(in srgb, var(--color-tuscan-yellow) 30%, transparen
 .pl-equip-orientation {
     margin-bottom: 1.25rem;
     scroll-margin-top: 1rem;
-}
-.pl-orient-confirmed {
-    color: #7bdcb5;
-}
-[data-theme="light"] .pl-orient-confirmed {
-    color: #1e7a4f;
 }
 .pl-equip-slot-group {
     display: flex;

@@ -1,0 +1,68 @@
+{% extends "hub/base.html" %}
+{% load static %}
+{% block title %}Orientations{% endblock %}
+
+{% block extra_head %}
+<link rel="stylesheet" href="{% static 'css/orientations.css' %}">
+{% endblock %}
+
+{% block content %}
+{% include "components/page_header.html" with title="Orientations" description="Get trained on a guild or a tool before you book it." %}
+
+{% if unpaid_late_fee %}
+{# The block until paid (#456): every booking road on the cards refuses until the fee is paid. #}
+{% include "hub/partials/late_fee_notice.html" with fee=unpaid_late_fee %}
+{% endif %}
+
+{# The Reservations page's chip row and search, reused as is. #}
+<div class="pl-equip-filters">
+  <div class="pl-equip-chips">
+    <a href="{% url 'hub_orientations' %}?q={{ query|urlencode }}"
+       class="pl-equip-chip {% if not owner_filter %}pl-equip-chip--active{% endif %}">All</a>
+    <a href="{% url 'hub_orientations' %}?owner=guild&q={{ query|urlencode }}"
+       class="pl-equip-chip {% if owner_filter == 'guild' %}pl-equip-chip--active{% endif %}">Guilds</a>
+    <a href="{% url 'hub_orientations' %}?owner=equipment&q={{ query|urlencode }}"
+       class="pl-equip-chip {% if owner_filter == 'equipment' %}pl-equip-chip--active{% endif %}">Equipment</a>
+  </div>
+  <form method="get" class="pl-equip-search hub-form-group">
+    <input type="hidden" name="owner" value="{{ owner_filter }}">
+    <input type="search" name="q" value="{{ query }}" placeholder="Search orientations" aria-label="Search orientations">
+  </form>
+</div>
+
+{% if open_sections %}
+<div class="pl-equip-grid">
+  {% for sec in open_sections %}
+  {% include "hub/partials/orientation_card.html" %}
+  {% endfor %}
+</div>
+{% elif not done_sections %}
+<div class="hub-card pl-orient-empty">
+  {% if is_filtered %}
+  <p class="hub-text-muted">Nothing matches those filters. <a href="{% url 'hub_orientations' %}">Clear filters</a></p>
+  {% else %}
+  <p class="hub-text-muted">No orientations are open for booking right now.</p>
+  {% endif %}
+</div>
+{% endif %}
+
+{% if done_sections %}
+{# Completed orientations fold away under the grid (FRONTEND.md, Disclosure). #}
+<details class="pl-disclosure pl-orient-done">
+  <summary class="pl-disclosure__summary">
+    <span class="pl-disclosure__text">
+      <span class="pl-disclosure__title">Completed</span>
+      <span class="pl-disclosure__hint">{{ done_sections|length }} orientation{{ done_sections|length|pluralize }} you have finished.</span>
+    </span>
+    <span class="pl-disclosure__chevron" aria-hidden="true"></span>
+  </summary>
+  <div class="pl-disclosure__body">
+    <div class="pl-equip-grid">
+      {% for sec in done_sections %}
+      {% include "hub/partials/orientation_card.html" %}
+      {% endfor %}
+    </div>
+  </div>
+</details>
+{% endif %}
+{% endblock %}

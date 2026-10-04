@@ -13,6 +13,7 @@ from collections.abc import Sequence
 from datetime import date, datetime, time, timedelta
 from typing import Any, cast
 
+from django.conf import settings
 from django.contrib import messages
 from django.contrib.auth.decorators import login_required
 from django.core.paginator import Paginator
@@ -874,6 +875,8 @@ def _render_manage(
             "orientation_types_formset": orientation_types_formset
             if orientation_types_formset is not None
             else EquipmentOrientationTypeFormSet(instance=equipment, prefix="otypes"),
+            # The per type photo field (#502) rejects an oversized file before it posts.
+            "max_upload_image_bytes": settings.MAX_UPLOAD_IMAGE_BYTES,
             "slot_add_form": slot_add_form
             if slot_add_form is not None
             else EquipmentOrientationSlotForm(
@@ -999,7 +1002,7 @@ def hub_equipment_orientation_types_save(request: HttpRequest, slug: str) -> Htt
     forbidden = _require_can_manage(request, equipment)
     if forbidden is not None:
         return forbidden
-    formset = EquipmentOrientationTypeFormSet(request.POST, instance=equipment, prefix="otypes")
+    formset = EquipmentOrientationTypeFormSet(request.POST, request.FILES, instance=equipment, prefix="otypes")
     if formset.is_valid():
         formset.save()
         messages.success(request, "Saved.")

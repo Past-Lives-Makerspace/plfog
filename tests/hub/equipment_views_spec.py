@@ -310,7 +310,7 @@ def describe_equipment_index():
             assert f'aria-label="Already trained: {sentence}"' in card
             assert "title=" not in card  # FRONTEND.md rule 19: the bubble, never a native tooltip
             expected = (
-                f'href="{escape(orientation_type.orientation_anchor_path())}" '
+                f'href="{escape(orientation_type.orientations_page_path())}" '
                 'class="pl-equip-card__cta">Book the orientation</a>'
             )
             assert expected in content
@@ -1151,7 +1151,7 @@ def describe_equipment_orientation_surface():
         assert "You've completed this orientation." in content
         assert "Waiting for a manager to confirm." in content
         assert "Resume payment" in content
-        assert "Finishing Your Booking" in content
+        assert '<span class="pl-equip-badge pl-equip-badge--warn">Payment pending</span>' in content
 
     def it_shows_the_empty_state_with_a_manager_link_for_managers(client: Client):
         user = _login(client, "eqo_empty_mgr")

@@ -8,6 +8,8 @@ Member-facing orientation section on the guild page, grouped by orientation type
       booking     — the member's live booking for this type, or None
       hold        — the member's PENDING_PAYMENT checkout hold for this type, or None
       slots       — bookable upcoming slots of this type (only when none of the above)
+  The hold and booking blocks and the slot confirm modals are the shared partials
+  _orientation_type_state.html and _orientation_slot_confirm.html (#502).
   orientation_all_done — bool, member completed every active type
   custom_request_form  — OrientationCustomRequestForm (carries the type picker)
 {% endcomment %}
@@ -52,45 +54,8 @@ Member-facing orientation section on the guild page, grouped by orientation type
       <p style="margin:0; font-size:0.95rem; color:var(--hub-text);">✓ You've completed this orientation.</p>
       {% if sec.record %}<p class="hub-text-muted pl-orient-recorded">Recorded on {{ sec.record.completed_on|date:"M j, Y" }}.</p>{% endif %}
 
-      {% elif sec.hold %}
-      <p style="margin:0 0 0.25rem; font-weight:700; color:var(--hub-text);">Finishing Your Booking</p>
-      <p class="hub-text-muted" style="margin:0 0 0.75rem; font-size:0.9rem;">Your payment for the {{ sec.hold.slot.starts_at|date:"l, F j" }} at {{ sec.hold.slot.starts_at|time:"g:i A" }} orientation hasn't come through yet.</p>
-      <div style="display:flex; gap:0.5rem; flex-wrap:wrap;">
-        <form method="post" action="{% url 'hub_orientation_checkout_resume' sec.hold.pk %}" style="margin:0;">
-          {% csrf_token %}
-          <button type="submit" class="pl-btn pl-btn--primary pl-btn--sm">Resume payment</button>
-        </form>
-        <button type="button" class="pl-btn pl-btn--danger pl-btn--sm" @click="$dispatch('open-confirm', 'cancel-orientation-hold-{{ sec.hold.pk }}')">Cancel</button>
-      </div>
-      {% url 'hub_orientation_checkout_cancel_hold' sec.hold.pk as cancel_hold_url %}
-      {% with hpks=sec.hold.pk|stringformat:"s" %}
-      {% include "components/confirm_modal.html" with confirm_id="cancel-orientation-hold-"|add:hpks confirm_title="Cancel this booking?" confirm_message="If you haven't paid, nothing is charged." confirm_action_url=cancel_hold_url confirm_button_text="Cancel booking" %}
-      {% endwith %}
-
-      {% elif sec.booking %}
-      <p style="margin:0 0 0.25rem; font-size:1rem; color:var(--hub-text);">
-        {{ sec.booking.slot.starts_at|date:"l, F j" }} at {{ sec.booking.slot.starts_at|time:"g:i A" }}
-        {% if sec.booking.slot.location %}<span class="hub-text-muted">· {{ sec.booking.slot.location }}</span>{% endif %}
-        {% if sec.booking.slot.with_label %}<span class="hub-text-muted">· {{ sec.booking.slot.with_label }}</span>{% endif %}
-      </p>
-      {% if sec.booking.status == "requested" %}
-      <p class="hub-text-muted" style="margin:0 0 0.75rem; font-size:0.85rem;">Requested — awaiting confirmation from {% if sec.booking.slot.orienter %}{{ sec.booking.slot.orienter_first_name }}{% else %}the guild{% endif %}. This isn't official yet.</p>
-      {% else %}
-      <p style="margin:0 0 0.75rem; font-size:0.85rem; color:#7bdcb5;">Confirmed — see you there!</p>
-      {% endif %}
-      {% if sec.booking.amount_paid_cents %}
-      <p class="hub-text-muted" style="margin:0 0 0.75rem; font-size:0.85rem;">Paid {{ sec.booking.amount_paid_cents|cents_as_price }}. Automatic refund if this is declined or cancelled.</p>
-      {% endif %}
-      <button type="button" class="hub-btn hub-btn--sm hub-btn--danger" data-help-key="orientation.cancel-booking" @click="$dispatch('open-confirm', 'cancel-my-orientation-{{ sec.booking.pk }}')">Cancel my orientation</button>
-      {% url 'hub_orientation_cancel_mine' sec.booking.pk as cancel_mine_url %}
-      {# Always unboosted (#456): a cancel that turns late after page load answers with a redirect to Stripe. #}
-      {% with bpks=sec.booking.pk|stringformat:"s" %}
-      {% if sec.booking.amount_paid_cents %}
-      {% include "components/confirm_modal.html" with confirm_id="cancel-my-orientation-"|add:bpks confirm_title="Cancel your orientation?" confirm_message="You'll get an automatic full refund. You can request a new orientation any time. "|add:sec.late_cancel_warning confirm_action_url=cancel_mine_url confirm_button_text="Cancel orientation" confirm_no_boost=True %}
-      {% else %}
-      {% include "components/confirm_modal.html" with confirm_id="cancel-my-orientation-"|add:bpks confirm_title="Cancel your orientation?" confirm_message="You can request a new orientation any time. "|add:sec.late_cancel_warning confirm_action_url=cancel_mine_url confirm_button_text="Cancel orientation" confirm_no_boost=True %}
-      {% endif %}
-      {% endwith %}
+      {% elif sec.hold or sec.booking %}
+      {% include "hub/partials/_orientation_type_state.html" %}
 
       {% else %}
       {% if sec.type.is_paid %}
@@ -122,20 +87,7 @@ Member-facing orientation section on the guild page, grouped by orientation type
               <span class="hub-text-muted" style="font-size:0.85rem;">Full</span>
               {% elif user.is_authenticated %}
               <button type="button" class="hub-btn hub-btn--sm hub-btn--primary" @click="$dispatch('open-confirm', 'book-slot-{{ slot.pk }}')">Request</button>
-              {% url 'hub_orientation_book' slot.pk as book_url %}
-              {% if sec.type.is_paid %}
-              {% with price=sec.type.price_cents|cents_as_price %}
-              {% with paid_msg="You'll pay "|add:price|add:" now through our secure checkout. Your booking is a request until the guild confirms it. If they decline, or it's cancelled, you get an automatic full refund. "|add:sec.late_cancel_sentence %}
-              {% include "components/confirm_modal.html" with confirm_id="book-slot-"|add:pks confirm_title="Book This Orientation?" confirm_message=paid_msg confirm_action_url=book_url confirm_button_text="Continue to Payment" confirm_button_style="primary" confirm_no_boost=True %}
-              {% endwith %}
-              {% endwith %}
-              {% elif slot.orienter %}
-              {% with book_msg="We'll send your request to "|add:slot.orienter_first_name|add:" to confirm. You can cancel any time. "|add:sec.late_cancel_sentence %}
-              {% include "components/confirm_modal.html" with confirm_id="book-slot-"|add:pks confirm_title="Request this orientation?" confirm_message=book_msg confirm_action_url=book_url confirm_button_text="Send request" confirm_button_style="primary" %}
-              {% endwith %}
-              {% else %}
-              {% include "components/confirm_modal.html" with confirm_id="book-slot-"|add:pks confirm_title="Request this orientation?" confirm_message="We'll send your request to the guild lead to confirm. You can cancel any time. "|add:sec.late_cancel_sentence confirm_action_url=book_url confirm_button_text="Send request" confirm_button_style="primary" %}
-              {% endif %}
+              {% include "hub/partials/_orientation_slot_confirm.html" with confirm_id="book-slot-"|add:pks %}
               {% else %}
               <a href="{% url 'account_login' %}?next={{ request.path|urlencode }}" class="hub-btn hub-btn--sm hub-btn--primary">Log in to book</a>
               {% endif %}

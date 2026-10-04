@@ -11,10 +11,12 @@ from django.db import IntegrityError
 from django.utils import timezone
 
 from membership import orientations
-from membership.models import OrientationBooking, OrientationError, OrientationSlot
+from membership.models import OrientationAvailabilityBlock, OrientationBooking, OrientationError, OrientationSlot
 from tests.membership.factories import (
     MemberFactory,
     OrientationAvailabilityBlockFactory,
+    OrientationBookingFactory,
+    OrientationSlotFactory,
     OrientationTypeFactory,
 )
 
@@ -96,6 +98,53 @@ def describe_OrientationAvailabilityBlock():  # noqa: N802
             )
             orientations.cancel_slot(booking.slot)
             assert block.free_intervals() == [(block.starts_at, block.ends_at)]
+
+    def describe_free_intervals_by_block():
+        """Many windows' free time in two queries (#502, the Orientations page)."""
+
+        def it_answers_nothing_for_no_windows(django_assert_num_queries):
+            with django_assert_num_queries(0):
+                assert OrientationAvailabilityBlock.free_intervals_by_block([]) == {}
+
+        def it_matches_each_windows_own_free_intervals():
+            booked, orientation_type = _block_with_type()
+            start = booked.starts_at + timedelta(minutes=60)
+            orientations.request_block_orientation(booked, MemberFactory(), start, orientation_type=orientation_type)
+            elsewhere = OrientationAvailabilityBlockFactory()
+            busy = OrientationSlotFactory(
+                guild=elsewhere.guild,
+                orienter=elsewhere.orienter,
+                starts_at=elsewhere.starts_at + timedelta(minutes=30),
+                ends_at=elsewhere.starts_at + timedelta(minutes=90),
+            )
+            OrientationBookingFactory(slot=busy)
+            outside = OrientationSlotFactory(
+                guild=elsewhere.guild,
+                orienter=elsewhere.orienter,
+                starts_at=elsewhere.ends_at + timedelta(hours=1),
+                ends_at=elsewhere.ends_at + timedelta(hours=2),
+            )
+            OrientationBookingFactory(slot=outside)
+            empty = OrientationAvailabilityBlockFactory()
+            blocks = [booked, elsewhere, empty]
+            batched = OrientationAvailabilityBlock.free_intervals_by_block(blocks)
+            assert batched == {block.pk: block.free_intervals() for block in blocks}
+            assert batched[elsewhere.pk] == [
+                (elsewhere.starts_at, busy.starts_at),
+                (busy.ends_at, elsewhere.ends_at),
+            ]
+
+        def it_reads_every_window_in_two_queries(django_assert_num_queries):
+            blocks = [OrientationAvailabilityBlockFactory() for _ in range(4)]
+            with django_assert_num_queries(2):
+                OrientationAvailabilityBlock.free_intervals_by_block(blocks)
+
+        def it_lets_valid_starts_for_skip_its_own_read(django_assert_num_queries):
+            block, orientation_type = _block_with_type()
+            free = OrientationAvailabilityBlock.free_intervals_by_block([block])[block.pk]
+            with django_assert_num_queries(0):
+                starts = block.valid_starts_for(orientation_type, free=free)
+            assert starts == block.valid_starts_for(orientation_type)
 
     def describe_valid_starts_for():
         def it_lists_quarter_hour_starts_that_fit_the_duration():
