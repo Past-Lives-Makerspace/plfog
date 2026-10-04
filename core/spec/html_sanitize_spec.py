@@ -32,11 +32,25 @@ def describe_sanitize_rich_html():
         assert sanitize_rich_html("<p>keep</p><style>body{display:none}<p>gone</p>") == "<p>keep</p>"
 
     def it_stays_linear_on_thousands_of_unclosed_openers():
-        # The first pattern rescanned to the end from every opener: 112 KB took about 4 seconds.
+        # Patterns that rescanned to the end from every opener took seconds to a minute here.
         started = time.monotonic()
         sanitize_rich_html("<p>a</p>" + "<style>" * 64_000)
         sanitize_rich_html("<p>a</p>" + "<style " * 64_000)
-        assert time.monotonic() - started < 2
+        sanitize_rich_html("<p>a</p>" + "<ol>" * 32_000)
+        sanitize_rich_html("<p>a</p>" + "<ol " * 32_000)
+        for tag in ("ol", "blockquote", "b", "li"):
+            sanitize_rich_html(f"<{tag}>" * 32_000)
+        assert time.monotonic() - started < 3
+
+    def it_keeps_the_text_of_tags_nested_past_the_cap():
+        nested = "<blockquote>" * 100 + "deep" + "</blockquote>" * 100
+        result = sanitize_rich_html("<p>top</p>" + nested)
+        assert result.count("<blockquote>") == 64
+        assert "deep" in result
+
+    def it_leaves_ordinary_nesting_alone():
+        raw = "<ul><li><strong><em><u>a</u></em></strong></li></ul><p>b<br>c</p>"
+        assert sanitize_rich_html(raw) == raw
 
     def it_drops_a_style_block_and_nothing_else():
         assert sanitize_rich_html("<style>p{}</style>") == ""
