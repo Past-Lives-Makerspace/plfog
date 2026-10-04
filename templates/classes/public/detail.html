@@ -67,11 +67,12 @@ appends and runs it on the first boosted arrival here (FRONTEND.md, Scripts unde
            alt="{{ offering.title }}">
       {% endwith %}
     {% elif offering.category.hero_image %}
+      {# Frame shapes this hero takes, width over height (heroPlacement): at most 2.38 (1240 by 520, .cp-detail__hero in cms-public.css), and a long title makes a phone frame taller (1.03 at 320px with a short one), so 0.5 to 2.5 keeps a margin both ways. #}
       <img class="cp-detail__hero-img cp-detail__hero-img--cover"
            src="{{ offering.category.hero_image.url }}"
            alt="{{ offering.category.name }}"
            {% if can_edit_category %}
-           data-hero-img
+           data-hero-img data-frame-min="0.5" data-frame-max="2.5"
            :style="'object-position: ' + objectPosition"
            {% else %}
            style="object-position: {{ offering.category.hero_object_position }};"
@@ -187,15 +188,15 @@ appends and runs it on the first boosted arrival here (FRONTEND.md, Scripts unde
                 <span x-text="isLoading ? '...' : 'Adjust'"></span>
             </button>
 
-            {# Sliders. The category hero is cover fitted, so one axis has nothing to move: heroPlacement.measure() finds it, its slider is off and the line says why. #}
+            {# Sliders. heroPlacement.measure() turns off a slider that moves nothing on any screen, and the line under them says where each one moves. #}
             <div x-show="isAdjusting" x-cloak class="pl-hero-adjust" style="display:flex; align-items:center; gap:0.75rem; background:rgba(0,0,0,0.7); padding:6px 10px; border-radius:6px; border:1px solid rgba(255,255,255,0.2); backdrop-filter:blur(8px);">
                 <div style="display:flex; align-items:center; gap:8px;">
-                    <label style="font-size:9px; text-transform:uppercase; color:#96ACBB; font-weight:bold;">V</label>
-                    <input type="range" min="0" max="100" x-model="posY" :disabled="!yMoves" style="width:70px; height:4px; cursor:pointer;">
+                    <label for="hero-adjust-y" style="font-size:9px; text-transform:uppercase; color:#96ACBB; font-weight:bold;">V</label>
+                    <input type="range" min="0" max="100" id="hero-adjust-y" aria-describedby="hero-adjust-why" x-model="posY" :disabled="!yMoves" style="width:70px; height:4px;">
                 </div>
                 <div style="display:flex; align-items:center; gap:8px;">
-                    <label style="font-size:9px; text-transform:uppercase; color:#96ACBB; font-weight:bold;">H</label>
-                    <input type="range" min="0" max="100" x-model="posX" :disabled="!xMoves" style="width:70px; height:4px; cursor:pointer;">
+                    <label for="hero-adjust-x" style="font-size:9px; text-transform:uppercase; color:#96ACBB; font-weight:bold;">H</label>
+                    <input type="range" min="0" max="100" id="hero-adjust-x" aria-describedby="hero-adjust-why" x-model="posX" :disabled="!xMoves" style="width:70px; height:4px;">
                 </div>
                 <div style="display:flex; gap:0.5rem; margin-left: 0.5rem; border-left: 1px solid rgba(255,255,255,0.1); padding-left: 0.75rem;">
                     <button type="button" style="background: var(--gold); border: none; padding: 3px 10px; border-radius: 4px; color: black; font-weight: 700; font-size: 10px; cursor: pointer;"
@@ -207,7 +208,7 @@ appends and runs it on the first boosted arrival here (FRONTEND.md, Scripts unde
                         Cancel
                     </button>
                 </div>
-                <p class="pl-hero-adjust__why" x-show="why()" x-text="why()"></p>
+                <p class="pl-hero-adjust__why" id="hero-adjust-why" x-show="why()" x-text="why()"></p>
             </div>
             {% endif %}
         </div>
