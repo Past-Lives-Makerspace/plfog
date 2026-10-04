@@ -833,6 +833,16 @@ def describe_header_cta():
         assert ADD_HREF not in resp.content
         assert PROPOSE_HREF not in resp.content
 
+    def it_points_a_member_at_host_a_class_when_policy_disabled(client: Client):
+        _user_with_role("hc_host")
+        _set_policy(SiteConfiguration.MemberEventPolicy.DISABLED)
+        client.login(username="hc_host", password="pass")
+        resp = client.get(reverse("hub_community_calendar"))
+        assert (
+            f'href="{reverse("classes:teach_overview")}" class="hub-btn hub-btn--primary">Host a Class<'.encode()
+            in resp.content
+        )
+
     def it_renders_the_cta_exactly_once(client: Client):
         # A member with an in-flight proposal also renders an edit link at
         # /events/propose/<pk>/edit/ — which *starts with* the propose-new path — so the

@@ -6372,9 +6372,10 @@ def propose_event(request: HttpRequest, pk: int | None = None) -> HttpResponse:
     """Member "Propose an event" page — create a new proposal, or edit/resubmit an
     owned Pending/Changes-requested one.
 
-    On create the member-event policy decides the outcome: ``DISABLED`` → 403;
-    ``OPEN`` → publish immediately; ``APPROVAL`` → submit to the review queue. Editing
-    always re-submits for review (a changes-requested proposal returns to Pending).
+    On create the member-event policy decides the outcome: ``DISABLED`` → off to Host a
+    Class, where a member's own session belongs; ``OPEN`` → publish immediately;
+    ``APPROVAL`` → submit to the review queue. Editing always re-submits for review (a
+    changes-requested proposal returns to Pending), whatever the policy.
     """
     from hub.forms import CommunityEventForm
     from membership.models import CommunityEvent
@@ -6388,7 +6389,8 @@ def propose_event(request: HttpRequest, pk: int | None = None) -> HttpResponse:
     ]
     if pk is None:
         if policy == Policy.DISABLED:
-            return HttpResponse("Forbidden", status=403)
+            messages.info(request, "Members now run their own sessions as classes. Host a Class to get yours started.")
+            return redirect("classes:teach_overview")
         event = CommunityEvent()
         editing = False
     else:
