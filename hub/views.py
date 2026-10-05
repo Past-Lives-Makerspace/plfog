@@ -21,7 +21,15 @@ from django.contrib.auth.views import redirect_to_login
 from django.contrib.contenttypes.models import ContentType
 from django.db.models import Count, Min, Prefetch, Q, QuerySet
 from django.forms import BaseInlineFormSet, BaseModelFormSet
-from django.http import Http404, HttpRequest, HttpResponse, HttpResponseBadRequest, JsonResponse, StreamingHttpResponse
+from django.http import (
+    Http404,
+    HttpRequest,
+    HttpResponse,
+    HttpResponseBadRequest,
+    JsonResponse,
+    QueryDict,
+    StreamingHttpResponse,
+)
 from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse
 from django.utils.http import url_has_allowed_host_and_scheme
@@ -557,7 +565,7 @@ def _orientation_sections(
     by the guild view.
     """
     from core.models import SiteConfiguration
-    from membership.late_cancel import booking_sentence, cancel_sentence, policy_for_type
+    from membership.late_cancel import booking_cancel_warning, booking_sentence, policy_for_type
     from membership.models import OrientationBooking
 
     # One site row for every type's policy (a config read per section would be an N+1).
@@ -594,15 +602,8 @@ def _orientation_sections(
         open_for_type = not (done or live_booking or hold)
         type_slots = slots_by_type.get(orientation_type.pk, []) if open_for_type else []
         policy = policy_for_type(orientation_type, site=site)
-        # The cancel modal's fee line (#456): only a CONFIRMED booking can carry a fee, and
-        # only while a cancel right now would be late. "" otherwise, so the modal is unchanged.
-        late_cancel_warning = (
-            cancel_sentence(policy)
-            if live_booking is not None
-            and live_booking.status == OrientationBooking.Status.CONFIRMED
-            and policy.is_late(live_booking.slot.starts_at)
-            else ""
-        )
+        # The cancel modal's fee line (#456); "" otherwise, so the modal is unchanged.
+        late_cancel_warning = booking_cancel_warning(live_booking, policy) if live_booking is not None else ""
         sections.append(
             {
                 "type": orientation_type,
@@ -885,12 +886,29 @@ def _orientation_return(request: HttpRequest, owner: Any) -> HttpResponse:
     may fail before a type is known, the :class:`Guild` (its page). A ``next`` naming
     another host or a scheme is ignored, so the field can never send anyone off site.
     """
-    next_url = request.POST.get("next", "")
-    if next_url and url_has_allowed_host_and_scheme(next_url, allowed_hosts={request.get_host()}):
+    next_url = _safe_next(request, "")
+    if next_url:
         return redirect(next_url)
     if isinstance(owner, Guild):
         return redirect("hub_guild_detail", slug=owner.slug)
     return _owner_redirect(owner)
+
+
+def _safe_next(request: HttpRequest, default: str) -> str:
+    """The posted ``next`` when it is a path on this site, else ``default``.
+
+    The one rule every "land back where you were" form uses: a ``next`` naming another host
+    or a scheme is ignored, so the field can never send anyone off site.
+    """
+    next_url = request.POST.get("next", "")
+    if next_url and url_has_allowed_host_and_scheme(next_url, allowed_hosts={request.get_host()}):
+        return next_url
+    return default
+
+
+def _orientation_bookings_tab() -> str:
+    """The Orientations page opened on its Bookings tab: where the tab's actions land by default."""
+    return f"{reverse('hub_orientations')}?view=bookings"
 
 
 def _require_can_manage_booking(request: HttpRequest, booking: Any) -> HttpResponse | None:
@@ -2125,16 +2143,17 @@ def orientation_respond(request: HttpRequest, booking_pk: int) -> HttpResponse:
             if action == "confirm":
                 # Decision 7: credit the staffer who actually confirmed, not the guild lead.
                 orientations.confirm_orientation(booking, oriented_by=_get_member(request))
-                messages.success(request, "Orientation confirmed — the member has been emailed.")
+                messages.success(request, "Orientation confirmed. We emailed the member.")
             elif action == "decline":
                 orientations.decline_orientation(
                     booking, note=request.POST.get("note", ""), actor=cast(User, request.user)
                 )
-                messages.success(request, "Orientation declined — the member has been notified.")
+                messages.success(request, "Orientation declined. We let the member know.")
         except OrientationError as exc:
             # E.g. a PENDING_PAYMENT checkout hold — not a booking yet, never actionable here.
             messages.error(request, str(exc))
-        return redirect("hub_orientation_respond", booking_pk=booking.pk)
+        # The Bookings tab's menu posts ``next`` so the lead lands back on the tab (#626).
+        return redirect(_safe_next(request, reverse("hub_orientation_respond", args=[booking.pk])))
 
     from billing import late_fees
     from billing.forms import LateFeeWaiveForm
@@ -2188,10 +2207,10 @@ def orientation_lead_cancel(request: HttpRequest, booking_pk: int) -> HttpRespon
         return forbidden
     try:
         orientations.cancel_orientation(booking, actor_label="the guild", actor=cast(User, request.user))
-        messages.success(request, "Orientation cancelled — the member has been notified.")
+        messages.success(request, "Orientation cancelled. We let the member know.")
     except OrientationError as exc:
         messages.error(request, str(exc))
-    return redirect("hub_orientation_respond", booking_pk=booking.pk)
+    return redirect(_safe_next(request, reverse("hub_orientation_respond", args=[booking.pk])))
 
 
 @login_required
@@ -2537,9 +2556,7 @@ def hub_late_fee_waive(request: HttpRequest, pk: int) -> HttpResponse:
         if request.headers.get("HX-Request") == "true":
             trigger_toast(response, sentence, "error")
         return response
-    next_url = request.POST.get("next", "")
-    if not next_url or not url_has_allowed_host_and_scheme(next_url, allowed_hosts={request.get_host()}):
-        next_url = fee.owner_page_path()
+    next_url = _safe_next(request, fee.owner_page_path())
     form = LateFeeWaiveForm(request.POST, fee=fee)
     if not form.is_valid():
         messages.error(request, "Say why the fee is being waived. The reason is required.")
@@ -2606,20 +2623,15 @@ def orientation_action(request: HttpRequest, token: str) -> HttpResponse:
     )
 
 
-def _can_access_orientations(request: HttpRequest) -> bool:
-    """True for admins, any guild lead, and any guild staff member — they may view the dashboard."""
-    view_as = getattr(request, "view_as", None)
-    if view_as is not None and view_as.has_actual("admin"):
-        return True
-    member = _get_member(request)
-    return member is not None and (member.is_guild_lead or member.is_guild_staff)
-
-
 def _manageable_slots(request: HttpRequest) -> Any:
     """Upcoming slots this request may add members to: all for admins, own-guild for leads/staff."""
     from membership.models import OrientationSlot
 
-    qs = OrientationSlot.objects.upcoming().select_related("guild", "orientation_type").with_pending_hold_count()
+    qs = (
+        OrientationSlot.objects.upcoming()
+        .select_related("guild", "orientation_type__guild", "orientation_type__equipment")
+        .with_pending_hold_count()
+    )
     view_as = getattr(request, "view_as", None)
     if view_as is not None and view_as.has_actual("admin"):
         return qs
@@ -2629,158 +2641,35 @@ def _manageable_slots(request: HttpRequest) -> Any:
     return qs.filter(Q(guild__guild_lead=member) | Q(guild__staff_memberships__member=member)).distinct()
 
 
-def _filter_orientations(request: HttpRequest, bookings: Any) -> Any:
-    """Apply the dashboard's guild / scope / status / completed / date-range filters."""
-    member = _get_member(request)
-    guild_filter = request.GET.get("guild", "")
-    if guild_filter.isdigit():
-        bookings = bookings.filter(guild_id=int(guild_filter))
-    if request.GET.get("scope") == "mine" and member is not None:
-        bookings = bookings.filter(Q(guild__guild_lead=member) | Q(guild__staff_memberships__member=member)).distinct()
-    status_filter = request.GET.get("status", "")
-    if status_filter:
-        bookings = bookings.filter(status=status_filter)
-    completed = request.GET.get("completed", "")
-    if completed == "yes":
-        bookings = bookings.filter(is_completed=True)
-    elif completed == "no":
-        bookings = bookings.filter(is_completed=False)
-    start = request.GET.get("start", "")
-    if start:
-        bookings = bookings.filter(slot__starts_at__date__gte=start)
-    end = request.GET.get("end", "")
-    if end:
-        bookings = bookings.filter(slot__starts_at__date__lte=end)
-    return bookings
-
-
 @login_required
 def orientations_dashboard(request: HttpRequest) -> HttpResponse:
-    """Admin/guild-lead dashboard: upcoming + a sortable, filterable, exportable table."""
-    from classes.table import prepare_table
+    """The old staff dashboard's address: the Orientations page's Bookings tab, filters kept (#626).
 
-    from hub.forms import OrientationAddMemberForm
-    from membership.models import Guild, OrientationBooking
-
-    if not _can_access_orientations(request):
-        return HttpResponse("Forbidden", status=403)
-
-    base = OrientationBooking.objects.select_related(
-        "slot",
-        "slot__orienter",
-        "guild",
-        "member",
-        "oriented_by",
-        "orientation_type__guild",
-        "orientation_type__equipment",
-    ).prefetch_related("refunds")
-    table = prepare_table(
-        request,
-        _filter_orientations(request, base),
-        search_fields=["member__full_legal_name", "member__preferred_name", "guild__name"],
-        default_sort="slot__starts_at",
-        default_dir="desc",
-    )
-    # Hand-recorded orientations (issue #465) list under the bookings table when the
-    # Completed filter is on, under the same guild filter and date range (the day they
-    # happened). They have no slot, status or Mark done, so those filters skip them.
-    recorded_orientations: list[OrientationRecord] = []
-    if request.GET.get("completed") == "yes":
-        records = OrientationRecord.objects.with_related()
-        guild_filter = request.GET.get("guild", "")
-        if guild_filter.isdigit():
-            records = records.for_guild(int(guild_filter))
-        start = request.GET.get("start", "")
-        if start:
-            records = records.filter(completed_on__gte=start)
-        end = request.GET.get("end", "")
-        if end:
-            records = records.filter(completed_on__lte=end)
-        recorded_orientations = list(records)
-    upcoming = (
-        OrientationBooking.objects.upcoming()
-        .select_related(
-            "slot", "slot__orienter", "guild", "member", "orientation_type__guild", "orientation_type__equipment"
-        )
-        .prefetch_related("refunds")
-        .order_by("slot__starts_at")[:25]
-    )
-    view_as = getattr(request, "view_as", None)
-    member = _get_member(request)
-    # Guilds the member may manage orientations for: lead OR any staff role (co-lead,
-    # secretary, treasurer, orienter) — the same set the "Mine" scope filter uses. The
-    # "Mark done" action must track this, not lead-only, or staff can't record completions.
-    my_leadership_guild_ids = (
-        set(
-            Guild.objects.filter(Q(guild_lead=member) | Q(staff_memberships__member=member)).values_list(
-                "pk", flat=True
-            )
-        )
-        if member is not None
-        else set()
-    )
-    # "Post your hours" nudge — a staffer/lead with zero personal rules anywhere gets a
-    # banner linking to each staffed guild's Orientations tab; it disappears with a rule.
-    from membership.models import OrientationAvailability
-
-    hours_nudge_guilds: list[Guild] = []
-    if (
-        member is not None
-        and my_leadership_guild_ids
-        and not OrientationAvailability.objects.filter(orienter=member).exists()
-    ):
-        hours_nudge_guilds = list(Guild.objects.filter(pk__in=my_leadership_guild_ids).order_by("name"))
-    # Paid-guild note for the add-member form: slot pk → price string, so the
-    # Alpine toggle can show "this guild charges $X; members you add are not charged."
-    import json
-
-    from classes.templatetags.classes_tags import cents_as_price
-
-    from hub.view_as import has_refund_authority
-
-    # The price is per orientation TYPE now (issue #282) — read it off each slot's type.
-    manageable = list(_manageable_slots(request))
-    paid_slot_prices: dict[str, str] = {}
-    for slot in manageable:
-        if slot.orientation_type.is_paid:
-            paid_slot_prices[str(slot.pk)] = cents_as_price(slot.orientation_type.price_cents)
-    return render(
-        request,
-        "hub/orientations_dashboard.html",
-        {
-            **_get_hub_context(request),
-            **table,
-            "upcoming": upcoming,
-            "recorded_orientations": recorded_orientations,
-            "hours_nudge_guilds": hours_nudge_guilds,
-            "guilds": Guild.objects.filter(is_active=True).order_by("name"),
-            "statuses": OrientationBooking.Status.choices,
-            "add_member_form": OrientationAddMemberForm(slot_queryset=_manageable_slots(request)),
-            "paid_slot_prices_json": json.dumps(paid_slot_prices),
-            "viewer_has_refund_authority": has_refund_authority(request),
-            "is_admin": view_as is not None and view_as.has_actual("admin"),
-            "my_member_id": member.pk if member is not None else None,
-            "my_leadership_guild_ids": my_leadership_guild_ids,
-            "guild_filter": request.GET.get("guild", ""),
-            "scope": request.GET.get("scope", ""),
-            "status_filter": request.GET.get("status", ""),
-            "completed_filter": request.GET.get("completed", ""),
-            "start": request.GET.get("start", ""),
-            "end": request.GET.get("end", ""),
-        },
-    )
+    A 302, not a 301, so a cached redirect never outlives a later move. The URL name stays so a
+    stray ``reverse()`` still resolves. The dashboard's own parameters are translated to the
+    tab's: its search ``q`` is the tab's ``search`` (``q`` there is the List pane's), its
+    ``completed`` filter is ``oriented``; ``scope`` (the tab is scoped already) and ``view`` go.
+    """
+    renamed = {"q": "search", "completed": "oriented"}
+    query = QueryDict(mutable=True)
+    for key, values in request.GET.lists():
+        if key in ("view", "scope"):
+            continue
+        query.setlist(renamed.get(key, key), values)
+    encoded = query.urlencode()
+    return redirect(f"{_orientation_bookings_tab()}&{encoded}" if encoded else _orientation_bookings_tab())
 
 
 @login_required
 def orientations_export(request: HttpRequest) -> HttpResponse | StreamingHttpResponse:
-    """Download the filtered orientations list as CSV."""
-    from membership.models import OrientationBooking
+    """Download the Bookings tab's rows as CSV: the same scope, chip and filters, staff only (#626)."""
+    from hub.orientation_bookings import staff_rows
     from membership.orientation_exports import stream_orientations_csv
+    from membership.permissions import manages_orientations
 
-    if not _can_access_orientations(request):
+    if not manages_orientations(request):
         return HttpResponse("Forbidden", status=403)
-    bookings = _filter_orientations(request, OrientationBooking.objects.all())
-    return stream_orientations_csv(bookings)
+    return stream_orientations_csv(staff_rows(request))
 
 
 @login_required
@@ -2790,8 +2679,9 @@ def orientation_add_member(request: HttpRequest) -> HttpResponse:
     from hub.forms import OrientationAddMemberForm
     from membership import orientations
     from membership.models import OrientationError
+    from membership.permissions import manages_orientations
 
-    if not _can_access_orientations(request):
+    if not manages_orientations(request):
         return HttpResponse("Forbidden", status=403)
     form = OrientationAddMemberForm(request.POST, slot_queryset=_manageable_slots(request))
     if form.is_valid():
@@ -2799,31 +2689,42 @@ def orientation_add_member(request: HttpRequest) -> HttpResponse:
             # by_staff: a staffer seating a member by hand is not the member booking their
             # own way around an unpaid late fee (#456), so that one guard stands aside.
             orientations.request_orientation(form.cleaned_data["slot"], form.cleaned_data["member"], by_staff=True)
-            messages.success(request, f"Added {form.cleaned_data['member'].display_name} — they've been emailed.")
+            messages.success(request, f"Added {form.cleaned_data['member'].display_name}. We emailed them.")
         except OrientationError as exc:
             messages.error(request, str(exc))
     else:
-        messages.error(request, "Couldn't add the member — pick an active member and an upcoming slot.")
-    return redirect("hub_orientations_dashboard")
+        messages.error(request, "Couldn't add the member. Pick an active member and an upcoming slot.")
+    return redirect(_safe_next(request, _orientation_bookings_tab()))
 
 
 @login_required
 @require_POST
 def orientation_toggle_completed(request: HttpRequest, booking_pk: int) -> HttpResponse:
-    """POST-only — flip an orientation's completed flag (lead of that guild / admin only)."""
+    """POST-only — set an orientation's completed flag (that booking's managers only).
+
+    ``completed=1`` marks it oriented, ``completed=0`` undoes that. Setting a state rather than
+    flipping one means two staff clicking Mark Oriented at once both get what they asked for;
+    anything else is a 400. Lands on ``next`` when it is a local path, else the Bookings tab.
+    """
     from membership.models import OrientationBooking
 
     booking = get_object_or_404(
-        OrientationBooking.objects.select_related("guild", "orientation_type__equipment"), pk=booking_pk
+        OrientationBooking.objects.select_related("guild", "member", "orientation_type__equipment"), pk=booking_pk
     )
     forbidden = _require_can_manage_booking(request, booking)
     if forbidden is not None:
         return forbidden
-    if booking.is_completed:
-        booking.uncomplete()
-    else:
+    wanted = request.POST.get("completed", "")
+    if wanted not in ("0", "1"):
+        return HttpResponseBadRequest("Say completed=1 or completed=0.")
+    completed = wanted == "1"
+    if completed and not booking.is_completed:
         booking.mark_completed()
-    return redirect("hub_orientations_dashboard")
+        messages.success(request, f"Marked {booking.member.display_name} as oriented.")
+    elif not completed and booking.is_completed:
+        booking.uncomplete()
+        messages.success(request, f"{booking.member.display_name} is no longer marked oriented.")
+    return redirect(_safe_next(request, _orientation_bookings_tab()))
 
 
 @login_required

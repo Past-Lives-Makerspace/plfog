@@ -118,11 +118,11 @@ def describe_download_qr_on_the_event_edit_page():
         assert fetched, f"htmx took the click instead of the browser; {report}"
 
 
-def describe_export_csv_on_the_orientations_dashboard():
+def describe_export_csv_on_the_orientations_bookings_tab():
     def it_downloads_the_csv_for_an_admin(live_server, page, login_via_code):
         """A streamed CSV, the shape every export in the portal takes."""
         _seed_admin()
         login_via_code(ADMIN_EMAIL)
-        _open(page, live_server, reverse("hub_orientations_dashboard"))
+        _open(page, live_server, f"{reverse('hub_orientations')}?view=bookings")
         fetched, report = _click_and_report(page, page.locator(EXPORT_CSV), "orientations/manage/export/")
         assert fetched, f"htmx took the click instead of the browser; {report}"

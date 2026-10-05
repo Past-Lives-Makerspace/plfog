@@ -55,7 +55,7 @@ def describe_page_header_component():
 
 
 def describe_page_header_rollout():
-    def it_shows_the_purpose_blurb_on_the_orientations_dashboard(client: Client):
+    def it_shows_the_purpose_blurb_on_the_orientations_bookings_tab(client: Client):
         MembershipPlanFactory()
         user = User.objects.create_user(username="ph_orient", password="pw")
         member = user.member
@@ -63,10 +63,10 @@ def describe_page_header_rollout():
         member.save(update_fields=["fog_role"])
         member.sync_user_permissions()
         client.login(username="ph_orient", password="pw")
-        response = client.get(reverse("hub_orientations_dashboard"))
+        response = client.get(reverse("hub_orientations"), {"view": "bookings"})
         assert response.status_code == 200
-        assert b"Track and manage orientation requests" in response.content
-        assert b"for the guilds you lead or staff" in response.content
+        # The dashboard's own header went with it (#626); the tab sits under the page's.
+        assert b"Get trained on a guild or a tool before you book it." in response.content
 
     def it_shows_the_purpose_blurb_on_the_member_directory(client: Client):
         MembershipPlanFactory()

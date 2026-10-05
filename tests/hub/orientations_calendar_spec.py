@@ -77,7 +77,7 @@ def describe_the_tabs():
         content = client.get(PAGE).content
         assert b"plListCalendar('list')" in content
         assert b'aria-label="Orientations views"' in content
-        assert f'data-calendar-src="{EVENTS}?shell=1"'.encode() in content
+        assert f'data-lazy-pane="calendar" data-pane-src="{EVENTS}?shell=1"'.encode() in content
         assert b'id="pl-calendar-events-area"' not in content
 
     def it_builds_no_calendar_for_the_list_view(client: Client):
@@ -91,7 +91,7 @@ def describe_the_tabs():
         content = client.get(f"{PAGE}?view=calendar").content
         assert b"plListCalendar('calendar')" in content
         assert b'id="pl-calendar-events-area"' in content
-        assert b"data-calendar-src" not in content
+        assert b'data-lazy-pane="calendar"' not in content
 
     def it_keeps_every_card_on_the_list_pane_when_the_calendar_opens(client: Client):
         _login(client, "oc_cards")

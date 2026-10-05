@@ -380,20 +380,22 @@ def describe_orientation_record_form():
         assert gone not in queryset
 
 
-def describe_orientations_dashboard_records():
-    def _dashboard(client: Client, **params: str) -> str:
-        return client.get(reverse("hub_orientations_dashboard"), params).content.decode()
+def describe_bookings_tab_records():
+    """Hand recorded orientations under the Bookings tab's staff table (#465, moved there by #626)."""
 
-    def it_lists_records_under_the_completed_filter(client: Client):
+    def _dashboard(client: Client, **params: str) -> str:
+        return client.get(reverse("hub_orientations"), {"view": "bookings", **params}).content.decode()
+
+    def it_lists_records_under_the_oriented_filter(client: Client):
         _login_admin(client)
         target = _target_member()
         _guild, basics = _woodshop_basics()
         OrientationRecordFactory(member=target, orientation_type=basics, oriented_by=MemberFactory())
-        content = _dashboard(client, completed="yes")
+        content = _dashboard(client, oriented="yes")
         assert "pl-orient-records" in content
         assert "Target Member" in content
         assert f'href="{_edit_url(target)}?tab=orientations"' in content
-        assert 'class="hub-pill hub-pill--neutral">Recorded' in content
+        assert "data-record-row=" in content
 
     def it_shows_the_note_and_applies_the_date_range(client: Client):
         _login_admin(client)
@@ -402,16 +404,16 @@ def describe_orientations_dashboard_records():
         OrientationRecordFactory(
             member=target, orientation_type=basics, completed_on=date(2026, 9, 1), note="Shop floor walkthrough"
         )
-        assert 'pl-orient-records__note">Shop floor walkthrough' in _dashboard(client, completed="yes")
-        assert "Shop floor walkthrough" in _dashboard(client, completed="yes", start="2026-09-01", end="2026-09-30")
-        assert "Shop floor walkthrough" not in _dashboard(client, completed="yes", start="2026-09-02")
-        assert "Shop floor walkthrough" not in _dashboard(client, completed="yes", end="2026-08-31")
+        assert 'pl-orient-records__note">Shop floor walkthrough' in _dashboard(client, oriented="yes")
+        assert "Shop floor walkthrough" in _dashboard(client, oriented="yes", start="2026-09-01", end="2026-09-30")
+        assert "Shop floor walkthrough" not in _dashboard(client, oriented="yes", start="2026-09-02")
+        assert "Shop floor walkthrough" not in _dashboard(client, oriented="yes", end="2026-08-31")
 
-    def it_hides_the_table_without_the_completed_filter(client: Client):
+    def it_hides_the_table_without_the_oriented_filter(client: Client):
         _login_admin(client)
         OrientationRecordFactory(member=_target_member())
         assert "pl-orient-records" not in _dashboard(client)
-        assert "pl-orient-records" not in _dashboard(client, completed="no")
+        assert "pl-orient-records" not in _dashboard(client, oriented="no")
 
     def it_applies_the_guild_filter(client: Client):
         _login_admin(client)
@@ -423,21 +425,21 @@ def describe_orientations_dashboard_records():
         OrientationRecordFactory(
             member=MemberFactory(full_legal_name="In Beta"), orientation_type=OrientationTypeFactory(guild=beta)
         )
-        content = _dashboard(client, completed="yes", guild=str(alpha.pk))
+        content = _dashboard(client, oriented="yes", guild=str(alpha.pk))
         # The add-member select lists every active member, so anchor on the table's link text.
         assert ">In Alpha</a>" in content
         assert ">In Beta</a>" not in content
 
     def it_shows_the_empty_row(client: Client):
         _login_admin(client)
-        assert "pl-orient-records__empty" in _dashboard(client, completed="yes")
+        assert "pl-orient-records__empty" in _dashboard(client, oriented="yes")
 
     def it_shows_a_lead_the_row_without_the_admin_link(client: Client):
         lead = _login_member(client, "orient-lead")
         guild = GuildFactory(name="Led", guild_lead=lead)
         target = _target_member()
         OrientationRecordFactory(member=target, orientation_type=OrientationTypeFactory(guild=guild))
-        content = _dashboard(client, completed="yes")
+        content = _dashboard(client, oriented="yes")
         assert "Target Member" in content
         assert f'href="{_edit_url(target)}?tab=orientations"' not in content
 

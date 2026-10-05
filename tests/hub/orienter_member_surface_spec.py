@@ -155,17 +155,17 @@ def describe_respond_page():
         assert b"Runs with: Any orienter" in response.content
 
 
-def describe_dashboard_orienter_column():
-    def it_shows_the_orienter_in_the_table_and_the_upcoming_cards(client: Client):
+def describe_bookings_tab_run_by_column():
+    def it_shows_the_orienter_in_the_run_by_column(client: Client):
         _member_user("ms_dash", fog_role=Member.FogRole.ADMIN)
         guild = _enabled_guild()
         bob = _orienter(guild, "Bob Placeholder")
         OrientationBookingFactory(slot=OrientationSlotFactory(guild=guild, orienter=bob))
         client.login(username="ms_dash", password="pass")
-        response = client.get(reverse("hub_orientations_dashboard"))
-        assert b"<th>Orienter</th>" in response.content
-        assert b"Bob Placeholder" in response.content
-        assert b"with Bob" in response.content  # the Upcoming card's muted chip
+        response = client.get(reverse("hub_orientations"), {"view": "bookings"})
+        assert b'<th scope="col">Run By</th>' in response.content
+        assert b'data-label="Run By">Bob Placeholder</td>' in response.content
+        assert b'data-label="Run By">Any orienter</td>' not in response.content
 
     def it_exports_the_orienter_column_in_the_csv(client: Client):
         _member_user("ms_csv", fog_role=Member.FogRole.ADMIN)
@@ -188,7 +188,7 @@ def describe_post_your_hours_nudge():
         user = _member_user("ms_nudge", name="Lead Person")
         guild = GuildFactory(guild_lead=user.member)
         client.login(username="ms_nudge", password="pass")
-        response = client.get(reverse("hub_orientations_dashboard"))
+        response = client.get(reverse("hub_orientations"), {"view": "bookings"})
         assert b"You have not posted any orientation hours yet." in response.content
         assert b"Post your orientation hours" in response.content
         assert f"guilds/{guild.pk}/edit/?tab=orientations".encode() in response.content
@@ -199,7 +199,7 @@ def describe_post_your_hours_nudge():
         guild_b = GuildFactory(name="Beta Guild")
         GuildStaffMembershipFactory(guild=guild_b, member=user.member, role=GuildStaffMembership.Role.ORIENTER)
         client.login(username="ms_nudge_multi", password="pass")
-        response = client.get(reverse("hub_orientations_dashboard"))
+        response = client.get(reverse("hub_orientations"), {"view": "bookings"})
         assert b"Alpha Guild" in response.content
         assert b"Beta Guild" in response.content
 
@@ -208,11 +208,11 @@ def describe_post_your_hours_nudge():
         guild = GuildFactory(guild_lead=user.member)
         OrientationAvailabilityFactory(guild=guild, orienter=user.member)
         client.login(username="ms_nudge_done", password="pass")
-        response = client.get(reverse("hub_orientations_dashboard"))
+        response = client.get(reverse("hub_orientations"), {"view": "bookings"})
         assert b"You have not posted any orientation hours yet." not in response.content
 
     def it_is_absent_for_an_admin_with_no_staffed_guild(client: Client):
         _member_user("ms_nudge_admin", fog_role=Member.FogRole.ADMIN)
         client.login(username="ms_nudge_admin", password="pass")
-        response = client.get(reverse("hub_orientations_dashboard"))
+        response = client.get(reverse("hub_orientations"), {"view": "bookings"})
         assert b"You have not posted any orientation hours yet." not in response.content

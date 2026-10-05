@@ -1,0 +1,233 @@
+{% load classes_tags %}
+{% comment %}
+The Bookings pane on the Orientations page (#626), built by hub.orientation_bookings.bookings_pane_context.
+Rendered inline for ?view=bookings and served alone by hub_orientations_bookings for the lazy
+open and the refund-done refresh. One component, two views: is_staff_view picks the columns
+and filters, and each row's own flags pick its "..." menu items. Every link and form goes to
+the page URL with view=bookings kept, so boosted navigation re-renders the page with this pane
+open. A refund (the shared refund modal) answers refund-done, which reloads the body below
+and closes the modal.
+{% endcomment %}
+<div class="pl-bookings" data-help-key="orientation.dashboard" data-bookings-pane="{% if is_staff_view %}staff{% else %}member{% endif %}"
+     x-data @refund-done.window="$dispatch('close-modal', 'refund-modal')">
+  {% if is_staff_view %}
+  {% if hours_nudge_guilds %}
+  <div class="hub-card pl-hours-nudge pl-bookings__nudge">
+    <p class="pl-bookings__nudge-text">
+      You have not posted any orientation hours yet.
+      {% if hours_nudge_guilds|length == 1 %}
+      {% for g in hours_nudge_guilds %}<a href="{% url 'hub_guild_edit' g.pk %}?tab=orientations"><strong>Post your orientation hours</strong></a>{% endfor %}
+      {% else %}
+      <strong>Post your orientation hours</strong>: {% for g in hours_nudge_guilds %}<a href="{% url 'hub_guild_edit' g.pk %}?tab=orientations">{{ g.name }}</a>{% if not forloop.last %}, {% endif %}{% endfor %}
+      {% endif %}
+    </p>
+  </div>
+  {% endif %}
+  {% if add_member_form %}
+  <div class="pl-bookings__top">
+    <button type="button" class="hub-btn hub-btn--sm hub-btn--primary" data-bookings-add-member @click="$dispatch('open-modal', 'orientation-add-member')">+ Add Member</button>
+  </div>
+  {% endif %}
+  {% endif %}
+
+  <div data-bookings-body hx-get="{{ bookings_refresh_url }}" hx-trigger="refund-done from:body" hx-select="[data-bookings-body]" hx-swap="outerHTML">
+    <div class="pl-equip-chips pl-bookings__chips" role="group" aria-label="Which bookings">
+      {% for chip in chips %}
+      {% if chip.key != "reply" or needs_reply_count or show == "reply" %}
+      <a href="{{ chip.url }}" class="pl-equip-chip{% if chip.key == show %} pl-equip-chip--active{% endif %}" data-bookings-chip="{{ chip.key }}"{% if chip.key == show %} aria-current="true"{% endif %}>{{ chip.label }}{% if chip.key == "reply" %} ({{ needs_reply_count }}){% endif %}</a>
+      {% endif %}
+      {% endfor %}
+    </div>
+
+    {% if is_staff_view %}
+    <form method="get" action="{% url 'hub_orientations' %}" class="pl-bookings-filters" data-bookings-filters>
+      <input type="hidden" name="view" value="bookings">
+      {% if show != "upcoming" %}<input type="hidden" name="show" value="{{ show }}">{% endif %}
+      <div class="hub-form-group pl-bookings-filters__search">
+        <input type="search" name="search" value="{{ filters.search }}" placeholder="Search member or orientation" aria-label="Search member or orientation">
+      </div>
+      <details class="pl-disclosure pl-bookings-filters__more"{% if bookings_is_filtered %} open{% endif %}
+               x-init="if (window.matchMedia('(min-width: 769px)').matches) $el.open = true">
+        <summary class="pl-disclosure__summary">
+          <span class="pl-disclosure__title">Filters</span>
+          <span class="pl-disclosure__chevron" aria-hidden="true"></span>
+        </summary>
+        <div class="pl-disclosure__body pl-bookings-filters__grid">
+          <div class="hub-form-group">
+            <label for="bookings-guild">Guild</label>
+            <select id="bookings-guild" name="guild">
+              <option value="">All guilds</option>
+              {% for g in guild_options %}<option value="{{ g.pk }}"{% if g.pk|stringformat:'s' == filters.guild %} selected{% endif %}>{{ g.name }}</option>{% endfor %}
+            </select>
+          </div>
+          <div class="hub-form-group">
+            <label for="bookings-status">Status</label>
+            <select id="bookings-status" name="status">
+              <option value="">Any status</option>
+              {% for value, label in statuses %}<option value="{{ value }}"{% if value == filters.status %} selected{% endif %}>{{ label }}</option>{% endfor %}
+            </select>
+          </div>
+          <div class="hub-form-group">
+            <label for="bookings-oriented">Oriented</label>
+            <select id="bookings-oriented" name="oriented">
+              <option value="">Any</option>
+              <option value="yes"{% if filters.oriented == "yes" %} selected{% endif %}>Yes</option>
+              <option value="no"{% if filters.oriented == "no" %} selected{% endif %}>No</option>
+            </select>
+          </div>
+          <div class="hub-form-group">
+            <label for="bookings-start">From</label>
+            <input type="date" id="bookings-start" name="start" value="{{ filters.start }}" class="pl-bookings-filters__date" @click="(() => { try { $el.showPicker() } catch (e) {} })()">
+          </div>
+          <div class="hub-form-group">
+            <label for="bookings-end">To</label>
+            <input type="date" id="bookings-end" name="end" value="{{ filters.end }}" class="pl-bookings-filters__date" @click="(() => { try { $el.showPicker() } catch (e) {} })()">
+          </div>
+        </div>
+      </details>
+      <div class="pl-bookings-filters__actions">
+        <button type="submit" class="hub-btn hub-btn--sm hub-btn--primary">Apply</button>
+        <a href="{% url 'hub_orientations_export' %}?{{ export_query }}" class="hub-btn hub-btn--sm hub-btn--ghost" hx-boost="false" data-pl-download>Export CSV</a>
+      </div>
+    </form>
+    {% endif %}
+
+    {% if booking_rows %}
+    <div class="pl-bookings__table-wrap">
+    <table class="pl-members-table pl-bookings-table">
+      <thead>
+        <tr>
+          {% sort_header "When" "slot__starts_at" sort sort_dir base_params %}
+          {% if is_staff_view %}{% sort_header "Member" "member__full_legal_name" sort sort_dir base_params %}{% endif %}
+          {% sort_header "Orientation" "orientation_type__name" sort sort_dir base_params %}
+          {% if is_staff_view %}<th scope="col">Run By</th>{% endif %}
+          {% sort_header "Status" "status" sort sort_dir base_params %}
+          {% if is_staff_view %}<th scope="col">Paid</th>{% endif %}
+          <th scope="col"><span class="sr-only">Actions</span></th>
+        </tr>
+      </thead>
+      <tbody>
+      {% for row in booking_rows %}
+        {% with b=row.booking %}
+        <tr data-booking-row="{{ b.pk }}">
+          <td class="pl-bookings-table__when">{{ b.slot.starts_at|date:"D M j, g:i A" }}</td>
+          {% if is_staff_view %}
+          <td data-label="Member">{% if row.is_own %}You{% elif row.can_manage %}<a href="{% url 'hub_orientation_respond' b.pk %}">{{ b.member.display_name }}</a>{% else %}{{ b.member.display_name }}{% endif %}</td>
+          {% endif %}
+          <td{% if is_staff_view %} data-label="Orientation"{% endif %} class="pl-bookings-table__orientation">
+            <span class="pl-bookings-table__name">{{ b.orientation_type.name }}</span>
+            <span class="pl-bookings-table__owner">{{ b.orientation_type.owner_name }}</span>
+          </td>
+          {% if is_staff_view %}
+          <td data-label="Run By">{% if b.slot.orienter %}{{ b.slot.orienter.display_name }}{% else %}Any orienter{% endif %}</td>
+          {% endif %}
+          <td{% if is_staff_view %} data-label="Status"{% endif %} class="pl-bookings-table__status">
+            <span class="hub-pill {% if b.status == 'confirmed' %}hub-pill--ok{% elif b.status == 'requested' or b.status == 'pending_payment' %}hub-pill--warn{% else %}hub-pill--neutral{% endif %}" data-booking-status="{{ b.status }}">{{ b.get_status_display }}</span>
+            {% if b.is_completed %}<span class="hub-pill hub-pill--ok" data-booking-oriented>Oriented</span>{% endif %}
+            {% if row.fee_unpaid %}<span class="hub-pill hub-pill--danger" data-booking-fee>Fee unpaid</span>{% endif %}
+            {% if not is_staff_view and b.amount_paid_cents %}
+            <span class="pl-bookings-table__paid">{% if b.refund_state == "full" or b.refund_state == "partial" %}Refunded{% else %}Paid {{ b.amount_paid_cents|cents_as_price }}{% endif %}</span>
+            {% endif %}
+          </td>
+          {% if is_staff_view %}
+          <td data-label="Paid">
+            {% if not b.amount_paid_cents %}<span class="hub-text-muted">None</span>
+            {% elif b.refund_state == "failed" %}
+            {{ b.amount_paid_cents|cents_as_price }} ·
+            {% if viewer_has_refund_authority %}<a href="{% url 'billing_admin_dashboard' %}?tab=payments&source=orientation&status=failed" class="pl-bookings-table__failed">Refund failed</a>{% else %}<strong class="pl-bookings-table__failed">Refund failed</strong>{% endif %}
+            {% elif b.refund_state == "full" or b.refund_state == "partial" %}
+            <span class="hub-text-muted">{{ b.amount_paid_cents|cents_as_price }} · Refunded</span>
+            {% else %}{{ b.amount_paid_cents|cents_as_price }}
+            {% endif %}
+          </td>
+          {% endif %}
+          <td class="pl-bookings-table__actions">
+            {# The viewer's own row is named by what and when, not by their own name. #}
+            {% if row.is_own %}
+            {% with when=b.slot.starts_at|date:"D M j, g:i A" %}
+            {% with menu_label="Actions for "|add:b.orientation_type.name|add:" on "|add:when %}
+            {% include "components/row_actions.html" with menu_include="hub/partials/orientation_booking_row_menu.html" menu_label=menu_label %}
+            {% endwith %}
+            {% endwith %}
+            {% else %}
+            {% with menu_label="Actions for "|add:b.member.display_name %}
+            {% include "components/row_actions.html" with menu_include="hub/partials/orientation_booking_row_menu.html" menu_label=menu_label %}
+            {% endwith %}
+            {% endif %}
+          </td>
+        </tr>
+        {% endwith %}
+      {% endfor %}
+      </tbody>
+    </table>
+    </div>
+    {% include "components/table_pagination.html" with page=page base_params=base_params %}
+    {% else %}
+    <div class="hub-card pl-bookings__empty" data-bookings-empty>
+      {% if is_staff_view %}
+      {% if bookings_is_filtered %}
+      <p class="hub-text-muted">Nothing matches those filters. <a href="{{ clear_filters_url }}">Clear filters</a></p>
+      {% else %}
+      <p class="hub-text-muted">No orientations are booked yet.</p>
+      {% endif %}
+      {% elif show == "upcoming" %}
+      <p class="hub-text-muted">You have no orientations coming up. Pick one under <a href="{% url 'hub_orientations' %}" @click.prevent="setPane('list')">List</a> to get started.</p>
+      {% else %}
+      <p class="hub-text-muted">Nothing here yet. Orientations you have been to show up here.</p>
+      {% endif %}
+    </div>
+    {% endif %}
+
+    {% if recorded_orientations is not None %}
+    {# Hand recorded orientations (#465): no slot, no status, nothing to act on. #}
+    <div class="pl-orient-records">
+      <h2 class="hub-detail-label pl-orient-records__heading">Recorded by an Admin</h2>
+      {% if is_staff_view %}
+      <table class="pl-members-table pl-bookings-table">
+        <thead>
+          <tr>
+            <th scope="col">Date</th>
+            <th scope="col">Member</th>
+            <th scope="col">Orientation</th>
+            <th scope="col">Oriented By</th>
+            <th scope="col">Recorded By</th>
+          </tr>
+        </thead>
+        <tbody>
+        {% for r in recorded_orientations %}
+          <tr class="pl-orient-records__row" data-record-row="{{ r.pk }}">
+            <td class="pl-bookings-table__when">{{ r.completed_on|date:"M j, Y" }}</td>
+            <td data-label="Member">{% if viewer_is_admin %}<a href="{% url 'hub_admin_member_edit' r.member.pk %}?tab=orientations">{{ r.member.display_name }}</a>{% else %}{{ r.member.display_name }}{% endif %}</td>
+            <td data-label="Orientation" class="pl-bookings-table__orientation">
+              <span class="pl-bookings-table__name">{{ r.orientation_type.name }}</span>
+              <span class="pl-bookings-table__owner">{{ r.orientation_type.owner_name }}</span>
+              {% if r.note %}<span class="hub-text-muted pl-orient-records__note">{{ r.note }}</span>{% endif %}
+            </td>
+            <td data-label="Oriented By">{% if r.oriented_by %}{{ r.oriented_by.display_name }}{% else %}Not recorded{% endif %}</td>
+            <td data-label="Recorded By">{{ r.recorded_by_name }}</td>
+          </tr>
+        {% empty %}
+          <tr><td colspan="5" class="pl-orient-records__empty">No orientations recorded by an admin.</td></tr>
+        {% endfor %}
+        </tbody>
+      </table>
+      {% else %}
+      <ul class="pl-bookings-records">
+        {% for r in recorded_orientations %}
+        <li data-record-row="{{ r.pk }}"><span class="pl-bookings-records__date">{{ r.completed_on|date:"M j" }}</span> {{ r.orientation_type.name }} · {{ r.orientation_type.owner_name }}</li>
+        {% endfor %}
+      </ul>
+      {% endif %}
+    </div>
+    {% endif %}
+
+    {% include "hub/partials/orientation_booking_modals.html" %}
+  </div>
+
+  {% if is_staff_view and add_member_form %}
+  {% include "components/modal.html" with modal_id="orientation-add-member" modal_title="Add a Member" modal_size="md" modal_body_include="hub/partials/orientation_add_member_form.html" %}
+  {% endif %}
+  {% if viewer_has_refund_authority %}
+  {% include "components/modal.html" with modal_id="refund-modal" modal_title="Refund Payment" modal_size="sm" %}
+  {% endif %}
+</div>

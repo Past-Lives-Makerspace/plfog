@@ -1,11 +1,11 @@
-/* The List / Calendar pair on the Orientations and Reservations pages (#502).
+/* The List / Calendar / Bookings panes on the Orientations and Reservations pages (#502, #626).
  *
  * Alpine component `plListCalendar(initialPane)`. The server picks the opening pane from
- * ?view=calendar and builds the calendar only then; otherwise the Calendar pane holds a
- * placeholder (x-ref="calendarLazy", data-calendar-src) that this component swaps for the
- * whole calendar shell the first time the member opens the pane, so the List view costs
- * no calendar queries. Switching keeps ?view in the address bar (replaceState), so a
- * reload or a shared link opens the same pane.
+ * ?view=<pane> and builds that pane only; every other pane that costs queries holds a
+ * placeholder carrying data-lazy-pane="<pane>" and data-pane-src="<partial url>", which this
+ * component swaps for the pane the first time the member opens it, so the List view costs no
+ * calendar or bookings queries. Switching keeps ?view in the address bar (replaceState), so
+ * a reload or a shared link opens the same pane.
  *
  * A hash naming an element in the List pane (an orientation card, #orientation-type-5)
  * opens the List pane, so a calendar entry's link always lands on its card.
@@ -37,17 +37,17 @@
             setPane(pane) {
                 this.pane = pane;
                 const url = new URL(window.location.href);
-                if (pane === "calendar") {
-                    url.searchParams.set("view", "calendar");
-                } else {
+                if (pane === "list") {
                     url.searchParams.delete("view");
+                } else {
+                    url.searchParams.set("view", pane);
                 }
                 url.hash = "";
                 window.history.replaceState(window.history.state, "", url.toString());
-                const lazy = this.$refs.calendarLazy;
-                if (pane === "calendar" && lazy && !lazy.plRequested) {
+                const lazy = this.$root.querySelector('[data-lazy-pane="' + pane + '"]');
+                if (lazy && !lazy.plRequested) {
                     lazy.plRequested = true;
-                    window.htmx.ajax("GET", lazy.dataset.calendarSrc, { target: lazy, swap: "outerHTML" });
+                    window.htmx.ajax("GET", lazy.dataset.paneSrc, { target: lazy, swap: "outerHTML" });
                 }
             },
         }));

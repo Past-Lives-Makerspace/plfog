@@ -82,7 +82,8 @@ def describe_the_page():
         assert response.status_code == 302
         assert "/accounts/login/" in response["Location"]
 
-    def it_moves_the_staff_dashboard_under_manage(client: Client):
+    def it_keeps_the_staff_paths_under_manage(client: Client):
+        # The dashboard became the Bookings tab (#626); its old paths keep resolving.
         user = _login(client, "op_lead")
         guild = _guild("Dashboard Guild")
         guild.guild_lead = user.member
@@ -93,11 +94,15 @@ def describe_the_page():
         assert (
             reverse("hub_orientation_toggle_completed", args=[7]) == "/orientations/manage/bookings/7/toggle-completed/"
         )
-        assert client.get("/orientations/manage/").status_code == 200
+        response = client.get("/orientations/manage/")
+        assert response.status_code == 302
+        assert response["Location"] == "/orientations/?view=bookings"
 
-    def it_still_403s_a_plain_member_on_the_dashboard(client: Client):
+    def it_sends_a_plain_member_to_their_own_bookings(client: Client):
         _login(client, "op_dash_member")
-        assert client.get("/orientations/manage/").status_code == 403
+        response = client.get("/orientations/manage/")
+        assert response.status_code == 302
+        assert response["Location"] == "/orientations/?view=bookings"
 
     def it_lists_cards_for_a_signed_in_account_with_no_member(client: Client):
         user = _login(client, "op_unlinked")
@@ -677,14 +682,12 @@ def describe_a_card_whose_times_are_all_full():
 
 
 def describe_the_manage_action():
-    def it_links_the_dashboard_for_a_guild_lead(client: Client):
+    def it_is_gone_for_a_guild_lead_now_that_the_bookings_tab_replaces_it(client: Client):
         user = _login(client, "op_manage_lead")
         GuildFactory(name="Managed Guild", guild_lead=user.member)
         content = client.get(PAGE).content.decode()
-        assert (
-            f'<a href="{reverse("hub_orientations_dashboard")}" class="hub-btn hub-btn--sm">Manage orientations</a>'
-            in content
-        )
+        assert f'href="{reverse("hub_orientations_dashboard")}"' not in content
+        assert ">Manage orientations</a>" not in content
 
     def it_is_absent_for_a_plain_member(client: Client):
         _login(client, "op_manage_member")

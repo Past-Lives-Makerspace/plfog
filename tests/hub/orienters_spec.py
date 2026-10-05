@@ -75,20 +75,23 @@ def describe_orienter_access_to_the_config_editor():
 
 
 def describe_orienter_dashboard_and_booking_actions():
-    def it_lets_an_orienter_open_the_dashboard(client: Client):
+    def it_gives_an_orienter_the_staff_view_of_the_bookings_tab(client: Client):
         guild = GuildFactory()
         user = _member_user("d_open")
         _make_orienter(guild, user)
         client.login(username="d_open", password="pass")
-        assert client.get(reverse("hub_orientations_dashboard")).status_code == 200
+        response = client.get(reverse("hub_orientations"), {"view": "bookings"})
+        assert response.status_code == 200
+        assert b'data-bookings-pane="staff"' in response.content
 
-    def it_serves_the_mine_scope_for_an_orienter(client: Client):
+    def it_lists_their_guilds_bookings_for_an_orienter(client: Client):
         guild = GuildFactory()
         user = _member_user("d_scope")
         _make_orienter(guild, user)
-        OrientationBookingFactory(slot=OrientationSlotFactory(guild=guild))
+        booking = OrientationBookingFactory(slot=OrientationSlotFactory(guild=guild))
         client.login(username="d_scope", password="pass")
-        assert client.get(reverse("hub_orientations_dashboard") + "?scope=mine").status_code == 200
+        response = client.get(reverse("hub_orientations"), {"view": "bookings"})
+        assert f'data-booking-row="{booking.pk}"'.encode() in response.content
 
     def it_lets_an_orienter_confirm_a_booking_on_their_guild(client: Client):
         guild = GuildFactory()
@@ -116,7 +119,7 @@ def describe_orienter_dashboard_and_booking_actions():
         _make_orienter(guild, user)
         booking = OrientationBookingFactory(slot=OrientationSlotFactory(guild=guild))
         client.login(username="b_done", password="pass")
-        response = client.post(reverse("hub_orientation_toggle_completed", args=[booking.pk]))
+        response = client.post(reverse("hub_orientation_toggle_completed", args=[booking.pk]), {"completed": "1"})
         assert response.status_code == 302
         booking.refresh_from_db()
         assert booking.is_completed is True

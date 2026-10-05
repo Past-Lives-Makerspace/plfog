@@ -293,7 +293,7 @@ TOURS: dict[str, Tour] = {
                 title="Orientations",
                 body=(
                     "Set your orientation hours and open slots here. Bookings show up on the "
-                    "Orientations dashboard to confirm."
+                    "Orientations page's Bookings tab, where you confirm them."
                 ),
                 tab_set=("section", "orientations"),
             ),
@@ -532,9 +532,10 @@ TOURS: dict[str, Tour] = {
             ),
             TourStep(
                 target='[data-help-key="orientation.dashboard"]',
-                title="Orientations Dashboard",
-                body="Every guild's orientation requests and completions live here so you can see who is booked and who is oriented.",
-                navigate="hub_orientations_dashboard",
+                title="Orientation Bookings",
+                body="The Orientations page's Bookings tab lists the bookings you run, so you can see who is booked and who is oriented, and act from each row's menu.",
+                navigate="hub_orientations",
+                query={"view": "bookings"},
             ),
             TourStep(
                 target='[data-help-key="admin.invite-member"]',
