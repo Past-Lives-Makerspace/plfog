@@ -718,8 +718,9 @@ def hub_equipment_reservation_cancel(request: HttpRequest, slug: str, pk: int) -
         return HttpResponse("Forbidden", status=403)
     manager_route = "reason" in request.POST and can_manage_equipment(request, equipment)
     if reservation.member_id == member.pk and not manager_route:
-        next_url = _safe_next(request, "")
-        if next_url:
+        if "next" in request.POST:
+            # A posted next that is not safe still gets a page back, the Bookings tab, never the schedule fragment.
+            next_url = _safe_next(request, "") or f"{reverse('hub_equipment_index')}?view=bookings"
             return _self_cancel_to_page(request, reservation, member, next_url)
         week_offset = _parse_week_value(request.POST.get("week", "0"))
         selected_day = _parse_day(request.POST.get("day", ""))

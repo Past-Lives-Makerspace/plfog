@@ -72,6 +72,10 @@ def describe_Equipment():
             equipment = EquipmentFactory(name="???")
             assert equipment.slug == "equipment"
 
+        def it_never_takes_a_word_a_fixed_route_uses():
+            assert EquipmentFactory(name="Bookings").slug == "bookings-2"
+            assert EquipmentFactory(name="Add").slug == "add-2"
+
     def describe_delete_protection():
         def it_protects_a_guild_that_owns_equipment():
             guild = GuildFactory()

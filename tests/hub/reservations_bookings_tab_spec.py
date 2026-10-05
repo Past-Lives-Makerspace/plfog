@@ -507,6 +507,14 @@ def describe_cancel_from_the_tab():
         mine.refresh_from_db()
         assert mine.status == EquipmentReservation.Status.CANCELLED
 
+    def it_sends_a_self_cancel_with_an_off_site_next_to_the_tab(client: Client):
+        member = _login(client, "rt_self_evil")
+        mine = _reservation(member=member)
+        response = client.post(_cancel_url(mine), {"next": "https://evil.example/"})
+        assert response["Location"] == TAB
+        mine.refresh_from_db()
+        assert mine.status == EquipmentReservation.Status.CANCELLED
+
     def it_says_why_a_self_cancel_was_refused(client: Client):
         member = _login(client, "rt_self_started")
         started = _reservation(member=member, hours=-0.5)
