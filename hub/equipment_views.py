@@ -1021,6 +1021,56 @@ def hub_equipment_manage(request: HttpRequest, slug: str) -> HttpResponse:
     return _render_manage(request, equipment, active_tab=active_tab)
 
 
+def _require_can_print(request: HttpRequest, equipment: Equipment) -> HttpResponse | None:
+    """403 unless the request may print ``equipment``'s QR sheet, with the reason when it is retired.
+
+    The manage gate: ``can_manage_equipment`` already holds everyone ``Equipment.is_run_by``
+    names (the tool's staff rows and its guild's lead and staff), plus admins and the
+    EQUIPMENT capability. A runner of a retired item hears why it cannot be printed.
+    """
+    forbidden = _require_can_manage(request, equipment)
+    if forbidden is not None:
+        return forbidden
+    if equipment.qr_sheet_refusal:
+        return HttpResponse(equipment.qr_sheet_refusal, status=403)
+    return None
+
+
+@login_required
+def hub_equipment_flyer(request: HttpRequest, slug: str) -> HttpResponse:
+    """The equipment QR sheet (#631): one printable Letter page to post at the machine.
+
+    A QR to the equipment page, where a member reserves it or sees the orientation it needs,
+    and, when it requires an orientation that is on, a second QR straight to booking it.
+    """
+    equipment = get_object_or_404(_equipment_queryset().select_related("area"), slug=slug)
+    forbidden = _require_can_print(request, equipment)
+    if forbidden is not None:
+        return forbidden
+    return render(
+        request,
+        "hub/equipment_flyer.html",
+        {"equipment": equipment, "qr_svg": equipment.qr_svg(), "orientation": equipment.qr_sheet_orientation},
+    )
+
+
+@login_required
+def hub_equipment_qr(request: HttpRequest, slug: str, fmt: str) -> HttpResponse:
+    """Download the equipment page QR as SVG or PNG, gated like the sheet."""
+    equipment = get_object_or_404(_equipment_queryset(), slug=slug)
+    forbidden = _require_can_print(request, equipment)
+    if forbidden is not None:
+        return forbidden
+    if fmt == "svg":
+        response = HttpResponse(equipment.qr_svg(), content_type="image/svg+xml")
+    elif fmt == "png":
+        response = HttpResponse(equipment.qr_png_bytes(), content_type="image/png")
+    else:
+        raise Http404
+    response["Content-Disposition"] = f'attachment; filename="{equipment.slug}-qr.{fmt}"'
+    return response
+
+
 @login_required
 @require_POST
 def hub_equipment_details_save(request: HttpRequest, slug: str) -> HttpResponse:

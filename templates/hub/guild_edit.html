@@ -491,6 +491,7 @@ confirm modal carries its own POST form, and template content can't nest a form.
             {% include "components/image_field.html" with field=t.photo current_image=t.instance.photo delete_url=otype_photo_delete_url modal_id="delete-otype-photo-"|add:opk label="Photo" shape="rect" max_bytes=max_upload_image_bytes tooltip_html="Wide photo, about 1600x900, JPG or PNG. Shown on this orientation's card. Leave empty to use the guild banner." delete_button_text="Delete photo" confirm_title="Delete this photo?" confirm_message="The card goes back to the guild banner. This can't be undone." %}
             {% endwith %}
             {% include "components/form_field.html" with field=t.is_active %}
+            {% if t.instance.pk and t.instance.is_active %}<a href="{% url 'hub_orientation_type_flyer' t.instance.pk %}" target="_blank" rel="noopener" class="pl-btn pl-btn--secondary pl-btn--sm" data-qr-sheet-type-link>Print QR Sheet</a>{% endif %}
             {% if t.instance.pk %}
               <div style="display:none;">{{ t.DELETE }}</div>
               <button type="button" class="pl-btn pl-btn--danger pl-btn--sm pl-btn--spaced" data-formset-remove>Delete</button>

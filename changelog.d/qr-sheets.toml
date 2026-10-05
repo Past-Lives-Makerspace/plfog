@@ -1,0 +1,7 @@
+bump = "minor"
+date = "2026-10-05"
+title = "Printable QR sheets for equipment and orientations"
+changes = [
+  "Equipment managers and the people who run an orientation can print a one page QR sheet to post in the shop, like class flyers. Members scan it to reserve the tool, or to book the orientation they need first.",
+  "Find Print QR Sheet on the equipment page, the equipment manage page, your guild's Orientations settings and the Orientations Bookings tab. You can also download just the QR code as SVG or PNG.",
+]

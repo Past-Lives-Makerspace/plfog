@@ -1,0 +1,14 @@
+{% comment %}
+The Bookings tab's Print QR Sheet modal body (#631): one link per orientation the viewer runs
+that can be printed (hub.orientation_bookings._qr_sheet_types). Each opens that orientation's
+printable sheet in a new tab. Context: qr_sheet_types.
+{% endcomment %}
+<p class="hub-text-muted">Pick an orientation. Its sheet opens in a new tab, ready to print and post in the shop.</p>
+<ul class="pl-qr-sheet-menu" data-bookings-qr-sheet-menu>
+  {% for orientation_type in qr_sheet_types %}
+  <li class="pl-qr-sheet-menu__item">
+    <a href="{% url 'hub_orientation_type_flyer' orientation_type.pk %}" target="_blank" rel="noopener">{{ orientation_type.name }}</a>
+    <span class="hub-text-muted">{{ orientation_type.owner_name }}</span>
+  </li>
+  {% endfor %}
+</ul>

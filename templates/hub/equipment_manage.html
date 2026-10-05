@@ -2,8 +2,9 @@
 {% block title %}Manage {{ equipment.name }}{% endblock %}
 
 {% block content %}
-<div style="margin-bottom:1rem;">
+<div class="pl-btn-row" style="margin-bottom:1rem;">
   <a href="{% url 'hub_equipment_detail' equipment.slug %}" class="hub-btn hub-btn--sm hub-btn--ghost">← Back to the {{ equipment.name }}</a>
+  {% if equipment.is_active %}<a href="{% url 'hub_equipment_flyer' equipment.slug %}" target="_blank" rel="noopener" class="pl-btn pl-btn--secondary pl-btn--sm" data-qr-sheet-link>Print QR Sheet</a>{% endif %}
 </div>
 <h1 class="hub-page-title">Manage {{ equipment.name }}</h1>
 
@@ -231,6 +232,7 @@
             <div class="pl-equip-hours-row__field">{% include "components/form_field.html" with field=row.sort_order %}</div>
           </div>
           {% include "components/form_field.html" with field=row.is_active %}
+          {% if row.instance.pk and row.instance.is_active and equipment.is_active %}<a href="{% url 'hub_orientation_type_flyer' row.instance.pk %}" target="_blank" rel="noopener" class="pl-btn pl-btn--secondary pl-btn--sm" data-qr-sheet-type-link>Print QR Sheet</a>{% endif %}
           {% if row.instance.pk %}
             {# Real delete button: flips the hidden DELETE field and saves the whole form so no work is lost. #}
             <div style="display:none;">{{ row.DELETE }}</div>
