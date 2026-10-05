@@ -1,7 +1,7 @@
 """BDD specs for the late cancellation fee service and model (#456, parts 2 and 3).
 
-``charge_if_late`` on a late self cancel of each kind and not on an early one, the once
-only guard, the site switch off, ``start_fee_checkout``'s session and attempt counter,
+``charge_if_late`` on a late self cancel of each kind and not on an early one, ``would_charge``
+asking the same rule without charging (#633), the once only guard, the site switch off, ``start_fee_checkout``'s session and attempt counter,
 ``mark_paid`` idempotent and race-safe with the receipt, the landing reconcile,
 ``unpaid_fee_for``, the model's labels and constraint, the activity kinds; and part 3's
 ``waive`` (each allowed role, the refusals, a paid fee refused, the block lifting, the
@@ -161,6 +161,33 @@ def describe_charge_if_late():
         # Seen from 28 hours later, the same reservation starts in two hours: late.
         fee = late_fees.charge_if_late(reservation, now=timezone.now() + timedelta(hours=28))
         assert fee is not None
+
+
+def describe_would_charge():
+    """The rule charge_if_late charges by, asked without charging (#633)."""
+
+    def it_is_true_inside_the_window_with_a_fee_and_creates_nothing():
+        _site()
+        assert late_fees.would_charge(_reservation()) is True
+        assert late_fees.would_charge(_confirmed_booking()) is True
+        assert not LateCancellationFee.objects.exists()
+
+    def it_is_false_outside_the_window():
+        _site()
+        assert late_fees.would_charge(_reservation(hours_ahead=30)) is False
+
+    def it_is_false_while_the_site_switch_is_off():
+        _site(enabled=False)
+        assert late_fees.would_charge(_reservation()) is False
+
+    def it_is_false_when_the_owner_sets_no_fee():
+        _site()
+        assert late_fees.would_charge(_reservation(fee_cents=0)) is False
+
+    def it_measures_lateness_at_the_moment_it_is_given():
+        _site()
+        reservation = _reservation(hours_ahead=30)
+        assert late_fees.would_charge(reservation, now=timezone.now() + timedelta(hours=28)) is True
 
 
 def describe_start_fee_checkout():
