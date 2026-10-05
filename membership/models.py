@@ -13123,7 +13123,7 @@ class OrientationRecordQuerySet(models.QuerySet):
 
 
 class OrientationRecord(models.Model):
-    """An orientation an admin recorded by hand, outside the booking flow (issue #465).
+    """An orientation recorded by hand, outside the booking flow (issue #465), by guild staff or an admin (#630).
 
     A booking that completes is one road to "oriented"; this is the other, for an
     orientation that happened off the books (before the app, in person, on another

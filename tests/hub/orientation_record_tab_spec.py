@@ -294,6 +294,46 @@ def describe_refusals():
         assert not OrientationRecord.objects.exists()
         assert "Pick today or a day in the past." in [str(m) for m in response.context["messages"]]
 
+    def it_hides_hidden_accounts_from_oriented_by(client: Client):
+        _lead_world(client)
+        hidden = MemberFactory(
+            full_legal_name="Hilda Hiddenorienter", status=Member.Status.ACTIVE, hide_from_directory=True
+        )
+        form = client.get(PAGE, {"view": "bookings"}).context["record_form"]
+        assert hidden not in form.fields["oriented_by"].queryset
+        assert "Hilda Hiddenorienter" not in _tab(client)
+
+    def it_refuses_a_hidden_account_as_the_orienter_and_writes_nothing(client: Client):
+        world = _lead_world(client)
+        hidden = MemberFactory(
+            full_legal_name="Hilda Hiddenorienter", status=Member.Status.ACTIVE, hide_from_directory=True
+        )
+        client.post(RECORD_URL, _post(str(world["type_a"]), "Tobias Recordee", oriented_by=str(hidden.pk)))
+        assert not OrientationRecord.objects.exists()
+        assert not SiteActivity.objects.filter(kind=SiteActivity.Kind.ORIENTATION_RECORDED).exists()
+
+    def it_keeps_hidden_accounts_as_orienters_in_the_admin_flow():
+        MembershipPlanFactory()
+        hidden = MemberFactory(status=Member.Status.ACTIVE, hide_from_directory=True)
+        assert hidden in OrientationRecordForm(MemberFactory()).fields["oriented_by"].queryset
+
+    def it_answers_a_double_click_with_the_duplicate_message(client: Client):
+        world = _lead_world(client)
+        real_clean = OrientationRecordForm.clean
+
+        def clean_then_lose_the_race(form: OrientationRecordForm) -> dict[str, Any]:
+            cleaned = real_clean(form)
+            # The first click's save lands after this click passed clean().
+            OrientationRecordFactory(member=world["target"], orientation_type=world["type_a"])
+            return cleaned
+
+        with mock.patch.object(OrientationRecordForm, "clean", clean_then_lose_the_race):
+            response = client.post(RECORD_URL, _post(str(world["type_a"]), "Tobias Recordee"), follow=True)
+        assert response.status_code == 200
+        assert OrientationRecord.objects.count() == 1
+        assert not SiteActivity.objects.filter(kind=SiteActivity.Kind.ORIENTATION_RECORDED).exists()
+        assert "Tobias Recordee already completed this orientation." in [str(m) for m in response.context["messages"]]
+
     def it_refuses_an_unknown_member(client: Client):
         world = _lead_world(client)
         response = client.post(RECORD_URL, _post(str(world["type_a"]), "Nobody Atall"), follow=True)

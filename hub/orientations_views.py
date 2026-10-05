@@ -16,6 +16,7 @@ from typing import Any, cast
 
 from django.contrib import messages
 from django.contrib.auth.models import User
+from django.db import IntegrityError, transaction
 from django.contrib.auth.decorators import login_required
 from django.http import HttpRequest, HttpResponse
 from django.shortcuts import get_object_or_404, redirect, render
@@ -306,7 +307,14 @@ def hub_orientation_record(request: HttpRequest) -> HttpResponse:
         for error in dict.fromkeys(str(message) for field_errors in form.errors.values() for message in field_errors):
             messages.error(request, error)
         return redirect(back)
-    record = form.save(recorded_by=cast(User, request.user))
+    try:
+        # A savepoint: a double click passes clean() twice and the second save hits the
+        # one record per member per type constraint; answer it as the form's duplicate refusal.
+        with transaction.atomic():
+            record = form.save(recorded_by=cast(User, request.user))
+    except IntegrityError:
+        messages.error(request, f"{form.recorded_member.display_name} already completed this orientation.")
+        return redirect(back)
     messages.success(
         request, f"Recorded the {record.orientation_type.name} orientation for {record.member.display_name}."
     )

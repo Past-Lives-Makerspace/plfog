@@ -3737,6 +3737,10 @@ class OrientationRecordForm(forms.Form):
         self._members_by_label: dict[str, Member] = {}
         if member is None:
             self._add_member_picker()
+            # Guild staff pick from the same people the member picker offers (#614): no hidden accounts.
+            cast(forms.ModelChoiceField, self.fields["oriented_by"]).queryset = (
+                Member.objects.filter(status=Member.Status.ACTIVE).without_hidden().order_by("full_legal_name")
+            )
         self.type_options: list[str] = []
         self._types_by_label: dict[str, OrientationType] = {}
         types = (
