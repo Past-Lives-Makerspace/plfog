@@ -466,7 +466,7 @@ confirm modal carries its own POST form, and template content can't nest a form.
     {% csrf_token %}
     <div class="hub-card" style="padding:1.5rem; margin-bottom:1.5rem;">
       <h2 class="hub-detail-label" style="margin-top:0; margin-bottom:0.25rem;">Orientation Types</h2>
-      <p class="hub-text-muted" style="font-size:0.8125rem; margin:0 0 1rem;">The kinds of orientation your guild offers, e.g. Shop Basics, Lathe, CNC. Each has its own length, price, seats, and location. Members book each one separately; completing any one counts as oriented for the guild. Set a price and members pay by card when they book; declines and cancellations refund automatically.</p>
+      <p class="hub-text-muted" style="font-size:0.8125rem; margin:0 0 1rem;">The kinds of orientation your guild offers, e.g. Shop Basics, Lathe, CNC. Each has its own length, price, seats, and location. Members book each one separately; completing any one counts as oriented for the guild. Set a price and members pay by card when they book, or make it donation based and members choose the amount; declines and cancellations refund automatically.</p>
       {{ orientation_type_formset.management_form }}
       {% for error in orientation_type_formset.non_form_errors %}<p class="pl-field-error">{{ error }}</p>{% endfor %}
       <div id="otype-rows" style="display:flex; flex-direction:column; gap:1rem;" data-formset-rows>
@@ -476,7 +476,6 @@ confirm modal carries its own POST form, and template content can't nest a form.
             <div style="display:flex; gap:0.75rem; flex-wrap:wrap;">
               <div style="flex:2; min-width:160px;">{% include "components/form_field.html" with field=t.name %}</div>
               <div style="flex:1; min-width:110px;">{% include "components/form_field.html" with field=t.duration_minutes %}</div>
-              <div style="flex:1; min-width:110px;">{% include "components/form_field.html" with field=t.price field_hint="In dollars. Blank means free." %}</div>
             </div>
             <div style="display:flex; gap:0.75rem; flex-wrap:wrap;">
               <div style="flex:1; min-width:100px;">{% include "components/form_field.html" with field=t.default_seats %}</div>
@@ -484,6 +483,7 @@ confirm modal carries its own POST form, and template content can't nest a form.
               <div style="flex:2; min-width:160px;">{% include "components/form_field.html" with field=t.default_location %}</div>
               <div style="flex:1; min-width:100px;">{% include "components/form_field.html" with field=t.sort_order %}</div>
             </div>
+            {% include "hub/partials/_orientation_type_pricing_fields.html" with type_form=t %}
             {% include "components/form_field.html" with field=t.description %}
             {# The card photo (#502); a saved row also gets the delete control. #}
             {% if t.instance.pk %}{% url 'hub_orientation_type_photo_delete' t.instance.pk as otype_photo_delete_url %}{% endif %}
@@ -508,7 +508,6 @@ confirm modal carries its own POST form, and template content can't nest a form.
             <div style="display:flex; gap:0.75rem; flex-wrap:wrap;">
               <div style="flex:2; min-width:160px;">{% include "components/form_field.html" with field=ef.name %}</div>
               <div style="flex:1; min-width:110px;">{% include "components/form_field.html" with field=ef.duration_minutes %}</div>
-              <div style="flex:1; min-width:110px;">{% include "components/form_field.html" with field=ef.price field_hint="In dollars. Blank means free." %}</div>
             </div>
             <div style="display:flex; gap:0.75rem; flex-wrap:wrap;">
               <div style="flex:1; min-width:100px;">{% include "components/form_field.html" with field=ef.default_seats %}</div>
@@ -516,6 +515,7 @@ confirm modal carries its own POST form, and template content can't nest a form.
               <div style="flex:2; min-width:160px;">{% include "components/form_field.html" with field=ef.default_location %}</div>
               <div style="flex:1; min-width:100px;">{% include "components/form_field.html" with field=ef.sort_order %}</div>
             </div>
+            {% include "hub/partials/_orientation_type_pricing_fields.html" with type_form=ef %}
             {% include "components/form_field.html" with field=ef.description %}
             {% include "components/image_field.html" with field=ef.photo current_image=None label="Photo" shape="rect" max_bytes=max_upload_image_bytes tooltip_html="Wide photo, about 1600x900, JPG or PNG. Shown on this orientation's card. Leave empty to use the guild banner." %}
             {% include "components/form_field.html" with field=ef.is_active %}

@@ -9,7 +9,7 @@
   <p style="margin:0; display:flex; gap:0.6rem; align-items:center; flex-wrap:wrap;">
     <strong>{{ t.name }}</strong>
     <span class="hub-text-muted" style="font-size:0.9rem;">{{ t.duration_minutes }} min</span>
-    {% if t.is_paid %}<span class="pl-price-chip">{{ t.price_cents|cents_as_price }}</span>{% endif %}
+    {% if t.is_paid %}<span class="pl-price-chip">{{ t.price_cents|cents_as_price }}</span>{% elif t.is_donation %}<span class="pl-price-chip">{{ t.donation_label }}</span>{% endif %}
   </p>
   {% if t.description %}<p class="hub-text-muted" style="margin:0 0 0.25rem; font-size:0.9rem;">{{ t.description }}</p>{% endif %}
   {% endfor %}

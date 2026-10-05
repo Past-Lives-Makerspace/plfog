@@ -5,6 +5,7 @@ from __future__ import annotations
 from datetime import date, datetime, time, timedelta
 from datetime import date as date_type
 from decimal import Decimal
+import json
 import re
 from dataclasses import dataclass
 from collections import Counter
@@ -70,6 +71,7 @@ from membership.models import (
     OrgLink,
     OrientationAvailability,
     OrientationAvailabilityBlock,
+    OrientationError,
     OrientationRecord,
     OrientationSlot,
     OrientationType,
@@ -2357,6 +2359,12 @@ class OrientationTypeForm(forms.ModelForm):
     ``price_cents`` on save. Blank normalizes to 0 (free), and a free type renders
     the field empty, not "0". Price changes affect future checkouts only — live
     holds and paid bookings keep the amount they paid.
+
+    "Donation based" (#636) swaps the price for a member-chosen amount: a minimum ($0, the
+    default, or at least $1) and an optional suggestion (at least the minimum and at least
+    $1), also in dollars. They are checked and saved only while the toggle is on, so the
+    hidden fields of a fixed price type never block its save, and the stored price waits
+    untouched for the toggle to go back off.
     """
 
     price = forms.DecimalField(
@@ -2366,6 +2374,22 @@ class OrientationTypeForm(forms.ModelForm):
         label="Price",
         widget=forms.NumberInput(attrs={"placeholder": "Free", "min": "0", "step": "0.01"}),
     )
+    donation_minimum = forms.DecimalField(
+        max_digits=6,
+        decimal_places=2,
+        required=False,
+        label="Minimum",
+        help_text="In dollars. Blank or 0 means members may pay nothing; otherwise at least $1.",
+        widget=forms.NumberInput(attrs={"placeholder": "0", "min": "0", "step": "0.01"}),
+    )
+    donation_suggested = forms.DecimalField(
+        max_digits=6,
+        decimal_places=2,
+        required=False,
+        label="Suggested donation",
+        help_text="Optional. In dollars, at least the minimum and at least $1. The booking form starts with it.",
+        widget=forms.NumberInput(attrs={"placeholder": "None", "min": "0", "step": "0.01"}),
+    )
 
     class Meta:
         model = OrientationType
@@ -2373,6 +2397,7 @@ class OrientationTypeForm(forms.ModelForm):
             "name",
             "description",
             "duration_minutes",
+            "is_donation",
             "default_seats",
             "area",
             "default_location",
@@ -2383,11 +2408,15 @@ class OrientationTypeForm(forms.ModelForm):
         widgets = {
             "name": forms.TextInput(attrs={"placeholder": "Shop Basics"}),
             "description": forms.Textarea(attrs={"rows": 2}),
+            # The row's pricing block (_orientation_type_pricing_fields.html) swaps Price for
+            # the donation fields while this is on.
+            "is_donation": forms.CheckboxInput(attrs={"x-model": "donation"}),
         }
         labels = {
             "name": "Name",
             "description": "Description (shown to members)",
             "duration_minutes": "Length (minutes)",
+            "is_donation": "Donation based",
             "default_seats": "Seats per slot",
             "default_location": "Where to meet",
             "sort_order": "Sort order",
@@ -2399,6 +2428,10 @@ class OrientationTypeForm(forms.ModelForm):
         super().__init__(*args, **kwargs)
         if self.instance.pk and self.instance.price_cents:
             self.fields["price"].initial = Decimal(self.instance.price_cents) / 100
+        if self.instance.pk and self.instance.donation_minimum_cents:
+            self.fields["donation_minimum"].initial = Decimal(self.instance.donation_minimum_cents) / 100
+        if self.instance.pk and self.instance.donation_suggested_cents is not None:
+            self.fields["donation_suggested"].initial = Decimal(self.instance.donation_suggested_cents) / 100
         setup_location_field(
             self, hint="The area its slots use. A booked slot shows the area in use on its guild page. Optional."
         )
@@ -2412,9 +2445,40 @@ class OrientationTypeForm(forms.ModelForm):
             raise forms.ValidationError("Enter a price between $0 and $500.")
         return int(price * 100)
 
+    def clean(self) -> dict[str, Any]:
+        """Hold a donation type's minimum and suggestion to the $1 floor (#636), only while it is on."""
+        super().clean()
+        cleaned = self.cleaned_data
+        if not cleaned["is_donation"]:
+            return cleaned
+        floor = OrientationType.DONATION_FLOOR_CENTS
+        floor_text = OrientationType.dollars(floor)
+        if "donation_minimum" in cleaned:
+            minimum = cleaned["donation_minimum"]
+            minimum_cents = 0 if minimum is None else int(minimum * 100)
+            if minimum_cents < 0 or 0 < minimum_cents < floor:
+                self.add_error("donation_minimum", f"Set the minimum to $0 or at least {floor_text}.")
+            else:
+                cleaned["donation_minimum_cents"] = minimum_cents
+        if "donation_suggested" in cleaned and "donation_minimum_cents" in cleaned:
+            suggested = cleaned["donation_suggested"]
+            suggested_cents = None if suggested is None else int(suggested * 100)
+            lowest = max(cleaned["donation_minimum_cents"], floor)
+            if suggested_cents is not None and suggested_cents < lowest:
+                self.add_error(
+                    "donation_suggested",
+                    f"Set the suggestion to at least {OrientationType.dollars(lowest)}, or leave it blank.",
+                )
+            else:
+                cleaned["donation_suggested_cents"] = suggested_cents
+        return cleaned
+
     def save(self, commit: bool = True) -> OrientationType:
         instance = cast(OrientationType, super().save(commit=False))
         instance.price_cents = self.cleaned_data["price"]
+        if instance.is_donation:
+            instance.donation_minimum_cents = self.cleaned_data["donation_minimum_cents"]
+            instance.donation_suggested_cents = self.cleaned_data["donation_suggested_cents"]
         if commit:
             instance.save()
         return instance
@@ -3637,16 +3701,73 @@ class OrientationCustomRequestForm(forms.Form):
                 OrientationType.objects.filter(guild=guild).active().select_related("guild", "equipment")
             )
             type_field.error_messages["invalid_choice"] = "Pick one of this guild's orientations."
-            first_type = type_field.queryset.first()
-            self.has_types = first_type is not None
-            if first_type is not None:
-                type_field.initial = first_type.pk
+            types = list(type_field.queryset)
+            self.has_types = bool(types)
+            if types:
+                type_field.initial = types[0].pk
+            # The guild page's picker drives its amount input (#636): Alpine shows it for a
+            # donation type and refills it with that type's suggestion.
+            type_field.widget.attrs["x-model"] = "typePk"
+            self.donation_suggestions = {str(t.pk): t.donation_suggested_dollars for t in types if t.is_donation}
+
+    #: Donation types' suggestions by type pk ("" for none), for the guild page's picker.
+    donation_suggestions: dict[str, str] = {}
+
+    @property
+    def donation_suggestions_json(self) -> str:
+        """:attr:`donation_suggestions` as JSON for the picker's Alpine state."""
+        return json.dumps(self.donation_suggestions)
 
     def clean_starts_at(self) -> Any:
         starts = self.cleaned_data["starts_at"]
         if starts <= timezone.now():
             raise forms.ValidationError("Pick a time in the future.")
         return starts
+
+
+class OrientationAmountForm(forms.Form):
+    """The amount a member enters to book a donation based orientation (#636), on all three roads.
+
+    One field, parsed the same way for a posted slot, a block time and a custom time. It
+    only reads the number: whether that amount is allowed is the type's call
+    (:meth:`~membership.models.OrientationType.checkout_amount_cents`), and a fixed
+    price type ignores it.
+    """
+
+    amount = forms.DecimalField(
+        max_digits=7,
+        decimal_places=2,
+        required=False,
+        label="Your amount ($)",
+        widget=forms.NumberInput(attrs={"min": "0", "step": "0.01", "inputmode": "decimal"}),
+    )
+
+    def __init__(
+        self,
+        *args: Any,
+        orientation_type: OrientationType | None = None,
+        follows_picker: bool = False,
+        **kwargs: Any,
+    ) -> None:
+        """``orientation_type`` prefills the suggestion and its hint; ``follows_picker`` binds
+        the input to the guild page's type picker instead (Alpine's ``amount``)."""
+        super().__init__(*args, **kwargs)
+        if follows_picker:
+            self.fields["amount"].widget.attrs["x-model"] = "amount"
+        if orientation_type is not None:
+            self.fields["amount"].initial = orientation_type.donation_suggested_dollars
+            self.fields["amount"].help_text = orientation_type.donation_amount_hint
+
+    def amount_cents(self) -> int | None:
+        """The entered amount in cents, or ``None`` when it was left blank.
+
+        Raises:
+            OrientationError: When the amount is not a dollar figure.
+        """
+        if not self.is_valid():
+            raise OrientationError("Enter the amount in dollars, like 10 or 12.50.")
+        amount = self.cleaned_data["amount"]
+        return None if amount is None else int(amount * 100)
 
 
 class OrientationSlotChoiceField(forms.ModelChoiceField):

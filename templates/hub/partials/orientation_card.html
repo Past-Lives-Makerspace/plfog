@@ -5,7 +5,8 @@ the owner line, the meta line, the member's state and the next times. Context:
   sec      — a section from hub.orientations_views.hub_orientations: the shared builder's
              type / is_oriented / record / booking / hold / slots (up to three), plus
              blocks (up to three open windows), more_times, all_full (every posted time is
-             taken), paused_message, custom_form, image and image_position
+             taken), paused_message, custom_form, custom_amount_form (a donation
+             type's amount input, else None), image and image_position
   next_url — this page's own path, posted as ``next`` by every control so the member
              lands back here
 Exactly one state renders: completed, the hold or booking (shared partial), paused, or open.
@@ -35,7 +36,7 @@ No stretched name link: the Book buttons are the tap targets.
     <h2 class="pl-orient-card__name">{{ sec.type.name }}</h2>
     <div class="pl-orient-card__meta">
       <span>{{ sec.type.duration_minutes }} min</span>
-      {% if sec.type.is_paid %}<span class="pl-price-chip">{{ sec.type.price_cents|cents_as_price }}</span>{% else %}<span>Free</span>{% endif %}
+      {% if sec.type.is_paid %}<span class="pl-price-chip">{{ sec.type.price_cents|cents_as_price }}</span>{% elif sec.type.is_donation %}<span class="pl-price-chip">{{ sec.type.donation_label }}</span>{% else %}<span>Free</span>{% endif %}
     </div>
 
     {% if sec.is_oriented %}
@@ -104,6 +105,7 @@ No stretched name link: the Book buttons are the tap targets.
           <input type="hidden" name="next" value="{{ next_url }}">
           {% include "components/form_field.html" with field=sec.custom_form.starts_at %}
           {% include "components/form_field.html" with field=sec.custom_form.note %}
+          {% if sec.custom_amount_form %}{% include "components/form_field.html" with field=sec.custom_amount_form.amount %}{% endif %}
           <div class="pl-orient-card__actions">
             <button type="submit" class="hub-btn hub-btn--sm hub-btn--primary">Send request</button>
             <button type="button" class="hub-btn hub-btn--sm hub-btn--ghost" @click="showCustom = false">Cancel</button>

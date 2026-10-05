@@ -423,8 +423,12 @@ def start_block_orientation_checkout(
     *,
     orientation_type: OrientationType,
     note: str = "",
+    amount_cents: int | None = None,
 ) -> str:
     """Paid variant of :func:`request_block_orientation` — returns the Stripe Checkout URL.
+
+    ``amount_cents`` is a donation type's member amount, passed through to
+    :func:`start_orientation_checkout` (a fixed type ignores it).
 
     The carve + the ``PENDING_PAYMENT`` hold + the Checkout Session all run inside
     the block-row lock: the hold is what occupies the segment, so it must exist
@@ -437,7 +441,7 @@ def start_block_orientation_checkout(
     """
     with transaction.atomic():
         slot = _carve_block_slot(block, orientation_type, starts_at)
-        return start_orientation_checkout(slot, member, note=note)
+        return start_orientation_checkout(slot, member, note=note, amount_cents=amount_cents)
 
 
 def parse_proposed_time(date_str: str, time_str: str) -> datetime:
@@ -494,8 +498,14 @@ def read_checkout_token(token: str) -> OrientationBooking:
     return OrientationBooking.objects.select_related("slot", "guild", "member").get(pk=data["booking"])
 
 
-def start_orientation_checkout(slot: OrientationSlot, member: Member, *, note: str = "") -> str:
+def start_orientation_checkout(
+    slot: OrientationSlot, member: Member, *, note: str = "", amount_cents: int | None = None
+) -> str:
     """Open a Stripe Checkout for a paid guild's slot and return the hosted Checkout URL.
+
+    The charge is :meth:`OrientationType.checkout_amount_cents`: the fixed price, or for a
+    donation type the member's ``amount_cents`` once it clears the type's floors (#636),
+    checked here as well as in the view so no road reaches Stripe with an amount it refuses.
 
     Creates the seat-holding ``PENDING_PAYMENT`` booking first (no emails, no
     activity, no notifications — nothing has happened yet), then the Checkout
@@ -504,13 +514,15 @@ def start_orientation_checkout(slot: OrientationSlot, member: Member, *, note: s
 
     Raises:
         OrientationError: Propagated from the ``slot.book()`` guards — including
-            the friendly "checkout in progress" duplicate at ``seat_holding()`` scope.
+            the friendly "checkout in progress" duplicate at ``seat_holding()`` scope —
+            and from the amount check, or when the amount comes to $0.
     """
     from billing import stripe_utils
     from membership.models import OrientationBooking, OrientationError
 
     orientation_type = slot.orientation_type
-    if not orientation_type.is_paid:
+    charge_cents = orientation_type.checkout_amount_cents(amount_cents)
+    if charge_cents <= 0:
         raise OrientationError("This orientation doesn't charge to book.")
 
     def create_hold() -> OrientationBooking:
@@ -539,7 +551,7 @@ def start_orientation_checkout(slot: OrientationSlot, member: Member, *, note: s
     metadata = {"kind": "orientation_booking", "booking_id": str(booking.pk)}
     try:
         session = stripe_utils.create_checkout_session(
-            amount_cents=orientation_type.price_cents,
+            amount_cents=charge_cents,
             product_name=f"{orientation_type.name} orientation — {orientation_type.owner_name}",
             customer_email=member.primary_email,
             success_url=_absolute_url(reverse("hub_orientation_checkout_return", args=[token])),
@@ -559,9 +571,17 @@ def start_orientation_checkout(slot: OrientationSlot, member: Member, *, note: s
 
 
 def start_custom_orientation_checkout(
-    guild: Guild, member: Member, starts_at: datetime, *, orientation_type: OrientationType, note: str = ""
+    guild: Guild,
+    member: Member,
+    starts_at: datetime,
+    *,
+    orientation_type: OrientationType,
+    note: str = "",
+    amount_cents: int | None = None,
 ) -> str:
     """Custom-time variant of :func:`start_orientation_checkout` — pay-to-book at the TYPE's price.
+
+    ``amount_cents`` is a donation type's member amount, passed through to the delegate.
 
     Creates the one-off 1-seat MANUAL slot (like :func:`request_custom_orientation`),
     then delegates. Any failure deletes the orphan slot (and the hold, handled by
@@ -576,7 +596,7 @@ def start_custom_orientation_checkout(
     _ensure_custom_requestable(guild, orientation_type)
     slot = _create_custom_slot(guild, orientation_type, starts_at)
     try:
-        return start_orientation_checkout(slot, member, note=note)
+        return start_orientation_checkout(slot, member, note=note, amount_cents=amount_cents)
     except Exception:
         # The delegate already deleted its hold; remove the orphan slot if it survived.
         if OrientationSlot.objects.filter(pk=slot.pk).exists() and not slot.bookings.exists():

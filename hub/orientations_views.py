@@ -24,7 +24,7 @@ from django.urls import reverse
 from django.views.decorators.http import require_POST
 
 from hub.calendar_pages import calendar_nav_params, orientations_calendar_context
-from hub.forms import OrientationCustomRequestForm, OrientationRecordForm
+from hub.forms import OrientationAmountForm, OrientationCustomRequestForm, OrientationRecordForm
 from hub.orientation_bookings import bookings_pane_context
 from hub.views import (
     _get_hub_context,
@@ -125,6 +125,7 @@ def _dress_card(
     # Posted times exist but every one is taken: the card says so and links the owner page.
     section["all_full"] = nothing_to_book and has_full_slots
     section["custom_form"] = None
+    section["custom_amount_form"] = None
     if (
         nothing_to_book
         and orientation_type.guild is not None
@@ -133,6 +134,10 @@ def _dress_card(
         # The type rides a hidden input; the form only renders the time and the note,
         # with ids of its own so two cards' fields never share one.
         section["custom_form"] = OrientationCustomRequestForm(auto_id=f"id_custom_{orientation_type.pk}_%s")
+        if orientation_type.is_donation:
+            section["custom_amount_form"] = OrientationAmountForm(
+                orientation_type=orientation_type, auto_id=f"id_custom_{orientation_type.pk}_%s"
+            )
     section["image"] = orientation_type.card_image
     owner = orientation_type.card_image_owner
     if owner is None:

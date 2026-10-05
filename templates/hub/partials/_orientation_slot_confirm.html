@@ -1,6 +1,6 @@
 {% comment %}
-The confirm modal behind one slot's book button (#502): paid (straight to checkout,
-unboosted), with a named orienter, or without one. Shared by the guild page, the
+The confirm modal behind one slot's book button (#502): donation based (an amount input,
+unboosted, #636), paid (straight to checkout, unboosted), with a named orienter, or without one. Shared by the guild page, the
 equipment page and the Orientations page card. Context:
   slot       — the OrientationSlot
   sec        — its section (type, late_cancel_sentence)
@@ -11,7 +11,13 @@ Both owner wordings come from sec.type.is_equipment_owned.
 {% load classes_tags %}
 {% url 'hub_orientation_book' slot.pk as book_url %}
 {% with next_field=next_url|yesno:"next," %}
-{% if sec.type.is_paid %}
+{% if sec.type.is_donation %}
+{% with confirmer=sec.type.is_equipment_owned|yesno:"a manager,the guild" %}
+{% with donation_msg="You choose what you pay. Any amount above $0 goes through our secure checkout, and your booking is a request until "|add:confirmer|add:" confirms it. If they decline, or it's cancelled, you get an automatic full refund. "|add:sec.late_cancel_sentence %}
+{% include "components/confirm_modal.html" with confirm_title="Book This Orientation?" confirm_message=donation_msg confirm_action_url=book_url confirm_button_text="Book" confirm_button_style="primary" confirm_no_boost=True confirm_field_name=next_field confirm_field_value=next_url confirm_amount_name="amount" confirm_amount_label="Your amount ($)" confirm_amount_value=sec.type.donation_suggested_dollars confirm_amount_hint=sec.type.donation_amount_hint %}
+{% endwith %}
+{% endwith %}
+{% elif sec.type.is_paid %}
 {% with price=sec.type.price_cents|cents_as_price confirmer=sec.type.is_equipment_owned|yesno:"a manager,the guild" %}
 {% with paid_msg="You'll pay "|add:price|add:" now through our secure checkout. Your booking is a request until "|add:confirmer|add:" confirms it. If they decline, or it's cancelled, you get an automatic full refund. "|add:sec.late_cancel_sentence %}
 {% include "components/confirm_modal.html" with confirm_title="Book This Orientation?" confirm_message=paid_msg confirm_action_url=book_url confirm_button_text="Continue to Payment" confirm_button_style="primary" confirm_no_boost=True confirm_field_name=next_field confirm_field_value=next_url %}

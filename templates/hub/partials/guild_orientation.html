@@ -44,7 +44,7 @@ hides the Orientations tab otherwise), so there is no empty state here. Context:
     <div id="orientation-type-{{ sec.type.pk }}" class="pl-orient-type{% if request.GET.type == sec.type.pk|stringformat:'s' %} pl-orient-type--highlight{% endif %}"{% if not forloop.first %} style="margin-top:1rem; padding-top:1rem; border-top:1px solid var(--hub-border);"{% endif %}>
       <div class="pl-orient-heading">
         <h3 class="hub-detail-label" style="margin:0;">{{ sec.type.name }}</h3>
-        {% if sec.type.is_paid %}<span class="pl-price-chip">{{ sec.type.price_cents|cents_as_price }}</span>{% endif %}
+        {% if sec.type.is_paid %}<span class="pl-price-chip">{{ sec.type.price_cents|cents_as_price }}</span>{% elif sec.type.is_donation %}<span class="pl-price-chip">{{ sec.type.donation_label }}</span>{% endif %}
         <span class="hub-text-muted" style="font-size:0.85rem;">{{ sec.type.duration_minutes }} min</span>
       </div>
       {% if sec.type.description %}<p class="hub-text-muted" style="margin:0.25rem 0 0.75rem; font-size:0.9rem;">{{ sec.type.description|truncatewords:40 }}</p>{% endif %}
@@ -144,7 +144,8 @@ hides the Orientations tab otherwise), so there is no empty state here. Context:
     {# has_types is false when the guild has no active orientation type, so the picker would be empty. #}
     {% if orientation.allow_custom_requests and not orientation_all_done and custom_request_form.has_types %}
     {% if user.is_authenticated %}
-    <div x-data="{ showCustom: false }" style="margin-top:1rem; padding-top:1rem; border-top:1px solid var(--hub-border);" data-help-key="orientation.request-custom-time">
+    {# The type picker drives the amount input (#636): shown for a donation type, refilled with its suggestion. #}
+    <div x-data="{ showCustom: false, typePk: '{{ custom_request_form.orientation_type.value }}', suggestions: {{ custom_request_form.donation_suggestions_json }}, amount: '' }" x-init="amount = suggestions[typePk] ?? ''" style="margin-top:1rem; padding-top:1rem; border-top:1px solid var(--hub-border);" data-help-key="orientation.request-custom-time">
       <button type="button" class="hub-btn hub-btn--sm {% if orientation_has_posted_times %}hub-btn--ghost{% else %}hub-btn--primary{% endif %}" x-show="!showCustom" @click="showCustom = true">
         Schedule an Orientation
       </button>
@@ -152,10 +153,11 @@ hides the Orientations tab otherwise), so there is no empty state here. Context:
         <p class="hub-text-muted" style="margin:0 0 0.75rem; font-size:0.85rem;">Pick an orientation, propose your own time, and the guild lead will confirm it.</p>
         <form method="post" action="{% url 'hub_guild_orientation_request_custom' guild.pk %}" class="hub-form" hx-boost="false">
           {% csrf_token %}
-          {% include "components/form_field.html" with field=custom_request_form.orientation_type %}
+          <div @change="amount = suggestions[typePk] ?? ''">{% include "components/form_field.html" with field=custom_request_form.orientation_type %}</div>
           {% include "components/form_field.html" with field=custom_request_form.starts_at %}
           {% include "components/form_field.html" with field=custom_request_form.note %}
-          <p class="hub-text-muted" style="margin:0.75rem 0 0; font-size:0.85rem;">If the orientation you pick has a price, you pay when you book, with an automatic full refund if the guild can't make it work.</p>
+          <div x-show="typePk in suggestions" x-cloak>{% include "components/form_field.html" with field=custom_amount_form.amount field_hint="For a donation based orientation, you choose. $0 sends a free request; any other amount is at least $1." %}</div>
+          <p class="hub-text-muted" style="margin:0.75rem 0 0; font-size:0.85rem;">If the orientation you pick has a price or a donation, you pay when you book, with an automatic full refund if the guild can't make it work.</p>
           <div style="display:flex; gap:0.5rem; margin-top:0.75rem;">
             <button type="submit" class="hub-btn hub-btn--sm hub-btn--primary">Send request</button>
             <button type="button" class="hub-btn hub-btn--sm hub-btn--ghost" @click="showCustom = false">Cancel</button>

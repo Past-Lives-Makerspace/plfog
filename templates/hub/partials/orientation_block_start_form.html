@@ -7,6 +7,7 @@ hub_orientation_block_starts. Context:
   form             — OrientationBlockBookingForm (starts_at select carries the choices)
   has_starts       — bool, False when every interval was taken since the page rendered
   next_url         — a local path to land back on after booking (the Orientations page), or ""
+  amount_form      — an OrientationAmountForm for a donation based type (#636), else None
 {% endcomment %}
 {% load classes_tags %}
 <p style="margin:0 0 0.25rem; font-weight:700; color:var(--hub-text);">{{ orientation_type.name }} · {{ orientation_type.duration_minutes }} min</p>
@@ -22,11 +23,14 @@ hub_orientation_block_starts. Context:
   {{ form.orientation_type }}
   {% include "components/form_field.html" with field=form.starts_at %}
   {% include "components/form_field.html" with field=form.note %}
+  {% if amount_form %}{% include "components/form_field.html" with field=amount_form.amount %}{% endif %}
   {% if orientation_type.is_paid %}
   <p class="hub-text-muted" style="margin:0.75rem 0 0; font-size:0.85rem;">You pay {{ orientation_type.price_cents|cents_as_price }} when you book, with an automatic full refund if the guild can't make it work.</p>
   {% endif %}
   <div style="margin-top:0.75rem;">
-    {% if orientation_type.is_paid %}
+    {% if amount_form %}
+    <button type="submit" class="hub-btn hub-btn--sm hub-btn--primary">Book this time</button>
+    {% elif orientation_type.is_paid %}
     <button type="submit" class="hub-btn hub-btn--sm hub-btn--primary">Continue to payment</button>
     {% else %}
     <button type="submit" class="hub-btn hub-btn--sm hub-btn--primary">Request this time</button>

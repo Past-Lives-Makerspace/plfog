@@ -1733,6 +1733,14 @@
     color: #8a5b06;
 }
 
+/* The amount input inside a confirm modal (a donation based orientation, #636). */
+.pl-confirm-amount { width: 100%; margin: 0 0 1rem; }
+.pl-confirm-amount__hint { margin: -0.5rem 0 1rem; }
+
+/* An orientation type's pricing block in the type editors: the donation fields sit in one row. */
+.pl-otype-pricing__row { display: flex; gap: 0.75rem; flex-wrap: wrap; }
+.pl-otype-pricing__field { flex: 1; min-width: 140px; }
+
 /* The refund modal body — context header, consequence line, busy state. */
 .pl-refund-context {
     margin: 0 0 1rem;
