@@ -37,7 +37,15 @@ from hub.forms import (
     EquipmentStaffAddForm,
 )
 from hub.toast import trigger_toast
-from hub.views import _apply_hours_formset, _get_hub_context, _get_member, _hours_save_message, _personal_hours_prefix
+from hub.reservation_bookings import reservation_bookings_context
+from hub.views import (
+    _apply_hours_formset,
+    _get_hub_context,
+    _get_member,
+    _hours_save_message,
+    _personal_hours_prefix,
+    _safe_next,
+)
 from membership import equipment as equipment_service
 from membership.models import (
     Equipment,
@@ -51,6 +59,9 @@ from membership.models import (
 from membership.permissions import can_create_equipment, can_manage_equipment, creatable_equipment_kinds
 
 logger = logging.getLogger("hub")
+
+#: The panes ``?view=`` may open on the Reservations page; anything else opens List.
+PANES = ("calendar", "bookings")
 
 #: The Reservations page Calendar pane's localStorage salt in the shared calendar shell.
 CALENDAR_KEY = "reservations"
@@ -382,10 +393,14 @@ def hub_equipment_index(request: HttpRequest) -> HttpResponse:
 
     ``?view=calendar`` opens the Calendar pane, the only time this view builds the calendar;
     otherwise the pane fetches it from :func:`hub_equipment_calendar_events` when the member
-    first switches to it, so the List view costs no calendar queries.
+    first switches to it, so the List view costs no calendar queries. ``?view=bookings`` opens
+    the Bookings pane (#627) the same way, built only then and otherwise fetched from
+    :func:`hub_equipment_bookings`.
     """
     member = _get_member(request)
-    pane = "calendar" if request.GET.get("view") == "calendar" else "list"
+    pane = request.GET.get("view", "")
+    if pane not in PANES:
+        pane = "list"
     base = _equipment_queryset().active()
     guild_filter = request.GET.get("guild", "")
     kind_filter = request.GET.get("kind", "")
@@ -417,8 +432,20 @@ def hub_equipment_index(request: HttpRequest) -> HttpResponse:
             "pane": pane,
             "calendar": reservations_calendar_context() if pane == "calendar" else None,
             "calendar_key": CALENDAR_KEY,
+            # The Bookings pane's own keys, merged in only when it opens (#627).
+            **(reservation_bookings_context(request) if pane == "bookings" else {}),
         },
     )
+
+
+@login_required
+def hub_equipment_bookings(request: HttpRequest) -> HttpResponse:
+    """HTMX partial: the Reservations page's Bookings pane alone (#627), honouring the page's query string.
+
+    The page's Bookings tab loads it the first time a member opens the tab from List or
+    Calendar, and the pane reloads its table from it after a late fee refund (``refund-done``).
+    """
+    return render(request, "hub/partials/reservation_bookings_pane.html", reservation_bookings_context(request))
 
 
 @login_required
@@ -678,6 +705,11 @@ def hub_equipment_reservation_cancel(request: HttpRequest, slug: str, pk: int) -
     takes the manager path even for THEIR OWN row (reason honored, in-progress
     allowed, redirect back to the tab). Deliberately no retired-equipment 404 here —
     a member must always be able to back out of a retired tool's reservation.
+
+    The Reservations page's Bookings tab (#627) posts a ``next``. On the self route that
+    makes the answer a full page (a message, then ``next``; a late cancel goes straight to
+    Stripe Checkout, which is why that form is unboosted) instead of the schedule partial;
+    on the manager route it replaces the manage tab as the landing. Gates unchanged.
     """
     equipment = get_object_or_404(_equipment_queryset(), slug=slug)
     reservation = get_object_or_404(EquipmentReservation, pk=pk, equipment=equipment)
@@ -686,6 +718,10 @@ def hub_equipment_reservation_cancel(request: HttpRequest, slug: str, pk: int) -
         return HttpResponse("Forbidden", status=403)
     manager_route = "reason" in request.POST and can_manage_equipment(request, equipment)
     if reservation.member_id == member.pk and not manager_route:
+        if "next" in request.POST:
+            # A posted next that is not safe still gets a page back, the Bookings tab, never the schedule fragment.
+            next_url = _safe_next(request, "") or f"{reverse('hub_equipment_index')}?view=bookings"
+            return _self_cancel_to_page(request, reservation, member, next_url)
         week_offset = _parse_week_value(request.POST.get("week", "0"))
         selected_day = _parse_day(request.POST.get("day", ""))
         try:
@@ -717,17 +753,44 @@ def hub_equipment_reservation_cancel(request: HttpRequest, slug: str, pk: int) -
     if not can_manage_equipment(request, equipment):
         return HttpResponse("Forbidden", status=403)
     form = EquipmentManagerCancelForm(request.POST)
-    manage_tab = f"{reverse('hub_equipment_manage', args=[equipment.slug])}?tab=reservations"
+    back = _safe_next(request, f"{reverse('hub_equipment_manage', args=[equipment.slug])}?tab=reservations")
     if not form.is_valid():
         messages.error(request, "Please tell the member why.")
-        return redirect(manage_tab)
+        return redirect(back)
     try:
         reservation.cancel(member, reason=form.cleaned_data["reason"], as_manager=True)
     except EquipmentError as exc:
         messages.error(request, str(exc))
-        return redirect(manage_tab)
+        return redirect(back)
     messages.success(request, "Reservation cancelled. The member has been told.")
-    return redirect(manage_tab)
+    return redirect(back)
+
+
+def _self_cancel_to_page(
+    request: HttpRequest, reservation: EquipmentReservation, member: Member, next_url: str
+) -> HttpResponse:
+    """A member's own cancel from the Bookings tab (#627): a Django message, then ``next``.
+
+    A late cancel creates the fee as it does from the schedule and sends the member straight
+    to Stripe Checkout; the tab's form is unboosted, so the browser follows that redirect.
+    """
+    from billing import late_fees
+
+    try:
+        fee = reservation.cancel(member)
+    except EquipmentError as exc:
+        messages.error(request, str(exc))
+        return redirect(next_url)
+    if fee is None:
+        messages.success(request, "Reservation cancelled.")
+        return redirect(next_url)
+    try:
+        checkout_url = late_fees.start_fee_checkout(fee)
+    except Exception:
+        logger.exception("Late fee checkout failed for reservation %s.", reservation.pk)
+        messages.info(request, "Reservation cancelled. A late cancellation fee applies; use the Pay button to pay it.")
+        return redirect(next_url)
+    return redirect(checkout_url)
 
 
 @login_required

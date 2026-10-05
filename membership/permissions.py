@@ -29,6 +29,7 @@ if TYPE_CHECKING:
     from membership.models import (
         CommunityEvent,
         Equipment,
+        EquipmentReservation,
         Guild,
         Meeting,
         Member,
@@ -289,6 +290,74 @@ def manages_orientations(request: HttpRequest, *, honour_preview: bool = False) 
         Guild.objects.filter(Q(guild_lead=member) | Q(staff_memberships__member=member)).exists()
         or EquipmentStaffMembership.objects.filter(member=member).exists()
     )
+
+
+def _reservation_scope(request: HttpRequest, *, honour_preview: bool) -> Q | None:
+    """The reservations this request may manage as a ``Q``, or None for every one.
+
+    The queryset form of :func:`can_manage_equipment` read through a reservation's equipment:
+    a full admin (``view_as`` aware) or an EQUIPMENT capability holder manages all of it;
+    otherwise the owning guild's lead or staff, or an equipment staff row. Guild officers get
+    no blanket grant, as in :func:`manageable_equipment_ids`.
+    """
+    from membership.models import AdminCapability
+
+    view_as = getattr(request, "view_as", None)
+    if (view_as is not None and view_as.is_admin) or _capability_counts(
+        request, AdminCapability.Capability.EQUIPMENT, honour_preview=honour_preview
+    ):
+        return None
+    member = _editing_member(request)
+    if member is None:
+        return Q(pk__in=[])
+    return (
+        Q(equipment__guild__guild_lead=member)
+        | Q(equipment__guild__staff_memberships__member=member)
+        | Q(equipment__staff_memberships__member=member)
+    )
+
+
+def manageable_reservations(
+    request: HttpRequest, queryset: QuerySet[EquipmentReservation], *, honour_preview: bool = False
+) -> QuerySet:
+    """``queryset`` narrowed to reservations on equipment this request may manage (#627).
+
+    A reservation is in it exactly when :func:`can_manage_equipment` is true for its equipment
+    (``tests/membership/manageable_reservations_spec.py`` pins the parity). ``honour_preview``
+    is the Reservations Bookings tab's list scope: the same, minus a capability the viewer is
+    previewing away (:func:`_capability_counts`). Action gates never pass it. A ``pk__in``
+    subquery, so the staff joins never repeat a row.
+    """
+    from membership.models import EquipmentReservation
+
+    scope = _reservation_scope(request, honour_preview=honour_preview)
+    if scope is None:
+        return queryset
+    in_scope = EquipmentReservation.objects.filter(scope)
+    return queryset.filter(pk__in=in_scope.values("pk"))
+
+
+def manages_equipment(request: HttpRequest, *, honour_preview: bool = False) -> bool:
+    """True when this request manages some equipment: the Reservations Bookings tab's staff view (#627).
+
+    A full admin (``view_as`` aware), an EQUIPMENT capability holder, or a member who leads or
+    staffs a guild that owns equipment, or holds an equipment staff row. A guild lead whose
+    guild owns nothing, and a guild officer, manage no equipment. ``honour_preview`` drops a
+    capability the viewer is previewing away.
+    """
+    from membership.models import AdminCapability, Equipment
+
+    view_as = getattr(request, "view_as", None)
+    if (view_as is not None and view_as.is_admin) or _capability_counts(
+        request, AdminCapability.Capability.EQUIPMENT, honour_preview=honour_preview
+    ):
+        return True
+    member = _editing_member(request)
+    if member is None:
+        return False
+    return Equipment.objects.filter(
+        Q(guild__guild_lead=member) | Q(guild__staff_memberships__member=member) | Q(staff_memberships__member=member)
+    ).exists()
 
 
 def creatable_equipment_kinds(request: HttpRequest) -> list[str]:

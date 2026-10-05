@@ -1,0 +1,31 @@
+{% comment %}
+The confirm modals behind each Reservations Bookings tab row's "..." menu (#627), rendered once per
+row, outside the table. Each posts bookings_next as next, so the action lands back on the tab with
+the viewer's filters. A manager's cancel needs a reason the member sees (Confirm stays disabled
+until one is typed; the view is still the gate). The member's own cancel is unboosted: a late
+cancel answers with a redirect to Stripe. Context: reservation_rows, bookings_next.
+{% endcomment %}
+{% for row in reservation_rows %}
+{% with r=row.reservation pk=row.reservation.pk|stringformat:"s" name=row.reservation.member.display_name %}
+{% url 'hub_equipment_reservation_cancel' r.equipment.slug r.pk as cancel_url %}
+{% if row.can_cancel %}
+{% if row.is_own %}
+{% include "components/confirm_modal.html" with confirm_id="reservation-cancel-"|add:pk confirm_title="Cancel This Reservation?" confirm_message="You have this time booked. Cancelling frees it." confirm_action_url=cancel_url confirm_next=bookings_next confirm_note_name="reason" confirm_note_label="Reason" confirm_note_hint="Kept with the reservation for the record." confirm_note_required=True confirm_button_text="Cancel Reservation" %}
+{% else %}
+{% with cancel_message=name|add:" has this time booked. Cancelling frees it and tells them why." reason_hint=name|add:" will see this." %}
+{% include "components/confirm_modal.html" with confirm_id="reservation-cancel-"|add:pk confirm_title="Cancel This Reservation?" confirm_message=cancel_message confirm_action_url=cancel_url confirm_next=bookings_next confirm_note_name="reason" confirm_note_label="Reason" confirm_note_hint=reason_hint confirm_note_required=True confirm_button_text="Cancel Reservation" %}
+{% endwith %}
+{% endif %}
+{% endif %}
+{% if row.can_waive_fee %}
+{% with fee=row.late_fee waive_form=row.waive_form waive_next=bookings_next fee_pk=row.late_fee.pk|stringformat:"s" %}
+{% include "components/modal.html" with modal_id="waive-fee-"|add:fee_pk modal_title="Waive This Fee?" modal_size="sm" modal_body_include="hub/partials/_late_fee_waive_form.html" %}
+{% endwith %}
+{% endif %}
+{% if row.can_cancel_mine %}
+{% with cancel_mine_message="This frees the time for someone else. "|add:row.late_cancel_warning %}
+{% include "components/confirm_modal.html" with confirm_id="reservation-cancel-mine-"|add:pk confirm_title="Cancel This Reservation?" confirm_message=cancel_mine_message confirm_action_url=cancel_url confirm_next=bookings_next confirm_no_boost=True confirm_button_text="Cancel Reservation" %}
+{% endwith %}
+{% endif %}
+{% endwith %}
+{% endfor %}

@@ -1,0 +1,154 @@
+{% load classes_tags %}
+{% comment %}
+The Bookings pane on the Reservations page (#627), built by hub.reservation_bookings.reservation_bookings_context.
+Rendered inline for ?view=bookings and served alone by hub_equipment_bookings for the lazy open
+and the refund-done refresh. The twin of hub/partials/orientation_bookings_pane.html: one
+component, two views. is_staff_view picks the columns and filters, and each row's own flags pick
+its "..." menu items. Every link and form goes to the page URL with view=bookings kept, so
+boosted navigation re-renders the page with this pane open. A late fee refund answers
+refund-done, which reloads the body below and closes the refund modal.
+{% endcomment %}
+<div class="pl-bookings" data-bookings-pane="{% if is_staff_view %}staff{% else %}member{% endif %}"
+     x-data @refund-done.window="$dispatch('close-modal', 'refund-modal')">
+  <div data-bookings-body hx-get="{{ bookings_refresh_url }}" hx-trigger="refund-done from:body" hx-select="[data-bookings-body]" hx-swap="outerHTML">
+    <div class="pl-equip-chips pl-bookings__chips" role="group" aria-label="Which reservations">
+      {% for chip in chips %}
+      <a href="{{ chip.url }}" class="pl-equip-chip{% if chip.key == show %} pl-equip-chip--active{% endif %}" data-bookings-chip="{{ chip.key }}"{% if chip.key == show %} aria-current="true"{% endif %}>{{ chip.label }}</a>
+      {% endfor %}
+    </div>
+
+    {% if is_staff_view %}
+    <form method="get" action="{% url 'hub_equipment_index' %}" class="pl-bookings-filters" data-bookings-filters>
+      <input type="hidden" name="view" value="bookings">
+      {% if show != "upcoming" %}<input type="hidden" name="show" value="{{ show }}">{% endif %}
+      <div class="hub-form-group pl-bookings-filters__search">
+        <input type="search" name="search" value="{{ filters.search }}" placeholder="Search member or equipment" aria-label="Search member or equipment">
+      </div>
+      <details class="pl-disclosure pl-bookings-filters__more"{% if bookings_is_filtered %} open{% endif %}
+               x-init="if (window.matchMedia('(min-width: 769px)').matches) $el.open = true">
+        <summary class="pl-disclosure__summary">
+          <span class="pl-disclosure__title">Filters</span>
+          <span class="pl-disclosure__chevron" aria-hidden="true"></span>
+        </summary>
+        <div class="pl-disclosure__body pl-bookings-filters__grid">
+          <div class="hub-form-group">
+            <label for="reservations-equipment">Equipment</label>
+            <select id="reservations-equipment" name="equipment">
+              <option value="">All equipment</option>
+              {% for item in equipment_options %}<option value="{{ item.pk }}"{% if item.pk|stringformat:'s' == filters.equipment %} selected{% endif %}>{{ item.name }}</option>{% endfor %}
+            </select>
+          </div>
+          <div class="hub-form-group">
+            <label for="reservations-status">Status</label>
+            <select id="reservations-status" name="status">
+              <option value="">Any status</option>
+              {% for value, label in statuses %}<option value="{{ value }}"{% if value == filters.status %} selected{% endif %}>{{ label }}</option>{% endfor %}
+            </select>
+          </div>
+          <div class="hub-form-group">
+            <label for="reservations-fee">Late Fee</label>
+            <select id="reservations-fee" name="fee">
+              <option value="">Any</option>
+              {% for value, label in fee_filters %}<option value="{{ value }}"{% if value == filters.fee %} selected{% endif %}>{{ label }}</option>{% endfor %}
+            </select>
+          </div>
+          <div class="hub-form-group">
+            <label for="reservations-start">From</label>
+            <input type="date" id="reservations-start" name="start" value="{{ filters.start }}" class="pl-bookings-filters__date" @click="(() => { try { $el.showPicker() } catch (e) {} })()">
+          </div>
+          <div class="hub-form-group">
+            <label for="reservations-end">To</label>
+            <input type="date" id="reservations-end" name="end" value="{{ filters.end }}" class="pl-bookings-filters__date" @click="(() => { try { $el.showPicker() } catch (e) {} })()">
+          </div>
+        </div>
+      </details>
+      <div class="pl-bookings-filters__actions">
+        <button type="submit" class="hub-btn hub-btn--sm hub-btn--primary">Apply</button>
+      </div>
+    </form>
+    {% endif %}
+
+    {% if reservation_rows %}
+    <div class="pl-bookings__table-wrap">
+    <table class="pl-members-table pl-bookings-table">
+      <thead>
+        <tr>
+          {% sort_header "When" "starts_at" sort sort_dir base_params %}
+          {% if is_staff_view %}{% sort_header "Member" "member__full_legal_name" sort sort_dir base_params %}{% endif %}
+          {% sort_header "Equipment" "equipment__name" sort sort_dir base_params %}
+          {% if is_staff_view %}<th scope="col">Purpose</th>{% endif %}
+          {% sort_header "Status" "status" sort sort_dir base_params %}
+          <th scope="col"><span class="sr-only">Actions</span></th>
+        </tr>
+      </thead>
+      <tbody>
+      {% for row in reservation_rows %}
+        {% with r=row.reservation %}
+        <tr data-reservation-row="{{ r.pk }}">
+          <td class="pl-bookings-table__when">{{ r.starts_at|date:"D M j, g:i A" }} to {{ r.ends_at|date:"g:i A" }}</td>
+          {% if is_staff_view %}
+          <td data-label="Member">{% if row.is_own %}You{% else %}{{ r.member.display_name }}{% endif %}</td>
+          {% endif %}
+          <td{% if is_staff_view %} data-label="Equipment"{% endif %} class="pl-bookings-table__orientation">
+            <span class="pl-bookings-table__name">{{ r.equipment.name }}</span>
+            {% if is_staff_view %}
+            <span class="pl-bookings-table__owner">{% if r.equipment.guild %}{{ r.equipment.guild.name }}{% else %}Standalone{% endif %}</span>
+            {% elif r.purpose %}
+            <span class="pl-bookings-table__owner">{{ r.purpose }}</span>
+            {% endif %}
+          </td>
+          {% if is_staff_view %}
+          <td data-label="Purpose" class="pl-bookings-table__purpose">{% if r.purpose %}{{ r.purpose|truncatechars:60 }}{% else %}<span class="hub-text-muted">None</span>{% endif %}</td>
+          {% endif %}
+          <td{% if is_staff_view %} data-label="Status"{% endif %} class="pl-bookings-table__status">
+            {% if r.is_cancelled_by_manager %}
+            <span class="hub-pill hub-pill--neutral" data-reservation-status="cancelled-by-manager">Cancelled by a manager</span>
+            {% else %}
+            <span class="hub-pill {% if r.status == 'confirmed' %}hub-pill--ok{% else %}hub-pill--neutral{% endif %}" data-reservation-status="{{ r.status }}">{{ r.get_status_display }}</span>
+            {% endif %}
+            {% if row.fee_unpaid %}<span class="hub-pill hub-pill--danger" data-booking-fee>Fee unpaid</span>{% elif row.late_fee %}<span class="hub-pill hub-pill--neutral" data-booking-fee>Fee {{ row.late_fee.get_status_display|lower }}</span>{% endif %}
+          </td>
+          <td class="pl-bookings-table__actions">
+            {# The viewer's own row is named by what and when, not by their own name. #}
+            {% if row.is_own %}
+            {% with when=r.starts_at|date:"D M j, g:i A" %}
+            {% with menu_label="Actions for "|add:r.equipment.name|add:" on "|add:when %}
+            {% include "components/row_actions.html" with menu_include="hub/partials/reservation_booking_row_menu.html" menu_label=menu_label %}
+            {% endwith %}
+            {% endwith %}
+            {% else %}
+            {% with menu_label="Actions for "|add:r.member.display_name %}
+            {% include "components/row_actions.html" with menu_include="hub/partials/reservation_booking_row_menu.html" menu_label=menu_label %}
+            {% endwith %}
+            {% endif %}
+          </td>
+        </tr>
+        {% endwith %}
+      {% endfor %}
+      </tbody>
+    </table>
+    </div>
+    {% include "components/table_pagination.html" with page=page base_params=base_params %}
+    {% else %}
+    <div class="hub-card pl-bookings__empty" data-bookings-empty>
+      {% if is_staff_view %}
+      {% if bookings_is_filtered %}
+      <p class="hub-text-muted">Nothing matches those filters. <a href="{{ clear_filters_url }}">Clear filters</a></p>
+      {% else %}
+      <p class="hub-text-muted">Nothing is booked yet.</p>
+      {% endif %}
+      {% elif show == "upcoming" %}
+      <p class="hub-text-muted">You have nothing booked. Pick something under <a href="{% url 'hub_equipment_index' %}" @click.prevent="setPane('list')">List</a> to book a time.</p>
+      {% else %}
+      <p class="hub-text-muted">Nothing here yet. Times you have booked show up here.</p>
+      {% endif %}
+    </div>
+    {% endif %}
+
+    {% include "hub/partials/reservation_booking_modals.html" %}
+  </div>
+
+  {% if viewer_has_refund_authority %}
+  {% include "components/modal.html" with modal_id="refund-modal" modal_title="Refund Payment" modal_size="sm" %}
+  {% endif %}
+</div>

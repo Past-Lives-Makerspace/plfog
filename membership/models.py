@@ -14178,6 +14178,10 @@ class EquipmentQuerySet(models.QuerySet["Equipment"]):
         return self.prefetch_related(models.Prefetch("staff_memberships", queryset=roster, to_attr="staff_roster"))
 
 
+#: Words under ``/equipment/`` taken by fixed routes (``hub/urls.py``), never given to an item as its slug.
+RESERVED_EQUIPMENT_SLUGS = frozenset({"add", "bookings"})
+
+
 class Equipment(HeroCropMixin, models.Model):
     """A shared tool or room members can find (and, from PR 2, reserve) on the Equipment page.
 
@@ -14344,13 +14348,17 @@ class Equipment(HeroCropMixin, models.Model):
         super().save(*args, **kwargs)
 
     def _unique_slug(self) -> str:
-        """A URL slug derived from the equipment name, suffixed (``-2``, ``-3``…) to stay unique."""
+        """A URL slug derived from the equipment name, suffixed (``-2``, ``-3``…) to stay unique.
+
+        A name that slugifies to one of :data:`RESERVED_EQUIPMENT_SLUGS` takes a suffix too, so the
+        item's page is never shadowed by the fixed ``/equipment/<word>/`` routes.
+        """
         from django.utils.text import slugify
 
         base = slugify(self.name) or "equipment"
         slug = base
         n = 2
-        while Equipment.objects.exclude(pk=self.pk).filter(slug=slug).exists():
+        while slug in RESERVED_EQUIPMENT_SLUGS or Equipment.objects.exclude(pk=self.pk).filter(slug=slug).exists():
             slug = f"{base}-{n}"
             n += 1
         return slug
