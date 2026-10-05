@@ -1174,9 +1174,11 @@ def describe_late_cancel_policy_in_the_reservation_confirmation():
         config.late_cancel_fees_enabled = enabled
         config.save()
 
-    def _confirmation(username: str, **equipment_kwargs):
+    def _confirmation(username: str, *, manager: bool = False, **equipment_kwargs):
         equipment = _open_tool(name="CNC Router", **equipment_kwargs)
         member = _linked_member(username)
+        if manager:
+            EquipmentStaffMembershipFactory(equipment=equipment, member=member)
         mail.outbox.clear()
         equipment_service.reserve(equipment, member, _at(_day(), 10), 60)
         return next(m for m in mail.outbox if "Reserved" in m.subject)
@@ -1191,6 +1193,14 @@ def describe_late_cancel_policy_in_the_reservation_confirmation():
     def it_says_nothing_about_fees_with_no_fee():
         _late_fees(True)
         message = _confirmation("lcf_res_free")
+        assert "$37.50" not in message.body
+        assert "$37.50" not in message.alternatives[0][0]
+        assert "[missing:" not in message.body
+
+    def it_says_nothing_about_fees_to_a_manager_of_the_equipment():
+        """A manager never pays a late fee on equipment they manage (#633)."""
+        _late_fees(True)
+        message = _confirmation("lcf_res_manager", manager=True, late_cancel_fee_cents=3750)
         assert "$37.50" not in message.body
         assert "$37.50" not in message.alternatives[0][0]
         assert "[missing:" not in message.body
