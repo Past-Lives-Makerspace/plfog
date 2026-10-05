@@ -15008,8 +15008,10 @@ class EquipmentReservation(models.Model):
         member, and never charges. A manager cancelling THEIR OWN row from the manage tab
         passes ``as_manager=True`` — the manager guards apply (reason honored, in-progress
         allowed), nobody is notified because the member IS the actor, and nothing charges.
-        Either manager route records ``cancelled_as_manager``, and ``late_fee_waived`` when the
-        cancel fell inside the notice window, in the same conditional update as the flip (#633).
+        A manager of this equipment who cancels their own row from the ordinary member Cancel
+        is not charged either: managers never pay a late fee on equipment they manage (Felix,
+        2026-10-05). Every such cancel records ``cancelled_as_manager``, and ``late_fee_waived``
+        when it fell inside the notice window, in the same conditional update as the flip (#633).
 
         Returns:
             The :class:`~billing.models.LateCancellationFee` a late self cancel created (or
@@ -15030,9 +15032,11 @@ class EquipmentReservation(models.Model):
         self._ensure_cancel_allowed(actor, acting_as_manager=acting_as_manager, reason=cleaned_reason, now=now)
         from billing.late_fees import charge_if_late, would_charge
 
-        # A manager cancel never charges; whether it was inside the window is stored now,
-        # since the window and the fee can change later and the record should not (#633).
-        fee_waived = acting_as_manager and would_charge(self, now=now)
+        # A manager never pays a late fee on equipment they manage, whichever route they cancel
+        # their own row from. Whether it was inside the window is stored now, since the window
+        # and the fee can change later and the record should not (#633).
+        fee_exempt = acting_as_manager or actor.can_manage_equipment(self.equipment)
+        fee_waived = fee_exempt and would_charge(self, now=now)
         fee: LateCancellationFee | None = None
         with transaction.atomic():
             # A conditional update keyed on status, not a save: two requests that both loaded
@@ -15045,7 +15049,7 @@ class EquipmentReservation(models.Model):
                 status=self.Status.CANCELLED,
                 cancelled_by=actor,
                 cancelled_reason=cleaned_reason,
-                cancelled_as_manager=acting_as_manager,
+                cancelled_as_manager=fee_exempt,
                 late_fee_waived=fee_waived,
                 cancelled_at=now,
             )
@@ -15054,10 +15058,10 @@ class EquipmentReservation(models.Model):
             self.status = self.Status.CANCELLED
             self.cancelled_by = actor
             self.cancelled_reason = cleaned_reason
-            self.cancelled_as_manager = acting_as_manager
+            self.cancelled_as_manager = fee_exempt
             self.late_fee_waived = fee_waived
             self.cancelled_at = now
-            if not acting_as_manager:
+            if not fee_exempt:
                 fee = charge_if_late(self, now=now)
         from membership import equipment as equipment_service
 

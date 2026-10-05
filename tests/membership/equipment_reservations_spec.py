@@ -868,11 +868,12 @@ def describe_manager_cancel_record():
 
         _late_fees(True)
         manager, equipment = _managed("mcr_race_self")
-        reservation = _booked(manager, equipment, hours_ahead=3)
+        member = _linked_member("mcr_race_self_member")
+        reservation = _booked(member, equipment, hours_ahead=3)
         stale = EquipmentReservation.objects.get(pk=reservation.pk)
-        reservation.cancel(manager)
+        reservation.cancel(member)
         with pytest.raises(EquipmentError, match="already cancelled"):
-            stale.cancel(manager, reason="Freeing my own slot.", as_manager=True)
+            stale.cancel(manager, reason="Laser is down.")
         stored = EquipmentReservation.objects.get(pk=reservation.pk)
         assert stored.cancelled_as_manager is False
         assert stored.late_fee_waived is False

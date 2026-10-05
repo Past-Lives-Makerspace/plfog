@@ -346,6 +346,21 @@ def describe_the_staff_row_menu():
         assert ">Manager cancelled, late fee waived</span>" in row
         assert "data-booking-fee" not in row
 
+    def it_waives_a_managers_late_fee_on_the_ordinary_member_cancel_too(client: Client):
+        site = SiteConfiguration.load()
+        site.late_cancel_fees_enabled = True
+        site.save()
+        manager, tool = _manager(client, "rt_own_self_route")
+        tool.late_cancel_fee_cents = 1500
+        tool.save(update_fields=["late_cancel_fee_cents"])
+        own = _reservation(tool, member=manager, hours=2)
+        response = client.post(_cancel_url(own), {"next": TAB})
+        assert response["Location"] == TAB
+        assert not LateCancellationFee.objects.filter(reservation=own).exists()
+        row = _row(_tab(client, show="past"), own)
+        assert 'data-reservation-status="manager-cancelled-fee-waived"' in row
+        assert "data-booking-fee" not in row
+
     def it_notes_a_managers_own_cancel_outside_the_window_as_manager_cancelled(client: Client):
         site = SiteConfiguration.load()
         site.late_cancel_fees_enabled = True
