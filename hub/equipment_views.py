@@ -272,6 +272,9 @@ def _schedule_context(
     blockers = equipment.booking_blockers(member)
     my_reservations: list[EquipmentReservation] = []
     unpaid_late_fee = None
+    # A manager of this equipment never pays a late fee on it (#633), so no fee copy shows them. Role based,
+    # like the exemption in EquipmentReservation.cancel(), not the preview aware ``manages``.
+    fee_exempt = member is not None and member.can_manage_equipment(equipment)
     if member is not None:
         now = timezone.now()
         my_reservations = list(
@@ -282,7 +285,7 @@ def _schedule_context(
         for reservation in my_reservations:
             # The cancel modal's fee line, only while a cancel right now would be late (#456).
             reservation.late_cancel_warning = (
-                cancel_sentence(policy) if policy.is_late(reservation.starts_at, now=now) else ""
+                cancel_sentence(policy) if not fee_exempt and policy.is_late(reservation.starts_at, now=now) else ""
             )
         unpaid_late_fee = unpaid_fee_for(member)
     return {
@@ -307,7 +310,7 @@ def _schedule_context(
         "upcoming_reservations": list(equipment.reservations.upcoming().select_related("member")[:20]),
         "manages": manages,
         # Under the Book a Time form and appended to its Reserve prompt; "" when no fee applies.
-        "late_cancel_sentence": booking_sentence(policy),
+        "late_cancel_sentence": "" if fee_exempt else booking_sentence(policy),
         # The block until paid (#456): the requirements banner shows it with a Pay button.
         "unpaid_late_fee": unpaid_late_fee,
     }
@@ -760,7 +763,9 @@ def hub_equipment_reservation_cancel(request: HttpRequest, slug: str, pk: int) -
     except EquipmentError as exc:
         messages.error(request, str(exc))
         return redirect(back)
-    messages.success(request, "Reservation cancelled. The member has been told.")
+    # A manager cancelling their own row emails nobody, so there is nobody to have told.
+    told = "" if reservation.member_id == member.pk else " The member has been told."
+    messages.success(request, f"Reservation cancelled.{told}")
     return redirect(back)
 
 

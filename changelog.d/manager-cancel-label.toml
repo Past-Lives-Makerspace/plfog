@@ -1,0 +1,7 @@
+bump = "patch"
+date = "2026-10-05"
+title = "Manager cancels are labelled"
+changes = [
+  "Equipment managers never pay a late fee when they cancel their own reservation on equipment they manage, whichever Cancel button they use.",
+  "The Bookings tab labels those cancels \"Manager cancelled\", or \"Manager cancelled, late fee waived\" when it was late enough that a member would have paid a fee.",
+]
