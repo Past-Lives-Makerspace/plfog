@@ -18,16 +18,15 @@ from __future__ import annotations
 
 import json
 from dataclasses import dataclass
-from datetime import date
 from typing import TYPE_CHECKING, Any
 
 from django.db.models import Q
-from django.http import HttpRequest, QueryDict
+from django.http import HttpRequest
 from django.urls import reverse
 from django.utils import timezone
-from django.utils.dateparse import parse_date
 
 from classes.table import prepare_table, table_search
+from hub.bookings_tab import date_param, late_fee_of, pane_query
 from membership.models import Guild, Member, OrientationBooking, OrientationRecord
 from membership.permissions import (
     is_effective_staff,
@@ -162,14 +161,6 @@ def _apply_show(
     return rows
 
 
-def _date_param(request: HttpRequest, key: str) -> date | None:
-    """A From or To date from the query string, or None when blank or not a real date."""
-    try:
-        return parse_date(request.GET.get(key, ""))
-    except ValueError:  # well formed but impossible, e.g. 2026-02-30
-        return None
-
-
 def _apply_filters(request: HttpRequest, rows: QuerySet[OrientationBooking]) -> QuerySet[OrientationBooking]:
     """The staff filters: guild, status, oriented and the From / To dates. Unknown values are ignored."""
     guild = request.GET.get("guild", "")
@@ -181,10 +172,10 @@ def _apply_filters(request: HttpRequest, rows: QuerySet[OrientationBooking]) -> 
     oriented = request.GET.get("oriented", "")
     if oriented in ("yes", "no"):
         rows = rows.filter(is_completed=oriented == "yes")
-    start = _date_param(request, "start")
+    start = date_param(request, "start")
     if start is not None:
         rows = rows.filter(slot__starts_at__date__gte=start)
-    end = _date_param(request, "end")
+    end = date_param(request, "end")
     if end is not None:
         rows = rows.filter(slot__starts_at__date__lte=end)
     return rows
@@ -217,17 +208,6 @@ def _with_related(rows: QuerySet[OrientationBooking]) -> QuerySet[OrientationBoo
     ).prefetch_related("refunds", "late_fee__refunds", _primary_email_prefetch("member__user__emailaddress_set"))
 
 
-def _late_fee(booking: OrientationBooking) -> LateCancellationFee | None:
-    """The booking's late cancellation fee, read off ``select_related`` (no query), or None.
-
-    The reverse one to one from ``LateCancellationFee`` has no row for most bookings; Django's
-    missing related object is an ``AttributeError`` too, so ``getattr`` with a default is the
-    lookup that answers None for "no fee".
-    """
-    fee: LateCancellationFee | None = getattr(booking, "late_fee", None)
-    return fee
-
-
 def build_row(
     booking: OrientationBooking,
     *,
@@ -251,7 +231,7 @@ def build_row(
     from membership.late_cancel import booking_cancel_warning, policy_for_type
 
     is_own = viewer is not None and booking.member_id == viewer.pk
-    row = BookingRow(booking=booking, is_own=is_own, can_manage=can_manage, late_fee=_late_fee(booking))
+    row = BookingRow(booking=booking, is_own=is_own, can_manage=can_manage, late_fee=late_fee_of(booking))
     status = booking.status
     upcoming = booking.slot.starts_at >= timezone.now()
     fee = row.late_fee
@@ -289,16 +269,6 @@ def build_row(
     return row
 
 
-def _query(params: dict[str, str]) -> str:
-    """A pane URL's query string: ``view=bookings`` first, then the given non blank params."""
-    query = QueryDict(mutable=True)
-    query["view"] = "bookings"
-    for key, value in params.items():
-        if value:
-            query[key] = value
-    return query.urlencode()
-
-
 def _recorded(
     request: HttpRequest, member: Member | None, *, is_staff_view: bool, show: str
 ) -> list[OrientationRecord] | None:
@@ -319,10 +289,10 @@ def _recorded(
     guild = request.GET.get("guild", "")
     if guild.isdigit():
         records = records.for_guild(int(guild))
-    start = _date_param(request, "start")
+    start = date_param(request, "start")
     if start is not None:
         records = records.filter(completed_on__gte=start)
-    end = _date_param(request, "end")
+    end = date_param(request, "end")
     if end is not None:
         records = records.filter(completed_on__lte=end)
     return list(records)
@@ -405,7 +375,7 @@ def bookings_pane_context(request: HttpRequest, *, body_only: bool = False) -> d
     managed_ids: set[int] = (
         set(
             manageable_orientation_bookings(
-                request, OrientationBooking.objects.filter(pk__in=[b.pk for b in bookings])
+                request, OrientationBooking.objects.filter(pk__in=[b.pk for b in bookings]), honour_preview=True
             ).values_list("pk", flat=True)
         )
         if is_staff_view and bookings
@@ -438,27 +408,27 @@ def bookings_pane_context(request: HttpRequest, *, body_only: bool = False) -> d
     params["show"] = "" if show == "upcoming" else show
     params["sort"] = "" if table["sort"] == "slot__starts_at" else table["sort"]
     filters = {key: params[key] for key in ("search", "guild", "status", "oriented", "start", "end")}
-    page_query = _query({**params, "page": str(page.number) if page.number > 1 else ""})
+    page_query = pane_query({**params, "page": str(page.number) if page.number > 1 else ""})
     return {
         "is_staff_view": is_staff_view,
         "booking_rows": booking_rows,
         "page": page,
         "sort": table["sort"],
         "sort_dir": table["sort_dir"],
-        "base_params": _query(params),
+        "base_params": pane_query(params),
         "show": show,
         "chips": [
-            {"key": key, "label": label, "url": "?" + _query({**filters, "show": "" if key == "upcoming" else key})}
+            {"key": key, "label": label, "url": "?" + pane_query({**filters, "show": "" if key == "upcoming" else key})}
             for key, label in (("upcoming", "Upcoming"), ("reply", "Needs a Reply"), ("past", "Past"), ("all", "All"))
             if key != "reply" or is_staff_view
         ],
         "needs_reply_count": _needs_reply(request, base).count() if is_staff_view else 0,
         "filters": filters,
         "bookings_is_filtered": any(filters.values()),
-        "clear_filters_url": "?" + _query({"show": params["show"]}),
+        "clear_filters_url": "?" + pane_query({"show": params["show"]}),
         "guild_options": _scope_guilds(request, member) if is_staff_view else [],
         "statuses": OrientationBooking.Status.choices,
-        "export_query": _query(params),
+        "export_query": pane_query(params),
         "recorded_orientations": _recorded(request, member, is_staff_view=is_staff_view, show=show),
         "viewer_has_refund_authority": refund_authority,
         "viewer_is_admin": actual_admin,

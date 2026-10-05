@@ -1,0 +1,7 @@
+bump = "minor"
+date = "2026-10-05"
+title = "Reservations have a Bookings tab"
+changes = [
+  "The Reservations page has a new Bookings tab next to List and Calendar. Members see all their own reservations there, past, upcoming and cancelled, and can cancel one from its menu.",
+  "Equipment managers see the reservations on the equipment they run, and admins see them all. Each row has a menu to view or manage the equipment, email the member, waive a late fee, or cancel with a reason the member sees.",
+]

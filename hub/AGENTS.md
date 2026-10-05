@@ -24,12 +24,13 @@ Member-facing views. All views are `@login_required`. No models — reads from `
 | `orientations_views.hub_orientations_bookings` | `hub_orientations_bookings` | `/orientations/bookings/` (the Orientations page's Bookings tab alone, for its lazy open and the refund refresh; built by `hub/orientation_bookings.py`, #626) |
 | `orientations_dashboard` | `hub_orientations_dashboard` | `/orientations/manage/` (302 to `/orientations/?view=bookings` with its query; export, add member and the oriented toggle keep their paths under it) |
 | `equipment_views.hub_equipment_calendar_events` | `hub_equipment_calendar_events` | `/equipment/calendar/events/` (the Reservations page's Calendar view, the same way) |
+| `equipment_views.hub_equipment_bookings` | `hub_equipment_bookings` | `/equipment/bookings/` (the Reservations page's Bookings tab alone, for its lazy open and the late fee refund refresh; built by `hub/reservation_bookings.py`, #627) |
 
 ## List / Calendar pages
 
 The Orientations and Reservations pages (#502) open on List and build their calendar only for `?view=calendar`; otherwise the Calendar pane fetches the shell once on first open (`static/js/list_calendar.js`, any placeholder carrying `data-lazy-pane` and `data-pane-src`). Both reuse the guild page's shell (`partials/guild_calendar_app.html`) with `cal_key` and `cal.legend`; `hub/calendar_pages.py` builds their context on `hub/calendar_window.py` (`calendar_window_context`), the one place every calendar's date arithmetic lives, from rows in `hub/calendar_entries.py`.
 
-The Orientations page's Bookings tab (#626, `?view=bookings`) loads the same way. Its rows are scoped by `membership.permissions.manageable_orientation_bookings` (the queryset form of `_require_can_manage_booking`) plus the viewer's own; a member who runs nothing sees only their own.
+The Orientations page's Bookings tab (#626, `?view=bookings`) loads the same way. Its rows are scoped by `membership.permissions.manageable_orientation_bookings` (the queryset form of `_require_can_manage_booking`) plus the viewer's own; a member who runs nothing sees only their own. The Reservations page's Bookings tab (#627) is its twin, scoped by `membership.permissions.manageable_reservations` (the queryset form of `can_manage_equipment`). Both lists pass `honour_preview=True`, so an admin previewing as a member sees what that member would; action gates never pass it. Shared pieces live in `hub/bookings_tab.py` and `static/css/bookings-tab.css`.
 
 ## Reservation cards
 

@@ -4,6 +4,7 @@
 
 {% block extra_head %}
 <link rel="stylesheet" href="{% static 'css/calendar.css' %}">
+<link rel="stylesheet" href="{% static 'css/bookings-tab.css' %}">
 {% endblock %}
 
 {% block content %}
@@ -14,11 +15,12 @@
 {% include "components/page_header.html" with title="Reservations" description="Book a room, a space, or a tool you are trained on." %}
 {% endif %}
 
-{# The List / Calendar pair (#502): plListCalendar in static/js/list_calendar.js; the calendar is built only when it opens. #}
+{# The List / Calendar / Bookings panes (#502, #627): plListCalendar in static/js/list_calendar.js; each pane past List is built only when it opens. #}
 <div x-data="plListCalendar('{{ pane }}')">
 <nav class="pl-tabs" role="tablist" aria-label="Reservations views">
   <button type="button" role="tab" class="vote-tab" :class="{ 'vote-tab--active': pane === 'list' }" :aria-selected="pane === 'list' ? 'true' : 'false'" @click="setPane('list')">List</button>
   <button type="button" role="tab" class="vote-tab" :class="{ 'vote-tab--active': pane === 'calendar' }" :aria-selected="pane === 'calendar' ? 'true' : 'false'" @click="setPane('calendar')">Calendar</button>
+  <button type="button" role="tab" class="vote-tab" :class="{ 'vote-tab--active': pane === 'bookings' }" :aria-selected="pane === 'bookings' ? 'true' : 'false'" @click="setPane('bookings')">Bookings</button>
 </nav>
 
 <div x-ref="listPane" x-show="pane === 'list'" {% if pane != "list" %}x-cloak{% endif %}>
@@ -73,6 +75,16 @@
   {% else %}
   <div data-lazy-pane="calendar" data-pane-src="{% url 'hub_equipment_calendar_events' %}?shell=1">
     <p class="hub-text-muted">Loading the calendar…</p>
+  </div>
+  {% endif %}
+</div>
+
+<div x-show="pane === 'bookings'" {% if pane != "bookings" %}x-cloak{% endif %}>
+  {% if pane == "bookings" %}
+  {% include "hub/partials/reservation_bookings_pane.html" %}
+  {% else %}
+  <div data-lazy-pane="bookings" data-pane-src="{% url 'hub_equipment_bookings' %}">
+    <p class="hub-text-muted">Loading your bookings…</p>
   </div>
   {% endif %}
 </div>

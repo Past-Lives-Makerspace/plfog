@@ -367,6 +367,7 @@ urlpatterns = [
     # Equipment directory (equipment-reservations spec §6 — PR 1). /add/ must stay above <slug>/.
     path("equipment/", equipment_views.hub_equipment_index, name="hub_equipment_index"),
     path("equipment/add/", equipment_views.hub_equipment_add, name="hub_equipment_add"),
+    path("equipment/bookings/", equipment_views.hub_equipment_bookings, name="hub_equipment_bookings"),
     path(
         "equipment/calendar/events/",
         equipment_views.hub_equipment_calendar_events,
