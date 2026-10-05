@@ -1,0 +1,79 @@
+{% load static classes_tags %}<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>{{ orientation_type.name }} Orientation QR Sheet · Past Lives</title>
+<link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@700;800;900&family=Lato:wght@300;400;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="{% static 'css/qr-sheet.css' %}">
+{% include "includes/google_analytics.html" %}
+</head>
+<body class="pl-flyer-body">
+
+{# header/main landmarks: keeps the standalone page navigable by assistive tech (axe: landmark-one-main/region). #}
+<header class="pl-flyer-toolbar no-print">
+  <div class="pl-flyer-toolbar__actions">
+    <button type="button" class="pl-flyer-print-btn" onclick="window.print()">Print / Save as PDF</button>
+    <a class="pl-flyer-download" href="{% url 'hub_orientation_type_qr' orientation_type.pk 'svg' %}" hx-boost="false" data-pl-download>Download QR (SVG)</a>
+    <a class="pl-flyer-download" href="{% url 'hub_orientation_type_qr' orientation_type.pk 'png' %}" hx-boost="false" data-pl-download>Download QR (PNG)</a>
+  </div>
+  <p class="pl-flyer-toolbar__hint">Use your browser's Print dialog and choose “Save as PDF,” or print it for the shop wall.</p>
+</header>
+
+<main class="pl-flyer" data-qr-sheet="orientation">
+  {# 1 · Photo band: the card's picture (own photo, equipment photo, guild banner), else its initial #}
+  <div class="pl-flyer__hero">
+    {% if image %}
+      <img class="pl-flyer__hero-img" src="{{ image.url }}" alt="{{ orientation_type.name }}" style="object-position: {{ image_position }};">
+    {% else %}
+      <div class="pl-flyer__hero-placeholder">{{ orientation_type.name|make_list|first|upper }}</div>
+    {% endif %}
+  </div>
+
+  {# 2 · Header: eyebrow, name, owner #}
+  <div class="pl-flyer__header">
+    <p class="pl-flyer__cat">Orientation</p>
+    <h1 class="pl-flyer__name">{{ orientation_type.name }}</h1>
+    <p class="pl-flyer__byline">Run by {{ orientation_type.owner_name }}</p>
+  </div>
+
+  {# 3 · What it covers (hidden when blank) #}
+  {% if orientation_type.description %}
+  <p class="pl-flyer__about">{{ orientation_type.description|striptags|truncatewords:32 }}</p>
+  {% endif %}
+
+  <div class="pl-flyer__cols">
+    <div class="pl-flyer__info">
+      {% if orientation_type.is_paid %}
+      <section class="pl-flyer__block" data-qr-sheet-price>
+        <h2 class="pl-flyer__block-title">Price</h2>
+        <p class="pl-flyer__line"><strong>{{ orientation_type.price_cents|cents_as_price }}</strong></p>
+      </section>
+      {% endif %}
+      <section class="pl-flyer__block">
+        <h2 class="pl-flyer__block-title">Length</h2>
+        <p class="pl-flyer__line"><strong>{{ orientation_type.duration_minutes }} minutes</strong></p>
+      </section>
+      {% if orientation_type.area or orientation_type.default_location %}
+      <section class="pl-flyer__block">
+        <h2 class="pl-flyer__block-title">Where</h2>
+        {% if orientation_type.area %}<p class="pl-flyer__line"><strong>{{ orientation_type.area.name }}</strong></p>{% endif %}
+        {% if orientation_type.default_location %}<p class="pl-flyer__line">{{ orientation_type.default_location }}</p>{% endif %}
+      </section>
+      {% endif %}
+    </div>
+
+    {# 4 · The booking QR: a pk permalink, so a rename never breaks a printed sheet #}
+    <section class="pl-flyer__qr-panel" data-qr-target="orientation">
+      <div class="pl-flyer__qr">{{ qr_svg|safe }}</div>
+      <h2 class="pl-flyer__qr-title">Book It</h2>
+      <p class="pl-flyer__qr-caption">Scan to pick a time and book this orientation.</p>
+      <p class="pl-flyer__qr-url">{{ orientation_type.qr_url }}</p>
+    </section>
+  </div>
+
+  <footer class="pl-flyer__footer">Past Lives Makerspace · Portland, OR</footer>
+</main>
+
+</body>
+</html>

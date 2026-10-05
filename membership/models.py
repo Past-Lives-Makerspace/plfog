@@ -11589,6 +11589,52 @@ class OrientationType(models.Model):
         """
         return self.orientations_page_path() if listed else self.orientation_anchor_path()
 
+    # --- QR sheet (#631): a printable page that books this orientation.
+
+    @property
+    def qr_url(self) -> str:
+        """The stable, pk based permalink the QR sheet encodes.
+
+        Not the booking link itself, for two reasons: it switches between the Orientations
+        page card and the owner page as the type is listed or not, and its card form is a
+        ``#fragment`` that a logged out scan loses on the way through login (``next`` carries
+        no fragment). ``/orientations/types/<pk>/`` survives a rename and resolves the
+        current booking link on every scan (:meth:`booking_landing_path`), after login.
+        """
+        from membership.orientations import _absolute_url
+
+        return _absolute_url(reverse("hub_orientation_type_permalink", args=[self.pk]))
+
+    def qr_svg(self) -> str:
+        """Inline, CSS-scalable SVG QR of the permalink (crisp at any print size)."""
+        from membership.qr import qr_svg as render_qr
+
+        return render_qr(self.qr_url)
+
+    def qr_png_bytes(self) -> bytes:
+        """PNG bytes of the same QR, a raster download for print."""
+        from membership.qr import qr_png_bytes as render_png
+
+        return render_png(self.qr_url)
+
+    def booking_landing_path(self) -> str:
+        """Where the permalink sends a scan: :meth:`booking_link`, asking once whether the page lists this type."""
+        listed = OrientationType.objects.filter(pk=self.pk).filter(OrientationTypeQuerySet.listed_condition()).exists()
+        return self.booking_link(listed=listed)
+
+    @property
+    def qr_sheet_refusal(self) -> str:
+        """Why this orientation has no QR sheet, or "" when it can be printed.
+
+        A turned off type takes no bookings, and a retired tool's page is hidden from members,
+        so a printed code for either would land on nothing a member can book.
+        """
+        if not self.is_active:
+            return "This orientation is turned off, so it has no QR sheet. Turn it back on to print one."
+        if self.equipment is not None and not self.equipment.is_active:
+            return "The equipment this orientation belongs to is retired, so it has no QR sheet."
+        return ""
+
     @property
     def paused_message(self) -> str:
         """Why the Orientations page's card for this type takes no bookings, or "" when it does.
@@ -14335,6 +14381,52 @@ class Equipment(HeroCropMixin, models.Model):
         """
         orientation_type = cast(OrientationType, self.required_orientation)
         return orientation_type.booking_link(listed=self.required_orientation_listed)  # type: ignore[attr-defined]
+
+    # --- QR sheet (#631): the printable page managers post at the machine.
+
+    @property
+    def qr_url(self) -> str:
+        """The absolute equipment page URL the QR sheet encodes.
+
+        The slug is set once from the first name and kept across renames, so the page URL is
+        already stable and needs no permalink redirect (unlike a class's slug).
+        """
+        from membership.orientations import _absolute_url
+
+        return _absolute_url(reverse("hub_equipment_detail", args=[self.slug]))
+
+    def qr_svg(self) -> str:
+        """Inline, CSS-scalable SVG QR of the equipment page (crisp at any print size)."""
+        from membership.qr import qr_svg as render_qr
+
+        return render_qr(self.qr_url)
+
+    def qr_png_bytes(self) -> bytes:
+        """PNG bytes of the same QR, a raster download for print."""
+        from membership.qr import qr_png_bytes as render_png
+
+        return render_png(self.qr_url)
+
+    @property
+    def qr_sheet_refusal(self) -> str:
+        """Why this item has no QR sheet, or "" when it can be printed: retired gear is hidden from members."""
+        if not self.is_active:
+            return (
+                "This equipment is retired, so it has no QR sheet. Turn it back on from the manage panel to print one."
+            )
+        return ""
+
+    @property
+    def qr_sheet_orientation(self) -> OrientationType | None:
+        """The orientation the sheet's second QR books: the required one while it is on, else ``None``.
+
+        A turned off required type takes no bookings, so the sheet leaves its QR off rather
+        than print a code that lands on a paused orientation.
+        """
+        orientation_type = self.required_orientation
+        if orientation_type is None or not orientation_type.is_active:
+            return None
+        return orientation_type
 
     def save(self, *args: Any, **kwargs: Any) -> None:
         if not self.slug:

@@ -24,7 +24,10 @@
       </div>
     </div>
     {% if can_manage %}
-    <a href="{% url 'hub_equipment_manage' equipment.slug %}" class="pl-btn pl-btn--secondary pl-btn--sm">Manage</a>
+    <div class="pl-btn-row">
+      {% if equipment.is_active %}<a href="{% url 'hub_equipment_flyer' equipment.slug %}" target="_blank" rel="noopener" class="pl-btn pl-btn--secondary pl-btn--sm" data-qr-sheet-link>Print QR Sheet</a>{% endif %}
+      <a href="{% url 'hub_equipment_manage' equipment.slug %}" class="pl-btn pl-btn--secondary pl-btn--sm">Manage</a>
+    </div>
     {% endif %}
   </div>
 </div>
