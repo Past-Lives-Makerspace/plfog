@@ -6,23 +6,28 @@ Parameters (pass via {% include ... with %}):
                  caller's context, so reg / can_manage / viewer_has_refund_authority
                  are available to the menu items.
   menu_label   — required, accessible name for the trigger (e.g. "Actions for Jane Doe").
+  menu_trigger_text  — optional. A labelled button in place of the kebab (the Orientations
+                       page's "+ Add an Orientation", #637); menu_label should contain it.
+  menu_trigger_class — optional with menu_trigger_text. The button's classes (default: "hub-btn hub-btn--sm").
 
 The menu is position:fixed and placed from the trigger's bounding rect on open, so
 it escapes the roster table wrapper's overflow:hidden clip; near the viewport bottom
-it flips upward. Any window scroll or resize dismisses it (a fixed element does not
-track scroll). See docs/superpowers/plans/2026-08-27-roster-actions-menu.md.
+it flips upward. A menu too tall for either side opens on the roomier one, capped to
+the space left and scrolling inside (overscroll-behavior: contain, so the page never
+scrolls under it); it always stays 8px inside the viewport (#637). Any window scroll
+or resize dismisses it (a fixed element does not track scroll). See docs/superpowers/plans/2026-08-27-roster-actions-menu.md.
 {% endcomment %}
 <div class="pl-row-menu" x-data="plRowMenu()"
      @keydown.escape.window="closeAndRefocus()"
      @keydown.tab="open = false">
-    <button type="button" class="pl-row-menu__trigger" x-ref="trigger"
+    <button type="button" class="{% if menu_trigger_text %}{{ menu_trigger_class|default:'hub-btn hub-btn--sm' }}{% else %}pl-row-menu__trigger{% endif %}" x-ref="trigger"
             aria-haspopup="menu" :aria-expanded="open" aria-label="{{ menu_label }}"
-            @click="toggle()">
+            @click="toggle()">{% if menu_trigger_text %}{{ menu_trigger_text }}{% else %}
         <svg aria-hidden="true" width="20" height="20" viewBox="0 0 24 24" fill="currentColor">
             <circle cx="12" cy="5" r="2"/>
             <circle cx="12" cy="12" r="2"/>
             <circle cx="12" cy="19" r="2"/>
-        </svg>
+        </svg>{% endif %}
     </button>
     <div class="pl-row-menu__menu" x-ref="menu" x-show="open" x-transition.opacity
          x-cloak role="menu"
@@ -46,13 +51,28 @@ if (!window.__plRowMenuDefined) {
       position() {
         var rect = this.$refs.trigger.getBoundingClientRect();
         var menu = this.$refs.menu;
+        var edge = 8;
+        var gap = 4;
+        menu.style.maxHeight = '';
         var w = menu.offsetWidth;
         var h = menu.offsetHeight;
-        var left = Math.max(8, rect.right - w);
-        var top = rect.bottom + 4;
-        if (top + h > window.innerHeight - 8) { top = rect.top - h - 4; }
+        var below = window.innerHeight - edge - rect.bottom - gap;
+        var above = rect.top - gap - edge;
+        var top;
+        if (h <= below) {
+          top = rect.bottom + gap;
+        } else if (h <= above) {
+          top = rect.top - gap - h;
+        } else if (below >= above) {
+          menu.style.maxHeight = Math.max(below, 0) + 'px';
+          top = rect.bottom + gap;
+        } else {
+          menu.style.maxHeight = above + 'px';
+          top = edge;
+        }
+        var left = Math.max(edge, Math.min(rect.right - w, window.innerWidth - edge - w));
         menu.style.left = left + 'px';
-        menu.style.top = top + 'px';
+        menu.style.top = Math.max(edge, top) + 'px';
       },
       closeAndRefocus() {
         if (!this.open) { return; }

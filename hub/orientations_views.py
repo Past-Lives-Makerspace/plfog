@@ -43,7 +43,12 @@ from membership.models import (
     OrientationSlot,
     OrientationType,
 )
-from membership.permissions import can_manage_equipment, manageable_orientation_types, manages_orientations
+from membership.permissions import (
+    can_manage_equipment,
+    guilds_for_new_orientation,
+    manageable_orientation_types,
+    manages_orientations,
+)
 
 #: How many times a card lists before it says "More times" (the owner page lists them all).
 CARD_TIME_CAP = 3
@@ -224,6 +229,8 @@ def hub_orientations(request: HttpRequest) -> HttpResponse:
             "pane": pane,
             "calendar": orientations_calendar_context() if pane == "calendar" else None,
             "calendar_key": CALENDAR_KEY,
+            # The header's "+ Add an Orientation" targets (#637): one query, preview aware.
+            "add_orientation_guilds": guilds_for_new_orientation(request),
             # The Bookings pane's own keys, merged in only when it opens (#626).
             **(bookings_pane_context(request) if pane == "bookings" else {}),
         },
