@@ -36,6 +36,7 @@ if TYPE_CHECKING:
     from django.contrib.auth.models import User
     from django.http import HttpRequest
 
+    from membership.late_cancel import LateCancelPolicy
     from membership.models import Equipment, EquipmentReservation, Guild, Member, OrientationBooking
 
 logger = logging.getLogger(__name__)
@@ -108,6 +109,32 @@ def _starts_at(target: OrientationBooking | EquipmentReservation) -> datetime:
     return target.slot.starts_at
 
 
+def _charging_policy(
+    target: OrientationBooking | EquipmentReservation, *, now: datetime | None = None
+) -> LateCancelPolicy | None:
+    """The policy a self cancel of ``target`` at ``now`` would be charged under, or ``None`` when it costs nothing.
+
+    The one late fee rule: a fee applies (the site switch on and the owner charging one)
+    and the cancel is inside the notice window at ``now``.
+    """
+    from membership.late_cancel import policy_for
+
+    policy = policy_for(target)
+    if not policy.applies or not policy.is_late(_starts_at(target), now=now):
+        return None
+    return policy
+
+
+def would_charge(target: OrientationBooking | EquipmentReservation, *, now: datetime | None = None) -> bool:
+    """Whether a self cancel of ``target`` at ``now`` would carry a late cancellation fee.
+
+    The same rule :func:`charge_if_late` charges by, for a cancel that never charges (a
+    manager's) but records that it was inside the window, so the fee it skipped is named
+    as waived (#633).
+    """
+    return _charging_policy(target, now=now) is not None
+
+
 def charge_if_late(
     target: OrientationBooking | EquipmentReservation, *, now: datetime | None = None
 ) -> LateCancellationFee | None:
@@ -122,11 +149,10 @@ def charge_if_late(
 
     Logs ``LATE_FEE_CHARGED`` once, when the row is created.
     """
-    from membership.late_cancel import policy_for
     from membership.models import EquipmentReservation
 
-    policy = policy_for(target)
-    if not policy.applies or not policy.is_late(_starts_at(target), now=now):
+    policy = _charging_policy(target, now=now)
+    if policy is None:
         return None
     lookup: dict[str, Any] = (
         {"reservation": target} if isinstance(target, EquipmentReservation) else {"orientation_booking": target}

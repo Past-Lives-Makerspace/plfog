@@ -734,6 +734,151 @@ def describe_late_cancel_fee_on_cancel():
         assert LateCancellationFee.objects.filter(reservation=reservation).count() == 1
 
 
+def describe_manager_cancel_record():
+    """The reservation records a manager cancel and whether it waived a late fee (#633)."""
+
+    def _late_fees(enabled: bool) -> None:
+        from core.models import SiteConfiguration
+
+        config = SiteConfiguration.load()
+        config.late_cancel_fees_enabled = enabled
+        config.save()
+
+    def _managed(username: str) -> tuple[Member, Equipment]:
+        equipment = EquipmentFactory(late_cancel_fee_cents=1500)
+        manager = _linked_member(username)
+        EquipmentStaffMembershipFactory(equipment=equipment, member=manager)
+        return manager, equipment
+
+    def _booked(member: Member, equipment: Equipment, *, hours_ahead: int) -> EquipmentReservation:
+        starts = timezone.now() + timedelta(hours=hours_ahead)
+        return EquipmentReservationFactory(
+            equipment=equipment, member=member, starts_at=starts, ends_at=starts + timedelta(hours=1)
+        )
+
+    def it_waives_the_fee_when_a_manager_cancels_their_own_row_inside_the_window():
+        from billing.models import LateCancellationFee
+
+        _late_fees(True)
+        manager, equipment = _managed("mcr_inside")
+        reservation = _booked(manager, equipment, hours_ahead=3)
+        assert reservation.cancel(manager, reason="Freeing my own slot.", as_manager=True) is None
+        assert not LateCancellationFee.objects.exists()
+        stored = EquipmentReservation.objects.get(pk=reservation.pk)
+        assert stored.cancelled_as_manager is True
+        assert stored.late_fee_waived is True
+        assert stored.is_cancelled_by_manager is False
+        assert stored.own_manager_cancel_label == "Manager cancelled, late fee waived"
+        # The in-memory row says what the database says.
+        assert reservation.cancelled_as_manager is True
+        assert reservation.late_fee_waived is True
+
+    def it_says_only_manager_cancelled_outside_the_window():
+        _late_fees(True)
+        manager, equipment = _managed("mcr_outside")
+        reservation = _booked(manager, equipment, hours_ahead=40)
+        reservation.cancel(manager, reason="Freeing my own slot.", as_manager=True)
+        stored = EquipmentReservation.objects.get(pk=reservation.pk)
+        assert stored.cancelled_as_manager is True
+        assert stored.late_fee_waived is False
+        assert stored.own_manager_cancel_label == "Manager cancelled"
+
+    def it_waives_nothing_while_the_site_switch_is_off():
+        _late_fees(False)
+        manager, equipment = _managed("mcr_off")
+        reservation = _booked(manager, equipment, hours_ahead=3)
+        reservation.cancel(manager, reason="Freeing my own slot.", as_manager=True)
+        stored = EquipmentReservation.objects.get(pk=reservation.pk)
+        assert stored.late_fee_waived is False
+        assert stored.own_manager_cancel_label == "Manager cancelled"
+
+    def it_still_charges_a_members_own_late_cancel_and_records_no_manager_cancel():
+        from billing.models import LateCancellationFee
+
+        _late_fees(True)
+        _manager_member, equipment = _managed("mcr_self_mgr")
+        member = _linked_member("mcr_self")
+        reservation = _booked(member, equipment, hours_ahead=3)
+        fee = reservation.cancel(member)
+        assert fee == LateCancellationFee.objects.get(reservation=reservation)
+        stored = EquipmentReservation.objects.get(pk=reservation.pk)
+        assert stored.cancelled_as_manager is False
+        assert stored.late_fee_waived is False
+        assert stored.own_manager_cancel_label == ""
+
+    def it_records_a_manager_cancel_of_someone_elses_row_under_its_own_label():
+        _late_fees(True)
+        manager, equipment = _managed("mcr_other_mgr")
+        reservation = _booked(_linked_member("mcr_other"), equipment, hours_ahead=3)
+        reservation.cancel(manager, reason="Machine down.")
+        stored = EquipmentReservation.objects.get(pk=reservation.pk)
+        assert stored.cancelled_as_manager is True
+        assert stored.late_fee_waived is True
+        assert stored.is_cancelled_by_manager is True
+        assert stored.own_manager_cancel_label == ""
+
+    def it_gives_no_label_to_a_confirmed_row_even_if_flagged():
+        reservation = EquipmentReservationFactory(cancelled_as_manager=True, late_fee_waived=True)
+        reservation.cancelled_by = reservation.member
+        assert reservation.own_manager_cancel_label == ""
+
+    def it_leaves_existing_rows_unflagged():
+        member = MemberFactory()
+        reservation = EquipmentReservationFactory(
+            member=member, status=EquipmentReservation.Status.CANCELLED, cancelled_by=member
+        )
+        reservation.refresh_from_db()
+        assert reservation.cancelled_as_manager is False
+        assert reservation.late_fee_waived is False
+        assert reservation.own_manager_cancel_label == ""
+
+    def it_writes_both_flags_in_the_conditional_update_that_flips_the_row():
+        from django.db import connection
+        from django.test.utils import CaptureQueriesContext
+
+        _late_fees(True)
+        manager, equipment = _managed("mcr_sql")
+        reservation = _booked(manager, equipment, hours_ahead=3)
+        with CaptureQueriesContext(connection) as queries:
+            reservation.cancel(manager, reason="Freeing my own slot.", as_manager=True)
+        updates = [q["sql"] for q in queries.captured_queries if q["sql"].startswith("UPDATE")]
+        assert len(updates) == 1
+        assert '"cancelled_as_manager"' in updates[0]
+        assert '"late_fee_waived"' in updates[0]
+        assert '"status" = ' in updates[0].split("WHERE", 1)[1]
+
+    def it_keeps_the_winners_record_when_a_stale_cancel_loses_the_race():
+        from billing.models import LateCancellationFee
+
+        _late_fees(True)
+        manager, equipment = _managed("mcr_race")
+        reservation = _booked(manager, equipment, hours_ahead=3)
+        # Two tabs loaded the same CONFIRMED row: the manager route wins, the stale self cancel loses.
+        stale = EquipmentReservation.objects.get(pk=reservation.pk)
+        reservation.cancel(manager, reason="Freeing my own slot.", as_manager=True)
+        with pytest.raises(EquipmentError, match="already cancelled"):
+            stale.cancel(manager)
+        stored = EquipmentReservation.objects.get(pk=reservation.pk)
+        assert stored.cancelled_as_manager is True
+        assert stored.late_fee_waived is True
+        assert not LateCancellationFee.objects.exists()
+
+    def it_records_no_manager_cancel_when_the_self_cancel_wins_the_race():
+        from billing.models import LateCancellationFee
+
+        _late_fees(True)
+        manager, equipment = _managed("mcr_race_self")
+        reservation = _booked(manager, equipment, hours_ahead=3)
+        stale = EquipmentReservation.objects.get(pk=reservation.pk)
+        reservation.cancel(manager)
+        with pytest.raises(EquipmentError, match="already cancelled"):
+            stale.cancel(manager, reason="Freeing my own slot.", as_manager=True)
+        stored = EquipmentReservation.objects.get(pk=reservation.pk)
+        assert stored.cancelled_as_manager is False
+        assert stored.late_fee_waived is False
+        assert LateCancellationFee.objects.filter(reservation=reservation).count() == 1
+
+
 def describe_equipment_events():
     def it_registers_the_self_cancel_event_as_forced_personal_mail():
         cancelled = get_event("equipment.reservation_cancelled")

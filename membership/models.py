@@ -14941,6 +14941,14 @@ class EquipmentReservation(models.Model):
         default="",
         help_text="Required when a manager cancels; shown to the member.",
     )
+    cancelled_as_manager = models.BooleanField(
+        default=False,
+        help_text="Cancelled through the manager route, including a manager cancelling their own row (#633).",
+    )
+    late_fee_waived = models.BooleanField(
+        default=False,
+        help_text="A manager cancel inside the late notice window: the fee a self cancel would owe was not charged.",
+    )
     created_at = models.DateTimeField(auto_now_add=True, help_text="When the reservation was made.")
     cancelled_at = models.DateTimeField(null=True, blank=True, help_text="When it was cancelled, if it was.")
 
@@ -14974,6 +14982,22 @@ class EquipmentReservation(models.Model):
             and self.cancelled_by_id != self.member_id
         )
 
+    @property
+    def own_manager_cancel_label(self) -> str:
+        """The Bookings tab status for a manager who cancelled their own row as a manager, else "".
+
+        Inside the notice window the fee a self cancel would owe was waived, and the label says
+        so; outside it there was no fee to waive (#633). A manager cancelling somebody else's
+        row is :attr:`is_cancelled_by_manager` instead, and keeps its own label.
+        """
+        if (
+            self.status != self.Status.CANCELLED
+            or not self.cancelled_as_manager
+            or self.cancelled_by_id != self.member_id
+        ):
+            return ""
+        return "Manager cancelled, late fee waived" if self.late_fee_waived else "Manager cancelled"
+
     def cancel(self, actor: Member, *, reason: str = "", as_manager: bool = False) -> LateCancellationFee | None:
         """Cancel this reservation as ``actor`` — the member themselves, or a manager.
 
@@ -14984,6 +15008,8 @@ class EquipmentReservation(models.Model):
         member, and never charges. A manager cancelling THEIR OWN row from the manage tab
         passes ``as_manager=True`` — the manager guards apply (reason honored, in-progress
         allowed), nobody is notified because the member IS the actor, and nothing charges.
+        Either manager route records ``cancelled_as_manager``, and ``late_fee_waived`` when the
+        cancel fell inside the notice window, in the same conditional update as the flip (#633).
 
         Returns:
             The :class:`~billing.models.LateCancellationFee` a late self cancel created (or
@@ -15002,6 +15028,11 @@ class EquipmentReservation(models.Model):
         acting_as_manager = as_manager or not is_own_row
         cleaned_reason = reason.strip()
         self._ensure_cancel_allowed(actor, acting_as_manager=acting_as_manager, reason=cleaned_reason, now=now)
+        from billing.late_fees import charge_if_late, would_charge
+
+        # A manager cancel never charges; whether it was inside the window is stored now,
+        # since the window and the fee can change later and the record should not (#633).
+        fee_waived = acting_as_manager and would_charge(self, now=now)
         fee: LateCancellationFee | None = None
         with transaction.atomic():
             # A conditional update keyed on status, not a save: two requests that both loaded
@@ -15014,6 +15045,8 @@ class EquipmentReservation(models.Model):
                 status=self.Status.CANCELLED,
                 cancelled_by=actor,
                 cancelled_reason=cleaned_reason,
+                cancelled_as_manager=acting_as_manager,
+                late_fee_waived=fee_waived,
                 cancelled_at=now,
             )
             if not flipped:
@@ -15021,10 +15054,10 @@ class EquipmentReservation(models.Model):
             self.status = self.Status.CANCELLED
             self.cancelled_by = actor
             self.cancelled_reason = cleaned_reason
+            self.cancelled_as_manager = acting_as_manager
+            self.late_fee_waived = fee_waived
             self.cancelled_at = now
             if not acting_as_manager:
-                from billing.late_fees import charge_if_late
-
                 fee = charge_if_late(self, now=now)
         from membership import equipment as equipment_service
 

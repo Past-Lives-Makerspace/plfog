@@ -329,6 +329,58 @@ def describe_the_staff_row_menu():
         content = _tab(client, show="past")
         assert 'data-reservation-status="cancelled-by-manager"' in _row(content, by_manager)
 
+    def it_notes_a_managers_own_cancel_inside_the_window_as_late_fee_waived(client: Client):
+        site = SiteConfiguration.load()
+        site.late_cancel_fees_enabled = True
+        site.save()
+        manager, tool = _manager(client, "rt_own_waived")
+        tool.late_cancel_fee_cents = 1500
+        tool.save(update_fields=["late_cancel_fee_cents"])
+        own = _reservation(tool, member=manager, hours=2)
+        response = client.post(_cancel_url(own), {"reason": "Freeing my own slot.", "next": TAB})
+        assert response["Location"] == TAB
+        assert _messages(response) == ["Reservation cancelled."]
+        assert not LateCancellationFee.objects.filter(reservation=own).exists()
+        row = _row(_tab(client, show="past"), own)
+        assert 'data-reservation-status="manager-cancelled-fee-waived"' in row
+        assert ">Manager cancelled, late fee waived</span>" in row
+        assert "data-booking-fee" not in row
+
+    def it_notes_a_managers_own_cancel_outside_the_window_as_manager_cancelled(client: Client):
+        site = SiteConfiguration.load()
+        site.late_cancel_fees_enabled = True
+        site.save()
+        manager, tool = _manager(client, "rt_own_plain")
+        tool.late_cancel_fee_cents = 1500
+        tool.save(update_fields=["late_cancel_fee_cents"])
+        own = _reservation(tool, member=manager, hours=48)
+        client.post(_cancel_url(own), {"reason": "Freeing my own slot.", "next": TAB})
+        row = _row(_tab(client, show="past"), own)
+        assert 'data-reservation-status="manager-cancelled"' in row
+        assert ">Manager cancelled</span>" in row
+
+    def it_keeps_the_fee_pill_on_a_members_own_late_cancel(client: Client):
+        site = SiteConfiguration.load()
+        site.late_cancel_fees_enabled = True
+        site.save()
+        _manager_member, tool = _manager(client, "rt_member_fee")
+        tool.late_cancel_fee_cents = 1500
+        tool.save(update_fields=["late_cancel_fee_cents"])
+        theirs = _reservation(tool, name="Fenna Feerow", hours=2)
+        assert theirs.cancel(theirs.member) is not None
+        row = _row(_tab(client, show="past"), theirs)
+        assert 'data-reservation-status="cancelled"' in row
+        assert "Manager cancelled" not in row
+        assert '<span class="hub-pill hub-pill--danger" data-booking-fee>Fee unpaid</span>' in row
+
+    def it_keeps_cancelled_by_a_manager_on_someone_elses_row_cancelled_as_manager(client: Client):
+        manager, tool = _manager(client, "rt_other_flag")
+        theirs = _reservation(tool, name="Odile Otherrow", hours=48)
+        theirs.cancel(manager, reason="Machine down.")
+        row = _row(_tab(client, show="past"), theirs)
+        assert 'data-reservation-status="cancelled-by-manager"' in row
+        assert "Manager cancelled" not in row
+
     def it_gates_waive_on_manage_and_refund_on_refund_authority(client: Client):
         manager, tool = _manager(client)
         unpaid_on = _reservation(tool, status=EquipmentReservation.Status.CANCELLED)

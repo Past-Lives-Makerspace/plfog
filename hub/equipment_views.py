@@ -760,7 +760,9 @@ def hub_equipment_reservation_cancel(request: HttpRequest, slug: str, pk: int) -
     except EquipmentError as exc:
         messages.error(request, str(exc))
         return redirect(back)
-    messages.success(request, "Reservation cancelled. The member has been told.")
+    # A manager cancelling their own row emails nobody, so there is nobody to have told.
+    told = "" if reservation.member_id == member.pk else " The member has been told."
+    messages.success(request, f"Reservation cancelled.{told}")
     return redirect(back)
 
 
