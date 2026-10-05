@@ -5,7 +5,7 @@ from django.db import migrations, models
 
 class Migration(migrations.Migration):
     dependencies = [
-        ("membership", "0206_remove_equipment_requires_guild_membership"),
+        ("membership", "0207_reservation_cancelled_as_manager"),
     ]
 
     operations = [
