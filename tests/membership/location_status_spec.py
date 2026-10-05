@@ -115,6 +115,16 @@ def describe_guild_location_statuses():
             _class_session(location, start=NOW)
             assert _only(location.guild).light == Light.IN_USE
 
+        def it_ignores_a_month_long_pick_your_date_window():
+            location = LocationFactory(guild=GuildFactory())
+            _class_session(location, start=NOW - timedelta(days=3), minutes=60 * 24 * 30, title="Forge a Leaf Dish")
+            assert _only(location.guild).light == Light.FREE
+
+        def it_still_counts_a_twelve_hour_session():
+            location = LocationFactory(guild=GuildFactory())
+            _class_session(location, start=NOW - timedelta(hours=1), minutes=12 * 60)
+            assert _only(location.guild).light == Light.IN_USE
+
         def it_is_amber_when_a_session_starts_within_the_hour():
             location = LocationFactory(guild=GuildFactory())
             _class_session(location, start=NOW + timedelta(minutes=45), title="Stained Glass")
