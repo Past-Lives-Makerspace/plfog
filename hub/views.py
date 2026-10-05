@@ -21,7 +21,15 @@ from django.contrib.auth.views import redirect_to_login
 from django.contrib.contenttypes.models import ContentType
 from django.db.models import Count, Min, Prefetch, Q, QuerySet
 from django.forms import BaseInlineFormSet, BaseModelFormSet
-from django.http import Http404, HttpRequest, HttpResponse, HttpResponseBadRequest, JsonResponse, StreamingHttpResponse
+from django.http import (
+    Http404,
+    HttpRequest,
+    HttpResponse,
+    HttpResponseBadRequest,
+    JsonResponse,
+    QueryDict,
+    StreamingHttpResponse,
+)
 from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse
 from django.utils.http import url_has_allowed_host_and_scheme
@@ -2638,10 +2646,18 @@ def orientations_dashboard(request: HttpRequest) -> HttpResponse:
     """The old staff dashboard's address: the Orientations page's Bookings tab, filters kept (#626).
 
     A 302, not a 301, so a cached redirect never outlives a later move. The URL name stays so a
-    stray ``reverse()`` still resolves.
+    stray ``reverse()`` still resolves. The dashboard's own parameters are translated to the
+    tab's: its search ``q`` is the tab's ``search`` (``q`` there is the List pane's), its
+    ``completed`` filter is ``oriented``; ``scope`` (the tab is scoped already) and ``view`` go.
     """
-    query = request.GET.urlencode()
-    return redirect(f"{_orientation_bookings_tab()}&{query}" if query else _orientation_bookings_tab())
+    renamed = {"q": "search", "completed": "oriented"}
+    query = QueryDict(mutable=True)
+    for key, values in request.GET.lists():
+        if key in ("view", "scope"):
+            continue
+        query.setlist(renamed.get(key, key), values)
+    encoded = query.urlencode()
+    return redirect(f"{_orientation_bookings_tab()}&{encoded}" if encoded else _orientation_bookings_tab())
 
 
 @login_required

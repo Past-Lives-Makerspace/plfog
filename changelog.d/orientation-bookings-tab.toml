@@ -3,6 +3,6 @@ date = "2026-10-05"
 title = "Orientations have a Bookings tab"
 changes = [
   "The Orientations page has a new Bookings tab next to List and Calendar. Members see their own orientations there, past and upcoming.",
-  "Guild leads and staff see the orientations for their own guilds and equipment, and admins see them all. Each row has a menu to mark someone oriented, confirm or decline a request, cancel, refund or email the member.",
-  "The old orientations dashboard now opens this tab, and a lead only sees the orientations they run.",
+  "Guild leads and staff see the orientations for their own guilds and equipment, and admins see them all. Each row has a menu to mark someone oriented, confirm or decline a request, or cancel. People who handle refunds can refund from it too.",
+  "The old orientations dashboard now opens this tab, and a lead sees only the orientations they run, plus their own.",
 ]

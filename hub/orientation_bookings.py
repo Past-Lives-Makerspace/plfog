@@ -120,22 +120,43 @@ def _show(request: HttpRequest, *, is_staff_view: bool) -> str:
     return show
 
 
-def _base_rows(request: HttpRequest, member: Member | None, *, is_staff_view: bool) -> QuerySet[OrientationBooking]:
+def _managed(request: HttpRequest, *, honour_preview: bool) -> QuerySet[OrientationBooking]:
+    """Every booking the viewer may run; ``honour_preview`` for what the tab lists (#626 review)."""
+    return manageable_orientation_bookings(request, OrientationBooking.objects.all(), honour_preview=honour_preview)
+
+
+def _base_rows(
+    request: HttpRequest, member: Member | None, *, is_staff_view: bool, honour_preview: bool = True
+) -> QuerySet[OrientationBooking]:
     """Every booking the viewer may see: their own, plus, for staff, every one they may run."""
     own = Q(member=member) if member is not None else Q(pk__in=[])
     if not is_staff_view:
         return OrientationBooking.objects.filter(own)
-    managed = manageable_orientation_bookings(request, OrientationBooking.objects.all())
+    managed = _managed(request, honour_preview=honour_preview)
     return OrientationBooking.objects.filter(Q(pk__in=managed.values("pk")) | own)
 
 
-def _apply_show(rows: QuerySet[OrientationBooking], show: str) -> QuerySet[OrientationBooking]:
+def _needs_reply(
+    request: HttpRequest, rows: QuerySet[OrientationBooking], *, honour_preview: bool = True
+) -> QuerySet[OrientationBooking]:
+    """The requests in ``rows`` waiting on the viewer: requested, and in the scope they run.
+
+    The viewer's own request on an orientation someone else runs is theirs to wait on, not to
+    answer, so it is neither counted nor listed under Needs a Reply.
+    """
+    managed = _managed(request, honour_preview=honour_preview)
+    return rows.filter(status=OrientationBooking.Status.REQUESTED, pk__in=managed.values("pk"))
+
+
+def _apply_show(
+    request: HttpRequest, rows: QuerySet[OrientationBooking], show: str, *, honour_preview: bool = True
+) -> QuerySet[OrientationBooking]:
     """Narrow ``rows`` to the chip: Upcoming is the live ones still ahead, Past every one behind."""
     now = timezone.now()
     if show == "upcoming":
         return rows.filter(status__in=OrientationBooking.LIVE_STATUSES, slot__starts_at__gte=now)
     if show == "reply":
-        return rows.filter(status=OrientationBooking.Status.REQUESTED)
+        return _needs_reply(request, rows, honour_preview=honour_preview)
     if show == "past":
         return rows.filter(slot__starts_at__lt=now)
     return rows
@@ -170,10 +191,14 @@ def _apply_filters(request: HttpRequest, rows: QuerySet[OrientationBooking]) -> 
 
 
 def staff_rows(request: HttpRequest) -> QuerySet[OrientationBooking]:
-    """The staff view's rows under the request's chip, filters and search: what Export CSV downloads."""
+    """The staff view's rows under the request's chip, filters and search: what Export CSV downloads.
+
+    An action, so it reads the action scope (no preview), like its gate.
+    """
     member = _viewer(request)
-    rows = _base_rows(request, member, is_staff_view=True)
-    rows = _apply_filters(request, _apply_show(rows, _show(request, is_staff_view=True)))
+    rows = _base_rows(request, member, is_staff_view=True, honour_preview=False)
+    show = _show(request, is_staff_view=True)
+    rows = _apply_filters(request, _apply_show(request, rows, show, honour_preview=False))
     return table_search(rows, request.GET.get(SEARCH_PARAM, "").strip(), SEARCH_FIELDS)
 
 
@@ -193,13 +218,14 @@ def _with_related(rows: QuerySet[OrientationBooking]) -> QuerySet[OrientationBoo
 
 
 def _late_fee(booking: OrientationBooking) -> LateCancellationFee | None:
-    """The booking's late cancellation fee, read off ``select_related`` (no query), or None."""
-    from billing.models import LateCancellationFee
+    """The booking's late cancellation fee, read off ``select_related`` (no query), or None.
 
-    try:
-        return booking.late_fee  # type: ignore[attr-defined]  # reverse one to one from LateCancellationFee
-    except LateCancellationFee.DoesNotExist:
-        return None
+    The reverse one to one from ``LateCancellationFee`` has no row for most bookings; Django's
+    missing related object is an ``AttributeError`` too, so ``getattr`` with a default is the
+    lookup that answers None for "no fee".
+    """
+    fee: LateCancellationFee | None = getattr(booking, "late_fee", None)
+    return fee
 
 
 def build_row(
@@ -348,16 +374,21 @@ def _staff_extras(request: HttpRequest, member: Member | None) -> dict[str, Any]
     }
 
 
-def bookings_pane_context(request: HttpRequest) -> dict[str, Any]:
-    """Everything ``hub/partials/orientation_bookings_pane.html`` renders, for the page or the partial."""
+def bookings_pane_context(request: HttpRequest, *, body_only: bool = False) -> dict[str, Any]:
+    """Everything ``hub/partials/orientation_bookings_pane.html`` renders, for the page or the partial.
+
+    ``body_only`` is the refund refresh, which swaps in only the table's body: it skips what
+    sits above it (the hours nudge and the Add Member form with its slot list).
+    """
     from core.models import SiteConfiguration
     from hub.view_as import has_refund_authority
 
     member = _viewer(request)
-    is_staff_view = manages_orientations(request)
+    # The staff view follows the effective role: an admin previewing as a member sees their own rows.
+    is_staff_view = manages_orientations(request, honour_preview=True)
     show = _show(request, is_staff_view=is_staff_view)
     base = _base_rows(request, member, is_staff_view=is_staff_view)
-    rows = _apply_show(base, show)
+    rows = _apply_show(request, base, show)
     if is_staff_view:
         rows = _apply_filters(request, rows)
     table = prepare_table(
@@ -421,7 +452,7 @@ def bookings_pane_context(request: HttpRequest) -> dict[str, Any]:
             for key, label in (("upcoming", "Upcoming"), ("reply", "Needs a Reply"), ("past", "Past"), ("all", "All"))
             if key != "reply" or is_staff_view
         ],
-        "needs_reply_count": base.filter(status=OrientationBooking.Status.REQUESTED).count() if is_staff_view else 0,
+        "needs_reply_count": _needs_reply(request, base).count() if is_staff_view else 0,
         "filters": filters,
         "bookings_is_filtered": any(filters.values()),
         "clear_filters_url": "?" + _query({"show": params["show"]}),
@@ -432,6 +463,6 @@ def bookings_pane_context(request: HttpRequest) -> dict[str, Any]:
         "viewer_has_refund_authority": refund_authority,
         "viewer_is_admin": actual_admin,
         "bookings_next": f"{reverse('hub_orientations')}?{page_query}",
-        "bookings_refresh_url": f"{reverse('hub_orientations_bookings')}?{page_query}",
-        **(_staff_extras(request, member) if is_staff_view else {}),
+        "bookings_refresh_url": f"{reverse('hub_orientations_bookings')}?{page_query}&part=body",
+        **(_staff_extras(request, member) if is_staff_view and not body_only else {}),
     }

@@ -177,7 +177,22 @@ def manageable_equipment_ids(request: HttpRequest, items: Iterable[Equipment]) -
     return member.led_or_staffed_equipment_ids(items)
 
 
-def _orientation_owner_scope(request: HttpRequest, *, guild_path: str) -> Q:
+def _capability_counts(request: HttpRequest, capability: str, *, honour_preview: bool) -> bool:
+    """Whether the request's actual member holds ``capability``, read as a list's scope would.
+
+    Every action gate reads a capability whatever the preview (a granted duty follows the
+    person). A list that shows the effective role honestly (``honour_preview``) drops it while
+    the viewer previews another role, because migration 0161 gave every admin EQUIPMENT and an
+    admin previewing as a member must see what that member would.
+    """
+    view_as = getattr(request, "view_as", None)
+    if honour_preview and view_as is not None and view_as.is_previewing:
+        return False
+    actual_member: Member | None = getattr(request.user, "member", None)
+    return actual_member is not None and actual_member.has_admin_capability(capability)
+
+
+def _orientation_owner_scope(request: HttpRequest, *, guild_path: str, honour_preview: bool = False) -> Q:
     """The rows whose orientation this request may run, as a ``Q`` over an ``orientation_type`` FK.
 
     The queryset form of ``hub.views._require_can_manage_booking``: a guild owned row
@@ -186,6 +201,8 @@ def _orientation_owner_scope(request: HttpRequest, *, guild_path: str) -> Q:
     (admin, the EQUIPMENT capability, else the owning guild's lead or staff or an equipment
     staff row). ``guild_path`` names the guild the guild rule reads: the booking's own
     denormalized ``guild`` for a booking, ``orientation_type__guild`` for a record.
+    ``honour_preview`` drops the capability leg while the viewer previews another role (the
+    Bookings tab's list); the default matches the action gates exactly.
     """
     from membership.models import AdminCapability
 
@@ -201,9 +218,8 @@ def _orientation_owner_scope(request: HttpRequest, *, guild_path: str) -> Q:
     else:
         guild_scope = Q(pk__in=[])
     view_as = getattr(request, "view_as", None)
-    actual_member: Member | None = getattr(request.user, "member", None)
-    if (view_as is not None and view_as.is_admin) or (
-        actual_member is not None and actual_member.has_admin_capability(AdminCapability.Capability.EQUIPMENT)
+    if (view_as is not None and view_as.is_admin) or _capability_counts(
+        request, AdminCapability.Capability.EQUIPMENT, honour_preview=honour_preview
     ):
         equipment_scope = equipment_owned
     elif member is not None:
@@ -217,17 +233,23 @@ def _orientation_owner_scope(request: HttpRequest, *, guild_path: str) -> Q:
     return guild_scope | equipment_scope
 
 
-def manageable_orientation_bookings(request: HttpRequest, queryset: QuerySet[OrientationBooking]) -> QuerySet:
+def manageable_orientation_bookings(
+    request: HttpRequest, queryset: QuerySet[OrientationBooking], *, honour_preview: bool = False
+) -> QuerySet:
     """``queryset`` narrowed to bookings this request may run: the queryset form of ``_require_can_manage_booking``.
 
     A booking is in it exactly when ``hub.views._require_can_manage_booking`` lets the request
     act on it (``tests/membership/manageable_orientation_bookings_spec.py`` pins the parity).
     The match is a ``pk__in`` subquery rather than ``.distinct()``, so the staff joins never
-    duplicate a row and the caller's ordering and pagination stay plain.
+    duplicate a row and the caller's ordering and pagination stay plain. ``honour_preview``
+    gives the Bookings tab's list scope instead: the same, minus a capability the viewer is
+    previewing away (see :func:`_capability_counts`). Action gates never pass it.
     """
     from membership.models import OrientationBooking
 
-    in_scope = OrientationBooking.objects.filter(_orientation_owner_scope(request, guild_path="guild"))
+    in_scope = OrientationBooking.objects.filter(
+        _orientation_owner_scope(request, guild_path="guild", honour_preview=honour_preview)
+    )
     return queryset.filter(pk__in=in_scope.values("pk"))
 
 
@@ -235,27 +257,30 @@ def manageable_orientation_records(request: HttpRequest, queryset: QuerySet[Orie
     """``queryset`` narrowed to hand recorded orientations (#465) on types this request may run.
 
     The same owner rule as :func:`manageable_orientation_bookings`, read through the record's type.
+    Only the Bookings tab's list reads it, so it always honours a preview.
     """
     from membership.models import OrientationRecord
 
-    in_scope = OrientationRecord.objects.filter(_orientation_owner_scope(request, guild_path="orientation_type__guild"))
+    in_scope = OrientationRecord.objects.filter(
+        _orientation_owner_scope(request, guild_path="orientation_type__guild", honour_preview=True)
+    )
     return queryset.filter(pk__in=in_scope.values("pk"))
 
 
-def manages_orientations(request: HttpRequest) -> bool:
-    """True when this request runs some orientation: the Bookings tab's staff view and its endpoints.
+def manages_orientations(request: HttpRequest, *, honour_preview: bool = False) -> bool:
+    """True when this request runs some orientation: the gate on the staff endpoints (export, Add Member).
 
     An admin or officer (``view_as`` aware), an EQUIPMENT capability holder (preview
     independent, like :func:`manageable_equipment_ids`), or a member who leads or staffs any
     guild or staffs any equipment. It asks about roles, not rows, so a new lead with nothing
-    booked yet still gets the staff view (Add Member, the hours nudge).
+    booked yet still gets the staff view (Add Member, the hours nudge). ``honour_preview``
+    is the Bookings tab's staff view question: the same, minus a capability being previewed away.
     """
     from membership.models import AdminCapability, EquipmentStaffMembership, Guild
 
     if is_effective_staff(request):
         return True
-    actual_member: Member | None = getattr(request.user, "member", None)
-    if actual_member is not None and actual_member.has_admin_capability(AdminCapability.Capability.EQUIPMENT):
+    if _capability_counts(request, AdminCapability.Capability.EQUIPMENT, honour_preview=honour_preview):
         return True
     member = _editing_member(request)
     if member is None:

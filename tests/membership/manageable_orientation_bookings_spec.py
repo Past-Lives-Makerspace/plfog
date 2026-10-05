@@ -200,3 +200,40 @@ def describe_manages_orientations():
         lead = _member()
         GuildFactory(guild_lead=lead)
         assert manages_orientations(_request(lead, roles={ROLE_MEMBER})) is True
+
+
+def describe_honour_preview():
+    """The Bookings tab's list reads the effective role; the action gates never move (#626 review)."""
+
+    def _previewing_admin_with_equipment() -> Any:
+        admin = _member()
+        admin.admin_capabilities.create(capability=AdminCapability.Capability.EQUIPMENT)
+        return _request(admin, roles={ROLE_ADMIN, ROLE_GUILD_OFFICER, ROLE_MEMBER}, picked=ROLE_MEMBER)
+
+    def it_drops_a_previewed_capability_from_the_list_scope_only():
+        world = _world()
+        request = _previewing_admin_with_equipment()
+        everything = OrientationBooking.objects.all()
+        tools = {world["bookings"]["x"].pk, world["bookings"]["y"].pk}
+        assert set(manageable_orientation_bookings(request, everything).values_list("pk", flat=True)) == tools
+        assert not manageable_orientation_bookings(request, everything, honour_preview=True).exists()
+        assert _require_can_manage_booking(request, world["bookings"]["x"]) is None  # the action gate is unchanged
+
+    def it_drops_it_from_the_staff_view_question_only():
+        request = _previewing_admin_with_equipment()
+        assert manages_orientations(request) is True
+        assert manages_orientations(request, honour_preview=True) is False
+
+    def it_drops_it_from_the_recorded_list():
+        world = _world()
+        OrientationRecordFactory(
+            orientation_type=OrientationTypeFactory(equipment_owned=True, equipment=world["tool_x"])
+        )
+        request = _previewing_admin_with_equipment()
+        assert not manageable_orientation_records(request, OrientationRecord.objects.all()).exists()
+
+    def it_keeps_the_capability_when_nobody_previews():
+        holder = _member()
+        holder.admin_capabilities.create(capability=AdminCapability.Capability.EQUIPMENT)
+        request = _request(holder, roles={ROLE_MEMBER})
+        assert manages_orientations(request, honour_preview=True) is True

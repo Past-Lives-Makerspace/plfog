@@ -293,7 +293,7 @@ TOURS: dict[str, Tour] = {
                 title="Orientations",
                 body=(
                     "Set your orientation hours and open slots here. Bookings show up on the "
-                    "Orientations dashboard to confirm."
+                    "Orientations page's Bookings tab, where you confirm them."
                 ),
                 tab_set=("section", "orientations"),
             ),

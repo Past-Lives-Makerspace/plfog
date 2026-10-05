@@ -223,9 +223,12 @@ def hub_orientations_bookings(request: HttpRequest) -> HttpResponse:
     """HTMX partial: the Bookings pane alone (#626), honouring the page's query string.
 
     The page's Bookings tab loads it the first time a member opens the tab from List or
-    Calendar, and the pane reloads its table from it after a refund (``refund-done``).
+    Calendar, and the pane reloads its table from it after a refund (``refund-done``). That
+    refresh asks for ``part=body``: it swaps in only the table's body, so the builder skips
+    what sits above it.
     """
-    return render(request, "hub/partials/orientation_bookings_pane.html", bookings_pane_context(request))
+    context = bookings_pane_context(request, body_only=request.GET.get("part") == "body")
+    return render(request, "hub/partials/orientation_bookings_pane.html", context)
 
 
 @login_required

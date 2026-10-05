@@ -138,7 +138,18 @@ def describe_the_tab():
         assert "<html" not in content
         assert _in_table(content, mine)
         # Its links and forms still go to the page, with the tab kept open.
-        assert f'hx-get="{PARTIAL}?view=bookings"' in content
+        assert f'hx-get="{PARTIAL}?view=bookings&amp;part=body"' in content
+
+    def it_skips_the_staff_extras_on_the_refund_refresh(client: Client):
+        member = _login(client, "bt_refresh")
+        guild = GuildFactory(guild_lead=member)
+        OrientationSlotFactory(guild=guild)
+        assert "data-bookings-add-member" in client.get(PARTIAL).content.decode()
+        refreshed = client.get(PARTIAL, {"part": "body"})
+        assert refreshed.context["is_staff_view"] is True
+        assert "add_member_form" not in refreshed.context
+        assert "data-bookings-add-member" not in refreshed.content.decode()
+        assert "data-bookings-body" in refreshed.content.decode()
 
     def it_requires_login(client: Client):
         assert client.get(PARTIAL).status_code == 302
@@ -212,6 +223,9 @@ def describe_a_member_who_runs_nothing():
         content = _tab(client)
         row = _row(content, requested)
         assert ">You<" not in row  # no Member column for members
+        when = timezone.localtime(requested.slot.starts_at).strftime("%a %b %-d, %-I:%M %p")
+        assert f'aria-label="Actions for {requested.orientation_type.name} on {when}"' in row
+        assert f'aria-label="Actions for {member.display_name}"' not in row
         assert requested.orientation_type.orientation_anchor_path().replace("&", "&amp;") in row
         assert f"'booking-cancel-mine-{requested.pk}'" in row
         assert reverse("hub_orientation_respond", args=[requested.pk]) not in row
@@ -391,18 +405,31 @@ def describe_officers_and_admins():
         assert "data-bookings-add-member" not in content  # no guild slots to seat anyone in
 
     def it_keeps_a_previewing_admin_to_their_own_rows(client: Client):
+        # Migration 0161 gave every admin EQUIPMENT; the list must not read it through a preview.
         admin = _login(client, "bt_preview", fog_role=Member.FogRole.ADMIN)
+        admin.admin_capabilities.create(capability=AdminCapability.Capability.EQUIPMENT)
         session = client.session
         session["view_as_role"] = "member"
         session.save()
         stranger = _booking(name="Preview Strangerperson")
+        stranger_tool = _equipment_booking(EquipmentFactory(name="Preview Laser"), name="Preview Toolperson")
         own = _booking()
         own.member = admin
         own.save()
-        content = _tab(client)
+        content = _tab(client, show="all")
         assert 'data-bookings-pane="member"' in content
         assert _in_table(content, own)
         assert not _in_table(content, stranger)
+        assert not _in_table(content, stranger_tool)
+        assert "data-bookings-add-member" not in content
+        # No action gate moved: the export still answers the capability holder.
+        assert client.get(reverse("hub_orientations_export")).status_code == 200
+
+    def it_gives_an_admin_with_the_capability_every_row_without_a_preview(client: Client):
+        admin = _login(client, "bt_no_preview", fog_role=Member.FogRole.ADMIN)
+        admin.admin_capabilities.create(capability=AdminCapability.Capability.EQUIPMENT)
+        tool = _equipment_booking(EquipmentFactory(), name="Unpreviewed Toolperson")
+        assert _in_table(_tab(client), tool)
 
 
 def _menu_world(client: Client, *, refunds: bool = False) -> tuple[Member, Any]:
@@ -481,7 +508,7 @@ def describe_the_staff_row_menu():
         assert ">Retry Refund</button>" in _row(content, failed)
         assert reverse("billing_orientation_refund_form", args=[refunded.pk]) not in content
         assert reverse("billing_orientation_refund_form", args=[free.pk]) not in content
-        assert f'hx-get="{PARTIAL}?view=bookings&amp;show=all"' in content
+        assert f'hx-get="{PARTIAL}?view=bookings&amp;show=all&amp;part=body"' in content
 
     def it_offers_waive_on_an_unpaid_fee_and_refund_on_a_paid_one(client: Client):
         _lead, guild = _menu_world(client, refunds=True)
@@ -533,6 +560,19 @@ def describe_chips_filters_and_sort():
         reply = _tab(client, show="reply")
         assert _in_table(reply, requested) and _in_table(reply, old_request)
         assert not _in_table(reply, declined)
+
+    def it_leaves_the_viewers_own_request_out_of_needs_a_reply(client: Client):
+        lead, guild = _menu_world(client)
+        waiting = _booking(guild, status=OrientationBooking.Status.REQUESTED)
+        mine = _booking(GuildFactory(), status=OrientationBooking.Status.REQUESTED)
+        mine.member = lead
+        mine.save()
+        content = _tab(client)
+        assert _in_table(content, mine)  # still listed under Upcoming
+        assert ">Needs a Reply (1)</a>" in content
+        reply = _tab(client, show="reply")
+        assert _in_table(reply, waiting)
+        assert not _in_table(reply, mine)
 
     def it_hides_the_reply_chip_when_nothing_waits(client: Client):
         _menu_world(client)
@@ -674,6 +714,15 @@ def describe_the_old_dashboard_url():
     def it_redirects_without_a_query(client: Client):
         _login(client, "bt_redirect_bare")
         assert client.get("/orientations/manage/")["Location"] == "/orientations/?view=bookings"
+
+    def it_translates_the_dashboards_own_parameters(client: Client):
+        _login(client, "bt_redirect_map")
+        response = client.get("/orientations/manage/?q=ana&completed=yes&scope=mine&view=list&guild=3")
+        assert response["Location"] == "/orientations/?view=bookings&search=ana&oriented=yes&guild=3"
+
+    def it_redirects_to_the_bare_tab_when_only_dropped_parameters_came(client: Client):
+        _login(client, "bt_redirect_dropped")
+        assert client.get("/orientations/manage/?scope=mine")["Location"] == "/orientations/?view=bookings"
 
 
 def describe_the_export():

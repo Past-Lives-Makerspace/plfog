@@ -1505,7 +1505,7 @@ The **Recurring hours** card is where bookable times come from. Add one row per 
 
 ### Availability Blocks {#orientation-availability-blocks}
 
-The **Availability Blocks** card on the Orientations dashboard is another way to open up time. Post one window (say, Saturday 1 to 4 pm) and members pick any of the guild's orientations plus a start time inside it; each booking takes up that orientation's length, so one block can serve several members back to back. Blocks can't be edited once posted; cancel one and post a fresh block instead. Cancelling stops new bookings right away but keeps anything already booked on the calendar.
+Open windows are another way to open up time. Add one from the **Upcoming Times** card on your guild's Orientations tab (in guild settings): post one window (say, Saturday 1 to 4 pm) and members pick any of the guild's orientations plus a start time inside it; each booking takes up that orientation's length, so one window can serve several members back to back. Windows can't be edited once posted; cancel one and post a fresh window instead. Cancelling stops new bookings right away but keeps anything already booked on the calendar.
 
 ### Custom Times and One-Off Slots
 
@@ -1562,7 +1562,7 @@ Every 15 minutes, a background job marks confirmed orientations complete once th
             {
                 "file": "04-add-member.png",
                 "page": "/orientations/?view=bookings",
-                "selector": "form[action='/orientations/manage/add-member/']",
+                "selector": "[data-bookings-add-member]",
                 "caption": "Add Member puts someone into an upcoming orientation for you.",
                 "as_role": "guild_lead",
             },

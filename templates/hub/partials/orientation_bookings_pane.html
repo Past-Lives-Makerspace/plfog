@@ -142,9 +142,18 @@ and closes the modal.
           </td>
           {% endif %}
           <td class="pl-bookings-table__actions">
+            {# The viewer's own row is named by what and when, not by their own name. #}
+            {% if row.is_own %}
+            {% with when=b.slot.starts_at|date:"D M j, g:i A" %}
+            {% with menu_label="Actions for "|add:b.orientation_type.name|add:" on "|add:when %}
+            {% include "components/row_actions.html" with menu_include="hub/partials/orientation_booking_row_menu.html" menu_label=menu_label %}
+            {% endwith %}
+            {% endwith %}
+            {% else %}
             {% with menu_label="Actions for "|add:b.member.display_name %}
             {% include "components/row_actions.html" with menu_include="hub/partials/orientation_booking_row_menu.html" menu_label=menu_label %}
             {% endwith %}
+            {% endif %}
           </td>
         </tr>
         {% endwith %}
@@ -198,7 +207,7 @@ and closes the modal.
             <td data-label="Recorded By">{{ r.recorded_by_name }}</td>
           </tr>
         {% empty %}
-          <tr><td class="pl-orient-records__empty">No orientations recorded by an admin.</td></tr>
+          <tr><td colspan="5" class="pl-orient-records__empty">No orientations recorded by an admin.</td></tr>
         {% endfor %}
         </tbody>
       </table>
