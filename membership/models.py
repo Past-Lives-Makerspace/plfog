@@ -14437,7 +14437,8 @@ class Equipment(HeroCropMixin, models.Model):
         Drives both the index card badge and the detail-page requirements banner.
         The optional arguments are the bulk-caller optimization for the index page —
         pass the member's completed orientation-type pks and whether they owe a late
-        cancellation fee (#456) so a page of cards costs two queries, not two per card. Omit them and the checks query per call. An unpaid fee wins
+        cancellation fee (#456) so a page of cards costs a fixed number of queries, not
+        a few per card. Omit them and the checks query per call. An unpaid fee wins
         over every other gap: it blocks booking whatever else is met.
         """
         if member is None or member.status != Member.Status.ACTIVE:
