@@ -35,6 +35,7 @@ if TYPE_CHECKING:
         Member,
         OrientationBooking,
         OrientationRecord,
+        OrientationType,
         WikiPage,
         WikiPageQuerySet,
     )
@@ -193,22 +194,29 @@ def _capability_counts(request: HttpRequest, capability: str, *, honour_preview:
     return actual_member is not None and actual_member.has_admin_capability(capability)
 
 
-def _orientation_owner_scope(request: HttpRequest, *, guild_path: str, honour_preview: bool = False) -> Q:
-    """The rows whose orientation this request may run, as a ``Q`` over an ``orientation_type`` FK.
+def _orientation_owner_scope(
+    request: HttpRequest, *, guild_path: str, type_path: str = "orientation_type", honour_preview: bool = False
+) -> Q:
+    """The rows whose orientation this request may run, as a ``Q`` over an orientation type.
 
     The queryset form of ``hub.views._require_can_manage_booking``: a guild owned row
     follows ``can_manage_orientations`` on its guild (admin or officer, else the guild's lead
     or staff), an equipment owned row follows ``can_manage_equipment`` on its equipment
     (admin, the EQUIPMENT capability, else the owning guild's lead or staff or an equipment
-    staff row). ``guild_path`` names the guild the guild rule reads: the booking's own
-    denormalized ``guild`` for a booking, ``orientation_type__guild`` for a record.
+    staff row). ``type_path`` reaches the orientation type from the queried model
+    (``orientation_type`` for a booking or a record, ``""`` for the type itself).
+    ``guild_path`` names the guild the guild rule reads: the booking's own denormalized
+    ``guild`` for a booking, ``orientation_type__guild`` for a record, ``guild`` for a type.
     ``honour_preview`` drops the capability leg while the viewer previews another role (the
     Bookings tab's list); the default matches the action gates exactly.
     """
     from membership.models import AdminCapability
 
-    guild_owned = Q(orientation_type__equipment__isnull=True)
-    equipment_owned = Q(orientation_type__equipment__isnull=False)
+    def _on_type(lookup: str) -> str:
+        return f"{type_path}__{lookup}" if type_path else lookup
+
+    guild_owned = Q(**{_on_type("equipment__isnull"): True})
+    equipment_owned = Q(**{_on_type("equipment__isnull"): False})
     member = _editing_member(request)
     if is_effective_staff(request):
         guild_scope = guild_owned
@@ -225,9 +233,9 @@ def _orientation_owner_scope(request: HttpRequest, *, guild_path: str, honour_pr
         equipment_scope = equipment_owned
     elif member is not None:
         equipment_scope = equipment_owned & (
-            Q(orientation_type__equipment__guild__guild_lead=member)
-            | Q(orientation_type__equipment__guild__staff_memberships__member=member)
-            | Q(orientation_type__equipment__staff_memberships__member=member)
+            Q(**{_on_type("equipment__guild__guild_lead"): member})
+            | Q(**{_on_type("equipment__guild__staff_memberships__member"): member})
+            | Q(**{_on_type("equipment__staff_memberships__member"): member})
         )
     else:
         equipment_scope = Q(pk__in=[])
@@ -264,6 +272,24 @@ def manageable_orientation_records(request: HttpRequest, queryset: QuerySet[Orie
 
     in_scope = OrientationRecord.objects.filter(
         _orientation_owner_scope(request, guild_path="orientation_type__guild", honour_preview=True)
+    )
+    return queryset.filter(pk__in=in_scope.values("pk"))
+
+
+def manageable_orientation_types(
+    request: HttpRequest, queryset: QuerySet[OrientationType], *, honour_preview: bool = False
+) -> QuerySet:
+    """``queryset`` narrowed to orientation types this request runs: what Record Orientation offers (#630).
+
+    The queryset form of ``hub.views._require_can_run_orientation_type``, the same owner rule
+    as :func:`manageable_orientation_bookings` read on the type itself
+    (``tests/membership/manageable_orientation_bookings_spec.py`` pins the parity). Retired
+    types stay in it: a record is history. ``honour_preview`` is the list scope, as there.
+    """
+    from membership.models import OrientationType
+
+    in_scope = OrientationType.objects.filter(
+        _orientation_owner_scope(request, guild_path="guild", type_path="", honour_preview=honour_preview)
     )
     return queryset.filter(pk__in=in_scope.values("pk"))
 

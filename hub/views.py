@@ -85,6 +85,7 @@ from membership.models import (
     AnnouncementDraft,
     AnnouncementDraftQuerySet,
     CommunityEvent,
+    Equipment,
     FundingSnapshot,
     Guild,
     HelpCategory,
@@ -97,6 +98,7 @@ from membership.models import (
     MemberContact,
     OrgInfoPage,
     OrientationRecord,
+    OrientationType,
     Skill,
     SkillCategory,
     SpaceRequestQuerySet,
@@ -925,6 +927,22 @@ def _require_can_manage_booking(request: HttpRequest, booking: Any) -> HttpRespo
             return None
         return HttpResponse("Forbidden", status=403)
     return _require_can_manage_orientations(request, booking.guild)
+
+
+def _require_can_run_orientation_type(request: HttpRequest, orientation_type: OrientationType) -> HttpResponse | None:
+    """403 unless the request may run ``orientation_type``: the gate on recording and removing a record (#630).
+
+    The type form of :func:`_require_can_manage_booking`: an equipment owned type follows
+    ``can_manage_equipment``, a guild owned one ``can_manage_orientations`` on its guild.
+    ``membership.permissions.manageable_orientation_types`` is its queryset form.
+    """
+    from membership.permissions import can_manage_equipment
+
+    if orientation_type.is_equipment_owned:
+        if can_manage_equipment(request, cast(Equipment, orientation_type.equipment)):
+            return None
+        return HttpResponse("Forbidden", status=403)
+    return _require_can_manage_orientations(request, cast(Guild, orientation_type.guild))
 
 
 def _require_can_manage_orientations(request: HttpRequest, guild: Guild) -> HttpResponse | None:

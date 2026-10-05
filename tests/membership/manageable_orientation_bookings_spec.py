@@ -5,7 +5,9 @@ the parity spec builds bookings on two guilds and two pieces of equipment (one s
 one guild owned) and asserts, for every viewer, that a booking is in the queryset exactly
 when the action gate lets the viewer act on it. That is the guard against the list's scope
 and the actions' scope drifting apart. ``manageable_orientation_records`` applies the same
-owner rule to hand recorded orientations, and ``manages_orientations`` decides the staff view.
+owner rule to hand recorded orientations, ``manageable_orientation_types`` to the types Record
+Orientation offers (#630, pinned against ``_require_can_run_orientation_type`` the same way), and
+``manages_orientations`` decides the staff view.
 """
 
 from __future__ import annotations
@@ -18,11 +20,19 @@ from django.test import RequestFactory
 
 from classes.factories import UserFactory
 from hub.view_as import ROLE_ADMIN, ROLE_GUEST, ROLE_GUILD_OFFICER, ROLE_MEMBER, ViewAs
-from hub.views import _require_can_manage_booking
-from membership.models import AdminCapability, GuildStaffMembership, Member, OrientationBooking, OrientationRecord
+from hub.views import _require_can_manage_booking, _require_can_run_orientation_type
+from membership.models import (
+    AdminCapability,
+    GuildStaffMembership,
+    Member,
+    OrientationBooking,
+    OrientationRecord,
+    OrientationType,
+)
 from membership.permissions import (
     manageable_orientation_bookings,
     manageable_orientation_records,
+    manageable_orientation_types,
     manages_orientations,
 )
 from tests.membership.factories import (
@@ -177,6 +187,39 @@ def describe_manageable_orientation_records():
         assert set(manageable_orientation_records(admin, OrientationRecord.objects.all())) == {on_a, on_b, on_x, on_y}
 
 
+def describe_manageable_orientation_types():
+    def it_matches_the_type_gate_for_every_viewer_and_type():
+        world = _world()
+        types = {key: booking.orientation_type for key, booking in world["bookings"].items()}
+        for label, (request, expected) in _viewers(world).items():
+            in_scope = set(
+                manageable_orientation_types(request, OrientationType.objects.all()).values_list("pk", flat=True)
+            )
+            for key, orientation_type in types.items():
+                gate_allows = _require_can_run_orientation_type(request, orientation_type) is None
+                assert (orientation_type.pk in in_scope) is gate_allows, f"{label}: type {key}"
+                assert gate_allows is (key in expected), f"{label}: type {key} (the gate itself)"
+
+    def it_keeps_a_retired_type():
+        world = _world()
+        lead = _member()
+        world["guild_a"].guild_lead = lead
+        world["guild_a"].save()
+        retired = OrientationTypeFactory(guild=world["guild_a"], is_active=False)
+        request = _request(lead, roles={ROLE_MEMBER})
+        assert retired in manageable_orientation_types(request, OrientationType.objects.all())
+
+    def it_never_repeats_a_type_for_a_lead_who_is_also_staff():
+        world = _world()
+        lead = _member()
+        world["guild_a"].guild_lead = lead
+        world["guild_a"].save()
+        GuildStaffMembershipFactory(guild=world["guild_a"], member=lead, role=GuildStaffMembership.Role.CO_LEAD)
+        request = _request(lead, roles={ROLE_MEMBER})
+        rows = list(manageable_orientation_types(request, OrientationType.objects.all()))
+        assert rows == [world["bookings"]["a"].orientation_type]
+
+
 def describe_manages_orientations():
     def it_answers_for_every_role():
         world = _world()
@@ -231,6 +274,15 @@ def describe_honour_preview():
         )
         request = _previewing_admin_with_equipment()
         assert not manageable_orientation_records(request, OrientationRecord.objects.all()).exists()
+
+    def it_drops_it_from_the_types_offered_but_not_the_type_gate():
+        world = _world()
+        request = _previewing_admin_with_equipment()
+        tool_type = world["bookings"]["x"].orientation_type
+        everything = OrientationType.objects.all()
+        assert tool_type in manageable_orientation_types(request, everything)
+        assert tool_type not in manageable_orientation_types(request, everything, honour_preview=True)
+        assert _require_can_run_orientation_type(request, tool_type) is None
 
     def it_keeps_the_capability_when_nobody_previews():
         holder = _member()

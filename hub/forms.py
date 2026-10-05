@@ -7,6 +7,7 @@ from datetime import date as date_type
 from decimal import Decimal
 import re
 from dataclasses import dataclass
+from collections import Counter
 from collections.abc import Collection
 from typing import TYPE_CHECKING, Any, ClassVar, Self, cast
 
@@ -3691,6 +3692,10 @@ class OrientationRecordForm(forms.Form):
     exact, case-insensitive match; anything else is refused rather than guessed. A type the
     member already completed, by booking or by record, is refused with the member's name so
     the page says it beside the field. Saving is silent: no email, no Discord.
+
+    The admin flow passes the member from the URL. The Bookings tab's Record Orientation
+    (#630) passes ``member=None``, which adds a Member picker built the same way (a datalist
+    of active members, matched exactly), and ``type_queryset``, the types the viewer runs.
     """
 
     RETIRED_SUFFIX = " (retired)"
@@ -3718,19 +3723,69 @@ class OrientationRecordForm(forms.Form):
     )
     note = forms.CharField(label="Note (optional)", max_length=500, required=False)
 
-    def __init__(self, member: Member, *args: Any, **kwargs: Any) -> None:
+    def __init__(
+        self,
+        member: Member | None,
+        *args: Any,
+        type_queryset: QuerySet[OrientationType] | None = None,
+        **kwargs: Any,
+    ) -> None:
         super().__init__(*args, **kwargs)
         self.member = member
         self.fields["completed_on"].initial = timezone.localdate()
+        self.member_options: list[str] = []
+        self._members_by_label: dict[str, Member] = {}
+        if member is None:
+            self._add_member_picker()
+            # Guild staff pick from the same people the member picker offers (#614): no hidden accounts.
+            cast(forms.ModelChoiceField, self.fields["oriented_by"]).queryset = (
+                Member.objects.filter(status=Member.Status.ACTIVE).without_hidden().order_by("full_legal_name")
+            )
         self.type_options: list[str] = []
         self._types_by_label: dict[str, OrientationType] = {}
-        types = OrientationType.objects.select_related("guild", "equipment").order_by(
-            "-is_active", "sort_order", "name"
+        types = (
+            (type_queryset if type_queryset is not None else OrientationType.objects.all())
+            .select_related("guild", "equipment")
+            .order_by("-is_active", "sort_order", "name")
         )
         for orientation_type in types:
             label = str(orientation_type) if orientation_type.is_active else f"{orientation_type}{self.RETIRED_SUFFIX}"
             self.type_options.append(label)
             self._types_by_label[label.casefold()] = orientation_type
+
+    def _add_member_picker(self) -> None:
+        """The Member field: a text input over a datalist of active members, first in the form.
+
+        A member is labelled by their display name; two who share one get their member number
+        after it, so the label still names exactly one person.
+        """
+        self.fields["member"] = forms.CharField(
+            label="Member",
+            max_length=200,
+            widget=forms.TextInput(
+                attrs={
+                    "list": "orientation-record-member-options",
+                    "autocomplete": "off",
+                    "placeholder": "Start typing a name",
+                }
+            ),
+        )
+        self.order_fields(["member"])
+        members = list(
+            Member.objects.filter(status=Member.Status.ACTIVE).without_hidden().order_by("full_legal_name", "pk")
+        )
+        name_counts = Counter(m.display_name.casefold() for m in members)
+        for candidate in members:
+            name = candidate.display_name
+            label = name if name_counts[name.casefold()] == 1 else f"{name} (#{candidate.pk})"
+            self.member_options.append(label)
+            self._members_by_label[label.casefold()] = candidate
+
+    def clean_member(self) -> Member:
+        picked = self._members_by_label.get(self.cleaned_data["member"].strip().casefold())
+        if picked is None:
+            raise forms.ValidationError("Pick a member from the list.")
+        return picked
 
     def clean_orientation(self) -> OrientationType:
         orientation_type = self._types_by_label.get(self.cleaned_data["orientation"].strip().casefold())
@@ -3748,16 +3803,27 @@ class OrientationRecordForm(forms.Form):
     def clean(self) -> dict[str, Any]:
         cleaned: dict[str, Any] = super().clean() or {}
         orientation_type = cleaned.get("orientation")
-        if orientation_type is not None and orientation_type.pk in self.member.completed_orientation_type_ids(
-            [orientation_type]
+        member = self.member if self.member is not None else cleaned.get("member")
+        if (
+            member is not None
+            and orientation_type is not None
+            and orientation_type.pk in member.completed_orientation_type_ids([orientation_type])
         ):
-            self.add_error("orientation", f"{self.member.display_name} already completed this orientation.")
+            self.add_error("orientation", f"{member.display_name} already completed this orientation.")
         return cleaned
+
+    @property
+    def recorded_member(self) -> Member:
+        """Whose orientation this is: the member the form was built for, else the one picked."""
+        if self.member is not None:
+            return self.member
+        picked: Member = self.cleaned_data["member"]
+        return picked
 
     def save(self, *, recorded_by: User) -> OrientationRecord:
         """Write the record and its activity row through the model (silent: no email, no Discord)."""
         return OrientationRecord.record(
-            self.member,
+            self.recorded_member,
             self.cleaned_data["orientation"],
             completed_on=self.cleaned_data["completed_on"],
             oriented_by=self.cleaned_data["oriented_by"],
