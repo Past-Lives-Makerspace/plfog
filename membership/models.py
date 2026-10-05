@@ -11556,6 +11556,10 @@ class OrientationType(models.Model):
     #: Any amount above $0 is at least this much (#636): a smaller charge is refused, on the
     #: donation floor staff set and on what a member enters alike.
     DONATION_FLOOR_CENTS: ClassVar[int] = 100
+    #: The most any donation amount may be, the same $500 ceiling a fixed price has
+    #: (``OrientationTypeForm.clean_price``), so a slip like 1500 for $15 never charges $1,500.
+    DONATION_CEILING_CENTS: ClassVar[int] = 50000
+    DONATION_CEILING_MESSAGE: ClassVar[str] = "Enter an amount up to $500."
 
     @property
     def is_paid(self) -> bool:
@@ -11602,13 +11606,14 @@ class OrientationType(models.Model):
 
         A fixed type charges its ``price_cents`` whatever the member sent. A donation type
         charges what the member entered once it clears the floors (#636): it must be given,
-        at least the type's minimum, and $0 or at least :attr:`DONATION_FLOOR_CENTS`.
+        at least the type's minimum, $0 or at least :attr:`DONATION_FLOOR_CENTS`, and no more
+        than :attr:`DONATION_CEILING_CENTS`.
 
         Args:
             entered_cents: The member's amount in cents, or ``None`` when the form sent none.
 
         Raises:
-            OrientationError: With member copy, when a donation amount is missing or too low.
+            OrientationError: With member copy, when a donation amount is missing, too low or too high.
         """
         if not self.is_donation:
             return self.price_cents
@@ -11619,6 +11624,8 @@ class OrientationType(models.Model):
             raise OrientationError("Enter what you'd like to pay. $0 is fine.")
         if entered_cents < 0:
             raise OrientationError("Enter $0 or more.")
+        if entered_cents > self.DONATION_CEILING_CENTS:
+            raise OrientationError(self.DONATION_CEILING_MESSAGE)
         if entered_cents < minimum:
             raise OrientationError(f"The minimum for this orientation is {self.dollars(minimum)}.")
         if 0 < entered_cents < self.DONATION_FLOOR_CENTS:

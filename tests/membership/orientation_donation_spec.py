@@ -67,6 +67,14 @@ def describe_checkout_amount_cents():
             orientation_type.checkout_amount_cents(0)
         assert orientation_type.checkout_amount_cents(500) == 500
 
+    def it_refuses_an_amount_over_five_hundred_dollars():
+        orientation_type = _donation_type()
+        assert orientation_type.checkout_amount_cents(50000) == 50000
+        with pytest.raises(OrientationError, match=r"^Enter an amount up to \$500\.$"):
+            orientation_type.checkout_amount_cents(50001)
+        with pytest.raises(OrientationError, match=r"^Enter an amount up to \$500\.$"):
+            orientation_type.checkout_amount_cents(9999999)
+
     def it_refuses_a_negative_amount():
         with pytest.raises(OrientationError, match=r"^Enter \$0 or more\.$"):
             _donation_type().checkout_amount_cents(-100)
@@ -129,6 +137,14 @@ def describe_start_orientation_checkout_for_a_donation():
         slot = _slot_for(_donation_type())
         with pytest.raises(OrientationError, match="at least"):
             orientations.start_orientation_checkout(slot, MemberFactory(), amount_cents=50)
+        mock_create.assert_not_called()
+        assert not OrientationBooking.objects.filter(slot=slot).exists()
+
+    @patch("billing.stripe_utils.create_checkout_session", return_value=_SESSION)
+    def it_refuses_an_amount_over_the_ceiling_before_any_hold(mock_create):
+        slot = _slot_for(_donation_type())
+        with pytest.raises(OrientationError, match=r"up to \$500"):
+            orientations.start_orientation_checkout(slot, MemberFactory(), amount_cents=150000)
         mock_create.assert_not_called()
         assert not OrientationBooking.objects.filter(slot=slot).exists()
 

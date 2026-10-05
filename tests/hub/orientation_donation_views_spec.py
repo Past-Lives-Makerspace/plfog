@@ -111,6 +111,23 @@ def describe_the_type_form():
         assert "donation_minimum" in form.errors
         assert "donation_suggested" not in form.errors
 
+    def it_refuses_a_minimum_over_five_hundred_dollars():
+        form = _type_form(is_donation="on", donation_minimum="500.01")
+        assert not form.is_valid()
+        assert form.errors["donation_minimum"] == ["Enter an amount up to $500."]
+        assert _type_form(is_donation="on", donation_minimum="500").is_valid()
+
+    def it_refuses_a_suggestion_over_five_hundred_dollars():
+        form = _type_form(is_donation="on", donation_suggested="1500")
+        assert not form.is_valid()
+        assert form.errors["donation_suggested"] == ["Enter an amount up to $500."]
+        assert _type_form(is_donation="on", donation_suggested="500").is_valid()
+
+    def it_caps_both_inputs_at_five_hundred():
+        form = OrientationTypeForm()
+        assert form.fields["donation_minimum"].widget.attrs["max"] == "500"
+        assert form.fields["donation_suggested"].widget.attrs["max"] == "500"
+
     def it_refuses_a_suggestion_under_the_minimum():
         form = _type_form(is_donation="on", donation_minimum="10", donation_suggested="5")
         assert not form.is_valid()
@@ -256,6 +273,9 @@ def describe_the_amount_form():
         assert form.fields["amount"].initial == "15"
         assert form.fields["amount"].help_text == "At least $5, paid by card when you book."
 
+    def it_caps_the_input_at_five_hundred():
+        assert OrientationAmountForm().fields["amount"].widget.attrs["max"] == "500"
+
     def it_binds_to_the_guild_pages_picker():
         widget = OrientationAmountForm(follows_picker=True).fields["amount"].widget
         assert widget.attrs["x-model"] == "amount"
@@ -319,6 +339,16 @@ def describe_booking_a_posted_slot():
         assert not OrientationBooking.objects.filter(member=user.member).exists()
         mock_create.assert_not_called()
 
+    @pytest.mark.parametrize("amount", ["1500", "99999.99"])
+    @patch("billing.stripe_utils.create_checkout_session", return_value=_SESSION)
+    def it_refuses_an_amount_over_five_hundred_dollars(mock_create, client: Client, amount: str):
+        user = _login(client, "don_slot_ceiling")
+        slot = _slot()
+        response = client.post(reverse("hub_orientation_book", args=[slot.pk]), {"amount": amount}, follow=True)
+        assert "Enter an amount up to $500." in _messages(response)
+        assert not OrientationBooking.objects.filter(member=user.member).exists()
+        mock_create.assert_not_called()
+
     def it_refuses_a_missing_or_unreadable_amount(client: Client):
         user = _login(client, "don_slot_blank")
         slot = _slot()
@@ -367,6 +397,14 @@ def describe_booking_a_custom_time():
         assert mock_create.call_args.kwargs["amount_cents"] == 2000
 
     @patch("billing.stripe_utils.create_checkout_session", return_value=_SESSION)
+    def it_refuses_an_amount_over_five_hundred_dollars(mock_create, client: Client):
+        user = _login(client, "don_custom_ceiling")
+        response = _post(client, _donation_type(), "1500", follow=True)
+        assert "Enter an amount up to $500." in _messages(response)
+        assert not OrientationBooking.objects.filter(member=user.member).exists()
+        mock_create.assert_not_called()
+
+    @patch("billing.stripe_utils.create_checkout_session", return_value=_SESSION)
     def it_refuses_an_amount_under_a_dollar(mock_create, client: Client):
         user = _login(client, "don_custom_floor")
         response = _post(client, _donation_type(), "0.99", follow=True)
@@ -401,6 +439,14 @@ def describe_booking_a_block_time():
         assert mock_create.call_args.kwargs["amount_cents"] == 1500
 
     @patch("billing.stripe_utils.create_checkout_session", return_value=_SESSION)
+    def it_refuses_an_amount_over_five_hundred_dollars(mock_create, client: Client):
+        user = _login(client, "don_block_ceiling")
+        response = _post(client, "99999.99", follow=True)
+        assert "Enter an amount up to $500." in _messages(response)
+        assert not OrientationBooking.objects.filter(member=user.member).exists()
+        mock_create.assert_not_called()
+
+    @patch("billing.stripe_utils.create_checkout_session", return_value=_SESSION)
     def it_refuses_an_amount_under_the_minimum(mock_create, client: Client):
         user = _login(client, "don_block_min")
         response = _post(client, "3", minimum=500, follow=True)
@@ -419,6 +465,7 @@ def describe_the_member_pages():
         assert '<span class="pl-price-chip">Donation, $15 suggested</span>' in section
         assert "$40" not in section
         assert "amount: '15'" in content
+        assert 'min="0" max="500" step="0.01"' in content
         assert '<input type="hidden" name="amount" :value="amount">' in content
 
     def it_maps_the_custom_pickers_donation_types_on_the_guild_page(client: Client):

@@ -56,14 +56,19 @@ def describe_donation_orientations():
         minimum.wait_for(state="visible")
         assert price.is_hidden()
         assert page.locator("#id_otypes-0-donation_suggested").is_visible()
-        page.locator("#id_otypes-0-donation_suggested").fill("15")
-        page.locator("#id_otypes-0-donation_suggested").blur()
-        # The editor autosaves; wait on the saved row, the thing the toggle exists to produce.
-        for _ in range(50):
-            saved = OrientationType.objects.get(pk=orientation_type.pk)
-            if saved.is_donation and saved.donation_suggested_cents == 1500:
-                break
-            page.wait_for_timeout(100)
+        # The editor autosaves; wait on the save that carries the suggestion, then read the row
+        # once (polling it from here contends with the server's write on SQLite).
+        save_path = reverse("hub_guild_orientation_types_save", args=[guild.pk])
+        with page.expect_response(
+            lambda r: (
+                r.url.endswith(save_path)
+                and r.request.method == "POST"
+                and b'name="otypes-0-donation_suggested"\r\n\r\n15\r\n' in (r.request.post_data_buffer or b"")
+            )
+        ):
+            page.locator("#id_otypes-0-donation_suggested").fill("15")
+            page.locator("#id_otypes-0-donation_suggested").blur()
+        saved = OrientationType.objects.get(pk=orientation_type.pk)
         assert (saved.is_donation, saved.donation_suggested_cents) == (True, 1500)
         tour_dismiss = page.get_by_role("button", name="No thanks")
         if tour_dismiss.is_visible():

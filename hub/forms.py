@@ -2380,7 +2380,7 @@ class OrientationTypeForm(forms.ModelForm):
         required=False,
         label="Minimum",
         help_text="In dollars. Blank or 0 means members may pay nothing; otherwise at least $1.",
-        widget=forms.NumberInput(attrs={"placeholder": "0", "min": "0", "step": "0.01"}),
+        widget=forms.NumberInput(attrs={"placeholder": "0", "min": "0", "max": "500", "step": "0.01"}),
     )
     donation_suggested = forms.DecimalField(
         max_digits=6,
@@ -2388,7 +2388,7 @@ class OrientationTypeForm(forms.ModelForm):
         required=False,
         label="Suggested donation",
         help_text="Optional. In dollars, at least the minimum and at least $1. The booking form starts with it.",
-        widget=forms.NumberInput(attrs={"placeholder": "None", "min": "0", "step": "0.01"}),
+        widget=forms.NumberInput(attrs={"placeholder": "None", "min": "0", "max": "500", "step": "0.01"}),
     )
 
     class Meta:
@@ -2453,11 +2453,14 @@ class OrientationTypeForm(forms.ModelForm):
             return cleaned
         floor = OrientationType.DONATION_FLOOR_CENTS
         floor_text = OrientationType.dollars(floor)
+        ceiling = OrientationType.DONATION_CEILING_CENTS
         if "donation_minimum" in cleaned:
             minimum = cleaned["donation_minimum"]
             minimum_cents = 0 if minimum is None else int(minimum * 100)
             if minimum_cents < 0 or 0 < minimum_cents < floor:
                 self.add_error("donation_minimum", f"Set the minimum to $0 or at least {floor_text}.")
+            elif minimum_cents > ceiling:
+                self.add_error("donation_minimum", OrientationType.DONATION_CEILING_MESSAGE)
             else:
                 cleaned["donation_minimum_cents"] = minimum_cents
         if "donation_suggested" in cleaned and "donation_minimum_cents" in cleaned:
@@ -2469,6 +2472,8 @@ class OrientationTypeForm(forms.ModelForm):
                     "donation_suggested",
                     f"Set the suggestion to at least {OrientationType.dollars(lowest)}, or leave it blank.",
                 )
+            elif suggested_cents is not None and suggested_cents > ceiling:
+                self.add_error("donation_suggested", OrientationType.DONATION_CEILING_MESSAGE)
             else:
                 cleaned["donation_suggested_cents"] = suggested_cents
         return cleaned
@@ -3739,7 +3744,7 @@ class OrientationAmountForm(forms.Form):
         decimal_places=2,
         required=False,
         label="Your amount ($)",
-        widget=forms.NumberInput(attrs={"min": "0", "step": "0.01", "inputmode": "decimal"}),
+        widget=forms.NumberInput(attrs={"min": "0", "max": "500", "step": "0.01", "inputmode": "decimal"}),
     )
 
     def __init__(
