@@ -34,6 +34,15 @@ pytestmark = pytest.mark.django_db
 
 PAGE = "/orientations/"
 HOOK = b"data-add-orientation"
+KEBAB_BUTTON = """    <button type="button" class="pl-row-menu__trigger" x-ref="trigger"
+            aria-haspopup="menu" :aria-expanded="open" aria-label="Actions"
+            @click="toggle()">
+        <svg aria-hidden="true" width="20" height="20" viewBox="0 0 24 24" fill="currentColor">
+            <circle cx="12" cy="5" r="2"/>
+            <circle cx="12" cy="12" r="2"/>
+            <circle cx="12" cy="19" r="2"/>
+        </svg>
+    </button>"""
 LINK = re.compile(r'href="([^"]+)"[^>]*data-add-orientation-link')
 
 
@@ -117,10 +126,17 @@ def describe_who_sees_it():
         _preview_as_member(client)
         assert _targets(client.get(PAGE).content) == [_tab(led)]
 
-    def it_leaves_out_a_lead_whose_only_guild_is_inactive(client: Client):
+    def it_shows_for_a_lead_whose_only_guild_is_hidden(client: Client):
+        # A hidden guild's settings and orientations still work, so its lead keeps the button.
         member = _login(client, "ao_inactive")
-        GuildFactory(name="Dormant Guild", guild_lead=member, is_active=False)
-        assert HOOK not in client.get(PAGE).content
+        hidden = GuildFactory(name="Dormant Guild", guild_lead=member, is_active=False)
+        assert _targets(client.get(PAGE).content) == [_tab(hidden)]
+
+    def it_shows_for_staff_whose_only_guild_is_hidden(client: Client):
+        member = _login(client, "ao_inactive_staff")
+        hidden = GuildFactory(name="Dormant Staff Guild", is_active=False)
+        GuildStaffMembershipFactory(guild=hidden, member=member)
+        assert _targets(client.get(PAGE).content) == [_tab(hidden)]
 
     @pytest.mark.parametrize("view", ["", "?view=calendar", "?view=bookings"])
     def it_sits_in_the_header_on_every_tab(client: Client, view: str):
@@ -182,9 +198,10 @@ def describe_every_link_is_editable():
             (Member.FogRole.MEMBER, False, False, False),
             (Member.FogRole.ADMIN, True, False, True),
             (Member.FogRole.GUILD_OFFICER, False, True, True),
+            (Member.FogRole.ADMIN, True, True, False),
         ],
     )
-    def it_lists_exactly_the_active_guilds_can_edit_guild_allows(
+    def it_lists_exactly_the_guilds_can_edit_guild_allows(
         client: Client, rf: Any, fog_role: str, lead: bool, staff: bool, preview: bool
     ):
         member = _login(client, "ao_parity", fog_role)
@@ -193,7 +210,11 @@ def describe_every_link_is_editable():
         if staff:
             GuildStaffMembershipFactory(guild=staffed, member=member)
         GuildFactory(name="Parity Stranger Guild")
-        GuildFactory(name="Parity Dormant Guild", guild_lead=member, is_active=False)
+        GuildFactory(name="Parity Dormant Led Guild", guild_lead=member if lead else None, is_active=False)
+        hidden_staffed = GuildFactory(name="Parity Dormant Staffed Guild", is_active=False)
+        if staff:
+            GuildStaffMembershipFactory(guild=hidden_staffed, member=member)
+        GuildFactory(name="Parity Dormant Stranger Guild", is_active=False)
         EquipmentStaffMembershipFactory(
             member=member, equipment=EquipmentFactory(guild=GuildFactory(name="Parity Tool Guild"))
         )
@@ -206,8 +227,17 @@ def describe_every_link_is_editable():
         request.session = client.session
         request.view_as = ViewAs.for_request(request)
         listed = guilds_for_new_orientation(request)
-        editable = [g for g in Guild.objects.filter(is_active=True).order_by("name") if can_edit_guild(request, g)]
+        # Every listed guild is editable, and every editable guild is listed, except that an
+        # admin or officer (not previewing) gets only the active ones: their menu is every
+        # guild, and hidden ones would only crowd it.
+        every_guild = fog_role != Member.FogRole.MEMBER and not preview
+        editable = [
+            g for g in Guild.objects.order_by("name") if can_edit_guild(request, g) and (g.is_active or not every_guild)
+        ]
         assert listed == editable
+        assert all(can_edit_guild(request, g) for g in listed)
+        if lead or staff:
+            assert any(not g.is_active for g in listed) is not every_guild
 
         # The page links exactly those, and each one opens for this viewer.
         targets = _targets(client.get(PAGE).content)
@@ -258,6 +288,25 @@ def describe_the_components():
         assert 'class="hub-btn hub-btn--sm" x-ref="trigger"' in html
         assert "+ Open It" in html
         assert "<svg" not in html
+
+    def it_defaults_a_labelled_trigger_to_a_small_button():
+        html = render_to_string(
+            "components/row_actions.html",
+            {
+                "menu_include": "hub/partials/add_orientation_menu_items.html",
+                "menu_label": "Pick one",
+                "menu_trigger_text": "+ Open It",
+                "add_orientation_guilds": [],
+            },
+        )
+        assert 'class="hub-btn hub-btn--sm" x-ref="trigger"' in html
+
+    def it_renders_the_kebab_byte_for_byte_as_before():
+        html = render_to_string(
+            "components/row_actions.html",
+            {"menu_include": "hub/partials/add_orientation_menu_items.html", "menu_label": "Actions"},
+        )
+        assert KEBAB_BUTTON in html
 
     def it_keeps_row_actions_kebab_by_default():
         html = render_to_string(

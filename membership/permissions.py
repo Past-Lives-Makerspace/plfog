@@ -75,13 +75,14 @@ def can_edit_guild(request: HttpRequest, guild: Guild) -> bool:
 
 
 def guilds_for_new_orientation(request: HttpRequest) -> list[Guild]:
-    """The active guilds this request may add an orientation to, name-ordered, in one query.
+    """The guilds this request may add an orientation to, name-ordered, in one query.
 
     The bulk companion to :func:`can_edit_guild` behind the Orientations page's "+ Add an
     Orientation" button (#637): effective staff (admin or officer) get every active guild,
-    anyone else the active guilds they lead or staff. Same legs, same ``view_as`` preview,
-    so every guild listed passes :func:`can_edit_guild`. An equipment manager who is not on
-    a guild's staff gets nothing.
+    so their menu skips the hidden ones; anyone else gets every guild they lead or staff,
+    hidden ones included, because the guild settings page and its orientations still work
+    for a hidden guild. Same legs, same ``view_as`` preview, so every guild listed passes
+    :func:`can_edit_guild`. An equipment manager who is not on a guild's staff gets nothing.
     """
     from membership.models import Guild
 
@@ -90,7 +91,7 @@ def guilds_for_new_orientation(request: HttpRequest) -> list[Guild]:
     member = _editing_member(request)
     if member is None:
         return []
-    return list(member.staffed_guilds.filter(is_active=True).order_by("name"))
+    return list(member.staffed_guilds.order_by("name"))
 
 
 def can_manage_orientations(request: HttpRequest, guild: Guild) -> bool:
