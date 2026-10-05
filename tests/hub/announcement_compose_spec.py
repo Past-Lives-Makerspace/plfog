@@ -1175,7 +1175,7 @@ def describe_admin_tools_page():
         _login_admin(client)
         content = client.get(reverse("hub_admin_tools")).content.decode()
         assert f'<a class="hub-card pl-tool-card" href="{reverse("hub_announcements")}">' in content
-        assert reverse("hub_orientations_dashboard") in content
+        assert f'href="{reverse("hub_orientations")}?view=bookings"' in content
         assert reverse("hub_admin_members") in content
         assert reverse("hub_push_test") in content
 
@@ -1184,7 +1184,7 @@ def describe_admin_tools_page():
         _login_lead(client, guild)
         content = client.get(reverse("hub_admin_tools")).content.decode()
         assert f'<a class="hub-card pl-tool-card" href="{reverse("hub_announcements")}">' in content
-        assert reverse("hub_orientations_dashboard") in content
+        assert f'href="{reverse("hub_orientations")}?view=bookings"' in content
         assert reverse("hub_admin_members") not in content  # admin-only card
         assert reverse("hub_push_test") not in content
 
@@ -1192,7 +1192,7 @@ def describe_admin_tools_page():
         _instructor(client)
         content = client.get(reverse("hub_admin_tools")).content.decode()
         assert f'<a class="hub-card pl-tool-card" href="{reverse("hub_announcements")}">' in content
-        assert reverse("hub_orientations_dashboard") not in content  # lead/staff only
+        assert f'href="{reverse("hub_orientations")}?view=bookings"' not in content  # lead/staff only
         assert reverse("hub_push_test") not in content  # admin-only
 
     def it_redirects_a_plain_member_home(client: Client):

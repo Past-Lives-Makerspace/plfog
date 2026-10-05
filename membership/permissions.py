@@ -16,15 +16,27 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
+from django.db.models import Q
 from django.utils import timezone
 
 if TYPE_CHECKING:
     from collections.abc import Iterable
 
+    from django.db.models import QuerySet
     from django.http import HttpRequest
 
     from classes.models import Category, ClassOffering
-    from membership.models import CommunityEvent, Equipment, Guild, Meeting, Member, WikiPage, WikiPageQuerySet
+    from membership.models import (
+        CommunityEvent,
+        Equipment,
+        Guild,
+        Meeting,
+        Member,
+        OrientationBooking,
+        OrientationRecord,
+        WikiPage,
+        WikiPageQuerySet,
+    )
 
 
 def is_effective_staff(request: HttpRequest) -> bool:
@@ -163,6 +175,95 @@ def manageable_equipment_ids(request: HttpRequest, items: Iterable[Equipment]) -
     if member is None:
         return set()
     return member.led_or_staffed_equipment_ids(items)
+
+
+def _orientation_owner_scope(request: HttpRequest, *, guild_path: str) -> Q:
+    """The rows whose orientation this request may run, as a ``Q`` over an ``orientation_type`` FK.
+
+    The queryset form of ``hub.views._require_can_manage_booking``: a guild owned row
+    follows ``can_manage_orientations`` on its guild (admin or officer, else the guild's lead
+    or staff), an equipment owned row follows ``can_manage_equipment`` on its equipment
+    (admin, the EQUIPMENT capability, else the owning guild's lead or staff or an equipment
+    staff row). ``guild_path`` names the guild the guild rule reads: the booking's own
+    denormalized ``guild`` for a booking, ``orientation_type__guild`` for a record.
+    """
+    from membership.models import AdminCapability
+
+    guild_owned = Q(orientation_type__equipment__isnull=True)
+    equipment_owned = Q(orientation_type__equipment__isnull=False)
+    member = _editing_member(request)
+    if is_effective_staff(request):
+        guild_scope = guild_owned
+    elif member is not None:
+        guild_scope = guild_owned & (
+            Q(**{f"{guild_path}__guild_lead": member}) | Q(**{f"{guild_path}__staff_memberships__member": member})
+        )
+    else:
+        guild_scope = Q(pk__in=[])
+    view_as = getattr(request, "view_as", None)
+    actual_member: Member | None = getattr(request.user, "member", None)
+    if (view_as is not None and view_as.is_admin) or (
+        actual_member is not None and actual_member.has_admin_capability(AdminCapability.Capability.EQUIPMENT)
+    ):
+        equipment_scope = equipment_owned
+    elif member is not None:
+        equipment_scope = equipment_owned & (
+            Q(orientation_type__equipment__guild__guild_lead=member)
+            | Q(orientation_type__equipment__guild__staff_memberships__member=member)
+            | Q(orientation_type__equipment__staff_memberships__member=member)
+        )
+    else:
+        equipment_scope = Q(pk__in=[])
+    return guild_scope | equipment_scope
+
+
+def manageable_orientation_bookings(request: HttpRequest, queryset: QuerySet[OrientationBooking]) -> QuerySet:
+    """``queryset`` narrowed to bookings this request may run: the queryset form of ``_require_can_manage_booking``.
+
+    A booking is in it exactly when ``hub.views._require_can_manage_booking`` lets the request
+    act on it (``tests/membership/manageable_orientation_bookings_spec.py`` pins the parity).
+    The match is a ``pk__in`` subquery rather than ``.distinct()``, so the staff joins never
+    duplicate a row and the caller's ordering and pagination stay plain.
+    """
+    from membership.models import OrientationBooking
+
+    in_scope = OrientationBooking.objects.filter(_orientation_owner_scope(request, guild_path="guild"))
+    return queryset.filter(pk__in=in_scope.values("pk"))
+
+
+def manageable_orientation_records(request: HttpRequest, queryset: QuerySet[OrientationRecord]) -> QuerySet:
+    """``queryset`` narrowed to hand recorded orientations (#465) on types this request may run.
+
+    The same owner rule as :func:`manageable_orientation_bookings`, read through the record's type.
+    """
+    from membership.models import OrientationRecord
+
+    in_scope = OrientationRecord.objects.filter(_orientation_owner_scope(request, guild_path="orientation_type__guild"))
+    return queryset.filter(pk__in=in_scope.values("pk"))
+
+
+def manages_orientations(request: HttpRequest) -> bool:
+    """True when this request runs some orientation: the Bookings tab's staff view and its endpoints.
+
+    An admin or officer (``view_as`` aware), an EQUIPMENT capability holder (preview
+    independent, like :func:`manageable_equipment_ids`), or a member who leads or staffs any
+    guild or staffs any equipment. It asks about roles, not rows, so a new lead with nothing
+    booked yet still gets the staff view (Add Member, the hours nudge).
+    """
+    from membership.models import AdminCapability, EquipmentStaffMembership, Guild
+
+    if is_effective_staff(request):
+        return True
+    actual_member: Member | None = getattr(request.user, "member", None)
+    if actual_member is not None and actual_member.has_admin_capability(AdminCapability.Capability.EQUIPMENT):
+        return True
+    member = _editing_member(request)
+    if member is None:
+        return False
+    return (
+        Guild.objects.filter(Q(guild_lead=member) | Q(staff_memberships__member=member)).exists()
+        or EquipmentStaffMembership.objects.filter(member=member).exists()
+    )
 
 
 def creatable_equipment_kinds(request: HttpRequest) -> list[str]:

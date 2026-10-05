@@ -1,0 +1,77 @@
+{% load classes_tags %}
+{% comment %}
+The confirm modals behind each Bookings tab row's "..." menu (#626), rendered once per row,
+outside the table, as the equipment manage page does. Each posts bookings_next as next, so the
+action lands back on the tab with the viewer's filters. The member's own Cancel and the
+checkout forms are unboosted: a late cancel and a resumed checkout answer with a redirect to
+Stripe. Context: booking_rows, bookings_next.
+{% endcomment %}
+{% for row in booking_rows %}
+{% with b=row.booking pk=row.booking.pk|stringformat:"s" name=row.booking.member.display_name %}
+{% if row.can_reply %}
+{% url 'hub_orientation_respond' b.pk as respond_url %}
+{% with confirm_message="We'll email "|add:name|add:" that their time is set." %}
+{% include "components/confirm_modal.html" with confirm_id="booking-confirm-"|add:pk confirm_title="Confirm This Orientation?" confirm_message=confirm_message confirm_action_url=respond_url confirm_field_name="action" confirm_field_value="confirm" confirm_next=bookings_next confirm_button_text="Confirm" confirm_button_style="primary" %}
+{% endwith %}
+{% if b.amount_paid_cents %}
+{% with price=b.amount_paid_cents|cents_as_price %}
+{% with decline_message="We'll email "|add:name|add:" and include your note. Their "|add:price|add:" is refunded automatically." %}
+{% include "components/confirm_modal.html" with confirm_id="booking-decline-"|add:pk confirm_title="Decline This Request?" confirm_message=decline_message confirm_action_url=respond_url confirm_field_name="action" confirm_field_value="decline" confirm_next=bookings_next confirm_note_name="note" confirm_note_label="Note (optional)" confirm_note_placeholder="Suggest another time" confirm_button_text="Decline" %}
+{% endwith %}
+{% endwith %}
+{% else %}
+{% with decline_message="We'll email "|add:name|add:" and include your note." %}
+{% include "components/confirm_modal.html" with confirm_id="booking-decline-"|add:pk confirm_title="Decline This Request?" confirm_message=decline_message confirm_action_url=respond_url confirm_field_name="action" confirm_field_value="decline" confirm_next=bookings_next confirm_note_name="note" confirm_note_label="Note (optional)" confirm_note_placeholder="Suggest another time" confirm_button_text="Decline" %}
+{% endwith %}
+{% endif %}
+{% endif %}
+{% if row.has_oriented_item %}
+{% url 'hub_orientation_toggle_completed' b.pk as toggle_url %}
+{% if row.can_mark %}
+{% with mark_title="Mark "|add:name|add:" as Oriented?" %}
+{% include "components/confirm_modal.html" with confirm_id="booking-mark-"|add:pk confirm_title=mark_title confirm_message="This counts as their orientation, so they can book what it unlocks." confirm_action_url=toggle_url confirm_field_name="completed" confirm_field_value="1" confirm_next=bookings_next confirm_button_text="Mark Oriented" confirm_button_style="primary" %}
+{% endwith %}
+{% endif %}
+{% if row.can_undo %}
+{% with undo_message=name|add:" will need this orientation again before they can book what it unlocks." %}
+{% include "components/confirm_modal.html" with confirm_id="booking-undo-"|add:pk confirm_title="Undo Oriented?" confirm_message=undo_message confirm_action_url=toggle_url confirm_field_name="completed" confirm_field_value="0" confirm_next=bookings_next confirm_button_text="Undo" %}
+{% endwith %}
+{% endif %}
+{% endif %}
+{% if row.can_waive_fee %}
+{% with fee=row.late_fee waive_form=row.waive_form waive_next=bookings_next fee_pk=row.late_fee.pk|stringformat:"s" %}
+{% include "components/modal.html" with modal_id="waive-fee-"|add:fee_pk modal_title="Waive This Fee?" modal_size="sm" modal_body_include="hub/partials/_late_fee_waive_form.html" %}
+{% endwith %}
+{% endif %}
+{% if row.can_cancel %}
+{% url 'hub_orientation_lead_cancel' b.pk as lead_cancel_url %}
+{% if b.amount_paid_cents %}
+{% with price=b.amount_paid_cents|cents_as_price %}
+{% with cancel_message="Their "|add:price|add:" is refunded automatically. We'll email "|add:name|add:" to let them know." %}
+{% include "components/confirm_modal.html" with confirm_id="booking-cancel-"|add:pk confirm_title="Cancel This Orientation?" confirm_message=cancel_message confirm_action_url=lead_cancel_url confirm_next=bookings_next confirm_button_text="Cancel Orientation" %}
+{% endwith %}
+{% endwith %}
+{% else %}
+{% with cancel_message="We'll email "|add:name|add:" to let them know." %}
+{% include "components/confirm_modal.html" with confirm_id="booking-cancel-"|add:pk confirm_title="Cancel This Orientation?" confirm_message=cancel_message confirm_action_url=lead_cancel_url confirm_next=bookings_next confirm_button_text="Cancel Orientation" %}
+{% endwith %}
+{% endif %}
+{% endif %}
+{% if row.can_finish_paying %}
+{% url 'hub_orientation_checkout_cancel_hold' b.pk as release_url %}
+{% include "components/confirm_modal.html" with confirm_id="booking-release-"|add:pk confirm_title="Release This Spot?" confirm_message="You haven't paid yet, so nothing is charged. You can book again any time." confirm_action_url=release_url confirm_next=bookings_next confirm_button_text="Release This Spot" %}
+{% endif %}
+{% if row.can_cancel_mine %}
+{% url 'hub_orientation_cancel_mine' b.pk as cancel_mine_url %}
+{% if b.amount_paid_cents %}
+{% with cancel_mine_message="You'll get an automatic full refund. You can request a new orientation any time. "|add:row.late_cancel_warning %}
+{% include "components/confirm_modal.html" with confirm_id="booking-cancel-mine-"|add:pk confirm_title="Cancel Your Orientation?" confirm_message=cancel_mine_message confirm_action_url=cancel_mine_url confirm_next=bookings_next confirm_no_boost=True confirm_button_text="Cancel Orientation" %}
+{% endwith %}
+{% else %}
+{% with cancel_mine_message="You can request a new orientation any time. "|add:row.late_cancel_warning %}
+{% include "components/confirm_modal.html" with confirm_id="booking-cancel-mine-"|add:pk confirm_title="Cancel Your Orientation?" confirm_message=cancel_mine_message confirm_action_url=cancel_mine_url confirm_next=bookings_next confirm_no_boost=True confirm_button_text="Cancel Orientation" %}
+{% endwith %}
+{% endif %}
+{% endif %}
+{% endwith %}
+{% endfor %}

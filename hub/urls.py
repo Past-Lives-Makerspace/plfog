@@ -205,8 +205,9 @@ urlpatterns = [
         views.hub_late_fee_checkout_cancelled,
         name="hub_late_fee_checkout_cancelled",
     ),
-    # The member Orientations page (#502); the staff dashboard lives under manage/.
+    # The Orientations page (#502) and its Bookings tab (#626); manage/ is the old dashboard, now a redirect to the tab.
     path("orientations/", orientations_views.hub_orientations, name="hub_orientations"),
+    path("orientations/bookings/", orientations_views.hub_orientations_bookings, name="hub_orientations_bookings"),
     path(
         "orientations/calendar/events/",
         orientations_views.hub_orientations_calendar_events,

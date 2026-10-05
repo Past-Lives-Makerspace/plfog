@@ -358,10 +358,10 @@ HELP_KEYS: dict[str, HelpKeyEntry] = {
         "anchor": "orientation-respond-requests",
     },
     "orientation.dashboard": {
-        "title": "The Orientations dashboard",
+        "title": "Orientation bookings",
         "short_text": (
-            "Track requests and completions for the guilds you help run. Filter, export CSV, "
-            "add a member to a slot, and mark orientations done."
+            "Your bookings, or for leads, staff and admins every booking you run. Filter, export CSV, "
+            "add a member to a slot, and confirm, mark oriented or refund from each row's menu."
         ),
         "article_slug": "running-orientations",
         "anchor": "orientation-dashboard",

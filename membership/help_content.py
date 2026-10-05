@@ -189,7 +189,7 @@ The top bar has a light/dark theme toggle and your avatar. Open the avatar for *
 ## Good to Know
 
 - These guides cover the app. The physical space — tools, machines, shop rules — is documented on the wiki at [wiki.pastlives.space](https://wiki.pastlives.space).
-- Some sidebar items only appear for certain roles. Guild leads and staff get an **Orientations** dashboard link; admins see extra management pages.
+- Some sidebar items only appear for certain roles. Guild leads and staff manage orientations from the Orientations page's **Bookings** tab; admins see extra management pages.
 """,
         "screenshots": [
             {
@@ -1509,30 +1509,34 @@ The **Availability Blocks** card on the Orientations dashboard is another way to
 
 ### Custom Times and One-Off Slots
 
-If you allow custom requests, a member who can't make your posted times can propose their own. That creates a one-off, single-seat slot at their proposed time and sends you the same request as any other booking; confirm it and it's on. You can also put a member into any upcoming slot yourself from the dashboard (below).
+If you allow custom requests, a member who can't make your posted times can propose their own. That creates a one-off, single-seat slot at their proposed time and sends you the same request as any other booking; confirm it and it's on. You can also put a member into any upcoming slot yourself from the Bookings tab (below).
 
 ### Respond to a Request {#orientation-respond-requests}
 
 When a member requests a slot, the guild lead and every staff member get an email, and orienters get an in-app notice. You can respond two ways:
 
 - **From the email.** It carries direct confirm and decline links. Each opens a one-click confirmation page and works without logging in, so you can handle a request from your phone.
-- **From the app.** Open the request (from the email's respond link, the in-app notice, or the dashboard) and click **Confirm orientation**, or **Decline request** with an optional note, like suggesting another time.
+- **From the app.** On the Orientations page's **Bookings** tab, open the row's **...** menu and pick **Confirm Request** or **Decline Request** (with an optional note, like suggesting another time). **View Request** opens the full request, which has the same buttons, as do the email's respond link and the in-app notice.
 
 Confirming emails the member a calendar invite. Declining emails them your note. If plans change after you've confirmed, **Cancel this orientation** notifies the member; members can also cancel their own bookings, and you'll see the status change.
 
-### The Orientations Dashboard {#orientation-dashboard}
+### The Bookings Tab {#orientation-dashboard}
 
-Click **Orientations** in the left menu (leads, staff, and admins see it). Pending and upcoming bookings sit at the top with **Respond** buttons. Below is the full history: search by member or guild, filter by guild, status, completion, or date range, sort any column, and click **Export CSV** to download exactly what you've filtered.
+Click **Orientations** in the left menu, then the **Bookings** tab. Leads, staff, and admins see the bookings for the orientations they run, plus their own. Every other member sees only their own bookings there.
 
-![The Orientations dashboard: filters, the table, and Export CSV.](/static/help/running-orientations/03-orientations-dashboard.png)
+The chips pick what you see: **Upcoming** (the default), **Needs a Reply** (requests waiting on you, with the count), **Past**, and **All**. Search by member or orientation, filter by guild, status, oriented, or date range, sort a column, and click **Export CSV** to download exactly what you've filtered.
 
-Need to orient someone who never booked? Use **Add a member to a slot** at the bottom: pick the member and an upcoming slot, and they're emailed just like a self-booking (still pending until confirmed).
+Each row's **...** menu holds what you can do with that booking: confirm or decline a request, **Mark Oriented** or **Undo Oriented**, cancel a confirmed orientation, waive a late cancellation fee, and, if you can issue refunds, **Refund**. You land back on the tab with your filters kept.
 
-![Add a member to a slot puts someone into an upcoming orientation for you.](/static/help/running-orientations/04-add-member.png)
+![The Bookings tab: chips, filters, the table, and Export CSV.](/static/help/running-orientations/03-orientations-dashboard.png)
+
+Need to orient someone who never booked? Click **+ Add Member** at the top of the tab: pick the member and an upcoming slot, and they're emailed just like a self booking (still pending until confirmed).
+
+![Add Member puts someone into an upcoming orientation for you.](/static/help/running-orientations/04-add-member.png)
 
 ### Past Orientations Complete Themselves
 
-Every 15 minutes, a background job marks confirmed orientations complete once their time has passed. Completion sends your thank-you email (if you've set one up on the Orientations tab) and posts a welcome notice to the guild. If a no-show got auto-completed, the guild's lead or an admin can flip it back with the **Mark done** toggle in the dashboard table.""",
+Every 15 minutes, a background job marks confirmed orientations complete once their time has passed. Completion sends your thank-you email (if you've set one up on the Orientations tab) and posts a welcome notice to the guild. If a no show got marked complete, the guild's lead, staff, or an admin can undo it with **Undo Oriented** in the row's **...** menu on the Bookings tab.""",
         "screenshots": [
             {
                 "file": "01-orientations-tab.png",
@@ -1550,16 +1554,16 @@ Every 15 minutes, a background job marks confirmed orientations complete once th
             },
             {
                 "file": "03-orientations-dashboard.png",
-                "page": "hub_orientations_dashboard",
+                "page": "/orientations/?view=bookings",
                 "selector": None,
-                "caption": "The Orientations dashboard: filters, the table, and Export CSV.",
+                "caption": "The Bookings tab: chips, filters, the table, and Export CSV.",
                 "as_role": "guild_lead",
             },
             {
                 "file": "04-add-member.png",
-                "page": "hub_orientations_dashboard",
+                "page": "/orientations/?view=bookings",
                 "selector": "form[action='/orientations/manage/add-member/']",
-                "caption": "Add a member to a slot puts someone into an upcoming orientation for you.",
+                "caption": "Add Member puts someone into an upcoming orientation for you.",
                 "as_role": "guild_lead",
             },
         ],

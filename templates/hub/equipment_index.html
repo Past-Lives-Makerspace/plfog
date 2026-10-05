@@ -71,7 +71,7 @@
   {% if calendar %}
   {% include "hub/partials/guild_calendar_app.html" with cal=calendar cal_key=calendar_key %}
   {% else %}
-  <div x-ref="calendarLazy" data-calendar-src="{% url 'hub_equipment_calendar_events' %}?shell=1">
+  <div data-lazy-pane="calendar" data-pane-src="{% url 'hub_equipment_calendar_events' %}?shell=1">
     <p class="hub-text-muted">Loading the calendar…</p>
   </div>
   {% endif %}

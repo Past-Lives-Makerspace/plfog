@@ -142,3 +142,16 @@ def cancel_sentence(policy: LateCancelPolicy) -> str:
         f"This is inside the {policy.notice_hours} hour notice window, so a {policy.fee_display} "
         "late cancellation fee applies. You'll get a link to pay it."
     )
+
+
+def booking_cancel_warning(booking: OrientationBooking, policy: LateCancelPolicy) -> str:
+    """The cancel modal's fee line for a member's own orientation booking, or "" when none applies.
+
+    Only a CONFIRMED booking can carry a fee, and only while a cancel right now would be late.
+    The Orientations page's cards and its Bookings tab both ask here, so the two never disagree.
+    """
+    from membership.models import OrientationBooking
+
+    if booking.status != OrientationBooking.Status.CONFIRMED or not policy.is_late(booking.slot.starts_at):
+        return ""
+    return cancel_sentence(policy)

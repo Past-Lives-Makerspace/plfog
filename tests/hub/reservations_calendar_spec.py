@@ -75,7 +75,7 @@ def describe_the_tabs():
         content = client.get(PAGE).content
         assert b"plListCalendar('list')" in content
         assert b'aria-label="Reservations views"' in content
-        assert f'data-calendar-src="{EVENTS}?shell=1"'.encode() in content
+        assert f'data-lazy-pane="calendar" data-pane-src="{EVENTS}?shell=1"'.encode() in content
         assert b'id="pl-calendar-events-area"' not in content
 
     def it_builds_no_calendar_for_the_list_view(client: Client):

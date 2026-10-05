@@ -252,7 +252,7 @@ def describe_guild_page_pick_a_time_section():
         assert reverse("hub_orientation_block_starts", args=[block.pk, orientation_type.pk]) not in content
 
 
-def describe_orientations_dashboard_without_blocks():
+def describe_bookings_tab_without_blocks():
     # Markup anchors, not the card's words: the changelog renders on every page, and a
     # fragment that mentions Availability Blocks would fail a copy assertion (STANDARDS.md §8).
     def it_renders_no_availability_blocks_card(client: Client):
@@ -260,10 +260,10 @@ def describe_orientations_dashboard_without_blocks():
         guild = GuildFactory(guild_lead=user.member)
         OrientationAvailabilityBlockFactory(guild=guild, orienter=user.member)
         client.login(username="nb1", password="pass")
-        content = client.get(reverse("hub_orientations_dashboard")).content.decode()
+        content = client.get(reverse("hub_orientations"), {"view": "bookings"}).content.decode()
         assert 'data-help-key="orientation.availability-blocks"' not in content
         assert "/orientation/blocks/post/" not in content
-        assert "Add a member to a slot" in content  # the page still ends with its own tools
+        assert 'data-bookings-pane="staff"' in content  # the staff view still renders its own tools
 
     def it_has_no_post_route():
         with pytest.raises(NoReverseMatch):
@@ -273,4 +273,6 @@ def describe_orientations_dashboard_without_blocks():
         user = _user_with_role("db3", fog_role=Member.FogRole.ADMIN)
         client.force_login(user)
         Member.objects.filter(pk=user.member.pk).delete()
-        assert client.get(reverse("hub_orientations_dashboard")).status_code == 200
+        response = client.get(reverse("hub_orientations"), {"view": "bookings"})
+        assert response.status_code == 200
+        assert b'data-bookings-pane="staff"' in response.content

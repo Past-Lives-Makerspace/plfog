@@ -23,8 +23,8 @@ from django.views.decorators.http import require_POST
 
 from hub.calendar_pages import calendar_nav_params, orientations_calendar_context
 from hub.forms import OrientationCustomRequestForm
+from hub.orientation_bookings import bookings_pane_context
 from hub.views import (
-    _can_access_orientations,
     _get_hub_context,
     _get_member,
     _orientation_sections,
@@ -38,6 +38,9 @@ CARD_TIME_CAP = 3
 
 #: The owner chips: All, Guilds, Equipment (``?owner=``).
 OWNER_FILTERS = ("guild", "equipment")
+
+#: The panes ``?view=`` may open; anything else opens List.
+PANES = ("calendar", "bookings")
 
 #: The Calendar pane's localStorage salt in the shared calendar shell.
 CALENDAR_KEY = "orientations"
@@ -142,12 +145,16 @@ def hub_orientations(request: HttpRequest) -> HttpResponse:
 
     ``?view=calendar`` opens the Calendar pane, the only time this view builds the calendar;
     otherwise the pane fetches it from :func:`hub_orientations_calendar_events` when the member
-    first switches to it, so the List view costs no calendar queries.
+    first switches to it, so the List view costs no calendar queries. ``?view=bookings`` opens
+    the Bookings pane (#626) the same way, built only then and otherwise fetched from
+    :func:`hub_orientations_bookings`.
     """
     from billing.late_fees import unpaid_fee_for
 
     member = _get_member(request)
-    pane = "calendar" if request.GET.get("view") == "calendar" else "list"
+    pane = request.GET.get("view", "")
+    if pane not in PANES:
+        pane = "list"
     owner_filter = request.GET.get("owner", "")
     if owner_filter not in OWNER_FILTERS:
         owner_filter = ""
@@ -201,14 +208,24 @@ def hub_orientations(request: HttpRequest) -> HttpResponse:
             "query": query,
             "is_filtered": bool(owner_filter or query),
             "next_url": request.get_full_path(),
-            # The dashboard's own gate: leads, staff and admins get a way into it.
-            "can_manage_orientations": _can_access_orientations(request),
             "unpaid_late_fee": unpaid_fee_for(member) if member is not None else None,
             "pane": pane,
             "calendar": orientations_calendar_context() if pane == "calendar" else None,
             "calendar_key": CALENDAR_KEY,
+            # The Bookings pane's own keys, merged in only when it opens (#626).
+            **(bookings_pane_context(request) if pane == "bookings" else {}),
         },
     )
+
+
+@login_required
+def hub_orientations_bookings(request: HttpRequest) -> HttpResponse:
+    """HTMX partial: the Bookings pane alone (#626), honouring the page's query string.
+
+    The page's Bookings tab loads it the first time a member opens the tab from List or
+    Calendar, and the pane reloads its table from it after a refund (``refund-done``).
+    """
+    return render(request, "hub/partials/orientation_bookings_pane.html", bookings_pane_context(request))
 
 
 @login_required

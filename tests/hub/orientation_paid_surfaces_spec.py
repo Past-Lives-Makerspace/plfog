@@ -195,7 +195,7 @@ def describe_type_price_form():
         assert "between $0 and $500" in str(form.errors["price"])
 
 
-def describe_orientations_dashboard():
+def describe_bookings_tab_staff_view():
     def it_shows_the_paid_column_variants(client: Client):
         _user_with_role("od1", fog_role=Member.FogRole.ADMIN)
         OrientationBookingFactory()  # free
@@ -207,8 +207,8 @@ def describe_orientations_dashboard():
         failed = OrientationBookingFactory(slot=_paid_slot(), amount_paid_cents=2500, stripe_payment_id="pi_3")
         PaymentRefund.objects.create(orientation_booking=failed, amount_cents=2500, status=PaymentRefund.Status.FAILED)
         client.login(username="od1", password="pass")
-        content = client.get(reverse("hub_orientations_dashboard")).content.decode()
-        assert "<th>Paid</th>" in content
+        content = client.get(reverse("hub_orientations"), {"view": "bookings"}).content.decode()
+        assert '<th scope="col">Paid</th>' in content
         assert "$15" in content
         assert "$20 · Refunded" in content
         assert "Refund failed" in content
@@ -225,7 +225,7 @@ def describe_orientations_dashboard():
         _user_with_role("od2", fog_role=Member.FogRole.ADMIN)
         slot = _paid_slot()
         client.login(username="od2", password="pass")
-        response = client.get(reverse("hub_orientations_dashboard"))
+        response = client.get(reverse("hub_orientations"), {"view": "bookings"})
         assert f'"{slot.pk}": "$15"' in response.context["paid_slot_prices_json"]
         assert "Members you add here are not charged." in response.content.decode()
 

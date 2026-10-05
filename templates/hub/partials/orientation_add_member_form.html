@@ -1,0 +1,20 @@
+{% comment %}
+The Bookings tab's Add Member modal body (#626): the old dashboard's "Add a member to a slot"
+form, unchanged but for its home. Context: add_member_form, paid_slot_prices_json (slot pk to
+price, for the paid guild note) and bookings_next (where the view lands after).
+{% endcomment %}
+<form method="post" action="{% url 'hub_orientation_add_member' %}" class="hub-form pl-bookings-add"
+      x-data='{ prices: {{ paid_slot_prices_json }}, sel: "" }'
+      @change="if ($event.target.name === 'slot') sel = $event.target.value">
+  {% csrf_token %}
+  <input type="hidden" name="next" value="{{ bookings_next }}">
+  {% include "components/form_field.html" with field=add_member_form.member %}
+  {% include "components/form_field.html" with field=add_member_form.slot %}
+  <p class="hub-text-muted pl-bookings-add__note" x-show="prices[sel]" x-cloak>
+    This guild charges <span x-text="prices[sel]"></span> for orientations. Members you add here are not charged.
+  </p>
+  <div class="pl-modal__actions">
+    <button type="button" class="pl-btn pl-btn--secondary" @click="$dispatch('close-modal', 'orientation-add-member')">Cancel</button>
+    <button type="submit" class="pl-btn pl-btn--primary">Add Member</button>
+  </div>
+</form>

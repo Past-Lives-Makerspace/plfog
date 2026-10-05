@@ -1,0 +1,70 @@
+{% comment %}
+Menu items for one Bookings tab row (#626), rendered inside components/row_actions.html, so it
+reads row (a hub.orientation_bookings.BookingRow) from the table loop. Every item shows only
+when the row's flag says its endpoint would take it. Staff rows (row.can_manage) get the staff
+menu in groups (Look, Reply, Oriented, Money, Stop) with a divider only between non empty
+groups; the viewer's own row elsewhere gets the member menu. Confirms open the row's modal in
+orientation_booking_modals.html; the refunds load their form into the shared refund modal.
+{% endcomment %}
+{% with b=row.booking pk=row.booking.pk|stringformat:"s" %}
+{% if row.can_manage %}
+<a href="{% url 'hub_orientation_respond' b.pk %}" class="pl-row-menu__item" role="menuitem" @click="closeAndRefocus()">View Request</a>
+{% if row.can_email %}
+<a href="mailto:{{ b.member.primary_email }}" class="pl-row-menu__item" role="menuitem" @click="closeAndRefocus()">Email Member</a>
+{% endif %}
+{% if row.can_view_member %}
+<a href="{% url 'hub_admin_member_edit' b.member.pk %}?tab=orientations" class="pl-row-menu__item" role="menuitem" @click="closeAndRefocus()">View Member</a>
+{% endif %}
+{% if row.can_reply %}
+<div class="pl-row-menu__divider" role="separator"></div>
+<button type="button" class="pl-row-menu__item" role="menuitem" @click="closeAndRefocus(); $dispatch('open-confirm', 'booking-confirm-{{ pk }}')">Confirm Request</button>
+<button type="button" class="pl-row-menu__item pl-row-menu__item--danger" role="menuitem" @click="closeAndRefocus(); $dispatch('open-confirm', 'booking-decline-{{ pk }}')">Decline Request</button>
+{% endif %}
+{% if row.has_oriented_item %}
+<div class="pl-row-menu__divider" role="separator"></div>
+{% if row.can_mark %}
+<button type="button" class="pl-row-menu__item" role="menuitem" @click="closeAndRefocus(); $dispatch('open-confirm', 'booking-mark-{{ pk }}')">Mark Oriented</button>
+{% endif %}
+{% if row.can_undo %}
+<button type="button" class="pl-row-menu__item" role="menuitem" @click="closeAndRefocus(); $dispatch('open-confirm', 'booking-undo-{{ pk }}')">Undo Oriented</button>
+{% endif %}
+{% endif %}
+{% if row.has_money_item %}
+<div class="pl-row-menu__divider" role="separator"></div>
+{% if row.can_refund or row.can_retry_refund %}
+<button type="button" class="pl-row-menu__item pl-row-menu__item--danger" role="menuitem"
+        hx-get="{% url 'billing_orientation_refund_form' b.pk %}" hx-target="#refund-modal-body" hx-swap="innerHTML"
+        @click="closeAndRefocus(); document.getElementById('refund-modal-body').innerHTML = 'Loading…'; $dispatch('open-modal', 'refund-modal')">{% if row.can_retry_refund %}Retry Refund{% else %}Refund{% endif %}</button>
+{% endif %}
+{% if row.can_waive_fee %}
+<button type="button" class="pl-row-menu__item" role="menuitem" @click="closeAndRefocus(); $dispatch('open-modal', 'waive-fee-{{ row.late_fee.pk }}')">Waive Late Fee</button>
+{% endif %}
+{% if row.can_refund_fee %}
+<button type="button" class="pl-row-menu__item pl-row-menu__item--danger" role="menuitem"
+        hx-get="{% url 'billing_late_fee_refund_form' row.late_fee.pk %}" hx-target="#refund-modal-body" hx-swap="innerHTML"
+        @click="closeAndRefocus(); document.getElementById('refund-modal-body').innerHTML = 'Loading…'; $dispatch('open-modal', 'refund-modal')">Refund Late Fee</button>
+{% endif %}
+{% endif %}
+{% if row.can_cancel %}
+<div class="pl-row-menu__divider" role="separator"></div>
+<button type="button" class="pl-row-menu__item pl-row-menu__item--danger" role="menuitem" @click="closeAndRefocus(); $dispatch('open-confirm', 'booking-cancel-{{ pk }}')">Cancel Orientation</button>
+{% endif %}
+{% elif row.is_own %}
+<a href="{{ b.orientation_type.orientation_anchor_path }}" class="pl-row-menu__item" role="menuitem" @click="closeAndRefocus()">View Orientation</a>
+{% if row.can_finish_paying %}
+{# Unboosted: it answers with a redirect to Stripe Checkout. #}
+<form method="post" action="{% url 'hub_orientation_checkout_resume' b.pk %}" hx-boost="false" class="pl-bookings-menu-form">
+  {% csrf_token %}
+  <button type="submit" class="pl-row-menu__item" role="menuitem">Finish Paying</button>
+</form>
+<button type="button" class="pl-row-menu__item pl-row-menu__item--danger" role="menuitem" @click="closeAndRefocus(); $dispatch('open-confirm', 'booking-release-{{ pk }}')">Release This Spot</button>
+{% endif %}
+{% if row.can_pay_fee %}
+<a href="{% url 'hub_late_fee_detail' row.late_fee.pk %}" class="pl-row-menu__item" role="menuitem" @click="closeAndRefocus()">Pay Late Fee</a>
+{% endif %}
+{% if row.can_cancel_mine %}
+<div class="pl-row-menu__divider" role="separator"></div>
+<button type="button" class="pl-row-menu__item pl-row-menu__item--danger" role="menuitem" @click="closeAndRefocus(); $dispatch('open-confirm', 'booking-cancel-mine-{{ pk }}')">Cancel Orientation</button>
+{% endif %}
+{% endif %}
+{% endwith %}

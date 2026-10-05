@@ -20,6 +20,8 @@ Parameters (pass via {% include ... with %}):
   confirm_field_name   — optional (plain-POST mode), name of one hidden field to carry with
   confirm_field_value    the POST (e.g. run_job=bill_tabs), so the teleported form — which posts
                          OUTSIDE its trigger's form — can still reach a named handler.
+  confirm_next         — optional (plain-POST mode), a hidden ``next`` field: the page the view
+                         lands back on (the Orientations Bookings tab's menu, #626).
 
   HTMX mode (optional — when confirm_hx_post is set, the confirm submits via HTMX
   instead of a full-page POST, so the view can return a toast + swap):
@@ -114,6 +116,7 @@ Parameters (pass via {% include ... with %}):
                 <form method="post" action="{{ confirm_action_url }}"{% if confirm_no_boost %} hx-boost="false"{% endif %} style="flex:1;">
                     {% csrf_token %}
                     {% if confirm_field_name %}<input type="hidden" name="{{ confirm_field_name }}" value="{{ confirm_field_value }}">{% endif %}
+                    {% if confirm_next %}<input type="hidden" name="next" value="{{ confirm_next }}">{% endif %}
                     {% if confirm_note_name %}<input type="hidden" name="{{ confirm_note_name }}" :value="note">{% endif %}
                     {% if confirm_typed_value %}<input type="hidden" name="{{ confirm_typed_field_name|default:'confirm' }}" :value="typed">{% endif %}
                     <button type="submit" class="pl-btn pl-btn--{{ confirm_button_style|default:'danger' }}" style="width:100%;"

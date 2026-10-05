@@ -8,23 +8,19 @@
 {% endblock %}
 
 {% block content %}
-{% if can_manage_orientations %}
-{% url 'hub_orientations_dashboard' as dashboard_url %}
-{% include "components/page_header.html" with title="Orientations" description="Get trained on a guild or a tool before you book it." action_url=dashboard_url action_label="Manage orientations" %}
-{% else %}
 {% include "components/page_header.html" with title="Orientations" description="Get trained on a guild or a tool before you book it." %}
-{% endif %}
 
 {% if unpaid_late_fee %}
 {# The block until paid (#456): every booking road on the cards refuses until the fee is paid. #}
 {% include "hub/partials/late_fee_notice.html" with fee=unpaid_late_fee %}
 {% endif %}
 
-{# The List / Calendar pair (#502): plListCalendar in static/js/list_calendar.js; the calendar is built only when it opens. #}
+{# The List / Calendar / Bookings panes (#502, #626): plListCalendar in static/js/list_calendar.js; each pane past List is built only when it opens. #}
 <div x-data="plListCalendar('{{ pane }}')">
 <nav class="pl-tabs" role="tablist" aria-label="Orientations views">
   <button type="button" role="tab" class="vote-tab" :class="{ 'vote-tab--active': pane === 'list' }" :aria-selected="pane === 'list' ? 'true' : 'false'" @click="setPane('list')">List</button>
   <button type="button" role="tab" class="vote-tab" :class="{ 'vote-tab--active': pane === 'calendar' }" :aria-selected="pane === 'calendar' ? 'true' : 'false'" @click="setPane('calendar')">Calendar</button>
+  <button type="button" role="tab" class="vote-tab" :class="{ 'vote-tab--active': pane === 'bookings' }" :aria-selected="pane === 'bookings' ? 'true' : 'false'" @click="setPane('bookings')">Bookings</button>
 </nav>
 
 <div x-ref="listPane" x-show="pane === 'list'" {% if pane != "list" %}x-cloak{% endif %}>
@@ -85,8 +81,18 @@
   {% if calendar %}
   {% include "hub/partials/guild_calendar_app.html" with cal=calendar cal_key=calendar_key %}
   {% else %}
-  <div x-ref="calendarLazy" data-calendar-src="{% url 'hub_orientations_calendar_events' %}?shell=1">
+  <div data-lazy-pane="calendar" data-pane-src="{% url 'hub_orientations_calendar_events' %}?shell=1">
     <p class="hub-text-muted">Loading the calendar…</p>
+  </div>
+  {% endif %}
+</div>
+
+<div x-show="pane === 'bookings'" {% if pane != "bookings" %}x-cloak{% endif %}>
+  {% if pane == "bookings" %}
+  {% include "hub/partials/orientation_bookings_pane.html" %}
+  {% else %}
+  <div data-lazy-pane="bookings" data-pane-src="{% url 'hub_orientations_bookings' %}">
+    <p class="hub-text-muted">Loading your bookings…</p>
   </div>
   {% endif %}
 </div>
