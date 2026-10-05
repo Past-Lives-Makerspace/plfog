@@ -23,7 +23,7 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta
 from typing import TYPE_CHECKING
 
-from django.db.models import Exists, OuterRef, Prefetch, Q
+from django.db.models import Exists, F, OuterRef, Prefetch, Q
 from django.db.models import TextChoices
 from django.utils import timezone
 
@@ -36,6 +36,10 @@ PRIVATE_CLASS_TITLE = "Private class"
 
 #: How far ahead something starting counts as "starting soon".
 SOON_WINDOW = timedelta(minutes=60)
+
+#: The longest a class session can run and still be a session. Legacy "pick your date" classes store
+#: their whole booking window (a month) as one session; that is a date range, not the room in use.
+LONGEST_CLASS_SESSION = timedelta(hours=12)
 
 
 class Light(TextChoices):
@@ -95,6 +99,7 @@ def _class_activities(area_ids: set[int], now: datetime, horizon: datetime) -> l
         class_offering__status=ClassOffering.Status.PUBLISHED,
         starts_at__lte=horizon,
         ends_at__gt=now,
+        ends_at__lte=F("starts_at") + LONGEST_CLASS_SESSION,
     ).select_related("class_offering")
     if not SiteConfiguration.load().display_demo_classes:
         sessions = sessions.exclude(class_offering__slug__startswith=DEMO_SLUG_PREFIX)

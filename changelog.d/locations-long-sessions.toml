@@ -1,0 +1,6 @@
+bump = "patch"
+date = "2026-10-05"
+title = "Area lights skip pick your date classes"
+changes = [
+  "A guild page no longer shows an area as in use for weeks because of a pick your date class. Only real class sessions light an area.",
+]
