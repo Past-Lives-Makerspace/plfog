@@ -29,7 +29,6 @@ from tests.membership.factories import (
     EquipmentFactory,
     EquipmentStaffMembershipFactory,
     GuildFactory,
-    GuildMembershipFactory,
     GuildStaffMembershipFactory,
     MemberFactory,
     OrientationBookingFactory,
@@ -195,46 +194,23 @@ def describe_Equipment():
             _completed_orientation(member, orientation_type)
             assert equipment.access_state(member) == Equipment.AccessState.OK
 
-        def it_is_needs_guild_until_the_member_joins():
-            guild = GuildFactory()
-            equipment = EquipmentFactory(guild=guild, requires_guild_membership=True)
-            member = MemberFactory()
-            assert equipment.access_state(member) == Equipment.AccessState.NEEDS_GUILD
-            GuildMembershipFactory(guild=guild, member=member)
-            assert equipment.access_state(member) == Equipment.AccessState.OK
-
-        def it_ignores_requires_guild_membership_without_a_guild():
-            equipment = EquipmentFactory(guild=None, requires_guild_membership=True)
-            member = MemberFactory()
-            assert equipment.access_state(member) == Equipment.AccessState.OK
-
-        def it_checks_orientation_before_guild_membership():
+        def it_is_ok_on_guild_owned_equipment_for_a_member_outside_the_guild():
             guild = GuildFactory()
             orientation_type = OrientationTypeFactory(guild=guild)
-            equipment = EquipmentFactory(
-                guild=guild, required_orientation=orientation_type, requires_guild_membership=True
-            )
+            equipment = EquipmentFactory(guild=guild, required_orientation=orientation_type)
             member = MemberFactory()
-            assert equipment.access_state(member) == Equipment.AccessState.NEEDS_ORIENTATION
+            _completed_orientation(member, orientation_type)
+            assert equipment.access_state(member) == Equipment.AccessState.OK
 
         def describe_with_bulk_sets():
             def it_reads_orientation_from_the_provided_set_without_querying():
                 orientation_type = OrientationTypeFactory()
                 equipment = EquipmentFactory(required_orientation=orientation_type)
                 member = MemberFactory()
-                state = equipment.access_state(member, oriented_type_ids={orientation_type.pk}, member_guild_ids=set())
+                state = equipment.access_state(member, oriented_type_ids={orientation_type.pk})
                 assert state == Equipment.AccessState.OK
-                state = equipment.access_state(member, oriented_type_ids=set(), member_guild_ids=set())
+                state = equipment.access_state(member, oriented_type_ids=set())
                 assert state == Equipment.AccessState.NEEDS_ORIENTATION
-
-            def it_reads_guild_membership_from_the_provided_set():
-                guild = GuildFactory()
-                equipment = EquipmentFactory(guild=guild, requires_guild_membership=True)
-                member = MemberFactory()
-                state = equipment.access_state(member, oriented_type_ids=set(), member_guild_ids={guild.pk})
-                assert state == Equipment.AccessState.OK
-                state = equipment.access_state(member, oriented_type_ids=set(), member_guild_ids=set())
-                assert state == Equipment.AccessState.NEEDS_GUILD
 
     def describe_booking_blockers():
         def it_reports_an_inactive_membership_alone():
@@ -251,36 +227,15 @@ def describe_Equipment():
             equipment = EquipmentFactory(required_orientation=orientation_type)
             member = MemberFactory()
             assert equipment.booking_blockers(member) == [
-                "You need the Lathe orientation before you can book time here."
-            ]
-
-        def it_reports_the_missing_guild_membership_by_guild_name():
-            guild = GuildFactory(name="Woodshop")
-            equipment = EquipmentFactory(guild=guild, requires_guild_membership=True)
-            member = MemberFactory()
-            assert equipment.booking_blockers(member) == ["Only Woodshop members can book this."]
-
-        def it_stacks_both_blockers_in_order():
-            guild = GuildFactory(name="Woodshop")
-            orientation_type = OrientationTypeFactory(guild=guild, name="Lathe")
-            equipment = EquipmentFactory(
-                guild=guild, required_orientation=orientation_type, requires_guild_membership=True
-            )
-            member = MemberFactory()
-            assert equipment.booking_blockers(member) == [
-                "You need the Lathe orientation before you can book time here.",
-                "Only Woodshop members can book this.",
+                "You need the Lathe orientation before you can reserve this equipment."
             ]
 
         def it_is_empty_when_everything_is_met():
             guild = GuildFactory()
             orientation_type = OrientationTypeFactory(guild=guild)
-            equipment = EquipmentFactory(
-                guild=guild, required_orientation=orientation_type, requires_guild_membership=True
-            )
+            equipment = EquipmentFactory(guild=guild, required_orientation=orientation_type)
             member = MemberFactory()
             _completed_orientation(member, orientation_type)
-            GuildMembershipFactory(guild=guild, member=member)
             assert equipment.booking_blockers(member) == []
 
         def it_reports_an_unpaid_late_cancellation_fee_with_its_amount_after_the_access_blockers():
@@ -293,7 +248,7 @@ def describe_Equipment():
                 orientation_booking=OrientationBookingFactory(member=member, status="cancelled"), amount_cents=3750
             )
             assert equipment.booking_blockers(member) == [
-                "You need the Lathe orientation before you can book time here.",
+                "You need the Lathe orientation before you can reserve this equipment.",
                 "Pay your $37.50 late cancellation fee to book again.",
                 "Down.",
             ]

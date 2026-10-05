@@ -88,12 +88,9 @@ def describe_equipment_index():
         user = _login(client, "eq_badges")
         EquipmentFactory(name="Open Bench")
         EquipmentFactory(name="Gated Lathe", required_orientation=OrientationTypeFactory(name="Lathe"))
-        woodshop = GuildFactory(name="Woodshop")
-        EquipmentFactory(name="Members Saw", guild=woodshop, requires_guild_membership=True)
         response = client.get(reverse("hub_equipment_index"))
         assert b"You're all set" in response.content
         assert b"Orientation needed" in response.content
-        assert b"Woodshop members only" in response.content
         assert user is not None  # the badge set proves the bulk access sets flowed through
 
     def it_flags_every_card_with_the_fee_warning_while_a_fee_is_unpaid(client: Client):
@@ -415,7 +412,7 @@ def describe_equipment_index():
             lathe = EquipmentFactory(
                 name="Lathe", guild=woodshop, required_orientation=OrientationTypeFactory(name="Lathe basics")
             )
-            EquipmentFactory(name="Members Saw", guild=woodshop, requires_guild_membership=True)
+            EquipmentFactory(name="Woodshop Saw", guild=woodshop)
             EquipmentFactory(name="Dark Room", kind=Equipment.Kind.ROOM)
             EquipmentHoursFactory(equipment=lathe)
 
@@ -425,15 +422,16 @@ def describe_equipment_index():
             assert [(c["equipment"].name, c["access_state"], c["availability"]) for c in cards] == [
                 ("Dark Room", Equipment.AccessState.OK, ("muted", "Not taking reservations yet")),
                 ("Lathe", Equipment.AccessState.NEEDS_ORIENTATION, ("muted", "Not open right now")),
-                ("Members Saw", Equipment.AccessState.NEEDS_GUILD, ("muted", "Not taking reservations yet")),
+                ("Woodshop Saw", Equipment.AccessState.OK, ("muted", "Not taking reservations yet")),
             ]
 
         def it_keeps_the_query_count_it_had_before_the_extraction(client: Client, django_assert_num_queries):
             _grid(client)
             url = reverse("hub_equipment_index")
             client.get(url)  # warm the session and per-request caches
-            # Measured on this grid before the extraction (36), plus the one staff prefetch (#615).
-            with django_assert_num_queries(37):
+            # Measured on this grid before the extraction (36), plus the one staff prefetch (#615),
+            # less the joined guild lookup the equipment guild gate needed.
+            with django_assert_num_queries(36):
                 assert client.get(url).status_code == 200
 
         def it_answers_an_empty_grid_without_the_member_lookups(django_assert_num_queries):
@@ -590,16 +588,6 @@ def describe_equipment_add():
             form = EquipmentForm()
             assert [value for value, _label in form.fields["kind"].choices] == ["tool", "room", "space"]
 
-    def it_rejects_requires_guild_membership_without_a_guild(client: Client):
-        _login(client, "eq_add_bad", fog_role=Member.FogRole.ADMIN)
-        response = client.post(
-            reverse("hub_equipment_add"),
-            {"name": "Bad Saw", "kind": "tool", "requires_guild_membership": "on", "is_active": "on"},
-        )
-        assert response.status_code == 200
-        assert b"Pick a guild first, or turn this off." in response.content
-        assert not Equipment.objects.filter(name="Bad Saw").exists()
-
     def it_rejects_an_orientation_from_another_guild(client: Client):
         _login(client, "eq_add_mismatch", fog_role=Member.FogRole.ADMIN)
         woodshop = GuildFactory(name="Woodshop")
@@ -637,7 +625,6 @@ def describe_equipment_detail():
         response = client.get(reverse("hub_equipment_detail", args=[equipment.slug]))
         assert response.status_code == 200
         assert b"You're all set." in response.content
-        assert b"members can book this" not in response.content
         assert b"needs to be active" not in response.content
 
     def it_shows_the_orientation_gap_with_a_deep_link(client: Client):
@@ -649,7 +636,7 @@ def describe_equipment_detail():
         GuildOrientationSettingsFactory(guild=orientation_type.guild, is_enabled=True)
         equipment = EquipmentFactory(required_orientation=orientation_type)
         response = client.get(reverse("hub_equipment_detail", args=[equipment.slug]))
-        assert b"You need the Lathe orientation before you can book time here." in response.content
+        assert b"You need the Lathe orientation before you can reserve this equipment." in response.content
         assert b"Book the Orientation" in response.content
         expected = (
             f"{reverse('hub_guild_detail', args=[orientation_type.guild.slug])}"
@@ -703,15 +690,6 @@ def describe_equipment_detail():
         response = client.get(reverse("hub_equipment_detail", args=[equipment.slug]))
         assert b"Your orientation is booked for" in response.content
         assert b"Book the Orientation" not in response.content
-
-    def it_shows_the_guild_gap_with_a_join_button(client: Client):
-        _login(client, "eq_det_guild")
-        woodshop = GuildFactory(name="Woodshop")
-        equipment = EquipmentFactory(guild=woodshop, requires_guild_membership=True)
-        response = client.get(reverse("hub_equipment_detail", args=[equipment.slug]))
-        assert b"Only Woodshop members can book this." in response.content
-        assert b"Join Woodshop" in response.content
-        assert b"You're all set." not in response.content
 
     def it_shows_the_inactive_membership_state(client: Client):
         user = _login(client, "eq_det_former")
@@ -777,7 +755,7 @@ def describe_equipment_detail():
             equipment, orientation_type = _gated()
             GuildOrientationSettingsFactory(guild=orientation_type.guild, is_enabled=True)
             content = client.get(reverse("hub_equipment_detail", args=[equipment.slug])).content.decode()
-            assert f"You need the Lathe orientation before you can book time here. {sentence}</p>" in content
+            assert f"You need the Lathe orientation before you can reserve this equipment. {sentence}</p>" in content
             assert "Book the Orientation" in content
 
         def it_follows_the_paused_leaf(client: Client):
@@ -785,7 +763,7 @@ def describe_equipment_detail():
             equipment, _orientation_type = _gated()  # no settings row: the guild is not taking bookings
             content = client.get(reverse("hub_equipment_detail", args=[equipment.slug])).content.decode()
             assert (
-                f"You need the Lathe orientation before you can book time here. {sentence} "
+                f"You need the Lathe orientation before you can reserve this equipment. {sentence} "
                 "Orientation bookings for this tool are paused. Check back soon.</p>"
             ) in content
             assert "Book the Orientation" not in content
@@ -1002,10 +980,10 @@ def describe_equipment_details_save():
         equipment = EquipmentFactory(name="Solid Saw")
         response = client.post(
             reverse("hub_equipment_details_save", args=[equipment.slug]),
-            {"name": "Broken Saw", "kind": "tool", "requires_guild_membership": "on"},
+            {"name": "", "kind": "tool"},
         )
         assert response.status_code == 200
-        assert b"Pick a guild first, or turn this off." in response.content
+        assert b"This field is required." in response.content
         equipment.refresh_from_db()
         assert equipment.name == "Solid Saw"
 
@@ -1688,7 +1666,9 @@ def describe_equipment_own_orientation():
             response = client.get(reverse("hub_equipment_detail", args=[equipment.slug]))
             assert response.context["access_state"] == Equipment.AccessState.NEEDS_ORIENTATION
             assert "pl-equip-banner--warn" in response.content.decode()
-            with pytest.raises(EquipmentError, match="Operator Basics orientation before you can book"):
+            with pytest.raises(
+                EquipmentError, match="Operator Basics orientation before you can reserve this equipment"
+            ):
                 reserve(equipment, member, timezone.now() + timedelta(days=1), 60)
             assert not equipment.reservations.exists()
 

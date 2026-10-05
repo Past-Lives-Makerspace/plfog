@@ -14207,7 +14207,6 @@ class Equipment(HeroCropMixin, models.Model):
         OK = "ok", "You're all set"
         NEEDS_FEE = "needs_fee", "Pay your late cancellation fee to book again"
         NEEDS_ORIENTATION = "needs_orientation", "Orientation needed"
-        NEEDS_GUILD = "needs_guild", "Guild members only"
         INACTIVE_MEMBER = "inactive_member", "Membership inactive"
 
     name = models.CharField(max_length=120, help_text="Display name members see, e.g. CNC Router.")
@@ -14276,10 +14275,6 @@ class Equipment(HeroCropMixin, models.Model):
             "Members must complete this orientation before booking. PROTECT: deleting an orientation "
             "type that gates live equipment should fail loudly, not silently un-gate a dangerous tool."
         ),
-    )
-    requires_guild_membership = models.BooleanField(
-        default=False,
-        help_text="Only members of the owning guild may book. Only meaningful when a guild is set.",
     )
     is_active = models.BooleanField(
         default=True, help_text="Offer this equipment to members. Inactive (retired) gear is hidden from the index."
@@ -14435,16 +14430,14 @@ class Equipment(HeroCropMixin, models.Model):
         member: Member | None,
         *,
         oriented_type_ids: set[int] | None = None,
-        member_guild_ids: set[int] | None = None,
         has_unpaid_fee: bool | None = None,
     ) -> str:
         """The one :class:`AccessState` between ``member`` and this equipment.
 
         Drives both the index card badge and the detail-page requirements banner.
         The optional arguments are the bulk-caller optimization for the index page —
-        pass the member's completed orientation-type pks, joined-guild pks and whether
-        they owe a late cancellation fee (#456) so a page of cards costs three queries,
-        not three per card. Omit them and the checks query per call. An unpaid fee wins
+        pass the member's completed orientation-type pks and whether they owe a late
+        cancellation fee (#456) so a page of cards costs two queries, not two per card. Omit them and the checks query per call. An unpaid fee wins
         over every other gap: it blocks booking whatever else is met.
         """
         if member is None or member.status != Member.Status.ACTIVE:
@@ -14463,13 +14456,6 @@ class Equipment(HeroCropMixin, models.Model):
                 oriented = member.is_oriented_for_type(required_orientation)
             if not oriented:
                 return self.AccessState.NEEDS_ORIENTATION
-        if self.requires_guild_membership and self.guild_id is not None:
-            if member_guild_ids is not None:
-                in_guild = self.guild_id in member_guild_ids
-            else:
-                in_guild = member.guild_memberships.filter(guild_id=self.guild_id).exists()
-            if not in_guild:
-                return self.AccessState.NEEDS_GUILD
         return self.AccessState.OK
 
     def booking_blockers(self, member: Member | None) -> list[str]:
@@ -14488,14 +14474,9 @@ class Equipment(HeroCropMixin, models.Model):
         blockers: list[str] = []
         required_orientation = self.required_orientation
         if required_orientation is not None and not member.is_oriented_for_type(required_orientation):
-            blockers.append(f"You need the {required_orientation.name} orientation before you can book time here.")
-        guild = self.guild
-        if (
-            self.requires_guild_membership
-            and guild is not None
-            and not member.guild_memberships.filter(guild_id=guild.pk).exists()
-        ):
-            blockers.append(f"Only {guild.name} members can book this.")
+            blockers.append(
+                f"You need the {required_orientation.name} orientation before you can reserve this equipment."
+            )
         # The block until paid (#456): the same sentence ensure_bookable_for raises, with the amount.
         from billing.late_fees import unpaid_fee_for
 
@@ -16151,20 +16132,19 @@ class WikiPage(models.Model):
         member: Member | None,
         *,
         oriented_type_ids: set[int] | None = None,
-        member_guild_ids: set[int] | None = None,
     ) -> dict[str, Any] | None:
         """The small dict ``_wiki_official.html`` renders, or None for a page with no tool.
 
         Read straight from the :class:`Equipment` register and never from wiki prose, so
         it cannot drift per page and no member can edit it — there is nothing on the page
-        to edit. The two optional sets are the bulk-caller optimization
+        to edit. The optional set is the bulk-caller optimization
         :meth:`Equipment.access_state` already accepts, so a list of machine cards costs
-        two queries rather than two per card.
+        one query rather than one per card.
         """
         equipment = self.equipment
         if equipment is None:
             return None
-        state = equipment.access_state(member, oriented_type_ids=oriented_type_ids, member_guild_ids=member_guild_ids)
+        state = equipment.access_state(member, oriented_type_ids=oriented_type_ids)
         return {
             "equipment": equipment,
             "guild": equipment.guild,
@@ -16760,7 +16740,6 @@ _WIKI_ACCESS_LINES: dict[str, str] = {
     "ok": "You are set up for this tool.",
     "needs_fee": "Pay your late cancellation fee to book again.",
     "needs_orientation": "Orientation needed before you use this.",
-    "needs_guild": "You need to join the guild before you use this.",
     "inactive_member": "Your membership needs to be active to use this.",
 }
 

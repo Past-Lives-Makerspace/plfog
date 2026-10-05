@@ -85,20 +85,18 @@ def _require_can_manage(request: HttpRequest, equipment: Equipment) -> HttpRespo
     return None
 
 
-def _member_access_sets(member: Member | None) -> tuple[set[int], set[int]]:
-    """The member's completed orientation-type pks and joined-guild pks, in a fixed three queries.
+def _member_oriented_type_ids(member: Member | None) -> set[int]:
+    """The member's completed orientation-type pks, in a fixed number of queries.
 
     The bulk input to :meth:`Equipment.access_state` so the index page never runs
     per-card access queries. Completed types come from the one resolver, so a
     hand-entered record (issue #465) opens a gate here exactly as a completed booking
-    does. Empty sets for an unlinked viewer — every card then reads "Membership
+    does. An empty set for an unlinked viewer — every card then reads "Membership
     inactive", which is the honest state.
     """
     if member is None:
-        return set(), set()
-    oriented = member.completed_orientation_type_ids()
-    guilds = set(member.guild_memberships.values_list("guild_id", flat=True))
-    return oriented, guilds
+        return set()
+    return member.completed_orientation_type_ids()
 
 
 def _duration_label(minutes: int) -> str:
@@ -372,14 +370,14 @@ def reservation_cards(member: Member | None, queryset: EquipmentQuerySet) -> lis
     if not equipment_list:
         return []
     _attach_running_orientations(equipment_list, now=now)
-    oriented_ids, guild_ids = _member_access_sets(member)
+    oriented_ids = _member_oriented_type_ids(member)
     # The block until paid (#456) is a per-member state: one lookup for the whole grid.
     has_unpaid_fee = member is not None and unpaid_fee_for(member) is not None
     return [
         {
             "equipment": equipment,
             "access_state": equipment.access_state(
-                member, oriented_type_ids=oriented_ids, member_guild_ids=guild_ids, has_unpaid_fee=has_unpaid_fee
+                member, oriented_type_ids=oriented_ids, has_unpaid_fee=has_unpaid_fee
             ),
             "availability": equipment.availability_line(),
         }

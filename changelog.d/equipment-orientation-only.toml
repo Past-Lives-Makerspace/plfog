@@ -1,0 +1,6 @@
+bump = "patch"
+date = "2026-10-05"
+title = "Equipment only needs its orientation"
+changes = [
+  "Reserving a tool no longer asks you to be a member of the guild that runs it. If a tool needs an orientation, that orientation is the only thing you need before you can reserve it.",
+]

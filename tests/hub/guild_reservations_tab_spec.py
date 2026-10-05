@@ -152,14 +152,19 @@ def describe_the_pane():
         user = _login(client, "rt_same")
         guild = GuildFactory(show_reservations_tab=True)
         EquipmentFactory(name="Quillwood Bandsaw", guild=guild)
-        EquipmentFactory(name="Quillwood Members Saw", guild=guild, requires_guild_membership=True)
+        EquipmentFactory(
+            name="Quillwood Gated Saw", guild=guild, required_orientation=OrientationTypeFactory(guild=guild)
+        )
         response = client.get(reverse("hub_guild_detail", args=[guild.slug]))
         expected = reservation_cards(user.member, _equipment_queryset().on_guild_page(guild))
         page_cards = response.context["reservation_cards"]
         assert [(c["equipment"], c["access_state"], c["availability"]) for c in page_cards] == [
             (c["equipment"], c["access_state"], c["availability"]) for c in expected
         ]
-        assert {c["access_state"] for c in page_cards} == {Equipment.AccessState.OK, Equipment.AccessState.NEEDS_GUILD}
+        assert {c["access_state"] for c in page_cards} == {
+            Equipment.AccessState.OK,
+            Equipment.AccessState.NEEDS_ORIENTATION,
+        }
 
     def it_renders_any_number_of_items_in_the_same_queries(client: Client):
         _login(client, "rt_queries")

@@ -5,7 +5,7 @@ Context:
   cards — built by hub.equipment_views.reservation_cards, which adds the annotation and the
           prefetches read here. List of dicts: {equipment, access_state, availability} where access_state is an
           Equipment.AccessState value ("ok" / "needs_fee" / "needs_orientation" /
-          "needs_guild" / "inactive_member"). The badge renders from that one state so
+          "inactive_member"). The badge renders from that one state so
           the card and the detail banner can't drift.
 The whole card is the tap target (a stretched link on the name); the guild chip sits
 above it with its own link. A tool the member is not trained on renders LOCKED (#502):
@@ -69,8 +69,6 @@ The Staff line (#615) names the item's staff from equipment.staff_roster, and is
         <span class="pl-equip-badge pl-equip-badge--warn">Pay your late cancellation fee to book again</span>
         {% elif card.access_state == "needs_orientation" %}
         <span class="pl-equip-badge pl-equip-badge--warn">Orientation needed</span>
-        {% elif card.access_state == "needs_guild" %}
-        <span class="pl-equip-badge pl-equip-badge--warn">{{ equipment.guild.name }} members only</span>
         {% else %}
         <span class="pl-equip-badge pl-equip-badge--muted">Membership inactive</span>
         {% endif %}
