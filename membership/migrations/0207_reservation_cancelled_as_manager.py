@@ -14,7 +14,7 @@ class Migration(migrations.Migration):
             name="cancelled_as_manager",
             field=models.BooleanField(
                 default=False,
-                help_text="Cancelled through the manager route, including a manager cancelling their own row (#633).",
+                help_text="A manager of this equipment cancelled it, from either cancel route (#633).",
             ),
         ),
         migrations.AddField(

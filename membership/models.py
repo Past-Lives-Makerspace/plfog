@@ -14943,7 +14943,7 @@ class EquipmentReservation(models.Model):
     )
     cancelled_as_manager = models.BooleanField(
         default=False,
-        help_text="Cancelled through the manager route, including a manager cancelling their own row (#633).",
+        help_text="A manager of this equipment cancelled it, from either cancel route (#633).",
     )
     late_fee_waived = models.BooleanField(
         default=False,
@@ -15003,7 +15003,8 @@ class EquipmentReservation(models.Model):
 
         Self cancel: future reservations only, no reason needed, the member gets their own
         "you cancelled" email, and a cancel inside the notice window creates the late
-        cancellation fee (#456) in the same transaction as the cancel. Manager cancel: also
+        cancellation fee (#456) in the same transaction as the cancel, unless the actor
+        manages this equipment. Manager cancel: also
         allowed while in progress, requires a reason the member will see, notifies the
         member, and never charges. A manager cancelling THEIR OWN row from the manage tab
         passes ``as_manager=True`` — the manager guards apply (reason honored, in-progress

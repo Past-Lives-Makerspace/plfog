@@ -1113,6 +1113,21 @@ def describe_late_cancel_fee_on_the_schedule():
         assert "so a $37.50 late cancellation fee applies" in _cancel_modal(content, late)
         assert "late cancellation fee applies" not in _cancel_modal(content, early)
 
+    def it_shows_a_manager_no_fee_copy_on_their_own_equipment(client: Client):
+        """A manager never pays a late fee on equipment they manage (#633), so nothing says they will."""
+        user = _login(client, "lcf_sched_manager")
+        _late_fees(True)
+        equipment = _open_tool(late_cancel_fee_cents=3750)
+        EquipmentStaffMembershipFactory(equipment=equipment, member=user.member)
+        soon = timezone.now() + timedelta(hours=3)
+        late = EquipmentReservationFactory(
+            equipment=equipment, member=user.member, starts_at=soon, ends_at=soon + timedelta(hours=1)
+        )
+        content = _schedule(client, equipment)
+        assert "late cancellation fee applies" not in _cancel_modal(content, late)
+        assert "pl-equip-book-note" not in content
+        assert "$37.50" not in content
+
     def it_leaves_the_cancel_modal_alone_while_the_site_switch_is_off(client: Client):
         user = _login(client, "lcf_sched_modal_off")
         _late_fees(False)
