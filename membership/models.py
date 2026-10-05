@@ -11357,9 +11357,23 @@ class OrientationTypeQuerySet(models.QuerySet):
         can never disagree. Reads the site configuration once, for the demo guild switch.
         """
         return Q(is_active=True) & (
-            Q(guild__in=Guild.objects.visible(), guild__orientation_settings__is_enabled=True)
+            (Q(guild__in=Guild.objects.visible()) & OrientationTypeQuerySet.guild_orientations_on_condition())
             | Q(equipment__is_active=True)
         )
+
+    @staticmethod
+    def guild_orientations_on_condition() -> Q:
+        """A guild owned type whose guild has orientation booking switched on: the guild leg of :meth:`listed_condition`."""
+        return Q(guild__orientation_settings__is_enabled=True)
+
+    def printable(self) -> OrientationTypeQuerySet:
+        """Types a QR sheet (#631) may be printed for: :meth:`listed_condition` without the guild visibility leg.
+
+        An active type of a guild with orientations switched on, or of active equipment. A
+        hidden guild stays printable: its members still reach its orientations from the
+        sheet, which is the point of posting one in the shop.
+        """
+        return self.filter(is_active=True).filter(self.guild_orientations_on_condition() | Q(equipment__is_active=True))
 
     @staticmethod
     def held_condition(member: Member | None) -> Q:
@@ -11626,13 +11640,19 @@ class OrientationType(models.Model):
     def qr_sheet_refusal(self) -> str:
         """Why this orientation has no QR sheet, or "" when it can be printed.
 
-        A turned off type takes no bookings, and a retired tool's page is hidden from members,
-        so a printed code for either would land on nothing a member can book.
+        A turned off type takes no bookings, a retired tool's page is hidden from members, and a
+        guild with orientations switched off shows no booking block, so a printed code for any
+        of them would land on nothing a member can book (:meth:`OrientationTypeQuerySet.printable`).
         """
         if not self.is_active:
             return "This orientation is turned off, so it has no QR sheet. Turn it back on to print one."
         if self.equipment is not None and not self.equipment.is_active:
             return "The equipment this orientation belongs to is retired, so it has no QR sheet."
+        if self.guild is not None and not OrientationType.objects.printable().filter(pk=self.pk).exists():
+            return (
+                f"Orientations are switched off for {self.guild.name}, so this one has no QR sheet. "
+                "Turn on Offer orientation booking on the guild's Orientations tab to print one."
+            )
         return ""
 
     @property
@@ -14418,13 +14438,14 @@ class Equipment(HeroCropMixin, models.Model):
 
     @property
     def qr_sheet_orientation(self) -> OrientationType | None:
-        """The orientation the sheet's second QR books: the required one while it is on, else ``None``.
+        """The orientation the sheet's second QR books: the required one while it can print, else ``None``.
 
-        A turned off required type takes no bookings, so the sheet leaves its QR off rather
-        than print a code that lands on a paused orientation.
+        A turned off required type, or one whose guild has orientations switched off, takes
+        no bookings, so the sheet leaves its QR off rather than print a code that lands on
+        nothing to book (:meth:`OrientationTypeQuerySet.printable`).
         """
         orientation_type = self.required_orientation
-        if orientation_type is None or not orientation_type.is_active:
+        if orientation_type is None or not OrientationType.objects.printable().filter(pk=orientation_type.pk).exists():
             return None
         return orientation_type
 

@@ -333,12 +333,11 @@ def _qr_sheet_types(request: HttpRequest) -> list[OrientationType]:
     """The orientations whose QR sheet (#631) the Print QR Sheet menu offers: the ones the viewer runs that can print.
 
     The list scope of :func:`membership.permissions.manageable_orientation_types` (a preview
-    honoured), less what the sheet refuses (``OrientationType.qr_sheet_refusal``): a turned off
-    type, or one on retired equipment. Owner, then the owner's own order, as the page lists them.
+    honoured), narrowed to what the sheet prints (``OrientationTypeQuerySet.printable``): no turned
+    off type, none on retired equipment, none of a guild with orientations switched off. Owner, then the owner's own order, as the page lists them.
     """
-    printable = OrientationType.objects.filter(is_active=True).exclude(equipment__is_active=False)
     return list(
-        manageable_orientation_types(request, printable, honour_preview=True)
+        manageable_orientation_types(request, OrientationType.objects.printable(), honour_preview=True)
         .select_related("guild", "equipment")
         .order_by(Lower(Coalesce("guild__name", "equipment__name")), "sort_order", "name")
     )

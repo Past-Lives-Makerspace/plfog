@@ -225,7 +225,9 @@ def describe_equipment_sheet_content():
         assert client.get(before.removeprefix(BASE)).status_code == 302  # still routes (to login here)
 
     def it_adds_a_second_qr_to_book_the_required_orientation(client: Client):
-        orientation_type = OrientationTypeFactory(guild=GuildFactory(name="Qrsheet Safety"), name="Qrsheet Saw Basics")
+        safety = GuildFactory(name="Qrsheet Safety")
+        GuildOrientationSettingsFactory(guild=safety)
+        orientation_type = OrientationTypeFactory(guild=safety, name="Qrsheet Saw Basics")
         equipment = _tool(required_orientation=orientation_type)
         _equipment_staffer(client, "eq_second", equipment)
         body = client.get(_equipment_urls(equipment)[0]).content.decode()
@@ -233,6 +235,17 @@ def describe_equipment_sheet_content():
         assert "New here? Book the orientation first." in body
         assert "Qrsheet Saw Basics" in body
         assert qr_svg(f"{BASE}/orientations/types/{orientation_type.pk}/") in body
+
+    def it_leaves_the_second_qr_off_when_the_owning_guild_has_orientations_switched_off(client: Client):
+        switched_off = GuildFactory(name="Qrsheet Switched Off")
+        GuildOrientationSettingsFactory(guild=switched_off, is_enabled=False)
+        orientation_type = OrientationTypeFactory(guild=switched_off, name="Qrsheet Unbookable Basics")
+        equipment = _tool(required_orientation=orientation_type)
+        _equipment_staffer(client, "eq_second_switched_off", equipment)
+        body = client.get(_equipment_urls(equipment)[0]).content.decode()
+        assert 'data-qr-target="orientation"' not in body
+        assert "Qrsheet Unbookable Basics" not in body
+        assert equipment.qr_sheet_orientation is None
 
     def it_leaves_the_second_qr_off_while_that_orientation_is_turned_off(client: Client):
         orientation_type = OrientationTypeFactory(guild=GuildFactory(name="Qrsheet Paused"), is_active=False)
@@ -349,6 +362,35 @@ def describe_an_orientation_that_cannot_print():
         assert response.status_code == 403
         assert response.content.decode() == orientation_type.qr_sheet_refusal
         assert "retired" in orientation_type.qr_sheet_refusal
+
+    def it_refuses_a_type_whose_guild_has_orientations_switched_off_and_says_how_to_fix_it(client: Client):
+        orientation_type = _guild_type()
+        assert orientation_type.guild is not None
+        orientation_type.guild.orientation_settings.is_enabled = False
+        orientation_type.guild.orientation_settings.save()
+        orientation_type.guild.guild_lead = _login(client, "off_guild_lead")
+        orientation_type.guild.save(update_fields=["guild_lead"])
+        refusal = orientation_type.qr_sheet_refusal
+        assert "Orientations are switched off for Qrsheet Jewelry" in refusal
+        assert "Offer orientation booking" in refusal
+        assert "Orientations tab" in refusal
+        for url in _type_urls(orientation_type):
+            response = client.get(url)
+            assert response.status_code == 403
+            assert response.content.decode() == refusal
+
+    def it_refuses_a_guild_type_with_no_orientation_settings_at_all():
+        orientation_type = OrientationTypeFactory(guild=GuildFactory(name="Qrsheet Unset Guild"), name="Qrsheet Unset")
+        assert "switched off for Qrsheet Unset Guild" in orientation_type.qr_sheet_refusal
+
+    def it_still_prints_for_a_hidden_guild_with_orientations_on(client: Client):
+        orientation_type = _guild_type()
+        assert orientation_type.guild is not None
+        orientation_type.guild.is_active = False
+        orientation_type.guild.save(update_fields=["is_active"])
+        _login(client, "hidden_guild_admin", fog_role=Member.FogRole.ADMIN)
+        assert orientation_type.qr_sheet_refusal == ""
+        assert _statuses(client, _type_urls(orientation_type)) == [200, 200, 200]
 
     def it_has_nothing_to_refuse_for_an_active_type():
         assert _guild_type().qr_sheet_refusal == ""
@@ -551,6 +593,18 @@ def describe_the_bookings_tab_menu():
         body = _tab(client)
         assert reverse("hub_orientation_type_flyer", args=[live.pk]) in body
         assert reverse("hub_orientation_type_flyer", args=[gone.pk]) not in body
+
+    def it_leaves_out_a_guild_with_orientations_switched_off_but_keeps_a_hidden_one(client: Client):
+        lead = _login(client, "menu_switched_lead")
+        switched_off = GuildFactory(name="Qrsheet Menu Off", guild_lead=lead)
+        GuildOrientationSettingsFactory(guild=switched_off, is_enabled=False)
+        off_type = OrientationTypeFactory(guild=switched_off, name="Qrsheet Menu Off Type")
+        hidden = GuildFactory(name="Qrsheet Menu Hidden", guild_lead=lead, is_active=False)
+        GuildOrientationSettingsFactory(guild=hidden)
+        hidden_type = OrientationTypeFactory(guild=hidden, name="Qrsheet Menu Hidden Type")
+        body = _tab(client)
+        assert reverse("hub_orientation_type_flyer", args=[off_type.pk]) not in body
+        assert f'href="{reverse("hub_orientation_type_flyer", args=[hidden_type.pk])}"' in body
 
     def it_never_shows_for_a_plain_member(client: Client):
         _guild_type()
