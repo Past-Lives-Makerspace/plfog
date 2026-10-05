@@ -74,6 +74,25 @@ def can_edit_guild(request: HttpRequest, guild: Guild) -> bool:
     return member is not None and (guild.guild_lead_id == member.pk or guild.is_staffed_by(member))
 
 
+def guilds_for_new_orientation(request: HttpRequest) -> list[Guild]:
+    """The active guilds this request may add an orientation to, name-ordered, in one query.
+
+    The bulk companion to :func:`can_edit_guild` behind the Orientations page's "+ Add an
+    Orientation" button (#637): effective staff (admin or officer) get every active guild,
+    anyone else the active guilds they lead or staff. Same legs, same ``view_as`` preview,
+    so every guild listed passes :func:`can_edit_guild`. An equipment manager who is not on
+    a guild's staff gets nothing.
+    """
+    from membership.models import Guild
+
+    if is_effective_staff(request):
+        return list(Guild.objects.filter(is_active=True).order_by("name"))
+    member = _editing_member(request)
+    if member is None:
+        return []
+    return list(member.staffed_guilds.filter(is_active=True).order_by("name"))
+
+
 def can_manage_orientations(request: HttpRequest, guild: Guild) -> bool:
     """True when this request may run the guild's orientations.
 

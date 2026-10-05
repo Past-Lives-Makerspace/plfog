@@ -1,0 +1,6 @@
+bump = "minor"
+date = "2026-10-05"
+title = "Add an Orientation from the Orientations page"
+changes = [
+  "Admins, guild officers and guild staff now see + Add an Orientation at the top of the Orientations page. It opens your guild's Orientations settings, where you set up a new orientation. If you run more than one guild, pick the guild from its menu.",
+]

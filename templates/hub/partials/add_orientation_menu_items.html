@@ -1,0 +1,4 @@
+{# One item per guild the viewer may edit (#637); each opens that guild's settings on the Orientations tab. #}
+{% for guild in add_orientation_guilds %}
+<a href="{% url 'hub_guild_edit' guild.pk %}?tab=orientations" class="pl-row-menu__item" role="menuitem" data-add-orientation-link>{{ guild.name }}</a>
+{% endfor %}
