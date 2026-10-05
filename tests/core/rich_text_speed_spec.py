@@ -17,7 +17,10 @@ from core.html_sanitize import RICH_TEXT_MAX_CHARS
 from core.linkify import linkify
 from membership import markdown
 
-LIMIT_SECONDS = 2.0
+# Locally each call takes a fraction of a second. CI's test job runs under coverage and the
+# mutation plugin, which put the deep inputs at 2.0 to 2.6 seconds, so the budget allows for
+# that and still fails the quadratic blowup this spec exists to catch.
+LIMIT_SECONDS = 5.0
 
 
 def _fill(head: str, unit: str) -> str:
