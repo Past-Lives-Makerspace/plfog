@@ -57,7 +57,6 @@ if TYPE_CHECKING:
         CommunityEvent,
         CommunityEventDraft,
         Guild,
-        GuildOrientationSettings,
         Member,
         MemberQuerySet,
     )
@@ -246,7 +245,7 @@ def _info(interaction: Interaction, member: Member | None) -> dict:
 def _guild_dropdown_option() -> dict:
     """A ``guild`` slash-command option rendered as a dropdown of active guilds (optional).
 
-    Shared by ``/info`` and ``/schedule-orientation`` (and mirrors ``/join-guild``'s picker):
+    Used by ``/info`` (and mirrors ``/join-guild``'s picker):
     each choice's value is the guild ``slug`` (resolved by :func:`resolve_command_guild`), and it
     stays ``required=False`` so a member can omit it to use the current channel's guild. Built at
     *serialization* time (inside ``register_discord_commands`` → :meth:`SlashCommand.to_api_dict`),
@@ -289,191 +288,24 @@ register(INFO)
 
 # --- /schedule-orientation ----------------------------------------------------
 
-_SLOT_LIST_CAP = 10
-_PROPOSE_HINT = "propose your own with `date:` (YYYY-MM-DD) and `time:` (e.g. 5:30pm)"
-
-
-def _slot_disambiguation(
-    guild: Guild, settings_obj: GuildOrientationSettings, guild_url: str, *, prefix: str = ""
-) -> dict:
-    """List the guild's bookable slots (with pks) so the member can re-run with one chosen.
-
-    Falls back to the custom-time hint when custom requests are allowed, or a guild-page
-    pointer when neither posted times nor custom requests are available — never a dead end.
-    """
-    slots = list(
-        guild.orientation_slots.bookable().select_related("orientation_type").order_by("starts_at")[:_SLOT_LIST_CAP]
-    )
-    if slots:
-        lines = [
-            f"{prefix}Here are **{guild.name}**'s open orientation times — re-run "
-            "`/schedule-orientation` with `slot:` set to one of these numbers:"
-        ]
-        for slot in slots:
-            location = f" · {slot.location}" if slot.location else ""
-            lines.append(f"`{slot.pk}` — {slot.orientation_type.name} · {format_local(slot.starts_at)}{location}")
-        if settings_obj.allow_custom_requests:
-            lines.append(f"None of these work? {_PROPOSE_HINT[0].upper() + _PROPOSE_HINT[1:]}.")
-        return reply("\n".join(lines), ephemeral=True)
-    if settings_obj.allow_custom_requests:
-        return reply(f"{prefix}No posted times right now — {_PROPOSE_HINT}.\n{guild_url}", ephemeral=True)
-    return reply(f"{prefix}No orientation times are posted yet. Check {guild_url} for updates.", ephemeral=True)
-
-
-def _requested_reply(guild: Guild, guild_url: str, detail: str) -> dict:
-    """The shared "orientation requested" success copy (posted-slot or custom ``detail``)."""
-    return reply(
-        f"**Orientation requested — {guild.name}** ✅\n"
-        f"{detail}\n"
-        "Check your email for details — it's not official until a guild lead confirms.\n"
-        f"View / cancel: {guild_url}",
-        ephemeral=True,
-    )
-
-
-def _book_posted_slot(
-    guild: Guild, member: Member, slot_opt: str, note: str, settings_obj: GuildOrientationSettings, guild_url: str
-) -> dict:
-    """Book a posted slot by its pk; a bad/unknown/unavailable pk re-lists the open times."""
-    from membership import orientations
-    from membership.models import OrientationError
-
-    if not slot_opt.isdigit():
-        return _slot_disambiguation(guild, settings_obj, guild_url, prefix="I didn't recognize that slot number. ")
-    slot = guild.orientation_slots.filter(pk=int(slot_opt)).first()
-    if slot is None or not slot.is_bookable:
-        return _slot_disambiguation(guild, settings_obj, guild_url, prefix="That slot isn't available anymore. ")
-    try:
-        orientations.request_orientation(slot, member, note=note)
-    except OrientationError as exc:
-        return _slot_disambiguation(guild, settings_obj, guild_url, prefix=f"{exc} ")
-    location = f" · {slot.location}" if slot.location else ""
-    return _requested_reply(guild, guild_url, f"{format_local(slot.starts_at)}{location}")
-
-
-def _book_custom(
-    guild: Guild,
-    member: Member,
-    date_opt: str | None,
-    time_opt: str | None,
-    note: str,
-    settings_obj: GuildOrientationSettings,
-    guild_url: str,
-) -> dict:
-    """Propose a custom time — needs both date + time, guild must allow custom requests."""
-    from membership import orientations
-    from membership.models import OrientationError
-
-    if not settings_obj.allow_custom_requests:
-        return _slot_disambiguation(
-            guild, settings_obj, guild_url, prefix=f"**{guild.name}** only takes posted times — pick one below. "
-        )
-    if not (date_opt and time_opt):
-        return reply(
-            f"I couldn't read that time — use both `date:` (YYYY-MM-DD) and `time:` (HH:MM).\n{guild_url}",
-            ephemeral=True,
-        )
-    # The slash command has no type picker (Discord option real estate), so a custom
-    # time defaults to the guild's FIRST active orientation type by sort order — the
-    # guild page is the surface for picking among several types (issue #282).
-    orientation_type = guild.first_active_orientation_type()
-    if orientation_type is None:
-        return reply(f"**{guild.name}** isn't taking orientation requests right now.\n{guild_url}", ephemeral=True)
-    try:
-        starts_at = orientations.parse_proposed_time(date_opt, time_opt)
-        orientations.request_custom_orientation(guild, member, starts_at, orientation_type=orientation_type, note=note)
-    except OrientationError as exc:
-        return reply(f"{exc}\n{guild_url}", ephemeral=True)
-    return _requested_reply(
-        guild, guild_url, f"Proposed: {format_local(starts_at)} — the guild lead will confirm a time."
-    )
-
 
 def _schedule_orientation(interaction: Interaction, member: Member | None) -> dict:
-    """Request an orientation: guard the guild + duplicates, then book a posted slot XOR a custom time.
+    """Point the member at the Orientations page, where every orientation is booked.
 
-    ``requires_link=True`` guarantees ``member`` is non-``None``; ``defer=True`` because this
-    fans out the request email + lead notifications. Exactly one path runs — a posted ``slot``
-    or a custom ``date`` + ``time``; both or neither shows the slot picker.
+    The command used to book from Discord, but that road skipped payment: a paid or
+    donation based type became a free request. Booking lives on the page, so the price,
+    the amount a member chooses and the checkout always apply.
     """
-    from membership.models import GuildOrientationSettings
-
-    member = cast("Member", member)  # requires_link=True: dispatch resolved a linked member before this runs
-    guild = resolve_command_guild(interaction)
-    if guild is None:
-        return guild_not_specified_reply()
-    guild_url = hub_url("hub_guild_detail", guild.slug)
-
-    settings_obj = GuildOrientationSettings.objects.filter(guild=guild).first()
-    if settings_obj is None or not settings_obj.is_accepting:
-        return reply(f"**{guild.name}** isn't taking orientation requests right now.\n{guild_url}", ephemeral=True)
-    # Both guards stay deliberately guild-coarse (issue #282): the slash command is the
-    # simple surface. Booking a second orientation TYPE at a guild you're already
-    # oriented for (or booked at) happens on the guild page, which is per-type.
-    if member.is_oriented_for(guild):
-        return reply(f"You're already oriented for **{guild.name}**. 🎉\n{guild_url}", ephemeral=True)
-    if member.active_orientation_for(guild) is not None:
-        return reply(
-            f"You already have an orientation request in for **{guild.name}** — the lead will confirm it.\nSee {guild_url}",
-            ephemeral=True,
-        )
-    slot_opt = option_value(interaction, "slot")
-    date_opt = option_value(interaction, "date")
-    time_opt = option_value(interaction, "time")
-    note = option_value(interaction, "note") or ""
-
-    has_slot = bool(slot_opt)
-    has_custom = bool(date_opt) or bool(time_opt)
-    if has_slot == has_custom:  # both given or neither → show the picker
-        return _slot_disambiguation(guild, settings_obj, guild_url)
-    if slot_opt:  # truthiness (not has_slot) so the str | None narrows for _book_posted_slot
-        return _book_posted_slot(guild, member, slot_opt, note, settings_obj, guild_url)
-    return _book_custom(guild, member, date_opt, time_opt, note, settings_obj, guild_url)
-
-
-# The non-guild options for /schedule-orientation (static); the guild dropdown is prepended
-# at registration time by _schedule_options() so its choices reflect the live guild list.
-_SCHEDULE_EXTRA_OPTIONS: list[dict] = [
-    {
-        "name": "slot",
-        "description": "A posted time's number (run with no options to see the list).",
-        "type": 3,
-        "required": False,
-    },
-    {
-        "name": "date",
-        "description": "Propose your own date, YYYY-MM-DD (needs a time too).",
-        "type": 3,
-        "required": False,
-    },
-    {
-        "name": "time",
-        "description": "Propose your own time, e.g. 17:30 or 5:30pm (needs a date too).",
-        "type": 3,
-        "required": False,
-    },
-    {
-        "name": "note",
-        "description": "Anything the orienter should know (optional).",
-        "type": 3,
-        "required": False,
-    },
-]
-
-
-def _schedule_options() -> list[dict]:
-    """The ``/schedule-orientation`` options — the guild dropdown, then slot/date/time/note."""
-    return [_guild_dropdown_option(), *_SCHEDULE_EXTRA_OPTIONS]
+    return reply(f"Book an orientation on the Orientations page: {hub_url('hub_orientations')}", ephemeral=True)
 
 
 SCHEDULE_ORIENTATION = SlashCommand(
     name="schedule-orientation",
-    description="Request an orientation for a guild.",
+    description="Find and book an orientation on the members site.",
     handler=_schedule_orientation,
-    options_builder=_schedule_options,
-    requires_link=True,
+    requires_link=False,
     ephemeral=True,
-    defer=True,
+    defer=False,
     scope="guild",
 )
 

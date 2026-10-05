@@ -15,7 +15,6 @@ from django.urls import reverse
 
 import membership.models
 from hub.forms import GuildOrientationSettingsForm, OrientationCustomRequestForm, OrientationTypeForm
-from membership.discord_commands import _slot_disambiguation
 from membership.models import GuildOrientationSettings, Member, OrientationBooking, OrientationType
 from tests.membership.factories import (
     EquipmentFactory,
@@ -236,17 +235,3 @@ def describe_the_custom_request_form():
 
     def it_has_no_types_without_a_guild():
         assert OrientationCustomRequestForm().has_types is False
-
-
-def describe_the_slash_command_picker():
-    def it_lists_every_bookable_slot():
-        settings_obj = GuildOrientationSettingsFactory()
-        lathe = OrientationTypeFactory(guild=settings_obj.guild, name="Lathe")
-        basics = OrientationTypeFactory(guild=settings_obj.guild, name="Shop Basics", sort_order=1)
-        first = OrientationSlotFactory(guild=settings_obj.guild, orientation_type=lathe)
-        second = OrientationSlotFactory(guild=settings_obj.guild, orientation_type=basics)
-        content = _slot_disambiguation(settings_obj.guild, settings_obj, "https://example.test/g")["data"]["content"]
-        assert f"`{first.pk}`" in content
-        assert f"`{second.pk}`" in content
-        assert "Lathe" in content
-        assert "Shop Basics" in content
