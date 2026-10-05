@@ -221,6 +221,12 @@ urlpatterns = [
     path("orientations/manage/", views.orientations_dashboard, name="hub_orientations_dashboard"),
     path("orientations/manage/export/", views.orientations_export, name="hub_orientations_export"),
     path("orientations/manage/add-member/", views.orientation_add_member, name="hub_orientation_add_member"),
+    path("orientations/manage/records/", orientations_views.hub_orientation_record, name="hub_orientation_record"),
+    path(
+        "orientations/manage/records/<int:pk>/remove/",
+        orientations_views.hub_orientation_record_remove,
+        name="hub_orientation_record_remove",
+    ),
     path(
         "orientations/manage/bookings/<int:booking_pk>/toggle-completed/",
         views.orientation_toggle_completed,

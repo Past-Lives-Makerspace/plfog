@@ -1,0 +1,26 @@
+{% comment %}
+The Bookings tab's Record Orientation modal body (#630): the admin member edit flow's
+OrientationRecordForm with a Member picker, for an orientation done outside the app. Both
+pickers are text inputs over a datalist, matched exactly. Context: record_form (built with
+member=None and the viewer's types) and record_next (the tab's Oriented list).
+{% endcomment %}
+<form method="post" action="{% url 'hub_orientation_record' %}" class="hub-form pl-bookings-record" data-bookings-record-form>
+  {% csrf_token %}
+  <input type="hidden" name="next" value="{{ record_next }}">
+  <p class="hub-text-muted pl-bookings-record__intro">For an orientation done outside the app. Nothing is emailed or posted.</p>
+  {% include "components/form_field.html" with field=record_form.member field_hint="Start typing and pick from the list." %}
+  <datalist id="orientation-record-member-options">
+    {% for label in record_form.member_options %}<option value="{{ label }}"></option>{% endfor %}
+  </datalist>
+  {% include "components/form_field.html" with field=record_form.orientation field_hint="Only the orientations you run. Retired ones sit at the end." %}
+  <datalist id="orientation-type-options">
+    {% for label in record_form.type_options %}<option value="{{ label }}"></option>{% endfor %}
+  </datalist>
+  {% include "components/form_field.html" with field=record_form.completed_on %}
+  {% include "components/form_field.html" with field=record_form.oriented_by %}
+  {% include "components/form_field.html" with field=record_form.note %}
+  <div class="pl-modal__actions">
+    <button type="button" class="pl-btn pl-btn--secondary" @click="$dispatch('close-modal', 'orientation-record')">Cancel</button>
+    <button type="submit" class="pl-btn pl-btn--primary">Record Orientation</button>
+  </div>
+</form>

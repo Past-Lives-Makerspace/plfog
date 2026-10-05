@@ -4,8 +4,8 @@ A member who runs nothing sees only their own bookings and their own hand record
 orientations, with the self service actions the cards already offer. A viewer who runs some
 orientation (:func:`membership.permissions.manages_orientations`) sees the staff view: every
 booking they may run (:func:`membership.permissions.manageable_orientation_bookings`, the
-queryset form of the action gate) plus their own, with filters, the CSV export, Add Member
-and a "..." menu per row. A row's staff menu shows only on a booking in the managed scope;
+queryset form of the action gate) plus their own, with filters, the CSV export, Add Member,
+Record Orientation (#630) and a "..." menu per row. A row's staff menu shows only on a booking in the managed scope;
 the viewer's own booking elsewhere gets the member menu.
 
 The tab replaced the old staff dashboard at ``/orientations/manage/``, which listed every
@@ -27,11 +27,12 @@ from django.utils import timezone
 
 from classes.table import prepare_table, table_search
 from hub.bookings_tab import date_param, late_fee_of, pane_query
-from membership.models import Guild, Member, OrientationBooking, OrientationRecord
+from membership.models import Guild, Member, OrientationBooking, OrientationRecord, OrientationType
 from membership.permissions import (
     is_effective_staff,
     manageable_orientation_bookings,
     manageable_orientation_records,
+    manageable_orientation_types,
     manages_orientations,
 )
 
@@ -298,6 +299,24 @@ def _recorded(
     return list(records)
 
 
+def _removable_record_ids(request: HttpRequest, records: list[OrientationRecord] | None) -> set[int]:
+    """The listed records whose type the viewer runs: the rows that get Remove Record (#630).
+
+    The list scope (a preview honoured), like a booking row's staff menu; the remove view's
+    own gate is the action scope, so the item never shows where the endpoint would refuse.
+    """
+    if not records:
+        return set()
+    runnable = set(
+        manageable_orientation_types(
+            request,
+            OrientationType.objects.filter(pk__in={r.orientation_type_id for r in records}),
+            honour_preview=True,
+        ).values_list("pk", flat=True)
+    )
+    return {r.pk for r in records if r.orientation_type_id in runnable}
+
+
 def _scope_guilds(request: HttpRequest, member: Member | None) -> list[Guild]:
     """The Guild filter's options: every active guild for an admin or officer, else the viewer's own."""
     if is_effective_staff(request):
@@ -310,9 +329,13 @@ def _scope_guilds(request: HttpRequest, member: Member | None) -> list[Guild]:
 
 
 def _staff_extras(request: HttpRequest, member: Member | None) -> dict[str, Any]:
-    """What sits above the staff table: the hours nudge and Add Member (the old dashboard's extras)."""
+    """What sits above the staff table: the hours nudge, Add Member and Record Orientation.
+
+    Record Orientation (#630) offers the types the viewer runs as the tab lists them (a preview
+    honoured); its view re-reads the action scope. A viewer who runs no type gets no button.
+    """
     from classes.templatetags.classes_tags import cents_as_price
-    from hub.forms import OrientationAddMemberForm
+    from hub.forms import OrientationAddMemberForm, OrientationRecordForm
     from hub.views import _manageable_slots
     from membership.models import OrientationAvailability
 
@@ -337,7 +360,17 @@ def _staff_extras(request: HttpRequest, member: Member | None) -> dict[str, Any]
         for slot in slots
         if slot.orientation_type.is_paid
     }
+    record_form = OrientationRecordForm(
+        None,
+        type_queryset=manageable_orientation_types(request, OrientationType.objects.all(), honour_preview=True),
+        initial={"oriented_by": member},
+        # Its own ids: the Add Member form beside it has a "member" field too.
+        auto_id="orientation-record-%s",
+    )
     return {
+        "record_form": record_form if record_form.type_options else None,
+        # Lands on the Oriented list, where the new record shows.
+        "record_next": f"{reverse('hub_orientations')}?view=bookings&oriented=yes",
         "hours_nudge_guilds": hours_nudge_guilds,
         "add_member_form": OrientationAddMemberForm(slot_queryset=_manageable_slots(request)) if slots else None,
         "paid_slot_prices_json": json.dumps(paid_slot_prices),
@@ -400,6 +433,8 @@ def bookings_pane_context(request: HttpRequest, *, body_only: bool = False) -> d
         for b in bookings
     ]
 
+    recorded = _recorded(request, member, is_staff_view=is_staff_view, show=show)
+
     # The pane's own params, so every link and form keeps them and nothing from the List pane.
     params = {key: request.GET.get(key, "").strip() for key in PANE_KEYS}
     params["search"] = table["q"]
@@ -429,7 +464,8 @@ def bookings_pane_context(request: HttpRequest, *, body_only: bool = False) -> d
         "guild_options": _scope_guilds(request, member) if is_staff_view else [],
         "statuses": OrientationBooking.Status.choices,
         "export_query": pane_query(params),
-        "recorded_orientations": _recorded(request, member, is_staff_view=is_staff_view, show=show),
+        "recorded_orientations": recorded,
+        "removable_record_ids": _removable_record_ids(request, recorded) if is_staff_view else set(),
         "viewer_has_refund_authority": refund_authority,
         "viewer_is_admin": actual_admin,
         "bookings_next": f"{reverse('hub_orientations')}?{page_query}",

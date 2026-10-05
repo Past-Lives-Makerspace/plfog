@@ -1,0 +1,7 @@
+bump = "minor"
+date = "2026-10-05"
+title = "Guild staff can record an orientation"
+changes = [
+  "Guild leads, guild staff and equipment managers can mark a member as oriented from the Orientations page. On the Bookings tab, + Record Orientation saves an orientation that happened outside the app, so the member can reserve the equipment right away without booking one.",
+  "Recorded orientations are listed on the same tab, and whoever runs that orientation can remove a record from its menu.",
+]

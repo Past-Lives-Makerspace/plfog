@@ -23,9 +23,10 @@ and closes the modal.
     </p>
   </div>
   {% endif %}
-  {% if add_member_form %}
+  {% if add_member_form or record_form %}
   <div class="pl-bookings__top">
-    <button type="button" class="hub-btn hub-btn--sm hub-btn--primary" data-bookings-add-member @click="$dispatch('open-modal', 'orientation-add-member')">+ Add Member</button>
+    {% if add_member_form %}<button type="button" class="hub-btn hub-btn--sm hub-btn--primary" data-bookings-add-member @click="$dispatch('open-modal', 'orientation-add-member')">+ Add Member</button>{% endif %}
+    {% if record_form %}<button type="button" class="hub-btn hub-btn--sm hub-btn--primary" data-bookings-record @click="$dispatch('open-modal', 'orientation-record')">+ Record Orientation</button>{% endif %}
   </div>
   {% endif %}
   {% endif %}
@@ -179,9 +180,9 @@ and closes the modal.
     {% endif %}
 
     {% if recorded_orientations is not None %}
-    {# Hand recorded orientations (#465): no slot, no status, nothing to act on. #}
+    {# Hand recorded orientations (#465, #630): no slot, no status; Remove Record where the viewer runs the type. #}
     <div class="pl-orient-records">
-      <h2 class="hub-detail-label pl-orient-records__heading">Recorded by an Admin</h2>
+      <h2 class="hub-detail-label pl-orient-records__heading">Recorded Orientations</h2>
       {% if is_staff_view %}
       <table class="pl-members-table pl-bookings-table">
         <thead>
@@ -191,6 +192,7 @@ and closes the modal.
             <th scope="col">Orientation</th>
             <th scope="col">Oriented By</th>
             <th scope="col">Recorded By</th>
+            <th scope="col"><span class="sr-only">Actions</span></th>
           </tr>
         </thead>
         <tbody>
@@ -205,12 +207,27 @@ and closes the modal.
             </td>
             <td data-label="Oriented By">{% if r.oriented_by %}{{ r.oriented_by.display_name }}{% else %}Not recorded{% endif %}</td>
             <td data-label="Recorded By">{{ r.recorded_by_name }}</td>
+            <td class="pl-bookings-table__actions">
+              {% if r.pk in removable_record_ids %}
+              {% with menu_label="Actions for "|add:r.member.display_name|add:" "|add:r.orientation_type.name %}
+              {% include "components/row_actions.html" with menu_include="hub/partials/orientation_record_row_menu.html" menu_label=menu_label %}
+              {% endwith %}
+              {% endif %}
+            </td>
           </tr>
         {% empty %}
-          <tr><td colspan="5" class="pl-orient-records__empty">No orientations recorded by an admin.</td></tr>
+          <tr><td colspan="6" class="pl-orient-records__empty">No orientations recorded yet.</td></tr>
         {% endfor %}
         </tbody>
       </table>
+      {% for r in recorded_orientations %}
+      {% if r.pk in removable_record_ids %}
+      {% url 'hub_orientation_record_remove' r.pk as remove_url %}
+      {% with remove_message=r.member.display_name|add:" will need the "|add:r.orientation_type.name|add:" orientation again before they can book what it unlocks." record_pk=r.pk|stringformat:"s" %}
+      {% include "components/confirm_modal.html" with confirm_id="record-remove-"|add:record_pk confirm_title="Remove This Record?" confirm_message=remove_message confirm_action_url=remove_url confirm_next=bookings_next confirm_button_text="Remove Record" %}
+      {% endwith %}
+      {% endif %}
+      {% endfor %}
       {% else %}
       <ul class="pl-bookings-records">
         {% for r in recorded_orientations %}
@@ -226,6 +243,9 @@ and closes the modal.
 
   {% if is_staff_view and add_member_form %}
   {% include "components/modal.html" with modal_id="orientation-add-member" modal_title="Add a Member" modal_size="md" modal_body_include="hub/partials/orientation_add_member_form.html" %}
+  {% endif %}
+  {% if is_staff_view and record_form %}
+  {% include "components/modal.html" with modal_id="orientation-record" modal_title="Record an Orientation" modal_size="md" modal_body_include="hub/partials/orientation_record_form.html" %}
   {% endif %}
   {% if viewer_has_refund_authority %}
   {% include "components/modal.html" with modal_id="refund-modal" modal_title="Refund Payment" modal_size="sm" %}

@@ -1,4 +1,4 @@
-"""The Orientations page (#502 part 2) and the per type photo delete endpoint.
+"""The Orientations page (#502 part 2), the per type photo delete endpoint and Record Orientation (#630).
 
 ``/orientations/`` lists every orientation a member can sign up for, guild owned and
 equipment owned, as cards: a photo, the owner, the next three times, and the member's
@@ -12,9 +12,10 @@ the request helpers are imported from it.
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, cast
 
 from django.contrib import messages
+from django.contrib.auth.models import User
 from django.contrib.auth.decorators import login_required
 from django.http import HttpRequest, HttpResponse
 from django.shortcuts import get_object_or_404, redirect, render
@@ -22,16 +23,26 @@ from django.urls import reverse
 from django.views.decorators.http import require_POST
 
 from hub.calendar_pages import calendar_nav_params, orientations_calendar_context
-from hub.forms import OrientationCustomRequestForm
+from hub.forms import OrientationCustomRequestForm, OrientationRecordForm
 from hub.orientation_bookings import bookings_pane_context
 from hub.views import (
     _get_hub_context,
     _get_member,
+    _orientation_bookings_tab,
     _orientation_sections,
     _require_can_manage_orientations,
+    _require_can_run_orientation_type,
+    _safe_next,
 )
-from membership.models import Guild, Member, OrientationAvailabilityBlock, OrientationSlot, OrientationType
-from membership.permissions import can_manage_equipment
+from membership.models import (
+    Guild,
+    Member,
+    OrientationAvailabilityBlock,
+    OrientationRecord,
+    OrientationSlot,
+    OrientationType,
+)
+from membership.permissions import can_manage_equipment, manageable_orientation_types, manages_orientations
 
 #: How many times a card lists before it says "More times" (the owner page lists them all).
 CARD_TIME_CAP = 3
@@ -272,3 +283,49 @@ def hub_orientation_type_photo_delete(request: HttpRequest, pk: int) -> HttpResp
         orientation_type.photo.delete(save=True)
         messages.success(request, "Photo removed.")
     return redirect(back)
+
+
+@login_required
+@require_POST
+def hub_orientation_record(request: HttpRequest) -> HttpResponse:
+    """POST only: Record Orientation on the Bookings tab (#630), for an orientation done outside the app.
+
+    The admin member edit flow's form with a member picker, offering only the types the viewer
+    runs (:func:`membership.permissions.manageable_orientation_types`, the action scope), so a
+    crafted POST naming another owner's type fails the form and writes nothing. Silent like the
+    admin flow: no email, no Discord, one activity row with the viewer as actor. A refused form
+    lands back on the tab with the reasons as messages.
+    """
+    if not manages_orientations(request):
+        return HttpResponse("Forbidden", status=403)
+    back = _safe_next(request, _orientation_bookings_tab())
+    form = OrientationRecordForm(
+        None, request.POST, type_queryset=manageable_orientation_types(request, OrientationType.objects.all())
+    )
+    if not form.is_valid():
+        for error in dict.fromkeys(str(message) for field_errors in form.errors.values() for message in field_errors):
+            messages.error(request, error)
+        return redirect(back)
+    record = form.save(recorded_by=cast(User, request.user))
+    messages.success(
+        request, f"Recorded the {record.orientation_type.name} orientation for {record.member.display_name}."
+    )
+    return redirect(back)
+
+
+@login_required
+@require_POST
+def hub_orientation_record_remove(request: HttpRequest, pk: int) -> HttpResponse:
+    """POST only: remove a hand recorded orientation from the Bookings tab (#630).
+
+    Whoever could have recorded it may remove it: the type's gate, as recording reads. The
+    member's access closes again at once. Silent like recording.
+    """
+    record = get_object_or_404(OrientationRecord.objects.with_related(), pk=pk)
+    forbidden = _require_can_run_orientation_type(request, record.orientation_type)
+    if forbidden is not None:
+        return forbidden
+    name, member_name = record.orientation_type.name, record.member.display_name
+    record.remove(removed_by=cast(User, request.user))
+    messages.success(request, f"Removed the {name} orientation record for {member_name}.")
+    return redirect(_safe_next(request, _orientation_bookings_tab()))

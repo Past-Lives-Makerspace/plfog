@@ -1534,6 +1534,8 @@ Need to orient someone who never booked? Click **+ Add Member** at the top of th
 
 ![Add Member puts someone into an upcoming orientation for you.](/static/help/running-orientations/04-add-member.png)
 
+Already oriented someone outside the app, in person or before the portal? Click **+ Record Orientation** at the top of the tab. Pick the member, the orientation (only ones you run), the date, and who ran it. They count as oriented right away, and nothing is emailed or posted. Recorded orientations list under the table when you set **Oriented** to Yes or pick **Past**; **Remove Record** in a row's **...** menu takes one back.
+
 ### Past Orientations Complete Themselves
 
 Every 15 minutes, a background job marks confirmed orientations complete once their time has passed. Completion sends your thank-you email (if you've set one up on the Orientations tab) and posts a welcome notice to the guild. If a no show got marked complete, the guild's lead, staff, or an admin can undo it with **Undo Oriented** in the row's **...** menu on the Bookings tab.""",

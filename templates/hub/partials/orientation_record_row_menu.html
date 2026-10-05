@@ -1,0 +1,2 @@
+{# The "..." menu on a recorded orientation the viewer runs (#630): its confirm sits under the records table. #}
+<button type="button" class="pl-row-menu__item pl-row-menu__item--danger" role="menuitem" @click="closeAndRefocus(); $dispatch('open-confirm', 'record-remove-{{ r.pk }}')">Remove Record</button>
