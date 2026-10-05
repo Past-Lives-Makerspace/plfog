@@ -5325,7 +5325,6 @@ class EquipmentForm(forms.ModelForm):
             "area",
             "location_note",
             "required_orientation",
-            "requires_guild_membership",
             "is_active",
         ]
         widgets = {
@@ -5434,8 +5433,9 @@ class EquipmentForm(forms.ModelForm):
         setup_location_field(
             self, hint="The area it sits in. A reservation shows the area in use on its guild page. Optional."
         )
-        self.fields["required_orientation"].help_text = "Members must complete this orientation before they can book."
-        self.fields["requires_guild_membership"].help_text = "Only members of the chosen guild can book."
+        self.fields[
+            "required_orientation"
+        ].help_text = "Members need this orientation before they can reserve this equipment."
         self.fields["is_active"].help_text = "Members can see and book this equipment. Turn off to retire it."
         self.fields["is_active"].label = "Active"
 
@@ -5456,8 +5456,6 @@ class EquipmentForm(forms.ModelForm):
     def clean(self) -> dict[str, Any]:
         cleaned: dict[str, Any] = super().clean() or {}
         guild = cleaned.get("guild")
-        if cleaned.get("requires_guild_membership") and guild is None:
-            self.add_error(None, "Pick a guild first, or turn this off.")
         orientation = cleaned.get("required_orientation")
         if guild is not None and orientation is not None and orientation.guild_id != guild.pk:
             # An equipment's OWN type is always a legal requirement, whatever the guild.

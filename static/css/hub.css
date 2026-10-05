@@ -9358,9 +9358,6 @@ mark { background: color-mix(in srgb, var(--color-tuscan-yellow) 30%, transparen
     justify-content: flex-end;
     margin-top: 1.5rem;
 }
-.pl-equip-guild-toggle {
-    display: block;
-}
 /* The guild-owned "Create a new ... orientation type" link tucks under the picker's hint. */
 .pl-equip-guild-type-link {
     margin-top: -0.5rem;

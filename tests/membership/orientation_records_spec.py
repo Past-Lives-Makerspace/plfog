@@ -301,20 +301,20 @@ def describe_gates_on_a_record_alone():
             member = MemberFactory()
             assert equipment.access_state(member) == Equipment.AccessState.NEEDS_ORIENTATION
             assert equipment.booking_blockers(member) == [
-                "You need the Lathe orientation before you can book time here."
+                "You need the Lathe orientation before you can reserve this equipment."
             ]
             OrientationRecordFactory(member=member, orientation_type=orientation_type)
             assert equipment.access_state(member) == Equipment.AccessState.OK
             assert equipment.booking_blockers(member) == []
             # The bulk (index page) path reads the same resolver.
             oriented = member.completed_orientation_type_ids()
-            assert equipment.access_state(member, oriented_type_ids=oriented, member_guild_ids=set()) == "ok"
+            assert equipment.access_state(member, oriented_type_ids=oriented) == "ok"
 
         def it_lets_the_member_reserve_after_a_record():
             equipment, orientation_type, day = _gated_tool()
             member = _linked_member("rec-reserver")
             starts_at = timezone.make_aware(datetime.combine(day, time(10, 0)))
-            with pytest.raises(Exception, match="Lathe orientation before you can book"):
+            with pytest.raises(Exception, match="Lathe orientation before you can reserve this equipment"):
                 equipment_service.reserve(equipment, member, starts_at, 60)
             OrientationRecordFactory(member=member, orientation_type=orientation_type)
             reservation = equipment_service.reserve(equipment, member, starts_at, 60)
