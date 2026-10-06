@@ -1,6 +1,9 @@
 {% comment %}
 Gallery image manager for class forms.
-On edit (has pk): AJAX uploads with instant save, drag-to-reorder, inline alt-text.
+On edit (has pk): AJAX uploads with instant save, drag-to-reorder, inline alt-text,
+a Cover badge on the first card (the cover IS sort_order first; CSS :first-child keeps the
+badge on whichever card leads after any reorder, upload or delete), a Make cover button on
+every other card, and a Set focus panel that posts the point the class page frame crops around.
 On create (no pk): multi-file input that submits with the form, with local previews.
 {% endcomment %}
 
@@ -32,7 +35,104 @@ On create (no pk): multi-file input that submits with the form, with local previ
     overflow: hidden;
     background: rgba(255,255,255,0.04);
 }
+.cls-image-thumb { position: relative; }
 .cls-image-thumb img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.cls-image-cover-badge {
+    display: none;
+    position: absolute;
+    top: 0.35rem;
+    left: 0.35rem;
+    padding: 0.1rem 0.5rem;
+    border-radius: 999px;
+    background: var(--color-tuscan-yellow, #EEB44B);
+    color: var(--color-navy, #092E4C);
+    font-size: 0.7rem;
+    font-weight: 700;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    box-shadow: 0 1px 4px rgba(0,0,0,0.35);
+}
+.cls-image-cell:first-child .cls-image-cover-badge { display: inline-block; }
+.cls-image-cell:first-child .cls-image-make-cover { display: none; }
+.cls-image-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.35rem;
+}
+.cls-image-hint {
+    font-size: 0.8rem;
+    color: var(--hub-text-muted);
+    margin: 0.25rem 0 0;
+}
+/* The Set focus panel borrows the modal's look; the backdrop is display:flex, so [hidden] needs saying. */
+.cls-focus-backdrop[hidden] { display: none; }
+.cls-focus__body { padding: 1rem 1.25rem 1.25rem; }
+.cls-focus__hint {
+    font-size: 0.85rem;
+    color: var(--hub-text-muted);
+    margin: 0 0 0.75rem;
+}
+.cls-focus__stage {
+    text-align: center;
+    background: var(--hub-surface, rgba(0,0,0,0.2));
+    border-radius: 8px;
+    padding: 0.5rem;
+}
+.cls-focus__picker {
+    position: relative;
+    display: inline-block;
+    max-width: 100%;
+    line-height: 0;
+    cursor: crosshair;
+    border-radius: 4px;
+    touch-action: manipulation;
+}
+.cls-focus__picker:focus-visible { outline: 2px solid var(--hub-blue, #3d8bd4); outline-offset: 3px; }
+.cls-focus__photo {
+    display: block;
+    max-width: 100%;
+    max-height: min(45vh, 340px);
+    width: auto;
+    height: auto;
+    user-select: none;
+    -webkit-user-drag: none;
+}
+.cls-focus__marker {
+    position: absolute;
+    width: 22px;
+    height: 22px;
+    border-radius: 50%;
+    border: 3px solid #fff;
+    background: rgba(238,180,75,0.85);
+    box-shadow: 0 0 0 2px rgba(0,0,0,0.55), 0 2px 8px rgba(0,0,0,0.5);
+    transform: translate(-50%, -50%);
+    pointer-events: none;
+}
+.cls-focus__readout {
+    font-size: 0.8rem;
+    color: var(--hub-text-muted);
+    margin: 0.4rem 0 0;
+}
+/* Photo over preview on a phone; side by side from a small tablet up, so Save stays on screen on a laptop. */
+.cls-focus__layout { display: grid; gap: 0.75rem; }
+@media (min-width: 640px) {
+    .cls-focus__layout { grid-template-columns: 3fr 2fr; align-items: start; }
+}
+.cls-focus__preview-label {
+    display: block;
+    font-size: 0.75rem;
+    font-weight: 600;
+    color: var(--hub-text-muted);
+    margin-bottom: 0.3rem;
+}
+.cls-focus__preview {
+    aspect-ratio: 16 / 9;
+    border-radius: 6px;
+    overflow: hidden;
+    background: rgba(255,255,255,0.04);
+}
+.cls-focus__preview img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.cls-focus__actions { flex-wrap: wrap; margin-top: 1rem; }
 .cls-image-fields {
     display: flex;
     gap: 0.35rem;
@@ -40,6 +140,7 @@ On create (no pk): multi-file input that submits with the form, with local previ
 }
 .cls-image-alt {
     flex: 1;
+    min-width: 0;
     padding: 0.3rem 0.5rem;
     font-size: 0.8rem;
     border: 1px solid var(--hub-border);
@@ -121,15 +222,22 @@ On create (no pk): multi-file input that submits with the form, with local previ
      data-image-url-base="{{ gallery_image_url_base }}"
      data-csrf="{{ csrf_token }}">
 
-    <div id="gallery-grid" class="cls-image-grid">
+    <p class="cls-image-hint" id="gallery-cover-hint">The cover leads the gallery on your class page. Drag to reorder, or use Make cover.</p>
+    {# addImageCard() below builds the same card for an upload; change one, change both. #}
+    <div id="gallery-grid" class="cls-image-grid" aria-describedby="gallery-cover-hint">
         {% for img in offering.gallery_images.all %}
-        <div class="cls-image-cell has-image" draggable="true" data-id="{{ img.pk }}">
+        <div class="cls-image-cell has-image" draggable="true" data-id="{{ img.pk }}" data-position="{{ img.object_position }}">
             <div class="cls-image-thumb">
-                <img src="{{ img.image.url }}" alt="{{ img.alt_text|default:'' }}">
+                <img src="{{ img.image.url }}" alt="{{ img.alt_text|default:'' }}" style="object-position: {{ img.object_position }}">
+                <span class="cls-image-cover-badge">Cover</span>
             </div>
             <div class="cls-image-fields">
                 <input type="text" class="cls-image-alt" value="{{ img.alt_text }}" placeholder="Alt text (optional)" data-id="{{ img.pk }}">
                 <button type="button" class="cls-image-remove" data-id="{{ img.pk }}" title="Remove image">&times;</button>
+            </div>
+            <div class="cls-image-actions">
+                <button type="button" class="pl-btn pl-btn--sm pl-btn--ghost cls-image-make-cover">Make cover</button>
+                <button type="button" class="pl-btn pl-btn--sm pl-btn--ghost cls-image-set-focus">Set focus</button>
             </div>
             <div class="cls-image-drag-handle" title="Drag to reorder">&#x2807;</div>
         </div>
@@ -143,6 +251,37 @@ On create (no pk): multi-file input that submits with the form, with local previ
         <span class="cls-image-upload-label">+ Add image</span>
         <span class="cls-image-upload-hint">Click or drag a file here</span>
     </label>
+
+    {# One Set focus panel for every card: openFocus() points it at the card whose button opened it. #}
+    <div class="pl-modal-backdrop cls-focus-backdrop" id="gallery-focus" hidden role="dialog" aria-modal="true" aria-labelledby="gallery-focus-title">
+        <div class="pl-modal pl-modal--lg cls-focus">
+            <div class="pl-modal__header">
+                <h2 class="pl-modal__title" id="gallery-focus-title">Set focus</h2>
+                <button type="button" class="pl-modal__close" data-focus-cancel aria-label="Close">&times;</button>
+            </div>
+            <div class="cls-focus__body">
+                <p class="cls-focus__hint" id="gallery-focus-hint">Tap the part of the photo that matters most. The frame on your class page keeps that part in view. Arrow keys move the point too.</p>
+                <div class="cls-focus__layout">
+                    <div class="cls-focus__stage">
+                        <div class="cls-focus__picker" id="gallery-focus-picker" tabindex="0" role="group" aria-label="Photo" aria-describedby="gallery-focus-hint gallery-focus-readout">
+                            <img class="cls-focus__photo" id="gallery-focus-photo" src="" alt="" draggable="false">
+                            <span class="cls-focus__marker" id="gallery-focus-marker"></span>
+                        </div>
+                    </div>
+                    <div>
+                        <span class="cls-focus__preview-label">On your class page</span>
+                        <div class="cls-focus__preview"><img id="gallery-focus-preview" src="" alt=""></div>
+                        <p class="cls-focus__readout" id="gallery-focus-readout" aria-live="polite"></p>
+                    </div>
+                </div>
+                <div class="pl-modal__actions cls-focus__actions">
+                    <button type="button" class="pl-btn pl-btn--primary" data-focus-save>Save focus</button>
+                    <button type="button" class="pl-btn pl-btn--ghost" data-focus-reset>Reset</button>
+                    <button type="button" class="pl-btn pl-btn--secondary" data-focus-cancel>Cancel</button>
+                </div>
+            </div>
+        </div>
+    </div>
 </div>
 
 <script>
@@ -158,6 +297,7 @@ On create (no pk): multi-file input that submits with the form, with local previ
     const reorderUrl = manager.dataset.reorderUrl;
     const csrf = manager.dataset.csrf;
     const MAX_IMAGES = 10;
+    const CENTRE = '50% 50%';
 
     function updateCount() {
         const n = grid.children.length;
@@ -200,16 +340,25 @@ On create (no pk): multi-file input that submits with the form, with local previ
             });
     }
 
+    function toast(message, type) {
+        window.dispatchEvent(new CustomEvent('show-toast', { detail: { message, type } }));
+    }
+
     function addImageCard(data) {
         const card = document.createElement('div');
         card.className = 'cls-image-cell has-image';
         card.draggable = true;
         card.dataset.id = data.id;
+        card.dataset.position = CENTRE;
         card.innerHTML = `
-            <div class="cls-image-thumb"><img src="${data.url}" alt=""></div>
+            <div class="cls-image-thumb"><img src="${data.url}" alt="" style="object-position: ${CENTRE}"><span class="cls-image-cover-badge">Cover</span></div>
             <div class="cls-image-fields">
                 <input type="text" class="cls-image-alt" value="" placeholder="Alt text (optional)" data-id="${data.id}">
                 <button type="button" class="cls-image-remove" data-id="${data.id}" title="Remove image">&times;</button>
+            </div>
+            <div class="cls-image-actions">
+                <button type="button" class="pl-btn pl-btn--sm pl-btn--ghost cls-image-make-cover">Make cover</button>
+                <button type="button" class="pl-btn pl-btn--sm pl-btn--ghost cls-image-set-focus">Set focus</button>
             </div>
             <div class="cls-image-drag-handle" title="Drag to reorder">&#x2807;</div>`;
         grid.appendChild(card);
@@ -232,8 +381,111 @@ On create (no pk): multi-file input that submits with the form, with local previ
                 body: JSON.stringify({alt_text: this.value})
             });
         });
+        card.querySelector('.cls-image-make-cover').addEventListener('click', () => makeCover(card));
+        card.querySelector('.cls-image-set-focus').addEventListener('click', function() { openFocus(card, this); });
         bindDrag(card);
     }
+
+    // --- Cover: the first card leads the class page gallery ---
+    function makeCover(card) {
+        const before = [...grid.children];
+        grid.prepend(card);
+        // The Make cover button hides on the first card, so the keyboard lands on its neighbour.
+        card.querySelector('.cls-image-set-focus').focus();
+        saveOrder().then(ok => {
+            if (ok) { toast('Cover photo updated.', 'success'); return; }
+            before.forEach(c => grid.appendChild(c));
+            toast('Could not update the cover. Try again.', 'error');
+        });
+    }
+
+    // --- Focus: where the 16:9 class page frame crops each photo ---
+    const panel = document.getElementById('gallery-focus');
+    const picker = document.getElementById('gallery-focus-picker');
+    const photo = document.getElementById('gallery-focus-photo');
+    const marker = document.getElementById('gallery-focus-marker');
+    const preview = document.getElementById('gallery-focus-preview');
+    const readout = document.getElementById('gallery-focus-readout');
+    let focusCard = null;
+    let focusOpener = null;
+    let point = { x: 50, y: 50 };
+
+    function clampPercent(n) { return Math.min(100, Math.max(0, Math.round(n))); }
+
+    function parsePosition(value) {
+        const parts = String(value || CENTRE).trim().split(/\s+/).map(parseFloat);
+        return { x: clampPercent(isNaN(parts[0]) ? 50 : parts[0]), y: clampPercent(isNaN(parts[1]) ? 50 : parts[1]) };
+    }
+
+    function showPoint() {
+        marker.style.left = `${point.x}%`;
+        marker.style.top = `${point.y}%`;
+        preview.style.objectPosition = `${point.x}% ${point.y}%`;
+        readout.textContent = `Focus: ${point.x}% across, ${point.y}% down`;
+    }
+
+    function openFocus(card, opener) {
+        focusCard = card;
+        focusOpener = opener;
+        const src = card.querySelector('.cls-image-thumb img').src;
+        photo.src = src;
+        preview.src = src;
+        point = parsePosition(card.dataset.position);
+        showPoint();
+        panel.hidden = false;
+        picker.focus();
+    }
+
+    function closeFocus() {
+        panel.hidden = true;
+        const opener = focusOpener;
+        focusCard = null;
+        focusOpener = null;
+        if (opener && opener.isConnected) opener.focus();
+    }
+
+    picker.addEventListener('click', e => {
+        const box = photo.getBoundingClientRect();
+        if (!box.width || !box.height) return;
+        point = {
+            x: clampPercent((e.clientX - box.left) / box.width * 100),
+            y: clampPercent((e.clientY - box.top) / box.height * 100),
+        };
+        showPoint();
+    });
+
+    const ARROWS = { ArrowLeft: [-1, 0], ArrowRight: [1, 0], ArrowUp: [0, -1], ArrowDown: [0, 1] };
+    picker.addEventListener('keydown', e => {
+        const move = ARROWS[e.key];
+        if (!move) return;
+        e.preventDefault();
+        const step = e.shiftKey ? 1 : 5;
+        point = { x: clampPercent(point.x + move[0] * step), y: clampPercent(point.y + move[1] * step) };
+        showPoint();
+    });
+
+    function postFocus(body, message) {
+        const card = focusCard;
+        fetch(`${imageUrlBase}${card.dataset.id}/focus/`, {
+            method: 'POST',
+            headers: {'X-CSRFToken': csrf, 'Content-Type': 'application/json'},
+            body: JSON.stringify(body)
+        })
+            .then(r => r.ok ? r.json() : Promise.reject(r))
+            .then(data => {
+                card.dataset.position = data.position;
+                card.querySelector('.cls-image-thumb img').style.objectPosition = data.position;
+                toast(message, 'success');
+                closeFocus();
+            })
+            .catch(() => toast('Could not save the focus. Try again.', 'error'));
+    }
+
+    panel.querySelector('[data-focus-save]').addEventListener('click', () => postFocus({ x: point.x, y: point.y }, 'Focus saved.'));
+    panel.querySelector('[data-focus-reset]').addEventListener('click', () => postFocus({ x: null, y: null }, 'Focus reset to the centre.'));
+    panel.querySelectorAll('[data-focus-cancel]').forEach(b => b.addEventListener('click', closeFocus));
+    panel.addEventListener('click', e => { if (e.target === panel) closeFocus(); });
+    panel.addEventListener('keydown', e => { if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); closeFocus(); } });
 
     // --- Drag & drop reorder ---
     let dragSrc = null;
@@ -255,13 +507,14 @@ On create (no pk): multi-file input that submits with the form, with local previ
         });
     }
 
+    // Resolves true when the server took the order, false otherwise; Make cover rolls back on false.
     function saveOrder() {
-        const order = [...grid.querySelectorAll('[data-id]')].map(c => parseInt(c.dataset.id));
-        fetch(reorderUrl, {
+        const order = [...grid.querySelectorAll('.cls-image-cell')].map(c => parseInt(c.dataset.id));
+        return fetch(reorderUrl, {
             method: 'POST',
             headers: {'X-CSRFToken': csrf, 'Content-Type': 'application/json'},
             body: JSON.stringify({order})
-        });
+        }).then(r => r.ok).catch(() => false);
     }
 
     // Bind existing cards

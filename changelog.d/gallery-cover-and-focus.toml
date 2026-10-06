@@ -1,0 +1,7 @@
+bump = "minor"
+date = "2026-10-05"
+title = "Instructors pick the cover photo and framing for their class gallery"
+changes = [
+  "In the class composer, each gallery photo has a Make cover button. The cover is the photo your class page gallery opens on.",
+  "Set focus lets you tap the part of a photo that matters, so the gallery frame and its small previews keep that part in view instead of cropping from the middle.",
+]

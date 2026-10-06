@@ -2615,15 +2615,16 @@ class ClassOffering(HeroCropMixin, models.Model):
         Combines the hero (offering.image) with the gallery_images rows. When
         no images at all are uploaded, falls back to the category hero so the
         detail page never renders an empty hero. Each entry is ``{"url": str,
-        "alt": str}`` so the template doesn't need to know whether a row came
-        from a ClassImage or the ClassOffering itself.
+        "alt": str, "position": str}`` so the template doesn't need to know whether a
+        row came from a ClassImage or the ClassOffering itself; ``position`` is the CSS
+        ``object-position`` the gallery frame crops it around.
         """
         items: list[dict] = []
         if self.image:
-            items.append({"url": self.image.url, "alt": self.title})
+            items.append({"url": self.image.url, "alt": self.title, "position": self.hero_object_position})
         items.extend(self.gallery_display_images)
         if not items and self.category and self.category.hero_image:
-            items.append({"url": self.category.hero_image.url, "alt": self.category.name})
+            items.append({"url": self.category.hero_image.url, "alt": self.category.name, "position": "50% 50%"})
         return items
 
     @property
@@ -2632,9 +2633,13 @@ class ClassOffering(HeroCropMixin, models.Model):
 
         Feeds the gallery block above the public detail page's booking card, which
         should render nothing at all when the class has no gallery shots of its own
-        (the hero already leads the page).
+        (the hero already leads the page). The first row is the cover: the instructor's
+        Make cover button moves a photo to the front of ``sort_order``.
         """
-        return [{"url": gi.image.url, "alt": gi.alt_text or self.title} for gi in self.gallery_images.all()]
+        return [
+            {"url": gi.image.url, "alt": gi.alt_text or self.title, "position": gi.object_position}
+            for gi in self.gallery_images.all()
+        ]
 
     @property
     def display_faqs(self) -> list[dict]:
@@ -3193,7 +3198,12 @@ class ClassOffering(HeroCropMixin, models.Model):
         """
         ClassImage.objects.bulk_create(
             ClassImage(
-                class_offering=self, image=image.image.name, alt_text=image.alt_text, sort_order=image.sort_order
+                class_offering=self,
+                image=image.image.name,
+                alt_text=image.alt_text,
+                sort_order=image.sort_order,
+                focus_x=image.focus_x,
+                focus_y=image.focus_y,
             )
             for image in ClassImage.objects.filter(class_offering_id=source_pk).order_by("sort_order", "created_at")
         )
@@ -3456,6 +3466,20 @@ class ClassImage(models.Model):
             "The nightly gallery import skips a file its class already holds under this URL."
         ),
     )
+    # Where the 16:9 gallery frame and its thumbnail crop this photo. Null on both is the
+    # centre, which is what every photo had before the instructor could choose.
+    focus_x = models.PositiveSmallIntegerField(
+        null=True,
+        blank=True,
+        validators=[MaxValueValidator(100)],
+        help_text="Horizontal focal point for the gallery frame, 0 to 100. Null is the centre.",
+    )
+    focus_y = models.PositiveSmallIntegerField(
+        null=True,
+        blank=True,
+        validators=[MaxValueValidator(100)],
+        help_text="Vertical focal point for the gallery frame, 0 to 100. Null is the centre.",
+    )
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:
@@ -3470,6 +3494,22 @@ class ClassImage(models.Model):
 
     def __str__(self) -> str:
         return f"Image #{self.pk} for {self.class_offering.title}"
+
+    @property
+    def object_position(self) -> str:
+        """CSS ``object-position`` for the gallery frame and its thumbnail: the focal point, or the centre."""
+        if self.focus_x is None or self.focus_y is None:
+            return "50% 50%"
+        return f"{self.focus_x}% {self.focus_y}%"
+
+    def set_focus(self, point: tuple[int, int] | None) -> None:
+        """Store the focal point the composer's Set focus tool chose, or clear it back to the centre.
+
+        Args:
+            point: ``(x, y)`` percentages, already checked to lie in 0 to 100, or None to reset.
+        """
+        self.focus_x, self.focus_y = point if point is not None else (None, None)
+        self.save(update_fields=["focus_x", "focus_y"])
 
     def clean(self) -> None:
         from django.core.exceptions import ValidationError

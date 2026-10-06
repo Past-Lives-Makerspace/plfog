@@ -83,6 +83,17 @@ def describe_what_a_copy_carries():
         ]
 
     @pytest.mark.parametrize("path", CLONE_PATHS)
+    def it_carries_each_photos_focus(db, path):
+        source = ClassOfferingFactory(title="Jewelry 101", slug="jw-101", gallery=0, ready=True)
+        ClassImageFactory(class_offering=source, sort_order=0, alt_text="Pendant", focus_x=12, focus_y=88)
+        ClassImageFactory(class_offering=source, sort_order=1, alt_text="Bench")
+        copy = _clone(source, path)
+        assert list(copy.gallery_images.values_list("alt_text", "focus_x", "focus_y")) == [
+            ("Pendant", 12, 88),
+            ("Bench", None, None),
+        ]
+
+    @pytest.mark.parametrize("path", CLONE_PATHS)
     def it_points_the_copied_photos_at_the_same_stored_files(db, path):
         source = _source()
         keys_before = sorted(source.gallery_images.values_list("image", flat=True))

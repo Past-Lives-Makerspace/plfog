@@ -714,7 +714,10 @@ HELP_KEYS: dict[str, HelpKeyEntry] = {
     },
     "teach.class-gallery": {
         "title": "Class photos",
-        "short_text": "Add photos of the finished project and the space. Good images fill seats.",
+        "short_text": (
+            "Photos of the finished project fill seats. The first is the cover on your class page; Make cover picks it. "
+            "Set focus keeps the part that matters in frame."
+        ),
         "article_slug": None,
         "anchor": None,
     },
