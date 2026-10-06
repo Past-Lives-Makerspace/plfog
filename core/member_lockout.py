@@ -13,6 +13,7 @@ out"; each gate decides where that matters:
 The rule reads ``Member.status``, never ``User.is_active``:
 
 - FORMER is always locked out, staff and superusers included.
+- GUEST (an account made from a class booking, #654) is always locked out the same way.
 - SUSPENDED is locked out while ``SiteConfiguration.suspended_members_locked_out`` is on.
 - INVITED and ACTIVE are not, and neither is a user with no Member row.
 """
@@ -34,7 +35,7 @@ def lockout_reason(user: object) -> str | None:
         user: The user signing in or already signed in (anonymous users have no member).
 
     Returns:
-        ``Member.Status.FORMER`` or ``Member.Status.SUSPENDED`` when locked out, else None.
+        ``Member.Status.FORMER``, ``GUEST`` or ``SUSPENDED`` when locked out, else None.
     """
     # The reverse one-to-one accessor caches on the user, so the request's other readers of
     # ``request.user.member`` (MemberAgreementMiddleware, the hub views) reuse this lookup.
@@ -44,8 +45,8 @@ def lockout_reason(user: object) -> str | None:
 
     from membership.models import Member
 
-    if member.status == Member.Status.FORMER:
-        return str(Member.Status.FORMER)
+    if member.status in (Member.Status.FORMER, Member.Status.GUEST):
+        return str(member.status)
     if member.status == Member.Status.SUSPENDED:
         from core.models import SiteConfiguration
 
@@ -68,6 +69,7 @@ def lockout_message(reason: str) -> str:
 
     field_by_reason: dict[str, str] = {
         str(Member.Status.FORMER): "former_member_signin_message",
+        str(Member.Status.GUEST): "guest_member_signin_message",
         str(Member.Status.SUSPENDED): "suspended_member_signin_message",
     }
     if reason not in field_by_reason:

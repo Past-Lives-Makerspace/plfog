@@ -18,6 +18,10 @@ Design (see docs/superpowers/plans/2026-06-23-guest-account-creation-and-mailchi
 - **Fails closed.** Account creation must never block a booking confirmation, so
   every path swallows-and-logs rather than raising into the request/webhook.
 
+- **Guest, not member (#654).** A Member this flow mints gets ``Member.Status.GUEST``:
+  locked out of the members site, kept on the class site. A Member the email
+  already belongs to is linked and keeps its status.
+
 Reuses the existing signup plumbing: creating a ``User`` fires
 ``membership.signals.ensure_user_has_member`` (links or creates the ``Member``
 and promotes any staged ``MemberEmail`` rows to a verified primary allauth
@@ -113,19 +117,37 @@ def _resolve_or_create_user(registration: Registration, email: str):  # noqa: AN
 
     from django.db import IntegrityError, transaction
 
+    from membership.models import Member
+
     try:
         # Wrap in a savepoint so a username clash (double submit / webhook race)
-        # doesn't poison the surrounding transaction for the re-resolve below.
+        # doesn't poison the surrounding transaction for the re-resolve below. The
+        # guest status is set inside it too, so the account never commits ACTIVE.
         with transaction.atomic():
-            return user_model.objects.create_user(
+            mints_fresh_member = not Member.objects.unlinked_with_email(email).exists()
+            user = user_model.objects.create_user(
                 username=email,
                 email=email,
                 first_name=registration.first_name,
                 last_name=registration.last_name,
             )
+            if mints_fresh_member:
+                _make_guest(user)
+            return user
     except IntegrityError:
         logger.info("Guest account already exists for %s; re-using it.", email)
         return _find_user_for_email(email)
+
+
+def _make_guest(user) -> None:  # noqa: ANN001 - User model
+    """Turn the Member the signal just minted for ``user`` into a guest (#654).
+
+    Only ever called for a Member this flow created: a booking whose email already
+    belongs to a Member links to it and keeps its status, so nobody is downgraded.
+    """
+    from membership.models import Member
+
+    Member.objects.filter(user=user).update(status=Member.Status.GUEST)
 
 
 def _find_user_for_email(email: str):  # noqa: ANN202 - returns the User model or None

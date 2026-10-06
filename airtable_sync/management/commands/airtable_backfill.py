@@ -84,7 +84,9 @@ class Command(BaseCommand):
     def _match_members(
         self, model: type, at_by_email: dict[str, dict], dry_run: object, results: dict[str, int]
     ) -> None:
-        for member in model.objects.select_related("membership_plan").all():  # type: ignore[attr-defined]  # dynamic model arg
+        # A guest account (#654) is not a member, so it has no row in the Airtable member table.
+        members = model.objects.select_related("membership_plan").exclude(status=model.Status.GUEST)  # type: ignore[attr-defined]  # dynamic model arg
+        for member in members:
             if member.airtable_record_id:
                 results["skipped"] += 1
                 continue
@@ -99,7 +101,9 @@ class Command(BaseCommand):
                 results["skipped"] += 1
 
     def _push_members(self, model: type, table: Any, dry_run: object, results: dict[str, int]) -> None:
-        for member in model.objects.select_related("membership_plan").all():  # type: ignore[attr-defined]  # dynamic model arg
+        # A guest account (#654) is not a member, so it has no row in the Airtable member table.
+        members = model.objects.select_related("membership_plan").exclude(status=model.Status.GUEST)  # type: ignore[attr-defined]  # dynamic model arg
+        for member in members:
             fields = member_to_airtable(member)
             if member.airtable_record_id:
                 if not dry_run:

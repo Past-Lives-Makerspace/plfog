@@ -493,3 +493,113 @@ def describe_lockout_reason():
         config.save()
 
         assert lockout_reason(_user_with_status("r_s_off", Member.Status.SUSPENDED)) is None
+
+
+GUEST_COPY = "This account is for booking classes. Membership is separate: email us to become a member."
+
+
+def describe_a_guest_account():
+    """An account made from a class booking (#654): the class site only, its own message."""
+
+    def it_is_turned_away_from_members_sign_in_with_the_guest_message(client):
+        user = _user_with_status("guest_signin", Member.Status.GUEST)
+
+        response = _sign_in_by_code(client, user.email)
+
+        assert response.status_code == 302
+        assert response["Location"] == _locked_url("guest")
+        assert _signed_in_user_id(client) is None
+        assert GUEST_COPY in client.get(response["Location"]).content.decode()
+
+    def it_is_sent_to_the_lockout_page_from_a_live_members_session(client):
+        user = _user_with_status("guest_live", Member.Status.GUEST)
+        client.force_login(user)
+
+        response = client.get("/home/")
+
+        assert response.status_code == 302
+        assert response["Location"] == _locked_url("guest")
+
+    def it_is_refused_by_the_biometric_unlock_with_the_guest_message(client):
+        user = _user_with_status("guest_bio", Member.Status.GUEST)
+        _credential, secret = BiometricCredential.objects.issue(
+            user, device_label="iPhone", platform=BiometricCredential.Platform.IOS
+        )
+
+        response = client.post(
+            "/accounts/biometric/unlock/", data=json.dumps({"secret": secret}), content_type="application/json"
+        )
+
+        assert response.status_code == 401
+        assert response.json() == {"error": GUEST_COPY}
+        assert _signed_in_user_id(client) is None
+
+    def it_signs_in_on_the_class_site(book_client):
+        user = _user_with_status("guest_book", Member.Status.GUEST)
+
+        _sign_in_by_code(book_client, user.email)
+
+        assert _signed_in_user_id(book_client) == str(user.pk)
+
+    def it_opens_its_bookings_and_account_pages_on_the_class_site(book_client):
+        user = _user_with_status("guest_book_live", Member.Status.GUEST)
+        book_client.force_login(user)
+
+        assert book_client.get(reverse("account:overview")).status_code == 200
+        assert book_client.get("/classes/").status_code == 200
+
+    def it_is_sent_to_the_lockout_page_from_a_members_page_on_the_class_site(book_client):
+        user = _user_with_status("guest_book_blocked", Member.Status.GUEST)
+        book_client.force_login(user)
+
+        response = book_client.get("/home/")
+
+        assert response.status_code == 302
+        assert response["Location"] == _locked_url("guest")
+
+    def it_names_guest_as_the_lockout_reason():
+        assert lockout_reason(_user_with_status("r_g", Member.Status.GUEST)) == "guest"
+
+    def describe_the_guest_message():
+        def it_renders_the_edited_message(client):
+            config = SiteConfiguration.load()
+            config.guest_member_signin_message = "Classes only on this account. Ask us about membership."
+            config.save()
+
+            page = client.get(_locked_url("guest")).content.decode()
+
+            assert "Classes only on this account. Ask us about membership." in page
+            assert GUEST_COPY not in page
+
+        def it_falls_back_to_the_built_in_sentence_when_cleared():
+            config = SiteConfiguration.load()
+            config.guest_member_signin_message = "  "
+            config.save()
+
+            assert lockout_message("guest") == GUEST_COPY
+
+        def it_is_edited_in_site_settings(client):
+            User.objects.create_superuser(username="guest_settings", email="guest_settings@x.com", password="p")
+            client.login(username="guest_settings", password="p")
+            assert b'id="id_guest_member_signin_message"' in client.get(reverse("hub_admin_site_settings")).content
+
+            response = client.post(
+                reverse("hub_admin_site_settings"),
+                data={
+                    "org_name": "Past Lives Makerspace",
+                    "registration_mode": SiteConfiguration.RegistrationMode.OPEN,
+                    "member_event_policy": SiteConfiguration.MemberEventPolicy.APPROVAL,
+                    "late_cancel_notice_hours": "24",
+                    "late_cancel_grace_hours": "2",
+                    "classes_calendar_color": "#abcdef",
+                    "guest_member_signin_message": "Edited guest copy.",
+                    "submitted_tab": "general",
+                    "feeds-TOTAL_FORMS": "0",
+                    "feeds-INITIAL_FORMS": "0",
+                    "feeds-MIN_NUM_FORMS": "0",
+                    "feeds-MAX_NUM_FORMS": "1000",
+                },
+            )
+
+            assert response.status_code == 302
+            assert SiteConfiguration.load().guest_member_signin_message == "Edited guest copy."

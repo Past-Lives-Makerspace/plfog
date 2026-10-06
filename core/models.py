@@ -691,6 +691,15 @@ class SiteConfiguration(models.Model):
         help_text="Shown when a former member tries to sign in to the member site. The support email is "
         "shown under it. Blank uses the built in sentence.",
     )
+    # #654: an account made from a class booking is a guest, not a member, and reads its own
+    # sentence when it reaches the members site.
+    guest_member_signin_message = models.TextField(
+        blank=True,
+        default="This account is for booking classes. Membership is separate: email us to become a member.",
+        verbose_name="Guest sign in message",
+        help_text="Shown when a guest account (made when booking a class) tries to sign in to the member site. "
+        "The support email is shown under it. Blank uses the built in sentence.",
+    )
     suspended_members_locked_out = models.BooleanField(
         default=True,
         verbose_name="Lock out suspended members",

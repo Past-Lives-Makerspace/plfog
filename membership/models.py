@@ -204,6 +204,18 @@ class MemberQuerySet(models.QuerySet):
     def active(self) -> MemberQuerySet:
         return self.filter(status=Member.Status.ACTIVE)
 
+    def unlinked_with_email(self, email: str) -> MemberQuerySet:
+        """Members with no account yet whose primary or staged alias email is ``email``.
+
+        The same two lookups ``membership.signals.ensure_user_has_member`` uses to link a new
+        User to an existing Member, so a caller can tell beforehand whether creating a User for
+        ``email`` will link someone or mint a fresh Member (#654).
+        """
+        return self.filter(
+            Q(_pre_signup_email__iexact=email) | Q(emails__email__iexact=email),
+            user__isnull=True,
+        ).distinct()
+
     def accepted_agreement(self) -> MemberQuerySet:
         """Members who have accepted the member agreement, at any version.
 
@@ -502,6 +514,9 @@ class Member(models.Model):
         ACTIVE = "active", "Active"
         FORMER = "former", "Former"
         SUSPENDED = "suspended", "Suspended"
+        # #654: an account made from a class booking. Locked out of the members site like
+        # FORMER, but never a member, so it is counted and mailed as nobody's membership.
+        GUEST = "guest", "Guest"
 
     class MemberType(models.TextChoices):
         STANDARD = "standard", "Standard"
@@ -844,6 +859,13 @@ class Member(models.Model):
     @property
     def display_name(self) -> str:
         return self.preferred_name if self.preferred_name else self.full_legal_name
+
+    @property
+    def role_label(self) -> str:
+        """The role Manage Members shows: "Guest" for a guest account (#654), else the FOG role."""
+        if self.status == self.Status.GUEST:
+            return str(self.Status.GUEST.label)
+        return self.get_fog_role_display()
 
     @property
     def short_name(self) -> str:
@@ -1963,7 +1985,10 @@ class Member(models.Model):
                     unlocked_via_promotion = True
         elif picked_role == self.ADMIN_ROLE_GUEST:
             self.fog_role = self.FogRole.MEMBER
-            self.status = self.Status.FORMER
+            # The edit page pre-selects Guest for every member who is not active and saves the
+            # role on every edit, so a guest account (#654) must stay a guest, not become Former.
+            if self.status != self.Status.GUEST:
+                self.status = self.Status.FORMER
         else:
             self.fog_role = picked_role
         self.save()

@@ -7462,7 +7462,7 @@ def _member_person_row(member: Member) -> PersonRow:
         name=member.full_legal_name or member.display_name or "—",
         email=member.primary_email or "—",
         status_display=member.get_status_display(),
-        role_display=member.get_fog_role_display(),
+        role_display=member.role_label,
         class_count=getattr(member, "class_count", 0),
         classes_url=classes_url,
         edit_url=reverse("hub_admin_member_edit", args=[member.pk]),
