@@ -1954,13 +1954,19 @@ class Member(models.Model):
     ADMIN_ROLE_INSTRUCTOR = "instructor"
     ADMIN_ROLE_GUEST = "guest"
 
-    def apply_admin_role(self, picked_role: str) -> None:
+    def apply_admin_role(self, picked_role: str, *, keep_status: bool = False) -> None:
         """Apply a role token from the admin Member edit form.
 
         Maps the dropdown's role token (`admin` / `guild_officer` / `member` /
         `instructor` / `guest`) onto the right combination of `fog_role`,
         `status`, and instructor_slug. Idempotent — re-promoting an existing
         instructor is a no-op if they already have a slug.
+
+        Args:
+            picked_role: The role token the form submitted.
+            keep_status: True when the admin changed Status and left the role as it was. The
+                field they changed wins, so the role writes no status: a guest set to Active
+                stays Active instead of the pre-selected Guest role making them Former (#654).
         """
         valid = {c.value for c in self.FogRole} | {self.ADMIN_ROLE_INSTRUCTOR, self.ADMIN_ROLE_GUEST}
         if picked_role not in valid:
@@ -1969,7 +1975,8 @@ class Member(models.Model):
         unlocked_via_promotion = False
         if picked_role == self.ADMIN_ROLE_INSTRUCTOR:
             self.fog_role = self.FogRole.MEMBER
-            self.status = self.Status.ACTIVE
+            if not keep_status:
+                self.status = self.Status.ACTIVE
             # ``ensure_instructor_slug`` saves the slug column itself; the ``save()`` below
             # then persists the role and status (and the unlock, when it applies).
             if self.ensure_instructor_slug():
@@ -1987,7 +1994,7 @@ class Member(models.Model):
             self.fog_role = self.FogRole.MEMBER
             # The edit page pre-selects Guest for every member who is not active and saves the
             # role on every edit, so a guest account (#654) must stay a guest, not become Former.
-            if self.status != self.Status.GUEST:
+            if not keep_status and self.status != self.Status.GUEST:
                 self.status = self.Status.FORMER
         else:
             self.fog_role = picked_role

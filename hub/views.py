@@ -7772,7 +7772,10 @@ def admin_member_edit(request: HttpRequest, pk: int) -> HttpResponse:
         if form.is_valid():
             obj = form.save(commit=False)
             obj.save()
-            obj.apply_admin_role(form.cleaned_data["role"])
+            # The field the admin changed wins: a new Status with the role left alone is not
+            # overridden by the role the page pre-selected (#654).
+            status_only = "status" in form.changed_data and "role" not in form.changed_data
+            obj.apply_admin_role(form.cleaned_data["role"], keep_status=status_only)
             display = obj.full_legal_name or obj.primary_email or f"member #{obj.pk}"
             messages.success(request, f"Saved {display}.")
             return redirect("hub_admin_members")

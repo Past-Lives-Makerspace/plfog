@@ -114,7 +114,34 @@ def describe_the_member_edit_page():
         guest.refresh_from_db()
         assert guest.status == Member.Status.ACTIVE
 
+    def it_makes_a_guest_active_when_only_the_status_changes(client):
+        _sign_in_admin(client)
+        guest = _guest()
+
+        response = client.post(
+            reverse("hub_admin_member_edit", args=[guest.pk]),
+            data=_edit_data(guest, status=Member.Status.ACTIVE, role=Member.ADMIN_ROLE_GUEST),
+        )
+
+        assert response.status_code == 302
+        guest.refresh_from_db()
+        assert guest.status == Member.Status.ACTIVE
+
+    def it_makes_a_former_member_active_when_only_the_status_changes(client):
+        _sign_in_admin(client)
+        former = MemberFactory(full_legal_name="Fern Formermember", status=Member.Status.FORMER)
+
+        response = client.post(
+            reverse("hub_admin_member_edit", args=[former.pk]),
+            data=_edit_data(former, status=Member.Status.ACTIVE, role=Member.ADMIN_ROLE_GUEST),
+        )
+
+        assert response.status_code == 302
+        former.refresh_from_db()
+        assert former.status == Member.Status.ACTIVE
+
     def it_still_makes_an_active_member_former_with_the_guest_role(client):
+        """The role changed (Member to Guest) and the status did not, so the role wins."""
         _sign_in_admin(client)
         member = MemberFactory(full_legal_name="Avery Activemember")
 
