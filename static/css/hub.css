@@ -9047,6 +9047,24 @@ mark { background: color-mix(in srgb, var(--color-tuscan-yellow) 30%, transparen
     cursor: default;
 }
 
+/* Phones with the feedback bubble on the page: stack the guild pill and the Settings
+   back-to-top button above the bubble (its 1rem offset + 52px + a 0.75rem gap) on the
+   bubble's right edge, instead of sharing its corner underneath it. Without the bubble
+   (signed out, guilds surface, framed preview, desktop) both keep the rules above.
+   The content column's bottom padding grows to clear the taller stack: the bubble's
+   footprint plus a 3rem button and a 1rem breathing gap, so the last control on the
+   page is never covered. */
+@media (max-width: 768px) {
+    body:has(.hub-feedback-fab) .pl-guild-join-fab,
+    body:has(.hub-feedback-fab) .pl-scroll-top {
+        right: calc(env(safe-area-inset-right, 0px) + 1rem);
+        bottom: calc(env(safe-area-inset-bottom, 0px) + 1rem + 52px + 0.75rem);
+    }
+    body:has(.hub-feedback-fab):has(.pl-guild-join-fab__pill, .pl-scroll-top) .hub-content {
+        padding-bottom: calc(env(safe-area-inset-bottom, 0px) + 1rem + 52px + 0.75rem + 3rem + 1rem);
+    }
+}
+
 /* ── Join-modal benefit rows ─────────────────────────────────────────────── */
 .pl-benefit-rows {
     display: flex;

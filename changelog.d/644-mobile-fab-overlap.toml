@@ -1,0 +1,7 @@
+bump = "patch"
+date = "2026-10-05"
+title = "Floating buttons no longer hide behind the feedback bubble on phones"
+changes = [
+  "On a phone, the Member or Join button on a guild page now sits just above the yellow feedback bubble, so you can read and tap all of it.",
+  "The back to top button in Settings moved up the same way.",
+]
