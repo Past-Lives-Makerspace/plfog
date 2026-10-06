@@ -47,6 +47,7 @@ from django.utils.safestring import SafeString
 from core.files import delete_orphan_on_replace
 from core.images import normalize_field_if_uploaded
 from core.models import EventDelivery, HeroCropMixin
+from core.phone import phone_tel_number
 from core.validators import (
     ALLOWED_WIKI_IMAGE_EXTENSIONS,
     validate_document,
@@ -2143,6 +2144,45 @@ class Member(models.Model):
         super().save(*args, **kwargs)
 
 
+# A handle: letters, digits, dots and underscores, with or without a leading "@".
+_HANDLE_RE = re.compile(r"^@?([A-Za-z0-9._]+)$")
+_WORD_RE = re.compile(r"[a-z0-9]+")
+
+
+@dataclass(frozen=True)
+class _ContactPlatform:
+    """A social platform a contact's label, or a "Platform:" prefix in its value, can name.
+
+    ``keywords`` name it anywhere in the text ("Instagrm" holds "insta"); ``whole_words`` only
+    standing alone, so "IG" and "X" match and "Signal" and "Exhibits" do not. ``url_template``
+    turns a handle into the profile URL; None where a handle makes no URL.
+    """
+
+    icon: str
+    keywords: tuple[str, ...]
+    whole_words: frozenset[str] = frozenset()
+    url_template: str | None = None
+
+    def profile_url(self, handle: str) -> str | None:
+        """The profile URL for ``handle``, or None when it is not a handle or makes no URL."""
+        match = _HANDLE_RE.match(handle)
+        if match is None or self.url_template is None:
+            return None
+        return self.url_template.format(match.group(1))
+
+
+# First match wins. ``icon`` is a key of components/social_icon.html; Threads has no glyph there.
+_CONTACT_PLATFORMS: tuple[_ContactPlatform, ...] = (
+    _ContactPlatform("instagram", ("insta",), frozenset({"ig"}), "https://instagram.com/{}"),
+    _ContactPlatform("youtube", ("youtube",), url_template="https://www.youtube.com/@{}"),
+    _ContactPlatform("facebook", ("facebook",), url_template="https://facebook.com/{}"),
+    _ContactPlatform("tiktok", ("tiktok",), url_template="https://www.tiktok.com/@{}"),
+    _ContactPlatform("linkedin", ("linkedin",)),
+    _ContactPlatform("x", ("twitter",), frozenset({"x"}), "https://x.com/{}"),
+    _ContactPlatform("link", ("threads",), url_template="https://www.threads.net/@{}"),
+)
+
+
 class MemberContact(models.Model):
     """A labeled contact method on a Member, with per-surface placement.
 
@@ -2187,31 +2227,51 @@ class MemberContact(models.Model):
     def __str__(self) -> str:
         return f"{self.label}: {self.value} ({self.member.display_name})"
 
-    _SOCIAL_ICON_KEYWORDS: tuple[tuple[str, str], ...] = (
-        ("instagram", "instagram"),
-        ("youtube", "youtube"),
-        ("facebook", "facebook"),
-        ("tiktok", "tiktok"),
-        ("linkedin", "linkedin"),
-        ("twitter", "x"),
+    # "Instagram: @name". The prefix is a few words; the platform check decides if it names one.
+    _PREFIXED_HANDLE_RE = re.compile(r"^([A-Za-z][A-Za-z ]{0,30}?)\s*:\s*(\S+)$")
+    # A bare domain: dotted labels ending in a letters-only top-level domain, then an optional path.
+    _BARE_DOMAIN_RE = re.compile(
+        r"^[a-z0-9](?:[a-z0-9-]*[a-z0-9])?(?:\.[a-z0-9](?:[a-z0-9-]*[a-z0-9])?)*\.[a-z]{2,}(?:/\S*)?$",
+        re.IGNORECASE,
     )
+
+    @staticmethod
+    def _platform_for(text: str) -> _ContactPlatform | None:
+        """The platform ``text`` (a label or a value prefix) names, or None."""
+        lowered = text.lower()
+        words = set(_WORD_RE.findall(lowered))
+        for platform in _CONTACT_PLATFORMS:
+            if any(keyword in lowered for keyword in platform.keywords) or words & platform.whole_words:
+                return platform
+        return None
 
     @property
     def social_icon(self) -> str:
         """Best-guess platform icon key for a Social-kind contact, matched against its label."""
-        label_lower = self.label.strip().lower()
-        for keyword, icon in self._SOCIAL_ICON_KEYWORDS:
-            if keyword in label_lower:
-                return icon
-        return "link"
+        platform = self._platform_for(self.label)
+        return platform.icon if platform is not None else "link"
+
+    def _profile_url(self, value: str) -> str | None:
+        """The profile URL for a handle, from a "Platform:" prefix in ``value`` or the label."""
+        prefixed = self._PREFIXED_HANDLE_RE.match(value)
+        if prefixed is not None:
+            platform = self._platform_for(prefixed.group(1))
+            if platform is not None:
+                return platform.profile_url(prefixed.group(2))
+        platform = self._platform_for(self.label)
+        return platform.profile_url(value) if platform is not None else None
 
     @property
     def as_link(self) -> SafeString:
         """Render :attr:`value` as a hyperlink when it clearly is one, else escaped text.
 
         An email address becomes a ``mailto:`` link; an ``http(s)://`` or ``www.`` URL
-        becomes an external link (``www.`` is promoted to ``https://``); anything else
-        — a social handle, a phone number, free text — renders as escaped plain text.
+        becomes an external link (``www.`` is promoted to ``https://``). A handle under a
+        platform's label ("Instagram", "IG", "TikTok"), or written as ``Instagram: @name``,
+        links to that profile; a bare domain (``name.com/path``) links over ``https://``; a
+        phone number becomes a ``tel:`` link. Anything else (a handle under a label no
+        platform matches, free text) renders as escaped plain text. The text shown is always
+        what the member typed.
         """
         value = self.value.strip()
         if self._EMAIL_RE.match(value):
@@ -2221,6 +2281,14 @@ class MemberContact(models.Model):
             return format_html('<a href="{}" target="_blank" rel="noopener">{}</a>', value, value)
         if lowered.startswith("www."):
             return format_html('<a href="https://{}" target="_blank" rel="noopener">{}</a>', value, value)
+        profile_url = self._profile_url(value)
+        if profile_url is not None:
+            return format_html('<a href="{}" target="_blank" rel="noopener">{}</a>', profile_url, value)
+        if self._BARE_DOMAIN_RE.match(value):
+            return format_html('<a href="https://{}" target="_blank" rel="noopener">{}</a>', value, value)
+        tel = phone_tel_number(value)
+        if tel:
+            return format_html('<a href="tel:{}">{}</a>', tel, value)
         return format_html("{}", value)
 
 

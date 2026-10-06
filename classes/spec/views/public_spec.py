@@ -870,6 +870,23 @@ def describe_public_instructor():
         assert "Booking:" in content
         assert "pl-social-icon" not in content
 
+    def it_links_handles_domains_and_phones_as_the_directory_does(db, client):
+        instructor = InstructorFactory(full_legal_name="Hana", instructor_slug="hana")
+        for label, value, kind in [
+            ("IG", "@hana_glass", "social"),
+            ("Other", "Instagram: @hana_studio", "other"),
+            ("Website", "hanaglass.com", "website"),
+            ("Office phone", "(503) 555 0142", "other"),
+        ]:
+            MemberContactFactory(member=instructor, label=label, value=value, kind=kind, show_on_instructor_page=True)
+        response = client.get(reverse("classes:public_instructor", kwargs={"slug": instructor.instructor_slug}))
+        content = response.content.decode()
+        assert 'href="https://instagram.com/hana_glass"' in content
+        assert '<rect x="2" y="2" width="20" height="20" rx="5"/>' in content
+        assert 'href="https://instagram.com/hana_studio"' in content
+        assert 'href="https://hanaglass.com"' in content
+        assert '<a href="tel:5035550142">(503) 555 0142</a>' in content
+
 
 def describe_google_analytics_gate():
     def it_omits_ga_tag_when_id_not_set(published_class, client):

@@ -33,9 +33,105 @@ def describe_MemberContact():
                 '<a href="https://www.example.com" target="_blank" rel="noopener">www.example.com</a>'
             )
 
-        def it_renders_a_social_handle_as_escaped_plain_text():
+        def it_renders_a_handle_under_an_unrecognized_label_as_plain_text():
             contact = MemberContactFactory(value="@makerjane")
             assert contact.as_link == "@makerjane"
+
+        def it_renders_free_text_as_plain_text():
+            contact = MemberContactFactory(label="Hours", value="Open Tue 5pm, studio 4B")
+            assert contact.as_link == "Open Tue 5pm, studio 4B"
+
+        def describe_a_platform_handle():
+            @pytest.mark.parametrize(
+                ("label", "value", "href"),
+                [
+                    ("Instagram", "@Dixie_Junius_Art", "https://instagram.com/Dixie_Junius_Art"),
+                    ("Instagram", "threadfox", "https://instagram.com/threadfox"),
+                    ("IG", "@threadfox", "https://instagram.com/threadfox"),
+                    ("Instagrm", "@threadfox", "https://instagram.com/threadfox"),
+                    ("Instagtram", "@threadfox", "https://instagram.com/threadfox"),
+                    ("My IG", "jane.makes", "https://instagram.com/jane.makes"),
+                    ("TikTok", "@jane", "https://www.tiktok.com/@jane"),
+                    ("Twitter", "@jane", "https://x.com/jane"),
+                    ("X", "jane", "https://x.com/jane"),
+                    ("YouTube", "@jane", "https://www.youtube.com/@jane"),
+                    ("Facebook", "jane.makes", "https://facebook.com/jane.makes"),
+                    ("Threads", "@jane", "https://www.threads.net/@jane"),
+                ],
+            )
+            def it_links_to_the_profile_and_shows_what_was_typed(label: str, value: str, href: str):
+                contact = MemberContactFactory.build(label=label, value=value)
+                assert contact.as_link == f'<a href="{href}" target="_blank" rel="noopener">{value}</a>'
+
+            def it_links_whatever_kind_the_contact_is_saved_as():
+                for kind in MemberContact.Kind:
+                    contact = MemberContactFactory.build(label="Instagram", value="@jane", kind=kind)
+                    assert 'href="https://instagram.com/jane"' in contact.as_link
+
+            @pytest.mark.parametrize("label", ["Exhibits", "Signal", "Big", "Xbox", "Max"])
+            def it_matches_ig_and_x_only_as_whole_words(label: str):
+                contact = MemberContactFactory.build(label=label, value="@jane")
+                assert contact.as_link == "@jane"
+
+            def it_leaves_a_mastodon_address_as_plain_text():
+                contact = MemberContactFactory.build(label="Mastodon", value="@me@server.social")
+                assert contact.as_link == "@me@server.social"
+
+            def it_leaves_a_value_that_is_not_a_handle_as_plain_text():
+                contact = MemberContactFactory.build(label="Instagram", value="ask me for it")
+                assert contact.as_link == "ask me for it"
+
+            def it_makes_no_link_for_a_linkedin_handle():
+                contact = MemberContactFactory.build(label="LinkedIn", value="jane")
+                assert contact.as_link == "jane"
+
+        def describe_a_platform_prefix_in_the_value():
+            def it_links_the_handle_after_the_prefix_under_any_label():
+                contact = MemberContactFactory.build(label="Other", value="Instagram: @name")
+                assert contact.as_link == (
+                    '<a href="https://instagram.com/name" target="_blank" rel="noopener">Instagram: @name</a>'
+                )
+
+            def it_reads_the_prefix_before_the_label():
+                contact = MemberContactFactory.build(label="Instagram", value="TikTok: @name")
+                assert 'href="https://www.tiktok.com/@name"' in contact.as_link
+
+            def it_falls_back_to_the_label_when_the_prefix_names_no_platform():
+                contact = MemberContactFactory.build(label="Instagram", value="Booking: name")
+                assert contact.as_link == "Booking: name"
+
+        def describe_a_bare_domain():
+            def it_links_over_https():
+                contact = MemberContactFactory.build(label="Website", value="dixiejunius.com")
+                assert contact.as_link == (
+                    '<a href="https://dixiejunius.com" target="_blank" rel="noopener">dixiejunius.com</a>'
+                )
+
+            def it_keeps_a_path():
+                contact = MemberContactFactory.build(label="Shop", value="ambercapwell.com/shop")
+                assert 'href="https://ambercapwell.com/shop"' in contact.as_link
+
+            def it_leaves_a_dotless_word_as_plain_text():
+                contact = MemberContactFactory.build(label="Website", value="coming soon")
+                assert contact.as_link == "coming soon"
+
+        def describe_a_phone_number():
+            def it_becomes_a_tel_link_showing_what_was_typed():
+                contact = MemberContactFactory.build(label="Office phone", value="(503) 555 0199")
+                assert contact.as_link == '<a href="tel:5035550199">(503) 555 0199</a>'
+
+            def it_carries_an_extension():
+                contact = MemberContactFactory.build(label="Office phone", value="+1 503.555.0199 ext. 12")
+                assert contact.as_link == '<a href="tel:+15035550199;ext=12">+1 503.555.0199 ext. 12</a>'
+
+        def describe_escaping():
+            def it_escapes_html_in_a_handle_prefix_value():
+                contact = MemberContactFactory.build(label="Other", value='Instagram: <script>"x"</script>')
+                assert contact.as_link == "Instagram: &lt;script&gt;&quot;x&quot;&lt;/script&gt;"
+
+            def it_escapes_html_under_a_platform_label():
+                contact = MemberContactFactory.build(label="Instagram", value="<b>jane</b>")
+                assert contact.as_link == "&lt;b&gt;jane&lt;/b&gt;"
 
         def it_escapes_html_in_plain_text_values():
             contact = MemberContactFactory(value="<b>x</b>")
@@ -97,6 +193,20 @@ def describe_MemberContact():
 
         def it_maps_a_twitter_label_to_the_x_icon():
             assert MemberContactFactory(label="Twitter").social_icon == "x"
+
+        @pytest.mark.parametrize("label", ["IG", "Instagrm", "Instagtram", "insta"])
+        def it_maps_instagram_misspellings_and_ig_to_the_instagram_icon(label: str):
+            assert MemberContactFactory.build(label=label).social_icon == "instagram"
+
+        def it_maps_a_standalone_x_label_to_the_x_icon():
+            assert MemberContactFactory.build(label="X").social_icon == "x"
+
+        def it_falls_back_to_the_link_icon_for_threads_which_has_no_glyph():
+            assert MemberContactFactory.build(label="Threads").social_icon == "link"
+
+        @pytest.mark.parametrize("label", ["Exhibits", "Signal"])
+        def it_does_not_match_ig_or_x_inside_a_word(label: str):
+            assert MemberContactFactory.build(label=label).social_icon == "link"
 
         def it_falls_back_to_the_link_icon_for_an_unrecognized_label():
             assert MemberContactFactory(label="Mastodon").social_icon == "link"

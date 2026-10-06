@@ -1,0 +1,7 @@
+bump = "minor"
+date = "2026-10-06"
+title = "Instagram handles and websites on profiles are links"
+changes = [
+  "On the Member Directory and on instructor pages, an Instagram, TikTok, X, YouTube, Facebook or Threads handle now opens that profile when you tap it.",
+  "Website addresses written without www, like yourname.com, open too, and a phone number in your links dials on a tap.",
+]

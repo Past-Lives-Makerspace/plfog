@@ -77,6 +77,40 @@ def describe_member_directory_contacts():
         assert "@otto_signal" in content
         assert "pl-social-icon" not in content
 
+    def it_links_an_instagram_handle_to_the_profile(client: Client):
+        _login(client)
+        member = MemberFactory(show_in_directory=True, full_legal_name="Dixie Junius")
+        MemberContactFactory(member=member, label="Instagram", value="@Dixie_Junius_Art", kind="social")
+
+        content = client.get(reverse("hub_member_directory")).content.decode()
+
+        assert (
+            '<a href="https://instagram.com/Dixie_Junius_Art" target="_blank" rel="noopener">@Dixie_Junius_Art</a>'
+            in content
+        )
+
+    def it_shows_the_instagram_icon_for_an_ig_label(client: Client):
+        _login(client)
+        member = MemberFactory(show_in_directory=True, full_legal_name="Iggy Label")
+        MemberContactFactory(member=member, label="IG", value="@iggy", kind="social")
+
+        content = client.get(reverse("hub_member_directory")).content.decode()
+
+        # The Instagram glyph is the only one with a 20x20 rounded rect.
+        assert '<rect x="2" y="2" width="20" height="20" rx="5"/>' in content
+        assert 'href="https://instagram.com/iggy"' in content
+
+    def it_links_a_bare_domain_and_a_phone_contact(client: Client):
+        _login(client)
+        member = MemberFactory(show_in_directory=True, full_legal_name="Bare Domain")
+        MemberContactFactory(member=member, label="Website", value="dixiejunius.com", kind="website")
+        MemberContactFactory(member=member, label="Office phone", value="503.555.0123", kind="other")
+
+        content = client.get(reverse("hub_member_directory")).content.decode()
+
+        assert 'href="https://dixiejunius.com"' in content
+        assert '<a href="tel:5035550123">503.555.0123</a>' in content
+
     def it_hides_a_contact_not_flagged_for_the_directory(client: Client):
         _login(client)
         member = MemberFactory(show_in_directory=True, full_legal_name="Hank Hidden")
