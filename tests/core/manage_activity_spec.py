@@ -47,6 +47,21 @@ def describe_manage_activity():
         assert 'value="late_fee_waived"' in content
         assert 'value="late_fee_refunded"' in content
 
+    def it_names_people_instead_of_showing_their_email(client):
+        from classes.factories import RegistrationFactory
+
+        staff = User.objects.create_user(
+            username="a_names", email="a_names@example.com", password="pw12345!", is_staff=True, first_name="Rae"
+        )
+        client.login(username="a_names", password="pw12345!")
+        SiteActivity.log(SiteActivity.Kind.LOGIN, actor=staff)
+        RegistrationFactory(first_name="Guest", last_name="Person", email="guest@example.com")
+        content = client.get(reverse("manage_activity"), {"tab": "feed"}).content.decode()
+        assert "Rae ·" in content
+        assert "Guest Person ·" in content
+        assert "a_names@example.com ·" not in content
+        assert "System ·" not in content
+
     def it_filters_the_feed_by_kind(client):
         staff = User.objects.create_user(
             username="a2",

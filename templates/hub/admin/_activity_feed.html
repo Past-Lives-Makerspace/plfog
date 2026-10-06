@@ -21,13 +21,15 @@
   {% for a in feed_page %}
   <div class="hub-member-row" style="justify-content:space-between;">
     <div style="display:flex;align-items:center;gap:0.75rem;">
-      <div class="hub-member-avatar">{% if a.actor %}{{ a.actor.email|make_list|first|upper }}{% else %}•{% endif %}</div>
+      {% with who=a.who %}
+      <div class="hub-member-avatar">{% if who %}{{ who|make_list|first|upper }}{% else %}•{% endif %}</div>
       <div>
         <div class="hub-member-name">{{ a.get_kind_display }}</div>
         <div class="hub-text-muted" style="font-size:0.8125rem;">
-          {% if a.actor %}{{ a.actor.email }}{% else %}System{% endif %} · {{ a.created_at|date:"M j, Y g:i A" }}
+          {% if who %}{{ who }}{% else %}System{% endif %} · {{ a.created_at|date:"M j, Y g:i A" }}
         </div>
       </div>
+      {% endwith %}
     </div>
     {% if a.email_log %}
       <span class="hub-badge" style="{% if a.email_log.status == 'failed' %}color:#ef4444;{% endif %}">

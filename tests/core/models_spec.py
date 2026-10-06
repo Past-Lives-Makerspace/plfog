@@ -489,3 +489,38 @@ def describe_Invite():
             row = SiteActivity.objects.filter(kind=SiteActivity.Kind.MEMBER_INVITE_REVOKED).first()
             assert row is not None
             assert row.payload["email"] == "log@example.com"
+
+
+def describe_SiteActivity():
+    def describe_who():
+        def it_names_the_actors_member():
+            user = User.objects.create_user(username="who-member", email="sam@example.com")
+            Member.objects.filter(user=user).delete()
+            MemberFactory(user=user, full_legal_name="Sam Reyes", preferred_name="Sammy")
+            row = SiteActivity.objects.get(pk=SiteActivity.log(SiteActivity.Kind.LOGIN, actor=user).pk)
+            assert row.who == "Sammy"
+
+        def it_falls_back_to_the_account_name_without_a_member():
+            user = User.objects.create_user(username="who-plain", email="plain@example.com", first_name="Ada")
+            Member.objects.filter(user=user).update(user=None)
+            row = SiteActivity.objects.get(pk=SiteActivity.log(SiteActivity.Kind.LOGIN, actor=user).pk)
+            assert row.who == "Ada"
+
+        def it_falls_back_to_the_email_when_no_name_is_known():
+            user = User.objects.create_user(username="who-bare", email="bare@example.com")
+            Member.objects.filter(user=user).update(user=None)
+            row = SiteActivity.objects.get(pk=SiteActivity.log(SiteActivity.Kind.LOGIN, actor=user).pk)
+            assert row.who == "bare@example.com"
+
+        def it_names_the_registrant_of_an_actorless_registration():
+            from classes.factories import RegistrationFactory
+
+            reg = RegistrationFactory(first_name="Guest", last_name="Person", email="guest@example.com")
+            row = SiteActivity.objects.get(kind=SiteActivity.Kind.CLASS_REGISTERED)
+            assert row.actor is None
+            assert row.target == reg
+            assert row.who == "Guest Person"
+
+        def it_is_blank_for_a_system_event():
+            row = SiteActivity.log(SiteActivity.Kind.FUNDING_SNAPSHOT_TAKEN)
+            assert row.who == ""
