@@ -1,0 +1,6 @@
+bump = "patch"
+date = "2026-10-05"
+title = "The Monday digests post once"
+changes = [
+  "When Discord was slow to answer, the Monday week ahead post in #calendar or #classes could appear twice. It now checks the channel first and posts only once.",
+]

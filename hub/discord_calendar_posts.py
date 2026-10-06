@@ -26,7 +26,11 @@ from typing import TYPE_CHECKING, Any
 from django.conf import settings
 from django.utils import timezone
 
-from core.integrations.discord_channel import MAX_EMBEDS_PER_MESSAGE, post_channel_message
+from core.integrations.discord_channel import (
+    MAX_EMBEDS_PER_MESSAGE,
+    channel_has_bot_post_titled,
+    post_channel_message,
+)
 
 if TYPE_CHECKING:
     from membership.models import CommunityEvent
@@ -268,8 +272,9 @@ def _posting_channel_id() -> str:
 def post_weekly_digest() -> int:
     """Post the weekly digest to #calendar; return the number of items listed.
 
-    No-ops (returns 0) when posting is disabled, no channel id is set, or the coming
-    week is empty — an empty digest is noise, not news.
+    No-ops (returns 0) when posting is disabled, no channel id is set, the coming
+    week is empty — an empty digest is noise, not news — or this week's digest is
+    already in the channel (a timed-out post that landed anyway).
     """
     channel_id = _posting_channel_id()
     if not channel_id:
@@ -278,7 +283,11 @@ def post_weekly_digest() -> int:
     items = _digest_items(now)
     if not items:
         return 0
-    for batch in _batch_embeds(_embeds_for_items(items, now)):
+    embeds = _embeds_for_items(items, now)
+    if channel_has_bot_post_titled(channel_id, embeds[0]["title"]):
+        logger.info("Weekly calendar digest already in #calendar; not posting it again.")
+        return 0
+    for batch in _batch_embeds(embeds):
         post_channel_message(channel_id, batch)
     return len(items)
 

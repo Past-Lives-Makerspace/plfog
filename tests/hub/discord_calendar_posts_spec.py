@@ -15,6 +15,7 @@ import respx
 from django.conf import settings
 from django.utils import timezone
 
+from core.integrations.discord_channel import DiscordChannelError
 from core.models import SiteConfiguration
 from hub import discord_calendar_posts as dcp
 from membership.models import CalendarEvent, CommunityEvent
@@ -208,6 +209,7 @@ def describe_post_weekly_digest():
     @respx.mock
     def it_posts_the_digest_and_returns_the_item_count(settings):
         settings.DISCORD_BOT_TOKEN = "tok"
+        respx.get(_MESSAGES_URL).mock(return_value=httpx.Response(200, json=[]))
         route = respx.post(_MESSAGES_URL).mock(return_value=httpx.Response(200, json={}))
         _enable_posts()
         _feed_event("Forge Night", days=2)
@@ -218,6 +220,69 @@ def describe_post_weekly_digest():
         embeds = _sent_embeds(route)
         assert "Forge Night" in embeds[0]["description"]
         assert "Print Party" in embeds[0]["description"]
+
+    @respx.mock
+    def it_does_not_post_again_when_a_timed_out_post_actually_landed(settings):
+        # 2026-10-05: Discord kept the 6:01 post but answered after our 5 s timeout, so the run
+        # failed and the 6:16 retry posted the same digest a second time.
+        settings.DISCORD_BOT_TOKEN = "tok"
+        channel: list[dict] = []
+
+        def land_then_time_out(request):
+            channel.insert(0, {"id": str(len(channel) + 1), "author": {"bot": True}, **json.loads(request.content)})
+            if len(channel) == 1:
+                raise httpx.ReadTimeout("The read operation timed out")
+            return httpx.Response(200, json=channel[0])
+
+        respx.get(_MESSAGES_URL).mock(side_effect=lambda request: httpx.Response(200, json=channel))
+        respx.post(_MESSAGES_URL).mock(side_effect=land_then_time_out)
+        _enable_posts()
+        _feed_event("Forge Night", days=2)
+
+        with pytest.raises(DiscordChannelError):
+            dcp.post_weekly_digest()
+        assert dcp.post_weekly_digest() == 0
+        assert len(channel) == 1
+
+    @respx.mock
+    def it_still_posts_when_only_last_weeks_digest_or_a_member_post_matches(settings):
+        settings.DISCORD_BOT_TOKEN = "tok"
+        _enable_posts()
+        _feed_event("Forge Night", days=2)
+        title = dcp.build_weekly_digest_embeds(timezone.now())[0]["title"]
+        others = [
+            {"id": "2", "author": {"bot": False}, "embeds": [{"title": title}]},
+            {"id": "1", "author": {"bot": True}, "embeds": [{"title": "This week at Past Lives · Sep 28 – Oct 4"}]},
+        ]
+        respx.get(_MESSAGES_URL).mock(return_value=httpx.Response(200, json=others))
+        route = respx.post(_MESSAGES_URL).mock(return_value=httpx.Response(200, json={}))
+
+        assert dcp.post_weekly_digest() == 1
+        assert route.call_count == 1
+
+    @respx.mock
+    def it_fails_without_posting_when_the_channel_cannot_be_read(settings):
+        settings.DISCORD_BOT_TOKEN = "tok"
+        _enable_posts()
+        _feed_event("Forge Night", days=2)
+        respx.get(_MESSAGES_URL).mock(return_value=httpx.Response(503, text="unavailable"))
+        route = respx.post(_MESSAGES_URL).mock(return_value=httpx.Response(200, json={}))
+
+        with pytest.raises(DiscordChannelError, match="503"):
+            dcp.post_weekly_digest()
+        assert not route.called
+
+    @respx.mock
+    def it_fails_without_posting_when_the_channel_read_times_out(settings):
+        settings.DISCORD_BOT_TOKEN = "tok"
+        _enable_posts()
+        _feed_event("Forge Night", days=2)
+        respx.get(_MESSAGES_URL).mock(side_effect=httpx.ReadTimeout("The read operation timed out"))
+        route = respx.post(_MESSAGES_URL).mock(return_value=httpx.Response(200, json={}))
+
+        with pytest.raises(DiscordChannelError, match="timed out"):
+            dcp.post_weekly_digest()
+        assert not route.called
 
 
 def describe_announce_new_events():

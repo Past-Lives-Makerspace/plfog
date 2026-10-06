@@ -26,6 +26,8 @@ from core.events.discord_dm import API_BASE, _auth_headers, bot_disabled, bot_to
 
 _TIMEOUT_SECONDS = 5.0
 _RATE_LIMIT_MAX_WAIT_SECONDS = 15.0
+# How far back a duplicate check looks; a retry runs within the hour, long before 50 posts.
+_RECENT_MESSAGES_LIMIT = 50
 # Discord allows at most 10 embeds per message; callers chunk above that.
 MAX_EMBEDS_PER_MESSAGE = 10
 
@@ -80,6 +82,34 @@ def edit_channel_message(
     if components is not None:
         payload["components"] = components
     _send_payload("PATCH", f"{API_BASE}/channels/{channel_id}/messages/{message_id}", payload, len(embeds))
+
+
+def channel_has_bot_post_titled(channel_id: str, title: str) -> bool:
+    """Whether one of the channel's recent bot messages leads with an embed titled ``title``.
+
+    A POST that times out may still have landed: Discord can keep the message and answer
+    after our timeout, and the scheduler then retries a run it saw fail. A weekly digest
+    asks this first, so it checks what the channel actually holds instead of trusting
+    the failed run. Raises :class:`DiscordChannelError` when the channel cannot be read,
+    because posting blind is how the duplicate happened. ``False`` with a blank bot token.
+    """
+    if bot_disabled("channel read"):
+        return False
+    try:
+        response = httpx.get(
+            f"{API_BASE}/channels/{channel_id}/messages",
+            params={"limit": _RECENT_MESSAGES_LIMIT},
+            headers=_auth_headers(),
+            timeout=_TIMEOUT_SECONDS,
+        )
+    except httpx.HTTPError as exc:
+        raise DiscordChannelError(str(exc)) from exc
+    if not response.is_success:
+        raise DiscordChannelError(f"Discord API {response.status_code}: {response.text[:300]}")
+    return any(
+        message.get("author", {}).get("bot") and (message.get("embeds") or [{}])[0].get("title") == title
+        for message in response.json()
+    )
 
 
 def _message_payload(
