@@ -122,8 +122,11 @@ def describe_giving_from_the_edit_page():
         badge.give(dixie)
         assert ">Community Engagement Manager</li>" in client.get(reverse("hub_leadership_directory")).content.decode()
         assert client.post(reverse("hub_admin_leadership_badge_take", args=[badge.pk, dixie.pk])).status_code == 200
-        assert "Community Engagement Manager" not in client.get(reverse("hub_member_directory")).content.decode()
-        assert "Community Engagement Manager" not in client.get(reverse("hub_leadership_directory")).content.decode()
+        # Anchored on the pill markup: the changelog renders on every page and may name a badge.
+        assert ">Community Engagement Manager</li>" not in client.get(reverse("hub_member_directory")).content.decode()
+        assert (
+            ">Community Engagement Manager</li>" not in client.get(reverse("hub_leadership_directory")).content.decode()
+        )
 
     def it_never_changes_badges_from_the_details_save(client: Client):
         _login(client, "admin6", Member.FogRole.ADMIN)

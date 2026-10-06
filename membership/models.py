@@ -4089,9 +4089,9 @@ class LeadershipBadge(models.Model):
 
     A badge belongs to the person, not to one card: it shows on every People tab card of
     each member who holds it and on their Member Directory card (#650), in the order the
-    badges were made. The link to members is
-    declared here, so it lives in its own table and the Airtable sync, which writes
-    :class:`Member` columns, never touches it. Making, changing or giving one sends nothing.
+    badges were made. The link to members is declared here, so it lives in its own table
+    and the Airtable sync, which writes :class:`Member` columns, never touches it. Making,
+    changing or giving one sends nothing.
     """
 
     label = models.CharField(max_length=40, help_text="The words on the badge, e.g. 'Elevator Certified'.")
