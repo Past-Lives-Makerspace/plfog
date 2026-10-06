@@ -11482,6 +11482,26 @@ class OrientationType(models.Model):
     price_cents = models.PositiveIntegerField(
         default=0, help_text="Price to book this orientation type, in cents. 0 = free (the default)."
     )
+    is_donation = models.BooleanField(
+        default=False,
+        verbose_name="Donation based",
+        help_text=(
+            "Members choose what they pay when they book, instead of the fixed price. "
+            "$0 books as a free request; any other amount goes through checkout."
+        ),
+    )
+    donation_minimum_cents = models.PositiveIntegerField(
+        default=0,
+        help_text="The least a member may pay on a donation based type, in cents. 0 (the default) or at least 100.",
+    )
+    donation_suggested_cents = models.PositiveIntegerField(
+        null=True,
+        blank=True,
+        help_text=(
+            "The donation the booking form starts with, in cents. Empty for none; "
+            "when set, at least the minimum and at least 100."
+        ),
+    )
     default_seats = models.PositiveSmallIntegerField(
         default=4, help_text="Default capacity for new slots of this type."
     )
@@ -11547,10 +11567,87 @@ class OrientationType(models.Model):
         delete_orphan_on_replace(self, "photo")
         super().save(*args, **kwargs)
 
+    #: Any amount above $0 is at least this much (#636): a smaller charge is refused, on the
+    #: donation floor staff set and on what a member enters alike.
+    DONATION_FLOOR_CENTS: ClassVar[int] = 100
+    #: The most any donation amount may be, the same $500 ceiling a fixed price has
+    #: (``OrientationTypeForm.clean_price``), so a slip like 1500 for $15 never charges $1,500.
+    DONATION_CEILING_CENTS: ClassVar[int] = 50000
+    DONATION_CEILING_MESSAGE: ClassVar[str] = "Enter an amount up to $500."
+
     @property
     def is_paid(self) -> bool:
-        """True when this orientation type charges to book (price set above zero)."""
-        return self.price_cents > 0
+        """True when this type charges a fixed price above zero. A donation based type never is.
+
+        A donation type's charge is the member's to choose (:meth:`checkout_amount_cents`), so
+        the fixed price surfaces (price chip, "You pay $X") stay off for it even while a
+        stored ``price_cents`` waits for the toggle to go back off.
+        """
+        return not self.is_donation and self.price_cents > 0
+
+    @staticmethod
+    def dollars(cents: int) -> str:
+        """``cents`` as member copy: "$0", "$15" or "$12.50"."""
+        whole, remainder = divmod(cents, 100)
+        return f"${whole}" if remainder == 0 else f"${whole}.{remainder:02d}"
+
+    @property
+    def donation_suggested_dollars(self) -> str:
+        """The suggestion as a plain number for an amount input ("15", "12.50"), or "" for none."""
+        if self.donation_suggested_cents is None:
+            return ""
+        return self.dollars(self.donation_suggested_cents).removeprefix("$")
+
+    @property
+    def donation_label(self) -> str:
+        """What a card shows in place of a price: the suggestion, or "Pay what you can" without one."""
+        if self.donation_suggested_cents is None:
+            return "Pay what you can"
+        return f"Donation, {self.dollars(self.donation_suggested_cents)} suggested"
+
+    @property
+    def donation_amount_hint(self) -> str:
+        """The line under a member's amount input: the floor this type takes, and what $0 does."""
+        if self.donation_minimum_cents:
+            return f"At least {self.dollars(self.donation_minimum_cents)}, paid by card when you book."
+        return (
+            f"$0 sends a free request. Any other amount is at least {self.dollars(self.DONATION_FLOOR_CENTS)}, "
+            "paid by card when you book."
+        )
+
+    def checkout_amount_cents(self, entered_cents: int | None) -> int:
+        """What booking this type charges, in cents: 0 books a free request, anything above goes to checkout.
+
+        A fixed type charges its ``price_cents`` whatever the member sent. A donation type
+        charges what the member entered once it clears the floors (#636): it must be given,
+        at least the type's minimum, $0 or at least :attr:`DONATION_FLOOR_CENTS`, and no more
+        than :attr:`DONATION_CEILING_CENTS`.
+
+        Args:
+            entered_cents: The member's amount in cents, or ``None`` when the form sent none.
+
+        Raises:
+            OrientationError: With member copy, when a donation amount is missing, too low or too high.
+        """
+        if not self.is_donation:
+            return self.price_cents
+        minimum = self.donation_minimum_cents
+        if entered_cents is None:
+            if minimum:
+                raise OrientationError(f"Enter what you'd like to pay, {self.dollars(minimum)} or more.")
+            raise OrientationError("Enter what you'd like to pay. $0 is fine.")
+        if entered_cents < 0:
+            raise OrientationError("Enter $0 or more.")
+        if entered_cents > self.DONATION_CEILING_CENTS:
+            raise OrientationError(self.DONATION_CEILING_MESSAGE)
+        if entered_cents < minimum:
+            raise OrientationError(f"The minimum for this orientation is {self.dollars(minimum)}.")
+        if 0 < entered_cents < self.DONATION_FLOOR_CENTS:
+            raise OrientationError(
+                f"Any amount above $0 has to be at least {self.dollars(self.DONATION_FLOOR_CENTS)}. "
+                "Enter $0 to book for free."
+            )
+        return entered_cents
 
     # --- Owner resolution (equipment-owned orientations) — the one source of truth.
     # Every call site asks the type; nothing re-derives guild-vs-equipment inline.

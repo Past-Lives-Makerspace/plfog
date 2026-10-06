@@ -225,12 +225,12 @@
           {% endwith %}
           <div class="pl-equip-hours-row__fields">
             <div class="pl-equip-hours-row__field">{% include "components/form_field.html" with field=row.duration_minutes %}</div>
-            <div class="pl-equip-hours-row__field">{% include "components/form_field.html" with field=row.price %}</div>
             <div class="pl-equip-hours-row__field">{% include "components/form_field.html" with field=row.default_seats %}</div>
             <div class="pl-equip-hours-row__field">{% include "components/form_field.html" with field=row.area %}</div>
             <div class="pl-equip-hours-row__field">{% include "components/form_field.html" with field=row.default_location %}</div>
             <div class="pl-equip-hours-row__field">{% include "components/form_field.html" with field=row.sort_order %}</div>
           </div>
+          {% include "hub/partials/_orientation_type_pricing_fields.html" with type_form=row %}
           {% include "components/form_field.html" with field=row.is_active %}
           {% if row.instance.pk and row.instance.is_active and equipment.is_active %}<a href="{% url 'hub_orientation_type_flyer' row.instance.pk %}" target="_blank" rel="noopener" class="pl-btn pl-btn--secondary pl-btn--sm" data-qr-sheet-type-link>Print QR Sheet</a>{% endif %}
           {% if row.instance.pk %}
@@ -260,12 +260,12 @@
             {% include "components/image_field.html" with field=empty_row.photo current_image=None label="Photo" shape="rect" max_bytes=max_upload_image_bytes tooltip_html="Wide photo, about 1600x900, JPG or PNG. Shown on this orientation's card. Leave empty to use the equipment photo." %}
             <div class="pl-equip-hours-row__fields">
               <div class="pl-equip-hours-row__field">{% include "components/form_field.html" with field=empty_row.duration_minutes %}</div>
-              <div class="pl-equip-hours-row__field">{% include "components/form_field.html" with field=empty_row.price %}</div>
               <div class="pl-equip-hours-row__field">{% include "components/form_field.html" with field=empty_row.default_seats %}</div>
               <div class="pl-equip-hours-row__field">{% include "components/form_field.html" with field=empty_row.area %}</div>
               <div class="pl-equip-hours-row__field">{% include "components/form_field.html" with field=empty_row.default_location %}</div>
               <div class="pl-equip-hours-row__field">{% include "components/form_field.html" with field=empty_row.sort_order %}</div>
             </div>
+            {% include "hub/partials/_orientation_type_pricing_fields.html" with type_form=empty_row %}
             {% include "components/form_field.html" with field=empty_row.is_active %}
             <div style="display:none;">{{ empty_row.DELETE }}</div>
             <button type="button" class="pl-btn pl-btn--danger pl-btn--sm pl-btn--spaced" onclick="this.closest('.hub-card').remove();">Remove</button>

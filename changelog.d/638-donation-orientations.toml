@@ -1,0 +1,8 @@
+bump = "minor"
+date = "2026-10-05"
+title = "Orientations can be donation based"
+changes = [
+  "Guild leads and staff, and equipment managers, can turn on Donation based for an orientation. They can set a minimum and a suggested amount instead of a fixed price.",
+  "When you book one, you enter what you'd like to pay. $0 sends a free request. Any other amount is at least $1 and is paid by card, with an automatic full refund if the orientation is declined or cancelled.",
+  "Orientation cards show the suggested donation, or Pay what you can when there is none.",
+]

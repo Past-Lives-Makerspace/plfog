@@ -48,6 +48,15 @@ Parameters (pass via {% include ... with %}):
                              A courtesy only: the view stays the real gate, so a JS-off
                              POST with a blank note is still the view's to reject.
 
+  Amount-input mode (optional, plain-POST only — the donation booking, #636):
+  confirm_amount_name      — when set, a dollar amount input renders above the buttons and
+                             posts under this name.
+  confirm_amount_label     — the input's label (default: "Amount ($)").
+  confirm_amount_value     — the starting amount, e.g. a suggestion (default: empty).
+  confirm_amount_hint      — optional hint line under the input.
+  confirm_amount_max       — optional highest amount the input offers (its max attribute).
+                             The view is the gate: it refuses an amount it does not allow.
+
   Rich-body mode (optional): confirm_body_include — a template path included after the
   message, rendered with the including context (per-row conditional copy, links).
   confirm_warn_message     — optional warn-toned line rendered above the buttons.
@@ -58,7 +67,7 @@ Parameters (pass via {% include ... with %}):
   confirm_js — inline JS the Confirm button runs.
 {% endcomment %}
 <template x-teleport="body">
-<div x-data="{ open: false, typed: '', note: '', opener: null }"
+<div x-data="{ open: false, typed: '', note: '', amount: '{{ confirm_amount_value|default:''|escapejs }}', opener: null }"
      x-show="open"
      x-init="$watch('open', (value) => { if (value) { opener = document.activeElement; $nextTick(() => $el.querySelector('.pl-btn--secondary')?.focus()); } else if (opener) { opener.focus(); opener = null; } })"
      x-transition:enter="modal-enter"
@@ -83,6 +92,12 @@ Parameters (pass via {% include ... with %}):
                    placeholder="{{ confirm_note_placeholder|default:'' }}"
                    class="pl-input" style="width:100%; margin:0 0 1rem;">
             {% if confirm_note_hint %}<p class="pl-field-hint" style="margin:-0.5rem 0 1rem;">{{ confirm_note_hint }}</p>{% endif %}
+            {% endif %}
+            {% if confirm_amount_name %}
+            <label class="pl-form-label" for="{{ confirm_id }}-amount">{{ confirm_amount_label|default:"Amount ($)" }}</label>
+            <input type="number" id="{{ confirm_id }}-amount" x-model="amount" min="0"{% if confirm_amount_max %} max="{{ confirm_amount_max }}"{% endif %} step="0.01" inputmode="decimal"
+                   class="pl-input pl-confirm-amount">
+            {% if confirm_amount_hint %}<p class="pl-field-hint pl-confirm-amount__hint">{{ confirm_amount_hint }}</p>{% endif %}
             {% endif %}
             {% if confirm_warn_message %}
             <p class="pl-confirm-warn">{{ confirm_warn_message }}</p>
@@ -119,6 +134,7 @@ Parameters (pass via {% include ... with %}):
                     {% if confirm_next %}<input type="hidden" name="next" value="{{ confirm_next }}">{% endif %}
                     {% if confirm_note_name %}<input type="hidden" name="{{ confirm_note_name }}" :value="note">{% endif %}
                     {% if confirm_typed_value %}<input type="hidden" name="{{ confirm_typed_field_name|default:'confirm' }}" :value="typed">{% endif %}
+                    {% if confirm_amount_name %}<input type="hidden" name="{{ confirm_amount_name }}" :value="amount">{% endif %}
                     <button type="submit" class="pl-btn pl-btn--{{ confirm_button_style|default:'danger' }}" style="width:100%;"
                             {% if confirm_typed_value and confirm_note_required %}:disabled="typed !== '{{ confirm_typed_value }}' || note.trim() === ''"{% elif confirm_typed_value %}:disabled="typed !== '{{ confirm_typed_value }}'"{% elif confirm_note_required %}:disabled="note.trim() === ''"{% endif %}>
                         {{ confirm_button_text|default:"Confirm" }}

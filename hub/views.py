@@ -780,9 +780,10 @@ def guild_detail(request: HttpRequest, slug: str) -> HttpResponse:
     orientation_has_posted_times = any(section["slots"] or section["blocks"] for section in orientation_sections)
 
     from billing.late_fees import unpaid_fee_for
-    from hub.forms import GuildJoinForm, OrientationCustomRequestForm
+    from hub.forms import GuildJoinForm, OrientationAmountForm, OrientationCustomRequestForm
 
     custom_request_form = OrientationCustomRequestForm(guild=guild)
+    custom_amount_form = OrientationAmountForm(follows_picker=True, auto_id="id_custom_amount_%s")
     join_form = GuildJoinForm()
     # The block until paid (#456): the orientation section shows the fee with a Pay button.
     unpaid_late_fee = unpaid_fee_for(member) if member is not None and show_orientation else None
@@ -858,6 +859,7 @@ def guild_detail(request: HttpRequest, slug: str) -> HttpResponse:
             "orientation_has_posted_times": orientation_has_posted_times,
             "unpaid_late_fee": unpaid_late_fee,
             "custom_request_form": custom_request_form,
+            "custom_amount_form": custom_amount_form,
             "join_form": join_form,
             "wiki_tab_enabled": wiki_tab_enabled,
             **wiki_tab_context,
@@ -1239,7 +1241,9 @@ def _guild_edit_context(
             if orientation_type_formset is not None
             else OrientationTypeFormSet(instance=guild, prefix="otypes")
         ),
-        "orientation_is_paid": guild.orientation_types.active().filter(price_cents__gt=0).exists(),
+        "orientation_is_paid": guild.orientation_types.active()
+        .filter(Q(price_cents__gt=0) | Q(is_donation=True))
+        .exists(),
         "orientation_split": _orientation_split_percents(),
         # The per type photo field (#502) rejects an oversized file before it posts.
         "max_upload_image_bytes": settings.MAX_UPLOAD_IMAGE_BYTES,
@@ -1952,6 +1956,21 @@ def guild_orientation_times_bulk_cancel(request: HttpRequest, pk: int) -> HttpRe
     return redirect(f"{reverse('hub_guild_edit', args=[guild.pk])}?tab=orientations")
 
 
+def _booking_charge_cents(request: HttpRequest, orientation_type: OrientationType) -> int:
+    """What this booking charges, read from the POST: 0 books a free request, above 0 goes to checkout.
+
+    A donation type (#636) takes the member's ``amount``; a fixed type its price. Shared by
+    the three booking roads so each refuses a bad amount before anything is booked.
+
+    Raises:
+        OrientationError: When a donation amount is unreadable, missing or too low.
+    """
+    from hub.forms import OrientationAmountForm
+
+    entered = OrientationAmountForm(request.POST).amount_cents() if orientation_type.is_donation else None
+    return orientation_type.checkout_amount_cents(entered)
+
+
 @login_required
 @require_POST
 def orientation_book(request: HttpRequest, slot_pk: int) -> HttpResponse:
@@ -1969,8 +1988,11 @@ def orientation_book(request: HttpRequest, slot_pk: int) -> HttpResponse:
     # Every refusal arrives as an OrientationError from OrientationSlot.ensure_bookable_for,
     # the choke point every booking road shares, and the handler below shows its sentence.
     try:
-        if slot.orientation_type.is_paid:
-            checkout_url = orientations.start_orientation_checkout(slot, member, note=request.POST.get("note", ""))
+        charge_cents = _booking_charge_cents(request, slot.orientation_type)
+        if charge_cents:
+            checkout_url = orientations.start_orientation_checkout(
+                slot, member, note=request.POST.get("note", ""), amount_cents=charge_cents
+            )
             return redirect(checkout_url)
         orientations.request_orientation(slot, member, note=request.POST.get("note", ""))
         confirmer = "a manager" if slot.orientation_type.is_equipment_owned else "the guild lead"
@@ -2013,10 +2035,20 @@ def guild_orientation_request_custom(request: HttpRequest, pk: int) -> HttpRespo
         return _orientation_return(request, guild)
     starts = form.cleaned_data["starts_at"]
     orientation_type = form.cleaned_data["orientation_type"]
-    if orientation_type.is_paid:
+    try:
+        charge_cents = _booking_charge_cents(request, orientation_type)
+    except OrientationError as exc:
+        messages.error(request, str(exc))
+        return _orientation_return(request, guild)
+    if charge_cents:
         try:
             checkout_url = orientations.start_custom_orientation_checkout(
-                guild, member, starts, orientation_type=orientation_type, note=form.cleaned_data["note"]
+                guild,
+                member,
+                starts,
+                orientation_type=orientation_type,
+                note=form.cleaned_data["note"],
+                amount_cents=charge_cents,
             )
         except OrientationError as exc:
             messages.error(request, str(exc))
@@ -2044,7 +2076,7 @@ def orientation_block_starts(request: HttpRequest, block_pk: int, type_pk: int) 
     Loaded into the guild page's pick-a-time modal. The options are computed fresh on
     every open, so a segment someone else just booked disappears before the member picks.
     """
-    from hub.forms import OrientationBlockBookingForm
+    from hub.forms import OrientationAmountForm, OrientationBlockBookingForm
     from membership.models import OrientationAvailabilityBlock, OrientationType
 
     block = get_object_or_404(
@@ -2067,6 +2099,9 @@ def orientation_block_starts(request: HttpRequest, block_pk: int, type_pk: int) 
             "form": form,
             "has_starts": bool(start_choices),
             "next_url": next_url,
+            "amount_form": (
+                OrientationAmountForm(orientation_type=orientation_type) if orientation_type.is_donation else None
+            ),
         },
     )
 
@@ -2096,10 +2131,15 @@ def orientation_block_book(request: HttpRequest, block_pk: int) -> HttpResponse:
     starts = form.cleaned_data["starts_at"]
     orientation_type = form.cleaned_data["orientation_type"]
     note = form.cleaned_data["note"]
-    if orientation_type.is_paid:
+    try:
+        charge_cents = _booking_charge_cents(request, orientation_type)
+    except OrientationError as exc:
+        messages.error(request, str(exc))
+        return _orientation_return(request, block.guild)
+    if charge_cents:
         try:
             checkout_url = orientations.start_block_orientation_checkout(
-                block, member, starts, orientation_type=orientation_type, note=note
+                block, member, starts, orientation_type=orientation_type, note=note, amount_cents=charge_cents
             )
         except OrientationError as exc:
             messages.error(request, str(exc))

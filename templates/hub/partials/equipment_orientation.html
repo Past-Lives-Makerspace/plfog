@@ -25,7 +25,7 @@ _orientation_type_state.html and _orientation_slot_confirm.html (#502).
   <div id="orientation-type-{{ sec.type.pk }}" class="pl-orient-type{% if request.GET.type == sec.type.pk|stringformat:'s' %} pl-orient-type--highlight{% endif %}"{% if not forloop.first %} style="margin-top:1rem; padding-top:1rem; border-top:1px solid var(--hub-border);"{% endif %}>
     <div class="pl-orient-heading">
       <h3 class="hub-detail-label" style="margin:0;">{{ sec.type.name }}</h3>
-      {% if sec.type.is_paid %}<span class="pl-price-chip">{{ sec.type.price_cents|cents_as_price }}</span>{% endif %}
+      {% if sec.type.is_paid %}<span class="pl-price-chip">{{ sec.type.price_cents|cents_as_price }}</span>{% elif sec.type.is_donation %}<span class="pl-price-chip">{{ sec.type.donation_label }}</span>{% endif %}
       <span class="hub-text-muted" style="font-size:0.85rem;">{{ sec.type.duration_minutes }} min</span>
     </div>
     {% if sec.type.description %}<p class="hub-text-muted" style="margin:0.25rem 0 0.75rem; font-size:0.9rem;">{{ sec.type.description|truncatewords:40 }}</p>{% endif %}

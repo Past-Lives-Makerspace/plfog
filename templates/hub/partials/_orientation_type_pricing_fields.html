@@ -1,0 +1,17 @@
+{% comment %}
+One orientation type's pricing (#636), shared by the guild editor and the equipment manage
+page, saved rows and the cloned empty row alike. The Donation based toggle swaps the Price
+field for the minimum and the suggested donation; the form saves the donation fields only
+while it is on. Context:
+  type_form — an OrientationTypeForm (a formset row or its empty_form)
+{% endcomment %}
+<div class="pl-otype-pricing" x-data="{ donation: {% if type_form.is_donation.value %}true{% else %}false{% endif %} }">
+  {% include "components/form_field.html" with field=type_form.is_donation field_hint="Members choose what they pay when they book. $0 books as a free request." %}
+  <div x-show="!donation" x-cloak>
+    {% include "components/form_field.html" with field=type_form.price field_hint="In dollars. Blank means free." %}
+  </div>
+  <div class="pl-otype-pricing__row" x-show="donation" x-cloak>
+    <div class="pl-otype-pricing__field">{% include "components/form_field.html" with field=type_form.donation_minimum %}</div>
+    <div class="pl-otype-pricing__field">{% include "components/form_field.html" with field=type_form.donation_suggested %}</div>
+  </div>
+</div>
