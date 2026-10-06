@@ -1,0 +1,6 @@
+bump = "patch"
+date = "2026-10-05"
+title = "/schedule-orientation links to the Orientations page"
+changes = [
+  "The /schedule-orientation command in Discord now sends you a link to the Orientations page, where every orientation is booked. It no longer books from Discord, which let a paid orientation go through as a free request.",
+]
