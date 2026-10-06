@@ -2621,7 +2621,8 @@ class ClassOffering(HeroCropMixin, models.Model):
         """
         items: list[dict] = []
         if self.image:
-            items.append({"url": self.image.url, "alt": self.title, "position": self.hero_object_position})
+            # hero_image_url and hero_object_position are a pair: the cropped copy sits at its centre.
+            items.append({"url": self.hero_image_url, "alt": self.title, "position": self.hero_object_position})
         items.extend(self.gallery_display_images)
         if not items and self.category and self.category.hero_image:
             items.append({"url": self.category.hero_image.url, "alt": self.category.name, "position": "50% 50%"})

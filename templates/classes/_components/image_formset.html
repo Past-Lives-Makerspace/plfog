@@ -253,6 +253,7 @@ On create (no pk): multi-file input that submits with the form, with local previ
     </label>
 
     {# One Set focus panel for every card: openFocus() points it at the card whose button opened it. #}
+    {# Not components/modal.html: that modal is Alpine driven, and this manager's vanilla script needs direct DOM handles to open it, trap focus and post from it. #}
     <div class="pl-modal-backdrop cls-focus-backdrop" id="gallery-focus" hidden role="dialog" aria-modal="true" aria-labelledby="gallery-focus-title">
         <div class="pl-modal pl-modal--lg cls-focus">
             <div class="pl-modal__header">
@@ -363,6 +364,7 @@ On create (no pk): multi-file input that submits with the form, with local previ
             <div class="cls-image-drag-handle" title="Drag to reorder">&#x2807;</div>`;
         grid.appendChild(card);
         bindCard(card);
+        card.querySelector('.cls-image-make-cover').disabled = saving;
         updateCount();
     }
 
@@ -387,12 +389,23 @@ On create (no pk): multi-file input that submits with the form, with local previ
     }
 
     // --- Cover: the first card leads the class page gallery ---
+    // One reorder save at a time: while one is in flight every Make cover button is disabled and a
+    // drop is ignored, so a failed save's rollback can never undo a move the server did take.
+    let saving = false;
+    function setSaving(on) {
+        saving = on;
+        grid.querySelectorAll('.cls-image-make-cover').forEach(b => { b.disabled = on; });
+    }
+
     function makeCover(card) {
+        if (saving) return;
         const before = [...grid.children];
         grid.prepend(card);
         // The Make cover button hides on the first card, so the keyboard lands on its neighbour.
         card.querySelector('.cls-image-set-focus').focus();
+        setSaving(true);
         saveOrder().then(ok => {
+            setSaving(false);
             if (ok) { toast('Cover photo updated.', 'success'); return; }
             before.forEach(c => grid.appendChild(c));
             toast('Could not update the cover. Try again.', 'error');
@@ -433,10 +446,38 @@ On create (no pk): multi-file input that submits with the form, with local previ
         point = parsePosition(card.dataset.position);
         showPoint();
         panel.hidden = false;
+        // On the document, not the panel: a click on the photo preview or the hint leaves focus on
+        // the body, and a listener on the panel would then never hear Escape or Tab.
+        document.addEventListener('keydown', onPanelKey, true);
         picker.focus();
     }
 
+    // aria-modal promises focus stays in the dialog, so Tab and Shift+Tab wrap between its first
+    // and last controls, and a Tab from outside (after a click on plain content) comes back in.
+    function onPanelKey(e) {
+        if (e.key === 'Escape') {
+            e.preventDefault();
+            e.stopPropagation();
+            closeFocus();
+            return;
+        }
+        if (e.key !== 'Tab') return;
+        const controls = [...panel.querySelectorAll('button, [tabindex="0"]')].filter(el => !el.disabled && el.offsetParent !== null);
+        if (!controls.length) return;
+        const first = controls[0];
+        const last = controls[controls.length - 1];
+        const inside = panel.contains(document.activeElement);
+        if (e.shiftKey && (!inside || document.activeElement === first)) {
+            e.preventDefault();
+            last.focus();
+        } else if (!e.shiftKey && (!inside || document.activeElement === last)) {
+            e.preventDefault();
+            first.focus();
+        }
+    }
+
     function closeFocus() {
+        document.removeEventListener('keydown', onPanelKey, true);
         panel.hidden = true;
         const opener = focusOpener;
         focusCard = null;
@@ -485,7 +526,6 @@ On create (no pk): multi-file input that submits with the form, with local previ
     panel.querySelector('[data-focus-reset]').addEventListener('click', () => postFocus({ x: null, y: null }, 'Focus reset to the centre.'));
     panel.querySelectorAll('[data-focus-cancel]').forEach(b => b.addEventListener('click', closeFocus));
     panel.addEventListener('click', e => { if (e.target === panel) closeFocus(); });
-    panel.addEventListener('keydown', e => { if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); closeFocus(); } });
 
     // --- Drag & drop reorder ---
     let dragSrc = null;
@@ -497,13 +537,14 @@ On create (no pk): multi-file input that submits with the form, with local previ
         card.addEventListener('drop', e => {
             e.preventDefault();
             card.classList.remove('drag-over');
-            if (!dragSrc || dragSrc === card) return;
+            if (!dragSrc || dragSrc === card || saving) return;
             const cards = [...grid.children];
             const fromIdx = cards.indexOf(dragSrc);
             const toIdx = cards.indexOf(card);
             if (fromIdx < toIdx) card.after(dragSrc);
             else card.before(dragSrc);
-            saveOrder();
+            setSaving(true);
+            saveOrder().then(() => setSaving(false));
         });
     }
 

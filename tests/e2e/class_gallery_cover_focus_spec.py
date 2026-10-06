@@ -142,6 +142,30 @@ def describe_make_cover():
         expect(page.locator(CARDS).nth(2)).to_have_attribute("data-id", str(three.pk))
         assert [img.pk for img in offering.gallery_images.all()] == [one.pk, two.pk, three.pk]
 
+    def it_holds_every_make_cover_button_while_a_save_is_in_flight(
+        live_server, page: Page, login_via_code, serve_media
+    ):
+        offering, (one, two, three) = _seed_draft(3)
+        login_via_code(EMAIL)
+        _open_gallery(page, live_server, offering)
+        reorder = reverse("classes:teach_class_image_reorder", kwargs={"pk": offering.pk})
+        held = []
+        page.route(f"{live_server.url}{reorder}", lambda route, request: held.append(route))
+
+        page.locator(CARDS).nth(2).locator(".cls-image-make-cover").click()
+
+        expect(page.locator(CARDS).nth(0)).to_have_attribute("data-id", str(three.pk))
+        for i in (1, 2):
+            expect(page.locator(CARDS).nth(i).locator(".cls-image-make-cover")).to_be_disabled()
+        assert len(held) == 1
+        held[0].fulfill(status=500, body="")
+
+        expect(page.get_by_text("Could not update the cover. Try again.")).to_be_visible()
+        _expect_cover(page, one, 3)
+        for i in (1, 2):
+            expect(page.locator(CARDS).nth(i).locator(".cls-image-make-cover")).to_be_enabled()
+        assert [img.pk for img in offering.gallery_images.all()] == [one.pk, two.pk, three.pk]
+
     def it_keeps_the_badge_on_the_first_card_after_a_delete(live_server, page: Page, login_via_code, serve_media):
         offering, (one, two) = _seed_draft(2)
         login_via_code(EMAIL)
@@ -243,6 +267,54 @@ def describe_set_focus():
         expect(page.get_by_text("Focus saved.")).to_be_visible()
         one.refresh_from_db()
         assert (one.focus_x, one.focus_y) == (51, 50)
+
+    def it_closes_on_escape_after_a_click_on_the_preview(live_server, page: Page, login_via_code, serve_media):
+        offering, (one, _two) = _seed_draft(2)
+        login_via_code(EMAIL)
+        _open_gallery(page, live_server, offering)
+        opener = page.locator(CARDS).nth(0).locator(".cls-image-set-focus")
+        opener.click()
+        expect(page.locator(PANEL)).to_be_visible()
+
+        page.locator("#gallery-focus-preview").click()
+        # Plain content: focus leaves the panel (here for the manager, which is focusable for the step
+        # check), so a listener on the panel would never hear Escape.
+        assert page.evaluate("!document.getElementById('gallery-focus').contains(document.activeElement)")
+        page.keyboard.press("Escape")
+
+        expect(page.locator(PANEL)).to_be_hidden()
+        expect(opener).to_be_focused()
+        one.refresh_from_db()
+        assert (one.focus_x, one.focus_y) == (None, None)
+
+    def it_keeps_tab_inside_the_panel(live_server, page: Page, login_via_code, serve_media):
+        offering, _images = _seed_draft(2)
+        login_via_code(EMAIL)
+        _open_gallery(page, live_server, offering)
+        page.locator(CARDS).nth(0).locator(".cls-image-set-focus").click()
+        close = page.locator(f"{PANEL} .pl-modal__close")
+        picker = page.locator("#gallery-focus-picker")
+        cancel = page.locator(f"{PANEL} [data-focus-cancel]:has-text('Cancel')")
+        expect(picker).to_be_focused()
+
+        # Forward through every control, then off the end of Cancel back onto the close button.
+        for control in ("[data-focus-save]", "[data-focus-reset]", "[data-focus-cancel]:has-text('Cancel')"):
+            page.keyboard.press("Tab")
+            expect(page.locator(f"{PANEL} {control}")).to_be_focused()
+        page.keyboard.press("Tab")
+        expect(close).to_be_focused()
+
+        # And backwards off the close button onto Cancel.
+        page.keyboard.press("Shift+Tab")
+        expect(cancel).to_be_focused()
+
+        # A Tab from plain content comes back into the panel rather than into the composer.
+        page.locator("#gallery-focus-preview").click()
+        page.keyboard.press("Tab")
+        expect(close).to_be_focused()
+        page.locator("#gallery-focus-preview").click()
+        page.keyboard.press("Shift+Tab")
+        expect(cancel).to_be_focused()
 
     def it_fits_a_phone_screen(live_server, page: Page, login_via_code, serve_media):
         offering, _images = _seed_draft(2)

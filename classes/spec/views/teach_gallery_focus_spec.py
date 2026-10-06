@@ -229,3 +229,58 @@ def describe_the_class_page_gallery():
         assert first_slide is not None
         assert first_slide.group(1) == cover.alt_text
         assert later.alt_text in html
+
+
+def describe_the_reorder_route_behind_make_cover():
+    def _post_order(client, offering: ClassOffering, body: str):
+        return client.post(
+            reverse("classes:teach_class_image_reorder", kwargs={"pk": offering.pk}),
+            body,
+            content_type="application/json",
+        )
+
+    @pytest.mark.parametrize(
+        "body",
+        [
+            json.dumps([1, 2]),
+            json.dumps("order"),
+            json.dumps(None),
+            json.dumps(7),
+            json.dumps({"order": 5}),
+            json.dumps({"order": "12"}),
+            json.dumps({"order": {"1": 0}}),
+            json.dumps({"order": None}),
+        ],
+    )
+    def it_400s_a_body_that_is_not_an_object_with_an_order_list(instructor_fixture, client, body):
+        offering = _published(instructor_fixture, gallery=0)
+        first = ClassImageFactory(class_offering=offering, sort_order=0)
+        second = ClassImageFactory(class_offering=offering, sort_order=1)
+        client.force_login(instructor_fixture.user)
+        resp = _post_order(client, offering, body)
+        assert resp.status_code == 400
+        assert resp.json() == {"error": "Invalid payload."}
+        assert [img.pk for img in offering.gallery_images.all()] == [first.pk, second.pk]
+
+    def it_skips_ids_that_are_not_whole_numbers_or_not_this_classs(instructor_fixture, client):
+        offering = _published(instructor_fixture, gallery=0)
+        first = ClassImageFactory(class_offering=offering, sort_order=0)
+        second = ClassImageFactory(class_offering=offering, sort_order=1)
+        elsewhere = ClassImageFactory(sort_order=0)
+        client.force_login(instructor_fixture.user)
+        order = [[first.pk], {"id": first.pk}, True, str(first.pk), None, elsewhere.pk, second.pk, first.pk]
+        resp = _post_order(client, offering, json.dumps({"order": order}))
+        assert resp.status_code == 200
+        first.refresh_from_db()
+        second.refresh_from_db()
+        elsewhere.refresh_from_db()
+        assert (second.sort_order, first.sort_order) == (6, 7)
+        assert elsewhere.sort_order == 0
+        assert [img.pk for img in offering.gallery_images.all()] == [second.pk, first.pk]
+
+    def it_makes_the_first_id_the_cover(instructor_fixture, client):
+        offering = _published(instructor_fixture, gallery=0)
+        one, two, three = (ClassImageFactory(class_offering=offering, sort_order=i) for i in range(3))
+        client.force_login(instructor_fixture.user)
+        assert _post_order(client, offering, json.dumps({"order": [three.pk, one.pk, two.pk]})).status_code == 200
+        assert offering.gallery_display_images[0]["url"] == three.image.url

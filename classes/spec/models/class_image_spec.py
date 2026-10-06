@@ -155,6 +155,23 @@ def describe_display_positions():
         assert items[0]["position"] == "25% 75%"
         assert items[1]["position"] == "90% 5%"
 
+    def it_pairs_the_hero_url_with_its_position_when_the_hero_is_cropped(db):
+        offering = ClassOfferingFactory(
+            image__width=1000,
+            image__height=600,
+            gallery=0,
+            hero_crop_x=0,
+            hero_crop_y=0,
+            hero_crop_w=400,
+            hero_crop_h=225,
+        )
+        assert offering.hero_cropped
+        hero = offering.display_images[0]
+        # The copy cut to the box is shown, so it sits at its centre, not at the box centre on the original.
+        assert hero["url"] == offering.hero_cropped.url
+        assert hero["url"] != offering.image.url
+        assert hero["position"] == "50% 50%"
+
     def it_centres_the_category_fallback(db):
         category = CategoryFactory(hero_image=_image_file("cat.png"))
         offering = ClassOfferingFactory(category=category, image="", gallery=0)

@@ -4800,13 +4800,20 @@ def _gallery_upload(request: HttpRequest, offering: ClassOffering) -> HttpRespon
 
 
 def _gallery_reorder(request: HttpRequest, offering: ClassOffering) -> HttpResponse:
+    """Rewrite ``sort_order`` from ``{"order": [image ids]}``; the first id becomes the cover.
+
+    A body that is not an object, or an ``order`` that is not a list, is a 400 rather than the
+    TypeError it used to raise. Ids that are not whole numbers, or are not this class's, are skipped.
+    """
     try:
         order = json.loads(request.body)["order"]
-    except (json.JSONDecodeError, KeyError):
+    except (json.JSONDecodeError, KeyError, TypeError):
+        return JsonResponse({"error": "Invalid payload."}, status=400)
+    if not isinstance(order, list):
         return JsonResponse({"error": "Invalid payload."}, status=400)
     images = {img.pk: img for img in offering.gallery_images.all()}
     for idx, image_id in enumerate(order):
-        if image_id in images:
+        if isinstance(image_id, int) and not isinstance(image_id, bool) and image_id in images:
             images[image_id].sort_order = idx
             images[image_id].save(update_fields=["sort_order"])
     return JsonResponse({"ok": True})
