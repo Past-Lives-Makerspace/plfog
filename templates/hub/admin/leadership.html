@@ -47,7 +47,7 @@ save of that line runs, and a line is never added twice.
       <h2 class="hub-detail-label pl-leadership-admin__title">Badges</h2>
       <button type="button" class="hub-btn hub-btn--sm" @click="$dispatch('open-modal', 'leadership-badge-add')">+ Add a badge</button>
     </div>
-    <p class="hub-text-muted pl-leadership-admin__hint">Colored badges such as Elevator Certified. Give one to someone with its toggle on their row in a tab below; it shows on every card they have.</p>
+    <p class="hub-text-muted pl-leadership-admin__hint">Colored badges such as Elevator Certified. Give one to someone with its toggle on their row in a tab below, or on their Edit page in Manage Members; it shows on their cards in the Leadership Directory and the Member Directory.</p>
     {% for entry in editor.badges %}
       {% include "hub/admin/_leadership_badge_row.html" %}
     {% empty %}

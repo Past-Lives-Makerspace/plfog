@@ -1397,6 +1397,50 @@ class MemberCapabilitiesForm(forms.Form):
         return [cap for name, cap in self._FIELD_TO_CAP.items() if self.cleaned_data.get(name)]
 
 
+@dataclass
+class MemberBadgeToggle:
+    """One badge's toggle on the member Edit page: the badge, for its pill, and the field to render."""
+
+    badge: LeadershipBadge
+    field: forms.BoundField
+
+
+class MemberBadgesForm(forms.Form):
+    """The member Edit page's Badges toggles (#650): one per leadership badge, on when the member holds it.
+
+    Never posted or validated. Each toggle gives or takes its badge at once through the
+    Leadership editor's give and take endpoints, whose URLs ride on the checkbox for the
+    page's script; the form exists so each one renders through ``components/toggle.html``.
+    The ``badges`` prefix keeps the names clear of the Details form's fields, which the
+    Leadership section sits inside.
+    """
+
+    prefix = "badges"
+
+    def __init__(self, member: Member) -> None:
+        super().__init__()
+        held = set(member.leadership_badges.values_list("pk", flat=True))
+        self._badges = list(LeadershipBadge.objects.order_by("id"))
+        for badge in self._badges:
+            self.fields[f"badge_{badge.pk}"] = forms.BooleanField(
+                required=False,
+                label=badge.label,
+                initial=badge.pk in held,
+                widget=forms.CheckboxInput(
+                    attrs={
+                        "data-member-badge-toggle": "",
+                        "data-badge-label": badge.label,
+                        "data-give-url": reverse("hub_admin_leadership_badge_give", args=[badge.pk, member.pk]),
+                        "data-take-url": reverse("hub_admin_leadership_badge_take", args=[badge.pk, member.pk]),
+                    }
+                ),
+            )
+
+    def toggles(self) -> list[MemberBadgeToggle]:
+        """Every badge in the order they were made, each with its bound toggle."""
+        return [MemberBadgeToggle(badge=badge, field=self[f"badge_{badge.pk}"]) for badge in self._badges]
+
+
 class SiteSettingsForm(forms.ModelForm):
     """Admin form for the SiteConfiguration singleton.
 

@@ -1,0 +1,7 @@
+bump = "minor"
+date = "2026-10-06"
+title = "Badges show on the Member Directory"
+changes = [
+  "Colored badges, such as Elevator Certified, now show on a person's Member Directory card next to their member type, as well as on the Leadership Directory.",
+  "Admins can give or take a badge from a member's Edit page with one switch per badge. New badges are still made on the Leadership Directory editor.",
+]

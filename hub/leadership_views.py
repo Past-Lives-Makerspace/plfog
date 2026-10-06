@@ -10,7 +10,7 @@ next save updates it rather than adding it again. A tab, card or line that is go
 name exactly what is there now answers 409, and the editor reloads. The three modals (Add a Tab, Add a Person, Add a Badge) and the Delete tab and Delete badge
 confirms are plain POSTs that redirect back with a message, which the hub shows as a toast.
 Give and Take a badge (#571) answer JSON with the badge's new holder count; a badge or
-member that is gone answers 404. Nothing here sends an email, a push or a Discord post.
+member that is gone answers 404. The member Edit page's Badges switches post to them too (#650). Nothing here sends an email, a push or a Discord post.
 """
 
 from __future__ import annotations
@@ -322,12 +322,12 @@ def admin_leadership_badge_delete(request: HttpRequest, pk: int) -> HttpResponse
 @fog_admin_required
 @require_POST
 def admin_leadership_badge_give(request: HttpRequest, pk: int, member_pk: int) -> HttpResponse:
-    """Give a member the badge; it shows on every People tab card they have."""
+    """Give a member the badge; it shows on every People tab card they have and on their Member Directory card."""
     return _hold_badge(pk, member_pk, held=True)
 
 
 @fog_admin_required
 @require_POST
 def admin_leadership_badge_take(request: HttpRequest, pk: int, member_pk: int) -> HttpResponse:
-    """Take the badge from a member; it comes off every card they have."""
+    """Take the badge from a member; it comes off every card they have, in both directories."""
     return _hold_badge(pk, member_pk, held=False)

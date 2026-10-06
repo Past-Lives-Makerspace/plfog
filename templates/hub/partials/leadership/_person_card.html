@@ -27,15 +27,7 @@ with no badges gets no list.
         <span class="pl-leader-card__pronouns">{{ member.pronouns }}</span>
         {% endif %}
     </h3>
-    {% with badges=member.leadership_badges.all %}
-    {% if badges %}
-    <ul class="pl-leader-card__badges" aria-label="Badges">
-        {% for badge in badges %}
-        <li class="pl-leader-badge" style="background-color: {{ badge.color }}; color: {{ badge.text_color }};">{{ badge.label }}</li>
-        {% endfor %}
-    </ul>
-    {% endif %}
-    {% endwith %}
+    {% include "hub/partials/leadership/_badge_pills.html" with badges=member.leadership_badges.all list_class="pl-leader-card__badges" %}
     <div class="pl-leader-card__body">
         {% for role in listing.roles.all %}
         <div class="pl-leader-card__role">

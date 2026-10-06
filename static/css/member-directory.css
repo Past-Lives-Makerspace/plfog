@@ -1,0 +1,19 @@
+/* The Member Directory (#650). The card's older rules (.directory-card*) still live in hub.css.
+
+   A member's leadership badges sit in the card's meta row right after the member type, as one
+   wrapping group of pills (.pl-leader-badge, components.css), so a long badge breaks onto its
+   own line instead of pushing the card wide at phone width. */
+.pl-directory-badges {
+    display: inline-flex;
+    flex-wrap: wrap;
+    gap: 0.35rem;
+    max-width: 100%;
+    margin: 0;
+    padding: 0;
+    list-style: none;
+}
+
+/* The photo layout centres its meta row, and the pills with it. */
+.pl-directory-badges--center {
+    justify-content: center;
+}
