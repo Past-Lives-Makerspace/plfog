@@ -1,0 +1,6 @@
+bump = "patch"
+date = "2026-10-05"
+title = "Change your class banner photo after it goes live"
+changes = [
+  "Instructors can replace and recrop the banner photo on a live class from its edit page, with no admin request needed.",
+]

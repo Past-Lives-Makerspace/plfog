@@ -918,7 +918,7 @@ Reviewers see your class exactly as a student would, in a full preview of the pu
 - **Pending**: submitted, waiting on review. You can still edit it.
 - **Published**: live in the catalog and open for sign-ups.
 
-Once a class is published, the words stay yours: the description, prep notes, materials, safety notes, the guardian note, the flexible scheduling note and the video are all still editable from the manage page, and so is putting the class on sale. The title, class type, dates, price, capacity and scheduling model are locked once people can book on them; use **Request a change** on the manage page and an admin makes that edit. Archived classes are read only.""",
+Once a class is published, the words stay yours: the description, prep notes, materials, safety notes, the guardian note, the flexible scheduling note, the video and the photos (banner and gallery) are all still editable from the manage page, and so is putting the class on sale. The title, class type, dates, price, capacity and scheduling model are locked once people can book on them; use **Request a change** on the manage page and an admin makes that edit. Archived classes are read only.""",
         "screenshots": [
             {
                 "file": "01-teaching-portal.png",

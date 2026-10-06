@@ -357,6 +357,32 @@ def describe_published_light_edit():
         assert offering.status == Status.PUBLISHED
         assert ClassSession.objects.filter(class_offering=offering).count() == session_count
 
+    def it_offers_the_banner_photo_on_a_live_class(instructor_fixture, client):
+        # Quinlan, 2026-10-05: the page said photos were editable but drew only the gallery, so
+        # replacing the banner took a Request a change to an admin.
+        offering = _live(instructor_fixture)
+        client.force_login(instructor_fixture.user)
+        html = client.get(reverse("classes:teach_class_edit", kwargs={"pk": offering.pk})).content.decode()
+        hero_upload = reverse("classes:teach_class_hero_upload", kwargs={"pk": offering.pk})
+        assert f'data-upload-url="{hero_upload}"' in html
+        assert html.count('name="hero_crop"') == 1
+
+    def it_saves_the_banner_crop_with_the_light_form(instructor_fixture, client):
+        offering = _live(instructor_fixture)
+        client.force_login(instructor_fixture.user)
+        resp = client.post(
+            reverse("classes:teach_class_edit", kwargs={"pk": offering.pk}),
+            _light_payload(hero_crop='{"x": 5, "y": 6, "w": 160, "h": 90}'),
+        )
+        assert resp.status_code == 302
+        offering.refresh_from_db()
+        assert (offering.hero_crop_x, offering.hero_crop_y, offering.hero_crop_w, offering.hero_crop_h) == (
+            5,
+            6,
+            160,
+            90,
+        )
+
     def it_keeps_the_full_form_for_draft_and_pending_classes(instructor_fixture, client):
         client.force_login(instructor_fixture.user)
         for status in (Status.DRAFT, Status.PENDING):
