@@ -407,7 +407,9 @@ On create (no pk): multi-file input that submits with the form, with local previ
         saveOrder().then(ok => {
             setSaving(false);
             if (ok) { toast('Cover photo updated.', 'success'); return; }
-            before.forEach(c => grid.appendChild(c));
+            // Surviving cards go back in their old order, ahead of any upload that landed meanwhile; a card deleted meanwhile stays gone.
+            grid.prepend(...before.filter(c => c.isConnected));
+            updateCount();
             toast('Could not update the cover. Try again.', 'error');
         });
     }
@@ -517,7 +519,8 @@ On create (no pk): multi-file input that submits with the form, with local previ
                 card.dataset.position = data.position;
                 card.querySelector('.cls-image-thumb img').style.objectPosition = data.position;
                 toast(message, 'success');
-                closeFocus();
+                // A panel opened on another card while this post was in flight stays open.
+                if (focusCard === card) closeFocus();
             })
             .catch(() => toast('Could not save the focus. Try again.', 'error'));
     }
