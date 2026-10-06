@@ -690,6 +690,9 @@ def site_activity(request: HttpRequest) -> HttpResponse:
     actor_q = request.GET.get("actor", "").strip()
     if actor_q:
         activities = activities.filter(actor__email__icontains=actor_q)
+    # The feed names each row's person (SiteActivity.who): the actor's member, or a
+    # registration target's registrant, so both are fetched with the page.
+    activities = activities.select_related("actor__member").prefetch_related("target")
     feed_page = Paginator(activities, 50).get_page(request.GET.get("page"))
 
     emails = TransactionalEmailLog.objects.all()

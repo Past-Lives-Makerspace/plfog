@@ -1610,6 +1610,22 @@ class SiteActivity(models.Model):
     def __str__(self) -> str:
         return f"{self.get_kind_display()} @ {self.created_at:%Y-%m-%d %H:%M}"
 
+    @property
+    def who(self) -> str:
+        """The person the feed names for this row, or "" for a system event.
+
+        The actor's member name first, then their account name, then their email. A
+        guest checkout reaches the log from the Stripe webhook with no actor, so a row
+        targeting a registration falls back to the registrant's own name.
+        """
+        if self.actor is not None:
+            member = getattr(self.actor, "member", None)
+            if member is not None and member.display_name:
+                return str(member.display_name)
+            return str(self.actor.get_full_name() or self.actor.email)
+        roster_name = getattr(self.target, "roster_name", "")
+        return str(roster_name)
+
     @classmethod
     def log(
         cls,
