@@ -963,11 +963,12 @@ class CategoryForm(forms.ModelForm):
         fields = ["name", "slug", "sort_order", "hero_image"]
 
 
-class TeachPublishedClassForm(_RichDescriptionMixin, forms.ModelForm):
+class TeachPublishedClassForm(_RichDescriptionMixin, _HeroCropMixin, forms.ModelForm):
     """Light edits an instructor may make to a LIVE class without re-review.
 
     Only fields that do not change what registrants booked on: the subtitle (#563), description,
-    prep notes, materials, safety, guardian note, the flexible-scheduling note, and the video.
+    prep notes, materials, safety, guardian note, the flexible-scheduling note, the video, and the
+    banner photo's crop box (the photo itself saves instantly through the hero upload route).
     The subtitle leads ``Meta.fields`` because the template renders them in this order, and it
     belongs above the description. Title, class type, price, capacity, dates, and scheduling
     model stay admin-only after publish (the instructor asks through
@@ -1006,12 +1007,21 @@ class TeachPublishedClassForm(_RichDescriptionMixin, forms.ModelForm):
             setup_flexible_booking_text(self)
         else:
             del self.fields["flexible_booking_text"]
+        self.add_hero_crop_field()
 
     def clean_flexible_booking_text(self) -> str:
         return clean_flexible_booking_text(self)
 
     def clean_video_url(self) -> str:
         return validate_video_url(self.cleaned_data.get("video_url", ""))
+
+    def save(self, commit: bool = True) -> ClassOffering:
+        offering = super().save(commit=False)
+        self.apply_hero_crop_to_instance(offering)
+        if commit:
+            offering.save()
+            self.save_m2m()
+        return offering
 
 
 class ClassChangeRequestForm(forms.Form):

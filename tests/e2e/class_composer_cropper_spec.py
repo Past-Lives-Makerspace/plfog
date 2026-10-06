@@ -824,3 +824,41 @@ def describe_crop_shape_picker():
         _wait_ready(page)
         expect(_shape_radio(page, "wide")).to_be_checked()
         expect(page.locator(CROP_INPUT)).to_have_value(rendered)
+
+
+def describe_hero_on_a_live_class():
+    # The live class edit page (class_form_published.html) renders the same field outside any
+    # composer step. Quinlan, 2026-10-05: before, it drew only the gallery, so replacing the
+    # banner of a live class took a Request a change to an admin.
+    def it_replaces_and_recrops_the_banner_without_a_request(live_server, page, login_via_code, serve_media, tmp_path):
+        offering = _seed_draft_with_square_photo(_seed_instructor())
+        offering.status = ClassOffering.Status.PUBLISHED
+        offering.save(update_fields=["status"])
+        login_via_code(EMAIL)
+        page.goto(f"{live_server.url}{reverse('classes:teach_class_edit', kwargs={'pk': offering.pk})}")
+        expect(page.get_by_text("This class is live.")).to_be_visible()
+        expect(page.locator(FRAME)).to_be_visible()
+        before = page.locator(PREVIEW).get_attribute("src")
+
+        page.locator("#hero-file-input").set_input_files(str(_png(tmp_path / "live-hero.png", 1200, 1200)))
+
+        expect(page.locator(PREVIEW)).not_to_have_attribute("src", before)
+        expect(page.locator(FRAME)).to_have_count(1)
+        offering.refresh_from_db()
+        assert "live-hero" in offering.image.name
+        _wait_ready(page)
+        _drag_frame_down(page, 60)
+        crop = json.loads(page.locator(CROP_INPUT).input_value())
+        assert crop["y"] > 0
+
+        page.get_by_role("button", name="Save", exact=True).click()
+        expect(page.get_by_text("Class updated.")).to_be_visible()
+        offering.refresh_from_db()
+        assert (offering.hero_crop_x, offering.hero_crop_y, offering.hero_crop_w, offering.hero_crop_h) == (
+            crop["x"],
+            crop["y"],
+            crop["w"],
+            crop["h"],
+        )
+        assert offering.hero_cropped
+        assert offering.status == ClassOffering.Status.PUBLISHED

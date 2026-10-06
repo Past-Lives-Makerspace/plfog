@@ -2509,7 +2509,7 @@ def _teach_published_class_edit(request: HttpRequest, offering: ClassOffering, t
             # Request a change posts through the instructor-only scope, so only the
             # instructor sees it; guild staff making light edits get the page without it.
             "is_own_class": offering.instructor_id == teaching_member.pk,
-            **_teach_gallery_context(offering, with_hero=False),
+            **_teach_gallery_context(offering),
         },
     )
 
@@ -4679,8 +4679,8 @@ def _teach_gallery_context(offering: ClassOffering, *, with_hero: bool = True) -
     """The URLs the hero + gallery components post to, on every page that renders them.
 
     The components read these from context with no fallback, so a composer path that omits
-    them posts nowhere at all. ``with_hero=False`` for the live-edit page, which renders the
-    gallery but not the hero field: shipping a hero URL a page never posts to only invites drift.
+    them posts nowhere at all. ``with_hero=False`` for a composer render that withholds the hero
+    field: shipping a hero URL a page never posts to only invites drift.
     """
     hero = (
         {"hero_upload_url": reverse("classes:teach_class_hero_upload", kwargs={"pk": offering.pk})} if with_hero else {}
