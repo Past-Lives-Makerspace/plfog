@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import json
 from datetime import timedelta
+from unittest.mock import patch
 
 import httpx
 import pytest
@@ -245,6 +246,33 @@ def describe_post_weekly_digest():
         assert len(channel) == 1
 
     @respx.mock
+    def it_resumes_a_split_digest_whose_later_messages_never_landed(settings):
+        settings.DISCORD_BOT_TOKEN = "tok"
+        channel: list[dict] = []
+        posts = {"count": 0}
+
+        def second_post_fails(request):
+            posts["count"] += 1
+            if posts["count"] == 2:
+                raise httpx.ReadTimeout("The read operation timed out")
+            channel.insert(0, {"id": str(posts["count"]), "author": {"bot": True}, **json.loads(request.content)})
+            return httpx.Response(200, json=channel[0])
+
+        respx.get(_MESSAGES_URL).mock(side_effect=lambda request: httpx.Response(200, json=channel))
+        respx.post(_MESSAGES_URL).mock(side_effect=second_post_fails)
+        _enable_posts()
+        for i in range(30):
+            _feed_event(f"Marathon session {i:02d} " + "x" * 300, days=2 + (i % 2) * 0.01)
+        batches = dcp._batch_embeds(dcp.build_weekly_digest_embeds(timezone.now()))
+        assert len(batches) >= 2
+
+        with pytest.raises(DiscordChannelError):
+            dcp.post_weekly_digest()
+        assert dcp.post_weekly_digest() == 30
+        assert dcp.post_weekly_digest() == 0
+        assert [m["embeds"] for m in reversed(channel)] == batches
+
+    @respx.mock
     def it_still_posts_when_only_last_weeks_digest_or_a_member_post_matches(settings):
         settings.DISCORD_BOT_TOKEN = "tok"
         _enable_posts()
@@ -271,6 +299,21 @@ def describe_post_weekly_digest():
         with pytest.raises(DiscordChannelError, match="503"):
             dcp.post_weekly_digest()
         assert not route.called
+
+    @respx.mock
+    def it_waits_out_one_rate_limit_on_the_channel_read(settings):
+        settings.DISCORD_BOT_TOKEN = "tok"
+        _enable_posts()
+        _feed_event("Forge Night", days=2)
+        respx.get(_MESSAGES_URL).mock(
+            side_effect=[httpx.Response(429, headers={"Retry-After": "0.5"}), httpx.Response(200, json=[])]
+        )
+        route = respx.post(_MESSAGES_URL).mock(return_value=httpx.Response(200, json={}))
+
+        with patch("core.integrations.discord_channel.time.sleep") as fake_sleep:
+            assert dcp.post_weekly_digest() == 1
+        fake_sleep.assert_called_once_with(0.5)
+        assert route.call_count == 1
 
     @respx.mock
     def it_fails_without_posting_when_the_channel_read_times_out(settings):

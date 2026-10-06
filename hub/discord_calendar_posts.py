@@ -28,8 +28,8 @@ from django.utils import timezone
 
 from core.integrations.discord_channel import (
     MAX_EMBEDS_PER_MESSAGE,
-    channel_has_bot_post_titled,
     post_channel_message,
+    recent_bot_post_titles,
 )
 
 if TYPE_CHECKING:
@@ -283,13 +283,30 @@ def post_weekly_digest() -> int:
     items = _digest_items(now)
     if not items:
         return 0
-    embeds = _embeds_for_items(items, now)
-    if channel_has_bot_post_titled(channel_id, embeds[0]["title"]):
+    if not _post_unposted_batches(channel_id, _embeds_for_items(items, now)):
         logger.info("Weekly calendar digest already in #calendar; not posting it again.")
         return 0
-    for batch in _batch_embeds(embeds):
-        post_channel_message(channel_id, batch)
     return len(items)
+
+
+def _post_unposted_batches(channel_id: str, embeds: list[dict[str, Any]]) -> bool:
+    """Post the digest's messages that are not in the channel yet; return whether any posted.
+
+    A retry after a timed-out post resumes rather than repeats: the headline message carries
+    this week's dated title, so finding it means that message landed, and each matching
+    "(continued)" message after it accounts for one more. Shared by the #classes digest.
+    """
+    batches = _batch_embeds(embeds)
+    titles = recent_bot_post_titles(channel_id)
+    headline = embeds[0]["title"]
+    posted = 0
+    if headline in titles:
+        after_headline = titles[len(titles) - titles[::-1].index(headline) :]
+        continued = after_headline.count(batches[1][0]["title"]) if len(batches) > 1 else 0
+        posted = min(len(batches), 1 + continued)
+    for batch in batches[posted:]:
+        post_channel_message(channel_id, batch)
+    return posted < len(batches)
 
 
 def _announcement_embed(title: str, kind_label: str, when: str, url: str) -> dict[str, Any]:

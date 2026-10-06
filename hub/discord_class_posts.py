@@ -22,8 +22,14 @@ from typing import TYPE_CHECKING, Any
 
 from django.utils import timezone
 
-from core.integrations.discord_channel import channel_has_bot_post_titled, post_channel_message
-from hub.discord_calendar_posts import ANNOUNCE_CAP, DIGEST_WINDOW_DAYS, _batch_embeds, _chunk_blocks, _time_of
+from core.integrations.discord_channel import post_channel_message
+from hub.discord_calendar_posts import (
+    ANNOUNCE_CAP,
+    DIGEST_WINDOW_DAYS,
+    _chunk_blocks,
+    _post_unposted_batches,
+    _time_of,
+)
 
 if TYPE_CHECKING:
     from classes.models import ClassOffering
@@ -141,11 +147,9 @@ def post_weekly_classes_digest() -> int:
     embeds = build_weekly_classes_digest_embeds(now)
     if not embeds:
         return 0
-    if channel_has_bot_post_titled(channel_id, embeds[0]["title"]):
+    if not _post_unposted_batches(channel_id, embeds):
         logger.info("Weekly classes digest already in #classes; not posting it again.")
         return 0
-    for batch in _batch_embeds(embeds):
-        post_channel_message(channel_id, batch)
     return len(embeds)
 
 
