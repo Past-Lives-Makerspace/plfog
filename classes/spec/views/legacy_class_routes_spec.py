@@ -1,6 +1,6 @@
 """BDD specs for the legacy ``/classes/admin/<pk>/…`` paths after the per-class merge.
 
-Sixteen of them had a teaching-portal twin and the twins are one screen now, so each of those
+Seventeen of them have a teaching-portal twin and the twins are one screen now, so each of those
 paths is a dispatcher onto the merged route: a GET redirects, a POST goes straight through.
 The rest of this file is about what must NOT have moved — the preview iframe, the
 member-only prefix, and the two URLs that get stamped into persisted rows and emails.
@@ -58,9 +58,10 @@ ADMIN_CLASS_URL_NAMES = [
     "admin_class_image_reorder",
     "admin_class_image_delete",
     "admin_class_image_alt",
+    "admin_class_image_focus",
 ]
 
-#: The sixteen that dispatch, paired with the merged name a GET lands on.
+#: The seventeen that dispatch, paired with the merged name a GET lands on.
 LEGACY_PAIRS = [
     ("admin_class_detail", "teach_class_detail"),
     ("admin_class_registrations", "teach_class_registrations"),
@@ -78,13 +79,14 @@ LEGACY_PAIRS = [
     ("admin_class_image_reorder", "teach_class_image_reorder"),
     ("admin_class_image_delete", "teach_class_image_delete"),
     ("admin_class_image_alt", "teach_class_image_alt"),
+    ("admin_class_image_focus", "teach_class_image_focus"),
 ]
 
 REPO = Path(settings.BASE_DIR)
 
 
 def describe_every_legacy_name_still_reverses():
-    def it_reverses_all_twenty_five(db):
+    def it_reverses_all_twenty_six(db):
         """Criterion 20. A ``NoReverseMatch`` here is a 500 on a page nobody edited."""
         missing = []
         for name in ADMIN_CLASS_URL_NAMES:

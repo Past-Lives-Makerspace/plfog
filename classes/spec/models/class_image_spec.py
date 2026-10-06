@@ -1,4 +1,4 @@
-"""BDD specs for ClassImage and ClassOffering.display_images."""
+"""BDD specs for ClassImage (its focus included) and ClassOffering.display_images."""
 
 from __future__ import annotations
 
@@ -99,6 +99,83 @@ def describe_add_gallery_images():
         offering.add_gallery_images([_image_file("second.png")])
         orders = list(offering.gallery_images.order_by("sort_order").values_list("sort_order", flat=True))
         assert orders == [0, 1]  # appended, not colliding at 0
+
+
+def describe_object_position():
+    def it_is_the_centre_with_no_focus(db):
+        assert ClassImageFactory().object_position == "50% 50%"
+
+    @pytest.mark.parametrize(("x", "y"), [(30, None), (None, 70)])
+    def it_is_the_centre_when_only_one_axis_is_set(db, x, y):
+        assert ClassImageFactory(focus_x=x, focus_y=y).object_position == "50% 50%"
+
+    def it_is_the_focal_point_as_percentages(db):
+        assert ClassImageFactory(focus_x=0, focus_y=100).object_position == "0% 100%"
+
+
+def describe_set_focus():
+    def it_stores_the_point(db):
+        image = ClassImageFactory()
+        image.set_focus((15, 85))
+        image.refresh_from_db()
+        assert (image.focus_x, image.focus_y) == (15, 85)
+
+    def it_clears_both_columns_on_none(db):
+        image = ClassImageFactory(focus_x=15, focus_y=85)
+        image.set_focus(None)
+        image.refresh_from_db()
+        assert (image.focus_x, image.focus_y) == (None, None)
+
+    def it_writes_only_the_focus_columns(db):
+        image = ClassImageFactory(alt_text="kept")
+        ClassImage.objects.filter(pk=image.pk).update(alt_text="changed elsewhere")
+        image.set_focus((1, 2))
+        image.refresh_from_db()
+        assert image.alt_text == "changed elsewhere"
+
+    def it_refuses_a_value_over_100_in_full_clean(db):
+        image = ClassImageFactory(focus_x=101, focus_y=50)
+        with pytest.raises(ValidationError) as exc:
+            image.full_clean()
+        assert "focus_x" in exc.value.message_dict
+
+
+def describe_display_positions():
+    def it_gives_each_gallery_row_its_own_position(db):
+        offering = ClassOfferingFactory(gallery=0)
+        ClassImageFactory(class_offering=offering, image=_image_file("a.png"), sort_order=0, focus_x=10, focus_y=20)
+        ClassImageFactory(class_offering=offering, image=_image_file("b.png"), sort_order=1)
+        assert [item["position"] for item in offering.gallery_display_images] == ["10% 20%", "50% 50%"]
+
+    def it_gives_the_hero_the_banner_position_in_display_images(db):
+        offering = ClassOfferingFactory(image=_image_file("hero.png"), gallery=0, hero_crop_x=25, hero_crop_y=75)
+        ClassImageFactory(class_offering=offering, image=_image_file("g.png"), focus_x=90, focus_y=5)
+        items = offering.display_images
+        # Focal point mode (no box width): the banner's own position, not the centre.
+        assert items[0]["position"] == "25% 75%"
+        assert items[1]["position"] == "90% 5%"
+
+    def it_pairs_the_hero_url_with_its_position_when_the_hero_is_cropped(db):
+        offering = ClassOfferingFactory(
+            image__width=1000,
+            image__height=600,
+            gallery=0,
+            hero_crop_x=0,
+            hero_crop_y=0,
+            hero_crop_w=400,
+            hero_crop_h=225,
+        )
+        assert offering.hero_cropped
+        hero = offering.display_images[0]
+        # The copy cut to the box is shown, so it sits at its centre, not at the box centre on the original.
+        assert hero["url"] == offering.hero_cropped.url
+        assert hero["url"] != offering.image.url
+        assert hero["position"] == "50% 50%"
+
+    def it_centres_the_category_fallback(db):
+        category = CategoryFactory(hero_image=_image_file("cat.png"))
+        offering = ClassOfferingFactory(category=category, image="", gallery=0)
+        assert offering.display_images[0]["position"] == "50% 50%"
 
 
 def describe_display_images():

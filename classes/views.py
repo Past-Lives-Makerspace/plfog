@@ -108,6 +108,7 @@ from classes.forms import (
     RegistrationForm,
     RegistrationQuestionForm,
     TeachingApplicationForm,
+    parse_gallery_focus,
     build_class_faq_formset,
 )
 from classes.models import (
@@ -4694,7 +4695,7 @@ def _teach_gallery_context(offering: ClassOffering, *, with_hero: bool = True) -
 
 
 def teach_image_url_base() -> str:
-    """The prefix the per-image delete / alt routes hang off (``<base><id>/delete/``).
+    """The prefix the per-image delete / alt / focus routes hang off (``<base><id>/delete/``).
 
     Derived from the route rather than typed out, so re-prefixing the URL include can never
     leave the JS posting to a path that 404s. ``reverse`` is resolver-cached, so calling this
@@ -4731,6 +4732,12 @@ def teach_class_image_delete(request: HttpRequest, pk: int) -> HttpResponse:
 @require_POST
 def teach_class_image_alt(request: HttpRequest, pk: int) -> HttpResponse:
     return _gallery_alt(request, _class_image_or_404(request, pk))
+
+
+@login_required
+@require_POST
+def teach_class_image_focus(request: HttpRequest, pk: int) -> HttpResponse:
+    return _gallery_focus(request, _class_image_or_404(request, pk))
 
 
 def _hero_upload(request: HttpRequest, offering: ClassOffering) -> HttpResponse:
@@ -4793,13 +4800,20 @@ def _gallery_upload(request: HttpRequest, offering: ClassOffering) -> HttpRespon
 
 
 def _gallery_reorder(request: HttpRequest, offering: ClassOffering) -> HttpResponse:
+    """Rewrite ``sort_order`` from ``{"order": [image ids]}``; the first id becomes the cover.
+
+    A body that is not an object, or an ``order`` that is not a list, is a 400 rather than the
+    TypeError it used to raise. Ids that are not whole numbers, or are not this class's, are skipped.
+    """
     try:
         order = json.loads(request.body)["order"]
-    except (json.JSONDecodeError, KeyError):
+    except (json.JSONDecodeError, KeyError, TypeError):
+        return JsonResponse({"error": "Invalid payload."}, status=400)
+    if not isinstance(order, list):
         return JsonResponse({"error": "Invalid payload."}, status=400)
     images = {img.pk: img for img in offering.gallery_images.all()}
     for idx, image_id in enumerate(order):
-        if image_id in images:
+        if isinstance(image_id, int) and not isinstance(image_id, bool) and image_id in images:
             images[image_id].sort_order = idx
             images[image_id].save(update_fields=["sort_order"])
     return JsonResponse({"ok": True})
@@ -4828,6 +4842,16 @@ def _gallery_alt(request: HttpRequest, img: ClassImage) -> HttpResponse:
     img.alt_text = alt_text[:255]
     img.save(update_fields=["alt_text"])
     return JsonResponse({"ok": True})
+
+
+def _gallery_focus(request: HttpRequest, img: ClassImage) -> HttpResponse:
+    """Store where the gallery frame crops this photo, or reset it to the centre on nulls."""
+    try:
+        point = parse_gallery_focus(request.body)
+    except ValidationError as exc:
+        return JsonResponse({"error": exc.messages[0]}, status=400)
+    img.set_focus(point)
+    return JsonResponse({"ok": True, "position": img.object_position})
 
 
 @classes_admin_access_required
