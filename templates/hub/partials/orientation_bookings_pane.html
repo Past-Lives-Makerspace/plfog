@@ -23,10 +23,11 @@ and closes the modal.
     </p>
   </div>
   {% endif %}
-  {% if add_member_form or record_form %}
+  {% if add_member_form or record_form or qr_sheet_types %}
   <div class="pl-bookings__top">
     {% if add_member_form %}<button type="button" class="hub-btn hub-btn--sm hub-btn--primary" data-bookings-add-member @click="$dispatch('open-modal', 'orientation-add-member')">+ Add Member</button>{% endif %}
     {% if record_form %}<button type="button" class="hub-btn hub-btn--sm hub-btn--primary" data-bookings-record @click="$dispatch('open-modal', 'orientation-record')">+ Record Orientation</button>{% endif %}
+    {% if qr_sheet_types %}<button type="button" class="hub-btn hub-btn--sm" data-bookings-qr-sheet @click="$dispatch('open-modal', 'orientation-qr-sheet')">Print QR Sheet</button>{% endif %}
   </div>
   {% endif %}
   {% endif %}
@@ -246,6 +247,9 @@ and closes the modal.
   {% endif %}
   {% if is_staff_view and record_form %}
   {% include "components/modal.html" with modal_id="orientation-record" modal_title="Record an Orientation" modal_size="md" modal_body_include="hub/partials/orientation_record_form.html" %}
+  {% endif %}
+  {% if is_staff_view and qr_sheet_types %}
+  {% include "components/modal.html" with modal_id="orientation-qr-sheet" modal_title="Print a QR Sheet" modal_size="sm" modal_body_include="hub/partials/orientation_qr_sheet_menu.html" %}
   {% endif %}
   {% if viewer_has_refund_authority %}
   {% include "components/modal.html" with modal_id="refund-modal" modal_title="Refund Payment" modal_size="sm" %}

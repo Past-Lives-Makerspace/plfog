@@ -1,4 +1,4 @@
-"""The Orientations page (#502 part 2), the per type photo delete endpoint and Record Orientation (#630).
+"""The Orientations page (#502), the per type photo delete endpoint, Record Orientation (#630) and the QR sheet (#631).
 
 ``/orientations/`` lists every orientation a member can sign up for, guild owned and
 equipment owned, as cards: a photo, the owner, the next three times, and the member's
@@ -18,7 +18,7 @@ from django.contrib import messages
 from django.contrib.auth.models import User
 from django.db import IntegrityError, transaction
 from django.contrib.auth.decorators import login_required
-from django.http import HttpRequest, HttpResponse
+from django.http import Http404, HttpRequest, HttpResponse
 from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse
 from django.views.decorators.http import require_POST
@@ -43,7 +43,12 @@ from membership.models import (
     OrientationSlot,
     OrientationType,
 )
-from membership.permissions import can_manage_equipment, manageable_orientation_types, manages_orientations
+from membership.permissions import (
+    can_manage_equipment,
+    guilds_for_new_orientation,
+    manageable_orientation_types,
+    manages_orientations,
+)
 
 #: How many times a card lists before it says "More times" (the owner page lists them all).
 CARD_TIME_CAP = 3
@@ -229,6 +234,8 @@ def hub_orientations(request: HttpRequest) -> HttpResponse:
             "pane": pane,
             "calendar": orientations_calendar_context() if pane == "calendar" else None,
             "calendar_key": CALENDAR_KEY,
+            # The header's "+ Add an Orientation" targets (#637): one query, preview aware.
+            "add_orientation_guilds": guilds_for_new_orientation(request),
             # The Bookings pane's own keys, merged in only when it opens (#626).
             **(bookings_pane_context(request) if pane == "bookings" else {}),
         },
@@ -260,6 +267,68 @@ def hub_orientations_calendar_events(request: HttpRequest) -> HttpResponse:
     if request.GET.get("shell"):
         return render(request, "hub/partials/guild_calendar_app.html", {"cal": cal, "cal_key": CALENDAR_KEY})
     return render(request, "hub/partials/calendar_content.html", cal)
+
+
+@login_required
+def hub_orientation_type_permalink(request: HttpRequest, pk: int) -> HttpResponse:
+    """The stable link an orientation QR sheet encodes (#631): redirect to where the type books now.
+
+    Its card on the Orientations page when the page lists it, else its owner page's
+    orientation anchor. Login first, like every hub page, so a logged out scan reaches the
+    login page with this link as ``next`` and lands here, then on the booking, afterwards.
+    A temporary redirect, so a phone never caches an old target.
+    """
+    orientation_type = get_object_or_404(OrientationType.objects.select_related("guild", "equipment"), pk=pk)
+    return redirect(orientation_type.booking_landing_path())
+
+
+def _require_can_print_type(request: HttpRequest, orientation_type: OrientationType) -> HttpResponse | None:
+    """403 unless the request runs ``orientation_type`` (#630's type gate), with the reason when it cannot print."""
+    forbidden = _require_can_run_orientation_type(request, orientation_type)
+    if forbidden is not None:
+        return forbidden
+    if orientation_type.qr_sheet_refusal:
+        return HttpResponse(orientation_type.qr_sheet_refusal, status=403)
+    return None
+
+
+@login_required
+def hub_orientation_type_flyer(request: HttpRequest, pk: int) -> HttpResponse:
+    """The orientation QR sheet (#631): one printable Letter page whose QR books this orientation."""
+    orientation_type = get_object_or_404(
+        OrientationType.objects.select_related("guild", "equipment", "equipment__guild", "area"), pk=pk
+    )
+    forbidden = _require_can_print_type(request, orientation_type)
+    if forbidden is not None:
+        return forbidden
+    owner = orientation_type.card_image_owner
+    return render(
+        request,
+        "hub/orientation_type_flyer.html",
+        {
+            "orientation_type": orientation_type,
+            "qr_svg": orientation_type.qr_svg(),
+            "image": orientation_type.card_image,
+            "image_position": owner.hero_object_position if owner is not None else "50% 50%",
+        },
+    )
+
+
+@login_required
+def hub_orientation_type_qr(request: HttpRequest, pk: int, fmt: str) -> HttpResponse:
+    """Download the orientation's QR as SVG or PNG, gated like the sheet."""
+    orientation_type = get_object_or_404(OrientationType.objects.select_related("guild", "equipment"), pk=pk)
+    forbidden = _require_can_print_type(request, orientation_type)
+    if forbidden is not None:
+        return forbidden
+    if fmt == "svg":
+        response = HttpResponse(orientation_type.qr_svg(), content_type="image/svg+xml")
+    elif fmt == "png":
+        response = HttpResponse(orientation_type.qr_png_bytes(), content_type="image/png")
+    else:
+        raise Http404
+    response["Content-Disposition"] = f'attachment; filename="orientation-{orientation_type.pk}-qr.{fmt}"'
+    return response
 
 
 @login_required

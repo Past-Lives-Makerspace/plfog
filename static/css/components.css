@@ -1659,7 +1659,12 @@
     border: 1px solid var(--hub-dropdown-border);
     border-radius: 8px;
     box-shadow: 0 8px 24px rgba(0, 0, 0, 0.3);
-    overflow: hidden;
+    /* A long menu (an admin's every guild, #637) scrolls inside, never the page under it: */
+    /* position() in row_actions.html caps it to the room it has; this is the backstop. */
+    max-height: calc(100vh - 16px);
+    overflow-x: hidden;
+    overflow-y: auto;
+    overscroll-behavior: contain;
     z-index: 150;
 }
 

@@ -218,6 +218,22 @@ urlpatterns = [
         orientations_views.hub_orientation_type_photo_delete,
         name="hub_orientation_type_photo_delete",
     ),
+    # The orientation QR sheet (#631): the stable permalink its QR encodes, the flyer and the downloads.
+    path(
+        "orientations/types/<int:pk>/",
+        orientations_views.hub_orientation_type_permalink,
+        name="hub_orientation_type_permalink",
+    ),
+    path(
+        "orientations/types/<int:pk>/flyer/",
+        orientations_views.hub_orientation_type_flyer,
+        name="hub_orientation_type_flyer",
+    ),
+    path(
+        "orientations/types/<int:pk>/qr.<str:fmt>/",
+        orientations_views.hub_orientation_type_qr,
+        name="hub_orientation_type_qr",
+    ),
     path("orientations/manage/", views.orientations_dashboard, name="hub_orientations_dashboard"),
     path("orientations/manage/export/", views.orientations_export, name="hub_orientations_export"),
     path("orientations/manage/add-member/", views.orientation_add_member, name="hub_orientation_add_member"),
@@ -381,6 +397,9 @@ urlpatterns = [
     ),
     path("equipment/<slug:slug>/", equipment_views.hub_equipment_detail, name="hub_equipment_detail"),
     path("equipment/<slug:slug>/manage/", equipment_views.hub_equipment_manage, name="hub_equipment_manage"),
+    # The equipment QR sheet (#631): under the slug, so no fixed /equipment/<word>/ route is added.
+    path("equipment/<slug:slug>/flyer/", equipment_views.hub_equipment_flyer, name="hub_equipment_flyer"),
+    path("equipment/<slug:slug>/qr.<str:fmt>/", equipment_views.hub_equipment_qr, name="hub_equipment_qr"),
     path(
         "equipment/<slug:slug>/manage/details/",
         equipment_views.hub_equipment_details_save,

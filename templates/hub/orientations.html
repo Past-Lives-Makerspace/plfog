@@ -9,7 +9,12 @@
 {% endblock %}
 
 {% block content %}
+{% if add_orientation_guilds %}
+{# The "+ Add an Orientation" button on every tab for admins, officers and guild leadership (#637). #}
+{% include "components/page_header.html" with title="Orientations" description="Get trained on a guild or a tool before you book it." action_include="hub/partials/add_orientation_action.html" %}
+{% else %}
 {% include "components/page_header.html" with title="Orientations" description="Get trained on a guild or a tool before you book it." %}
+{% endif %}
 
 {% if unpaid_late_fee %}
 {# The block until paid (#456): every booking road on the cards refuses until the fee is paid. #}
