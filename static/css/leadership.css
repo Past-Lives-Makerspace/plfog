@@ -206,7 +206,8 @@
    are many. Each pill's background and text color are inline (every badge has its own color, and
    the text is the black or white that reads on it); a thin inner edge keeps a pale badge on a
    white card, or a near black one on the dark card, from losing its outline in either theme.
-   The editor's previews and toggles use the same pill. */
+   The pill itself (.pl-leader-badge) lives in components.css, because the Member Directory cards
+   and the member Edit page's Badges toggles (#650) show it too. */
 .pl-leader-card__badges {
     display: flex;
     flex-wrap: wrap;
@@ -214,22 +215,6 @@
     margin: 0;
     padding: 0.75rem 1rem 0;
     list-style: none;
-}
-
-.pl-leader-badge {
-    display: inline-flex;
-    align-items: center;
-    max-width: 100%;
-    padding: 0.2rem 0.6rem;
-    border-radius: 999px;
-    font: 700 0.72rem/1.25 Inter, sans-serif;
-    letter-spacing: 0.02em;
-    overflow-wrap: anywhere;
-    box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.18);
-}
-
-[data-theme="light"] .pl-leader-badge {
-    box-shadow: inset 0 0 0 1px rgba(9, 46, 76, 0.18);
 }
 
 .pl-leader-card__body {

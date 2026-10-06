@@ -262,6 +262,22 @@
 .pl-leadership__none {
     margin: 0 0 0.75rem;
 }
+/* Badges (#650): a toggle row per badge, its label the badge's own pill. */
+.pl-leadership__subheading {
+    font-size: 0.95rem;
+    margin: 1.5rem 0 0.25rem;
+}
+.pl-leadership__hint {
+    font-size: 0.8125rem;
+    margin: 0 0 0.5rem;
+}
+.pl-leadership__badges .pl-toggle-row {
+    gap: 1rem;
+    padding: 0.5rem 0;
+}
+.pl-leadership__badges .pl-toggle-info {
+    min-width: 0;
+}
 
 /* ── Orientations tab ───────────────────────────────────────────────── */
 /* Completed orientations as rows shaped like the Emails tab's, then the

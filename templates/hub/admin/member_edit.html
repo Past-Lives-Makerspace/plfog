@@ -88,6 +88,19 @@
           <p class="hub-text-muted pl-leadership__none">Not on any tab of the Leadership Directory.</p>
           {% endif %}
           <a href="{% url 'hub_admin_leadership' %}?add={{ member.pk }}" class="hub-btn hub-btn--sm pl-leadership__add">+ Add to a tab</a>
+
+          {# Badges (#650): every badge with a toggle that gives or takes it at once, no Save; making and recoloring badges stays on the editor. #}
+          <h3 class="hub-detail-label pl-leadership__subheading">Badges</h3>
+          {% if badge_toggles %}
+          <p class="hub-text-muted pl-leadership__hint">Each switch gives or takes the badge at once. It shows on their cards in the Leadership Directory and the Member Directory.</p>
+          <div class="pl-leadership__badges" data-member-badges data-member-name="{{ member.display_name }}">
+            {% for toggle in badge_toggles %}
+              {% include "components/toggle.html" with field=toggle.field toggle_label=toggle.badge.label toggle_label_include="hub/admin/_member_badge_pill.html" %}
+            {% endfor %}
+          </div>
+          {% else %}
+          <p class="hub-text-muted pl-leadership__none">No badges yet. <a href="{% url 'hub_admin_leadership' %}">Make one in the Leadership Directory editor.</a></p>
+          {% endif %}
         </div>
         <div class="pl-person-actions">
           <button type="submit" class="hub-btn hub-btn--primary">Save</button>
@@ -299,4 +312,52 @@
   {% endfor %}
 
 </div>
+<script>
+// The Details tab's Badges switches (#650): each posts to the Leadership editor's give or take
+// endpoint the moment it flips, the way the editor's own badge toggles do, and says so in a
+// toast. A refused or failed post puts the switch back. A body script re-runs on every boosted
+// arrival, so the listener sits on document and binds once (FRONTEND.md, Scripts under hx-boost).
+(function () {
+  if (window.plMemberBadgesBound) return;
+  window.plMemberBadgesBound = true;
+
+  function toast(message, type) {
+    window.dispatchEvent(new CustomEvent('show-toast', { detail: { message: message, type: type } }));
+  }
+
+  document.addEventListener('change', function (event) {
+    var input = event.target;
+    if (!input.matches || !input.matches('[data-member-badge-toggle]')) return;
+    var held = input.checked;
+    var label = input.dataset.badgeLabel;
+    var name = input.closest('[data-member-badges]').dataset.memberName;
+    var token = document.querySelector('meta[name="csrf-token"]').content;
+    function refused(message) {
+      input.checked = !held;
+      toast(message, 'error');
+    }
+    input.disabled = true;
+    fetch(held ? input.dataset.giveUrl : input.dataset.takeUrl, {
+      method: 'POST',
+      headers: { 'X-CSRFToken': token },
+      credentials: 'same-origin',
+    }).then(function (response) {
+      // fetch follows the login redirect of an expired session and reads it as a 200.
+      if (response.redirected) {
+        refused('You were signed out, so that change was not saved. Reload the page and sign in.');
+      } else if (response.ok) {
+        toast(held ? 'Gave ' + name + ' the ' + label + ' badge.' : 'Took the ' + label + ' badge from ' + name + '.', 'success');
+      } else if (response.status === 404) {
+        refused('That badge was removed in another window. Reload to see the latest.');
+      } else {
+        refused("Couldn't save that badge. Try again.");
+      }
+    }).catch(function () {
+      refused("Couldn't save that badge. Check your connection.");
+    }).finally(function () {
+      input.disabled = false;
+    });
+  });
+})();
+</script>
 {% endblock %}

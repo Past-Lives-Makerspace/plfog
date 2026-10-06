@@ -54,6 +54,7 @@ from hub.forms import (
     GuildRoleFormSet,
     MeetingItemProposalForm,
     MemberAdminEditForm,
+    MemberBadgesForm,
     MemberCapabilitiesForm,
     MemberContactForm,
     MemberContactFormSet,
@@ -89,6 +90,7 @@ from membership.models import (
     FundingSnapshot,
     Guild,
     HelpCategory,
+    LeadershipBadge,
     LeadershipListing,
     LeadershipPage,
     LeadershipTab,
@@ -401,6 +403,9 @@ def member_directory(request: HttpRequest) -> HttpResponse:
                 .order_by("guild__name"),
                 to_attr="directory_guild_memberships",
             ),
+            # Leadership badges beside the member type (#650): one query for every card, in the
+            # order they were made, as on the Leadership Directory cards.
+            Prefetch("leadership_badges", queryset=LeadershipBadge.objects.order_by("id")),
         )
         .order_by("full_legal_name")
     )
@@ -7710,6 +7715,8 @@ def _render_member_edit(request: HttpRequest, member: Member, form: MemberAdminE
             "form": form,
             # Read only: the member's Leadership Directory tabs and lines, edited on the editor (#564).
             "leadership_listings": LeadershipListing.objects.on_tabs_for(member),
+            # The Badges toggles under it (#650): each gives or takes its badge at once.
+            "badge_toggles": MemberBadgesForm(member).toggles(),
             "capabilities_form": cap_form,
             "instructor_description": Member.INSTRUCTOR_PERMISSION_DESCRIPTION,
             "notif_matrix": notif_matrix,

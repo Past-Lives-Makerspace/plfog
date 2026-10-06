@@ -1,0 +1,13 @@
+{% comment %}
+A member's leadership badges as a list of pills (#571, #650): the Leadership Directory card and
+both Member Directory card layouts include it. ``badges`` is the member's badges in the order they
+were made; ``list_class`` is the surface's own list class. The color is inline because each badge
+has its own, and the text is the black or white that reads on it. No badges, no list.
+{% endcomment %}
+{% if badges %}
+<ul class="{{ list_class }}" aria-label="Badges">
+    {% for badge in badges %}
+    <li class="pl-leader-badge" style="background-color: {{ badge.color }}; color: {{ badge.text_color }};">{{ badge.label }}</li>
+    {% endfor %}
+</ul>
+{% endif %}

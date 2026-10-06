@@ -30,6 +30,7 @@ from tests.membership.factories import (
     GuildFactory,
     GuildLinkFactory,
     GuildStaffMembershipFactory,
+    LeadershipBadgeFactory,
     MeetingFactory,
     MemberFactory,
     MembershipPlanFactory,
@@ -78,6 +79,9 @@ def _seed_world() -> None:
     )
     guild.guild_lead = MemberFactory(full_legal_name="Wilhelmina Aldous-Featherington")
     guild.save(update_fields=["guild_lead"])
+    # Leadership badges on the lead's directory card (#650): one at the 40 character cap.
+    for label in ("Community Engagement Manager Extraordina", "Elevator Certified"):
+        LeadershipBadgeFactory(label=label).give(guild.guild_lead)
     GuildStaffMembershipFactory(guild=guild, member=MemberFactory(full_legal_name="Bartholomew Cavendish"))
     GuildLinkFactory(guild=guild, label="Ravelry group", url="https://example.com/ravelry")
     MeetingFactory(guild=guild)

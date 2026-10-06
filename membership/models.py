@@ -4088,7 +4088,8 @@ class LeadershipBadge(models.Model):
     """A colored badge admins give people on the Leadership Directory, such as Elevator Certified (#571).
 
     A badge belongs to the person, not to one card: it shows on every People tab card of
-    each member who holds it, in the order the badges were made. The link to members is
+    each member who holds it and on their Member Directory card (#650), in the order the
+    badges were made. The link to members is
     declared here, so it lives in its own table and the Airtable sync, which writes
     :class:`Member` columns, never touches it. Making, changing or giving one sends nothing.
     """
@@ -4104,7 +4105,7 @@ class LeadershipBadge(models.Model):
         Member,
         blank=True,
         related_name="leadership_badges",
-        help_text="The members who hold this badge; it shows on each of their Leadership Directory cards.",
+        help_text="The members who hold this badge; it shows on their Leadership Directory and Member Directory cards.",
     )
 
     objects = LeadershipBadgeQuerySet.as_manager()

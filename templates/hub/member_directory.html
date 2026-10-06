@@ -3,6 +3,10 @@
 {% load static %}
 {% block title %}Member Directory{% endblock %}
 
+{% block extra_head %}
+<link rel="stylesheet" href="{% static 'css/member-directory.css' %}">
+{% endblock %}
+
 {% block content %}
 {# The visibility note lives in the shared page_header's description, so the wrapper carries the help key. #}
 <div data-help-key="directory.visibility">
@@ -90,6 +94,7 @@
             {% endif %}
             <div class="directory-card__meta" style="justify-content:center;">
                 <span class="directory-card__role">{{ member.get_member_type_display }}</span>
+                {% include "hub/partials/leadership/_badge_pills.html" with badges=member.leadership_badges.all list_class="pl-directory-badges pl-directory-badges--center" %}
                 {% if member.pronouns and member|is_public:"pronouns" %}
                 <span class="directory-card__pronouns">{{ member.pronouns }}</span>
                 {% endif %}
@@ -108,6 +113,7 @@
                 {% endif %}
                 <div class="directory-card__meta">
                     <span class="directory-card__role">{{ member.get_member_type_display }}</span>
+                    {% include "hub/partials/leadership/_badge_pills.html" with badges=member.leadership_badges.all list_class="pl-directory-badges" %}
                     {% if member.pronouns and member|is_public:"pronouns" %}
                     <span class="directory-card__pronouns">{{ member.pronouns }}</span>
                     {% endif %}
