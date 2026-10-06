@@ -23,7 +23,13 @@ from typing import TYPE_CHECKING, Any
 from django.utils import timezone
 
 from core.integrations.discord_channel import post_channel_message
-from hub.discord_calendar_posts import ANNOUNCE_CAP, DIGEST_WINDOW_DAYS, _batch_embeds, _chunk_blocks, _time_of
+from hub.discord_calendar_posts import (
+    ANNOUNCE_CAP,
+    DIGEST_WINDOW_DAYS,
+    _chunk_blocks,
+    _post_unposted_batches,
+    _time_of,
+)
 
 if TYPE_CHECKING:
     from classes.models import ClassOffering
@@ -131,7 +137,8 @@ def post_weekly_classes_digest() -> int:
     """Post the weekly classes digest to #classes; return the number of blocks listed.
 
     No-ops (returns 0) when posting is disabled, no channel id is set, or the coming week
-    has neither class sessions nor bookable flexible classes — an empty digest is noise.
+    has neither class sessions nor bookable flexible classes — an empty digest is noise —
+    or this week's digest is already in the channel (a timed-out post that landed anyway).
     """
     channel_id = _posting_channel_id()
     if not channel_id:
@@ -140,8 +147,9 @@ def post_weekly_classes_digest() -> int:
     embeds = build_weekly_classes_digest_embeds(now)
     if not embeds:
         return 0
-    for batch in _batch_embeds(embeds):
-        post_channel_message(channel_id, batch)
+    if not _post_unposted_batches(channel_id, embeds):
+        logger.info("Weekly classes digest already in #classes; not posting it again.")
+        return 0
     return len(embeds)
 
 

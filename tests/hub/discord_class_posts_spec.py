@@ -148,6 +148,7 @@ def describe_post_weekly_classes_digest():
     @respx.mock
     def it_posts_the_digest(settings):
         settings.DISCORD_BOT_TOKEN = "tok"
+        respx.get(_MESSAGES_URL).mock(return_value=httpx.Response(200, json=[]))
         route = respx.post(_MESSAGES_URL).mock(return_value=httpx.Response(200, json={}))
         _enable_posts()
         _published_class("Intro to Welding", days=2)
@@ -155,6 +156,20 @@ def describe_post_weekly_classes_digest():
         assert dcp.post_weekly_classes_digest() == 1
         assert route.call_count == 1
         assert "Intro to Welding" in _sent_embeds(route)[0]["description"]
+
+    @respx.mock
+    def it_does_not_post_again_when_this_weeks_digest_is_already_in_the_channel(settings):
+        # A timed-out post can land anyway; the scheduler's retry must not post it twice.
+        settings.DISCORD_BOT_TOKEN = "tok"
+        _enable_posts()
+        _published_class("Intro to Welding", days=2)
+        title = dcp.build_weekly_classes_digest_embeds(timezone.now())[0]["title"]
+        landed = {"id": "1", "author": {"bot": True}, "embeds": [{"title": title}]}
+        respx.get(_MESSAGES_URL).mock(return_value=httpx.Response(200, json=[landed]))
+        route = respx.post(_MESSAGES_URL).mock(return_value=httpx.Response(200, json={}))
+
+        assert dcp.post_weekly_classes_digest() == 0
+        assert not route.called
 
 
 def describe_announce_new_classes():

@@ -21,6 +21,6 @@ class Command(BaseCommand):
 
         count = post_weekly_classes_digest()
         if count == 0:
-            self.stdout.write("No digest posted (posts off, no channel id, or nothing this week).")
+            self.stdout.write("No digest posted (posts off, no channel id, nothing this week, or already posted).")
             return
         self.stdout.write(self.style.SUCCESS(f"Posted the weekly classes digest ({count} embed(s))."))

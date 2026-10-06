@@ -21,6 +21,6 @@ class Command(BaseCommand):
 
         count = post_weekly_digest()
         if count == 0:
-            self.stdout.write("No digest posted (posts off, no channel id, or an empty week).")
+            self.stdout.write("No digest posted (posts off, no channel id, an empty week, or already posted).")
             return
         self.stdout.write(self.style.SUCCESS(f"Posted the weekly calendar digest ({count} item(s))."))
