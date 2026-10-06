@@ -277,13 +277,15 @@ def describe_AnnouncementDraft():
             _delivered(row, f"user:{phone.pk}", "in_app")
             _delivered(row, f"user:{phone.pk}", "email")
             _delivered(row, f"user:{phone.pk}", "push")
-            _delivered(row, "user:2", "push")  # no device: the channel spends the slot, nobody's phone buzzes
-            _delivered(row, "user:2", "in_app")
+            _delivered(
+                row, "user:9002", "push"
+            )  # no device: the channel spends the slot, nobody's phone buzzes. Ids far above any the test creates, so none can be phone's
+            _delivered(row, "user:9002", "in_app")
             _delivered(row, "email:guest@x.com", "email")
             _delivered(row, "broadcast", "discord")
-            _delivered(row, "user:3", "email", status=EventDelivery.Status.PENDING)
-            _delivered(row, "user:4", "email", period="announce:78")
-            _delivered(row, "user:5", "email", event_key="guild_announcement")
+            _delivered(row, "user:9003", "email", status=EventDelivery.Status.PENDING)
+            _delivered(row, "user:9004", "email", period="announce:78")
+            _delivered(row, "user:9005", "email", event_key="guild_announcement")
             assert row.reach() == AnnouncementReach(people=3, in_app=2, email=2, push=1, discord_posted=True)
 
         def it_says_discord_was_not_posted_without_a_discord_row():
