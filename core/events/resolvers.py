@@ -606,8 +606,9 @@ def everyone_with_login(context: dict[str, Any]) -> list[Recipient]:
     """Every User who has actually signed in at least once (active, usable email).
 
     Broader than active members: includes anyone with an account regardless of
-    membership status. New in this work for the release / changelog email
-    (Decision 5).
+    membership status, except a guest account made from a class booking (#654):
+    release notes are for members. New in this work for the release / changelog
+    email (Decision 5).
 
     ACTIVATION GATE (``last_login__isnull=False``): provisioning mints a login-capable
     User for every member, but a member is only "activated" once they have actually
@@ -616,9 +617,12 @@ def everyone_with_login(context: dict[str, Any]) -> list[Recipient]:
     """
     from django.contrib.auth.models import User
 
+    from membership.models import Member
+
     out: list[Recipient] = []
     seen: set[int] = set()
-    for user in User.objects.filter(is_active=True, last_login__isnull=False).iterator():
+    users = User.objects.filter(is_active=True, last_login__isnull=False).exclude(member__status=Member.Status.GUEST)
+    for user in users.iterator():
         if user.pk in seen or not (user.email or "").strip():
             continue
         seen.add(user.pk)

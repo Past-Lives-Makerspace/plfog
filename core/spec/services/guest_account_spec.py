@@ -11,6 +11,8 @@ from classes.models import RegistrationAnswer, RegistrationQuestion
 from core.models import SiteConfiguration, UserProfile
 from core.services.guest_account import ensure_account_for_registration
 from membership.models import Member
+from membership.services.provisioning import provision_user_for_member
+from tests.membership.factories import MemberEmailFactory, MemberFactory
 
 pytestmark = pytest.mark.django_db
 
@@ -259,3 +261,62 @@ def describe_default_create_account_is_false():
     def it_defaults_to_false_on_a_plain_registration(db):
         reg = RegistrationFactory()
         assert reg.create_account is False
+
+
+def describe_the_member_a_guest_booking_makes():
+    """#654: an account made from a booking is a guest; an existing member keeps their status."""
+
+    def _book(email: str) -> Member:
+        reg = RegistrationFactory(email=email, create_account=True, member=None)
+        ensure_account_for_registration(reg)
+        reg.refresh_from_db()
+        return Member.objects.get(pk=reg.member_id)
+
+    def it_makes_a_new_account_a_guest_never_active(membership_plan, open_registration):
+        member = _book("newguest@example.com")
+
+        assert member.status == Member.Status.GUEST
+        assert member.user.email == "newguest@example.com"
+
+    def it_leaves_an_active_member_with_an_account_active(membership_plan, open_registration):
+        existing = MemberFactory(_pre_signup_email="active@example.com", status=Member.Status.ACTIVE)
+        provision_user_for_member(existing)
+
+        member = _book("active@example.com")
+
+        assert member.pk == existing.pk
+        assert member.status == Member.Status.ACTIVE
+
+    def it_links_a_former_member_without_an_account_and_keeps_them_former(membership_plan, open_registration):
+        existing = MemberFactory(_pre_signup_email="former@example.com", status=Member.Status.FORMER)
+
+        member = _book("former@example.com")
+
+        assert member.pk == existing.pk
+        assert member.user is not None
+        assert member.status == Member.Status.FORMER
+
+    def it_links_an_active_member_without_an_account_and_keeps_them_active(membership_plan, open_registration):
+        existing = MemberFactory(_pre_signup_email="unlinked@example.com", status=Member.Status.ACTIVE)
+
+        member = _book("unlinked@example.com")
+
+        assert member.pk == existing.pk
+        assert member.status == Member.Status.ACTIVE
+
+    def it_links_a_former_member_by_a_staged_alias_and_keeps_them_former(membership_plan, open_registration):
+        existing = MemberFactory(_pre_signup_email="primary@example.com", status=Member.Status.FORMER)
+        MemberEmailFactory(member=existing, email="alias@example.com")
+
+        member = _book("alias@example.com")
+
+        assert member.pk == existing.pk
+        assert member.status == Member.Status.FORMER
+
+    def it_creates_no_guest_in_invite_only_mode(membership_plan):
+        reg = RegistrationFactory(email="inviteonly@example.com", create_account=True, member=None)
+
+        ensure_account_for_registration(reg)
+
+        assert not Member.objects.filter(status=Member.Status.GUEST).exists()
+        assert not User.objects.filter(email="inviteonly@example.com").exists()

@@ -1,0 +1,9 @@
+bump = "minor"
+date = "2026-10-06"
+title = "Booking a class can make a guest account, not a membership"
+changes = [
+  "Someone who books a class and asks for an account now gets a guest account. It opens their bookings, receipts and account pages on the class site, and nothing on the members site or in the app.",
+  "A guest who reaches the members site sees a message written for guests. Admins can edit it in Site Settings, next to the former member message.",
+  "Manage Members shows guests as Guest, with their own filter, and they are left out of member counts and member emails. Making a guest a member works like it does for anyone else: set their status and role.",
+  "Booking with an email that already belongs to a member never changes that member's status.",
+]

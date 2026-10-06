@@ -13,6 +13,7 @@ from tests.membership.factories import (
     GuildFactory,
     GuildMembershipFactory,
     GuildStaffMembershipFactory,
+    MemberFactory,
     OrientationBookingFactory,
 )
 
@@ -303,6 +304,25 @@ def describe_everyone_with_login():
         user = User.objects.create_user(username="never", email="never@example.com", is_active=True)
         recipients = resolvers.everyone_with_login({})
         assert user.pk not in _user_pks(recipients)
+
+    def _signed_in_with_status(email: str, status: str) -> User:
+        from membership.services.provisioning import provision_user_for_member
+
+        member = MemberFactory(_pre_signup_email=email, status=status)
+        provision_user_for_member(member)
+        member.status = status
+        member.save(update_fields=["status"])
+        User.objects.filter(pk=member.user_id).update(last_login=timezone.now())
+        return member.user
+
+    def it_leaves_out_a_guest_account_from_a_class_booking():
+        guest = _signed_in_with_status("guest@example.com", Member.Status.GUEST)
+        assert guest.pk not in _user_pks(resolvers.everyone_with_login({}))
+        assert guest.pk not in _user_pks(resolvers.release_audience({}))
+
+    def it_still_includes_a_signed_in_former_member():
+        former = _signed_in_with_status("former@example.com", Member.Status.FORMER)
+        assert former.pk in _user_pks(resolvers.everyone_with_login({}))
 
 
 def describe_resolve_dispatch():
