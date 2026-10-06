@@ -1,0 +1,69 @@
+{% load static %}<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>{{ equipment.name }} QR Sheet · Past Lives</title>
+<link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@700;800;900&family=Lato:wght@300;400;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="{% static 'css/qr-sheet.css' %}">
+{% include "includes/google_analytics.html" %}
+</head>
+<body class="pl-flyer-body">
+
+{# header/main landmarks: keeps the standalone page navigable by assistive tech (axe: landmark-one-main/region). #}
+<header class="pl-flyer-toolbar no-print">
+  <div class="pl-flyer-toolbar__actions">
+    <button type="button" class="pl-flyer-print-btn" onclick="window.print()">Print / Save as PDF</button>
+    <a class="pl-flyer-download" href="{% url 'hub_equipment_qr' equipment.slug 'svg' %}" hx-boost="false" data-pl-download>Download QR (SVG)</a>
+    <a class="pl-flyer-download" href="{% url 'hub_equipment_qr' equipment.slug 'png' %}" hx-boost="false" data-pl-download>Download QR (PNG)</a>
+  </div>
+  <p class="pl-flyer-toolbar__hint">Use your browser's Print dialog and choose “Save as PDF,” or print it and post it by the {{ equipment.get_kind_display|lower }}.</p>
+</header>
+
+<main class="pl-flyer" data-qr-sheet="equipment">
+  {# 1 · Photo band: the equipment photo at its crop, else its initial #}
+  <div class="pl-flyer__hero">
+    {% if equipment.photo %}
+      <img class="pl-flyer__hero-img" src="{{ equipment.photo.url }}" alt="{{ equipment.name }}" style="object-position: {{ equipment.hero_object_position }};">
+    {% else %}
+      <div class="pl-flyer__hero-placeholder">{{ equipment.name|make_list|first|upper }}</div>
+    {% endif %}
+  </div>
+
+  {# 2 · Header: kind and owner, name, where it is #}
+  <div class="pl-flyer__header">
+    <p class="pl-flyer__cat">{{ equipment.get_kind_display }} · {% if equipment.guild %}{{ equipment.guild.name }}{% else %}Past Lives Makerspace{% endif %}</p>
+    <h1 class="pl-flyer__name">{{ equipment.name }}</h1>
+    {% if equipment.area or equipment.location_note %}
+    <p class="pl-flyer__byline">{% if equipment.area %}{{ equipment.area.name }}{% endif %}{% if equipment.area and equipment.location_note %} · {% endif %}{{ equipment.location_note }}</p>
+    {% endif %}
+  </div>
+
+  {# 3 · A short line on what it is (hidden when blank) #}
+  {% if equipment.description %}
+  <p class="pl-flyer__about">{{ equipment.description|striptags|truncatewords:32 }}</p>
+  {% endif %}
+
+  {# 4 · The equipment page QR, and the orientation QR when it needs one that is on #}
+  <div class="pl-flyer__qr-row">
+    <section class="pl-flyer__qr-panel" data-qr-target="equipment">
+      <div class="pl-flyer__qr">{{ qr_svg|safe }}</div>
+      <h2 class="pl-flyer__qr-title">Reserve It</h2>
+      <p class="pl-flyer__qr-caption">Scan to see open times and book the {{ equipment.get_kind_display|lower }}.</p>
+      <p class="pl-flyer__qr-url">{{ equipment.qr_url }}</p>
+    </section>
+    {% if orientation %}
+    <section class="pl-flyer__qr-panel" data-qr-target="orientation">
+      <div class="pl-flyer__qr">{{ orientation.qr_svg|safe }}</div>
+      <h2 class="pl-flyer__qr-title">New here? Book the orientation first.</h2>
+      <p class="pl-flyer__qr-caption">You need the {{ orientation.name }} orientation before you can reserve it.</p>
+      <p class="pl-flyer__qr-url">{{ orientation.qr_url }}</p>
+    </section>
+    {% endif %}
+  </div>
+
+  <footer class="pl-flyer__footer">Past Lives Makerspace · Portland, OR</footer>
+</main>
+
+</body>
+</html>

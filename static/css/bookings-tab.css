@@ -167,3 +167,24 @@
 [data-theme="light"] .pl-bookings-table .hub-pill--neutral { color: #5b6675; }
 [data-theme="light"] .pl-bookings-table .hub-pill--danger { color: #b03030; }
 [data-theme="light"] .pl-bookings-table .hub-pill--warn { color: #9a6a00; }
+
+/* The staff view's Print QR Sheet menu (#631): one orientation per line, its owner beside it. */
+.pl-qr-sheet-menu {
+    list-style: none;
+    margin: 0.75rem 0 0;
+    padding: 0;
+}
+.pl-qr-sheet-menu__item {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    gap: 0.25rem 0.5rem;
+    padding: 0.6rem 0;
+    border-top: 1px solid var(--hub-border);
+}
+.pl-qr-sheet-menu__item a {
+    font-weight: 700;
+}
+.pl-qr-sheet-menu__item .hub-text-muted {
+    font-size: 0.8125rem;
+}

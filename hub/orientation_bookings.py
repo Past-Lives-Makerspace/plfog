@@ -5,7 +5,7 @@ orientations, with the self service actions the cards already offer. A viewer wh
 orientation (:func:`membership.permissions.manages_orientations`) sees the staff view: every
 booking they may run (:func:`membership.permissions.manageable_orientation_bookings`, the
 queryset form of the action gate) plus their own, with filters, the CSV export, Add Member,
-Record Orientation (#630) and a "..." menu per row. A row's staff menu shows only on a booking in the managed scope;
+Record Orientation (#630), Print QR Sheet (#631) and a "..." menu per row. A row's staff menu shows only on a booking in the managed scope;
 the viewer's own booking elsewhere gets the member menu.
 
 The tab replaced the old staff dashboard at ``/orientations/manage/``, which listed every
@@ -21,6 +21,7 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
 from django.db.models import Q
+from django.db.models.functions import Coalesce, Lower
 from django.http import HttpRequest
 from django.urls import reverse
 from django.utils import timezone
@@ -328,6 +329,20 @@ def _scope_guilds(request: HttpRequest, member: Member | None) -> list[Guild]:
     )
 
 
+def _qr_sheet_types(request: HttpRequest) -> list[OrientationType]:
+    """The orientations whose QR sheet (#631) the Print QR Sheet menu offers: the ones the viewer runs that can print.
+
+    The list scope of :func:`membership.permissions.manageable_orientation_types` (a preview
+    honoured), narrowed to what the sheet prints (``OrientationTypeQuerySet.printable``): no turned
+    off type, none on retired equipment, none of a guild with orientations switched off. Owner, then the owner's own order, as the page lists them.
+    """
+    return list(
+        manageable_orientation_types(request, OrientationType.objects.printable(), honour_preview=True)
+        .select_related("guild", "equipment")
+        .order_by(Lower(Coalesce("guild__name", "equipment__name")), "sort_order", "name")
+    )
+
+
 def _staff_extras(request: HttpRequest, member: Member | None) -> dict[str, Any]:
     """What sits above the staff table: the hours nudge, Add Member and Record Orientation.
 
@@ -368,6 +383,7 @@ def _staff_extras(request: HttpRequest, member: Member | None) -> dict[str, Any]
         auto_id="orientation-record-%s",
     )
     return {
+        "qr_sheet_types": _qr_sheet_types(request),
         "record_form": record_form if record_form.type_options else None,
         # Lands on the Oriented list, where the new record shows.
         "record_next": f"{reverse('hub_orientations')}?view=bookings&oriented=yes",

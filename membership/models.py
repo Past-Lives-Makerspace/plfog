@@ -11357,9 +11357,23 @@ class OrientationTypeQuerySet(models.QuerySet):
         can never disagree. Reads the site configuration once, for the demo guild switch.
         """
         return Q(is_active=True) & (
-            Q(guild__in=Guild.objects.visible(), guild__orientation_settings__is_enabled=True)
+            (Q(guild__in=Guild.objects.visible()) & OrientationTypeQuerySet.guild_orientations_on_condition())
             | Q(equipment__is_active=True)
         )
+
+    @staticmethod
+    def guild_orientations_on_condition() -> Q:
+        """A guild owned type whose guild has orientation booking switched on: the guild leg of :meth:`listed_condition`."""
+        return Q(guild__orientation_settings__is_enabled=True)
+
+    def printable(self) -> OrientationTypeQuerySet:
+        """Types a QR sheet (#631) may be printed for: :meth:`listed_condition` without the guild visibility leg.
+
+        An active type of a guild with orientations switched on, or of active equipment. A
+        hidden guild stays printable: its members still reach its orientations from the
+        sheet, which is the point of posting one in the shop.
+        """
+        return self.filter(is_active=True).filter(self.guild_orientations_on_condition() | Q(equipment__is_active=True))
 
     @staticmethod
     def held_condition(member: Member | None) -> Q:
@@ -11588,6 +11602,58 @@ class OrientationType(models.Model):
         reads it for all of them in its own query instead of one per link.
         """
         return self.orientations_page_path() if listed else self.orientation_anchor_path()
+
+    # --- QR sheet (#631): a printable page that books this orientation.
+
+    @property
+    def qr_url(self) -> str:
+        """The stable, pk based permalink the QR sheet encodes.
+
+        Not the booking link itself, for two reasons: it switches between the Orientations
+        page card and the owner page as the type is listed or not, and its card form is a
+        ``#fragment`` that a logged out scan loses on the way through login (``next`` carries
+        no fragment). ``/orientations/types/<pk>/`` survives a rename and resolves the
+        current booking link on every scan (:meth:`booking_landing_path`), after login.
+        """
+        from membership.orientations import _absolute_url
+
+        return _absolute_url(reverse("hub_orientation_type_permalink", args=[self.pk]))
+
+    def qr_svg(self) -> str:
+        """Inline, CSS-scalable SVG QR of the permalink (crisp at any print size)."""
+        from membership.qr import qr_svg as render_qr
+
+        return render_qr(self.qr_url)
+
+    def qr_png_bytes(self) -> bytes:
+        """PNG bytes of the same QR, a raster download for print."""
+        from membership.qr import qr_png_bytes as render_png
+
+        return render_png(self.qr_url)
+
+    def booking_landing_path(self) -> str:
+        """Where the permalink sends a scan: :meth:`booking_link`, asking once whether the page lists this type."""
+        listed = OrientationType.objects.filter(pk=self.pk).filter(OrientationTypeQuerySet.listed_condition()).exists()
+        return self.booking_link(listed=listed)
+
+    @property
+    def qr_sheet_refusal(self) -> str:
+        """Why this orientation has no QR sheet, or "" when it can be printed.
+
+        A turned off type takes no bookings, a retired tool's page is hidden from members, and a
+        guild with orientations switched off shows no booking block, so a printed code for any
+        of them would land on nothing a member can book (:meth:`OrientationTypeQuerySet.printable`).
+        """
+        if not self.is_active:
+            return "This orientation is turned off, so it has no QR sheet. Turn it back on to print one."
+        if self.equipment is not None and not self.equipment.is_active:
+            return "The equipment this orientation belongs to is retired, so it has no QR sheet."
+        if self.guild is not None and not OrientationType.objects.printable().filter(pk=self.pk).exists():
+            return (
+                f"Orientations are switched off for {self.guild.name}, so this one has no QR sheet. "
+                "Turn on Offer orientation booking on the guild's Orientations tab to print one."
+            )
+        return ""
 
     @property
     def paused_message(self) -> str:
@@ -14336,6 +14402,53 @@ class Equipment(HeroCropMixin, models.Model):
         orientation_type = cast(OrientationType, self.required_orientation)
         return orientation_type.booking_link(listed=self.required_orientation_listed)  # type: ignore[attr-defined]
 
+    # --- QR sheet (#631): the printable page managers post at the machine.
+
+    @property
+    def qr_url(self) -> str:
+        """The absolute equipment page URL the QR sheet encodes.
+
+        The slug is set once from the first name and kept across renames, so the page URL is
+        already stable and needs no permalink redirect (unlike a class's slug).
+        """
+        from membership.orientations import _absolute_url
+
+        return _absolute_url(reverse("hub_equipment_detail", args=[self.slug]))
+
+    def qr_svg(self) -> str:
+        """Inline, CSS-scalable SVG QR of the equipment page (crisp at any print size)."""
+        from membership.qr import qr_svg as render_qr
+
+        return render_qr(self.qr_url)
+
+    def qr_png_bytes(self) -> bytes:
+        """PNG bytes of the same QR, a raster download for print."""
+        from membership.qr import qr_png_bytes as render_png
+
+        return render_png(self.qr_url)
+
+    @property
+    def qr_sheet_refusal(self) -> str:
+        """Why this item has no QR sheet, or "" when it can be printed: retired gear is hidden from members."""
+        if not self.is_active:
+            return (
+                "This equipment is retired, so it has no QR sheet. Turn it back on from the manage panel to print one."
+            )
+        return ""
+
+    @property
+    def qr_sheet_orientation(self) -> OrientationType | None:
+        """The orientation the sheet's second QR books: the required one while it can print, else ``None``.
+
+        A turned off required type, or one whose guild has orientations switched off, takes
+        no bookings, so the sheet leaves its QR off rather than print a code that lands on
+        nothing to book (:meth:`OrientationTypeQuerySet.printable`).
+        """
+        orientation_type = self.required_orientation
+        if orientation_type is None or not OrientationType.objects.printable().filter(pk=orientation_type.pk).exists():
+            return None
+        return orientation_type
+
     def save(self, *args: Any, **kwargs: Any) -> None:
         if not self.slug:
             self.slug = self._unique_slug()
@@ -14941,6 +15054,14 @@ class EquipmentReservation(models.Model):
         default="",
         help_text="Required when a manager cancels; shown to the member.",
     )
+    cancelled_as_manager = models.BooleanField(
+        default=False,
+        help_text="A manager of this equipment cancelled it, from either cancel route (#633).",
+    )
+    late_fee_waived = models.BooleanField(
+        default=False,
+        help_text="A manager cancel inside the late notice window: the fee a self cancel would owe was not charged.",
+    )
     created_at = models.DateTimeField(auto_now_add=True, help_text="When the reservation was made.")
     cancelled_at = models.DateTimeField(null=True, blank=True, help_text="When it was cancelled, if it was.")
 
@@ -14974,16 +15095,37 @@ class EquipmentReservation(models.Model):
             and self.cancelled_by_id != self.member_id
         )
 
+    @property
+    def own_manager_cancel_label(self) -> str:
+        """The Bookings tab status for a manager who cancelled their own row as a manager, else "".
+
+        Inside the notice window the fee a self cancel would owe was waived, and the label says
+        so; outside it there was no fee to waive (#633). A manager cancelling somebody else's
+        row is :attr:`is_cancelled_by_manager` instead, and keeps its own label.
+        """
+        if (
+            self.status != self.Status.CANCELLED
+            or not self.cancelled_as_manager
+            or self.cancelled_by_id != self.member_id
+        ):
+            return ""
+        return "Manager cancelled, late fee waived" if self.late_fee_waived else "Manager cancelled"
+
     def cancel(self, actor: Member, *, reason: str = "", as_manager: bool = False) -> LateCancellationFee | None:
         """Cancel this reservation as ``actor`` — the member themselves, or a manager.
 
         Self cancel: future reservations only, no reason needed, the member gets their own
         "you cancelled" email, and a cancel inside the notice window creates the late
-        cancellation fee (#456) in the same transaction as the cancel. Manager cancel: also
+        cancellation fee (#456) in the same transaction as the cancel, unless the actor
+        manages this equipment. Manager cancel: also
         allowed while in progress, requires a reason the member will see, notifies the
         member, and never charges. A manager cancelling THEIR OWN row from the manage tab
         passes ``as_manager=True`` — the manager guards apply (reason honored, in-progress
         allowed), nobody is notified because the member IS the actor, and nothing charges.
+        A manager of this equipment who cancels their own row from the ordinary member Cancel
+        is not charged either: managers never pay a late fee on equipment they manage (Felix,
+        2026-10-05). Every such cancel records ``cancelled_as_manager``, and ``late_fee_waived``
+        when it fell inside the notice window, in the same conditional update as the flip (#633).
 
         Returns:
             The :class:`~billing.models.LateCancellationFee` a late self cancel created (or
@@ -15002,6 +15144,13 @@ class EquipmentReservation(models.Model):
         acting_as_manager = as_manager or not is_own_row
         cleaned_reason = reason.strip()
         self._ensure_cancel_allowed(actor, acting_as_manager=acting_as_manager, reason=cleaned_reason, now=now)
+        from billing.late_fees import charge_if_late, would_charge
+
+        # A manager never pays a late fee on equipment they manage, whichever route they cancel
+        # their own row from. Whether it was inside the window is stored now, since the window
+        # and the fee can change later and the record should not (#633).
+        fee_exempt = acting_as_manager or actor.can_manage_equipment(self.equipment)
+        fee_waived = fee_exempt and would_charge(self, now=now)
         fee: LateCancellationFee | None = None
         with transaction.atomic():
             # A conditional update keyed on status, not a save: two requests that both loaded
@@ -15014,6 +15163,8 @@ class EquipmentReservation(models.Model):
                 status=self.Status.CANCELLED,
                 cancelled_by=actor,
                 cancelled_reason=cleaned_reason,
+                cancelled_as_manager=fee_exempt,
+                late_fee_waived=fee_waived,
                 cancelled_at=now,
             )
             if not flipped:
@@ -15021,10 +15172,10 @@ class EquipmentReservation(models.Model):
             self.status = self.Status.CANCELLED
             self.cancelled_by = actor
             self.cancelled_reason = cleaned_reason
+            self.cancelled_as_manager = fee_exempt
+            self.late_fee_waived = fee_waived
             self.cancelled_at = now
-            if not acting_as_manager:
-                from billing.late_fees import charge_if_late
-
+            if not fee_exempt:
                 fee = charge_if_late(self, now=now)
         from membership import equipment as equipment_service
 

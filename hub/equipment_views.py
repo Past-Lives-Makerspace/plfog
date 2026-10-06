@@ -272,6 +272,9 @@ def _schedule_context(
     blockers = equipment.booking_blockers(member)
     my_reservations: list[EquipmentReservation] = []
     unpaid_late_fee = None
+    # A manager of this equipment never pays a late fee on it (#633), so no fee copy shows them. Role based,
+    # like the exemption in EquipmentReservation.cancel(), not the preview aware ``manages``.
+    fee_exempt = member is not None and member.can_manage_equipment(equipment)
     if member is not None:
         now = timezone.now()
         my_reservations = list(
@@ -282,7 +285,7 @@ def _schedule_context(
         for reservation in my_reservations:
             # The cancel modal's fee line, only while a cancel right now would be late (#456).
             reservation.late_cancel_warning = (
-                cancel_sentence(policy) if policy.is_late(reservation.starts_at, now=now) else ""
+                cancel_sentence(policy) if not fee_exempt and policy.is_late(reservation.starts_at, now=now) else ""
             )
         unpaid_late_fee = unpaid_fee_for(member)
     return {
@@ -307,7 +310,7 @@ def _schedule_context(
         "upcoming_reservations": list(equipment.reservations.upcoming().select_related("member")[:20]),
         "manages": manages,
         # Under the Book a Time form and appended to its Reserve prompt; "" when no fee applies.
-        "late_cancel_sentence": booking_sentence(policy),
+        "late_cancel_sentence": "" if fee_exempt else booking_sentence(policy),
         # The block until paid (#456): the requirements banner shows it with a Pay button.
         "unpaid_late_fee": unpaid_late_fee,
     }
@@ -760,7 +763,9 @@ def hub_equipment_reservation_cancel(request: HttpRequest, slug: str, pk: int) -
     except EquipmentError as exc:
         messages.error(request, str(exc))
         return redirect(back)
-    messages.success(request, "Reservation cancelled. The member has been told.")
+    # A manager cancelling their own row emails nobody, so there is nobody to have told.
+    told = "" if reservation.member_id == member.pk else " The member has been told."
+    messages.success(request, f"Reservation cancelled.{told}")
     return redirect(back)
 
 
@@ -1014,6 +1019,56 @@ def hub_equipment_manage(request: HttpRequest, slug: str) -> HttpResponse:
     if active_tab not in {"details", "staff", "hours", "reservations", "orientation"}:
         active_tab = "details"
     return _render_manage(request, equipment, active_tab=active_tab)
+
+
+def _require_can_print(request: HttpRequest, equipment: Equipment) -> HttpResponse | None:
+    """403 unless the request may print ``equipment``'s QR sheet, with the reason when it is retired.
+
+    The manage gate: ``can_manage_equipment`` already holds everyone ``Equipment.is_run_by``
+    names (the tool's staff rows and its guild's lead and staff), plus admins and the
+    EQUIPMENT capability. A runner of a retired item hears why it cannot be printed.
+    """
+    forbidden = _require_can_manage(request, equipment)
+    if forbidden is not None:
+        return forbidden
+    if equipment.qr_sheet_refusal:
+        return HttpResponse(equipment.qr_sheet_refusal, status=403)
+    return None
+
+
+@login_required
+def hub_equipment_flyer(request: HttpRequest, slug: str) -> HttpResponse:
+    """The equipment QR sheet (#631): one printable Letter page to post at the machine.
+
+    A QR to the equipment page, where a member reserves it or sees the orientation it needs,
+    and, when it requires an orientation that is on, a second QR straight to booking it.
+    """
+    equipment = get_object_or_404(_equipment_queryset().select_related("area"), slug=slug)
+    forbidden = _require_can_print(request, equipment)
+    if forbidden is not None:
+        return forbidden
+    return render(
+        request,
+        "hub/equipment_flyer.html",
+        {"equipment": equipment, "qr_svg": equipment.qr_svg(), "orientation": equipment.qr_sheet_orientation},
+    )
+
+
+@login_required
+def hub_equipment_qr(request: HttpRequest, slug: str, fmt: str) -> HttpResponse:
+    """Download the equipment page QR as SVG or PNG, gated like the sheet."""
+    equipment = get_object_or_404(_equipment_queryset(), slug=slug)
+    forbidden = _require_can_print(request, equipment)
+    if forbidden is not None:
+        return forbidden
+    if fmt == "svg":
+        response = HttpResponse(equipment.qr_svg(), content_type="image/svg+xml")
+    elif fmt == "png":
+        response = HttpResponse(equipment.qr_png_bytes(), content_type="image/png")
+    else:
+        raise Http404
+    response["Content-Disposition"] = f'attachment; filename="{equipment.slug}-qr.{fmt}"'
+    return response
 
 
 @login_required

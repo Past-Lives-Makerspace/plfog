@@ -88,8 +88,11 @@ def _placeholder_context(reservation: EquipmentReservation) -> dict[str, str]:
         "equipment_name": equipment.name,
         "reservation_when": when_display(reservation),
         "equipment_url": _absolute_url(reverse("hub_equipment_detail", args=[equipment.slug])),
-        # The late fee sentence while one applies, "" otherwise (#456).
-        "cancellation_policy": booking_sentence(policy_for(reservation)),
+        # The late fee sentence while one applies, "" otherwise (#456). A manager of this
+        # equipment never pays it (#633), so their copy never mentions it.
+        "cancellation_policy": (
+            "" if reservation.member.can_manage_equipment(equipment) else booking_sentence(policy_for(reservation))
+        ),
     }
 
 
