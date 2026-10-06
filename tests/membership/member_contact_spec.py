@@ -68,6 +68,28 @@ def describe_MemberContact():
                     contact = MemberContactFactory.build(label="Instagram", value="@jane", kind=kind)
                     assert 'href="https://instagram.com/jane"' in contact.as_link
 
+            @pytest.mark.parametrize(
+                "label", ["Installation art", "Instant replies", "Threads and yarn", "My threads", "Retwitter"]
+            )
+            def it_matches_platform_words_only_at_a_word_start(label: str):
+                contact = MemberContactFactory.build(label=label, value="@jane")
+                assert contact.as_link == "@jane"
+
+            @pytest.mark.parametrize("label", ["Insta", "My Instagram", "instagram"])
+            def it_matches_instagram_at_any_word_start_or_insta_alone(label: str):
+                contact = MemberContactFactory.build(label=label, value="@jane")
+                assert 'href="https://instagram.com/jane"' in contact.as_link
+
+            def it_drops_one_trailing_dot_from_the_url_but_not_the_text():
+                contact = MemberContactFactory.build(label="Instagram", value="@jane.makes.")
+                assert contact.as_link == (
+                    '<a href="https://instagram.com/jane.makes" target="_blank" rel="noopener">@jane.makes.</a>'
+                )
+
+            def it_leaves_a_handle_ending_in_two_dots_as_plain_text():
+                contact = MemberContactFactory.build(label="Instagram", value="@jane..")
+                assert contact.as_link == "@jane.."
+
             @pytest.mark.parametrize("label", ["Exhibits", "Signal", "Big", "Xbox", "Max"])
             def it_matches_ig_and_x_only_as_whole_words(label: str):
                 contact = MemberContactFactory.build(label=label, value="@jane")
@@ -96,6 +118,25 @@ def describe_MemberContact():
                 contact = MemberContactFactory.build(label="Instagram", value="TikTok: @name")
                 assert 'href="https://www.tiktok.com/@name"' in contact.as_link
 
+            @pytest.mark.parametrize(
+                ("value", "href"),
+                [
+                    ("IG @jholtmanart", "https://instagram.com/jholtmanart"),
+                    ("Instagram @x", "https://instagram.com/x"),
+                    ("Threads: @jane", "https://www.threads.net/@jane"),
+                ],
+            )
+            def it_links_a_platform_word_then_an_at_handle_without_a_colon(value: str, href: str):
+                contact = MemberContactFactory.build(label="Other", value=value)
+                assert contact.as_link == f'<a href="{href}" target="_blank" rel="noopener">{value}</a>'
+
+            @pytest.mark.parametrize(
+                "value", ["Instagram is where I post", "Instagram jane", "Threads and yarn: @jane"]
+            )
+            def it_leaves_free_text_after_a_platform_word_plain(value: str):
+                contact = MemberContactFactory.build(label="Other", value=value)
+                assert contact.as_link == value
+
             def it_falls_back_to_the_label_when_the_prefix_names_no_platform():
                 contact = MemberContactFactory.build(label="Instagram", value="Booking: name")
                 assert contact.as_link == "Booking: name"
@@ -110,6 +151,16 @@ def describe_MemberContact():
             def it_keeps_a_path():
                 contact = MemberContactFactory.build(label="Shop", value="ambercapwell.com/shop")
                 assert 'href="https://ambercapwell.com/shop"' in contact.as_link
+
+            def it_drops_one_trailing_dot_from_the_url_but_not_the_text():
+                contact = MemberContactFactory.build(label="Website", value="mysite.com.")
+                assert contact.as_link == (
+                    '<a href="https://mysite.com" target="_blank" rel="noopener">mysite.com.</a>'
+                )
+
+            def it_drops_a_trailing_dot_after_a_path():
+                contact = MemberContactFactory.build(label="Shop", value="mysite.com/shop.")
+                assert 'href="https://mysite.com/shop"' in contact.as_link
 
             def it_leaves_a_dotless_word_as_plain_text():
                 contact = MemberContactFactory.build(label="Website", value="coming soon")
@@ -203,6 +254,10 @@ def describe_MemberContact():
 
         def it_falls_back_to_the_link_icon_for_threads_which_has_no_glyph():
             assert MemberContactFactory.build(label="Threads").social_icon == "link"
+
+        @pytest.mark.parametrize("label", ["Installation art", "Instant replies", "Threads and yarn"])
+        def it_does_not_match_a_platform_word_inside_another_word_or_phrase(label: str):
+            assert MemberContactFactory.build(label=label).social_icon == "link"
 
         @pytest.mark.parametrize("label", ["Exhibits", "Signal"])
         def it_does_not_match_ig_or_x_inside_a_word(label: str):

@@ -16,8 +16,12 @@ _DIGITS = frozenset("0123456789")
 # What is left of a phone number once its extensions are cut out: digits and the separators
 # people type between them, and a second number after a comma or a slash.
 _PHONE_SHAPE = re.compile(r"^[\d\s()+.,/-]+$")
-# Fewer digits than a local number is a count, a room or a year, not something to dial.
-_MIN_PHONE_DIGITS = 7
+# How many digits a dialable number has. Without a "+" it is a North American number: 7 (local),
+# 10, or 11 with the leading 1. With a "+" it is E.164: at most 15. Anything else typed in
+# digits and separators is a date range, an amount or an ID ("2024-2025", "123456789012345678").
+_LOCAL_DIGIT_COUNTS = frozenset({7, 10, 11})
+_MIN_DIGITS = 7
+_MAX_DIGITS = 15
 
 
 def tel_number(phone: str) -> str:
@@ -50,12 +54,18 @@ def phone_tel_number(value: str) -> str:
 
     :func:`tel_number` finds digits in anything ("Open Tue 5pm" gives "5"), which is right for a
     field that only holds a phone number and wrong for a free text contact. Here the value must
-    be digits and phone separators once extensions are removed, with at least
-    ``_MIN_PHONE_DIGITS`` digits, before :func:`tel_number` reads it.
+    be digits and phone separators once extensions are removed, and the number
+    :func:`tel_number` reads from it must have a phone's digit count (``_LOCAL_DIGIT_COUNTS``,
+    or ``_MIN_DIGITS`` to ``_MAX_DIGITS`` after a "+"). A date ("10/12/2024") or an amount
+    ("1,000,000") splits at its first slash or comma and leaves too few digits.
     """
-    bare = _EXTENSION.sub("", value)
-    if not _PHONE_SHAPE.match(bare):
+    if not _PHONE_SHAPE.match(_EXTENSION.sub("", value)):
         return ""
-    if sum(ch in _DIGITS for ch in bare) < _MIN_PHONE_DIGITS:
-        return ""
-    return tel_number(value)
+    href = tel_number(value)
+    number = href.partition(";")[0]
+    digits = len(number.lstrip("+"))
+    if number.startswith("+"):
+        dialable = _MIN_DIGITS <= digits <= _MAX_DIGITS
+    else:
+        dialable = digits in _LOCAL_DIGIT_COUNTS
+    return href if dialable else ""

@@ -100,6 +100,16 @@ def describe_member_directory_contacts():
         assert '<rect x="2" y="2" width="20" height="20" rx="5"/>' in content
         assert 'href="https://instagram.com/iggy"' in content
 
+    def it_shows_the_platform_icon_on_a_website_contact_labelled_instagram(client: Client):
+        _login(client)
+        member = MemberFactory(show_in_directory=True, full_legal_name="Wendy Website")
+        MemberContactFactory(member=member, label="Instagram", value="@wendy", kind="website")
+
+        content = client.get(reverse("hub_member_directory")).content.decode()
+
+        assert '<rect x="2" y="2" width="20" height="20" rx="5"/>' in content
+        assert 'href="https://instagram.com/wendy"' in content
+
     def it_links_a_bare_domain_and_a_phone_contact(client: Client):
         _login(client)
         member = MemberFactory(show_in_directory=True, full_legal_name="Bare Domain")

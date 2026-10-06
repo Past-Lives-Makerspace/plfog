@@ -145,7 +145,7 @@
             {% endif %}
             {% for contact in member.visible_contacts|by_kind:"website" %}
             <div class="directory-card__contact-row">
-                <span class="directory-card__contact-label">{% include "components/social_icon.html" with platform="link" %}</span>
+                <span class="directory-card__contact-label">{% include "components/social_icon.html" with platform=contact.social_icon %}</span>
                 <span>{{ contact.as_link }}</span>
             </div>
             {% endfor %}

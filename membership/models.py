@@ -2144,8 +2144,9 @@ class Member(models.Model):
         super().save(*args, **kwargs)
 
 
-# A handle: letters, digits, dots and underscores, with or without a leading "@".
-_HANDLE_RE = re.compile(r"^@?([A-Za-z0-9._]+)$")
+# A handle: letters, digits, dots and underscores, with or without a leading "@". One trailing
+# dot (a handle typed at the end of a sentence) stays out of the URL.
+_HANDLE_RE = re.compile(r"^@?([A-Za-z0-9._]*[A-Za-z0-9_])\.?$")
 _WORD_RE = re.compile(r"[a-z0-9]+")
 
 
@@ -2153,15 +2154,29 @@ _WORD_RE = re.compile(r"[a-z0-9]+")
 class _ContactPlatform:
     """A social platform a contact's label, or a "Platform:" prefix in its value, can name.
 
-    ``keywords`` name it anywhere in the text ("Instagrm" holds "insta"); ``whole_words`` only
-    standing alone, so "IG" and "X" match and "Signal" and "Exhibits" do not. ``url_template``
-    turns a handle into the profile URL; None where a handle makes no URL.
+    ``word_starts`` name it at the start of any word ("Instagrm" and "My YouTube channel"
+    match; "Installation art" does not). ``whole_words`` name it only standing alone, so "IG"
+    and "X" match and "Signal" and "Exhibits" do not. ``exact_names`` name it only as the
+    whole text, for a platform whose name is also an everyday word ("Threads", not "Threads
+    and yarn"). ``url_template`` turns a handle into the profile URL; None where a handle makes
+    no URL.
     """
 
     icon: str
-    keywords: tuple[str, ...]
+    word_starts: tuple[str, ...] = ()
     whole_words: frozenset[str] = frozenset()
+    exact_names: frozenset[str] = frozenset()
     url_template: str | None = None
+
+    def names(self, text: str) -> bool:
+        """Whether ``text`` (a label or a value prefix) names this platform."""
+        lowered = text.strip().lower()
+        words = _WORD_RE.findall(lowered)
+        return (
+            lowered in self.exact_names
+            or any(word in self.whole_words for word in words)
+            or any(word.startswith(self.word_starts) for word in words)
+        )
 
     def profile_url(self, handle: str) -> str | None:
         """The profile URL for ``handle``, or None when it is not a handle or makes no URL."""
@@ -2173,13 +2188,13 @@ class _ContactPlatform:
 
 # First match wins. ``icon`` is a key of components/social_icon.html; Threads has no glyph there.
 _CONTACT_PLATFORMS: tuple[_ContactPlatform, ...] = (
-    _ContactPlatform("instagram", ("insta",), frozenset({"ig"}), "https://instagram.com/{}"),
+    _ContactPlatform("instagram", ("instag",), frozenset({"ig", "insta"}), url_template="https://instagram.com/{}"),
     _ContactPlatform("youtube", ("youtube",), url_template="https://www.youtube.com/@{}"),
     _ContactPlatform("facebook", ("facebook",), url_template="https://facebook.com/{}"),
     _ContactPlatform("tiktok", ("tiktok",), url_template="https://www.tiktok.com/@{}"),
     _ContactPlatform("linkedin", ("linkedin",)),
-    _ContactPlatform("x", ("twitter",), frozenset({"x"}), "https://x.com/{}"),
-    _ContactPlatform("link", ("threads",), url_template="https://www.threads.net/@{}"),
+    _ContactPlatform("x", ("twitter",), frozenset({"x"}), url_template="https://x.com/{}"),
+    _ContactPlatform("link", exact_names=frozenset({"threads"}), url_template="https://www.threads.net/@{}"),
 )
 
 
@@ -2227,23 +2242,21 @@ class MemberContact(models.Model):
     def __str__(self) -> str:
         return f"{self.label}: {self.value} ({self.member.display_name})"
 
-    # "Instagram: @name". The prefix is a few words; the platform check decides if it names one.
-    _PREFIXED_HANDLE_RE = re.compile(r"^([A-Za-z][A-Za-z ]{0,30}?)\s*:\s*(\S+)$")
-    # A bare domain: dotted labels ending in a letters-only top-level domain, then an optional path.
+    # "Instagram: @name", or "IG @name" with the "@" and no colon (without the "@", "Instagram is
+    # where I post" would read as a handle). The prefix is a few words; the platform check
+    # decides if it names one.
+    _PREFIXED_HANDLE_RE = re.compile(r"^([A-Za-z][A-Za-z ]{0,30}?)(?:\s*:\s*(\S+)|\s+(@\S+))$")
+    # A bare domain: dotted labels ending in a letters-only top-level domain, then an optional
+    # path. One trailing dot (the end of a sentence) stays out of the captured address.
     _BARE_DOMAIN_RE = re.compile(
-        r"^[a-z0-9](?:[a-z0-9-]*[a-z0-9])?(?:\.[a-z0-9](?:[a-z0-9-]*[a-z0-9])?)*\.[a-z]{2,}(?:/\S*)?$",
+        r"^([a-z0-9](?:[a-z0-9-]*[a-z0-9])?(?:\.[a-z0-9](?:[a-z0-9-]*[a-z0-9])?)*\.[a-z]{2,}(?:/\S*?)?)\.?$",
         re.IGNORECASE,
     )
 
     @staticmethod
     def _platform_for(text: str) -> _ContactPlatform | None:
         """The platform ``text`` (a label or a value prefix) names, or None."""
-        lowered = text.lower()
-        words = set(_WORD_RE.findall(lowered))
-        for platform in _CONTACT_PLATFORMS:
-            if any(keyword in lowered for keyword in platform.keywords) or words & platform.whole_words:
-                return platform
-        return None
+        return next((platform for platform in _CONTACT_PLATFORMS if platform.names(text)), None)
 
     @property
     def social_icon(self) -> str:
@@ -2257,7 +2270,7 @@ class MemberContact(models.Model):
         if prefixed is not None:
             platform = self._platform_for(prefixed.group(1))
             if platform is not None:
-                return platform.profile_url(prefixed.group(2))
+                return platform.profile_url(prefixed.group(2) or prefixed.group(3))
         platform = self._platform_for(self.label)
         return platform.profile_url(value) if platform is not None else None
 
@@ -2284,8 +2297,11 @@ class MemberContact(models.Model):
         profile_url = self._profile_url(value)
         if profile_url is not None:
             return format_html('<a href="{}" target="_blank" rel="noopener">{}</a>', profile_url, value)
-        if self._BARE_DOMAIN_RE.match(value):
-            return format_html('<a href="https://{}" target="_blank" rel="noopener">{}</a>', value, value)
+        bare_domain = self._BARE_DOMAIN_RE.match(value)
+        if bare_domain is not None:
+            return format_html(
+                '<a href="https://{}" target="_blank" rel="noopener">{}</a>', bare_domain.group(1), value
+            )
         tel = phone_tel_number(value)
         if tel:
             return format_html('<a href="tel:{}">{}</a>', tel, value)
