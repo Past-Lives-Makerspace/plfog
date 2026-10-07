@@ -46,6 +46,7 @@ from hub.views import (
     _hours_save_message,
     _personal_hours_prefix,
     _safe_next,
+    attach_blocking_reservations,
 )
 from membership import equipment as equipment_service
 from membership.models import (
@@ -896,22 +897,12 @@ def _orientation_tab_context(request: HttpRequest, equipment: Equipment) -> dict
     )
     for booking in attendee_rows:
         attendees_by_slot.setdefault(booking.slot_id, []).append(booking)
+    for slot in upcoming_slots:
+        slot.attendee_bookings = attendees_by_slot.get(slot.pk, [])
     # A manager may post a slot over an existing reservation (they might mean to
     # bump it); such a slot renders muted with "Blocked by ..." and never reaches
     # members (bookable() hides it) until the reservation is cancelled.
-    reservations = (
-        list(equipment.reservations.upcoming().select_related("member").order_by("starts_at")) if upcoming_slots else []
-    )
-    for slot in upcoming_slots:
-        slot.attendee_bookings = attendees_by_slot.get(slot.pk, [])
-        slot.blocking_reservation = next(
-            (
-                reservation
-                for reservation in reservations
-                if reservation.starts_at < slot.ends_at and reservation.ends_at > slot.starts_at
-            ),
-            None,
-        )
+    attach_blocking_reservations(upcoming_slots)
     return {
         "orientation_pending_requests": pending_requests,
         "orientation_upcoming_slots": upcoming_slots,

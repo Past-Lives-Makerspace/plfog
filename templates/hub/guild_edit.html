@@ -769,9 +769,9 @@ confirm modal carries its own POST form, and template content can't nest a form.
         {% endif %}
       </div>
       {% else %}
-      <div x-show="{{ forloop.counter0 }} >= page * size && {{ forloop.counter0 }} < (page + 1) * size" class="pl-slot-admin__row" data-time-key="slot:{{ item.pk }}" data-time-index="{{ forloop.counter0 }}" data-emails="{{ item.active_booking_count }}">
+      <div x-show="{{ forloop.counter0 }} >= page * size && {{ forloop.counter0 }} < (page + 1) * size" class="pl-slot-admin__row{% if item.blocking_reservation %} pl-equip-res-row--blocked{% endif %}" data-time-key="slot:{{ item.pk }}" data-time-index="{{ forloop.counter0 }}" data-emails="{{ item.active_booking_count }}">
         <input type="checkbox" class="pl-slot-admin__pick" aria-label="Select {{ item.starts_at|date:'D M j' }}, {{ item.starts_at|time:'g:i A' }}" :checked="selected.includes('slot:{{ item.pk }}')" @change="toggle('slot:{{ item.pk }}')">
-        <span class="pl-slot-admin__when">{{ item.starts_at|date:"D M j" }} · {{ item.starts_at|time:"g:i A" }}–{{ item.ends_at|time:"g:i A" }} · {{ item.orientation_type.name }}</span>
+        <span class="pl-slot-admin__when">{{ item.starts_at|date:"D M j" }} · {{ item.starts_at|time:"g:i A" }}–{{ item.ends_at|time:"g:i A" }} · {{ item.orientation_type.name }}{% include "hub/partials/_slot_blocked_by.html" with slot=item %}</span>
         <span class="pl-slot-admin__with">
           {% if item.orienter %}
             {% if item.orienter.profile_photo %}<img src="{{ item.orienter.profile_photo.url }}" alt="" class="pl-orient-avatar">{% else %}<span class="pl-orient-avatar pl-orient-avatar--initials">{{ item.orienter.display_name|slice:":1" }}</span>{% endif %}

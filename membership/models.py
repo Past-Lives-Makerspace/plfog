@@ -12811,11 +12811,11 @@ class OrientationSlotQuerySet(models.QuerySet):
         still-on-leadership orienter (a departed staffer's surviving slot must not
         reappear the moment its booking is declined or cancelled). An
         equipment-owned slot (``guild`` is None) requires active, open (not closed
-        for maintenance) equipment, an orienter who still manages it (or no orienter
-        for a shared slot), and no confirmed reservation over its span (a reserved
-        machine cannot host an orientation). For both owners a slot generated from
-        a paused rule stops taking NEW bookings; a one time slot has no rule and is
-        unaffected.
+        for maintenance) equipment and an orienter who still manages it (or no orienter
+        for a shared slot). For both owners a confirmed reservation or block over the
+        span on any item the type uses hides the slot (a reserved machine cannot host
+        an orientation, #665), and a slot generated from a paused rule stops taking NEW
+        bookings; a one time slot has no rule and is unaffected.
         """
         still_on_staff = GuildStaffMembership.objects.filter(
             guild_id=OuterRef("guild_id"), member_id=OuterRef("orienter_id")
@@ -12825,19 +12825,14 @@ class OrientationSlotQuerySet(models.QuerySet):
             guild__orientation_settings__is_enabled=True,
             guild__orientation_settings__is_closed=False,
         ) & (Q(orienter__isnull=True) | Q(orienter_id=models.F("guild__guild_lead_id")) | Exists(still_on_staff))
-        reserved_over_span = EquipmentReservation.objects.confirmed().filter(
-            equipment=OuterRef("orientation_type__equipment"),
-            starts_at__lt=OuterRef("ends_at"),
-            ends_at__gt=OuterRef("starts_at"),
-        )
-        equipment_gate = (
-            Q(
-                orientation_type__equipment__isnull=False,
-                orientation_type__equipment__is_active=True,
-                orientation_type__equipment__is_closed=False,
-            )
-            & (Q(orienter__isnull=True) | self._run_by_gate())
-            & ~Exists(reserved_over_span)
+        equipment_gate = Q(
+            orientation_type__equipment__isnull=False,
+            orientation_type__equipment__is_active=True,
+            orientation_type__equipment__is_closed=False,
+        ) & (Q(orienter__isnull=True) | self._run_by_gate())
+        # Either owner: a reservation or block on any item the type uses hides the slot (#665).
+        reserved_over_span = EquipmentReservation.objects.over_orientation(
+            OuterRef("orientation_type_id"), OuterRef("starts_at"), OuterRef("ends_at")
         )
         # A slot kept through a row's switch to open (#532) stays its member's but never
         # reopens: the row's window now offers that span, and one person books one way.
@@ -12849,6 +12844,7 @@ class OrientationSlotQuerySet(models.QuerySet):
             .filter(orientation_type__is_active=True)
             .filter(guild_gate | equipment_gate)
             .filter(rule_gate)
+            .filter(~Exists(reserved_over_span))
         )
 
 
@@ -13008,9 +13004,7 @@ class OrientationSlot(models.Model):
             return False
         if self.orientation_type.is_equipment_owned:
             # No orienter-leadership check and no settings gate for equipment — the
-            # equipment's active + open state is the whole switch (via is_accepting),
-            # plus the machine itself must be free: a confirmed reservation over this
-            # span hides the slot until that reservation is cancelled (PR 2).
+            # equipment's active + open state is the whole switch (via is_accepting).
             if not self.orientation_type.is_accepting:
                 return False
             equipment = cast("Equipment", self.orientation_type.equipment)
@@ -13018,12 +13012,18 @@ class OrientationSlot(models.Model):
             # bookings only (the equipment twin of the departed-orienter guard).
             if self.orienter_id is not None and not equipment.is_run_by(cast(Member, self.orienter)):
                 return False
-            return not EquipmentReservation.objects.overlapping(equipment, self.starts_at, self.ends_at).exists()
-        guild = cast(Guild, self.guild)  # guild-owned type: the one-owner constraint guarantees it
-        if self.orienter_id is not None and self.orienter_id not in {m.pk for m in guild.leadership_members()}:
-            return False
-        settings_obj = GuildOrientationSettings.objects.filter(guild=guild).first()
-        return settings_obj is not None and settings_obj.is_accepting
+        else:
+            guild = cast(Guild, self.guild)  # guild-owned type: the one-owner constraint guarantees it
+            if self.orienter_id is not None and self.orienter_id not in {m.pk for m in guild.leadership_members()}:
+                return False
+            settings_obj = GuildOrientationSettings.objects.filter(guild=guild).first()
+            if settings_obj is None or not settings_obj.is_accepting:
+                return False
+        # Either owner: the items it uses must be free. A confirmed reservation or block over
+        # this span on any of them hides the slot until it is cancelled (#665).
+        return not EquipmentReservation.objects.over_orientation(
+            self.orientation_type_id, self.starts_at, self.ends_at
+        ).exists()
 
     def ensure_bookable_for(self, member: Member, *, by_staff: bool = False) -> None:
         """Raise :class:`OrientationError` unless ``member`` may take a seat on this slot.
@@ -15409,6 +15409,18 @@ class EquipmentReservationQuerySet(models.QuerySet["EquipmentReservation"]):
         member can never book over a manager's block (#657).
         """
         return self.confirmed().filter(equipment=equipment, starts_at__lt=ends_at, ends_at__gt=starts_at)
+
+    def over_orientation(self, orientation_type: Any, starts_at: Any, ends_at: Any) -> EquipmentReservationQuerySet:
+        """Confirmed reservations and blocks overlapping [starts_at, ends_at) on any item the type uses (#665).
+
+        Reads :attr:`OrientationType.uses_equipment`, which always lists an equipment owned
+        type's owner, so one path covers both owners. Takes a type or pk with datetimes for
+        one slot, or ``OuterRef`` expressions for ``OrientationSlotQuerySet.bookable()``:
+        both paths call this, so the list and the slot cannot disagree.
+        """
+        return self.confirmed().filter(
+            equipment__orientation_types_using=orientation_type, starts_at__lt=ends_at, ends_at__gt=starts_at
+        )
 
     def upcoming(self) -> EquipmentReservationQuerySet:
         """Confirmed reservations that haven't ended yet, soonest first."""
