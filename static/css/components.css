@@ -941,6 +941,21 @@
     color: var(--hub-text);
 }
 
+/* A chosen row in a multiple select (#664). The option rules above and the
+   other `<prefix> select option` rules paint every row, which hid the
+   browser's own selected state. Gold fill with navy text, the brand button
+   pair, reads the same in both themes (7.6:1). Chrome paints a listbox's
+   selected row over background-color, so the fill goes in as an image too,
+   and forces the row's text white while the list has focus, so the text
+   colour goes in as a fill as well. Two classes of specificity so it
+   outranks every one class option rule. */
+select[multiple] option:checked {
+    background-color: var(--color-tuscan-yellow);
+    background-image: linear-gradient(var(--color-tuscan-yellow), var(--color-tuscan-yellow));
+    color: var(--color-navy);
+    -webkit-text-fill-color: var(--color-navy);
+}
+
 /* Date/time pickers: let the native picker indicator (the clock/calendar glyph)
    and the dropdown follow the dark theme — otherwise the glyph renders black and
    is invisible on the dark input background. */
