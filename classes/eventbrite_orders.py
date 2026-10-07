@@ -107,12 +107,17 @@ def _apply_attendee(offering: ClassOffering, order_id: str, attendee: dict[str, 
         if not (refunded or cancelled):
             _seat(offering, order_id, attendee_id, attendee)
         return
-    if not existing.consumes_seat:
+    if not (refunded or cancelled):
         return
-    if refunded:
-        existing.mark_refunded(reason=REFUNDED_IN_EVENTBRITE)
-    elif cancelled:
-        existing.cancel(reason=CANCELLED_IN_EVENTBRITE)
+    with transaction.atomic():
+        # Re-read under the lock: a refund from the panel may have freed this seat meanwhile.
+        current = Registration.objects.select_for_update().get(pk=existing.pk)
+        if not current.consumes_seat:
+            return
+        if refunded:
+            current.mark_refunded(reason=REFUNDED_IN_EVENTBRITE)
+        else:
+            current.cancel(reason=CANCELLED_IN_EVENTBRITE)
 
 
 def _seat(offering: ClassOffering, order_id: str, attendee_id: str, attendee: dict[str, Any]) -> None:
@@ -194,6 +199,8 @@ def refund_registration(registration: Registration, *, reason: str, actor: User 
     refund of this ticket's total, so a ticket cancelled without a refund is never paid back by
     accident. The order's rows stay locked from the check to ``mark_refunded``, so a second
     click waits, then finds the ticket refunded and is refused without calling Eventbrite.
+    Once Eventbrite has taken the refund, the REFUNDED status commits on its own; the waitlist
+    is promoted after, and a failure there is logged, never rolled back into a second refund.
 
     Raises:
         EventbriteRefundRefusedError: Sync is off, the ticket no longer holds a seat, or
@@ -219,7 +226,11 @@ def refund_registration(registration: Registration, *, reason: str, actor: User 
             raise EventbriteRefundRefusedError(
                 PARTIAL_REFUSED if partial else f"Eventbrite refused the refund: {exc}"
             ) from exc
-        ticket.mark_refunded(reason=reason or REFUNDED_THROUGH_EVENTBRITE, actor=actor)
+        ticket.mark_refunded(reason=reason or REFUNDED_THROUGH_EVENTBRITE, actor=actor, promote_waitlist=False)
+    try:
+        ticket.class_offering.promote_next_from_waitlist()
+    except Exception:
+        logger.exception("Waitlist promotion failed after refunding registration %s", ticket.pk)
 
 
 def _ticket_total(client: EventbriteClient, registration: Registration) -> str:

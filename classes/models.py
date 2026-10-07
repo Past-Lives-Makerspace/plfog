@@ -5165,7 +5165,7 @@ class Registration(models.Model):
             # unexpected error) must not vanish — log it with a traceback instead.
             logger.exception("Mailchimp unsubscribe failed for registration %s", self.pk)
 
-    def mark_refunded(self, reason: str = "", actor: "User | None" = None) -> None:
+    def mark_refunded(self, reason: str = "", actor: "User | None" = None, *, promote_waitlist: bool = True) -> None:
         """Record this registration as refunded — record-only, issues no Stripe refund.
 
         The actual money refund is issued by hand in the Stripe dashboard; this
@@ -5179,7 +5179,7 @@ class Registration(models.Model):
         self.status = self.Status.REFUNDED
         self.cancellation_reason = reason
         self.save(update_fields=["status", "cancellation_reason"])
-        if previously_held_a_spot:
+        if previously_held_a_spot and promote_waitlist:
             self.class_offering.promote_next_from_waitlist()
 
     # --- Refund engine surface (billing.refunds.RefundableSource) -----------

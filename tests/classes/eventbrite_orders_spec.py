@@ -18,7 +18,7 @@ from classes import eventbrite_orders
 from classes.emails import send_eventbrite_oversold_alert, send_eventbrite_shared_email_alert
 from classes.eventbrite_orders import EventbriteRefundRefusedError, apply_order, refund_registration
 from classes.factories import RegistrationFactory, UserFactory
-from classes.models import CmsActivity, Registration
+from classes.models import ClassOffering, CmsActivity, Registration
 from core.integrations.eventbrite import EventbriteClient, EventbriteError, EventbriteSync
 from tests.classes.eventbrite_fakes import FakeEventbrite, attendee, listed_class, order
 
@@ -234,6 +234,28 @@ def describe_a_refund_or_cancellation_coming_in():
         assert cancelled.cancellation_reason == eventbrite_orders.CANCELLED_IN_EVENTBRITE
         assert offering.seats_taken == 0
 
+    def it_skips_a_seat_the_refund_panel_freed_while_the_delivery_waited(
+        eventbrite: FakeEventbrite, oversold: MagicMock
+    ):
+        listed_class()
+        eventbrite.orders["o-1"] = order("o-1", attendee("a-1"))
+        apply_order("o-1")
+        registration = Registration.objects.get(eventbrite_attendee_id="a-1")
+        eventbrite.orders["o-1"] = order("o-1", attendee("a-1", refunded=True))
+        lock = Registration.objects.select_for_update
+
+        def panel_refunds_first() -> Any:
+            Registration.objects.filter(pk=registration.pk).update(status=Status.REFUNDED)
+            return lock()
+
+        with (
+            patch.object(Registration.objects, "select_for_update", side_effect=panel_refunds_first),
+            patch.object(Registration, "mark_refunded") as mark_refunded,
+        ):
+            apply_order("o-1")
+
+        mark_refunded.assert_not_called()
+
     def it_leaves_a_seat_already_freed_alone(eventbrite: FakeEventbrite, oversold: MagicMock):
         listed_class()
         eventbrite.orders["o-1"] = order("o-1", attendee("a-1"))
@@ -415,6 +437,28 @@ def describe_the_refund_panel_on_an_eventbrite_ticket():
         assert repeat.status_code == 200
         assert eventbrite_orders.NOTHING_TO_REFUND in repeat.content.decode()
         assert eventbrite.names().count("refund_order") == 1
+
+    def it_keeps_the_refund_when_the_waitlist_notice_fails(eventbrite: FakeEventbrite, admin_user: Any, client: Client):
+        (registration,) = _seated(eventbrite, attendee("a-1"))
+        client.force_login(admin_user)
+        url = reverse("classes:admin_registration_refund", args=[registration.pk])
+
+        with patch.object(ClassOffering, "promote_next_from_waitlist", side_effect=RuntimeError("mail down")):
+            assert client.post(url, {"reason": ""}).status_code == 204
+        repeat = client.post(url, {"reason": ""})
+
+        registration.refresh_from_db()
+        assert registration.status == Status.REFUNDED
+        assert repeat.status_code == 200
+        assert eventbrite.names().count("refund_order") == 1
+
+    def it_promotes_the_waitlist_once_the_refund_is_recorded(eventbrite: FakeEventbrite):
+        (registration,) = _seated(eventbrite, attendee("a-1"))
+
+        with patch.object(ClassOffering, "promote_next_from_waitlist") as promote:
+            refund_registration(registration, reason="", actor=None)
+
+        promote.assert_called_once_with()
 
     def it_disables_the_refund_button_while_it_submits(eventbrite: FakeEventbrite, admin_user: Any, client: Client):
         (registration,) = _seated(eventbrite, attendee("a-1"))
