@@ -202,3 +202,27 @@ def describe_estimate_fee_cents():
     def it_adds_the_percentages_and_the_per_ticket_fee():
         # 3.7% + 2.9% of $50 is $3.30, plus $1.79.
         assert estimate_fee_cents(5000) == 509
+
+
+def describe_order_and_ticket_reads():
+    @respx.mock
+    def it_fetches_an_order_with_its_attendees():
+        route = respx.get(f"{API_BASE}/orders/o-1/", params={"expand": "attendees"}).respond(json={"id": "o-1"})
+
+        assert _client().get_order("o-1") == {"id": "o-1"}
+        assert route.called
+
+    @respx.mock
+    def it_fetches_a_ticket_class():
+        route = respx.get(f"{API_BASE}/events/ev-1/ticket_classes/tc-1/").respond(json={"quantity_sold": 3})
+
+        assert _client().get_ticket_class("ev-1", "tc-1") == {"quantity_sold": 3}
+        assert route.called
+
+    @respx.mock
+    def it_posts_a_refund_to_the_order():
+        route = respx.post(f"{API_BASE}/orders/o-1/refunds/").respond(json={})
+
+        _client().refund_order("o-1", {"reason": "no_longer_able_to_attend"})
+
+        assert json.loads(route.calls.last.request.content) == {"reason": "no_longer_able_to_attend"}

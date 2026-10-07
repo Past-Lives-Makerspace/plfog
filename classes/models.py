@@ -9,6 +9,7 @@ import re
 import secrets
 from collections.abc import Callable, Iterable, Sequence
 from dataclasses import dataclass
+from functools import partial
 from datetime import UTC, date as date_type, datetime, timedelta
 from html import unescape
 from pathlib import Path
@@ -2230,6 +2231,25 @@ class ClassOffering(HeroCropMixin, models.Model):
             ]
         )
 
+    @classmethod
+    def push_eventbrite_quantity_for(cls, pk: int) -> None:
+        """The after-commit hook a registration's seat change queues; see :meth:`push_eventbrite_quantity`."""
+        cls.objects.get(pk=pk).push_eventbrite_quantity()
+
+    def push_eventbrite_quantity(self) -> None:
+        """Set the Eventbrite ticket quantity so its free seats equal :attr:`spots_remaining`.
+
+        Only for a class listed on Eventbrite; anything else returns without a call. Best-effort
+        like every push: a failure is saved as the sync state and ``retry_eventbrite_pushes``
+        re-runs the whole listing, which carries the quantity too.
+        """
+        if self.eventbrite_sync_state != self.EventbriteSyncState.LISTED or not self.eventbrite_ticket_class_id:
+            return
+        from core.integrations.eventbrite import push_ticket_quantity
+
+        if not push_ticket_quantity(self):
+            self.save(update_fields=["eventbrite_sync_state", "eventbrite_sync_error", "updated_at"])
+
     @property
     def active_registration_count(self) -> int:
         """Registrations still on the books: confirmed, pending payment, or waitlisted."""
@@ -4360,6 +4380,13 @@ class RegistrationStatus(models.TextChoices):
     REFUNDED = "refunded", "Refunded"
 
 
+class RegistrationSource(models.TextChoices):
+    """Where a booking was made. Exposed as ``Registration.Source``."""
+
+    SITE = "site", "This site"
+    EVENTBRITE = "eventbrite", "Eventbrite"
+
+
 SEAT_HOLDING_REGISTRATION_STATUSES = (
     RegistrationStatus.CONFIRMED,
     RegistrationStatus.PENDING,
@@ -4512,6 +4539,7 @@ class Registration(models.Model):
     _promoting: bool
 
     Status = RegistrationStatus
+    Source = RegistrationSource
 
     class_offering = models.ForeignKey(
         ClassOffering,
@@ -4611,6 +4639,29 @@ class Registration(models.Model):
     registered_at = models.DateTimeField(auto_now_add=True, help_text="When this registration was created.")
     confirmed_at = models.DateTimeField(null=True, blank=True, help_text="When payment confirmed, if any.")
     cancelled_at = models.DateTimeField(null=True, blank=True, help_text="When this registration was cancelled.")
+    # Eventbrite bookings (#652). db_default on each: the migration applies while the previous
+    # release still serves, and its INSERTs omit these columns (STANDARDS.md section 10).
+    source = models.CharField(
+        max_length=10,
+        choices=RegistrationSource.choices,
+        default=RegistrationSource.SITE,
+        db_default=RegistrationSource.SITE,
+        help_text="Where the booking was made: this site, or a ticket bought on Eventbrite.",
+    )
+    eventbrite_order_id = models.CharField(
+        max_length=64,
+        blank=True,
+        default="",
+        db_default="",
+        help_text="The Eventbrite order this ticket was bought in. One order can hold several registrations.",
+    )
+    eventbrite_attendee_id = models.CharField(
+        max_length=64,
+        blank=True,
+        default="",
+        db_default="",
+        help_text="The Eventbrite attendee (one ticket) this registration is. Unique, so a redelivered order adds nothing.",
+    )
 
     objects = RegistrationQuerySet.as_manager()
 
@@ -4619,6 +4670,11 @@ class Registration(models.Model):
         indexes = [
             models.Index(fields=["email"]),
             models.Index(fields=["class_offering", "status"]),
+            models.Index(
+                fields=["eventbrite_order_id"],
+                condition=~models.Q(eventbrite_order_id=""),
+                name="registration_eb_order_idx",
+            ),
         ]
         constraints = [
             # One seat per person per class. The double-click that used to create a
@@ -4628,6 +4684,11 @@ class Registration(models.Model):
                 fields=["class_offering", "email"],
                 condition=models.Q(status__in=SEAT_HOLDING_REGISTRATION_STATUSES),
                 name="uq_registration_seat_email",
+            ),
+            models.UniqueConstraint(
+                fields=["eventbrite_attendee_id"],
+                condition=~models.Q(eventbrite_attendee_id=""),
+                name="uq_registration_eb_attendee",
             ),
         ]
 
@@ -4644,11 +4705,19 @@ class Registration(models.Model):
     def __str__(self) -> str:
         return f"{self.email} → {self.class_offering.title}"
 
+    @property
+    def is_eventbrite(self) -> bool:
+        """Whether this seat was bought on Eventbrite, so its money and refunds live there."""
+        return self.source == self.Source.EVENTBRITE
+
     def save(self, *args, **kwargs) -> None:
         creating = self._state.adding
         prior_status = None
+        prior_class_id = None
         if not creating:
-            prior_status = type(self)._default_manager.only("status").get(pk=self.pk).status
+            prior_status, prior_class_id = (
+                type(self)._default_manager.values_list("status", "class_offering_id").get(pk=self.pk)
+            )
         if creating and not self.self_serve_token:
             self.self_serve_token = secrets.token_urlsafe(48)
         if creating and not self.order_number:
@@ -4657,6 +4726,22 @@ class Registration(models.Model):
         if creating and self.member_id is None:
             self.link_member_by_email()
         self._dispatch_status_notification(creating, prior_status)
+        self._queue_eventbrite_quantity_push(prior_status, prior_class_id)
+
+    def _queue_eventbrite_quantity_push(self, prior_status: str | None, prior_class_id: int | None) -> None:
+        """After commit, re-push the Eventbrite ticket quantity of each class whose free seats changed.
+
+        A seat changes hands when the row starts or stops taking one, or a seat-taking row moves
+        class. Runs on commit so the push reads the committed ``spots_remaining``; a class that is
+        not listed returns from :meth:`ClassOffering.push_eventbrite_quantity` without a call.
+        """
+        takes_seat = self.status in CAPACITY_CONSUMING_REGISTRATION_STATUSES
+        took_seat = prior_status in CAPACITY_CONSUMING_REGISTRATION_STATUSES
+        moved = prior_class_id is not None and prior_class_id != self.class_offering_id
+        if takes_seat == took_seat and not (moved and takes_seat):
+            return
+        for class_id in {self.class_offering_id, prior_class_id or self.class_offering_id}:
+            transaction.on_commit(partial(ClassOffering.push_eventbrite_quantity_for, class_id))
 
     def _dispatch_status_notification(self, creating: bool, prior_status: str | None) -> None:
         """Dispatch in-app notifications triggered by registration status transitions."""
@@ -5112,7 +5197,13 @@ class Registration(models.Model):
 
     @property
     def refundable_cents(self) -> int:
-        """Cents still available to refund — the paid amount minus succeeded refunds."""
+        """Cents still available to refund — the paid amount minus succeeded refunds.
+
+        An Eventbrite ticket is refunded whole, through Eventbrite, and leaves no Stripe refund
+        row behind: it is refundable while it still holds its seat, and not after.
+        """
+        if self.is_eventbrite:
+            return self.amount_paid_cents if self.status == self.Status.CONFIRMED else 0
         return self.amount_paid_cents - self.amount_refunded_cents
 
     @property

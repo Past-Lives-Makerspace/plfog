@@ -2,26 +2,29 @@
 
 from __future__ import annotations
 
+import hmac
 import logging
 from decimal import Decimal
 from typing import Any
 
+from django.conf import settings
 from django.contrib import messages as django_messages
 from django.contrib.auth.decorators import login_required
 from django.db.models import DecimalField, Q, Sum, Value
 from django.db.models.functions import Coalesce
-from django.http import HttpRequest, HttpResponse, JsonResponse, StreamingHttpResponse
+from django.http import Http404, HttpRequest, HttpResponse, JsonResponse, StreamingHttpResponse
 from django.shortcuts import redirect, render
 from django.utils import timezone
 from django.views.decorators.csrf import csrf_exempt
 from django.views.decorators.http import require_POST
 
 from billing import stripe_utils, webhook_handlers
-from classes import webhook_handlers as classes_webhook_handlers
+from classes import eventbrite_orders, webhook_handlers as classes_webhook_handlers
 from membership import webhook_handlers as membership_webhook_handlers
 from billing.exceptions import TabLimitExceededError, TabLockedError
 from billing.forms import CONTEXT_ADMIN_DASHBOARD, TabItemForm
 from billing.models import BillingSettings, Tab, TabCharge, TabEntry
+from core.integrations.eventbrite import EventbriteError
 from hub.view_as import billing_admin_access_required, fog_admin_required, refund_authority_required
 
 logger = logging.getLogger(__name__)
@@ -192,6 +195,32 @@ def stripe_webhook(request: HttpRequest) -> HttpResponse:
     else:
         logger.debug("Unhandled webhook event type: %s", event_type)
 
+    return HttpResponse(status=200)
+
+
+@csrf_exempt
+@require_POST
+def eventbrite_webhook(request: HttpRequest, secret: str) -> HttpResponse:
+    """Eventbrite order webhook (#652): a secret path, then plfog refetches the order itself.
+
+    404 for a wrong or unset secret; 400 for a body that names no Eventbrite order; 503 while
+    Eventbrite sync is off or the order cannot be fetched, so Eventbrite delivers it again.
+    """
+    expected = settings.EVENTBRITE_WEBHOOK_SECRET
+    if not expected or not hmac.compare_digest(secret.encode(), expected.encode()):
+        raise Http404
+    try:
+        order_id = eventbrite_orders.order_id_from_delivery(request.body)
+    except eventbrite_orders.UnverifiedDeliveryError:
+        logger.warning("Rejected an Eventbrite webhook delivery.", exc_info=True)
+        return HttpResponse(status=400)
+    if order_id is None:
+        return HttpResponse(status=200)
+    try:
+        eventbrite_orders.apply_order(order_id)
+    except EventbriteError:
+        logger.exception("Eventbrite order %s could not be applied.", order_id)
+        return HttpResponse(status=503)
     return HttpResponse(status=200)
 
 

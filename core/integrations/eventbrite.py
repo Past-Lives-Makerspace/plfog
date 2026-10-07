@@ -134,6 +134,16 @@ class EventbriteClient:
         finished = self._call("POST", "/media/upload/", json={"upload_token": field(ticket, "upload_token")})
         return str(field(finished, "id"))
 
+    def get_ticket_class(self, event_id: str, ticket_class_id: str) -> dict[str, Any]:
+        return self._call("GET", f"/events/{event_id}/ticket_classes/{ticket_class_id}/")
+
+    def get_order(self, order_id: str) -> dict[str, Any]:
+        """The order with its attendees: one attendee per ticket, each with its own costs and profile."""
+        return self._call("GET", f"/orders/{order_id}/", params={"expand": "attendees"})
+
+    def refund_order(self, order_id: str, body: dict[str, Any]) -> dict[str, Any]:
+        return self._call("POST", f"/orders/{order_id}/refunds/", json=body)
+
     def publish(self, event_id: str) -> None:
         self._call("POST", f"/events/{event_id}/publish/")
 
@@ -192,11 +202,21 @@ def _event_body(offering: ClassOffering, client: EventbriteClient, sessions: lis
     }
 
 
-def _ticket_body(offering: ClassOffering, sessions: list[Any]) -> dict[str, Any]:
+def _quantity_total(client: EventbriteClient, offering: ClassOffering) -> int:
+    """The ticket quantity that leaves Eventbrite exactly :attr:`spots_remaining` seats to sell.
+
+    Eventbrite's ``quantity_total`` counts the tickets it already sold, and those sales are
+    plfog registrations already out of ``spots_remaining``, so they are added back.
+    """
+    ticket = client.get_ticket_class(offering.eventbrite_event_id, offering.eventbrite_ticket_class_id)
+    return int(offering.spots_remaining or 0) + int(field(ticket, "quantity_sold"))
+
+
+def _ticket_body(offering: ClassOffering, sessions: list[Any], quantity_total: int) -> dict[str, Any]:
     price = offering.sale_price_cents
     ticket: dict[str, Any] = {
         "name": "Series ticket" if offering.is_series else "Ticket",
-        "quantity_total": offering.spots_remaining,
+        "quantity_total": quantity_total,
         "sales_end": _when(offering.registration_closes_at or sessions[0].starts_at),
     }
     if price:
@@ -230,11 +250,12 @@ def _list(client: EventbriteClient, offering: ClassOffering) -> None:
         offering.eventbrite_event_id = str(field(client.create_event(event), "id"))
     else:
         client.update_event(offering.eventbrite_event_id, event)
-    ticket = _ticket_body(offering, sessions)
     if not offering.eventbrite_ticket_class_id:
+        ticket = _ticket_body(offering, sessions, int(offering.spots_remaining or 0))
         created = client.create_ticket_class(offering.eventbrite_event_id, ticket)
         offering.eventbrite_ticket_class_id = str(field(created, "id"))
     else:
+        ticket = _ticket_body(offering, sessions, _quantity_total(client, offering))
         client.update_ticket_class(offering.eventbrite_event_id, offering.eventbrite_ticket_class_id, ticket)
     client.set_description(offering.eventbrite_event_id, _description_html(offering, sessions))
     if offering.eventbrite_sync_state != offering.EventbriteSyncState.LISTED:
@@ -282,3 +303,23 @@ def sync_class_listing(offering: ClassOffering) -> None:
         offering.eventbrite_synced_at = timezone.now()
     except EventbriteError as exc:
         offering.eventbrite_sync_state, offering.eventbrite_sync_error = state.FAILED, str(exc)[:_SYNC_ERROR_MAX]
+
+
+def push_ticket_quantity(offering: ClassOffering) -> bool:
+    """Set the listed ticket's quantity from :attr:`spots_remaining`; True when Eventbrite took it.
+
+    NEVER raises. False records ``PENDING`` (sync off) or ``FAILED`` (API error) on the class
+    without saving it; :meth:`ClassOffering.push_eventbrite_quantity` saves.
+    """
+    state = offering.EventbriteSyncState
+    client = EventbriteClient.from_settings()
+    if not client.enabled:
+        offering.eventbrite_sync_state, offering.eventbrite_sync_error = state.PENDING, EventbriteSync.SYNC_OFF
+        return False
+    try:
+        body = {"ticket_class": {"quantity_total": _quantity_total(client, offering)}}
+        client.update_ticket_class(offering.eventbrite_event_id, offering.eventbrite_ticket_class_id, body)
+    except EventbriteError as exc:
+        offering.eventbrite_sync_state, offering.eventbrite_sync_error = state.FAILED, str(exc)[:_SYNC_ERROR_MAX]
+        return False
+    return True

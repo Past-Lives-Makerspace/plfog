@@ -913,6 +913,37 @@ def send_orphaned_payment_alert(
     )
 
 
+def send_eventbrite_oversold_alert(registration: "Registration") -> None:
+    """Alert the Admins that an Eventbrite ticket landed on a class that was already full.
+
+    The buyer has paid, so the seat was created anyway and the class is now over capacity: a
+    person has to make room or refund the ticket in Eventbrite. Rides the forced
+    ``classes.orphaned_payment_alert`` event (a payment that needs a decision), so every Admin
+    gets it whatever their switches say. The period is keyed on the ticket.
+    """
+    from core.events.senders import emit_flat_email
+
+    offering = registration.class_offering
+    detail_url = _absolute_url(reverse("classes:admin_registration_detail", kwargs={"pk": registration.pk}))
+    name = f"{registration.first_name} {registration.last_name}".strip() or registration.email
+    body = (
+        f'{name} ({registration.email}) bought a ticket on Eventbrite for "{offering.title}", '
+        f"which was already full. They have paid, so they are registered, and the class is now "
+        f"{offering.seats_taken} of {offering.capacity}.\n\n"
+        f"Make room for them, or refund the ticket in Eventbrite.\n\n"
+        f"Registration: {detail_url}\n"
+        f"Eventbrite order: {registration.eventbrite_order_id}"
+    )
+    emit_flat_email(
+        "classes.orphaned_payment_alert",
+        target=registration,
+        subject=f"Oversold on Eventbrite: {name}, {offering.title}",
+        text_body=body,
+        html_body=_flat_text_email_html(body),
+        period=f"reg:{registration.pk}:eventbrite:{registration.eventbrite_attendee_id}",
+    )
+
+
 def build_class_reminder_occurrence(
     registration: "Registration",
     session: "ClassSession",

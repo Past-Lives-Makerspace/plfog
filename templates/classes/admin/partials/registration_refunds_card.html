@@ -32,7 +32,11 @@ refund-done refresh target.
         </button>
         {% endif %}
         {% if registration.refund_state == "failed" or registration.refundable_cents > 0 %}
+        {% if registration.is_eventbrite %}
+        <p style="margin:0.75rem 0 0; font-size:0.8rem; color:var(--hub-text-muted);">Bought on Eventbrite, so the refund goes back through Eventbrite, a whole ticket at a time. It frees the spot and promotes the waitlist.</p>
+        {% else %}
         <p style="margin:0.75rem 0 0; font-size:0.8rem; color:var(--hub-text-muted);">Refunds are sent to the payer's card through Stripe. A full refund frees the spot and promotes the waitlist.</p>
+        {% endif %}
         {% endif %}
     {% else %}
         <p style="margin:0; font-size:0.85rem; color:var(--hub-text-muted);">Refunds require the Refunds permission. Ask an admin.</p>
