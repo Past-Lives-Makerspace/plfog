@@ -28,6 +28,7 @@ from classes.emails import (
     send_eventbrite_shared_email_alert,
 )
 from classes.models import ClassOffering, ClassSettings, Registration, Waiver
+from classes.questions import active_questions
 from core.integrations.eventbrite import EventbriteClient, EventbriteError, EventbriteSync, field
 from core.services.guest_account import ensure_account_for_registration
 
@@ -151,7 +152,12 @@ def _seat(offering: ClassOffering, order_id: str, attendee_id: str, attendee: di
         send_eventbrite_oversold_alert(registration)
     if registration.email != email:
         send_eventbrite_shared_email_alert(registration, email)
-    send_eventbrite_finish_registration(registration, to=email, offers_account=eventbrite_offers_account(registration))
+    send_eventbrite_finish_registration(
+        registration,
+        to=email,
+        offers_account=eventbrite_offers_account(registration),
+        has_questions=active_questions().exists(),
+    )
 
 
 def _create_confirmed(

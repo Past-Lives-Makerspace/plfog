@@ -975,7 +975,9 @@ def send_eventbrite_shared_email_alert(registration: "Registration", email: str)
     )
 
 
-def send_eventbrite_finish_registration(registration: "Registration", *, to: str, offers_account: bool) -> None:
+def send_eventbrite_finish_registration(
+    registration: "Registration", *, to: str, offers_account: bool, has_questions: bool
+) -> None:
     """Email an Eventbrite ticket's link to finish registering: waivers, questions, an account (#652).
 
     Eventbrite sends the receipt; this is the one email plfog sends a buyer. ``to`` is the
@@ -984,7 +986,6 @@ def send_eventbrite_finish_registration(registration: "Registration", *, to: str
     Transactional and addressed by ``email_to``, so nobody can mute it, and keyed on the
     registration so it goes once.
     """
-    from classes.questions import active_questions
     from core.events.senders import emit_with_email_shell
 
     offering = registration.class_offering
@@ -1002,7 +1003,7 @@ def send_eventbrite_finish_registration(registration: "Registration", *, to: str
             "upcoming_sessions": list(offering.sessions.filter(starts_at__gte=timezone.now()).order_by("starts_at")),
             "finish_url": _absolute_url(finish_path),
             "for_another_seat": to != registration.email,
-            "has_questions": active_questions().exists(),
+            "has_questions": has_questions,
             "offers_account": offers_account,
         },
         email_to=to,
