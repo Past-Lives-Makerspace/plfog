@@ -11589,6 +11589,16 @@ class OrientationType(models.Model):
             "PROTECT: deleting equipment that owns orientation history must fail loudly."
         ),
     )
+    uses_equipment: models.ManyToManyField[Equipment, Any] = models.ManyToManyField(
+        "Equipment",
+        blank=True,
+        related_name="orientation_types_using",
+        verbose_name="Equipment it uses",
+        help_text=(
+            "The equipment a booked slot of this orientation holds, like a reservation (#658). "
+            "An equipment orientation always lists its own equipment. Who runs it stays with the owner."
+        ),
+    )
     name = models.CharField(max_length=100, help_text="Member-facing name, e.g. 'Shop Basics' or 'Lathe'.")
     description = models.TextField(
         blank=True, default="", help_text="What this orientation covers, shown to members (plain text)."
@@ -11683,6 +11693,16 @@ class OrientationType(models.Model):
     def save(self, *args: Any, **kwargs: Any) -> None:
         delete_orphan_on_replace(self, "photo")
         super().save(*args, **kwargs)
+        self.list_owner_equipment()
+
+    def list_owner_equipment(self) -> None:
+        """Keep an equipment owned type's own equipment in :attr:`uses_equipment` (#658).
+
+        A booked slot blocks only what the list names, so the owner must always be on it.
+        ``add`` skips a row that is already there; a guild owned type has nothing to add.
+        """
+        if self.equipment_id is not None:
+            self.uses_equipment.add(self.equipment_id)
 
     #: Any amount above $0 is at least this much (#636): a smaller charge is refused, on the
     #: donation floor staff set and on what a member enters alike.
@@ -12739,13 +12759,15 @@ class OrientationSlotQuerySet(models.QuerySet):
     def holding_seats_on(
         self, equipment: Equipment, starts_at: datetime_type, ends_at: datetime_type
     ) -> OrientationSlotQuerySet:
-        """:meth:`holding_seats` narrowed to ``equipment``'s owned types overlapping ``[starts_at, ends_at)``.
+        """:meth:`holding_seats` narrowed to types that use ``equipment``, overlapping ``[starts_at, ends_at)``.
 
-        Strict inequalities: touching spans never conflict. Pass ``now`` for both
-        bounds to ask what is running right now.
+        Blocking reads :attr:`OrientationType.uses_equipment` (#658), never the owner FK:
+        a guild orientation that lists the press holds the press, and an equipment owned
+        type always lists its owner. Strict inequalities: touching spans never conflict.
+        Pass ``now`` for both bounds to ask what is running right now.
         """
         return self.holding_seats().filter(
-            orientation_type__equipment=equipment, starts_at__lt=ends_at, ends_at__gt=starts_at
+            orientation_type__uses_equipment=equipment, starts_at__lt=ends_at, ends_at__gt=starts_at
         )
 
     def with_booking_history_count(self) -> OrientationSlotQuerySet:
