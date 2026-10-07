@@ -1,0 +1,6 @@
+bump = "minor"
+date = "2026-10-07"
+title = "Add an Orientation opens one form"
+changes = [
+  "The Add an Orientation button on the Orientations page now opens a single form. Pick the guild, fill in the orientation, and save; you land on that guild's Orientations page to set your hours.",
+]
