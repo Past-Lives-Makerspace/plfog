@@ -1,0 +1,8 @@
+bump = "minor"
+date = "2026-10-07"
+title = "One page for gear that more than one orientation unlocks"
+changes = [
+  "A tool or room can now list several orientations. Finish any one of them and you can reserve it.",
+  "If you have none yet, the page lists each orientation that unlocks it, with its own Book link.",
+  "Managers pick the orientations on the item's Details tab. Pick none and any active member can book it.",
+]

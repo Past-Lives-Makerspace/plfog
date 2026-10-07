@@ -233,8 +233,7 @@ def describe_recording():
         tool = EquipmentFactory(name="Counted Lathe")
         EquipmentStaffMembershipFactory(equipment=tool, member=staffer)
         tool_type = OrientationTypeFactory(equipment_owned=True, equipment=tool, name="Counted Basics")
-        tool.required_orientation = tool_type
-        tool.save(update_fields=["required_orientation"])
+        tool.unlocking_orientations.set([tool_type])
         detail = reverse("hub_equipment_detail", args=[tool.slug])
         assert "You're all set." not in member_client.get(detail).content.decode()
         response = client.post(RECORD_URL, _post(str(tool_type), "Cora Countable"))

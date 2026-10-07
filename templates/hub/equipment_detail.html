@@ -56,18 +56,41 @@
 </div>
 {% elif access_state == "needs_orientation" %}
 <div class="hub-card pl-equip-banner pl-equip-banner--warn">
-  {% if orientation_booking and orientation_booking.status == "confirmed" %}
+  {% if orientation_unlocks|length == 1 %}
+  {% with unlock=orientation_unlocks.0 %}
+  {% if unlock.booking and unlock.booking.status == "confirmed" %}
   <p style="margin:0;">
-    <a href="{{ orientation_url }}">Your orientation is booked for {{ orientation_booking.slot.starts_at|date:"D, M j" }} at {{ orientation_booking.slot.starts_at|time:"g:i A" }}.</a>
+    <a href="{{ unlock.url }}">Your orientation is booked for {{ unlock.booking.slot.starts_at|date:"D, M j" }} at {{ unlock.booking.slot.starts_at|time:"g:i A" }}.</a>
   </p>
-  {% elif orientation_booking %}
-  <p style="margin:0;"><a href="{{ orientation_url }}">Your orientation request is in. {% if required_orientation_is_equipment_owned %}A manager will confirm a time.{% else %}The guild will confirm a time.{% endif %}</a></p>
-  {% elif required_orientation_paused %}
+  {% elif unlock.booking %}
+  <p style="margin:0;"><a href="{{ unlock.url }}">Your orientation request is in. {% if unlock.orientation_type.is_equipment_owned %}A manager will confirm a time.{% else %}The guild will confirm a time.{% endif %}</a></p>
+  {% elif unlock.paused %}
   {# A paused gate must never render a dead Book link (spec: the honest CTA rule). #}
-  <p style="margin:0;">You need the {{ equipment.required_orientation.name }} orientation before you can reserve this equipment. Trained on this before the Member Portal went live? Message us in #member-portal-general on Discord and say you need access to the {{ equipment.name }}. Orientation bookings for this {{ equipment.get_kind_display|lower }} are paused. Check back soon.</p>
+  <p style="margin:0;">You need the {{ unlock.orientation_type.name }} orientation before you can reserve this equipment. Trained on this before the Member Portal went live? Message us in #member-portal-general on Discord and say you need access to the {{ equipment.name }}. Orientation bookings for this {{ equipment.get_kind_display|lower }} are paused. Check back soon.</p>
   {% else %}
-  <p style="margin:0 0 0.75rem;">You need the {{ equipment.required_orientation.name }} orientation before you can reserve this equipment. Trained on this before the Member Portal went live? Message us in #member-portal-general on Discord and say you need access to the {{ equipment.name }}.</p>
-  <a href="{{ orientation_url }}" class="pl-btn pl-btn--primary">Book the Orientation</a>
+  <p style="margin:0 0 0.75rem;">You need the {{ unlock.orientation_type.name }} orientation before you can reserve this equipment. Trained on this before the Member Portal went live? Message us in #member-portal-general on Discord and say you need access to the {{ equipment.name }}.</p>
+  <a href="{{ unlock.url }}" class="pl-btn pl-btn--primary">Book the Orientation</a>
+  {% endif %}
+  {% endwith %}
+  {% else %}
+  {# Several unlock it (#656): each keeps the one orientation rules, so a paused type never shows a Book link. #}
+  <p>Any one of these orientations unlocks this. Trained on this before the Member Portal went live? Message us in #member-portal-general on Discord and say you need access to the {{ equipment.name }}.</p>
+  <div data-equip-unlocks>
+    {% for unlock in orientation_unlocks %}
+    <p data-unlock-type="{{ unlock.orientation_type.pk }}">
+      <strong>{{ unlock.orientation_type.name }}</strong>
+      {% if unlock.booking and unlock.booking.status == "confirmed" %}
+      <a href="{{ unlock.url }}">Booked for {{ unlock.booking.slot.starts_at|date:"D, M j" }} at {{ unlock.booking.slot.starts_at|time:"g:i A" }}.</a>
+      {% elif unlock.booking %}
+      <a href="{{ unlock.url }}">Your request is in. {% if unlock.orientation_type.is_equipment_owned %}A manager will confirm a time.{% else %}The guild will confirm a time.{% endif %}</a>
+      {% elif unlock.paused %}
+      <span class="hub-text-muted">Bookings are paused. Check back soon.</span>
+      {% else %}
+      <a href="{{ unlock.url }}" class="pl-btn pl-btn--primary pl-btn--sm">Book</a>
+      {% endif %}
+    </p>
+    {% endfor %}
+  </div>
   {% endif %}
 </div>
 {% else %}

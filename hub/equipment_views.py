@@ -55,6 +55,7 @@ from membership.models import (
     EquipmentStaffMembership,
     Guild,
     Member,
+    OrientationType,
 )
 from membership.permissions import can_create_equipment, can_manage_equipment, creatable_equipment_kinds
 
@@ -69,13 +70,10 @@ CALENDAR_KEY = "reservations"
 
 def _equipment_queryset() -> EquipmentQuerySet:
     """The base queryset every equipment view reads — FKs prefetched, no per-row queries."""
-    return Equipment.objects.select_related(
-        "guild",
-        "space",
-        "required_orientation",
-        "required_orientation__guild",
-        "required_orientation__equipment",
-    ).prefetch_related("owned_orientation_types")
+    unlocking = OrientationType.objects.select_related("guild", "equipment")
+    return Equipment.objects.select_related("guild", "space").prefetch_related(
+        "owned_orientation_types", Prefetch("unlocking_orientations", queryset=unlocking)
+    )
 
 
 def _require_can_manage(request: HttpRequest, equipment: Equipment) -> HttpResponse | None:
@@ -359,7 +357,7 @@ def reservation_cards(member: Member | None, queryset: EquipmentQuerySet) -> lis
 
     now = timezone.now()
     equipment_list = list(
-        queryset.with_required_orientation_listed()
+        queryset.with_unlocking_orientations_listed()
         .with_staff()
         .prefetch_related(
             "hours_rules",
@@ -564,18 +562,12 @@ def hub_equipment_detail(request: HttpRequest, slug: str) -> HttpResponse:
     schedule = _schedule_context(equipment, member, week_offset=_strip_week_of(day), selected_day=day, manages=manages)
     # The schedule builder already looked the fee up once; the banner state reads the same answer.
     access_state = equipment.access_state(member, has_unpaid_fee=schedule["unpaid_late_fee"] is not None)
-    orientation_type = equipment.required_orientation
-    orientation_booking = None
-    orientation_url = ""
-    required_orientation_paused = False
-    if member is not None and orientation_type is not None and access_state == Equipment.AccessState.NEEDS_ORIENTATION:
-        orientation_booking = member.active_orientation_for_type(orientation_type)
-        # Owner-aware: an equipment-owned required type anchors down THIS page; a
-        # guild-owned one keeps the guild deep link, byte-identical.
-        orientation_url = orientation_type.orientation_anchor_path()
-        # A paused gate (inactive type, retired owner, or closed guild settings) with
-        # no live booking must never render a dead "Book the Orientation" link.
-        required_orientation_paused = orientation_booking is None and not orientation_type.is_accepting
+    # One row per unlocking orientation (#656): its live booking, Book link or paused note.
+    orientation_unlocks = (
+        equipment.orientation_unlocks(member)
+        if member is not None and access_state == Equipment.AccessState.NEEDS_ORIENTATION
+        else []
+    )
     return render(
         request,
         "hub/equipment_detail.html",
@@ -584,12 +576,7 @@ def hub_equipment_detail(request: HttpRequest, slug: str) -> HttpResponse:
             **schedule,
             "equipment": equipment,
             "access_state": access_state,
-            "orientation_booking": orientation_booking,
-            "orientation_url": orientation_url,
-            "required_orientation_paused": required_orientation_paused,
-            "required_orientation_is_equipment_owned": (
-                orientation_type.is_equipment_owned if orientation_type is not None else False
-            ),
+            "orientation_unlocks": orientation_unlocks,
             "orientation_sections": _equipment_orientation_sections(equipment, member),
             "can_manage": manages,
         },
@@ -1050,7 +1037,7 @@ def hub_equipment_flyer(request: HttpRequest, slug: str) -> HttpResponse:
     return render(
         request,
         "hub/equipment_flyer.html",
-        {"equipment": equipment, "qr_svg": equipment.qr_svg(), "orientation": equipment.qr_sheet_orientation},
+        {"equipment": equipment, "qr_svg": equipment.qr_svg(), "orientations": equipment.qr_sheet_orientations},
     )
 
 

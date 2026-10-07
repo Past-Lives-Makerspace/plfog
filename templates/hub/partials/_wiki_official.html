@@ -16,9 +16,12 @@ saying where it came from. Sits above member content, always.
         <dt class="pl-wp-facts__label">Guild</dt>
         <dd class="pl-wp-facts__value">{{ official_block.guild.name }}</dd>
         {% endif %}
-        {% if official_block.required_orientation %}
+        {% if official_block.unlocking_orientations|length == 1 %}
         <dt class="pl-wp-facts__label">Orientation</dt>
-        <dd class="pl-wp-facts__value">{{ official_block.required_orientation.name }}</dd>
+        <dd class="pl-wp-facts__value">{{ official_block.unlocking_orientations.0.name }}</dd>
+        {% elif official_block.unlocking_orientations %}
+        <dt class="pl-wp-facts__label">Orientation</dt>
+        <dd class="pl-wp-facts__value">Any one of: {% for orientation in official_block.unlocking_orientations %}{{ orientation.name }}{% if not forloop.last %}, {% endif %}{% endfor %}</dd>
         {% endif %}
         {% if official_block.location_note %}
         <dt class="pl-wp-facts__label">Where it is</dt>

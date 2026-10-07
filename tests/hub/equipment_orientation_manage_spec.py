@@ -201,8 +201,7 @@ def describe_orientation_types_save():
         equipment = EquipmentFactory(name="CNC Router")
         _manager_login(client, "ot_del_gated", equipment)
         orientation_type = _owned_type(equipment)
-        equipment.required_orientation = orientation_type
-        equipment.save(update_fields=["required_orientation"])
+        equipment.unlocking_orientations.set([orientation_type])
         data = _types_data([{"name": orientation_type.name}], initial=1)
         data["otypes-0-id"] = str(orientation_type.pk)
         data["otypes-0-DELETE"] = "on"
@@ -217,7 +216,7 @@ def describe_orientation_types_save():
         lead = _login(client, "ot_guild_gated")
         guild = GuildFactory(guild_lead=lead.member)
         orientation_type = OrientationTypeFactory(guild=guild, name="Shop Basics")
-        EquipmentFactory(name="Gated Saw", required_orientation=orientation_type)
+        EquipmentFactory(name="Gated Saw", unlocking_orientations=[orientation_type])
         data = {
             "otypes-TOTAL_FORMS": "1",
             "otypes-INITIAL_FORMS": "1",

@@ -120,10 +120,33 @@ def describe_WikiPage_official_block_context():
         assert block["access_line"] == "You are set up for this tool."
 
     def it_says_orientation_is_needed_when_it_is(db):
-        equipment = EquipmentFactory(required_orientation=OrientationTypeFactory())
+        equipment = EquipmentFactory(unlocking_orientations=[OrientationTypeFactory()])
         page = WikiPageFactory(kind=WikiPage.Kind.MACHINE, equipment=equipment)
         block = page.official_block_context(MemberFactory(status=Member.Status.ACTIVE))
         assert block["access_line"] == "Orientation needed before you use this."
+
+    def it_names_every_orientation_that_unlocks_the_tool(db):
+        from django.template.loader import render_to_string
+
+        beginner = OrientationTypeFactory(name="Wiki Press Beginner")
+        experienced = OrientationTypeFactory(name="Wiki Press Experienced")
+        equipment = EquipmentFactory(name="Wiki Press", unlocking_orientations=[beginner, experienced])
+        page = WikiPageFactory(kind=WikiPage.Kind.MACHINE, equipment=equipment)
+        block = page.official_block_context(MemberFactory(status=Member.Status.ACTIVE))
+        assert block["unlocking_orientations"] == [beginner, experienced]
+        html = render_to_string("hub/partials/_wiki_official.html", {"official_block": block})
+        assert "Any one of: Wiki Press Beginner, Wiki Press Experienced" in html
+
+    def it_names_a_single_orientation_plainly(db):
+        from django.template.loader import render_to_string
+
+        equipment = EquipmentFactory(unlocking_orientations=[OrientationTypeFactory(name="Wiki Lone Basics")])
+        page = WikiPageFactory(kind=WikiPage.Kind.MACHINE, equipment=equipment)
+        html = render_to_string(
+            "hub/partials/_wiki_official.html", {"official_block": page.official_block_context(None)}
+        )
+        assert '<dd class="pl-wp-facts__value">Wiki Lone Basics</dd>' in html
+        assert "Any one of" not in html
 
     def it_answers_for_a_signed_out_reader_without_raising(db):
         page = WikiPageFactory(kind=WikiPage.Kind.MACHINE, equipment=EquipmentFactory())

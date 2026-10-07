@@ -5532,17 +5532,17 @@ class EquipmentForm(forms.ModelForm):
     """Create/edit form for a piece of equipment (the Equipment directory, PR 1).
 
     Used by both the admin-gated add page and the manage panel's Details tab. The
-    ``required_orientation`` choices narrow to the owning guild's active types when the
-    equipment already belongs to a guild; otherwise every guild's active types are
+    ``unlocking_orientations`` multi select (#656: completing any one unlocks the item, none
+    picked means any active member can book) narrows to the owning guild's active types when
+    the equipment already belongs to a guild; otherwise every guild's active types are
     offered (grouped by guild via the type's ``__str__``) — the house Makerspace guild
     is an operating convention, not a code concept.
 
     Beside those the picker offers "New orientation for this equipment" (issue #466):
     ``new_type_form`` (an :class:`OrientationTypeForm`, prefix ``new_type``) rides along,
-    and one Save then creates the equipment, its own type and the requirement in one
-    transaction. The POST name stays ``required_orientation`` and ``cleaned_data`` keeps
-    holding an :class:`OrientationType` or ``None``, so ``clean()``'s guild rule and every
-    caller are untouched.
+    and one Save then creates the equipment, its own type and adds it to the list in one
+    transaction. ``cleaned_data`` holds the picked :class:`OrientationType` rows without
+    the "new" choice, so ``clean()``'s guild rule reads real types only.
     """
 
     NEW_TYPE_CHOICE = "new"
@@ -5562,7 +5562,7 @@ class EquipmentForm(forms.ModelForm):
             "description",
             "area",
             "location_note",
-            "required_orientation",
+            "unlocking_orientations",
             "is_active",
         ]
         widgets = {
@@ -5609,8 +5609,13 @@ class EquipmentForm(forms.ModelForm):
         # every later Details save fails validation (the inactive-selected bug, both
         # owner kinds). Inactive alternatives stay hidden. This equipment's own types
         # sort first, labelled by the owner-aware __str__ ("CNC Router — Operator Basics").
+        current_ids: list[int] = (
+            list(self.instance.unlocking_orientations.values_list("pk", flat=True))
+            if self.instance.pk is not None
+            else []
+        )
         types = (
-            OrientationType.objects.filter(Q(is_active=True) | Q(pk=self.instance.required_orientation_id))
+            OrientationType.objects.filter(Q(is_active=True) | Q(pk__in=current_ids))
             .select_related("guild", "equipment")
             .annotate(
                 own_rank=Case(When(equipment_id=self.instance.pk, then=Value(0)), default=Value(1))
@@ -5624,32 +5629,38 @@ class EquipmentForm(forms.ModelForm):
         # validates against the POSTED guild (clean() enforces the match).
         if not self.is_bound and self.instance.pk is not None and self.instance.guild_id is not None:
             types = types.filter(
-                Q(guild_id=self.instance.guild_id)
-                | Q(equipment_id=self.instance.pk)
-                | Q(pk=self.instance.required_orientation_id)
+                Q(guild_id=self.instance.guild_id) | Q(equipment_id=self.instance.pk) | Q(pk__in=current_ids)
             )
-        # A plain ChoiceField so "new" can sit beside the types; clean_required_orientation
-        # maps a posted pk back to its instance, so the rest of the form never sees the swap.
+        # A plain MultipleChoiceField so "new" can sit beside the types;
+        # clean_unlocking_orientations maps the posted pks back to their instances, so the
+        # rest of the form and the many to many save never see the swap.
         self._offered_types: dict[str, OrientationType] = {
             str(orientation_type.pk): orientation_type for orientation_type in types
         }
-        self.fields["required_orientation"] = forms.ChoiceField(
-            choices=[
-                ("", "No orientation needed"),
-                (self.NEW_TYPE_CHOICE, "New orientation for this equipment"),
-                *((pk, str(orientation_type)) for pk, orientation_type in self._offered_types.items()),
-            ],
+        choices = [
+            (self.NEW_TYPE_CHOICE, "New orientation for this equipment"),
+            *((pk, str(orientation_type)) for pk, orientation_type in self._offered_types.items()),
+        ]
+        self.fields["unlocking_orientations"] = forms.MultipleChoiceField(
+            choices=choices,
             required=False,
-            label=self.fields["required_orientation"].label,
+            label="Orientations that unlock it",
+            widget=forms.SelectMultiple(attrs={"size": min(max(len(choices), 3), 8)}),
         )
+        self.initial["unlocking_orientations"] = [str(pk) for pk in current_ids]
         # The new type's form binds to the same POST only when "new" was chosen, so the
         # other choices ignore its inputs. Its unrendered fields stop being required and
         # keep their model defaults (construct_instance leaves a defaulted field alone
         # when the POST omits it); the browser's required attribute is off because the
         # inputs sit hidden until the choice is made, and the server reports blanks.
-        self.creates_orientation_type: bool = (
-            self.is_bound and self.data.get(self.add_prefix("required_orientation")) == self.NEW_TYPE_CHOICE
+        posted = (
+            self.fields["unlocking_orientations"].widget.value_from_datadict(
+                self.data, self.files, self.add_prefix("unlocking_orientations")
+            )
+            if self.is_bound
+            else None
         )
+        self.creates_orientation_type: bool = posted is not None and self.NEW_TYPE_CHOICE in posted
         self.new_type_form = OrientationTypeForm(
             self.data if self.creates_orientation_type else None, prefix="new_type", use_required_attribute=False
         )
@@ -5671,18 +5682,17 @@ class EquipmentForm(forms.ModelForm):
         setup_location_field(
             self, hint="The area it sits in. A reservation shows the area in use on its guild page. Optional."
         )
-        self.fields[
-            "required_orientation"
-        ].help_text = "Members need this orientation before they can reserve this equipment."
+        self.fields["unlocking_orientations"].help_text = (
+            "Members who completed any one of these can reserve it. Pick none and any active member can. "
+            "Ctrl or Cmd click to pick more than one."
+        )
         self.fields["is_active"].help_text = "Members can see and book this equipment. Turn off to retire it."
         self.fields["is_active"].label = "Active"
 
-    def clean_required_orientation(self) -> OrientationType | None:
-        """The posted choice as the instance the model expects; "" and "new" are both ``None`` here."""
-        choice: str = self.cleaned_data["required_orientation"]
-        if not choice or choice == self.NEW_TYPE_CHOICE:
-            return None
-        return self._offered_types[choice]
+    def clean_unlocking_orientations(self) -> list[OrientationType]:
+        """The posted choices as the instances the model expects, without "new" (the save adds that type)."""
+        choices: list[str] = self.cleaned_data["unlocking_orientations"]
+        return [self._offered_types[choice] for choice in choices if choice != self.NEW_TYPE_CHOICE]
 
     def is_valid(self) -> bool:
         """Validate the equipment and, when a new type is being made, its form too, so every error shows at once."""
@@ -5694,14 +5704,19 @@ class EquipmentForm(forms.ModelForm):
     def clean(self) -> dict[str, Any]:
         cleaned: dict[str, Any] = super().clean() or {}
         guild = cleaned.get("guild")
-        orientation = cleaned.get("required_orientation")
-        if guild is not None and orientation is not None and orientation.guild_id != guild.pk:
-            # An equipment's OWN type is always a legal requirement, whatever the guild.
-            is_own_type = self.instance.pk is not None and orientation.equipment_id == self.instance.pk
-            if not is_own_type:
+        orientations: list[OrientationType] = cleaned.get("unlocking_orientations", [])
+        if guild is not None:
+            # An equipment's OWN type is always a legal unlock, whatever the guild.
+            foreign = [
+                orientation
+                for orientation in orientations
+                if orientation.guild_id != guild.pk
+                and not (self.instance.pk is not None and orientation.equipment_id == self.instance.pk)
+            ]
+            if foreign:
                 self.add_error(
-                    "required_orientation",
-                    "Pick an orientation offered by the chosen guild, or one of this equipment's own orientations.",
+                    "unlocking_orientations",
+                    "Pick orientations offered by the chosen guild, or this equipment's own orientations.",
                 )
         if self.creates_orientation_type:
             self._refuse_duplicate_new_type_name()
@@ -5729,11 +5744,16 @@ class EquipmentForm(forms.ModelForm):
                 "name", f'This equipment already has an orientation named "{name}". Give the new one its own name.'
             )
 
+    def _save_m2m(self) -> None:
+        """Save the unlocking list, then mirror its first type into the retired column (#656, one release)."""
+        super()._save_m2m()  # type: ignore[misc]
+        cast(Equipment, self.instance).mirror_required_orientation()
+
     def save(self, commit: bool = True) -> Equipment:
         """Save the equipment and, for "New orientation for this equipment", its type and the gate, together.
 
         One transaction: the type is created owned by the equipment (``guild`` empty) and
-        active, then set as the requirement, so the gate is closed when the redirect lands.
+        active, then added to the unlocking list, so the gate is closed when the redirect lands.
         """
         if not commit and self.creates_orientation_type:
             raise ValueError("EquipmentForm.save(commit=False) cannot create the new orientation type; call save().")
@@ -5748,8 +5768,8 @@ class EquipmentForm(forms.ModelForm):
                 # The Active toggle is not rendered here, and an unchecked checkbox posts as False.
                 new_type.is_active = True
                 new_type.save()
-                equipment.required_orientation = new_type
-                equipment.save(update_fields=["required_orientation"])
+                equipment.unlocking_orientations.add(new_type)
+                equipment.mirror_required_orientation()
         return equipment
 
 

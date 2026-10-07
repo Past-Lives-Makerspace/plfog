@@ -11470,7 +11470,7 @@ class OrientationTypeQuerySet(models.QuerySet):
 
         An active type of a visible guild whose orientations are enabled, or an active type
         of active equipment. One condition so the page's list, its ``is_listed`` annotation
-        and the locked Reservations card's link (:meth:`EquipmentQuerySet.with_required_orientation_listed`)
+        and the locked Reservations card's link (:meth:`EquipmentQuerySet.with_unlocking_orientations_listed`)
         can never disagree. Reads the site configuration once, for the demo guild switch.
         """
         return Q(is_active=True) & (
@@ -14434,16 +14434,18 @@ class EquipmentQuerySet(models.QuerySet["Equipment"]):
             return self.none()
         return self.active().for_guild(guild)
 
-    def with_required_orientation_listed(self) -> EquipmentQuerySet:
-        """Annotate ``required_orientation_listed``: whether the Orientations page lists the gating type.
+    def with_unlocking_orientations_listed(self) -> EquipmentQuerySet:
+        """Prefetch ``unlocking_orientations_listed``: each unlocking type, annotated ``is_listed`` (#656).
 
-        A subquery in the same read, so a grid of locked cards decides every Book the
-        orientation link without a query per card (:attr:`Equipment.required_orientation_link`).
+        ``is_listed`` is whether the Orientations page lists the type, so a grid of locked
+        cards decides every Book link (:attr:`Equipment.unlocking_orientation_links`) in one
+        prefetch query, never one per card or per orientation.
         """
-        listed = OrientationType.objects.filter(
-            OrientationTypeQuerySet.listed_condition(), pk=OuterRef("required_orientation_id")
+        listed = OrientationType.objects.filter(OrientationTypeQuerySet.listed_condition(), pk=OuterRef("pk"))
+        unlocking = OrientationType.objects.annotate(is_listed=Exists(listed)).select_related("guild", "equipment")
+        return self.prefetch_related(
+            models.Prefetch("unlocking_orientations", queryset=unlocking, to_attr="unlocking_orientations_listed")
         )
-        return self.annotate(required_orientation_listed=Exists(listed))
 
     def with_staff(self) -> EquipmentQuerySet:
         """Prefetch each item's staff into ``staff_roster``, ordered by name, in one query (#615).
@@ -14462,14 +14464,31 @@ class EquipmentQuerySet(models.QuerySet["Equipment"]):
 RESERVED_EQUIPMENT_SLUGS = frozenset({"add", "bookings"})
 
 
+@dataclass(frozen=True)
+class OrientationUnlock:
+    """One unlocking orientation as the equipment page's requirements banner shows it (#656).
+
+    Built by :meth:`Equipment.orientation_unlocks`. ``booking`` is the member's live
+    (requested or confirmed) booking for the type, ``url`` its owner aware Book link, and
+    ``paused`` is true when the type takes no bookings and the member holds none, so the
+    banner never renders a dead Book link.
+    """
+
+    orientation_type: OrientationType
+    booking: OrientationBooking | None
+    url: str
+    paused: bool
+
+
 class Equipment(HeroCropMixin, models.Model):
     """A shared tool or room members can find (and, from PR 2, reserve) on the Equipment page.
 
     One Django-owned model for both kinds (the locked Option A decision). The optional
     ``space`` FK is a **read-only** relationship into the Airtable-synced :class:`Space` —
     Django never writes through it and ``airtable_pull`` never sees this model. Access is
-    gated by the existing orientation stack: ``required_orientation`` points at an
-    :class:`OrientationType` and the gate is :meth:`Member.is_oriented_for_type`.
+    gated by the existing orientation stack: ``unlocking_orientations`` lists zero or more
+    :class:`OrientationType` rows, completing any one of them unlocks the item, and the
+    gate is :meth:`is_unlocked_for` (#656).
     """
 
     class Kind(models.TextChoices):
@@ -14549,11 +14568,21 @@ class Equipment(HeroCropMixin, models.Model):
         OrientationType,
         null=True,
         blank=True,
-        on_delete=models.PROTECT,
+        on_delete=models.SET_NULL,
+        related_name="+",
+        help_text=(
+            "Retired by #656: the gate is unlocking_orientations, and this mirrors its first type (null when "
+            "empty) for one release so a code only rollback keeps the gate. A follow up drops the column."
+        ),
+    )
+    unlocking_orientations = models.ManyToManyField(
+        OrientationType,
+        through="EquipmentUnlockingOrientation",
+        blank=True,
         related_name="gated_equipment",
         help_text=(
-            "Members must complete this orientation before booking. PROTECT: deleting an orientation "
-            "type that gates live equipment should fail loudly, not silently un-gate a dangerous tool."
+            "Completing any one of these orientations lets a member reserve this equipment. "
+            "Empty means any active member can book it."
         ),
     )
     is_active = models.BooleanField(
@@ -14606,15 +14635,63 @@ class Equipment(HeroCropMixin, models.Model):
         return "photo"
 
     @property
-    def required_orientation_link(self) -> str:
-        """Where a locked card's Book the orientation link goes (#502).
+    def unlocking_orientation_links(self) -> list[tuple[OrientationType, str]]:
+        """Each unlocking type beside where a locked card's Book link for it goes (#502, #656).
 
-        The gating type's card on the Orientations page when the page lists it, else the
-        type's owner page. Reads the ``required_orientation_listed`` annotation from
-        :meth:`EquipmentQuerySet.with_required_orientation_listed`.
+        A type's card on the Orientations page when the page lists it, else its owner page.
+        Reads the ``unlocking_orientations_listed`` prefetch from
+        :meth:`EquipmentQuerySet.with_unlocking_orientations_listed`.
         """
-        orientation_type = cast(OrientationType, self.required_orientation)
-        return orientation_type.booking_link(listed=self.required_orientation_listed)  # type: ignore[attr-defined]
+        listed_types: list[OrientationType] = self.unlocking_orientations_listed  # type: ignore[attr-defined]
+        return [
+            (orientation_type, orientation_type.booking_link(listed=orientation_type.is_listed))  # type: ignore[attr-defined]
+            for orientation_type in listed_types
+        ]
+
+    def mirror_required_orientation(self) -> None:
+        """Write the first unlocking type, in the list's order, into the retired column; ``None`` when empty.
+
+        For the one release ``required_orientation`` is kept (#656): a code only rollback reads
+        that column, so it must match the list. Every write path to ``unlocking_orientations``
+        calls this after it writes. A queryset update, so the slug and photo upkeep in
+        :meth:`save` never run for it.
+        """
+        first = OrientationType.objects.filter(gated_equipment=self).order_by("sort_order", "name", "pk").first()
+        self.required_orientation = first
+        Equipment.objects.filter(pk=self.pk).update(required_orientation=first)
+
+    def unlocking_orientation_list(self) -> list[OrientationType]:
+        """The unlocking types in display order, read through any prefetch of ``unlocking_orientations``."""
+        return list(self.unlocking_orientations.all())
+
+    def orientation_unlocks(self, member: Member) -> list[OrientationUnlock]:
+        """What the detail page's banner shows for each unlocking type, for a member who holds none (#656).
+
+        One read for the member's live bookings across every unlocking type, never one per
+        type. Each row keeps today's single orientation rules: a live booking links to it, a
+        paused type (inactive, retired owner or closed guild settings) with no live booking
+        offers no Book link, and otherwise the Book link is the owner aware anchor.
+        """
+        types = self.unlocking_orientation_list()
+        live = member.orientation_bookings.filter(
+            orientation_type__in=types,
+            status__in=[OrientationBooking.Status.REQUESTED, OrientationBooking.Status.CONFIRMED],
+        ).select_related("slot")
+        booking_by_type: dict[int, OrientationBooking] = {}
+        for live_booking in live.order_by("pk"):
+            booking_by_type.setdefault(live_booking.orientation_type_id, live_booking)
+        unlocks: list[OrientationUnlock] = []
+        for orientation_type in types:
+            booking = booking_by_type.get(orientation_type.pk)
+            unlocks.append(
+                OrientationUnlock(
+                    orientation_type=orientation_type,
+                    booking=booking,
+                    url=orientation_type.orientation_anchor_path(),
+                    paused=booking is None and not orientation_type.is_accepting,
+                )
+            )
+        return unlocks
 
     # --- QR sheet (#631): the printable page managers post at the machine.
 
@@ -14651,17 +14728,15 @@ class Equipment(HeroCropMixin, models.Model):
         return ""
 
     @property
-    def qr_sheet_orientation(self) -> OrientationType | None:
-        """The orientation the sheet's second QR books: the required one while it can print, else ``None``.
+    def qr_sheet_orientations(self) -> list[OrientationType]:
+        """The unlocking orientations the sheet names, those that can print, in display order (#631, #656).
 
-        A turned off required type, or one whose guild has orientations switched off, takes
-        no bookings, so the sheet leaves its QR off rather than print a code that lands on
-        nothing to book (:meth:`OrientationTypeQuerySet.printable`).
+        A turned off type, or one whose guild has orientations switched off, takes no
+        bookings, so the sheet leaves it off rather than point at nothing to book
+        (:meth:`OrientationTypeQuerySet.printable`). With exactly one the sheet prints its
+        booking QR; with several it names them all beside the equipment page QR.
         """
-        orientation_type = self.required_orientation
-        if orientation_type is None or not OrientationType.objects.printable().filter(pk=orientation_type.pk).exists():
-            return None
-        return orientation_type
+        return list(OrientationType.objects.printable().filter(gated_equipment=self).order_by("sort_order", "name"))
 
     def save(self, *args: Any, **kwargs: Any) -> None:
         if not self.slug:
@@ -14776,15 +14851,23 @@ class Equipment(HeroCropMixin, models.Model):
             has_unpaid_fee = unpaid_fee_for(member) is not None
         if has_unpaid_fee:
             return self.AccessState.NEEDS_FEE
-        required_orientation = self.required_orientation
-        if required_orientation is not None:
-            if oriented_type_ids is not None:
-                oriented = required_orientation.pk in oriented_type_ids
-            else:
-                oriented = member.is_oriented_for_type(required_orientation)
-            if not oriented:
-                return self.AccessState.NEEDS_ORIENTATION
+        if not self.is_unlocked_for(member, oriented_type_ids=oriented_type_ids):
+            return self.AccessState.NEEDS_ORIENTATION
         return self.AccessState.OK
+
+    def is_unlocked_for(self, member: Member, *, oriented_type_ids: set[int] | None = None) -> bool:
+        """True when the item lists no orientation, or ``member`` completed any one it lists (#656).
+
+        ``oriented_type_ids`` is the bulk caller's set of the member's completed type pks;
+        omit it and :meth:`Member.completed_orientation_type_ids` answers for every listed
+        type in one read, never a query per type.
+        """
+        types = self.unlocking_orientation_list()
+        if not types:
+            return True
+        if oriented_type_ids is None:
+            oriented_type_ids = member.completed_orientation_type_ids(types)
+        return any(orientation_type.pk in oriented_type_ids for orientation_type in types)
 
     def booking_blockers(self, member: Member | None) -> list[str]:
         """Ordered, member-readable reasons this member cannot book yet; empty = bookable.
@@ -14800,11 +14883,14 @@ class Equipment(HeroCropMixin, models.Model):
         if member is None or member.status != Member.Status.ACTIVE:
             return ["Your membership needs to be active to reserve equipment."]
         blockers: list[str] = []
-        required_orientation = self.required_orientation
-        if required_orientation is not None and not member.is_oriented_for_type(required_orientation):
-            blockers.append(
-                f"You need the {required_orientation.name} orientation before you can reserve this equipment."
-            )
+        if not self.is_unlocked_for(member):
+            names = [orientation_type.name for orientation_type in self.unlocking_orientation_list()]
+            if len(names) == 1:
+                blockers.append(f"You need the {names[0]} orientation before you can reserve this equipment.")
+            else:
+                blockers.append(
+                    f"You need one of these orientations before you can reserve this equipment: {' or '.join(names)}."
+                )
         # The block until paid (#456): the same sentence ensure_bookable_for raises, with the amount.
         from billing.late_fees import unpaid_fee_for
 
@@ -15126,6 +15212,39 @@ class EquipmentStaffMembership(models.Model):
 
     def __str__(self) -> str:
         return f"{self.member.display_name}: {self.equipment.name} manager"
+
+
+class EquipmentUnlockingOrientation(models.Model):
+    """One orientation that unlocks one piece of equipment: a row of :attr:`Equipment.unlocking_orientations` (#656).
+
+    Its own row so the orientation side can PROTECT: deleting a type that unlocks live gear
+    fails loudly instead of silently dropping it from the list, where an empty list would
+    open a dangerous tool to every active member.
+    """
+
+    equipment = models.ForeignKey(
+        Equipment,
+        on_delete=models.CASCADE,
+        related_name="unlocking_orientation_rows",
+        help_text="The equipment this orientation unlocks.",
+    )
+    orientation_type = models.ForeignKey(
+        OrientationType,
+        on_delete=models.PROTECT,
+        related_name="unlocking_equipment_rows",
+        help_text=(
+            "Completing this orientation unlocks the equipment. PROTECT: deleting a type that unlocks "
+            "live equipment fails loudly rather than silently changing who can book it."
+        ),
+    )
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(fields=["equipment", "orientation_type"], name="uq_equip_unlock_orient"),
+        ]
+
+    def __str__(self) -> str:
+        return f"{self.orientation_type.name} unlocks {self.equipment.name}"
 
 
 class EquipmentHoursQuerySet(models.QuerySet["EquipmentHours"]):
@@ -16514,7 +16633,7 @@ class WikiPage(models.Model):
         return {
             "equipment": equipment,
             "guild": equipment.guild,
-            "required_orientation": equipment.required_orientation,
+            "unlocking_orientations": equipment.unlocking_orientation_list(),
             "location_note": equipment.location_note,
             "access_state": state,
             "access_line": _WIKI_ACCESS_LINES[state],
