@@ -43,6 +43,7 @@ class FakeEventbrite:
     def __init__(self) -> None:
         self.calls: list[tuple[str, tuple[Any, ...]]] = []
         self.fail: dict[str, EventbriteError] = {}
+        self.created_event: dict[str, Any] = {"id": "ev-1"}
 
     def _record(self, name: str, *args: Any) -> None:
         self.calls.append((name, args))
@@ -61,7 +62,7 @@ class FakeEventbrite:
 
     def create_event(self, body: dict[str, Any]) -> dict[str, Any]:
         self._record("create_event", body)
-        return {"id": "ev-1"}
+        return self.created_event
 
     def update_event(self, event_id: str, body: dict[str, Any]) -> dict[str, Any]:
         self._record("update_event", event_id, body)
@@ -201,6 +202,17 @@ def describe_classes_that_are_never_listed():
 
         assert eventbrite.calls == []
 
+    def it_never_lists_a_demo_class_even_in_demo_mode(eventbrite: FakeEventbrite):
+        config = SiteConfiguration.load()
+        config.display_demo_classes = True
+        config.save(update_fields=["display_demo_classes"])
+        offering = _opted_in(slug="demo-welding")
+
+        offering.publish(None)
+
+        assert ClassOffering.objects.public().filter(pk=offering.pk).exists()
+        assert eventbrite.calls == []
+
     def it_never_lists_a_private_class(eventbrite: FakeEventbrite):
         _opted_in(is_private=True).publish(None)
 
@@ -255,6 +267,16 @@ def describe_ending_a_listing():
         offering.refresh_from_db()
         assert offering.eventbrite_sync_state == State.ENDED
         assert offering.eventbrite_sync_error == ""
+
+    def it_ends_the_listing_when_the_class_is_archived(eventbrite: FakeEventbrite):
+        offering = _listed()
+
+        offering.archive()
+
+        assert eventbrite.names() == ["update_ticket_class", "unpublish"]
+        offering.refresh_from_db()
+        assert offering.status == ClassOffering.Status.ARCHIVED
+        assert offering.eventbrite_sync_state == State.ENDED
 
     def it_ends_the_listing_when_the_class_is_cancelled(eventbrite: FakeEventbrite):
         offering = _listed()
@@ -332,6 +354,29 @@ def describe_when_a_push_fails():
 
         offering.refresh_from_db()
         assert offering.eventbrite_sync_state == State.LISTED
+
+    def it_records_an_answer_with_no_event_id_as_a_failure_and_keeps_the_publish(eventbrite: FakeEventbrite):
+        eventbrite.created_event = {}
+        offering = _opted_in()
+
+        offering.publish(None)
+
+        offering.refresh_from_db()
+        assert offering.status == ClassOffering.Status.PUBLISHED
+        assert offering.eventbrite_sync_state == State.FAILED
+        assert "'id'" in offering.eventbrite_sync_error
+
+    def it_moves_on_to_the_next_class_when_one_retry_fails(eventbrite: FakeEventbrite):
+        first = _opted_in(status=ClassOffering.Status.PUBLISHED, eventbrite_sync_state=State.FAILED)
+        second = _listed(eventbrite_sync_state=State.FAILED)
+        eventbrite.created_event = {}
+
+        call_command("retry_eventbrite_pushes")
+
+        first.refresh_from_db()
+        second.refresh_from_db()
+        assert first.eventbrite_sync_state == State.FAILED
+        assert second.eventbrite_sync_state == State.LISTED
 
     def it_lists_a_class_with_no_photo_of_its_own_without_an_image(eventbrite: FakeEventbrite):
         # A live class can lose its own photo (it falls back to the category's); publish refuses one without.

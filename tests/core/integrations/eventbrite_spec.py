@@ -148,6 +148,55 @@ def describe_requests():
             _client().upload_logo("hero.jpg", b"jpeg")
 
 
+def describe_malformed_answers():
+    @respx.mock
+    def it_raises_on_a_success_that_is_not_json():
+        respx.post(f"{API_BASE}/events/ev-1/publish/").respond(200, text="<html>maintenance</html>")
+
+        with pytest.raises(EventbriteError, match="not JSON"):
+            _client().publish("ev-1")
+
+    @respx.mock
+    def it_raises_on_json_that_is_not_an_object():
+        respx.post(f"{API_BASE}/events/ev-1/publish/").respond(json=True)
+
+        with pytest.raises(EventbriteError, match="expected an object"):
+            _client().publish("ev-1")
+
+    @respx.mock
+    def it_raises_when_the_description_version_is_missing():
+        respx.get(f"{API_BASE}/events/ev-1/structured_content/edit/").respond(json={})
+
+        with pytest.raises(EventbriteError, match="page_version_number"):
+            _client().set_description("ev-1", "<p>Hi</p>")
+
+    @respx.mock
+    def it_raises_when_the_description_version_is_not_a_number():
+        respx.get(f"{API_BASE}/events/ev-1/structured_content/edit/").respond(json={"page_version_number": "x"})
+
+        with pytest.raises(EventbriteError, match="Unreadable"):
+            _client().set_description("ev-1", "<p>Hi</p>")
+
+    @respx.mock
+    def it_raises_when_the_upload_ticket_is_incomplete():
+        respx.get(f"{API_BASE}/media/upload/").respond(json={"file_parameter_name": "file", "upload_url": "u"})
+
+        with pytest.raises(EventbriteError, match="upload_data"):
+            _client().upload_logo("hero.jpg", b"jpeg")
+
+    @respx.mock
+    def it_raises_when_the_image_bucket_refuses_the_file():
+        respx.get(f"{API_BASE}/media/upload/").respond(
+            json={"upload_url": "https://uploads.example.com/", "upload_data": {}, "file_parameter_name": "f"}
+        )
+        respx.post("https://uploads.example.com/").respond(403, text="denied")
+
+        with pytest.raises(EventbriteError) as raised:
+            _client().upload_logo("hero.jpg", b"jpeg")
+
+        assert raised.value.status == 403
+
+
 def describe_estimate_fee_cents():
     def it_adds_the_percentages_and_the_per_ticket_fee():
         # 3.7% + 2.9% of $50 is $3.30, plus $1.79.

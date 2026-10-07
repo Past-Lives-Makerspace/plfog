@@ -52,6 +52,13 @@ class EventbriteError(Exception):
         self.status = status
 
 
+def field(result: dict[str, Any], key: str) -> Any:
+    """``result[key]``; a missing key is an :class:`EventbriteError`, so the class records it."""
+    if key not in result:
+        raise EventbriteError(f"Eventbrite's answer has no {key!r}: {result!r}"[:300])
+    return result[key]
+
+
 class EventbriteSync:
     """The copy recorded on a class when a push did not happen or ended short."""
 
@@ -105,7 +112,10 @@ class EventbriteClient:
     def set_description(self, event_id: str, html: str) -> None:
         """Publish ``html`` as the listing's one text module (structured content, next version)."""
         current = self._call("GET", f"/events/{event_id}/structured_content/edit/", params={"purpose": "listing"})
-        version = int(current["page_version_number"]) + 1
+        try:
+            version = int(field(current, "page_version_number")) + 1
+        except ValueError as exc:
+            raise EventbriteError(f"Unreadable structured content version: {current!r}"[:300]) from exc
         module = {"type": "text", "data": {"body": {"type": "text", "text": html, "alignment": "left"}}}
         body = {"modules": [module], "publish": True, "purpose": "listing"}
         self._call("POST", f"/events/{event_id}/structured_content/{version}/", json=body)
@@ -113,12 +123,16 @@ class EventbriteClient:
     def upload_logo(self, filename: str, content: bytes) -> str:
         """Upload an event image and return its media ID (Eventbrite's three step media upload)."""
         ticket = self._call("GET", "/media/upload/", params={"type": "image-event-logo"})
-        files = {ticket["file_parameter_name"]: (filename, content)}
+        files = {field(ticket, "file_parameter_name"): (filename, content)}
+        url, data = field(ticket, "upload_url"), field(ticket, "upload_data")
         try:
-            httpx.post(ticket["upload_url"], data=ticket["upload_data"], files=files, timeout=_TIMEOUT_SECONDS)
+            stored = httpx.post(url, data=data, files=files, timeout=_TIMEOUT_SECONDS)
         except httpx.HTTPError as exc:
             raise EventbriteError(str(exc)) from exc
-        return str(self._call("POST", "/media/upload/", json={"upload_token": ticket["upload_token"]})["id"])
+        if stored.is_error:
+            raise EventbriteError(f"Image upload: {stored.status_code} {stored.text[:200]}", stored.status_code)
+        finished = self._call("POST", "/media/upload/", json={"upload_token": field(ticket, "upload_token")})
+        return str(field(finished, "id"))
 
     def publish(self, event_id: str) -> None:
         self._call("POST", f"/events/{event_id}/publish/")
@@ -140,7 +154,12 @@ class EventbriteClient:
             raise EventbriteError(str(exc)) from exc
         if response.is_error:
             raise EventbriteError(f"{method} {path}: {response.status_code} {response.text}", response.status_code)
-        result: dict[str, Any] = response.json()
+        try:
+            result = response.json()
+        except ValueError as exc:
+            raise EventbriteError(f"{method} {path}: not JSON: {response.text[:200]}", response.status_code) from exc
+        if not isinstance(result, dict):
+            raise EventbriteError(f"{method} {path}: expected an object, got {result!r}"[:300], response.status_code)
         return result
 
 
@@ -195,7 +214,7 @@ def _logo_id(client: EventbriteClient, offering: ClassOffering) -> str:
     try:
         with offering.image.open("rb") as photo:
             return client.upload_logo(PurePosixPath(offering.image.name or "class.jpg").name, photo.read())
-    except (EventbriteError, OSError, KeyError) as exc:
+    except (EventbriteError, OSError) as exc:
         logger.warning("Eventbrite image upload failed for class %s: %s", offering.pk, exc)
         return ""
 
@@ -208,13 +227,13 @@ def _list(client: EventbriteClient, offering: ClassOffering) -> None:
         logo = _logo_id(client, offering)
         if logo:
             event["event"]["logo_id"] = logo
-        offering.eventbrite_event_id = str(client.create_event(event)["id"])
+        offering.eventbrite_event_id = str(field(client.create_event(event), "id"))
     else:
         client.update_event(offering.eventbrite_event_id, event)
     ticket = _ticket_body(offering, sessions)
     if not offering.eventbrite_ticket_class_id:
         created = client.create_ticket_class(offering.eventbrite_event_id, ticket)
-        offering.eventbrite_ticket_class_id = str(created["id"])
+        offering.eventbrite_ticket_class_id = str(field(created, "id"))
     else:
         client.update_ticket_class(offering.eventbrite_event_id, offering.eventbrite_ticket_class_id, ticket)
     client.set_description(offering.eventbrite_event_id, _description_html(offering, sessions))

@@ -2109,6 +2109,7 @@ class ClassOffering(HeroCropMixin, models.Model):
         from classes import activity
 
         activity.log(CmsActivity.Kind.CLASS_ARCHIVED, class_offering=self)
+        self.sync_eventbrite_listing()
 
     def restore(self) -> None:
         """Bring an archived class back as a draft. It needs review again before it goes live.
@@ -2162,11 +2163,35 @@ class ClassOffering(HeroCropMixin, models.Model):
         """Whether this class belongs on Eventbrite right now.
 
         Opted in, fixed (a flexible class has no dates to list), dated, and live in the public
-        catalog: ``public()`` is the gate that keeps private and ``demo-`` classes off it.
+        catalog. ``public()`` keeps private classes off; ``demo-`` classes are refused here too,
+        because ``public()`` lets them through while demo mode is on.
         """
-        if not self.eventbrite_enabled or self.is_flexible or not self.sessions.exists():
+        if not self.eventbrite_enabled or self.is_flexible or self.slug.startswith(DEMO_SLUG_PREFIX):
+            return False
+        if not self.sessions.exists():
             return False
         return type(self).objects.public().filter(pk=self.pk).exists()
+
+    @property
+    def eventbrite_sync_label(self) -> str:
+        """The listing's state in a few words for admins, with the recorded reason where there is one."""
+        state = self.EventbriteSyncState
+        error = self.eventbrite_sync_error
+        labels = {
+            state.IDLE: "Not on Eventbrite yet",
+            state.PENDING: f"Waiting to sync: {error}" if error else "Waiting to sync",
+            state.LISTED: "Listed on Eventbrite",
+            state.ENDED: f"Ended on Eventbrite. {error}" if error else "Ended on Eventbrite",
+            state.FAILED: f"Failed: {error}",
+        }
+        return labels[self.EventbriteSyncState(self.eventbrite_sync_state)]
+
+    @property
+    def eventbrite_event_url(self) -> str:
+        """The public Eventbrite page while the class is listed there, else ``""``."""
+        if self.eventbrite_sync_state != self.EventbriteSyncState.LISTED or not self.eventbrite_event_id:
+            return ""
+        return f"https://www.eventbrite.com/e/{self.eventbrite_event_id}"
 
     def sync_eventbrite_listing(self) -> None:
         """Create, update or end this class's Eventbrite listing, and save the sync fields.
