@@ -944,6 +944,37 @@ def send_eventbrite_oversold_alert(registration: "Registration") -> None:
     )
 
 
+def send_eventbrite_shared_email_alert(registration: "Registration", email: str) -> None:
+    """Alert the Admins that an Eventbrite ticket was seated under a seat alias of ``email``.
+
+    plfog holds one seat per address per class, and Eventbrite copies the buyer's address onto
+    every ticket unless it asks per ticket. The buyer has paid, so the ticket is seated as
+    ``local+seatN@domain``; a person should find out who is actually coming. Rides the same
+    forced event as the oversold alert, keyed on the ticket.
+    """
+    from core.events.senders import emit_flat_email
+
+    offering = registration.class_offering
+    detail_url = _absolute_url(reverse("classes:admin_registration_detail", kwargs={"pk": registration.pk}))
+    name = f"{registration.first_name} {registration.last_name}".strip() or email
+    body = (
+        f'{name} bought a ticket on Eventbrite for "{offering.title}" under {email}, which '
+        f"already holds a seat in this class. They have paid, so they are registered as "
+        f"{registration.email}.\n\n"
+        f"Ask the buyer who is coming on that ticket, and update the name and email.\n\n"
+        f"Registration: {detail_url}\n"
+        f"Eventbrite order: {registration.eventbrite_order_id}"
+    )
+    emit_flat_email(
+        "classes.orphaned_payment_alert",
+        target=registration,
+        subject=f"Eventbrite ticket on a shared email: {name}, {offering.title}",
+        text_body=body,
+        html_body=_flat_text_email_html(body),
+        period=f"reg:{registration.pk}:eventbrite-shared:{registration.eventbrite_attendee_id}",
+    )
+
+
 def build_class_reminder_occurrence(
     registration: "Registration",
     session: "ClassSession",

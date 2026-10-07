@@ -17,13 +17,14 @@ import logging
 import re
 from typing import TYPE_CHECKING, Any
 
-from django.db import transaction
+from django.db import IntegrityError, transaction
 from django.utils import timezone
 
 from classes.emails import (
     emit_instructor_new_registration,
     send_admin_registration_notification,
     send_eventbrite_oversold_alert,
+    send_eventbrite_shared_email_alert,
 )
 from classes.models import ClassOffering, Registration
 from core.integrations.eventbrite import EventbriteClient, EventbriteError, EventbriteSync, field
@@ -44,6 +45,7 @@ PARTIAL_REFUSED = (
     "Eventbrite would not refund one ticket of this order. Refund it in Eventbrite; "
     "plfog frees the seat when Eventbrite reports the refund."
 )
+NOTHING_TO_REFUND = "This ticket no longer holds a seat, so there is nothing to refund."
 SYNC_OFF_REFUSED = "Eventbrite sync is off, so plfog cannot reach Eventbrite. Refund this ticket in Eventbrite."
 
 
@@ -114,9 +116,34 @@ def _apply_attendee(offering: ClassOffering, order_id: str, attendee: dict[str, 
 
 
 def _seat(offering: ClassOffering, order_id: str, attendee_id: str, attendee: dict[str, Any]) -> None:
-    """Create the attendee's confirmed registration; alert the Admins when it oversells the class."""
+    """Create the attendee's confirmed registration and tell the Admins what needs a person.
+
+    Two deliveries of one order can race. The unique attendee ID decides: the loser finds the
+    winner's row and stops. A seat email taken in the same instant gets one fresh alias; a
+    second collision raises, and Eventbrite delivers the order again.
+    """
     profile = field(attendee, "profile")
+    email = str(field(profile, "email"))
     was_full = offering.spots_remaining == 0
+    try:
+        registration = _create_confirmed(offering, order_id, attendee_id, attendee, email)
+    except IntegrityError:
+        if Registration.objects.filter(eventbrite_attendee_id=attendee_id).exists():
+            return
+        registration = _create_confirmed(offering, order_id, attendee_id, attendee, email)
+    emit_instructor_new_registration(registration)
+    send_admin_registration_notification(registration)
+    if was_full:
+        send_eventbrite_oversold_alert(registration)
+    if registration.email != email:
+        send_eventbrite_shared_email_alert(registration, email)
+
+
+def _create_confirmed(
+    offering: ClassOffering, order_id: str, attendee_id: str, attendee: dict[str, Any], email: str
+) -> Registration:
+    """Save the row PENDING then CONFIRMED, as a paid site booking is, inside one savepoint."""
+    profile = field(attendee, "profile")
     registration = Registration(
         class_offering=offering,
         source=Registration.Source.EVENTBRITE,
@@ -124,7 +151,7 @@ def _seat(offering: ClassOffering, order_id: str, attendee_id: str, attendee: di
         eventbrite_attendee_id=attendee_id,
         first_name=str(field(profile, "first_name"))[:100],
         last_name=str(field(profile, "last_name"))[:100],
-        email=free_seat_email(offering, str(field(profile, "email"))),
+        email=free_seat_email(offering, email),
     )
     with transaction.atomic():
         registration.save()
@@ -132,10 +159,7 @@ def _seat(offering: ClassOffering, order_id: str, attendee_id: str, attendee: di
         registration.confirmed_at = timezone.now()
         registration.amount_paid_cents = net_cents(attendee)
         registration.save(update_fields=["status", "confirmed_at", "amount_paid_cents"])
-    emit_instructor_new_registration(registration)
-    send_admin_registration_notification(registration)
-    if was_full:
-        send_eventbrite_oversold_alert(registration)
+    return registration
 
 
 def net_cents(attendee: dict[str, Any]) -> int:
@@ -166,32 +190,36 @@ def free_seat_email(offering: ClassOffering, email: str) -> str:
 def refund_registration(registration: Registration, *, reason: str, actor: User | None) -> None:
     """Refund an Eventbrite ticket through Eventbrite, then free its seat with ``mark_refunded``.
 
-    The whole order when this is the only ticket on it still holding a seat; otherwise a partial
-    refund of this ticket's total.
+    The whole order when every other ticket on it is already refunded; otherwise a partial
+    refund of this ticket's total, so a ticket cancelled without a refund is never paid back by
+    accident. The order's rows stay locked from the check to ``mark_refunded``, so a second
+    click waits, then finds the ticket refunded and is refused without calling Eventbrite.
 
     Raises:
-        EventbriteRefundRefusedError: Sync is off or Eventbrite refused; nothing changed in plfog.
+        EventbriteRefundRefusedError: Sync is off, the ticket no longer holds a seat, or
+            Eventbrite refused; nothing changed in plfog.
     """
     client = EventbriteClient.from_settings()
     if not client.enabled:
         raise EventbriteRefundRefusedError(SYNC_OFF_REFUSED)
-    order_id = registration.eventbrite_order_id
-    partial = (
-        Registration.objects.filter(eventbrite_order_id=order_id, status=Registration.Status.CONFIRMED)
-        .exclude(pk=registration.pk)
-        .exists()
-    )
-    body: dict[str, Any] = {"reason": REFUND_REASON}
-    try:
-        if partial:
-            body["total_refund_amount"] = _ticket_total(client, registration)
-        client.refund_order(order_id, body)
-    except EventbriteError as exc:
-        logger.warning("Eventbrite refused the refund of registration %s: %s", registration.pk, exc)
-        raise EventbriteRefundRefusedError(
-            PARTIAL_REFUSED if partial else f"Eventbrite refused the refund: {exc}"
-        ) from exc
-    registration.mark_refunded(reason=reason or REFUNDED_THROUGH_EVENTBRITE, actor=actor)
+    with transaction.atomic():
+        rows = Registration.objects.select_for_update().filter(eventbrite_order_id=registration.eventbrite_order_id)
+        locked = {row.pk: row for row in rows.order_by("pk")}
+        ticket = locked.pop(registration.pk)
+        if ticket.status != Registration.Status.CONFIRMED:
+            raise EventbriteRefundRefusedError(NOTHING_TO_REFUND)
+        partial = any(row.status != Registration.Status.REFUNDED for row in locked.values())
+        body: dict[str, Any] = {"reason": REFUND_REASON}
+        try:
+            if partial:
+                body["total_refund_amount"] = _ticket_total(client, ticket)
+            client.refund_order(ticket.eventbrite_order_id, body)
+        except EventbriteError as exc:
+            logger.warning("Eventbrite refused the refund of registration %s: %s", ticket.pk, exc)
+            raise EventbriteRefundRefusedError(
+                PARTIAL_REFUSED if partial else f"Eventbrite refused the refund: {exc}"
+            ) from exc
+        ticket.mark_refunded(reason=reason or REFUNDED_THROUGH_EVENTBRITE, actor=actor)
 
 
 def _ticket_total(client: EventbriteClient, registration: Registration) -> str:

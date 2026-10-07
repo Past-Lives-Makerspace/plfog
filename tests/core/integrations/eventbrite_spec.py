@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 from typing import Any
+from unittest.mock import patch
 
 import httpx
 import pytest
@@ -226,3 +227,12 @@ def describe_order_and_ticket_reads():
         _client().refund_order("o-1", {"reason": "no_longer_able_to_attend"})
 
         assert json.loads(route.calls.last.request.content) == {"reason": "no_longer_able_to_attend"}
+
+    def it_waits_only_as_long_as_the_clients_timeout():
+        client = _client()
+        client.timeout = 3.0
+
+        with patch("httpx.request", return_value=httpx.Response(200, json={})) as request:
+            client.get_ticket_class("ev-1", "tc-1")
+
+        assert request.call_args.kwargs["timeout"] == 3.0

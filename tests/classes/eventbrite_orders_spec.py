@@ -15,7 +15,7 @@ from django.urls import reverse
 
 from billing.models import PaymentRefund
 from classes import eventbrite_orders
-from classes.emails import send_eventbrite_oversold_alert
+from classes.emails import send_eventbrite_oversold_alert, send_eventbrite_shared_email_alert
 from classes.eventbrite_orders import EventbriteRefundRefusedError, apply_order, refund_registration
 from classes.factories import RegistrationFactory, UserFactory
 from classes.models import CmsActivity, Registration
@@ -97,10 +97,60 @@ def describe_an_order_coming_in():
         RegistrationFactory(class_offering=offering, email="ada@example.com", status=Status.CONFIRMED)
         eventbrite.orders["o-1"] = order("o-1", attendee("a-1"), attendee("a-2"))
 
-        apply_order("o-1")
+        with patch.object(eventbrite_orders, "send_eventbrite_shared_email_alert") as shared:
+            apply_order("o-1")
 
-        emails = set(offering.registrations.filter(eventbrite_order_id="o-1").values_list("email", flat=True))
-        assert emails == {"ada+seat2@example.com", "ada+seat3@example.com"}
+        rows = offering.registrations.filter(eventbrite_order_id="o-1").order_by("eventbrite_attendee_id")
+        assert [r.email for r in rows] == ["ada+seat2@example.com", "ada+seat3@example.com"]
+        assert [c.args for c in shared.call_args_list] == [(row, "ada@example.com") for row in rows]
+
+    def it_sends_no_shared_email_alert_for_a_free_address(eventbrite: FakeEventbrite, oversold: MagicMock):
+        listed_class()
+        eventbrite.orders["o-1"] = order("o-1", attendee("a-1"))
+
+        with patch.object(eventbrite_orders, "send_eventbrite_shared_email_alert") as shared:
+            apply_order("o-1")
+
+        shared.assert_not_called()
+
+    def it_stops_when_a_racing_delivery_seated_the_ticket_first(eventbrite: FakeEventbrite, oversold: MagicMock):
+        offering = listed_class()
+        eventbrite.orders["o-1"] = order("o-1", attendee("a-1"))
+        winner: list[Registration] = []
+
+        def race(_offering: Any, email: str) -> str:
+            winner.append(
+                RegistrationFactory(class_offering=offering, email="winner@example.com", eventbrite_attendee_id="a-1")
+            )
+            return email
+
+        with patch.object(eventbrite_orders, "free_seat_email", side_effect=race):
+            apply_order("o-1")
+
+        assert list(Registration.objects.filter(eventbrite_attendee_id="a-1")) == winner
+
+    def it_takes_a_fresh_alias_when_the_email_is_taken_in_the_same_instant(
+        eventbrite: FakeEventbrite, oversold: MagicMock
+    ):
+        offering = listed_class()
+        eventbrite.orders["o-1"] = order("o-1", attendee("a-1"))
+        real = eventbrite_orders.free_seat_email
+        calls: list[str] = []
+
+        def race(target: Any, email: str) -> str:
+            calls.append(email)
+            if len(calls) == 1:
+                RegistrationFactory(class_offering=offering, email=email, status=Status.CONFIRMED)
+                return email
+            return real(target, email)
+
+        with (
+            patch.object(eventbrite_orders, "free_seat_email", side_effect=race),
+            patch.object(eventbrite_orders, "send_eventbrite_shared_email_alert"),
+        ):
+            apply_order("o-1")
+
+        assert Registration.objects.get(eventbrite_attendee_id="a-1").email == "ada+seat2@example.com"
 
     def it_ignores_an_order_for_an_event_no_class_lists(eventbrite: FakeEventbrite, oversold: MagicMock):
         listed_class()
@@ -239,6 +289,23 @@ def describe_refunding_an_eventbrite_ticket_from_plfog():
 
         assert "total_refund_amount" not in eventbrite.args("refund_order")[1]
 
+    def it_refunds_only_this_ticket_when_another_was_cancelled_without_a_refund(eventbrite: FakeEventbrite):
+        first, second = _seated(eventbrite, attendee("a-1"), attendee("a-2", email="b@example.com"))
+        second.cancel(reason="Cancelled in Eventbrite.")
+
+        refund_registration(first, reason="", actor=None)
+
+        assert eventbrite.args("refund_order")[1]["total_refund_amount"] == "50.00"
+
+    def it_refuses_a_ticket_that_no_longer_holds_a_seat(eventbrite: FakeEventbrite):
+        (registration,) = _seated(eventbrite, attendee("a-1"))
+        refund_registration(registration, reason="", actor=None)
+
+        with pytest.raises(EventbriteRefundRefusedError, match=eventbrite_orders.NOTHING_TO_REFUND):
+            refund_registration(registration, reason="", actor=None)
+
+        assert eventbrite.names().count("refund_order") == 1
+
     def it_says_to_refund_in_eventbrite_when_the_partial_is_refused(eventbrite: FakeEventbrite):
         first, _second = _seated(eventbrite, attendee("a-1"), attendee("a-2", email="b@example.com"))
         eventbrite.fail["refund_order"] = EventbriteError("400 PARTIAL_REFUND_NOT_ALLOWED", 400)
@@ -337,6 +404,26 @@ def describe_the_refund_panel_on_an_eventbrite_ticket():
         assert registration.status == Status.REFUNDED
         assert not PaymentRefund.objects.exists()
 
+    def it_refunds_once_when_the_button_is_pressed_twice(eventbrite: FakeEventbrite, admin_user: Any, client: Client):
+        first, _second = _seated(eventbrite, attendee("a-1"), attendee("a-2", email="b@example.com"))
+        client.force_login(admin_user)
+        url = reverse("classes:admin_registration_refund", args=[first.pk])
+
+        assert client.post(url, {"reason": ""}).status_code == 204
+        repeat = client.post(url, {"reason": ""})
+
+        assert repeat.status_code == 200
+        assert eventbrite_orders.NOTHING_TO_REFUND in repeat.content.decode()
+        assert eventbrite.names().count("refund_order") == 1
+
+    def it_disables_the_refund_button_while_it_submits(eventbrite: FakeEventbrite, admin_user: Any, client: Client):
+        (registration,) = _seated(eventbrite, attendee("a-1"))
+        client.force_login(admin_user)
+
+        content = client.get(reverse("classes:admin_registration_refund_form", args=[registration.pk])).content.decode()
+
+        assert "hx-disabled-elt=\"find button[type='submit']\"" in content
+
     def it_keeps_the_modal_open_with_eventbrites_refusal(eventbrite: FakeEventbrite, admin_user: Any, client: Client):
         first, _second = _seated(eventbrite, attendee("a-1"), attendee("a-2", email="b@example.com"))
         eventbrite.fail["refund_order"] = EventbriteError("400", 400)
@@ -377,3 +464,22 @@ def describe_the_oversold_alert():
         assert registration.class_offering.title in kwargs["text_body"]
         assert "Eventbrite order: o-1" in kwargs["text_body"]
         assert kwargs["period"] == f"reg:{registration.pk}:eventbrite:a-1"
+
+
+def describe_the_shared_email_alert():
+    def it_tells_every_admin_the_ticket_was_seated_on_an_alias(eventbrite: FakeEventbrite):
+        (registration,) = _seated(eventbrite, attendee("a-1", first="Ada", last="Lovelace"))
+
+        with patch("core.events.senders.emit_flat_email") as emit:
+            send_eventbrite_shared_email_alert(registration, "shared@example.com")
+
+        kwargs = emit.call_args.kwargs
+        assert emit.call_args.args[0] == "classes.orphaned_payment_alert"
+        assert (
+            kwargs["subject"]
+            == f"Eventbrite ticket on a shared email: Ada Lovelace, {registration.class_offering.title}"
+        )
+        assert "under shared@example.com" in kwargs["text_body"]
+        assert f"registered as {registration.email}" in kwargs["text_body"]
+        assert "Eventbrite order: o-1" in kwargs["text_body"]
+        assert kwargs["period"] == f"reg:{registration.pk}:eventbrite-shared:a-1"

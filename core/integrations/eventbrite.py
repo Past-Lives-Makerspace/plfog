@@ -35,6 +35,9 @@ logger = logging.getLogger(__name__)
 
 API_BASE = "https://www.eventbriteapi.com/v3"
 _TIMEOUT_SECONDS = 10.0
+# The quantity push runs after commit inside a booking, a Stripe webhook or a refund request,
+# so a slow Eventbrite must not hold that request for long; a miss is retried on the scheduler.
+QUANTITY_PUSH_TIMEOUT_SECONDS = 3.0
 _SYNC_ERROR_MAX = 500
 _EVENT_TIMEZONE = "America/Los_Angeles"
 _SUMMARY_MAX = 140
@@ -77,6 +80,7 @@ class EventbriteClient:
 
     def __init__(self, *, token: str, organization_id: str, venue_id: str) -> None:
         self._token = token
+        self.timeout = _TIMEOUT_SECONDS
         self.organization_id = organization_id
         self.venue_id = venue_id
 
@@ -157,7 +161,7 @@ class EventbriteClient:
                 method,
                 f"{API_BASE}{path}",
                 headers={"Authorization": f"Bearer {self._token}"},
-                timeout=_TIMEOUT_SECONDS,
+                timeout=self.timeout,
                 **kwargs,
             )
         except httpx.HTTPError as exc:
@@ -316,10 +320,14 @@ def push_ticket_quantity(offering: ClassOffering) -> bool:
     if not client.enabled:
         offering.eventbrite_sync_state, offering.eventbrite_sync_error = state.PENDING, EventbriteSync.SYNC_OFF
         return False
+    client.timeout = QUANTITY_PUSH_TIMEOUT_SECONDS
     try:
         body = {"ticket_class": {"quantity_total": _quantity_total(client, offering)}}
         client.update_ticket_class(offering.eventbrite_event_id, offering.eventbrite_ticket_class_id, body)
-    except EventbriteError as exc:
+    except Exception as exc:
+        # Any failure, not only an API error: this runs after the booking committed, so raising
+        # would turn a saved booking into an error page. The retry command picks the class up.
+        logger.exception("Eventbrite quantity push failed for class %s", offering.pk)
         offering.eventbrite_sync_state, offering.eventbrite_sync_error = state.FAILED, str(exc)[:_SYNC_ERROR_MAX]
         return False
     return True

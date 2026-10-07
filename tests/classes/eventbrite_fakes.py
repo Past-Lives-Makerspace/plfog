@@ -24,6 +24,7 @@ class FakeEventbrite:
         self.fail: dict[str, EventbriteError] = {}
         self.orders: dict[str, dict[str, Any]] = {}
         self.quantity_sold = 0
+        self.timeout = 10.0
 
     def _record(self, name: str, *args: Any) -> None:
         self.calls.append((name, args))

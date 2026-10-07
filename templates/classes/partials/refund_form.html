@@ -41,7 +41,8 @@ Refund once the failed one is resolved.
 <form class="pl-refund-form"
       hx-post="{% url 'classes:admin_registration_refund' registration.pk %}"
       hx-target="#refund-modal-body"
-      hx-swap="innerHTML">
+      hx-swap="innerHTML"
+      hx-disabled-elt="find button[type='submit']">
     {% csrf_token %}
     {% include "components/form_field.html" with field=form.reason %}
     <p class="pl-refund-consequence">This refunds the whole ticket through Eventbrite, back to the buyer's card. It frees their seat and promotes the waitlist.</p>

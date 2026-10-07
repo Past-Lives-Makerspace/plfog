@@ -17,7 +17,12 @@ import pytest
 
 from classes.factories import ClassOfferingFactory, RegistrationFactory
 from classes.models import ClassOffering, Registration
-from core.integrations.eventbrite import EventbriteClient, EventbriteError, EventbriteSync
+from core.integrations.eventbrite import (
+    QUANTITY_PUSH_TIMEOUT_SECONDS,
+    EventbriteClient,
+    EventbriteError,
+    EventbriteSync,
+)
 from tests.classes.eventbrite_fakes import FakeEventbrite, listed_class
 
 pytestmark = pytest.mark.django_db
@@ -182,3 +187,28 @@ def describe_a_listing_update():
         offering.sync_eventbrite_listing()
 
         assert _pushed_quantities(eventbrite) == [5 + 4]
+
+
+def describe_the_quantity_push_timeout():
+    def it_gives_eventbrite_three_seconds_so_a_booking_is_never_held_long(
+        eventbrite: FakeEventbrite, django_capture_on_commit_callbacks: OnCommit
+    ):
+        offering = listed_class()
+
+        with django_capture_on_commit_callbacks(execute=True):
+            RegistrationFactory(class_offering=offering, status=Status.CONFIRMED)
+
+        assert eventbrite.timeout == QUANTITY_PUSH_TIMEOUT_SECONDS == 3.0
+
+    def it_marks_the_class_for_retry_on_an_unexpected_answer_too(
+        eventbrite: FakeEventbrite, django_capture_on_commit_callbacks: OnCommit
+    ):
+        offering = listed_class()
+        eventbrite.quantity_sold = "lots"  # type: ignore[assignment]
+
+        with django_capture_on_commit_callbacks(execute=True):
+            RegistrationFactory(class_offering=offering, status=Status.CONFIRMED)
+
+        offering.refresh_from_db()
+        assert offering.eventbrite_sync_state == State.FAILED
+        assert "lots" in offering.eventbrite_sync_error
