@@ -1,8 +1,8 @@
 """End-to-end: the guild's Orientations page (#672) in a real browser.
 
-A lead opens "<Guild> Orientations", clicks the header's "+ Add an orientation type", sees
-the new row scrolled into view with the cursor in it, types a name and the autosave creates
-the type. The old Guild Settings link (``?tab=orientations``) lands on the page, and Guild
+A lead opens "<Guild> Orientations", clicks the Orientation Types card's "+ Add an
+orientation type", sees the new row scrolled into view with the cursor in it, types a name and
+the autosave creates the type; the header's add links to the Add an Orientation page (#680). The old Guild Settings link (``?tab=orientations``) lands on the page, and Guild
 Settings' Orientations tab is a link there. An orienter on staff sees only their own Edit
 Hours row. The page holds together at 375px and in the dark theme. Set
 ``CAPTURE_672_SCREENSHOTS=1`` to write the PR screenshots to ``mockups/screenshots/``. Run
@@ -68,7 +68,7 @@ def _capture(page, name: str) -> None:
 
 
 def describe_the_orientations_page():
-    def it_adds_a_type_from_the_header_and_autosaves_it(live_server, page, login_via_code):
+    def it_adds_a_type_from_the_card_and_autosaves_it(live_server, page, login_via_code):
         page.set_viewport_size({"width": 1280, "height": 900})
         guild = _tech_guild(_member(login_via_code, LEAD_EMAIL, "Lena Lead"))
         sam = MemberFactory(full_legal_name="Sam Orienter")
@@ -78,8 +78,11 @@ def describe_the_orientations_page():
         # A lead sees every orienter's Edit Hours row: their own and Sam's.
         expect(page.locator(".pl-orient-overview__group")).to_have_count(2)
         _capture(page, "672-lead.png")
+        expect(page.locator("[data-add-orientation-type]")).to_have_attribute(
+            "href", f"{reverse('hub_orientation_add')}?guild={guild.pk}"
+        )
 
-        page.locator("[data-add-orientation-type]").click()
+        page.locator("#otypes-form [data-formset-add]").click()
         name = page.locator('input[name="otypes-1-name"]')
         expect(name).to_be_focused()
         expect(name).to_be_in_viewport()

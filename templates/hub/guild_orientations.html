@@ -10,9 +10,8 @@
 The guild's Orientations page (#672): what used to be the Orientations tab of Guild Settings,
 under its own title, with "+ Add an orientation type" first. The root is the same
 plGuildAutosave component as Guild Settings (static/js/guild_autosave.js), so every card
-autosaves with the same save pill and the same leave guards. The header's add button names
-the Orientation Types form with form="otypes-form"; the autosave resolves a button's form
-owner that way, adds the row there and scrolls to it.
+autosaves with the same save pill and the same leave guards. The header's add links to the
+Add an Orientation page with this guild chosen (#680); the in-card add still adds a row.
 {% endcomment %}
 <div x-data="plGuildAutosave({ section: 'orientations' })" data-guild-autosave data-guild-orientations @pl-guild-autosave-leave.window="leave()" @pl-guild-autosave-delete.window="confirmDelete()">
 <div class="pl-guild-settings__header">
@@ -21,7 +20,7 @@ owner that way, adds the row there and scrolls to it.
     <p class="pl-guild-settings__lead">Every change saves as you make it.</p>
   </div>
   <span class="pl-guild-settings__actions">
-    <button type="button" class="hub-btn hub-btn--sm hub-btn--primary" form="otypes-form" data-formset-add data-add-orientation-type>+ Add an orientation type</button>
+    <a href="{% url 'hub_orientation_add' %}?guild={{ guild.pk }}" class="hub-btn hub-btn--sm hub-btn--primary" data-add-orientation-type>+ Add an orientation type</a>
     <span class="pl-meeting-savestate" data-save-pill
           :class="'pl-meeting-savestate--' + (pending > 0 ? 'saving' : state)"
           :data-saves="saves"

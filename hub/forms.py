@@ -2583,6 +2583,44 @@ class OrientationTypeForm(forms.ModelForm):
         return instance
 
 
+class NewOrientationTypeForm(OrientationTypeForm):
+    """The Add an Orientation page's form (#680): a Guild choice first, then every type field.
+
+    The guild choices are exactly the guilds the request may add an orientation to
+    (:func:`membership.permissions.guilds_for_new_orientation`), so a posted guild outside
+    them fails as a field error and nothing is created; the select's options are not the
+    boundary. The chosen guild becomes the new type's owner before the model checks run.
+    """
+
+    guild = forms.ModelChoiceField(queryset=Guild.objects.none(), label="Guild", empty_label="Choose a guild")
+
+    field_order = ["guild"]
+
+    def __init__(self, *args: Any, guilds: list[Guild], **kwargs: Any) -> None:
+        """Bind the form with the guilds this viewer may add to.
+
+        Args:
+            guilds: The viewer's ``guilds_for_new_orientation``, already name ordered. One
+                guild starts selected.
+        """
+        super().__init__(*args, **kwargs)
+        choice = cast(forms.ModelChoiceField, self.fields["guild"])
+        choice.queryset = Guild.objects.filter(pk__in=[guild.pk for guild in guilds]).order_by("name")
+        if len(guilds) == 1:
+            choice.initial = guilds[0].pk
+
+    def clean(self) -> dict[str, Any]:
+        """Own the type by the chosen guild, and refuse a name that guild already uses."""
+        cleaned = super().clean()
+        if "guild" not in cleaned:
+            return cleaned
+        guild: Guild = cleaned["guild"]
+        self.instance.guild = guild
+        if "name" in cleaned and guild.orientation_types.filter(name=cleaned["name"]).exists():
+            self.add_error("name", f"{guild.name} already has an orientation with this name.")
+        return cleaned
+
+
 def uses_equipment_options(listed: QuerySet[Equipment]) -> list[tuple[int, str]]:
     """The "Equipment it uses" choices (#658): active equipment plus anything in ``listed``, by name.
 
