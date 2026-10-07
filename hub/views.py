@@ -3198,7 +3198,7 @@ def hub_member_agreement(request: HttpRequest) -> HttpResponse:
 
 
 def user_settings(request: HttpRequest) -> HttpResponse:
-    """Tabbed user settings page — Guilds, Notifications, Profile, Account.
+    """Tabbed user settings page — Guilds, Notifications, Profile, Account, and Payouts for payees (#662).
 
     Three concerns POST to this endpoint, disambiguated by the ``form_id`` hidden
     field: ``profile`` (member info), ``notifications`` (the event × channel preference
@@ -3272,7 +3272,10 @@ def user_settings(request: HttpRequest) -> HttpResponse:
 
     notification_email_form = _notification_email_form(member, user, email_addresses)
 
-    active_tab = _settings_active_tab(request, member)
+    from billing import payouts
+
+    payouts_tab = payouts.settings_tab(request, member)
+    active_tab = _settings_active_tab(request, member, payouts_tab_shown=payouts_tab is not None)
 
     if member is None and request.method == "GET" and not request.GET.get("tab"):
         messages.info(request, "Your account is not linked to a membership.")
@@ -3313,6 +3316,7 @@ def user_settings(request: HttpRequest) -> HttpResponse:
             "notification_email_form": notification_email_form,
             "primary_verified_json": primary_verified_json,
             "active_tab": active_tab,
+            "payouts_tab": payouts_tab,
             "notif_matrix": notif_matrix,
             "notif_page_channels": settings_matrix.page_editable_channels(notif_matrix),
             "notif_channels": notif_channels,
@@ -3370,7 +3374,7 @@ def _settings_include_staff(request: HttpRequest) -> bool:
     return not (previewing_down and higher_role_holder)
 
 
-def _settings_active_tab(request: HttpRequest, member: Member | None) -> str:
+def _settings_active_tab(request: HttpRequest, member: Member | None, *, payouts_tab_shown: bool) -> str:
     """Resolve the active settings tab for a request.
 
     On POST, derive the tab from the submitted ``form_id`` so a failed save re-renders on the
@@ -3383,10 +3387,10 @@ def _settings_active_tab(request: HttpRequest, member: Member | None) -> str:
         return {"profile": "profile", "tours": "notifications", "notifications": "notifications"}.get(
             request.POST.get("form_id", ""), "guilds"
         )
-    return _resolve_settings_tab(request, member)
+    return _resolve_settings_tab(request, member, payouts_tab_shown=payouts_tab_shown)
 
 
-def _resolve_settings_tab(request: HttpRequest, member: Member | None) -> str:
+def _resolve_settings_tab(request: HttpRequest, member: Member | None, *, payouts_tab_shown: bool) -> str:
     """Whitelist the settings ``tab`` param and record a Guilds-tab landing.
 
     The whitelist matters because the tab flows into an Alpine x-data JS expression —
@@ -3394,7 +3398,8 @@ def _resolve_settings_tab(request: HttpRequest, member: Member | None) -> str:
 
     Guilds is now the default (and unknown-value fallback) tab. The legacy ``?tab=emails``
     deep link resolves to ``account`` — its Manage Email Addresses card moved there — so old
-    links keep working.
+    links keep working. ``?tab=payouts`` (#662) is honoured only for someone who gets the
+    Payouts tab; anyone else falls back to Guilds like any unknown value.
 
     Landing on the Guilds tab counts as having seen and chosen your guild updates — the
     checklist step, the prompt's Skip fallback, and every cross-link arrive this way. With
@@ -3405,7 +3410,8 @@ def _resolve_settings_tab(request: HttpRequest, member: Member | None) -> str:
     tab_param = request.GET.get("tab", "guilds")
     if tab_param == "emails":  # legacy deep links land on the email card's new home
         tab_param = "account"
-    active_tab = tab_param if tab_param in {"profile", "notifications", "guilds", "account"} else "guilds"
+    allowed = {"profile", "notifications", "guilds", "account"} | ({"payouts"} if payouts_tab_shown else set())
+    active_tab = tab_param if tab_param in allowed else "guilds"
     if active_tab == "guilds" and member is not None:
         member.mark_guild_updates_answered()
     return active_tab

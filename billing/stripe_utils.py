@@ -348,17 +348,26 @@ def construct_webhook_event(*, payload: bytes, sig_header: str) -> stripe.Event:
     """Verify and construct a Stripe webhook event from the raw payload.
 
     Uses the raw request body to verify the Stripe signature. The signing
-    secret is read from BillingSettings.
+    secret is read from BillingSettings: the platform endpoint's first, then the
+    Connected accounts endpoint's when that one does not match.
 
     Raises:
         stripe.SignatureVerificationError: If the signature is invalid.
         ImproperlyConfigured: If the platform webhook secret is not set.
     """
-    return stripe.Webhook.construct_event(
-        payload=payload,
-        sig_header=sig_header,
-        secret=_platform_webhook_secret(),
-    )
+    try:
+        return stripe.Webhook.construct_event(
+            payload=payload,
+            sig_header=sig_header,
+            secret=_platform_webhook_secret(),
+        )
+    except stripe.SignatureVerificationError:
+        # Connect events (account.updated for payouts, #662) come from a second Stripe
+        # endpoint scoped to Connected accounts, pointed at the same URL with its own secret.
+        accounts_secret = _billing_settings().active_accounts_webhook_secret
+        if not accounts_secret:
+            raise
+        return stripe.Webhook.construct_event(payload=payload, sig_header=sig_header, secret=accounts_secret)
 
 
 def verify_platform_credentials(secret_key: str) -> dict[str, Any]:
@@ -384,3 +393,56 @@ def verify_platform_credentials(secret_key: str) -> dict[str, Any]:
         "charges_enabled": bool(account.charges_enabled),
         "country": account.country or "",
     }
+
+
+# ---------------------------------------------------------------------------
+# Stripe Connect Express accounts for instructor and orientor payouts (#662)
+# ---------------------------------------------------------------------------
+
+
+def create_express_account(*, email: str, member_pk: int, idempotency_key: str) -> str:
+    """Create a US Express account that can receive transfers, paid out to its bank daily.
+
+    Returns the ``acct_...`` id. Past Lives pays the Connect fees, so nothing here takes a fee.
+    Stripe errors propagate to the caller.
+    """
+    client = _get_stripe_client()
+    account = client.v1.accounts.create(
+        params={
+            "type": "express",
+            "country": "US",
+            "email": email,
+            "business_type": "individual",
+            "capabilities": {"transfers": {"requested": True}},
+            "settings": {"payouts": {"schedule": {"interval": "daily"}}},
+            "metadata": {"member_pk": str(member_pk)},
+        },
+        options={"idempotency_key": idempotency_key},
+    )
+    return account.id
+
+
+def create_account_link(*, account_id: str, return_url: str) -> str:
+    """A Stripe-hosted signup link for ``account_id``; ``return_url`` is also its refresh URL."""
+    client = _get_stripe_client()
+    link = client.v1.account_links.create(
+        params={
+            "account": account_id,
+            "type": "account_onboarding",
+            "return_url": return_url,
+            "refresh_url": return_url,
+        }
+    )
+    return link.url
+
+
+def create_login_link(*, account_id: str) -> str:
+    """A single use link into the payee's Stripe Express dashboard (bank, deposits, tax forms)."""
+    client = _get_stripe_client()
+    return client.v1.accounts.login_links.create(account_id).url
+
+
+def retrieve_account(*, account_id: str) -> dict[str, Any]:
+    """The Account object as a plain dict, the same shape ``account.updated`` delivers."""
+    client = _get_stripe_client()
+    return client.v1.accounts.retrieve(account_id).to_dict()

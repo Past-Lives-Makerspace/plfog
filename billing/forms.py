@@ -454,10 +454,12 @@ class ConnectPlatformSettingsForm(forms.ModelForm):
             "connect_platform_publishable_key",
             "connect_platform_secret_key",
             "connect_platform_webhook_secret",
+            "connect_accounts_webhook_secret",
             "test_connect_client_id",
             "test_connect_platform_publishable_key",
             "test_connect_platform_secret_key",
             "test_connect_platform_webhook_secret",
+            "test_connect_accounts_webhook_secret",
         ]
         widgets = {
             "connect_client_id": forms.TextInput(attrs={"placeholder": "ca_…", "autocomplete": "off"}),
@@ -480,10 +482,16 @@ class ConnectPlatformSettingsForm(forms.ModelForm):
             "test_connect_platform_webhook_secret": forms.PasswordInput(
                 render_value=True, attrs={"placeholder": "whsec_…", "autocomplete": "off"}
             ),
+            "connect_accounts_webhook_secret": forms.PasswordInput(
+                render_value=True, attrs={"placeholder": "whsec_…", "autocomplete": "off"}
+            ),
+            "test_connect_accounts_webhook_secret": forms.PasswordInput(
+                render_value=True, attrs={"placeholder": "whsec_…", "autocomplete": "off"}
+            ),
         }
 
     def clean(self) -> dict:
-        """Require only the active mode's four credential fields when Connect is enabled.
+        """Require only the active mode's five credential fields when payouts are on.
 
         Mirrors ``BillingSettings.clean`` so the inactive slot may be blank or
         pre-filled — both key sets can be saved side by side.

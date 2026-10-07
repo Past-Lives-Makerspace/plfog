@@ -7,7 +7,7 @@ from typing import Any
 
 from django.utils import timezone
 
-from billing.models import LateCancellationFee, Tab, TabCharge
+from billing.models import BillingSettings, LateCancellationFee, PayoutAccount, Tab, TabCharge
 from billing.notifications import notify_admin_charge_failed, send_receipt
 
 logger = logging.getLogger(__name__)
@@ -301,3 +301,20 @@ def handle_late_fee_checkout_expired(event: dict[str, Any]) -> None:
         session.get("id"),
         metadata.get("fee_id"),
     )
+
+
+def handle_account_updated(event: dict[str, Any]) -> None:
+    """``account.updated`` (#662): write the new status onto the matching payout account.
+
+    Arrives from the Connected accounts endpoint. An account plfog never made is ignored, and
+    so is an event from the Stripe mode Testing Mode does not select, because a production
+    Connect endpoint receives both modes' events.
+    """
+    if event["livemode"] == BillingSettings.load().test_mode:
+        return
+    account = event["data"]["object"]
+    payout_account = PayoutAccount.objects.filter(stripe_account_id=account["id"]).first()
+    if payout_account is None:
+        logger.info("account.updated: %s is not a payout account plfog made; ignoring.", account["id"])
+        return
+    payout_account.apply_stripe_account(account)

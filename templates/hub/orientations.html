@@ -21,6 +21,10 @@
 {% include "hub/partials/late_fee_notice.html" with fee=unpaid_late_fee %}
 {% endif %}
 
+{% if payouts_nudge %}
+{% include "billing/partials/payouts_nudge.html" with kind="orientations" %}
+{% endif %}
+
 {# The List / Calendar / Bookings panes (#502, #626): plListCalendar in static/js/list_calendar.js; each pane past List is built only when it opens. #}
 <div x-data="plListCalendar('{{ pane }}')">
 <nav class="pl-tabs" role="tablist" aria-label="Orientations views">
