@@ -110,10 +110,14 @@ def _booking(
 class _Stripe:
     """The two Stripe calls a send makes, mocked; ``fail`` makes the transfer raise."""
 
-    def __init__(self, fail: str | None = None, error: type[stripe.StripeError] | None = None) -> None:
+    def __init__(
+        self, fail: str | None = None, error: type[stripe.StripeError] | None = None, existing: str | None = None
+    ) -> None:
         self.fail = fail
         self.error = error
+        self.existing = existing  # what the transfer lookup finds
         self.transfers: list[dict[str, Any]] = []
+        self.lookups: list[int] = []
 
     def __enter__(self) -> _Stripe:
         def transfer(**kwargs: Any) -> str:
@@ -124,7 +128,12 @@ class _Stripe:
                 raise stripe.InvalidRequestError(self.fail, param=None)
             return f"tr_{len(self.transfers)}"
 
+        def lookup(*, payout_pk: int, created_after: Any) -> str | None:
+            self.lookups.append(payout_pk)
+            return self.existing
+
         self._patches = [
+            patch("billing.stripe_utils.find_payout_transfer", side_effect=lookup),
             patch("billing.stripe_utils.charge_for_payment_intent", return_value="ch_789"),
             patch("billing.stripe_utils.create_transfer", side_effect=transfer),
         ]
@@ -568,6 +577,23 @@ def describe_stripe_utils_transfers():
         with pytest.raises(stripe.InvalidRequestError):
             stripe_utils.charge_for_payment_intent(payment_intent_id="pi_1")
 
+    def it_finds_a_payout_transfer_by_its_metadata(client_mock):
+        from unittest.mock import MagicMock
+
+        from billing import stripe_utils
+
+        other = MagicMock(id="tr_other", metadata={"payout_pk": "8"})
+        bare = MagicMock(id="tr_bare", metadata=None)
+        mine = MagicMock(id="tr_mine", metadata={"payout_pk": "7"})
+        client_mock.v1.transfers.list.return_value.auto_paging_iter.return_value = iter([other, bare, mine])
+        assert stripe_utils.find_payout_transfer(payout_pk=7, created_after=NOW) == "tr_mine"
+        assert client_mock.v1.transfers.list.call_args.kwargs["params"] == {
+            "created": {"gte": int(NOW.timestamp())},
+            "limit": 100,
+        }
+        client_mock.v1.transfers.list.return_value.auto_paging_iter.return_value = iter([other])
+        assert stripe_utils.find_payout_transfer(payout_pk=7, created_after=NOW) is None
+
     def it_creates_a_usd_transfer_with_its_source_charge_and_key(client_mock):
         from billing import stripe_utils
 
@@ -719,3 +745,109 @@ def describe_snapshot_binds_the_split():
             payouts.run_payouts(NOW + timedelta(days=8))
         assert [t["amount_cents"] for t in fake.transfers] == [4200]
         assert Payout.objects.get(registration=full).status == Payout.Status.NOTHING_DUE
+
+
+def describe_no_share_sits_or_doubles():
+    def _switch(on: bool) -> None:
+        bs = BillingSettings.load()
+        bs.connect_enabled = on
+        bs.save()
+
+    def it_sends_nothing_when_the_payment_is_refunded_between_a_rejection_and_the_retry():
+        _turn_on()
+        reg = _registration(_payee())
+        with _Stripe(fail="Insufficient funds."), patch("core.events.emit.emit"):
+            payouts.run_payouts(NOW)
+        PaymentRefund.objects.create(registration=reg, amount_cents=10000, status=PaymentRefund.Status.SUCCEEDED)
+        Payout.objects.update(attempted_at=NOW - timedelta(hours=25))
+        with _Stripe() as fake:
+            payouts.run_payouts(NOW)
+        assert fake.transfers == []
+        assert Payout.objects.get().status == Payout.Status.NOTHING_DUE
+
+    def it_retries_a_rejection_with_the_amount_left_after_a_partial_refund():
+        _turn_on()
+        reg = _registration(_payee())
+        with _Stripe(fail="Insufficient funds."), patch("core.events.emit.emit"):
+            payouts.run_payouts(NOW)
+        PaymentRefund.objects.create(registration=reg, amount_cents=4000, status=PaymentRefund.Status.SUCCEEDED)
+        Payout.objects.update(attempted_at=NOW - timedelta(hours=25))
+        with _Stripe() as fake:
+            payouts.run_payouts(NOW)
+        assert [t["amount_cents"] for t in fake.transfers] == [4200]
+
+    def it_finds_the_transfer_an_unanswered_attempt_made_instead_of_sending_again_days_later():
+        _turn_on()
+        _registration(_payee(), class_at=NOW - timedelta(hours=48))
+        with _Stripe(error=stripe.APIConnectionError):
+            payouts.run_payouts(NOW)
+        payout = Payout.objects.get()
+        with _Stripe(existing="tr_landed") as fake:
+            payouts.run_payouts(NOW + timedelta(days=2))
+        payout.refresh_from_db()
+        assert fake.transfers == []
+        assert fake.lookups == [payout.pk]
+        assert (payout.status, payout.stripe_transfer_id) == (Payout.Status.SENT, "tr_landed")
+
+    def it_decides_nothing_when_the_lookup_cannot_reach_stripe():
+        _turn_on()
+        _registration(_payee(), class_at=NOW - timedelta(hours=48))
+        with _Stripe(error=stripe.APIConnectionError):
+            payouts.run_payouts(NOW)
+        with (
+            _Stripe() as fake,
+            patch("billing.stripe_utils.find_payout_transfer", side_effect=stripe.APIConnectionError("down")),
+        ):
+            payouts.run_payouts(NOW + timedelta(days=2))
+        assert fake.transfers == []
+        assert Payout.objects.get().status == Payout.Status.PENDING
+
+    def it_owes_a_counted_share_by_hand_and_alerts_once_payouts_stay_off_3_days_past_due():
+        _turn_on()
+        _registration(_payee(), class_at=NOW + timedelta(days=5))  # due NOW + 7 days
+        ReconciliationSnapshot.take(period_start=date(2026, 10, 1), period_end=date(2026, 10, 31), title="Oct")
+        _switch(False)
+        with _Stripe() as fake, patch("core.events.emit.emit") as emit:
+            payouts.run_payouts(NOW + timedelta(days=9))  # 2 days past due: still waiting
+            assert Payout.objects.get().status == Payout.Status.PENDING
+            payouts.run_payouts(NOW + timedelta(days=11))  # 4 days past due
+        payout = Payout.objects.get()
+        assert (payout.status, payout.owed_reason) == (Payout.Status.OWED_MANUALLY, Payout.OwedReason.TRANSFER_FAILED)
+        assert fake.lookups == []  # never attempted, so no transfer can exist
+        emit.assert_called_once()
+        assert "October 2026 snapshot" in emit.call_args.kwargs["context"]["counted_note"]
+        _switch(True)
+        with _Stripe() as fake:
+            payouts.run_payouts(NOW + timedelta(days=12))
+        assert fake.transfers == []
+        assert Payout.objects.get().status == Payout.Status.OWED_MANUALLY
+
+    def it_gives_up_and_alerts_after_3_days_of_unanswered_attempts():
+        _turn_on()
+        _registration(_payee(), class_at=NOW - timedelta(hours=48))
+        with _Stripe(error=stripe.APIError) as failing, patch("core.events.emit.emit") as emit:
+            for day in range(3):
+                payouts.run_payouts(NOW + timedelta(days=day))
+            assert Payout.objects.get().status == Payout.Status.PENDING
+            emit.assert_not_called()
+        with _Stripe() as fake, patch("core.events.emit.emit") as emit:
+            payouts.run_payouts(NOW + timedelta(days=3, hours=1))
+            payouts.run_payouts(NOW + timedelta(days=4))
+        payout = Payout.objects.get()
+        assert len({t["idempotency_key"] for t in failing.transfers}) == 1
+        assert fake.transfers == []
+        assert fake.lookups == [payout.pk]
+        assert (payout.status, payout.owed_reason) == (Payout.Status.OWED_MANUALLY, Payout.OwedReason.TRANSFER_FAILED)
+        assert payout.failure_reason.startswith("Not sent within 3 days of falling due. Stripe's last answer:")
+        emit.assert_called_once()
+
+    def it_marks_a_stale_share_sent_when_the_lookup_finds_its_transfer():
+        _turn_on()
+        _registration(_payee(), class_at=NOW - timedelta(hours=48))
+        with _Stripe(error=stripe.APIError):
+            payouts.run_payouts(NOW)
+        with _Stripe(existing="tr_found") as fake, patch("core.events.emit.emit") as emit:
+            payouts.run_payouts(NOW + timedelta(days=4))
+        assert fake.transfers == []
+        emit.assert_not_called()
+        assert Payout.objects.get().stripe_transfer_id == "tr_found"

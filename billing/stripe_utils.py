@@ -13,7 +13,7 @@ page (Payments → Reports) and paid out manually.
 
 from __future__ import annotations
 
-from datetime import timedelta
+from datetime import datetime, timedelta
 from typing import TYPE_CHECKING, Any
 
 import stripe
@@ -480,3 +480,18 @@ def create_transfer(
         options={"idempotency_key": idempotency_key},
     )
     return transfer.id
+
+
+def find_payout_transfer(*, payout_pk: int, created_after: datetime) -> str | None:
+    """The transfer plfog made for payout ``payout_pk`` (its ``payout_pk`` metadata), if any.
+
+    Lists the platform's transfers created since the payout row; volume is a few a day.
+    Stripe errors propagate.
+    """
+    client = _get_stripe_client()
+    page = client.v1.transfers.list(params={"created": {"gte": int(created_after.timestamp())}, "limit": 100})
+    for transfer in page.auto_paging_iter():
+        metadata = transfer.metadata
+        if metadata is not None and "payout_pk" in metadata and metadata["payout_pk"] == str(payout_pk):
+            return transfer.id
+    return None

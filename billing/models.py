@@ -2001,6 +2001,9 @@ class PayoutAccount(models.Model):
 PAYOUT_RETRY_AFTER = timedelta(hours=24)
 """A transfer Stripe rejected is tried again on the first send run this long after the last try."""
 
+PAYOUT_SEND_WINDOW = timedelta(days=3)
+"""A share still unsent this long after it fell due (payouts off, Stripe unreachable) is owed by hand instead."""
+
 
 class PayoutQuerySet(models.QuerySet["Payout"]):
     """Query helpers for the payout ledger."""
@@ -2014,6 +2017,10 @@ class PayoutQuerySet(models.QuerySet["Payout"]):
             Q(status=Payout.Status.PENDING, due_at__lte=now)
             | Q(status=Payout.Status.FAILED, attempted_at__lte=now - PAYOUT_RETRY_AFTER)
         )
+
+    def stale(self, now: datetime) -> PayoutQuerySet:
+        """PENDING rows more than ``PAYOUT_SEND_WINDOW`` past due, for any reason: they are given up."""
+        return self.filter(status=Payout.Status.PENDING, due_at__lt=now - PAYOUT_SEND_WINDOW)
 
     def needs_attention(self) -> PayoutQuerySet:
         """What the Reconciliation tab flags: transfers Stripe rejected, still retrying or given up."""
@@ -2154,11 +2161,24 @@ class Payout(models.Model):
 
         from billing import stripe_utils
 
+        replay = self.attempt_was_unanswered  # read before this attempt stamps attempted_at
         self.attempted_at = timezone.now()
         account = PayoutAccount.for_member(self.payee)
         if account is None:
             self._fail("The payee has no payout account in the current Stripe mode.")
             return
+        if replay:
+            # Stripe forgets an idempotency key after 24 hours; a replay later than that would send
+            # again, so first find the transfer the unanswered attempt may have made. If Stripe
+            # cannot be asked, decide nothing: the row stays PENDING on the same attempt.
+            try:
+                existing = self.existing_transfer_id()
+            except stripe.StripeError:
+                self.save(update_fields=["attempted_at"])
+                return
+            if existing:
+                self.mark_sent(existing)
+                return
         try:
             charge_id = stripe_utils.charge_for_payment_intent(payment_intent_id=self.source.stripe_payment_id)
             self.stripe_transfer_id = stripe_utils.create_transfer(
@@ -2178,8 +2198,28 @@ class Payout(models.Model):
         except stripe.StripeError as exc:
             self._fail(getattr(exc, "user_message", None) or str(exc))
             return
+        self.mark_sent(self.stripe_transfer_id)
+
+    @property
+    def attempt_was_unanswered(self) -> bool:
+        """True when this attempt was already made and Stripe gave no definite answer (still PENDING)."""
+        return self.status == self.Status.PENDING and self.attempted_at is not None
+
+    def existing_transfer_id(self) -> str | None:
+        """The transfer an earlier attempt made for this share, found by its ``payout_pk`` metadata.
+
+        Raises:
+            stripe.StripeError: Stripe could not be asked; the caller decides nothing this run.
+        """
+        from billing import stripe_utils
+
+        return stripe_utils.find_payout_transfer(payout_pk=self.pk, created_after=self.created_at)
+
+    def mark_sent(self, transfer_id: str) -> None:
+        """Record the share as sent with Stripe's transfer id."""
         self.status = self.Status.SENT
-        self.sent_at = self.attempted_at
+        self.stripe_transfer_id = transfer_id
+        self.sent_at = timezone.now()
         self.failure_reason = ""
         self.save(update_fields=["status", "stripe_transfer_id", "sent_at", "failure_reason", "attempted_at"])
 
@@ -2192,13 +2232,14 @@ class Payout(models.Model):
         """
         from billing.notifications import notify_admins_payout_failed
 
-        self.failure_reason = reason
         if self.counted_as_stripe_in_id is not None:
-            self.status = self.Status.OWED_MANUALLY
-            self.owed_reason = self.OwedReason.TRANSFER_FAILED
-        else:
-            self.status = self.Status.FAILED
-        self.save(update_fields=["status", "owed_reason", "failure_reason", "attempted_at"])
+            # No lookup needed: this attempt was refused outright, and every earlier one was either
+            # refused too or replayed after a lookup, so no transfer for this share exists.
+            self.give_up(reason, lookup=False)
+            return
+        self.failure_reason = reason
+        self.status = self.Status.FAILED
+        self.save(update_fields=["status", "failure_reason", "attempted_at"])
         notify_admins_payout_failed(self)
 
     def retry(self) -> None:
@@ -2207,8 +2248,26 @@ class Payout(models.Model):
         self.save(update_fields=["attempt"])
         self.send()
 
-    def give_up(self) -> None:
-        """Stop retrying a failed share its month's snapshot counted as owed: the finance lead pays it by hand."""
+    def give_up(self, reason: str = "", *, lookup: bool = True) -> bool:
+        """Stop trying: the finance lead pays the share by hand, and it is never sent again.
+
+        First asks Stripe whether an earlier attempt landed after all (``lookup``); if it did,
+        the row is SENT instead and this returns False. Otherwise the row is OWED_MANUALLY,
+        keeps ``reason`` as what went wrong, and the billing admins are alerted once (the alert
+        and the Reconciliation row name the snapshot that counted it as Stripe, if one did).
+
+        Raises:
+            stripe.StripeError: the lookup could not reach Stripe; nothing changed.
+        """
+        from billing.notifications import notify_admins_payout_failed
+
+        if lookup and self.attempted_at is not None and (existing := self.existing_transfer_id()):
+            self.mark_sent(existing)
+            return False
         self.status = self.Status.OWED_MANUALLY
         self.owed_reason = self.OwedReason.TRANSFER_FAILED
-        self.save(update_fields=["status", "owed_reason"])
+        if reason:
+            self.failure_reason = reason
+        self.save(update_fields=["status", "owed_reason", "failure_reason", "attempted_at"])
+        notify_admins_payout_failed(self)
+        return True

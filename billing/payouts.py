@@ -16,11 +16,13 @@ share Stripe later sends.
 
 from __future__ import annotations
 
+import contextlib
 from collections.abc import Iterable
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 from typing import TYPE_CHECKING, Any
 
+import stripe
 from django.db import transaction
 from django.db.models import Min, QuerySet
 from django.db.models.functions import Greatest
@@ -249,11 +251,15 @@ class PayoutRun:
 def run_payouts(now: datetime | None = None) -> PayoutRun:
     """Record every share that fell due since payouts went on, then send what Stripe should send.
 
-    Does nothing while payouts are off. A share is recorded once (a ``Payout`` row per
-    registration or booking), so a rerun or an overlapping run cannot send it twice.
+    Records and sends nothing while payouts are off. A share is recorded once (a ``Payout``
+    row per registration or booking), so a rerun or an overlapping run cannot send it twice.
+    Even while off, a PENDING share more than ``PAYOUT_SEND_WINDOW`` past due is given up and
+    owed by hand, so nothing waits unsent with nobody told.
     """
     now = now or timezone.now()
     run = PayoutRun()
+    for pk in list(Payout.objects.stale(now).values_list("pk", flat=True)):
+        _give_up_stale(pk, now, run)
     since = _payouts_since()
     if since is None:
         return run
@@ -327,15 +333,18 @@ def _send_one(pk: int, now: datetime, snapshots: list[tuple[Any, Any]], run: Pay
         )
         if payout is None:
             return
-        if payout.attempted_at is None and not _refresh_amount(payout):
-            return
         if payout.status == Payout.Status.FAILED:
             paid_on = timezone.localtime(payout.paid_on).date()
             if any(start <= paid_on <= end for start, end in snapshots):
-                payout.give_up()
-                run.gave_up += 1
+                with contextlib.suppress(stripe.StripeError):  # unreachable: try again next run
+                    if payout.give_up():
+                        run.gave_up += 1
+                return
+            if not _refresh_amount(payout):  # a retry uses a new key, so it may carry a new amount
                 return
             payout.retry()
+        elif payout.attempted_at is None and not _refresh_amount(payout):
+            return
         else:
             payout.send()
         if payout.status == Payout.Status.SENT:
@@ -344,11 +353,27 @@ def _send_one(pk: int, now: datetime, snapshots: list[tuple[Any, Any]], run: Pay
             run.failed += 1
 
 
-def _refresh_amount(payout: Payout) -> bool:
-    """Before the first transfer, re-read the share: a refund since it was recorded lowers it.
+def _give_up_stale(pk: int, now: datetime, run: PayoutRun) -> None:
+    """Owe by hand a share still PENDING ``PAYOUT_SEND_WINDOW`` after it fell due, under its row lock."""
+    with transaction.atomic():
+        payout = Payout.objects.stale(now).select_for_update(skip_locked=True, of=("self",)).filter(pk=pk).first()
+        if payout is None:
+            return
+        if payout.failure_reason:
+            reason = f"Not sent within 3 days of falling due. Stripe's last answer: {payout.failure_reason}"
+        else:
+            reason = "Not sent within 3 days of falling due: payouts were off."
+        with contextlib.suppress(stripe.StripeError):  # Stripe unreachable for the lookup: try again next run
+            if payout.give_up(reason):
+                run.gave_up += 1
 
-    A row frozen by a snapshot can wait weeks for its class. Returns False, after recording
-    NOTHING_DUE, when nothing is left to send.
+
+def _refresh_amount(payout: Payout) -> bool:
+    """Before an attempt under a new key, re-read the share: a refund since it was recorded lowers it.
+
+    A row frozen by a snapshot can wait weeks for its class, and a retry can follow a refund.
+    A replay of an unanswered attempt keeps its amount (same key, same request). Returns
+    False, after recording NOTHING_DUE, when nothing is left to send.
     """
     if payout.registration_id is not None:
         earnings = _earnings(_registrations().filter(pk=payout.registration_id), [])
@@ -385,7 +410,9 @@ def freeze_split(snapshot: ReconciliationSnapshot, window: Any) -> None:
         if payout is None:
             _record(earning, accounts.get(earning.payee.pk), since, counted_in=snapshot)
         elif payout.status == Payout.Status.FAILED:
-            payout.give_up()
+            # No lookup: its last attempt was refused outright and every earlier one was refused
+            # or replayed after a lookup, so no transfer exists; the snapshot counted it as owed.
+            payout.give_up(lookup=False)
         elif payout.status == Payout.Status.PENDING:
             payout.counted_as_stripe_in = snapshot
             payout.save(update_fields=["counted_as_stripe_in"])
