@@ -76,8 +76,15 @@ def describe_composer_steps():
             owners = [step.number for step in COMPOSER_STEPS if name in step.fields]
             assert len(owners) == 1, f"{name} appears on steps {owners}"
 
-    def it_names_no_field_the_forms_do_not_have():
-        # The admin form is the superset (instructor, is_private, private_for_name are admin only).
+    def it_names_no_field_the_forms_do_not_have(settings):
+        # The admin form is the superset (instructor, is_private, private_for_name are admin only),
+        # with the Eventbrite integration on, since its two fields leave the form while it is off.
+        from core.models import SiteConfiguration
+
+        settings.EVENTBRITE_PRIVATE_TOKEN = "token"
+        settings.EVENTBRITE_ORGANIZATION_ID = "org"
+        settings.EVENTBRITE_VENUE_ID = "venue"
+        SiteConfiguration.objects.filter(pk=SiteConfiguration.load().pk).update(eventbrite_sync_enabled=True)
         known = set(ClassOfferingForm().fields)
         for step in COMPOSER_STEPS:
             unknown = [name for name in step.fields if name not in known]

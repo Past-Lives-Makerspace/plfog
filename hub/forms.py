@@ -1501,6 +1501,7 @@ class SiteSettingsForm(forms.ModelForm):
             "public_google_calendar_id",
             "google_calendar_sync_enabled",
             "discord_events_sync_enabled",
+            "eventbrite_sync_enabled",
             "discord_calendar_channel_id",
             "discord_calendar_posts_enabled",
             "discord_classes_channel_id",
