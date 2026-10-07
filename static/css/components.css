@@ -2156,3 +2156,13 @@ select[multiple] option:checked {
 /* The nudge on Manage My Classes and Orientations: the .pl-nudge card, clear of the tabs above it. */
 .pl-payouts-nudge { margin-top: 1rem; }
 .pl-payouts-nudge h2 { margin-top: 0; }
+
+/* Payouts tab earnings card and the Reconciliation attention list (#662, part 2). */
+.pl-payouts-totals { display: flex; gap: 2rem; flex-wrap: wrap; margin: 0 0 1rem; }
+.pl-payouts-totals div { display: flex; flex-direction: column; }
+.pl-payouts-totals strong { font-size: 1.25rem; color: var(--hub-text); }
+.pl-payouts-totals span { font-size: 0.8rem; color: var(--hub-text-muted); }
+.pl-payouts-amt, .admin-table-wrap th.pl-payouts-amt { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.pl-payouts-sub { display: block; font-size: 0.8rem; color: var(--hub-text-muted); }
+.pl-payouts-attention { margin-bottom: 1.25rem; }
+.pl-recon-attn td { background: rgba(220, 60, 60, 0.06); }

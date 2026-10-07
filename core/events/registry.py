@@ -496,6 +496,8 @@ EQUIPMENT_RESERVATION_MADE = "equipment.reservation_made"  # awareness ping to t
 EQUIPMENT_RESERVATION_CANCELLED = "equipment.reservation_cancelled"  # the member's own cancel, with any late fee
 BILLING_LATE_FEE_PAID = "billing.late_fee_paid"  # the receipt for a paid late cancellation fee
 BILLING_LATE_FEE_WAIVED = "billing.late_fee_waived"  # an unpaid late cancellation fee was forgiven
+BILLING_PAYOUT_FAILED_ADMIN = "billing.payout_failed_admin"  # Stripe rejected a payout transfer (#662)
+BILLING_PAYOUTS_INVITE = "billing.payouts_invite"  # a payee's first owed share: set up payouts (#662)
 # Staff and admin emails that used to go out to a fixed address list (#524). The four
 # payment alerts keep their old trigger_kind strings as keys, so the email log reads as one series.
 CLASS_REGISTRATION_ADMIN_NOTICE = "class_registration_admin_notice"  # the Admins' copy of a new registration
@@ -1167,6 +1169,28 @@ _NEW_EVENTS: list[EventType] = [
         category="Billing",
         recipient=Recipients.SINGLE_USER,
         channels=(_IN_APP_ON, _EMAIL_FORCED),
+        activity_kind=None,
+    ),
+    # billing.payout_failed_admin — Stripe rejected an instructor or orientor share (#662).
+    # Billing Administrators, once per share (the daily retries are silent); in-app + email.
+    EventType(
+        key=BILLING_PAYOUT_FAILED_ADMIN,
+        label="Payout transfer failed (admin alert)",
+        description="Stripe rejected an instructor's or orientor's share. It retries daily.",
+        category="Billing",
+        recipient=Recipients.BILLING_APPROVERS,
+        channels=(_IN_APP_ON, _EMAIL_ON),
+        activity_kind=None,
+    ),
+    # billing.payouts_invite — the first share a payee earns while payouts are not set up for
+    # them (#662). Once per member, ever; in-app + email.
+    EventType(
+        key=BILLING_PAYOUTS_INVITE,
+        label="Set up payouts",
+        description="You earned a share and could get paid through Stripe days after you teach.",
+        category="Billing",
+        recipient=Recipients.SINGLE_USER,
+        channels=(_IN_APP_ON, _EMAIL_ON),
         activity_kind=None,
     ),
     # class_cancelled_admin_notice — an instructor cancelled their own live class and

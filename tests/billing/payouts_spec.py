@@ -178,7 +178,16 @@ def describe_PayoutAccount():
 
     def it_stores_no_bank_identity_or_tax_field():
         names = {field.name for field in PayoutAccount._meta.get_fields()}
-        assert names == {"id", "member", "stripe_account_id", "livemode", "status", "created_at", "updated_at"}
+        assert names == {
+            "id",
+            "member",
+            "stripe_account_id",
+            "livemode",
+            "status",
+            "active_since",
+            "created_at",
+            "updated_at",
+        }
 
 
 def describe_payouts_module():

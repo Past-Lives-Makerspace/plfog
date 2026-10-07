@@ -446,3 +446,37 @@ def retrieve_account(*, account_id: str) -> dict[str, Any]:
     """The Account object as a plain dict, the same shape ``account.updated`` delivers."""
     client = _get_stripe_client()
     return client.v1.accounts.retrieve(account_id).to_dict()
+
+
+def charge_for_payment_intent(*, payment_intent_id: str) -> str:
+    """The charge (ch_...) behind a PaymentIntent: its ``latest_charge``, the transfer's ``source_transaction``."""
+    client = _get_stripe_client()
+    payment_intent = client.v1.payment_intents.retrieve(payment_intent_id)
+    latest_charge = payment_intent.latest_charge
+    if latest_charge is None:
+        # No charge behind it (never captured): the transfer fails and is flagged like any Stripe rejection.
+        raise stripe.InvalidRequestError(f"{payment_intent_id} has no charge to send a share from.", param=None)
+    return latest_charge if isinstance(latest_charge, str) else latest_charge.id
+
+
+def create_transfer(
+    *, amount_cents: int, destination: str, source_transaction: str, idempotency_key: str, metadata: dict[str, str]
+) -> str:
+    """Transfer ``amount_cents`` to a connected account, tied to the charge that paid for it.
+
+    ``source_transaction`` lets the transfer succeed while the charge is still settling; once
+    the charge has settled it draws on the available balance (#662 plan, Risk). Returns the
+    ``tr_...`` id. Stripe errors propagate to ``Payout.send``.
+    """
+    client = _get_stripe_client()
+    transfer = client.v1.transfers.create(
+        params={
+            "amount": amount_cents,
+            "currency": "usd",
+            "destination": destination,
+            "source_transaction": source_transaction,
+            "metadata": metadata,
+        },
+        options={"idempotency_key": idempotency_key},
+    )
+    return transfer.id

@@ -148,6 +148,20 @@ SCHEDULED_JOBS: list[ScheduledJob] = [
         cadence=Cadence.ALWAYS,
     ),
     ScheduledJob(
+        key="send_payouts",
+        name="Send instructor and orientor payouts",
+        description=(
+            "Records each instructor and orientor share as it falls due and sends it through Stripe. "
+            "Idle while payouts are off in Payments, Stripe tab."
+        ),
+        command="send_payouts",
+        schedule_label="Every 15 min",
+        cadence=Cadence.ALWAYS,
+        # Like bill_tabs: BillingSettings.connect_enabled is the switch, so no second, hidden one here.
+        toggleable=False,
+        money_job=True,
+    ),
+    ScheduledJob(
         key="bill_tabs",
         name="Charge member tabs",
         description="Runs member-tab billing and sends receipts on scheduled billing days.",

@@ -23,7 +23,7 @@ from classes import webhook_handlers as classes_webhook_handlers
 from membership import webhook_handlers as membership_webhook_handlers
 from billing.exceptions import TabLimitExceededError, TabLockedError
 from billing.forms import CONTEXT_ADMIN_DASHBOARD, TabItemForm
-from billing.models import BillingSettings, PayoutAccount, Tab, TabCharge, TabEntry
+from billing.models import BillingSettings, Payout, PayoutAccount, Tab, TabCharge, TabEntry
 from hub.view_as import billing_admin_access_required, fog_admin_required, refund_authority_required
 
 if TYPE_CHECKING:
@@ -476,6 +476,9 @@ def _reconciliation_context(request: HttpRequest) -> dict[str, object]:
         "reconciliation_payout_summary": payout_summary,
         "reconciliation_admin_total": admin_total,
         "reconciliation_snapshots": ReconciliationSnapshot.objects.all(),
+        "payouts_needing_attention": Payout.objects.needs_attention().select_related(
+            "payee", "registration__class_offering", "orientation_booking__orientation_type"
+        ),
         "viewer_is_fog_admin": viewer_is_fog_admin,
     }
 

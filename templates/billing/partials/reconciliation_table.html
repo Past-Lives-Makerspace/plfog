@@ -34,6 +34,29 @@
 <div class="pl-text-muted" style="margin-bottom:1rem">{{ reconciliation.omitted_count }} transaction(s) omitted from this allocation.</div>
 {% endif %}
 
+{% if payouts_needing_attention %}
+{# #662: payout transfers Stripe rejected. FAILED rows retry daily; once their month is snapshotted they are owed by hand. #}
+<div class="pl-card pl-payouts-attention" data-payouts-attention>
+  <div class="pl-section-label">Payouts Needing Attention</div>
+  <div class="pl-table-scroll">
+    <table class="pl-table">
+      <thead><tr><th>Payee</th><th>For</th><th>Status</th><th>Stripe's reason</th><th class="text-right">Share</th></tr></thead>
+      <tbody>
+        {% for payout in payouts_needing_attention %}
+        <tr class="pl-recon-attn">
+          <td>{{ payout.payee.display_name }}</td>
+          <td>{% if payout.registration %}{{ payout.registration.class_offering.title }}{% else %}{{ payout.orientation_booking.orientation_type.owner_name }} orientation{% endif %}</td>
+          <td>{% if payout.status == "failed" %}<span class="pl-status-badge pl-status-badge--fail">Transfer failed, retrying daily</span>{% else %}<span class="pl-status-badge pl-status-badge--warn">Owed manually</span>{% endif %}</td>
+          <td>{{ payout.failure_reason }}</td>
+          <td class="text-right">{{ payout.amount_cents|cents_as_dollars }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endif %}
+
 {% if not reconciliation.has_any %}
 <div class="pl-card" style="text-align:center">
   <p class="pl-text-muted">No payments to reconcile in this window. Pick a different month.</p>
@@ -55,6 +78,10 @@
           <th class="text-right">Voting</th>
           <th class="text-right">Total</th>
           {% endif %}
+          {% if kind.value == "instructor" or kind.value == "orientator" %}
+          <th class="text-right">Sent through Stripe</th>
+          <th class="text-right">Owed manually</th>
+          {% endif %}
         </tr>
       </thead>
       <tbody>
@@ -73,6 +100,10 @@
             {% endif %}
           </td>
           <td class="text-right">{{ alloc.combined_cents|cents_as_dollars }}</td>
+          {% endif %}
+          {% if kind.value == "instructor" or kind.value == "orientator" %}
+          <td class="text-right">{{ alloc.stripe_cents|cents_as_dollars }}</td>
+          <td class="text-right">{{ alloc.manual_cents|cents_as_dollars }}</td>
           {% endif %}
         </tr>
         {% endfor %}
