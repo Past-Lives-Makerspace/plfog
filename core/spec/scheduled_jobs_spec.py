@@ -30,6 +30,7 @@ _DISPATCHER_ALWAYS = {
     "bill_tabs",
     "retry_calendar_pushes",
     "retry_discord_event_pushes",
+    "retry_eventbrite_pushes",
     "sync_discord_guild_roles",
     "announce_calendar_events",
     "announce_new_classes",

@@ -174,6 +174,14 @@ SCHEDULED_JOBS: list[ScheduledJob] = [
         cadence=Cadence.ALWAYS,
     ),
     ScheduledJob(
+        key="retry_eventbrite_pushes",
+        name="Retry Eventbrite pushes",
+        description="Re-sends class listings to Eventbrite that didn't go through the first time.",
+        command="retry_eventbrite_pushes",
+        schedule_label="Every 15 min",
+        cadence=Cadence.ALWAYS,
+    ),
+    ScheduledJob(
         key="sync_discord_guild_roles",
         name="Sync Discord guild roles",
         description="Keeps Discord guild roles in step with members' guild membership.",

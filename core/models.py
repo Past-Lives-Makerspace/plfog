@@ -833,6 +833,15 @@ class SiteConfiguration(models.Model):
             "classes are never pushed."
         ),
     )
+    eventbrite_sync_enabled = models.BooleanField(
+        default=False,
+        db_default=False,
+        verbose_name="Sell classes on Eventbrite",
+        help_text=(
+            "When on (and the Eventbrite credentials are set), a published class whose instructor ticked "
+            "Also sell on Eventbrite is listed there, kept up to date, and taken down when it ends."
+        ),
+    )
     discord_calendar_channel_id = models.CharField(
         max_length=30,
         blank=True,

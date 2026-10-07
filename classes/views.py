@@ -2485,7 +2485,7 @@ def _teach_published_class_edit(request: HttpRequest, offering: ClassOffering, t
         else ""
     )
     if request.method == "POST" and form.is_valid() and faq_formset.is_valid():
-        form.save()
+        form.save().sync_eventbrite_listing()
         faq_formset.save()
         messages.success(request, "Class updated.")
         return redirect(leave_url)
@@ -2983,7 +2983,7 @@ def _save_sale(request: HttpRequest, offering: ClassOffering) -> ClassSaleForm |
     form = ClassSaleForm(request.POST, instance=offering)
     if not form.is_valid():
         return form
-    form.save()
+    form.save().sync_eventbrite_listing()
     messages.success(request, "Sale updated." if was_active else "Sale is on. Members see it now.")
     return None
 
@@ -4131,6 +4131,7 @@ def _admin_composer(request: HttpRequest, pk: int) -> HttpResponse:
         session_formset.save()
         offering.apply_scheduling_model()
         faq_formset.save()
+        offering.sync_eventbrite_listing()
         _mark_composer_saved(request, offering)
         if request.POST.get("action") == "publish":
             # publish() checks readiness, not status: a crafted publish on a live class would

@@ -290,6 +290,15 @@ class ClassOfferingQuerySet(models.QuerySet["ClassOffering"]):
             qs = qs.exclude(slug__startswith=DEMO_SLUG_PREFIX)
         return qs
 
+    def needs_eventbrite_push(self) -> "ClassOfferingQuerySet":
+        """Classes whose Eventbrite push is pending or failed: the retry set."""
+        return self.filter(
+            eventbrite_sync_state__in=[
+                ClassOffering.EventbriteSyncState.PENDING,
+                ClassOffering.EventbriteSyncState.FAILED,
+            ]
+        )
+
     def refile_into_guild_categories(self, assignments: dict[int, int]) -> int:
         """Re-file offerings into guild-linked categories; returns how many changed.
 
@@ -926,6 +935,17 @@ class ClassOffering(HeroCropMixin, models.Model):
         SINGLE_SESSION = "single_session", "Single Session"
         SERIES_PACKAGE = "series_package", "Series Package"
 
+    class EventbriteFeePayer(models.TextChoices):
+        BUYER = "buyer", "Buyer pays it on top"
+        INCLUDED = "included", "Included in my price"
+
+    class EventbriteSyncState(models.TextChoices):
+        IDLE = "idle", "Not listed"  # never opted in, or nothing on Eventbrite to end
+        PENDING = "pending", "Pending"  # waiting on sync to be switched on (retry_eventbrite_pushes)
+        LISTED = "listed", "Listed"  # live on Eventbrite and up to date
+        ENDED = "ended", "Ended"  # sales closed and unpublished (or as far as Eventbrite allows)
+        FAILED = "failed", "Failed"  # last push errored (retry_eventbrite_pushes will retry)
+
     title = models.CharField(max_length=255, help_text="Public class title.")
     # db_default as well as default: the migration applies while the previous release still
     # serves, and its INSERTs omit this column (STANDARDS.md section 10).
@@ -1345,6 +1365,48 @@ class ClassOffering(HeroCropMixin, models.Model):
     )
     welcome_email_updated_at = models.DateTimeField(
         null=True, blank=True, help_text="When the welcome email content was last edited."
+    )
+    # Eventbrite listing (#652). Every column has a db_default: the migration applies while the
+    # previous release still serves, and its INSERTs omit these columns (STANDARDS.md section 10).
+    eventbrite_enabled = models.BooleanField(
+        default=False,
+        db_default=False,
+        verbose_name="Also sell on Eventbrite",
+        help_text="List this class on Eventbrite too. Seats stay in step with this site. Not offered for flexible classes.",
+    )
+    eventbrite_fee_payer = models.CharField(
+        max_length=10,
+        choices=EventbriteFeePayer.choices,
+        default=EventbriteFeePayer.BUYER,
+        db_default=EventbriteFeePayer.BUYER,
+        verbose_name="Who pays Eventbrite's fee",
+        help_text="Whether Eventbrite's fee is added on top of the class price or taken out of it.",
+    )
+    eventbrite_event_id = models.CharField(
+        max_length=64, blank=True, default="", db_default="", help_text="The Eventbrite event ID. Blank until listed."
+    )
+    eventbrite_ticket_class_id = models.CharField(
+        max_length=64,
+        blank=True,
+        default="",
+        db_default="",
+        help_text="The Eventbrite ticket type that sells this class's seats. Blank until listed.",
+    )
+    eventbrite_sync_state = models.CharField(
+        max_length=10,
+        choices=EventbriteSyncState.choices,
+        default=EventbriteSyncState.IDLE,
+        db_default=EventbriteSyncState.IDLE,
+        help_text="Where this class's Eventbrite listing stands.",
+    )
+    eventbrite_sync_error = models.TextField(
+        blank=True,
+        default="",
+        db_default="",
+        help_text="Why the last Eventbrite push failed or is still pending. Blank when it went through.",
+    )
+    eventbrite_synced_at = models.DateTimeField(
+        null=True, blank=True, help_text="When the Eventbrite listing last synced."
     )
 
     objects = ClassOfferingQuerySet.as_manager()
@@ -1843,6 +1905,7 @@ class ClassOffering(HeroCropMixin, models.Model):
         # an admin publishes never gets a page re-minted behind an admin's back.
         if self.instructor is not None and self.instructor.can_create_classes:
             self.instructor.ensure_instructor_slug()
+        self.sync_eventbrite_listing()
 
     def cancel(self, actor: "User | None", reason: str) -> None:
         """Cancel a live class: the member-facing event. Everyone registered is told why.
@@ -1902,6 +1965,7 @@ class ClassOffering(HeroCropMixin, models.Model):
             period=f"offering:{self.pk}:cancelled",
         )
         self._notify_refund_authority_if_instructor_cancelled(actor)
+        self.sync_eventbrite_listing()
 
     def _notify_refund_authority_if_instructor_cancelled(self, actor: "User | None") -> None:
         """When the instructor cancelled their own class and money was paid, tell the refunders.
@@ -2091,6 +2155,42 @@ class ClassOffering(HeroCropMixin, models.Model):
         self.published_at = None
         self.save(update_fields=["status", "approved_by", "published_at", "updated_at"])
         activity.log(CmsActivity.Kind.CLASS_UNPUBLISHED, class_offering=self, actor=actor)
+        self.sync_eventbrite_listing()
+
+    @property
+    def wants_eventbrite_listing(self) -> bool:
+        """Whether this class belongs on Eventbrite right now.
+
+        Opted in, fixed (a flexible class has no dates to list), dated, and live in the public
+        catalog: ``public()`` is the gate that keeps private and ``demo-`` classes off it.
+        """
+        if not self.eventbrite_enabled or self.is_flexible or not self.sessions.exists():
+            return False
+        return type(self).objects.public().filter(pk=self.pk).exists()
+
+    def sync_eventbrite_listing(self) -> None:
+        """Create, update or end this class's Eventbrite listing, and save the sync fields.
+
+        Called after anything that changes what the listing should say: publish, unpublish,
+        cancel, and a saved edit. Best-effort: the service records ``PENDING`` or ``FAILED``
+        instead of raising, so Eventbrite never blocks a plfog save. A class never opted in
+        and never listed returns without a query.
+        """
+        if not self.eventbrite_enabled and not self.eventbrite_event_id:
+            return
+        from core.integrations.eventbrite import sync_class_listing
+
+        sync_class_listing(self)
+        self.save(
+            update_fields=[
+                "eventbrite_event_id",
+                "eventbrite_ticket_class_id",
+                "eventbrite_sync_state",
+                "eventbrite_sync_error",
+                "eventbrite_synced_at",
+                "updated_at",
+            ]
+        )
 
     @property
     def active_registration_count(self) -> int:
@@ -2534,6 +2634,7 @@ class ClassOffering(HeroCropMixin, models.Model):
         """
         self.sale_enabled = False
         self.save(update_fields=["sale_enabled", "updated_at"])
+        self.sync_eventbrite_listing()
 
     @property
     def sale_banner_display(self) -> str:
@@ -3183,6 +3284,12 @@ class ClassOffering(HeroCropMixin, models.Model):
         self.cancelled_at = None
         self.cancelled_by = None
         self.cancellation_reason = ""
+        # The opt-in carries over; the listing does not, or the clone would edit the source's event.
+        self.eventbrite_event_id = ""
+        self.eventbrite_ticket_class_id = ""
+        self.eventbrite_sync_state = self.EventbriteSyncState.IDLE
+        self.eventbrite_sync_error = ""
+        self.eventbrite_synced_at = None
 
     def _copy_photos_and_faqs_from(self, source_pk: int) -> None:
         """Re-point the source's gallery and FAQ rows at this freshly saved clone.
