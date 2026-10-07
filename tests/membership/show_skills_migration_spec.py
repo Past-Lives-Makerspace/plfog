@@ -41,7 +41,9 @@ def describe_migration_0213_show_skills_on_directory_cards():
 
         _migration.show_skills_on_directory_cards(apps, None)
 
-        assert _visibility(member) == {**OTHER_KEYS, "skills": True}
+        visibility = _visibility(member)
+        assert visibility["skills"] is True
+        assert {key: visibility[key] for key in OTHER_KEYS} == OTHER_KEYS
 
     def it_adds_the_skills_key_where_it_was_missing():
         member = MemberFactory(directory_visibility={"phone": False})
@@ -71,10 +73,33 @@ def describe_migration_0213_show_skills_on_directory_cards():
 
         assert chip in client.get(reverse("hub_member_directory")).content
 
-    def it_reverses_as_a_noop():
-        member = MemberFactory(directory_visibility={"skills": False})
+    def it_marks_only_the_rows_it_flipped_from_hidden():
+        member = MemberFactory(directory_visibility={**OTHER_KEYS, "skills": False})
+
         _migration.show_skills_on_directory_cards(apps, None)
 
-        _migration.Migration.operations[0].reverse_code(apps, None)
+        assert _visibility(member) == {**OTHER_KEYS, "skills": True, _migration.MARKER: True}
 
-        assert _visibility(member) == {"skills": True}
+
+@pytest.mark.django_db
+def describe_migration_0213_reverse():
+    def it_hides_skills_again_for_flipped_rows_and_drops_the_marker():
+        member = MemberFactory(directory_visibility={**OTHER_KEYS, "skills": False})
+        _migration.show_skills_on_directory_cards(apps, None)
+
+        _migration.hide_skills_shown_by_0213(apps, None)
+
+        assert _visibility(member) == {**OTHER_KEYS, "skills": False}
+
+    def it_leaves_rows_that_were_already_shown_alone():
+        shown = MemberFactory(directory_visibility={**OTHER_KEYS, "skills": True})
+        missing = MemberFactory(directory_visibility={"phone": False})
+        _migration.show_skills_on_directory_cards(apps, None)
+
+        _migration.hide_skills_shown_by_0213(apps, None)
+
+        assert _visibility(shown) == {**OTHER_KEYS, "skills": True}
+        assert _visibility(missing) == {"phone": False, "skills": True}
+
+    def it_is_the_reverse_the_migration_registers():
+        assert _migration.Migration.operations[0].reverse_code is _migration.hide_skills_shown_by_0213
