@@ -400,7 +400,7 @@
       {% with spks=slot.pk|stringformat:"s" %}
       <div x-show="{{ forloop.counter0 }} >= page * size && {{ forloop.counter0 }} < (page + 1) * size" class="pl-equip-slot-group">
         <div class="pl-slot-admin__row{% if slot.blocking_reservation %} pl-equip-res-row--blocked{% endif %}">
-          <span class="pl-slot-admin__when">{{ slot.starts_at|date:"D M j" }} · {{ slot.starts_at|time:"g:i A" }} to {{ slot.ends_at|time:"g:i A" }} · {{ slot.orientation_type.name }}{% if slot.blocking_reservation.is_block %}<span class="pl-equip-res-row__blocked">Blocked by held time ({{ slot.blocking_reservation.purpose }}) {{ slot.blocking_reservation.starts_at|time:"g:i A" }} to {{ slot.blocking_reservation.ends_at|time:"g:i A" }}</span>{% elif slot.blocking_reservation %}<span class="pl-equip-res-row__blocked">Blocked by {{ slot.blocking_reservation.member.display_name }}'s reservation {{ slot.blocking_reservation.starts_at|time:"g:i A" }} to {{ slot.blocking_reservation.ends_at|time:"g:i A" }}</span>{% endif %}</span>
+          <span class="pl-slot-admin__when">{{ slot.starts_at|date:"D M j" }} · {{ slot.starts_at|time:"g:i A" }} to {{ slot.ends_at|time:"g:i A" }} · {{ slot.orientation_type.name }}{% include "hub/partials/_slot_blocked_by.html" with slot=slot %}</span>
           <span class="pl-slot-admin__with">
             {% if slot.orienter %}
               {% if slot.orienter.profile_photo %}<img src="{{ slot.orienter.profile_photo.url }}" alt="" class="pl-orient-avatar">{% else %}<span class="pl-orient-avatar pl-orient-avatar--initials">{{ slot.orienter.display_name|slice:":1" }}</span>{% endif %}

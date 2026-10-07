@@ -253,16 +253,19 @@ def _fan_out_request(booking: OrientationBooking) -> None:
     _emit_lead_request(booking)
 
 
-def _lock_equipment_row(equipment: Equipment) -> Equipment:
-    """Take the Equipment row lock every competing booking on the tool takes.
+def _lock_used_equipment(orientation_type: OrientationType) -> None:
+    """Take the Equipment row lock on every item ``orientation_type`` uses, in pk order (#665).
 
     The same lock object ``reserve()`` (``membership/equipment.py``) takes, so a
-    reservation and an orientation request racing for one span serialize on it
-    and exactly one wins. Must run inside ``transaction.atomic()``.
+    reservation and an orientation request racing for one span serialize on it and
+    exactly one wins. ``uses_equipment`` always lists an equipment owned type's owner,
+    so this covers both owners; pk order keeps two multi item bookings from deadlocking.
+    A type that uses no equipment locks nothing. Must run inside ``transaction.atomic()``.
     """
     from membership.models import Equipment
 
-    return Equipment.objects.select_for_update().get(pk=equipment.pk)
+    used = list(orientation_type.uses_equipment.values_list("pk", flat=True))
+    list(Equipment.objects.select_for_update().filter(pk__in=used).order_by("pk"))
 
 
 def request_orientation(
@@ -270,9 +273,9 @@ def request_orientation(
 ) -> OrientationBooking:
     """Book a slot (REQUESTED) and fan out the request emails, activity, and orienter notification.
 
-    An equipment-owned slot books under the Equipment row lock (guard + create in
+    A slot books under the row lock of every item its type uses (guard + create in
     one ``transaction.atomic()``), so it can never double book a machine against a
-    reservation landing at the same moment. Guild-owned slots are untouched.
+    reservation landing at the same moment, whoever owns the type (#665).
 
     ``by_staff=True`` is the dashboard's add-a-member path seating someone by hand; it
     licenses only the unpaid late fee guard (see :meth:`OrientationSlot.ensure_bookable_for`).
@@ -280,11 +283,8 @@ def request_orientation(
     Raises:
         OrientationError: Propagated from ``slot.book`` when the slot can't be booked.
     """
-    if slot.orientation_type.is_equipment_owned:
-        with transaction.atomic():
-            _lock_equipment_row(cast("Equipment", slot.orientation_type.equipment))
-            booking = slot.book(member, note=note, by_staff=by_staff)
-    else:
+    with transaction.atomic():
+        _lock_used_equipment(slot.orientation_type)
         booking = slot.book(member, note=note, by_staff=by_staff)
     _fan_out_request(booking)
     return booking
@@ -538,14 +538,11 @@ def start_orientation_checkout(
             status=OrientationBooking.Status.PENDING_PAYMENT,
         )
 
-    if orientation_type.is_equipment_owned:
-        # The Equipment row lock covers ONLY the guard and the hold: it is committed
-        # before the Stripe round trip below, never held across it (a lock held over
-        # a network call would stall every reservation on the tool).
-        with transaction.atomic():
-            _lock_equipment_row(cast("Equipment", orientation_type.equipment))
-            booking = create_hold()
-    else:
+    # The Equipment row locks cover ONLY the guard and the hold: they are committed
+    # before the Stripe round trip below, never held across it (a lock held over
+    # a network call would stall every reservation on the tool).
+    with transaction.atomic():
+        _lock_used_equipment(orientation_type)
         booking = create_hold()
     token = make_checkout_token(booking)
     metadata = {"kind": "orientation_booking", "booking_id": str(booking.pk)}

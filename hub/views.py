@@ -1081,6 +1081,50 @@ def _overview_group(member: Any, rules: list[Any]) -> tuple[Any, list[Any], bool
     return member, rules, any(rule.is_open for rule in rules)
 
 
+def attach_blocking_reservations(slots: list[Any]) -> None:
+    """Set ``slot.blocking_reservation`` on each slot: the first confirmed reservation or block over it (#665).
+
+    Reads every item the slot's type uses (:attr:`OrientationType.uses_equipment`), the
+    same list ``OrientationSlotQuerySet.bookable()`` hides the slot by, so a slot flagged
+    here is exactly one members cannot see. ``None`` when nothing is in the way. Two
+    queries for the whole list, never one per row.
+    """
+    from membership.models import EquipmentReservation, OrientationType
+
+    for slot in slots:
+        slot.blocking_reservation = None
+    if not slots:
+        return
+    items_by_type: dict[int, set[int]] = {}
+    links = OrientationType.uses_equipment.through.objects.filter(
+        orientationtype_id__in={slot.orientation_type_id for slot in slots}
+    ).values_list("orientationtype_id", "equipment_id")
+    for type_id, equipment_id in links:
+        items_by_type.setdefault(type_id, set()).add(equipment_id)
+    if not items_by_type:
+        return
+    reservations = list(
+        EquipmentReservation.objects.upcoming()
+        .filter(
+            equipment_id__in=set().union(*items_by_type.values()),
+            starts_at__lt=max(slot.ends_at for slot in slots),
+        )
+        .select_related("member", "equipment")
+    )
+    for slot in slots:
+        items = items_by_type.get(slot.orientation_type_id, set())
+        slot.blocking_reservation = next(
+            (
+                reservation
+                for reservation in reservations
+                if reservation.equipment_id in items
+                and reservation.starts_at < slot.ends_at
+                and reservation.ends_at > slot.starts_at
+            ),
+            None,
+        )
+
+
 def _upcoming_times(guild: Guild) -> list[dict[str, Any]]:
     """Everything the Upcoming Times card lists, fixed slots and open windows together, in start order.
 
@@ -1112,7 +1156,10 @@ def _upcoming_times(guild: Guild) -> list[dict[str, Any]]:
     windows = (
         guild.orientation_blocks.upcoming().select_related("orienter", "orientation_type").prefetch_related(segments)
     )
-    times: list[dict[str, Any]] = [{"kind": "slot", "item": slot} for slot in slots]
+    slot_rows = list(slots)
+    # A slot over a reservation or block on an item it uses is hidden from members (#665).
+    attach_blocking_reservations(slot_rows)
+    times: list[dict[str, Any]] = [{"kind": "slot", "item": slot} for slot in slot_rows]
     times.extend({"kind": "window", "item": window} for window in windows)
     return sorted(times, key=lambda entry: entry["item"].starts_at)
 

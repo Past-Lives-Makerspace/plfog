@@ -1,10 +1,12 @@
-"""BDD specs for "Equipment it uses" on an orientation type (#658).
+"""BDD specs for "Equipment it uses" on an orientation type (#658, #665).
 
 A slot with an active booking blocks every item its type lists, through
 ``OrientationSlotQuerySet.holding_seats_on``: the day's busy spans, the "Reserved until"
 line and the ``ensure_reservable`` refusal. An open, unbooked slot blocks nothing. An
 equipment owned type always lists its owner (the model's save and migration 0211), and
-the owner FK still decides who runs the orientation.
+the owner FK still decides who runs the orientation. The reverse holds too (#665): a
+confirmed reservation or block on any listed item hides the slot from members and
+refuses a booking, whoever owns the type.
 """
 
 from __future__ import annotations
@@ -22,13 +24,16 @@ from django.utils import timezone
 from classes.factories import UserFactory
 from hub.view_as import ROLE_MEMBER, ViewAs
 from membership import equipment as equipment_service
+from membership import orientations
 from membership.models import (
     Equipment,
     EquipmentError,
+    EquipmentReservation,
     Guild,
     Member,
     OrientationAvailability,
     OrientationBooking,
+    OrientationError,
     OrientationSlot,
     OrientationType,
 )
@@ -36,6 +41,7 @@ from membership.permissions import manageable_orientation_bookings
 from tests.membership.factories import (
     EquipmentFactory,
     EquipmentHoursFactory,
+    EquipmentReservationFactory,
     EquipmentStaffMembershipFactory,
     GuildFactory,
     MembershipPlanFactory,
@@ -264,3 +270,74 @@ def describe_ownership_is_unchanged():
 
         assert _runs(lead) is True
         assert _runs(press_staff) is False
+
+
+def describe_a_reservation_on_a_used_item_hides_the_slot():
+    """#665: ``bookable()`` and ``is_bookable`` read the same list, for both owners."""
+
+    def _hidden(slot: OrientationSlot) -> bool:
+        slot = OrientationSlot.objects.get(pk=slot.pk)
+        in_list = OrientationSlot.objects.bookable().filter(pk=slot.pk).exists()
+        assert in_list is slot.is_bookable  # the queryset and the per-slot twin agree
+        return not in_list
+
+    def it_hides_a_guild_slot_while_an_item_it_uses_is_reserved():
+        press = _open_tool("Etching Press")
+        slot = _slot(_printmaking(press), 10)
+        assert not _hidden(slot)
+        EquipmentReservationFactory(equipment=press, starts_at=_at(10, 30), ends_at=_at(11, 30))
+        assert _hidden(slot)
+
+    def it_hides_a_guild_slot_while_a_manager_blocks_an_item_it_uses():
+        press = _open_tool("Etching Press")
+        slot = _slot(_printmaking(press), 10)
+        EquipmentReservationFactory(
+            equipment=press, starts_at=_at(9), ends_at=_at(12), kind=EquipmentReservation.Kind.BLOCK, purpose="Repair"
+        )
+        assert _hidden(slot)
+
+    def it_hides_an_equipment_owned_slot_over_a_reservation_on_another_item_it_uses():
+        lathe = _open_tool("Lathe")
+        press = _open_tool("Etching Press")
+        orientation_type = OrientationTypeFactory(equipment_owned=True, equipment=lathe, name="Lathe Basics")
+        orientation_type.uses_equipment.add(press)
+        slot = OrientationSlotFactory(orientation_type=orientation_type, starts_at=_at(10), ends_at=_at(11))
+        assert not _hidden(slot)
+        EquipmentReservationFactory(equipment=press, starts_at=_at(10), ends_at=_at(11))
+        assert _hidden(slot)
+
+    def it_leaves_the_slot_up_when_the_reservation_is_on_an_item_it_does_not_use():
+        press = _open_tool("Etching Press")
+        slot = _slot(_printmaking(press), 10)
+        EquipmentReservationFactory(equipment=_open_tool("Lathe"), starts_at=_at(10), ends_at=_at(11))
+        assert not _hidden(slot)
+
+    def it_ignores_a_reservation_that_only_touches_the_slot():
+        press = _open_tool("Etching Press")
+        slot = _slot(_printmaking(press), 10)
+        EquipmentReservationFactory(equipment=press, starts_at=_at(11), ends_at=_at(12))
+        EquipmentReservationFactory(equipment=press, starts_at=_at(9), ends_at=_at(10))
+        assert not _hidden(slot)
+
+    def it_shows_the_slot_again_once_the_reservation_is_cancelled():
+        press = _open_tool("Etching Press")
+        slot = _slot(_printmaking(press), 10)
+        reservation = EquipmentReservationFactory(equipment=press, starts_at=_at(10), ends_at=_at(11))
+        reservation.status = EquipmentReservation.Status.CANCELLED
+        reservation.save(update_fields=["status"])
+        assert not _hidden(slot)
+
+    def it_refuses_a_member_requesting_the_guild_slot():
+        press = _open_tool("Etching Press")
+        slot = _slot(_printmaking(press), 10)
+        EquipmentReservationFactory(equipment=press, starts_at=_at(10), ends_at=_at(11))
+        with pytest.raises(OrientationError, match="not available to book"):
+            orientations.request_orientation(slot, _member())
+        assert not OrientationBooking.objects.filter(slot=slot).exists()
+
+    def it_lists_bookable_slots_in_one_query_however_many_items_a_type_uses(django_assert_num_queries):
+        items = [_open_tool(f"Press {n}") for n in range(3)]
+        for hour in (9, 11, 13):
+            _slot(_printmaking(*items), hour)
+        with django_assert_num_queries(1):
+            assert len(list(OrientationSlot.objects.bookable())) == 3
