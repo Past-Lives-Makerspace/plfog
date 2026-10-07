@@ -1,0 +1,6 @@
+bump = "patch"
+date = "2026-10-07"
+title = "You can see what you picked in a list"
+changes = [
+  "In a list where you pick several items, such as Related articles when editing a Help article, the items you chose now show in gold in both the light and dark themes.",
+]
