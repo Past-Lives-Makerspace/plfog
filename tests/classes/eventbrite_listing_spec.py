@@ -213,6 +213,15 @@ def describe_classes_that_are_never_listed():
         assert ClassOffering.objects.public().filter(pk=offering.pk).exists()
         assert eventbrite.calls == []
 
+    def it_never_lists_a_class_titled_demo_even_in_demo_mode(eventbrite: FakeEventbrite):
+        config = SiteConfiguration.load()
+        config.display_demo_classes = True
+        config.save(update_fields=["display_demo_classes"])
+
+        _opted_in(title="[DEMO] Intro to Welding", slug="intro-welding").publish(None)
+
+        assert eventbrite.calls == []
+
     def it_never_lists_a_private_class(eventbrite: FakeEventbrite):
         _opted_in(is_private=True).publish(None)
 

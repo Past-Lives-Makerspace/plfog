@@ -171,8 +171,9 @@ def describe_malformed_answers():
             _client().set_description("ev-1", "<p>Hi</p>")
 
     @respx.mock
-    def it_raises_when_the_description_version_is_not_a_number():
-        respx.get(f"{API_BASE}/events/ev-1/structured_content/edit/").respond(json={"page_version_number": "x"})
+    @pytest.mark.parametrize("version", ["x", None, {}, []])
+    def it_raises_when_the_description_version_is_not_a_number(version: Any):
+        respx.get(f"{API_BASE}/events/ev-1/structured_content/edit/").respond(json={"page_version_number": version})
 
         with pytest.raises(EventbriteError, match="Unreadable"):
             _client().set_description("ev-1", "<p>Hi</p>")

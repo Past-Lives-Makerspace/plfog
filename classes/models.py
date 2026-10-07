@@ -2163,14 +2163,27 @@ class ClassOffering(HeroCropMixin, models.Model):
         """Whether this class belongs on Eventbrite right now.
 
         Opted in, fixed (a flexible class has no dates to list), dated, and live in the public
-        catalog. ``public()`` keeps private classes off; ``demo-`` classes are refused here too,
-        because ``public()`` lets them through while demo mode is on.
+        catalog. ``public()`` keeps private classes off; demo classes (:attr:`is_demo`) are refused
+        here too, because ``public()`` lets them through while demo mode is on.
         """
-        if not self.eventbrite_enabled or self.is_flexible or self.slug.startswith(DEMO_SLUG_PREFIX):
+        if not self.eventbrite_enabled or self.is_flexible or self.is_demo:
             return False
         if not self.sessions.exists():
             return False
         return type(self).objects.public().filter(pk=self.pk).exists()
+
+    def end_eventbrite_listing(self) -> bool:
+        """End the Eventbrite listing now, before the row is deleted; True when nothing is left selling.
+
+        Synchronous, unlike every other push: once the row is gone there is nothing for
+        ``retry_eventbrite_pushes`` to find. False (sync off, or Eventbrite refused) means the
+        event may still be selling, and the reason is in :attr:`eventbrite_sync_error`.
+        """
+        if not self.eventbrite_event_id or self.eventbrite_sync_state == self.EventbriteSyncState.ENDED:
+            return True
+        self.eventbrite_enabled = False  # in memory only: the sync save writes the sync fields alone
+        self.sync_eventbrite_listing()
+        return self.eventbrite_sync_state == self.EventbriteSyncState.ENDED
 
     @property
     def eventbrite_sync_label(self) -> str:

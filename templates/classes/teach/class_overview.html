@@ -70,6 +70,12 @@ an admin reading a queue wants the glance.{% endcomment %}
             <td style="font-weight:600; color:var(--hub-text-muted);">Capacity</td>
             <td>{{ seat_taken_count }}{% if not offering.is_flexible %}/{{ offering.capacity }}{% endif %} registered{% if offering.is_flexible %} · no seat cap{% endif %}</td>
         </tr>
+        {% if show_eventbrite_sync %}
+        <tr data-overview-eventbrite>
+            <td style="font-weight:600; color:var(--hub-text-muted);">Eventbrite</td>
+            <td><span data-eventbrite-sync>{{ offering.eventbrite_sync_label }}</span>{% if offering.eventbrite_event_url %} <a href="{{ offering.eventbrite_event_url }}" target="_blank" rel="noopener">View on Eventbrite</a>{% endif %}</td>
+        </tr>
+        {% endif %}
     </tbody>
 </table>
 </div>

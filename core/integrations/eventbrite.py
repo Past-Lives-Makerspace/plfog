@@ -114,7 +114,7 @@ class EventbriteClient:
         current = self._call("GET", f"/events/{event_id}/structured_content/edit/", params={"purpose": "listing"})
         try:
             version = int(field(current, "page_version_number")) + 1
-        except ValueError as exc:
+        except (TypeError, ValueError) as exc:
             raise EventbriteError(f"Unreadable structured content version: {current!r}"[:300]) from exc
         module = {"type": "text", "data": {"body": {"type": "text", "text": html, "alignment": "left"}}}
         body = {"modules": [module], "publish": True, "purpose": "listing"}

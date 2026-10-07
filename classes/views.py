@@ -2964,6 +2964,9 @@ def _render_class_overview(
             "paid_registration_count": offering.paid_registration_count,
             "can_duplicate_run": _may_run_again(access),
             "can_delete_now": _may_delete(access, offering),
+            # The listing's sync state is an admin's to act on (#652); instructors see none of it.
+            "show_eventbrite_sync": access.can_administer
+            and offering.eventbrite_sync_state != ClassOffering.EventbriteSyncState.IDLE,
         },
     )
 
@@ -4625,6 +4628,14 @@ def admin_class_delete(request: HttpRequest, pk: int) -> HttpResponse:
         if offering.registrations.exists():
             remedy = "Archive it instead." if access.can_administer else "Ask an admin to archive it."
             messages.error(request, f"Can't delete — this class has registrations. {remedy}")
+            return redirect("classes:teach_class_detail", pk=offering.pk)
+        # Ended first and synchronously: a deleted row leaves nothing for the retry command (#652).
+        if not offering.end_eventbrite_listing():
+            messages.error(
+                request,
+                f"Can't delete yet: the Eventbrite listing could not be ended ({offering.eventbrite_sync_error}). "
+                "Try again, or archive the class.",
+            )
             return redirect("classes:teach_class_detail", pk=offering.pk)
         title = offering.title
         offering.delete()
