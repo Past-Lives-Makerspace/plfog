@@ -5,6 +5,7 @@ from __future__ import annotations
 from datetime import date, datetime, time, timedelta
 from datetime import date as date_type
 from decimal import Decimal
+from functools import cached_property
 import json
 import re
 from dataclasses import dataclass
@@ -2447,12 +2448,14 @@ class OrientationTypeForm(forms.ModelForm):
             "default_seats",
             "area",
             "default_location",
+            "uses_equipment",
             "sort_order",
             "is_active",
             "photo",
         ]
         widgets = {
             "name": forms.TextInput(attrs={"placeholder": "Shop Basics"}),
+            "uses_equipment": forms.CheckboxSelectMultiple,
             "description": forms.Textarea(attrs={"rows": 2}),
             # The row's pricing block (_orientation_type_pricing_fields.html) swaps Price for
             # the donation fields while this is on.
@@ -2465,13 +2468,48 @@ class OrientationTypeForm(forms.ModelForm):
             "is_donation": "Donation based",
             "default_seats": "Seats per slot",
             "default_location": "Where to meet",
+            "uses_equipment": "Equipment it uses",
             "sort_order": "Sort order",
             "is_active": "Active",
             "photo": "Photo",
         }
 
-    def __init__(self, *args: Any, **kwargs: Any) -> None:
+    USES_EQUIPMENT_HINT = (
+        "A booked slot holds each of these like a reservation. An open slot with no booking holds nothing. Optional."
+    )
+    USES_EQUIPMENT_OWNER_HINT = "An equipment orientation always holds its own equipment, even if you unselect it."
+
+    def __init__(
+        self,
+        *args: Any,
+        equipment_options: list[tuple[int, str]] | None = None,
+        owner_equipment_id: int | None = None,
+        **kwargs: Any,
+    ) -> None:
+        """Bind the form, with the formset's shared "Equipment it uses" setup (#658).
+
+        Args:
+            equipment_options: The one shared choices list, built once by the formset so a page
+                of rows runs one query, not one per row. Without it (a standalone form) the
+                field lists active equipment plus whatever the type already uses. Any existing
+                equipment validates either way.
+            owner_equipment_id: The owning equipment on the equipment editor, where a blank row's
+                instance has no owner yet; it starts selected there.
+        """
         super().__init__(*args, **kwargs)
+        owner_id = self.instance.equipment_id or owner_equipment_id
+        uses = cast(forms.ModelMultipleChoiceField, self.fields["uses_equipment"])
+        uses.queryset = Equipment.objects.order_by("name")
+        uses.choices = (
+            equipment_options
+            if equipment_options is not None
+            else uses_equipment_options(
+                self.instance.uses_equipment.all() if self.instance.pk else Equipment.objects.none()
+            )
+        )
+        uses.help_text = self.USES_EQUIPMENT_HINT if owner_id is None else self.USES_EQUIPMENT_OWNER_HINT
+        if owner_id is not None and self.instance.pk is None:
+            uses.initial = [owner_id]
         if self.instance.pk and self.instance.price_cents:
             self.fields["price"].initial = Decimal(self.instance.price_cents) / 100
         if self.instance.pk and self.instance.donation_minimum_cents:
@@ -2525,6 +2563,12 @@ class OrientationTypeForm(forms.ModelForm):
         return cleaned
 
     def save(self, commit: bool = True) -> OrientationType:
+        """Save the type and its "Equipment it uses" list, keeping an equipment owner on it (#658).
+
+        With commit=False the caller saves the instance and calls save_m2m; the one such
+        caller (the new type on ``EquipmentForm``) drops the list field, so the model's own
+        save lists the owner.
+        """
         instance = cast(OrientationType, super().save(commit=False))
         instance.price_cents = self.cleaned_data["price"]
         if instance.is_donation:
@@ -2532,7 +2576,19 @@ class OrientationTypeForm(forms.ModelForm):
             instance.donation_suggested_cents = self.cleaned_data["donation_suggested_cents"]
         if commit:
             instance.save()
+            self.save_m2m()
+            # The editor may have unselected the owner; saving the list just removed it.
+            instance.list_owner_equipment()
         return instance
+
+
+def uses_equipment_options(listed: QuerySet[Equipment]) -> list[tuple[int, str]]:
+    """The "Equipment it uses" choices (#658): active equipment plus anything in ``listed``, by name.
+
+    A retired item a type already lists stays offered, so saving the row never drops it.
+    """
+    offered = Equipment.objects.filter(Q(is_active=True) | Q(pk__in=listed.values("pk"))).order_by("name", "pk")
+    return list(offered.values_list("pk", "name"))
 
 
 class BaseOrientationTypeFormSet(forms.BaseInlineFormSet):
@@ -2540,7 +2596,27 @@ class BaseOrientationTypeFormSet(forms.BaseInlineFormSet):
 
     Deleting a type would cascade-delete its slots AND its booking history, so a
     type with any booking can only be retired (the Active toggle), never deleted.
+
+    It also builds the "Equipment it uses" choices once and prefetches each row's list
+    (#658), so the editor runs the same queries however many rows it shows.
     """
+
+    def __init__(self, *args: Any, **kwargs: Any) -> None:
+        kwargs.setdefault("queryset", OrientationType.objects.prefetch_related("uses_equipment"))
+        super().__init__(*args, **kwargs)
+
+    @cached_property
+    def _equipment_options(self) -> list[tuple[int, str]]:
+        """The shared choices: active equipment plus whatever this owner's types already use."""
+        return uses_equipment_options(Equipment.objects.filter(orientation_types_using__in=self.get_queryset()))
+
+    def get_form_kwargs(self, index: int | None) -> dict[str, Any]:
+        owner_equipment_id = self.instance.pk if self.fk.name == "equipment" else None
+        return {
+            **super().get_form_kwargs(index),
+            "equipment_options": self._equipment_options,
+            "owner_equipment_id": owner_equipment_id,
+        }
 
     @staticmethod
     def _deletion_blocker(instance: OrientationType) -> str | None:
@@ -5664,6 +5740,8 @@ class EquipmentForm(forms.ModelForm):
         self.new_type_form = OrientationTypeForm(
             self.data if self.creates_orientation_type else None, prefix="new_type", use_required_attribute=False
         )
+        # The new type lists only this equipment, which its save adds (#658); the panel has no picker.
+        del self.new_type_form.fields["uses_equipment"]
         for name in self.new_type_form.fields.keys() - set(self.NEW_TYPE_FIELDS):
             self.new_type_form.fields[name].required = False
         # The four short fields sit in one row of the panel, where the model hints wrap into

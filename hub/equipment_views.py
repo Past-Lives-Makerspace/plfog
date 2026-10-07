@@ -318,23 +318,32 @@ def _schedule_context(
 
 
 def _attach_running_orientations(equipment_list: Sequence[Equipment], *, now: datetime) -> None:
-    """Give every card its ``current_orientation_slots`` (booked orientations running now) in one query."""
+    """Give every card its ``current_orientation_slots`` (booked orientations running now) in two queries.
+
+    A slot counts on every card its type lists in "Equipment it uses" (#658), so one
+    orientation on the press and the lathe shows both cards reserved.
+    """
     from membership.models import OrientationSlot
 
+    card_pks = [equipment.pk for equipment in equipment_list]
     running = (
         OrientationSlot.objects.holding_seats()
-        .filter(
-            orientation_type__equipment__in=[equipment.pk for equipment in equipment_list],
-            starts_at__lt=now,
-            ends_at__gt=now,
-        )
+        .filter(orientation_type__uses_equipment__in=card_pks, starts_at__lt=now, ends_at__gt=now)
         .select_related("orientation_type")
+        .prefetch_related(
+            Prefetch(
+                "orientation_type__uses_equipment",
+                queryset=Equipment.objects.filter(pk__in=card_pks).only("pk"),
+                to_attr="listed_cards",
+            )
+        )
     )
-    by_equipment: dict[int, list[Any]] = {}
+    by_equipment: dict[int, list[Any]] = {pk: [] for pk in card_pks}
     for slot in running:
-        by_equipment.setdefault(slot.orientation_type.equipment_id, []).append(slot)
+        for listed in slot.orientation_type.listed_cards:
+            by_equipment[listed.pk].append(slot)
     for equipment in equipment_list:
-        equipment.current_orientation_slots = by_equipment.get(equipment.pk, [])
+        equipment.current_orientation_slots = by_equipment[equipment.pk]
 
 
 def reservation_cards(member: Member | None, queryset: EquipmentQuerySet) -> list[dict[str, Any]]:

@@ -13,7 +13,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import UTC, date, datetime, time, timedelta
-from typing import TYPE_CHECKING, Any, cast
+from typing import TYPE_CHECKING, Any
 from urllib.parse import quote, quote_plus, urlencode
 
 from django.utils import timezone
@@ -31,6 +31,7 @@ ORIENTATION_PK_OFFSET = 2_000_000_000
 EVENT_PK_OFFSET = 3_000_000_000
 RESERVATION_PK_OFFSET = 4_000_000_000
 _OCC_STRIDE = 100  # max occurrences per event per window (a few months of monthly « 100)
+ORIENTATION_ITEM_STRIDE = 100  # max items one orientation uses (#658), so a slot on two items keeps two pks
 
 # How far ahead the Events tab looks for a recurring series' next occurrence. A
 # year comfortably contains the next hit for any monthly/weekly cadence, so each
@@ -247,12 +248,15 @@ def reservation_entries(items: Iterable[Equipment], fetch_from: date, fetch_to: 
     """What is taken on ``items`` in ``[fetch_from, fetch_to]``: confirmed reservations and booked orientations.
 
     The Reservations calendar (#502). A reservation reads "Laser cutter · Sam R."; an
-    orientation slot holding a seat on an item's own type reads "Lathe · Orientation",
-    because a booked orientation occupies the machine. Every entry files under its item's
-    legend chip and links the item's page on that day. A cancelled reservation and an
-    open, unbooked slot are absent. Two queries however many items.
+    orientation slot holding a seat on a type that uses an item reads "Lathe · Orientation",
+    because a booked orientation occupies the machine; a slot whose type lists two of the
+    items (#658) files under both. Every entry files under its item's legend chip and links
+    the item's page on that day. A cancelled reservation and an open, unbooked slot are
+    absent. Three queries however many items.
     """
-    from membership.models import EquipmentReservation, OrientationSlot
+    from django.db.models import Prefetch
+
+    from membership.models import Equipment, EquipmentReservation, OrientationSlot
 
     item_list = list(items)
     entries: list[CalendarEntry] = []
@@ -280,29 +284,39 @@ def reservation_entries(items: Iterable[Equipment], fetch_from: date, fetch_to: 
     holds = (
         OrientationSlot.objects.holding_seats()
         .filter(
-            orientation_type__equipment__in=item_list,
+            orientation_type__uses_equipment__in=item_list,
             starts_at__date__gte=fetch_from,
             starts_at__date__lte=fetch_to,
         )
-        .select_related("orientation_type__equipment", "orientation_type__equipment__guild")
+        .select_related("orientation_type")
+        .prefetch_related(
+            Prefetch(
+                "orientation_type__uses_equipment",
+                queryset=Equipment.objects.filter(pk__in=[item.pk for item in item_list])
+                .select_related("guild")
+                .order_by("name", "pk"),
+                to_attr="listed_items",
+            )
+        )
         .order_by("starts_at")
     )
     for slot in holds:
-        # The query keeps equipment owned types only, so the type always has its item.
-        item = cast("Equipment", slot.orientation_type.equipment)
-        entries.append(
-            CalendarEntry(
-                pk=ORIENTATION_PK_OFFSET + slot.pk,
-                title=f"{item.name} · Orientation",
-                start_dt=slot.starts_at,
-                end_dt=slot.ends_at,
-                source="orientation",
-                url=_item_day_url(item, slot.starts_at),
-                location=slot.location,
-                legend_key=str(item.pk),
-                owner_label=_equipment_owner_label(item),
+        # One entry per listed item (#658): the slot holds each of them. The position keeps
+        # the pks apart when one slot files under two items.
+        for position, item in enumerate(slot.orientation_type.listed_items):
+            entries.append(
+                CalendarEntry(
+                    pk=ORIENTATION_PK_OFFSET + slot.pk * ORIENTATION_ITEM_STRIDE + position,
+                    title=f"{item.name} · Orientation",
+                    start_dt=slot.starts_at,
+                    end_dt=slot.ends_at,
+                    source="orientation",
+                    url=_item_day_url(item, slot.starts_at),
+                    location=slot.location,
+                    legend_key=str(item.pk),
+                    owner_label=_equipment_owner_label(item),
+                )
             )
-        )
     return entries
 
 
