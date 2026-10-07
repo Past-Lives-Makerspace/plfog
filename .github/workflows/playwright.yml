@@ -5,10 +5,20 @@ on:
     branches: [main, 'release-**']
   pull_request:
     branches: [main]
+    types: [opened, synchronize, reopened, closed]
+
+# One run per pull request: a new push cancels that PR's older run, and closing or merging the
+# PR cancels whatever is still going (the `closed` event joins the group, then its jobs skip).
+# Pushes to main and release branches group by commit and never cancel, so those runs always finish.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.sha }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   e2e:
+    if: github.event.action != 'closed'
     runs-on: ubuntu-latest
+    timeout-minutes: 45
     services:
       postgres:
         image: postgres:18
