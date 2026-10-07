@@ -14586,17 +14586,6 @@ class Equipment(HeroCropMixin, models.Model):
         verbose_name="Location",
         help_text="The area of the building it sits in. A reservation shows the area in use on its guild page. Optional.",
     )
-    required_orientation = models.ForeignKey(
-        OrientationType,
-        null=True,
-        blank=True,
-        on_delete=models.SET_NULL,
-        related_name="+",
-        help_text=(
-            "Retired by #656: the gate is unlocking_orientations, and this mirrors its first type (null when "
-            "empty) for one release so a code only rollback keeps the gate. A follow up drops the column."
-        ),
-    )
     unlocking_orientations = models.ManyToManyField(
         OrientationType,
         through="EquipmentUnlockingOrientation",
@@ -14669,18 +14658,6 @@ class Equipment(HeroCropMixin, models.Model):
             (orientation_type, orientation_type.booking_link(listed=orientation_type.is_listed))  # type: ignore[attr-defined]
             for orientation_type in listed_types
         ]
-
-    def mirror_required_orientation(self) -> None:
-        """Write the first unlocking type, in the list's order, into the retired column; ``None`` when empty.
-
-        For the one release ``required_orientation`` is kept (#656): a code only rollback reads
-        that column, so it must match the list. Every write path to ``unlocking_orientations``
-        calls this after it writes. A queryset update, so the slug and photo upkeep in
-        :meth:`save` never run for it.
-        """
-        first = OrientationType.objects.filter(gated_equipment=self).order_by("sort_order", "name", "pk").first()
-        self.required_orientation = first
-        Equipment.objects.filter(pk=self.pk).update(required_orientation=first)
 
     def unlocking_orientation_list(self) -> list[OrientationType]:
         """The unlocking types in display order, read through any prefetch of ``unlocking_orientations``."""
