@@ -96,11 +96,10 @@ def describe_PayoutAccount():
             account.refresh_from_db()
             assert account.status == PayoutAccount.Status.ACTIVE
 
-        def it_does_not_save_an_unchanged_status():
+        def it_does_not_save_an_unchanged_status(django_assert_num_queries):
             account = PayoutAccount.objects.create(member=MemberFactory(), stripe_account_id="acct_1", livemode=False)
-            with patch.object(PayoutAccount, "save") as save:
+            with django_assert_num_queries(0):
                 account.apply_stripe_account(_stripe_account())
-            save.assert_not_called()
 
     def describe_is_connected():
         @pytest.mark.parametrize(
