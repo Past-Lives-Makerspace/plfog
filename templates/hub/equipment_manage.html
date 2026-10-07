@@ -230,6 +230,7 @@
             <div class="pl-equip-hours-row__field">{% include "components/form_field.html" with field=row.default_location %}</div>
             <div class="pl-equip-hours-row__field">{% include "components/form_field.html" with field=row.sort_order %}</div>
           </div>
+          {% include "hub/partials/_orientation_type_uses_equipment_field.html" with field=row.uses_equipment %}
           {% include "hub/partials/_orientation_type_pricing_fields.html" with type_form=row %}
           {% include "components/form_field.html" with field=row.is_active %}
           {% if row.instance.pk and row.instance.is_active and equipment.is_active %}<a href="{% url 'hub_orientation_type_flyer' row.instance.pk %}" target="_blank" rel="noopener" class="pl-btn pl-btn--secondary pl-btn--sm" data-qr-sheet-type-link>Print QR Sheet</a>{% endif %}
@@ -265,6 +266,7 @@
               <div class="pl-equip-hours-row__field">{% include "components/form_field.html" with field=empty_row.default_location %}</div>
               <div class="pl-equip-hours-row__field">{% include "components/form_field.html" with field=empty_row.sort_order %}</div>
             </div>
+            {% include "hub/partials/_orientation_type_uses_equipment_field.html" with field=empty_row.uses_equipment %}
             {% include "hub/partials/_orientation_type_pricing_fields.html" with type_form=empty_row %}
             {% include "components/form_field.html" with field=empty_row.is_active %}
             <div style="display:none;">{{ empty_row.DELETE }}</div>
@@ -398,7 +400,7 @@
       {% with spks=slot.pk|stringformat:"s" %}
       <div x-show="{{ forloop.counter0 }} >= page * size && {{ forloop.counter0 }} < (page + 1) * size" class="pl-equip-slot-group">
         <div class="pl-slot-admin__row{% if slot.blocking_reservation %} pl-equip-res-row--blocked{% endif %}">
-          <span class="pl-slot-admin__when">{{ slot.starts_at|date:"D M j" }} · {{ slot.starts_at|time:"g:i A" }} to {{ slot.ends_at|time:"g:i A" }} · {{ slot.orientation_type.name }}{% if slot.blocking_reservation %}<span class="pl-equip-res-row__blocked">Blocked by {{ slot.blocking_reservation.member.display_name }}'s reservation {{ slot.blocking_reservation.starts_at|time:"g:i A" }} to {{ slot.blocking_reservation.ends_at|time:"g:i A" }}</span>{% endif %}</span>
+          <span class="pl-slot-admin__when">{{ slot.starts_at|date:"D M j" }} · {{ slot.starts_at|time:"g:i A" }} to {{ slot.ends_at|time:"g:i A" }} · {{ slot.orientation_type.name }}{% if slot.blocking_reservation.is_block %}<span class="pl-equip-res-row__blocked">Blocked by held time ({{ slot.blocking_reservation.purpose }}) {{ slot.blocking_reservation.starts_at|time:"g:i A" }} to {{ slot.blocking_reservation.ends_at|time:"g:i A" }}</span>{% elif slot.blocking_reservation %}<span class="pl-equip-res-row__blocked">Blocked by {{ slot.blocking_reservation.member.display_name }}'s reservation {{ slot.blocking_reservation.starts_at|time:"g:i A" }} to {{ slot.blocking_reservation.ends_at|time:"g:i A" }}</span>{% endif %}</span>
           <span class="pl-slot-admin__with">
             {% if slot.orienter %}
               {% if slot.orienter.profile_photo %}<img src="{{ slot.orienter.profile_photo.url }}" alt="" class="pl-orient-avatar">{% else %}<span class="pl-orient-avatar pl-orient-avatar--initials">{{ slot.orienter.display_name|slice:":1" }}</span>{% endif %}
@@ -473,6 +475,41 @@
 
 {# ── Reservations tab — upcoming rows with the reason-required manager cancel (spec §7.4). ── #}
 <div x-show="section === 'reservations'" {% if active_tab != "reservations" %}x-cloak{% endif %}>
+  {# Block Time (#657): held spans first, each with a Remove that asks nothing and emails nobody, then the form. #}
+  <div class="hub-card" style="padding:1.5rem; margin-bottom:1.5rem;" data-block-time-card>
+    <h2 class="hub-detail-label" style="margin-top:0; margin-bottom:0.25rem;">Block Time</h2>
+    <p class="hub-text-muted" style="margin:0 0 0.75rem;">Hold the {{ equipment.get_kind_display|lower }} for an orientation, a workshop or maintenance. Members see it as held and can't book over it. Nobody is emailed.</p>
+    {% if manage_blocks %}
+    <div class="pl-equip-res-list" style="margin-bottom:1.25rem;" data-block-list>
+      {% for block in manage_blocks %}
+      <div class="pl-equip-res-row" data-block-row="{{ block.pk }}">
+        <span>{{ block.starts_at|date:"D, M j" }} · {{ block.starts_at|time:"g:i A" }} to {{ block.ends_at|time:"g:i A" }}</span>
+        <span>Held · {{ block.purpose }} <span class="hub-text-muted">· by {{ block.member.display_name }}</span></span>
+        <button type="button" class="pl-btn pl-btn--danger pl-btn--sm"
+                @click="$dispatch('open-confirm', 'block-remove-{{ block.pk }}')">Remove</button>
+      </div>
+      {% endfor %}
+    </div>
+    {% endif %}
+    <div{% if manage_blocks %} class="pl-equip-staff-add"{% endif %}>
+    <form method="post" action="{% url 'hub_equipment_block_add' equipment.slug %}" class="hub-form">
+      {% csrf_token %}
+      {% for error in block_form.non_field_errors %}<p class="pl-field-error">{{ error }}</p>{% endfor %}
+      <div class="hub-form-group">
+        <div class="pl-equip-hours-row__fields">
+          <div class="pl-equip-hours-row__field">{% include "components/form_field.html" with field=block_form.date %}</div>
+          <div class="pl-equip-hours-row__field">{% include "components/form_field.html" with field=block_form.start_time %}</div>
+          <div class="pl-equip-hours-row__field">{% include "components/form_field.html" with field=block_form.end_time %}</div>
+        </div>
+        {% include "components/form_field.html" with field=block_form.reason %}
+      </div>
+      <div class="pl-equip-save-row">
+        <button type="submit" class="pl-btn pl-btn--primary">Block Time</button>
+      </div>
+    </form>
+    </div>
+  </div>
+
   <div class="hub-card" style="padding:1.5rem;">
     <h2 class="hub-detail-label" style="margin-top:0; margin-bottom:0.75rem;">Upcoming Reservations</h2>
     {% if manage_reservations %}
@@ -524,6 +561,14 @@
 {% url 'hub_equipment_reservation_cancel' equipment.slug reservation.pk as mgr_cancel_url %}
 {% with rpks=reservation.pk|stringformat:"s" who=reservation.member.display_name %}
 {% include "components/confirm_modal.html" with confirm_id="mgr-cancel-"|add:rpks confirm_title="Cancel This Reservation?" confirm_message="The member has this time booked. Cancelling frees it and tells them why." confirm_action_url=mgr_cancel_url confirm_button_text="Cancel Reservation" confirm_note_name="reason" confirm_note_label="Reason" confirm_note_placeholder="Why is this being cancelled?" confirm_note_hint="The member will see this. Please tell the member why." %}
+{% endwith %}
+{% endfor %}
+
+{# Remove block confirms (#657), one per block, outside the panes; no reason field, nobody is told. #}
+{% for block in manage_blocks %}
+{% url 'hub_equipment_block_remove' equipment.slug block.pk as block_remove_url %}
+{% with bpks=block.pk|stringformat:"s" %}
+{% include "components/confirm_modal.html" with confirm_id="block-remove-"|add:bpks confirm_title="Remove This Block?" confirm_message="The time opens up for members to book again." confirm_action_url=block_remove_url confirm_button_text="Remove" %}
 {% endwith %}
 {% endfor %}
 

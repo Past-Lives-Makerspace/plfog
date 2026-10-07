@@ -443,6 +443,14 @@ SIMPLYBOOK_COMPANY_LOGIN = os.environ.get("SIMPLYBOOK_COMPANY_LOGIN", "")
 GOOGLE_SERVICE_ACCOUNT_JSON = os.environ.get("GOOGLE_SERVICE_ACCOUNT_JSON", "")
 GOOGLE_CALENDAR_SYNC_ENABLED = os.environ.get("GOOGLE_CALENDAR_SYNC_ENABLED", "").lower() == "true"
 
+# Eventbrite listing push for classes (#652). A private token from the Past Lives Eventbrite
+# account, the organization the events are created under, and the venue every class meets at.
+# Blank by default so the app and tests run without them; any blank one disables the push, as
+# does the admin toggle SiteConfiguration.eventbrite_sync_enabled and ENVIRONMENT=staging.
+EVENTBRITE_PRIVATE_TOKEN = os.environ.get("EVENTBRITE_PRIVATE_TOKEN", "").strip()
+EVENTBRITE_ORGANIZATION_ID = os.environ.get("EVENTBRITE_ORGANIZATION_ID", "").strip()
+EVENTBRITE_VENUE_ID = os.environ.get("EVENTBRITE_VENUE_ID", "").strip()
+
 # Member invites — how long (in days) an un-accepted invite stays "Pending" before the
 # Manage Members panel shows it as "Expired". Advisory only: the signup link keeps
 # working; resending an invite resets the clock (see Invite.is_expired / send_invite_email).

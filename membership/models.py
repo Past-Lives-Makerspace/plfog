@@ -11470,7 +11470,7 @@ class OrientationTypeQuerySet(models.QuerySet):
 
         An active type of a visible guild whose orientations are enabled, or an active type
         of active equipment. One condition so the page's list, its ``is_listed`` annotation
-        and the locked Reservations card's link (:meth:`EquipmentQuerySet.with_required_orientation_listed`)
+        and the locked Reservations card's link (:meth:`EquipmentQuerySet.with_unlocking_orientations_listed`)
         can never disagree. Reads the site configuration once, for the demo guild switch.
         """
         return Q(is_active=True) & (
@@ -11589,6 +11589,16 @@ class OrientationType(models.Model):
             "PROTECT: deleting equipment that owns orientation history must fail loudly."
         ),
     )
+    uses_equipment: models.ManyToManyField[Equipment, Any] = models.ManyToManyField(
+        "Equipment",
+        blank=True,
+        related_name="orientation_types_using",
+        verbose_name="Equipment it uses",
+        help_text=(
+            "The equipment a booked slot of this orientation holds, like a reservation (#658). "
+            "An equipment orientation always lists its own equipment. Who runs it stays with the owner."
+        ),
+    )
     name = models.CharField(max_length=100, help_text="Member-facing name, e.g. 'Shop Basics' or 'Lathe'.")
     description = models.TextField(
         blank=True, default="", help_text="What this orientation covers, shown to members (plain text)."
@@ -11683,6 +11693,16 @@ class OrientationType(models.Model):
     def save(self, *args: Any, **kwargs: Any) -> None:
         delete_orphan_on_replace(self, "photo")
         super().save(*args, **kwargs)
+        self.list_owner_equipment()
+
+    def list_owner_equipment(self) -> None:
+        """Keep an equipment owned type's own equipment in :attr:`uses_equipment` (#658).
+
+        A booked slot blocks only what the list names, so the owner must always be on it.
+        ``add`` skips a row that is already there; a guild owned type has nothing to add.
+        """
+        if self.equipment_id is not None:
+            self.uses_equipment.add(self.equipment_id)
 
     #: Any amount above $0 is at least this much (#636): a smaller charge is refused, on the
     #: donation floor staff set and on what a member enters alike.
@@ -12739,13 +12759,15 @@ class OrientationSlotQuerySet(models.QuerySet):
     def holding_seats_on(
         self, equipment: Equipment, starts_at: datetime_type, ends_at: datetime_type
     ) -> OrientationSlotQuerySet:
-        """:meth:`holding_seats` narrowed to ``equipment``'s owned types overlapping ``[starts_at, ends_at)``.
+        """:meth:`holding_seats` narrowed to types that use ``equipment``, overlapping ``[starts_at, ends_at)``.
 
-        Strict inequalities: touching spans never conflict. Pass ``now`` for both
-        bounds to ask what is running right now.
+        Blocking reads :attr:`OrientationType.uses_equipment` (#658), never the owner FK:
+        a guild orientation that lists the press holds the press, and an equipment owned
+        type always lists its owner. Strict inequalities: touching spans never conflict.
+        Pass ``now`` for both bounds to ask what is running right now.
         """
         return self.holding_seats().filter(
-            orientation_type__equipment=equipment, starts_at__lt=ends_at, ends_at__gt=starts_at
+            orientation_type__uses_equipment=equipment, starts_at__lt=ends_at, ends_at__gt=starts_at
         )
 
     def with_booking_history_count(self) -> OrientationSlotQuerySet:
@@ -14434,16 +14456,18 @@ class EquipmentQuerySet(models.QuerySet["Equipment"]):
             return self.none()
         return self.active().for_guild(guild)
 
-    def with_required_orientation_listed(self) -> EquipmentQuerySet:
-        """Annotate ``required_orientation_listed``: whether the Orientations page lists the gating type.
+    def with_unlocking_orientations_listed(self) -> EquipmentQuerySet:
+        """Prefetch ``unlocking_orientations_listed``: each unlocking type, annotated ``is_listed`` (#656).
 
-        A subquery in the same read, so a grid of locked cards decides every Book the
-        orientation link without a query per card (:attr:`Equipment.required_orientation_link`).
+        ``is_listed`` is whether the Orientations page lists the type, so a grid of locked
+        cards decides every Book link (:attr:`Equipment.unlocking_orientation_links`) in one
+        prefetch query, never one per card or per orientation.
         """
-        listed = OrientationType.objects.filter(
-            OrientationTypeQuerySet.listed_condition(), pk=OuterRef("required_orientation_id")
+        listed = OrientationType.objects.filter(OrientationTypeQuerySet.listed_condition(), pk=OuterRef("pk"))
+        unlocking = OrientationType.objects.annotate(is_listed=Exists(listed)).select_related("guild", "equipment")
+        return self.prefetch_related(
+            models.Prefetch("unlocking_orientations", queryset=unlocking, to_attr="unlocking_orientations_listed")
         )
-        return self.annotate(required_orientation_listed=Exists(listed))
 
     def with_staff(self) -> EquipmentQuerySet:
         """Prefetch each item's staff into ``staff_roster``, ordered by name, in one query (#615).
@@ -14462,14 +14486,31 @@ class EquipmentQuerySet(models.QuerySet["Equipment"]):
 RESERVED_EQUIPMENT_SLUGS = frozenset({"add", "bookings"})
 
 
+@dataclass(frozen=True)
+class OrientationUnlock:
+    """One unlocking orientation as the equipment page's requirements banner shows it (#656).
+
+    Built by :meth:`Equipment.orientation_unlocks`. ``booking`` is the member's live
+    (requested or confirmed) booking for the type, ``url`` its owner aware Book link, and
+    ``paused`` is true when the type takes no bookings and the member holds none, so the
+    banner never renders a dead Book link.
+    """
+
+    orientation_type: OrientationType
+    booking: OrientationBooking | None
+    url: str
+    paused: bool
+
+
 class Equipment(HeroCropMixin, models.Model):
     """A shared tool or room members can find (and, from PR 2, reserve) on the Equipment page.
 
     One Django-owned model for both kinds (the locked Option A decision). The optional
     ``space`` FK is a **read-only** relationship into the Airtable-synced :class:`Space` —
     Django never writes through it and ``airtable_pull`` never sees this model. Access is
-    gated by the existing orientation stack: ``required_orientation`` points at an
-    :class:`OrientationType` and the gate is :meth:`Member.is_oriented_for_type`.
+    gated by the existing orientation stack: ``unlocking_orientations`` lists zero or more
+    :class:`OrientationType` rows, completing any one of them unlocks the item, and the
+    gate is :meth:`is_unlocked_for` (#656).
     """
 
     class Kind(models.TextChoices):
@@ -14549,11 +14590,21 @@ class Equipment(HeroCropMixin, models.Model):
         OrientationType,
         null=True,
         blank=True,
-        on_delete=models.PROTECT,
+        on_delete=models.SET_NULL,
+        related_name="+",
+        help_text=(
+            "Retired by #656: the gate is unlocking_orientations, and this mirrors its first type (null when "
+            "empty) for one release so a code only rollback keeps the gate. A follow up drops the column."
+        ),
+    )
+    unlocking_orientations = models.ManyToManyField(
+        OrientationType,
+        through="EquipmentUnlockingOrientation",
+        blank=True,
         related_name="gated_equipment",
         help_text=(
-            "Members must complete this orientation before booking. PROTECT: deleting an orientation "
-            "type that gates live equipment should fail loudly, not silently un-gate a dangerous tool."
+            "Completing any one of these orientations lets a member reserve this equipment. "
+            "Empty means any active member can book it."
         ),
     )
     is_active = models.BooleanField(
@@ -14606,15 +14657,63 @@ class Equipment(HeroCropMixin, models.Model):
         return "photo"
 
     @property
-    def required_orientation_link(self) -> str:
-        """Where a locked card's Book the orientation link goes (#502).
+    def unlocking_orientation_links(self) -> list[tuple[OrientationType, str]]:
+        """Each unlocking type beside where a locked card's Book link for it goes (#502, #656).
 
-        The gating type's card on the Orientations page when the page lists it, else the
-        type's owner page. Reads the ``required_orientation_listed`` annotation from
-        :meth:`EquipmentQuerySet.with_required_orientation_listed`.
+        A type's card on the Orientations page when the page lists it, else its owner page.
+        Reads the ``unlocking_orientations_listed`` prefetch from
+        :meth:`EquipmentQuerySet.with_unlocking_orientations_listed`.
         """
-        orientation_type = cast(OrientationType, self.required_orientation)
-        return orientation_type.booking_link(listed=self.required_orientation_listed)  # type: ignore[attr-defined]
+        listed_types: list[OrientationType] = self.unlocking_orientations_listed  # type: ignore[attr-defined]
+        return [
+            (orientation_type, orientation_type.booking_link(listed=orientation_type.is_listed))  # type: ignore[attr-defined]
+            for orientation_type in listed_types
+        ]
+
+    def mirror_required_orientation(self) -> None:
+        """Write the first unlocking type, in the list's order, into the retired column; ``None`` when empty.
+
+        For the one release ``required_orientation`` is kept (#656): a code only rollback reads
+        that column, so it must match the list. Every write path to ``unlocking_orientations``
+        calls this after it writes. A queryset update, so the slug and photo upkeep in
+        :meth:`save` never run for it.
+        """
+        first = OrientationType.objects.filter(gated_equipment=self).order_by("sort_order", "name", "pk").first()
+        self.required_orientation = first
+        Equipment.objects.filter(pk=self.pk).update(required_orientation=first)
+
+    def unlocking_orientation_list(self) -> list[OrientationType]:
+        """The unlocking types in display order, read through any prefetch of ``unlocking_orientations``."""
+        return list(self.unlocking_orientations.all())
+
+    def orientation_unlocks(self, member: Member) -> list[OrientationUnlock]:
+        """What the detail page's banner shows for each unlocking type, for a member who holds none (#656).
+
+        One read for the member's live bookings across every unlocking type, never one per
+        type. Each row keeps today's single orientation rules: a live booking links to it, a
+        paused type (inactive, retired owner or closed guild settings) with no live booking
+        offers no Book link, and otherwise the Book link is the owner aware anchor.
+        """
+        types = self.unlocking_orientation_list()
+        live = member.orientation_bookings.filter(
+            orientation_type__in=types,
+            status__in=[OrientationBooking.Status.REQUESTED, OrientationBooking.Status.CONFIRMED],
+        ).select_related("slot")
+        booking_by_type: dict[int, OrientationBooking] = {}
+        for live_booking in live.order_by("pk"):
+            booking_by_type.setdefault(live_booking.orientation_type_id, live_booking)
+        unlocks: list[OrientationUnlock] = []
+        for orientation_type in types:
+            booking = booking_by_type.get(orientation_type.pk)
+            unlocks.append(
+                OrientationUnlock(
+                    orientation_type=orientation_type,
+                    booking=booking,
+                    url=orientation_type.orientation_anchor_path(),
+                    paused=booking is None and not orientation_type.is_accepting,
+                )
+            )
+        return unlocks
 
     # --- QR sheet (#631): the printable page managers post at the machine.
 
@@ -14651,17 +14750,15 @@ class Equipment(HeroCropMixin, models.Model):
         return ""
 
     @property
-    def qr_sheet_orientation(self) -> OrientationType | None:
-        """The orientation the sheet's second QR books: the required one while it can print, else ``None``.
+    def qr_sheet_orientations(self) -> list[OrientationType]:
+        """The unlocking orientations the sheet names, those that can print, in display order (#631, #656).
 
-        A turned off required type, or one whose guild has orientations switched off, takes
-        no bookings, so the sheet leaves its QR off rather than print a code that lands on
-        nothing to book (:meth:`OrientationTypeQuerySet.printable`).
+        A turned off type, or one whose guild has orientations switched off, takes no
+        bookings, so the sheet leaves it off rather than point at nothing to book
+        (:meth:`OrientationTypeQuerySet.printable`). With exactly one the sheet prints its
+        booking QR; with several it names them all beside the equipment page QR.
         """
-        orientation_type = self.required_orientation
-        if orientation_type is None or not OrientationType.objects.printable().filter(pk=orientation_type.pk).exists():
-            return None
-        return orientation_type
+        return list(OrientationType.objects.printable().filter(gated_equipment=self).order_by("sort_order", "name"))
 
     def save(self, *args: Any, **kwargs: Any) -> None:
         if not self.slug:
@@ -14776,15 +14873,23 @@ class Equipment(HeroCropMixin, models.Model):
             has_unpaid_fee = unpaid_fee_for(member) is not None
         if has_unpaid_fee:
             return self.AccessState.NEEDS_FEE
-        required_orientation = self.required_orientation
-        if required_orientation is not None:
-            if oriented_type_ids is not None:
-                oriented = required_orientation.pk in oriented_type_ids
-            else:
-                oriented = member.is_oriented_for_type(required_orientation)
-            if not oriented:
-                return self.AccessState.NEEDS_ORIENTATION
+        if not self.is_unlocked_for(member, oriented_type_ids=oriented_type_ids):
+            return self.AccessState.NEEDS_ORIENTATION
         return self.AccessState.OK
+
+    def is_unlocked_for(self, member: Member, *, oriented_type_ids: set[int] | None = None) -> bool:
+        """True when the item lists no orientation, or ``member`` completed any one it lists (#656).
+
+        ``oriented_type_ids`` is the bulk caller's set of the member's completed type pks;
+        omit it and :meth:`Member.completed_orientation_type_ids` answers for every listed
+        type in one read, never a query per type.
+        """
+        types = self.unlocking_orientation_list()
+        if not types:
+            return True
+        if oriented_type_ids is None:
+            oriented_type_ids = member.completed_orientation_type_ids(types)
+        return any(orientation_type.pk in oriented_type_ids for orientation_type in types)
 
     def booking_blockers(self, member: Member | None) -> list[str]:
         """Ordered, member-readable reasons this member cannot book yet; empty = bookable.
@@ -14800,11 +14905,14 @@ class Equipment(HeroCropMixin, models.Model):
         if member is None or member.status != Member.Status.ACTIVE:
             return ["Your membership needs to be active to reserve equipment."]
         blockers: list[str] = []
-        required_orientation = self.required_orientation
-        if required_orientation is not None and not member.is_oriented_for_type(required_orientation):
-            blockers.append(
-                f"You need the {required_orientation.name} orientation before you can reserve this equipment."
-            )
+        if not self.is_unlocked_for(member):
+            names = [orientation_type.name for orientation_type in self.unlocking_orientation_list()]
+            if len(names) == 1:
+                blockers.append(f"You need the {names[0]} orientation before you can reserve this equipment.")
+            else:
+                blockers.append(
+                    f"You need one of these orientations before you can reserve this equipment: {' or '.join(names)}."
+                )
         # The block until paid (#456): the same sentence ensure_bookable_for raises, with the amount.
         from billing.late_fees import unpaid_fee_for
 
@@ -15004,18 +15112,18 @@ class Equipment(HeroCropMixin, models.Model):
             current = list(
                 EquipmentReservation.objects.confirmed().filter(equipment=self, starts_at__lte=now, ends_at__gt=now)
             )
-        busy_ends = [reservation.ends_at for reservation in current]
+        # (ends_at, word) per busy span: a manager's block reads "Held" (#657), everything else "Reserved".
+        busy = [(reservation.ends_at, "Held" if reservation.is_block else "Reserved") for reservation in current]
         # A booked orientation running now occupies the tool exactly like a reservation
         # (the detail page already shows it busy); an open, unbooked slot does not.
         running_slots = getattr(self, "current_orientation_slots", None)
         if running_slots is None:
             running_slots = list(OrientationSlot.objects.holding_seats_on(self, now, now))
-        busy_ends.extend(slot.ends_at for slot in running_slots)
-        if busy_ends:
-            ends_local = timezone.localtime(max(busy_ends))
-            hour = ends_local.hour % 12 or 12
-            suffix = "AM" if ends_local.hour < 12 else "PM"
-            return ("busy", f"Reserved until {hour}:{ends_local.minute:02d} {suffix}")
+        busy.extend((slot.ends_at, "Reserved") for slot in running_slots)
+        if busy:
+            # The span ending last names how long the tool stays busy, and its word leads.
+            ends_at, word = max(busy, key=lambda span: span[0])
+            return ("busy", f"{word} until {_clock(ends_at)}")
         local = timezone.localtime(now)
         open_now = any(
             rule.weekday == local.weekday() and rule.start_time <= local.time() < rule.end_time for rule in rules
@@ -15070,6 +15178,44 @@ class Equipment(HeroCropMixin, models.Model):
         if OrientationSlot.objects.holding_seats_on(self, starts_at, ends_at).exists():
             raise EquipmentError("That time overlaps a booked orientation. Please pick another time.")
 
+    def ensure_blockable(self, actor: Member, starts_at: datetime_type, ends_at: datetime_type) -> None:
+        """Raise :class:`EquipmentError` unless ``actor`` may hold [starts_at, ends_at) here (#657).
+
+        A block is a manager's hold, so it skips everything that rations member time: the
+        per member cap, the duration bounds, open hours, the booking horizon and the
+        closure. What it keeps is the grid and the overlap checks, run under the same
+        ``select_for_update`` lock as :meth:`ensure_reservable`: a block never lands on
+        a confirmed reservation, another block or a booked orientation, and the refusal
+        names what is in the way.
+
+        Raises:
+            EquipmentError: With manager-facing copy naming the failed check.
+        """
+        if not actor.can_manage_equipment(self):
+            raise EquipmentError("Only a manager of this equipment can block time on it.")
+        if ends_at <= starts_at:
+            raise EquipmentError("The end time must be after the start time.")
+        if starts_at <= timezone.now():
+            raise EquipmentError("That time's already past. Please pick a future time.")
+        for edge in (starts_at, ends_at):
+            local = timezone.localtime(edge)
+            if local.minute % self.RESERVATION_SNAP_MINUTES or local.second or local.microsecond:
+                raise EquipmentError("Blocks line up on half hour marks. Please pick one of the listed times.")
+        clash = (
+            EquipmentReservation.objects.overlapping(self, starts_at, ends_at)
+            .select_related("member")
+            .order_by("starts_at")
+            .first()
+        )
+        if clash is not None:
+            span = f"{_clock(clash.starts_at)} to {_clock(clash.ends_at)}"
+            if clash.is_block:
+                raise EquipmentError(f"Overlaps time already held for {clash.purpose}, {span}.")
+            raise EquipmentError(f"Overlaps {clash.member.short_name}'s reservation, {span}.")
+        slot = OrientationSlot.objects.holding_seats_on(self, starts_at, ends_at).order_by("starts_at").first()
+        if slot is not None:
+            raise EquipmentError(f"Overlaps a booked orientation, {_clock(slot.starts_at)} to {_clock(slot.ends_at)}.")
+
     def _ensure_duration_valid(self, duration_minutes: int) -> None:
         """Raise :class:`EquipmentError` unless the duration is on grid and within bounds."""
         if duration_minutes % self.RESERVATION_SNAP_MINUTES != 0:
@@ -15078,6 +15224,14 @@ class Equipment(HeroCropMixin, models.Model):
             raise EquipmentError(f"Reservations here are at least {self.min_duration_minutes} minutes.")
         if duration_minutes > self.max_duration_minutes:
             raise EquipmentError(f"Reservations here are at most {self.max_duration_minutes} minutes.")
+
+
+def _clock(value: datetime_type) -> str:
+    """A local wall-clock time like "2:00 PM", the form every equipment refusal names a span in."""
+    local = timezone.localtime(value)
+    hour = local.hour % 12 or 12
+    suffix = "AM" if local.hour < 12 else "PM"
+    return f"{hour}:{local.minute:02d} {suffix}"
 
 
 class EquipmentStaffMembership(models.Model):
@@ -15126,6 +15280,39 @@ class EquipmentStaffMembership(models.Model):
 
     def __str__(self) -> str:
         return f"{self.member.display_name}: {self.equipment.name} manager"
+
+
+class EquipmentUnlockingOrientation(models.Model):
+    """One orientation that unlocks one piece of equipment: a row of :attr:`Equipment.unlocking_orientations` (#656).
+
+    Its own row so the orientation side can PROTECT: deleting a type that unlocks live gear
+    fails loudly instead of silently dropping it from the list, where an empty list would
+    open a dangerous tool to every active member.
+    """
+
+    equipment = models.ForeignKey(
+        Equipment,
+        on_delete=models.CASCADE,
+        related_name="unlocking_orientation_rows",
+        help_text="The equipment this orientation unlocks.",
+    )
+    orientation_type = models.ForeignKey(
+        OrientationType,
+        on_delete=models.PROTECT,
+        related_name="unlocking_equipment_rows",
+        help_text=(
+            "Completing this orientation unlocks the equipment. PROTECT: deleting a type that unlocks "
+            "live equipment fails loudly rather than silently changing who can book it."
+        ),
+    )
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(fields=["equipment", "orientation_type"], name="uq_equip_unlock_orient"),
+        ]
+
+    def __str__(self) -> str:
+        return f"{self.orientation_type.name} unlocks {self.equipment.name}"
 
 
 class EquipmentHoursQuerySet(models.QuerySet["EquipmentHours"]):
@@ -15204,13 +15391,22 @@ class EquipmentReservationQuerySet(models.QuerySet["EquipmentReservation"]):
     def confirmed(self) -> EquipmentReservationQuerySet:
         return self.filter(status=EquipmentReservation.Status.CONFIRMED)
 
+    def reservations(self) -> EquipmentReservationQuerySet:
+        """Members' bookings only: the rows a booking list shows, without managers' blocks (#657)."""
+        return self.filter(kind=EquipmentReservation.Kind.RESERVATION)
+
+    def blocks(self) -> EquipmentReservationQuerySet:
+        """Managers' held time only (#657)."""
+        return self.filter(kind=EquipmentReservation.Kind.BLOCK)
+
     def overlapping(
         self, equipment: Equipment, starts_at: datetime_type, ends_at: datetime_type
     ) -> EquipmentReservationQuerySet:
-        """Confirmed reservations overlapping [starts_at, ends_at) on ``equipment``.
+        """Confirmed reservations and blocks overlapping [starts_at, ends_at) on ``equipment``.
 
         Strict inequalities: adjacent bookings (a 4:00 end against a 4:00 start) do
-        NOT conflict. Cancelled rows never conflict.
+        NOT conflict. Cancelled rows never conflict. Both kinds are busy time, so a
+        member can never book over a manager's block (#657).
         """
         return self.confirmed().filter(equipment=equipment, starts_at__lt=ends_at, ends_at__gt=starts_at)
 
@@ -15219,8 +15415,13 @@ class EquipmentReservationQuerySet(models.QuerySet["EquipmentReservation"]):
         return self.confirmed().filter(ends_at__gt=timezone.now()).order_by("starts_at")
 
     def active_count_for(self, member: Member, equipment: Equipment) -> int:
-        """The per-member anti-hog input: this member's upcoming confirmed count here."""
-        return self.confirmed().filter(member=member, equipment=equipment, ends_at__gt=timezone.now()).count()
+        """The per-member anti-hog input: this member's upcoming confirmed count here, blocks excluded."""
+        return (
+            self.confirmed()
+            .reservations()
+            .filter(member=member, equipment=equipment, ends_at__gt=timezone.now())
+            .count()
+        )
 
 
 class EquipmentReservation(models.Model):
@@ -15240,8 +15441,20 @@ class EquipmentReservation(models.Model):
         CONFIRMED = "confirmed", "Confirmed"
         CANCELLED = "cancelled", "Cancelled"
 
+    class Kind(models.TextChoices):
+        RESERVATION = "reservation", "Reservation"
+        BLOCK = "block", "Block"
+
     equipment = models.ForeignKey(
         Equipment, on_delete=models.CASCADE, related_name="reservations", help_text="The reserved equipment."
+    )
+    kind = models.CharField(
+        max_length=20,
+        choices=Kind.choices,
+        default=Kind.RESERVATION,
+        # The DB default too: the old release's reserve() inserts without ``kind`` while this migrates.
+        db_default=Kind.RESERVATION,
+        help_text="A member's reservation, or a manager's block holding the time (#657): no cap, no fee, no emails.",
     )
     member = models.ForeignKey(
         Member, on_delete=models.CASCADE, related_name="equipment_reservations", help_text="Who reserved it."
@@ -15249,7 +15462,10 @@ class EquipmentReservation(models.Model):
     starts_at = models.DateTimeField(help_text="When the reservation begins (aware UTC).")
     ends_at = models.DateTimeField(help_text="When the reservation ends (aware UTC).")
     purpose = models.CharField(
-        max_length=140, blank=True, default="", help_text="Optional one liner shown on the schedule."
+        max_length=140,
+        blank=True,
+        default="",
+        help_text="Optional one liner shown on the schedule; on a block, its reason (up to 80 characters).",
     )
     status = models.CharField(
         max_length=20, choices=Status.choices, default=Status.CONFIRMED, help_text="Confirmed or cancelled."
@@ -15299,6 +15515,36 @@ class EquipmentReservation(models.Model):
 
     def __str__(self) -> str:
         return f"{self.equipment.name}: {self.member.display_name} {self.starts_at:%Y-%m-%d %H:%M}"
+
+    @property
+    def is_block(self) -> bool:
+        """True for a manager's held time rather than a member's booking (#657)."""
+        return self.kind == self.Kind.BLOCK
+
+    def remove_block(self, actor: Member) -> None:
+        """Release a manager's block (#657): no reason, no email, never a fee.
+
+        A conditional update keyed on status, like :meth:`cancel`, so a double click
+        removes it once and the second request hears it is already gone.
+
+        Raises:
+            EquipmentError: When this row is not a block, ``actor`` cannot manage the
+                equipment, or the block was already removed.
+        """
+        if not self.is_block:
+            raise EquipmentError("Only a block can be removed this way.")
+        if not actor.can_manage_equipment(self.equipment):
+            raise EquipmentError("Only a manager of this equipment can remove a block.")
+        now = timezone.now()
+        flipped = EquipmentReservation.objects.filter(pk=self.pk, status=self.Status.CONFIRMED).update(
+            status=self.Status.CANCELLED, cancelled_by=actor, cancelled_as_manager=True, cancelled_at=now
+        )
+        if not flipped:
+            raise EquipmentError("This block was already removed.")
+        self.status = self.Status.CANCELLED
+        self.cancelled_by = actor
+        self.cancelled_as_manager = True
+        self.cancelled_at = now
 
     @property
     def is_cancelled_by_manager(self) -> bool:
@@ -15351,6 +15597,9 @@ class EquipmentReservation(models.Model):
             ValueError: When a manager cancels without a reason (form-enforced
                 upstream; loud guard here, mirroring the decline-notes convention).
         """
+        if self.is_block:
+            # A block is removed from the manage tab, never cancelled: no reason, no email, no fee (#657).
+            raise EquipmentError("This is a block. Remove it from the manage tab.")
         if self.status != self.Status.CONFIRMED:
             raise EquipmentError("This reservation was already cancelled.")
         now = timezone.now()
@@ -16514,7 +16763,7 @@ class WikiPage(models.Model):
         return {
             "equipment": equipment,
             "guild": equipment.guild,
-            "required_orientation": equipment.required_orientation,
+            "unlocking_orientations": equipment.unlocking_orientation_list(),
             "location_note": equipment.location_note,
             "access_state": state,
             "access_line": _WIKI_ACCESS_LINES[state],

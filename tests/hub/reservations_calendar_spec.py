@@ -19,7 +19,7 @@ from django.test.utils import CaptureQueriesContext
 from django.urls import reverse
 from django.utils import timezone
 
-from hub.calendar_entries import ORIENTATION_PK_OFFSET, RESERVATION_PK_OFFSET
+from hub.calendar_entries import ORIENTATION_ITEM_STRIDE, ORIENTATION_PK_OFFSET, RESERVATION_PK_OFFSET
 from hub.calendar_pages import ITEM_LEGEND_COLORS, reservations_calendar_context
 from membership.models import EquipmentReservation, OrientationBooking
 from tests.membership.factories import (
@@ -143,7 +143,7 @@ def describe_the_events_partial():
         content = client.get(EVENTS).content
         assert set(_chip_titles(content)) == {"Lathe · Sam R.", "Lathe · Orientation"}
         assert f'data-event-pk="{RESERVATION_PK_OFFSET + reservation.pk}"'.encode() in content
-        assert f'data-event-pk="{ORIENTATION_PK_OFFSET + slot.pk}"'.encode() in content
+        assert f'data-event-pk="{ORIENTATION_PK_OFFSET + slot.pk * ORIENTATION_ITEM_STRIDE}"'.encode() in content
         assert b"10:00 AM \xe2\x80\x93 12:00 PM" in content
         assert b">Lathe \xc2\xb7 Woodworking Guild</div>" in content
         assert f"isActive('{item.pk}')".encode() in content
@@ -201,12 +201,12 @@ def describe_query_counts():
             )
             OrientationBookingFactory(slot=slot, status=OrientationBooking.Status.CONFIRMED)
 
-    def it_builds_the_calendar_in_three_queries_for_one_item_or_six(django_assert_num_queries):
+    def it_builds_the_calendar_in_four_queries_for_one_item_or_six(django_assert_num_queries):
         _seed(range(1))
-        with django_assert_num_queries(3):
+        with django_assert_num_queries(4):
             assert len(reservations_calendar_context()["month_events"]) == 2
         _seed(range(1, 6))
-        with django_assert_num_queries(3):
+        with django_assert_num_queries(4):
             cal = reservations_calendar_context()
         assert len(cal["legend"]) == 6
         assert cal["event_total_pages"] == 2

@@ -3,7 +3,7 @@
 Which types the page lists and which a member's own booking keeps
 (``OrientationType.objects.listed_for``), why a listed type is paused
 (``OrientationType.paused_message``), where Book the orientation goes
-(``OrientationType.booking_link``, ``Equipment.required_orientation_link``), and the
+(``OrientationType.booking_link``, ``Equipment.unlocking_orientation_links``), and the
 many guilds orienter labels (``Guild.orienter_name_labels_for``).
 """
 
@@ -169,20 +169,19 @@ def describe_booking_link():
     def it_is_decided_for_a_whole_grid_in_its_own_read(django_assert_num_queries):
         listed = OrientationTypeFactory(guild=_enabled("Gate Guild"), name="Listed Gate")
         hidden = OrientationTypeFactory(guild=GuildFactory(name="Hidden Gate Guild"), name="Hidden Gate")
-        EquipmentFactory(name="Listed Tool", required_orientation=listed)
-        EquipmentFactory(name="Hidden Tool", required_orientation=hidden)
-        with django_assert_num_queries(2):  # the site configuration (demo guild switch), then the grid
+        EquipmentFactory(name="Listed Tool", unlocking_orientations=[listed])
+        EquipmentFactory(name="Hidden Tool", unlocking_orientations=[hidden])
+        EquipmentFactory(name="Either Tool", unlocking_orientations=[listed, hidden])
+        # The site configuration (demo guild switch), the grid, then one prefetch for every orientation.
+        with django_assert_num_queries(3):
             links = {
-                equipment.name: equipment.required_orientation_link
-                for equipment in Equipment.objects.select_related(
-                    "required_orientation", "required_orientation__guild", "required_orientation__equipment"
-                )
-                .filter(required_orientation__isnull=False)
-                .with_required_orientation_listed()
+                equipment.name: [link for _orientation, link in equipment.unlocking_orientation_links]
+                for equipment in Equipment.objects.filter(name__endswith=" Tool").with_unlocking_orientations_listed()
             }
         assert links == {
-            "Listed Tool": listed.orientations_page_path(),
-            "Hidden Tool": hidden.orientation_anchor_path(),
+            "Listed Tool": [listed.orientations_page_path()],
+            "Hidden Tool": [hidden.orientation_anchor_path()],
+            "Either Tool": [hidden.orientation_anchor_path(), listed.orientations_page_path()],
         }
 
 

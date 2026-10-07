@@ -590,7 +590,49 @@ class _RichDescriptionMixin:
         return clean_rich_body(self.cleaned_data["description"])
 
 
+class _EventbriteMixin:
+    """The two Eventbrite fields (#652): the opt-in and who pays Eventbrite's fee.
+
+    The fee's help text works the example at the class's own price (a new class shows $50). A
+    flexible class has no dates to list, so the opt-in is cleared whatever was posted. While the
+    integration is off (site toggle or credentials), both fields leave the form, so nobody ticks
+    a box that does nothing and a post cannot set them.
+    """
+
+    fields: dict[str, forms.Field]
+    instance: ClassOffering
+    cleaned_data: dict[str, Any]
+
+    def setup_eventbrite_fields(self) -> None:
+        from classes.templatetags.classes_tags import cents_as_price
+        from core.integrations.eventbrite import EventbriteClient, estimate_fee_cents
+
+        if not EventbriteClient.from_settings().enabled:
+            del self.fields["eventbrite_enabled"], self.fields["eventbrite_fee_payer"]
+            return
+        price = self.instance.price_cents or 5000
+        fee = estimate_fee_cents(price)
+        # Optional so a post without it (an older client, the opt-in left off) keeps the default.
+        self.fields["eventbrite_fee_payer"].required = False
+        self.fields["eventbrite_fee_payer"].help_text = (
+            "Eventbrite charges 3.7% + $1.79 per ticket, plus 2.9% payment processing. "
+            f"On a {cents_as_price(price)} ticket that is about {cents_as_price(fee)}. "
+            f"Buyer pays it on top: the buyer pays about {cents_as_price(price + fee)} and the class gets "
+            f"{cents_as_price(price)}. Included in my price: the buyer pays {cents_as_price(price)} and the "
+            f"class gets about {cents_as_price(price - fee)}."
+        )
+
+    def clean_eventbrite(self) -> None:
+        if "eventbrite_enabled" not in self.fields:
+            return
+        if not self.cleaned_data.get("eventbrite_fee_payer"):
+            self.cleaned_data["eventbrite_fee_payer"] = ClassOffering.EventbriteFeePayer.BUYER
+        if self.cleaned_data.get("scheduling_model") == ClassOffering.SchedulingModel.FLEXIBLE:
+            self.cleaned_data["eventbrite_enabled"] = False
+
+
 class ClassOfferingForm(
+    _EventbriteMixin,
     _RichDescriptionMixin,
     _HeroCropMixin,
     _CardFocusMixin,
@@ -628,6 +670,8 @@ class ClassOfferingForm(
             "flexible_starts_on",
             "flexible_ends_on",
             "registration_cutoff_hours",
+            "eventbrite_enabled",
+            "eventbrite_fee_payer",
             "area",
             "is_private",
             "private_for_name",
@@ -659,6 +703,7 @@ class ClassOfferingForm(
         self.setup_scheduling_type_field()
         self.setup_flexible_window_fields()
         self.setup_registration_cutoff_fields()
+        self.setup_eventbrite_fields()
         setup_location_field(self, hint=CLASS_LOCATION_HINT)
 
     def clean_video_url(self) -> str:
@@ -669,6 +714,7 @@ class ClassOfferingForm(
         self.clean_price_against_live_sale()
         self.clean_flexible_window()
         self.clean_registration_cutoff()
+        self.clean_eventbrite()
         return data
 
     def save(self, commit: bool = True) -> ClassOffering:
@@ -683,6 +729,7 @@ class ClassOfferingForm(
 
 
 class TeachClassOfferingForm(
+    _EventbriteMixin,
     _RichDescriptionMixin,
     _HeroCropMixin,
     _CardFocusMixin,
@@ -722,6 +769,8 @@ class TeachClassOfferingForm(
             "flexible_starts_on",
             "flexible_ends_on",
             "registration_cutoff_hours",
+            "eventbrite_enabled",
+            "eventbrite_fee_payer",
             "area",
             "image",
             "video_url",
@@ -757,6 +806,7 @@ class TeachClassOfferingForm(
         self.setup_scheduling_type_field()
         self.setup_flexible_window_fields()
         self.setup_registration_cutoff_fields()
+        self.setup_eventbrite_fields()
         setup_location_field(self, hint=CLASS_LOCATION_HINT)
 
     def clean_video_url(self) -> str:
@@ -767,6 +817,7 @@ class TeachClassOfferingForm(
         self.clean_price_against_live_sale()
         self.clean_flexible_window()
         self.clean_registration_cutoff()
+        self.clean_eventbrite()
         return data
 
     def save(self, commit: bool = True) -> ClassOffering:
@@ -1030,6 +1081,7 @@ class TeachPublishedClassForm(_RichDescriptionMixin, _HeroCropMixin, forms.Model
             "flexible_booking_text",
             "flexible_note",
             "video_url",
+            "eventbrite_enabled",
         ]
         widgets = {
             "video_url": _video_url_widget(),
@@ -1042,10 +1094,15 @@ class TeachPublishedClassForm(_RichDescriptionMixin, _HeroCropMixin, forms.Model
         super().__init__(*args, **kwargs)
         # The booking line exists only on a flexible class's page, so a fixed class does not
         # get the box (the page renders every field of this form).
+        # Eventbrite is the reverse: a flexible class has no dates to list, so it gets no switch.
         if self.instance.is_flexible:
             setup_flexible_booking_text(self)
         else:
             del self.fields["flexible_booking_text"]
+        from core.integrations.eventbrite import EventbriteClient
+
+        if self.instance.is_flexible or not EventbriteClient.from_settings().enabled:
+            del self.fields["eventbrite_enabled"]
         self.add_hero_crop_field()
 
     def clean_flexible_booking_text(self) -> str:

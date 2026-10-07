@@ -1,0 +1,9 @@
+bump = "minor"
+date = "2026-10-07"
+title = "Orientations hold the equipment they use"
+changes = [
+  "Guild leads and equipment managers can pick the equipment an orientation uses, under Equipment it uses in the orientation editor.",
+  "Once a member books a time, each item on that list shows as reserved for the orientation and nobody can reserve it over that time.",
+  "A time with no booking leaves the equipment free.",
+  "An equipment orientation always holds its own equipment.",
+]

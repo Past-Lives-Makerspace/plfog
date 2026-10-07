@@ -10,15 +10,15 @@ Context:
 The whole card is the tap target (a stretched link on the name); the guild chip sits
 above it with its own link. A tool the member is not trained on renders LOCKED (#502):
 the photo dims under a lock glyph, the state row gains the pre portal help bubble, and a
-Book the orientation link points at the required type's card on the Orientations page, or at
-its owner page when that page does not list it (equipment.required_orientation_link). The state row and the
+Book link per unlocking orientation (#656; any one unlocks it) points at that type's card on the
+Orientations page, or at its owner page when that page does not list it (equipment.unlocking_orientation_links). The state row and the
 link sit above the stretched name link (z-index) so they stay clickable and hoverable.
 The Staff line (#615) names the item's staff from equipment.staff_roster, and is absent when there are none.
 {% endcomment %}
 <div class="pl-equip-grid">
   {% for card in cards %}
   {% with equipment=card.equipment %}
-  {% if card.access_state == "needs_orientation" and equipment.required_orientation %}
+  {% if card.access_state == "needs_orientation" and equipment.unlocking_orientation_links %}
   <div class="hub-card pl-equip-card pl-equip-card--locked">
   {% else %}
   <div class="hub-card pl-equip-card">
@@ -39,7 +39,7 @@ The Staff line (#615) names the item's staff from equipment.staff_roster, and is
       {% endif %}
     </div>
     {% endif %}
-    {% if card.access_state == "needs_orientation" and equipment.required_orientation %}
+    {% if card.access_state == "needs_orientation" and equipment.unlocking_orientation_links %}
     <div class="pl-equip-card__lock" aria-hidden="true"><span class="pl-equip-card__lock-glyph"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg></span></div>
     {% endif %}
     <div class="pl-equip-card__body">
@@ -52,7 +52,7 @@ The Staff line (#615) names the item's staff from equipment.staff_roster, and is
         {% endif %}
         <span class="hub-badge">{{ equipment.get_kind_display }}</span>
       </div>
-      {% if card.access_state == "needs_orientation" and equipment.required_orientation %}
+      {% if card.access_state == "needs_orientation" and equipment.unlocking_orientation_links %}
       <div class="pl-equip-card__state">
         <span class="pl-equip-badge pl-equip-badge--warn">Orientation needed</span>
         <span class="pl-help">
@@ -60,7 +60,15 @@ The Staff line (#615) names the item's staff from equipment.staff_roster, and is
           <span class="pl-help__bubble">Trained on this before the Member Portal went live? Message us in #member-portal-general on Discord and say you need access to the {{ equipment.name }}.</span>
         </span>
       </div>
-      <a href="{{ equipment.required_orientation_link }}" class="pl-equip-card__cta">Book the orientation</a>
+      {% with links=equipment.unlocking_orientation_links %}
+      {% if links|length == 1 %}
+      <a href="{{ links.0.1 }}" class="pl-equip-card__cta">Book the orientation</a>
+      {% else %}
+      {% for orientation, link in links %}
+      <a href="{{ link }}" class="pl-equip-card__cta" data-unlock-type="{{ orientation.pk }}">Book {{ orientation.name }}</a>
+      {% endfor %}
+      {% endif %}
+      {% endwith %}
       {% else %}
       <div>
         {% if card.access_state == "ok" %}

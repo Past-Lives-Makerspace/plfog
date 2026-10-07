@@ -2489,7 +2489,7 @@ def _teach_published_class_edit(request: HttpRequest, offering: ClassOffering, t
         else ""
     )
     if request.method == "POST" and form.is_valid() and faq_formset.is_valid():
-        form.save()
+        form.save().sync_eventbrite_listing()
         faq_formset.save()
         messages.success(request, "Class updated.")
         return redirect(leave_url)
@@ -2968,6 +2968,9 @@ def _render_class_overview(
             "paid_registration_count": offering.paid_registration_count,
             "can_duplicate_run": _may_run_again(access),
             "can_delete_now": _may_delete(access, offering),
+            # The listing's sync state is an admin's to act on (#652); instructors see none of it.
+            "show_eventbrite_sync": access.can_administer
+            and offering.eventbrite_sync_state != ClassOffering.EventbriteSyncState.IDLE,
         },
     )
 
@@ -2987,7 +2990,7 @@ def _save_sale(request: HttpRequest, offering: ClassOffering) -> ClassSaleForm |
     form = ClassSaleForm(request.POST, instance=offering)
     if not form.is_valid():
         return form
-    form.save()
+    form.save().sync_eventbrite_listing()
     messages.success(request, "Sale updated." if was_active else "Sale is on. Members see it now.")
     return None
 
@@ -4135,6 +4138,7 @@ def _admin_composer(request: HttpRequest, pk: int) -> HttpResponse:
         session_formset.save()
         offering.apply_scheduling_model()
         faq_formset.save()
+        offering.sync_eventbrite_listing()
         _mark_composer_saved(request, offering)
         if request.POST.get("action") == "publish":
             # publish() checks readiness, not status: a crafted publish on a live class would
@@ -4628,6 +4632,14 @@ def admin_class_delete(request: HttpRequest, pk: int) -> HttpResponse:
         if offering.registrations.exists():
             remedy = "Archive it instead." if access.can_administer else "Ask an admin to archive it."
             messages.error(request, f"Can't delete — this class has registrations. {remedy}")
+            return redirect("classes:teach_class_detail", pk=offering.pk)
+        # Ended first and synchronously: a deleted row leaves nothing for the retry command (#652).
+        if not offering.end_eventbrite_listing():
+            messages.error(
+                request,
+                f"Can't delete yet: the Eventbrite listing could not be ended ({offering.eventbrite_sync_error}). "
+                "Try again, or archive the class.",
+            )
             return redirect("classes:teach_class_detail", pk=offering.pk)
         title = offering.title
         offering.delete()

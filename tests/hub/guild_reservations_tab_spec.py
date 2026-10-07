@@ -140,7 +140,7 @@ def describe_the_pane():
         guild = GuildFactory(show_reservations_tab=True)
         GuildOrientationSettingsFactory(guild=guild, is_enabled=True)
         lathe_basics = OrientationTypeFactory(guild=guild, name="Quillwood Lathe Basics")
-        EquipmentFactory(name="Quillwood Lathe", guild=guild, required_orientation=lathe_basics)
+        EquipmentFactory(name="Quillwood Lathe", guild=guild, unlocking_orientations=[lathe_basics])
         content = _page(client, guild)
         pane = content.split(PANE, 1)[1]
         assert "pl-equip-card--locked" in pane
@@ -153,7 +153,7 @@ def describe_the_pane():
         guild = GuildFactory(show_reservations_tab=True)
         EquipmentFactory(name="Quillwood Bandsaw", guild=guild)
         EquipmentFactory(
-            name="Quillwood Gated Saw", guild=guild, required_orientation=OrientationTypeFactory(guild=guild)
+            name="Quillwood Gated Saw", guild=guild, unlocking_orientations=[OrientationTypeFactory(guild=guild)]
         )
         response = client.get(reverse("hub_guild_detail", args=[guild.slug]))
         expected = reservation_cards(user.member, _equipment_queryset().on_guild_page(guild))
@@ -174,7 +174,9 @@ def describe_the_pane():
 
         def gated(name: str) -> None:
             # The gating types belong to another guild, so only the Reservations pane grows here.
-            EquipmentFactory(name=name, guild=guild, required_orientation=OrientationTypeFactory(name=f"{name} basics"))
+            EquipmentFactory(
+                name=name, guild=guild, unlocking_orientations=[OrientationTypeFactory(name=f"{name} basics")]
+            )
 
         def count_queries() -> int:
             client.get(url)  # warm the session and per-request caches so both samples are steady state

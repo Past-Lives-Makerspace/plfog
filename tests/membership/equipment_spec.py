@@ -20,6 +20,7 @@ from membership.models import (
     AdminCapability,
     Equipment,
     EquipmentStaffMembership,
+    EquipmentUnlockingOrientation,
     GuildStaffMembership,
     Member,
     OrientationBooking,
@@ -84,7 +85,7 @@ def describe_Equipment():
 
         def it_protects_an_orientation_type_that_gates_equipment():
             orientation_type = OrientationTypeFactory()
-            EquipmentFactory(required_orientation=orientation_type)
+            EquipmentFactory(unlocking_orientations=[orientation_type])
             with pytest.raises(ProtectedError):
                 orientation_type.delete()
 
@@ -188,7 +189,7 @@ def describe_Equipment():
 
         def it_is_needs_orientation_until_the_gating_type_is_completed():
             orientation_type = OrientationTypeFactory(name="Lathe")
-            equipment = EquipmentFactory(required_orientation=orientation_type)
+            equipment = EquipmentFactory(unlocking_orientations=[orientation_type])
             member = MemberFactory()
             assert equipment.access_state(member) == Equipment.AccessState.NEEDS_ORIENTATION
             _completed_orientation(member, orientation_type)
@@ -197,7 +198,7 @@ def describe_Equipment():
         def it_is_ok_on_guild_owned_equipment_for_a_member_outside_the_guild():
             guild = GuildFactory()
             orientation_type = OrientationTypeFactory(guild=guild)
-            equipment = EquipmentFactory(guild=guild, required_orientation=orientation_type)
+            equipment = EquipmentFactory(guild=guild, unlocking_orientations=[orientation_type])
             member = MemberFactory()
             _completed_orientation(member, orientation_type)
             assert equipment.access_state(member) == Equipment.AccessState.OK
@@ -205,7 +206,7 @@ def describe_Equipment():
         def describe_with_bulk_sets():
             def it_reads_orientation_from_the_provided_set_without_querying():
                 orientation_type = OrientationTypeFactory()
-                equipment = EquipmentFactory(required_orientation=orientation_type)
+                equipment = EquipmentFactory(unlocking_orientations=[orientation_type])
                 member = MemberFactory()
                 state = equipment.access_state(member, oriented_type_ids={orientation_type.pk})
                 assert state == Equipment.AccessState.OK
@@ -214,7 +215,7 @@ def describe_Equipment():
 
     def describe_booking_blockers():
         def it_reports_an_inactive_membership_alone():
-            equipment = EquipmentFactory(required_orientation=OrientationTypeFactory())
+            equipment = EquipmentFactory(unlocking_orientations=[OrientationTypeFactory()])
             member = MemberFactory(status=Member.Status.FORMER)
             assert equipment.booking_blockers(member) == ["Your membership needs to be active to reserve equipment."]
 
@@ -224,7 +225,7 @@ def describe_Equipment():
 
         def it_reports_the_missing_orientation_by_name():
             orientation_type = OrientationTypeFactory(name="Lathe")
-            equipment = EquipmentFactory(required_orientation=orientation_type)
+            equipment = EquipmentFactory(unlocking_orientations=[orientation_type])
             member = MemberFactory()
             assert equipment.booking_blockers(member) == [
                 "You need the Lathe orientation before you can reserve this equipment."
@@ -233,7 +234,7 @@ def describe_Equipment():
         def it_is_empty_when_everything_is_met():
             guild = GuildFactory()
             orientation_type = OrientationTypeFactory(guild=guild)
-            equipment = EquipmentFactory(guild=guild, required_orientation=orientation_type)
+            equipment = EquipmentFactory(guild=guild, unlocking_orientations=[orientation_type])
             member = MemberFactory()
             _completed_orientation(member, orientation_type)
             assert equipment.booking_blockers(member) == []
@@ -242,7 +243,9 @@ def describe_Equipment():
             from tests.billing.factories import LateCancellationFeeFactory
 
             orientation_type = OrientationTypeFactory(name="Lathe")
-            equipment = EquipmentFactory(required_orientation=orientation_type, is_closed=True, closed_message="Down.")
+            equipment = EquipmentFactory(
+                unlocking_orientations=[orientation_type], is_closed=True, closed_message="Down."
+            )
             member = MemberFactory()
             LateCancellationFeeFactory(
                 orientation_booking=OrientationBookingFactory(member=member, status="cancelled"), amount_cents=3750
@@ -513,3 +516,189 @@ def describe_is_run_by():
         other_lead = MemberFactory()
         GuildFactory(guild_lead=other_lead)
         _agrees(equipment, other_lead, False)
+
+
+def describe_any_one_of_several_unlocking_orientations():
+    """#656: an item lists zero or more orientations and completing any one unlocks it."""
+
+    def _press() -> tuple[Equipment, object, object]:
+        guild = GuildFactory(name="Unlock Printmaking")
+        beginner = OrientationTypeFactory(guild=guild, name="Unlock Press Beginner")
+        experienced = OrientationTypeFactory(guild=guild, name="Unlock Press Experienced")
+        return (
+            EquipmentFactory(name="Unlock Press", unlocking_orientations=[beginner, experienced]),
+            beginner,
+            experienced,
+        )
+
+    def it_opens_an_item_with_no_orientations_to_any_active_member():
+        equipment = EquipmentFactory()
+        member = MemberFactory()
+        assert equipment.is_unlocked_for(member) is True
+        assert equipment.access_state(member) == Equipment.AccessState.OK
+
+    def it_unlocks_for_a_member_who_completed_either_one():
+        equipment, beginner, experienced = _press()
+        for completed in (beginner, experienced):
+            member = MemberFactory()
+            _completed_orientation(member, completed)
+            assert equipment.is_unlocked_for(member) is True
+            assert equipment.access_state(member) == Equipment.AccessState.OK
+            assert equipment.booking_blockers(member) == []
+
+    def it_counts_a_hand_entered_record_for_one_of_them():
+        from tests.membership.factories import OrientationRecordFactory
+
+        equipment, _beginner, experienced = _press()
+        member = MemberFactory()
+        OrientationRecordFactory(member=member, orientation_type=experienced)
+        assert equipment.access_state(member) == Equipment.AccessState.OK
+
+    def it_stays_locked_for_a_member_with_none_and_names_every_one():
+        equipment, _beginner, _experienced = _press()
+        member = MemberFactory()
+        assert equipment.access_state(member) == Equipment.AccessState.NEEDS_ORIENTATION
+        assert equipment.booking_blockers(member) == [
+            "You need one of these orientations before you can reserve this equipment: "
+            "Unlock Press Beginner or Unlock Press Experienced."
+        ]
+
+    def it_ignores_an_orientation_the_item_does_not_list():
+        equipment, _beginner, _experienced = _press()
+        member = MemberFactory()
+        _completed_orientation(member, OrientationTypeFactory(name="Unlock Unrelated"))
+        assert equipment.access_state(member) == Equipment.AccessState.NEEDS_ORIENTATION
+
+    def it_answers_in_one_read_however_many_orientations_it_lists(django_assert_num_queries):
+        equipment, _beginner, _experienced = _press()
+        member = MemberFactory()
+        prefetched = Equipment.objects.prefetch_related("unlocking_orientations").get(pk=equipment.pk)
+        with django_assert_num_queries(2):  # completed bookings, then hand-entered records
+            assert prefetched.is_unlocked_for(member) is False
+
+    def it_reads_the_bulk_set_without_querying(django_assert_num_queries):
+        equipment, beginner, _experienced = _press()
+        member = MemberFactory()
+        prefetched = Equipment.objects.prefetch_related("unlocking_orientations").get(pk=equipment.pk)
+        with django_assert_num_queries(0):
+            assert prefetched.is_unlocked_for(member, oriented_type_ids={beginner.pk}) is True
+            assert prefetched.is_unlocked_for(member, oriented_type_ids=set()) is False
+
+    def it_protects_each_listed_type_from_deletion():
+        _equipment, beginner, experienced = _press()
+        for orientation_type in (beginner, experienced):
+            with pytest.raises(ProtectedError):
+                orientation_type.delete()
+
+    def it_drops_its_rows_with_the_equipment():
+        equipment, beginner, _experienced = _press()
+        equipment.delete()
+        assert not EquipmentUnlockingOrientation.objects.exists()
+        assert beginner.gated_equipment.count() == 0
+
+    def it_names_a_row_by_both_ends():
+        equipment, beginner, _experienced = _press()
+        row = EquipmentUnlockingOrientation.objects.get(equipment=equipment, orientation_type=beginner)
+        assert str(row) == "Unlock Press Beginner unlocks Unlock Press"
+
+    def describe_orientation_unlocks():
+        def it_gives_each_listed_type_its_book_link_in_display_order():
+            equipment, beginner, experienced = _press()
+            unlocks = equipment.orientation_unlocks(MemberFactory())
+            assert [(u.orientation_type, u.booking, u.url, u.paused) for u in unlocks] == [
+                (beginner, None, beginner.orientation_anchor_path(), True),
+                (experienced, None, experienced.orientation_anchor_path(), True),
+            ]
+
+        def it_offers_a_book_link_only_for_a_type_taking_bookings():
+            from tests.membership.factories import GuildOrientationSettingsFactory
+
+            equipment, beginner, experienced = _press()
+            GuildOrientationSettingsFactory(guild=beginner.guild)
+            experienced.is_active = False
+            experienced.save()
+            unlocks = equipment.orientation_unlocks(MemberFactory())
+            assert [u.paused for u in unlocks] == [False, True]
+
+        def it_carries_the_members_live_booking_for_a_type_in_one_read(django_assert_max_num_queries):
+            equipment, beginner, _experienced = _press()
+            member = MemberFactory()
+            slot = OrientationSlotFactory(guild=beginner.guild, orientation_type=beginner)
+            booking = OrientationBookingFactory(member=member, slot=slot, status=OrientationBooking.Status.REQUESTED)
+            OrientationBookingFactory(
+                member=member,
+                slot=OrientationSlotFactory(guild=beginner.guild, orientation_type=beginner),
+                status=OrientationBooking.Status.CANCELLED,
+            )
+            from django.db.models import Prefetch
+
+            from membership.models import OrientationType
+
+            # The detail page's shape: each unlocking type arrives with its guild.
+            unlocking = OrientationType.objects.select_related("guild", "equipment")
+            prefetched = Equipment.objects.prefetch_related(Prefetch("unlocking_orientations", queryset=unlocking)).get(
+                pk=equipment.pk
+            )
+            # One read for the live bookings across both types, then the accepting check's guild settings.
+            with django_assert_max_num_queries(3):
+                unlocks = prefetched.orientation_unlocks(member)
+            assert [u.booking for u in unlocks] == [booking, None]
+            assert unlocks[0].paused is False
+
+
+def describe_unlocking_orientations_migration():
+    """0211 (#656) copies each single gate into the list and, reversed, writes the first one back."""
+
+    _migration = importlib.import_module("membership.migrations.0211_equipment_unlocking_orientations")
+
+    def it_copies_each_required_orientation_into_the_list():
+        orientation_type = OrientationTypeFactory(name="Migrated Gate")
+        gated = EquipmentFactory(name="Migrated Gated", required_orientation=orientation_type)
+        open_bench = EquipmentFactory(name="Migrated Open")
+
+        _migration.copy_required_orientation_into_list(django_apps, None)
+
+        assert list(gated.unlocking_orientations.all()) == [orientation_type]
+        assert not open_bench.unlocking_orientations.exists()
+
+    def it_reverses_by_writing_the_first_listed_type_back():
+        listed_second = OrientationTypeFactory(name="Reverse Zeta")
+        listed_first = OrientationTypeFactory(name="Reverse Alpha")
+        equipment = EquipmentFactory(name="Reverse Press")
+        EquipmentUnlockingOrientation.objects.create(equipment=equipment, orientation_type=listed_second)
+        EquipmentUnlockingOrientation.objects.create(equipment=equipment, orientation_type=listed_first)
+        open_bench = EquipmentFactory(name="Reverse Open")
+
+        _migration.copy_first_unlocking_orientation_back(django_apps, None)
+
+        equipment.refresh_from_db()
+        open_bench.refresh_from_db()
+        assert equipment.required_orientation == listed_first
+        assert open_bench.required_orientation is None
+
+    def it_reverses_an_item_cleared_after_the_migration_to_no_gate():
+        stale = OrientationTypeFactory(name="Reverse Stale")
+        cleared = EquipmentFactory(name="Reverse Cleared", required_orientation=stale)
+        _migration.copy_required_orientation_into_list(django_apps, None)
+        cleared.unlocking_orientations.clear()  # cleared to none by code that never touched the FK
+
+        _migration.copy_first_unlocking_orientation_back(django_apps, None)
+
+        cleared.refresh_from_db()
+        assert cleared.required_orientation is None
+
+
+def describe_required_orientation_mirror():
+    """#656, one release: the retired column follows the list, so a code only rollback keeps every gate."""
+
+    def it_writes_the_first_listed_type_and_nulls_an_empty_list():
+        later = OrientationTypeFactory(name="Mirror Zeta", sort_order=0)
+        earlier = OrientationTypeFactory(name="Mirror Alpha", sort_order=0)
+        equipment = EquipmentFactory(name="Mirror Press", unlocking_orientations=[later, earlier])
+        equipment.mirror_required_orientation()
+        equipment.refresh_from_db()
+        assert equipment.required_orientation == earlier
+        equipment.unlocking_orientations.clear()
+        equipment.mirror_required_orientation()
+        equipment.refresh_from_db()
+        assert equipment.required_orientation is None

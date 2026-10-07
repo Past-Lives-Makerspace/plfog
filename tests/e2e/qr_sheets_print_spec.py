@@ -61,8 +61,7 @@ def _world(login_via_code) -> tuple[Equipment, OrientationType]:
         default_location="Wood shop bench two",
         photo=_photo("checkout.jpg"),
     )
-    equipment.required_orientation = orientation_type
-    equipment.save(update_fields=["required_orientation"])
+    equipment.unlocking_orientations.set([orientation_type])
     return equipment, orientation_type
 
 

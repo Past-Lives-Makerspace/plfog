@@ -404,7 +404,7 @@ def describe_reserve():
 
     def it_rejects_a_blocked_member_first():
         orientation_type = OrientationTypeFactory(name="Lathe")
-        equipment = _open_tool(required_orientation=orientation_type)
+        equipment = _open_tool(unlocking_orientations=[orientation_type])
         member = _linked_member("res_blocked")
         with pytest.raises(EquipmentError, match="Lathe orientation"):
             equipment_service.reserve(equipment, member, _at(_day(), 10), 60)

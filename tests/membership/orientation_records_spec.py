@@ -289,7 +289,7 @@ def describe_gates_on_a_record_alone():
     def describe_equipment():
         def _gated_tool() -> tuple[Equipment, OrientationType, date]:
             orientation_type = OrientationTypeFactory(name="Lathe")
-            equipment = EquipmentFactory(required_orientation=orientation_type)
+            equipment = EquipmentFactory(unlocking_orientations=[orientation_type])
             day = timezone.localdate() + timedelta(days=2)
             EquipmentHoursFactory(
                 equipment=equipment, weekday=day.weekday(), start_time=time(9, 0), end_time=time(17, 0)

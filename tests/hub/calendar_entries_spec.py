@@ -14,6 +14,7 @@ from classes.models import ClassOffering
 from core.models import SiteConfiguration
 from hub.calendar_entries import (
     MAKERSPACE_LEGEND_KEY,
+    ORIENTATION_ITEM_STRIDE,
     ORIENTATION_PK_OFFSET,
     RESERVATION_PK_OFFSET,
     CalendarEntry,
@@ -450,6 +451,13 @@ def describe_reservation_entries():
         assert entry.owner_label == "Laser cutter · Fabrication Guild"
         assert (entry.start_dt, entry.end_dt) == (reservation.starts_at, reservation.ends_at)
 
+    def it_leaves_a_managers_block_off_the_feed():
+        item = _item()
+        reservation = EquipmentReservationFactory(equipment=item)
+        EquipmentReservationFactory(equipment=item, kind=EquipmentReservation.Kind.BLOCK, purpose="Maintenance")
+        [entry] = reservation_entries([item], *_calendar_range())
+        assert entry.pk == RESERVATION_PK_OFFSET + reservation.pk
+
     def it_links_the_items_page_on_the_reservations_local_day():
         item = _item(name="Table saw")
         # 03:30 UTC is the evening before in Portland: the link names the local day.
@@ -466,7 +474,7 @@ def describe_reservation_entries():
         slot = OrientationSlotFactory(guild=None, orientation_type=orientation_type, location="Wood Shop")
         OrientationBookingFactory(slot=slot, status=OrientationBooking.Status.REQUESTED)
         [entry] = reservation_entries([item], *_calendar_range())
-        assert entry.pk == ORIENTATION_PK_OFFSET + slot.pk
+        assert entry.pk == ORIENTATION_PK_OFFSET + slot.pk * ORIENTATION_ITEM_STRIDE
         assert entry.title == "Lathe · Orientation"
         assert entry.source == "orientation"
         assert entry.legend_key == str(item.pk)
@@ -515,7 +523,30 @@ def describe_reservation_entries():
         OrientationBookingFactory(slot=slot, status=OrientationBooking.Status.CONFIRMED)
         assert reservation_entries([item], *_calendar_range()) == []
 
-    def it_reads_everything_in_two_queries(django_assert_num_queries):
+    def it_files_a_guild_orientation_under_every_item_it_uses_with_its_own_pk():
+        press, roller, other = _item(name="Etching press"), _item(name="Brayer station"), _item(name="Lathe")
+        guild = GuildFactory(name="Printmaking Guild")
+        orientation_type = OrientationTypeFactory(guild=guild, name="Etching Basics")
+        orientation_type.uses_equipment.set([press, roller, other])
+        slot = OrientationSlotFactory(guild=guild, orientation_type=orientation_type)
+        OrientationBookingFactory(slot=slot, status=OrientationBooking.Status.REQUESTED)
+        entries = reservation_entries([press, roller], *_calendar_range())
+        assert [(entry.title, entry.legend_key) for entry in entries] == [
+            ("Brayer station · Orientation", str(roller.pk)),
+            ("Etching press · Orientation", str(press.pk)),
+        ]
+        base = ORIENTATION_PK_OFFSET + slot.pk * ORIENTATION_ITEM_STRIDE
+        assert [entry.pk for entry in entries] == [base, base + 1]
+
+    def it_leaves_out_an_open_unbooked_guild_slot_that_uses_the_item():
+        press = _item(name="Etching press")
+        guild = GuildFactory(name="Printmaking Guild")
+        orientation_type = OrientationTypeFactory(guild=guild, name="Etching Basics")
+        orientation_type.uses_equipment.add(press)
+        OrientationSlotFactory(guild=guild, orientation_type=orientation_type)
+        assert reservation_entries([press], *_calendar_range()) == []
+
+    def it_reads_everything_in_three_queries(django_assert_num_queries):
         items = [_item(name=f"Item {n}") for n in range(3)]
         for item in items:
             EquipmentReservationFactory(equipment=item)
@@ -523,5 +554,5 @@ def describe_reservation_entries():
                 guild=None, orientation_type=OrientationTypeFactory(guild=None, equipment=item)
             )
             OrientationBookingFactory(slot=slot, status=OrientationBooking.Status.CONFIRMED)
-        with django_assert_num_queries(2):
+        with django_assert_num_queries(3):
             assert len(reservation_entries(items, *_calendar_range())) == 6

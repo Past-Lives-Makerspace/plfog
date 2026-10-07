@@ -134,6 +134,45 @@ def reserve(
     return reservation
 
 
+#: A block's reason is a short label on the day timeline ("Held · reason"), not a note (#657).
+BLOCK_REASON_MAX_LENGTH = 80
+
+
+def block_time(
+    equipment: Equipment, actor: Member, starts_at: datetime, ends_at: datetime, *, reason: str
+) -> EquipmentReservation:
+    """Hold [starts_at, ends_at) on ``equipment`` for a manager, safely under concurrency (#657).
+
+    Takes the same ``select_for_update`` lock on the Equipment row as :func:`reserve`, so a
+    member booking and a manager block can never both win one interval. A block is an
+    :class:`EquipmentReservation` of kind BLOCK held by ``actor``, with ``reason`` as its
+    purpose. It sends nothing: no confirmation, no manager ping, no Discord post.
+
+    Raises:
+        EquipmentError: When the reason is blank or too long, or from
+            :meth:`Equipment.ensure_blockable` when the span may not be held.
+    """
+    from membership.models import Equipment, EquipmentError, EquipmentReservation
+
+    cleaned_reason = reason.strip()
+    if not cleaned_reason:
+        raise EquipmentError("Please give a reason members will see on the schedule.")
+    if len(cleaned_reason) > BLOCK_REASON_MAX_LENGTH:
+        raise EquipmentError(f"Keep the reason to {BLOCK_REASON_MAX_LENGTH} characters.")
+    with transaction.atomic():
+        locked = Equipment.objects.select_for_update().get(pk=equipment.pk)
+        locked.ensure_blockable(actor, starts_at, ends_at)
+        return EquipmentReservation.objects.create(
+            equipment=locked,
+            member=actor,
+            kind=EquipmentReservation.Kind.BLOCK,
+            starts_at=starts_at,
+            ends_at=ends_at,
+            purpose=cleaned_reason,
+            status=EquipmentReservation.Status.CONFIRMED,
+        )
+
+
 def _notify_confirmed(reservation: EquipmentReservation) -> None:
     """Tell the member their reservation is set — forced email with the ``.ics`` attached."""
     from core.events.emit import emit

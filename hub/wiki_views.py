@@ -159,7 +159,8 @@ def _page_or_none(slug: str) -> WikiPage | None:
     """
     return (
         WikiPage.objects.select_related("guild", "equipment", "equipment__guild", "created_by", "updated_by")
-        .select_related("verified_by", "last_checked_by", "archived_by", "equipment__required_orientation")
+        .select_related("verified_by", "last_checked_by", "archived_by")
+        .prefetch_related("equipment__unlocking_orientations")
         .filter(slug=slug)
         .first()
     )

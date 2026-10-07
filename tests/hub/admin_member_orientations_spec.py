@@ -472,8 +472,7 @@ def describe_member_facing_surfaces():
         member = _login_member(client)
         orientation_type = OrientationTypeFactory(equipment_owned=True, name="Lathe Basics")
         equipment = orientation_type.equipment
-        equipment.required_orientation = orientation_type
-        equipment.save(update_fields=["required_orientation"])
+        equipment.unlocking_orientations.set([orientation_type])
         url = reverse("hub_equipment_detail", args=[equipment.slug])
         assert b"pl-equip-banner__ok-text" not in client.get(url).content
         OrientationRecordFactory(member=member, orientation_type=orientation_type)
@@ -486,7 +485,7 @@ def describe_member_facing_surfaces():
     def it_marks_the_equipment_index_card_all_set(client: Client):
         member = _login_member(client)
         orientation_type = OrientationTypeFactory(name="Lathe")
-        EquipmentFactory(name="Gated Lathe", required_orientation=orientation_type)
+        EquipmentFactory(name="Gated Lathe", unlocking_orientations=[orientation_type])
         assert b"Orientation needed" in client.get(reverse("hub_equipment_index")).content
         OrientationRecordFactory(member=member, orientation_type=orientation_type)
         content = client.get(reverse("hub_equipment_index")).content

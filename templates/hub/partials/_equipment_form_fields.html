@@ -4,13 +4,13 @@ The EquipmentForm's fields — shared by the add page and the manage panel's Det
   form      — a bound or unbound EquipmentForm
   equipment — the instance being edited, or absent on the add page (drives the
               photo delete button and the "create a new orientation type" link)
-The new orientation type's fields (form.new_type_form, issue #466) only show once
-"New orientation for this equipment" is picked; the Alpine state lives here so both
+The new orientation type's fields (form.new_type_form, issue #466) only show while
+"New orientation for this equipment" is among the picked unlocking orientations (#656); the Alpine state lives here so both
 surfaces behave identically. Layout stays in CSS classes — never inline display on an x-show element
 (FRONTEND rule 12).
 {% endcomment %}
 <div x-data="{ newOrientation: {% if form.creates_orientation_type %}true{% else %}false{% endif %} }"
-     @change="if ($event.target.name === 'required_orientation') newOrientation = $event.target.value === '{{ form.NEW_TYPE_CHOICE }}'">
+     @change="if ($event.target.name === 'unlocking_orientations') newOrientation = Array.from($event.target.selectedOptions).some(option => option.value === '{{ form.NEW_TYPE_CHOICE }}')">
   {% if form.non_field_errors %}
   <ul class="pl-field-errors">
     {% for error in form.non_field_errors %}<li class="pl-field-error">{{ error }}</li>{% endfor %}
@@ -30,7 +30,7 @@ surfaces behave identically. Layout stays in CSS classes — never inline displa
     {% include "components/form_field.html" with field=form.description %}
     {% include "components/form_field.html" with field=form.area %}
     {% include "components/form_field.html" with field=form.location_note %}
-    {% include "components/form_field.html" with field=form.required_orientation %}
+    {% include "components/form_field.html" with field=form.unlocking_orientations %}
     {% if equipment and equipment.guild %}
     <p class="pl-field-hint pl-equip-guild-type-link">
       <a href="{% url 'hub_guild_edit' equipment.guild.pk %}?tab=orientations">Create a new {{ equipment.guild.name }} orientation type</a>

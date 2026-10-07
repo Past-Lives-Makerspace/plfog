@@ -594,8 +594,7 @@ def describe_equipment_owned_orientations_service():
 
         slot = _equipment_slot()
         equipment = slot.orientation_type.equipment
-        equipment.required_orientation = slot.orientation_type
-        equipment.save(update_fields=["required_orientation"])
+        equipment.unlocking_orientations.set([slot.orientation_type])
         manager = _member_with_user("eq_mgr_loop")
         EquipmentStaffMembership.objects.create(equipment=equipment, member=manager)
         member = _member_with_user("eq_loop")

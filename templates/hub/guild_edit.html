@@ -483,6 +483,7 @@ confirm modal carries its own POST form, and template content can't nest a form.
               <div style="flex:2; min-width:160px;">{% include "components/form_field.html" with field=t.default_location %}</div>
               <div style="flex:1; min-width:100px;">{% include "components/form_field.html" with field=t.sort_order %}</div>
             </div>
+            {% include "hub/partials/_orientation_type_uses_equipment_field.html" with field=t.uses_equipment %}
             {% include "hub/partials/_orientation_type_pricing_fields.html" with type_form=t %}
             {% include "components/form_field.html" with field=t.description %}
             {# The card photo (#502); a saved row also gets the delete control. #}
@@ -516,6 +517,7 @@ confirm modal carries its own POST form, and template content can't nest a form.
               <div style="flex:2; min-width:160px;">{% include "components/form_field.html" with field=ef.default_location %}</div>
               <div style="flex:1; min-width:100px;">{% include "components/form_field.html" with field=ef.sort_order %}</div>
             </div>
+            {% include "hub/partials/_orientation_type_uses_equipment_field.html" with field=ef.uses_equipment %}
             {% include "hub/partials/_orientation_type_pricing_fields.html" with type_form=ef %}
             {% include "components/form_field.html" with field=ef.description %}
             {% include "components/image_field.html" with field=ef.photo current_image=None label="Photo" shape="rect" max_bytes=max_upload_image_bytes tooltip_html="Wide photo, about 1600x900, JPG or PNG. Shown on this orientation's card. Leave empty to use the guild banner." %}

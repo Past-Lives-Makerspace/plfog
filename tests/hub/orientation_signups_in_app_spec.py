@@ -175,8 +175,7 @@ def describe_the_member_pages():
         _login(client, "ia_banner")
         equipment = EquipmentFactory()
         orientation_type = OrientationTypeFactory(equipment_owned=True, equipment=equipment)
-        equipment.required_orientation = orientation_type
-        equipment.save(update_fields=["required_orientation"])
+        equipment.unlocking_orientations.set([orientation_type])
         response = client.get(reverse("hub_equipment_detail", args=[equipment.slug]))
         content = response.content.decode()
         assert "Book the Orientation" in content
