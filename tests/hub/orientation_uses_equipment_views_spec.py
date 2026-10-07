@@ -100,7 +100,7 @@ def describe_guild_editor():
         press = EquipmentFactory(name="Etching Press")
         retired = EquipmentFactory(name="Old Press", is_active=False)
         orientation_type.uses_equipment.add(press)
-        response = client.get(reverse("hub_guild_edit", args=[guild.pk]), {"tab": "orientations"})
+        response = client.get(reverse("hub_guild_orientations", args=[guild.pk]))
         content = response.content.decode()
         assert "Equipment it uses" in content
         assert _box(content, "0", press) == "checked"
@@ -112,7 +112,7 @@ def describe_guild_editor():
         orientation_type = OrientationTypeFactory(guild=guild, name="Etching Basics")
         retired = EquipmentFactory(name="Old Press", is_active=False)
         orientation_type.uses_equipment.add(retired)
-        response = client.get(reverse("hub_guild_edit", args=[guild.pk]), {"tab": "orientations"})
+        response = client.get(reverse("hub_guild_orientations", args=[guild.pk]))
         assert _box(response.content.decode(), "0", retired) == "checked"
 
     def it_saves_the_list_and_clears_it(client: Client):
@@ -322,7 +322,7 @@ def describe_the_guild_upcoming_times_flag():
         return guild, press, blocked
 
     def _times(client: Client, guild: Guild) -> Any:
-        return client.get(reverse("hub_guild_edit", args=[guild.pk]), {"tab": "orientations"})
+        return client.get(reverse("hub_guild_orientations", args=[guild.pk]))
 
     def it_flags_the_slot_under_a_reservation_and_names_the_item(client: Client):
         guild, press, blocked = _guild_page(client, "print_lead")

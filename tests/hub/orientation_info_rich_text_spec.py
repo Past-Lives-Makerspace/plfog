@@ -69,7 +69,7 @@ def describe_the_orientations_tab_editor():
         guild = GuildFactory()
         GuildOrientationSettingsFactory(guild=guild)
         _lead_login(client, "ri_mount", guild)
-        content = client.get(reverse("hub_guild_edit", args=[guild.pk]), {"tab": "orientations"}).content.decode()
+        content = client.get(reverse("hub_guild_orientations", args=[guild.pk])).content.decode()
         assert 'data-rte-for="id_info"' in content
         assert '<textarea name="info" id="id_info" class="pl-rte-source"' in content
         assert "Orientation info" in content
@@ -80,7 +80,7 @@ def describe_the_orientations_tab_editor():
         guild = GuildFactory()
         GuildOrientationSettingsFactory(guild=guild, info="Bring shoes.\n\nNo sandals.")
         _lead_login(client, "ri_seed", guild)
-        content = client.get(reverse("hub_guild_edit", args=[guild.pk]), {"tab": "orientations"}).content.decode()
+        content = client.get(reverse("hub_guild_orientations", args=[guild.pk])).content.decode()
         textarea = content.split('<textarea name="info"')[1].split("</textarea>")[0]
         assert "&lt;p&gt;Bring shoes.&lt;/p&gt;&lt;p&gt;No sandals.&lt;/p&gt;" in textarea
 

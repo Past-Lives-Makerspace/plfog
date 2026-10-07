@@ -10,6 +10,7 @@ Member-facing views. All views are `@login_required`. No models — reads from `
 | `snapshot_history` | `hub_snapshot_history` | `/guilds/voting/history/` |
 | `snapshot_detail` | `hub_snapshot_detail` | `/guilds/voting/history/<pk>/` |
 | `guild_detail` | `hub_guild_detail` | `/guilds/<slug>/` (old `/guilds/<pk>/` 301-redirects via `hub_guild_detail_by_id`) |
+| `guild_orientations` | `hub_guild_orientations` | `/guilds/<pk>/orientations/` (the guild's Orientations page, #672: every orientation card from `partials/_guild_orientations_section.html` under the plGuildAutosave root, gated like Guild Settings; every orientation save lands here via `_guild_orientations_url`, and Guild Settings' `?tab=orientations` redirects here) |
 | `member_directory` | `hub_member_directory` | `/members/` |
 | `profile_settings` | `hub_profile_settings` | `/settings/profile/` |
 | `email_preferences` | `hub_email_preferences` | `/settings/emails/` |
@@ -18,7 +19,7 @@ Member-facing views. All views are `@login_required`. No models — reads from `
 | `tab_history` | `hub_tab_history` | `/tab/history/` |
 | `announcements_overview` | `hub_announcements` | `/announcements/` (Drafts and Sent tabs, `?tab=drafts\|sent`) |
 | `announcement_sent` | `hub_announcement_sent` | `/announcements/sent/<pk>/` (read-only record of a sent or sending announcement) |
-| `orientations_views.hub_orientations` | `hub_orientations` | `/orientations/` (every bookable orientation as a card; its controls post `next` so the member lands back, `views._orientation_return`; the header's "+ Add an Orientation" links the guilds from `membership.permissions.guilds_for_new_orientation` to their settings' Orientations tab, #637) |
+| `orientations_views.hub_orientations` | `hub_orientations` | `/orientations/` (every bookable orientation as a card; its controls post `next` so the member lands back, `views._orientation_return`; the header's "+ Add an Orientation" links the guilds from `membership.permissions.guilds_for_new_orientation` to their Orientations page, #637 and #672) |
 | `orientations_views.hub_orientations_calendar_events` | `hub_orientations_calendar_events` | `/orientations/calendar/events/` (the Orientations page's Calendar view: grid and list for its navigation, `?shell=1` for the whole calendar on first open) |
 | `location_views.hub_admin_locations` | `hub_admin_locations` | `/manage/locations/` (admin only: every Location, with the add form; `hub_admin_location_edit` at `/manage/locations/<pk>/`) |
 | `orientations_views.hub_orientation_type_permalink` | `hub_orientation_type_permalink` | `/orientations/types/<pk>/` (the stable link an orientation QR sheet encodes, #631: redirects to the type's current booking link, `OrientationType.booking_landing_path`) |

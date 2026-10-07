@@ -1,7 +1,7 @@
 """End-to-end: the Orientations page (#502 parts 2 and 3) in a real browser.
 
 A member books a slot from a card and lands back on the page with the card reading
-Requested; a lead adds an orientation type on the guild editor, picks a photo on the
+Requested; a lead adds an orientation type on the guild's Orientations page, picks a photo on the
 freshly added row and sees its preview (the row's cloned image field script has to run),
 and the autosave stores it; the equipment editor's own "+ Add Orientation Type" row does the
 same through its Save button. On the Calendar view (part 3) a member finds a seeded slot's
@@ -79,9 +79,10 @@ def describe_the_orientations_page():
         user.is_superuser = True
         user.save(update_fields=["is_staff", "is_superuser"])
 
-        page.goto(f"{live_server.url}{reverse('hub_guild_edit', args=[guild.pk])}?tab=orientations")
+        page.goto(f"{live_server.url}{reverse('hub_guild_orientations', args=[guild.pk])}")
         page.wait_for_function(ALPINE_READY)
-        page.get_by_role("button", name="+ Add an orientation type").click()
+        # The header's add (#672) drives the Orientation Types form through its form= owner.
+        page.locator("[data-add-orientation-type]").click()
         page.locator('input[name="otypes-0-photo"]').set_input_files(
             {"name": "press.png", "mimeType": "image/png", "buffer": _PNG}
         )

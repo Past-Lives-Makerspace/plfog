@@ -81,7 +81,7 @@ def describe_the_guild_editor():
         guild = GuildFactory(guild_lead=user.member)
         with_photo = OrientationTypeFactory(guild=guild, name="Has Photo", photo=_png())
         without = OrientationTypeFactory(guild=guild, name="No Photo")
-        content = client.get(reverse("hub_guild_edit", args=[guild.pk])).content.decode()
+        content = client.get(reverse("hub_guild_orientations", args=[guild.pk])).content.decode()
         assert 'name="otypes-0-photo"' in content
         assert GUILD_TOOLTIP in content
         assert with_photo.photo.url in content
@@ -93,7 +93,7 @@ def describe_the_guild_editor():
     def it_renders_the_field_in_the_add_row_template_without_a_delete(client: Client):
         user = _login(client, "ph_guild_template")
         guild = GuildFactory(guild_lead=user.member)
-        content = client.get(reverse("hub_guild_edit", args=[guild.pk])).content.decode()
+        content = client.get(reverse("hub_guild_orientations", args=[guild.pk])).content.decode()
         template = content[content.index('<template id="otype-empty-template"') :]
         template = template[: template.index("</template>")]
         assert 'name="otypes-__prefix__-photo"' in template
@@ -103,7 +103,7 @@ def describe_the_guild_editor():
     def it_posts_the_types_form_as_multipart(client: Client):
         user = _login(client, "ph_guild_multipart")
         guild = GuildFactory(guild_lead=user.member)
-        content = client.get(reverse("hub_guild_edit", args=[guild.pk])).content.decode()
+        content = client.get(reverse("hub_guild_orientations", args=[guild.pk])).content.decode()
         action = reverse("hub_guild_orientation_types_save", args=[guild.pk])
         assert f'action="{action}" enctype="multipart/form-data"' in content
 
@@ -152,14 +152,14 @@ def describe_the_equipment_editor():
 
 
 def describe_the_delete_endpoint():
-    def it_clears_a_guild_types_photo_for_the_lead_and_returns_to_the_tab(client: Client):
+    def it_clears_a_guild_types_photo_for_the_lead_and_returns_to_the_orientations_page(client: Client):
         user = _login(client, "ph_del_lead")
         guild = GuildFactory(guild_lead=user.member)
         orientation_type = OrientationTypeFactory(guild=guild, name="Delete Me", photo=_png())
         stored = orientation_type.photo.name
         response = client.post(reverse("hub_orientation_type_photo_delete", args=[orientation_type.pk]))
         assert response.status_code == 302
-        assert response["Location"] == f"{reverse('hub_guild_edit', args=[guild.pk])}?tab=orientations"
+        assert response["Location"] == reverse("hub_guild_orientations", args=[guild.pk])
         orientation_type.refresh_from_db()
         assert not orientation_type.photo
         assert not default_storage.exists(stored)

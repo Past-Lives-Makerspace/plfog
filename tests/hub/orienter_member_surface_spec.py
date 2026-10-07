@@ -191,7 +191,7 @@ def describe_post_your_hours_nudge():
         response = client.get(reverse("hub_orientations"), {"view": "bookings"})
         assert b"You have not posted any orientation hours yet." in response.content
         assert b"Post your orientation hours" in response.content
-        assert f"guilds/{guild.pk}/edit/?tab=orientations".encode() in response.content
+        assert f'href="/guilds/{guild.pk}/orientations/"'.encode() in response.content
 
     def it_lists_each_guild_when_they_staff_several(client: Client):
         user = _member_user("ms_nudge_multi", name="Lead Person")

@@ -288,23 +288,16 @@ TOURS: dict[str, Tour] = {
                 body="Print a flyer or grab a QR code for your guild page. Perfect for the shop wall or a table at an event.",
                 tab_set=("section", "basic"),
             ),
+            # Orientations have their own page (#672): the step spotlights the tab that links
+            # there and flips nothing, and the thank-you email card went with them.
             TourStep(
                 target='[data-help-key="guild.run-orientations"]',
                 title="Orientations",
                 body=(
-                    "Set your orientation hours and open slots here. Bookings show up on the "
-                    "Orientations page's Bookings tab, where you confirm them."
+                    "This tab opens your guild's Orientations page: add orientation types, set hours and "
+                    "open slots, and write the thank-you email. Bookings show up on the Orientations "
+                    "page's Bookings tab, where you confirm them."
                 ),
-                tab_set=("section", "orientations"),
-            ),
-            TourStep(
-                target='[data-help-key="guild.thankyou-email"]',
-                title="The Thank You Email",
-                body=(
-                    "After someone finishes their orientation, this note goes out automatically. "
-                    "Turn it on and make it yours."
-                ),
-                tab_set=("section", "orientations"),
             ),
             TourStep(
                 target='[data-help-key="guild.manage-staff"]',

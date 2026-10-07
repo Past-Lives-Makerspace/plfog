@@ -305,7 +305,7 @@ def describe_guild_edit_upcoming_slots():
         slot = _paid_slot()
         OrientationBookingFactory(slot=slot, status=OrientationBooking.Status.PENDING_PAYMENT, amount_paid_cents=1500)
         client.login(username="ge1", password="pass")
-        content = client.get(reverse("hub_guild_edit", args=[slot.guild.pk]) + "?tab=orientations").content.decode()
+        content = client.get(reverse("hub_guild_orientations", args=[slot.guild.pk])).content.decode()
         assert "1 seat held by a checkout in progress" in content
 
 

@@ -558,9 +558,28 @@ def describe__tour_payload():
     def it_serializes_tab_set_as_a_list():
         lead = _lead("pl-tab")
         steps = _tour_payload(TOURS["guild-lead"], lead, autostart=False)["steps"]
+        staff = next(s for s in steps if s["target"] == '[data-help-key="guild.manage-staff"]')
+        assert staff["tab_set"] == ["section", "staff"]
+        assert staff["navigate"] is None
+
+    def it_points_the_orientations_step_at_the_settings_tab_link_without_a_flip():
+        # Orientations left Guild Settings for their own page (#672): no section to flip to.
+        lead = _lead("pl-orient-link")
+        steps = _tour_payload(TOURS["guild-lead"], lead, autostart=False)["steps"]
         orient = next(s for s in steps if s["target"] == '[data-help-key="guild.run-orientations"]')
-        assert orient["tab_set"] == ["section", "orientations"]
+        assert orient["tab_set"] is None
         assert orient["navigate"] is None
+        assert '[data-help-key="guild.thankyou-email"]' not in [s["target"] for s in steps]
+
+    def it_only_flips_guild_settings_to_sections_the_page_has():
+        from pathlib import Path
+
+        from django.conf import settings
+
+        template = (Path(settings.BASE_DIR) / "templates" / "hub" / "guild_edit.html").read_text()
+        for step in TOURS["guild-lead"].steps:
+            if step.tab_set is not None:
+                assert f"section === '{step.tab_set[1]}'" in template, step.target
 
     def it_drops_steps_whose_resolver_raises_and_keeps_the_rest():
         # An instructor who owns no class: the roster, waitlist, and compose stops

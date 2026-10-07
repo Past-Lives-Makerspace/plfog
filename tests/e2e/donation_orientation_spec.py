@@ -45,7 +45,7 @@ def describe_donation_orientations():
         orientation_type = OrientationTypeFactory(guild=guild, name="Bench Basics", price_cents=2500)
         login_via_code(LEAD_EMAIL)
         page.set_viewport_size({"width": 1100, "height": 900})
-        page.goto(f"{live_server.url}{reverse('hub_guild_edit', args=[guild.pk])}?tab=orientations")
+        page.goto(f"{live_server.url}{reverse('hub_guild_orientations', args=[guild.pk])}")
 
         price = page.locator("#id_otypes-0-price")
         minimum = page.locator("#id_otypes-0-donation_minimum")

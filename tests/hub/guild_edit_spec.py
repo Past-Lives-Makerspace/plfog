@@ -756,15 +756,16 @@ def describe_guild_edit_tabs():
         assert response.status_code == 200
         # Alpine tab state reads ?tab= from the URL, defaulting to Basic Information.
         assert b"new URLSearchParams(window.location.search).get('tab') || 'basic'" in response.content
-        # Every tab — including the formerly-standalone Meeting Notes / Events / Orientations — is now
-        # a switchable in-page button driven by the same Alpine `section` state.
+        # Every tab, including the formerly-standalone Meeting Notes / Events, is a switchable
+        # in-page button driven by the same Alpine `section` state. Orientations is its own page
+        # (#672), so its tab is a link there and no in-page section.
         for tab in (
             b"basic",
             b"meetings",
             b"studio_hours",
             b"meeting_notes",
             b"events",
-            b"orientations",
+            b"reservations",
             b"images",
             b"content",
             b"links",
@@ -779,8 +780,9 @@ def describe_guild_edit_tabs():
         # The formerly-standalone sections now render inline on the same page.
         assert b"+ Add meeting notes" in response.content
         assert b"+ Add event" in response.content
-        # A non-leadership admin sees the overview, not a self-scoped My Hours card.
-        assert b"Orientation Schedule" in response.content
+        orientations_page = reverse("hub_guild_orientations", args=[guild.pk])
+        assert f'<a href="{orientations_page}" class="vote-tab"'.encode() in response.content
+        assert b"section = 'orientations'" not in response.content
         # The settings form saves itself (#575): no submit in any autosave form, the save pill instead.
         assert_autosave_forms_have_no_submit(response.content.decode())
         assert b"data-save-pill" in response.content

@@ -58,7 +58,7 @@ def describe_the_settings_tab():
     def it_puts_the_tab_directly_after_orientations(client: Client):
         _user_obj, guild = _lead(client, "rs_tab")
         content = _settings(client, guild)
-        after_orientations = content.split(">Orientations</button>", 1)[1].lstrip()
+        after_orientations = content.split("data-orientations-tab-link>Orientations</a>", 1)[1].lstrip()
         next_button = after_orientations[: after_orientations.index("</button>") + len("</button>")]
         assert "section === 'reservations'" in next_button
         assert next_button.endswith(">Reservations</button>")

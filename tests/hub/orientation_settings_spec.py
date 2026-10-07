@@ -104,13 +104,13 @@ def _future_date(days: int = 2) -> str:
 
 
 def describe_guild_orientation_edit():
-    def it_renders_the_editor_inside_the_orientations_tab(client: Client):
+    def it_renders_the_editor_on_the_orientations_page(client: Client):
         # The editor is now an in-page tab on the guild edit page, not a standalone page.
         # (The viewer leads the guild — My Hours only renders for its leadership.)
         user = _user_with_role("ed_admin", fog_role=Member.FogRole.ADMIN)
         guild = GuildFactory(guild_lead=user.member)
         client.login(username="ed_admin", password="pass")
-        response = client.get(f"{reverse('hub_guild_edit', args=[guild.pk])}?tab=orientations")
+        response = client.get(reverse("hub_guild_orientations", args=[guild.pk]))
         assert response.status_code == 200
         # Own hours are edited via the Edit Hours modal from the Orientation Schedule, not a
         # separate inline My Hours card.
@@ -126,13 +126,13 @@ def describe_guild_orientation_edit():
         assert b"Upcoming Times" in response.content
         assert b"+ Add a one off" in response.content
 
-    def it_redirects_a_get_to_the_orientations_tab(client: Client):
+    def it_redirects_a_get_to_the_orientations_page(client: Client):
         _user_with_role("ed_get", fog_role=Member.FogRole.ADMIN)
         guild = GuildFactory()
         client.login(username="ed_get", password="pass")
         response = client.get(reverse("hub_guild_orientation_edit", args=[guild.pk]))
         assert response.status_code == 302
-        assert response["Location"] == f"{reverse('hub_guild_edit', args=[guild.pk])}?tab=orientations"
+        assert response["Location"] == reverse("hub_guild_orientations", args=[guild.pk])
 
     def it_creates_settings_when_the_tab_is_opened(client: Client):
         _user_with_role("ed_create", fog_role=Member.FogRole.ADMIN)
@@ -164,7 +164,7 @@ def describe_guild_orientation_edit():
             _settings_payload(is_enabled="on", info="Bring closed-toe shoes"),
         )
         assert response.status_code == 302
-        assert response["Location"] == f"{reverse('hub_guild_edit', args=[guild.pk])}?tab=orientations"
+        assert response["Location"] == reverse("hub_guild_orientations", args=[guild.pk])
         settings_obj = GuildOrientationSettings.objects.get(guild=guild)
         assert settings_obj.is_enabled is True
         assert settings_obj.info == "Bring closed-toe shoes"
@@ -218,7 +218,7 @@ def describe_guild_orientation_edit():
 def describe_guild_orientation_hours_save():
     """Recurring hours save through their own form/view, separate from the settings form."""
 
-    def it_saves_a_recurring_rule_and_redirects_to_the_tab(client: Client):
+    def it_saves_a_recurring_rule_and_redirects_to_the_orientations_page(client: Client):
         # Self-scope saves go through the Edit Hours modal (modal_rules, HTMX) and require being
         # on the guild's leadership — hence the lead here. A valid save answers 204 + HX-Redirect.
         user = _user_with_role("hrs_add", fog_role=Member.FogRole.MEMBER)
@@ -242,7 +242,7 @@ def describe_guild_orientation_hours_save():
             HTTP_HX_REQUEST="true",
         )
         assert response.status_code == 204
-        assert response["HX-Redirect"] == f"{reverse('hub_guild_edit', args=[guild.pk])}?tab=orientations"
+        assert response["HX-Redirect"] == reverse("hub_guild_orientations", args=[guild.pk])
         rule = OrientationAvailability.objects.get(guild=guild)
         assert rule.weekday == 1
         assert rule.seats == 5
@@ -562,7 +562,7 @@ def describe_guild_orientation_types_save():
         client.login(username="ty_lead", password="pass")
         response = client.post(reverse("hub_guild_orientation_types_save", args=[guild.pk]), _types_payload())
         assert response.status_code == 302
-        assert response["Location"] == f"{reverse('hub_guild_edit', args=[guild.pk])}?tab=orientations"
+        assert response["Location"] == reverse("hub_guild_orientations", args=[guild.pk])
         orientation_type = OrientationType.objects.get(guild=guild)
         assert orientation_type.name == "Lathe Cert"
         assert orientation_type.duration_minutes == 90
@@ -753,7 +753,7 @@ def describe_guild_late_cancel_fee():
 
     def it_shows_the_field_only_while_the_site_charges_fees(client: Client):
         guild = _lead(client, "lcf_gate")
-        url = f"{reverse('hub_guild_edit', args=[guild.pk])}?tab=orientations"
+        url = reverse("hub_guild_orientations", args=[guild.pk])
         _late_fees(False)
         assert 'name="late_cancel_fee"' not in client.get(url).content.decode()
         _late_fees(True)
