@@ -5744,6 +5744,11 @@ class EquipmentForm(forms.ModelForm):
                 "name", f'This equipment already has an orientation named "{name}". Give the new one its own name.'
             )
 
+    def _save_m2m(self) -> None:
+        """Save the unlocking list, then mirror its first type into the retired column (#656, one release)."""
+        super()._save_m2m()  # type: ignore[misc]
+        cast(Equipment, self.instance).mirror_required_orientation()
+
     def save(self, commit: bool = True) -> Equipment:
         """Save the equipment and, for "New orientation for this equipment", its type and the gate, together.
 
@@ -5764,6 +5769,7 @@ class EquipmentForm(forms.ModelForm):
                 new_type.is_active = True
                 new_type.save()
                 equipment.unlocking_orientations.add(new_type)
+                equipment.mirror_required_orientation()
         return equipment
 
 

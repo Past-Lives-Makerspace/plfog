@@ -21,14 +21,20 @@ def copy_required_orientation_into_list(apps: Apps, schema_editor: BaseDatabaseS
 
 
 def copy_first_unlocking_orientation_back(apps: Apps, schema_editor: BaseDatabaseSchemaEditor) -> None:
-    """Reverse: the single FK takes each item's first listed type, the closest one orientation gate can hold."""
+    """Reverse: the single FK takes each item's first listed type, in the list's order; an empty list clears it.
+
+    The closest one orientation gate can hold. An item cleared to none after the forward run
+    may still carry a stale FK, so it is nulled rather than left to re-gate on its old type.
+    """
     Equipment = apps.get_model("membership", "Equipment")
     EquipmentUnlockingOrientation = apps.get_model("membership", "EquipmentUnlockingOrientation")
     first_by_equipment: dict[int, int] = {}
-    for equipment_id, type_id in EquipmentUnlockingOrientation.objects.order_by("pk").values_list(
-        "equipment_id", "orientation_type_id"
-    ):
+    rows = EquipmentUnlockingOrientation.objects.order_by(
+        "orientation_type__sort_order", "orientation_type__name", "orientation_type_id"
+    ).values_list("equipment_id", "orientation_type_id")
+    for equipment_id, type_id in rows:
         first_by_equipment.setdefault(equipment_id, type_id)
+    Equipment.objects.exclude(pk__in=first_by_equipment).update(required_orientation_id=None)
     for equipment_id, type_id in first_by_equipment.items():
         Equipment.objects.filter(pk=equipment_id).update(required_orientation_id=type_id)
 
@@ -44,7 +50,7 @@ class Migration(migrations.Migration):
             name="required_orientation",
             field=models.ForeignKey(
                 blank=True,
-                help_text="Retired by #656 and read by nothing: the gate is unlocking_orientations. Kept one release so the release still serving while migrations run keeps working; a follow up drops the column.",
+                help_text="Retired by #656: the gate is unlocking_orientations, and this mirrors its first type (null when empty) for one release so a code only rollback keeps the gate. A follow up drops the column.",
                 null=True,
                 on_delete=django.db.models.deletion.SET_NULL,
                 related_name="+",

@@ -662,16 +662,43 @@ def describe_unlocking_orientations_migration():
         assert not open_bench.unlocking_orientations.exists()
 
     def it_reverses_by_writing_the_first_listed_type_back():
-        first = OrientationTypeFactory(name="Reverse Zeta")
-        second = OrientationTypeFactory(name="Reverse Alpha")
+        listed_second = OrientationTypeFactory(name="Reverse Zeta")
+        listed_first = OrientationTypeFactory(name="Reverse Alpha")
         equipment = EquipmentFactory(name="Reverse Press")
-        EquipmentUnlockingOrientation.objects.create(equipment=equipment, orientation_type=first)
-        EquipmentUnlockingOrientation.objects.create(equipment=equipment, orientation_type=second)
+        EquipmentUnlockingOrientation.objects.create(equipment=equipment, orientation_type=listed_second)
+        EquipmentUnlockingOrientation.objects.create(equipment=equipment, orientation_type=listed_first)
         open_bench = EquipmentFactory(name="Reverse Open")
 
         _migration.copy_first_unlocking_orientation_back(django_apps, None)
 
         equipment.refresh_from_db()
         open_bench.refresh_from_db()
-        assert equipment.required_orientation == first
+        assert equipment.required_orientation == listed_first
         assert open_bench.required_orientation is None
+
+    def it_reverses_an_item_cleared_after_the_migration_to_no_gate():
+        stale = OrientationTypeFactory(name="Reverse Stale")
+        cleared = EquipmentFactory(name="Reverse Cleared", required_orientation=stale)
+        _migration.copy_required_orientation_into_list(django_apps, None)
+        cleared.unlocking_orientations.clear()  # cleared to none by code that never touched the FK
+
+        _migration.copy_first_unlocking_orientation_back(django_apps, None)
+
+        cleared.refresh_from_db()
+        assert cleared.required_orientation is None
+
+
+def describe_required_orientation_mirror():
+    """#656, one release: the retired column follows the list, so a code only rollback keeps every gate."""
+
+    def it_writes_the_first_listed_type_and_nulls_an_empty_list():
+        later = OrientationTypeFactory(name="Mirror Zeta", sort_order=0)
+        earlier = OrientationTypeFactory(name="Mirror Alpha", sort_order=0)
+        equipment = EquipmentFactory(name="Mirror Press", unlocking_orientations=[later, earlier])
+        equipment.mirror_required_orientation()
+        equipment.refresh_from_db()
+        assert equipment.required_orientation == earlier
+        equipment.unlocking_orientations.clear()
+        equipment.mirror_required_orientation()
+        equipment.refresh_from_db()
+        assert equipment.required_orientation is None
