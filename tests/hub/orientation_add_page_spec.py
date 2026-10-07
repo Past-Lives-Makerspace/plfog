@@ -291,6 +291,27 @@ def describe_the_guild_orientations_page_header():
         ]
         assert button.startswith(f'<a href="{ADD_PAGE}?guild={guild.pk}"')
 
+    def it_adds_a_row_in_place_on_a_hidden_guild_the_add_page_does_not_offer(client: Client):
+        # An admin opens a hidden guild's page, but the add page lists active guilds only.
+        _login(client, "oa_hidden_header", Member.FogRole.ADMIN)
+        hidden = GuildFactory(name="Hidden Header Guild", is_active=False)
+        html = client.get(_orientations_page(hidden)).content.decode()
+        assert f"{ADD_PAGE}?guild=" not in html
+        button = html[
+            html.rindex("<", 0, html.index("data-add-orientation-type")) : html.index(
+                "</button>", html.index("data-add-orientation-type")
+            )
+        ]
+        assert button.startswith("<button")
+        assert 'form="otypes-form"' in button
+        assert "data-formset-add" in button
+
+    def it_links_a_hidden_guilds_own_lead_to_the_add_page(client: Client):
+        member = _login(client, "oa_hidden_lead")
+        hidden = GuildFactory(name="Hidden Led Guild", guild_lead=member, is_active=False)
+        html = client.get(_orientations_page(hidden)).content.decode()
+        assert f'<a href="{ADD_PAGE}?guild={hidden.pk}"' in html
+
     def it_keeps_the_in_card_add_row_button(client: Client):
         member = _login(client, "oa_incard")
         guild = GuildFactory(name="In Card Guild", guild_lead=member)

@@ -1194,7 +1194,7 @@ def _guild_orientations_context(
         OrientationTypeFormSet,
     )
     from membership.models import GuildOrientationSettings
-    from membership.permissions import can_edit_orienter_hours
+    from membership.permissions import can_edit_orienter_hours, guilds_for_new_orientation
 
     settings_obj, _ = GuildOrientationSettings.objects.get_or_create(guild=guild)
 
@@ -1230,6 +1230,9 @@ def _guild_orientations_context(
     return {
         **_get_hub_context(request),
         "guild": guild,
+        # The header add opens the Add an Orientation page only when its Guild select offers this
+        # guild (#680); a hidden guild an admin opens is not offered, so it adds a row here instead.
+        "add_page_offers_guild": any(g.pk == guild.pk for g in guilds_for_new_orientation(request)),
         "orientation_form": (
             orientation_form if orientation_form is not None else GuildOrientationSettingsForm(instance=settings_obj)
         ),
