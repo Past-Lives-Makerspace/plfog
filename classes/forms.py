@@ -2285,10 +2285,14 @@ class PaymentRefundForm(forms.Form):
         self.fields["amount"].help_text = f"Up to ${refundable:.2f}. Edit for a partial refund."
         self.fields["reason"].label = "Reason"
         self.fields["reason"].help_text = "Internal note. The payer never sees this."
+        # Eventbrite refunds a whole ticket, so its form posts no amount.
+        self.fields["amount"].required = not registration.is_eventbrite
 
     def clean_amount(self) -> Decimal:
-        amount: Decimal = self.cleaned_data["amount"]
         refundable = Decimal(self.registration.refundable_cents) / 100
+        if self.registration.is_eventbrite:
+            return refundable
+        amount: Decimal = self.cleaned_data["amount"]
         if not Decimal("0.01") <= amount <= refundable:
             raise ValidationError(f"Enter an amount between $0.01 and ${refundable:.2f}.")
         return amount

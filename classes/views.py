@@ -5133,12 +5133,15 @@ def admin_registration_move(request: HttpRequest, pk: int) -> HttpResponse:
     return redirect("classes:admin_registration_detail", pk=pk)
 
 
-def _render_refund_form(request: HttpRequest, registration: Registration, form: "PaymentRefundForm") -> HttpResponse:
+def _render_refund_form(
+    request: HttpRequest, registration: Registration, form: "PaymentRefundForm", refused: str = ""
+) -> HttpResponse:
     """Render the shared refund modal body — the retry confirm when the latest attempt failed.
 
     One partial serves every host (dashboard, CMS detail, teach portal): the
     ``failed`` refund state's only action is Retry (§5.3), so the partial picks
-    the variant from the registration's state, not from a host parameter.
+    the variant from the registration's state, not from a host parameter. An
+    Eventbrite ticket gets its own variant; ``refused`` is why Eventbrite said no.
     """
     failed_refund = None
     if registration.refund_state == "failed":
@@ -5153,6 +5156,7 @@ def _render_refund_form(request: HttpRequest, registration: Registration, form: 
             "form": form,
             "failed_refund": failed_refund,
             "first_session_at": registration.class_offering.earliest_session_at,
+            "refused": refused,
         },
     )
 
@@ -5185,6 +5189,8 @@ def admin_registration_refund(request: HttpRequest, pk: int) -> HttpResponse:
     form = PaymentRefundForm(request.POST, registration=registration)
     if not form.is_valid():
         return _render_refund_form(request, registration, form)
+    if registration.is_eventbrite:
+        return _refund_through_eventbrite(request, registration, form)
     try:
         refund = registration.issue_refund(
             amount_cents=form.amount_cents,
@@ -5204,6 +5210,23 @@ def admin_registration_refund(request: HttpRequest, pk: int) -> HttpResponse:
     else:
         # Stripe accepted the refund but hasn't settled it; refund.updated will.
         trigger_toast(response, "Refund sent. Stripe is processing it.", "success")
+    trigger_client_event(response, "refund-done")
+    return response
+
+
+def _refund_through_eventbrite(
+    request: HttpRequest, registration: Registration, form: "PaymentRefundForm"
+) -> HttpResponse:
+    """Refund an Eventbrite ticket through Eventbrite, never Stripe; a refusal stays in the modal."""
+    from classes.eventbrite_orders import EventbriteRefundRefusedError, refund_registration
+    from hub.toast import trigger_client_event, trigger_toast
+
+    try:
+        refund_registration(registration, reason=form.cleaned_data["reason"], actor=request.user)
+    except EventbriteRefundRefusedError as exc:
+        return _render_refund_form(request, registration, form, refused=str(exc))
+    response = HttpResponse(status=204)
+    trigger_toast(response, "Refunded through Eventbrite.", "success")
     trigger_client_event(response, "refund-done")
     return response
 
