@@ -202,7 +202,7 @@ def describe_equipment_editor():
             {
                 "name": "Etching Press",
                 "kind": "tool",
-                "required_orientation": EquipmentForm.NEW_TYPE_CHOICE,
+                "unlocking_orientations": EquipmentForm.NEW_TYPE_CHOICE,
                 "new_type-name": "Press Basics",
                 "new_type-duration_minutes": "60",
                 "new_type-default_seats": "2",
