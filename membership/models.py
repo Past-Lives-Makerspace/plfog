@@ -15004,18 +15004,18 @@ class Equipment(HeroCropMixin, models.Model):
             current = list(
                 EquipmentReservation.objects.confirmed().filter(equipment=self, starts_at__lte=now, ends_at__gt=now)
             )
-        busy_ends = [reservation.ends_at for reservation in current]
+        # (ends_at, word) per busy span: a manager's block reads "Held" (#657), everything else "Reserved".
+        busy = [(reservation.ends_at, "Held" if reservation.is_block else "Reserved") for reservation in current]
         # A booked orientation running now occupies the tool exactly like a reservation
         # (the detail page already shows it busy); an open, unbooked slot does not.
         running_slots = getattr(self, "current_orientation_slots", None)
         if running_slots is None:
             running_slots = list(OrientationSlot.objects.holding_seats_on(self, now, now))
-        busy_ends.extend(slot.ends_at for slot in running_slots)
-        if busy_ends:
-            ends_local = timezone.localtime(max(busy_ends))
-            hour = ends_local.hour % 12 or 12
-            suffix = "AM" if ends_local.hour < 12 else "PM"
-            return ("busy", f"Reserved until {hour}:{ends_local.minute:02d} {suffix}")
+        busy.extend((slot.ends_at, "Reserved") for slot in running_slots)
+        if busy:
+            # The span ending last names how long the tool stays busy, and its word leads.
+            ends_at, word = max(busy, key=lambda span: span[0])
+            return ("busy", f"{word} until {_clock(ends_at)}")
         local = timezone.localtime(now)
         open_now = any(
             rule.weekday == local.weekday() and rule.start_time <= local.time() < rule.end_time for rule in rules
@@ -15311,6 +15311,8 @@ class EquipmentReservation(models.Model):
         max_length=20,
         choices=Kind.choices,
         default=Kind.RESERVATION,
+        # The DB default too: the old release's reserve() inserts without ``kind`` while this migrates.
+        db_default=Kind.RESERVATION,
         help_text="A member's reservation, or a manager's block holding the time (#657): no cap, no fee, no emails.",
     )
     member = models.ForeignKey(

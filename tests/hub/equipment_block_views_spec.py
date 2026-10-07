@@ -364,3 +364,53 @@ def describe_a_block_on_the_orientation_tab():
             f"{reverse('hub_equipment_manage', args=[equipment.slug])}?tab=orientation"
         ).content.decode()
         assert "Blocked by held time (Roller Repair) 10:00 AM to 12:00 PM" in content
+
+
+def describe_a_block_on_the_index_cards():
+    def _all_day(name: str) -> Equipment:
+        equipment = EquipmentFactory(name=name)
+        EquipmentHoursFactory(
+            equipment=equipment, weekday=timezone.localtime().weekday(), start_time=time(0, 0), end_time=time(23, 30)
+        )
+        return equipment
+
+    def _running(equipment: Equipment, **fields) -> None:
+        EquipmentReservationFactory(
+            equipment=equipment,
+            starts_at=timezone.now() - timedelta(minutes=30),
+            ends_at=timezone.now() + timedelta(minutes=60),
+            **fields,
+        )
+
+    def it_says_held_until_on_a_blocked_items_card(client: Client):
+        held = _all_day("Quillpress Held")
+        reserved = _all_day("Quillpress Booked")
+        _running(held, kind=EquipmentReservation.Kind.BLOCK)
+        _running(reserved)
+        _login(client, "cardviewer")
+        cards = {
+            card["equipment"].name: card["availability"]
+            for card in client.get(reverse("hub_equipment_index")).context["cards"]
+        }
+        assert cards["Quillpress Held"][1].startswith("Held until ")
+        assert cards["Quillpress Booked"][1].startswith("Reserved until ")
+
+    def it_reads_the_block_without_a_query_per_card(client: Client):
+        from django.db import connection
+        from django.test.utils import CaptureQueriesContext
+
+        tools = [_all_day(f"Quillpress {n}") for n in range(3)]
+        _login(client, "cardcounter")
+        url = reverse("hub_equipment_index")
+
+        def count_queries() -> int:
+            client.get(url)
+            with CaptureQueriesContext(connection) as ctx:
+                assert client.get(url).status_code == 200
+            return len(ctx.captured_queries)
+
+        _running(tools[0])
+        one_busy = count_queries()
+        for tool in tools[1:]:
+            _running(tool, kind=EquipmentReservation.Kind.BLOCK)
+        assert count_queries() == one_busy

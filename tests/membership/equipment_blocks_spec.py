@@ -329,3 +329,70 @@ def describe_queryset_kinds():
         block = EquipmentReservationFactory(equipment=equipment, kind=EquipmentReservation.Kind.BLOCK)
         assert list(EquipmentReservation.objects.reservations()) == [reservation]
         assert list(EquipmentReservation.objects.blocks()) == [block]
+
+
+def describe_kind_database_default():
+    def it_files_a_row_inserted_without_kind_as_a_reservation():
+        """The old release's reserve() inserts without ``kind`` while the migration runs; it must not fail."""
+        from django.db import connection
+
+        equipment = _tool()
+        member = MemberFactory()
+        table = EquipmentReservation._meta.db_table
+        now = timezone.now()
+        with connection.cursor() as cursor:
+            cursor.execute(
+                f"INSERT INTO {table} (equipment_id, member_id, starts_at, ends_at, purpose, status, "  # noqa: S608
+                "cancelled_reason, cancelled_as_manager, late_fee_waived, created_at) "
+                "VALUES (%s, %s, %s, %s, '', 'confirmed', '', %s, %s, %s)",
+                [equipment.pk, member.pk, _at(_day(), 10), _at(_day(), 11), False, False, now],
+            )
+        row = EquipmentReservation.objects.get(equipment=equipment)
+        assert row.kind == EquipmentReservation.Kind.RESERVATION
+
+
+def describe_availability_line_with_a_block():
+    def _running(equipment: Equipment, minutes: int, **fields) -> EquipmentReservation:
+        return EquipmentReservationFactory(
+            equipment=equipment,
+            starts_at=timezone.now() - timedelta(minutes=30),
+            ends_at=timezone.now() + timedelta(minutes=minutes),
+            **fields,
+        )
+
+    def _booked_orientation(equipment: Equipment, minutes: int) -> None:
+        orientation_type = OrientationTypeFactory(equipment_owned=True, equipment=equipment)
+        slot = OrientationSlotFactory(
+            equipment_owned=True,
+            orientation_type=orientation_type,
+            starts_at=timezone.now() - timedelta(minutes=30),
+            ends_at=timezone.now() + timedelta(minutes=minutes),
+        )
+        OrientationBookingFactory(slot=slot, status=OrientationBooking.Status.CONFIRMED)
+
+    def _clock(value: datetime) -> str:
+        local = timezone.localtime(value)
+        return f"{local.hour % 12 or 12}:{local.minute:02d} {'AM' if local.hour < 12 else 'PM'}"
+
+    def it_says_held_until_the_block_ends():
+        equipment = _tool()
+        block = _running(equipment, 60, kind=EquipmentReservation.Kind.BLOCK)
+        assert equipment.availability_line() == ("busy", f"Held until {_clock(block.ends_at)}")
+
+    def it_still_says_reserved_for_a_member_reservation():
+        equipment = _tool()
+        reservation = _running(equipment, 60)
+        assert equipment.availability_line() == ("busy", f"Reserved until {_clock(reservation.ends_at)}")
+
+    def it_takes_the_orientations_word_when_it_ends_after_the_block():
+        equipment = _tool()
+        _running(equipment, 30, kind=EquipmentReservation.Kind.BLOCK)
+        _booked_orientation(equipment, 90)
+        tone, text = equipment.availability_line()
+        assert (tone, text.split(" until ")[0]) == ("busy", "Reserved")
+
+    def it_takes_the_blocks_word_when_it_ends_after_the_orientation():
+        equipment = _tool()
+        block = _running(equipment, 90, kind=EquipmentReservation.Kind.BLOCK)
+        _booked_orientation(equipment, 30)
+        assert equipment.availability_line() == ("busy", f"Held until {_clock(block.ends_at)}")

@@ -14,6 +14,7 @@ class Migration(migrations.Migration):
             name="kind",
             field=models.CharField(
                 choices=[("reservation", "Reservation"), ("block", "Block")],
+                db_default="reservation",
                 default="reservation",
                 help_text="A member's reservation, or a manager's block holding the time (#657): no cap, no fee, no emails.",
                 max_length=20,
