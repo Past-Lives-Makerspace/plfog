@@ -171,6 +171,7 @@ def hub_orientations(request: HttpRequest) -> HttpResponse:
     the Bookings pane (#626) the same way, built only then and otherwise fetched from
     :func:`hub_orientations_bookings`.
     """
+    from billing import payouts
     from billing.late_fees import unpaid_fee_for
 
     member = _get_member(request)
@@ -231,6 +232,8 @@ def hub_orientations(request: HttpRequest) -> HttpResponse:
             "is_filtered": bool(owner_filter or query),
             "next_url": request.get_full_path(),
             "unpaid_late_fee": unpaid_fee_for(member) if member is not None else None,
+            # Settings, Payouts nudge (#662): members who run orientations, until they finish Stripe signup.
+            "payouts_nudge": member is not None and manages_orientations(request) and payouts.needs_nudge(member),
             "pane": pane,
             "calendar": orientations_calendar_context() if pane == "calendar" else None,
             "calendar_key": CALENDAR_KEY,

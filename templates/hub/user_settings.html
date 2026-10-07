@@ -32,6 +32,14 @@
                 class="vote-tab">
             Account
         </button>
+        {% if payouts_tab %}
+        <button type="button"
+                @click="go('payouts')"
+                :class="{ 'vote-tab--active': tab === 'payouts' }"
+                class="vote-tab">
+            Payouts
+        </button>
+        {% endif %}
     </div>
 
     {# -------- Profile tab -------- #}
@@ -614,6 +622,13 @@
     <div x-show="tab === 'guilds'" x-cloak data-help-key="settings.your-guilds">
         {% include "hub/partials/_my_guilds.html" %}
     </div>
+
+    {# -------- Payouts tab (#662): payees only, while payouts are on -------- #}
+    {% if payouts_tab %}
+    <div x-show="tab === 'payouts'" x-cloak>
+        {% include "hub/_payouts_settings.html" %}
+    </div>
+    {% endif %}
 
     {# -------- Account tab -------- #}
     <div x-show="tab === 'account'" x-cloak>

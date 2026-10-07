@@ -4,14 +4,16 @@ from __future__ import annotations
 
 import logging
 from decimal import Decimal
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
+import stripe
 from django.contrib import messages as django_messages
 from django.contrib.auth.decorators import login_required
 from django.db.models import DecimalField, Q, Sum, Value
 from django.db.models.functions import Coalesce
 from django.http import HttpRequest, HttpResponse, JsonResponse, StreamingHttpResponse
 from django.shortcuts import redirect, render
+from django.urls import reverse
 from django.utils import timezone
 from django.views.decorators.csrf import csrf_exempt
 from django.views.decorators.http import require_POST
@@ -21,8 +23,11 @@ from classes import webhook_handlers as classes_webhook_handlers
 from membership import webhook_handlers as membership_webhook_handlers
 from billing.exceptions import TabLimitExceededError, TabLockedError
 from billing.forms import CONTEXT_ADMIN_DASHBOARD, TabItemForm
-from billing.models import BillingSettings, Tab, TabCharge, TabEntry
+from billing.models import BillingSettings, PayoutAccount, Tab, TabCharge, TabEntry
 from hub.view_as import billing_admin_access_required, fog_admin_required, refund_authority_required
+
+if TYPE_CHECKING:
+    from membership.models import Member
 
 logger = logging.getLogger(__name__)
 
@@ -85,6 +90,7 @@ _WEBHOOK_HANDLERS = {
     "checkout.session.expired": _dispatch_checkout_expired,
     "charge.refunded": classes_webhook_handlers.handle_charge_refunded,
     "refund.updated": classes_webhook_handlers.handle_refund_updated,
+    "account.updated": webhook_handlers.handle_account_updated,
 }
 
 
@@ -96,8 +102,6 @@ def setup_payment_method(request: HttpRequest) -> HttpResponse:
     if not is_on("my_tab"):
         django_messages.info(request, "My Tab isn't available right now.")
         return redirect("home")
-
-    from membership.models import Member
 
     member: Member | None = getattr(request.user, "member", None)
     if member is None:
@@ -119,7 +123,6 @@ def setup_payment_method(request: HttpRequest) -> HttpResponse:
 @require_POST
 def create_setup_intent_api(request: HttpRequest) -> JsonResponse:
     """AJAX endpoint — creates a Stripe SetupIntent and returns the client_secret."""
-    from membership.models import Member
 
     member: Member | None = getattr(request.user, "member", None)
     if member is None:
@@ -135,7 +138,6 @@ def create_setup_intent_api(request: HttpRequest) -> JsonResponse:
 @require_POST
 def confirm_setup(request: HttpRequest) -> HttpResponse:
     """Post-setup callback — updates Tab with the new payment method details."""
-    from membership.models import Member
 
     member: Member | None = getattr(request.user, "member", None)
     if member is None:
@@ -155,7 +157,6 @@ def confirm_setup(request: HttpRequest) -> HttpResponse:
 @require_POST
 def remove_payment_method(request: HttpRequest) -> HttpResponse:
     """Detach the payment method from Stripe and clear Tab fields."""
-    from membership.models import Member
 
     member: Member | None = getattr(request.user, "member", None)
     if member is None:
@@ -193,6 +194,72 @@ def stripe_webhook(request: HttpRequest) -> HttpResponse:
         logger.debug("Unhandled webhook event type: %s", event_type)
 
     return HttpResponse(status=200)
+
+
+# ---------------------------------------------------------------------------
+# Payouts (#662): Stripe Express signup for instructors and orientors
+# ---------------------------------------------------------------------------
+
+
+def _payouts_tab_url() -> str:
+    """Settings, Payouts: where every payouts action lands."""
+    return f"{reverse('hub_user_settings')}?tab=payouts"
+
+
+def _payout_member_or_none(request: HttpRequest) -> Member | None:
+    """The requesting member when payouts are on and they are a payee, else None."""
+    from billing import payouts
+
+    member: Member | None = getattr(request.user, "member", None)
+    if member is None or not payouts.payouts_on() or not payouts.is_payee(request, member):
+        return None
+    return member
+
+
+@login_required
+@require_POST
+def payouts_start(request: HttpRequest) -> HttpResponse:
+    """Set up payouts, Finish setup and Fix in Stripe: send the payee to Stripe's hosted signup."""
+    member = _payout_member_or_none(request)
+    if member is None:
+        return redirect(_payouts_tab_url())
+    try:
+        account = PayoutAccount.open_for(member)
+        url = account.onboarding_url(return_url=request.build_absolute_uri(reverse("billing_payouts_return")))
+    except stripe.StripeError:
+        logger.exception("Payouts signup could not start for member %s.", member.pk)
+        django_messages.error(request, "Stripe could not start payouts setup just now. Try again in a minute.")
+        return redirect(_payouts_tab_url())
+    return redirect(url)
+
+
+@login_required
+def payouts_return(request: HttpRequest) -> HttpResponse:
+    """Stripe's return and refresh URL: read the account's status back, then land on the Payouts tab."""
+    member = _payout_member_or_none(request)
+    account = PayoutAccount.for_member(member) if member is not None else None
+    if account is not None:
+        try:
+            account.refresh_from_stripe()
+        except stripe.StripeError:
+            # The account.updated webhook writes the same status; the tab shows the last one known.
+            logger.exception("Could not read payout account %s back from Stripe.", account.stripe_account_id)
+    return redirect(_payouts_tab_url())
+
+
+@login_required
+def payouts_dashboard(request: HttpRequest) -> HttpResponse:
+    """Open Stripe: a fresh single use login link to the payee's Express dashboard."""
+    member = _payout_member_or_none(request)
+    account = PayoutAccount.for_member(member) if member is not None else None
+    if account is None or not account.is_connected:
+        return redirect(_payouts_tab_url())
+    try:
+        return redirect(account.dashboard_url())
+    except stripe.StripeError:
+        logger.exception("Could not open the Stripe dashboard for %s.", account.stripe_account_id)
+        django_messages.error(request, "Stripe could not open your dashboard just now. Try again in a minute.")
+        return redirect(_payouts_tab_url())
 
 
 def _payments_panel_context(request: HttpRequest) -> dict[str, object]:

@@ -1,0 +1,61 @@
+{% comment %}Settings, Payouts (#662): the payee's Stripe Express state. Four states keyed on payouts_tab.state:
+not_set_up, needs_info, active, paused. The signup buttons POST to billing_payouts_start, which
+redirects off site to Stripe, so the forms and the Open Stripe link opt out of hx-boost: a boosted
+request would follow the redirect over XHR and fail on Stripe's origin.{% endcomment %}
+{% with state=payouts_tab.state %}
+<div class="hub-card pl-payouts" data-payouts-state="{{ state }}">
+  {% if state == "not_set_up" %}
+    <div class="pl-payouts__head">
+      <h2 class="hub-detail-label">Get paid automatically</h2>
+      <span class="pl-status-badge pl-status-badge--muted">Not set up</span>
+    </div>
+    <p class="pl-payouts__lead">Connect your bank once and your share of every paid class or orientation you teach lands in your account a few days after you teach it. Until then you're paid by hand at the end of the month, as now.</p>
+    <ol class="pl-payouts-steps">
+      <li><strong>Connect with Stripe</strong><span>About five minutes: your name, bank account and the last 4 of your SSN.</span></li>
+      <li><strong>Teach</strong><span>48 hours after your class or orientation starts, we send your share.</span></li>
+      <li><strong>Get paid</strong><span>Stripe deposits it in your bank, usually within 2 business days.</span></li>
+    </ol>
+    <p class="pl-payouts__privacy">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
+      <span>You enter your details on Stripe's secure page, not ours. Past Lives never sees or stores your bank or tax information, and Stripe sends your 1099.</span>
+    </p>
+    <form method="post" action="{% url 'billing_payouts_start' %}" hx-boost="false" class="pl-payouts__actions">
+      {% csrf_token %}
+      <button type="submit" class="hub-btn hub-btn--primary">Set up payouts</button>
+      <span class="pl-payouts__aside">You'll leave the portal for Stripe and come back here.</span>
+    </form>
+  {% elif state == "needs_info" %}
+    <div class="pl-payouts__head">
+      <h2 class="hub-detail-label">Payouts</h2>
+      <span class="pl-status-badge pl-status-badge--warn">Stripe needs more info</span>
+    </div>
+    <p class="pl-payouts__lead">You started setting up payouts but Stripe still needs a few details before it can send money to your bank. Your earnings are safe: anything you earn meanwhile is paid at month end.</p>
+    <form method="post" action="{% url 'billing_payouts_start' %}" hx-boost="false" class="pl-payouts__actions">
+      {% csrf_token %}
+      <button type="submit" class="hub-btn hub-btn--primary">Finish setup</button>
+      <span class="pl-payouts__aside">Picks up where you left off.</span>
+    </form>
+  {% elif state == "active" %}
+    <div class="pl-payouts__head">
+      <h2 class="hub-detail-label">Payouts</h2>
+      <span class="pl-status-badge pl-status-badge--ok">Payouts on</span>
+    </div>
+    <p class="pl-payouts__lead">Your share is sent 48 hours after each class or orientation starts, and Stripe deposits it in your bank daily.</p>
+    <div class="pl-payouts__actions">
+      <a href="{% url 'billing_payouts_dashboard' %}" hx-boost="false" target="_blank" rel="noopener" class="hub-btn hub-btn--ghost hub-btn--sm">Open Stripe ↗</a>
+      <span class="pl-payouts__aside">Change your bank, see deposits or download tax forms.</span>
+    </div>
+  {% else %}
+    <div class="pl-payouts__head">
+      <h2 class="hub-detail-label">Payouts</h2>
+      <span class="pl-status-badge pl-status-badge--fail">Paused by Stripe</span>
+    </div>
+    <p class="pl-payouts__lead">Stripe paused payouts to your bank and needs something from you before it can start them again. Anything you earn meanwhile is paid at month end.</p>
+    <form method="post" action="{% url 'billing_payouts_start' %}" hx-boost="false" class="pl-payouts__actions">
+      {% csrf_token %}
+      <button type="submit" class="hub-btn hub-btn--primary">Fix in Stripe</button>
+      <a href="{% url 'billing_payouts_dashboard' %}" hx-boost="false" target="_blank" rel="noopener" class="hub-btn hub-btn--ghost">Open Stripe ↗</a>
+    </form>
+  {% endif %}
+</div>
+{% endwith %}

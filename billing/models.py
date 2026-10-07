@@ -20,7 +20,7 @@ from .fields import EncryptedCharField
 if TYPE_CHECKING:
     from django.contrib.auth.models import User
 
-    from membership.models import EquipmentReservation, Guild, OrientationBooking  # noqa: F401
+    from membership.models import EquipmentReservation, Guild, Member, OrientationBooking  # noqa: F401
 
 
 _CENTS = Decimal("0.01")
@@ -139,7 +139,10 @@ class BillingSettings(models.Model):
     # and SetupIntents run through these keys.
     connect_enabled = models.BooleanField(
         default=False,
-        help_text="Master switch for Stripe Connect platform billing. When off, the OAuth tab is hidden.",
+        help_text=(
+            "Pay instructors and orientors through Stripe (#662). Off by default; while off nobody sees the "
+            "Payouts tab or its nudges and no share is sent. Charges never read this switch."
+        ),
     )
     connect_client_id = models.CharField(
         max_length=255,
@@ -169,6 +172,16 @@ class BillingSettings(models.Model):
         help_text=(
             "LIVE-mode webhook signing secret for the global /billing/webhooks/stripe/ endpoint. Used only while "
             "Testing Mode is off. Encrypted at rest."
+        ),
+    )
+    connect_accounts_webhook_secret = EncryptedCharField(
+        max_length=512,
+        blank=True,
+        default="",
+        help_text=(
+            "LIVE-mode signing secret of the second webhook endpoint, the one Stripe scopes to Connected "
+            "accounts (it delivers account.updated for instructor and orientor payouts). Same URL as the "
+            "platform endpoint. Used only while Testing Mode is off. Encrypted at rest."
         ),
     )
 
@@ -211,13 +224,28 @@ class BillingSettings(models.Model):
             "the Stripe dashboard. Used only while Testing Mode is on. Encrypted at rest."
         ),
     )
+    test_connect_accounts_webhook_secret = EncryptedCharField(
+        max_length=512,
+        blank=True,
+        default="",
+        help_text=(
+            "TEST-mode signing secret of the Connected accounts webhook endpoint (account.updated for payouts). "
+            "Used only while Testing Mode is on. Encrypted at rest."
+        ),
+    )
 
     updated_at = models.DateTimeField(auto_now=True, help_text="Last time billing settings were changed.")
 
     # Field-name suffixes shared by the LIVE (``connect_*``) and TEST
     # (``test_connect_*``) credential slots — the single source of truth for
     # which four fields each slot holds.
-    _CREDENTIAL_SUFFIXES = ("client_id", "platform_publishable_key", "platform_secret_key", "platform_webhook_secret")
+    _CREDENTIAL_SUFFIXES = (
+        "client_id",
+        "platform_publishable_key",
+        "platform_secret_key",
+        "platform_webhook_secret",
+        "accounts_webhook_secret",
+    )
 
     class Meta:
         verbose_name = "Billing Settings"
@@ -273,12 +301,17 @@ class BillingSettings(models.Model):
         return self.test_connect_platform_webhook_secret if self.test_mode else self.connect_platform_webhook_secret
 
     @property
+    def active_accounts_webhook_secret(self) -> str:
+        """The Connected accounts webhook signing secret for the currently selected (test/live) mode."""
+        return self.test_connect_accounts_webhook_secret if self.test_mode else self.connect_accounts_webhook_secret
+
+    @property
     def mode_label(self) -> str:
         """Human-readable name of the current mode."""
         return "Test" if self.test_mode else "Live"
 
     def clean(self) -> None:
-        """If Connect is enabled, the active mode's four credential fields must be non-empty.
+        """If payouts are on, the active mode's five credential fields must be non-empty.
 
         Only the slot selected by ``test_mode`` is required — the inactive slot may be
         left blank or pre-filled so both key sets can live side by side.
@@ -1782,3 +1815,146 @@ class LateCancellationFee(models.Model):
         from billing.refunds import issue_refund
 
         return issue_refund(self, amount_cents=amount_cents, reason=reason, actor=actor)
+
+
+# ---------------------------------------------------------------------------
+# PayoutAccount (#662): a payee's Stripe Express account
+# ---------------------------------------------------------------------------
+
+
+class PayoutAccountQuerySet(models.QuerySet["PayoutAccount"]):
+    """Query helpers for payout accounts."""
+
+    def in_active_mode(self) -> PayoutAccountQuerySet:
+        """Accounts made under the Stripe mode ``BillingSettings.test_mode`` selects now.
+
+        A test-mode ``acct_`` does not exist in live mode and the reverse, so the other mode's
+        rows are kept (flipping back finds them again) but never shown or used.
+        """
+        return self.filter(livemode=not BillingSettings.load().test_mode)
+
+
+class PayoutAccount(models.Model):
+    """A payee's Stripe Express account: its ID and status, and nothing else (#662).
+
+    Stripe's hosted signup collects the bank account, identity and tax details; no field for
+    any of them exists here or anywhere in plfog. A payee is anyone who can teach classes,
+    can run orientations or has an earning (``billing.payouts.is_payee``). Test and live mode
+    accounts are different Stripe objects, so a member holds at most one row per mode.
+    """
+
+    class Status(models.TextChoices):
+        NEEDS_INFO = "needs_info", "Stripe needs more info"
+        ACTIVE = "active", "Payouts on"
+        PAUSED = "paused", "Paused by Stripe"
+
+    member = models.ForeignKey(
+        "membership.Member",
+        on_delete=models.CASCADE,
+        related_name="payout_accounts",
+        help_text="The instructor or orientor this Stripe account pays.",
+    )
+    stripe_account_id = models.CharField(
+        max_length=64,
+        unique=True,
+        help_text="The Stripe Express account (acct_...) that receives this member's shares.",
+    )
+    livemode = models.BooleanField(
+        help_text="True for a live-mode Stripe account, False for one made while Testing Mode was on.",
+    )
+    status = models.CharField(
+        max_length=20,
+        choices=Status.choices,
+        default=Status.NEEDS_INFO,
+        help_text="Where the account stands with Stripe, from the account.updated webhook or the return from signup.",
+    )
+    created_at = models.DateTimeField(auto_now_add=True, help_text="When the Stripe account was created.")
+    updated_at = models.DateTimeField(auto_now=True, help_text="Last time the status was written.")
+
+    objects = PayoutAccountQuerySet.as_manager()
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(fields=["member", "livemode"], name="payout_account_one_per_mode"),
+        ]
+
+    def __str__(self) -> str:
+        return f"{self.stripe_account_id} ({self.get_status_display()})"
+
+    @property
+    def is_connected(self) -> bool:
+        """True once Stripe has the payee's details: payouts are on, or Stripe paused them after."""
+        return self.status != self.Status.NEEDS_INFO
+
+    @classmethod
+    def for_member(cls, member: Member) -> PayoutAccount | None:
+        """``member``'s account in the current Stripe mode, or None when they never started signup."""
+        return cls.objects.in_active_mode().filter(member=member).first()
+
+    @classmethod
+    def open_for(cls, member: Member) -> PayoutAccount:
+        """Return ``member``'s account in the current mode, creating the Stripe Express account first if needed.
+
+        The create call carries an idempotency key per member and mode, so a double click (two
+        requests racing past the lookup) gets the same ``acct_`` back from Stripe and the
+        second insert resolves to the first row through ``get_or_create``.
+
+        Raises:
+            stripe.StripeError: Stripe refused to create the account.
+        """
+        from billing import stripe_utils
+
+        existing = cls.for_member(member)
+        if existing is not None:
+            return existing
+        livemode = not BillingSettings.load().test_mode
+        account_id = stripe_utils.create_express_account(
+            email=member.primary_email,
+            member_pk=member.pk,
+            idempotency_key=f"payout-account-{member.pk}-{'live' if livemode else 'test'}",
+        )
+        account, _created = cls.objects.get_or_create(
+            member=member, livemode=livemode, defaults={"stripe_account_id": account_id}
+        )
+        return account
+
+    @staticmethod
+    def status_from_stripe(account: dict[str, Any]) -> PayoutAccount.Status:
+        """Map a Stripe Account object to one of the three states the Payouts tab shows.
+
+        Payouts on needs both ``payouts_enabled`` and an active ``transfers`` capability.
+        Otherwise an account whose holder finished signup and that Stripe then disabled reads
+        Paused; one still in signup, or under Stripe's first review
+        (``requirements.pending_verification``), reads Needs info.
+        """
+        if account["payouts_enabled"] and account["capabilities"]["transfers"] == "active":
+            return PayoutAccount.Status.ACTIVE
+        disabled_reason = account["requirements"]["disabled_reason"]
+        if account["details_submitted"] and disabled_reason and disabled_reason != "requirements.pending_verification":
+            return PayoutAccount.Status.PAUSED
+        return PayoutAccount.Status.NEEDS_INFO
+
+    def apply_stripe_account(self, account: dict[str, Any]) -> None:
+        """Write the status a Stripe Account object implies, saving only when it changed."""
+        status = self.status_from_stripe(account)
+        if status != self.status:
+            self.status = status
+            self.save(update_fields=["status", "updated_at"])
+
+    def refresh_from_stripe(self) -> None:
+        """Read the account back from Stripe and apply it: the return from signup does this."""
+        from billing import stripe_utils
+
+        self.apply_stripe_account(stripe_utils.retrieve_account(account_id=self.stripe_account_id))
+
+    def onboarding_url(self, *, return_url: str) -> str:
+        """A fresh Stripe-hosted signup link that returns to ``return_url`` (also its refresh URL)."""
+        from billing import stripe_utils
+
+        return stripe_utils.create_account_link(account_id=self.stripe_account_id, return_url=return_url)
+
+    def dashboard_url(self) -> str:
+        """A single use login link to the payee's Stripe Express dashboard."""
+        from billing import stripe_utils
+
+        return stripe_utils.create_login_link(account_id=self.stripe_account_id)

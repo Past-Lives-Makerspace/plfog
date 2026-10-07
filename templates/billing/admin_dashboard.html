@@ -520,7 +520,7 @@
       {% csrf_token %}
       <input type="hidden" id="initial-test-mode" value="{{ billing_settings.test_mode|yesno:'true,false' }}">
 
-      {% include "components/form_field.html" with field=connect_platform_form.connect_enabled field_label="Enable Stripe billing" field_hint="Master switch for platform billing. When off, no charges run." %}
+      {% include "components/form_field.html" with field=connect_platform_form.connect_enabled field_label="Pay instructors and orientors through Stripe" field_hint="Off by default. When on, instructors and orientors see Settings, Payouts and can connect a bank through Stripe. Charges run the same either way." %}
 
       {% include "components/form_field.html" with field=connect_platform_form.test_mode field_label="Testing Mode" field_hint="On uses the Test keys below for every charge, SetupIntent, and webhook. Off uses the Live keys, so real cards will be charged." %}
 
@@ -546,6 +546,7 @@
           {% include "components/form_field.html" with field=connect_platform_form.test_connect_platform_publishable_key field_label="Publishable Key" %}
           {% include "components/form_field.html" with field=connect_platform_form.test_connect_platform_secret_key field_label="Secret Key" %}
           {% include "components/form_field.html" with field=connect_platform_form.test_connect_platform_webhook_secret field_label="Webhook Signing Secret" %}
+          {% include "components/form_field.html" with field=connect_platform_form.test_connect_accounts_webhook_secret field_label="Connected Accounts Webhook Secret" field_hint="From the second endpoint, same URL, with Events from set to Connected accounts. It carries payout account updates." %}
           <div id="connect-platform-test-result-test" class="pl-key-test-result"></div>
           <button type="button" class="pl-btn pl-btn--secondary pl-btn--sm" onclick="testConnectPlatform('test')">Test connection</button>
         </div>
@@ -560,6 +561,7 @@
           {% include "components/form_field.html" with field=connect_platform_form.connect_platform_publishable_key field_label="Publishable Key" %}
           {% include "components/form_field.html" with field=connect_platform_form.connect_platform_secret_key field_label="Secret Key" %}
           {% include "components/form_field.html" with field=connect_platform_form.connect_platform_webhook_secret field_label="Webhook Signing Secret" %}
+          {% include "components/form_field.html" with field=connect_platform_form.connect_accounts_webhook_secret field_label="Connected Accounts Webhook Secret" field_hint="From the second endpoint, same URL, with Events from set to Connected accounts. It carries payout account updates." %}
           <div id="connect-platform-test-result-live" class="pl-key-test-result"></div>
           <button type="button" class="pl-btn pl-btn--secondary pl-btn--sm" onclick="testConnectPlatform('live')">Test connection</button>
         </div>

@@ -14,6 +14,7 @@ Stripe tab billing system. Members accumulate charges on a tab; a management com
 | `TabEntrySplit` | entry FK, recipient_type, guild FK (nullable), percent, amount | Frozen split snapshot — reports SELECT from here |
 | `TabCharge` | tab FK, status, amount, stripe_payment_intent_id | Batched charge — one per tab per billing cycle |
 | `LateCancellationFee` | member FK, orientation_booking / reservation OneToOne (exactly one), amount_cents, status (unpaid / paid / waived / refunded), stripe_session_id, stripe_payment_id | A late self cancel's fee (#456). Never the tab: paid through a Stripe Checkout tagged `kind=late_cancel_fee`; `billing/late_fees.py` owns charge, checkout, mark paid, the block until paid and `waive` (guild staff, equipment managers or an admin forgive an unpaid fee). A paid fee is a `RefundableSource`: `PaymentRefund.late_fee` points at it and the Payments dashboard refunds it through `billing/refunds.py` |
+| `PayoutAccount` | member FK, stripe_account_id, livemode, status (needs info / on / paused) | A payee's Stripe Express account (#662). ID and status only: no bank, SSN or tax field exists anywhere. One row per member per Stripe mode, since a test `acct_` is not a live one. `billing/payouts.py` owns the switch (`BillingSettings.connect_enabled`, read by no charge path), the payee rule and the Settings, Payouts state; status arrives from `account.updated` on the second, Connected accounts webhook endpoint (same URL, its own secret) and on the return from signup |
 
 ## Revenue split
 
@@ -23,7 +24,7 @@ When a `TabEntry` is created via `Tab.add_entry()`, the splits are frozen onto `
 
 Penny rounding: each split's amount is `round(entry.amount * percent / 100, 2, ROUND_HALF_UP)`. The row with the largest percent absorbs the +/-1c remainder so the children sum exactly to the entry total.
 
-Guild payouts are reconciled manually via the admin Reports page — no automated Stripe Connect transfers.
+Guild payouts are reconciled manually via the admin Reports page — no automated Stripe Connect transfers. Instructor and orientor shares are moving to Stripe Connect Express (#662); guild shares stay manual.
 
 ## Tab Flow
 
@@ -78,6 +79,9 @@ Set on local, Hetzner, and Render. **Losing this key bricks the stored Stripe cr
 - `admin/add-entry/` → admin add-charge-to-tab
 - `admin/connect-platform/test/` → AJAX verify pasted platform secret
 - `admin/connect-platform/save/` → persist platform credentials
+- `payouts/start/` → POST: Stripe Express signup (Set up payouts, Finish setup, Fix in Stripe)
+- `payouts/return/` → Stripe's return and refresh URL: reads the account back, lands on Settings, Payouts
+- `payouts/dashboard/` → single use login link to the payee's Express dashboard
 
 ## Management Command
 
