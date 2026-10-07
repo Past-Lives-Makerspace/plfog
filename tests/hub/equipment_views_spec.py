@@ -1952,61 +1952,6 @@ def describe_any_one_of_several_orientations():
             own = press.owned_orientation_types.get()
             assert set(press.unlocking_orientations.all()) == {beginner, own}
 
-    def describe_the_rollback_mirror():
-        """#656, one release: every form write keeps the retired column equal to the list's first type."""
-
-        def it_mirrors_an_item_gated_after_the_migration_from_the_multi_select(client: Client):
-            _login(client, "any_mirror_gate", fog_role=Member.FogRole.ADMIN)
-            _press_unused, beginner, experienced = _press()
-            bench = EquipmentFactory(name="Any Mirror Bench")
-            response = client.post(
-                reverse("hub_equipment_details_save", args=[bench.slug]),
-                {
-                    "name": bench.name,
-                    "kind": "tool",
-                    "is_active": "on",
-                    "unlocking_orientations": [experienced.pk, beginner.pk],
-                },
-            )
-            assert response.status_code == 302
-            bench.refresh_from_db()
-            assert bench.required_orientation == beginner
-
-        def it_mirrors_an_item_gated_by_a_new_orientation_of_its_own(client: Client):
-            _login(client, "any_mirror_new", fog_role=Member.FogRole.ADMIN)
-            bench = EquipmentFactory(name="Any Mirror New Bench")
-            response = client.post(
-                reverse("hub_equipment_details_save", args=[bench.slug]),
-                {
-                    "name": bench.name,
-                    "kind": "tool",
-                    "is_active": "on",
-                    "unlocking_orientations": [EquipmentForm.NEW_TYPE_CHOICE],
-                    "new_type-name": "Any Mirror Basics",
-                    "new_type-duration_minutes": "60",
-                    "new_type-default_seats": "2",
-                    "new_type-price": "",
-                    "new_type-default_location": "",
-                },
-            )
-            assert response.status_code == 302
-            bench.refresh_from_db()
-            assert bench.required_orientation == bench.owned_orientation_types.get()
-
-        def it_nulls_the_column_when_the_item_is_cleared_to_none(client: Client):
-            _login(client, "any_mirror_clear", fog_role=Member.FogRole.ADMIN)
-            press, beginner, _experienced = _press()
-            press.required_orientation = beginner  # the state the forward migration leaves
-            press.save(update_fields=["required_orientation"])
-            response = client.post(
-                reverse("hub_equipment_details_save", args=[press.slug]),
-                {"name": press.name, "kind": "tool", "is_active": "on"},
-            )
-            assert response.status_code == 302
-            press.refresh_from_db()
-            assert not press.unlocking_orientations.exists()
-            assert press.required_orientation is None
-
     def describe_a_member_who_completed_one():
         def it_reads_all_set_on_the_page_and_the_card(client: Client):
             user = _login(client, "any_done_one")
