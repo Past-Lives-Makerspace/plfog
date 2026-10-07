@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import os
 from pathlib import Path
-from typing import cast
+from typing import Any, cast
 
 import pytest
 from django.urls import reverse
@@ -19,6 +19,7 @@ from playwright.sync_api import expect
 
 from classes.factories import ClassOfferingFactory, InstructorFactory, UserFactory
 from classes.models import ClassOffering
+from core.models import SiteConfiguration
 from membership.models import Member
 from tests.membership.factories import MembershipPlanFactory
 
@@ -39,7 +40,14 @@ def _settle_before_the_database_is_truncated(page, live_server, transactional_db
         pass
 
 
-def _seed() -> ClassOffering:
+def _seed(settings: Any) -> ClassOffering:
+    # The fields show only while the integration is on: the site toggle plus every credential.
+    settings.EVENTBRITE_PRIVATE_TOKEN = "token"
+    settings.EVENTBRITE_ORGANIZATION_ID = "org"
+    settings.EVENTBRITE_VENUE_ID = "venue"
+    config = SiteConfiguration.load()
+    config.eventbrite_sync_enabled = True
+    config.save(update_fields=["eventbrite_sync_enabled"])
     MembershipPlanFactory()  # so the user signal provisions the member the instructor factory updates
     user = UserFactory(username=EMAIL, email=EMAIL)
     instructor = cast(Member, InstructorFactory(user=user, full_legal_name="Eve Brightwater", instructor_slug="eve"))
@@ -50,8 +58,8 @@ def _seed() -> ClassOffering:
 
 
 def describe_eventbrite_fields_on_the_instructor_composer():
-    def it_saves_the_opt_in_and_hides_it_for_a_flexible_class(live_server, page, login_via_code):
-        offering = _seed()
+    def it_saves_the_opt_in_and_hides_it_for_a_flexible_class(live_server, page, login_via_code, settings):
+        offering = _seed(settings)
         login_via_code(EMAIL)
         page.goto(f"{live_server.url}{reverse('classes:teach_class_edit', kwargs={'pk': offering.pk})}?step=3")
         section = page.locator(SECTION)

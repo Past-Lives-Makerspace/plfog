@@ -268,8 +268,6 @@ def _full_payload(category, **extra) -> dict:
         "flexible_ends_on": "2026-12-01",
         "registration_cutoff_enabled": "on",
         "registration_cutoff_hours": "36",
-        "eventbrite_enabled": "on",
-        "eventbrite_fee_payer": "included",
         "area": "",
         "video_url": VIDEO,
         "hero_crop": json.dumps({"x": 10, "y": 20, "w": 320, "h": 180}),
@@ -311,9 +309,6 @@ def _assert_round_trip(offering: ClassOffering, category) -> None:
     # class has no start to count from (classes/forms.py clean_registration_cutoff). The form
     # specs prove a cutoff lands on a fixed class.
     assert offering.registration_cutoff_hours is None
-    # Eventbrite likewise: a flexible class has no dates to list, so the opt-in is dropped (#652).
-    assert offering.eventbrite_enabled is False
-    assert offering.eventbrite_fee_payer == "included"
     assert offering.video_url == VIDEO
     assert (offering.card_focus_x, offering.card_focus_y) == (30, 70)
 

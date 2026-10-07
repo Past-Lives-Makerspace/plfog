@@ -594,7 +594,9 @@ class _EventbriteMixin:
     """The two Eventbrite fields (#652): the opt-in and who pays Eventbrite's fee.
 
     The fee's help text works the example at the class's own price (a new class shows $50). A
-    flexible class has no dates to list, so the opt-in is cleared whatever was posted.
+    flexible class has no dates to list, so the opt-in is cleared whatever was posted. While the
+    integration is off (site toggle or credentials), both fields leave the form, so nobody ticks
+    a box that does nothing and a post cannot set them.
     """
 
     fields: dict[str, forms.Field]
@@ -603,8 +605,11 @@ class _EventbriteMixin:
 
     def setup_eventbrite_fields(self) -> None:
         from classes.templatetags.classes_tags import cents_as_price
-        from core.integrations.eventbrite import estimate_fee_cents
+        from core.integrations.eventbrite import EventbriteClient, estimate_fee_cents
 
+        if not EventbriteClient.from_settings().enabled:
+            del self.fields["eventbrite_enabled"], self.fields["eventbrite_fee_payer"]
+            return
         price = self.instance.price_cents or 5000
         fee = estimate_fee_cents(price)
         # Optional so a post without it (an older client, the opt-in left off) keeps the default.
@@ -618,6 +623,8 @@ class _EventbriteMixin:
         )
 
     def clean_eventbrite(self) -> None:
+        if "eventbrite_enabled" not in self.fields:
+            return
         if not self.cleaned_data.get("eventbrite_fee_payer"):
             self.cleaned_data["eventbrite_fee_payer"] = ClassOffering.EventbriteFeePayer.BUYER
         if self.cleaned_data.get("scheduling_model") == ClassOffering.SchedulingModel.FLEXIBLE:
@@ -1090,9 +1097,12 @@ class TeachPublishedClassForm(_RichDescriptionMixin, _HeroCropMixin, forms.Model
         # Eventbrite is the reverse: a flexible class has no dates to list, so it gets no switch.
         if self.instance.is_flexible:
             setup_flexible_booking_text(self)
-            del self.fields["eventbrite_enabled"]
         else:
             del self.fields["flexible_booking_text"]
+        from core.integrations.eventbrite import EventbriteClient
+
+        if self.instance.is_flexible or not EventbriteClient.from_settings().enabled:
+            del self.fields["eventbrite_enabled"]
         self.add_hero_crop_field()
 
     def clean_flexible_booking_text(self) -> str:

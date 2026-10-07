@@ -13,13 +13,21 @@ from unittest.mock import patch
 
 import pytest
 from django.core.management import call_command
+from django.urls import reverse
 from django.utils import timezone
 
-from classes.factories import ClassOfferingFactory, ClassSessionFactory, SeriesClassOfferingFactory
-from classes.forms import TeachClassOfferingForm, TeachPublishedClassForm
+from classes.factories import (
+    ClassOfferingFactory,
+    ClassSessionFactory,
+    InstructorFactory,
+    SeriesClassOfferingFactory,
+    UserFactory,
+)
+from classes.forms import ClassOfferingForm, TeachClassOfferingForm, TeachPublishedClassForm
 from classes.models import ClassOffering
 from core.integrations.eventbrite import EventbriteClient, EventbriteError, EventbriteSync
 from core.models import SiteConfiguration
+from tests.membership.factories import MembershipPlanFactory
 
 pytestmark = pytest.mark.django_db
 
@@ -82,6 +90,16 @@ def eventbrite() -> Iterator[FakeEventbrite]:
     fake = FakeEventbrite()
     with patch.object(EventbriteClient, "from_settings", return_value=fake):
         yield fake
+
+
+def _switch_integration_on(settings: Any) -> None:
+    """The site toggle plus every credential: what ``EventbriteClient.enabled`` needs."""
+    settings.EVENTBRITE_PRIVATE_TOKEN = "token"
+    settings.EVENTBRITE_ORGANIZATION_ID = "org"
+    settings.EVENTBRITE_VENUE_ID = "venue"
+    config = SiteConfiguration.load()
+    config.eventbrite_sync_enabled = True
+    config.save(update_fields=["eventbrite_sync_enabled"])
 
 
 def _opted_in(**kwargs: Any) -> ClassOffering:
@@ -361,6 +379,10 @@ def describe_run_it_again():
 
 
 def describe_the_class_forms():
+    @pytest.fixture(autouse=True)
+    def _integration_on(settings: Any) -> None:
+        _switch_integration_on(settings)
+
     def _composer_data(offering: ClassOffering, **overrides: Any) -> dict[str, Any]:
         data = {
             "title": offering.title,
@@ -425,6 +447,73 @@ def describe_the_class_forms():
 
         assert "eventbrite_enabled" in TeachPublishedClassForm(instance=fixed).fields
         assert "eventbrite_enabled" not in TeachPublishedClassForm(instance=flexible).fields
+
+
+def describe_the_fields_while_the_integration_is_off():
+    def it_leaves_both_fields_off_the_composer_forms():
+        offering = ClassOfferingFactory()
+
+        for form in (TeachClassOfferingForm(instance=offering), ClassOfferingForm(instance=offering)):
+            assert "eventbrite_enabled" not in form.fields
+            assert "eventbrite_fee_payer" not in form.fields
+
+    def it_ignores_a_posted_opt_in():
+        offering = ClassOfferingFactory()
+        data = {
+            "title": offering.title,
+            "category": offering.category_id,
+            "description": offering.description,
+            "price_cents": "50.00",
+            "capacity": 6,
+            "scheduling_model": ClassOffering.SchedulingModel.FIXED,
+            "scheduling_type": ClassOffering.SchedulingType.SINGLE_SESSION,
+            "eventbrite_enabled": "on",
+            "eventbrite_fee_payer": ClassOffering.EventbriteFeePayer.INCLUDED,
+        }
+        form = TeachClassOfferingForm(data, instance=offering)
+        assert form.is_valid(), form.errors
+
+        saved = form.save()
+
+        assert saved.eventbrite_enabled is False
+        assert saved.eventbrite_fee_payer == ClassOffering.EventbriteFeePayer.BUYER
+
+    def it_gives_a_live_class_no_switch():
+        offering = ClassOfferingFactory(status=ClassOffering.Status.PUBLISHED)
+
+        assert "eventbrite_enabled" not in TeachPublishedClassForm(instance=offering).fields
+
+    def it_hides_them_while_a_credential_is_missing(settings: Any):
+        _switch_integration_on(settings)
+        settings.EVENTBRITE_VENUE_ID = ""
+
+        assert "eventbrite_enabled" not in TeachClassOfferingForm().fields
+
+    def it_shows_them_once_the_integration_is_on(settings: Any):
+        _switch_integration_on(settings)
+
+        assert {"eventbrite_enabled", "eventbrite_fee_payer"} <= set(TeachClassOfferingForm().fields)
+        assert {"eventbrite_enabled", "eventbrite_fee_payer"} <= set(ClassOfferingForm().fields)
+
+
+def describe_the_composer_page():
+    def _composer_html(client: Any) -> str:
+        MembershipPlanFactory()
+        user = UserFactory(username="eb-composer@example.com", email="eb-composer@example.com")
+        InstructorFactory(user=user)
+        client.force_login(user)
+        return client.get(reverse("classes:teach_class_create")).content.decode()
+
+    def it_has_no_eventbrite_block_while_the_integration_is_off(client: Any):
+        assert "data-eventbrite" not in _composer_html(client)
+
+    def it_shows_the_eventbrite_block_once_the_integration_is_on(client: Any, settings: Any):
+        _switch_integration_on(settings)
+
+        html = _composer_html(client)
+
+        assert "data-eventbrite" in html
+        assert 'name="eventbrite_enabled"' in html
 
 
 def describe_a_class_with_no_dates():
