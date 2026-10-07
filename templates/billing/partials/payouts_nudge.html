@@ -1,0 +1,15 @@
+{% comment %}The payouts nudge (#662): shown until the payee finishes Stripe signup, while payouts are on.
+Pass kind="classes" (Manage My Classes, Overview) or kind="orientations" (the Orientations page). No close
+button on purpose: the alternative is waiting a month to be paid.{% endcomment %}
+<div class="hub-card pl-nudge pl-payouts-nudge" data-payouts-nudge="{{ kind }}">
+  {% if kind == "orientations" %}
+  <h2 class="hub-detail-label">Get paid a few days after each orientation</h2>
+  <p class="pl-nudge__lead">Connect your bank through Stripe and your share of each paid orientation you run is sent 48 hours after it starts.</p>
+  {% else %}
+  <h2 class="hub-detail-label">Get paid a few days after you teach</h2>
+  <p class="pl-nudge__lead">Connect your bank through Stripe and your share of each class is sent 48 hours after it starts.</p>
+  {% endif %}
+  <div class="pl-nudge__actions">
+    <a href="{% url 'hub_user_settings' %}?tab=payouts" class="hub-btn hub-btn--primary hub-btn--sm">Set up payouts</a>
+  </div>
+</div>

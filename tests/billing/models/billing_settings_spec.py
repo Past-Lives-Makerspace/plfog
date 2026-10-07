@@ -277,10 +277,12 @@ def describe_BillingSettings():
             settings.test_connect_platform_publishable_key = "pk_test"
             settings.test_connect_platform_secret_key = "sk_test"
             settings.test_connect_platform_webhook_secret = "whsec_test"
+            settings.test_connect_accounts_webhook_secret = "whsec_acct"
             settings.connect_client_id = "ca_live"
             settings.connect_platform_publishable_key = "pk_live"
             settings.connect_platform_secret_key = "sk_live"
             settings.connect_platform_webhook_secret = "whsec_live"
+            settings.connect_accounts_webhook_secret = "whsec_acct"
             assert settings.active_client_id == "ca_test"
             assert settings.active_publishable_key == "pk_test"
             assert settings.active_secret_key == "sk_test"
@@ -293,10 +295,12 @@ def describe_BillingSettings():
             settings.test_connect_platform_publishable_key = "pk_test"
             settings.test_connect_platform_secret_key = "sk_test"
             settings.test_connect_platform_webhook_secret = "whsec_test"
+            settings.test_connect_accounts_webhook_secret = "whsec_acct"
             settings.connect_client_id = "ca_live"
             settings.connect_platform_publishable_key = "pk_live"
             settings.connect_platform_secret_key = "sk_live"
             settings.connect_platform_webhook_secret = "whsec_live"
+            settings.connect_accounts_webhook_secret = "whsec_acct"
             assert settings.active_client_id == "ca_live"
             assert settings.active_publishable_key == "pk_live"
             assert settings.active_secret_key == "sk_live"
@@ -326,6 +330,7 @@ def describe_BillingSettings():
             settings.connect_platform_publishable_key = "pk_test_1"
             settings.connect_platform_secret_key = "sk_test_1"
             settings.connect_platform_webhook_secret = "whsec_1"
+            settings.connect_accounts_webhook_secret = "whsec_acct"
             settings.clean()  # should not raise
 
         def it_raises_when_live_mode_enabled_with_missing_client_id():
@@ -337,6 +342,7 @@ def describe_BillingSettings():
             settings.connect_platform_publishable_key = "pk_x"
             settings.connect_platform_secret_key = "sk_x"
             settings.connect_platform_webhook_secret = "whsec_x"
+            settings.connect_accounts_webhook_secret = "whsec_acct"
             settings.connect_client_id = ""
             with pytest.raises(ValidationError) as excinfo:
                 settings.clean()
@@ -367,6 +373,7 @@ def describe_BillingSettings():
             settings.test_connect_platform_publishable_key = "pk_test_1"
             settings.test_connect_platform_secret_key = "sk_test_1"
             settings.test_connect_platform_webhook_secret = "whsec_test_1"
+            settings.test_connect_accounts_webhook_secret = "whsec_acct"
             settings.clean()  # should not raise
 
         def it_raises_when_test_mode_enabled_with_all_test_fields_missing():
@@ -395,6 +402,7 @@ def describe_BillingSettings():
             settings.test_connect_platform_publishable_key = "pk_test_1"
             settings.test_connect_platform_secret_key = "sk_test_1"
             settings.test_connect_platform_webhook_secret = "whsec_test_1"
+            settings.test_connect_accounts_webhook_secret = "whsec_acct"
             settings.connect_client_id = ""
             settings.connect_platform_publishable_key = ""
             settings.connect_platform_secret_key = ""

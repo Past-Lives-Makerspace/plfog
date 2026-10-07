@@ -941,6 +941,21 @@
     color: var(--hub-text);
 }
 
+/* A chosen row in a multiple select (#664). The option rules above and the
+   other `<prefix> select option` rules paint every row, which hid the
+   browser's own selected state. Gold fill with navy text, the brand button
+   pair, reads the same in both themes (7.6:1). Chrome paints a listbox's
+   selected row over background-color, so the fill goes in as an image too,
+   and forces the row's text white while the list has focus, so the text
+   colour goes in as a fill as well. Two classes of specificity so it
+   outranks every one class option rule. */
+select[multiple] option:checked {
+    background-color: var(--color-tuscan-yellow);
+    background-image: linear-gradient(var(--color-tuscan-yellow), var(--color-tuscan-yellow));
+    color: var(--color-navy);
+    -webkit-text-fill-color: var(--color-navy);
+}
+
 /* Date/time pickers: let the native picker indicator (the clock/calendar glyph)
    and the dropdown follow the dark theme — otherwise the glyph renders black and
    is invisible on the dark input background. */
@@ -2115,3 +2130,29 @@
     opacity: 0.4;
     cursor: not-allowed;
 }
+
+/* ==========================================================================
+   Payouts (#662): Settings, Payouts status card and the payouts nudge. Tokens only.
+   ========================================================================== */
+.pl-payouts { margin-bottom: 1.5rem; }
+.pl-payouts__head { display: flex; align-items: center; gap: 0.75rem; flex-wrap: wrap; margin-bottom: 0.5rem; }
+.pl-payouts__head h2 { margin: 0; }
+.pl-payouts__lead { margin: 0 0 1rem; max-width: 62ch; color: var(--hub-text-muted); }
+.pl-payouts__actions { display: flex; gap: 0.75rem; flex-wrap: wrap; align-items: center; }
+.pl-payouts__aside { font-size: 0.85rem; color: var(--hub-text-muted); }
+
+/* Three numbered steps on the not-set-up card. */
+.pl-payouts-steps { list-style: none; counter-reset: step; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 0.75rem; margin: 0 0 1.25rem; padding: 0; }
+.pl-payouts-steps li { counter-increment: step; padding: 0.875rem 1rem; border: 1px solid var(--hub-border); border-radius: 10px; background: var(--hub-surface); font-size: 0.9rem; }
+.pl-payouts-steps li::before { content: counter(step); display: inline-flex; align-items: center; justify-content: center; width: 1.5rem; height: 1.5rem; margin-bottom: 0.4rem; border-radius: 999px; background: var(--color-tuscan-yellow); color: #1a1a1a; font-weight: 700; font-size: 0.8rem; }
+.pl-payouts-steps strong { display: block; color: var(--hub-text); }
+.pl-payouts-steps span { color: var(--hub-text-muted); }
+@media (max-width: 640px) { .pl-payouts-steps { grid-template-columns: 1fr; } }
+
+/* The privacy line under the steps. */
+.pl-payouts__privacy { display: flex; gap: 0.5rem; align-items: flex-start; margin: 0 0 1.25rem; font-size: 0.85rem; color: var(--hub-text-muted); max-width: 62ch; }
+.pl-payouts__privacy svg { flex: 0 0 auto; margin-top: 0.1rem; }
+
+/* The nudge on Manage My Classes and Orientations: the .pl-nudge card, clear of the tabs above it. */
+.pl-payouts-nudge { margin-top: 1rem; }
+.pl-payouts-nudge h2 { margin-top: 0; }

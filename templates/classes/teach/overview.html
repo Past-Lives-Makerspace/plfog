@@ -11,6 +11,7 @@ tests/core/tours_spec.py fails if a targeted key is stamped in no template at al
 {% block portal_action %}<a href="{% url 'classes:teach_class_create' %}" class="hub-btn hub-btn--primary hub-btn--sm" data-help-key="teach.create-class">+ New Class</a>{% endblock %}
 
 {% block tab_content %}
+{% if payouts_nudge %}{% include "billing/partials/payouts_nudge.html" with kind="classes" %}{% endif %}
 <a href="?tour=instructor" class="hub-btn hub-btn--sm hub-btn--ghost pl-tour-entry-link">Show me around</a>
 
 {% comment %}Needs Attention — one card for every queue that wants this instructor, whether

@@ -1,0 +1,7 @@
+bump = "patch"
+date = "2026-10-07"
+title = "A reserved tool hides the guild orientations that use it"
+changes = [
+  "When a guild orientation uses a piece of equipment, members can no longer book a time while that equipment is reserved or held by its managers.",
+  "Guild leads and staff see that time marked on their Upcoming Times list, with who or what holds the equipment, until the reservation is cancelled.",
+]

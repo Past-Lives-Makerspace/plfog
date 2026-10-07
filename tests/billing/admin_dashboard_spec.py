@@ -780,6 +780,7 @@ def describe_billing_save_connect_platform():
                 "connect_platform_publishable_key": "pk_test_123",
                 "connect_platform_secret_key": "sk_test_123",
                 "connect_platform_webhook_secret": "whsec_123",
+                "connect_accounts_webhook_secret": "whsec_acct",
             },
         )
 
@@ -827,6 +828,7 @@ def describe_billing_save_connect_platform():
                 "test_connect_platform_publishable_key": "pk_test_1",
                 "test_connect_platform_secret_key": "sk_test_1",
                 "test_connect_platform_webhook_secret": "whsec_test_1",
+                "test_connect_accounts_webhook_secret": "whsec_acct",
             },
         )
 
@@ -850,10 +852,12 @@ def describe_billing_save_connect_platform():
                 "test_connect_platform_publishable_key": "pk_test_1",
                 "test_connect_platform_secret_key": "sk_test_1",
                 "test_connect_platform_webhook_secret": "whsec_test_1",
+                "test_connect_accounts_webhook_secret": "whsec_acct",
                 "connect_client_id": "ca_live_1",
                 "connect_platform_publishable_key": "pk_live_1",
                 "connect_platform_secret_key": "sk_live_1",
                 "connect_platform_webhook_secret": "whsec_live_1",
+                "connect_accounts_webhook_secret": "whsec_acct",
             },
         )
 

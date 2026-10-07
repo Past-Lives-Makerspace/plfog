@@ -1,4 +1,4 @@
-"""BDD specs for the hub side of "Equipment it uses" (#658).
+"""BDD specs for the hub side of "Equipment it uses" (#658, #665).
 
 Both orientation editors (guild and equipment) carry the multi select; the equipment
 editor keeps its own item on the list; a booked guild slot shows on each listed item's
@@ -18,10 +18,11 @@ from django.urls import reverse
 from django.utils import timezone
 
 from hub.forms import EquipmentForm, OrientationTypeFormSet
-from membership.models import Equipment, Guild, Member, OrientationBooking, OrientationType
+from membership.models import Equipment, EquipmentReservation, Guild, Member, OrientationBooking, OrientationType
 from tests.membership.factories import (
     EquipmentFactory,
     EquipmentHoursFactory,
+    EquipmentReservationFactory,
     EquipmentStaffMembershipFactory,
     GuildFactory,
     MembershipPlanFactory,
@@ -201,7 +202,7 @@ def describe_equipment_editor():
             {
                 "name": "Etching Press",
                 "kind": "tool",
-                "required_orientation": EquipmentForm.NEW_TYPE_CHOICE,
+                "unlocking_orientations": EquipmentForm.NEW_TYPE_CHOICE,
                 "new_type-name": "Press Basics",
                 "new_type-duration_minutes": "60",
                 "new_type-default_seats": "2",
@@ -303,3 +304,55 @@ def describe_who_runs_it():
         assert list(response.context["orientation_types_formset"].queryset) == []
         guild_formset = OrientationTypeFormSet(instance=guild, prefix="otypes")
         assert list(guild_formset.queryset) == [orientation_type]
+
+
+def describe_the_guild_upcoming_times_flag():
+    """#665: a guild slot over a reservation on an item it uses is flagged for its orienters."""
+
+    def _guild_page(client: Client, username: str) -> tuple[Guild, Equipment, Any]:
+        lead = _login(client, username)
+        guild = GuildFactory(name="Printmaking Guild", guild_lead=lead)
+        press = EquipmentFactory(name="Etching Press")
+        orientation_type = OrientationTypeFactory(guild=guild, name="Etching Basics")
+        orientation_type.uses_equipment.set([press])
+        blocked = OrientationSlotFactory(
+            guild=guild, orientation_type=orientation_type, starts_at=_at(10), ends_at=_at(11)
+        )
+        OrientationSlotFactory(guild=guild, orientation_type=orientation_type, starts_at=_at(14), ends_at=_at(15))
+        return guild, press, blocked
+
+    def _times(client: Client, guild: Guild) -> Any:
+        return client.get(reverse("hub_guild_edit", args=[guild.pk]), {"tab": "orientations"})
+
+    def it_flags_the_slot_under_a_reservation_and_names_the_item(client: Client):
+        guild, press, blocked = _guild_page(client, "print_lead")
+        reserver = _login(Client(), "print_sam")
+        reserver.full_legal_name = "Sam Reyes"
+        reserver.save(update_fields=["full_legal_name"])
+        reservation = EquipmentReservationFactory(equipment=press, member=reserver, starts_at=_at(10), ends_at=_at(12))
+        response = _times(client, guild)
+        flags = {
+            entry["item"].pk: entry["item"].blocking_reservation for entry in response.context["upcoming_times_admin"]
+        }
+        assert flags[blocked.pk] == reservation
+        assert sum(flag is not None for flag in flags.values()) == 1
+        content = response.content.decode()
+        assert "Blocked by Sam Reyes's reservation on Etching Press 10:00 AM to 12:00 PM" in content
+        assert content.count("pl-equip-res-row--blocked") == 1
+
+    def it_flags_held_time_the_same_way(client: Client):
+        guild, press, _blocked = _guild_page(client, "print_lead_block")
+        EquipmentReservationFactory(
+            equipment=press,
+            starts_at=_at(9),
+            ends_at=_at(11),
+            kind=EquipmentReservation.Kind.BLOCK,
+            purpose="Felt replacement",
+        )
+        content = _times(client, guild).content.decode()
+        assert "Blocked by held time (Felt replacement) on Etching Press 9:00 AM to 11:00 AM" in content
+
+    def it_flags_nothing_when_the_items_are_free(client: Client):
+        guild, _press, _blocked = _guild_page(client, "print_lead_free")
+        EquipmentReservationFactory(equipment=EquipmentFactory(name="Lathe"), starts_at=_at(10), ends_at=_at(11))
+        assert "pl-equip-res-row--blocked" not in _times(client, guild).content.decode()

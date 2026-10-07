@@ -1671,6 +1671,8 @@ def teach_overview(request: HttpRequest) -> HttpResponse:
     awaiting review, recent sign-ups, waitlists), and everyone else gets the Host a
     Class page instead of a 403 or a redirect loop.
     """
+    from billing import payouts
+
     teaching_member: Member = request.teaching_member  # type: ignore[attr-defined]
     if not teaching_member.can_create_classes:
         return render(
@@ -1781,6 +1783,8 @@ def teach_overview(request: HttpRequest) -> HttpResponse:
             "is_guild_lead": is_guild_lead,
             "guild_lead_pending": guild_lead_pending,
             "guild_lead_awaiting_admin": guild_lead_awaiting_admin,
+            # Settings, Payouts nudge (#662): until this teacher finishes Stripe signup.
+            "payouts_nudge": payouts.needs_nudge(teaching_member),
         },
     )
 
