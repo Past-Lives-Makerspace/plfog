@@ -5965,6 +5965,51 @@ class EquipmentManagerCancelForm(forms.Form):
     )
 
 
+class EquipmentBlockForm(forms.Form):
+    """The manage tab's Block Time card (#657): a date, a start and end on the half hour grid, a reason.
+
+    Shape only; every domain check (manager, past, overlap) is ``Equipment.ensure_blockable``
+    under the ``block_time()`` lock. ``cleaned_data`` carries aware ``starts_at`` and ``ends_at``.
+    """
+
+    date = forms.DateField(
+        label="Date",
+        widget=forms.DateInput(
+            # Rule 14: the whole field opens the picker; .pl-slot-date fixes the dark theme icon.
+            attrs={"type": "date", "class": "pl-slot-date", "onclick": "try { this.showPicker() } catch (e) {}"}
+        ),
+    )
+    start_time = forms.ChoiceField(choices=equipment_hour_choices(), initial="09:00", label="Start")
+    end_time = forms.ChoiceField(choices=equipment_hour_choices(), initial="12:00", label="End")
+    reason = forms.CharField(
+        max_length=80,
+        label="Reason",
+        widget=forms.TextInput(attrs={"placeholder": "e.g. Orientation, maintenance"}),
+        help_text="Members see it on the schedule as Held · reason.",
+        error_messages={"required": "Please give a reason members will see on the schedule."},
+    )
+
+    def clean_start_time(self) -> time:
+        return _parse_time_choice(self.cleaned_data["start_time"])
+
+    def clean_end_time(self) -> time:
+        return _parse_time_choice(self.cleaned_data["end_time"])
+
+    def clean(self) -> dict[str, Any]:
+        cleaned = cast(dict[str, Any], super().clean())
+        day = cleaned.get("date")
+        start = cleaned.get("start_time")
+        end = cleaned.get("end_time")
+        if day is None or start is None or end is None:
+            return cleaned
+        if end <= start:
+            self.add_error("end_time", "The end time must be after the start time.")
+            return cleaned
+        cleaned["starts_at"] = timezone.make_aware(datetime.combine(day, start))
+        cleaned["ends_at"] = timezone.make_aware(datetime.combine(day, end))
+        return cleaned
+
+
 class EquipmentOrientationSlotForm(forms.ModelForm):
     """Add a one-off orientation time from the equipment manage panel's Orientation tab.
 

@@ -15090,18 +15090,18 @@ class Equipment(HeroCropMixin, models.Model):
             current = list(
                 EquipmentReservation.objects.confirmed().filter(equipment=self, starts_at__lte=now, ends_at__gt=now)
             )
-        busy_ends = [reservation.ends_at for reservation in current]
+        # (ends_at, word) per busy span: a manager's block reads "Held" (#657), everything else "Reserved".
+        busy = [(reservation.ends_at, "Held" if reservation.is_block else "Reserved") for reservation in current]
         # A booked orientation running now occupies the tool exactly like a reservation
         # (the detail page already shows it busy); an open, unbooked slot does not.
         running_slots = getattr(self, "current_orientation_slots", None)
         if running_slots is None:
             running_slots = list(OrientationSlot.objects.holding_seats_on(self, now, now))
-        busy_ends.extend(slot.ends_at for slot in running_slots)
-        if busy_ends:
-            ends_local = timezone.localtime(max(busy_ends))
-            hour = ends_local.hour % 12 or 12
-            suffix = "AM" if ends_local.hour < 12 else "PM"
-            return ("busy", f"Reserved until {hour}:{ends_local.minute:02d} {suffix}")
+        busy.extend((slot.ends_at, "Reserved") for slot in running_slots)
+        if busy:
+            # The span ending last names how long the tool stays busy, and its word leads.
+            ends_at, word = max(busy, key=lambda span: span[0])
+            return ("busy", f"{word} until {_clock(ends_at)}")
         local = timezone.localtime(now)
         open_now = any(
             rule.weekday == local.weekday() and rule.start_time <= local.time() < rule.end_time for rule in rules
@@ -15156,6 +15156,44 @@ class Equipment(HeroCropMixin, models.Model):
         if OrientationSlot.objects.holding_seats_on(self, starts_at, ends_at).exists():
             raise EquipmentError("That time overlaps a booked orientation. Please pick another time.")
 
+    def ensure_blockable(self, actor: Member, starts_at: datetime_type, ends_at: datetime_type) -> None:
+        """Raise :class:`EquipmentError` unless ``actor`` may hold [starts_at, ends_at) here (#657).
+
+        A block is a manager's hold, so it skips everything that rations member time: the
+        per member cap, the duration bounds, open hours, the booking horizon and the
+        closure. What it keeps is the grid and the overlap checks, run under the same
+        ``select_for_update`` lock as :meth:`ensure_reservable`: a block never lands on
+        a confirmed reservation, another block or a booked orientation, and the refusal
+        names what is in the way.
+
+        Raises:
+            EquipmentError: With manager-facing copy naming the failed check.
+        """
+        if not actor.can_manage_equipment(self):
+            raise EquipmentError("Only a manager of this equipment can block time on it.")
+        if ends_at <= starts_at:
+            raise EquipmentError("The end time must be after the start time.")
+        if starts_at <= timezone.now():
+            raise EquipmentError("That time's already past. Please pick a future time.")
+        for edge in (starts_at, ends_at):
+            local = timezone.localtime(edge)
+            if local.minute % self.RESERVATION_SNAP_MINUTES or local.second or local.microsecond:
+                raise EquipmentError("Blocks line up on half hour marks. Please pick one of the listed times.")
+        clash = (
+            EquipmentReservation.objects.overlapping(self, starts_at, ends_at)
+            .select_related("member")
+            .order_by("starts_at")
+            .first()
+        )
+        if clash is not None:
+            span = f"{_clock(clash.starts_at)} to {_clock(clash.ends_at)}"
+            if clash.is_block:
+                raise EquipmentError(f"Overlaps time already held for {clash.purpose}, {span}.")
+            raise EquipmentError(f"Overlaps {clash.member.short_name}'s reservation, {span}.")
+        slot = OrientationSlot.objects.holding_seats_on(self, starts_at, ends_at).order_by("starts_at").first()
+        if slot is not None:
+            raise EquipmentError(f"Overlaps a booked orientation, {_clock(slot.starts_at)} to {_clock(slot.ends_at)}.")
+
     def _ensure_duration_valid(self, duration_minutes: int) -> None:
         """Raise :class:`EquipmentError` unless the duration is on grid and within bounds."""
         if duration_minutes % self.RESERVATION_SNAP_MINUTES != 0:
@@ -15164,6 +15202,14 @@ class Equipment(HeroCropMixin, models.Model):
             raise EquipmentError(f"Reservations here are at least {self.min_duration_minutes} minutes.")
         if duration_minutes > self.max_duration_minutes:
             raise EquipmentError(f"Reservations here are at most {self.max_duration_minutes} minutes.")
+
+
+def _clock(value: datetime_type) -> str:
+    """A local wall-clock time like "2:00 PM", the form every equipment refusal names a span in."""
+    local = timezone.localtime(value)
+    hour = local.hour % 12 or 12
+    suffix = "AM" if local.hour < 12 else "PM"
+    return f"{hour}:{local.minute:02d} {suffix}"
 
 
 class EquipmentStaffMembership(models.Model):
@@ -15323,13 +15369,22 @@ class EquipmentReservationQuerySet(models.QuerySet["EquipmentReservation"]):
     def confirmed(self) -> EquipmentReservationQuerySet:
         return self.filter(status=EquipmentReservation.Status.CONFIRMED)
 
+    def reservations(self) -> EquipmentReservationQuerySet:
+        """Members' bookings only: the rows a booking list shows, without managers' blocks (#657)."""
+        return self.filter(kind=EquipmentReservation.Kind.RESERVATION)
+
+    def blocks(self) -> EquipmentReservationQuerySet:
+        """Managers' held time only (#657)."""
+        return self.filter(kind=EquipmentReservation.Kind.BLOCK)
+
     def overlapping(
         self, equipment: Equipment, starts_at: datetime_type, ends_at: datetime_type
     ) -> EquipmentReservationQuerySet:
-        """Confirmed reservations overlapping [starts_at, ends_at) on ``equipment``.
+        """Confirmed reservations and blocks overlapping [starts_at, ends_at) on ``equipment``.
 
         Strict inequalities: adjacent bookings (a 4:00 end against a 4:00 start) do
-        NOT conflict. Cancelled rows never conflict.
+        NOT conflict. Cancelled rows never conflict. Both kinds are busy time, so a
+        member can never book over a manager's block (#657).
         """
         return self.confirmed().filter(equipment=equipment, starts_at__lt=ends_at, ends_at__gt=starts_at)
 
@@ -15338,8 +15393,13 @@ class EquipmentReservationQuerySet(models.QuerySet["EquipmentReservation"]):
         return self.confirmed().filter(ends_at__gt=timezone.now()).order_by("starts_at")
 
     def active_count_for(self, member: Member, equipment: Equipment) -> int:
-        """The per-member anti-hog input: this member's upcoming confirmed count here."""
-        return self.confirmed().filter(member=member, equipment=equipment, ends_at__gt=timezone.now()).count()
+        """The per-member anti-hog input: this member's upcoming confirmed count here, blocks excluded."""
+        return (
+            self.confirmed()
+            .reservations()
+            .filter(member=member, equipment=equipment, ends_at__gt=timezone.now())
+            .count()
+        )
 
 
 class EquipmentReservation(models.Model):
@@ -15359,8 +15419,20 @@ class EquipmentReservation(models.Model):
         CONFIRMED = "confirmed", "Confirmed"
         CANCELLED = "cancelled", "Cancelled"
 
+    class Kind(models.TextChoices):
+        RESERVATION = "reservation", "Reservation"
+        BLOCK = "block", "Block"
+
     equipment = models.ForeignKey(
         Equipment, on_delete=models.CASCADE, related_name="reservations", help_text="The reserved equipment."
+    )
+    kind = models.CharField(
+        max_length=20,
+        choices=Kind.choices,
+        default=Kind.RESERVATION,
+        # The DB default too: the old release's reserve() inserts without ``kind`` while this migrates.
+        db_default=Kind.RESERVATION,
+        help_text="A member's reservation, or a manager's block holding the time (#657): no cap, no fee, no emails.",
     )
     member = models.ForeignKey(
         Member, on_delete=models.CASCADE, related_name="equipment_reservations", help_text="Who reserved it."
@@ -15368,7 +15440,10 @@ class EquipmentReservation(models.Model):
     starts_at = models.DateTimeField(help_text="When the reservation begins (aware UTC).")
     ends_at = models.DateTimeField(help_text="When the reservation ends (aware UTC).")
     purpose = models.CharField(
-        max_length=140, blank=True, default="", help_text="Optional one liner shown on the schedule."
+        max_length=140,
+        blank=True,
+        default="",
+        help_text="Optional one liner shown on the schedule; on a block, its reason (up to 80 characters).",
     )
     status = models.CharField(
         max_length=20, choices=Status.choices, default=Status.CONFIRMED, help_text="Confirmed or cancelled."
@@ -15418,6 +15493,36 @@ class EquipmentReservation(models.Model):
 
     def __str__(self) -> str:
         return f"{self.equipment.name}: {self.member.display_name} {self.starts_at:%Y-%m-%d %H:%M}"
+
+    @property
+    def is_block(self) -> bool:
+        """True for a manager's held time rather than a member's booking (#657)."""
+        return self.kind == self.Kind.BLOCK
+
+    def remove_block(self, actor: Member) -> None:
+        """Release a manager's block (#657): no reason, no email, never a fee.
+
+        A conditional update keyed on status, like :meth:`cancel`, so a double click
+        removes it once and the second request hears it is already gone.
+
+        Raises:
+            EquipmentError: When this row is not a block, ``actor`` cannot manage the
+                equipment, or the block was already removed.
+        """
+        if not self.is_block:
+            raise EquipmentError("Only a block can be removed this way.")
+        if not actor.can_manage_equipment(self.equipment):
+            raise EquipmentError("Only a manager of this equipment can remove a block.")
+        now = timezone.now()
+        flipped = EquipmentReservation.objects.filter(pk=self.pk, status=self.Status.CONFIRMED).update(
+            status=self.Status.CANCELLED, cancelled_by=actor, cancelled_as_manager=True, cancelled_at=now
+        )
+        if not flipped:
+            raise EquipmentError("This block was already removed.")
+        self.status = self.Status.CANCELLED
+        self.cancelled_by = actor
+        self.cancelled_as_manager = True
+        self.cancelled_at = now
 
     @property
     def is_cancelled_by_manager(self) -> bool:
@@ -15470,6 +15575,9 @@ class EquipmentReservation(models.Model):
             ValueError: When a manager cancels without a reason (form-enforced
                 upstream; loud guard here, mirroring the decline-notes convention).
         """
+        if self.is_block:
+            # A block is removed from the manage tab, never cancelled: no reason, no email, no fee (#657).
+            raise EquipmentError("This is a block. Remove it from the manage tab.")
         if self.status != self.Status.CONFIRMED:
             raise EquipmentError("This reservation was already cancelled.")
         now = timezone.now()

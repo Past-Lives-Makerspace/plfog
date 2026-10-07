@@ -91,12 +91,16 @@ def _show(request: HttpRequest) -> str:
 
 
 def _base_rows(request: HttpRequest, member: Member | None, *, is_staff_view: bool) -> QuerySet[EquipmentReservation]:
-    """Every reservation the viewer may see: their own, plus, for staff, every one on equipment they manage."""
+    """Every reservation the viewer may see: their own, plus, for staff, every one on equipment they manage.
+
+    Managers' blocks (#657) are held time, not bookings, so they never list here; the manage tab lists them.
+    """
+    bookings = EquipmentReservation.objects.reservations()
     own = Q(member=member) if member is not None else Q(pk__in=[])
     if not is_staff_view:
-        return EquipmentReservation.objects.filter(own)
+        return bookings.filter(own)
     managed = manageable_reservations(request, EquipmentReservation.objects.all(), honour_preview=True)
-    return EquipmentReservation.objects.filter(Q(pk__in=managed.values("pk")) | own)
+    return bookings.filter(Q(pk__in=managed.values("pk")) | own)
 
 
 def _apply_show(rows: QuerySet[EquipmentReservation], show: str) -> QuerySet[EquipmentReservation]:

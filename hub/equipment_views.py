@@ -26,6 +26,7 @@ from django.views.decorators.http import require_POST
 
 from hub.calendar_pages import calendar_nav_params, reservations_calendar_context
 from hub.forms import (
+    EquipmentBlockForm,
     EquipmentForm,
     EquipmentHoursWindowFormSet,
     EquipmentManagerCancelForm,
@@ -148,19 +149,19 @@ def _day_timeline(equipment: Equipment, selected_day: date) -> list[dict[str, An
 
     Each open window is split around the day's busy items: confirmed reservations
     (reserver name + purpose are shown to every logged-in member, the locked
-    privacy decision) and booked orientation slots ("Orientation · Sam R.", the
-    same visibility norm). Busy segments carry ``kind`` so the template can tell
-    them apart.
+    privacy decision), managers' blocks ("Held · reason", #657) and booked
+    orientation slots ("Orientation · Sam R.", the same visibility norm). Busy
+    segments carry ``kind`` so the template can tell them apart.
     """
     day_start = timezone.make_aware(datetime.combine(selected_day, time.min))
     day_end = day_start + timedelta(days=1)
     busy_list: list[dict[str, Any]] = [
         {
-            "kind": "reservation",
+            "kind": "block" if reservation.is_block else "reservation",
             "starts_at": reservation.starts_at,
             "ends_at": reservation.ends_at,
-            "label": "",
-            "reservation": reservation,
+            "label": f"Held · {reservation.purpose}" if reservation.is_block else "",
+            "reservation": None if reservation.is_block else reservation,
         }
         for reservation in EquipmentReservation.objects.overlapping(equipment, day_start, day_end).select_related(
             "member"
@@ -276,7 +277,8 @@ def _schedule_context(
     if member is not None:
         now = timezone.now()
         my_reservations = list(
-            equipment.reservations.filter(member=member, ends_at__gt=now)
+            equipment.reservations.reservations()
+            .filter(member=member, ends_at__gt=now)
             .exclude(status=EquipmentReservation.Status.CANCELLED, cancelled_by=member)
             .order_by("starts_at")
         )
@@ -305,7 +307,8 @@ def _schedule_context(
         # The timeline's legend line renders only where an orientation could ever show.
         "has_orientations": equipment.owned_orientation_types.active().exists(),
         "my_reservations": my_reservations,
-        "upcoming_reservations": list(equipment.reservations.upcoming().select_related("member")[:20]),
+        # Members' bookings only; a manager's block shows on the timeline as held time instead (#657).
+        "upcoming_reservations": list(equipment.reservations.upcoming().reservations().select_related("member")[:20]),
         "manages": manages,
         # Under the Book a Time form and appended to its Reserve prompt; "" when no fee applies.
         "late_cancel_sentence": "" if fee_exempt else booking_sentence(policy),
@@ -950,6 +953,7 @@ def _render_manage(
     settings_form: EquipmentSettingsForm | None = None,
     orientation_types_formset: Any = None,
     slot_add_form: EquipmentOrientationSlotForm | None = None,
+    block_form: EquipmentBlockForm | None = None,
     active_tab: str = "details",
 ) -> HttpResponse:
     """Render the manage panel with the given (possibly error-bearing) forms."""
@@ -984,15 +988,68 @@ def _render_manage(
                 lock_to_acting=orientation_ctx["slot_form_locked"],
             ),
             # The hub's standard Paginator + table_pagination partial, capped at 25 rows.
-            "manage_reservations": Paginator(equipment.reservations.upcoming().select_related("member"), 25).get_page(
-                request.GET.get("page", 1)
-            ),
+            "manage_reservations": Paginator(
+                equipment.reservations.upcoming().reservations().select_related("member"), 25
+            ).get_page(request.GET.get("page", 1)),
+            # The Block Time card and its Upcoming Blocks list (#657).
+            "block_form": block_form if block_form is not None else EquipmentBlockForm(),
+            "manage_blocks": list(equipment.reservations.upcoming().blocks().select_related("member")),
             # The Reservations tab's late fee card (#456): the rows and where its Waive returns to.
             "manage_late_fees": _manage_late_fees(equipment),
             "manage_late_fees_next": f"{reverse('hub_equipment_manage', args=[equipment.slug])}?tab=reservations",
             "active_tab": active_tab,
         },
     )
+
+
+@login_required
+@require_POST
+def hub_equipment_block_add(request: HttpRequest, slug: str) -> HttpResponse:
+    """POST — hold a span on the manage tab (#657); a refused block re-renders the card with its message."""
+    equipment = get_object_or_404(_equipment_queryset(), slug=slug)
+    member = _get_member(request)
+    if member is None:
+        return HttpResponse("Forbidden", status=403)
+    forbidden = _require_can_manage(request, equipment)
+    if forbidden is not None:
+        return forbidden
+    form = EquipmentBlockForm(request.POST)
+    if form.is_valid():
+        try:
+            equipment_service.block_time(
+                equipment,
+                member,
+                form.cleaned_data["starts_at"],
+                form.cleaned_data["ends_at"],
+                reason=form.cleaned_data["reason"],
+            )
+        except EquipmentError as exc:
+            form.add_error(None, str(exc))
+        else:
+            messages.success(request, "Time blocked. Members can't book over it.")
+            return redirect(f"{reverse('hub_equipment_manage', args=[equipment.slug])}?tab=reservations")
+    return _render_manage(request, equipment, block_form=form, active_tab="reservations")
+
+
+@login_required
+@require_POST
+def hub_equipment_block_remove(request: HttpRequest, slug: str, pk: int) -> HttpResponse:
+    """POST — release a block (#657): no reason asked, nobody emailed, no fee."""
+    equipment = get_object_or_404(_equipment_queryset(), slug=slug)
+    member = _get_member(request)
+    if member is None:
+        return HttpResponse("Forbidden", status=403)
+    forbidden = _require_can_manage(request, equipment)
+    if forbidden is not None:
+        return forbidden
+    block = get_object_or_404(EquipmentReservation, pk=pk, equipment=equipment, kind=EquipmentReservation.Kind.BLOCK)
+    try:
+        block.remove_block(member)
+    except EquipmentError as exc:
+        messages.error(request, str(exc))
+    else:
+        messages.success(request, "Block removed. The time is open again.")
+    return redirect(f"{reverse('hub_equipment_manage', args=[equipment.slug])}?tab=reservations")
 
 
 @login_required
