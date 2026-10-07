@@ -8,6 +8,7 @@ urlpatterns = [
     path("payment-method/confirm/", views.confirm_setup, name="billing_confirm_setup"),
     path("payment-method/remove/", views.remove_payment_method, name="billing_remove_payment_method"),
     path("webhooks/stripe/", views.stripe_webhook, name="billing_stripe_webhook"),
+    path("webhooks/eventbrite/<str:secret>/", views.eventbrite_webhook, name="billing_eventbrite_webhook"),
     path("payouts/start/", views.payouts_start, name="billing_payouts_start"),
     path("payouts/return/", views.payouts_return, name="billing_payouts_return"),
     path("payouts/dashboard/", views.payouts_dashboard, name="billing_payouts_dashboard"),

@@ -25,7 +25,7 @@ from django.contrib.auth import get_user_model
 from django.urls import reverse
 from playwright.sync_api import expect
 
-from membership.models import Guild, GuildFAQItem, GuildLink, OrientationType
+from membership.models import Guild, GuildFAQItem, GuildLink, GuildOrientationSettings, OrientationType
 from tests.membership.factories import EquipmentFactory, GuildFactory, GuildLinkFactory, MembershipPlanFactory
 
 ADMIN_EMAIL = "guild-autosave-admin@example.com"
@@ -58,6 +58,12 @@ def _sign_in_as_admin(login_via_code) -> None:
 
 def _open(page, live_server, guild: Guild, tab: str) -> None:
     page.goto(f"{live_server.url}{reverse('hub_guild_edit', args=[guild.pk])}?tab={tab}")
+    page.wait_for_function(ALPINE_READY)
+
+
+def _open_orientations(page, live_server, guild: Guild) -> None:
+    """The guild's Orientations page (#672), which carries the same autosave root."""
+    page.goto(f"{live_server.url}{reverse('hub_guild_orientations', args=[guild.pk])}")
     page.wait_for_function(ALPINE_READY)
 
 
@@ -146,6 +152,16 @@ def _wait_for_about(guild: Guild, text: str) -> None:
             return
         time.sleep(0.1)
     raise AssertionError(f"About never became {text!r}; it is {guild.about!r}")
+
+
+def _wait_for_thankyou_subject(guild: Guild, text: str) -> None:
+    """The Orientations page twin of ``_wait_for_about``: the thank-you subject lands on the way out."""
+    deadline = time.monotonic() + 10
+    while time.monotonic() < deadline:
+        if GuildOrientationSettings.objects.get(guild=guild).thankyou_email_subject == text:
+            return
+        time.sleep(0.1)
+    raise AssertionError(f"The thank-you subject never became {text!r}")
 
 
 def describe_guild_settings_autosave():
@@ -375,15 +391,34 @@ def describe_guild_settings_autosave():
         page.wait_for_url(lambda url: "/edit/" not in url)
         _wait_for_about(guild, "Left by the sidebar.")
 
+    def it_lands_an_orientations_page_save_when_the_member_types_and_leaves_at_once(live_server, page, login_via_code):
+        guild = _admin_guild()
+        _sign_in_as_admin(login_via_code)
+
+        # A boosted in page link: the request is held while the flushed save runs, then resumes.
+        _open_orientations(page, live_server, guild)
+        page.locator("#id_thankyou_email_subject").fill("Left by the back link")
+        page.get_by_role("link", name="Back to Ceramics Guild Settings").click()
+        page.wait_for_url(re.compile(re.escape(reverse("hub_guild_edit", args=[guild.pk])) + "$"))
+        _wait_for_thankyou_subject(guild, "Left by the back link")
+
+        # A hard sidebar link: the save is flushed with keepalive, the browser asks, Leave goes.
+        _open_orientations(page, live_server, guild)
+        page.locator("#id_thankyou_email_subject").fill("Left by the sidebar")
+        page.once("dialog", lambda dialog: dialog.accept())
+        page.locator(".hub-sidebar__nav a").first.click()
+        page.wait_for_url(lambda url: reverse("hub_guild_orientations", args=[guild.pk]) not in url)
+        _wait_for_thankyou_subject(guild, "Left by the sidebar")
+
     def it_keeps_a_photo_dropped_while_the_rows_first_save_is_in_flight(live_server, page, login_via_code):
         guild = _admin_guild()
         _sign_in_as_admin(login_via_code)
-        _open(page, live_server, guild, "orientations")
+        _open_orientations(page, live_server, guild)
         # The name's save is held open, so the photo lands while it is in flight: its answer must
         # not clear a file it never sent.
         page.evaluate(HOLD_SAVES)
 
-        page.get_by_role("button", name="+ Add an orientation type").click()
+        page.locator("[data-add-orientation-type]").click()
         page.locator('input[name="otypes-0-name"]').fill("Wheel basics")
         page.locator('input[name="otypes-0-duration_minutes"]').fill("60")
         page.wait_for_function("() => window.plHeldSaves > 0")
@@ -403,9 +438,10 @@ def describe_guild_settings_autosave():
         # sent photo must still be cleared, or the next edit uploads it again.
         guild = _admin_guild()
         _sign_in_as_admin(login_via_code)
-        _open(page, live_server, guild, "orientations")
+        _open_orientations(page, live_server, guild)
 
-        add = page.get_by_role("button", name="+ Add an orientation type")
+        # The card's own add, below its rows, still works beside the header's.
+        add = page.locator("#otypes-form").get_by_role("button", name="+ Add an orientation type")
         add.click()
         add.click()
         # The photo waits on the half typed row; filling the name sends both in the save whose

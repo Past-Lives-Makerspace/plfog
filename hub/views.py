@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import logging
+from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import timedelta
 from decimal import Decimal
@@ -1164,52 +1165,40 @@ def _upcoming_times(guild: Guild) -> list[dict[str, Any]]:
     return sorted(times, key=lambda entry: entry["item"].starts_at)
 
 
-def _guild_edit_context(
+def _guild_orientations_url(guild: Guild) -> str:
+    """The guild's Orientations page (#672): where every orientation save lands and every link into it points."""
+    return reverse("hub_guild_orientations", args=[guild.pk])
+
+
+def _guild_orientations_context(
     request: HttpRequest,
     guild: Guild,
     *,
-    form: GuildEditForm | None = None,
     orientation_form: Any = None,
     orientation_type_formset: Any = None,
     thankyou_email_form: Any = None,
-    welcome_email_form: Any = None,
     guild_rule_formset: Any = None,
-    studio_hours_formset: Any = None,
-    mailing_list_formset: Any = None,
 ) -> dict[str, Any]:
-    """Build the full render context for the guild edit page (all nine in-page tabs).
+    """Build the render context for the guild's Orientations page (#672).
 
-    Shared by ``guild_edit`` (GET + invalid-POST re-render) and ``guild_orientation_edit``'s
-    invalid-POST re-render, so the inlined Orientations / Meeting Notes / Events tabs always
-    have their data. Pass a bound ``form`` / ``orientation_form`` / ``guild_rule_formset`` to
-    surface validation errors; unbound defaults are built otherwise. Orientation, FAQ, and Links each
-    save via their own endpoint (the FAQ/Links idiom), so their formsets are unbound here.
+    Shared by ``guild_orientations`` (GET) and the orientation save views' invalid POST
+    re-renders. Pass a bound ``orientation_form`` / ``orientation_type_formset`` /
+    ``thankyou_email_form`` / ``guild_rule_formset`` to surface validation errors; unbound
+    defaults are built otherwise.
     """
     from hub.forms import (
-        GuildAnnouncementSettingsForm,
-        GuildFAQItemFormSet,
-        GuildLeadForm,
-        GuildLinkFormSet,
-        GuildMailingListFormSet,
         GuildOrientationSettingsForm,
-        GuildReservationsSettingsForm,
-        GuildStaffAddForm,
         GuildThankyouEmailForm,
-        GuildVisibilityForm,
-        GuildWelcomeEmailForm,
         OrientationAvailabilityFormSet,
         OrientationSlotForm,
         OrientationTypeFormSet,
-        StudioHoursFormSet,
     )
     from membership.models import GuildOrientationSettings
-    from membership.permissions import can_create_equipment, can_edit_orienter_hours, manageable_equipment_ids
+    from membership.permissions import can_edit_orienter_hours
 
     settings_obj, _ = GuildOrientationSettings.objects.get_or_create(guild=guild)
-    ctx = _get_hub_context(request)
-    recipients = guild.announcement_recipients()
 
-    # ── Orientations tab: the Orientation Schedule overview + slots ───────────
+    # The Orientation Schedule overview + slots.
     # Every orienter edits their own recurring hours through the Edit Hours modal (its own
     # GET partial + save prefix) from their row in the overview — never by reloading this page.
     viewer = _get_member(request)
@@ -1237,6 +1226,86 @@ def _guild_edit_context(
     guild_rules_qs = guild.orientation_rules.guild_level()
     has_guild_rules = guild_rules_qs.exists()
     upcoming_times_admin = _upcoming_times(guild)
+
+    return {
+        **_get_hub_context(request),
+        "guild": guild,
+        "orientation_form": (
+            orientation_form if orientation_form is not None else GuildOrientationSettingsForm(instance=settings_obj)
+        ),
+        "orientation_type_formset": (
+            orientation_type_formset
+            if orientation_type_formset is not None
+            else OrientationTypeFormSet(instance=guild, prefix="otypes")
+        ),
+        "orientation_is_paid": guild.orientation_types.active()
+        .filter(Q(price_cents__gt=0) | Q(is_donation=True))
+        .exists(),
+        "orientation_split": _orientation_split_percents(),
+        # The per type photo field (#502) rejects an oversized file before it posts.
+        "max_upload_image_bytes": settings.MAX_UPLOAD_IMAGE_BYTES,
+        "thankyou_email_form": (
+            thankyou_email_form if thankyou_email_form is not None else GuildThankyouEmailForm(instance=settings_obj)
+        ),
+        "viewer_member_pk": viewer.pk if viewer is not None else None,
+        "show_my_hours_card": show_my_hours_card,
+        "can_edit_others_hours": can_edit_others_hours,
+        "orienter_overview": orienter_overview,
+        "former_staff_overview": former_staff_overview,
+        "guild_rule_formset": (
+            guild_rule_formset
+            if guild_rule_formset is not None
+            else (
+                OrientationAvailabilityFormSet(
+                    instance=guild, prefix="guild_rules", queryset=guild_rules_qs, form_kwargs={"guild": guild}
+                )
+                if has_guild_rules and can_edit_others_hours
+                else None
+            )
+        ),
+        "guild_rules_readonly": (list(guild_rules_qs) if has_guild_rules and not can_edit_others_hours else []),
+        "upcoming_times_admin": upcoming_times_admin,
+        "slot_form": OrientationSlotForm(guild=guild, acting_member=viewer, lock_to_acting=not can_edit_others_hours),
+        "slot_form_locked": not can_edit_others_hours,
+    }
+
+
+def _guild_edit_context(
+    request: HttpRequest,
+    guild: Guild,
+    *,
+    form: GuildEditForm | None = None,
+    welcome_email_form: Any = None,
+    studio_hours_formset: Any = None,
+    mailing_list_formset: Any = None,
+) -> dict[str, Any]:
+    """Build the full render context for Guild Settings (every in-page tab).
+
+    Shared by ``guild_edit`` (GET + invalid-POST re-render) and the per tab save views'
+    invalid-POST re-renders. Pass a bound ``form`` (or a tab's bound form or formset) to
+    surface validation errors; unbound defaults are built otherwise. FAQ and Links each save
+    via their own endpoint (the FAQ/Links idiom), so their formsets are unbound here.
+    Orientations have their own page and context (``_guild_orientations_context``, #672).
+    """
+    from hub.forms import (
+        GuildAnnouncementSettingsForm,
+        GuildFAQItemFormSet,
+        GuildLeadForm,
+        GuildLinkFormSet,
+        GuildMailingListFormSet,
+        GuildReservationsSettingsForm,
+        GuildStaffAddForm,
+        GuildVisibilityForm,
+        GuildWelcomeEmailForm,
+        StudioHoursFormSet,
+    )
+    from membership.models import GuildOrientationSettings
+    from membership.permissions import can_create_equipment, manageable_equipment_ids
+
+    settings_obj, _ = GuildOrientationSettings.objects.get_or_create(guild=guild)
+    ctx = _get_hub_context(request)
+    recipients = guild.announcement_recipients()
+
     # The Reservations tab's item list (#502): every item the guild owns, active first, with a
     # Manage link only where the viewer may manage that item (an officer edits the guild but
     # does not manage its items), decided for the whole list at once.
@@ -1285,51 +1354,14 @@ def _guild_edit_context(
                 queryset=guild.events.studio_hours(), prefix="studio_hours", form_kwargs={"guild": guild}
             )
         ),
-        "orientation_form": (
-            orientation_form if orientation_form is not None else GuildOrientationSettingsForm(instance=settings_obj)
-        ),
-        "orientation_type_formset": (
-            orientation_type_formset
-            if orientation_type_formset is not None
-            else OrientationTypeFormSet(instance=guild, prefix="otypes")
-        ),
-        "orientation_is_paid": guild.orientation_types.active()
-        .filter(Q(price_cents__gt=0) | Q(is_donation=True))
-        .exists(),
-        "orientation_split": _orientation_split_percents(),
-        # The per type photo field (#502) rejects an oversized file before it posts.
-        "max_upload_image_bytes": settings.MAX_UPLOAD_IMAGE_BYTES,
         "welcome_email_form": (
             welcome_email_form if welcome_email_form is not None else GuildWelcomeEmailForm(instance=settings_obj)
-        ),
-        "thankyou_email_form": (
-            thankyou_email_form if thankyou_email_form is not None else GuildThankyouEmailForm(instance=settings_obj)
         ),
         "announcement_settings_form": GuildAnnouncementSettingsForm(instance=guild),
         # The Reservations tab (#502): the guild page toggle, then the guild's items.
         "reservations_settings_form": GuildReservationsSettingsForm(instance=guild),
         "reservable_items": [{"equipment": item, "can_manage": item.pk in manageable_ids} for item in reservable_items],
         "can_create_equipment": can_create_equipment(request),
-        "viewer_member_pk": viewer.pk if viewer is not None else None,
-        "show_my_hours_card": show_my_hours_card,
-        "can_edit_others_hours": can_edit_others_hours,
-        "orienter_overview": orienter_overview,
-        "former_staff_overview": former_staff_overview,
-        "guild_rule_formset": (
-            guild_rule_formset
-            if guild_rule_formset is not None
-            else (
-                OrientationAvailabilityFormSet(
-                    instance=guild, prefix="guild_rules", queryset=guild_rules_qs, form_kwargs={"guild": guild}
-                )
-                if has_guild_rules and can_edit_others_hours
-                else None
-            )
-        ),
-        "guild_rules_readonly": (list(guild_rules_qs) if has_guild_rules and not can_edit_others_hours else []),
-        "upcoming_times_admin": upcoming_times_admin,
-        "slot_form": OrientationSlotForm(guild=guild, acting_member=viewer, lock_to_acting=not can_edit_others_hours),
-        "slot_form_locked": not can_edit_others_hours,
     }
 
 
@@ -1337,14 +1369,19 @@ def _guild_edit_context(
 def guild_edit(request: HttpRequest, pk: int) -> HttpResponse:
     """Full guild edit page (GET) + handler (POST). Admin, officer, or this guild's lead/staff only.
 
-    Orientations, Meeting Notes, and Events are in-page tabs here (see ``_guild_edit_context``),
-    not separate pages. Each non-Basic/Meetings/Images section saves via its own endpoint, so the
-    main form below only covers Basic/Meetings/Images.
+    Meeting Notes and Events are in-page tabs here (see ``_guild_edit_context``), not separate
+    pages. Orientations moved to their own page (#672): a GET for the old ``?tab=orientations``
+    redirects there, so links already shared in Discord and email keep working. Each
+    non-Basic/Meetings/Images section saves via its own endpoint, so the main form below only
+    covers Basic/Meetings/Images.
     """
     guild = get_object_or_404(Guild, pk=pk)
     forbidden = _require_can_edit_guild(request, guild)
     if forbidden is not None:
         return forbidden
+
+    if request.method == "GET" and request.GET.get("tab") == "orientations":
+        return redirect(_guild_orientations_url(guild))
 
     if request.method == "POST":
         form = GuildEditForm(request.POST, request.FILES, instance=guild)
@@ -1366,6 +1403,27 @@ def guild_edit(request: HttpRequest, pk: int) -> HttpResponse:
         "hub/guild_edit.html",
         _guild_edit_context(request, guild),
     )
+
+
+def _render_guild_orientations(request: HttpRequest, guild: Guild, **bound: Any) -> HttpResponse:
+    """Render the guild's Orientations page, with any bound form or formset (``bound``) showing its errors."""
+    return render(request, "hub/guild_orientations.html", _guild_orientations_context(request, guild, **bound))
+
+
+@login_required
+def guild_orientations(request: HttpRequest, pk: int) -> HttpResponse:
+    """The guild's Orientations page (#672): every orientation setting for one guild, under its own title.
+
+    Gated exactly like Guild Settings (``_require_can_edit_guild``): admins, officers, and the
+    guild's lead and staff. An orienter sees only their own Edit Hours row; a lead or admin
+    sees everyone's (``_guild_orientations_context``). Each card saves through its own
+    endpoint, which lands back here.
+    """
+    guild = get_object_or_404(Guild, pk=pk)
+    forbidden = _require_can_edit_guild(request, guild)
+    if forbidden is not None:
+        return forbidden
+    return _render_guild_orientations(request, guild)
 
 
 @login_required
@@ -1457,9 +1515,9 @@ def guild_orientation_edit(request: HttpRequest, pk: int) -> HttpResponse:
     forbidden = _require_can_manage_orientations(request, guild)
     if forbidden is not None:
         return forbidden
-    orientations_tab = f"{reverse('hub_guild_edit', args=[guild.pk])}?tab=orientations"
+    orientations_page = _guild_orientations_url(guild)
     if request.method != "POST":
-        return redirect(orientations_tab)
+        return redirect(orientations_page)
 
     settings_obj, _ = GuildOrientationSettings.objects.get_or_create(guild=guild)
     form = GuildOrientationSettingsForm(request.POST, instance=settings_obj)
@@ -1473,13 +1531,11 @@ def guild_orientation_edit(request: HttpRequest, pk: int) -> HttpResponse:
         if wants_autosave(request):
             return autosave_saved()
         messages.success(request, "Orientation settings updated.")
-        return redirect(orientations_tab)
+        return redirect(orientations_page)
 
     if wants_autosave(request):
         return autosave_refused(form)
-    ctx = _guild_edit_context(request, guild, orientation_form=form)
-    ctx["active_tab"] = "orientations"
-    return render(request, "hub/guild_edit.html", ctx)
+    return _render_guild_orientations(request, guild, orientation_form=form)
 
 
 @login_required
@@ -1507,12 +1563,10 @@ def guild_orientation_types_save(request: HttpRequest, pk: int) -> HttpResponse:
         if wants_autosave(request):
             return autosave_saved({"otypes": formset_rows(formset)})
         messages.success(request, "Orientation types saved.")
-        return redirect(f"{reverse('hub_guild_edit', args=[guild.pk])}?tab=orientations")
+        return redirect(_guild_orientations_url(guild))
     if wants_autosave(request):
         return autosave_refused(formset)
-    ctx = _guild_edit_context(request, guild, orientation_type_formset=formset)
-    ctx["active_tab"] = "orientations"
-    return render(request, "hub/guild_edit.html", ctx)
+    return _render_guild_orientations(request, guild, orientation_type_formset=formset)
 
 
 def _hours_save_message(
@@ -1625,15 +1679,15 @@ def guild_orientation_hours_save(request: HttpRequest, pk: int) -> HttpResponse:
                 shared_farewell=_GUILD_SHARED_FAREWELL if shared_emptied else None,
             ),
         )
-        orientations_tab = f"{reverse('hub_guild_edit', args=[guild.pk])}?tab=orientations"
+        orientations_page = _guild_orientations_url(guild)
         if is_htmx:
             # The modal save round-trips through HX-Redirect: htmx does a full navigation,
             # the modal disappears with the old page, and the queued flash renders on the
-            # reloaded Orientations tab (delete/add/slot counts surface exactly as today).
+            # reloaded Orientations page (delete/add/slot counts surface exactly as today).
             response = HttpResponse(status=204)
-            response["HX-Redirect"] = orientations_tab
+            response["HX-Redirect"] = orientations_page
             return response
-        return redirect(orientations_tab)
+        return redirect(orientations_page)
 
     if prefix == "modal_rules":
         # Invalid modal POST (the only personal-scope path now): re-render the bound partial so
@@ -1652,10 +1706,7 @@ def guild_orientation_hours_save(request: HttpRequest, pk: int) -> HttpResponse:
     if wants_autosave(request):
         return autosave_refused(formset)
     # Guild scope is the only other path here — re-render the full page with the bound formset.
-    ctx = _guild_edit_context(request, guild, guild_rule_formset=formset)
-    # The invalid POST lands on the hours-save URL (no ?tab) — keep the Orientations tab open.
-    ctx["active_tab"] = "orientations"
-    return render(request, "hub/guild_edit.html", ctx)
+    return _render_guild_orientations(request, guild, guild_rule_formset=formset)
 
 
 @login_required
@@ -1951,7 +2002,7 @@ def guild_orientation_slot_add(request: HttpRequest, pk: int) -> HttpResponse:
         for field, errors in form.errors.items():
             for error in errors:
                 messages.error(request, f"{field}: {error}")
-    return redirect(f"{reverse('hub_guild_edit', args=[guild.pk])}?tab=orientations")
+    return redirect(_guild_orientations_url(guild))
 
 
 @login_required
@@ -1968,7 +2019,7 @@ def guild_orientation_slot_cancel(request: HttpRequest, pk: int, slot_pk: int) -
     slot = get_object_or_404(guild.orientation_slots, pk=slot_pk)
     orientations.cancel_slot(slot, reason=request.POST.get("reason", ""))
     messages.success(request, "Orientation slot cancelled.")
-    return redirect(f"{reverse('hub_guild_edit', args=[guild.pk])}?tab=orientations")
+    return redirect(_guild_orientations_url(guild))
 
 
 def _bulk_cancel_message(cancelled: int, emailed: int) -> str:
@@ -2005,7 +2056,7 @@ def guild_orientation_times_bulk_cancel(request: HttpRequest, pk: int) -> HttpRe
         messages.success(request, _bulk_cancel_message(cancelled, emailed))
     else:
         messages.info(request, "Nothing to cancel. Those times were already cancelled or are not this guild's.")
-    return redirect(f"{reverse('hub_guild_edit', args=[guild.pk])}?tab=orientations")
+    return redirect(_guild_orientations_url(guild))
 
 
 def _booking_charge_cents(request: HttpRequest, orientation_type: OrientationType) -> int:
@@ -2849,7 +2900,7 @@ def orientation_block_cancel(request: HttpRequest, block_pk: int) -> HttpRespons
         return forbidden
     block.cancel()
     messages.success(request, "Open window cancelled. Anything already booked inside it is untouched.")
-    return redirect(f"{reverse('hub_guild_edit', args=[block.guild.pk])}?tab=orientations")
+    return redirect(_guild_orientations_url(block.guild))
 
 
 def _surface_product_errors(request: HttpRequest, form: Any, formset: Any) -> None:
@@ -5179,32 +5230,30 @@ def announcement_recipients(request: HttpRequest, pk: int) -> HttpResponse:
 
 
 def _save_guild_email_form(
-    request: HttpRequest, guild: Guild, form: Any, *, flash: str, tab: str, context_key: str
+    request: HttpRequest, form: Any, *, flash: str, back: str, rerender: Callable[[Any], HttpResponse]
 ) -> HttpResponse:
-    """Save one of the guild's email forms: JSON for the autosave, else the redirect or the bound re-render."""
+    """Save one of the guild's email forms: JSON for the autosave, else a redirect to ``back`` or ``rerender(form)``."""
     if form.is_valid():
         form.save()
         if wants_autosave(request):
             return autosave_saved()
         messages.success(request, flash)
-        return redirect(f"{reverse('hub_guild_edit', args=[guild.pk])}?tab={tab}")
+        return redirect(back)
     if wants_autosave(request):
         return autosave_refused(form)
-    ctx = _guild_edit_context(request, guild, **{context_key: form})
-    ctx["active_tab"] = tab
-    return render(request, "hub/guild_edit.html", ctx)
+    return rerender(form)
 
 
 @login_required
 def guild_emails_save(request: HttpRequest, pk: int) -> HttpResponse:
-    """Save the guild's thank-you email from the Orientations tab. Editor only.
+    """Save the guild's thank-you or welcome email. Editor only.
 
-    The editor is an in-page card on the Orientations tab of ``guild_edit``, so a GET just
-    sends the viewer there. A POST carries a ``form_id`` discriminator (the house
-    multi-form-per-endpoint pattern); the only email form left is ``thankyou_email``. A
-    valid POST saves and redirects back to the tab; an invalid POST re-renders the full
-    guild edit page on the Orientations tab with the form's errors. An unknown or missing
-    ``form_id`` on a POST is a 404 (fail loudly).
+    The thank-you email is a card on the guild's Orientations page (#672) and the welcome
+    email a tab of Guild Settings, so a GET just sends the viewer to the Orientations page.
+    A POST carries a ``form_id`` discriminator (the house multi-form-per-endpoint pattern).
+    A valid POST saves and redirects back to the form's page; an invalid POST re-renders
+    that page with the form's errors. An unknown or missing ``form_id`` on a POST is a 404
+    (fail loudly).
     """
     from hub.forms import GuildThankyouEmailForm, GuildWelcomeEmailForm
     from membership.models import GuildOrientationSettings
@@ -5213,28 +5262,31 @@ def guild_emails_save(request: HttpRequest, pk: int) -> HttpResponse:
     forbidden = _require_can_edit_guild(request, guild)
     if forbidden is not None:
         return forbidden
-    orientations_tab = f"{reverse('hub_guild_edit', args=[guild.pk])}?tab=orientations"
     if request.method != "POST":
-        return redirect(orientations_tab)
+        return redirect(_guild_orientations_url(guild))
     form_id = request.POST.get("form_id")
     settings_obj, _ = GuildOrientationSettings.objects.get_or_create(guild=guild)
     if form_id == "thankyou_email":
         return _save_guild_email_form(
             request,
-            guild,
             GuildThankyouEmailForm(request.POST, instance=settings_obj),
             flash="Thank-you email saved.",
-            tab="orientations",
-            context_key="thankyou_email_form",
+            back=_guild_orientations_url(guild),
+            rerender=lambda bound: _render_guild_orientations(request, guild, thankyou_email_form=bound),
         )
     if form_id == "welcome_email":
+
+        def rerender_welcome(bound: Any) -> HttpResponse:
+            ctx = _guild_edit_context(request, guild, welcome_email_form=bound)
+            ctx["active_tab"] = "welcome_email"
+            return render(request, "hub/guild_edit.html", ctx)
+
         return _save_guild_email_form(
             request,
-            guild,
             GuildWelcomeEmailForm(request.POST, instance=settings_obj),
             flash="Welcome email saved.",
-            tab="welcome_email",
-            context_key="welcome_email_form",
+            back=f"{reverse('hub_guild_edit', args=[guild.pk])}?tab=welcome_email",
+            rerender=rerender_welcome,
         )
     raise Http404("Unknown email form.")
 

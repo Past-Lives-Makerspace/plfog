@@ -44,6 +44,7 @@ class FakeEventbrite:
         self.calls: list[tuple[str, tuple[Any, ...]]] = []
         self.fail: dict[str, EventbriteError] = {}
         self.created_event: dict[str, Any] = {"id": "ev-1"}
+        self.quantity_sold = 0
 
     def _record(self, name: str, *args: Any) -> None:
         self.calls.append((name, args))
@@ -75,6 +76,10 @@ class FakeEventbrite:
     def update_ticket_class(self, event_id: str, ticket_class_id: str, body: dict[str, Any]) -> dict[str, Any]:
         self._record("update_ticket_class", event_id, ticket_class_id, body)
         return {"id": ticket_class_id}
+
+    def get_ticket_class(self, event_id: str, ticket_class_id: str) -> dict[str, Any]:
+        self._record("get_ticket_class", event_id, ticket_class_id)
+        return {"id": ticket_class_id, "quantity_sold": self.quantity_sold}
 
     def set_description(self, event_id: str, html: str) -> None:
         self._record("set_description", event_id, html)
@@ -246,7 +251,7 @@ def describe_editing_a_listed_class():
 
         offering.sync_eventbrite_listing()
 
-        assert eventbrite.names() == ["update_event", "update_ticket_class", "set_description"]
+        assert eventbrite.names() == ["update_event", "get_ticket_class", "update_ticket_class", "set_description"]
         assert eventbrite.args("update_event")[1]["event"]["name"] == {"html": "Welding Two"}
         ticket = eventbrite.args("update_ticket_class")[2]["ticket_class"]
         assert ticket["cost"]["value"] == 6500

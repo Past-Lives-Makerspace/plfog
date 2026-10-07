@@ -59,7 +59,12 @@
   }
 
   function formOf(el) {
-    return el.closest ? el.closest("form[data-autosave]") : null;
+    if (!el.closest) return null;
+    // A control outside its form names it with form="<id>": the Orientations page's header
+    // "+ Add an orientation type" (#672). Inside a form, el.form is that same form.
+    var owner = el.form;
+    if (owner && owner.matches && owner.matches("form[data-autosave]")) return owner;
+    return el.closest("form[data-autosave]");
   }
 
   function ignored(el) {
@@ -560,8 +565,11 @@
           total.value = index + 1;
           var empty = form.querySelector("[data-formset-empty]");
           if (empty) empty.hidden = true;
+          // The add may sit far from its rows (the Orientations page header, #672): bring the new
+          // row into view, then put the cursor in it without a second jump.
+          row.scrollIntoView({ block: "center" });
           var first = row.querySelector("input:not([type=hidden]), select, textarea");
-          if (first) first.focus();
+          if (first) first.focus({ preventScroll: true });
         },
         // A row never saved just goes, unless a save is in flight or pending, in which case it
         // goes after that save (which may have just created it, and then it is a delete).

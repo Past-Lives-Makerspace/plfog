@@ -45,22 +45,9 @@
     {# -------- Profile tab -------- #}
     <div x-show="tab === 'profile'" x-cloak>
         {% if member %}
-        <div x-data="{ ptab: 'member' }">
-        {# Deliberately the heading row, NOT the whole pane — contact-methods and skills are annotated inside it (§6.8 non-overlap rule). #}
-        <h2 class="pl-profile-heading" data-help-key="settings.profile">Edit Your Profile</h2>
-        {% if member.is_instructor %}
-        <div class="pl-subtabs" role="tablist" aria-label="Profile sections">
-            <button type="button" @click="ptab = 'member'" :class="{ 'vote-tab--active': ptab === 'member' }" class="vote-tab" role="tab">Member</button>
-            <button type="button" @click="ptab = 'instructor'" :class="{ 'vote-tab--active': ptab === 'instructor' }" class="vote-tab" role="tab">Instructor</button>
-        </div>
-        {% endif %}
-        <form method="post" enctype="multipart/form-data" class="hub-form pl-profile-edit"
-              data-dirty-key="profile"
-              @input="dirty.profile = true"
-              @change="dirty.profile = true"
-              @submit="dirty.profile = false"
-              @click="if ($event.target.closest('[data-arm-dirty]')) dirty.profile = true"
-              x-data="{
+        {# listed and vis live here, not on the form, because the My Skills switch sits outside the form. #}
+        <div x-data="{
+                ptab: 'member',
                 listed: {% if profile_form.show_in_directory.value %}true{% else %}false{% endif %},
                 vis: {
                   pronouns: {% if profile_form.show_pronouns.value %}true{% else %}false{% endif %},
@@ -69,7 +56,24 @@
                   discord_handle: {% if profile_form.show_discord_handle.value %}true{% else %}false{% endif %},
                   about_me: {% if profile_form.show_about_me.value %}true{% else %}false{% endif %},
                   profile_photo: {% if profile_form.show_profile_photo.value %}true{% else %}false{% endif %},
+                  skills: {% if profile_form.show_skills.value %}true{% else %}false{% endif %},
                 },
+              }">
+        {# Deliberately the heading row, NOT the whole pane — contact-methods and skills are annotated inside it (§6.8 non-overlap rule). #}
+        <h2 class="pl-profile-heading" data-help-key="settings.profile">Edit Your Profile</h2>
+        {% if member.is_instructor %}
+        <div class="pl-subtabs" role="tablist" aria-label="Profile sections">
+            <button type="button" @click="ptab = 'member'" :class="{ 'vote-tab--active': ptab === 'member' }" class="vote-tab" role="tab">Member</button>
+            <button type="button" @click="ptab = 'instructor'" :class="{ 'vote-tab--active': ptab === 'instructor' }" class="vote-tab" role="tab">Instructor</button>
+        </div>
+        {% endif %}
+        <form method="post" enctype="multipart/form-data" class="hub-form pl-profile-edit" id="profile-form"
+              data-dirty-key="profile"
+              @input="dirty.profile = true"
+              @change="dirty.profile = true"
+              @submit="dirty.profile = false"
+              @click="if ($event.target.closest('[data-arm-dirty]')) dirty.profile = true"
+              x-data="{
                 fields: {
                   preferred_name: '{{ profile_form.preferred_name.value|default_if_none:""|escapejs }}',
                   pronouns: '{{ profile_form.pronouns.value|default_if_none:""|escapejs }}',
@@ -163,18 +167,7 @@
                     <div class="pl-profile-row">
                         <div class="pl-profile-row__head">
                             <label for="email" class="pl-profile-row__label">Email</label>
-                            <button type="button"
-                                    class="pl-vis-toggle"
-                                    data-arm-dirty
-                                    :class="{ 'pl-vis-toggle--on': vis.email, 'pl-vis-toggle--off': !vis.email, 'pl-vis-toggle--disabled': !listed }"
-                                    :disabled="!listed"
-                                    @click="vis.email = !vis.email"
-                                    :title="vis.email ? 'Visible on your directory card — click to hide' : 'Hidden from your directory card — click to show'">
-                                <svg x-show="vis.email" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
-                                <svg x-show="!vis.email" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"/><line x1="1" y1="1" x2="23" y2="23"/></svg>
-                                <span x-text="vis.email ? 'Members Only' : 'Hidden'"></span>
-                            </button>
-                            <input type="hidden" name="show_email" :value="vis.email ? 'on' : ''">
+                            {% include "hub/partials/_directory_visibility_toggle.html" with key="email" %}
                         </div>
                         <input type="email" id="email" value="{{ user.email }}" disabled>
                         <span class="hub-field-hint">Manage your emails in the Account tab.</span>
@@ -185,17 +178,7 @@
                     <div class="pl-profile-row">
                         <div class="pl-profile-row__head">
                             <span class="pl-profile-row__label">Profile photo</span>
-                            <button type="button"
-                                    class="pl-vis-toggle"
-                                    data-arm-dirty
-                                    :class="{ 'pl-vis-toggle--on': vis.profile_photo, 'pl-vis-toggle--off': !vis.profile_photo, 'pl-vis-toggle--disabled': !listed }"
-                                    :disabled="!listed"
-                                    @click="vis.profile_photo = !vis.profile_photo">
-                                <svg x-show="vis.profile_photo" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
-                                <svg x-show="!vis.profile_photo" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"/><line x1="1" y1="1" x2="23" y2="23"/></svg>
-                                <span x-text="vis.profile_photo ? 'Members Only' : 'Hidden'"></span>
-                            </button>
-                            <input type="hidden" name="show_profile_photo" :value="vis.profile_photo ? 'on' : ''">
+                            {% include "hub/partials/_directory_visibility_toggle.html" with key="profile_photo" %}
                         </div>
                         {% include "components/image_field.html" with field=profile_form.profile_photo current_image=member.profile_photo delete_url=profile_photo_delete_url modal_id="delete-profile-photo" label="" shape="circle" thumbnail_width="96px" max_bytes=max_upload_image_bytes delete_button_text="Delete photo" confirm_title="Delete profile photo?" confirm_message="Your profile photo will be removed from the member directory and from our storage. This can't be undone." hint_html=photo_upload_hint %}
                     </div>
@@ -592,8 +575,12 @@
         </form>
 
         {# Skills are edited through their own HTMX endpoints, so they live OUTSIDE the profile form (no nested forms). #}
-        <div class="pl-profile-section" data-help-key="settings.skills">
-            <h2 class="pl-profile-section__title">My Skills</h2>
+        <div class="pl-profile-section" data-help-key="settings.skills"
+             @click="if ($event.target.closest('[data-arm-dirty]')) dirty.profile = true">
+            <div class="pl-profile-row__head">
+                <h2 class="pl-profile-section__title">My Skills</h2>
+                {% include "hub/partials/_directory_visibility_toggle.html" with key="skills" outside_form="profile-form" %}
+            </div>
             <p class="hub-text-muted">List what you make and do — members can search the directory by skill.</p>
             {% include "hub/partials/profile_skills.html" %}
         </div>

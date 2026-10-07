@@ -52,7 +52,7 @@ def _slot(guild: Guild, *, days: int = 2) -> OrientationSlot:
 
 
 def _tab(guild: Guild) -> str:
-    return f"{reverse('hub_guild_edit', args=[guild.pk])}?tab=orientations"
+    return reverse("hub_guild_orientations", args=[guild.pk])
 
 
 def _bulk_url(guild: Guild) -> str:

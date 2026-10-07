@@ -640,16 +640,20 @@ def describe_guild_edit_page_autosave_markup():
         _user, guild = _admin(client, "markup")
         GuildOrientationSettingsFactory(guild=guild)
         OrientationAvailabilityFactory(guild=guild)
-        content = client.get(reverse("hub_guild_edit", args=[guild.pk])).content.decode()
-        assert "data-save-pill" in content
-        assert "Every change saves as you make it." in content
-        assert 'x-data="plGuildAutosave(' in content
-        # Main, visibility, orientation settings, types, thank-you, guild hours, FAQ, links,
-        # mailing list, announcement settings and reservations (the welcome form rides a feature switch).
-        assert assert_autosave_forms_have_no_submit(content) >= 11
-        assert "requestSubmit()" not in content.replace(
-            "document.getElementById('times-bulk-form').requestSubmit();", ""
-        )
+        settings_page = client.get(reverse("hub_guild_edit", args=[guild.pk])).content.decode()
+        orientations_page = client.get(reverse("hub_guild_orientations", args=[guild.pk])).content.decode()
+        for content in (settings_page, orientations_page):
+            assert "data-save-pill" in content
+            assert "Every change saves as you make it." in content
+            assert 'x-data="plGuildAutosave(' in content
+            assert "requestSubmit()" not in content.replace(
+                "document.getElementById('times-bulk-form').requestSubmit();", ""
+            )
+        # Main, visibility, FAQ, links, mailing list, announcement settings and reservations
+        # (the welcome form rides a feature switch).
+        assert assert_autosave_forms_have_no_submit(settings_page) >= 7
+        # Orientation settings, types, thank-you and guild hours, on their own page since #672.
+        assert assert_autosave_forms_have_no_submit(orientations_page) >= 4
 
     def it_marks_every_saving_form_and_names_each_formsets_required_fields(client: Client):
         _user, guild = _admin(client, "markup2")
@@ -658,11 +662,7 @@ def describe_guild_edit_page_autosave_markup():
         content = client.get(reverse("hub_guild_edit", args=[guild.pk])).content.decode()
         for action in (
             reverse("hub_guild_visibility_save", args=[guild.pk]),
-            reverse("hub_guild_orientation_edit", args=[guild.pk]),
-            reverse("hub_guild_orientation_types_save", args=[guild.pk]),
-            reverse("hub_guild_emails_save", args=[guild.pk]),
             reverse("hub_guild_studio_hours_save", args=[guild.pk]),
-            reverse("hub_guild_orientation_hours_save", args=[guild.pk]),
             reverse("hub_guild_faq_save", args=[guild.pk]),
             reverse("hub_guild_links_save", args=[guild.pk]),
             reverse("hub_guild_mailing_list_save", args=[guild.pk]),
@@ -674,8 +674,22 @@ def describe_guild_edit_page_autosave_markup():
         assert 'data-formset="links" data-formset-required="label url"' in content
         assert 'data-formset="mailing_list" data-formset-required="email"' in content
         assert 'data-formset="studio_hours" data-formset-required="weekday start_time end_time"' in content
+        assert 'data-autosave-confirm="delete-studio-hours"' in content
+        assert "leave-while-saving" in content
+
+    def it_marks_every_saving_form_on_the_orientations_page(client: Client):
+        _user, guild = _admin(client, "markup3")
+        GuildOrientationSettingsFactory(guild=guild)
+        OrientationAvailabilityFactory(guild=guild)
+        content = client.get(reverse("hub_guild_orientations", args=[guild.pk])).content.decode()
+        for action in (
+            reverse("hub_guild_orientation_edit", args=[guild.pk]),
+            reverse("hub_guild_orientation_types_save", args=[guild.pk]),
+            reverse("hub_guild_emails_save", args=[guild.pk]),
+            reverse("hub_guild_orientation_hours_save", args=[guild.pk]),
+        ):
+            assert re.search(rf'<form[^>]*action="{re.escape(action)}"[^>]*data-autosave', content), action
         assert 'data-formset="otypes" data-formset-required="name duration_minutes default_seats sort_order"' in content
         assert 'data-formset="guild_rules"' in content
-        assert 'data-autosave-confirm="delete-studio-hours"' in content
         assert 'data-autosave-confirm="delete-guild-hours"' in content
         assert "leave-while-saving" in content

@@ -450,6 +450,10 @@ GOOGLE_CALENDAR_SYNC_ENABLED = os.environ.get("GOOGLE_CALENDAR_SYNC_ENABLED", ""
 EVENTBRITE_PRIVATE_TOKEN = os.environ.get("EVENTBRITE_PRIVATE_TOKEN", "").strip()
 EVENTBRITE_ORGANIZATION_ID = os.environ.get("EVENTBRITE_ORGANIZATION_ID", "").strip()
 EVENTBRITE_VENUE_ID = os.environ.get("EVENTBRITE_VENUE_ID", "").strip()
+# The secret path segment of the inbound order webhook (/billing/webhooks/eventbrite/<secret>/).
+# Eventbrite signs nothing, so this keeps strangers from making plfog spend its API allowance;
+# blank turns the webhook off (every delivery is a 404).
+EVENTBRITE_WEBHOOK_SECRET = os.environ.get("EVENTBRITE_WEBHOOK_SECRET", "").strip()
 
 # Member invites — how long (in days) an un-accepted invite stays "Pending" before the
 # Manage Members panel shows it as "Expired". Advisory only: the signup link keeps

@@ -1,0 +1,6 @@
+bump = "minor"
+date = "2026-10-07"
+title = "Each guild has its own Orientations page"
+changes = [
+  "Guild leads and orienters now set up orientations on a page of their own, with Add an orientation type right at the top. Open it from the Orientations tab in Guild Settings or the Add an Orientation button on the Orientations page.",
+]

@@ -192,7 +192,7 @@ def describe_the_guild_editor():
         user = _login(client, "don_guild_render")
         guild = GuildFactory(guild_lead=user.member)
         OrientationTypeFactory(guild=guild, name="Shop Basics")
-        content = client.get(reverse("hub_guild_edit", args=[guild.pk])).content.decode()
+        content = client.get(reverse("hub_guild_orientations", args=[guild.pk])).content.decode()
         assert 'name="otypes-0-is_donation"' in content
         assert 'name="otypes-0-donation_minimum"' in content
         assert 'name="otypes-0-donation_suggested"' in content

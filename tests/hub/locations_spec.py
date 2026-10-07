@@ -211,7 +211,7 @@ def describe_orientation_type_settings():
         user = _login(client, "loc_otype_page", fog_role=Member.FogRole.ADMIN)
         guild = GuildFactory(guild_lead=user.member)
         OrientationTypeFactory(guild=guild, name="Shop Basics")
-        html = client.get(reverse("hub_guild_edit", args=[guild.pk]) + "?tab=orientations").content.decode()
+        html = client.get(reverse("hub_guild_orientations", args=[guild.pk])).content.decode()
         assert 'name="otypes-0-area"' in html
         assert 'name="otypes-__prefix__-area"' in html
 

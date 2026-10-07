@@ -1394,7 +1394,7 @@ On the **Links** tab, add links with a label and a URL, then click **Save Links*
 
 ### Your Automatic Email
 
-On the **Orientations** tab you can write a **Thank-you email**, sent to a member once their orientation is marked complete. It's on by default and falls back to standard wording, so you can leave the subject and body blank or write your own. Click its **Save** button.
+Your guild's **Orientations** page (open it from the **Orientations** tab in Guild Settings) holds the thank you email card: a note sent to a member once their orientation is marked complete. It's on by default and falls back to standard wording, so you can leave the subject and body blank or write your own. It saves as you type.
 
 Only leads, staff, and admins see the Guild Settings button. Everything a staff member can do here, they can do with your full authority; see the guild staff roles guide before adding anyone.""",
         "screenshots": [
@@ -1488,12 +1488,12 @@ Members request orientations from your guild's own page. Every request stays pen
 
 ### Turn On Booking
 
-1. Open **Guild Settings**, then the **Orientations** tab.
+1. Open your guild's **Orientations** page: click the **Orientations** tab in **Guild Settings**, or **+ Add an Orientation** on the Orientations page.
 2. In the **Booking** card, switch booking on and fill in your defaults: how many seats a slot holds, where orientations happen, and how long they run. The info text you write here is shown to members before they book.
 3. Choose whether members may propose their own time (custom requests).
 4. Click **Save orientation settings**.
 
-![The Orientations tab: booking settings, the thank-you email, and the Orientation Schedule.](/static/help/running-orientations/01-orientations-tab.png)
+![Your guild's Orientations page: booking settings, the thank you email, and the Orientation Schedule.](/static/help/running-orientations/01-orientations-tab.png)
 
 Going away for a while? The **Closed for orientations** card pauses bookings without losing any of your settings, and shows members your message (like: on vacation till Sept 8).
 
@@ -1505,7 +1505,7 @@ The **Recurring hours** card is where bookable times come from. Add one row per 
 
 ### Availability Blocks {#orientation-availability-blocks}
 
-Open windows are another way to open up time. Add one from the **Upcoming Times** card on your guild's Orientations tab (in guild settings): post one window (say, Saturday 1 to 4 pm) and members pick any of the guild's orientations plus a start time inside it; each booking takes up that orientation's length, so one window can serve several members back to back. Windows can't be edited once posted; cancel one and post a fresh window instead. Cancelling stops new bookings right away but keeps anything already booked on the calendar.
+Open windows are another way to open up time. Add one from the **Upcoming Times** card on your guild's **Orientations** page (opened from the **Orientations** tab in Guild Settings or the **+ Add an Orientation** button): post one window (say, Saturday 1 to 4 pm) and members pick any of the guild's orientations plus a start time inside it; each booking takes up that orientation's length, so one window can serve several members back to back. Windows can't be edited once posted; cancel one and post a fresh window instead. Cancelling stops new bookings right away but keeps anything already booked on the calendar.
 
 ### Custom Times and One-Off Slots
 
@@ -1538,18 +1538,18 @@ Already oriented someone outside the app, in person or before the portal? Click 
 
 ### Past Orientations Complete Themselves
 
-Every 15 minutes, a background job marks confirmed orientations complete once their time has passed. Completion sends your thank-you email (if you've set one up on the Orientations tab) and posts a welcome notice to the guild. If a no show got marked complete, the guild's lead, staff, or an admin can undo it with **Undo Oriented** in the row's **...** menu on the Bookings tab.""",
+Every 15 minutes, a background job marks confirmed orientations complete once their time has passed. Completion sends your thank you email (if you've set one up on your guild's Orientations page) and posts a welcome notice to the guild. If a no show got marked complete, the guild's lead, staff, or an admin can undo it with **Undo Oriented** in the row's **...** menu on the Bookings tab.""",
         "screenshots": [
             {
                 "file": "01-orientations-tab.png",
-                "page": "/guilds/1/edit/?tab=orientations",
-                "selector": "[x-show=\"section === 'orientations'\"]",
-                "caption": "The Orientations tab: booking settings, the thank-you email, and the Orientation Schedule.",
+                "page": "/guilds/1/orientations/",
+                "selector": "[data-guild-orientations]",
+                "caption": "Your guild's Orientations page: booking settings, the thank you email, and the Orientation Schedule.",
                 "as_role": "guild_lead",
             },
             {
                 "file": "02-recurring-hours.png",
-                "page": "/guilds/1/edit/?tab=orientations",
+                "page": "/guilds/1/orientations/",
                 "selector": "form[action='/guilds/1/orientation/hours/save/']",
                 "caption": "Recurring hours become bookable slots automatically.",
                 "as_role": "guild_lead",

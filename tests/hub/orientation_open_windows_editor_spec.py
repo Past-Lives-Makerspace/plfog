@@ -65,7 +65,7 @@ def _weekday_ahead(days: int) -> str:
 
 
 def _tab(guild: object) -> str:
-    return f"{reverse('hub_guild_edit', args=[guild.pk])}?tab=orientations"
+    return reverse("hub_guild_orientations", args=[guild.pk])
 
 
 def _modal_payload(orienter: Member, **overrides: str) -> dict[str, str]:
@@ -632,7 +632,7 @@ def describe_one_off_overlap_with_the_persons_calendar():
 
 
 def describe_window_cancel_from_the_tab():
-    def it_cancels_and_returns_to_the_orientations_tab(client: Client):
+    def it_cancels_and_returns_to_the_orientations_page(client: Client):
         user, guild = _lead("wc1")
         window = OrientationAvailabilityBlockFactory(guild=guild, orienter=user.member)
         client.login(username="wc1", password="pass")
