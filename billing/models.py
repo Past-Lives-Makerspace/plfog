@@ -148,8 +148,8 @@ class BillingSettings(models.Model):
         null=True,
         blank=True,
         help_text=(
-            "When payouts were last turned on. Stamped on each off-to-on change; a share that fell due before "
-            "it is never sent and stays owed at month end."
+            "When payouts were first turned on. A share that fell due before it is never sent and stays owed "
+            "at month end. Turning the switch off pauses sending; nothing is sent while it is off."
         ),
     )
     connect_client_id = models.CharField(
@@ -338,9 +338,9 @@ class BillingSettings(models.Model):
             )
 
     def save(self, *args: Any, **kwargs: Any) -> None:
-        """Force singleton by always using pk=1, and stamp ``payouts_on_since`` when payouts turn on."""
+        """Force singleton by always using pk=1, and stamp ``payouts_on_since`` the first time payouts turn on."""
         self.pk = 1
-        if self.connect_enabled and not BillingSettings.objects.filter(pk=1, connect_enabled=True).exists():
+        if self.connect_enabled and self.payouts_on_since is None:
             self.payouts_on_since = timezone.now()
             if kwargs.get("update_fields") is not None:
                 kwargs["update_fields"] = [*kwargs["update_fields"], "payouts_on_since"]
@@ -1547,25 +1547,31 @@ class ReconciliationSnapshot(models.Model):
     ) -> ReconciliationSnapshot:
         """Freeze the reconciliation for ``[period_start, period_end]``.
 
-        A plain create plus one ``SiteActivity`` audit row — no event, no email,
-        no Airtable, unlike ``FundingSnapshot.take()``.
+        A create plus one ``SiteActivity`` audit row — no event, no email, no Airtable,
+        unlike ``FundingSnapshot.take()``. It also binds the payout split (#662): in the
+        same transaction, every instructor and orientor share in the window gets its
+        ``Payout`` row (``billing.payouts.freeze_split``), classified by the same rule the
+        results just used, so what the snapshot calls "Sent through Stripe" is what gets sent.
         """
         from core.models import SiteActivity
 
         from billing.payments_panel import PanelWindow
+        from billing.payouts import freeze_split
         from billing.reconciliation import build_reconciliation
 
         window = PanelWindow(start=period_start, end=period_end)
-        result = build_reconciliation(window=window)
-        snapshot = cls.objects.create(
-            title=title.strip(),
-            period_start=period_start,
-            period_end=period_end,
-            results=result.to_snapshot_dict(),
-            grand_total_cents=result.grand_total_cents,
-            is_auto=is_auto,
-            taken_by=actor if (actor is not None and getattr(actor, "pk", None)) else None,
-        )
+        with transaction.atomic():
+            result = build_reconciliation(window=window)
+            snapshot = cls.objects.create(
+                title=title.strip(),
+                period_start=period_start,
+                period_end=period_end,
+                results=result.to_snapshot_dict(),
+                grand_total_cents=result.grand_total_cents,
+                is_auto=is_auto,
+                taken_by=actor if (actor is not None and getattr(actor, "pk", None)) else None,
+            )
+            freeze_split(snapshot, window)
         SiteActivity.log(SiteActivity.Kind.RECONCILIATION_SNAPSHOT_TAKEN, actor=actor, target=snapshot)
         return snapshot
 
@@ -2000,9 +2006,13 @@ class PayoutQuerySet(models.QuerySet["Payout"]):
     """Query helpers for the payout ledger."""
 
     def to_send(self, now: datetime) -> PayoutQuerySet:
-        """New rows waiting for their first transfer, and failed ones whose retry is due."""
+        """Due rows waiting for a transfer (or a replay of a timed-out one), and failed ones whose retry is due.
+
+        A PENDING row made by a snapshot before its share fell due waits here until ``due_at``.
+        """
         return self.filter(
-            Q(status=Payout.Status.PENDING) | Q(status=Payout.Status.FAILED, attempted_at__lte=now - PAYOUT_RETRY_AFTER)
+            Q(status=Payout.Status.PENDING, due_at__lte=now)
+            | Q(status=Payout.Status.FAILED, attempted_at__lte=now - PAYOUT_RETRY_AFTER)
         )
 
     def needs_attention(self) -> PayoutQuerySet:
@@ -2030,6 +2040,7 @@ class Payout(models.Model):
         FAILED = "failed", "Transfer failed"
         OWED_MANUALLY = "owed_manually", "Owed at month end"
         TAKEN_BACK = "taken_back", "Taken back"
+        NOTHING_DUE = "nothing_due", "Nothing left to send"
 
     class OwedReason(models.TextChoices):
         NOT_APPLICABLE = "", "Not owed by hand"
@@ -2086,7 +2097,20 @@ class Payout(models.Model):
     )
     attempted_at = models.DateTimeField(null=True, blank=True, help_text="When the last transfer was tried.")
     sent_at = models.DateTimeField(null=True, blank=True, help_text="When Stripe accepted the transfer.")
-    created_at = models.DateTimeField(auto_now_add=True, help_text="When the share fell due and this row was made.")
+    counted_as_stripe_in = models.ForeignKey(
+        "billing.ReconciliationSnapshot",
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="payouts_counted_as_stripe",
+        help_text=(
+            "The month-end snapshot that counted this share as Sent through Stripe, so the finance lead did not "
+            "pay it. If Stripe then rejects it, it is owed by hand at once and flagged with this snapshot."
+        ),
+    )
+    created_at = models.DateTimeField(
+        auto_now_add=True, help_text="When this row was made: the share fell due, or a snapshot froze it."
+    )
 
     objects = PayoutQuerySet.as_manager()
 
@@ -2120,9 +2144,11 @@ class Payout(models.Model):
     def send(self) -> None:
         """Transfer the share to the payee's Stripe account, linked to the original charge.
 
-        Records SENT with the transfer id, or FAILED with Stripe's reason (and alerts the
-        billing admins once per share). The idempotency key ``payout-<pk>-a<attempt>`` makes a
-        replay of the same attempt return the same transfer instead of sending again.
+        Records SENT with the transfer id, or, on a definite rejection, FAILED with Stripe's
+        reason (and alerts the billing admins once per share). A connection error, timeout,
+        rate limit or 5xx gives no definite answer, so the row stays PENDING on the same
+        attempt: the idempotency key ``payout-<pk>-a<attempt>`` then makes the next run's
+        replay return the transfer that may already have landed instead of sending again.
         """
         import stripe
 
@@ -2142,6 +2168,13 @@ class Payout(models.Model):
                 idempotency_key=f"payout-{self.pk}-a{self.attempt}",
                 metadata={"payout_pk": str(self.pk)},
             )
+        except (stripe.APIConnectionError, stripe.APIError, stripe.RateLimitError) as exc:
+            # No definite answer: the transfer may have landed. Stay PENDING on the same attempt so
+            # the next run replays the same idempotency key and Stripe returns that transfer.
+            self.status = self.Status.PENDING
+            self.failure_reason = getattr(exc, "user_message", None) or str(exc)
+            self.save(update_fields=["status", "failure_reason", "attempted_at"])
+            return
         except stripe.StripeError as exc:
             self._fail(getattr(exc, "user_message", None) or str(exc))
             return
@@ -2151,12 +2184,21 @@ class Payout(models.Model):
         self.save(update_fields=["status", "stripe_transfer_id", "sent_at", "failure_reason", "attempted_at"])
 
     def _fail(self, reason: str) -> None:
-        """Record a rejected transfer and alert the billing admins (once per share)."""
+        """Record a definite rejection and alert the billing admins (once per share).
+
+        A share a snapshot already counted as Sent through Stripe is owed by hand at once
+        instead of retrying: the finance lead did not pay it, and a later retry landing after
+        they do would pay it twice. The alert and the Reconciliation row name the snapshot.
+        """
         from billing.notifications import notify_admins_payout_failed
 
-        self.status = self.Status.FAILED
         self.failure_reason = reason
-        self.save(update_fields=["status", "failure_reason", "attempted_at"])
+        if self.counted_as_stripe_in_id is not None:
+            self.status = self.Status.OWED_MANUALLY
+            self.owed_reason = self.OwedReason.TRANSFER_FAILED
+        else:
+            self.status = self.Status.FAILED
+        self.save(update_fields=["status", "owed_reason", "failure_reason", "attempted_at"])
         notify_admins_payout_failed(self)
 
     def retry(self) -> None:
@@ -2166,7 +2208,7 @@ class Payout(models.Model):
         self.send()
 
     def give_up(self) -> None:
-        """Stop retrying once the share's month is snapshotted: the finance lead pays it by hand."""
+        """Stop retrying a failed share its month's snapshot counted as owed: the finance lead pays it by hand."""
         self.status = self.Status.OWED_MANUALLY
         self.owed_reason = self.OwedReason.TRANSFER_FAILED
         self.save(update_fields=["status", "owed_reason"])

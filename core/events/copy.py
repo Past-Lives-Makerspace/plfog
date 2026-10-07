@@ -2260,8 +2260,9 @@ _CURATED: dict[str, EventCopy] = {
     # billing.payout_failed_admin — Stripe rejected an instructor or orientor payout transfer
     # (#662). Once per share; the send job retries daily and the Reconciliation tab flags it.
     "billing.payout_failed_admin": EventCopy(
-        placeholders=("payee_name", "item_title", "amount", "failure_reason", "admin_url"),
+        placeholders=("payee_name", "item_title", "amount", "failure_reason", "counted_note", "admin_url"),
         sample_context={
+            "counted_note": "plfog retries it daily. If it still fails when its month is snapshotted, it is owed by hand.",
             "payee_name": "Renee Marsh",
             "item_title": "Intro to Wheel Throwing",
             "amount": "$42.00",
@@ -2271,24 +2272,24 @@ _CURATED: dict[str, EventCopy] = {
         channels={
             Channel.IN_APP: ChannelCopy(
                 subject="A payout transfer failed",
-                body_text="Stripe rejected the {{ amount }} share to {{ payee_name }} for {{ item_title }}. It retries daily.",
+                body_text="Stripe rejected the {{ amount }} share to {{ payee_name }} for {{ item_title }}. {{ counted_note }}",
             ),
             Channel.EMAIL: ChannelCopy(
                 subject="A payout transfer failed",
                 body_text=(
-                    "Stripe rejected a payout transfer. plfog retries it daily.\n\n"
+                    "Stripe rejected a payout transfer.\n\n"
                     "Payee: {{ payee_name }}\n"
                     "For: {{ item_title }}\n"
                     "Share: {{ amount }}\n"
                     "Stripe's reason: {{ failure_reason }}\n\n"
-                    "If it still fails when the month is snapshotted, it is owed by hand.\n\n"
+                    "{{ counted_note }}\n\n"
                     "Reconciliation: {{ admin_url }}\n\nPast Lives Makerspace"
                 ),
                 body_html=(
-                    "<p>Stripe rejected a payout transfer. plfog retries it daily.</p>"
+                    "<p>Stripe rejected a payout transfer.</p>"
                     "<p>Payee: {{ payee_name }}<br>For: {{ item_title }}<br>Share: {{ amount }}<br>"
                     "Stripe's reason: {{ failure_reason }}</p>"
-                    "<p>If it still fails when the month is snapshotted, it is owed by hand.</p>"
+                    "<p>{{ counted_note }}</p>"
                     '<p><a href="{{ admin_url }}">Open Reconciliation</a></p>'
                     "<p>Past Lives Makerspace</p>"
                 ),

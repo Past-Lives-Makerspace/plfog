@@ -110,13 +110,16 @@ def _booking(
 class _Stripe:
     """The two Stripe calls a send makes, mocked; ``fail`` makes the transfer raise."""
 
-    def __init__(self, fail: str | None = None) -> None:
+    def __init__(self, fail: str | None = None, error: type[stripe.StripeError] | None = None) -> None:
         self.fail = fail
+        self.error = error
         self.transfers: list[dict[str, Any]] = []
 
     def __enter__(self) -> _Stripe:
         def transfer(**kwargs: Any) -> str:
             self.transfers.append(kwargs)
+            if self.error is not None:
+                raise self.error("Request timed out.")
             if self.fail:
                 raise stripe.InvalidRequestError(self.fail, param=None)
             return f"tr_{len(self.transfers)}"
@@ -359,7 +362,7 @@ def describe_payout_model():
 
 
 def describe_payouts_switch_and_account_stamps():
-    def it_stamps_payouts_on_since_on_each_off_to_on_change():
+    def it_stamps_payouts_on_since_the_first_time_payouts_turn_on():
         bs = BillingSettings.load()
         assert bs.payouts_on_since is None
         bs.connect_enabled = True
@@ -373,7 +376,7 @@ def describe_payouts_switch_and_account_stamps():
         bs.connect_enabled = True
         with patch("django.utils.timezone.now", return_value=NOW + timedelta(minutes=5)):
             bs.save(update_fields=["connect_enabled"])
-        assert BillingSettings.load().payouts_on_since > first
+        assert BillingSettings.load().payouts_on_since == first  # stamped once; off only pauses sending
 
     def it_stamps_active_since_once_and_keeps_it_through_a_pause():
         account = PayoutAccount.objects.create(member=MemberFactory(), stripe_account_id="acct_1", livemode=False)
@@ -587,3 +590,132 @@ def describe_stripe_utils_transfers():
             },
             "options": {"idempotency_key": "payout-1-a1"},
         }
+
+
+def describe_unanswered_transfers():
+    @pytest.mark.parametrize("error", [stripe.APIConnectionError, stripe.APIError, stripe.RateLimitError])
+    def it_replays_the_same_key_after_no_definite_answer(error):
+        _turn_on()
+        _registration(_payee())
+        with _Stripe(error=error), patch("core.events.emit.emit") as emit:
+            payouts.run_payouts(NOW)
+        payout = Payout.objects.get()
+        assert (payout.status, payout.attempt) == (Payout.Status.PENDING, 1)
+        emit.assert_not_called()
+        with _Stripe() as fake:
+            payouts.run_payouts(NOW + timedelta(minutes=15))
+        payout.refresh_from_db()
+        assert payout.status == Payout.Status.SENT
+        assert [t["idempotency_key"] for t in fake.transfers] == [f"payout-{payout.pk}-a1"]
+
+    def it_keeps_the_new_key_when_a_retry_times_out():
+        _turn_on()
+        _registration(_payee())
+        with _Stripe(fail="No."), patch("core.events.emit.emit"):
+            payouts.run_payouts(NOW)
+        Payout.objects.update(attempted_at=NOW - timedelta(hours=25))
+        with _Stripe(error=stripe.APIConnectionError):
+            payouts.run_payouts(NOW)
+        with _Stripe() as fake:
+            payouts.run_payouts(NOW + timedelta(minutes=15))
+        payout = Payout.objects.get()
+        assert payout.status == Payout.Status.SENT
+        assert [t["idempotency_key"] for t in fake.transfers] == [f"payout-{payout.pk}-a2"]
+
+
+def describe_snapshot_binds_the_split():
+    def _october() -> ReconciliationSnapshot:
+        return ReconciliationSnapshot.take(period_start=date(2026, 10, 1), period_end=date(2026, 10, 31), title="Oct")
+
+    def _switch(on: bool) -> None:
+        bs = BillingSettings.load()
+        bs.connect_enabled = on
+        bs.save()
+
+    def it_still_sends_a_share_counted_as_stripe_once_after_the_switch_goes_off_and_on():
+        _turn_on()
+        instructor = _payee()
+        _registration(instructor, class_at=NOW + timedelta(days=5))
+        snapshot = _october()
+        row = next(r for g in snapshot.results["groups"] if g["kind"] == "instructor" for r in g["rows"])
+        assert row["stripe_cents"] == 7000
+        payout = Payout.objects.get()
+        assert (payout.status, payout.counted_as_stripe_in) == (Payout.Status.PENDING, snapshot)
+        _switch(False)
+        with _Stripe() as fake:
+            payouts.run_payouts(NOW + timedelta(days=8))
+            assert fake.transfers == []
+        _switch(True)
+        with _Stripe() as fake:
+            payouts.run_payouts(NOW)  # not due yet
+            payouts.run_payouts(NOW + timedelta(days=8))
+            payouts.run_payouts(NOW + timedelta(days=9))
+        assert len(fake.transfers) == 1
+        assert Payout.objects.get().status == Payout.Status.SENT
+
+    def it_never_sends_a_share_frozen_as_owed_while_payouts_were_off():
+        _turn_on()
+        instructor = _payee()
+        _registration(instructor, class_at=NOW + timedelta(days=5))
+        _switch(False)
+        snapshot = _october()
+        row = next(r for g in snapshot.results["groups"] if g["kind"] == "instructor" for r in g["rows"])
+        assert (row["stripe_cents"], row["total_cents"]) == (0, 7000)
+        _switch(True)
+        with _Stripe() as fake:
+            payouts.run_payouts(NOW + timedelta(days=8))
+        assert fake.transfers == []
+        assert Payout.objects.get().status == Payout.Status.OWED_MANUALLY
+
+    def it_owes_a_counted_share_by_hand_at_once_when_stripe_rejects_it_and_says_so(client):
+        from django.contrib.auth.models import User
+        from django.urls import reverse
+
+        _turn_on()
+        instructor = _payee()
+        _registration(instructor, class_at=NOW + timedelta(days=5))
+        _october()
+        with _Stripe(fail="Account closed."), patch("core.events.emit.emit") as emit:
+            payouts.run_payouts(NOW + timedelta(days=8))
+        payout = Payout.objects.get()
+        assert (payout.status, payout.owed_reason) == (Payout.Status.OWED_MANUALLY, Payout.OwedReason.TRANSFER_FAILED)
+        assert (
+            "October 2026 snapshot counted it as Sent through Stripe"
+            in emit.call_args.kwargs["context"]["counted_note"]
+        )
+        user = User.objects.create_user(username="adm", email="adm@example.com", password="pw12345!")
+        admin = Member.objects.get(user=user)
+        admin.fog_role = Member.FogRole.ADMIN
+        admin.save()
+        client.force_login(user)
+        html = client.get(reverse("billing_admin_dashboard") + "?tab=reconciliation").content.decode()
+        assert "data-counted-as-stripe" in html
+        assert "October 2026 snapshot" in html
+
+    def it_stops_retrying_a_transfer_still_failed_when_the_snapshot_counts_it_as_owed():
+        _turn_on()
+        instructor = _payee()
+        _registration(instructor)
+        with _Stripe(fail="No."), patch("core.events.emit.emit"):
+            payouts.run_payouts(NOW)
+        snapshot = _october()
+        row = next(r for g in snapshot.results["groups"] if g["kind"] == "instructor" for r in g["rows"])
+        assert row["stripe_cents"] == 0
+        assert Payout.objects.get().owed_reason == Payout.OwedReason.TRANSFER_FAILED
+        Payout.objects.update(attempted_at=NOW - timedelta(days=2))
+        with _Stripe() as fake:
+            payouts.run_payouts(NOW)
+        assert fake.transfers == []
+
+    def it_sends_what_is_left_after_a_refund_and_nothing_after_a_full_one():
+        _turn_on()
+        instructor = _payee()
+        partial = _registration(instructor, class_at=NOW + timedelta(days=5))
+        full = _registration(instructor, class_at=NOW + timedelta(days=5))
+        _october()
+        PaymentRefund.objects.create(registration=partial, amount_cents=4000, status=PaymentRefund.Status.SUCCEEDED)
+        PaymentRefund.objects.create(registration=full, amount_cents=10000, status=PaymentRefund.Status.SUCCEEDED)
+        with _Stripe() as fake:
+            payouts.run_payouts(NOW + timedelta(days=8))
+        assert [t["amount_cents"] for t in fake.transfers] == [4200]
+        assert Payout.objects.get(registration=full).status == Payout.Status.NOTHING_DUE

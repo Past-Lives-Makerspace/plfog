@@ -477,7 +477,7 @@ def _reconciliation_context(request: HttpRequest) -> dict[str, object]:
         "reconciliation_admin_total": admin_total,
         "reconciliation_snapshots": ReconciliationSnapshot.objects.all(),
         "payouts_needing_attention": Payout.objects.needs_attention().select_related(
-            "payee", "registration__class_offering", "orientation_booking__orientation_type"
+            "payee", "registration__class_offering", "orientation_booking__orientation_type", "counted_as_stripe_in"
         ),
         "viewer_is_fog_admin": viewer_is_fog_admin,
     }

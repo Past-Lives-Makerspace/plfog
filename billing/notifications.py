@@ -130,6 +130,17 @@ def _payout_item(payout: Payout) -> str:
     return f"{payout.source.orientation_type.owner_name} orientation"
 
 
+def _counted_note(payout: Payout) -> str:
+    """For a share a snapshot counted as Sent through Stripe: it was not paid and needs paying by hand now."""
+    snapshot = payout.counted_as_stripe_in
+    if snapshot is None:
+        return "plfog retries it daily. If it still fails when its month is snapshotted, it is owed by hand."
+    return (
+        f"The {snapshot.period_start:%B %Y} snapshot counted it as Sent through Stripe, so it was not paid at month end. "
+        "It will not be retried: pay it by hand."
+    )
+
+
 def notify_admins_payout_failed(payout: Payout) -> None:
     """Tell the Billing Administrators, once per share, that Stripe rejected a payout transfer (#662).
 
@@ -146,6 +157,7 @@ def notify_admins_payout_failed(payout: Payout) -> None:
             "item_title": _payout_item(payout),
             "amount": f"${payout.amount_cents / 100:.2f}",
             "failure_reason": payout.failure_reason,
+            "counted_note": _counted_note(payout),
             "admin_url": _member_url(f"{reverse('billing_admin_dashboard')}?tab=reconciliation"),
         },
         url=f"{reverse('billing_admin_dashboard')}?tab=reconciliation",

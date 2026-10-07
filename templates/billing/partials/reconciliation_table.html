@@ -46,7 +46,7 @@
         <tr class="pl-recon-attn">
           <td>{{ payout.payee.display_name }}</td>
           <td>{% if payout.registration %}{{ payout.registration.class_offering.title }}{% else %}{{ payout.orientation_booking.orientation_type.owner_name }} orientation{% endif %}</td>
-          <td>{% if payout.status == "failed" %}<span class="pl-status-badge pl-status-badge--fail">Transfer failed, retrying daily</span>{% else %}<span class="pl-status-badge pl-status-badge--warn">Owed manually</span>{% endif %}</td>
+          <td>{% if payout.status == "failed" %}<span class="pl-status-badge pl-status-badge--fail">Transfer failed, retrying daily</span>{% else %}<span class="pl-status-badge pl-status-badge--warn">Owed manually</span>{% if payout.counted_as_stripe_in %}<span class="pl-payouts-sub" data-counted-as-stripe>Counted as Sent through Stripe in the {{ payout.counted_as_stripe_in.period_start|date:"F Y" }} snapshot, so it was not paid. Pay it by hand.</span>{% endif %}{% endif %}</td>
           <td>{{ payout.failure_reason }}</td>
           <td class="text-right">{{ payout.amount_cents|cents_as_dollars }}</td>
         </tr>

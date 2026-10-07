@@ -278,8 +278,17 @@ def run_payouts(now: datetime | None = None) -> PayoutRun:
     return run
 
 
-def _record(earning: Earning, account: PayoutAccount | None, since: datetime) -> bool:
-    """Make the earning's ledger row: PENDING to send, or OWED_MANUALLY with the reason."""
+def _record(
+    earning: Earning,
+    account: PayoutAccount | None,
+    since: datetime | None,
+    counted_in: ReconciliationSnapshot | None = None,
+) -> bool:
+    """Make the earning's ledger row: PENDING to send, or OWED_MANUALLY with the reason.
+
+    ``counted_in`` is the snapshot freezing it (``freeze_split``); a share it puts on the
+    Stripe side carries it, so a later rejection is flagged against that snapshot.
+    """
     from billing.notifications import send_payouts_invite
 
     through = goes_through_stripe(earning, account, since)
@@ -298,6 +307,7 @@ def _record(earning: Earning, account: PayoutAccount | None, since: datetime) ->
             "due_at": earning.due_at,
             "status": Payout.Status.PENDING if through else Payout.Status.OWED_MANUALLY,
             "owed_reason": reason,
+            "counted_as_stripe_in": counted_in if through else None,
         },
     )
     if created and reason == Payout.OwedReason.NOT_CONNECTED and (account is None or not account.is_connected):
@@ -317,6 +327,8 @@ def _send_one(pk: int, now: datetime, snapshots: list[tuple[Any, Any]], run: Pay
         )
         if payout is None:
             return
+        if payout.attempted_at is None and not _refresh_amount(payout):
+            return
         if payout.status == Payout.Status.FAILED:
             paid_on = timezone.localtime(payout.paid_on).date()
             if any(start <= paid_on <= end for start, end in snapshots):
@@ -330,6 +342,53 @@ def _send_one(pk: int, now: datetime, snapshots: list[tuple[Any, Any]], run: Pay
             run.sent += 1
         else:
             run.failed += 1
+
+
+def _refresh_amount(payout: Payout) -> bool:
+    """Before the first transfer, re-read the share: a refund since it was recorded lowers it.
+
+    A row frozen by a snapshot can wait weeks for its class. Returns False, after recording
+    NOTHING_DUE, when nothing is left to send.
+    """
+    if payout.registration_id is not None:
+        earnings = _earnings(_registrations().filter(pk=payout.registration_id), [])
+    else:
+        earnings = _earnings([], _bookings().filter(pk=payout.orientation_booking_id))
+    share = earnings[0].share_cents if earnings else 0
+    if share <= 0:
+        payout.status = Payout.Status.NOTHING_DUE
+        payout.save(update_fields=["status"])
+        return False
+    if share != payout.amount_cents:
+        payout.amount_cents = share
+        payout.save(update_fields=["amount_cents"])
+    return True
+
+
+def freeze_split(snapshot: ReconciliationSnapshot, window: Any) -> None:
+    """Bind a month-end snapshot's Sent through Stripe / Owed manually split into the ledger (#662).
+
+    Every instructor and orientor share paid in ``window`` gets its ``Payout`` row now, even
+    if its class is weeks away: on the Stripe side a PENDING row tied to ``snapshot`` (sent
+    once due, whenever payouts are on), otherwise an OWED_MANUALLY row (never sent). A
+    transfer still FAILED at this moment was counted as owed, so it stops retrying. The
+    snapshot's results are then built from these rows, so nothing can contradict them later.
+    """
+    earnings = _earnings(
+        _registrations().filter(confirmed_at__gte=window.start_dt, confirmed_at__lt=window.end_dt),
+        _bookings().filter(requested_at__gte=window.start_dt, requested_at__lt=window.end_dt),
+    )
+    accounts = _accounts(earnings)
+    since = _payouts_since()
+    for earning in earnings:
+        payout = earning.payout
+        if payout is None:
+            _record(earning, accounts.get(earning.payee.pk), since, counted_in=snapshot)
+        elif payout.status == Payout.Status.FAILED:
+            payout.give_up()
+        elif payout.status == Payout.Status.PENDING:
+            payout.counted_as_stripe_in = snapshot
+            payout.save(update_fields=["counted_as_stripe_in"])
 
 
 # ---------------------------------------------------------------------------
