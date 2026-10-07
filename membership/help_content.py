@@ -1542,14 +1542,14 @@ Every 15 minutes, a background job marks confirmed orientations complete once th
         "screenshots": [
             {
                 "file": "01-orientations-tab.png",
-                "page": "/guilds/1/edit/?tab=orientations",
-                "selector": "[x-show=\"section === 'orientations'\"]",
+                "page": "/guilds/1/orientations/",
+                "selector": "[data-guild-orientations]",
                 "caption": "The Orientations tab: booking settings, the thank-you email, and the Orientation Schedule.",
                 "as_role": "guild_lead",
             },
             {
                 "file": "02-recurring-hours.png",
-                "page": "/guilds/1/edit/?tab=orientations",
+                "page": "/guilds/1/orientations/",
                 "selector": "form[action='/guilds/1/orientation/hours/save/']",
                 "caption": "Recurring hours become bookable slots automatically.",
                 "as_role": "guild_lead",

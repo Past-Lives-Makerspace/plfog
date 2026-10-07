@@ -564,13 +564,13 @@ def describe_the_print_links():
         assert f'href="{reverse("hub_orientation_type_flyer", args=[active.pk])}"' in body
         assert reverse("hub_orientation_type_flyer", args=[off.pk]) not in body
 
-    def it_shows_per_active_type_on_the_guild_orientations_tab(client: Client):
+    def it_shows_per_active_type_on_the_guild_orientations_page(client: Client):
         active = _guild_type()
         assert active.guild is not None
         off = OrientationTypeFactory(guild=active.guild, name="Qrsheet Retired Torch", is_active=False)
         active.guild.guild_lead = _login(client, "link_guild_lead")
         active.guild.save(update_fields=["guild_lead"])
-        body = client.get(f"{reverse('hub_guild_edit', args=[active.guild.pk])}?tab=orientations").content.decode()
+        body = client.get(reverse("hub_guild_orientations", args=[active.guild.pk])).content.decode()
         assert body.count("data-qr-sheet-type-link") == 1
         assert f'href="{reverse("hub_orientation_type_flyer", args=[active.pk])}"' in body
         assert reverse("hub_orientation_type_flyer", args=[off.pk]) not in body

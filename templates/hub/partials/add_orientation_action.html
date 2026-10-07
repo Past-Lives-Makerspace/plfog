@@ -1,12 +1,12 @@
 {% comment %}
 The Orientations page header's "+ Add an Orientation" (#637), rendered in page_header's action slot.
 add_orientation_guilds comes from membership.permissions.guilds_for_new_orientation: every guild in
-it passes can_edit_guild. One guild links straight to its settings, Orientations tab; several open
+it passes can_edit_guild. One guild links straight to its Orientations page (#672); several open
 the row actions menu with a labelled trigger, one item per guild, name-ordered.
 {% endcomment %}
 <div class="pl-orient-add" data-add-orientation>
 {% if add_orientation_guilds|length == 1 %}
-{% with guild=add_orientation_guilds.0 %}<a href="{% url 'hub_guild_edit' guild.pk %}?tab=orientations" class="hub-btn hub-btn--sm hub-btn--primary" data-add-orientation-link>+ Add an Orientation</a>{% endwith %}
+{% with guild=add_orientation_guilds.0 %}<a href="{% url 'hub_guild_orientations' guild.pk %}" class="hub-btn hub-btn--sm hub-btn--primary" data-add-orientation-link>+ Add an Orientation</a>{% endwith %}
 {% else %}
 {% include "components/row_actions.html" with menu_include="hub/partials/add_orientation_menu_items.html" menu_label="Add an Orientation: pick a guild" menu_trigger_text="+ Add an Orientation" menu_trigger_class="hub-btn hub-btn--sm hub-btn--primary" %}
 {% endif %}

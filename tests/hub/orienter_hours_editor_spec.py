@@ -87,7 +87,7 @@ def _modal_rule_payload(scope: str, guild: object = None, **overrides: str) -> d
 
 
 def _tab_url(guild: object) -> str:
-    return f"{reverse('hub_guild_edit', args=[guild.pk])}?tab=orientations"
+    return reverse("hub_guild_orientations", args=[guild.pk])
 
 
 def _hours_url(guild: object) -> str:
@@ -376,7 +376,7 @@ def describe_modal_hours_save():
         client.login(username="ms_lead", password="pass")
         response = client.post(_hours_url(guild), _modal_rule_payload(str(bob.pk), guild=guild), HTTP_HX_REQUEST="true")
         assert response.status_code == 204
-        assert response["HX-Redirect"] == f"{reverse('hub_guild_edit', args=[guild.pk])}?tab=orientations"
+        assert response["HX-Redirect"] == reverse("hub_guild_orientations", args=[guild.pk])
         assert OrientationAvailability.objects.get(guild=guild).orienter == bob
 
     def it_re_renders_the_modal_partial_with_errors_on_an_invalid_modal_save(client: Client):
@@ -596,7 +596,7 @@ def describe_guild_hours_legacy_card():
         assert b"Only the guild lead can change them." in response.content
         assert b"guild_rules-TOTAL_FORMS" not in response.content
 
-    def it_re_renders_an_invalid_guild_scope_post_on_the_tab(client: Client):
+    def it_re_renders_an_invalid_guild_scope_post_on_the_orientations_page(client: Client):
         # A guild-scope (legacy shared) hours POST that fails validation re-renders the full
         # page with the bound guild_rules formset and the Orientations tab kept open; the
         # personal path is modal-only, so this full-page arm is guild scope alone now.
@@ -621,7 +621,7 @@ def describe_guild_hours_legacy_card():
             },
         )
         assert response.status_code == 200
-        assert response.context["active_tab"] == "orientations"
+        assert "hub/guild_orientations.html" in [t.name for t in response.templates]
         assert response.context["guild_rule_formset"].errors
         rule.refresh_from_db()
         assert rule.start_time.hour == 18  # nothing saved

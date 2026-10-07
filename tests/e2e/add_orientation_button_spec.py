@@ -1,7 +1,7 @@
 """End-to-end: the Orientations page's "+ Add an Orientation" button (#637) in a real browser.
 
-A guild lead of one guild clicks the header button and lands on that guild's settings with the
-Orientations tab open. A lead of two guilds opens the menu, sees the guilds by name, and picks
+A guild lead of one guild clicks the header button and lands on that guild's Orientations page
+(#672). A lead of two guilds opens the menu, sees the guilds by name, and picks
 one. At 375px the button and its menu stay in reach with no sideways scroll. Waits are on what
 the page shows, never a snapshot after it (the boosted arrival trap). Run with
 ``pytest -m e2e`` on PostgreSQL.
@@ -27,14 +27,14 @@ def _lead(login_via_code) -> Member:
     return get_user_model().objects.get(username=LEAD_EMAIL).member
 
 
-def _expect_orientations_tab(page, live_server, guild: Guild) -> None:
-    expect(page).to_have_url(f"{live_server.url}{reverse('hub_guild_edit', args=[guild.pk])}?tab=orientations")
-    expect(page.locator(".vote-tab--active", has_text="Orientations")).to_be_visible()
+def _expect_orientations_page(page, live_server, guild: Guild) -> None:
+    expect(page).to_have_url(f"{live_server.url}{reverse('hub_guild_orientations', args=[guild.pk])}")
+    expect(page.get_by_role("heading", level=1)).to_have_text(f"{guild.name} Orientations")
     expect(page.get_by_role("heading", name="Orientation Types")).to_be_visible()
 
 
 def describe_the_add_orientation_button():
-    def it_takes_a_lead_of_one_guild_straight_to_its_orientations_tab(live_server, page, login_via_code):
+    def it_takes_a_lead_of_one_guild_straight_to_its_orientations_page(live_server, page, login_via_code):
         guild = GuildFactory(name="Button Woodshop", guild_lead=_lead(login_via_code))
         page.goto(f"{live_server.url}{reverse('hub_orientations')}")
 
@@ -45,7 +45,7 @@ def describe_the_add_orientation_button():
         expect(button).to_be_visible()
 
         button.click()
-        _expect_orientations_tab(page, live_server, guild)
+        _expect_orientations_page(page, live_server, guild)
 
     def it_opens_a_menu_of_guilds_for_a_lead_of_several(live_server, page, login_via_code):
         lead = _lead(login_via_code)
@@ -65,7 +65,7 @@ def describe_the_add_orientation_button():
 
         trigger.click()
         menu.get_by_role("menuitem", name="Anchor Ceramics").click()
-        _expect_orientations_tab(page, live_server, ceramics)
+        _expect_orientations_page(page, live_server, ceramics)
 
     def it_stays_in_reach_on_a_phone_with_no_sideways_scroll(live_server, page, login_via_code):
         page.set_viewport_size({"width": 375, "height": 812})
@@ -127,4 +127,4 @@ def describe_a_menu_longer_than_the_screen():
         last.scroll_into_view_if_needed()
         expect(menu).to_be_visible()
         last.click()
-        _expect_orientations_tab(page, live_server, guilds[-1])
+        _expect_orientations_page(page, live_server, guilds[-1])

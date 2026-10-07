@@ -67,8 +67,8 @@ def _targets(content: bytes) -> list[str]:
     return LINK.findall(content.decode())
 
 
-def _tab(guild: Guild) -> str:
-    return f"{reverse('hub_guild_edit', args=[guild.pk])}?tab=orientations"
+def _orientations_page(guild: Guild) -> str:
+    return reverse("hub_guild_orientations", args=[guild.pk])
 
 
 def describe_who_sees_it():
@@ -85,13 +85,13 @@ def describe_who_sees_it():
     def it_shows_for_a_guild_lead(client: Client):
         member = _login(client, "ao_lead")
         guild = GuildFactory(name="Lead Seen Guild", guild_lead=member)
-        assert _targets(client.get(PAGE).content) == [_tab(guild)]
+        assert _targets(client.get(PAGE).content) == [_orientations_page(guild)]
 
     def it_shows_for_guild_staff(client: Client):
         member = _login(client, "ao_staff")
         guild = GuildFactory(name="Staff Seen Guild")
         GuildStaffMembershipFactory(guild=guild, member=member)
-        assert _targets(client.get(PAGE).content) == [_tab(guild)]
+        assert _targets(client.get(PAGE).content) == [_orientations_page(guild)]
 
     def it_hides_from_a_plain_member(client: Client):
         _login(client, "ao_plain")
@@ -124,37 +124,37 @@ def describe_who_sees_it():
         led = GuildFactory(name="Preview Led Guild", guild_lead=member)
         GuildFactory(name="Preview Other Guild")
         _preview_as_member(client)
-        assert _targets(client.get(PAGE).content) == [_tab(led)]
+        assert _targets(client.get(PAGE).content) == [_orientations_page(led)]
 
     def it_shows_for_a_lead_whose_only_guild_is_hidden(client: Client):
         # A hidden guild's settings and orientations still work, so its lead keeps the button.
         member = _login(client, "ao_inactive")
         hidden = GuildFactory(name="Dormant Guild", guild_lead=member, is_active=False)
-        assert _targets(client.get(PAGE).content) == [_tab(hidden)]
+        assert _targets(client.get(PAGE).content) == [_orientations_page(hidden)]
 
     def it_shows_for_staff_whose_only_guild_is_hidden(client: Client):
         member = _login(client, "ao_inactive_staff")
         hidden = GuildFactory(name="Dormant Staff Guild", is_active=False)
         GuildStaffMembershipFactory(guild=hidden, member=member)
-        assert _targets(client.get(PAGE).content) == [_tab(hidden)]
+        assert _targets(client.get(PAGE).content) == [_orientations_page(hidden)]
 
     @pytest.mark.parametrize("view", ["", "?view=calendar", "?view=bookings"])
     def it_sits_in_the_header_on_every_tab(client: Client, view: str):
         member = _login(client, "ao_tab")
         guild = GuildFactory(name="Every Tab Guild", guild_lead=member)
         content = client.get(PAGE + view).content.decode()
-        assert _tab(guild) in content
+        assert _orientations_page(guild) in content
         header = content[content.index('class="hub-page-header"') : content.index("plListCalendar")]
         assert "data-add-orientation" in header
 
 
 def describe_one_guild_or_several():
-    def it_links_one_guild_straight_to_its_orientations_tab(client: Client):
+    def it_links_one_guild_straight_to_its_orientations_page(client: Client):
         member = _login(client, "ao_single")
         guild = GuildFactory(name="Single Guild", guild_lead=member)
         content = client.get(PAGE).content.decode()
         assert (
-            f'<a href="{_tab(guild)}" class="hub-btn hub-btn--sm hub-btn--primary" data-add-orientation-link>'
+            f'<a href="{_orientations_page(guild)}" class="hub-btn hub-btn--sm hub-btn--primary" data-add-orientation-link>'
             in content
         )
         block = content[content.index("data-add-orientation>") :].split("</div>")[0]
@@ -170,7 +170,11 @@ def describe_one_guild_or_several():
         block = content[content.index("data-add-orientation>") :]
         assert 'aria-haspopup="menu"' in block
         assert 'role="menuitem"' in block
-        assert _targets(content.encode()) == [_tab(amber), _tab(mid), _tab(zinc)]
+        assert _targets(content.encode()) == [
+            _orientations_page(amber),
+            _orientations_page(mid),
+            _orientations_page(zinc),
+        ]
 
     def it_lists_every_active_guild_for_an_admin_and_no_inactive_or_deleted_one(client: Client):
         _login(client, "ao_admin_all", Member.FogRole.ADMIN)
@@ -180,10 +184,10 @@ def describe_one_guild_or_several():
         gone = GuildFactory(name="Gone Admin Guild")
         gone.soft_delete()
         targets = _targets(client.get(PAGE).content)
-        assert targets == [_tab(g) for g in Guild.objects.filter(is_active=True).order_by("name")]
-        assert targets.index(_tab(first)) < targets.index(_tab(second))
-        assert _tab(dormant) not in targets
-        assert _tab(gone) not in targets
+        assert targets == [_orientations_page(g) for g in Guild.objects.filter(is_active=True).order_by("name")]
+        assert targets.index(_orientations_page(first)) < targets.index(_orientations_page(second))
+        assert _orientations_page(dormant) not in targets
+        assert _orientations_page(gone) not in targets
 
 
 def describe_every_link_is_editable():
@@ -241,7 +245,7 @@ def describe_every_link_is_editable():
 
         # The page links exactly those, and each one opens for this viewer.
         targets = _targets(client.get(PAGE).content)
-        assert targets == [_tab(g) for g in listed]
+        assert targets == [_orientations_page(g) for g in listed]
         for target in targets:
             assert client.get(target).status_code == 200
 

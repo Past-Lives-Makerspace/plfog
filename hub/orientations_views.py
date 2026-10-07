@@ -29,6 +29,7 @@ from hub.orientation_bookings import bookings_pane_context
 from hub.views import (
     _get_hub_context,
     _get_member,
+    _guild_orientations_url,
     _orientation_bookings_tab,
     _orientation_sections,
     _require_can_manage_orientations,
@@ -338,7 +339,7 @@ def hub_orientation_type_photo_delete(request: HttpRequest, pk: int) -> HttpResp
 
     Gated like the editor the photo lives on: a guild owned type by whoever may run the
     guild's orientations, an equipment owned one by the equipment's managers. The card
-    goes back to the owner's picture. Lands back on the editor's orientation tab.
+    goes back to the owner's picture. Lands back on the editor's orientation page or tab.
     """
     orientation_type = get_object_or_404(OrientationType.objects.select_related("guild", "equipment"), pk=pk)
     if orientation_type.is_equipment_owned:
@@ -353,7 +354,7 @@ def hub_orientation_type_photo_delete(request: HttpRequest, pk: int) -> HttpResp
         forbidden = _require_can_manage_orientations(request, guild)
         if forbidden is not None:
             return forbidden
-        back = f"{reverse('hub_guild_edit', args=[guild.pk])}?tab=orientations"
+        back = _guild_orientations_url(guild)
     if orientation_type.photo:
         orientation_type.photo.delete(save=True)
         messages.success(request, "Photo removed.")

@@ -90,6 +90,7 @@ urlpatterns = [
     path("guilds/<int:pk>/", views.guild_detail_redirect, name="hub_guild_detail_by_id"),
     path("guilds/<slug:slug>/", views.guild_detail, name="hub_guild_detail"),
     path("guilds/<int:pk>/edit/", views.guild_edit, name="hub_guild_edit"),
+    path("guilds/<int:pk>/orientations/", views.guild_orientations, name="hub_guild_orientations"),
     path("guilds/<int:pk>/qr.<str:fmt>/", views.guild_qr_download, name="hub_guild_qr"),
     path("guilds/<int:pk>/flyer/", views.guild_flyer, name="hub_guild_flyer"),
     path("guilds/<int:pk>/delete/", views.guild_delete, name="hub_guild_delete"),

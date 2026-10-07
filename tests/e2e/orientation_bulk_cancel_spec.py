@@ -3,12 +3,11 @@
 The selection, the bar, the live confirm sentence and the hidden form are all Alpine on the
 page, so only a real browser proves the whole chain: tick two of three slots, the bar counts
 them, Cancel selected opens the confirm reading "Cancel 2 upcoming times?", and confirming lands back on
-the Orientations tab with one slot left. Run with ``pytest -m e2e``.
+the guild's Orientations page (#672) with one slot left. Run with ``pytest -m e2e``.
 """
 
 from __future__ import annotations
 
-import re
 from datetime import timedelta
 
 from django.contrib.auth import get_user_model
@@ -50,7 +49,7 @@ def describe_bulk_cancel_on_upcoming_times():
 
         OrientationBookingFactory(slot=slots[0], status=OrientationBooking.Status.CONFIRMED)
 
-        page.goto(f"{live_server.url}{reverse('hub_guild_edit', args=[guild.pk])}?tab=orientations")
+        page.goto(f"{live_server.url}{reverse('hub_guild_orientations', args=[guild.pk])}")
         rows = page.locator("[data-time-key]")
         expect(rows).to_have_count(3)
         bar = page.locator(".pl-slot-admin__bar")
@@ -73,11 +72,11 @@ def describe_bulk_cancel_on_upcoming_times():
         )
         modal.get_by_role("button", name="Cancel selected", exact=True).click()
 
-        # The POST redirects back to the tab (a boosted body swap on the same URL), so the
+        # The POST redirects back to the page (a boosted body swap on the same URL), so the
         # observable is the card itself: one row left, and the success message on the page.
         expect(page.locator("[data-time-key]")).to_have_count(1)
         expect(page.locator("body")).to_contain_text("Cancelled 2 upcoming times. 1 booked member was emailed.")
-        expect(page).to_have_url(re.compile(r"tab=orientations"))
+        expect(page).to_have_url(f"{live_server.url}{reverse('hub_guild_orientations', args=[guild.pk])}")
         expect(page.locator(f'[data-time-key="slot:{slots[2].pk}"]')).to_have_count(1)
 
         # The swapped card initialised afresh: ticking the survivor counts it.

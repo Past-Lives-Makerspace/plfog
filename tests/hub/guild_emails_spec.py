@@ -119,7 +119,7 @@ def describe_GuildThankyouEmailForm():
 
 
 def describe_guild_emails_save():
-    def it_saves_the_thankyou_email_and_redirects_to_the_orientations_tab(client: Client):
+    def it_saves_the_thankyou_email_and_redirects_to_the_orientations_page(client: Client):
         _user_with_role("em_save", fog_role=Member.FogRole.ADMIN)
         guild = GuildFactory()
         client.login(username="em_save", password="pass")
@@ -133,7 +133,7 @@ def describe_guild_emails_save():
             },
         )
         assert response.status_code == 302
-        assert response["Location"] == f"{reverse('hub_guild_edit', args=[guild.pk])}?tab=orientations"
+        assert response["Location"] == reverse("hub_guild_orientations", args=[guild.pk])
         settings_obj = GuildOrientationSettings.objects.get(guild=guild)
         assert settings_obj.thankyou_email_enabled is True
         assert settings_obj.thankyou_email_subject == "Thanks for coming"
@@ -152,9 +152,9 @@ def describe_guild_emails_save():
         assert settings_obj.thankyou_email_enabled is True
         assert settings_obj.thankyou_email_subject == ""
 
-    def it_re_renders_on_the_orientations_tab_when_invalid(client: Client):
-        # An invalid POST must land the lead back on the Orientations tab (where the card
-        # lives), not on Basic Information with the errors hidden on another tab.
+    def it_re_renders_on_the_orientations_page_when_invalid(client: Client):
+        # An invalid POST must land the lead back on the Orientations page (where the card
+        # lives, #672), not on Guild Settings with the errors hidden.
         _user_with_role("em_invalid", fog_role=Member.FogRole.ADMIN)
         guild = GuildFactory()
         client.login(username="em_invalid", password="pass")
@@ -163,7 +163,7 @@ def describe_guild_emails_save():
             {"form_id": "thankyou_email", "thankyou_email_subject": "x" * 201},
         )
         assert response.status_code == 200
-        assert response.context["active_tab"] == "orientations"
+        assert "hub/guild_orientations.html" in [t.name for t in response.templates]
         assert response.context["thankyou_email_form"].errors
 
     def it_404s_on_a_post_with_an_unknown_form_id(client: Client):
@@ -180,13 +180,13 @@ def describe_guild_emails_save():
         response = client.post(reverse("hub_guild_emails_save", args=[guild.pk]), {})
         assert response.status_code == 404
 
-    def it_redirects_a_get_to_the_orientations_tab(client: Client):
+    def it_redirects_a_get_to_the_orientations_page(client: Client):
         _user_with_role("em_get", fog_role=Member.FogRole.ADMIN)
         guild = GuildFactory()
         client.login(username="em_get", password="pass")
         response = client.get(reverse("hub_guild_emails_save", args=[guild.pk]))
         assert response.status_code == 302
-        assert response["Location"] == f"{reverse('hub_guild_edit', args=[guild.pk])}?tab=orientations"
+        assert response["Location"] == reverse("hub_guild_orientations", args=[guild.pk])
 
     def it_lets_the_guild_lead_save(client: Client):
         user = _user_with_role("em_lead", fog_role=Member.FogRole.MEMBER)
@@ -218,7 +218,7 @@ def describe_guild_edit_email_cards():
         _user_with_role("em_cards", fog_role=Member.FogRole.ADMIN)
         guild = GuildFactory()
         client.login(username="em_cards", password="pass")
-        response = client.get(f"{reverse('hub_guild_edit', args=[guild.pk])}?tab=orientations")
+        response = client.get(reverse("hub_guild_orientations", args=[guild.pk]))
         assert response.status_code == 200
         content = response.content
         assert b"Thank-you Email" in content

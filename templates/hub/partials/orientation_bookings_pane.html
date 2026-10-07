@@ -16,9 +16,9 @@ and closes the modal.
     <p class="pl-bookings__nudge-text">
       You have not posted any orientation hours yet.
       {% if hours_nudge_guilds|length == 1 %}
-      {% for g in hours_nudge_guilds %}<a href="{% url 'hub_guild_edit' g.pk %}?tab=orientations"><strong>Post your orientation hours</strong></a>{% endfor %}
+      {% for g in hours_nudge_guilds %}<a href="{% url 'hub_guild_orientations' g.pk %}"><strong>Post your orientation hours</strong></a>{% endfor %}
       {% else %}
-      <strong>Post your orientation hours</strong>: {% for g in hours_nudge_guilds %}<a href="{% url 'hub_guild_edit' g.pk %}?tab=orientations">{{ g.name }}</a>{% if not forloop.last %}, {% endif %}{% endfor %}
+      <strong>Post your orientation hours</strong>: {% for g in hours_nudge_guilds %}<a href="{% url 'hub_guild_orientations' g.pk %}">{{ g.name }}</a>{% if not forloop.last %}, {% endif %}{% endfor %}
       {% endif %}
     </p>
   </div>
