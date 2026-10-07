@@ -450,6 +450,13 @@ def describe_reservation_entries():
         assert entry.owner_label == "Laser cutter · Fabrication Guild"
         assert (entry.start_dt, entry.end_dt) == (reservation.starts_at, reservation.ends_at)
 
+    def it_leaves_a_managers_block_off_the_feed():
+        item = _item()
+        reservation = EquipmentReservationFactory(equipment=item)
+        EquipmentReservationFactory(equipment=item, kind=EquipmentReservation.Kind.BLOCK, purpose="Maintenance")
+        [entry] = reservation_entries([item], *_calendar_range())
+        assert entry.pk == RESERVATION_PK_OFFSET + reservation.pk
+
     def it_links_the_items_page_on_the_reservations_local_day():
         item = _item(name="Table saw")
         # 03:30 UTC is the evening before in Portland: the link names the local day.

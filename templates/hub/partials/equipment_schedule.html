@@ -55,11 +55,11 @@ on day taps, week arrows, bookings, and cancels, so every list stays fresh.
     <h3 class="hub-detail-label" style="margin:1rem 0 0.5rem;">{{ selected_day|date:"l, F j" }}</h3>
     <ul class="pl-equip-timeline">
       {% for segment in timeline %}
-      <li class="pl-equip-slot {% if segment.is_free %}pl-equip-slot--free{% elif segment.kind == "orientation" %}pl-equip-slot--orientation{% else %}pl-equip-slot--busy{% endif %}">
+      <li class="pl-equip-slot {% if segment.is_free %}pl-equip-slot--free{% elif segment.kind == "orientation" %}pl-equip-slot--orientation{% else %}pl-equip-slot--busy{% endif %}"{% if segment.kind == "block" %} data-held-slot{% endif %}>
         <span class="pl-equip-slot__when">{{ segment.starts_at|time:"g:i A" }} to {{ segment.ends_at|time:"g:i A" }}</span>
         {% if segment.is_free %}
         <span class="pl-equip-slot__label">Open</span>
-        {% elif segment.kind == "orientation" %}
+        {% elif segment.kind == "orientation" or segment.kind == "block" %}
         <span class="pl-equip-slot__label">{{ segment.label }}</span>
         {% else %}
         <span class="pl-equip-slot__label">{{ segment.reservation.member.display_name }}{% if segment.reservation.purpose %} · {{ segment.reservation.purpose }}{% endif %}</span>

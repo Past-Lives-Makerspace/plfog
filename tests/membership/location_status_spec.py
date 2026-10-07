@@ -338,6 +338,14 @@ def describe_guild_location_statuses():
             assert status.message == "In use: Reserved: Kiln until 3:25 PM. This area might not be available."
             assert "Quentin" not in status.message
 
+        def it_names_a_managers_block_as_held_not_reserved():
+            location = LocationFactory(guild=GuildFactory())
+            _reservation(location, start=NOW - timedelta(minutes=5), kind=EquipmentReservation.Kind.BLOCK)
+            status = _only(location.guild)
+            assert status.light == Light.IN_USE
+            assert status.activity is not None
+            assert status.activity.title == "Held: Kiln"
+
         def it_is_amber_before_a_confirmed_reservation():
             location = LocationFactory(guild=GuildFactory())
             _reservation(location, start=NOW + timedelta(minutes=10))

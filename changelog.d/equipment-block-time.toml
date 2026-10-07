@@ -1,0 +1,9 @@
+bump = "minor"
+date = "2026-10-07"
+title = "Equipment managers can block time"
+changes = [
+  "On an item's Manage page, the Reservations tab has a Block Time card: pick a date, a start, an end and a short reason.",
+  "Members see the time on the schedule as Held, with the reason, and can't book over it.",
+  "A block doesn't count toward your own reservation limit, never charges a late fee, and emails nobody.",
+  "Remove a block from the same card when plans change; the time opens up again right away.",
+]

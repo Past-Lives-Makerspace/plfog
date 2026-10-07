@@ -177,7 +177,10 @@ def _event_activities(area_ids: set[int], now: datetime, horizon: datetime) -> l
 
 
 def _reservation_activities(area_ids: set[int], now: datetime, horizon: datetime) -> list[AreaActivity]:
-    """Confirmed equipment reservations overlapping the window. The member who reserved is never read."""
+    """Confirmed equipment reservations and blocks overlapping the window. The member who reserved is never read.
+
+    A manager's block (#657) keeps the area busy too, titled "Held" so it never reads as a member's booking.
+    """
     from membership.models import EquipmentReservation
 
     reservations = (
@@ -188,7 +191,7 @@ def _reservation_activities(area_ids: set[int], now: datetime, horizon: datetime
     return [
         AreaActivity(
             location_id=reservation.equipment.area_id,  # type: ignore[arg-type]  # filtered non null above
-            title=f"Reserved: {reservation.equipment.name}",
+            title=f"{'Held' if reservation.is_block else 'Reserved'}: {reservation.equipment.name}",
             starts_at=reservation.starts_at,
             ends_at=reservation.ends_at,
         )

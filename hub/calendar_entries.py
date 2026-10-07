@@ -258,6 +258,7 @@ def reservation_entries(items: Iterable[Equipment], fetch_from: date, fetch_to: 
     entries: list[CalendarEntry] = []
     reservations = (
         EquipmentReservation.objects.confirmed()
+        .reservations()  # a manager's block stays off the calendar feed (#657)
         .filter(equipment__in=item_list, starts_at__date__gte=fetch_from, starts_at__date__lte=fetch_to)
         .select_related("equipment", "equipment__guild", "member")
         .order_by("starts_at")
