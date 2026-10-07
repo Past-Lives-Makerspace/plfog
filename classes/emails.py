@@ -975,6 +975,42 @@ def send_eventbrite_shared_email_alert(registration: "Registration", email: str)
     )
 
 
+def send_eventbrite_finish_registration(registration: "Registration", *, to: str, offers_account: bool) -> None:
+    """Email an Eventbrite ticket's link to finish registering: waivers, questions, an account (#652).
+
+    Eventbrite sends the receipt; this is the one email plfog sends a buyer. ``to`` is the
+    buyer's own address, which differs from ``registration.email`` only on a ``+seatN``
+    seat; that email says the link is for another seat and asks the buyer to pass it on.
+    Transactional and addressed by ``email_to``, so nobody can mute it, and keyed on the
+    registration so it goes once.
+    """
+    from classes.questions import active_questions
+    from core.events.senders import emit_with_email_shell
+
+    offering = registration.class_offering
+    finish_path = reverse("classes:my_registration", kwargs={"token": registration.self_serve_token})
+    emit_with_email_shell(
+        "classes.eventbrite_finish_registration",
+        target=registration,
+        context={"member": None},
+        subject=f"Finish registering for {offering.title}",
+        text_template="classes/emails/eventbrite_finish.txt",
+        html_template="classes/emails/eventbrite_finish.html",
+        template_context={
+            "registration": registration,
+            "offering": offering,
+            "upcoming_sessions": list(offering.sessions.filter(starts_at__gte=timezone.now()).order_by("starts_at")),
+            "finish_url": _absolute_url(finish_path),
+            "for_another_seat": to != registration.email,
+            "has_questions": active_questions().exists(),
+            "offers_account": offers_account,
+        },
+        email_to=to,
+        period=f"reg:{registration.pk}:eventbrite-finish",
+        recipient_user_ids=set(),
+    )
+
+
 def build_class_reminder_occurrence(
     registration: "Registration",
     session: "ClassSession",

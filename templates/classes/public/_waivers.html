@@ -1,0 +1,32 @@
+{# The liability waiver and, when the class asks, the photo release, shared by register.html and the Eventbrite finish form (#652). Context: form, offering, settings_obj #}
+<div class="reg-waiver">
+  <h3>Liability Waiver</h3>
+  <div class="reg-waiver-text">{{ settings_obj.liability_waiver_text }}</div>
+  <div class="reg-field">
+    <label for="{{ form.liability_signature.id_for_label }}">Type your full name to sign</label>
+    {{ form.liability_signature }}
+    {% if form.liability_signature.errors %}<ul class="reg-errors">{% for e in form.liability_signature.errors %}<li>{{ e }}</li>{% endfor %}</ul>{% endif %}
+  </div>
+  <label class="reg-check" style="margin-top:8px">
+    {{ form.accepts_liability }}
+    <span>I have read and agree to the liability waiver above.</span>
+  </label>
+  {% if form.accepts_liability.errors %}<ul class="reg-errors">{% for e in form.accepts_liability.errors %}<li>{{ e }}</li>{% endfor %}</ul>{% endif %}
+</div>
+
+{% if offering.requires_model_release %}
+<div class="reg-waiver">
+  <h3>Photo Release</h3>
+  <div class="reg-waiver-text">{{ settings_obj.model_release_waiver_text }}</div>
+  <div class="reg-field">
+    <label for="{{ form.model_release_signature.id_for_label }}">Type your full name to sign</label>
+    {{ form.model_release_signature }}
+    {% if form.model_release_signature.errors %}<ul class="reg-errors">{% for e in form.model_release_signature.errors %}<li>{{ e }}</li>{% endfor %}</ul>{% endif %}
+  </div>
+  <label class="reg-check" style="margin-top:8px">
+    {{ form.accepts_model_release }}
+    <span>I have read and agree to the photo release above.</span>
+  </label>
+  {% if form.accepts_model_release.errors %}<ul class="reg-errors">{% for e in form.accepts_model_release.errors %}<li>{{ e }}</li>{% endfor %}</ul>{% endif %}
+</div>
+{% endif %}

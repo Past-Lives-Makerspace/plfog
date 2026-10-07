@@ -40,7 +40,7 @@ if TYPE_CHECKING:
     from classes.models import Registration
 
 
-def ensure_account_for_registration(registration: Registration) -> None:
+def ensure_account_for_registration(registration: Registration, *, despite_invite_only: bool = False) -> None:
     """Create or link a passwordless account for a confirmed registration.
 
     Safe to call unconditionally after confirmation — it self-guards on the
@@ -50,9 +50,12 @@ def ensure_account_for_registration(registration: Registration) -> None:
 
     Args:
         registration: A confirmed (free) or paid registration.
+        despite_invite_only: Make the account under invite-only mode too. Only the
+            Eventbrite finish page passes it: a ticket bought there is already paid
+            for, so Felix decided its buyer gets a Guest account whatever the mode (#652).
     """
     try:
-        _ensure_account_for_registration(registration)
+        _ensure_account_for_registration(registration, despite_invite_only=despite_invite_only)
     except Exception:  # noqa: BLE001 - account creation must never block a booking
         logger.exception(
             "Guest account creation failed for registration %s (%s); booking stands.",
@@ -61,10 +64,10 @@ def ensure_account_for_registration(registration: Registration) -> None:
         )
 
 
-def _ensure_account_for_registration(registration: Registration) -> None:
+def _ensure_account_for_registration(registration: Registration, *, despite_invite_only: bool) -> None:
     if not registration.create_account:
         return
-    if _is_invite_only():
+    if not despite_invite_only and _is_invite_only():
         logger.info(
             "Skipping guest account creation for %s: registration mode is invite-only.",
             registration.email,

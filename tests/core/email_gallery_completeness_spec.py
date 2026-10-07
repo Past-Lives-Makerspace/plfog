@@ -37,6 +37,7 @@ EXPECTED_PAIRS = {
     "promoted_pay",
     "removed",
     "moved",
+    "eventbrite_finish",
     # membership
     "discord_guilds_imported",
     "orientation_request",
@@ -69,10 +70,10 @@ def describe_email_gallery_completeness():
             "on copy-review.pastlives.space."
         )
 
-    def it_discovers_the_expected_30_pairs():
+    def it_discovers_the_expected_31_pairs():
         """Pins the discovery rule so it never silently sweeps in (or drops) templates."""
         assert discover_template_pairs() == EXPECTED_PAIRS
-        assert len(EXPECTED_PAIRS) == 30
+        assert len(EXPECTED_PAIRS) == 31
 
     def it_excludes_shells_and_partials():
         discovered = discover_template_pairs()

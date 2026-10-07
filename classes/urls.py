@@ -54,6 +54,7 @@ urlpatterns = [
     path("instructors/<slug:slug>/", views.public_instructor, name="public_instructor"),
     # Self-serve registration management (token-based, no auth)
     path("my/<str:token>/", views.my_registration, name="my_registration"),
+    path("my/<str:token>/finish/", views.my_registration_finish, name="my_registration_finish"),
     path("my/<str:token>/cancel/", views.my_registration_cancel, name="my_registration_cancel"),
     path("my/<str:token>/pay/", views.my_registration_pay, name="my_registration_pay"),
     # Teaching portal (member self-serve for instructors)

@@ -23,19 +23,24 @@ from django.utils import timezone
 from classes.emails import (
     emit_instructor_new_registration,
     send_admin_registration_notification,
+    send_eventbrite_finish_registration,
     send_eventbrite_oversold_alert,
     send_eventbrite_shared_email_alert,
 )
-from classes.models import ClassOffering, Registration
+from classes.models import ClassOffering, ClassSettings, Registration, Waiver
 from core.integrations.eventbrite import EventbriteClient, EventbriteError, EventbriteSync, field
+from core.services.guest_account import ensure_account_for_registration
 
 if TYPE_CHECKING:
     from django.contrib.auth.models import User
+
+    from classes.forms import FinishRegistrationForm
 
 logger = logging.getLogger(__name__)
 
 ORDER_ACTIONS = frozenset({"order.placed", "order.updated", "order.refunded"})
 _ORDER_URL = re.compile(r"https://www\.eventbriteapi\.com/v3/orders/(\d+)/?")
+_SEAT_ALIAS = re.compile(r".+\+seat\d+@[^@]+")
 REFUNDED_IN_EVENTBRITE = "Refunded in Eventbrite."
 CANCELLED_IN_EVENTBRITE = "Cancelled in Eventbrite."
 REFUNDED_THROUGH_EVENTBRITE = "Refunded through Eventbrite."
@@ -55,6 +60,10 @@ class UnverifiedDeliveryError(Exception):
 
 class EventbriteRefundRefusedError(Exception):
     """Eventbrite did not take the refund; the message is what the refund panel shows."""
+
+
+class AlreadyFinishedError(Exception):
+    """The ticket's waiver was signed by another submit first."""
 
 
 def order_id_from_delivery(body: bytes) -> str | None:
@@ -142,6 +151,7 @@ def _seat(offering: ClassOffering, order_id: str, attendee_id: str, attendee: di
         send_eventbrite_oversold_alert(registration)
     if registration.email != email:
         send_eventbrite_shared_email_alert(registration, email)
+    send_eventbrite_finish_registration(registration, to=email, offers_account=eventbrite_offers_account(registration))
 
 
 def _create_confirmed(
@@ -241,3 +251,43 @@ def _ticket_total(client: EventbriteClient, registration: Registration) -> str:
             cents = int(field(field(field(attendee, "costs"), "gross"), "value"))
             return f"{cents / 100:.2f}"
     raise EventbriteError(f"Order {registration.eventbrite_order_id} no longer lists this ticket.")
+
+
+def needs_finishing(registration: Registration) -> bool:
+    """Whether this is an Eventbrite seat whose liability waiver nobody has signed yet."""
+    return (
+        registration.source == Registration.Source.EVENTBRITE
+        and registration.consumes_seat
+        and not registration.waivers.filter(kind=Waiver.Kind.LIABILITY).exists()
+    )
+
+
+def eventbrite_offers_account(registration: Registration) -> bool:
+    """Whether the finish page offers this Eventbrite ticket an account: the one place that decides.
+
+    Felix decided (2026-10-07) that an Eventbrite buyer gets a Guest account even while the
+    site is invite only, since the ticket is already paid for; bookings on the site itself
+    keep the invite only guard. A ``+seatN`` seat is never offered one: the address is an
+    alias nobody owns, and the account would be minted on it.
+    """
+    return _SEAT_ALIAS.fullmatch(registration.email) is None
+
+
+def finish_registration(registration: Registration, form: FinishRegistrationForm, *, client_ip: str) -> None:
+    """Save the finish page: the waivers and answers together, then the account if ticked.
+
+    The account follows the commit and never raises (``ensure_account_for_registration``
+    logs and swallows), so a failure there never loses a signed waiver.
+
+    Raises:
+        AlreadyFinishedError: A second submit lost the race to the unique waiver.
+    """
+    try:
+        with transaction.atomic():
+            form.save_to(registration, settings_obj=ClassSettings.load(), client_ip=client_ip)
+    except IntegrityError as exc:
+        raise AlreadyFinishedError from exc
+    if form.wants_account:
+        registration.create_account = True
+        registration.save(update_fields=["create_account"])
+        ensure_account_for_registration(registration, despite_invite_only=True)

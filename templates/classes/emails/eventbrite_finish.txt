@@ -1,0 +1,22 @@
+Hi {{ registration.first_name }},
+
+You're booked for "{{ offering.title }}" through Eventbrite. One more step before class: finish registering with Past Lives.
+{% if for_another_seat %}
+This link is for another seat on your order. Everyone coming signs their own waiver, so please send this link to the person using this seat.
+{% endif %}
+On that page you:
+1. Sign the liability waiver{% if offering.requires_model_release %} and the photo release{% endif %}.{% if has_questions %}
+2. Answer a few short questions.{% endif %}{% if offers_account %}
+{% if has_questions %}3{% else %}2{% endif %}. Create a free Past Lives account to manage your bookings, if you'd like one.{% endif %}
+
+Finish registering:
+{{ finish_url }}
+
+{% if upcoming_sessions %}Schedule:
+{% for session in upcoming_sessions %}{{ session.starts_at|date:"l, F j, Y" }} at {{ session.starts_at|time:"g:i A" }}
+{% endfor %}{% endif %}Location: Past Lives Makerspace, 2808 SE 9th Ave, Portland, OR 97202
+
+Eventbrite has sent your receipt, and refunds go through Eventbrite.
+
+See you soon!
+{% include "membership/emails/_footer.txt" %}

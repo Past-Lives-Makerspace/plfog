@@ -263,6 +263,23 @@ STRUCTURAL_EMAILS: list[GalleryEmail] = [
         context_builder="moved_context",
     ),
     GalleryEmail(
+        key="eventbrite_finish",
+        name="Finish registering (Eventbrite booking)",
+        section="Classes",
+        renderer=Renderer.SHELL_TEMPLATE,
+        trigger_note=(
+            "Sent once for each ticket bought on Eventbrite, as the order lands. Links to the "
+            "registration page to sign the waiver, answer the class questions and make an account. "
+            "A second seat under the buyer's email goes to the buyer with a note to pass it on."
+        ),
+        edit_pointer=_tpl("classes/emails", "eventbrite_finish"),
+        audience="Each Eventbrite ticket holder, or the buyer for a shared email seat.",
+        event_keys=frozenset({"classes.eventbrite_finish_registration"}),
+        text_template="classes/emails/eventbrite_finish.txt",
+        html_template="classes/emails/eventbrite_finish.html",
+        context_builder="eventbrite_finish_context",
+    ),
+    GalleryEmail(
         key="duplicate_payment_alert",
         name="Duplicate payment alert (admin)",
         section="Classes",

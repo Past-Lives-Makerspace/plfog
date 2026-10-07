@@ -501,6 +501,7 @@ BILLING_LATE_FEE_WAIVED = "billing.late_fee_waived"  # an unpaid late cancellati
 CLASS_REGISTRATION_ADMIN_NOTICE = "class_registration_admin_notice"  # the Admins' copy of a new registration
 CLASSES_DUPLICATE_PAYMENT_ALERT = "classes.duplicate_payment_alert"  # a settled balance was paid again
 CLASSES_ORPHANED_PAYMENT_ALERT = "classes.orphaned_payment_alert"  # paid on a registration that lost its seat
+CLASSES_EVENTBRITE_FINISH_REGISTRATION = "classes.eventbrite_finish_registration"  # an Eventbrite buyer's finish link
 BILLING_LATE_FEE_ORPHAN_PAYMENT = "billing.late_fee_orphan_payment"  # a paid fee Checkout with no fee to mark
 MEMBERSHIP_ORIENTATION_ORPHAN_PAYMENT = "membership.orientation_orphan_payment"  # a paid Checkout, no booking
 AUTOMATION_FAILED = "automation.failed"  # a scheduled job failed (Webmasters, once a day per job)
@@ -830,6 +831,18 @@ _NEW_EVENTS: list[EventType] = [
     #      declaring no EMAIL channel keeps it off the member settings matrix (like the
     #      orientation thank-you, which piggybacks on orientation_update). ``activity_kind``
     #      stays None — member_joined_guild's guild_joined emit already logs GUILD_JOINED.
+    # The Eventbrite buyer's link to finish registering (#652). Transactional, sent only
+    # through ``email_to`` to an address that may have no account, so it declares no
+    # channel and stays off the settings matrix, like the guild welcome below.
+    EventType(
+        key=CLASSES_EVENTBRITE_FINISH_REGISTRATION,
+        label="Finish registering for an Eventbrite booking",
+        description="An Eventbrite buyer's link to sign the waiver and answer the class questions.",
+        category="Classes",
+        recipient=Recipients.REGISTRANT,
+        channels=(),
+        activity_kind=None,
+    ),
     EventType(
         key=GUILD_WELCOME,
         label="Welcome to the guild",

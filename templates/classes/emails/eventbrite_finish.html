@@ -1,0 +1,16 @@
+{% extends "membership/emails/_base.html" %}
+{% block content %}
+<p style="margin: 0 0 8px; font-size: 14px; color: #55697a;">Hi {{ registration.first_name }},</p>
+<p style="margin: 0 0 16px; font-size: 18px; font-weight: 700; color: #092E4C;">You're booked for "{{ offering.title }}" through Eventbrite.</p>
+<p style="margin: 0 0 16px; font-size: 14px; color: #33424f;">One more step before class: finish registering with Past Lives.</p>
+{% if for_another_seat %}<p style="margin: 0 0 16px; font-size: 14px; color: #33424f;">This link is for another seat on your order. Everyone coming signs their own waiver, so please send this link to the person using this seat.</p>{% endif %}
+<ol style="margin: 0 0 24px; padding-left: 20px; font-size: 14px; color: #33424f; line-height: 1.7;">
+  <li>Sign the liability waiver{% if offering.requires_model_release %} and the photo release{% endif %}.</li>
+  {% if has_questions %}<li>Answer a few short questions.</li>{% endif %}
+  {% if offers_account %}<li>Create a free Past Lives account to manage your bookings, if you'd like one.</li>{% endif %}
+</ol>
+<p style="margin: 0 0 24px; text-align: center;"><a href="{{ finish_url }}" style="display: inline-block; padding: 12px 24px; border-radius: 8px; background-color: #0d4876; color: #ffffff; font-size: 14px; font-weight: 700; text-decoration: none;">Finish registering</a></p>
+{% if upcoming_sessions %}<p style="margin: 0 0 8px; font-size: 14px; color: #33424f;">{% for session in upcoming_sessions %}{{ session.starts_at|date:"l, F j, Y" }} at {{ session.starts_at|time:"g:i A" }}{% if not forloop.last %}<br>{% endif %}{% endfor %}</p>{% endif %}
+<p style="margin: 0 0 16px; font-size: 14px; color: #33424f;">Past Lives Makerspace, 2808 SE 9th Ave, Portland, OR 97202</p>
+<p style="margin: 0; font-size: 13px; color: #55697a;">Eventbrite has sent your receipt, and refunds go through Eventbrite.</p>
+{% endblock %}

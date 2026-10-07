@@ -1,7 +1,12 @@
 {% extends "classes/base_public.html" %}
+{% load static %}
 {% load classes_tags %}
 
 {% block title %}Your registration — {{ offering.title }}{% endblock %}
+
+{% block classes_extra_head %}
+{% if finish_form %}<link rel="stylesheet" href="{% static 'css/classes-register.css' %}">{% endif %}
+{% endblock %}
 
 {% block portal_content %}
 <div class="view">
@@ -33,6 +38,26 @@
             This class was cancelled. {{ offering.cancellation_reason_sentence }} If you paid, a refund is on its way from our staff.
             <a href="{% url 'classes:public_list' %}">Find another class</a>
           </div>
+        {% endif %}
+
+        {% if finish_form %}
+          {% with form=finish_form %}
+          <form method="post" action="{% url 'classes:my_registration_finish' token=registration.self_serve_token %}" id="finish-form" class="reg-form" style="margin-bottom:18px" hx-boost="false" data-submit-guard>
+            {% csrf_token %}
+            <h3 style="margin:0 0 6px">Finish registering</h3>
+            <p style="margin:0 0 10px;font-size:13px">You booked this class on Eventbrite. Before class, please sign the waiver below{% if form.custom_question_fields %} and answer a few short questions{% endif %}.</p>
+            {% if form.non_field_errors %}<ul class="reg-errors">{% for e in form.non_field_errors %}<li>{{ e }}</li>{% endfor %}</ul>{% endif %}
+            {% include "classes/public/_custom_questions.html" %}
+            {% if form.create_account %}
+            <label class="reg-check" style="margin-top:4px">
+              {{ form.create_account }}
+              <span>{{ form.create_account.label }}</span>
+            </label>
+            {% endif %}
+            {% include "classes/public/_waivers.html" %}
+            <button type="submit" class="btn-reg" style="margin-top:8px">Sign and finish</button>
+          </form>
+          {% endwith %}
         {% endif %}
 
         <div class="dc-igrid">
