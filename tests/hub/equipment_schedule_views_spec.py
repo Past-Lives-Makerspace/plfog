@@ -238,7 +238,7 @@ def describe_equipment_schedule():
 
     def it_hides_the_booking_form_from_a_blocked_member(client: Client):
         _login(client, "sch_blocked")
-        equipment = _open_tool(required_orientation=OrientationTypeFactory(name="Lathe"))
+        equipment = _open_tool(unlocking_orientations=[OrientationTypeFactory(name="Lathe")])
         response = client.get(reverse("hub_equipment_schedule", args=[equipment.slug]), {"day": _day().isoformat()})
         assert b"Book a Time" not in response.content
 
@@ -285,7 +285,7 @@ def describe_equipment_reserve():
 
     def it_rejects_an_unoriented_member(client: Client):
         user = _login(client, "bk_unoriented")
-        equipment = _open_tool(required_orientation=OrientationTypeFactory(name="Lathe"))
+        equipment = _open_tool(unlocking_orientations=[OrientationTypeFactory(name="Lathe")])
         response = _post(client, equipment)
         assert "Lathe orientation" in _toast(response)
         assert not EquipmentReservation.objects.filter(member=user.member).exists()

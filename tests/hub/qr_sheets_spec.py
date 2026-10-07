@@ -224,11 +224,11 @@ def describe_equipment_sheet_content():
         assert equipment.qr_url == before
         assert client.get(before.removeprefix(BASE)).status_code == 302  # still routes (to login here)
 
-    def it_adds_a_second_qr_to_book_the_required_orientation(client: Client):
+    def it_adds_a_second_qr_to_book_the_one_unlocking_orientation(client: Client):
         safety = GuildFactory(name="Qrsheet Safety")
         GuildOrientationSettingsFactory(guild=safety)
         orientation_type = OrientationTypeFactory(guild=safety, name="Qrsheet Saw Basics")
-        equipment = _tool(required_orientation=orientation_type)
+        equipment = _tool(unlocking_orientations=[orientation_type])
         _equipment_staffer(client, "eq_second", equipment)
         body = client.get(_equipment_urls(equipment)[0]).content.decode()
         assert 'data-qr-target="orientation"' in body
@@ -240,20 +240,35 @@ def describe_equipment_sheet_content():
         switched_off = GuildFactory(name="Qrsheet Switched Off")
         GuildOrientationSettingsFactory(guild=switched_off, is_enabled=False)
         orientation_type = OrientationTypeFactory(guild=switched_off, name="Qrsheet Unbookable Basics")
-        equipment = _tool(required_orientation=orientation_type)
+        equipment = _tool(unlocking_orientations=[orientation_type])
         _equipment_staffer(client, "eq_second_switched_off", equipment)
         body = client.get(_equipment_urls(equipment)[0]).content.decode()
         assert 'data-qr-target="orientation"' not in body
         assert "Qrsheet Unbookable Basics" not in body
-        assert equipment.qr_sheet_orientation is None
+        assert equipment.qr_sheet_orientations == []
+
+    def it_names_every_printable_unlocking_orientation_when_several_unlock_it(client: Client):
+        safety = GuildFactory(name="Qrsheet Press Guild")
+        GuildOrientationSettingsFactory(guild=safety)
+        beginner = OrientationTypeFactory(guild=safety, name="Qrsheet Press Beginner")
+        experienced = OrientationTypeFactory(guild=safety, name="Qrsheet Press Experienced")
+        retired = OrientationTypeFactory(guild=safety, name="Qrsheet Press Retired", is_active=False)
+        equipment = _tool(unlocking_orientations=[beginner, experienced, retired])
+        _equipment_staffer(client, "eq_several", equipment)
+        body = client.get(_equipment_urls(equipment)[0]).content.decode()
+        assert 'data-qr-target="orientation"' not in body
+        assert "data-qr-orientations" in body
+        assert "Qrsheet Press Beginner, Qrsheet Press Experienced." in body
+        assert "Qrsheet Press Retired" not in body
+        assert equipment.qr_sheet_orientations == [beginner, experienced]
 
     def it_leaves_the_second_qr_off_while_that_orientation_is_turned_off(client: Client):
         orientation_type = OrientationTypeFactory(guild=GuildFactory(name="Qrsheet Paused"), is_active=False)
-        equipment = _tool(required_orientation=orientation_type)
+        equipment = _tool(unlocking_orientations=[orientation_type])
         _equipment_staffer(client, "eq_second_off", equipment)
         body = client.get(_equipment_urls(equipment)[0]).content.decode()
         assert 'data-qr-target="orientation"' not in body
-        assert equipment.qr_sheet_orientation is None
+        assert equipment.qr_sheet_orientations == []
 
 
 # ---------------------------------------------------------------------------

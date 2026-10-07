@@ -248,7 +248,7 @@ def describe_a_new_orientation_made_from_the_equipment_form():
             "kind": Equipment.Kind.TOOL,
             "is_active": "on",
             "area": str(location.pk),
-            "required_orientation": EquipmentForm.NEW_TYPE_CHOICE,
+            "unlocking_orientations": EquipmentForm.NEW_TYPE_CHOICE,
             "new_type-name": "Operator Basics",
             "new_type-duration_minutes": "60",
             "new_type-default_seats": "2",
@@ -258,8 +258,7 @@ def describe_a_new_orientation_made_from_the_equipment_form():
         assert client.post(reverse("hub_equipment_add"), payload).status_code == 302
         equipment = Equipment.objects.get(name="CNC Machine")
         assert equipment.area == location
-        assert equipment.required_orientation is not None
-        assert equipment.required_orientation.area == location
+        assert equipment.unlocking_orientations.get().area == location
 
     def it_starts_with_no_location_when_the_equipment_has_none(client: Client):
         _login(client, "loc_new_type_none", fog_role=Member.FogRole.ADMIN)
@@ -267,7 +266,7 @@ def describe_a_new_orientation_made_from_the_equipment_form():
             "name": "Band Saw",
             "kind": Equipment.Kind.TOOL,
             "is_active": "on",
-            "required_orientation": EquipmentForm.NEW_TYPE_CHOICE,
+            "unlocking_orientations": EquipmentForm.NEW_TYPE_CHOICE,
             "new_type-name": "Saw Basics",
             "new_type-duration_minutes": "60",
             "new_type-default_seats": "2",
@@ -276,8 +275,7 @@ def describe_a_new_orientation_made_from_the_equipment_form():
         }
         client.post(reverse("hub_equipment_add"), payload)
         equipment = Equipment.objects.get(name="Band Saw")
-        assert equipment.required_orientation is not None
-        assert equipment.required_orientation.area is None
+        assert equipment.unlocking_orientations.get().area is None
 
 
 def describe_the_admin_locations_page():

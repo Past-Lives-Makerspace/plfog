@@ -845,15 +845,24 @@ class SpaceRequestFactory(factory.django.DjangoModelFactory):
 
 
 class EquipmentFactory(factory.django.DjangoModelFactory):
-    """A standalone active tool by default. Pass ``guild=`` / ``required_orientation=`` to gate it."""
+    """A standalone active tool by default. Pass ``guild=`` / ``unlocking_orientations=[...]`` to gate it."""
 
     class Meta:
         model = Equipment
+        skip_postgeneration_save = True
 
     name = factory.Sequence(lambda n: f"Equipment {n}")
     kind = Equipment.Kind.TOOL
     guild = None
     is_active = True
+
+    @factory.post_generation
+    def unlocking_orientations(  # noqa: N805
+        obj: Equipment, create: bool, extracted: list[OrientationType] | None, **kwargs: object
+    ) -> None:
+        """Gate the item: completing any one of ``extracted`` unlocks it (#656)."""
+        if create and extracted:
+            obj.unlocking_orientations.set(extracted)
 
 
 class EquipmentStaffMembershipFactory(factory.django.DjangoModelFactory):

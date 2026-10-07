@@ -44,7 +44,7 @@
   <p class="pl-flyer__about">{{ equipment.description|striptags|truncatewords:32 }}</p>
   {% endif %}
 
-  {# 4 · The equipment page QR, and the orientation QR when it needs one that is on #}
+  {# 4 · The equipment page QR, and the orientation QR when exactly one that is on unlocks it #}
   <div class="pl-flyer__qr-row">
     <section class="pl-flyer__qr-panel" data-qr-target="equipment">
       <div class="pl-flyer__qr">{{ qr_svg|safe }}</div>
@@ -52,15 +52,22 @@
       <p class="pl-flyer__qr-caption">Scan to see open times and book the {{ equipment.get_kind_display|lower }}.</p>
       <p class="pl-flyer__qr-url">{{ equipment.qr_url }}</p>
     </section>
-    {% if orientation %}
+    {% if orientations|length == 1 %}
+    {% with orientation=orientations.0 %}
     <section class="pl-flyer__qr-panel" data-qr-target="orientation">
       <div class="pl-flyer__qr">{{ orientation.qr_svg|safe }}</div>
       <h2 class="pl-flyer__qr-title">New here? Book the orientation first.</h2>
       <p class="pl-flyer__qr-caption">You need the {{ orientation.name }} orientation before you can reserve it.</p>
       <p class="pl-flyer__qr-url">{{ orientation.qr_url }}</p>
     </section>
+    {% endwith %}
     {% endif %}
   </div>
+
+  {# Several unlock it (#656): a QR each would not fit the Letter row, so the sheet names them and Reserve It lists each with its Book link. #}
+  {% if orientations|length > 1 %}
+  <p class="pl-flyer__about" data-qr-orientations>New here? Any one of these orientations unlocks it: {% for orientation in orientations %}{{ orientation.name }}{% if not forloop.last %}, {% endif %}{% endfor %}. Scan Reserve It to book one.</p>
+  {% endif %}
 
   <footer class="pl-flyer__footer">Past Lives Makerspace · Portland, OR</footer>
 </main>

@@ -87,7 +87,7 @@ def describe_equipment_index():
     def it_renders_cards_with_access_badges(client: Client):
         user = _login(client, "eq_badges")
         EquipmentFactory(name="Open Bench")
-        EquipmentFactory(name="Gated Lathe", required_orientation=OrientationTypeFactory(name="Lathe"))
+        EquipmentFactory(name="Gated Lathe", unlocking_orientations=[OrientationTypeFactory(name="Lathe")])
         response = client.get(reverse("hub_equipment_index"))
         assert b"You're all set" in response.content
         assert b"Orientation needed" in response.content
@@ -100,7 +100,7 @@ def describe_equipment_index():
 
         user = _login(client, "eq_idx_fee")
         EquipmentFactory(name="Open Bench")
-        EquipmentFactory(name="Gated Lathe", required_orientation=OrientationTypeFactory(name="Lathe"))
+        EquipmentFactory(name="Gated Lathe", unlocking_orientations=[OrientationTypeFactory(name="Lathe")])
         LateCancellationFeeFactory(
             orientation_booking=OrientationBookingFactory(member=user.member, status="cancelled")
         )
@@ -292,7 +292,7 @@ def describe_equipment_index():
             _login(client, "eq_lock")
             orientation_type = OrientationTypeFactory(name="Lathe")
             GuildOrientationSettingsFactory(guild=orientation_type.guild, is_enabled=True)
-            EquipmentFactory(name="Gated Lathe", required_orientation=orientation_type)
+            EquipmentFactory(name="Gated Lathe", unlocking_orientations=[orientation_type])
             content = client.get(reverse("hub_equipment_index")).content.decode()
             assert 'class="hub-card pl-equip-card pl-equip-card--locked"' in content
             assert 'class="pl-equip-card__lock" aria-hidden="true"' in content
@@ -320,8 +320,8 @@ def describe_equipment_index():
             hidden = OrientationTypeFactory(name="Hidden Lathe Basics")  # its guild never enabled orientations
             retired = OrientationTypeFactory(name="Retired Lathe Basics", is_active=False)
             GuildOrientationSettingsFactory(guild=retired.guild, is_enabled=True)
-            EquipmentFactory(name="Hidden Gate", required_orientation=hidden)
-            EquipmentFactory(name="Retired Gate", required_orientation=retired)
+            EquipmentFactory(name="Hidden Gate", unlocking_orientations=[hidden])
+            EquipmentFactory(name="Retired Gate", unlocking_orientations=[retired])
             content = client.get(reverse("hub_equipment_index")).content.decode()
             for orientation_type in (hidden, retired):
                 assert (
@@ -335,14 +335,14 @@ def describe_equipment_index():
 
             _login(client, "eq_lock_queries")
             first = OrientationTypeFactory(name="Query Gate One")
-            EquipmentFactory(name="Gate One", required_orientation=first)
+            EquipmentFactory(name="Gate One", unlocking_orientations=[first])
             client.get(reverse("hub_equipment_index"))
             with CaptureQueriesContext(connection) as one:
                 client.get(reverse("hub_equipment_index"))
             for index in range(4):
                 gate = OrientationTypeFactory(name=f"Query Gate {index + 2}")
                 GuildOrientationSettingsFactory(guild=gate.guild, is_enabled=True)
-                EquipmentFactory(name=f"Gate {index + 2}", required_orientation=gate)
+                EquipmentFactory(name=f"Gate {index + 2}", unlocking_orientations=[gate])
             with django_assert_num_queries(len(one.captured_queries)):
                 client.get(reverse("hub_equipment_index"))
 
@@ -350,7 +350,7 @@ def describe_equipment_index():
             user = _login(client, "eq_trained")
             orientation_type = OrientationTypeFactory(name="Lathe")
             OrientationRecordFactory(member=user.member, orientation_type=orientation_type)
-            EquipmentFactory(name="Gated Lathe", required_orientation=orientation_type)
+            EquipmentFactory(name="Gated Lathe", unlocking_orientations=[orientation_type])
             content = client.get(reverse("hub_equipment_index")).content.decode()
             assert "You're all set" in content
             assert "pl-equip-card--locked" not in content
@@ -363,7 +363,7 @@ def describe_equipment_index():
             from tests.billing.factories import LateCancellationFeeFactory
 
             user = _login(client, "eq_lock_fee")
-            EquipmentFactory(name="Gated Lathe", required_orientation=OrientationTypeFactory(name="Lathe"))
+            EquipmentFactory(name="Gated Lathe", unlocking_orientations=[OrientationTypeFactory(name="Lathe")])
             LateCancellationFeeFactory(
                 orientation_booking=OrientationBookingFactory(member=user.member, status="cancelled")
             )
@@ -388,7 +388,7 @@ def describe_equipment_index():
 
             def gated(name: str, **kwargs) -> None:
                 EquipmentFactory(
-                    name=name, required_orientation=OrientationTypeFactory(name=f"{name} basics"), **kwargs
+                    name=name, unlocking_orientations=[OrientationTypeFactory(name=f"{name} basics")], **kwargs
                 )
 
             gated("Lathe")
@@ -410,7 +410,7 @@ def describe_equipment_index():
             _login(client, "eq_shared_cards")
             woodshop = GuildFactory(name="Woodshop")
             lathe = EquipmentFactory(
-                name="Lathe", guild=woodshop, required_orientation=OrientationTypeFactory(name="Lathe basics")
+                name="Lathe", guild=woodshop, unlocking_orientations=[OrientationTypeFactory(name="Lathe basics")]
             )
             EquipmentFactory(name="Woodshop Saw", guild=woodshop)
             EquipmentFactory(name="Dark Room", kind=Equipment.Kind.ROOM)
@@ -430,8 +430,9 @@ def describe_equipment_index():
             url = reverse("hub_equipment_index")
             client.get(url)  # warm the session and per-request caches
             # Measured on this grid before the extraction (36), plus the one staff prefetch (#615),
-            # less the joined guild lookup the equipment guild gate needed.
-            with django_assert_num_queries(36):
+            # less the joined guild lookup the equipment guild gate needed, plus the two fixed
+            # unlocking orientation prefetches (#656): the gate's list and the Book links' list.
+            with django_assert_num_queries(38):
                 assert client.get(url).status_code == 200
 
         def it_answers_an_empty_grid_without_the_member_lookups(django_assert_num_queries):
@@ -598,12 +599,12 @@ def describe_equipment_add():
                 "name": "Mismatch Saw",
                 "kind": "tool",
                 "guild": woodshop.pk,
-                "required_orientation": foreign_type.pk,
+                "unlocking_orientations": foreign_type.pk,
                 "is_active": "on",
             },
         )
         assert response.status_code == 200
-        assert b"Pick an orientation offered by the chosen guild" in response.content
+        assert b"Pick orientations offered by the chosen guild" in response.content
         assert not Equipment.objects.filter(name="Mismatch Saw").exists()
 
     def it_allows_any_guilds_orientation_on_standalone_equipment(client: Client):
@@ -612,10 +613,10 @@ def describe_equipment_add():
         orientation_type = OrientationTypeFactory(name="Lathe")
         response = client.post(
             reverse("hub_equipment_add"),
-            {"name": "House Lathe", "kind": "tool", "required_orientation": orientation_type.pk, "is_active": "on"},
+            {"name": "House Lathe", "kind": "tool", "unlocking_orientations": orientation_type.pk, "is_active": "on"},
         )
         assert response.status_code == 302
-        assert Equipment.objects.get(name="House Lathe").required_orientation == orientation_type
+        assert list(Equipment.objects.get(name="House Lathe").unlocking_orientations.all()) == [orientation_type]
 
 
 def describe_equipment_detail():
@@ -634,7 +635,7 @@ def describe_equipment_detail():
         orientation_type = OrientationTypeFactory(name="Lathe")
         # The guild must actually be taking bookings, or the honest paused variant renders.
         GuildOrientationSettingsFactory(guild=orientation_type.guild, is_enabled=True)
-        equipment = EquipmentFactory(required_orientation=orientation_type)
+        equipment = EquipmentFactory(unlocking_orientations=[orientation_type])
         response = client.get(reverse("hub_equipment_detail", args=[equipment.slug]))
         assert b"You need the Lathe orientation before you can reserve this equipment." in response.content
         assert b"Book the Orientation" in response.content
@@ -686,7 +687,7 @@ def describe_equipment_detail():
 
         slot = OrientationSlotFactory(guild=orientation_type.guild, orientation_type=orientation_type)
         OrientationBookingFactory(member=user.member, slot=slot, status=OrientationBooking.Status.CONFIRMED)
-        equipment = EquipmentFactory(required_orientation=orientation_type)
+        equipment = EquipmentFactory(unlocking_orientations=[orientation_type])
         response = client.get(reverse("hub_equipment_detail", args=[equipment.slug]))
         assert b"Your orientation is booked for" in response.content
         assert b"Book the Orientation" not in response.content
@@ -747,7 +748,7 @@ def describe_equipment_detail():
         def _gated(**kwargs) -> tuple[Equipment, OrientationType]:
             orientation_type = OrientationTypeFactory(name="Lathe")
             return EquipmentFactory(
-                name="Gated Lathe", required_orientation=orientation_type, **kwargs
+                name="Gated Lathe", unlocking_orientations=[orientation_type], **kwargs
             ), orientation_type
 
         def it_follows_the_book_leaf(client: Client):
@@ -902,8 +903,8 @@ def describe_equipment_manage():
         OrientationTypeFactory(name="Wheel")  # another guild's type
         equipment = EquipmentFactory(guild=guild)
         response = client.get(reverse("hub_equipment_manage", args=[equipment.slug]))
-        choices = response.context["form"].fields["required_orientation"].choices
-        assert [value for value, _label in choices] == ["", "new", str(own_type.pk)]
+        choices = response.context["form"].fields["unlocking_orientations"].choices
+        assert [value for value, _label in choices] == ["new", str(own_type.pk)]
 
 
 def describe_equipment_details_save():
@@ -939,21 +940,21 @@ def describe_equipment_details_save():
         old_type = OrientationTypeFactory(guild=old_guild, name="Saw Basics")
         new_guild = GuildFactory(name="Ceramics")
         new_type = OrientationTypeFactory(guild=new_guild, name="Wheel")
-        equipment = EquipmentFactory(guild=old_guild, required_orientation=old_type)
+        equipment = EquipmentFactory(guild=old_guild, unlocking_orientations=[old_type])
         response = client.post(
             reverse("hub_equipment_details_save", args=[equipment.slug]),
             {
                 "name": equipment.name,
                 "kind": "tool",
                 "guild": new_guild.pk,
-                "required_orientation": new_type.pk,
+                "unlocking_orientations": new_type.pk,
                 "is_active": "on",
             },
         )
         assert response.status_code == 302
         equipment.refresh_from_db()
         assert equipment.guild == new_guild
-        assert equipment.required_orientation == new_type
+        assert list(equipment.unlocking_orientations.all()) == [new_type]
 
     def it_rejects_an_orientation_that_mismatches_the_posted_guild(client: Client):
         _login(client, "eq_save_mismatch", fog_role=Member.FogRole.ADMIN)
@@ -966,14 +967,13 @@ def describe_equipment_details_save():
                 "name": equipment.name,
                 "kind": "tool",
                 "guild": guild.pk,
-                "required_orientation": foreign_type.pk,
+                "unlocking_orientations": foreign_type.pk,
                 "is_active": "on",
             },
         )
         assert response.status_code == 200
-        assert b"Pick an orientation offered by the chosen guild" in response.content
-        equipment.refresh_from_db()
-        assert equipment.required_orientation is None
+        assert b"Pick orientations offered by the chosen guild" in response.content
+        assert not equipment.unlocking_orientations.exists()
 
     def it_rerenders_with_errors_and_saves_nothing_on_invalid_input(client: Client):
         _login(client, "eq_save_bad", fog_role=Member.FogRole.ADMIN)
@@ -1290,8 +1290,7 @@ def describe_equipment_orientation_surface():
             equipment = EquipmentFactory()
             orientation_type = _owned_type(equipment)
             _slot(orientation_type)
-            equipment.required_orientation = orientation_type
-            equipment.save(update_fields=["required_orientation"])
+            equipment.unlocking_orientations.set([orientation_type])
             content = client.get(reverse("hub_equipment_detail", args=[equipment.slug])).content.decode()
             assert f"?type={orientation_type.pk}#equipment-orientation" in content
             assert "Book the Orientation" in content
@@ -1300,8 +1299,7 @@ def describe_equipment_orientation_surface():
             _login(client, "eqo_banner_paused")
             equipment = EquipmentFactory()
             orientation_type = _owned_type(equipment, is_active=False)
-            equipment.required_orientation = orientation_type
-            equipment.save(update_fields=["required_orientation"])
+            equipment.unlocking_orientations.set([orientation_type])
             content = client.get(reverse("hub_equipment_detail", args=[equipment.slug])).content.decode()
             assert "Orientation bookings for this tool are paused. Check back soon." in content
             assert "Book the Orientation" not in content
@@ -1318,8 +1316,7 @@ def describe_equipment_orientation_surface():
             )
             orientation_type.is_active = False
             orientation_type.save(update_fields=["is_active"])
-            equipment.required_orientation = orientation_type
-            equipment.save(update_fields=["required_orientation"])
+            equipment.unlocking_orientations.set([orientation_type])
             content = client.get(reverse("hub_equipment_detail", args=[equipment.slug])).content.decode()
             assert "Your orientation is booked for" in content
             assert "paused. Check back soon." not in content
@@ -1331,8 +1328,7 @@ def describe_equipment_orientation_surface():
             equipment = EquipmentFactory()
             orientation_type = _owned_type(equipment)
             OrientationBookingFactory(slot=_slot(orientation_type), member=user.member)  # REQUESTED
-            equipment.required_orientation = orientation_type
-            equipment.save(update_fields=["required_orientation"])
+            equipment.unlocking_orientations.set([orientation_type])
             content = client.get(reverse("hub_equipment_detail", args=[equipment.slug])).content.decode()
             assert "A manager will confirm a time." in content
             assert "The guild will confirm a time." not in content
@@ -1358,7 +1354,7 @@ def describe_equipment_orientation_surface():
             assert response.status_code == 302
             assert response["Location"].startswith(f"/guilds/{slot.guild.slug}/?tab=orientations")
 
-    def describe_equipment_form_required_orientation():
+    def describe_equipment_form_unlocking_orientations():
         def it_offers_and_saves_the_equipments_own_type(client: Client):
             _login(client, "eqo_form_own", fog_role=Member.FogRole.ADMIN)
             equipment = EquipmentFactory(name="Own Saw")
@@ -1368,32 +1364,29 @@ def describe_equipment_orientation_surface():
                 {
                     "name": equipment.name,
                     "kind": "tool",
-                    "required_orientation": orientation_type.pk,
+                    "unlocking_orientations": orientation_type.pk,
                     "is_active": "on",
                 },
             )
             assert response.status_code == 302
-            equipment.refresh_from_db()
-            assert equipment.required_orientation == orientation_type
+            assert list(equipment.unlocking_orientations.all()) == [orientation_type]
 
         def it_round_trips_an_inactive_selected_required_type(client: Client):
             _login(client, "eqo_form_inactive", fog_role=Member.FogRole.ADMIN)
             equipment = EquipmentFactory()
             orientation_type = _owned_type(equipment, is_active=False)
-            equipment.required_orientation = orientation_type
-            equipment.save(update_fields=["required_orientation"])
+            equipment.unlocking_orientations.set([orientation_type])
             response = client.post(
                 reverse("hub_equipment_details_save", args=[equipment.slug]),
                 {
                     "name": equipment.name,
                     "kind": "tool",
-                    "required_orientation": orientation_type.pk,
+                    "unlocking_orientations": orientation_type.pk,
                     "is_active": "on",
                 },
             )
             assert response.status_code == 302  # no invalid-choice error
-            equipment.refresh_from_db()
-            assert equipment.required_orientation == orientation_type
+            assert list(equipment.unlocking_orientations.all()) == [orientation_type]
 
         def it_hides_an_inactive_type_from_other_equipment(client: Client):
             _login(client, "eqo_form_hidden", fog_role=Member.FogRole.ADMIN)
@@ -1401,7 +1394,7 @@ def describe_equipment_orientation_surface():
             inactive = _owned_type(other, is_active=False)
             fresh = EquipmentFactory()
             response = client.get(reverse("hub_equipment_manage", args=[fresh.slug]))
-            choices = response.context["form"].fields["required_orientation"].choices
+            choices = response.context["form"].fields["unlocking_orientations"].choices
             assert str(inactive.pk) not in [value for value, _label in choices]
 
 
@@ -1574,13 +1567,13 @@ def describe_equipment_own_orientation():
     """
 
     def _post(
-        equipment_name: str = "CNC Router", type_name: str = "Operator Basics", **overrides: str
-    ) -> dict[str, str]:
-        data = {
+        equipment_name: str = "CNC Router", type_name: str = "Operator Basics", **overrides: str | list[str]
+    ) -> dict[str, str | list[str]]:
+        data: dict[str, str | list[str]] = {
             "name": equipment_name,
             "kind": "tool",
             "is_active": "on",
-            "required_orientation": EquipmentForm.NEW_TYPE_CHOICE,
+            "unlocking_orientations": [EquipmentForm.NEW_TYPE_CHOICE],
             "new_type-name": type_name,
             "new_type-duration_minutes": "45",
             "new_type-default_seats": "2",
@@ -1597,21 +1590,24 @@ def describe_equipment_own_orientation():
         return message in content[start:end]
 
     def describe_the_picker():
-        def it_offers_no_orientation_then_new_then_the_types_in_the_old_order(client: Client):
+        def it_offers_new_then_the_types_in_the_old_order_as_a_multi_select(client: Client):
             _login(client, "eqn_choices", fog_role=Member.FogRole.ADMIN)
             wheel = OrientationTypeFactory(guild=GuildFactory(name="Ceramics"), name="Wheel")
             saw = OrientationTypeFactory(guild=GuildFactory(name="Woodshop"), name="Saw Basics")
             OrientationTypeFactory(guild=GuildFactory(name="Metals"), name="Retired", is_active=False)
             response = client.get(reverse("hub_equipment_add"))
-            field = response.context["form"].fields["required_orientation"]
+            field = response.context["form"].fields["unlocking_orientations"]
             assert list(field.choices) == [
-                ("", "No orientation needed"),
                 ("new", "New orientation for this equipment"),
                 (str(wheel.pk), str(wheel)),
                 (str(saw.pk), str(saw)),
             ]
             assert field.required is False
-            assert field.label == "Required orientation"
+            assert field.label == "Orientations that unlock it"
+            content = response.content.decode()
+            select = content[content.index('<select name="unlocking_orientations"') :].split(">", 1)[0]
+            assert " multiple" in select
+            assert 'size="3"' in select
 
         def it_renders_the_nested_fields_closed_with_the_model_defaults(client: Client):
             _login(client, "eqn_closed", fog_role=Member.FogRole.ADMIN)
@@ -1652,7 +1648,7 @@ def describe_equipment_own_orientation():
             assert new_type.price_cents == 1500
             assert new_type.default_location == "Wood shop"
             assert (new_type.description, new_type.sort_order) == ("", 0)
-            assert equipment.required_orientation == new_type
+            assert list(equipment.unlocking_orientations.all()) == [new_type]
             assert list(equipment.owned_orientation_types.all()) == [new_type]
 
         def it_closes_the_gate_on_the_first_detail_page_load(client: Client):
@@ -1678,7 +1674,7 @@ def describe_equipment_own_orientation():
             equipment = Equipment.objects.get(name="CNC Router")
             response = client.get(f"{reverse('hub_equipment_manage', args=[equipment.slug])}?tab=orientation")
             formset = response.context["orientation_types_formset"]
-            assert [row.instance for row in formset.forms] == [equipment.required_orientation]
+            assert [row.instance for row in formset.forms] == list(equipment.unlocking_orientations.all())
             assert formset.forms[0]["is_active"].value() is True
             assert formset.forms[0].instance.equipment == equipment
             assert 'name="otypes-0-name" value="Operator Basics"' in response.content.decode()
@@ -1701,17 +1697,17 @@ def describe_equipment_own_orientation():
 
         def it_ignores_the_nested_fields_when_no_orientation_is_needed(client: Client):
             _login(client, "eqn_add_none", fog_role=Member.FogRole.ADMIN)
-            response = client.post(reverse("hub_equipment_add"), _post(required_orientation=""))
+            response = client.post(reverse("hub_equipment_add"), _post(unlocking_orientations=[]))
             assert response.status_code == 302
-            assert Equipment.objects.get(name="CNC Router").required_orientation is None
+            assert not Equipment.objects.get(name="CNC Router").unlocking_orientations.exists()
             assert not OrientationType.objects.exists()
 
         def it_ignores_the_nested_fields_when_an_existing_type_is_picked(client: Client):
             _login(client, "eqn_add_existing", fog_role=Member.FogRole.ADMIN)
             existing = OrientationTypeFactory(name="Lathe")
-            response = client.post(reverse("hub_equipment_add"), _post(required_orientation=str(existing.pk)))
+            response = client.post(reverse("hub_equipment_add"), _post(unlocking_orientations=[str(existing.pk)]))
             assert response.status_code == 302
-            assert Equipment.objects.get(name="CNC Router").required_orientation == existing
+            assert list(Equipment.objects.get(name="CNC Router").unlocking_orientations.all()) == [existing]
             assert OrientationType.objects.count() == 1
 
         def it_still_holds_an_existing_type_to_the_chosen_guild(client: Client):
@@ -1720,12 +1716,12 @@ def describe_equipment_own_orientation():
             foreign_type = OrientationTypeFactory(guild=GuildFactory(name="Ceramics"), name="Wheel")
             response = client.post(
                 reverse("hub_equipment_add"),
-                _post(guild=str(woodshop.pk), required_orientation=str(foreign_type.pk)),
+                _post(guild=str(woodshop.pk), unlocking_orientations=[str(foreign_type.pk)]),
             )
             assert response.status_code == 200
             assert response.context["form"].errors == {
-                "required_orientation": [
-                    "Pick an orientation offered by the chosen guild, or one of this equipment's own orientations."
+                "unlocking_orientations": [
+                    "Pick orientations offered by the chosen guild, or this equipment's own orientations."
                 ]
             }
             assert not Equipment.objects.exists()
@@ -1738,15 +1734,15 @@ def describe_equipment_own_orientation():
             assert response.status_code == 302
             equipment = Equipment.objects.get(name="CNC Router")
             assert equipment.guild == woodshop
-            assert equipment.required_orientation is not None
-            assert equipment.required_orientation.guild is None
-            assert equipment.required_orientation.equipment == equipment
+            new_type = equipment.unlocking_orientations.get()
+            assert new_type.guild is None
+            assert new_type.equipment == equipment
 
         def it_refuses_a_crafted_choice_and_saves_nothing(client: Client):
             _login(client, "eqn_add_crafted", fog_role=Member.FogRole.ADMIN)
-            response = client.post(reverse("hub_equipment_add"), _post(required_orientation="424242"))
+            response = client.post(reverse("hub_equipment_add"), _post(unlocking_orientations=["424242"]))
             assert response.status_code == 200
-            assert list(response.context["form"].errors) == ["required_orientation"]
+            assert list(response.context["form"].errors) == ["unlocking_orientations"]
             assert response.context["form"].creates_orientation_type is False
             assert not Equipment.objects.exists()
             assert not OrientationType.objects.exists()
@@ -1765,7 +1761,7 @@ def describe_equipment_own_orientation():
             assert response["Location"].endswith("?tab=details")
             equipment.refresh_from_db()
             new_type = equipment.owned_orientation_types.get()
-            assert equipment.required_orientation == new_type
+            assert list(equipment.unlocking_orientations.all()) == [new_type]
             assert (new_type.name, new_type.guild, new_type.is_active) == ("Lathe Basics", None, True)
             assert Equipment.objects.count() == 1
             assert equipment.access_state(MemberFactory()) == Equipment.AccessState.NEEDS_ORIENTATION
@@ -1779,7 +1775,7 @@ def describe_equipment_own_orientation():
             assert _error_sits_beside_the_name_field(response.content.decode(), "This field is required.")
             equipment.refresh_from_db()
             assert equipment.name == "Solid Saw"
-            assert equipment.required_orientation is None
+            assert not equipment.unlocking_orientations.exists()
             assert not OrientationType.objects.exists()
 
         def it_refuses_a_name_this_equipment_already_uses_whatever_the_case(client: Client):
@@ -1797,7 +1793,7 @@ def describe_equipment_own_orientation():
             assert _error_sits_beside_the_name_field(response.content.decode(), "already has an orientation named")
             equipment.refresh_from_db()
             assert equipment.name == "Solid Saw"
-            assert equipment.required_orientation is None
+            assert not equipment.unlocking_orientations.exists()
             assert OrientationType.objects.count() == 1
 
         def it_only_checks_the_name_against_this_equipments_own_types(client: Client):
@@ -1808,8 +1804,7 @@ def describe_equipment_own_orientation():
             response = client.post(_save_url(equipment), _post(equipment_name="Solid Saw"))
             assert response.status_code == 302
             equipment.refresh_from_db()
-            assert equipment.required_orientation is not None
-            assert equipment.required_orientation.equipment == equipment
+            assert equipment.unlocking_orientations.get().equipment == equipment
             assert OrientationType.objects.count() == 3
 
         def it_keeps_a_guild_type_and_no_orientation_working_as_before(client: Client):
@@ -1819,17 +1814,15 @@ def describe_equipment_own_orientation():
             equipment = EquipmentFactory(name="Solid Saw", guild=guild)
             response = client.post(
                 _save_url(equipment),
-                _post(equipment_name="Solid Saw", guild=str(guild.pk), required_orientation=str(guild_type.pk)),
+                _post(equipment_name="Solid Saw", guild=str(guild.pk), unlocking_orientations=[str(guild_type.pk)]),
             )
             assert response.status_code == 302
-            equipment.refresh_from_db()
-            assert equipment.required_orientation == guild_type
+            assert list(equipment.unlocking_orientations.all()) == [guild_type]
             response = client.post(
-                _save_url(equipment), _post(equipment_name="Solid Saw", guild=str(guild.pk), required_orientation="")
+                _save_url(equipment), _post(equipment_name="Solid Saw", guild=str(guild.pk), unlocking_orientations=[])
             )
             assert response.status_code == 302
-            equipment.refresh_from_db()
-            assert equipment.required_orientation is None
+            assert not equipment.unlocking_orientations.exists()
             assert OrientationType.objects.count() == 1
 
         def it_still_allows_the_equipments_own_type_on_guild_run_equipment(client: Client):
@@ -1839,11 +1832,10 @@ def describe_equipment_own_orientation():
             own_type = OrientationTypeFactory(equipment_owned=True, equipment=equipment, name="Operator Basics")
             response = client.post(
                 _save_url(equipment),
-                _post(equipment_name="Solid Saw", guild=str(guild.pk), required_orientation=str(own_type.pk)),
+                _post(equipment_name="Solid Saw", guild=str(guild.pk), unlocking_orientations=[str(own_type.pk)]),
             )
             assert response.status_code == 302
-            equipment.refresh_from_db()
-            assert equipment.required_orientation == own_type
+            assert list(equipment.unlocking_orientations.all()) == [own_type]
             assert OrientationType.objects.count() == 1
 
     def describe_the_form_save():
@@ -1858,11 +1850,11 @@ def describe_equipment_own_orientation():
             assert not OrientationType.objects.exists()
 
         def it_saves_plainly_when_no_type_is_being_made():
-            form = EquipmentForm(_post(required_orientation=""))
+            form = EquipmentForm(_post(unlocking_orientations=[]))
             assert form.is_valid() is True
             equipment = form.save()
             assert equipment.pk is not None
-            assert equipment.required_orientation is None
+            assert not equipment.unlocking_orientations.exists()
             assert not OrientationType.objects.exists()
 
 
@@ -1901,3 +1893,155 @@ def describe_late_cancel_fee_on_the_orientation_prompt():
         _login(client, "lcf_prompt_off")
         _late_fees(False)
         assert "$37.50" not in _page(client, EquipmentFactory(late_cancel_fee_cents=3750))
+
+
+def describe_any_one_of_several_orientations():
+    """#656: one page for the press, unlocked by either of its two orientations."""
+
+    def _press() -> tuple[Equipment, OrientationType, OrientationType]:
+        guild = GuildFactory(name="Anyone Printmaking")
+        GuildOrientationSettingsFactory(guild=guild, is_enabled=True)
+        beginner = OrientationTypeFactory(guild=guild, name="Anyone Press Beginner")
+        experienced = OrientationTypeFactory(guild=guild, name="Anyone Press Experienced")
+        press = EquipmentFactory(name="Anyone Etching Press", unlocking_orientations=[beginner, experienced])
+        return press, beginner, experienced
+
+    def _complete(member: Member, orientation_type: OrientationType) -> None:
+        slot = OrientationSlotFactory(guild=orientation_type.guild, orientation_type=orientation_type)
+        OrientationBookingFactory(member=member, slot=slot, is_completed=True)
+
+    def describe_the_edit_form():
+        def it_saves_several_orientations_and_then_none(client: Client):
+            _login(client, "any_form_several", fog_role=Member.FogRole.ADMIN)
+            press, beginner, experienced = _press()
+            url = reverse("hub_equipment_details_save", args=[press.slug])
+            payload = {"name": press.name, "kind": "tool", "is_active": "on"}
+            response = client.post(url, {**payload, "unlocking_orientations": [beginner.pk, experienced.pk]})
+            assert response.status_code == 302
+            assert list(press.unlocking_orientations.all()) == [beginner, experienced]
+            assert client.post(url, payload).status_code == 302
+            assert not press.unlocking_orientations.exists()
+
+        def it_shows_every_saved_orientation_selected(client: Client):
+            _login(client, "any_form_selected", fog_role=Member.FogRole.ADMIN)
+            press, beginner, experienced = _press()
+            form = client.get(reverse("hub_equipment_manage", args=[press.slug])).context["form"]
+            assert form["unlocking_orientations"].value() == [str(beginner.pk), str(experienced.pk)]
+            content = str(form["unlocking_orientations"])
+            assert f'value="{beginner.pk}" selected' in content
+            assert f'value="{experienced.pk}" selected' in content
+
+        def it_adds_a_new_own_orientation_beside_a_picked_one(client: Client):
+            _login(client, "any_form_new", fog_role=Member.FogRole.ADMIN)
+            press, beginner, _experienced = _press()
+            response = client.post(
+                reverse("hub_equipment_details_save", args=[press.slug]),
+                {
+                    "name": press.name,
+                    "kind": "tool",
+                    "is_active": "on",
+                    "unlocking_orientations": [EquipmentForm.NEW_TYPE_CHOICE, beginner.pk],
+                    "new_type-name": "Anyone Own Basics",
+                    "new_type-duration_minutes": "60",
+                    "new_type-default_seats": "2",
+                    "new_type-price": "",
+                    "new_type-default_location": "",
+                },
+            )
+            assert response.status_code == 302
+            own = press.owned_orientation_types.get()
+            assert set(press.unlocking_orientations.all()) == {beginner, own}
+
+    def describe_a_member_who_completed_one():
+        def it_reads_all_set_on_the_page_and_the_card(client: Client):
+            user = _login(client, "any_done_one")
+            press, _beginner, experienced = _press()
+            _complete(user.member, experienced)
+            detail = client.get(reverse("hub_equipment_detail", args=[press.slug])).content.decode()
+            assert "pl-equip-banner--ok" in detail
+            assert "You're all set." in detail
+            index = client.get(reverse("hub_equipment_index"))
+            assert [card["access_state"] for card in index.context["cards"]] == [Equipment.AccessState.OK]
+            assert "pl-equip-card--locked" not in index.content.decode()
+
+        def it_can_reserve(client: Client):
+            user = _login(client, "any_done_reserve")
+            press, beginner, _experienced = _press()
+            _complete(user.member, beginner)
+            assert press.booking_blockers(user.member) == []
+
+    def describe_a_member_with_none():
+        def it_lists_every_orientation_with_its_own_book_link(client: Client):
+            _login(client, "any_none_detail")
+            press, beginner, experienced = _press()
+            content = client.get(reverse("hub_equipment_detail", args=[press.slug])).content.decode()
+            assert "Any one of these orientations unlocks this." in content
+            assert "data-equip-unlocks" in content
+            for orientation_type in (beginner, experienced):
+                row = content[content.index(f'data-unlock-type="{orientation_type.pk}"') :].split("</li>", 1)[0]
+                assert orientation_type.name in row
+                assert f'href="{orientation_type.orientation_anchor_path().replace("&", "&amp;")}"' in row
+                assert ">Book</a>" in row
+            assert "You're all set." not in content
+
+        def it_shows_a_paused_orientation_without_a_book_link(client: Client):
+            _login(client, "any_none_paused")
+            press, _beginner, experienced = _press()
+            experienced.is_active = False
+            experienced.save()
+            content = client.get(reverse("hub_equipment_detail", args=[press.slug])).content.decode()
+            row = content[content.index(f'data-unlock-type="{experienced.pk}"') :].split("</li>", 1)[0]
+            assert "Bookings are paused. Check back soon." in row
+            assert ">Book</a>" not in row
+
+        def it_shows_a_requested_orientation_in_place_of_its_book_link(client: Client):
+            user = _login(client, "any_none_requested")
+            press, beginner, _experienced = _press()
+            slot = OrientationSlotFactory(guild=beginner.guild, orientation_type=beginner)
+            OrientationBookingFactory(member=user.member, slot=slot, status=OrientationBooking.Status.REQUESTED)
+            content = client.get(reverse("hub_equipment_detail", args=[press.slug])).content.decode()
+            row = content[content.index(f'data-unlock-type="{beginner.pk}"') :].split("</li>", 1)[0]
+            assert "Your request is in. The guild will confirm a time." in row
+            assert ">Book</a>" not in row
+
+        def it_shows_a_confirmed_orientation_with_its_time(client: Client):
+            user = _login(client, "any_none_confirmed")
+            press, beginner, _experienced = _press()
+            slot = OrientationSlotFactory(guild=beginner.guild, orientation_type=beginner)
+            OrientationBookingFactory(member=user.member, slot=slot, status=OrientationBooking.Status.CONFIRMED)
+            content = client.get(reverse("hub_equipment_detail", args=[press.slug])).content.decode()
+            row = content[content.index(f'data-unlock-type="{beginner.pk}"') :].split("</li>", 1)[0]
+            assert "Booked for" in row
+
+        def it_gives_the_locked_card_a_book_link_per_orientation(client: Client):
+            _login(client, "any_none_card")
+            press, beginner, experienced = _press()
+            content = client.get(reverse("hub_equipment_index")).content.decode()
+            assert "pl-equip-card--locked" in content
+            for orientation_type in (beginner, experienced):
+                link = orientation_type.orientations_page_path()
+                assert f'href="{link}" class="pl-equip-card__cta" data-unlock-type="{orientation_type.pk}"' in content
+                assert f"Book {orientation_type.name}</a>" in content
+            assert "Book the orientation</a>" not in content
+
+        def it_keeps_the_grid_query_count_however_many_orientations_unlock_a_card(client: Client):
+            from django.db import connection
+            from django.test.utils import CaptureQueriesContext
+
+            _login(client, "any_none_queries")
+            url = reverse("hub_equipment_index")
+
+            def count_queries() -> int:
+                client.get(url)
+                with CaptureQueriesContext(connection) as ctx:
+                    assert client.get(url).status_code == 200
+                return len(ctx.captured_queries)
+
+            EquipmentFactory(name="Any Lathe", unlocking_orientations=[OrientationTypeFactory(name="Any Lathe 1")])
+            with_one = count_queries()
+            EquipmentFactory(
+                name="Any Mill",
+                unlocking_orientations=[OrientationTypeFactory(name=f"Any Mill {n}") for n in range(3)],
+            )
+            _press()
+            assert count_queries() == with_one
