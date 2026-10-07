@@ -1978,7 +1978,7 @@ def describe_any_one_of_several_orientations():
             assert "Any one of these orientations unlocks this." in content
             assert "data-equip-unlocks" in content
             for orientation_type in (beginner, experienced):
-                row = content[content.index(f'data-unlock-type="{orientation_type.pk}"') :].split("</li>", 1)[0]
+                row = content[content.index(f'data-unlock-type="{orientation_type.pk}"') :].split("</p>", 1)[0]
                 assert orientation_type.name in row
                 assert f'href="{orientation_type.orientation_anchor_path().replace("&", "&amp;")}"' in row
                 assert ">Book</a>" in row
@@ -1990,7 +1990,7 @@ def describe_any_one_of_several_orientations():
             experienced.is_active = False
             experienced.save()
             content = client.get(reverse("hub_equipment_detail", args=[press.slug])).content.decode()
-            row = content[content.index(f'data-unlock-type="{experienced.pk}"') :].split("</li>", 1)[0]
+            row = content[content.index(f'data-unlock-type="{experienced.pk}"') :].split("</p>", 1)[0]
             assert "Bookings are paused. Check back soon." in row
             assert ">Book</a>" not in row
 
@@ -2000,7 +2000,7 @@ def describe_any_one_of_several_orientations():
             slot = OrientationSlotFactory(guild=beginner.guild, orientation_type=beginner)
             OrientationBookingFactory(member=user.member, slot=slot, status=OrientationBooking.Status.REQUESTED)
             content = client.get(reverse("hub_equipment_detail", args=[press.slug])).content.decode()
-            row = content[content.index(f'data-unlock-type="{beginner.pk}"') :].split("</li>", 1)[0]
+            row = content[content.index(f'data-unlock-type="{beginner.pk}"') :].split("</p>", 1)[0]
             assert "Your request is in. The guild will confirm a time." in row
             assert ">Book</a>" not in row
 
@@ -2010,7 +2010,7 @@ def describe_any_one_of_several_orientations():
             slot = OrientationSlotFactory(guild=beginner.guild, orientation_type=beginner)
             OrientationBookingFactory(member=user.member, slot=slot, status=OrientationBooking.Status.CONFIRMED)
             content = client.get(reverse("hub_equipment_detail", args=[press.slug])).content.decode()
-            row = content[content.index(f'data-unlock-type="{beginner.pk}"') :].split("</li>", 1)[0]
+            row = content[content.index(f'data-unlock-type="{beginner.pk}"') :].split("</p>", 1)[0]
             assert "Booked for" in row
 
         def it_gives_the_locked_card_a_book_link_per_orientation(client: Client):

@@ -75,9 +75,9 @@
   {% else %}
   {# Several unlock it (#656): each keeps the one orientation rules, so a paused type never shows a Book link. #}
   <p>Any one of these orientations unlocks this. Trained on this before the Member Portal went live? Message us in #member-portal-general on Discord and say you need access to the {{ equipment.name }}.</p>
-  <ul data-equip-unlocks>
+  <div data-equip-unlocks>
     {% for unlock in orientation_unlocks %}
-    <li data-unlock-type="{{ unlock.orientation_type.pk }}">
+    <p data-unlock-type="{{ unlock.orientation_type.pk }}">
       <strong>{{ unlock.orientation_type.name }}</strong>
       {% if unlock.booking and unlock.booking.status == "confirmed" %}
       <a href="{{ unlock.url }}">Booked for {{ unlock.booking.slot.starts_at|date:"D, M j" }} at {{ unlock.booking.slot.starts_at|time:"g:i A" }}.</a>
@@ -88,9 +88,9 @@
       {% else %}
       <a href="{{ unlock.url }}" class="pl-btn pl-btn--primary pl-btn--sm">Book</a>
       {% endif %}
-    </li>
+    </p>
     {% endfor %}
-  </ul>
+  </div>
   {% endif %}
 </div>
 {% else %}
