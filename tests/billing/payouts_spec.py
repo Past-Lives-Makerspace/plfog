@@ -297,23 +297,49 @@ def describe_handle_account_updated():
     def _event(account: dict[str, Any], *, livemode: bool = False) -> dict[str, Any]:
         return {"type": "account.updated", "livemode": livemode, "account": account["id"], "data": {"object": account}}
 
-    def it_writes_the_status_stripe_reports():
+    def it_writes_the_status_stripe_reports_now():
         _payouts(test_mode=True)
         account = PayoutAccount.objects.create(member=MemberFactory(), stripe_account_id="acct_1", livemode=False)
-        handle_account_updated(_event(_stripe_account(**_ACTIVE)))
+        with patch("billing.stripe_utils.retrieve_account", return_value=_stripe_account(**_ACTIVE)) as retrieve:
+            handle_account_updated(_event(_stripe_account(**_ACTIVE)))
+        retrieve.assert_called_once_with(account_id="acct_1")
         account.refresh_from_db()
         assert account.status == PayoutAccount.Status.ACTIVE
+
+    def it_keeps_payouts_on_when_an_older_needs_info_event_arrives_late():
+        _payouts(test_mode=True)
+        account = PayoutAccount.objects.create(
+            member=MemberFactory(), stripe_account_id="acct_1", livemode=False, status=PayoutAccount.Status.ACTIVE
+        )
+        stale = _event(_stripe_account())  # the needs_info payload Stripe retried after the account went active
+        with patch("billing.stripe_utils.retrieve_account", return_value=_stripe_account(**_ACTIVE)):
+            handle_account_updated(stale)
+        account.refresh_from_db()
+        assert account.status == PayoutAccount.Status.ACTIVE
+
+    def it_lets_a_stripe_error_fail_the_delivery_so_stripe_retries():
+        _payouts(test_mode=True)
+        PayoutAccount.objects.create(member=MemberFactory(), stripe_account_id="acct_1", livemode=False)
+        with (
+            patch("billing.stripe_utils.retrieve_account", side_effect=stripe.APIError("down")),
+            pytest.raises(stripe.APIError),
+        ):
+            handle_account_updated(_event(_stripe_account(**_ACTIVE)))
 
     def it_ignores_an_event_from_the_other_mode():
         _payouts(test_mode=True)
         account = PayoutAccount.objects.create(member=MemberFactory(), stripe_account_id="acct_1", livemode=False)
-        handle_account_updated(_event(_stripe_account(**_ACTIVE), livemode=True))
+        with patch("billing.stripe_utils.retrieve_account") as retrieve:
+            handle_account_updated(_event(_stripe_account(**_ACTIVE), livemode=True))
+        retrieve.assert_not_called()
         account.refresh_from_db()
         assert account.status == PayoutAccount.Status.NEEDS_INFO
 
     def it_ignores_an_account_plfog_never_made():
         _payouts(test_mode=True)
-        handle_account_updated(_event(_stripe_account(id="acct_unknown", **_ACTIVE)))
+        with patch("billing.stripe_utils.retrieve_account") as retrieve:
+            handle_account_updated(_event(_stripe_account(id="acct_unknown", **_ACTIVE)))
+        retrieve.assert_not_called()
         assert not PayoutAccount.objects.exists()
 
     def it_is_wired_to_the_stripe_webhook():

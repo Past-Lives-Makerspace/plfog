@@ -304,11 +304,14 @@ def handle_late_fee_checkout_expired(event: dict[str, Any]) -> None:
 
 
 def handle_account_updated(event: dict[str, Any]) -> None:
-    """``account.updated`` (#662): write the new status onto the matching payout account.
+    """``account.updated`` (#662): re-read the matching payout account from Stripe and apply it.
 
-    Arrives from the Connected accounts endpoint. An account plfog never made is ignored, and
-    so is an event from the Stripe mode Testing Mode does not select, because a production
-    Connect endpoint receives both modes' events.
+    The payload is only the trigger. Stripe delivers events out of order and retries a failed
+    delivery hours later, so a stale event applied as is could flip a connected payee back to
+    Needs info; the account read back now is always current. A Stripe error propagates, the
+    webhook answers 500 and Stripe retries. Arrives from the Connected accounts endpoint. An
+    account plfog never made is ignored, and so is an event from the Stripe mode Testing Mode
+    does not select, because a production Connect endpoint receives both modes' events.
     """
     if event["livemode"] == BillingSettings.load().test_mode:
         return
@@ -317,4 +320,4 @@ def handle_account_updated(event: dict[str, Any]) -> None:
     if payout_account is None:
         logger.info("account.updated: %s is not a payout account plfog made; ignoring.", account["id"])
         return
-    payout_account.apply_stripe_account(account)
+    payout_account.refresh_from_stripe()
