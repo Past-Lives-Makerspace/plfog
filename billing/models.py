@@ -2004,6 +2004,16 @@ PAYOUT_RETRY_AFTER = timedelta(hours=24)
 PAYOUT_SEND_WINDOW = timedelta(days=3)
 """A share still unsent this long after it fell due (payouts off, Stripe unreachable) is owed by hand instead."""
 
+PAYOUT_LOOKUP_UNREACHABLE = "Stripe could not be reached to check whether this share was already sent."
+"""The failure reason (and the one alert) for a stale share whose transfer lookup keeps failing to connect."""
+
+
+def _stripe_unanswered() -> tuple[type[Exception], ...]:
+    """Stripe errors that are no answer at all (connection, timeout, 5xx, rate limit), as opposed to a refusal."""
+    import stripe
+
+    return (stripe.APIConnectionError, stripe.APIError, stripe.RateLimitError)
+
 
 class PayoutQuerySet(models.QuerySet["Payout"]):
     """Query helpers for the payout ledger."""
@@ -2022,11 +2032,20 @@ class PayoutQuerySet(models.QuerySet["Payout"]):
         """PENDING rows more than ``PAYOUT_SEND_WINDOW`` past due, for any reason: they are given up."""
         return self.filter(status=Payout.Status.PENDING, due_at__lt=now - PAYOUT_SEND_WINDOW)
 
+    def in_current_mode(self) -> PayoutQuerySet:
+        """Rows never attempted, or attempted in the Stripe mode Testing Mode selects now.
+
+        A live transfer is invisible to the test key and the reverse, so a row attempted in
+        the other mode is neither looked up, sent nor given up until that mode is back.
+        """
+        return self.filter(Q(livemode__isnull=True) | Q(livemode=not BillingSettings.load().test_mode))
+
     def needs_attention(self) -> PayoutQuerySet:
         """What the Reconciliation tab flags: transfers Stripe rejected, still retrying or given up."""
         return self.filter(
             Q(status=Payout.Status.FAILED)
             | Q(status=Payout.Status.OWED_MANUALLY, owed_reason=Payout.OwedReason.TRANSFER_FAILED)
+            | Q(status=Payout.Status.PENDING, failure_reason=PAYOUT_LOOKUP_UNREACHABLE)
         )
 
 
@@ -2104,6 +2123,14 @@ class Payout(models.Model):
     )
     attempted_at = models.DateTimeField(null=True, blank=True, help_text="When the last transfer was tried.")
     sent_at = models.DateTimeField(null=True, blank=True, help_text="When Stripe accepted the transfer.")
+    livemode = models.BooleanField(
+        null=True,
+        blank=True,
+        help_text=(
+            "The Stripe mode of the last transfer attempt (True live, False test, empty never attempted). "
+            "Only the mode Testing Mode selects can look up, send or give up the row."
+        ),
+    )
     counted_as_stripe_in = models.ForeignKey(
         "billing.ReconciliationSnapshot",
         null=True,
@@ -2163,6 +2190,8 @@ class Payout(models.Model):
 
         replay = self.attempt_was_unanswered  # read before this attempt stamps attempted_at
         self.attempted_at = timezone.now()
+        self.livemode = not BillingSettings.load().test_mode
+        self.save(update_fields=["livemode"])
         account = PayoutAccount.for_member(self.payee)
         if account is None:
             self._fail("The payee has no payout account in the current Stripe mode.")
@@ -2173,8 +2202,12 @@ class Payout(models.Model):
             # cannot be asked, decide nothing: the row stays PENDING on the same attempt.
             try:
                 existing = self.existing_transfer_id()
-            except stripe.StripeError:
+            except _stripe_unanswered():
                 self.save(update_fields=["attempted_at"])
+                return
+            except stripe.StripeError as exc:
+                # A refusal (a rotated key, a revoked permission) will not fix itself: owe it by hand.
+                self.give_up(f"Stripe refused the check for an earlier transfer: {exc}", lookup=False)
                 return
             if existing:
                 self.mark_sent(existing)
@@ -2188,7 +2221,7 @@ class Payout(models.Model):
                 idempotency_key=f"payout-{self.pk}-a{self.attempt}",
                 metadata={"payout_pk": str(self.pk)},
             )
-        except (stripe.APIConnectionError, stripe.APIError, stripe.RateLimitError) as exc:
+        except _stripe_unanswered() as exc:
             # No definite answer: the transfer may have landed. Stay PENDING on the same attempt so
             # the next run replays the same idempotency key and Stripe returns that transfer.
             self.status = self.Status.PENDING
@@ -2242,6 +2275,20 @@ class Payout(models.Model):
         self.save(update_fields=["status", "failure_reason", "attempted_at"])
         notify_admins_payout_failed(self)
 
+    def alert_unsendable(self) -> None:
+        """A stale share whose lookup cannot reach Stripe: flag it and alert the admins, once.
+
+        It stays PENDING (a transfer may have landed, so it cannot be owed by hand yet) and
+        shows on the Reconciliation tab until a lookup gets an answer.
+        """
+        from billing.notifications import notify_admins_payout_failed
+
+        if self.failure_reason == PAYOUT_LOOKUP_UNREACHABLE:
+            return
+        self.failure_reason = PAYOUT_LOOKUP_UNREACHABLE
+        self.save(update_fields=["failure_reason"])
+        notify_admins_payout_failed(self)
+
     def retry(self) -> None:
         """Try a rejected transfer again under a fresh attempt number (a new idempotency key)."""
         self.attempt += 1
@@ -2256,14 +2303,28 @@ class Payout(models.Model):
         keeps ``reason`` as what went wrong, and the billing admins are alerted once (the alert
         and the Reconciliation row name the snapshot that counted it as Stripe, if one did).
 
+        A lookup Stripe refuses outright (a rotated key) counts as no transfer found, and its
+        error joins the reason; only an unanswered lookup stops the give up.
+
         Raises:
-            stripe.StripeError: the lookup could not reach Stripe; nothing changed.
+            stripe.APIConnectionError, stripe.APIError, stripe.RateLimitError: the lookup got no
+                answer; nothing changed.
         """
+        import stripe
+
         from billing.notifications import notify_admins_payout_failed
 
-        if lookup and self.attempted_at is not None and (existing := self.existing_transfer_id()):
-            self.mark_sent(existing)
-            return False
+        if lookup and self.attempted_at is not None:
+            try:
+                existing = self.existing_transfer_id()
+            except _stripe_unanswered():
+                raise
+            except stripe.StripeError as exc:
+                existing = None
+                reason = f"{reason} Stripe refused the check for an earlier transfer: {exc}".strip()
+            if existing:
+                self.mark_sent(existing)
+                return False
         self.status = self.Status.OWED_MANUALLY
         self.owed_reason = self.OwedReason.TRANSFER_FAILED
         if reason:

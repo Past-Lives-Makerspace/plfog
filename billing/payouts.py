@@ -28,13 +28,15 @@ from django.db.models import Min, QuerySet
 from django.db.models.functions import Greatest
 from django.utils import timezone
 
-from billing.models import BillingSettings, Payout, PayoutAccount, ReconciliationSnapshot
+from billing.models import PAYOUT_LOOKUP_UNREACHABLE, BillingSettings, Payout, PayoutAccount, ReconciliationSnapshot
 
 if TYPE_CHECKING:
     from django.http import HttpRequest
 
     from billing.reconciliation import TransactionLine
     from membership.models import Member
+
+_UNANSWERED = (stripe.APIConnectionError, stripe.APIError, stripe.RateLimitError)
 
 PAYOUT_DELAY = timedelta(hours=48)
 """A share falls due this long after its class's first session or slot starts, or after payment if later."""
@@ -258,7 +260,7 @@ def run_payouts(now: datetime | None = None) -> PayoutRun:
     """
     now = now or timezone.now()
     run = PayoutRun()
-    for pk in list(Payout.objects.stale(now).values_list("pk", flat=True)):
+    for pk in list(Payout.objects.stale(now).in_current_mode().values_list("pk", flat=True)):
         _give_up_stale(pk, now, run)
     since = _payouts_since()
     if since is None:
@@ -279,7 +281,7 @@ def run_payouts(now: datetime | None = None) -> PayoutRun:
         if _record(earning, accounts.get(earning.payee.pk), since):
             run.created += 1
     snapshots = list(ReconciliationSnapshot.objects.values_list("period_start", "period_end"))
-    for pk in list(Payout.objects.to_send(now).values_list("pk", flat=True)):
+    for pk in list(Payout.objects.to_send(now).in_current_mode().values_list("pk", flat=True)):
         _send_one(pk, now, snapshots, run)
     return run
 
@@ -326,6 +328,7 @@ def _send_one(pk: int, now: datetime, snapshots: list[tuple[Any, Any]], run: Pay
     with transaction.atomic():
         payout = (
             Payout.objects.to_send(now)
+            .in_current_mode()
             .select_for_update(skip_locked=True, of=("self",))
             .select_related("registration__class_offering", "orientation_booking__orientation_type", "payee")
             .filter(pk=pk)
@@ -336,7 +339,7 @@ def _send_one(pk: int, now: datetime, snapshots: list[tuple[Any, Any]], run: Pay
         if payout.status == Payout.Status.FAILED:
             paid_on = timezone.localtime(payout.paid_on).date()
             if any(start <= paid_on <= end for start, end in snapshots):
-                with contextlib.suppress(stripe.StripeError):  # unreachable: try again next run
+                with contextlib.suppress(*_UNANSWERED):  # no answer from Stripe: try again next run
                     if payout.give_up():
                         run.gave_up += 1
                 return
@@ -356,16 +359,25 @@ def _send_one(pk: int, now: datetime, snapshots: list[tuple[Any, Any]], run: Pay
 def _give_up_stale(pk: int, now: datetime, run: PayoutRun) -> None:
     """Owe by hand a share still PENDING ``PAYOUT_SEND_WINDOW`` after it fell due, under its row lock."""
     with transaction.atomic():
-        payout = Payout.objects.stale(now).select_for_update(skip_locked=True, of=("self",)).filter(pk=pk).first()
+        payout = (
+            Payout.objects.stale(now)
+            .in_current_mode()
+            .select_for_update(skip_locked=True, of=("self",))
+            .filter(pk=pk)
+            .first()
+        )
         if payout is None:
             return
-        if payout.failure_reason:
+        if payout.failure_reason and payout.failure_reason != PAYOUT_LOOKUP_UNREACHABLE:
             reason = f"Not sent within 3 days of falling due. Stripe's last answer: {payout.failure_reason}"
         else:
             reason = "Not sent within 3 days of falling due: payouts were off."
-        with contextlib.suppress(stripe.StripeError):  # Stripe unreachable for the lookup: try again next run
+        try:
             if payout.give_up(reason):
                 run.gave_up += 1
+        except _UNANSWERED:
+            # The lookup got no answer, so it cannot be owed by hand yet; flag it and alert once.
+            payout.alert_unsendable()
 
 
 def _refresh_amount(payout: Payout) -> bool:

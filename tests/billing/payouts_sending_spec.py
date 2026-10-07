@@ -851,3 +851,101 @@ def describe_no_share_sits_or_doubles():
         assert fake.transfers == []
         emit.assert_not_called()
         assert Payout.objects.get().stripe_transfer_id == "tr_found"
+
+
+def describe_lookup_errors_and_stripe_modes():
+    def _unanswered_row() -> Payout:
+        _turn_on()
+        _registration(_payee(), class_at=NOW - timedelta(hours=48))
+        with _Stripe(error=stripe.APIConnectionError):
+            payouts.run_payouts(NOW)
+        return Payout.objects.get()
+
+    def it_gives_up_and_alerts_when_stripe_refuses_the_lookup_on_a_replay():
+        payout = _unanswered_row()
+        with (
+            _Stripe() as fake,
+            patch(
+                "billing.stripe_utils.find_payout_transfer", side_effect=stripe.AuthenticationError("Invalid API key")
+            ),
+            patch("core.events.emit.emit") as emit,
+        ):
+            payouts.run_payouts(NOW + timedelta(days=1))
+        payout.refresh_from_db()
+        assert fake.transfers == []
+        assert (payout.status, payout.owed_reason) == (Payout.Status.OWED_MANUALLY, Payout.OwedReason.TRANSFER_FAILED)
+        assert "Invalid API key" in payout.failure_reason
+        emit.assert_called_once()
+
+    def it_gives_up_and_alerts_when_stripe_refuses_the_lookup_on_a_stale_share():
+        payout = _unanswered_row()
+        with (
+            _Stripe() as fake,
+            patch(
+                "billing.stripe_utils.find_payout_transfer", side_effect=stripe.AuthenticationError("Invalid API key")
+            ),
+            patch("core.events.emit.emit") as emit,
+        ):
+            payouts.run_payouts(NOW + timedelta(days=4))
+        payout.refresh_from_db()
+        assert fake.transfers == []
+        assert payout.status == Payout.Status.OWED_MANUALLY
+        assert payout.failure_reason.startswith("Not sent within 3 days")
+        assert "Invalid API key" in payout.failure_reason
+        emit.assert_called_once()
+
+    def it_alerts_once_and_flags_a_stale_share_whose_lookup_cannot_reach_stripe(client):
+        from django.contrib.auth.models import User
+        from django.urls import reverse
+
+        payout = _unanswered_row()
+        with (
+            _Stripe() as fake,
+            patch("billing.stripe_utils.find_payout_transfer", side_effect=stripe.APIConnectionError("down")),
+            patch("core.events.emit.emit") as emit,
+        ):
+            payouts.run_payouts(NOW + timedelta(days=4))
+            payouts.run_payouts(NOW + timedelta(days=5))
+        payout.refresh_from_db()
+        assert fake.transfers == []
+        assert payout.status == Payout.Status.PENDING
+        emit.assert_called_once()
+        assert list(Payout.objects.needs_attention()) == [payout]
+        user = User.objects.create_user(username="adm", email="adm@example.com", password="pw12345!")
+        admin = Member.objects.get(user=user)
+        admin.fog_role = Member.FogRole.ADMIN
+        admin.save()
+        client.force_login(user)
+        html = client.get(reverse("billing_admin_dashboard") + "?tab=reconciliation").content.decode()
+        assert "data-payout-unconfirmed" in html
+
+    def it_leaves_a_live_attempt_alone_while_testing_mode_is_on_then_picks_it_up_in_live():
+        _turn_on()
+        BillingSettings.objects.filter(pk=1).update(test_mode=False)
+        instructor = MemberFactory()
+        PayoutAccount.objects.create(
+            member=instructor,
+            stripe_account_id="acct_live",
+            livemode=True,
+            status=PayoutAccount.Status.ACTIVE,
+            active_since=CONNECTED,
+        )
+        _registration(instructor, class_at=NOW - timedelta(hours=48))
+        with _Stripe(error=stripe.APIConnectionError):
+            payouts.run_payouts(NOW)
+        payout = Payout.objects.get()
+        assert payout.livemode is True
+        BillingSettings.objects.filter(pk=1).update(test_mode=True)
+        with _Stripe() as fake, patch("core.events.emit.emit") as emit:
+            payouts.run_payouts(NOW + timedelta(days=1))
+            payouts.run_payouts(NOW + timedelta(days=10))
+        payout.refresh_from_db()
+        assert (fake.transfers, fake.lookups) == ([], [])
+        emit.assert_not_called()
+        assert (payout.status, payout.failure_reason) == (Payout.Status.PENDING, "Request timed out.")
+        BillingSettings.objects.filter(pk=1).update(test_mode=False)
+        with _Stripe(existing="tr_live") as fake:
+            payouts.run_payouts(NOW + timedelta(days=10))
+        payout.refresh_from_db()
+        assert fake.lookups == [payout.pk]
+        assert (payout.status, payout.stripe_transfer_id) == (Payout.Status.SENT, "tr_live")
