@@ -1,0 +1,331 @@
+<!DOCTYPE html>
+<html lang="en" class="dark">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<title>#662 mockup · Payouts</title>
+<!--
+  #662 Instructor and orientor payouts mockup (static; not served by Django).
+  Links the real stylesheets and uses the real class names so the build can lift the markup.
+  Views: ?view=start (default) · pending · active · empty · nudge · refund · admin    Theme: ?theme=light
+  CSS: the first <style> block is NEW product CSS for hub.css; the second is mockup-only.
+-->
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;700&family=Lato:wght@400;700;900&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="../static/css/hub.css">
+<link rel="stylesheet" href="../static/css/components.css">
+<style>
+/* ==========================================================================
+   NEW PRODUCT CSS for static/css/hub.css (Payouts tab, Settings). Tokens only.
+   ========================================================================== */
+
+/* The status card at the top of the Payouts tab: title + badge on one line, a lead, actions. */
+.pl-payouts__head { display: flex; align-items: center; gap: 0.75rem; flex-wrap: wrap; margin-bottom: 0.5rem; }
+.pl-payouts__head h2 { margin: 0; }
+.pl-payouts__lead { margin: 0 0 1rem; max-width: 62ch; color: var(--hub-text-muted); }
+.pl-payouts__actions { display: flex; gap: 0.75rem; flex-wrap: wrap; align-items: center; }
+.pl-payouts__aside { font-size: 0.85rem; color: var(--hub-text-muted); }
+
+/* Three numbered steps on the not-set-up card. */
+.pl-payouts-steps { list-style: none; counter-reset: step; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 0.75rem; margin: 0 0 1.25rem; padding: 0; }
+.pl-payouts-steps li { counter-increment: step; padding: 0.875rem 1rem; border: 1px solid var(--hub-border); border-radius: 10px; background: var(--hub-surface); font-size: 0.9rem; }
+.pl-payouts-steps li::before { content: counter(step); display: inline-flex; align-items: center; justify-content: center; width: 1.5rem; height: 1.5rem; margin-bottom: 0.4rem; border-radius: 999px; background: var(--color-tuscan-yellow); color: #1a1a1a; font-weight: 700; font-size: 0.8rem; }
+.pl-payouts-steps strong { display: block; color: var(--hub-text); }
+.pl-payouts-steps span { color: var(--hub-text-muted); }
+@media (max-width: 640px) { .pl-payouts-steps { grid-template-columns: 1fr; } }
+
+/* The privacy line under the steps. */
+.pl-payouts__privacy { display: flex; gap: 0.5rem; align-items: flex-start; margin: 0 0 1.25rem; font-size: 0.85rem; color: var(--hub-text-muted); max-width: 62ch; }
+.pl-payouts__privacy svg { flex: 0 0 auto; margin-top: 0.1rem; }
+
+/* Totals strip over the earnings table. */
+.pl-payouts-totals { display: flex; gap: 2rem; flex-wrap: wrap; margin: 0 0 1rem; }
+.pl-payouts-totals div { display: flex; flex-direction: column; }
+.pl-payouts-totals strong { font-size: 1.25rem; color: var(--hub-text); }
+.pl-payouts-totals span { font-size: 0.8rem; color: var(--hub-text-muted); }
+
+/* Amount column right aligned, tabular. */
+.pl-payouts-amt, .admin-table-wrap th.pl-payouts-amt { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.pl-payouts-sub { display: block; font-size: 0.8rem; color: var(--hub-text-muted); }
+
+/* Admin reconciliation: the needs-attention row tint. */
+.pl-recon-attn td { background: rgba(220, 60, 60, 0.06); }
+</style>
+<style>
+/* ---------- mockup-only ---------- */
+.mock-view { display: contents; }
+html[data-mock-view="start"] .mock-view:not([data-mock-view~="start"]),
+html[data-mock-view="pending"] .mock-view:not([data-mock-view~="pending"]),
+html[data-mock-view="active"] .mock-view:not([data-mock-view~="active"]),
+html[data-mock-view="empty"] .mock-view:not([data-mock-view~="empty"]),
+html[data-mock-view="nudge"] .mock-view:not([data-mock-view~="nudge"]),
+html[data-mock-view="refund"] .mock-view:not([data-mock-view~="refund"]),
+html[data-mock-view="admin"] .mock-view:not([data-mock-view~="admin"]) { display: none; }
+.mock-switcher { position: fixed; right: 1rem; bottom: 1rem; z-index: 900; display: flex; gap: 0.75rem; align-items: center; flex-wrap: wrap; max-width: calc(100vw - 2rem); padding: 0.5rem 0.75rem; border-radius: 8px; background: var(--hub-elevated); border: 1px solid var(--hub-border); font-size: 0.8rem; }
+.mock-switcher__title { font-weight: 700; color: var(--hub-text-muted); }
+.mock-switcher a { color: var(--hub-link); text-decoration: none; }
+html.mock-shot .mock-switcher, html.mock-shot .hub-feedback-fab { display: none; }
+html.mock-phone .hub-sidebar { display: none; }
+html.mock-phone .hub-main-wrapper { margin-left: 0 !important; }
+.mock-card { padding: 1.5rem; margin-bottom: 1.5rem; }
+.mock-collapsed { display: flex; justify-content: space-between; align-items: center; padding: 0.75rem 1.5rem; margin-bottom: 0.75rem; opacity: 0.6; }
+.mock-collapsed span:last-child { font-size: 0.75rem; color: var(--hub-text-muted); }
+.mock-modal-static { position: static; inset: auto; padding: 2rem 1rem; }
+.mock-modal-static .pl-modal { max-height: none; }
+.mock-page-title { margin-bottom: 0.25rem; }
+.mock-crumb { font-size: 0.85rem; margin: 0 0 1rem; }
+</style>
+<script>
+  (function () {
+    var p = new URLSearchParams(location.search);
+    document.documentElement.setAttribute('data-mock-view', p.get('view') || 'start');
+    if (p.get('theme') === 'light') document.documentElement.setAttribute('data-theme', 'light');
+    if (p.get('shot') === '1') document.documentElement.classList.add('mock-shot');
+    if (p.get('phone') === '1') document.documentElement.classList.add('mock-phone');
+  })();
+  function mockToggleTheme() {
+    var p = new URLSearchParams(location.search);
+    if (p.get('theme') === 'light') p.delete('theme'); else p.set('theme', 'light');
+    location.search = p.toString();
+  }
+</script>
+</head>
+<body>
+  <nav class="mock-switcher" aria-label="Mockup views">
+    <span class="mock-switcher__title">#662 mockup</span>
+    <a href="?view=start">Not set up</a>
+    <a href="?view=pending">Needs info</a>
+    <a href="?view=active">Payouts on</a>
+    <a href="?view=empty">On, no earnings</a>
+    <a href="?view=nudge">Classes nudge</a>
+    <a href="?view=refund">Refund choice</a>
+    <a href="?view=admin">Admin reconciliation</a>
+    <a href="#" onclick="mockToggleTheme(); return false;">Theme</a>
+  </nav>
+
+  <aside class="hub-sidebar">
+    <nav class="hub-sidebar__nav" aria-label="Hub navigation">
+      <a href="#" class="hub-sidebar__link">Home</a>
+      <hr class="hub-sidebar__divider" />
+      <a href="#" class="hub-sidebar__link">Class Catalog</a>
+      <a href="#" class="hub-sidebar__link">Calendar</a>
+      <a href="#" class="hub-sidebar__link">Member Directory</a>
+      <a href="#" class="hub-sidebar__link">Manage My Classes</a>
+      <a href="#" class="hub-sidebar__link">Orientations</a>
+      <hr class="hub-sidebar__divider" />
+      <a href="#" class="hub-sidebar__link">Settings</a>
+    </nav>
+  </aside>
+
+  <div class="hub-main-wrapper">
+    <header class="pl-topbar">
+      <button class="pl-topbar__toggle" aria-label="Toggle sidebar"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M9 3v18"/></svg></button>
+      <span class="pl-topbar__divider"></span>
+      <div class="pl-topbar__spacer"></div>
+      <button class="pl-topbar__theme-toggle" aria-label="Toggle theme" onclick="mockToggleTheme()"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="5"/><path d="M12 1v2"/><path d="M12 21v2"/><path d="M1 12h2"/><path d="M21 12h2"/></svg></button>
+      <div class="pl-profile"><button class="pl-profile__avatar" aria-label="User menu">RM</button></div>
+    </header>
+
+    <main id="main-content" class="hub-content" tabindex="-1">
+
+      <!-- ===== Settings shell, shared by the four Payouts tab states ===== -->
+      <div class="mock-view" data-mock-view="start pending active empty">
+        <h1 class="hub-page-title mock-page-title">Settings</h1>
+        <div class="pl-tabs">
+          <button type="button" class="vote-tab">Guilds</button>
+          <button type="button" class="vote-tab">Notifications</button>
+          <button type="button" class="vote-tab">Profile</button>
+          <button type="button" class="vote-tab">Account</button>
+          <button type="button" class="vote-tab vote-tab--active">Payouts</button>
+        </div>
+      </div>
+
+      <!-- ===== VIEW: start (not set up) ===== -->
+      <div class="mock-view" data-mock-view="start">
+        <div class="hub-card mock-card">
+          <div class="pl-payouts__head">
+            <h2 class="hub-detail-label">Get paid automatically</h2>
+            <span class="pl-status-badge pl-status-badge--muted">Not set up</span>
+          </div>
+          <p class="pl-payouts__lead">Connect your bank once and your share of every paid class or orientation you teach lands in your account a few days after you teach it. Until then you're paid by hand at the end of the month, as now.</p>
+          <ol class="pl-payouts-steps">
+            <li><strong>Connect with Stripe</strong><span>About five minutes: your name, bank account and the last 4 of your SSN.</span></li>
+            <li><strong>Teach</strong><span>48 hours after your class or orientation starts, we send your share.</span></li>
+            <li><strong>Get paid</strong><span>Stripe deposits it in your bank, usually within 2 business days.</span></li>
+          </ol>
+          <p class="pl-payouts__privacy">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
+            <span>You enter your details on Stripe's secure page, not ours. Past Lives never sees or stores your bank or tax information, and Stripe sends your 1099.</span>
+          </p>
+          <div class="pl-payouts__actions">
+            <a href="#" class="hub-btn hub-btn--primary">Set up payouts</a>
+            <span class="pl-payouts__aside">You'll leave the portal for Stripe and come back here.</span>
+          </div>
+        </div>
+
+        <div class="hub-card mock-card">
+          <h2 class="hub-detail-label">Your earnings</h2>
+          <div class="pl-payouts-totals">
+            <div><strong>$161.00</strong><span>Owed at month end</span></div>
+          </div>
+          <div class="admin-table-wrap">
+            <table>
+              <thead><tr><th>Class or orientation</th><th>Taught</th><th>Status</th><th class="pl-payouts-amt">Your share</th></tr></thead>
+              <tbody>
+                <tr><td>Intro to Wheel Throwing<span class="pl-payouts-sub">3 students</span></td><td>Sat Oct 3</td><td><span class="pl-status-badge pl-status-badge--muted">Paid at month end</span></td><td class="pl-payouts-amt">$126.00</td></tr>
+                <tr><td>Wood Shop Orientation<span class="pl-payouts-sub">Jordan P.</span></td><td>Tue Oct 6</td><td><span class="pl-status-badge pl-status-badge--muted">Paid at month end</span></td><td class="pl-payouts-amt">$35.00</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+
+      <!-- ===== VIEW: pending (Stripe needs more info) ===== -->
+      <div class="mock-view" data-mock-view="pending">
+        <div class="hub-card mock-card">
+          <div class="pl-payouts__head">
+            <h2 class="hub-detail-label">Payouts</h2>
+            <span class="pl-status-badge pl-status-badge--warn">Stripe needs more info</span>
+          </div>
+          <p class="pl-payouts__lead">You started setting up payouts but Stripe still needs a few details before it can send money to your bank. Your earnings are safe: anything you earn meanwhile is paid at month end.</p>
+          <div class="pl-payouts__actions">
+            <a href="#" class="hub-btn hub-btn--primary">Finish setup</a>
+            <span class="pl-payouts__aside">Picks up where you left off.</span>
+          </div>
+        </div>
+        <div class="hub-card mock-collapsed"><span class="hub-detail-label" style="margin:0;">Your earnings</span><span>same table as Not set up</span></div>
+      </div>
+
+      <!-- ===== VIEW: active (payouts on) ===== -->
+      <div class="mock-view" data-mock-view="active">
+        <div class="hub-card mock-card">
+          <div class="pl-payouts__head">
+            <h2 class="hub-detail-label">Payouts</h2>
+            <span class="pl-status-badge pl-status-badge--ok">Payouts on</span>
+          </div>
+          <p class="pl-payouts__lead">Your share is sent 48 hours after each class or orientation starts, and Stripe deposits it in your bank daily.</p>
+          <div class="pl-payouts__actions">
+            <a href="#" class="hub-btn hub-btn--ghost hub-btn--sm">Open Stripe ↗</a>
+            <span class="pl-payouts__aside">Change your bank, see deposits or download tax forms.</span>
+          </div>
+        </div>
+
+        <div class="hub-card mock-card">
+          <h2 class="hub-detail-label">Your earnings</h2>
+          <div class="pl-payouts-totals">
+            <div><strong>$84.00</strong><span>Upcoming</span></div>
+            <div><strong>$413.00</strong><span>Sent this month</span></div>
+            <div><strong>$42.00</strong><span>Owed at month end</span></div>
+          </div>
+          <div class="admin-table-wrap">
+            <table>
+              <thead><tr><th>Class or orientation</th><th>Taught</th><th>Status</th><th class="pl-payouts-amt">Your share</th></tr></thead>
+              <tbody>
+                <tr><td>Intro to Wheel Throwing<span class="pl-payouts-sub">2 students</span></td><td>Sat Oct 10</td><td><span class="pl-status-badge pl-status-badge--warn">Sends Mon Oct 12</span></td><td class="pl-payouts-amt">$84.00</td></tr>
+                <tr><td>Glaze Chemistry<span class="pl-payouts-sub">4 students</span></td><td>Sat Oct 3</td><td><span class="pl-status-badge pl-status-badge--ok">Sent Oct 5</span></td><td class="pl-payouts-amt">$252.00</td></tr>
+                <tr><td>Glaze Chemistry<span class="pl-payouts-sub">1 student, signed up late</span></td><td>Sat Oct 3</td><td><span class="pl-status-badge pl-status-badge--ok">Sent Oct 6</span></td><td class="pl-payouts-amt">$63.00</td></tr>
+                <tr><td>Wood Shop Orientation<span class="pl-payouts-sub">Jordan P.</span></td><td>Thu Oct 1</td><td><span class="pl-status-badge pl-status-badge--ok">Sent Oct 3</span></td><td class="pl-payouts-amt">$35.00</td></tr>
+                <tr><td>Intro to Wheel Throwing<span class="pl-payouts-sub">1 student, refunded</span></td><td>Sat Sep 26</td><td><span class="pl-status-badge pl-status-badge--fail">Taken back Oct 2</span></td><td class="pl-payouts-amt">−$42.00</td></tr>
+                <tr><td>Intro to Wheel Throwing<span class="pl-payouts-sub">1 student, paid outside Stripe</span></td><td>Sat Sep 26</td><td><span class="pl-status-badge pl-status-badge--muted">Paid at month end</span></td><td class="pl-payouts-amt">$42.00</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+
+      <!-- ===== VIEW: empty (on, nothing earned yet) ===== -->
+      <div class="mock-view" data-mock-view="empty">
+        <div class="hub-card mock-collapsed"><span class="hub-detail-label" style="margin:0;">Payouts</span><span>Payouts on, same as above</span></div>
+        <div class="hub-card mock-card">
+          <h2 class="hub-detail-label">Your earnings</h2>
+          <p class="pl-table-empty">No earnings yet. When someone pays for a class or orientation you teach, it shows here with the day it will be sent.</p>
+        </div>
+      </div>
+
+      <!-- ===== VIEW: nudge (Manage My Classes, Overview) ===== -->
+      <div class="mock-view" data-mock-view="nudge">
+        <div class="hub-card">
+          <div class="pl-class-header pl-class-header--center">
+            <div class="pl-class-header__main"><h1 style="margin:0;">Manage My Classes</h1></div>
+          </div>
+          <nav class="pl-tabs" aria-label="Class management sections">
+            <a href="#" class="vote-tab vote-tab--active">Overview</a>
+            <a href="#" class="vote-tab">My Classes</a>
+            <a href="#" class="vote-tab">Registrations</a>
+            <a href="#" class="vote-tab">Instructor Profile</a>
+          </nav>
+          <div class="hub-card pl-nudge" style="margin-top:1rem;">
+            <h2 class="hub-detail-label" style="margin-top:0;">Get paid a few days after you teach</h2>
+            <p class="pl-nudge__lead">Connect your bank through Stripe and your share of each class is sent 48 hours after it starts. You have $126.00 waiting for month end right now.</p>
+            <div class="pl-nudge__actions">
+              <a href="#" class="hub-btn hub-btn--primary hub-btn--sm">Set up payouts</a>
+              <a href="#" class="hub-btn hub-btn--ghost hub-btn--sm">How it works</a>
+            </div>
+          </div>
+          <div class="hub-card mock-collapsed"><span class="hub-detail-label" style="margin:0;">Overview</span><span>unchanged</span></div>
+          <p class="hub-text-muted" style="font-size:0.85rem;">The same card shows on an orientor's Orientations page, worded for orientations. It disappears once payouts are on; it has no close button, because the alternative is waiting a month.</p>
+        </div>
+      </div>
+
+      <!-- ===== VIEW: refund (admin refunds after the share was sent) ===== -->
+      <div class="mock-view" data-mock-view="refund">
+        <div class="pl-modal-backdrop mock-modal-static" role="dialog" aria-modal="true" aria-labelledby="refund-title">
+          <div class="pl-modal pl-modal--md">
+            <div class="pl-modal__header">
+              <h2 class="pl-modal__title" id="refund-title">Refund Sam Rivera</h2>
+              <button type="button" class="pl-modal__close" aria-label="Close">&times;</button>
+            </div>
+            <div class="pl-modal__body">
+              <p class="hub-text-muted" style="margin:0 0 0.75rem;">Intro to Wheel Throwing · Sat Oct 3 · paid $60.00</p>
+              <form class="hub-form">
+                <div class="pl-form-group">
+                  <label class="pl-form-label">Amount to refund</label>
+                  <input type="text" value="60.00">
+                </div>
+                <div class="pl-form-group">
+                  <span class="pl-form-label">Renee's share was already sent ($42.00 on Oct 5)</span>
+                  <div class="pl-radio-group" role="radiogroup">
+                    <label class="pl-radio-option"><input type="radio" name="share"><span class="pl-radio-option__label">Take $42.00 back from Renee<span class="pl-payouts-sub">Reversed from her Stripe account. If she's already been paid out, it comes off her next payment.</span></span></label>
+                    <label class="pl-radio-option"><input type="radio" name="share"><span class="pl-radio-option__label">Past Lives covers it<span class="pl-payouts-sub">Renee keeps her share.</span></span></label>
+                  </div>
+                  <p class="pl-field-hint">Pick one. A partial refund takes back the same part of her share.</p>
+                </div>
+                <div style="display:flex; gap:0.75rem; margin-top:1rem;">
+                  <button type="submit" class="hub-btn hub-btn--sm hub-btn--danger">Refund $60.00</button>
+                  <button type="button" class="hub-btn hub-btn--sm hub-btn--ghost">Cancel</button>
+                </div>
+              </form>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- ===== VIEW: admin (Payments, Reconciliation) ===== -->
+      <div class="mock-view" data-mock-view="admin">
+        <h1 class="hub-page-title mock-page-title">Payments</h1>
+        <div class="pl-tabs">
+          <button type="button" class="vote-tab">Transactions</button>
+          <button type="button" class="vote-tab vote-tab--active">Reconciliation</button>
+          <button type="button" class="vote-tab">Stripe</button>
+        </div>
+        <div class="hub-card mock-card">
+          <h2 class="hub-detail-label">Instructors · October 2026</h2>
+          <div class="admin-table-wrap">
+            <table>
+              <thead><tr><th>Instructor</th><th>Payments</th><th class="pl-payouts-amt">Total</th><th class="pl-payouts-amt">Sent through Stripe</th><th class="pl-payouts-amt">Owed manually</th></tr></thead>
+              <tbody>
+                <tr><td>Renee Marsh<span class="pl-payouts-sub">Payouts on</span></td><td>9</td><td class="pl-payouts-amt">$455.00</td><td class="pl-payouts-amt">$413.00</td><td class="pl-payouts-amt">$42.00</td></tr>
+                <tr><td>Dana Okafor<span class="pl-payouts-sub">Not set up</span></td><td>5</td><td class="pl-payouts-amt">$315.00</td><td class="pl-payouts-amt">$0.00</td><td class="pl-payouts-amt">$315.00</td></tr>
+                <tr class="pl-recon-attn"><td>Lee Tran<span class="pl-payouts-sub">Paused by Stripe</span></td><td>3</td><td class="pl-payouts-amt">$189.00</td><td class="pl-payouts-amt">$126.00</td><td class="pl-payouts-amt">$63.00</td></tr>
+                <tr class="pl-recon-attn"><td colspan="5"><span class="pl-status-badge pl-status-badge--fail">Transfer failed</span> <span class="hub-text-muted" style="font-size:0.85rem;">Glaze Chemistry, Oct 3. Stripe says the account needs verification. Retrying daily; if it still fails at month end, it stays in Owed manually.</span></td></tr>
+              </tbody>
+            </table>
+          </div>
+          <p class="hub-text-muted" style="font-size:0.85rem; margin:0.75rem 0 0;">The QuickBooks run pays only the Owed manually column. Guild and Past Lives rows are unchanged. The CSV export gets the same two columns.</p>
+        </div>
+        <div class="hub-card mock-collapsed"><span class="hub-detail-label" style="margin:0;">Stripe tab</span><span>gains one toggle: "Pay instructors and orientors through Stripe" (off by default)</span></div>
+      </div>
+
+    </main>
+  </div>
+</body>
+</html>
