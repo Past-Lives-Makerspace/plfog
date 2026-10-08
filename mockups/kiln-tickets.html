@@ -1,0 +1,1239 @@
+<!DOCTYPE html>
+<html lang="en" class="dark">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<title>Kiln tickets mockup · Ceramics Guild</title>
+<!--
+  Ceramics Guild kiln tickets mockup (static; not served by Django).
+  Links the real stylesheets and uses the real class names so the build can lift the markup.
+  Views (?view=):
+    mine            1  My kiln tickets (maker, phone)
+    student-menu    1b What a student sees: the kiln pages only (phone, menu open)
+    new-glaze       2a New ticket, glaze branch, Other clay follow up, kind flag notice
+    new-bisque      2b New ticket from "Make another like this", bisque branch
+    detail-maker    3a Ticket detail as the maker (phone)
+    detail-crew     3b Ticket detail as the crew (phone and desktop)
+    load            4  Load the kiln (crew)
+    unload          5  Unload (crew)
+    log             6  Kiln log (crew)
+    lists           7  Clay and glaze lists (staff)
+    bell            8a Ready for pickup in the bell (notifications page)
+    email           8b Ready for pickup email (notification shell)
+  Theme: ?theme=light   Screenshot mode (hides the switcher and the feedback button): ?shot=1
+  CSS: the first <style> block is NEW product CSS (a new static/css/kiln-tickets.css, tokens only);
+  the second is mockup-only (view switching, fake pot photos).
+-->
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;700&family=Lato:wght@400;700;900&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="../static/css/hub.css">
+<link rel="stylesheet" href="../static/css/components.css">
+<style>
+/* ==========================================================================
+   NEW PRODUCT CSS for static/css/kiln-tickets.css (one page file, per FRONTEND.md
+   "CSS Files"). Tokens only. Every flag carries an icon and words, never color alone.
+   ========================================================================== */
+
+.pl-kiln-form textarea, .pl-kiln-reply textarea, .pl-kiln-except textarea, .pl-kiln-detail textarea, [data-views="detail-crew"] textarea { font: inherit; font-size: 0.95rem; line-height: 1.45; }
+.pl-kiln-ico { width: 1em; height: 1em; flex: 0 0 auto; vertical-align: -0.125em; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+
+/* Page head: title, one line lead, and (crew only) the tab row. */
+.pl-kiln-head { margin-bottom: 1.25rem; }
+.pl-kiln-head .hub-page-title { margin-bottom: 0.25rem; }
+.pl-kiln-head__lead { margin: 0 0 1rem; color: var(--hub-text-muted); max-width: 60ch; }
+.pl-kiln-head .pl-tabs { margin-bottom: 0; }
+.pl-kiln-count { display: inline-block; min-width: 1.4rem; padding: 0 0.35rem; margin-left: 0.35rem; border-radius: 999px; background: var(--hub-surface); font-size: 0.75rem; font-weight: 700; text-align: center; color: var(--hub-text); }
+
+/* The big New ticket button: full width on phones, a thumb's reach. */
+.pl-kiln-new { display: flex; align-items: center; justify-content: center; gap: 0.5rem; width: 100%; min-height: 56px; font-size: 1.0625rem; margin-bottom: 1.5rem; }
+@media (min-width: 769px) { .pl-kiln-new { width: auto; display: inline-flex; padding-inline: 2rem; } }
+
+/* Status groups on My kiln tickets. */
+.pl-kiln-group { margin: 0 0 1.75rem; }
+.pl-kiln-group__title { display: flex; align-items: center; gap: 0.5rem; margin: 0 0 0.625rem; font-family: var(--font-heading); font-size: 1rem; font-weight: 700; color: var(--color-tuscan-yellow); text-transform: capitalize; }
+.pl-kiln-group__title .pl-kiln-count { margin-left: 0; }
+
+/* A ticket row: cover photo, summary, status, and its actions. */
+.pl-kiln-row { display: grid; grid-template-columns: 76px 1fr; gap: 0.25rem 0.875rem; padding: 0.875rem; margin-bottom: 0.625rem; border: 1px solid var(--hub-border); border-radius: 12px; background: var(--hub-card-bg); color: var(--hub-text); text-decoration: none; }
+.pl-kiln-row__photo { grid-row: span 2; width: 76px; height: 76px; border-radius: 8px; overflow: hidden; }
+.pl-kiln-row__top { display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap; }
+.pl-kiln-row__title { font-weight: 600; font-size: 0.975rem; }
+.pl-kiln-row__sub { font-size: 0.85rem; color: var(--hub-text-muted); line-height: 1.4; }
+.pl-kiln-row__extras { grid-column: 1 / -1; display: flex; flex-wrap: wrap; gap: 0.5rem; align-items: center; margin-top: 0.5rem; }
+.pl-kiln-row__extras .hub-btn { display: inline-flex; align-items: center; gap: 0.4rem; min-height: 40px; }
+.pl-kiln-row--draft { border-style: dashed; }
+.pl-kiln-unread { display: inline-flex; align-items: center; gap: 0.3rem; font-size: 0.8rem; font-weight: 600; color: var(--hub-link); }
+
+/* Status badge: pl-status-badge plus an icon, so the state reads without color. */
+.pl-kiln-status { display: inline-flex; align-items: center; gap: 0.3rem; }
+
+/* Flags. Quiet: outlined chip with a flag icon. Loud ("no stilts"): filled, striped,
+   a warning triangle and bold words. Cleared: struck through with who cleared it. */
+.pl-kiln-flag { display: inline-flex; align-items: center; gap: 0.35rem; padding: 0.2rem 0.55rem; border: 1px solid currentColor; border-radius: 6px; font-size: 0.8rem; font-weight: 600; color: var(--pl-lifecycle-review); background: transparent; line-height: 1.3; }
+.pl-kiln-flag--loud { color: var(--hub-text); border: 2px solid var(--hub-danger-text); background: repeating-linear-gradient(135deg, rgba(220, 60, 60, 0.22) 0 6px, rgba(220, 60, 60, 0.08) 6px 12px); font-weight: 700; }
+.pl-kiln-flag--loud .pl-kiln-ico { color: var(--hub-danger-text); }
+.pl-kiln-flag--cleared { color: var(--hub-text-muted); border-style: dashed; font-weight: 500; }
+.pl-kiln-flag--cleared span { text-decoration: line-through; }
+
+/* The kind notice a maker sees: no red, no scolding, says what happens next. */
+.pl-kiln-notice { display: flex; gap: 0.75rem; padding: 0.875rem 1rem; border: 1px solid var(--hub-border-strong); border-left: 4px solid var(--hub-blue); border-radius: 10px; background: var(--hub-blue-soft); font-size: 0.9rem; line-height: 1.5; }
+.pl-kiln-notice > .pl-kiln-ico { width: 1.25rem; height: 1.25rem; color: var(--hub-blue); margin-top: 0.1rem; }
+.pl-kiln-notice strong { display: block; margin-bottom: 0.15rem; }
+.pl-kiln-notice ul { margin: 0.35rem 0 0; padding-left: 1.1rem; }
+.pl-kiln-notice li + li { margin-top: 0.2rem; }
+
+/* ---- New ticket form ---- */
+.pl-kiln-form .hub-card { padding: 1.25rem; margin-bottom: 1rem; }
+.pl-kiln-q { margin: 0 0 1.25rem; }
+.pl-kiln-q:last-child { margin-bottom: 0; }
+.pl-kiln-q__label { display: block; margin: 0 0 0.5rem; font-size: 0.95rem; font-weight: 600; color: var(--hub-text); }
+.pl-kiln-q__hint { display: block; margin: -0.25rem 0 0.5rem; font-size: 0.8125rem; color: var(--hub-text-muted); }
+.pl-kiln-step { font-family: var(--font-heading); font-size: 1.05rem; font-weight: 700; color: var(--color-tuscan-yellow); margin: 0 0 0.875rem; text-transform: capitalize; }
+
+/* Firing type: two big cards, first on the form. */
+.pl-kiln-firing { display: grid; grid-template-columns: 1fr 1fr; gap: 0.625rem; }
+.pl-kiln-firing .pl-radio-option { min-height: 76px; align-items: center; padding: 0.875rem; }
+.pl-kiln-firing__name { display: block; font-weight: 700; font-size: 1.05rem; }
+.pl-kiln-firing__desc { display: block; font-size: 0.8rem; color: var(--hub-text-muted); }
+
+/* Yes / No answered by two cards (an unanswered question has no default). */
+.pl-kiln-yesno { display: grid; grid-template-columns: 1fr 1fr; gap: 0.625rem; }
+.pl-kiln-yesno .pl-radio-option { min-height: 48px; align-items: center; font-weight: 600; }
+
+/* Checkbox cards (glaze kinds) reuse .pl-radio-option's look. */
+.pl-radio-option input[type="checkbox"] { flex: 0 0 auto; width: 1.1rem; height: 1.1rem; margin: 0.1rem 0 0; accent-color: var(--color-tuscan-yellow); }
+.pl-kiln-checks { display: grid; gap: 0.5rem; }
+.pl-kiln-chips { display: flex; flex-wrap: wrap; gap: 0.5rem; }
+.pl-kiln-chips .pl-chip { min-height: 44px; padding-inline: 0.875rem; }
+.pl-kiln-chips .pl-chip input { width: 1rem; height: 1rem; accent-color: var(--hub-blue); }
+
+/* A follow up revealed by an answer: indented under it with a rule, so it reads as "because you said". */
+.pl-kiln-follow { margin: 0.625rem 0 0 0.6rem; padding: 0.25rem 0 0.25rem 1rem; border-left: 2px solid var(--hub-border-strong); }
+.pl-kiln-follow .pl-form-group { margin-bottom: 0.75rem; }
+
+/* The branch block (bisque or glaze questions). */
+.pl-kiln-branch__tag { display: inline-flex; align-items: center; gap: 0.35rem; margin-bottom: 0.875rem; }
+
+/* Size: three boxes on one line with the unit after. */
+.pl-kiln-size { display: grid; grid-template-columns: 1fr 1fr 1fr auto; gap: 0.5rem; align-items: end; }
+.pl-kiln-size .pl-form-group { margin: 0; }
+.pl-kiln-size__unit { padding-bottom: 0.6rem; font-size: 0.85rem; color: var(--hub-text-muted); }
+.pl-kiln-form .pl-form-group input, .pl-kiln-form .pl-form-group select, .pl-kiln-form .pl-form-group textarea { min-height: 48px; font-size: 1rem; }
+
+/* Photos: square tiles, one marked Cover (star + word), an Add tile with camera. */
+.pl-kiln-photos { display: grid; grid-template-columns: repeat(3, 1fr); gap: 0.5rem; }
+.pl-kiln-photo { position: relative; aspect-ratio: 1; border-radius: 10px; overflow: hidden; border: 2px solid transparent; }
+.pl-kiln-photo--cover { border-color: var(--color-tuscan-yellow); }
+.pl-kiln-photo__cover { position: absolute; left: 0.35rem; bottom: 0.35rem; display: inline-flex; align-items: center; gap: 0.25rem; padding: 0.15rem 0.45rem; border-radius: 999px; background: var(--color-tuscan-yellow); color: var(--color-navy); font-size: 0.72rem; font-weight: 700; }
+.pl-kiln-photo__make { position: absolute; left: 0.35rem; bottom: 0.35rem; padding: 0.2rem 0.45rem; border: 0; border-radius: 999px; background: rgba(10, 11, 16, 0.75); color: #F4EFDD; font-size: 0.72rem; font-weight: 600; min-height: 28px; }
+.pl-kiln-photo__remove { position: absolute; top: 0.3rem; right: 0.3rem; width: 32px; height: 32px; border: 0; border-radius: 999px; background: rgba(10, 11, 16, 0.7); color: #F4EFDD; display: inline-flex; align-items: center; justify-content: center; }
+.pl-kiln-photo-add { aspect-ratio: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 0.35rem; border: 2px dashed var(--hub-border-strong); border-radius: 10px; background: var(--hub-surface); color: var(--hub-text); font-size: 0.85rem; font-weight: 600; text-align: center; cursor: pointer; }
+.pl-kiln-photo-add .pl-kiln-ico { width: 1.6rem; height: 1.6rem; color: var(--hub-link); }
+.pl-kiln-photo-add input { position: absolute; width: 1px; height: 1px; opacity: 0; }
+.pl-kiln-photo-add--big { aspect-ratio: auto; min-height: 150px; grid-column: 1 / -1; font-size: 1rem; border-color: var(--color-tuscan-yellow); }
+
+/* Copied ticket banner. */
+.pl-kiln-copied { display: flex; gap: 0.75rem; align-items: flex-start; padding: 0.875rem 1rem; margin-bottom: 1rem; border-radius: 10px; border: 1px solid var(--hub-border-strong); background: var(--hub-elevated); font-size: 0.9rem; }
+.pl-kiln-copied .pl-kiln-ico { width: 1.25rem; height: 1.25rem; color: var(--hub-link); margin-top: 0.1rem; }
+
+/* The action bar stays under the thumb while the form scrolls. Submit is the last control. */
+.pl-kiln-actionbar { position: sticky; bottom: 0; z-index: 20; display: flex; gap: 0.625rem; align-items: center; padding: 0.75rem 1rem calc(0.75rem + env(safe-area-inset-bottom, 0px)); margin: 1.5rem -1rem 0; background: var(--hub-card-bg); border-top: 1px solid var(--hub-border-strong); box-shadow: 0 -8px 20px rgba(0, 0, 0, 0.25); }
+.pl-kiln-actionbar .hub-btn { min-height: 48px; display: inline-flex; align-items: center; justify-content: center; gap: 0.4rem; }
+.pl-kiln-actionbar__grow { flex: 1; }
+.pl-kiln-actionbar__note { flex: 1; font-size: 0.85rem; color: var(--hub-text-muted); line-height: 1.35; }
+.pl-kiln-actionbar__note strong { display: block; color: var(--hub-text); font-size: 0.95rem; }
+.pl-kiln-actionbar .hub-btn[disabled] { opacity: 0.45; cursor: not-allowed; }
+@media (min-width: 769px) { .pl-kiln-actionbar { margin-inline: 0; border: 1px solid var(--hub-border-strong); border-radius: 12px; } }
+
+/* ---- Ticket detail ---- */
+.pl-kiln-detail { display: grid; gap: 1rem; }
+.pl-kiln-detail .hub-card { padding: 1.25rem; }
+.pl-kiln-detail__title { display: flex; align-items: center; gap: 0.625rem; flex-wrap: wrap; }
+.pl-kiln-detail__title .hub-page-title { margin: 0; }
+.pl-kiln-detail__sub { margin: -0.5rem 0 0; }
+@media (min-width: 1000px) {
+    .pl-kiln-detail--crew { grid-template-columns: minmax(0, 1.35fr) minmax(0, 1fr); align-items: start; }
+    .pl-kiln-detail__col { display: grid; gap: 1rem; }
+}
+.pl-kiln-detail__col { display: grid; gap: 1rem; min-width: 0; }
+.pl-kiln-card-title { margin: 0 0 0.75rem; font-family: var(--font-heading); font-size: 1rem; font-weight: 700; color: var(--color-tuscan-yellow); text-transform: capitalize; display: flex; align-items: center; gap: 0.5rem; }
+.pl-kiln-gallery__main { border-radius: 10px; overflow: hidden; aspect-ratio: 4 / 3; }
+.pl-kiln-gallery__strip { display: flex; gap: 0.5rem; margin-top: 0.5rem; }
+.pl-kiln-gallery__strip > * { width: 64px; height: 64px; border-radius: 8px; overflow: hidden; border: 2px solid transparent; }
+.pl-kiln-gallery__strip > [aria-current="true"] { border-color: var(--color-tuscan-yellow); }
+
+.pl-kiln-answers { margin: 0; display: grid; grid-template-columns: minmax(0, 11rem) minmax(0, 1fr); gap: 0.5rem 1rem; font-size: 0.9rem; }
+.pl-kiln-answers dt { color: var(--hub-text-muted); }
+.pl-kiln-answers dd { margin: 0; }
+@media (max-width: 480px) { .pl-kiln-answers { grid-template-columns: 1fr; gap: 0.1rem; } .pl-kiln-answers dd { margin-bottom: 0.5rem; } }
+
+.pl-kiln-flaglist { list-style: none; margin: 0; padding: 0; display: grid; gap: 0.625rem; }
+.pl-kiln-flaglist li { display: flex; gap: 0.75rem; align-items: flex-start; justify-content: space-between; padding: 0.75rem; border-radius: 10px; background: var(--hub-surface); border: 1px solid var(--hub-border); }
+.pl-kiln-flaglist p { margin: 0.35rem 0 0; font-size: 0.85rem; color: var(--hub-text-muted); }
+.pl-kiln-flaglist .hub-btn { flex: 0 0 auto; min-height: 36px; }
+.pl-kiln-crewonly { display: inline-flex; align-items: center; gap: 0.3rem; font-size: 0.75rem; color: var(--hub-text-muted); }
+
+.pl-kiln-timeline { list-style: none; margin: 0; padding: 0; }
+.pl-kiln-timeline li { position: relative; display: grid; grid-template-columns: 1.5rem 1fr; gap: 0.75rem; padding-bottom: 0.875rem; font-size: 0.9rem; }
+.pl-kiln-timeline li:not(:last-child)::before { content: ""; position: absolute; left: calc(0.75rem - 1px); top: 1.5rem; bottom: 0; width: 2px; background: var(--hub-border-strong); }
+.pl-kiln-timeline__dot { width: 1.5rem; height: 1.5rem; border-radius: 999px; display: inline-flex; align-items: center; justify-content: center; border: 2px solid var(--hub-border-strong); background: var(--hub-card-bg); }
+.pl-kiln-timeline__dot .pl-kiln-ico { width: 0.85rem; height: 0.85rem; }
+.pl-kiln-timeline li[data-state="done"] .pl-kiln-timeline__dot { background: var(--color-tuscan-yellow); border-color: var(--color-tuscan-yellow); color: var(--color-navy); }
+.pl-kiln-timeline li[data-state="now"] .pl-kiln-timeline__dot { border-color: var(--color-tuscan-yellow); border-width: 3px; }
+.pl-kiln-timeline li[data-state="next"] { color: var(--hub-text-muted); }
+.pl-kiln-timeline strong { display: block; }
+.pl-kiln-timeline span { font-size: 0.82rem; color: var(--hub-text-muted); }
+
+.pl-kiln-thread { list-style: none; margin: 0 0 1rem; padding: 0; display: grid; gap: 0.75rem; }
+.pl-kiln-msg { max-width: 88%; padding: 0.625rem 0.875rem; border-radius: 12px; background: var(--hub-surface); border: 1px solid var(--hub-border); font-size: 0.9rem; line-height: 1.45; }
+.pl-kiln-msg--mine { justify-self: end; background: var(--hub-blue-soft); border-color: var(--hub-border-strong); }
+.pl-kiln-msg__who { display: flex; gap: 0.4rem; align-items: baseline; flex-wrap: wrap; margin-bottom: 0.2rem; font-size: 0.78rem; color: var(--hub-text-muted); }
+.pl-kiln-msg__who strong { color: var(--hub-text); font-size: 0.82rem; }
+.pl-kiln-msg__role { padding: 0 0.35rem; border-radius: 4px; border: 1px solid var(--hub-border-strong); font-size: 0.7rem; }
+.pl-kiln-msg--system { justify-self: center; max-width: 100%; background: transparent; border-style: dashed; font-size: 0.82rem; color: var(--hub-text-muted); text-align: center; }
+.pl-kiln-reply .pl-form-group textarea { min-height: 88px; }
+.pl-kiln-reply__row { display: flex; gap: 0.75rem; align-items: center; justify-content: space-between; flex-wrap: wrap; }
+.pl-kiln-reply__note { font-size: 0.8rem; color: var(--hub-text-muted); }
+
+.pl-kiln-maker { display: flex; gap: 0.75rem; align-items: center; }
+.pl-kiln-maker__avatar { width: 44px; height: 44px; border-radius: 999px; background: var(--hub-elevated); border: 1px solid var(--hub-border-strong); display: inline-flex; align-items: center; justify-content: center; font-weight: 700; }
+.pl-kiln-maker__lines { font-size: 0.875rem; line-height: 1.5; }
+.pl-kiln-maker__lines a { color: var(--hub-link); }
+
+/* ---- Load the kiln: firing picker, filters, big photo tiles ---- */
+.pl-kiln-firingbar { display: flex; gap: 1rem; align-items: center; justify-content: space-between; flex-wrap: wrap; padding: 1rem 1.25rem; margin-bottom: 1rem; }
+.pl-kiln-firingbar__label { font-size: 0.8rem; color: var(--hub-text-muted); }
+.pl-kiln-firingbar__name { font-family: var(--font-heading); font-weight: 700; font-size: 1.15rem; }
+.pl-kiln-seg { display: inline-flex; padding: 3px; border-radius: 10px; background: var(--hub-surface); border: 1px solid var(--hub-border); }
+.pl-kiln-seg label { position: relative; display: inline-flex; align-items: center; gap: 0.35rem; min-height: 40px; padding: 0 1rem; border-radius: 8px; font-weight: 600; font-size: 0.9rem; color: var(--hub-text-muted); cursor: pointer; }
+.pl-kiln-seg input { position: absolute; opacity: 0; }
+.pl-kiln-seg label:has(input:checked) { background: var(--color-tuscan-yellow); color: var(--color-navy); }
+.pl-kiln-filters { display: flex; gap: 0.5rem; flex-wrap: wrap; align-items: center; margin-bottom: 1rem; }
+.pl-kiln-filters .pl-chip { min-height: 40px; }
+.pl-kiln-filters__sort { margin-left: auto; font-size: 0.8rem; color: var(--hub-text-muted); }
+
+.pl-kiln-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(160px, 1fr)); gap: 0.75rem; }
+@media (min-width: 769px) { .pl-kiln-grid { grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 1rem; } }
+.pl-kiln-tile { position: relative; display: flex; flex-direction: column; border: 2px solid var(--hub-border); border-radius: 12px; background: var(--hub-card-bg); overflow: hidden; cursor: pointer; }
+.pl-kiln-tile input[type="checkbox"] { position: absolute; opacity: 0; }
+.pl-kiln-tile__photo { position: relative; aspect-ratio: 1; }
+.pl-kiln-tile__qty { position: absolute; left: 0.4rem; bottom: 0.4rem; padding: 0.15rem 0.5rem; border-radius: 999px; background: rgba(10, 11, 16, 0.78); color: #F4EFDD; font-size: 0.8rem; font-weight: 700; }
+.pl-kiln-tile__dots { position: absolute; right: 0.5rem; bottom: 0.55rem; display: flex; gap: 3px; }
+.pl-kiln-tile__dots i { width: 6px; height: 6px; border-radius: 999px; background: rgba(244, 239, 221, 0.5); }
+.pl-kiln-tile__dots i:first-child { background: #F4EFDD; }
+.pl-kiln-tile__check { position: absolute; top: 0.45rem; right: 0.45rem; width: 34px; height: 34px; border-radius: 999px; border: 2px solid #F4EFDD; background: rgba(10, 11, 16, 0.45); display: inline-flex; align-items: center; justify-content: center; color: transparent; }
+.pl-kiln-tile__check .pl-kiln-ico { width: 1.15rem; height: 1.15rem; stroke-width: 3; }
+.pl-kiln-tile__body { padding: 0.6rem 0.7rem 0.7rem; display: grid; gap: 0.15rem; font-size: 0.82rem; }
+.pl-kiln-tile__who { font-weight: 700; font-size: 0.9rem; }
+.pl-kiln-tile__size { font-weight: 600; font-size: 0.9rem; font-variant-numeric: tabular-nums; }
+.pl-kiln-tile__glaze { color: var(--hub-text-muted); line-height: 1.35; }
+.pl-kiln-tile__foot { display: flex; justify-content: space-between; align-items: center; gap: 0.5rem; margin-top: 0.3rem; font-size: 0.75rem; color: var(--hub-text-muted); }
+.pl-kiln-tile__foot a { color: var(--hub-link); font-weight: 600; text-decoration: none; padding: 0.35rem 0; }
+.pl-kiln-tile__state { display: none; align-items: center; gap: 0.3rem; font-weight: 700; color: var(--hub-text); }
+.pl-kiln-tile:has(input:checked) { border-color: var(--color-tuscan-yellow); box-shadow: 0 0 0 2px var(--color-tuscan-yellow); }
+.pl-kiln-tile:has(input:checked) .pl-kiln-tile__check { background: var(--color-tuscan-yellow); border-color: var(--color-tuscan-yellow); color: var(--color-navy); }
+.pl-kiln-tile:has(input:checked) .pl-kiln-tile__state { display: inline-flex; }
+.pl-kiln-tile:has(input:checked) .pl-kiln-tile__age { display: none; }
+.pl-kiln-tile__flag { display: flex; align-items: flex-start; gap: 0.35rem; padding: 0.4rem 0.6rem; font-size: 0.78rem; font-weight: 700; line-height: 1.3; color: var(--hub-text); background: repeating-linear-gradient(135deg, rgba(238, 180, 75, 0.28) 0 6px, rgba(238, 180, 75, 0.12) 6px 12px); border-bottom: 1px solid var(--pl-lifecycle-review); }
+.pl-kiln-tile__flag .pl-kiln-ico { color: var(--pl-lifecycle-review); margin-top: 0.05rem; }
+.pl-kiln-tile__flag--loud { background: repeating-linear-gradient(135deg, rgba(220, 60, 60, 0.32) 0 6px, rgba(220, 60, 60, 0.12) 6px 12px); border-bottom-color: var(--hub-danger-text); }
+.pl-kiln-tile__flag--loud .pl-kiln-ico { color: var(--hub-danger-text); }
+.pl-kiln-tile--flagged { border-style: dashed; border-color: var(--pl-lifecycle-review); }
+.pl-kiln-tile--loud { border-style: dashed; border-color: var(--hub-danger-text); }
+
+/* ---- Unload: a checklist, every row ticked; an unticked row opens what happened ---- */
+.pl-kiln-unload { list-style: none; margin: 0; padding: 0; display: grid; gap: 0.625rem; }
+.pl-kiln-unload__row { border: 2px solid var(--hub-border); border-radius: 12px; background: var(--hub-card-bg); }
+.pl-kiln-unload__main { display: grid; grid-template-columns: auto 72px 1fr; gap: 0.75rem; align-items: center; padding: 0.625rem 0.75rem; cursor: pointer; }
+@media (min-width: 769px) { .pl-kiln-unload__main { grid-template-columns: auto 96px 1fr auto; } }
+.pl-kiln-unload__main input { width: 26px; height: 26px; margin: 0; accent-color: var(--color-tuscan-yellow); }
+.pl-kiln-unload__photo { width: 72px; height: 72px; border-radius: 8px; overflow: hidden; }
+@media (min-width: 769px) { .pl-kiln-unload__photo { width: 96px; height: 96px; } }
+.pl-kiln-unload__who { display: block; font-weight: 700; }
+.pl-kiln-unload__sub { display: block; font-size: 0.82rem; color: var(--hub-text-muted); line-height: 1.4; }
+.pl-kiln-unload__out { display: inline-flex; align-items: center; gap: 0.3rem; font-size: 0.8rem; font-weight: 600; }
+.pl-kiln-unload__row--ok .pl-kiln-unload__out { color: var(--pl-lifecycle-live); }
+.pl-kiln-unload__row--except { border-color: var(--hub-blue); border-style: dashed; }
+.pl-kiln-unload__row--except .pl-kiln-unload__out { color: var(--hub-blue); }
+.pl-kiln-except { padding: 0.25rem 1rem 1rem; border-top: 1px solid var(--hub-border); }
+.pl-kiln-except .pl-form-group textarea { min-height: 96px; font-size: 1rem; }
+.pl-kiln-except .pl-radio-option { margin-bottom: 0.5rem; }
+
+/* ---- Kiln log ---- */
+.pl-kiln-log-table td, .pl-kiln-log-table th { padding: 0.7rem 0.75rem; font-size: 0.9rem; vertical-align: middle; }
+.pl-kiln-log-table tbody tr { border-top: 1px solid var(--hub-border); }
+.pl-kiln-log-table .pl-kiln-num { text-align: right; font-variant-numeric: tabular-nums; }
+.pl-kiln-log-table a { color: var(--hub-link); font-weight: 600; text-decoration: none; }
+.pl-kiln-log-table small { display: block; color: var(--hub-text-muted); font-size: 0.78rem; }
+.pl-kiln-log-open td { background: var(--hub-surface); }
+.pl-kiln-log-strip { display: flex; gap: 0.5rem; flex-wrap: wrap; padding: 0.25rem 0; }
+.pl-kiln-log-strip > a { width: 72px; text-align: center; font-size: 0.72rem; color: var(--hub-text-muted); font-weight: 500; }
+.pl-kiln-log-strip > a > span:first-child { display: block; width: 72px; height: 72px; border-radius: 8px; overflow: hidden; margin-bottom: 0.2rem; }
+.pl-kiln-type { display: inline-flex; align-items: center; gap: 0.3rem; font-weight: 600; }
+.pl-kiln-log-cards { display: none; list-style: none; margin: 0; padding: 0; }
+@media (max-width: 768px) {
+    .pl-kiln-log-wide { display: none; }
+    .pl-kiln-log-cards { display: grid; gap: 0.625rem; }
+}
+.pl-kiln-log-card { display: block; padding: 0.875rem 1rem; border: 1px solid var(--hub-border); border-radius: 12px; background: var(--hub-card-bg); color: var(--hub-text); text-decoration: none; }
+.pl-kiln-log-card__top { display: flex; justify-content: space-between; align-items: center; gap: 0.5rem; margin-bottom: 0.35rem; }
+.pl-kiln-log-card__name { font-weight: 700; font-family: var(--font-heading); font-size: 1.02rem; }
+.pl-kiln-log-card__lines { font-size: 0.85rem; color: var(--hub-text-muted); line-height: 1.5; }
+.pl-kiln-log-card__lines strong { color: var(--hub-text); font-weight: 600; }
+
+/* ---- Clay and glaze lists ---- */
+.pl-kiln-lists { display: grid; gap: 1rem; }
+@media (min-width: 1000px) { .pl-kiln-lists { grid-template-columns: 1fr 1fr; align-items: start; } }
+.pl-kiln-lists .hub-card { padding: 1.25rem; }
+.pl-kiln-listrow { display: grid; grid-template-columns: 1fr auto; gap: 0.25rem 0.75rem; align-items: center; padding: 0.625rem 0; border-top: 1px solid var(--hub-border); }
+.pl-kiln-listrow .pl-form-group { margin: 0; }
+.pl-kiln-listrow .pl-form-group input { min-height: 44px; font-size: 0.95rem; }
+.pl-kiln-listrow__meta { grid-column: 1 / -1; font-size: 0.78rem; color: var(--hub-text-muted); }
+.pl-kiln-listrow .hub-btn { min-height: 40px; display: inline-flex; align-items: center; gap: 0.35rem; }
+.pl-kiln-listrow--fixed .pl-kiln-listrow__name { font-weight: 600; padding: 0.6rem 0; }
+.pl-kiln-saved { display: inline-flex; align-items: center; gap: 0.3rem; font-size: 0.78rem; color: var(--pl-lifecycle-live); }
+.pl-kiln-lists .pl-disclosure { margin-top: 1rem; }
+.pl-kiln-archived { list-style: none; margin: 0; padding: 0; }
+.pl-kiln-archived li { display: flex; justify-content: space-between; align-items: center; gap: 0.75rem; padding: 0.6rem 0; border-top: 1px solid var(--hub-border); font-size: 0.9rem; }
+.pl-kiln-archived li:first-child { border-top: 0; }
+.pl-kiln-archived small { display: block; color: var(--hub-text-muted); font-size: 0.78rem; }
+.pl-kiln-add { margin-top: 0.875rem; display: inline-flex; align-items: center; gap: 0.35rem; min-height: 44px; }
+.pl-kiln-rule { margin: 0 0 1rem; font-size: 0.85rem; color: var(--hub-text-muted); line-height: 1.5; }
+
+/* Notifications row with a cover photo (an addition to .pl-note for kiln events). */
+.pl-note__btn--photo { flex-direction: row; gap: 0.75rem; align-items: flex-start; }
+.pl-note__photo { flex: 0 0 auto; width: 52px; height: 52px; border-radius: 8px; overflow: hidden; }
+.pl-note__text { display: flex; flex-direction: column; gap: 0.15rem; min-width: 0; }
+</style>
+<style>
+/* ---------- mockup-only ---------- */
+[hidden] { display: none !important; }
+.mock-switcher { position: fixed; right: 1rem; bottom: 1rem; z-index: 900; display: flex; gap: 0.6rem; align-items: center; flex-wrap: wrap; max-width: 560px; padding: 0.5rem 0.75rem; border-radius: 8px; background: var(--hub-elevated); border: 1px solid var(--hub-border); font-size: 0.78rem; }
+.mock-switcher__title { font-weight: 700; color: var(--hub-text-muted); }
+.mock-switcher a { color: var(--hub-link); text-decoration: none; }
+.mock-switcher a[aria-current="page"] { color: var(--hub-text); text-decoration: underline; }
+html.mock-shot .mock-switcher, html.mock-shot .hub-feedback-fab { display: none; }
+.mock-sprite { position: absolute; width: 0; height: 0; overflow: hidden; }
+.mock-crumb { font-size: 0.85rem; margin: 0 0 0.5rem; }
+.mock-crumb a { color: var(--hub-link); text-decoration: none; }
+
+/* Fake pot photos: an SVG pot (fill = currentColor) on a wall and shelf backdrop. */
+.mock-photo { display: block; width: 100%; height: 100%; background: linear-gradient(180deg, #4a4f58 0 64%, #7b6a55 64% 66%, #9a8467 66% 100%); }
+.mock-photo--b { background: linear-gradient(180deg, #5d6266 0 60%, #3c3a37 60% 62%, #6b675f 62% 100%); }
+.mock-photo--c { background: linear-gradient(180deg, #80776b 0 58%, #5b5248 58% 60%, #b5a68e 60% 100%); }
+.mock-photo--d { background: radial-gradient(circle at 50% 40%, #6c7178 0, #3f434a 70%); }
+.p-bisque { color: #e2b49b; } .p-toast { color: #c39467; } .p-choc { color: #5b3b2c; } .p-salmon { color: #eac3ad; } .p-gmix { color: #d7c9b2; }
+.p-plum { color: #6f2d4d; } .p-blue { color: #2f6e9c; } .p-green { color: #4e7a4c; } .p-white { color: #ece6da; } .p-black { color: #1d1c1c; }
+.p-copper { color: #a35d2c; } .p-red { color: #a2262b; } .p-campfire { color: #8a5a32; } .p-rutile { color: #3e6f86; }
+
+/* Email view: no hub chrome. */
+.mock-email-page { display: none; }
+html[data-mock-view="email"] .hub-sidebar, html[data-mock-view="email"] .hub-main-wrapper, html[data-mock-view="email"] .hub-feedback-fab, html[data-mock-view="email"] .hub-sidebar-backdrop { display: none !important; }
+html[data-mock-view="email"] body { background: #eef0f3; display: block; }
+html[data-mock-view="email"] .mock-email-page { display: block; }
+
+/* Student view: the sidebar drawer open over the page, as the app shows it. */
+html[data-mock-view="student-menu"] .hub-sidebar-backdrop { opacity: 1; visibility: visible; pointer-events: auto; }
+</style>
+<script>
+  (function () {
+    var p = new URLSearchParams(location.search);
+    var view = p.get('view') || 'mine';
+    document.documentElement.setAttribute('data-mock-view', view);
+    if (p.get('theme') === 'light') { document.documentElement.setAttribute('data-theme', 'light'); document.documentElement.classList.remove('dark'); }
+    if (p.get('shot') === '1') document.documentElement.classList.add('mock-shot');
+    document.addEventListener('DOMContentLoaded', function () {
+      document.querySelectorAll('[data-views]').forEach(function (el) {
+        var views = el.getAttribute('data-views').split(/\s+/);
+        if (views.indexOf(view) === -1) el.hidden = true;
+      });
+      var side = document.querySelector('.hub-sidebar');
+      if (window.innerWidth <= 768 && view !== 'student-menu') side.classList.add('hub-sidebar--closed');
+      if (view === 'student-menu') document.querySelector('.hub-sidebar-backdrop').classList.add('hub-sidebar-backdrop--visible');
+      document.querySelectorAll('.mock-switcher a[href^="?view="]').forEach(function (a) {
+        if (a.getAttribute('href') === '?view=' + view) a.setAttribute('aria-current', 'page');
+      });
+    });
+  })();
+  function mockToggleTheme() {
+    var p = new URLSearchParams(location.search);
+    if (p.get('theme') === 'light') p.delete('theme'); else p.set('theme', 'light');
+    location.search = p.toString();
+  }
+</script>
+</head>
+<body>
+  <!-- Icon and pot sprites (mockup convenience; the build inlines its icons). -->
+  <svg class="mock-sprite" aria-hidden="true">
+    <symbol id="i-kiln" viewBox="0 0 24 24"><rect x="4" y="3" width="16" height="18" rx="2"/><path d="M4 8h16"/><path d="M9.5 15.5c0-1.8 2.5-2.2 2.5-4 1 1 2.5 2.2 2.5 4a2.5 2.5 0 0 1-5 0z"/></symbol>
+    <symbol id="i-flag" viewBox="0 0 24 24"><path d="M5 22V3"/><path d="M5 4h12l-2.5 4.5L17 13H5"/></symbol>
+    <symbol id="i-alert" viewBox="0 0 24 24"><path d="M10.3 3.9L1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z"/><path d="M12 9v4"/><path d="M12 17h.01"/></symbol>
+    <symbol id="i-check" viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12"/></symbol>
+    <symbol id="i-clock" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><polyline points="12 7 12 12 15.5 14"/></symbol>
+    <symbol id="i-flame" viewBox="0 0 24 24"><path d="M8.5 14.5A2.5 2.5 0 0 0 11 12c0-1.4-.5-2-1-3-1.1-2.1-.2-4 2-6 .5 2.5 2 4.9 4 6.5 2 1.6 3 3.5 3 5.5a7 7 0 1 1-14 0c0-1.2.4-2.3 1-3a2.5 2.5 0 0 0 2.5 2.5z"/></symbol>
+    <symbol id="i-pencil" viewBox="0 0 24 24"><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4z"/></symbol>
+    <symbol id="i-copy" viewBox="0 0 24 24"><rect x="9" y="9" width="12" height="12" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></symbol>
+    <symbol id="i-camera" viewBox="0 0 24 24"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/><circle cx="12" cy="13" r="4"/></symbol>
+    <symbol id="i-star" viewBox="0 0 24 24"><polygon points="12 2 15.1 8.3 22 9.3 17 14.1 18.2 21 12 17.8 5.8 21 7 14.1 2 9.3 8.9 8.3 12 2"/></symbol>
+    <symbol id="i-msg" viewBox="0 0 24 24"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></symbol>
+    <symbol id="i-plus" viewBox="0 0 24 24"><path d="M12 5v14"/><path d="M5 12h14"/></symbol>
+    <symbol id="i-x" viewBox="0 0 24 24"><path d="M18 6L6 18"/><path d="M6 6l12 12"/></symbol>
+    <symbol id="i-archive" viewBox="0 0 24 24"><rect x="2" y="3" width="20" height="5" rx="1"/><path d="M4 8v11a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8"/><path d="M10 12h4"/></symbol>
+    <symbol id="i-undo" viewBox="0 0 24 24"><path d="M3 7v6h6"/><path d="M21 17a9 9 0 0 0-15-6.7L3 13"/></symbol>
+    <symbol id="i-info" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4"/><path d="M12 8h.01"/></symbol>
+    <symbol id="i-eye" viewBox="0 0 24 24"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></symbol>
+    <symbol id="i-lock" viewBox="0 0 24 24"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></symbol>
+    <symbol id="i-chev" viewBox="0 0 24 24"><polyline points="9 18 15 12 9 6"/></symbol>
+    <symbol id="i-bell" viewBox="0 0 24 24"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></symbol>
+
+    <symbol id="pot-bowl" viewBox="0 0 100 100"><ellipse cx="50" cy="82" rx="30" ry="4" fill="#000" opacity=".3"/><path d="M16 50h68c0 19-15 30-34 30S16 69 16 50z" fill="currentColor"/><ellipse cx="50" cy="50" rx="34" ry="7" fill="currentColor"/><ellipse cx="50" cy="50" rx="30" ry="5" fill="#000" opacity=".28"/><path d="M22 56c4 10 12 16 22 18" stroke="#fff" stroke-width="3" fill="none" opacity=".25"/></symbol>
+    <symbol id="pot-bowls3" viewBox="0 0 100 100"><ellipse cx="50" cy="84" rx="40" ry="4" fill="#000" opacity=".3"/><g fill="currentColor"><path d="M6 64h30c0 9-6 16-15 16S6 73 6 64z"/><ellipse cx="21" cy="64" rx="15" ry="3.5"/><path d="M35 54h30c0 10-6 17-15 17s-15-7-15-17z"/><ellipse cx="50" cy="54" rx="15" ry="3.5"/><path d="M64 64h30c0 9-6 16-15 16s-15-7-15-16z"/><ellipse cx="79" cy="64" rx="15" ry="3.5"/></g><g fill="#000" opacity=".28"><ellipse cx="21" cy="64" rx="12" ry="2.3"/><ellipse cx="50" cy="54" rx="12" ry="2.3"/><ellipse cx="79" cy="64" rx="12" ry="2.3"/></g><path d="M38 58c2 5 5 8 9 10" stroke="#fff" stroke-width="2" fill="none" opacity=".25"/></symbol>
+    <symbol id="pot-mug" viewBox="0 0 100 100"><ellipse cx="48" cy="82" rx="24" ry="4" fill="#000" opacity=".3"/><path d="M66 40h6a10 10 0 0 1 0 20h-6" fill="none" stroke="currentColor" stroke-width="7"/><rect x="28" y="30" width="40" height="50" rx="5" fill="currentColor"/><ellipse cx="48" cy="31" rx="20" ry="4" fill="#000" opacity=".3"/><path d="M33 38v34" stroke="#fff" stroke-width="3" opacity=".22"/></symbol>
+    <symbol id="pot-cups4" viewBox="0 0 100 100"><ellipse cx="50" cy="84" rx="44" ry="4" fill="#000" opacity=".3"/><g fill="currentColor"><path d="M6 52h18l-2 28H8z"/><path d="M29 48h18l-2 32H31z"/><path d="M53 52h18l-2 28H55z"/><path d="M76 48h18l-2 32H78z"/></g><g fill="#000" opacity=".3"><ellipse cx="15" cy="52" rx="9" ry="2"/><ellipse cx="38" cy="48" rx="9" ry="2"/><ellipse cx="62" cy="52" rx="9" ry="2"/><ellipse cx="85" cy="48" rx="9" ry="2"/></g></symbol>
+    <symbol id="pot-vase" viewBox="0 0 100 100"><ellipse cx="50" cy="84" rx="22" ry="4" fill="#000" opacity=".3"/><path d="M43 16h14v9c0 6 16 13 16 32 0 15-9 25-23 25S27 72 27 57c0-19 16-26 16-32z" fill="currentColor"/><ellipse cx="50" cy="16" rx="7" ry="2" fill="#000" opacity=".35"/><path d="M34 50c-2 10 1 20 8 26" stroke="#fff" stroke-width="3" fill="none" opacity=".22"/></symbol>
+    <symbol id="pot-tall" viewBox="0 0 100 100"><ellipse cx="50" cy="86" rx="18" ry="3.5" fill="#000" opacity=".3"/><path d="M41 8h18l-2 6c7 10 9 34 7 56-1 9-6 14-14 14s-13-5-14-14c-2-22 0-46 7-56z" fill="currentColor"/><ellipse cx="50" cy="8.5" rx="9" ry="2" fill="#000" opacity=".35"/><path d="M42 26c-3 14-3 34 0 48" stroke="#fff" stroke-width="2.5" fill="none" opacity=".22"/></symbol>
+    <symbol id="pot-plate" viewBox="0 0 100 100"><ellipse cx="50" cy="74" rx="42" ry="6" fill="#000" opacity=".3"/><ellipse cx="50" cy="66" rx="42" ry="12" fill="currentColor"/><ellipse cx="50" cy="64" rx="28" ry="7" fill="#000" opacity=".2"/><ellipse cx="50" cy="54" rx="40" ry="11" fill="currentColor"/><ellipse cx="50" cy="52" rx="27" ry="6.5" fill="#000" opacity=".18"/></symbol>
+    <symbol id="pot-jar" viewBox="0 0 100 100"><ellipse cx="50" cy="84" rx="24" ry="4" fill="#000" opacity=".3"/><rect x="28" y="36" width="44" height="46" rx="10" fill="currentColor"/><rect x="31" y="28" width="38" height="9" rx="3" fill="currentColor"/><rect x="31" y="35" width="38" height="2" fill="#000" opacity=".35"/><circle cx="50" cy="24" r="5" fill="currentColor"/><path d="M34 44v30" stroke="#fff" stroke-width="3" opacity=".22"/></symbol>
+    <symbol id="pot-planter" viewBox="0 0 100 100"><ellipse cx="50" cy="85" rx="34" ry="4" fill="#000" opacity=".3"/><ellipse cx="50" cy="80" rx="32" ry="5" fill="currentColor"/><path d="M22 36h56l-7 42H29z" fill="currentColor"/><ellipse cx="50" cy="36" rx="28" ry="5" fill="#000" opacity=".3"/><path d="M28 42l5 30" stroke="#fff" stroke-width="3" opacity=".2"/></symbol>
+    <symbol id="pot-sculpt" viewBox="0 0 100 100"><ellipse cx="50" cy="85" rx="26" ry="4" fill="#000" opacity=".3"/><path d="M30 82c-4-12 2-20 8-26-6-8-4-22 8-28 10-5 22 2 22 14 0 6-3 10-6 13 8 5 12 15 8 27z" fill="currentColor"/><circle cx="54" cy="40" r="5" fill="#000" opacity=".3"/><path d="M38 60c-3 6-3 12-1 18" stroke="#fff" stroke-width="3" fill="none" opacity=".2"/></symbol>
+  </svg>
+
+  <nav class="mock-switcher" aria-label="Mockup views">
+    <span class="mock-switcher__title">Kiln tickets</span>
+    <a href="?view=mine">1 Mine</a>
+    <a href="?view=student-menu">1b Student</a>
+    <a href="?view=new-glaze">2a New glaze</a>
+    <a href="?view=new-bisque">2b New bisque</a>
+    <a href="?view=detail-maker">3a Detail maker</a>
+    <a href="?view=detail-crew">3b Detail crew</a>
+    <a href="?view=load">4 Load</a>
+    <a href="?view=unload">5 Unload</a>
+    <a href="?view=log">6 Log</a>
+    <a href="?view=lists">7 Lists</a>
+    <a href="?view=bell">8a Bell</a>
+    <a href="?view=email">8b Email</a>
+    <a href="#" onclick="mockToggleTheme(); return false;">Theme</a>
+  </nav>
+
+  <div class="hub-sidebar-backdrop"></div>
+  <aside class="hub-sidebar">
+    <!-- Member and crew navigation: Kiln Tickets sits under the Ceramics Guild for its members. -->
+    <nav class="hub-sidebar__nav" aria-label="Hub navigation" data-views="mine new-glaze new-bisque detail-maker detail-crew load unload log lists bell">
+      <a href="#" class="hub-sidebar__link"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg>Home</a>
+      <hr class="hub-sidebar__divider" />
+      <a href="#" class="hub-sidebar__link"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z"/><path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z"/></svg>Class Catalog</a>
+      <a href="#" class="hub-sidebar__link"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>Calendar</a>
+      <a href="#" class="hub-sidebar__link"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>Member Directory</a>
+      <a href="#" class="hub-sidebar__link"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"/></svg>Reservations</a>
+      <a href="#" class="hub-sidebar__link active" aria-current="page"><svg class="pl-kiln-ico" width="18" height="18"><use href="#i-kiln"/></svg>Kiln Tickets</a>
+      <hr class="hub-sidebar__divider" />
+      <div>
+        <button class="hub-sidebar__section-toggle" aria-expanded="true"><span>Guilds</span>
+          <svg class="hub-sidebar__chevron" width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 4.5l3 3 3-3"/></svg>
+        </button>
+        <div class="hub-sidebar__collapsible open">
+          <div class="hub-sidebar__collapsible-inner">
+            <a href="#" class="hub-sidebar__link">Ceramics Guild</a>
+            <a href="#" class="hub-sidebar__link">Printmaking Guild</a>
+          </div>
+        </div>
+      </div>
+    </nav>
+    <!-- Student navigation: a guest in a current Ceramics class gets the kiln pages and nothing else. -->
+    <nav class="hub-sidebar__nav" aria-label="Hub navigation" data-views="student-menu">
+      <a href="#" class="hub-sidebar__link active" aria-current="page"><svg class="pl-kiln-ico" width="18" height="18"><use href="#i-kiln"/></svg>Kiln Tickets</a>
+      <hr class="hub-sidebar__divider" />
+      <a href="#" class="hub-sidebar__link"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>Sign out</a>
+    </nav>
+  </aside>
+  <a href="#" class="hub-feedback-fab" aria-label="Send feedback">
+    <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
+  </a>
+
+  <div class="hub-main-wrapper">
+    <header class="pl-topbar">
+      <button class="pl-topbar__toggle" aria-label="Toggle sidebar">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M9 3v18"/></svg>
+      </button>
+      <span class="pl-topbar__divider"></span>
+      <div class="pl-topbar__spacer"></div>
+      <a href="#" class="pl-bell__btn" aria-label="Notifications, 2 unread">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></svg>
+        <span class="pl-bell__badge" data-views="mine bell detail-maker">2</span>
+      </a>
+      <button class="pl-topbar__theme-toggle" aria-label="Toggle theme" onclick="mockToggleTheme()">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="5"/><path d="M12 1v2"/><path d="M12 21v2"/><path d="M4.22 4.22l1.42 1.42"/><path d="M18.36 18.36l1.42 1.42"/><path d="M1 12h2"/><path d="M21 12h2"/><path d="M4.22 19.78l1.42-1.42"/><path d="M18.36 5.64l1.42-1.42"/></svg>
+      </button>
+      <div class="pl-profile">
+        <button class="pl-profile__avatar" aria-label="User menu" data-views="mine new-glaze new-bisque detail-maker bell">MO</button>
+        <button class="pl-profile__avatar" aria-label="User menu" data-views="student-menu">TL</button>
+        <button class="pl-profile__avatar" aria-label="User menu" data-views="detail-crew load unload log lists">DR</button>
+      </div>
+    </header>
+
+    <main id="main-content" class="hub-content" tabindex="-1">
+
+<!-- =====================================================================
+     1  MY KILN TICKETS (maker, phone first)
+     ===================================================================== -->
+<section data-views="mine student-menu" aria-labelledby="mine-title">
+  <div class="pl-kiln-head">
+    <h1 class="hub-page-title" id="mine-title">Kiln Tickets</h1>
+    <p class="pl-kiln-head__lead">One ticket for each piece or set of matching pieces. The crew finds your work by the cover photo and tells you when it is ready.</p>
+  </div>
+
+  <a href="?view=new-glaze" class="hub-btn hub-btn--primary pl-kiln-new"><svg class="pl-kiln-ico"><use href="#i-plus"/></svg>New ticket</a>
+
+  <div class="pl-kiln-group">
+    <h2 class="pl-kiln-group__title">Drafts <span class="pl-kiln-count">1</span></h2>
+    <a href="#" class="pl-kiln-row pl-kiln-row--draft">
+      <span class="pl-kiln-row__photo"><svg class="mock-photo mock-photo--c p-bisque" viewBox="0 0 100 100" role="img" aria-label="Cover photo: two mugs"><use href="#pot-mug"/></svg></span>
+      <span class="pl-kiln-row__top"><span class="pl-kiln-row__title">Bisque · 2 mugs</span> <span class="pl-status-badge pl-status-badge--muted pl-kiln-status"><svg class="pl-kiln-ico"><use href="#i-pencil"/></svg>Draft</span></span>
+      <span class="pl-kiln-row__sub">G-Mix 6 · started Mon, Oct 6<br>Still needs: the size</span>
+      <span class="pl-kiln-row__extras"><span class="hub-btn hub-btn--sm hub-btn--primary">Finish and submit</span></span>
+    </a>
+  </div>
+
+  <div class="pl-kiln-group">
+    <h2 class="pl-kiln-group__title">Waiting For The Kiln <span class="pl-kiln-count">2</span></h2>
+    <div class="pl-kiln-row">
+      <span class="pl-kiln-row__photo"><svg class="mock-photo p-toast" viewBox="0 0 100 100" role="img" aria-label="Cover photo: sculpture"><use href="#pot-sculpt"/></svg></span>
+      <span class="pl-kiln-row__top"><a href="#" class="pl-kiln-row__title">Ticket 418 · Bisque · 1 piece</a></span>
+      <span class="pl-kiln-row__sub">Trail Mix Toast · 9 x 6 x 6 in<br><span class="pl-status-badge pl-status-badge--warn pl-kiln-status"><svg class="pl-kiln-ico"><use href="#i-clock"/></svg>Waiting for the kiln</span> since Mon</span>
+      <span class="pl-kiln-row__extras">
+        <span class="pl-kiln-flag"><svg class="pl-kiln-ico"><use href="#i-eye"/></svg>The crew will take a look: thick walls</span>
+        <a href="?view=new-bisque" class="hub-btn hub-btn--sm hub-btn--ghost"><svg class="pl-kiln-ico"><use href="#i-copy"/></svg>Make another like this</a>
+      </span>
+    </div>
+    <div class="pl-kiln-row">
+      <span class="pl-kiln-row__photo"><svg class="mock-photo mock-photo--b p-gmix" viewBox="0 0 100 100" role="img" aria-label="Cover photo: four cups"><use href="#pot-cups4"/></svg></span>
+      <span class="pl-kiln-row__top"><a href="#" class="pl-kiln-row__title">Ticket 416 · Bisque · 4 cups</a></span>
+      <span class="pl-kiln-row__sub">G-Mix 6 · 4 x 3 x 3 in each<br><span class="pl-status-badge pl-status-badge--warn pl-kiln-status"><svg class="pl-kiln-ico"><use href="#i-clock"/></svg>Waiting for the kiln</span> since Sun</span>
+      <span class="pl-kiln-row__extras"><a href="?view=new-bisque" class="hub-btn hub-btn--sm hub-btn--ghost"><svg class="pl-kiln-ico"><use href="#i-copy"/></svg>Make another like this</a></span>
+    </div>
+  </div>
+
+  <div class="pl-kiln-group">
+    <h2 class="pl-kiln-group__title">In The Kiln <span class="pl-kiln-count">2</span></h2>
+    <div class="pl-kiln-row">
+      <span class="pl-kiln-row__photo"><svg class="mock-photo p-plum" viewBox="0 0 100 100" role="img" aria-label="Cover photo: three bowls"><use href="#pot-bowls3"/></svg></span>
+      <span class="pl-kiln-row__top"><a href="?view=detail-maker" class="pl-kiln-row__title">Ticket 412 · Glaze · 3 bowls</a></span>
+      <span class="pl-kiln-row__sub">Ritual Clear, Plum Wine, Amaco Blue Rutile<br><span class="pl-status-badge pl-status-badge--ok pl-kiln-status"><svg class="pl-kiln-ico"><use href="#i-flame"/></svg>In the kiln</span> Glaze firing 88</span>
+      <span class="pl-kiln-row__extras">
+        <span class="pl-kiln-unread"><svg class="pl-kiln-ico"><use href="#i-msg"/></svg>1 new message from Dana</span>
+        <a href="?view=new-glaze" class="hub-btn hub-btn--sm hub-btn--ghost"><svg class="pl-kiln-ico"><use href="#i-copy"/></svg>Make another like this</a>
+      </span>
+    </div>
+    <div class="pl-kiln-row">
+      <span class="pl-kiln-row__photo"><svg class="mock-photo mock-photo--c p-white" viewBox="0 0 100 100" role="img" aria-label="Cover photo: two plates"><use href="#pot-plate"/></svg></span>
+      <span class="pl-kiln-row__top"><a href="#" class="pl-kiln-row__title">Ticket 409 · Glaze · 2 plates</a></span>
+      <span class="pl-kiln-row__sub">Ritual Clear · 1 x 10 x 10 in each<br><span class="pl-status-badge pl-status-badge--ok pl-kiln-status"><svg class="pl-kiln-ico"><use href="#i-flame"/></svg>In the kiln</span> Glaze firing 88</span>
+      <span class="pl-kiln-row__extras"><a href="?view=new-glaze" class="hub-btn hub-btn--sm hub-btn--ghost"><svg class="pl-kiln-ico"><use href="#i-copy"/></svg>Make another like this</a></span>
+    </div>
+  </div>
+
+  <div class="pl-kiln-group">
+    <h2 class="pl-kiln-group__title">History</h2>
+    <div class="pl-kiln-row">
+      <span class="pl-kiln-row__photo"><svg class="mock-photo mock-photo--b p-blue" viewBox="0 0 100 100" role="img" aria-label="Cover photo: mug"><use href="#pot-mug"/></svg></span>
+      <span class="pl-kiln-row__top"><a href="#" class="pl-kiln-row__title">Ticket 403 · Glaze · 1 mug</a></span>
+      <span class="pl-kiln-row__sub">Penguin Floating Blue<br><span class="pl-status-badge pl-status-badge--ok pl-kiln-status"><svg class="pl-kiln-ico"><use href="#i-check"/></svg>Ready for pickup</span> since Fri, Oct 3</span>
+      <span class="pl-kiln-row__extras"><a href="?view=new-glaze" class="hub-btn hub-btn--sm hub-btn--ghost"><svg class="pl-kiln-ico"><use href="#i-copy"/></svg>Make another like this</a></span>
+    </div>
+    <div class="pl-kiln-row">
+      <span class="pl-kiln-row__photo"><svg class="mock-photo p-salmon" viewBox="0 0 100 100" role="img" aria-label="Cover photo: vase"><use href="#pot-vase"/></svg></span>
+      <span class="pl-kiln-row__top"><a href="#" class="pl-kiln-row__title">Ticket 395 · Bisque · 1 vase</a></span>
+      <span class="pl-kiln-row__sub">White Salmon<br><span class="pl-status-badge pl-status-badge--muted pl-kiln-status"><svg class="pl-kiln-ico"><use href="#i-check"/></svg>Fired</span> Fri, Sep 26</span>
+    </div>
+    <a href="#" class="hub-btn hub-btn--ghost hub-btn--sm">Show older tickets</a>
+  </div>
+</section>
+
+<!-- =====================================================================
+     2a  NEW TICKET: glaze branch, Other clay, kind flag notice
+     ===================================================================== -->
+<section data-views="new-glaze" aria-labelledby="newg-title">
+  <p class="mock-crumb"><a href="?view=mine">Kiln Tickets</a></p>
+  <h1 class="hub-page-title" id="newg-title">New Ticket</h1>
+  <p class="hub-text-muted">Answers save as you go, so you can finish later.</p>
+
+  <form class="pl-kiln-form">
+    <div class="hub-card">
+      <h2 class="pl-kiln-step">What Firing Is This For?</h2>
+      <div class="pl-kiln-firing" role="radiogroup" aria-label="Type of firing">
+        <label class="pl-radio-option"><input type="radio" name="firing_g" value="bisque"><span class="pl-radio-option__label"><span class="pl-kiln-firing__name">Bisque</span><span class="pl-kiln-firing__desc">First firing, no glaze yet</span></span></label>
+        <label class="pl-radio-option"><input type="radio" name="firing_g" value="glaze" checked><span class="pl-radio-option__label"><span class="pl-kiln-firing__name">Glaze</span><span class="pl-kiln-firing__desc">Second firing, glaze is on</span></span></label>
+      </div>
+    </div>
+
+    <div class="hub-card">
+      <h2 class="pl-kiln-step">Photos Of The Piece</h2>
+      <span class="pl-kiln-q__hint">Take the cover photo from the side with the whole piece in view. The crew uses it to find your piece on the shelf.</span>
+      <div class="pl-kiln-photos">
+        <div class="pl-kiln-photo pl-kiln-photo--cover">
+          <svg class="mock-photo p-plum" viewBox="0 0 100 100" role="img" aria-label="Photo 1: three bowls from the side"><use href="#pot-bowls3"/></svg>
+          <span class="pl-kiln-photo__cover"><svg class="pl-kiln-ico"><use href="#i-star"/></svg>Cover</span>
+          <button type="button" class="pl-kiln-photo__remove" aria-label="Remove photo 1"><svg class="pl-kiln-ico"><use href="#i-x"/></svg></button>
+        </div>
+        <div class="pl-kiln-photo">
+          <svg class="mock-photo mock-photo--d p-plum" viewBox="0 0 100 100" role="img" aria-label="Photo 2: inside of a bowl"><use href="#pot-bowl"/></svg>
+          <button type="button" class="pl-kiln-photo__make">Make cover</button>
+          <button type="button" class="pl-kiln-photo__remove" aria-label="Remove photo 2"><svg class="pl-kiln-ico"><use href="#i-x"/></svg></button>
+        </div>
+        <label class="pl-kiln-photo-add">
+          <input type="file" accept="image/*" capture="environment" multiple>
+          <svg class="pl-kiln-ico"><use href="#i-camera"/></svg>Add photo
+        </label>
+      </div>
+    </div>
+
+    <div class="hub-card">
+      <h2 class="pl-kiln-step">About The Piece</h2>
+      <div class="pl-kiln-q">
+        <span class="pl-kiln-q__label" id="size-g">Piece size</span>
+        <div class="pl-kiln-size" role="group" aria-labelledby="size-g">
+          <div class="pl-form-group"><label class="pl-form-label" for="h-g">Height</label><input id="h-g" inputmode="decimal" value="4"></div>
+          <div class="pl-form-group"><label class="pl-form-label" for="w-g">Width</label><input id="w-g" inputmode="decimal" value="6"></div>
+          <div class="pl-form-group"><label class="pl-form-label" for="l-g">Length</label><input id="l-g" inputmode="decimal" value="6"></div>
+          <span class="pl-kiln-size__unit">inches</span>
+        </div>
+      </div>
+      <div class="pl-form-group">
+        <label class="pl-form-label" for="qty-g">Quantity of identical pieces</label>
+        <input id="qty-g" inputmode="numeric" value="3" placeholder="1">
+      </div>
+      <div class="pl-form-group">
+        <label class="pl-form-label" for="clay-g">Type of clay</label>
+        <select id="clay-g">
+          <option>G-Mix 6</option><option>Trail Mix Dark Chocolate</option><option>Kristy Lombard</option><option>Trail Mix Toast</option><option>White Salmon</option><option selected>Other (specify)</option>
+        </select>
+      </div>
+      <div class="pl-kiln-follow">
+        <div class="pl-form-group">
+          <label class="pl-form-label" for="clay-other-g">Which clay?</label>
+          <input id="clay-other-g" value="Standard 266 Dark Brown">
+        </div>
+        <div class="pl-toggle-row">
+          <div class="pl-toggle-info"><div class="pl-toggle-label">I confirm that this clay can be safely fired to a minimum of Cone 6</div></div>
+          <label class="pl-toggle"><input type="checkbox" checked><span class="pl-toggle__slider"></span><span class="sr-only">I confirm that this clay can be safely fired to a minimum of Cone 6</span></label>
+        </div>
+      </div>
+    </div>
+
+    <div class="hub-card">
+      <span class="pl-status-badge pl-status-badge--muted pl-kiln-branch__tag"><svg class="pl-kiln-ico"><use href="#i-flame"/></svg>Glaze questions</span>
+      <div class="pl-kiln-q">
+        <span class="pl-kiln-q__label">What glaze is on this piece?</span>
+        <span class="pl-kiln-q__hint">Pick all that apply.</span>
+        <div class="pl-kiln-checks">
+          <label class="pl-radio-option"><input type="checkbox" checked><span class="pl-radio-option__label">Studio glaze</span></label>
+          <div class="pl-kiln-follow">
+            <span class="pl-kiln-q__hint">Which studio glazes?</span>
+            <div class="pl-kiln-chips">
+              <label class="pl-chip"><input type="checkbox">Perfect White</label>
+              <label class="pl-chip"><input type="checkbox" checked>Ritual Clear</label>
+              <label class="pl-chip"><input type="checkbox">Georgie's Patent Black</label>
+              <label class="pl-chip"><input type="checkbox">Georgie's Zinc-Free Clear</label>
+              <label class="pl-chip"><input type="checkbox">Coyote Copper</label>
+              <label class="pl-chip"><input type="checkbox">Penguin Floating Blue</label>
+              <label class="pl-chip"><input type="checkbox" checked>Plum Wine</label>
+              <label class="pl-chip"><input type="checkbox">Donte's Laogai Green</label>
+              <label class="pl-chip"><input type="checkbox">Old Forge Campfire</label>
+              <label class="pl-chip"><input type="checkbox">RC-2 Oxidation Red</label>
+            </div>
+          </div>
+          <label class="pl-radio-option"><input type="checkbox" checked><span class="pl-radio-option__label">Commercial glaze</span></label>
+          <div class="pl-kiln-follow">
+            <div class="pl-form-group"><label class="pl-form-label" for="comm-g">Which commercial glaze? Brand and name.</label><input id="comm-g" value="Amaco Potter's Choice Blue Rutile"></div>
+          </div>
+          <label class="pl-radio-option"><input type="checkbox"><span class="pl-radio-option__label">Self-made/other</span></label>
+        </div>
+      </div>
+
+      <div class="pl-kiln-q">
+        <span class="pl-kiln-q__label" id="bottom-g">Is the bottom 1/4 inch of this piece free of glaze?</span>
+        <div class="pl-kiln-yesno" role="radiogroup" aria-labelledby="bottom-g">
+          <label class="pl-radio-option"><input type="radio" name="bottom_g"><span class="pl-radio-option__label">Yes</span></label>
+          <label class="pl-radio-option"><input type="radio" name="bottom_g" checked><span class="pl-radio-option__label">No</span></label>
+        </div>
+        <div class="pl-kiln-follow">
+          <span class="pl-kiln-q__label" id="stilts-g">Have you added appropriate stilts/cookies to your piece to protect the kiln shelves?</span>
+          <div class="pl-kiln-yesno" role="radiogroup" aria-labelledby="stilts-g">
+            <label class="pl-radio-option"><input type="radio" name="stilts_g" checked><span class="pl-radio-option__label">Yes</span></label>
+            <label class="pl-radio-option"><input type="radio" name="stilts_g"><span class="pl-radio-option__label">No</span></label>
+          </div>
+        </div>
+      </div>
+
+      <div class="pl-toggle-row">
+        <div class="pl-toggle-info">
+          <div class="pl-toggle-label">I confirm that this clay and all glazes used can be safely fired to a minimum of Cone 6</div>
+          <div class="pl-toggle-desc">Needed to submit.</div>
+        </div>
+        <label class="pl-toggle"><input type="checkbox" checked><span class="pl-toggle__slider"></span><span class="sr-only">I confirm that this clay and all glazes used can be safely fired to a minimum of Cone 6</span></label>
+      </div>
+    </div>
+
+    <div class="pl-kiln-notice" role="status">
+      <svg class="pl-kiln-ico"><use href="#i-eye"/></svg>
+      <div>
+        <strong>The crew will take a quick look at this one</strong>
+        Nothing is wrong. A few answers mean a second pair of eyes before it goes in:
+        <ul>
+          <li>Your clay is not on the studio list.</li>
+          <li>You used a commercial glaze.</li>
+          <li>There is glaze near the bottom, and you added stilts. Thank you!</li>
+        </ul>
+        If they have a question, you will get a message on this ticket.
+      </div>
+    </div>
+
+    <div class="pl-kiln-actionbar">
+      <button type="button" class="hub-btn hub-btn--ghost">Save as draft</button>
+      <button type="submit" class="hub-btn hub-btn--primary pl-kiln-actionbar__grow">Submit ticket</button>
+    </div>
+  </form>
+</section>
+
+<!-- =====================================================================
+     2b  NEW TICKET from "Make another like this": bisque branch, photos empty
+     ===================================================================== -->
+<section data-views="new-bisque" aria-labelledby="newb-title">
+  <p class="mock-crumb"><a href="?view=mine">Kiln Tickets</a></p>
+  <h1 class="hub-page-title" id="newb-title">New Ticket</h1>
+
+  <div class="pl-kiln-copied" role="status">
+    <svg class="pl-kiln-ico"><use href="#i-copy"/></svg>
+    <div><strong>Copied from ticket 418.</strong> Every answer is filled in. Add a photo of this piece, check the size, and submit.</div>
+  </div>
+
+  <form class="pl-kiln-form">
+    <div class="hub-card">
+      <h2 class="pl-kiln-step">Photos Of The Piece</h2>
+      <div class="pl-kiln-photos">
+        <label class="pl-kiln-photo-add pl-kiln-photo-add--big">
+          <input type="file" accept="image/*" capture="environment" multiple>
+          <svg class="pl-kiln-ico"><use href="#i-camera"/></svg>Take a photo
+          <span class="pl-kiln-firing__desc">or choose one from your phone</span>
+        </label>
+      </div>
+    </div>
+
+    <div class="hub-card">
+      <h2 class="pl-kiln-step">What Firing Is This For?</h2>
+      <div class="pl-kiln-firing" role="radiogroup" aria-label="Type of firing">
+        <label class="pl-radio-option"><input type="radio" name="firing_b" value="bisque" checked><span class="pl-radio-option__label"><span class="pl-kiln-firing__name">Bisque</span><span class="pl-kiln-firing__desc">First firing, no glaze yet</span></span></label>
+        <label class="pl-radio-option"><input type="radio" name="firing_b" value="glaze"><span class="pl-radio-option__label"><span class="pl-kiln-firing__name">Glaze</span><span class="pl-kiln-firing__desc">Second firing, glaze is on</span></span></label>
+      </div>
+    </div>
+
+    <div class="hub-card">
+      <h2 class="pl-kiln-step">About The Piece</h2>
+      <div class="pl-kiln-q">
+        <span class="pl-kiln-q__label" id="size-b">Piece size</span>
+        <div class="pl-kiln-size" role="group" aria-labelledby="size-b">
+          <div class="pl-form-group"><label class="pl-form-label" for="h-b">Height</label><input id="h-b" inputmode="decimal" value="9"></div>
+          <div class="pl-form-group"><label class="pl-form-label" for="w-b">Width</label><input id="w-b" inputmode="decimal" value="6"></div>
+          <div class="pl-form-group"><label class="pl-form-label" for="l-b">Length</label><input id="l-b" inputmode="decimal" value="6"></div>
+          <span class="pl-kiln-size__unit">inches</span>
+        </div>
+      </div>
+      <div class="pl-form-group">
+        <label class="pl-form-label" for="qty-b">Quantity of identical pieces</label>
+        <input id="qty-b" inputmode="numeric" placeholder="1">
+      </div>
+      <div class="pl-form-group">
+        <label class="pl-form-label" for="clay-b">Type of clay</label>
+        <select id="clay-b">
+          <option>G-Mix 6</option><option>Trail Mix Dark Chocolate</option><option>Kristy Lombard</option><option selected>Trail Mix Toast</option><option>White Salmon</option><option>Other (specify)</option>
+        </select>
+      </div>
+    </div>
+
+    <div class="hub-card">
+      <span class="pl-status-badge pl-status-badge--muted pl-kiln-branch__tag"><svg class="pl-kiln-ico"><use href="#i-flame"/></svg>Bisque question</span>
+      <div class="pl-kiln-q">
+        <span class="pl-kiln-q__label" id="walls-b">Are all walls on this piece less than 1 inch thick?</span>
+        <div class="pl-kiln-yesno" role="radiogroup" aria-labelledby="walls-b">
+          <label class="pl-radio-option"><input type="radio" name="walls_b"><span class="pl-radio-option__label">Yes</span></label>
+          <label class="pl-radio-option"><input type="radio" name="walls_b" checked><span class="pl-radio-option__label">No</span></label>
+        </div>
+        <div class="pl-kiln-follow">
+          <div class="pl-kiln-notice">
+            <svg class="pl-kiln-ico"><use href="#i-eye"/></svg>
+            <div><strong>Thanks for telling us</strong>Thick walls can trap air and crack in the kiln, so the crew will take a look before loading. Hollowing the piece out or poking a small hole helps if you still can.</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="pl-kiln-actionbar">
+      <button type="button" class="hub-btn hub-btn--ghost">Save as draft</button>
+      <button type="submit" class="hub-btn hub-btn--primary pl-kiln-actionbar__grow" disabled aria-describedby="needs-photo">Submit ticket</button>
+    </div>
+    <p class="hub-text-muted" id="needs-photo">Add at least one photo to submit.</p>
+  </form>
+</section>
+
+<!-- =====================================================================
+     3a  TICKET DETAIL as the maker
+     ===================================================================== -->
+<section data-views="detail-maker" aria-labelledby="dm-title">
+  <p class="mock-crumb"><a href="?view=mine">Kiln Tickets</a></p>
+  <div class="pl-kiln-detail">
+    <div class="pl-kiln-detail__title">
+      <h1 class="hub-page-title" id="dm-title">Ticket 412</h1>
+      <span class="pl-status-badge pl-status-badge--ok pl-kiln-status"><svg class="pl-kiln-ico"><use href="#i-flame"/></svg>In the kiln</span>
+    </div>
+    <p class="hub-text-muted pl-kiln-detail__sub">Glaze · 3 bowls · Glaze firing 88</p>
+
+    <div class="hub-card">
+      <div class="pl-kiln-gallery__main"><svg class="mock-photo p-plum" viewBox="0 0 100 100" role="img" aria-label="Cover photo: three bowls from the side"><use href="#pot-bowls3"/></svg></div>
+      <div class="pl-kiln-gallery__strip">
+        <button type="button" aria-current="true" aria-label="Photo 1, cover"><svg class="mock-photo p-plum" viewBox="0 0 100 100"><use href="#pot-bowls3"/></svg></button>
+        <button type="button" aria-label="Photo 2"><svg class="mock-photo mock-photo--d p-plum" viewBox="0 0 100 100"><use href="#pot-bowl"/></svg></button>
+      </div>
+    </div>
+
+    <div class="hub-card">
+      <h2 class="pl-kiln-card-title">Where It Is</h2>
+      <ol class="pl-kiln-timeline">
+        <li data-state="done"><span class="pl-kiln-timeline__dot"><svg class="pl-kiln-ico"><use href="#i-check"/></svg></span><div><strong>Created</strong><span>Thu, Oct 2 · 4:10 pm</span></div></li>
+        <li data-state="done"><span class="pl-kiln-timeline__dot"><svg class="pl-kiln-ico"><use href="#i-check"/></svg></span><div><strong>Waiting for the kiln</strong><span>Submitted Thu, Oct 2 · 4:12 pm</span></div></li>
+        <li data-state="now"><span class="pl-kiln-timeline__dot"><svg class="pl-kiln-ico"><use href="#i-flame"/></svg></span><div><strong>In the kiln</strong><span>Loaded Sun, Oct 5 by Dana in Glaze firing 88</span></div></li>
+        <li data-state="next"><span class="pl-kiln-timeline__dot"></span><div><strong>Ready for pickup</strong><span>You will get a notification</span></div></li>
+      </ol>
+    </div>
+
+    <div class="pl-kiln-notice">
+      <svg class="pl-kiln-ico"><use href="#i-eye"/></svg>
+      <div><strong>The crew took a look</strong>Your clay is not on the studio list, so Dana checked it with you below.</div>
+    </div>
+
+    <div class="hub-card">
+      <h2 class="pl-kiln-card-title"><svg class="pl-kiln-ico"><use href="#i-msg"/></svg>Messages</h2>
+      <ol class="pl-kiln-thread">
+        <li class="pl-kiln-msg"><div class="pl-kiln-msg__who"><strong>Dana Reyes</strong><span class="pl-kiln-msg__role">Kiln crew</span><span>Sat, Oct 4</span></div>Hi Maya! Quick check before these go in: is the Standard 266 the cone 6 one? The bag label was not on the shelf.</li>
+        <li class="pl-kiln-msg pl-kiln-msg--mine"><div class="pl-kiln-msg__who"><strong>You</strong><span>Sat, Oct 4</span></div>Yes, it is cone 6. I bought it at Georgies last month. Thanks for checking!</li>
+        <li class="pl-kiln-msg"><div class="pl-kiln-msg__who"><strong>Dana Reyes</strong><span class="pl-kiln-msg__role">Kiln crew</span><span>Sun, Oct 5</span></div>Perfect, thank you. They are loaded on the middle shelf.</li>
+      </ol>
+      <form class="pl-kiln-reply">
+        <div class="pl-form-group"><label class="pl-form-label" for="reply-m">Reply to the crew</label><textarea id="reply-m" placeholder="Write a message"></textarea></div>
+        <div class="pl-kiln-reply__row"><span class="pl-kiln-reply__note">The kiln crew gets a notification.</span><button type="button" class="hub-btn hub-btn--primary">Send</button></div>
+      </form>
+    </div>
+
+    <div class="hub-card">
+      <h2 class="pl-kiln-card-title">Your Answers</h2>
+      <dl class="pl-kiln-answers">
+        <dt>Firing</dt><dd>Glaze</dd>
+        <dt>Size</dt><dd>4 x 6 x 6 inches</dd>
+        <dt>Quantity</dt><dd>3</dd>
+        <dt>Clay</dt><dd>Other: Standard 266 Dark Brown<br>Confirmed safe to Cone 6</dd>
+        <dt>Glaze</dt><dd>Studio: Ritual Clear, Plum Wine<br>Commercial: Amaco Potter's Choice Blue Rutile</dd>
+        <dt>Bottom 1/4 inch free of glaze</dt><dd>Yes</dd>
+        <dt>Cone 6 confirmation</dt><dd>Yes</dd>
+      </dl>
+    </div>
+
+    <a href="?view=new-glaze" class="hub-btn hub-btn--ghost pl-kiln-new"><svg class="pl-kiln-ico"><use href="#i-copy"/></svg>Make another like this</a>
+  </div>
+</section>
+
+<!-- =====================================================================
+     3b  TICKET DETAIL as the crew (phone stacks; desktop two columns)
+     ===================================================================== -->
+<section data-views="detail-crew" aria-labelledby="dc-title">
+  <p class="mock-crumb"><a href="?view=load">Load the Kiln</a></p>
+  <div class="pl-kiln-detail__title">
+    <h1 class="hub-page-title" id="dc-title">Ticket 412 · Maya Okafor</h1>
+    <span class="pl-status-badge pl-status-badge--warn pl-kiln-status"><svg class="pl-kiln-ico"><use href="#i-clock"/></svg>Waiting for the kiln</span>
+  </div>
+  <p class="hub-text-muted pl-kiln-head__lead">Glaze · 3 bowls · 4 x 6 x 6 in · submitted Thu, Oct 2</p>
+
+  <div class="pl-kiln-detail pl-kiln-detail--crew">
+    <div class="pl-kiln-detail__col">
+      <div class="hub-card">
+        <h2 class="pl-kiln-card-title"><svg class="pl-kiln-ico"><use href="#i-flag"/></svg>Flags <span class="pl-kiln-count">1</span></h2>
+        <ul class="pl-kiln-flaglist">
+          <li>
+            <div><span class="pl-kiln-flag"><svg class="pl-kiln-ico"><use href="#i-flag"/></svg>Other clay</span>
+              <p>"Standard 266 Dark Brown". Check the answer and who made the ticket.</p></div>
+            <button type="button" class="hub-btn hub-btn--sm hub-btn--ghost">Clear</button>
+          </li>
+          <li>
+            <div><span class="pl-kiln-flag pl-kiln-flag--cleared"><svg class="pl-kiln-ico"><use href="#i-check"/></svg><span>Commercial glaze</span></span>
+              <p>"Amaco Potter's Choice Blue Rutile". Cleared by Dana, Sat, Oct 4: "Cone 5 to 6, fine."</p></div>
+            <button type="button" class="hub-btn hub-btn--sm hub-btn--ghost">Undo</button>
+          </li>
+        </ul>
+        <details class="pl-disclosure pl-btn--spaced" open>
+          <summary class="pl-disclosure__summary"><span class="pl-disclosure__title">Add a flag</span><span class="pl-disclosure__chevron" aria-hidden="true"></span></summary>
+          <div class="pl-disclosure__body">
+            <div class="pl-form-group"><label class="pl-form-label" for="flagnote">What should the crew check?</label><textarea id="flagnote" placeholder="Example: glaze is thick near the foot, check before loading"></textarea></div>
+            <p class="pl-kiln-crewonly"><svg class="pl-kiln-ico"><use href="#i-lock"/></svg>Only the kiln crew sees flags you add. To ask Maya something, send a message.</p>
+            <button type="button" class="hub-btn hub-btn--sm hub-btn--primary pl-btn--spaced">Add flag</button>
+          </div>
+        </details>
+      </div>
+
+      <div class="hub-card">
+        <div class="pl-kiln-gallery__main"><svg class="mock-photo p-plum" viewBox="0 0 100 100" role="img" aria-label="Cover photo: three bowls from the side"><use href="#pot-bowls3"/></svg></div>
+        <div class="pl-kiln-gallery__strip">
+          <button type="button" aria-current="true" aria-label="Photo 1, cover"><svg class="mock-photo p-plum" viewBox="0 0 100 100"><use href="#pot-bowls3"/></svg></button>
+          <button type="button" aria-label="Photo 2"><svg class="mock-photo mock-photo--d p-plum" viewBox="0 0 100 100"><use href="#pot-bowl"/></svg></button>
+        </div>
+      </div>
+
+      <div class="hub-card">
+        <h2 class="pl-kiln-card-title"><svg class="pl-kiln-ico"><use href="#i-msg"/></svg>Messages</h2>
+        <ol class="pl-kiln-thread">
+          <li class="pl-kiln-msg pl-kiln-msg--mine"><div class="pl-kiln-msg__who"><strong>You</strong><span class="pl-kiln-msg__role">Kiln crew</span><span>Sat, Oct 4</span></div>Hi Maya! Quick check before these go in: is the Standard 266 the cone 6 one? The bag label was not on the shelf.</li>
+          <li class="pl-kiln-msg"><div class="pl-kiln-msg__who"><strong>Maya Okafor</strong><span>Sat, Oct 4</span></div>Yes, it is cone 6. I bought it at Georgies last month. Thanks for checking!</li>
+        </ol>
+        <form class="pl-kiln-reply">
+          <div class="pl-form-group"><label class="pl-form-label" for="reply-c">Message Maya</label><textarea id="reply-c" placeholder="Write a message"></textarea></div>
+          <div class="pl-kiln-reply__row"><span class="pl-kiln-reply__note">Maya gets it in the app and by email, per her settings.</span><button type="button" class="hub-btn hub-btn--primary">Send</button></div>
+        </form>
+      </div>
+    </div>
+
+    <div class="pl-kiln-detail__col">
+      <div class="hub-card">
+        <h2 class="pl-kiln-card-title">Maker</h2>
+        <div class="pl-kiln-maker">
+          <span class="pl-kiln-maker__avatar" aria-hidden="true">MO</span>
+          <div class="pl-kiln-maker__lines"><strong>Maya Okafor</strong> · Member<br><a href="#">maya.okafor@example.com</a><br><a href="#">(503) 555 0142</a></div>
+        </div>
+      </div>
+      <div class="hub-card">
+        <h2 class="pl-kiln-card-title">Answers</h2>
+        <dl class="pl-kiln-answers">
+          <dt>Firing</dt><dd>Glaze</dd>
+          <dt>Size</dt><dd>4 x 6 x 6 inches</dd>
+          <dt>Quantity</dt><dd>3</dd>
+          <dt>Clay</dt><dd><span class="pl-kiln-flag"><svg class="pl-kiln-ico"><use href="#i-flag"/></svg>Other</span> Standard 266 Dark Brown, confirmed Cone 6</dd>
+          <dt>Glaze</dt><dd>Studio: Ritual Clear, Plum Wine<br>Commercial: Amaco Potter's Choice Blue Rutile</dd>
+          <dt>Bottom 1/4 inch free of glaze</dt><dd>Yes</dd>
+          <dt>Cone 6 confirmation</dt><dd>Yes</dd>
+        </dl>
+      </div>
+      <div class="hub-card">
+        <h2 class="pl-kiln-card-title">History</h2>
+        <ol class="pl-kiln-timeline">
+          <li data-state="done"><span class="pl-kiln-timeline__dot"><svg class="pl-kiln-ico"><use href="#i-check"/></svg></span><div><strong>Created</strong><span>Thu, Oct 2 · 4:10 pm</span></div></li>
+          <li data-state="now"><span class="pl-kiln-timeline__dot"><svg class="pl-kiln-ico"><use href="#i-clock"/></svg></span><div><strong>Submitted</strong><span>Thu, Oct 2 · 4:12 pm</span></div></li>
+          <li data-state="next"><span class="pl-kiln-timeline__dot"></span><div><strong>Loaded</strong></div></li>
+          <li data-state="next"><span class="pl-kiln-timeline__dot"></span><div><strong>Fired</strong></div></li>
+        </ol>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- Crew page head (shared by Load, Unload, Log, Lists) -->
+<div class="pl-kiln-head" data-views="load unload log lists">
+  <h1 class="hub-page-title">Kiln Tickets</h1>
+  <div class="pl-tabs" role="tablist">
+    <button type="button" class="vote-tab">My Tickets</button>
+    <button type="button" class="vote-tab vote-tab--active" data-views="load" aria-selected="true">Load the Kiln<span class="pl-kiln-count">14</span></button>
+    <button type="button" class="vote-tab" data-views="unload log lists">Load the Kiln<span class="pl-kiln-count">14</span></button>
+    <button type="button" class="vote-tab" data-views="load log lists">Unload<span class="pl-kiln-count">1</span></button>
+    <button type="button" class="vote-tab vote-tab--active" data-views="unload" aria-selected="true">Unload<span class="pl-kiln-count">1</span></button>
+    <button type="button" class="vote-tab" data-views="load unload lists">Kiln Log</button>
+    <button type="button" class="vote-tab vote-tab--active" data-views="log" aria-selected="true">Kiln Log</button>
+    <button type="button" class="vote-tab" data-views="load unload log">Lists</button>
+    <button type="button" class="vote-tab vote-tab--active" data-views="lists" aria-selected="true">Lists</button>
+  </div>
+</div>
+
+<!-- =====================================================================
+     4  LOAD THE KILN (crew)
+     ===================================================================== -->
+<section data-views="load" aria-label="Load the kiln">
+  <div class="hub-card pl-kiln-firingbar">
+    <div>
+      <div class="pl-kiln-firingbar__label">Starting</div>
+      <div class="pl-kiln-firingbar__name">Glaze firing 88</div>
+    </div>
+    <div class="pl-kiln-seg" role="radiogroup" aria-label="Type of firing">
+      <label><input type="radio" name="fire-type">Bisque</label>
+      <label><input type="radio" name="fire-type" checked>Glaze</label>
+    </div>
+  </div>
+
+  <div class="pl-kiln-filters" role="group" aria-label="Show">
+    <label class="pl-chip"><input type="radio" name="flt">All 14</label>
+    <label class="pl-chip"><input type="radio" name="flt">Bisque 6</label>
+    <label class="pl-chip"><input type="radio" name="flt" checked>Glaze 8</label>
+    <label class="pl-chip"><input type="checkbox"><svg class="pl-kiln-ico"><use href="#i-flag"/></svg>Flagged 3</label>
+    <span class="pl-kiln-filters__sort">Waiting longest first</span>
+  </div>
+
+  <div class="pl-kiln-grid">
+    <label class="pl-kiln-tile">
+      <input type="checkbox" checked>
+      <span class="pl-kiln-tile__photo"><svg class="mock-photo p-copper" viewBox="0 0 100 100" role="img" aria-label="Mug"><use href="#pot-mug"/></svg><span class="pl-kiln-tile__qty">1 piece</span><span class="pl-kiln-tile__dots"><i></i><i></i></span><span class="pl-kiln-tile__check"><svg class="pl-kiln-ico"><use href="#i-check"/></svg></span></span>
+      <span class="pl-kiln-tile__body"><span class="pl-kiln-tile__who">Priya Nair</span><span class="pl-kiln-tile__size">5 x 4 x 6 in</span><span class="pl-kiln-tile__glaze">Coyote Copper</span>
+        <span class="pl-kiln-tile__foot"><span class="pl-kiln-tile__age">7 days</span><span class="pl-kiln-tile__state"><svg class="pl-kiln-ico"><use href="#i-check"/></svg>Loaded</span><a href="#">Details</a></span></span>
+    </label>
+    <label class="pl-kiln-tile pl-kiln-tile--loud">
+      <input type="checkbox">
+      <span class="pl-kiln-tile__flag pl-kiln-tile__flag--loud"><svg class="pl-kiln-ico"><use href="#i-alert"/></svg>No stilts: glaze on the bottom</span>
+      <span class="pl-kiln-tile__photo"><svg class="mock-photo mock-photo--b p-blue" viewBox="0 0 100 100" role="img" aria-label="Four cups"><use href="#pot-cups4"/></svg><span class="pl-kiln-tile__qty">4 pieces</span><span class="pl-kiln-tile__dots"><i></i><i></i><i></i></span><span class="pl-kiln-tile__check"><svg class="pl-kiln-ico"><use href="#i-check"/></svg></span></span>
+      <span class="pl-kiln-tile__body"><span class="pl-kiln-tile__who">Theo Lindqvist · Student</span><span class="pl-kiln-tile__size">4 x 3 x 3 in</span><span class="pl-kiln-tile__glaze">Perfect White, Penguin Floating Blue</span>
+        <span class="pl-kiln-tile__foot"><span class="pl-kiln-tile__age">6 days</span><span class="pl-kiln-tile__state"><svg class="pl-kiln-ico"><use href="#i-check"/></svg>Loaded</span><a href="#">Details</a></span></span>
+    </label>
+    <label class="pl-kiln-tile">
+      <input type="checkbox" checked>
+      <span class="pl-kiln-tile__photo"><svg class="mock-photo mock-photo--c p-campfire" viewBox="0 0 100 100" role="img" aria-label="Vase"><use href="#pot-vase"/></svg><span class="pl-kiln-tile__qty">1 piece</span><span class="pl-kiln-tile__dots"><i></i></span><span class="pl-kiln-tile__check"><svg class="pl-kiln-ico"><use href="#i-check"/></svg></span></span>
+      <span class="pl-kiln-tile__body"><span class="pl-kiln-tile__who">Rosa Delgado</span><span class="pl-kiln-tile__size">8 x 5 x 5 in</span><span class="pl-kiln-tile__glaze">Old Forge Campfire</span>
+        <span class="pl-kiln-tile__foot"><span class="pl-kiln-tile__age">6 days</span><span class="pl-kiln-tile__state"><svg class="pl-kiln-ico"><use href="#i-check"/></svg>Loaded</span><a href="#">Details</a></span></span>
+    </label>
+    <label class="pl-kiln-tile">
+      <input type="checkbox" checked>
+      <span class="pl-kiln-tile__photo"><svg class="mock-photo mock-photo--c p-white" viewBox="0 0 100 100" role="img" aria-label="Two plates"><use href="#pot-plate"/></svg><span class="pl-kiln-tile__qty">2 pieces</span><span class="pl-kiln-tile__dots"><i></i><i></i></span><span class="pl-kiln-tile__check"><svg class="pl-kiln-ico"><use href="#i-check"/></svg></span></span>
+      <span class="pl-kiln-tile__body"><span class="pl-kiln-tile__who">Maya Okafor</span><span class="pl-kiln-tile__size">1 x 10 x 10 in</span><span class="pl-kiln-tile__glaze">Ritual Clear</span>
+        <span class="pl-kiln-tile__foot"><span class="pl-kiln-tile__age">5 days</span><span class="pl-kiln-tile__state"><svg class="pl-kiln-ico"><use href="#i-check"/></svg>Loaded</span><a href="#">Details</a></span></span>
+    </label>
+    <label class="pl-kiln-tile">
+      <input type="checkbox" checked>
+      <span class="pl-kiln-tile__photo"><svg class="mock-photo mock-photo--b p-green" viewBox="0 0 100 100" role="img" aria-label="Tall vase"><use href="#pot-tall"/></svg><span class="pl-kiln-tile__qty">1 piece</span><span class="pl-kiln-tile__dots"><i></i><i></i></span><span class="pl-kiln-tile__check"><svg class="pl-kiln-ico"><use href="#i-check"/></svg></span></span>
+      <span class="pl-kiln-tile__body"><span class="pl-kiln-tile__who">Ben Carter</span><span class="pl-kiln-tile__size">14 x 5 x 5 in</span><span class="pl-kiln-tile__glaze">Donte's Laogai Green</span>
+        <span class="pl-kiln-tile__foot"><span class="pl-kiln-tile__age">4 days</span><span class="pl-kiln-tile__state"><svg class="pl-kiln-ico"><use href="#i-check"/></svg>Loaded</span><a href="#">Details</a></span></span>
+    </label>
+    <label class="pl-kiln-tile pl-kiln-tile--flagged">
+      <input type="checkbox" checked>
+      <span class="pl-kiln-tile__flag"><svg class="pl-kiln-ico"><use href="#i-flag"/></svg>Other clay</span>
+      <span class="pl-kiln-tile__photo"><svg class="mock-photo p-plum" viewBox="0 0 100 100" role="img" aria-label="Three bowls"><use href="#pot-bowls3"/></svg><span class="pl-kiln-tile__qty">3 pieces</span><span class="pl-kiln-tile__dots"><i></i><i></i></span><span class="pl-kiln-tile__check"><svg class="pl-kiln-ico"><use href="#i-check"/></svg></span></span>
+      <span class="pl-kiln-tile__body"><span class="pl-kiln-tile__who">Maya Okafor</span><span class="pl-kiln-tile__size">4 x 6 x 6 in</span><span class="pl-kiln-tile__glaze">Ritual Clear, Plum Wine, Amaco Blue Rutile</span>
+        <span class="pl-kiln-tile__foot"><span class="pl-kiln-tile__age">3 days</span><span class="pl-kiln-tile__state"><svg class="pl-kiln-ico"><use href="#i-check"/></svg>Loaded</span><a href="?view=detail-crew">Details</a></span></span>
+    </label>
+    <label class="pl-kiln-tile pl-kiln-tile--flagged">
+      <input type="checkbox">
+      <span class="pl-kiln-tile__flag"><svg class="pl-kiln-ico"><use href="#i-flag"/></svg>Glaze on the bottom, on stilts</span>
+      <span class="pl-kiln-tile__photo"><svg class="mock-photo mock-photo--d p-black" viewBox="0 0 100 100" role="img" aria-label="Lidded jar"><use href="#pot-jar"/></svg><span class="pl-kiln-tile__qty">1 piece</span><span class="pl-kiln-tile__dots"><i></i><i></i><i></i></span><span class="pl-kiln-tile__check"><svg class="pl-kiln-ico"><use href="#i-check"/></svg></span></span>
+      <span class="pl-kiln-tile__body"><span class="pl-kiln-tile__who">Lena Park</span><span class="pl-kiln-tile__size">7 x 6 x 6 in</span><span class="pl-kiln-tile__glaze">Georgie's Patent Black</span>
+        <span class="pl-kiln-tile__foot"><span class="pl-kiln-tile__age">2 days</span><span class="pl-kiln-tile__state"><svg class="pl-kiln-ico"><use href="#i-check"/></svg>Loaded</span><a href="#">Details</a></span></span>
+    </label>
+    <label class="pl-kiln-tile pl-kiln-tile--flagged">
+      <input type="checkbox">
+      <span class="pl-kiln-tile__flag"><svg class="pl-kiln-ico"><use href="#i-flag"/></svg>Crew note: lid glazed shut?</span>
+      <span class="pl-kiln-tile__photo"><svg class="mock-photo p-red" viewBox="0 0 100 100" role="img" aria-label="Planter with saucer"><use href="#pot-planter"/></svg><span class="pl-kiln-tile__qty">1 piece</span><span class="pl-kiln-tile__dots"><i></i></span><span class="pl-kiln-tile__check"><svg class="pl-kiln-ico"><use href="#i-check"/></svg></span></span>
+      <span class="pl-kiln-tile__body"><span class="pl-kiln-tile__who">Omar Haddad</span><span class="pl-kiln-tile__size">6 x 8 x 8 in</span><span class="pl-kiln-tile__glaze">RC-2 Oxidation Red</span>
+        <span class="pl-kiln-tile__foot"><span class="pl-kiln-tile__age">1 day</span><span class="pl-kiln-tile__state"><svg class="pl-kiln-ico"><use href="#i-check"/></svg>Loaded</span><a href="#">Details</a></span></span>
+    </label>
+  </div>
+
+  <div class="pl-kiln-actionbar">
+    <div class="pl-kiln-actionbar__note"><strong>5 tickets ticked</strong>They move to In the kiln. Makers are not notified yet.</div>
+    <button type="button" class="hub-btn hub-btn--primary"><svg class="pl-kiln-ico"><use href="#i-flame"/></svg>Confirm loaded</button>
+  </div>
+</section>
+
+<!-- =====================================================================
+     5  UNLOAD (crew)
+     ===================================================================== -->
+<section data-views="unload" aria-label="Unload">
+  <div class="hub-card pl-kiln-firingbar">
+    <div>
+      <div class="pl-kiln-firingbar__label">Unloading</div>
+      <div class="pl-kiln-firingbar__name">Glaze firing 88</div>
+      <div class="pl-kiln-firingbar__label">Loaded Sun, Oct 5 by Dana Reyes · 7 tickets</div>
+    </div>
+  </div>
+  <p class="hub-text-muted">Everything is ticked. Untick a piece that did not come out right, and tell its maker what happened.</p>
+
+  <ul class="pl-kiln-unload">
+    <li class="pl-kiln-unload__row pl-kiln-unload__row--ok"><label class="pl-kiln-unload__main"><input type="checkbox" checked><span class="pl-kiln-unload__photo"><svg class="mock-photo p-copper" viewBox="0 0 100 100"><use href="#pot-mug"/></svg></span><span><span class="pl-kiln-unload__who">Priya Nair</span><span class="pl-kiln-unload__sub">Ticket 401 · 1 mug · Coyote Copper</span><span class="pl-kiln-unload__out"><svg class="pl-kiln-ico"><use href="#i-check"/></svg>Ready for pickup</span></span></label></li>
+    <li class="pl-kiln-unload__row pl-kiln-unload__row--ok"><label class="pl-kiln-unload__main"><input type="checkbox" checked><span class="pl-kiln-unload__photo"><svg class="mock-photo mock-photo--c p-campfire" viewBox="0 0 100 100"><use href="#pot-vase"/></svg></span><span><span class="pl-kiln-unload__who">Rosa Delgado</span><span class="pl-kiln-unload__sub">Ticket 405 · 1 vase · Old Forge Campfire</span><span class="pl-kiln-unload__out"><svg class="pl-kiln-ico"><use href="#i-check"/></svg>Ready for pickup</span></span></label></li>
+    <li class="pl-kiln-unload__row pl-kiln-unload__row--ok"><label class="pl-kiln-unload__main"><input type="checkbox" checked><span class="pl-kiln-unload__photo"><svg class="mock-photo mock-photo--c p-white" viewBox="0 0 100 100"><use href="#pot-plate"/></svg></span><span><span class="pl-kiln-unload__who">Maya Okafor</span><span class="pl-kiln-unload__sub">Ticket 409 · 2 plates · Ritual Clear</span><span class="pl-kiln-unload__out"><svg class="pl-kiln-ico"><use href="#i-check"/></svg>Ready for pickup</span></span></label></li>
+    <li class="pl-kiln-unload__row pl-kiln-unload__row--except">
+      <label class="pl-kiln-unload__main"><input type="checkbox"><span class="pl-kiln-unload__photo"><svg class="mock-photo mock-photo--b p-green" viewBox="0 0 100 100"><use href="#pot-tall"/></svg></span><span><span class="pl-kiln-unload__who">Ben Carter</span><span class="pl-kiln-unload__sub">Ticket 411 · 1 tall vase · Donte's Laogai Green</span><span class="pl-kiln-unload__out"><svg class="pl-kiln-ico"><use href="#i-msg"/></svg>Gets your message instead</span></span></label>
+      <div class="pl-kiln-except">
+        <p class="pl-kiln-q__label">What happened?</p>
+        <div class="pl-kiln-chips" role="group" aria-label="What happened">
+          <label class="pl-chip"><input type="radio" name="what" checked>Cracked</label>
+          <label class="pl-chip"><input type="radio" name="what">Glaze ran</label>
+          <label class="pl-chip"><input type="radio" name="what">Stuck to the shelf</label>
+          <label class="pl-chip"><input type="radio" name="what">Something else</label>
+        </div>
+        <div class="pl-form-group pl-btn--spaced"><label class="pl-form-label" for="ben-msg">Message to Ben</label><textarea id="ben-msg">Hi Ben, your tall vase came out with a crack near the base. It is on the pickup shelf with a note. Come find me Thursday evening and we can look at it together.</textarea></div>
+        <p class="pl-kiln-q__label">What happens to the ticket?</p>
+        <label class="pl-radio-option"><input type="radio" name="ben-next" checked><span class="pl-radio-option__label">It was fired. Mark it fired and send my message.</span></label>
+        <label class="pl-radio-option"><input type="radio" name="ben-next"><span class="pl-radio-option__label">It was not fired. Put it back in the queue and send my message.</span></label>
+      </div>
+    </li>
+    <li class="pl-kiln-unload__row pl-kiln-unload__row--ok"><label class="pl-kiln-unload__main"><input type="checkbox" checked><span class="pl-kiln-unload__photo"><svg class="mock-photo p-plum" viewBox="0 0 100 100"><use href="#pot-bowls3"/></svg></span><span><span class="pl-kiln-unload__who">Maya Okafor</span><span class="pl-kiln-unload__sub">Ticket 412 · 3 bowls · Ritual Clear, Plum Wine</span><span class="pl-kiln-unload__out"><svg class="pl-kiln-ico"><use href="#i-check"/></svg>Ready for pickup</span></span></label></li>
+    <li class="pl-kiln-unload__row pl-kiln-unload__row--ok"><label class="pl-kiln-unload__main"><input type="checkbox" checked><span class="pl-kiln-unload__photo"><svg class="mock-photo mock-photo--d p-rutile" viewBox="0 0 100 100"><use href="#pot-bowl"/></svg></span><span><span class="pl-kiln-unload__who">Jun Ito</span><span class="pl-kiln-unload__sub">Ticket 398 · 1 bowl · Georgie's Zinc-Free Clear</span><span class="pl-kiln-unload__out"><svg class="pl-kiln-ico"><use href="#i-check"/></svg>Ready for pickup</span></span></label></li>
+    <li class="pl-kiln-unload__row pl-kiln-unload__row--ok"><label class="pl-kiln-unload__main"><input type="checkbox" checked><span class="pl-kiln-unload__photo"><svg class="mock-photo mock-photo--b p-white" viewBox="0 0 100 100"><use href="#pot-jar"/></svg></span><span><span class="pl-kiln-unload__who">Clara Moss · Student</span><span class="pl-kiln-unload__sub">Ticket 400 · 1 jar · Perfect White</span><span class="pl-kiln-unload__out"><svg class="pl-kiln-ico"><use href="#i-check"/></svg>Ready for pickup</span></span></label></li>
+  </ul>
+
+  <div class="pl-kiln-actionbar">
+    <div class="pl-kiln-actionbar__note"><strong>6 ready, 1 message</strong>Ben gets your message instead.</div>
+    <button type="button" class="hub-btn hub-btn--primary"><svg class="pl-kiln-ico"><use href="#i-bell"/></svg>Mark fired and notify</button>
+  </div>
+</section>
+
+<!-- =====================================================================
+     6  KILN LOG (crew)
+     ===================================================================== -->
+<section data-views="log" aria-label="Kiln log">
+  <div class="pl-kiln-filters" role="group" aria-label="Show">
+    <label class="pl-chip"><input type="radio" name="logf" checked>All</label>
+    <label class="pl-chip"><input type="radio" name="logf">Bisque</label>
+    <label class="pl-chip"><input type="radio" name="logf">Glaze</label>
+  </div>
+
+  <div class="admin-table-wrap pl-kiln-log-wide">
+    <table class="pl-kiln-log-table">
+      <thead><tr><th>Firing</th><th>Type</th><th>Loaded</th><th>Unloaded</th><th class="pl-kiln-num">Tickets</th><th>Notes</th></tr></thead>
+      <tbody>
+        <tr><td><a href="?view=unload">Glaze firing 88</a></td><td><span class="pl-kiln-type"><svg class="pl-kiln-ico"><use href="#i-flame"/></svg>Glaze</span></td><td>Sun, Oct 5<small>Dana Reyes</small></td><td><span class="pl-status-badge pl-status-badge--warn pl-kiln-status"><svg class="pl-kiln-ico"><use href="#i-flame"/></svg>In the kiln</span></td><td class="pl-kiln-num">7</td><td><a href="?view=unload">Unload</a></td></tr>
+        <tr><td><a href="#">Bisque firing 61</a></td><td><span class="pl-kiln-type">Bisque</span></td><td>Wed, Oct 1<small>Sam Whitlock</small></td><td>Fri, Oct 3<small>Dana Reyes</small></td><td class="pl-kiln-num">16</td><td></td></tr>
+        <tr class="pl-kiln-log-open"><td><a href="#">Glaze firing 87</a></td><td><span class="pl-kiln-type"><svg class="pl-kiln-ico"><use href="#i-flame"/></svg>Glaze</span></td><td>Sun, Sep 28<small>Dana Reyes</small></td><td>Tue, Sep 30<small>Sam Whitlock</small></td><td class="pl-kiln-num">9</td><td><span class="pl-kiln-flag"><svg class="pl-kiln-ico"><use href="#i-msg"/></svg>1 exception: glaze ran</span></td></tr>
+        <tr class="pl-kiln-log-open"><td colspan="6">
+          <div class="pl-kiln-log-strip">
+            <a href="#"><span><svg class="mock-photo mock-photo--b p-blue" viewBox="0 0 100 100"><use href="#pot-mug"/></svg></span>403 Maya</a>
+            <a href="#"><span><svg class="mock-photo p-black" viewBox="0 0 100 100"><use href="#pot-bowl"/></svg></span>399 Lena</a>
+            <a href="#"><span><svg class="mock-photo mock-photo--c p-copper" viewBox="0 0 100 100"><use href="#pot-vase"/></svg></span>397 Priya</a>
+            <a href="#"><span><svg class="mock-photo mock-photo--d p-red" viewBox="0 0 100 100"><use href="#pot-cups4"/></svg></span>396 Omar</a>
+            <a href="#"><span><svg class="mock-photo p-white" viewBox="0 0 100 100"><use href="#pot-plate"/></svg></span>394 Jun</a>
+            <a href="#"><span><svg class="mock-photo mock-photo--b p-green" viewBox="0 0 100 100"><use href="#pot-jar"/></svg></span>393 Rosa</a>
+            <a href="#"><span><svg class="mock-photo mock-photo--c p-campfire" viewBox="0 0 100 100"><use href="#pot-bowls3"/></svg></span>392 Ben</a>
+            <a href="#"><span><svg class="mock-photo p-rutile" viewBox="0 0 100 100"><use href="#pot-tall"/></svg></span>391 Clara</a>
+            <a href="#"><span><svg class="mock-photo mock-photo--d p-plum" viewBox="0 0 100 100"><use href="#pot-sculpt"/></svg></span>390 Theo</a>
+          </div>
+        </td></tr>
+        <tr><td><a href="#">Bisque firing 60</a></td><td><span class="pl-kiln-type">Bisque</span></td><td>Wed, Sep 24<small>Sam Whitlock</small></td><td>Fri, Sep 26<small>Sam Whitlock</small></td><td class="pl-kiln-num">21</td><td></td></tr>
+        <tr><td><a href="#">Glaze firing 86</a></td><td><span class="pl-kiln-type"><svg class="pl-kiln-ico"><use href="#i-flame"/></svg>Glaze</span></td><td>Sun, Sep 21<small>Dana Reyes</small></td><td>Tue, Sep 23<small>Dana Reyes</small></td><td class="pl-kiln-num">11</td><td></td></tr>
+        <tr><td><a href="#">Bisque firing 59</a></td><td><span class="pl-kiln-type">Bisque</span></td><td>Wed, Sep 17<small>Sam Whitlock</small></td><td>Fri, Sep 19<small>Dana Reyes</small></td><td class="pl-kiln-num">18</td><td><span class="pl-kiln-flag"><svg class="pl-kiln-ico"><use href="#i-msg"/></svg>2 exceptions: cracked</span></td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <ul class="pl-kiln-log-cards">
+    <li><a class="pl-kiln-log-card" href="?view=unload"><div class="pl-kiln-log-card__top"><span class="pl-kiln-log-card__name">Glaze firing 88</span><span class="pl-status-badge pl-status-badge--warn pl-kiln-status"><svg class="pl-kiln-ico"><use href="#i-flame"/></svg>In the kiln</span></div><div class="pl-kiln-log-card__lines"><strong>7 tickets</strong> · loaded Sun, Oct 5 by Dana Reyes<br>Tap to unload</div></a></li>
+    <li><a class="pl-kiln-log-card" href="#"><div class="pl-kiln-log-card__top"><span class="pl-kiln-log-card__name">Bisque firing 61</span><span class="pl-status-badge pl-status-badge--muted pl-kiln-status"><svg class="pl-kiln-ico"><use href="#i-check"/></svg>Fired</span></div><div class="pl-kiln-log-card__lines"><strong>16 tickets</strong><br>Loaded Wed, Oct 1 by Sam Whitlock<br>Unloaded Fri, Oct 3 by Dana Reyes</div></a></li>
+    <li><a class="pl-kiln-log-card" href="#"><div class="pl-kiln-log-card__top"><span class="pl-kiln-log-card__name">Glaze firing 87</span><span class="pl-status-badge pl-status-badge--muted pl-kiln-status"><svg class="pl-kiln-ico"><use href="#i-check"/></svg>Fired</span></div><div class="pl-kiln-log-card__lines"><strong>9 tickets</strong> · <span class="pl-kiln-flag"><svg class="pl-kiln-ico"><use href="#i-msg"/></svg>1 exception</span><br>Loaded Sun, Sep 28 by Dana Reyes<br>Unloaded Tue, Sep 30 by Sam Whitlock</div></a></li>
+    <li><a class="pl-kiln-log-card" href="#"><div class="pl-kiln-log-card__top"><span class="pl-kiln-log-card__name">Bisque firing 60</span><span class="pl-status-badge pl-status-badge--muted pl-kiln-status"><svg class="pl-kiln-ico"><use href="#i-check"/></svg>Fired</span></div><div class="pl-kiln-log-card__lines"><strong>21 tickets</strong><br>Loaded Wed, Sep 24 by Sam Whitlock<br>Unloaded Fri, Sep 26 by Sam Whitlock</div></a></li>
+    <li><a class="pl-kiln-log-card" href="#"><div class="pl-kiln-log-card__top"><span class="pl-kiln-log-card__name">Glaze firing 86</span><span class="pl-status-badge pl-status-badge--muted pl-kiln-status"><svg class="pl-kiln-ico"><use href="#i-check"/></svg>Fired</span></div><div class="pl-kiln-log-card__lines"><strong>11 tickets</strong><br>Loaded Sun, Sep 21 by Dana Reyes<br>Unloaded Tue, Sep 23 by Dana Reyes</div></a></li>
+  </ul>
+</section>
+
+<!-- =====================================================================
+     7  CLAY AND GLAZE LISTS (staff). Autosaves like guild settings.
+     ===================================================================== -->
+<section data-views="lists" aria-label="Clay and glaze lists">
+  <p class="pl-kiln-rule">These are the choices on every new ticket. Rename to fix a typo. If the clay or glaze itself changed, archive the old one and add a new one, so old tickets keep showing what was really used. Nothing here is ever deleted.</p>
+  <div class="pl-kiln-lists">
+    <div class="hub-card">
+      <h2 class="pl-kiln-card-title">Clay Bodies</h2>
+      <div class="pl-kiln-listrow"><div class="pl-form-group"><label class="sr-only" for="c1">Clay name</label><input id="c1" value="G-Mix 6"></div><button type="button" class="hub-btn hub-btn--sm hub-btn--ghost"><svg class="pl-kiln-ico"><use href="#i-archive"/></svg>Archive</button><span class="pl-kiln-listrow__meta">On 212 tickets</span></div>
+      <div class="pl-kiln-listrow"><div class="pl-form-group"><label class="sr-only" for="c2">Clay name</label><input id="c2" value="Trail Mix Dark Chocolate"></div><button type="button" class="hub-btn hub-btn--sm hub-btn--ghost"><svg class="pl-kiln-ico"><use href="#i-archive"/></svg>Archive</button><span class="pl-kiln-listrow__meta">On 88 tickets</span></div>
+      <div class="pl-kiln-listrow"><div class="pl-form-group"><label class="sr-only" for="c3">Clay name</label><input id="c3" value="Kristy Lombard"></div><button type="button" class="hub-btn hub-btn--sm hub-btn--ghost"><svg class="pl-kiln-ico"><use href="#i-archive"/></svg>Archive</button><span class="pl-kiln-listrow__meta">On 41 tickets</span></div>
+      <div class="pl-kiln-listrow"><div class="pl-form-group"><label class="sr-only" for="c4">Clay name</label><input id="c4" value="Trail Mix Toast"></div><button type="button" class="hub-btn hub-btn--sm hub-btn--ghost"><svg class="pl-kiln-ico"><use href="#i-archive"/></svg>Archive</button><span class="pl-kiln-listrow__meta">On 97 tickets · <span class="pl-kiln-saved"><svg class="pl-kiln-ico"><use href="#i-check"/></svg>Saved</span></span></div>
+      <div class="pl-kiln-listrow"><div class="pl-form-group"><label class="sr-only" for="c5">Clay name</label><input id="c5" value="White Salmon"></div><button type="button" class="hub-btn hub-btn--sm hub-btn--ghost"><svg class="pl-kiln-ico"><use href="#i-archive"/></svg>Archive</button><span class="pl-kiln-listrow__meta">On 63 tickets</span></div>
+      <div class="pl-kiln-listrow pl-kiln-listrow--fixed"><span class="pl-kiln-listrow__name">Other (specify)</span><span class="pl-kiln-crewonly"><svg class="pl-kiln-ico"><use href="#i-lock"/></svg>Always last</span><span class="pl-kiln-listrow__meta">Asks which clay and the Cone 6 confirmation. Always flags the ticket.</span></div>
+      <button type="button" class="hub-btn hub-btn--sm hub-btn--primary pl-kiln-add"><svg class="pl-kiln-ico"><use href="#i-plus"/></svg>Add clay</button>
+      <details class="pl-disclosure">
+        <summary class="pl-disclosure__summary"><span class="pl-disclosure__text"><span class="pl-disclosure__title">Archived (1)</span><span class="pl-disclosure__hint">Hidden from new tickets. Old tickets still show them.</span></span><span class="pl-disclosure__chevron" aria-hidden="true"></span></summary>
+        <div class="pl-disclosure__body"><ul class="pl-kiln-archived"><li><span>B-Mix 5<small>Archived Aug 12 by Dana Reyes · on 19 tickets</small></span><button type="button" class="hub-btn hub-btn--sm hub-btn--ghost"><svg class="pl-kiln-ico"><use href="#i-undo"/></svg>Restore</button></li></ul></div>
+      </details>
+    </div>
+
+    <div class="hub-card">
+      <h2 class="pl-kiln-card-title">Studio Glazes</h2>
+      <div class="pl-kiln-listrow"><div class="pl-form-group"><label class="sr-only" for="g1">Glaze name</label><input id="g1" value="Perfect White"></div><button type="button" class="hub-btn hub-btn--sm hub-btn--ghost"><svg class="pl-kiln-ico"><use href="#i-archive"/></svg>Archive</button></div>
+      <div class="pl-kiln-listrow"><div class="pl-form-group"><label class="sr-only" for="g2">Glaze name</label><input id="g2" value="Ritual Clear"></div><button type="button" class="hub-btn hub-btn--sm hub-btn--ghost"><svg class="pl-kiln-ico"><use href="#i-archive"/></svg>Archive</button></div>
+      <div class="pl-kiln-listrow"><div class="pl-form-group"><label class="sr-only" for="g3">Glaze name</label><input id="g3" value="Georgie's Patent Black"></div><button type="button" class="hub-btn hub-btn--sm hub-btn--ghost"><svg class="pl-kiln-ico"><use href="#i-archive"/></svg>Archive</button></div>
+      <div class="pl-kiln-listrow"><div class="pl-form-group"><label class="sr-only" for="g4">Glaze name</label><input id="g4" value="Georgie's Zinc-Free Clear"></div><button type="button" class="hub-btn hub-btn--sm hub-btn--ghost"><svg class="pl-kiln-ico"><use href="#i-archive"/></svg>Archive</button></div>
+      <div class="pl-kiln-listrow"><div class="pl-form-group"><label class="sr-only" for="g5">Glaze name</label><input id="g5" value="Coyote Copper"></div><button type="button" class="hub-btn hub-btn--sm hub-btn--ghost"><svg class="pl-kiln-ico"><use href="#i-archive"/></svg>Archive</button></div>
+      <div class="pl-kiln-listrow"><div class="pl-form-group"><label class="sr-only" for="g6">Glaze name</label><input id="g6" value="Penguin Floating Blue"></div><button type="button" class="hub-btn hub-btn--sm hub-btn--ghost"><svg class="pl-kiln-ico"><use href="#i-archive"/></svg>Archive</button></div>
+      <div class="pl-kiln-listrow"><div class="pl-form-group"><label class="sr-only" for="g7">Glaze name</label><input id="g7" value="Plum Wine"></div><button type="button" class="hub-btn hub-btn--sm hub-btn--ghost"><svg class="pl-kiln-ico"><use href="#i-archive"/></svg>Archive</button></div>
+      <div class="pl-kiln-listrow"><div class="pl-form-group"><label class="sr-only" for="g8">Glaze name</label><input id="g8" value="Donte's Laogai Green"></div><button type="button" class="hub-btn hub-btn--sm hub-btn--ghost"><svg class="pl-kiln-ico"><use href="#i-archive"/></svg>Archive</button></div>
+      <div class="pl-kiln-listrow"><div class="pl-form-group"><label class="sr-only" for="g9">Glaze name</label><input id="g9" value="Old Forge Campfire"></div><button type="button" class="hub-btn hub-btn--sm hub-btn--ghost"><svg class="pl-kiln-ico"><use href="#i-archive"/></svg>Archive</button></div>
+      <div class="pl-kiln-listrow"><div class="pl-form-group"><label class="sr-only" for="g10">Glaze name</label><input id="g10" value="RC-2 Oxidation Red"></div><button type="button" class="hub-btn hub-btn--sm hub-btn--ghost"><svg class="pl-kiln-ico"><use href="#i-archive"/></svg>Archive</button></div>
+      <div class="pl-kiln-listrow"><div class="pl-form-group"><label class="sr-only" for="g11">Glaze name</label><input id="g11" placeholder="New glaze name" aria-invalid="false"></div><button type="button" class="hub-btn hub-btn--sm hub-btn--ghost">Remove</button><span class="pl-kiln-listrow__meta">Not saved until it has a name</span></div>
+      <button type="button" class="hub-btn hub-btn--sm hub-btn--primary pl-kiln-add"><svg class="pl-kiln-ico"><use href="#i-plus"/></svg>Add glaze</button>
+      <details class="pl-disclosure">
+        <summary class="pl-disclosure__summary"><span class="pl-disclosure__text"><span class="pl-disclosure__title">Archived (1)</span><span class="pl-disclosure__hint">Hidden from new tickets. Old tickets still show them.</span></span><span class="pl-disclosure__chevron" aria-hidden="true"></span></summary>
+        <div class="pl-disclosure__body"><ul class="pl-kiln-archived"><li><span>Amaco Seaweed<small>Archived Jun 3 by Sam Whitlock · on 27 tickets</small></span><button type="button" class="hub-btn hub-btn--sm hub-btn--ghost"><svg class="pl-kiln-ico"><use href="#i-undo"/></svg>Restore</button></li></ul></div>
+      </details>
+    </div>
+  </div>
+</section>
+
+<!-- =====================================================================
+     8a  READY FOR PICKUP in the bell (the existing notifications page)
+     ===================================================================== -->
+<section data-views="bell" aria-label="Notifications">
+  <div class="pl-notes__header">
+    <h1 class="hub-page-title">Notifications</h1>
+    <div class="pl-notes__actions">
+      <button type="submit" class="hub-btn hub-btn--sm hub-btn--primary">Mark all as read</button>
+      <a href="#" class="tab-history-link">Back to Home</a>
+    </div>
+  </div>
+  <div class="hub-card">
+    <form class="pl-note pl-note--unread"><button type="button" class="pl-note__btn pl-note__btn--photo">
+      <span class="pl-note__photo"><svg class="mock-photo p-plum" viewBox="0 0 100 100" role="img" aria-label="Three bowls"><use href="#pot-bowls3"/></svg></span>
+      <span class="pl-note__text"><span class="pl-note__title">Your pieces are ready for pickup</span><span class="pl-note__body">Tickets 409 and 412 came out of Glaze firing 88. They are on the Ceramics pickup shelf.</span><span class="pl-note__time">12 minutes ago</span></span>
+    </button></form>
+    <form class="pl-note pl-note--unread"><button type="button" class="pl-note__btn pl-note__btn--photo">
+      <span class="pl-note__photo"><svg class="mock-photo p-plum" viewBox="0 0 100 100" role="img" aria-label="Three bowls"><use href="#pot-bowls3"/></svg></span>
+      <span class="pl-note__text"><span class="pl-note__title">Dana replied on ticket 412</span><span class="pl-note__body">"Perfect, thank you. They are loaded on the middle shelf."</span><span class="pl-note__time">2 days ago</span></span>
+    </button></form>
+    <form class="pl-note"><button type="button" class="pl-note__btn pl-note__btn--photo">
+      <span class="pl-note__photo"><svg class="mock-photo mock-photo--b p-blue" viewBox="0 0 100 100" role="img" aria-label="Mug"><use href="#pot-mug"/></svg></span>
+      <span class="pl-note__text"><span class="pl-note__title">Your piece is ready for pickup</span><span class="pl-note__body">Ticket 403 came out of Glaze firing 87. It is on the Ceramics pickup shelf.</span><span class="pl-note__time">1 week ago</span></span>
+    </button></form>
+    <form class="pl-note"><button type="button" class="pl-note__btn">
+      <span class="pl-note__title">New class: Wheel Throwing 2</span><span class="pl-note__body">Registration is open for the November session.</span><span class="pl-note__time">1 week ago</span>
+    </button></form>
+  </div>
+</section>
+
+    </main>
+  </div>
+
+<!-- =====================================================================
+     8b  READY FOR PICKUP email, in the dark notification shell (inline styles: email)
+     ===================================================================== -->
+<div class="mock-email-page">
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background-color: #eef0f3; padding: 32px 16px; font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif;">
+<tr><td align="center">
+<table role="presentation" width="600" cellpadding="0" cellspacing="0" style="max-width: 600px; width: 100%;">
+  <tr><td style="background-color: #092E4C; border-radius: 14px 14px 0 0; padding: 34px 28px 28px; text-align: center;">
+    <img src="../static/img/favicon.png" width="58" height="58" alt="Past Lives Makerspace" style="display: block; margin: 0 auto 12px; border: 0;">
+    <div style="font-size: 22px; font-weight: 700; color: #F4EFDD; letter-spacing: 0.02em; line-height: 1.2;">Past Lives Makerspace</div>
+  </td></tr>
+  <tr><td height="5" style="height: 5px; line-height: 5px; font-size: 0; background-color: #EEB44B;">&nbsp;</td></tr>
+  <tr><td style="background-color: #FFFFFF; border-left: 1px solid #e3e7ec; border-right: 1px solid #e3e7ec; border-bottom: 1px solid #e3e7ec; border-radius: 0 0 14px 14px; padding: 38px 34px 30px;">
+    <div style="color: #33424F; font-size: 15px; line-height: 1.6;">
+      <p style="margin: 0 0 6px; font-size: 13px; color: #5B6B77; text-transform: uppercase; letter-spacing: 0.06em;">Ceramics Guild · Kiln tickets</p>
+      <h1 style="margin: 0 0 14px; font-size: 24px; line-height: 1.25; color: #092E4C;">Your pieces are ready for pickup</h1>
+      <p style="margin: 0 0 20px;">Hi Maya, two of your tickets came out of <a href="#" style="color: #092E4C; font-weight: 700;">Glaze firing 88</a> today. They are on the Ceramics pickup shelf.</p>
+      <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin: 0 0 22px; border: 1px solid #e3e7ec; border-radius: 10px;">
+        <tr>
+          <td width="76" style="padding: 12px;"><svg class="mock-photo p-plum" viewBox="0 0 100 100" width="64" height="64" style="border-radius: 8px;"><use href="#pot-bowls3"/></svg></td>
+          <td style="padding: 12px 12px 12px 0;"><a href="#" style="color: #092E4C; font-weight: 700;">Ticket 412</a><br><span style="font-size: 14px; color: #5B6B77;">3 bowls · Ritual Clear, Plum Wine, Amaco Blue Rutile</span></td>
+        </tr>
+        <tr>
+          <td width="76" style="padding: 0 12px 12px; border-top: 1px solid #e3e7ec; padding-top: 12px;"><svg class="mock-photo mock-photo--c p-white" viewBox="0 0 100 100" width="64" height="64" style="border-radius: 8px;"><use href="#pot-plate"/></svg></td>
+          <td style="padding: 12px 12px 12px 0; border-top: 1px solid #e3e7ec;"><a href="#" style="color: #092E4C; font-weight: 700;">Ticket 409</a><br><span style="font-size: 14px; color: #5B6B77;">2 plates · Ritual Clear</span></td>
+        </tr>
+      </table>
+      <p style="margin: 0 0 24px; text-align: center;"><a href="#" style="display: inline-block; padding: 13px 26px; border-radius: 8px; background: #EEB44B; color: #092E4C; font-weight: 700; text-decoration: none;">See your kiln tickets</a></p>
+      <p style="margin: 0 0 6px; font-size: 14px; color: #5B6B77;">Unloaded Tue, Oct 7 by Sam Whitlock. Something not right with a piece? Reply on its ticket and the kiln crew will see it.</p>
+    </div>
+  </td></tr>
+  <tr><td style="text-align: center; padding-top: 28px;">
+    <a href="#" style="font-size:15px; font-weight:700; color:#092E4C; text-decoration:none;">Past Lives Makerspace</a>
+    <p style="margin: 10px 0 0; font-size: 11px; color: #5B6B77; line-height: 1.5;">You're getting this message because you have a Past Lives Makerspace account.<br><a href="#" style="color:#092E4C; text-decoration:underline;">Manage your email preferences or unsubscribe</a></p>
+  </td></tr>
+</table>
+</td></tr>
+</table>
+</div>
+</body>
+</html>
