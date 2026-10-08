@@ -692,7 +692,8 @@ def describe_send_for_a_results_announcement():
         payload = json.loads(route.calls.last.request.content)
         assert payload["embeds"][0]["url"] == "https://members.example/guilds/voting/history/"
         bell = Notification.objects.get(user=reader, trigger="site_announcement")
-        assert bell.url == "https://members.example/guilds/voting/history/"
+        # Discord needs the absolute link; the bell keeps the path so a click stays on this host.
+        assert bell.url == "/guilds/voting/history/"
 
     def it_counts_the_results_once_however_often_the_stamp_runs():
         snapshot = _snapshot()

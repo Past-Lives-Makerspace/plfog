@@ -100,7 +100,7 @@ def send_registration_confirmation(registration: "Registration") -> None:
         template_context=template_context,
         in_app_title="Registration confirmed",
         in_app_body=offering.title,
-        url=reverse("account:overview"),
+        url=reverse("classes:my_registration", kwargs={"token": registration.self_serve_token}),
         email_to=registration.email,
         period=f"reg:{registration.pk}:confirmation",
     )
@@ -564,7 +564,7 @@ def send_waitlist_joined_confirmation(registration: "Registration") -> None:
         template_context=template_context,
         in_app_title="Added to the waitlist",
         in_app_body=offering.title,
-        url=reverse("account:overview"),
+        url=reverse("classes:my_registration", kwargs={"token": registration.self_serve_token}),
         email_to=registration.email,
         period=f"reg:{registration.pk}:waitlist_joined",
     )
@@ -607,7 +607,7 @@ def send_waitlist_spot_opened(registration: "Registration") -> None:
         template_context=template_context,
         in_app_title="A waitlist spot opened up",
         in_app_body=offering.title,
-        url=reverse("account:overview"),
+        url=reverse("classes:my_registration", kwargs={"token": registration.self_serve_token}),
         email_to=registration.email,
         period=f"reg:{registration.pk}:waitlist_spot_opened",
     )
@@ -654,7 +654,7 @@ def send_waitlist_promoted(registration: "Registration") -> None:
         template_context=template_context,
         in_app_title="You're in the class",
         in_app_body=offering.title,
-        url=reverse("account:overview"),
+        url=reverse("classes:my_registration", kwargs={"token": registration.self_serve_token}),
         email_to=registration.email,
         period=f"reg:{registration.pk}:promoted",
     )
@@ -692,7 +692,7 @@ def send_payment_link_email(registration: "Registration", actor: "User | None") 
         template_context=template_context,
         in_app_title="You're in — complete your payment",
         in_app_body=offering.title,
-        url=reverse("account:overview"),
+        url=reverse("classes:my_registration", kwargs={"token": registration.self_serve_token}),
         email_to=registration.email,
         period=f"reg:{registration.pk}:paylink:{now:%Y%m%d%H%M}",
     )
@@ -743,7 +743,7 @@ def send_removal_notice(registration: "Registration", *, was_waitlisted: bool) -
         template_context=template_context,
         in_app_title=in_app_title,
         in_app_body=offering.title,
-        url=reverse("account:overview"),
+        url=reverse("classes:my_registration", kwargs={"token": registration.self_serve_token}),
         email_to=registration.email,
         period=f"reg:{registration.pk}:removed",
     )
@@ -792,7 +792,7 @@ def send_registration_moved(registration: "Registration", *, source: "ClassOffer
         template_context=template_context,
         in_app_title="You've been moved to another class",
         in_app_body=f"{source.title} to {offering.title}",
-        url=reverse("account:overview"),
+        url=reverse("classes:my_registration", kwargs={"token": registration.self_serve_token}),
         email_to=registration.email,
         # Each move is its own notice: a student moved twice hears about it twice, and
         # the pair of class pks makes the second move a different bucket from the first.
@@ -1061,7 +1061,7 @@ def build_class_reminder_occurrence(
         text_template="classes/emails/reminder.txt",
         html_template="classes/emails/reminder.html",
         template_context=template_context,
-        url=reverse("account:overview"),
+        url=reverse("classes:my_registration", kwargs={"token": registration.self_serve_token}),
     )
     return ScheduledOccurrence(
         event_key="class_reminder",
@@ -1073,7 +1073,7 @@ def build_class_reminder_occurrence(
         target=registration,
         title="Class reminder",
         body=f"{offering.title} starts soon.",
-        url=reverse("account:overview"),
+        url=reverse("classes:my_registration", kwargs={"token": registration.self_serve_token}),
         messages={Channel.EMAIL: email_message},
         email_to=registration.email,
     )

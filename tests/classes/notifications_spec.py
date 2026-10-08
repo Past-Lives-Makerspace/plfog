@@ -182,8 +182,9 @@ def describe_registration_confirmed_notification():
         send_registration_confirmation(reg)
 
         note = Notification.objects.get(trigger="registration_confirmed", user=member_user)
-        # The student account page, not "/classes/account/", which is a class slug and 404s.
-        assert note.url == reverse("account:overview")
+        # The registration's own page on the members host. "/classes/account/" is a class slug
+        # and 404s; "/account/" redirects to the classes host, which the app opens signed out.
+        assert note.url == reverse("classes:my_registration", kwargs={"token": reg.self_serve_token})
 
     def it_sends_exactly_one_confirmation_email_to_an_opted_in_member(db, settings):
         """Double-send eliminated: the single ``registration_confirmed`` event sends the
