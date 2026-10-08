@@ -174,6 +174,7 @@ def describe_admin_tools_card_order():
             "Reports",
             "Site Settings",
             "Slideshow",
+            "Spotlight",
         ]
 
     def describe_the_slideshow_tile():

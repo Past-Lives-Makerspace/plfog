@@ -6,7 +6,7 @@ Auth infrastructure, site configuration, and Web Push.
 
 | Model | Key fields | Notes |
 |-------|-----------|-------|
-| `SiteConfiguration` | registration_mode | Singleton (pk=1); load via `SiteConfiguration.load()` |
+| `SiteConfiguration` | registration_mode, spotlight_meeting_event, spotlight_first_line, spotlight_second_line, spotlight_text_changed_at | Singleton (pk=1); load via `SiteConfiguration.load()`. The `spotlight_*` fields (#708) are edited at Admin Tools > Spotlight; `load_with_spotlight_meeting()` joins the meeting in one query for `hub.spotlight.Spotlight`. |
 | `Invite` | email, invited_by FK, member 1:1, accepted_at | Email invite flow for invite-only registration |
 | `PushSubscription` | user FK, endpoint, p256dh, auth | Web Push subscription per user |
 | `FeedbackRequest` | user FK, category, subject, message, status, staff_note, github_issue_url, status_changed_at, live_notified_at | A bug report, feature request or feedback sent from the Feedback page (#693). The sender is a `User`, not a `Member`. `apply_admin_update` / `mark_live` move it and emit `feedback.request_updated` to the sender, once per real change (Received never notifies; Not planned needs a note). `live_notified_at` keeps the automatic live notice from repeating one: `announce_live` (#693 part 2), run by the `announce_live_requests` job for each request a shipped changelog fragment lists in `requests`, once `/health/` on the web service reports a version at least the job's own. Photos are `FeedbackRequestPhoto` rows on the default storage. |

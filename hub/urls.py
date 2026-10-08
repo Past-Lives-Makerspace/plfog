@@ -10,6 +10,7 @@ from . import (
     meeting_views,
     notification_views,
     orientations_views,
+    spotlight_views,
     views,
     wiki_views,
 )
@@ -791,6 +792,17 @@ urlpatterns = [
     path("manage/locations/<int:pk>/", location_views.hub_admin_location_edit, name="hub_admin_location_edit"),
     # The admin Feedback inbox (#693): every request from the Feedback page, and one page per request.
     path("manage/feedback/", feedback_views.hub_admin_feedback_inbox, name="hub_admin_feedback_inbox"),
+    path("manage/spotlight/", spotlight_views.hub_admin_spotlight, name="hub_admin_spotlight"),
+    path("manage/spotlight/text/", spotlight_views.hub_admin_spotlight_text, name="hub_admin_spotlight_text"),
+    path(
+        "manage/spotlight/polls/new/", spotlight_views.hub_admin_spotlight_poll_new, name="hub_admin_spotlight_poll_new"
+    ),
+    path("manage/spotlight/polls/<int:pk>/", spotlight_views.hub_admin_spotlight_poll, name="hub_admin_spotlight_poll"),
+    path(
+        "manage/spotlight/polls/<int:pk>/close/",
+        spotlight_views.hub_admin_spotlight_poll_close,
+        name="hub_admin_spotlight_poll_close",
+    ),
     path("manage/feedback/<int:pk>/", feedback_views.hub_admin_feedback_request, name="hub_admin_feedback_request"),
     path(
         "manage/feedback/<int:pk>/mark-live/",

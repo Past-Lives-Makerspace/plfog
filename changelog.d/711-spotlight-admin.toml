@@ -1,0 +1,8 @@
+bump = "minor"
+date = "2026-10-08"
+title = "Admins can post polls and set up the Spotlight"
+changes = [
+  "Admin Tools has a new Spotlight page. Pick the Feature Request Meeting, write the two short lines members see, and watch a preview update as you type.",
+  "Post a poll with 2 to 6 answers that closes on its own after the days you choose. Only one poll is open at a time, and you can close it early.",
+  "Every past poll is kept in a table with its total votes and top answer. Results show counts only, never who voted for what.",
+]

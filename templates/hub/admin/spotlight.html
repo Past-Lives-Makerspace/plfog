@@ -1,0 +1,118 @@
+{% extends "hub/base.html" %}
+{% load static classes_tags %}
+{% block title %}Spotlight{% endblock %}
+{% block extra_head %}
+<link rel="stylesheet" href="{% static 'css/spotlight.css' %}">
+{% endblock %}
+{% block content %}
+{% comment %}
+Admin Tools > Spotlight (#708), built by hub.spotlight_views. The text form saves the meeting and
+the two minimized lines; the preview beside it is hub/partials/_spotlight.html, the same markup
+members get (#709), bound to the form as the admin types. Then the open poll, a New poll form
+and the Past polls table. Nothing here notifies anyone.
+{% endcomment %}
+{% include "components/page_header.html" with title="Spotlight" description="The top left of the Member Portal: this week's poll and the next Feature Request Meeting. Members see changes the next time a page loads." %}
+
+{{ spotlight_preview|json_script:"spotlight-preview-data" }}
+<div class="hub-card pl-spotlight-admin" id="spotlight-text"
+     x-data="JSON.parse(document.getElementById('spotlight-preview-data').textContent)"
+     @input="if ($event.target.name === 'spotlight_first_line') first = $event.target.value; if ($event.target.name === 'spotlight_second_line') second = $event.target.value"
+     @change="if ($event.target.name === 'spotlight_meeting_event') meeting = $event.target.value">
+  <h2 class="pl-spotlight-admin__title">Spotlight Text and Meeting</h2>
+  <div class="pl-spotlight-admin__split">
+    <form method="post" action="{% url 'hub_admin_spotlight_text' %}" class="pl-spotlight-admin__form" data-spotlight-text-form>
+      {% csrf_token %}
+      {% include "components/form_field.html" with field=text_form.spotlight_meeting_event %}
+      {% include "components/form_field.html" with field=text_form.spotlight_first_line %}
+      {% include "components/form_field.html" with field=text_form.spotlight_second_line %}
+      <div class="pl-spotlight-admin__save"><button type="submit" class="pl-btn pl-btn--primary">Save</button></div>
+    </form>
+    <div class="pl-spotlight-admin__preview" data-spotlight-preview aria-label="Preview">
+      <p class="pl-spotlight-admin__label">Standard</p>
+      {% include "hub/partials/_spotlight.html" with state="standard" preview=True past_polls_url="#past-polls" %}
+      <p class="pl-spotlight-admin__label">Minimized</p>
+      {% include "hub/partials/_spotlight.html" with state="minimized" preview=True %}
+    </div>
+  </div>
+</div>
+
+<div class="hub-card pl-spotlight-admin" id="open-poll">
+  <h2 class="pl-spotlight-admin__title">This Week's Poll</h2>
+  {% if spotlight.poll %}
+  <p class="pl-spotlight-admin__question" data-open-poll="{{ spotlight.poll.pk }}">{{ spotlight.poll.question }}</p>
+  <p class="hub-text-muted pl-spotlight-admin__meta">{{ spotlight.total_votes }} vote{{ spotlight.total_votes|pluralize }} so far. Closes in {{ spotlight.poll.closes_at|timeuntil }}, on {{ spotlight.poll.closes_at|date:"D M j, g:i A" }}.</p>
+  {% include "hub/partials/_poll_results.html" with results=spotlight.results %}
+  <button type="button" class="pl-btn pl-btn--danger pl-btn--sm pl-btn--spaced" @click="$dispatch('open-confirm', 'close-poll')" data-close-poll>Close now</button>
+  {% url 'hub_admin_spotlight_poll_close' spotlight.poll.pk as close_url %}
+  {% include "components/confirm_modal.html" with confirm_id="close-poll" confirm_title="Close this poll now?" confirm_message="Voting ends at once and the results stay as they are." confirm_action_url=close_url confirm_button_text="Close now" %}
+  {% else %}
+  <p class="hub-text-muted" data-open-poll-empty>No poll is open. Post one below.</p>
+  {% endif %}
+</div>
+
+<div class="hub-card pl-spotlight-admin" id="new-poll">
+  <h2 class="pl-spotlight-admin__title">New Poll</h2>
+  {{ poll_form.rows|json_script:"new-poll-rows" }}
+  <form method="post" action="{% url 'hub_admin_spotlight_poll_new' %}" id="new-poll-form" class="pl-spotlight-admin__form"
+        x-data="{ rows: JSON.parse(document.getElementById('new-poll-rows').textContent), max: {{ max_choices }} }" data-new-poll-form>
+    {% csrf_token %}
+    {% if poll_form.non_field_errors %}<div class="pl-spotlight-admin__errors" role="alert" data-poll-errors>{% for error in poll_form.non_field_errors %}<p>{{ error }}</p>{% endfor %}</div>{% endif %}
+    {% include "components/form_field.html" with field=poll_form.question %}
+    <fieldset class="pl-spotlight-admin__choices">
+      <legend>Answers</legend>
+      <template x-for="(row, index) in rows" :key="index">
+        <div class="pl-spotlight-admin__choice" data-poll-choice-row>
+          <input type="text" name="choice" maxlength="{{ answer_max_length }}" class="pl-spotlight-admin__input" :aria-label="'Answer ' + (index + 1)" x-model="rows[index]">
+          <button type="button" class="pl-btn pl-btn--ghost pl-btn--sm" @click="rows.splice(index, 1)" x-show="rows.length > 2">Remove</button>
+        </div>
+      </template>
+      <button type="button" class="pl-btn pl-btn--ghost pl-btn--sm" @click="rows.push('')" x-show="rows.length < max" data-add-choice>+ Add choice</button>
+      <small class="hub-text-muted">2 to {{ max_choices }} answers.</small>
+    </fieldset>
+    {% include "components/form_field.html" with field=poll_form.days %}
+    {# Always empty on render: only the confirm modal's Close it and post sets it, so a re-shown form never closes the open poll on its own. #}
+    <input type="hidden" name="close_current" id="id_close_current" value="">
+    <div class="pl-spotlight-admin__save">
+      {% if spotlight.poll %}
+      <button type="button" class="pl-btn pl-btn--primary" @click="$dispatch('open-confirm', 'replace-poll')" data-post-poll>Post poll</button>
+      {% else %}
+      <button type="submit" class="pl-btn pl-btn--primary" data-post-poll>Post poll</button>
+      {% endif %}
+    </div>
+  </form>
+  {% if spotlight.poll %}
+  {% include "components/confirm_modal.html" with confirm_id="replace-poll" confirm_title="Close the open poll first?" confirm_message="Only one poll is open at a time. Posting this one closes the current poll now; its results stay." confirm_button_text="Close it and post" confirm_button_style="primary" confirm_js="document.getElementById('id_close_current').value = 'on'; document.getElementById('new-poll-form').requestSubmit();" %}
+  {% endif %}
+</div>
+
+<div class="hub-card pl-spotlight-admin" id="past-polls">
+  <h2 class="pl-spotlight-admin__title">Past Polls</h2>
+  {% if page.object_list %}
+  <table class="pl-members-table" data-past-polls>
+    <thead>
+      <tr>
+        {% sort_header "Question" "question" sort sort_dir base_params %}
+        {% sort_header "Opened" "opens_at" sort sort_dir base_params %}
+        {% sort_header "Closed" "closes_at" sort sort_dir base_params %}
+        {% sort_header "Total votes" "total_votes" sort sort_dir base_params %}
+        {% sort_header "Top answer" "top_answer" sort sort_dir base_params %}
+      </tr>
+    </thead>
+    <tbody>
+      {% for poll in page.object_list %}
+      <tr data-past-poll="{{ poll.pk }}">
+        <td data-label="Question"><a href="{% url 'hub_admin_spotlight_poll' poll.pk %}">{{ poll.question }}</a></td>
+        <td data-label="Opened">{{ poll.opens_at|date:"M j, Y" }}</td>
+        <td data-label="Closed">{{ poll.closes_at|date:"M j, Y" }}</td>
+        <td data-label="Total votes">{{ poll.total_votes }}</td>
+        <td data-label="Top answer">{{ poll.top_answer|default:"No votes" }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% include "components/table_pagination.html" %}
+  {% else %}
+  <p class="hub-text-muted" data-past-polls-empty>No past polls yet.</p>
+  {% endif %}
+</div>
+{% endblock %}
