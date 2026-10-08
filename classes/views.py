@@ -4891,6 +4891,7 @@ def _gallery_upload(request: HttpRequest, offering: ClassOffering) -> HttpRespon
     img = ClassImage(class_offering=offering, image=file, sort_order=next_order)
     img.full_clean()
     img.save()
+    ClassOffering.objects.filter(pk=offering.pk).mark_eventbrite_gallery_changed()
     return JsonResponse({"id": img.pk, "url": img.image.url, "alt_text": "", "sort_order": img.sort_order})
 
 
@@ -4911,6 +4912,7 @@ def _gallery_reorder(request: HttpRequest, offering: ClassOffering) -> HttpRespo
         if isinstance(image_id, int) and not isinstance(image_id, bool) and image_id in images:
             images[image_id].sort_order = idx
             images[image_id].save(update_fields=["sort_order"])
+    ClassOffering.objects.filter(pk=offering.pk).mark_eventbrite_gallery_changed()
     return JsonResponse({"ok": True})
 
 
@@ -4922,8 +4924,10 @@ def _gallery_delete(img: ClassImage) -> HttpResponse:
     so a bare ``FieldFile.delete`` here blanked the picture on every class sharing it.
     """
     name = img.image.name or ""
+    offering_pk = img.class_offering_id
     img.delete()
     delete_if_unreferenced(ClassImage, "image", name)
+    ClassOffering.objects.filter(pk=offering_pk).mark_eventbrite_gallery_changed()
     return JsonResponse({"ok": True})
 
 

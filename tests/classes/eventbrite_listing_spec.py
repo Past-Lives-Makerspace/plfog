@@ -7,7 +7,8 @@ reaches Eventbrite.
 from __future__ import annotations
 
 import re
-from collections.abc import Iterator
+from pathlib import PurePosixPath
+from collections.abc import Iterator, Sequence
 from datetime import UTC, timedelta
 from typing import Any
 from unittest.mock import patch
@@ -18,6 +19,7 @@ from django.urls import reverse
 from django.utils import timezone
 
 from classes.factories import (
+    ClassImageFactory,
     ClassOfferingFactory,
     ClassSessionFactory,
     InstructorFactory,
@@ -25,7 +27,7 @@ from classes.factories import (
     UserFactory,
 )
 from classes.forms import ClassOfferingForm, TeachClassOfferingForm, TeachPublishedClassForm
-from classes.models import ClassOffering
+from classes.models import ClassImage, ClassOffering
 from core.integrations.eventbrite import EventbriteClient, EventbriteError, EventbriteSync
 from core.models import SiteConfiguration
 from tests.membership.factories import MembershipPlanFactory
@@ -44,8 +46,12 @@ class FakeEventbrite:
     def __init__(self) -> None:
         self.calls: list[tuple[str, tuple[Any, ...]]] = []
         self.fail: dict[str, EventbriteError] = {}
-        self.created_event: dict[str, Any] = {"id": "ev-1"}
+        self.created_event: dict[str, Any] = {"id": "ev-1", "status": "draft"}
+        self.event_status: str | None = "live"  # what an update answers; None leaves ``status`` out
         self.quantity_sold = 0
+        self.refused_photos: dict[str, EventbriteError] = {}
+        self.refuse_image_modules: EventbriteError | None = None
+        self.uploads = 0
 
     def _record(self, name: str, *args: Any) -> None:
         self.calls.append((name, args))
@@ -68,7 +74,9 @@ class FakeEventbrite:
 
     def update_event(self, event_id: str, body: dict[str, Any]) -> dict[str, Any]:
         self._record("update_event", event_id, body)
-        return {"id": event_id}
+        if self.event_status is None:
+            return {"id": event_id}
+        return {"id": event_id, "status": self.event_status}
 
     def create_ticket_class(self, event_id: str, body: dict[str, Any]) -> dict[str, Any]:
         self._record("create_ticket_class", event_id, body)
@@ -82,8 +90,22 @@ class FakeEventbrite:
         self._record("get_ticket_class", event_id, ticket_class_id)
         return {"id": ticket_class_id, "quantity_sold": self.quantity_sold}
 
-    def set_description(self, event_id: str, html: str) -> None:
-        self._record("set_description", event_id, html)
+    def set_description(self, event_id: str, html: str, image_ids: Sequence[str] = ()) -> None:
+        self._record("set_description", event_id, html, list(image_ids))
+        if image_ids and self.refuse_image_modules is not None:
+            raise self.refuse_image_modules
+
+    def upload_content_image(self, filename: str, content: bytes) -> str:
+        """``refused_photos`` maps a file name stem to the error Eventbrite answers that photo with."""
+        self._record("upload_content_image", filename)
+        for stem, error in self.refused_photos.items():
+            if filename.startswith(stem):
+                raise error
+        self.uploads += 1
+        return f"img-{self.uploads}"
+
+    def descriptions(self) -> list[tuple[Any, ...]]:
+        return [args for name, args in self.calls if name == "set_description"]
 
     def publish(self, event_id: str) -> None:
         self._record("publish", event_id)
@@ -135,6 +157,7 @@ def describe_publishing_an_opted_in_class():
             "upload_logo",
             "create_event",
             "create_ticket_class",
+            "upload_content_image",
             "set_description",
             "publish",
         ]
@@ -252,7 +275,13 @@ def describe_editing_a_listed_class():
 
         offering.sync_eventbrite_listing()
 
-        assert eventbrite.names() == ["update_event", "get_ticket_class", "update_ticket_class", "set_description"]
+        assert eventbrite.names() == [
+            "update_event",
+            "get_ticket_class",
+            "update_ticket_class",
+            "upload_content_image",
+            "set_description",
+        ]
         assert eventbrite.args("update_event")[1]["event"]["name"] == {"html": "Welding Two"}
         ticket = eventbrite.args("update_ticket_class")[2]["ticket_class"]
         assert ticket["cost"] == "USD,6500"
@@ -264,11 +293,18 @@ def describe_editing_a_listed_class():
         assert eventbrite.args("update_ticket_class")[2]["ticket_class"]["cost"] == "USD,5000"
 
     def it_creates_a_missing_ticket_type_on_the_next_push(eventbrite: FakeEventbrite):
+        eventbrite.event_status = "draft"
         offering = _listed(eventbrite_ticket_class_id="", eventbrite_sync_state=State.FAILED)
 
         offering.sync_eventbrite_listing()
 
-        assert eventbrite.names() == ["update_event", "create_ticket_class", "set_description", "publish"]
+        assert eventbrite.names() == [
+            "update_event",
+            "create_ticket_class",
+            "upload_content_image",
+            "set_description",
+            "publish",
+        ]
 
 
 def describe_ending_a_listing():
@@ -346,6 +382,7 @@ def describe_ending_a_listing():
         assert eventbrite.calls == []
 
     def it_relists_and_publishes_when_switched_back_on(eventbrite: FakeEventbrite):
+        eventbrite.event_status = "draft"  # an unpublished event is a draft again
         offering = _listed(eventbrite_sync_state=State.ENDED)
 
         offering.sync_eventbrite_listing()
@@ -588,3 +625,256 @@ def describe_a_class_with_no_dates():
         ClassSessionFactory(class_offering=offering, starts_at=start, ends_at=start + timedelta(hours=1))
         offering.sync_eventbrite_listing()
         assert "create_event" in eventbrite.names()
+
+
+def _photo(offering: ClassOffering, name: str, sort_order: int, **kwargs: Any) -> Any:
+    return ClassImageFactory(
+        class_offering=offering,
+        sort_order=sort_order,
+        image__filename=f"{name}.jpg",
+        **kwargs,
+    )
+
+
+def describe_gallery_photos_on_the_listing():
+    def it_sends_every_gallery_photo_in_gallery_order_after_the_description(eventbrite: FakeEventbrite):
+        offering = _opted_in(gallery=0)
+        _photo(offering, "third", 2)
+        _photo(offering, "first", 0)
+        _photo(offering, "second", 1)
+
+        offering.publish(None)
+
+        uploaded = [args[0] for name, args in eventbrite.calls if name == "upload_content_image"]
+        assert [PurePosixPath(n).stem.split("_")[0] for n in uploaded] == ["first", "second", "third"]
+        assert eventbrite.args("set_description")[2] == ["img-1", "img-2", "img-3"]
+        stored = list(offering.gallery_images.values_list("eventbrite_image_id", flat=True))
+        assert stored == ["img-1", "img-2", "img-3"]
+        assert eventbrite.names()[-1] == "publish"
+
+    def it_breaks_a_sort_order_tie_by_upload_time(eventbrite: FakeEventbrite):
+        offering = _listed(gallery=0)
+        older = _photo(offering, "older", 0, eventbrite_image_id="img-older")
+        newer = _photo(offering, "newer", 0, eventbrite_image_id="img-newer")
+        ClassImage.objects.filter(pk=older.pk).update(created_at=newer.created_at - timedelta(minutes=5))
+
+        offering.sync_eventbrite_listing()
+
+        assert eventbrite.args("set_description")[2] == ["img-older", "img-newer"]
+
+    def it_uploads_only_photos_not_sent_before(eventbrite: FakeEventbrite):
+        offering = _listed(gallery=0)
+        _photo(offering, "sent", 0, eventbrite_image_id="img-sent")
+        _photo(offering, "fresh", 1)
+
+        offering.sync_eventbrite_listing()
+
+        assert eventbrite.names().count("upload_content_image") == 1
+        assert eventbrite.args("set_description")[2] == ["img-sent", "img-1"]
+
+    def it_makes_no_upload_call_when_the_gallery_is_unchanged(eventbrite: FakeEventbrite):
+        offering = _listed(gallery=0)
+        _photo(offering, "one", 0)
+        offering.sync_eventbrite_listing()
+        eventbrite.calls.clear()
+
+        offering.sync_eventbrite_listing()
+
+        assert "upload_content_image" not in eventbrite.names()
+        assert eventbrite.args("set_description")[2] == ["img-1"]
+
+    def it_sends_a_class_with_no_gallery_as_text_alone(eventbrite: FakeEventbrite):
+        _listed(gallery=0).sync_eventbrite_listing()
+
+        assert eventbrite.args("set_description")[2] == []
+
+
+def describe_a_photo_eventbrite_refuses():
+    def it_leaves_the_photo_out_and_still_lists_and_publishes(eventbrite: FakeEventbrite):
+        eventbrite.refused_photos["bad"] = EventbriteError("Image upload: 400 too small", 400)
+        offering = _opted_in(gallery=0)
+        _photo(offering, "good", 0)
+        _photo(offering, "bad", 1)
+
+        offering.publish(None)
+
+        assert eventbrite.args("set_description")[2] == ["img-1"]
+        assert "publish" in eventbrite.names()
+        offering.refresh_from_db()
+        assert offering.eventbrite_sync_state == State.LISTED
+        assert offering.eventbrite_sync_error == "1 photo could not be sent: Image upload: 400 too small"
+        assert (
+            offering.eventbrite_sync_label
+            == "Listed on Eventbrite. 1 photo could not be sent: Image upload: 400 too small"
+        )
+
+    def it_counts_every_photo_left_out(eventbrite: FakeEventbrite):
+        eventbrite.refused_photos["bad"] = EventbriteError("Image upload: 400 too small", 400)
+        offering = _listed(gallery=0)
+        _photo(offering, "bad-one", 0)
+        _photo(offering, "bad-two", 1)
+
+        offering.sync_eventbrite_listing()
+
+        offering.refresh_from_db()
+        assert offering.eventbrite_sync_error.startswith("2 photos could not be sent: ")
+
+    def it_leaves_out_a_photo_whose_file_is_missing(eventbrite: FakeEventbrite):
+        offering = _listed(gallery=0)
+        photo = _photo(offering, "gone", 0)
+        photo.image.storage.delete(photo.image.name)
+
+        offering.sync_eventbrite_listing()
+
+        offering.refresh_from_db()
+        assert eventbrite.args("set_description")[2] == []
+        assert offering.eventbrite_sync_state == State.LISTED
+        assert offering.eventbrite_sync_error.startswith("1 photo could not be sent: ")
+
+    def it_clears_the_note_on_the_next_clean_sync(eventbrite: FakeEventbrite):
+        eventbrite.refused_photos["bad"] = EventbriteError("Image upload: 500 down", 500)
+        offering = _listed(gallery=0)
+        _photo(offering, "bad", 0)
+        offering.sync_eventbrite_listing()
+        eventbrite.refused_photos.clear()
+
+        offering.sync_eventbrite_listing()
+
+        offering.refresh_from_db()
+        assert offering.eventbrite_sync_error == ""
+        assert offering.eventbrite_sync_label == "Listed on Eventbrite"
+        assert eventbrite.descriptions()[-1][2] == ["img-1"]
+
+
+def describe_a_description_eventbrite_refuses_with_its_photos():
+    def it_sends_the_text_alone_lists_the_class_and_notes_it(eventbrite: FakeEventbrite):
+        eventbrite.refuse_image_modules = EventbriteError("POST structured_content: 400 bad module", 400)
+        offering = _opted_in(gallery=0)
+        _photo(offering, "one", 0)
+
+        offering.publish(None)
+
+        assert [args[2] for args in eventbrite.descriptions()] == [["img-1"], []]
+        assert "publish" in eventbrite.names()
+        offering.refresh_from_db()
+        assert offering.eventbrite_sync_state == State.LISTED
+        assert offering.eventbrite_sync_error == (
+            "Photos could not be shown, the description went without them: POST structured_content: 400 bad module"
+        )
+
+    def it_records_a_failure_when_the_refusal_is_not_about_the_content(eventbrite: FakeEventbrite):
+        eventbrite.refuse_image_modules = EventbriteError("POST structured_content: 500 down", 500)
+        offering = _listed(gallery=0)
+        _photo(offering, "one", 0)
+
+        offering.sync_eventbrite_listing()
+
+        offering.refresh_from_db()
+        assert len(eventbrite.descriptions()) == 1
+        assert offering.eventbrite_sync_state == State.FAILED
+
+
+def describe_a_gallery_change_on_a_listed_class():
+    def it_waits_for_the_retry_tick_then_updates_the_page_without_republishing(eventbrite: FakeEventbrite):
+        offering = _listed(gallery=0)
+        _photo(offering, "new", 0)
+
+        assert ClassOffering.objects.filter(pk=offering.pk).mark_eventbrite_gallery_changed() == 1
+
+        offering.refresh_from_db()
+        assert offering.eventbrite_sync_state == State.PENDING
+        assert offering.eventbrite_sync_label == "Waiting to sync: The gallery changed."
+        assert eventbrite.calls == []
+
+        call_command("retry_eventbrite_pushes")
+
+        offering.refresh_from_db()
+        assert offering.eventbrite_sync_state == State.LISTED
+        assert offering.eventbrite_sync_error == ""
+        assert eventbrite.args("set_description")[2] == ["img-1"]
+        assert "publish" not in eventbrite.names()
+
+    @pytest.mark.parametrize("state", [State.IDLE, State.ENDED, State.FAILED])
+    def it_leaves_a_class_that_is_not_listed_as_it_is(eventbrite: FakeEventbrite, state: str):
+        offering = _listed(gallery=0, eventbrite_sync_state=state, eventbrite_sync_error="kept")
+
+        assert ClassOffering.objects.filter(pk=offering.pk).mark_eventbrite_gallery_changed() == 0
+
+        offering.refresh_from_db()
+        assert (offering.eventbrite_sync_state, offering.eventbrite_sync_error) == (state, "kept")
+
+
+def describe_publishing_follows_the_status_eventbrite_reports():
+    """Publish is decided by the event's ``status`` on Eventbrite, never by the sync state or its note."""
+
+    def it_does_not_publish_a_live_event_again_after_a_failed_push(eventbrite: FakeEventbrite):
+        offering = _listed(eventbrite_sync_state=State.FAILED, eventbrite_sync_error="POST: 500 down")
+
+        offering.sync_eventbrite_listing()
+
+        assert "publish" not in eventbrite.names()
+        offering.refresh_from_db()
+        assert (offering.eventbrite_sync_state, offering.eventbrite_sync_error) == (State.LISTED, "")
+
+    def it_does_not_publish_a_live_event_left_pending_while_sync_was_off(eventbrite: FakeEventbrite):
+        offering = _listed(eventbrite_sync_state=State.PENDING, eventbrite_sync_error=EventbriteSync.SYNC_OFF)
+
+        call_command("retry_eventbrite_pushes")
+
+        assert "publish" not in eventbrite.names()
+        offering.refresh_from_db()
+        assert offering.eventbrite_sync_state == State.LISTED
+
+    def it_publishes_a_draft_event_whose_publish_failed(eventbrite: FakeEventbrite):
+        # Class 675's shape: the event exists on Eventbrite but its publish was refused.
+        eventbrite.event_status = "draft"
+        offering = _listed(eventbrite_sync_state=State.FAILED, eventbrite_sync_error="POST publish: 400")
+
+        call_command("retry_eventbrite_pushes")
+
+        assert eventbrite.names()[-1] == "publish"
+        assert eventbrite.args("publish") == ("ev-9",)
+        offering.refresh_from_db()
+        assert offering.eventbrite_sync_state == State.LISTED
+
+    @pytest.mark.parametrize("status", ["live", "started", "ended", "completed", "canceled"])
+    def it_publishes_only_a_draft(eventbrite: FakeEventbrite, status: str):
+        eventbrite.event_status = status
+
+        _listed(eventbrite_sync_state=State.FAILED).sync_eventbrite_listing()
+
+        assert "publish" not in eventbrite.names()
+
+    def it_notes_an_event_canceled_on_eventbrite_that_nothing_is_for_sale(eventbrite: FakeEventbrite):
+        eventbrite.event_status = "canceled"
+        offering = _listed(eventbrite_sync_state=State.FAILED)
+
+        offering.sync_eventbrite_listing()
+
+        assert "publish" not in eventbrite.names()
+        offering.refresh_from_db()
+        assert offering.eventbrite_sync_state == State.LISTED
+        assert offering.eventbrite_sync_label == (
+            "Listed on Eventbrite. The event is canceled on Eventbrite, so nothing is for sale."
+        )
+
+    @pytest.mark.parametrize("status", ["live", "started"])
+    def it_adds_no_note_while_the_event_is_selling_or_running(eventbrite: FakeEventbrite, status: str):
+        eventbrite.event_status = status
+        offering = _listed(eventbrite_sync_state=State.FAILED, eventbrite_sync_error="old")
+
+        offering.sync_eventbrite_listing()
+
+        offering.refresh_from_db()
+        assert offering.eventbrite_sync_error == ""
+
+    def it_records_an_answer_with_no_status_as_a_failure(eventbrite: FakeEventbrite):
+        eventbrite.event_status = None
+        offering = _listed(eventbrite_sync_state=State.FAILED)
+
+        offering.sync_eventbrite_listing()
+
+        assert "publish" not in eventbrite.names()
+        offering.refresh_from_db()
+        assert offering.eventbrite_sync_state == State.FAILED
+        assert "'status'" in offering.eventbrite_sync_error

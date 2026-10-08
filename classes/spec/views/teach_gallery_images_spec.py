@@ -364,3 +364,56 @@ def describe_instructor_image_routes_follow_the_edit_pages_status_gate():
         image.refresh_from_db()
         assert image.alt_text == "kept"
         assert ClassImage.objects.filter(pk=image.pk).exists()
+
+
+def describe_gallery_changes_on_a_class_listed_on_eventbrite():
+    """#707: each change sends the class back to the retry set; none calls Eventbrite in the request."""
+
+    def _listed(instructor) -> ClassOffering:
+        offering = _own(instructor, Status.PUBLISHED)
+        ClassOffering.objects.filter(pk=offering.pk).update(
+            eventbrite_enabled=True,
+            eventbrite_event_id="ev-9",
+            eventbrite_ticket_class_id="tc-9",
+            eventbrite_sync_state=ClassOffering.EventbriteSyncState.LISTED,
+        )
+        return offering
+
+    def _post(client, offering: ClassOffering, change: str, image: ClassImage) -> None:
+        if change == "upload":
+            resp = client.post(
+                reverse("classes:teach_class_image_upload", kwargs={"pk": offering.pk}), {"image": _png()}
+            )
+        elif change == "reorder":
+            resp = client.post(
+                reverse("classes:teach_class_image_reorder", kwargs={"pk": offering.pk}),
+                json.dumps({"order": [image.pk]}),
+                content_type="application/json",
+            )
+        else:
+            resp = client.post(reverse("classes:teach_class_image_delete", kwargs={"pk": image.pk}))
+        assert resp.status_code == 200, resp.content
+
+    @pytest.mark.parametrize("change", ["upload", "reorder", "delete"])
+    def it_marks_the_listing_pending_without_calling_eventbrite(instructor_fixture, client, change):
+        offering = _listed(instructor_fixture)
+        image = ClassImageFactory(class_offering=offering)
+        client.force_login(instructor_fixture.user)
+
+        with patch("core.integrations.eventbrite.EventbriteClient.from_settings") as eventbrite:
+            _post(client, offering, change, image)
+
+        eventbrite.assert_not_called()
+        offering.refresh_from_db()
+        assert offering.eventbrite_sync_state == ClassOffering.EventbriteSyncState.PENDING
+        assert offering.eventbrite_sync_error == "The gallery changed."
+
+    def it_leaves_a_class_not_on_eventbrite_untouched(instructor_fixture, client):
+        offering = _own(instructor_fixture, Status.PUBLISHED)
+        image = ClassImageFactory(class_offering=offering)
+        client.force_login(instructor_fixture.user)
+
+        _post(client, offering, "delete", image)
+
+        offering.refresh_from_db()
+        assert offering.eventbrite_sync_state == ClassOffering.EventbriteSyncState.IDLE

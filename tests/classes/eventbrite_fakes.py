@@ -6,6 +6,7 @@ Attendee objects: currency amounts are ``{"value": cents}``. No spec reaches Eve
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from typing import Any
 
 from classes.factories import ClassOfferingFactory
@@ -51,10 +52,14 @@ class FakeEventbrite:
 
     def update_event(self, event_id: str, body: dict[str, Any]) -> dict[str, Any]:
         self._record("update_event", event_id, body)
-        return {"id": event_id}
+        return {"id": event_id, "status": "live"}
 
-    def set_description(self, event_id: str, html: str) -> None:
-        self._record("set_description", event_id, html)
+    def set_description(self, event_id: str, html: str, image_ids: Sequence[str] = ()) -> None:
+        self._record("set_description", event_id, html, list(image_ids))
+
+    def upload_content_image(self, filename: str, content: bytes) -> str:
+        self._record("upload_content_image", filename)
+        return f"img-{filename}"
 
     def refund_order(self, order_id: str, body: dict[str, Any]) -> dict[str, Any]:
         self._record("refund_order", order_id, body)
