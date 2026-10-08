@@ -52,6 +52,7 @@
             {% sort_header "Date" "registered_at" sort sort_dir base_params %}
             {% sort_header "Order #" "order_number" sort sort_dir base_params %}
             {% sort_header "Class" "class_offering__title" sort sort_dir base_params %}
+            {% sort_header "Class Date" "class_first_session" sort sort_dir base_params %}
             {% sort_header "Registrant" "last_name" sort sort_dir base_params %}
             <th>Member</th>
             {% sort_header "Status" "status" sort sort_dir base_params %}
@@ -65,6 +66,8 @@
             <td><a href="{% url 'classes:admin_registration_detail' pk=r.pk %}">{{ r.order_number }}</a></td>
             {# The name opens the class screen, so an admin can answer "which class was this payment for" from the list. A guild lead cannot open a class they do not teach, so they get the name alone. #}
             <td>{% if show_instructor_filter or r.class_offering.instructor_id == own_member_pk %}<a href="{% url 'classes:teach_class_detail' pk=r.class_offering.pk %}">{{ r.class_offering.title }}</a>{% else %}{{ r.class_offering.title }}{% endif %}</td>
+            {# Same reading as the admin Classes list's Date(s) cell. #}
+            <td>{% if r.class_offering.is_flexible %}{% firstof r.class_offering.flexible_window_label "Flexible" %}{% elif r.class_first_session %}{{ r.class_first_session|date:"M j" }}{% if r.class_last_session != r.class_first_session %} – {{ r.class_last_session|date:"M j" }}{% endif %}, {{ r.class_last_session|date:"Y" }}{% else %}<span style="color:var(--hub-text-muted);">—</span>{% endif %}</td>
             <td><a href="{% url 'classes:admin_registration_detail' pk=r.pk %}">{{ r.first_name }} {{ r.last_name }}</a> <small style="color:var(--hub-text-muted);">({{ r.email }})</small></td>
             <td>{% if r.member %}Yes{% else %}—{% endif %}</td>
             <td>{{ r.get_status_display }}</td>
@@ -72,7 +75,7 @@
         </tr>
     {% empty %}
         <tr>
-            <td colspan="7" style="padding:1.5rem 0.75rem; color:var(--hub-text-muted);">
+            <td colspan="8" style="padding:1.5rem 0.75rem; color:var(--hub-text-muted);">
                 {% if mine_active %}No registrations match. None of these belong to a class where you are the instructor or author. <a href="?{{ mine_clear_url }}">Show all registrations</a>{% elif q %}No registrations matching "{{ q }}".{% else %}No registrations yet.{% endif %}
             </td>
         </tr>
