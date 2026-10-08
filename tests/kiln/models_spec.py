@@ -418,9 +418,13 @@ def describe_flag_display():
         assert KilnFlagFactory(kind=Kind.GLAZE_ON_BOTTOM_NO_STILTS).is_loud
         assert not KilnFlagFactory(kind=Kind.GLAZE_ON_BOTTOM).is_loud
 
-    def it_has_a_kind_note_for_every_kind():
+    def it_has_a_kind_note_for_every_automatic_kind_and_none_for_a_crew_flag():
         for kind in Kind:
-            assert KilnFlag.MAKER_NOTES[kind]
+            if kind != Kind.MANUAL:
+                assert KilnFlag.MAKER_NOTES[kind]
+        # A maker never sees a crew flag, so there is nothing to say to them about one.
+        with pytest.raises(KeyError):
+            KilnFlagFactory(kind=Kind.MANUAL, note="Check the foot").maker_note
         assert KilnFlagFactory(kind=Kind.THICK_WALLS).maker_note.startswith("Some walls are 1 inch thick")
         assert KilnFlagFactory(kind=Kind.THICK_WALLS).short_label == "thick walls"
 
@@ -617,3 +621,66 @@ def describe_photo_storage_and_races():
         assert winner.is_cover and not loser.is_cover
         assert ticket.photos.filter(is_cover=True).count() == 1
         assert ticket.photos.count() == 2
+
+
+def describe_tile_labels():
+    def it_names_every_glaze_on_a_glaze_ticket():
+        ticket = KilnTicketFactory(
+            firing_type="glaze",
+            glaze_studio=True,
+            glaze_commercial=True,
+            commercial_glaze_name="Amaco Blue Rutile",
+            glaze_self_made=True,
+            self_made_glaze_description="Ash glaze",
+        )
+        ticket.studio_glazes.add(GlazeOptionFactory(name="Spec Tile Clear"))
+
+        assert ticket.glaze_names == "Spec Tile Clear, Amaco Blue Rutile, Ash glaze"
+
+    def it_names_no_glaze_on_a_bisque_ticket_or_an_empty_glaze_answer():
+        assert KilnTicketFactory(firing_type="bisque", glaze_commercial=True).glaze_names == ""
+        assert KilnTicketFactory(firing_type="glaze").glaze_names == ""
+
+    def it_counts_the_wait_in_whole_days():
+        from datetime import timedelta
+
+        from django.utils import timezone
+
+        now = timezone.now()
+        assert KilnTicketFactory().waiting_label == ""
+        assert KilnTicketFactory(submitted_at=now).waiting_label == "Today"
+        assert KilnTicketFactory(submitted_at=now - timedelta(days=1)).waiting_label == "1 day"
+        assert KilnTicketFactory(submitted_at=now - timedelta(days=6)).waiting_label == "6 days"
+
+
+def describe_replies():
+    def it_names_the_message_and_its_ticket(make_member):
+        from kiln.models import KilnReply
+
+        ticket = KilnTicketFactory()
+        reply = KilnReply.objects.create(ticket=ticket, author=make_member(), body="Hi")
+
+        assert str(reply) == f"Message {reply.pk} on ticket {ticket.pk}"
+        assert reply.from_crew
+
+    def it_shows_a_maker_only_their_own_tickets_and_the_crew_every_one(make_member):
+        mine = KilnTicketFactory()
+        theirs = KilnTicketFactory()
+
+        assert list(KilnTicket.objects.visible_to(mine.maker, crew=False)) == [mine]
+        assert set(KilnTicket.objects.visible_to(mine.maker, crew=True)) == {mine, theirs}
+
+
+def describe_member_name():
+    def it_uses_the_name_and_falls_back_to_the_email(make_member):
+        from kiln.models import KilnFiring, KilnReply, member_name
+
+        named = make_member(preferred_name="Dana Reyes")
+        unnamed = make_member(preferred_name="", full_legal_name="")
+        ticket = KilnTicketFactory(maker=unnamed)
+        firing = KilnFiring(firing_type="glaze", number=1, loaded_by=named)
+        reply = KilnReply(ticket=ticket, author=unnamed, body="Hi")
+
+        assert member_name(named) == "Dana Reyes" == firing.loaded_by_name
+        assert member_name(unnamed) == unnamed.primary_email != ""
+        assert ticket.maker_name == reply.author_name == unnamed.primary_email

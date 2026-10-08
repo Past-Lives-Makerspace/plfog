@@ -1,0 +1,12 @@
+{# Where a ticket is, step by step, with who loaded it into which firing. Expects ticket. #}
+<ol class="pl-kiln-timeline" data-kiln-timeline>
+    <li data-state="done"><span class="pl-kiln-timeline__dot"><svg class="pl-kiln-ico" aria-hidden="true"><use href="#kiln-i-check"/></svg></span><div><strong>Created</strong><span>{{ ticket.created_at|date:"D, M j · g:i a" }}</span></div></li>
+    {% if ticket.status == "draft" %}
+    <li data-state="now"><span class="pl-kiln-timeline__dot"><svg class="pl-kiln-ico" aria-hidden="true"><use href="#kiln-i-pencil"/></svg></span><div><strong>Draft</strong><span>Submit it to put it in the queue</span></div></li>
+    <li data-state="next"><span class="pl-kiln-timeline__dot"></span><div><strong>In the queue</strong></div></li>
+    {% else %}
+    <li data-state="{% if ticket.status == 'submitted' %}now{% else %}done{% endif %}"><span class="pl-kiln-timeline__dot"><svg class="pl-kiln-ico" aria-hidden="true"><use href="#kiln-i-{% if ticket.status == 'submitted' %}clock{% else %}check{% endif %}"/></svg></span><div><strong>In the queue</strong><span>Submitted {{ ticket.submitted_at|date:"D, M j · g:i a" }}</span></div></li>
+    {% endif %}
+    <li data-state="{% if ticket.status == 'loaded' %}now{% elif ticket.status == 'fired' %}done{% else %}next{% endif %}"><span class="pl-kiln-timeline__dot">{% if ticket.status == 'loaded' or ticket.status == 'fired' %}<svg class="pl-kiln-ico" aria-hidden="true"><use href="#kiln-i-{% if ticket.status == 'loaded' %}flame{% else %}check{% endif %}"/></svg>{% endif %}</span><div><strong>In the kiln</strong>{% if ticket.firing %}<span>Loaded {{ ticket.firing.loaded_at|date:"D, M j" }} by {{ ticket.firing.loaded_by_name }} in {{ ticket.firing.name }}</span>{% endif %}</div></li>
+    <li data-state="{% if ticket.status == 'fired' %}now{% else %}next{% endif %}"><span class="pl-kiln-timeline__dot">{% if ticket.status == 'fired' %}<svg class="pl-kiln-ico" aria-hidden="true"><use href="#kiln-i-check"/></svg>{% endif %}</span><div><strong>Ready for pickup</strong>{% if ticket.status != 'fired' %}<span>{% if as_crew %}The maker gets a notification{% else %}You will get a notification{% endif %}</span>{% endif %}</div></li>
+</ol>

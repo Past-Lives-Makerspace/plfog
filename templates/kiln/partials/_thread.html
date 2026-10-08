@@ -1,0 +1,30 @@
+{% comment %}
+A ticket's messages between the maker and the crew (#691), and the box to add one. The maker
+sees every message; a message from anyone but the maker carries the Kiln crew tag. Posting
+notifies the other side. Expects ticket, replies, viewer, reply_form and as_crew.
+{% endcomment %}
+<div class="hub-card" id="kiln-messages" data-kiln-thread>
+    <h2 class="pl-kiln-card-title"><svg class="pl-kiln-ico" aria-hidden="true"><use href="#kiln-i-msg"/></svg>Messages</h2>
+    {% if replies %}
+    <ol class="pl-kiln-thread">
+        {% for reply in replies %}
+        <li class="pl-kiln-msg{% if reply.author_id == viewer.pk %} pl-kiln-msg--mine{% endif %}" data-reply="{{ reply.pk }}">
+            <div class="pl-kiln-msg__who"><strong>{% if reply.author_id == viewer.pk %}You{% else %}{{ reply.author_name }}{% endif %}</strong>{% if reply.from_crew %}<span class="pl-kiln-msg__role">Kiln crew</span>{% endif %}<span>{{ reply.created_at|date:"D, M j · g:i a" }}</span></div>
+            <div class="pl-kiln-msg__body">{{ reply.body|linebreaksbr }}</div>
+        </li>
+        {% endfor %}
+    </ol>
+    {% else %}
+    <p class="pl-kiln-thread__empty">{% if as_crew %}No messages yet. Ask {{ ticket.maker_name }} about anything on this piece.{% else %}No messages yet. Ask the crew about anything on this piece, or answer them here.{% endif %}</p>
+    {% endif %}
+    <form method="post" action="{% url 'kiln:reply' ticket.pk %}" class="pl-kiln-reply">
+        {% csrf_token %}
+        {% if as_crew and ticket.maker_id != viewer.pk %}
+        {% include "components/form_field.html" with field=reply_form.body field_label="Message "|add:ticket.maker_name field_hint_off=True %}
+        <div class="pl-kiln-reply__row"><span class="pl-kiln-reply__note">{{ ticket.maker_name }} gets it in the app and by email, per their settings.</span><button type="submit" class="hub-btn hub-btn--primary">Send</button></div>
+        {% else %}
+        {% include "components/form_field.html" with field=reply_form.body field_label="Reply to the crew" field_hint_off=True %}
+        <div class="pl-kiln-reply__row"><span class="pl-kiln-reply__note">The kiln crew gets a notification.</span><button type="submit" class="hub-btn hub-btn--primary">Send</button></div>
+        {% endif %}
+    </form>
+</div>

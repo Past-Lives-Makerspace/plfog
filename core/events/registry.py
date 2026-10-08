@@ -233,6 +233,8 @@ _PUSH_ON_BY_DEFAULT: frozenset[str] = frozenset(
         "equipment.reservation_confirmed",
         # Webmaster — an automation broke; at most one a day per automation
         "automation.failed",
+        # Kiln tickets — the crew asked about your piece, usually before it goes in (#691)
+        "kiln.crew_replied",
     }
 )
 
@@ -510,6 +512,8 @@ MEMBERSHIP_ORIENTATION_ORPHAN_PAYMENT = "membership.orientation_orphan_payment" 
 AUTOMATION_FAILED = "automation.failed"  # a scheduled job failed (Webmasters, once a day per job)
 FEEDBACK_REQUEST_LIVE = "feedback.request_live"  # a release listing your request shipped (#693 part 2)
 FEEDBACK_REQUEST_UPDATED = "feedback.request_updated"  # your feature request or bug report moved, or got a note (#693)
+KILN_CREW_REPLIED = "kiln.crew_replied"  # the kiln crew wrote on your kiln ticket (#691)
+KILN_MAKER_REPLIED = "kiln.maker_replied"  # a maker wrote on a kiln ticket (the kiln crew, #691)
 
 # event.reminder keeps Discord OFF (the bell is enough; per-offset channel posts would
 # clutter the guild channel) but declares it so a lead can flip it on later; happening-now
@@ -1418,6 +1422,31 @@ _NEW_EVENTS: list[EventType] = [
         description="A release delivered a feature request or bug report you sent.",
         category="Your requests",
         recipient=Recipients.SINGLE_USER,
+        channels=(_IN_APP_ON, _EMAIL_ON),
+        activity_kind=None,
+    ),
+    # kiln.crew_replied — a crew member wrote on a maker's kiln ticket (#691), often a question
+    # before the piece goes in. The maker may be a class guest; their account is the User.
+    # The period is the reply, so every message notifies once. No activity row: the thread
+    # on the ticket is the record.
+    EventType(
+        key=KILN_CREW_REPLIED,
+        label="Messages from the kiln crew",
+        description="The Ceramics Guild crew wrote on one of your kiln tickets.",
+        category="Kiln tickets",
+        recipient=Recipients.SINGLE_USER,
+        channels=(_IN_APP_ON, _EMAIL_ON),
+        activity_kind=None,
+    ),
+    # kiln.maker_replied — a maker wrote on their kiln ticket (#691). Goes to the kiln guild's
+    # lead and staff; the sender passes that set minus the author (a crew member's own
+    # ticket), so it rides GUILD_LEADERSHIP's settings row rather than a new audience.
+    EventType(
+        key=KILN_MAKER_REPLIED,
+        label="Replies on kiln tickets",
+        description="A maker wrote on a kiln ticket. Goes to the Ceramics Guild's lead and staff.",
+        category="Kiln tickets",
+        recipient=Recipients.GUILD_LEADERSHIP,
         channels=(_IN_APP_ON, _EMAIL_ON),
         activity_kind=None,
     ),
