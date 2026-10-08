@@ -177,9 +177,14 @@ class EventbriteClient:
         return result
 
 
+def _utc(moment: datetime) -> str:
+    """A datetime as Eventbrite's plain UTC string, whole seconds; what a ticket's ``sales_end`` takes."""
+    return moment.astimezone(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
 def _when(moment: datetime) -> dict[str, str]:
-    """A datetime in Eventbrite's ``datetime-tz`` shape: local zone plus UTC, whole seconds."""
-    return {"timezone": _EVENT_TIMEZONE, "utc": moment.astimezone(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")}
+    """A datetime in Eventbrite's ``datetime-tz`` shape (local zone plus UTC); events take this, tickets do not."""
+    return {"timezone": _EVENT_TIMEZONE, "utc": _utc(moment)}
 
 
 def _description_html(offering: ClassOffering, sessions: list[Any]) -> str:
@@ -221,10 +226,11 @@ def _ticket_body(offering: ClassOffering, sessions: list[Any], quantity_total: i
     ticket: dict[str, Any] = {
         "name": "Series ticket" if offering.is_series else "Ticket",
         "quantity_total": quantity_total,
-        "sales_end": _when(offering.registration_closes_at or sessions[0].starts_at),
+        "sales_end": _utc(offering.registration_closes_at or sessions[0].starts_at),
     }
     if price:
-        ticket["cost"] = {"currency": "USD", "value": price}
+        # A ticket's cost is the string "USD,<cents>"; the object form an order reports is refused (400).
+        ticket["cost"] = f"USD,{price}"
         ticket["include_fee"] = offering.eventbrite_fee_payer == offering.EventbriteFeePayer.INCLUDED
     else:
         ticket["free"] = True
@@ -269,7 +275,7 @@ def _list(client: EventbriteClient, offering: ClassOffering) -> None:
 def _end(client: EventbriteClient, offering: ClassOffering) -> str:
     """Close ticket sales, then unpublish; returns the note to record ("" when fully down)."""
     if offering.eventbrite_ticket_class_id:
-        closed = {"ticket_class": {"sales_end": _when(timezone.now())}}
+        closed = {"ticket_class": {"sales_end": _utc(timezone.now())}}
         client.update_ticket_class(offering.eventbrite_event_id, offering.eventbrite_ticket_class_id, closed)
     try:
         client.unpublish(offering.eventbrite_event_id)

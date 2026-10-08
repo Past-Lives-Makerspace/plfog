@@ -6,6 +6,7 @@ reaches Eventbrite.
 
 from __future__ import annotations
 
+import re
 from collections.abc import Iterator
 from datetime import UTC, timedelta
 from typing import Any
@@ -144,7 +145,7 @@ def describe_publishing_an_opted_in_class():
         assert event["start"]["utc"] == session.starts_at.astimezone(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
         assert event["end"]["timezone"] == "America/Los_Angeles"
         ticket = eventbrite.args("create_ticket_class")[1]["ticket_class"]
-        assert ticket["cost"] == {"currency": "USD", "value": 5000}
+        assert ticket["cost"] == "USD,5000"
         assert ticket["quantity_total"] == 8
         assert ticket["include_fee"] is False
         html = eventbrite.args("set_description")[1]
@@ -161,7 +162,7 @@ def describe_publishing_an_opted_in_class():
 
         ticket = eventbrite.args("create_ticket_class")[1]["ticket_class"]
         assert ticket["include_fee"] is True
-        assert ticket["cost"] == {"currency": "USD", "value": 5000}
+        assert ticket["cost"] == "USD,5000"
 
     def it_lists_a_free_class_as_a_free_ticket(eventbrite: FakeEventbrite):
         _opted_in(price_cents=0).publish(None)
@@ -186,7 +187,7 @@ def describe_publishing_an_opted_in_class():
 
         offering.publish(None)
 
-        sales_end = eventbrite.args("create_ticket_class")[1]["ticket_class"]["sales_end"]["utc"]
+        sales_end = eventbrite.args("create_ticket_class")[1]["ticket_class"]["sales_end"]
         closes = offering.registration_closes_at
         assert closes is not None
         assert sales_end == closes.astimezone(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
@@ -254,13 +255,13 @@ def describe_editing_a_listed_class():
         assert eventbrite.names() == ["update_event", "get_ticket_class", "update_ticket_class", "set_description"]
         assert eventbrite.args("update_event")[1]["event"]["name"] == {"html": "Welding Two"}
         ticket = eventbrite.args("update_ticket_class")[2]["ticket_class"]
-        assert ticket["cost"]["value"] == 6500
+        assert ticket["cost"] == "USD,6500"
 
     def it_follows_a_sale_price(eventbrite: FakeEventbrite):
         offering = _listed(sale_enabled=True, sale_percent=20)
         offering.turn_sale_off()
 
-        assert eventbrite.args("update_ticket_class")[2]["ticket_class"]["cost"]["value"] == 5000
+        assert eventbrite.args("update_ticket_class")[2]["ticket_class"]["cost"] == "USD,5000"
 
     def it_creates_a_missing_ticket_type_on_the_next_push(eventbrite: FakeEventbrite):
         offering = _listed(eventbrite_ticket_class_id="", eventbrite_sync_state=State.FAILED)
@@ -277,7 +278,8 @@ def describe_ending_a_listing():
         offering.unpublish()
 
         assert eventbrite.names() == ["update_ticket_class", "unpublish"]
-        assert "sales_end" in eventbrite.args("update_ticket_class")[2]["ticket_class"]
+        sales_end = eventbrite.args("update_ticket_class")[2]["ticket_class"]["sales_end"]
+        assert re.fullmatch(r"\d{4}-\d\d-\d\dT\d\d:\d\d:\d\dZ", sales_end)
         offering.refresh_from_db()
         assert offering.eventbrite_sync_state == State.ENDED
         assert offering.eventbrite_sync_error == ""
