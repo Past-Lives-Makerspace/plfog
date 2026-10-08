@@ -1216,7 +1216,7 @@ def _render_my_registration(
     request: HttpRequest, registration: Registration, *, finish_form: FinishRegistrationForm | None = None
 ) -> HttpResponse:
     """The self-serve page, with the finish form while an Eventbrite seat is unsigned (#652)."""
-    from classes.eventbrite_orders import eventbrite_offers_account, needs_finishing
+    from classes.eventbrite_finish import eventbrite_offers_account, needs_finishing
 
     offering = registration.class_offering
     upcoming_sessions = list(offering.sessions.filter(starts_at__gte=timezone.now()).order_by("starts_at"))
@@ -1253,12 +1253,8 @@ def _render_my_registration(
 @require_POST
 def my_registration_finish(request: HttpRequest, token: str) -> HttpResponse:
     """Save an Eventbrite buyer's waivers, answers and account choice from their registration page."""
-    from classes.eventbrite_orders import (
-        AlreadyFinishedError,
-        eventbrite_offers_account,
-        finish_registration,
-        needs_finishing,
-    )
+    from classes.eventbrite_finish import eventbrite_offers_account, needs_finishing
+    from classes.eventbrite_orders import AlreadyFinishedError, finish_registration
 
     registration = get_object_or_404(
         Registration.objects.select_related("class_offering", "class_offering__instructor"),

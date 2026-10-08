@@ -8,19 +8,26 @@ is :class:`FakeEventbrite`; no spec reaches Eventbrite.
 from __future__ import annotations
 
 from collections.abc import Iterator
+from datetime import timedelta
+from io import StringIO
+from smtplib import SMTPException
 from unittest.mock import patch
 
 import pytest
 from django.contrib.auth import get_user_model
 from django.core import mail
+from django.core.management import call_command
 from django.db import IntegrityError
 from django.test import Client
 from django.urls import reverse
+from django.utils import timezone
 
 from classes import eventbrite_orders
-from classes.eventbrite_orders import apply_order, eventbrite_offers_account
+from classes.eventbrite_finish import eventbrite_offers_account
+from classes.eventbrite_orders import apply_order
 from classes.factories import (
     ClassOfferingFactory,
+    ClassSessionFactory,
     InstructorFactory,
     RegistrationFactory,
     UserFactory,
@@ -192,6 +199,11 @@ def describe_the_registration_page():
 
         assert 'id="finish-form"' not in _page(client, registration)
 
+    def it_shows_no_form_once_the_class_is_cancelled(client: Client):
+        registration = _ticket(class_offering=ClassOfferingFactory(status=ClassOffering.Status.CANCELLED))
+
+        assert 'id="finish-form"' not in _page(client, registration)
+
     def it_shows_no_form_on_a_refunded_ticket(client: Client):
         registration = _ticket()
         Registration.objects.filter(pk=registration.pk).update(status=Status.REFUNDED)
@@ -275,6 +287,15 @@ def describe_finishing():
 
         assert response.status_code == 302
         assert not registration.waivers.exists()
+
+    def it_refuses_a_cancelled_class(client: Client):
+        registration = _ticket(class_offering=ClassOfferingFactory(status=ClassOffering.Status.CANCELLED))
+
+        response = _finish(client, registration, create_account="on")
+
+        assert response.status_code == 302
+        assert not registration.waivers.exists()
+        assert get_user_model().objects.count() == 0
 
     def it_takes_only_a_post(client: Client):
         url = reverse("classes:my_registration_finish", args=[_ticket().self_serve_token])
@@ -395,3 +416,52 @@ def describe_the_finish_form():
 
         assert form.is_valid()
         assert form.wants_account is False
+
+
+def describe_resending_the_finish_email():
+    def _retry() -> None:
+        call_command("retry_eventbrite_pushes", stdout=StringIO())
+
+    def it_resends_once_after_a_failed_send_and_never_again(eventbrite: FakeEventbrite, alerts: None):
+        listed_class()
+        eventbrite.orders["o-1"] = order("o-1", attendee("a-1"))
+        with patch("core.email._deliver", side_effect=SMTPException("down")):
+            apply_order("o-1")
+        assert mail.outbox == []
+
+        _retry()
+        _retry()
+
+        [sent] = mail.outbox
+        assert sent.to == ["ada@example.com"]
+        assert sent.subject.startswith("Finish registering for ")
+
+    def it_sends_nothing_to_a_ticket_whose_email_went_out(eventbrite: FakeEventbrite, alerts: None):
+        listed_class()
+        eventbrite.orders["o-1"] = order("o-1", attendee("a-1"))
+        apply_order("o-1")
+
+        _retry()
+
+        assert len(mail.outbox) == 1
+
+    def it_resends_a_seat_alias_to_the_buyers_own_address():
+        _ticket(email="ada+seat2@example.com", class_offering=listed_class())
+
+        _retry()
+
+        [sent] = mail.outbox
+        assert sent.to == ["ada@example.com"]
+        assert "another seat on your order" in sent.body
+
+    def it_skips_signed_tickets_cancelled_classes_and_classes_already_held():
+        signed = _ticket(email="signed@example.com", class_offering=listed_class())
+        Waiver.objects.create(registration=signed, kind=Waiver.Kind.LIABILITY, waiver_text="t", signature_text="s")
+        _ticket(email="cancelled@example.com", class_offering=listed_class(status=ClassOffering.Status.CANCELLED))
+        held = ClassOfferingFactory()
+        ClassSessionFactory(class_offering=held, starts_at=timezone.now() - timedelta(days=3))
+        _ticket(email="held@example.com", class_offering=held)
+
+        _retry()
+
+        assert mail.outbox == []

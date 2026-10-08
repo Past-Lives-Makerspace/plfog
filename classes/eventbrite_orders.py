@@ -23,12 +23,11 @@ from django.utils import timezone
 from classes.emails import (
     emit_instructor_new_registration,
     send_admin_registration_notification,
-    send_eventbrite_finish_registration,
     send_eventbrite_oversold_alert,
     send_eventbrite_shared_email_alert,
 )
-from classes.models import ClassOffering, ClassSettings, Registration, Waiver
-from classes.questions import active_questions
+from classes.eventbrite_finish import send_finish_email
+from classes.models import ClassOffering, ClassSettings, Registration
 from core.integrations.eventbrite import EventbriteClient, EventbriteError, EventbriteSync, field
 from core.services.guest_account import ensure_account_for_registration
 
@@ -41,7 +40,6 @@ logger = logging.getLogger(__name__)
 
 ORDER_ACTIONS = frozenset({"order.placed", "order.updated", "order.refunded"})
 _ORDER_URL = re.compile(r"https://www\.eventbriteapi\.com/v3/orders/(\d+)/?")
-_SEAT_ALIAS = re.compile(r".+\+seat\d+@[^@]+")
 REFUNDED_IN_EVENTBRITE = "Refunded in Eventbrite."
 CANCELLED_IN_EVENTBRITE = "Cancelled in Eventbrite."
 REFUNDED_THROUGH_EVENTBRITE = "Refunded through Eventbrite."
@@ -152,12 +150,7 @@ def _seat(offering: ClassOffering, order_id: str, attendee_id: str, attendee: di
         send_eventbrite_oversold_alert(registration)
     if registration.email != email:
         send_eventbrite_shared_email_alert(registration, email)
-    send_eventbrite_finish_registration(
-        registration,
-        to=email,
-        offers_account=eventbrite_offers_account(registration),
-        has_questions=active_questions().exists(),
-    )
+    send_finish_email(registration, to=email)
 
 
 def _create_confirmed(
@@ -257,26 +250,6 @@ def _ticket_total(client: EventbriteClient, registration: Registration) -> str:
             cents = int(field(field(field(attendee, "costs"), "gross"), "value"))
             return f"{cents / 100:.2f}"
     raise EventbriteError(f"Order {registration.eventbrite_order_id} no longer lists this ticket.")
-
-
-def needs_finishing(registration: Registration) -> bool:
-    """Whether this is an Eventbrite seat whose liability waiver nobody has signed yet."""
-    return (
-        registration.source == Registration.Source.EVENTBRITE
-        and registration.consumes_seat
-        and not registration.waivers.filter(kind=Waiver.Kind.LIABILITY).exists()
-    )
-
-
-def eventbrite_offers_account(registration: Registration) -> bool:
-    """Whether the finish page offers this Eventbrite ticket an account: the one place that decides.
-
-    Felix decided (2026-10-07) that an Eventbrite buyer gets a Guest account even while the
-    site is invite only, since the ticket is already paid for; bookings on the site itself
-    keep the invite only guard. A ``+seatN`` seat is never offered one: the address is an
-    alias nobody owns, and the account would be minted on it.
-    """
-    return _SEAT_ALIAS.fullmatch(registration.email) is None
 
 
 def finish_registration(registration: Registration, form: FinishRegistrationForm, *, client_ip: str) -> None:
