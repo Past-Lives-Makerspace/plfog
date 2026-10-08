@@ -169,6 +169,27 @@ def describe_the_csv():
         names = [row[1] for row in _csv(client.get(EXPORT))[1:]]
         assert names == ["Pat Pending", "Dana Declined", "Avery Approved"]
 
+    @pytest.mark.parametrize("lead", ["=", "+", "-", "@", "\t", "\r"])
+    def it_neutralises_applicant_text_a_spreadsheet_would_run_as_a_formula(admin_user, client, lead):
+        _inquiry(
+            "Formula Fran",
+            "2026-09-01T10:00",
+            teaching_application_note=f'{lead}HYPERLINK("https://evil.example","x")',
+            teaching_socials=f"{lead}cmd",
+            teaching_contact_detail=f"{lead}1+1",
+        )
+        client.force_login(admin_user)
+        row = _csv(client.get(EXPORT))[1]
+        assert row[2] == f'\'{lead}HYPERLINK("https://evil.example","x")'
+        assert row[4] == f"'{lead}cmd"
+        assert row[6] == f"'{lead}1+1 (text message)"
+
+    def it_leaves_ordinary_text_alone(admin_user, client, three):
+        client.force_login(admin_user)
+        row = _csv(client.get(EXPORT, {"status": "approved"}))[1]
+        assert row[1] == "Avery Approved"
+        assert row[4] == "https://instagram.com/avery @averymakes"
+
     def it_refuses_a_filter_with_an_error(admin_user, client, three):
         client.force_login(admin_user)
         response = client.get(EXPORT, {"date_from": "2026-10-01", "date_to": "2026-09-01"})

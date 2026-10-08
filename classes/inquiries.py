@@ -17,7 +17,7 @@ from django.db.models import Count, Exists, OuterRef
 from django.db.models.functions import TruncMonth
 from django.utils import timezone
 
-from classes.models import ClassSession
+from classes.models import ClassOffering, ClassSession
 
 if TYPE_CHECKING:
     from membership.models import MemberQuerySet
@@ -121,7 +121,9 @@ def board_report(
 
     The months run from the range's first day (or the earliest inquiry) to its last day
     (or today), with empty months drawn as zero. "First class run" means the member is
-    the instructor on a class with a session that started before ``now``.
+    the instructor on a class that went live (published, or archived after publishing;
+    never a draft, a pending or a cancelled class) with a session that started before
+    ``now``.
 
     Args:
         inquiries: ``Member.objects.teaching_inquiries(...)`` for the range.
@@ -151,7 +153,12 @@ def board_report(
         ]
     )
 
-    ran = ClassSession.objects.filter(class_offering__instructor=OuterRef("pk"), starts_at__lt=now)
+    ran = ClassSession.objects.filter(
+        class_offering__instructor=OuterRef("pk"),
+        class_offering__status__in=[ClassOffering.Status.PUBLISHED, ClassOffering.Status.ARCHIVED],
+        class_offering__published_at__isnull=False,
+        starts_at__lt=now,
+    )
     funnel = _bars(
         [
             ("Inquired", "", unordered.count()),

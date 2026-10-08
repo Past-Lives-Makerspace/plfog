@@ -9,6 +9,7 @@ import pytest
 
 from classes.factories import ClassOfferingFactory, ClassSessionFactory
 from classes.inquiries import BASELINE, PLOT_TOP, board_report
+from classes.models import ClassOffering
 from membership.models import Member
 from tests.membership.factories import MemberFactory
 
@@ -21,6 +22,14 @@ NOW = datetime(2026, 11, 15, 12, 0, tzinfo=PORTLAND)
 def _inquiry(applied: str, **fields: object) -> Member:
     stamp = datetime.fromisoformat(applied).replace(tzinfo=PORTLAND)
     return MemberFactory(teaching_applied_at=stamp, **fields)
+
+
+def _past_class(instructor: Member, status: str, *, published: bool = True) -> None:
+    """A class taught by ``instructor`` whose only session started three days before NOW."""
+    offering = ClassOfferingFactory(
+        instructor=instructor, status=status, published_at=NOW - timedelta(days=30) if published else None
+    )
+    ClassSessionFactory(class_offering=offering, starts_at=NOW - timedelta(days=3))
 
 
 def _report(applied_from: date | None = None, applied_to: date | None = None):
@@ -66,9 +75,14 @@ def describe_inquiries_per_month():
 def describe_the_funnel():
     def it_counts_inquired_approved_and_first_class_run_whatever_the_status():
         ran = _inquiry("2026-09-02T10:00", instructor_oriented_at=NOW)
-        ClassSessionFactory(class_offering=ClassOfferingFactory(instructor=ran), starts_at=NOW - timedelta(days=3))
+        _past_class(ran, ClassOffering.Status.PUBLISHED)
         upcoming = _inquiry("2026-09-03T10:00", instructor_oriented_at=NOW)
-        ClassSessionFactory(class_offering=ClassOfferingFactory(instructor=upcoming), starts_at=NOW + timedelta(days=3))
+        ClassSessionFactory(
+            class_offering=ClassOfferingFactory(
+                instructor=upcoming, status=ClassOffering.Status.PUBLISHED, published_at=NOW - timedelta(days=30)
+            ),
+            starts_at=NOW + timedelta(days=3),
+        )
         _inquiry("2026-09-04T10:00")
         _inquiry("2026-08-04T10:00", instructor_oriented_at=NOW)  # outside the range
         report = _report(date(2026, 9, 1), date(2026, 9, 30))
@@ -78,6 +92,23 @@ def describe_the_funnel():
             ("First class run", 1),
         ]
         assert report.is_empty is False
+
+    def it_counts_a_run_only_on_a_class_that_went_live():
+        """A past session on a cancelled, draft, pending or unpublished class is not a class run."""
+        cancelled = _inquiry("2026-09-05T10:00", instructor_oriented_at=NOW)
+        _past_class(cancelled, ClassOffering.Status.CANCELLED)
+        never_live = _inquiry("2026-09-06T10:00", instructor_oriented_at=NOW)
+        _past_class(never_live, ClassOffering.Status.DRAFT, published=False)
+        _past_class(never_live, ClassOffering.Status.PENDING, published=False)
+        _past_class(never_live, ClassOffering.Status.ARCHIVED, published=False)
+        archived = _inquiry("2026-09-07T10:00", instructor_oriented_at=NOW)
+        _past_class(archived, ClassOffering.Status.ARCHIVED)
+        report = _report(date(2026, 9, 1), date(2026, 9, 30))
+        assert [(b.label, b.count) for b in report.funnel] == [
+            ("Inquired", 3),
+            ("Approved", 3),
+            ("First class run", 1),
+        ]
 
     def it_is_empty_when_no_one_asked():
         report = _report(date(2026, 9, 1), date(2026, 9, 30))
