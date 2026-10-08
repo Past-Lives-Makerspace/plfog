@@ -57,8 +57,10 @@ class _RelayAwareLoginMixin(LoginRequiredMixin):
             return ""
 
         scheme = "https" if self.request.is_secure() else "http"
-        port = self.request.get_port()
-        port_part = f":{port}" if port not in ("80", "443") else ""
+        # The port the visitor used, from the Host header. get_port() is the server's own port,
+        # which behind Render's proxy is 10000 and unreachable from outside.
+        _, _, port = current_host.partition(":")
+        port_part = f":{port}" if port and port not in ("80", "443") else ""
         return (
             f"{scheme}://{member_host}{port_part}/auth/relay/"
             f"?{urlencode({'book_host': current_host, 'next': self.request.get_full_path()})}"

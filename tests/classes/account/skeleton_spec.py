@@ -18,6 +18,17 @@ def describe_account_routes():
             assert resp.status_code == 302, f"{url} returned {resp.status_code}"
             assert "/auth/relay/" in resp["Location"]
 
+    def it_relays_without_the_servers_own_port_behind_a_proxy(book_client, db):
+        resp = book_client.get("/account/", SERVER_PORT="10000", HTTP_X_FORWARDED_PROTO="https")
+        assert resp["Location"].startswith("https://members.pastlives.space/auth/relay/")
+
+    def it_keeps_the_port_the_visitor_used(settings, db):
+        settings.PUBLIC_HOSTS = ["book.pastlives.test"]
+        settings.ALLOWED_HOSTS = ["book.pastlives.test", "members.pastlives.test"]
+        settings.MEMBER_HOST = "members.pastlives.test"
+        resp = Client(HTTP_HOST="book.pastlives.test:8000").get("/account/")
+        assert resp["Location"].startswith("http://members.pastlives.test:8000/auth/relay/")
+
     def it_serves_each_protected_route_to_a_logged_in_user(book_client, db):
         user = UserFactory()
         book_client.force_login(user)

@@ -1,0 +1,6 @@
+bump = "patch"
+date = "2026-10-07"
+title = "Signing in to your class bookings works again"
+changes = [
+  "Opening your account on classes.pastlives.space while signed out now takes you to sign in, instead of a page that never loaded.",
+]
