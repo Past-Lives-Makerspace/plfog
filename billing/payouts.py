@@ -496,6 +496,27 @@ def _state(earning: Earning, account: PayoutAccount | None, since: datetime | No
     return "upcoming", "Sending", "warn"
 
 
+_SENT_STATUSES = frozenset({Payout.Status.SENT, Payout.Status.TAKEN_BACK})
+
+
+def _earning_lines(
+    earning: Earning, payout: Payout | None, account: PayoutAccount | None, since: datetime | None
+) -> list[tuple[str, str, str, int]]:
+    """(state, label, badge, cents) lines for one earning on the Payouts tab.
+
+    A share refunds took back shows twice: Sent for what went out, Taken back for the part
+    reversed, so a partial take back still shows the part the payee keeps.
+    """
+    if payout is not None and payout.status in _SENT_STATUSES and payout.sent_at is not None:
+        sent = timezone.localtime(payout.sent_at)
+        lines = [("sent", f"Sent {sent:%b} {sent.day}", "ok", payout.amount_cents)]
+        if payout.reversed_cents:
+            lines.append(("taken_back", "Taken back", "fail", -payout.reversed_cents))
+        return lines
+    state, label, badge = _state(earning, account, since)
+    return [(state, label, badge, earning.share_cents)]
+
+
 def payee_earnings(member: Member, now: datetime | None = None) -> EarningsList:
     """What ``member`` earned: taught in the last 60 days or still to come, each earning in one row."""
     now = now or timezone.now()
@@ -510,20 +531,21 @@ def payee_earnings(member: Member, now: datetime | None = None) -> EarningsList:
     upcoming = sent_this_month = owed = 0
     this_month = timezone.localtime(now).strftime("%Y-%m")
     for earning in earnings:
-        state, label, badge = _state(earning, account, since)
+        payout = earning.payout
         taught_on = timezone.localtime(earning.taught_at).date()
-        key = (earning.kind, earning.item, taught_on, state, label)
-        row = rows.setdefault(key, EarningRow(earning.item, taught_on, state, label, badge, kind=earning.kind))
-        signed = -earning.payout.reversed_cents if state == "taken_back" else earning.share_cents  # type: ignore[union-attr]
-        row.amount_cents += signed
-        row.count += 1
-        row.payers.append(earning.payer)
-        if state == "upcoming":
-            upcoming += earning.share_cents
-        elif state == "owed":
-            owed += earning.share_cents
-        elif state == "sent" and timezone.localtime(earning.payout.sent_at).strftime("%Y-%m") == this_month:  # type: ignore[union-attr]
-            sent_this_month += earning.share_cents
+        for state, label, badge, amount in _earning_lines(earning, payout, account, since):
+            key = (earning.kind, earning.item, taught_on, state, label)
+            row = rows.setdefault(key, EarningRow(earning.item, taught_on, state, label, badge, kind=earning.kind))
+            row.amount_cents += amount
+            row.count += 1
+            row.payers.append(earning.payer)
+            if state == "upcoming":
+                upcoming += amount
+            elif state == "owed":
+                owed += amount
+        if payout is not None and payout.sent_at is not None and payout.status in _SENT_STATUSES:
+            if timezone.localtime(payout.sent_at).strftime("%Y-%m") == this_month:
+                sent_this_month += payout.amount_cents - payout.reversed_cents  # what the payee keeps
     ordered = sorted(rows.values(), key=lambda row: (row.taught_on, row.item), reverse=True)
     return EarningsList(ordered, upcoming, sent_this_month, owed)
 
@@ -706,3 +728,24 @@ def kept_share_notes(lines: Iterable[TransactionLine]) -> dict[tuple[str, int], 
             why = "an admin chose Past Lives covers it"
         notes[key] = f"Payee kept a share already sent: {why}; Past Lives covered the refund"
     return notes
+
+
+def flag_refunds_past_a_send(payout: Payout) -> None:
+    """When a send completes, flag a refund that landed while the share was pending or mid-send.
+
+    Such a refund found no sent share, so nobody chose and nothing was reversed: a replay
+    keeps its pinned amount. If the share due now is less than what was sent, the refund is
+    recorded as Not asked (Past Lives covers it), like a Stripe dashboard refund, and
+    Reconciliation flags the line. Nothing is reversed automatically.
+    """
+    from billing.models import PaymentRefund
+    from billing.reconciliation import ShareSource
+
+    source = payout.source
+    shares = ShareSource()
+    due = shares.for_registration(source) if payout.registration_id is not None else shares.for_booking(source)
+    if due >= payout.amount_cents - payout.reversed_cents:
+        return
+    source.refunds.filter(
+        status=PaymentRefund.Status.SUCCEEDED, share_decision=PaymentRefund.ShareDecision.NOT_APPLICABLE
+    ).update(share_decision=PaymentRefund.ShareDecision.NOT_ASKED)

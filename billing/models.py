@@ -2281,12 +2281,15 @@ class Payout(models.Model):
         return stripe_utils.find_payout_transfer(payout_pk=self.pk, created_after=self.created_at)
 
     def mark_sent(self, transfer_id: str) -> None:
-        """Record the share as sent with Stripe's transfer id."""
+        """Record the share as sent with Stripe's transfer id, and flag any refund that landed while it was in flight."""
         self.status = self.Status.SENT
         self.stripe_transfer_id = transfer_id
         self.sent_at = timezone.now()
         self.failure_reason = ""
         self.save(update_fields=["status", "stripe_transfer_id", "sent_at", "failure_reason", "attempted_at"])
+        from billing.payouts import flag_refunds_past_a_send
+
+        flag_refunds_past_a_send(self)
 
     def _fail(self, reason: str) -> None:
         """Record a definite rejection and alert the billing admins (once per share).
@@ -2365,5 +2368,5 @@ class Payout(models.Model):
         if reason:
             self.failure_reason = reason
         self.save(update_fields=["status", "owed_reason", "failure_reason", "attempted_at"])
-        notify_admins_payout_failed(self)
+        notify_admins_payout_failed(self, owed=True)
         return True

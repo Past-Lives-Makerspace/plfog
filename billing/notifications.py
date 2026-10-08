@@ -153,10 +153,12 @@ def _counted_note(payout: Payout) -> str:
     return "plfog retries it daily. If it still fails when its month is snapshotted, it is owed by hand."
 
 
-def notify_admins_payout_failed(payout: Payout) -> None:
-    """Tell the Billing Administrators, once per share, that Stripe rejected a payout transfer (#662).
+def notify_admins_payout_failed(payout: Payout, *, owed: bool = False) -> None:
+    """Tell the Billing Administrators that a payout transfer failed (#662): at most once per share for each kind.
 
-    The ``period`` is per share and not per attempt, so the daily retries stay quiet.
+    The ``period`` is per share and not per attempt, so the daily retries stay quiet. The
+    give up (``owed``, "pay it by hand") has its own period, so a share already alerted as
+    failed or unconfirmed still gets the alert that says to pay it.
     """
     from core.events.emit import emit
 
@@ -173,7 +175,7 @@ def notify_admins_payout_failed(payout: Payout) -> None:
             "admin_url": _member_url(f"{reverse('billing_admin_dashboard')}?tab=reconciliation"),
         },
         url=f"{reverse('billing_admin_dashboard')}?tab=reconciliation",
-        period=f"payout:{payout.pk}:failed",
+        period=f"payout:{payout.pk}:{'owed' if owed else 'failed'}",
     )
 
 

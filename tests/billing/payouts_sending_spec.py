@@ -494,7 +494,13 @@ def describe_payee_earnings():
         with patch("django.utils.timezone.now", return_value=NOW):
             earnings = payouts.payee_earnings(instructor, NOW)
         states = sorted((row.state, row.amount_cents, row.count) for row in earnings.rows)
-        assert states == [("owed", 7000, 1), ("sent", 7000, 1), ("taken_back", -7000, 1), ("upcoming", 7000, 1)]
+        assert states == [
+            ("owed", 7000, 1),
+            ("sent", 7000, 1),
+            ("sent", 7000, 1),  # the taken back share's Sent line
+            ("taken_back", -7000, 1),
+            ("upcoming", 7000, 1),
+        ]
         upcoming = next(row for row in earnings.rows if row.state == "upcoming")
         assert upcoming.label.startswith("Sends ")
         assert (earnings.upcoming_cents, earnings.sent_this_month_cents, earnings.owed_cents) == (7000, 7000, 7000)

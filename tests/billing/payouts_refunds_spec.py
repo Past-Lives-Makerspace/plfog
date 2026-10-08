@@ -13,7 +13,7 @@ from django.urls import reverse
 from django.utils import timezone
 
 from billing import payouts
-from billing.models import PaymentRefund, Payout, PayoutAccount
+from billing.models import BillingSettings, PaymentRefund, Payout, PayoutAccount
 from billing.payments_panel import PanelWindow
 from billing.reconciliation import build_reconciliation
 from billing.refunds import issue_refund
@@ -213,8 +213,8 @@ def describe_taking_the_share_back():
         reg = _sent_registration(payee)
         with _Reversals(), django_capture_on_commit_callbacks(execute=True):
             issue_refund(reg, share_decision=TAKE_BACK)
-        [row] = payouts.payee_earnings(payee).rows
-        assert (row.state, row.label, row.amount_cents) == ("taken_back", "Taken back", -7000)
+        rows = sorted((row.state, row.amount_cents) for row in payouts.payee_earnings(payee).rows)
+        assert rows == [("sent", 7000), ("taken_back", -7000)]
 
 
 def describe_past_lives_covering_it():
@@ -356,3 +356,75 @@ def describe_stripe_reversal_calls():
         assert stripe_utils.find_transfer_reversal(transfer_id="tr_1", refund_pk=12) == "trr_mine"
         client_mock.v1.transfers.reversals.list.return_value.auto_paging_iter.return_value = iter(others)
         assert stripe_utils.find_transfer_reversal(transfer_id="tr_1", refund_pk=12) is None
+
+
+def describe_review_round_1():
+    def it_shows_the_part_kept_and_the_part_taken_back_with_net_totals(django_capture_on_commit_callbacks):
+        payee = _payee()
+        reg = _sent_registration(payee)
+        with _Reversals(), django_capture_on_commit_callbacks(execute=True):
+            issue_refund(reg, amount_cents=4000, share_decision=TAKE_BACK)
+        earnings = payouts.payee_earnings(payee)
+        assert sorted((row.state, row.label.split()[0], row.amount_cents) for row in earnings.rows) == [
+            ("sent", "Sent", 7000),
+            ("taken_back", "Taken", -2800),
+        ]
+        assert earnings.sent_this_month_cents == 4200
+
+    def it_flags_a_refund_that_landed_while_the_share_was_still_being_sent():
+        from tests.billing.payouts_sending_spec import _Stripe
+
+        payee = _payee()
+        reg = _sent_registration(payee)
+        payout = Payout.objects.get()
+        Payout.objects.filter(pk=payout.pk).update(
+            status=Payout.Status.PENDING, stripe_transfer_id="", sent_at=None, attempted_at=timezone.now()
+        )
+        with _Reversals() as fake:
+            issue_refund(reg, amount_cents=10000)  # no sent share to ask about yet
+        assert PaymentRefund.objects.get().share_decision == PaymentRefund.ShareDecision.NOT_APPLICABLE
+        bs = BillingSettings.load()
+        bs.connect_enabled = True
+        bs.save()
+        with _Stripe() as stripe_fake:
+            payouts.run_payouts()
+        payout.refresh_from_db()
+        assert payout.status == Payout.Status.SENT
+        assert [t["amount_cents"] for t in stripe_fake.transfers] == [7000]  # the pinned replay
+        assert fake.created == []  # nothing reversed automatically
+        assert PaymentRefund.objects.get().share_decision == PaymentRefund.ShareDecision.NOT_ASKED
+        today = timezone.localdate()
+        notes = payouts.kept_share_notes(
+            build_reconciliation(window=PanelWindow(start=today - timedelta(days=40), end=today)).lines
+        )
+        assert ("class", reg.pk) in notes
+
+    def it_sends_the_failure_alert_and_the_pay_it_by_hand_alert_once_each():
+        from billing.models import ReconciliationSnapshot
+        from tests.billing.payouts_sending_spec import _Stripe
+
+        payee = _payee()
+        reg = _sent_registration(payee)
+        payout = Payout.objects.get()
+        Payout.objects.filter(pk=payout.pk).update(
+            status=Payout.Status.PENDING, stripe_transfer_id="", sent_at=None, attempted_at=None
+        )
+        bs = BillingSettings.load()
+        bs.connect_enabled = True
+        bs.save()
+        BillingSettings.objects.filter(pk=1).update(payouts_on_since=timezone.now() - timedelta(days=40))
+        with _Stripe(fail="Account restricted."), patch("core.events.emit.emit") as emit:
+            payouts.run_payouts()
+            ReconciliationSnapshot.objects.create(
+                title="Month",
+                period_start=reg.confirmed_at.date() - timedelta(days=1),
+                period_end=reg.confirmed_at.date() + timedelta(days=1),
+                results={},
+                grand_total_cents=0,
+            )
+            Payout.objects.update(attempted_at=timezone.now() - timedelta(days=2))
+            payouts.run_payouts()
+            payouts.run_payouts(timezone.now() + timedelta(days=5))
+        periods = [c.kwargs["period"] for c in emit.call_args_list if c.args[0] == "billing.payout_failed_admin"]
+        assert periods == [f"payout:{payout.pk}:failed", f"payout:{payout.pk}:owed"]
+        assert Payout.objects.get().status == Payout.Status.OWED_MANUALLY
