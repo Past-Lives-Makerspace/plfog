@@ -443,7 +443,9 @@ class ConnectPlatformSettingsForm(forms.ModelForm):
     """Admin form for editing the platform Stripe credentials on BillingSettings.
 
     Lives separately from BillingSettingsForm so it can be POSTed independently
-    from a dedicated card on the Settings tab.
+    from a dedicated card on the Settings tab. Which credentials payouts require
+    is checked once, by ``BillingSettings.clean``, so each missing field is
+    reported once.
     """
 
     class Meta:
@@ -451,19 +453,20 @@ class ConnectPlatformSettingsForm(forms.ModelForm):
         fields = [
             "connect_enabled",
             "test_mode",
-            "connect_client_id",
             "connect_platform_publishable_key",
             "connect_platform_secret_key",
             "connect_platform_webhook_secret",
             "connect_accounts_webhook_secret",
-            "test_connect_client_id",
             "test_connect_platform_publishable_key",
             "test_connect_platform_secret_key",
             "test_connect_platform_webhook_secret",
             "test_connect_accounts_webhook_secret",
+            "previous_secret_key",
+            "previous_webhook_secret",
+            "test_previous_secret_key",
+            "test_previous_webhook_secret",
         ]
         widgets = {
-            "connect_client_id": forms.TextInput(attrs={"placeholder": "ca_…", "autocomplete": "off"}),
             "connect_platform_publishable_key": forms.TextInput(
                 attrs={"placeholder": "pk_live_…", "autocomplete": "off"}
             ),
@@ -473,7 +476,6 @@ class ConnectPlatformSettingsForm(forms.ModelForm):
             "connect_platform_webhook_secret": forms.PasswordInput(
                 render_value=True, attrs={"placeholder": "whsec_…", "autocomplete": "off"}
             ),
-            "test_connect_client_id": forms.TextInput(attrs={"placeholder": "ca_…", "autocomplete": "off"}),
             "test_connect_platform_publishable_key": forms.TextInput(
                 attrs={"placeholder": "pk_test_…", "autocomplete": "off"}
             ),
@@ -489,22 +491,63 @@ class ConnectPlatformSettingsForm(forms.ModelForm):
             "test_connect_accounts_webhook_secret": forms.PasswordInput(
                 render_value=True, attrs={"placeholder": "whsec_…", "autocomplete": "off"}
             ),
+            "previous_secret_key": forms.PasswordInput(
+                render_value=True, attrs={"placeholder": "sk_live_…", "autocomplete": "off"}
+            ),
+            "previous_webhook_secret": forms.PasswordInput(
+                render_value=True, attrs={"placeholder": "whsec_…", "autocomplete": "off"}
+            ),
+            "test_previous_secret_key": forms.PasswordInput(
+                render_value=True, attrs={"placeholder": "sk_test_…", "autocomplete": "off"}
+            ),
+            "test_previous_webhook_secret": forms.PasswordInput(
+                render_value=True, attrs={"placeholder": "whsec_…", "autocomplete": "off"}
+            ),
         }
 
-    def clean(self) -> dict:
-        """Require only the active mode's five credential fields when payouts are on.
 
-        Mirrors ``BillingSettings.clean`` so the inactive slot may be blank or
-        pre-filled — both key sets can be saved side by side.
-        """
-        cleaned = super().clean() or {}
-        if cleaned.get("connect_enabled"):
-            test_mode = cleaned.get("test_mode")
-            for suffix in BillingSettings._CREDENTIAL_SUFFIXES:
-                field_name = f"test_connect_{suffix}" if test_mode else f"connect_{suffix}"
-                if not cleaned.get(field_name):
-                    self.add_error(field_name, "Required when Stripe Connect is enabled in the current mode.")
-        return cleaned
+class NewStripeAccountForm(forms.Form):
+    """The "Put new account credentials" modal on the Stripe tab (#702).
+
+    Collects the new account's keys for the current mode; ``switch`` hands them to
+    ``BillingSettings.switch_to_new_account``, which moves the current keys to Previous account.
+    """
+
+    publishable_key = forms.CharField(
+        max_length=255,
+        widget=forms.TextInput(attrs={"placeholder": "pk_…", "autocomplete": "off"}),
+        help_text="The new account's publishable key for this mode.",
+    )
+    secret_key = forms.CharField(
+        max_length=512,
+        widget=forms.PasswordInput(attrs={"placeholder": "sk_…", "autocomplete": "off"}),
+        help_text="The new account's secret key. Must match the current mode (sk_live_ or sk_test_).",
+    )
+    webhook_secret = forms.CharField(
+        max_length=512,
+        widget=forms.PasswordInput(attrs={"placeholder": "whsec_…", "autocomplete": "off"}),
+        help_text="Signing secret of the new account's webhook endpoint pointed at this site.",
+    )
+    accounts_webhook_secret = forms.CharField(
+        max_length=512,
+        required=False,
+        widget=forms.PasswordInput(attrs={"placeholder": "whsec_…", "autocomplete": "off"}),
+        help_text="Signing secret of the new account's Connected accounts endpoint. Required while payouts are on.",
+    )
+
+    def switch(self, settings: BillingSettings) -> bool:
+        """Switch ``settings`` to the new account; on a rejected key add the errors here and return False."""
+        try:
+            settings.switch_to_new_account(
+                publishable_key=self.cleaned_data["publishable_key"],
+                secret_key=self.cleaned_data["secret_key"],
+                webhook_secret=self.cleaned_data["webhook_secret"],
+                accounts_webhook_secret=self.cleaned_data["accounts_webhook_secret"],
+            )
+        except forms.ValidationError as exc:
+            self.add_error(None, exc)
+            return False
+        return True
 
 
 class ProductForm(forms.ModelForm):

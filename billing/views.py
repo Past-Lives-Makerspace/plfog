@@ -182,6 +182,9 @@ def stripe_webhook(request: HttpRequest) -> HttpResponse:
     except Exception:
         logger.exception("Webhook signature verification failed.")
         return HttpResponse(status=400)
+    if event is None:
+        # A previous Stripe account event plfog acknowledges without handling (#702).
+        return HttpResponse(status=200)
 
     event_type = event.type if hasattr(event, "type") else event.get("type", "")
     handler = _WEBHOOK_HANDLERS.get(event_type)
@@ -345,7 +348,12 @@ def admin_tab_dashboard(request: HttpRequest) -> HttpResponse:
     """
     from django.contrib import admin as django_admin
 
-    from billing.forms import BillingSettingsForm, ConnectPlatformSettingsForm, ReconciliationSettingsForm
+    from billing.forms import (
+        BillingSettingsForm,
+        ConnectPlatformSettingsForm,
+        NewStripeAccountForm,
+        ReconciliationSettingsForm,
+    )
     from billing.models import BillingSettings, Product
     from core.features import is_on
     from membership.models import Guild
@@ -461,6 +469,7 @@ def admin_tab_dashboard(request: HttpRequest) -> HttpResponse:
         {
             "settings_form": BillingSettingsForm(instance=settings_obj),
             "connect_platform_form": ConnectPlatformSettingsForm(instance=settings_obj),
+            "new_stripe_account_form": NewStripeAccountForm(),
             "reconciliation_settings_form": ReconciliationSettingsForm(instance=settings_obj),
             "billing_settings": settings_obj,
             "products": Product.objects.select_related("guild").order_by("guild__name", "name"),
@@ -1117,6 +1126,25 @@ def billing_save_connect_platform(request: HttpRequest) -> HttpResponse:
     if form.is_valid():
         form.save()
         django_messages.success(request, "Stripe platform settings saved.")
+    else:
+        for field, errors in form.errors.items():
+            for error in errors:
+                django_messages.error(request, f"{field}: {error}")
+    return redirect("/billing/admin/dashboard/?tab=stripe")
+
+
+@fog_admin_required
+@require_POST
+def billing_switch_stripe_account(request: HttpRequest) -> HttpResponse:
+    """Put new account credentials (#702): the new account becomes active, the current one moves to Previous account."""
+    from billing.forms import NewStripeAccountForm
+
+    form = NewStripeAccountForm(request.POST)
+    if form.is_valid() and form.switch(BillingSettings.load()):
+        django_messages.success(
+            request,
+            "New Stripe account credentials saved. The old secret key and webhook signing secret moved to Previous account.",
+        )
     else:
         for field, errors in form.errors.items():
             for error in errors:

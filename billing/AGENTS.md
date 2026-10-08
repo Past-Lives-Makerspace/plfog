@@ -40,6 +40,8 @@ Guild payouts are reconciled manually via the admin Reports page — no automate
 
 All charges route through one platform Stripe account — credentials live on `BillingSettings` (encrypted). No per-guild Stripe accounts, no destination charges, no direct-keys Checkout. This was simplified in v1.5.0.
 
+**Previous account (#702).** Payments made before the switch to the Past Lives Member Portal account live on PLM FOG. `BillingSettings.previous_*` / `test_previous_*` hold its secret key and webhook secret; `stripe_utils._on_owning_account` retries a refund, refund list or Checkout Session retrieve/expire on it once when the active account answers `resource_missing`, and `construct_webhook_event` tries its webhook secret last. Creation calls never fall back. The Stripe tab's "Put new account credentials" modal (`NewStripeAccountForm`, `billing_switch_stripe_account`) calls `BillingSettings.switch_to_new_account`, which moves the current mode's secret key and webhook secret into Previous account in one transaction; the normal save never moves credentials. Once PLM FOG closes, remove those fields, the "Previous account" block in `stripe_utils.py` the Stripe tab's Previous Account section and the switch modal in one PR.
+
 **Prereq**: `Tab.can_add_entry` requires a saved payment method on file. Off-session PaymentIntents don't work without one.
 
 ## Exceptions (billing/exceptions.py)
