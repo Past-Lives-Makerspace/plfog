@@ -77,9 +77,9 @@ def _preview_as(client: Client, role: str) -> None:
 # 34 since the Member Agreement gate added one SiteConfiguration read per request.
 # 35 since the welcome popup waits for the agreement (#487): the hub context asks
 # needs_member_agreement once more, a second SiteConfiguration read for a member who has
-# not dismissed the popup yet. 36 since the sidebar checks for its Kiln Tickets entry (#691).
+# not dismissed the popup yet.
 # That fixed cost must stay the same with one page or a full list of cards.
-_HOME_QUERY_BUDGET = 36
+_HOME_QUERY_BUDGET = 35
 
 
 def describe_the_feature_switch():

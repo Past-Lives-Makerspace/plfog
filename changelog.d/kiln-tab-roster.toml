@@ -1,0 +1,6 @@
+bump = "patch"
+date = "2026-10-08"
+title = "Guild member lists stay short"
+changes = [
+  "A guild page shows its first eight members and how many there are in all. Tap Show all to see everyone.",
+]

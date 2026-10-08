@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any
+from typing import Any
 
 from django.contrib import messages
 from django.contrib.auth.decorators import login_required
@@ -12,7 +12,7 @@ from django.urls import reverse
 from django.views.decorators.http import require_POST
 
 from core.htmx import wants_fragment
-from kiln.access import crew_required, is_crew, kiln_open_required, maker_required
+from kiln.access import KilnNav, can_run_kiln, crew_required, kiln_home_url, kiln_open_required, maker_required
 from kiln.forms import (
     ACTION_COVER,
     ACTION_DRAFT,
@@ -30,23 +30,18 @@ from kiln.services import (
     TicketNotEditable,
     firing_sheet,
     in_kiln_firings,
+    kiln_home,
     kiln_log,
     load_kiln,
     load_queue,
     post_reply,
     primary_emails,
     save_ticket,
+    tickets_for,
     unload_kiln,
     unload_sheet,
 )
-
-if TYPE_CHECKING:
-    from django.db.models import QuerySet
-
-    from membership.models import Member
-
-# How many fired tickets My Tickets shows before "Show older tickets".
-HISTORY_PAGE = 10
+from membership.models import Member
 
 # How many firings the Kiln Log shows before "Show older firings" (about half a year of firings).
 LOG_PAGE = 50
@@ -57,15 +52,6 @@ LIST_MODELS: dict[str, type[ListOption]] = {"clay": ClayOption, "glaze": GlazeOp
 def _member(request: HttpRequest) -> Member:
     member: Member = request.user.member  # type: ignore[union-attr]  # maker_required / crew_required ran
     return member
-
-
-def _tickets_for(member: Member) -> QuerySet[KilnTicket]:
-    """A maker's tickets, fired ones by when they came out (newest first), with what a row shows."""
-    return (
-        member.kiln_tickets.newest_fired_first()  # type: ignore[attr-defined]  # KilnTicketQuerySet manager
-        .select_related("clay")
-        .prefetch_related("photos", "flags", "studio_glazes")
-    )
 
 
 def _crew_tabs(**counts: int) -> dict[str, Any]:
@@ -81,25 +67,22 @@ def _crew_tabs(**counts: int) -> dict[str, Any]:
 @kiln_open_required
 @maker_required
 def my_tickets(request: HttpRequest) -> HttpResponse:
-    """My Tickets: drafts, the queue and the kiln on top, fired tickets below."""
+    """A guest's My Tickets. Everyone else keeps their tickets on the Ceramics Guild's Kiln Tickets
+    tab, so this sends them there (notification links and old bookmarks still say ``/kiln/``)."""
     member = _member(request)
-    tickets = list(_tickets_for(member))
-    by_status: dict[str, list[KilnTicket]] = {status: [] for status in KilnTicket.Status.values}
-    for ticket in tickets:
-        by_status[ticket.status].append(ticket)
     show_older = request.GET.get("older") == "1"
-    history = by_status[KilnTicket.Status.FIRED]
+    if member.status != Member.Status.GUEST:
+        return redirect(kiln_home_url(older=show_older))
+    home = kiln_home(
+        member, show_older=show_older, runs_kiln=can_run_kiln(member), older_url=f"{reverse('kiln:mine')}?older=1"
+    )
     context = {
-        "drafts": by_status[KilnTicket.Status.DRAFT],
-        "queued": by_status[KilnTicket.Status.SUBMITTED],
-        "loaded": by_status[KilnTicket.Status.LOADED],
-        "history": history if show_older else history[:HISTORY_PAGE],
-        "has_older": not show_older and len(history) > HISTORY_PAGE,
-        "is_crew": False,
+        "home": home,
+        "is_crew": home.runs_kiln,
         "kiln_tab": "mine",
+        "waiting_count": home.waiting_count,
+        "unload_count": home.unload_count,
     }
-    if is_crew(member):
-        context.update(_crew_tabs())
     return render(request, "kiln/my_tickets.html", context)
 
 
@@ -123,7 +106,7 @@ def _after_save(request: HttpRequest, form: KilnTicketForm, ticket: KilnTicket, 
         messages.success(request, text)
     else:
         messages.success(request, "Draft saved. Finish it any time from My Tickets.")
-    return redirect("kiln:mine")
+    return redirect(KilnNav(_member(request)).home_url)
 
 
 def _handle_form(request: HttpRequest, ticket: KilnTicket | None, copied_from: KilnTicket | None) -> HttpResponse:
@@ -161,7 +144,7 @@ def ticket_new(request: HttpRequest) -> HttpResponse:
     if source:
         if not source.isdigit():
             raise Http404("No such ticket.")
-        copied_from = get_object_or_404(_tickets_for(_member(request)), pk=int(source))
+        copied_from = get_object_or_404(tickets_for(_member(request)), pk=int(source))
     return _handle_form(request, None, copied_from)
 
 
@@ -170,7 +153,7 @@ def ticket_new(request: HttpRequest) -> HttpResponse:
 @maker_required
 def ticket_edit(request: HttpRequest, pk: int) -> HttpResponse:
     """Change a draft, or a ticket in the queue until the crew loads it."""
-    ticket = get_object_or_404(_tickets_for(_member(request)), pk=pk)
+    ticket = get_object_or_404(tickets_for(_member(request)), pk=pk)
     if not ticket.is_editable:
         return _already_loaded(request, ticket)
     return _handle_form(request, ticket, None)
@@ -208,7 +191,7 @@ def _visible_ticket(member: Member, pk: int, *, crew: bool) -> KilnTicket:
 def ticket_detail(request: HttpRequest, pk: int) -> HttpResponse:
     """One ticket. A maker sees their own; the crew see any, with every flag and the maker's contact."""
     member = _member(request)
-    crew = is_crew(member)
+    crew = can_run_kiln(member)
     ticket = _visible_ticket(member, pk, crew=crew)
     context = {
         "ticket": ticket,
@@ -234,7 +217,7 @@ def _to_messages(ticket: KilnTicket) -> HttpResponse:
 def ticket_reply(request: HttpRequest, pk: int) -> HttpResponse:
     """Post to a ticket's thread: the maker on their own ticket, the crew on any."""
     member = _member(request)
-    ticket = _visible_ticket(member, pk, crew=is_crew(member))
+    ticket = _visible_ticket(member, pk, crew=can_run_kiln(member))
     form = ReplyForm(request.POST)
     if not form.is_valid():
         messages.error(request, form.first_error)

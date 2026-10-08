@@ -4,10 +4,10 @@ Part 1: a member files a glaze ticket and a bisque copy of it. Part 2: the crew 
 and the maker and crew talk on the ticket. Part 3: the crew unloads a firing of two makers'
 pieces, sends one back to the queue with a note, and the other maker reads Ready for pickup.
 
-In a real browser on a phone sized viewport: the sidebar's Kiln Tickets entry, the New ticket
+In a real browser on a phone sized viewport: the Ceramics Guild page's Kiln Tickets tab, the New ticket
 form's branches (Alpine shows and hides them), a photo picked through the camera input
 (``static/js/kiln_ticket_form.js`` previews it and enables Submit), the kind flag notice, then
-My Tickets with the ticket In the queue. "Make another like this" carries every answer but
+the tab again with the ticket In the queue (``/kiln/`` sends a member there). "Make another like this" carries every answer but
 the photo and the Cone 6 confirmations into a bisque ticket. On Load the Kiln the crew filter the
 tiles, cannot tick the other firing's tile, tick one glaze ticket and confirm; the maker then sees
 it In the kiln and answers the crew's message. On Unload every piece starts ticked; unticking one
@@ -36,6 +36,7 @@ from django.utils import timezone
 
 from core.events.registry import KILN_READY_FOR_PICKUP
 from core.models import Notification, SiteConfiguration
+from kiln.access import kiln_home_url
 from kiln.models import ClayOption, GlazeOption, KilnFiring, KilnFlag, KilnReply, KilnTicket
 from kiln.services import load_kiln
 from membership.services.provisioning import provision_user_for_member
@@ -118,12 +119,13 @@ def describe_filing_kiln_tickets():
         GuildMembershipFactory(guild=guild, member=member)
 
         page.set_viewport_size({"width": 390, "height": 844})
-        page.goto(f"{live_server.url}{reverse('hub_community_calendar')}")
-        page.get_by_role("button", name="Toggle sidebar").click()
-        page.locator('.hub-sidebar a[data-nav="kiln"]').click()
-        expect(page.get_by_role("heading", level=1)).to_have_text("Kiln Tickets")
+        page.goto(f"{live_server.url}{reverse('hub_guild_detail', args=[guild.slug])}")
+        expect(page.locator('.hub-sidebar a[data-nav="kiln"]')).to_have_count(0)
+        page.locator('[data-guild-tab="kiln"]').click()
+        pane = page.locator("[data-guild-kiln]")
+        expect(pane.get_by_role("heading", level=2, name="Kiln Tickets")).to_be_visible()
 
-        page.get_by_role("link", name="New ticket").click()
+        pane.get_by_role("link", name="New ticket").click()
         expect(page.get_by_role("heading", level=1)).to_have_text("New Ticket")
         submit = page.get_by_role("button", name="Submit ticket")
         expect(submit).to_be_disabled()
@@ -161,7 +163,7 @@ def describe_filing_kiln_tickets():
         _clear_of_the_feedback_bubble(page, submit)
 
         submit.click()
-        expect(page).to_have_url(f"{live_server.url}{reverse('kiln:mine')}")
+        expect(page).to_have_url(f"{live_server.url}{kiln_home_url()}")
         glaze = KilnTicket.objects.get(maker=member)
         queued = page.locator('[data-group="submitted"]')
         expect(queued).to_contain_text(f"Ticket {glaze.pk} · Glaze · 3 pieces")
@@ -185,7 +187,7 @@ def describe_filing_kiln_tickets():
         page.locator("label.pl-toggle:has(#id_clay_other_cone6)").click()
         page.get_by_role("button", name="Submit ticket").click()
 
-        expect(page).to_have_url(f"{live_server.url}{reverse('kiln:mine')}")
+        expect(page).to_have_url(f"{live_server.url}{kiln_home_url()}")
         expect(page.locator('[data-group="submitted"] .pl-kiln-row')).to_have_count(2)
         bisque = KilnTicket.objects.exclude(pk=glaze.pk).get(maker=member)
         expect(queued).to_contain_text(f"Ticket {bisque.pk} · Bisque · 3 pieces")

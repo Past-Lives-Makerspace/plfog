@@ -68,7 +68,7 @@ def hub_sidebar(request: HttpRequest) -> dict[str, Any]:
         "teach_nav": teach_nav,
         "classes_admin_nav_active": admin_nav_active,
         "classes_catalog_active_class": _classes_catalog_active_class(request, admin_nav_active, teach_nav),
-        # Lazy: the sidebar's one query runs only when a page renders the sidebar (#691).
+        # The guest menu and the kiln pages' way back (#691); no query.
         "kiln_nav": KilnNav(member),
     }
 

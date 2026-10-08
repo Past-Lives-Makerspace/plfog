@@ -8,7 +8,7 @@
 
 {% block content %}
 {% include "kiln/partials/_icons.html" %}
-<p class="pl-kiln-crumb"><a href="{% url 'kiln:mine' %}">Kiln Tickets</a></p>
+{% include "kiln/partials/_crumb.html" %}
 <h1 class="hub-page-title">{% if not ticket %}New Ticket{% elif ticket.status == "draft" %}Draft Ticket{% else %}Ticket {{ ticket.pk }}{% endif %}</h1>
 <p class="hub-text-muted">{% if ticket and ticket.status != "draft" %}You can change this ticket until the crew loads it. Saving checks the flags again.{% else %}Save as a draft to finish later, or submit to put it in the queue.{% endif %}</p>
 

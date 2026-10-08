@@ -8,7 +8,7 @@
 
 {% block content %}
 {% include "kiln/partials/_icons.html" %}
-<p class="pl-kiln-crumb"><a href="{% url 'kiln:mine' %}">Kiln Tickets</a></p>
+{% include "kiln/partials/_crumb.html" %}
 <div class="pl-kiln-detail pl-kiln-detail--maker">
     <div class="pl-kiln-detail__title">
         <h1 class="hub-page-title">{% if ticket.status == "draft" %}Draft Ticket{% else %}Ticket {{ ticket.pk }}{% endif %}</h1>

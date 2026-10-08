@@ -84,3 +84,60 @@ def describe_delete_permissions():
         resp = client.post(reverse("hub_guild_image_delete", args=[guild.pk, img.pk]))
         assert resp.status_code == 403
         assert GuildImage.objects.filter(pk=img.pk).exists()
+
+
+@pytest.mark.django_db
+def describe_members_card():
+    """The guild page's Members card shows eight and folds the rest behind "Show all"."""
+
+    def _page(client: Client, joined: int) -> str:
+        from tests.membership.factories import GuildMembershipFactory, MemberFactory
+
+        _member_user("viewer")
+        client.login(username="viewer", password="pw")
+        guild = GuildFactory(show_members=True)
+        for i in range(joined):
+            member = MemberFactory(preferred_name=f"Rosterperson{i:02d}", show_in_directory=True)
+            GuildMembershipFactory(guild=guild, member=member)
+        body = client.get(reverse("hub_guild_detail", args=[guild.slug])).content.decode()
+        return body.split('id="guild-roster-card"')[1].split('<div class="hub-card">', 2)[1]
+
+    def it_shows_eight_and_folds_the_rest_of_twelve(client: Client):
+        card = _page(client, 12)
+        shown, folded = card.split('<details class="pl-guild-roster__more">')
+
+        assert '<span class="pl-guild-roster__count">12</span>' in shown
+        assert shown.count("hub-member-row") == 8
+        assert folded.split("</details>")[0].count("hub-member-row") == 4
+        assert "Show all 12 members" in folded
+
+    def it_has_nothing_to_fold_for_three(client: Client):
+        card = _page(client, 3)
+
+        assert card.count("hub-member-row") == 3
+        assert "<details" not in card
+        assert '<span class="pl-guild-roster__count">3</span>' in card
+
+    def it_reads_the_roster_in_one_query_however_many_fold(client: Client):
+        from django.db import connection
+        from django.test.utils import CaptureQueriesContext
+
+        def _roster_queries(joined: int) -> int:
+            from tests.membership.factories import GuildMembershipFactory, MemberFactory
+
+            guild = GuildFactory(show_members=True)
+            for _ in range(joined):
+                GuildMembershipFactory(guild=guild, member=MemberFactory(show_in_directory=True))
+            with CaptureQueriesContext(connection) as captured:
+                client.get(reverse("hub_guild_detail", args=[guild.slug]))
+            return sum(
+                1
+                for q in captured.captured_queries
+                if "membership_guildmembership" in q["sql"] and "show_in_directory" in q["sql"]
+            )
+
+        _member_user("counter")
+        client.login(username="counter", password="pw")
+
+        assert _roster_queries(3) == 1
+        assert _roster_queries(12) == 1

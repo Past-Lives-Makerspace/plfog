@@ -115,8 +115,7 @@ def describe_ordering_and_paging():
             guild = GuildFactory()
             for _row in range(3):
                 WikiReportFactory(page=WikiPageFactory(guild=guild), reporter=MemberFactory())
-        # 26 since the sidebar checks for its Kiln Tickets entry (#691).
-        with django_assert_max_num_queries(26):
+        with django_assert_max_num_queries(25):
             assert client.get(_queue_url()).status_code == 200
 
     def it_leaves_the_safety_list_alone_when_the_reports_page(client: Client):

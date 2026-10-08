@@ -1,8 +1,8 @@
 """The kiln launch switch (#691): off until the crew screens ship, then today's behavior.
 
-``SiteConfiguration.kiln_tickets_open`` defaults off. Off: only the kiln crew reach /kiln/ and
-see its links; everyone else gets a 404 there, and guests are locked out exactly as before
-#691. On: members and guests file tickets.
+``SiteConfiguration.kiln_tickets_open`` defaults off. Off: only the kiln crew and site admins
+reach /kiln/ and see the Ceramics Guild's Kiln Tickets tab; everyone else gets a 404 there,
+and guests are locked out exactly as before #691. On: members and guests file tickets.
 """
 
 from __future__ import annotations
@@ -15,7 +15,7 @@ from django.test import Client
 from django.urls import reverse
 
 from core.models import SiteConfiguration
-from kiln.access import KilnNav, can_reach_kiln, kiln_is_open, shows_kiln_nav
+from kiln.access import can_reach_kiln, can_run_kiln, is_crew, kiln_home_url, kiln_is_open
 from membership.models import Member
 from tests.kiln.conftest import set_kiln_open, signed_in
 from tests.kiln.factories import KilnTicketFactory
@@ -34,13 +34,17 @@ def closed() -> None:
 
 
 def _urls(ticket_pk: int) -> list[str]:
+    """Every maker page but /kiln/, which sends anyone but a guest to the guild tab."""
     return [
-        MINE,
         reverse("kiln:new"),
         reverse("kiln:detail", args=[ticket_pk]),
         reverse("kiln:edit", args=[ticket_pk]),
         reverse("kiln:lists"),
     ]
+
+
+def _has_tab(client: Client, guild_slug: str) -> bool:
+    return 'data-guild-tab="kiln"' in client.get(reverse("hub_guild_detail", args=[guild_slug])).content.decode()
 
 
 def _sign_in(client: Client, email: str):
@@ -76,35 +80,41 @@ def describe_while_closed():
 
         for url in _urls(ticket.pk):
             assert crew_client.get(url).status_code == 200, url
+        assert crew_client.get(MINE)["Location"] == kiln_home_url()
         assert can_reach_kiln(crew)
-        assert shows_kiln_nav(crew)
+
+    def it_lets_a_site_admin_in_everywhere_with_the_crew_screens(closed, kiln_guild, make_member, maker):
+        admin = make_member(fog_role=Member.FogRole.ADMIN)
+        admin.sync_user_permissions()
+        client = signed_in(admin)
+        ticket = KilnTicketFactory(maker=maker)
+
+        for url in [*_urls(ticket.pk)[:2], reverse("kiln:lists"), reverse("kiln:load"), reverse("kiln:log")]:
+            assert client.get(url).status_code == 200, url
+        assert can_reach_kiln(admin) and can_run_kiln(admin)
+        assert not is_crew(admin)  # crew notifications stay with the lead and staff
+        assert _has_tab(client, kiln_guild.slug)
+
+    def it_keeps_the_crew_screens_from_a_guild_officer(closed, kiln_guild, make_member):
+        officer = make_member(fog_role=Member.FogRole.GUILD_OFFICER)
+
+        assert not can_run_kiln(officer)
+        assert not can_run_kiln(None)
 
     def it_gives_a_member_a_404_on_every_kiln_url(closed, kiln_guild, maker, maker_client):
         GuildMembershipFactory(guild=kiln_guild, member=maker)
         ticket = KilnTicketFactory(maker=maker)
 
-        for url in _urls(ticket.pk):
+        for url in [MINE, *_urls(ticket.pk)]:
             assert maker_client.get(url).status_code == 404, url
         assert maker_client.post(reverse("kiln:list_add", args=["clay"]), {"name": "X"}).status_code == 404
         assert not can_reach_kiln(maker)
 
-    def it_hides_the_sidebar_entry_from_guild_members_but_not_the_crew(closed, kiln_guild, maker, crew):
+    def it_hides_the_guild_tab_from_members_but_not_the_crew(closed, kiln_guild, maker, crew):
         GuildMembershipFactory(guild=kiln_guild, member=maker)
 
-        member_page = signed_in(maker).get(reverse("hub_community_calendar")).content.decode()
-        crew_page = signed_in(crew).get(reverse("hub_community_calendar")).content.decode()
-
-        assert 'data-nav="kiln"' not in member_page
-        assert 'data-nav="kiln"' in crew_page
-
-    def it_hides_the_guild_page_link_from_members_but_not_the_crew(closed, kiln_guild, maker, crew):
-        url = reverse("hub_guild_detail", args=[kiln_guild.slug])
-
-        assert 'data-nav="kiln-guild-link"' not in signed_in(maker).get(url).content.decode()
-        assert 'data-nav="kiln-guild-link"' in signed_in(crew).get(url).content.decode()
-
-    def it_never_links_an_anonymous_visitor(closed):
-        assert KilnNav(None).guild_link is False
+        assert not _has_tab(signed_in(maker), kiln_guild.slug)
+        assert _has_tab(signed_in(crew), kiln_guild.slug)
 
     def it_locks_a_guest_out_as_before(closed, make_member):
         client = signed_in(make_member(status=GUEST))
@@ -124,12 +134,12 @@ def describe_while_closed():
 
 
 def describe_while_open():
-    def it_lets_a_member_in_and_shows_guild_members_the_entry(kiln_guild, maker, maker_client):
+    def it_lets_a_member_in_and_shows_them_the_guild_tab(kiln_guild, maker, maker_client):
         GuildMembershipFactory(guild=kiln_guild, member=maker)
 
-        assert maker_client.get(MINE).status_code == 200
-        assert shows_kiln_nav(maker)
-        assert KilnNav(maker).guild_link
+        assert maker_client.get(MINE)["Location"] == kiln_home_url()
+        assert maker_client.get(reverse("kiln:new")).status_code == 200
+        assert _has_tab(maker_client, kiln_guild.slug)
 
     def it_lets_a_guest_sign_in_and_reach_only_the_kiln(make_member):
         guest = make_member(status=GUEST)

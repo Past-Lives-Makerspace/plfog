@@ -1,0 +1,2 @@
+{# The kiln pages' way back (#691): the Ceramics Guild's Kiln Tickets tab, or a guest's own /kiln/ page (kiln_nav.home_url). Optional then_url and then_label add one more step. #}
+<p class="pl-kiln-crumb"><a href="{{ kiln_nav.home_url }}" data-kiln-home>{{ kiln_nav.home_label }}</a>{% if then_url %} <span aria-hidden="true">›</span> <a href="{{ then_url }}">{{ then_label }}</a>{% endif %}</p>
