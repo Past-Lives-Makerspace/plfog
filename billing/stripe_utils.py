@@ -495,3 +495,29 @@ def find_payout_transfer(*, payout_pk: int, created_after: datetime) -> str | No
         if metadata is not None and "payout_pk" in metadata and metadata["payout_pk"] == str(payout_pk):
             return transfer.id
     return None
+
+
+def reverse_transfer(*, transfer_id: str, amount_cents: int, refund_pk: int) -> str:
+    """Take ``amount_cents`` of a sent share back from the payee: a transfer reversal (#662, part 3).
+
+    Keyed ``payout-reversal-<refund pk>`` and tagged with ``refund_pk`` metadata, so a replay
+    returns the same reversal and ``find_transfer_reversal`` can find it after the key expires.
+    Returns the ``trr_...`` id. Stripe errors propagate.
+    """
+    client = _get_stripe_client()
+    reversal = client.v1.transfers.reversals.create(
+        transfer_id,
+        params={"amount": amount_cents, "metadata": {"refund_pk": str(refund_pk)}},
+        options={"idempotency_key": f"payout-reversal-{refund_pk}"},
+    )
+    return reversal.id
+
+
+def find_transfer_reversal(*, transfer_id: str, refund_pk: int) -> str | None:
+    """The reversal plfog already made on ``transfer_id`` for refund ``refund_pk``, if any. Stripe errors propagate."""
+    client = _get_stripe_client()
+    for reversal in client.v1.transfers.reversals.list(transfer_id, params={"limit": 100}).auto_paging_iter():
+        metadata = reversal.metadata
+        if metadata is not None and "refund_pk" in metadata and metadata["refund_pk"] == str(refund_pk):
+            return reversal.id
+    return None

@@ -5240,11 +5240,16 @@ def admin_registration_refund(request: HttpRequest, pk: int) -> HttpResponse:
         return _render_refund_form(request, registration, form)
     if registration.is_eventbrite:
         return _refund_through_eventbrite(request, registration, form)
+    from billing.refunds import issue_refund
+
     try:
-        refund = registration.issue_refund(
+        # The service directly, to carry the required share choice (#662) the delegate does not take.
+        refund = issue_refund(
+            registration,
             amount_cents=form.amount_cents,
             reason=form.cleaned_data["reason"],
-            actor=request.user,
+            actor=request.user,  # type: ignore[arg-type]
+            share_decision=form.chosen_share_decision,
         )
     except RefundError as exc:
         registration.refresh_from_db()

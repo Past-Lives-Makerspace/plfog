@@ -16,7 +16,7 @@ from django.urls import reverse
 from django.utils import timezone
 
 if TYPE_CHECKING:
-    from billing.models import Payout, TabCharge
+    from billing.models import Payout, PaymentRefund, TabCharge
 
 logger = logging.getLogger(__name__)
 
@@ -131,20 +131,34 @@ def _payout_item(payout: Payout) -> str:
 
 
 def _counted_note(payout: Payout) -> str:
-    """For a share a snapshot counted as Sent through Stripe: it was not paid and needs paying by hand now."""
+    """What happens next for this share, in the words its current state supports.
+
+    "Pay it by hand" only once the row has given up: until then a transfer may still land.
+    """
+    from billing.models import Payout as PayoutModel
+
     snapshot = payout.counted_as_stripe_in
-    if snapshot is None:
-        return "plfog retries it daily. If it still fails when its month is snapshotted, it is owed by hand."
-    return (
+    counted = (
         f"The {snapshot.period_start:%B %Y} snapshot counted it as Sent through Stripe, so it was not paid at month end. "
-        "It will not be retried: pay it by hand."
+        if snapshot
+        else ""
     )
+    if payout.status == PayoutModel.Status.OWED_MANUALLY:
+        return f"{counted}It will not be retried: pay it by hand."
+    if payout.status == PayoutModel.Status.PENDING:
+        return (
+            f"{counted}plfog could not confirm with Stripe whether it was sent, so do not pay it yet. "
+            "It stays on the Reconciliation tab until Stripe answers."
+        )
+    return "plfog retries it daily. If it still fails when its month is snapshotted, it is owed by hand."
 
 
-def notify_admins_payout_failed(payout: Payout) -> None:
-    """Tell the Billing Administrators, once per share, that Stripe rejected a payout transfer (#662).
+def notify_admins_payout_failed(payout: Payout, *, owed: bool = False) -> None:
+    """Tell the Billing Administrators that a payout transfer failed (#662): at most once per share for each kind.
 
-    The ``period`` is per share and not per attempt, so the daily retries stay quiet.
+    The ``period`` is per share and not per attempt, so the daily retries stay quiet. The
+    give up (``owed``, "pay it by hand") has its own period, so a share already alerted as
+    failed or unconfirmed still gets the alert that says to pay it.
     """
     from core.events.emit import emit
 
@@ -161,7 +175,7 @@ def notify_admins_payout_failed(payout: Payout) -> None:
             "admin_url": _member_url(f"{reverse('billing_admin_dashboard')}?tab=reconciliation"),
         },
         url=f"{reverse('billing_admin_dashboard')}?tab=reconciliation",
-        period=f"payout:{payout.pk}:failed",
+        period=f"payout:{payout.pk}:{'owed' if owed else 'failed'}",
     )
 
 
@@ -190,4 +204,29 @@ def send_payouts_invite(payout: Payout) -> None:
         },
         url=settings_url,
         period=f"payouts:invite:{member.pk}",
+    )
+
+
+def notify_admins_reversal_failed(refund: PaymentRefund, reason: str) -> None:
+    """Tell the Billing Administrators, once per refund, that taking a sent share back did not happen (#662, part 3).
+
+    Stripe refused it (Past Lives covers the refund and Reconciliation flags the line), or
+    could not be reached for three days (plfog keeps trying).
+    """
+    from core.events.emit import emit
+
+    payout = refund.source_object.payout
+    emit(
+        "billing.payout_reversal_failed_admin",
+        actor=None,
+        target=refund,
+        context={
+            "payee_name": payout.payee.display_name,
+            "item_title": _payout_item(payout),
+            "amount": f"${refund.amount_cents / 100:.2f}",
+            "failure_reason": reason,
+            "admin_url": _member_url(f"{reverse('billing_admin_dashboard')}?tab=reconciliation"),
+        },
+        url=f"{reverse('billing_admin_dashboard')}?tab=reconciliation",
+        period=f"refund:{refund.pk}:take-back-failed",
     )

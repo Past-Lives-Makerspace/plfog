@@ -14,7 +14,7 @@ back to the module constants only when a value is unset.
 from __future__ import annotations
 
 import csv
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import date
 from decimal import ROUND_HALF_UP, Decimal, InvalidOperation
 from enum import Enum
@@ -123,6 +123,7 @@ class TransactionLine:
     overridden: bool = False
     unassigned: bool = False  # an unset producer or guild rolled its share to Past Lives
     note: str = ""
+    payee_kept_share: bool = False  # refunded after its share was sent, and the payee kept it (#662)
 
 
 @dataclass
@@ -181,6 +182,11 @@ class ReconciliationResult:
     @property
     def voting_total_cents(self) -> int:
         return sum(alloc.voting_cents for alloc in self.groups[RecipientKind.GUILD])
+
+    @property
+    def kept_share_count(self) -> int:
+        """Refunded payments whose producer kept a share already sent through Stripe (#662)."""
+        return sum(1 for line in self.lines if line.payee_kept_share)
 
     @property
     def has_any(self) -> bool:
@@ -363,6 +369,7 @@ def _class_line(
     reg: Any,
     percents: dict[str, Decimal],
     adjustments: dict[AdjustmentKey, TransactionAdjustment],
+    refunded_cents: int | None = None,
 ) -> TransactionLine:
     """One paid registration's line. ``reg`` needs its offering, instructor, guild, member and refunds loaded."""
     offering = reg.class_offering
@@ -377,7 +384,7 @@ def _class_line(
         payer_name=payer_name,
         item=offering.title,
         gross_cents=reg.amount_paid_cents,
-        refunded_cents=reg.amount_refunded_cents,
+        refunded_cents=reg.amount_refunded_cents if refunded_cents is None else refunded_cents,
         producer_key=("instructor", instructor.id) if instructor is not None else None,
         producer_label=instructor.display_name if instructor is not None else None,
         producer_role="instructor",
@@ -409,6 +416,7 @@ def _orientation_line(
     booking: Any,
     percents: dict[str, Decimal],
     adjustments: dict[AdjustmentKey, TransactionAdjustment],
+    refunded_cents: int | None = None,
 ) -> TransactionLine:
     """One paid orientation booking's line. ``booking`` needs its guild, member, orientor, type and refunds loaded."""
     orientator = booking.oriented_by
@@ -419,7 +427,7 @@ def _orientation_line(
         payer_name=booking.member.display_name,
         item=f"Orientation — {booking.orientation_type.owner_name}",
         gross_cents=booking.amount_paid_cents,
-        refunded_cents=booking.amount_refunded_cents,
+        refunded_cents=booking.amount_refunded_cents if refunded_cents is None else refunded_cents,
         producer_key=("orientator", orientator.id) if orientator is not None else None,
         producer_label=orientator.display_name if orientator is not None else None,
         producer_role="orientator",
@@ -446,17 +454,17 @@ class ShareSource:
         self._orientation_percents = _orientation_percents(settings_obj)
         self._adjustments = TransactionAdjustment.objects.as_map()
 
-    def for_registration(self, reg: Any) -> int:
-        """The instructor's share of ``reg`` in cents, collected less refunds so far."""
-        line = _class_line(reg, self._class_percents, self._adjustments)
+    def for_registration(self, reg: Any, refunded_cents: int | None = None) -> int:
+        """The instructor's share of ``reg`` in cents, collected less refunds so far (or less ``refunded_cents``)."""
+        line = _class_line(reg, self._class_percents, self._adjustments, refunded_cents)
         instructor = reg.class_offering.instructor
         if line.omitted or instructor is None:
             return 0
         return line.shares[("instructor", instructor.id)]
 
-    def for_booking(self, booking: Any) -> int:
-        """The orientor's share of ``booking`` in cents, collected less refunds so far."""
-        line = _orientation_line(booking, self._orientation_percents, self._adjustments)
+    def for_booking(self, booking: Any, refunded_cents: int | None = None) -> int:
+        """The orientor's share of ``booking`` in cents, collected less refunds so far (or less ``refunded_cents``)."""
+        line = _orientation_line(booking, self._orientation_percents, self._adjustments, refunded_cents)
         if line.omitted or booking.oriented_by is None:
             return 0
         return line.shares[("orientator", booking.oriented_by.id)]
@@ -620,8 +628,20 @@ def build_reconciliation(
     lines.extend(_orientation_lines(window, orientation_percents, adjustments))
     lines.sort(key=lambda line: line.date, reverse=True)
 
-    from billing.payouts import through_stripe_keys
+    from billing.payouts import kept_share_notes, through_stripe_keys
 
+    kept = kept_share_notes(lines)
+    if kept:
+        lines = [
+            replace(
+                line,
+                payee_kept_share=True,
+                note="; ".join(filter(None, [line.note, kept[(line.source_kind, line.source_pk)]])),
+            )
+            if (line.source_kind, line.source_pk) in kept
+            else line
+            for line in lines
+        ]
     aggregate = _aggregate_lines(lines, through_stripe_keys(lines))
 
     voting_by_guild: dict[int, int] = {}
