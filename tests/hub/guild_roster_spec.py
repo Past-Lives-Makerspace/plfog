@@ -106,13 +106,19 @@ def describe_members_card():
         slug, card = _card(client, 12)
 
         assert f'href="{reverse("hub_member_directory")}?guild={slug}"' in card
-        assert "See all 12 members in the Member Directory" in card
+        assert "See this guild's members in the Member Directory" in card
         assert "Rosterperson" not in card
 
-    def it_says_member_for_one(client: Client):
-        _slug, card = _card(client, 1)
+    def it_hides_the_card_on_an_inactive_guild(client: Client):
+        from tests.membership.factories import GuildMembershipFactory, MemberFactory
 
-        assert "See all 1 member in the Member Directory" in card
+        _member_user("viewer")
+        client.login(username="viewer", password="pw")
+        guild = GuildFactory(show_members=True, is_active=False)
+        GuildMembershipFactory(guild=guild, member=MemberFactory(show_in_directory=True))
+        body = client.get(reverse("hub_guild_detail", args=[guild.slug])).content.decode()
+
+        assert "data-guild-roster-link" not in body
 
     def it_shows_no_card_without_a_roster(client: Client):
         _slug, card = _card(client, 0)

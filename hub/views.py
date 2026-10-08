@@ -822,7 +822,11 @@ def guild_detail(request: HttpRequest, slug: str) -> HttpResponse:
     from kiln.services import guild_kiln_home
 
     kiln_home = guild_kiln_home(
-        guild, member, guilds_surface=guilds_surface, show_older=request.GET.get("older") == "1"
+        guild,
+        member,
+        guilds_surface=guilds_surface,
+        show_older=request.GET.get("older") == "1",
+        acting_admin=bool(getattr(getattr(request, "view_as", None), "is_admin", False)),
     )
 
     guild_ct = ContentType.objects.get_for_model(Guild)

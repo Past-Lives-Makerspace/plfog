@@ -20,7 +20,7 @@ from django.utils import dateformat, timezone
 from django.utils.html import format_html, format_html_join
 from django.utils.safestring import SafeString
 
-from kiln.access import can_file_tickets, can_run_kiln, kiln_home_url, kiln_is_open, maker_type_for
+from kiln.access import can_file_tickets, can_run_kiln, is_crew, kiln_home_url, kiln_is_open, maker_type_for
 from kiln.forms import ACTION_COVER, ACTION_REMOVE, ExceptionNote, KilnTicketForm
 from kiln.models import KilnFiring, KilnReply, KilnTicket, member_name
 
@@ -671,16 +671,20 @@ def kiln_home(member: Member, *, show_older: bool, runs_kiln: bool, older_url: s
     )
 
 
-def guild_kiln_home(guild: Guild, member: Member | None, *, guilds_surface: bool, show_older: bool) -> KilnHome | None:
+def guild_kiln_home(
+    guild: Guild, member: Member | None, *, guilds_surface: bool, show_older: bool, acting_admin: bool
+) -> KilnHome | None:
     """The Kiln Tickets tab on a guild page, or None where the tab does not show.
 
     It shows on the kiln guild's page alone, on the members surface, to a signed in maker:
     everyone while the launch switch is on, the crew and admins while it is off. Every other
-    guild page returns before any query.
+    guild page returns before any query. ``acting_admin`` is the View As role, so an admin
+    previewing as a member sees the tab a member would; the kiln URLs still answer to the
+    real role, like every admin page.
     """
     if guild.slug != settings.KILN_GUILD_SLUG or guilds_surface or member is None or not can_file_tickets(member):
         return None
-    runs_kiln = can_run_kiln(member, guild)
+    runs_kiln = is_crew(member, guild) if member.is_fog_admin and not acting_admin else can_run_kiln(member, guild)
     if not runs_kiln and not kiln_is_open():
         return None
     return kiln_home(member, show_older=show_older, runs_kiln=runs_kiln, older_url=kiln_home_url(older=True))

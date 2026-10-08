@@ -81,10 +81,22 @@ def describe_the_tab():
         assert response.status_code == 200
         assert TAB not in response.content.decode()
 
+    def it_follows_view_as_for_an_admin_while_the_switch_is_off(kiln_guild, make_member):
+        from tests.kiln.conftest import set_kiln_open
+
+        set_kiln_open(False)
+        admin = make_member(fog_role=Member.FogRole.ADMIN)
+
+        as_admin = guild_kiln_home(kiln_guild, admin, guilds_surface=False, show_older=False, acting_admin=True)
+        as_member = guild_kiln_home(kiln_guild, admin, guilds_surface=False, show_older=False, acting_admin=False)
+
+        assert as_admin is not None
+        assert as_member is None
+
     def it_skips_a_former_member_and_nobody(kiln_guild, make_member):
-        assert guild_kiln_home(kiln_guild, None, guilds_surface=False, show_older=False) is None
+        assert guild_kiln_home(kiln_guild, None, guilds_surface=False, show_older=False, acting_admin=False) is None
         former = make_member(status=Member.Status.FORMER)
-        assert guild_kiln_home(kiln_guild, former, guilds_surface=False, show_older=False) is None
+        assert guild_kiln_home(kiln_guild, former, guilds_surface=False, show_older=False, acting_admin=False) is None
 
 
 def describe_the_tab_pane():

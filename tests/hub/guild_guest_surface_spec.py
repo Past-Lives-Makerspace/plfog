@@ -77,7 +77,7 @@ def describe_guest_guild_page():
             _login_member(client)
             body = _guest_get(client, guild).content.decode()
             assert f'href="{settings.MEMBER_BASE_URL}/members/?guild={guild.slug}"' in body
-            assert "See all 1 member in the Member Directory" in body
+            assert "See this guild's members in the Member Directory" in body
             assert "Rosa Roster" not in body
 
     def describe_class_links_and_teach():  # MUST-FIX #3
