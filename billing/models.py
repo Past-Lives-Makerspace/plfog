@@ -152,6 +152,15 @@ class BillingSettings(models.Model):
             "at month end. Turning the switch off pauses sending; nothing is sent while it is off."
         ),
     )
+    connect_client_id = models.CharField(
+        max_length=255,
+        blank=True,
+        default="",
+        help_text=(
+            "Unused: an OAuth leftover nothing reads (#702); payouts use account links. Kept so the release "
+            "before #702 can still read the column; remove once PLM FOG closes."
+        ),
+    )
     connect_platform_publishable_key = models.CharField(
         max_length=255,
         blank=True,
@@ -194,6 +203,15 @@ class BillingSettings(models.Model):
             "Master mode switch. When on, all Stripe operations (charges, SetupIntents, webhooks) use the TEST key "
             "set below. Turn off to charge real cards using the LIVE key set. Toggle from the admin Payments "
             "dashboard → Stripe tab."
+        ),
+    )
+    test_connect_client_id = models.CharField(
+        max_length=255,
+        blank=True,
+        default="",
+        help_text=(
+            "Unused: an OAuth leftover nothing reads (#702); payouts use account links. Kept so the release "
+            "before #702 can still read the column; remove once PLM FOG closes."
         ),
     )
     test_connect_platform_publishable_key = models.CharField(
