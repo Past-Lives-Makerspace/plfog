@@ -30,6 +30,11 @@
   Set them on the class or booking to reattribute.
 </div>
 {% endif %}
+{% if reconciliation.kept_share_count %}
+<div class="pl-badge pl-badge--warn pl-payouts-kept-banner" data-payee-kept-share>
+  {{ reconciliation.kept_share_count }} refunded payment(s) left the payee with a share already sent through Stripe, so Past Lives covered the refund. Marked "Payee kept share" in Transaction Detail.
+</div>
+{% endif %}
 {% if reconciliation.omitted_count %}
 <div class="pl-text-muted" style="margin-bottom:1rem">{{ reconciliation.omitted_count }} transaction(s) omitted from this allocation.</div>
 {% endif %}
@@ -152,6 +157,7 @@
               {{ line.item }}
               {% if line.overridden %}<span class="pl-badge pl-badge--warn">Adjusted</span>{% endif %}
               {% if line.omitted %}<span class="pl-badge pl-badge--fail">Omitted</span>{% endif %}
+              {% if line.payee_kept_share %}<span class="pl-badge pl-badge--warn">Payee kept share</span>{% endif %}
               {% if line.note %}<span class="pl-text-muted" style="font-size:0.75rem">({{ line.note }})</span>{% endif %}
             </td>
             <td class="text-right">{{ line.gross_cents|cents_as_dollars }}</td>

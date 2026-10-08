@@ -1,0 +1,72 @@
+{% extends "hub/base.html" %}
+{% load static %}
+{% block title %}{{ feedback_request.subject }} · Feedback Inbox{% endblock %}
+{% block extra_head %}
+<link rel="stylesheet" href="{% static 'css/feedback.css' %}">
+{% endblock %}
+{% block content %}
+{% comment %}
+One feedback request in the admin Feedback inbox (#693), built by
+hub.feedback_views.hub_admin_feedback_request: the sender, message and photos, then the one form
+for status, note to the member and GitHub link. Mark live posts to its own view. inbox_query is
+the inbox's query string, kept on every link and post so Back to inbox keeps the filters.
+{% endcomment %}
+<div class="pl-feedback-admin">
+<p class="pl-feedback-admin__back"><a href="{% url 'hub_admin_feedback_inbox' %}{% if inbox_query %}?{{ inbox_query }}{% endif %}" class="hub-btn hub-btn--sm hub-btn--ghost">&larr; Back to inbox</a></p>
+<h1 class="hub-page-title">{{ feedback_request.subject }}</h1>
+<p class="pl-feedback-admin__meta">
+  <span class="hub-pill hub-pill--{{ feedback_request.status_tone }}" data-feedback-status="{{ feedback_request.status }}">{{ feedback_request.status_label }}</span>
+  <span>{{ feedback_request.get_category_display }}</span>
+  <span>Request #{{ feedback_request.pk }}</span>
+  <span>Sent {{ feedback_request.created_at|date:"M j, Y g:i A" }}</span>
+</p>
+
+<div class="hub-card pl-feedback-admin__card" data-feedback-sender>
+  <h2 class="hub-detail-label">From</h2>
+  <p class="pl-feedback-admin__sender">
+    {% if sender_member %}<a href="{% url 'hub_admin_member_edit' sender_member.pk %}">{{ feedback_request.sender_label }}</a>{% else %}{{ feedback_request.sender_label }}{% endif %}
+    <span class="hub-text-muted">{{ feedback_request.user.email }}</span>
+    {% if not sender_member %}<span class="hub-pill hub-pill--neutral">No membership</span>{% endif %}
+  </p>
+  <h2 class="hub-detail-label">Message</h2>
+  <p class="pl-feedback-admin__message">{{ feedback_request.message|linebreaksbr }}</p>
+  {% with photos=feedback_request.photos.all %}
+  {% if photos %}
+  <h2 class="hub-detail-label">Photos</h2>
+  <div class="pl-feedback-photos">
+    {% for photo in photos %}
+    <a href="{{ photo.image.url }}" target="_blank" rel="noopener" hx-boost="false" class="pl-feedback-photos__item"><img src="{{ photo.image.url }}" alt="Photo {{ forloop.counter }} from the sender" loading="lazy"></a>
+    {% endfor %}
+  </div>
+  {% endif %}
+  {% endwith %}
+</div>
+
+{% if feedback_request.status != "live" and not feedback_request.stays_received %}
+<div class="hub-card pl-feedback-admin__card" data-feedback-mark-live>
+  <h2 class="hub-detail-label">Shipped?</h2>
+  <p class="hub-text-muted">Mark it {% if feedback_request.category == "bug" %}Fixed{% else %}Live{% endif %} and tell {{ feedback_request.sender_label }}{% if feedback_request.status == "not_planned" %}. The Not planned reason is cleared.{% else %}, keeping the note below.{% endif %}</p>
+  <form method="post" action="{% url 'hub_admin_feedback_mark_live' feedback_request.pk %}{% if inbox_query %}?{{ inbox_query }}{% endif %}">
+    {% csrf_token %}
+    <button type="submit" class="hub-btn hub-btn--sm pl-feedback-admin__mark-live">Mark {% if feedback_request.category == "bug" %}Fixed{% else %}Live{% endif %}</button>
+  </form>
+</div>
+{% endif %}
+
+<div class="hub-card pl-feedback-admin__card">
+  <h2 class="hub-detail-label">Where It Stands</h2>
+  <form method="post" class="hub-form" data-feedback-admin-form>
+    {% csrf_token %}
+    {% for error in form.non_field_errors %}<p class="pl-field-error">{{ error }}</p>{% endfor %}
+    {% if feedback_request.stays_received %}
+    {% include "components/form_field.html" with field=form.status field_hint="General feedback stays Received. A note to the member notifies them." %}
+    {% else %}
+    {% include "components/form_field.html" with field=form.status field_hint="The member sees this. Planned, Building, Live and Not planned notify them." %}
+    {% endif %}
+    {% include "components/form_field.html" with field=form.staff_note field_hint="The member sees this. Required for Not planned." %}
+    {% include "components/form_field.html" with field=form.github_issue_url field_hint="Only admins see this." %}
+    <button type="submit" class="hub-btn hub-btn--primary pl-feedback-admin__save">Save</button>
+  </form>
+</div>
+</div>
+{% endblock %}

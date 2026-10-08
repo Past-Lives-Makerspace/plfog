@@ -1,0 +1,7 @@
+bump = "patch"
+date = "2026-10-07"
+title = "Notifications open the page they are about"
+changes = [
+  "Tapping a notification on your phone, or clicking one on the Notifications page, now takes you to the page it is about. Some opened the home page, a page that does not exist, or nothing at all.",
+  "Notices about a class registration open that registration's page, and a request to review a class opens that class's review page.",
+]

@@ -85,6 +85,7 @@ CATEGORY_ORDER: tuple[str, ...] = (
     "Announcements",
     "Security",
     "Meetings",
+    "Your requests",
 )
 
 # The one section that collects every event a viewer gets because of a role or an admin

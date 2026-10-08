@@ -6,6 +6,7 @@ from datetime import timedelta
 
 import pytest
 from django.contrib.auth.models import User
+from django.urls import reverse
 from django.utils import timezone
 
 from classes.factories import (
@@ -180,10 +181,10 @@ def describe_registration_confirmed_notification():
         # the view/webhook right after the CONFIRMED transition), not the model save.
         send_registration_confirmation(reg)
 
-        assert Notification.objects.filter(
-            trigger="registration_confirmed",
-            user=member_user,
-        ).exists()
+        note = Notification.objects.get(trigger="registration_confirmed", user=member_user)
+        # The registration's own page on the members host. "/classes/account/" is a class slug
+        # and 404s; "/account/" redirects to the classes host, which the app opens signed out.
+        assert note.url == reverse("classes:my_registration", kwargs={"token": reg.self_serve_token})
 
     def it_sends_exactly_one_confirmation_email_to_an_opted_in_member(db, settings):
         """Double-send eliminated: the single ``registration_confirmed`` event sends the

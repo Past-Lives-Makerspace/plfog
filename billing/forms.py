@@ -6,9 +6,10 @@ from decimal import Decimal
 from typing import TYPE_CHECKING, Any
 
 from django import forms
+from django.utils import timezone
 from django.forms import BaseInlineFormSet, inlineformset_factory
 
-from billing.models import BillingSettings, Product, ProductRevenueSplit
+from billing.models import BillingSettings, PaymentRefund, Product, ProductRevenueSplit
 from membership.models import Guild, Member
 
 if TYPE_CHECKING:
@@ -580,7 +581,47 @@ def build_product_split_formset(
     return ProductRevenueSplitFormSet(data=data, instance=instance, prefix=prefix)
 
 
-class OrientationRefundForm(forms.Form):
+class RefundShareDecisionForm(forms.Form):
+    """Base for the refund modals: the required share choice when the payment's share was already sent (#662).
+
+    When the instructor's or orientor's share of the payment already went out through
+    Stripe, the admin must pick: take it back from the payee (a transfer reversal for the
+    refunded part) or Past Lives covers it. Otherwise the field does not exist.
+    """
+
+    def _add_share_decision(self, source: Any) -> None:
+        from billing.payouts import sent_payout_for
+
+        self.sent_payout = sent_payout_for(source)
+        if self.sent_payout is None:
+            return
+        payee = self.sent_payout.payee.display_name
+        remaining = (self.sent_payout.amount_cents - self.sent_payout.reversed_cents) / 100
+        sent_on = timezone.localtime(self.sent_payout.sent_at)
+        self.fields["share_decision"] = forms.ChoiceField(
+            choices=[
+                (
+                    PaymentRefund.ShareDecision.TAKE_BACK,
+                    f"Take it back from {payee}. Reversed from their Stripe account; if they've already been "
+                    "paid out, it comes off their next payment.",
+                ),
+                (PaymentRefund.ShareDecision.PL_COVERS, f"Past Lives covers it. {payee} keeps their share."),
+            ],
+            widget=forms.RadioSelect,
+            label=f"{payee}'s share was already sent (${remaining:.2f} on {sent_on:%b} {sent_on.day})",
+            help_text="Pick one. A partial refund takes back the same part of the share.",
+            error_messages={"required": "Choose whether to take the share back or have Past Lives cover it."},
+        )
+
+    @property
+    def chosen_share_decision(self) -> str:
+        """The validated choice, or Not applicable when no share had been sent."""
+        if "share_decision" not in self.fields:
+            return PaymentRefund.ShareDecision.NOT_APPLICABLE
+        return str(self.cleaned_data["share_decision"])
+
+
+class OrientationRefundForm(RefundShareDecisionForm):
     """Validates the orientation refund modal — amount bounds live here, not in the view.
 
     Mirrors ``classes.forms.PaymentRefundForm`` against the booking's refundable
@@ -601,6 +642,7 @@ class OrientationRefundForm(forms.Form):
         self.fields["amount"].help_text = f"Up to ${refundable:.2f}. Edit for a partial refund."
         self.fields["reason"].label = "Reason"
         self.fields["reason"].help_text = "Internal note. The payer never sees this."
+        self._add_share_decision(booking)
 
     def clean_amount(self) -> Decimal:
         amount: Decimal = self.cleaned_data["amount"]

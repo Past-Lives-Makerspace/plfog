@@ -1,0 +1,66 @@
+{% extends "hub/base.html" %}
+{% load static classes_tags %}
+{% block title %}Feedback Inbox{% endblock %}
+{% block extra_head %}
+<link rel="stylesheet" href="{% static 'css/feedback.css' %}">
+{% endblock %}
+{% block content %}
+{% comment %}
+The admin Feedback inbox (#693): every FeedbackRequest, newest first, filterable by category and
+status, built by hub.feedback_views.hub_admin_feedback_inbox. Each row links to the request's page
+with the inbox's query string, so Back to inbox keeps the filters. Rows stack into labelled cards
+at 768px and below (the members table stacking).
+{% endcomment %}
+{% include "components/page_header.html" with title="Feedback Inbox" description="Bug reports, feature requests and feedback members sent from the Feedback page. Open one to set where it stands; the sender is told." %}
+
+<div class="hub-card pl-feedback-inbox">
+  <form method="get" action="{% url 'hub_admin_feedback_inbox' %}" class="pl-feedback-inbox__filters" data-feedback-filters>
+    <div class="hub-form-group">
+      <label for="feedback-category">Category</label>
+      <select id="feedback-category" name="category">
+        <option value="">Any category</option>
+        {% for value, label in categories %}<option value="{{ value }}"{% if value == filters.category %} selected{% endif %}>{{ label }}</option>{% endfor %}
+      </select>
+    </div>
+    <div class="hub-form-group">
+      <label for="feedback-status">Status</label>
+      <select id="feedback-status" name="status">
+        <option value="">Any status</option>
+        {% for value, label in statuses %}<option value="{{ value }}"{% if value == filters.status %} selected{% endif %}>{{ label }}</option>{% endfor %}
+      </select>
+    </div>
+    <div class="pl-feedback-inbox__actions">
+      <button type="submit" class="hub-btn hub-btn--sm hub-btn--primary">Apply</button>
+      {% if is_filtered %}<a href="{% url 'hub_admin_feedback_inbox' %}" class="hub-btn hub-btn--sm hub-btn--ghost">Clear</a>{% endif %}
+    </div>
+  </form>
+
+  {% if page.object_list %}
+  <table class="pl-members-table pl-feedback-inbox__table" data-feedback-inbox>
+    <thead>
+      <tr>
+        {% sort_header "Subject" "subject" sort sort_dir base_params %}
+        <th scope="col">From</th>
+        {% sort_header "Category" "category" sort sort_dir base_params %}
+        {% sort_header "Status" "status" sort sort_dir base_params %}
+        {% sort_header "Sent" "created_at" sort sort_dir base_params %}
+      </tr>
+    </thead>
+    <tbody>
+      {% for item in page.object_list %}
+      <tr data-feedback-row="{{ item.pk }}">
+        <td data-label="Subject" class="pl-feedback-inbox__subject"><a href="{% url 'hub_admin_feedback_request' item.pk %}{% if inbox_query %}?{{ inbox_query }}{% endif %}">{{ item.subject }}</a></td>
+        <td data-label="From">{{ item.sender_label }}</td>
+        <td data-label="Category">{{ item.get_category_display }}</td>
+        <td data-label="Status"><span class="hub-pill hub-pill--{{ item.status_tone }}" data-feedback-status="{{ item.status }}">{{ item.status_label }}</span></td>
+        <td data-label="Sent">{{ item.created_at|date:"M j, Y" }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% include "components/table_pagination.html" %}
+  {% else %}
+  <p class="hub-text-muted" data-feedback-inbox-empty>{% if is_filtered %}Nothing matches these filters.{% else %}No feedback yet.{% endif %}</p>
+  {% endif %}
+</div>
+{% endblock %}

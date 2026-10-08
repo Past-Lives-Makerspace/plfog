@@ -1930,6 +1930,49 @@ _CURATED: dict[str, EventCopy] = {
             ),
         },
     ),
+    # feedback.request_updated — the sender of a Feedback page request hears where it stands
+    # (#693). note_line / note_block are the admin's note, pre-built by
+    # FeedbackRequest._notify_sender and empty when there is none: the guarded note without
+    # an {% if %}. status_phrase reads after "is" ("being built", "fixed", "not planned").
+    "feedback.request_updated": EventCopy(
+        placeholders=("request_subject", "status_label", "status_phrase", "request_url", "note_line", "note_block"),
+        sample_context={
+            "request_subject": "Let me book the laser cutter from my phone",
+            "status_label": "Planned",
+            "status_phrase": "planned",
+            "request_url": "https://pastlives.example/feedback/#request-12",
+            "note_line": "A note from Past Lives:\nGood idea. It is next after the kiln work.\n\n",
+            "note_block": mark_safe(  # trusted app-built markup, like the event.reminder sample
+                "<p><strong>A note from Past Lives:</strong></p><p>Good idea. It is next after the kiln work.</p>"
+            ),
+        },
+        channels={
+            Channel.IN_APP: ChannelCopy(
+                subject="Your request is {{ status_phrase }}",
+                body_text="{{ request_subject }}",
+            ),
+            Channel.EMAIL: ChannelCopy(
+                subject="Your request: {{ request_subject }} is {{ status_phrase }}",
+                body_text=(
+                    'Thanks for telling us what you need. Your request "{{ request_subject }}" '
+                    "is {{ status_phrase }}.\n\n"
+                    "{{ note_line }}"
+                    "See your request: {{ request_url }}\n\nPast Lives Makerspace"
+                ),
+                body_html=(
+                    "<p>Thanks for telling us what you need. Your request "
+                    '<strong><a href="{{ request_url }}">{{ request_subject }}</a></strong> '
+                    "is {{ status_phrase }}.</p>"
+                    "{{ note_block }}"
+                    '<p style="text-align:center;margin:24px 0 8px;"><a href="{{ request_url }}" '
+                    'style="display:inline-block;padding:12px 28px;background-color:#EEB44B;color:#092E4C;'
+                    'font-size:14px;font-weight:700;text-decoration:none;border-radius:6px;">'
+                    "See Your Request</a></p>"
+                    "<p>Past Lives Makerspace</p>"
+                ),
+            ),
+        },
+    ),
     # meeting.minutes_approved — a broadcast to the guild's members, so NO channel may
     # address a single recipient. Before this curated copy existed, the generic fallback's
     # email greeting leaked "Hi [missing: member_name]" into guild Discord channels; the
@@ -2333,6 +2376,46 @@ _CURATED: dict[str, EventCopy] = {
                     'style="display:inline-block;padding:12px 28px;background-color:#EEB44B;color:#092E4C;'
                     'font-size:14px;font-weight:700;text-decoration:none;border-radius:6px;">'
                     "Set Up Payouts</a></p>"
+                    "<p>Past Lives Makerspace</p>"
+                ),
+            ),
+        },
+    ),
+    # billing.payout_reversal_failed_admin — a refund's sent share could not be taken back (#662, part 3).
+    "billing.payout_reversal_failed_admin": EventCopy(
+        placeholders=("payee_name", "item_title", "amount", "failure_reason", "admin_url"),
+        sample_context={
+            "payee_name": "Renee Marsh",
+            "item_title": "Intro to Wheel Throwing",
+            "amount": "$60.00",
+            "failure_reason": "The connected account has insufficient funds.",
+            "admin_url": "https://pastlives.example/billing/admin/dashboard/?tab=reconciliation",
+        },
+        channels={
+            Channel.IN_APP: ChannelCopy(
+                subject="A share could not be taken back",
+                body_text=(
+                    "Taking {{ payee_name }}'s share back for a {{ amount }} refund of {{ item_title }} did not "
+                    "happen: {{ failure_reason }}"
+                ),
+            ),
+            Channel.EMAIL: ChannelCopy(
+                subject="A share could not be taken back",
+                body_text=(
+                    "An admin chose to take a payee's share back after a refund, and it did not happen.\n\n"
+                    "Payee: {{ payee_name }}\n"
+                    "For: {{ item_title }}\n"
+                    "Refund: {{ amount }}\n"
+                    "Why: {{ failure_reason }}\n\n"
+                    "If Stripe refused it, Past Lives covers the refund and the line is flagged on Reconciliation.\n\n"
+                    "Reconciliation: {{ admin_url }}\n\nPast Lives Makerspace"
+                ),
+                body_html=(
+                    "<p>An admin chose to take a payee's share back after a refund, and it did not happen.</p>"
+                    "<p>Payee: {{ payee_name }}<br>For: {{ item_title }}<br>Refund: {{ amount }}<br>"
+                    "Why: {{ failure_reason }}</p>"
+                    "<p>If Stripe refused it, Past Lives covers the refund and the line is flagged on Reconciliation.</p>"
+                    '<p><a href="{{ admin_url }}">Open Reconciliation</a></p>'
                     "<p>Past Lives Makerspace</p>"
                 ),
             ),

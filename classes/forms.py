@@ -16,6 +16,7 @@ from django.forms import inlineformset_factory
 from django.utils import timezone
 from django.utils.text import slugify
 
+from billing.forms import RefundShareDecisionForm
 from core.html_sanitize import clean_rich_body, clean_rich_html
 from core.widgets import PageContentEditorWidget, RichBodyEditorWidget, RichTextEditorWidget
 
@@ -80,7 +81,10 @@ def _video_url_widget() -> forms.TextInput:
 if TYPE_CHECKING:
     from django.contrib.auth.models import AbstractBaseUser, AnonymousUser
 
-    from membership.models import Member
+    from datetime import datetime
+
+    from classes.inquiries import BoardReport
+    from membership.models import Member, MemberQuerySet
 
 
 STRIPE_MIN_CHARGE_CENTS = 50  # Stripe's minimum USD charge is $0.50.
@@ -897,6 +901,13 @@ def _teaching_contact_method_choices() -> list[tuple[str, str]]:
     return [("", "Pick one"), *Member.TeachingContactMethod.choices]
 
 
+def _teaching_experience_choices() -> list[tuple[str, str]]:
+    """The Teaching experience options, behind a blank so a missed pick is a field error."""
+    from membership.models import Member
+
+    return [("", "Pick one"), *Member.TeachingExperience.choices]
+
+
 class TeachingApplicationForm(forms.Form):
     """The I'm Interested modal: the note, how to reach the member, and where.
 
@@ -906,6 +917,9 @@ class TeachingApplicationForm(forms.Form):
     The detail is checked against the method in ``clean``: Email must be an address;
     Text message and Phone call need a phone number with at least seven digits,
     however it is punctuated. What the member typed is stored as typed.
+
+    Website, socials and experience (#690) are what the Instructor Inquiries page
+    shows; experience is required and the other two are optional.
 
     The widget attributes on the two contact fields are what the modal's Alpine
     component hooks: the select reports a change and the detail input takes the
@@ -946,6 +960,34 @@ class TeachingApplicationForm(forms.Form):
             "max_length": "That is longer than we can store. Keep it to 254 characters or fewer.",
         },
     )
+    experience = forms.ChoiceField(
+        required=True,
+        choices=_teaching_experience_choices,
+        label="Teaching experience",
+        error_messages={
+            "required": "Pick how much teaching you have done.",
+            "invalid_choice": "Pick how much teaching you have done.",
+        },
+    )
+    website = forms.URLField(
+        required=False,
+        max_length=200,
+        label="Website",
+        help_text="Optional. Your own site or a portfolio.",
+        error_messages={
+            "invalid": "That does not look like a web address. Check it and try again.",
+            "max_length": "That is longer than we can store. Keep it to 200 characters or fewer.",
+        },
+    )
+    socials = forms.CharField(
+        required=False,
+        max_length=500,
+        label="Socials",
+        help_text="Optional. One or more handles or links, such as @yourname on Instagram.",
+        error_messages={
+            "max_length": "That is longer than we can store. Keep it to 500 characters or fewer.",
+        },
+    )
 
     def clean(self) -> dict:
         data = super().clean() or {}
@@ -963,6 +1005,55 @@ class TeachingApplicationForm(forms.Form):
         elif sum(ch.isdigit() for ch in detail) < 7:
             self.add_error("contact_detail", "That does not look like a phone number. It needs at least seven digits.")
         return data
+
+
+_INQUIRY_DATE_ATTRS = {"type": "date", "@click": "(() => { try { $el.showPicker() } catch (e) {} })()"}
+
+
+class InstructorInquiryFilterForm(forms.Form):
+    """The Instructor Inquiries filter bar: an applied date range and a status (#690).
+
+    Read from GET, so the same query string drives the page and its CSV export. Every
+    field is optional; a To date before the From date is a field error rather than an
+    empty list, so the admin sees why nothing matched.
+    """
+
+    STATUS_CHOICES = [("", "All"), ("pending", "Pending"), ("approved", "Approved"), ("declined", "Declined")]
+
+    date_from = forms.DateField(required=False, label="Date from", widget=forms.DateInput(attrs=_INQUIRY_DATE_ATTRS))
+    date_to = forms.DateField(required=False, label="Date to", widget=forms.DateInput(attrs=_INQUIRY_DATE_ATTRS))
+    status = forms.ChoiceField(required=False, choices=STATUS_CHOICES, label="Status")
+
+    def clean(self) -> dict:
+        data = super().clean() or {}
+        date_from = data.get("date_from")
+        date_to = data.get("date_to")
+        if date_from and date_to and date_to < date_from:
+            self.add_error("date_to", "Date to is before Date from. Pick a later date.")
+        return data
+
+    def in_range(self) -> MemberQuerySet:
+        """Every inquiry in a valid filter's date range, whatever its status."""
+        from membership.models import Member
+
+        data = self.cleaned_data
+        return Member.objects.teaching_inquiries(applied_from=data["date_from"], applied_to=data["date_to"])
+
+    def inquiries(self) -> MemberQuerySet:
+        """The members who asked to teach that match a valid filter, newest ask first."""
+        from membership.models import Member
+
+        inquiries = self.in_range()
+        if self.cleaned_data["status"]:
+            inquiries = inquiries.in_teaching_state(Member.TeachingApplicationState(self.cleaned_data["status"]))
+        return inquiries
+
+    def board_report(self, now: datetime) -> BoardReport:
+        """The Board Report charts for a valid filter's date range; the status filter does not apply."""
+        from classes.inquiries import board_report
+
+        data = self.cleaned_data
+        return board_report(self.in_range(), applied_from=data["date_from"], applied_to=data["date_to"], now=now)
 
 
 class ClassSessionForm(forms.ModelForm):
@@ -2338,7 +2429,7 @@ class TeachWelcomeEmailForm(forms.ModelForm):
         return super().save(commit=commit)
 
 
-class PaymentRefundForm(forms.Form):
+class PaymentRefundForm(RefundShareDecisionForm):
     """Validates the refund modal — amount bounds live here, not in the view.
 
     ``amount`` is pre-filled with the full refundable remainder (full refund is
@@ -2361,6 +2452,7 @@ class PaymentRefundForm(forms.Form):
         self.fields["reason"].help_text = "Internal note. The payer never sees this."
         # Eventbrite refunds a whole ticket, so its form posts no amount.
         self.fields["amount"].required = not registration.is_eventbrite
+        self._add_share_decision(registration)  # #662: the required choice once the share was sent
 
     def clean_amount(self) -> Decimal:
         refundable = Decimal(self.registration.refundable_cents) / 100

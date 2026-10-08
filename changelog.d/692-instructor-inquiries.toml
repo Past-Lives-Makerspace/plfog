@@ -1,0 +1,8 @@
+bump = "minor"
+date = "2026-10-07"
+title = "Instructor Inquiries in Admin Tools"
+changes = [
+  "The I'm Interested form on Host a Class now asks for your teaching experience, and optionally your website and socials.",
+  "Admins have a new Instructor Inquiries page in Admin Tools listing everyone who asked to teach, with date and status filters and a CSV export.",
+  "A Board Report on the same page charts inquiries per month and how many went on to be approved and run a first class, each downloadable as an image.",
+]

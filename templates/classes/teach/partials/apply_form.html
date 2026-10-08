@@ -36,6 +36,9 @@ method the member chose.
       x-init="method = $el.querySelector('[name=contact_method]').value">
     {% csrf_token %}
     {% include "components/form_field.html" with field=apply_form.note %}
+    {% include "components/form_field.html" with field=apply_form.experience %}
+    {% include "components/form_field.html" with field=apply_form.website %}
+    {% include "components/form_field.html" with field=apply_form.socials %}
     {% include "components/form_field.html" with field=apply_form.contact_method %}
     {% include "components/form_field.html" with field=apply_form.contact_detail field_label_x_text="label()" %}
     <div class="pl-modal__actions">

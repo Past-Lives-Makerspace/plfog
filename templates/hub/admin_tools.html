@@ -23,6 +23,24 @@
     <span class="pl-tool-card__desc">Write, save, and look back on announcements to a class, a guild, or the whole makerspace.</span>
   </a>
   {% endif %}
+  {% if tool_feedback %}
+  <a class="hub-card pl-tool-card" href="{% url 'hub_admin_feedback_inbox' %}" data-tool-feedback>
+    <span class="pl-tool-card__icon">
+      <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="22 12 16 12 14 15 10 15 8 12 2 12"/><path d="M5.45 5.11 2 12v6a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-6l-3.45-6.89A2 2 0 0 0 16.76 4H7.24a2 2 0 0 0-1.79 1.11z"/></svg>
+    </span>
+    <span class="pl-tool-card__title">Feedback Inbox{% if feedback_received_count %} <span class="hub-badge" data-feedback-received-count>{{ feedback_received_count }} new</span>{% endif %}</span>
+    <span class="pl-tool-card__desc">Bug reports and feature requests members sent. Set where each stands and the sender is told.</span>
+  </a>
+  {% endif %}
+  {% if tool_instructor_inquiries %}
+  <a class="hub-card pl-tool-card" href="{% url 'classes:admin_instructor_inquiries' %}">
+    <span class="pl-tool-card__icon">
+      <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="3" width="20" height="13" rx="2"/><path d="M8 21l4-5 4 5"/><path d="M6 8h8"/><path d="M6 12h5"/></svg>
+    </span>
+    <span class="pl-tool-card__title">Instructor Inquiries</span>
+    <span class="pl-tool-card__desc">Every member who asked to teach, with a date filter, CSV export and a board report.</span>
+  </a>
+  {% endif %}
   {% if tool_leadership %}
   <a class="hub-card pl-tool-card" href="{% url 'hub_admin_leadership' %}">
     <span class="pl-tool-card__icon">

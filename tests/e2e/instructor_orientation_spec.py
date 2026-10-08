@@ -43,6 +43,7 @@ def describe_apply_to_teach():
         expect(send).to_be_visible()
 
         page.locator("#id_note").fill("I would like to run a two hour intro to wheel throwing.")
+        page.select_option("#id_experience", "a_few")  # #690: required
 
         # Issue #536: the modal also asks how to reach the member. The detail field's label
         # follows the pick, and the pick prefills the account email or the profile phone;
@@ -78,6 +79,7 @@ def describe_apply_to_teach():
         member = Member.objects.get(user__username="teach-me@example.com")
         assert member.teaching_contact_method == Member.TeachingContactMethod.PHONE
         assert member.teaching_contact_detail == "503 555 0199"
+        assert member.teaching_experience == Member.TeachingExperience.A_FEW
 
         # An admin grants Instructor, exactly as the Permissions tab does.
         member.grant_instructor(granted_by=None)

@@ -1277,6 +1277,14 @@ class PaymentRefund(models.Model):
         IN_APP = "in_app", "Issued in app"
         STRIPE_DASHBOARD = "stripe_dashboard", "Issued in Stripe dashboard"
 
+    class ShareDecision(models.TextChoices):
+        """What happens to an instructor's or orientor's share already sent through Stripe (#662)."""
+
+        NOT_APPLICABLE = "", "No share had been sent"
+        TAKE_BACK = "take_back", "Take the share back from the payee"
+        PL_COVERS = "pl_covers", "Past Lives covers it"
+        NOT_ASKED = "not_asked", "Past Lives covers it (nobody was asked)"
+
     registration = models.ForeignKey(
         "classes.Registration",
         null=True,
@@ -1349,6 +1357,27 @@ class PaymentRefund(models.Model):
             "Stamped on entering SUCCEEDED or FAILED. Also the 'side effects already fired' "
             "guard: the succeeded-transition effects run exactly once."
         ),
+    )
+    share_decision = models.CharField(
+        max_length=20,
+        choices=ShareDecision.choices,
+        blank=True,
+        default=ShareDecision.NOT_APPLICABLE,
+        help_text=(
+            "For a refund of a payment whose producer share was already sent through Stripe: the admin's "
+            "required choice, or Not asked for a refund nobody could be asked about (Past Lives covers it)."
+        ),
+    )
+    share_reversed_cents = models.PositiveIntegerField(
+        default=0, help_text="How much of the sent share Stripe took back from the payee for this refund."
+    )
+    stripe_transfer_reversal_id = models.CharField(
+        max_length=64, blank=True, default="", help_text="The Stripe transfer reversal (trr_...) that took it back."
+    )
+    share_reversal_error = models.TextField(
+        blank=True,
+        default="",
+        help_text="Why Stripe refused the take back; Past Lives then covers the refund and the line is flagged.",
     )
 
     objects = PaymentRefundQuerySet.as_manager()
@@ -2099,6 +2128,9 @@ class Payout(models.Model):
     amount_cents = models.PositiveIntegerField(
         help_text="The share in cents: the reconciliation split when it fell due."
     )
+    reversed_cents = models.PositiveIntegerField(
+        default=0, help_text="How much of the sent share refunds took back from the payee (transfer reversals)."
+    )
     due_at = models.DateTimeField(
         help_text="When the share fell due: 48 hours after the class or slot started, or after payment if later."
     )
@@ -2249,12 +2281,15 @@ class Payout(models.Model):
         return stripe_utils.find_payout_transfer(payout_pk=self.pk, created_after=self.created_at)
 
     def mark_sent(self, transfer_id: str) -> None:
-        """Record the share as sent with Stripe's transfer id."""
+        """Record the share as sent with Stripe's transfer id, and flag any refund that landed while it was in flight."""
         self.status = self.Status.SENT
         self.stripe_transfer_id = transfer_id
         self.sent_at = timezone.now()
         self.failure_reason = ""
         self.save(update_fields=["status", "stripe_transfer_id", "sent_at", "failure_reason", "attempted_at"])
+        from billing.payouts import flag_refunds_past_a_send
+
+        flag_refunds_past_a_send(self)
 
     def _fail(self, reason: str) -> None:
         """Record a definite rejection and alert the billing admins (once per share).
@@ -2314,7 +2349,10 @@ class Payout(models.Model):
 
         from billing.notifications import notify_admins_payout_failed
 
-        if lookup and self.attempted_at is not None:
+        # Look up even a row with no recorded attempt: ``send`` runs inside the caller's row lock,
+        # so a crash during the transfer call rolls back ``attempted_at`` though the transfer may
+        # have landed (#662, carried into part 3).
+        if lookup:
             try:
                 existing = self.existing_transfer_id()
             except _stripe_unanswered():
@@ -2330,5 +2368,5 @@ class Payout(models.Model):
         if reason:
             self.failure_reason = reason
         self.save(update_fields=["status", "owed_reason", "failure_reason", "attempted_at"])
-        notify_admins_payout_failed(self)
+        notify_admins_payout_failed(self, owed=True)
         return True

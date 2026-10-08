@@ -20,7 +20,7 @@ BAD_PHONE_ERROR = "That does not look like a phone number. It needs at least sev
 
 
 def _form(**contact: str) -> TeachingApplicationForm:
-    return TeachingApplicationForm({"note": NOTE, **contact})
+    return TeachingApplicationForm({"note": NOTE, "experience": "first_time", **contact})
 
 
 def describe_TeachingApplicationForm():
@@ -100,6 +100,48 @@ def describe_TeachingApplicationForm():
             assert form.errors["contact_detail"] == [BAD_PHONE_ERROR]
 
     def it_still_requires_the_note():
-        form = TeachingApplicationForm({"note": "  ", "contact_method": "email", "contact_detail": "r@example.com"})
+        form = TeachingApplicationForm(
+            {"note": "  ", "contact_method": "email", "contact_detail": "r@example.com", "experience": "informal"}
+        )
         assert not form.is_valid()
         assert list(form.errors) == ["note"]
+
+
+def describe_the_inquiry_questions():
+    """#690: experience is a required fixed list; website and socials are optional."""
+
+    def it_offers_a_blank_pick_ahead_of_the_four_levels():
+        choices = TeachingApplicationForm().fields["experience"].choices
+        assert list(choices) == [
+            ("", "Pick one"),
+            ("first_time", "First time teaching"),
+            ("informal", "Taught informally"),
+            ("a_few", "Taught a few classes"),
+            ("experienced", "Experienced instructor"),
+        ]
+
+    @pytest.mark.parametrize("level", ["", "guru"])
+    def it_requires_a_known_level(level):
+        form = _form(contact_method="email", contact_detail="r@example.com", experience=level)
+        assert not form.is_valid()
+        assert form.errors["experience"] == ["Pick how much teaching you have done."]
+
+    def it_accepts_blank_website_and_socials():
+        form = _form(contact_method="email", contact_detail="r@example.com")
+        assert form.is_valid(), form.errors
+        assert (form.cleaned_data["website"], form.cleaned_data["socials"]) == ("", "")
+
+    def it_assumes_https_for_a_bare_domain():
+        form = _form(contact_method="email", contact_detail="r@example.com", website="robin.example")
+        assert form.is_valid(), form.errors
+        assert form.cleaned_data["website"] == "https://robin.example"
+
+    def it_refuses_a_website_that_is_not_one():
+        form = _form(contact_method="email", contact_detail="r@example.com", website="not a site")
+        assert not form.is_valid()
+        assert form.errors["website"] == ["That does not look like a web address. Check it and try again."]
+
+    def it_refuses_socials_over_500_characters():
+        form = _form(contact_method="email", contact_detail="r@example.com", socials="@" * 501)
+        assert not form.is_valid()
+        assert form.errors["socials"] == ["That is longer than we can store. Keep it to 500 characters or fewer."]

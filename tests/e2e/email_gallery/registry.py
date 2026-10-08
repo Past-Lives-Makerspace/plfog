@@ -113,6 +113,7 @@ _CATEGORY_SECTIONS: dict[str, str] = {
     "Billing": "Billing",
     "Membership": "Membership & Account",
     "Spaces & Equipment": "Membership & Account",
+    "Your requests": "Membership & Account",  # feedback.request_updated (#693)
     "Voting": "Voting",
     "Events": "Events",
     "Meetings": "Events",  # meetings ride the events rails; their spine cards group there

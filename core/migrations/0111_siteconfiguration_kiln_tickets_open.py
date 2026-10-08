@@ -5,7 +5,7 @@ from django.db import migrations, models
 
 class Migration(migrations.Migration):
     dependencies = [
-        ("core", "0109_siteconfiguration_eventbrite_sync_enabled"),
+        ("core", "0110_feedback_request"),
     ]
 
     operations = [

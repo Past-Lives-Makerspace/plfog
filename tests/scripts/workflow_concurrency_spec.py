@@ -14,11 +14,13 @@ def _workflow(name: str) -> str:
 
 
 def describe_long_pull_request_workflows():
-    def it_groups_runs_by_pull_request_and_cancels_only_on_pull_requests():
+    def it_groups_runs_by_pull_request_or_branch_and_cancels_the_older_run():
+        # Pushes group by branch, not commit: four merges in a minute on 2026-10-08 each held a
+        # runner for a full `test` run while PR checks queued behind them.
         for name in ("ci.yml", "playwright.yml"):
             workflow = _workflow(name)
-            assert "github.event.pull_request.number || github.sha" in workflow, name
-            assert "cancel-in-progress: ${{ github.event_name == 'pull_request' }}" in workflow, name
+            assert "github.event.pull_request.number || github.ref }}" in workflow, name
+            assert "cancel-in-progress: true" in workflow, name
 
     def it_cancels_when_the_pull_request_closes_and_runs_nothing_for_it():
         for name in ("ci.yml", "playwright.yml"):

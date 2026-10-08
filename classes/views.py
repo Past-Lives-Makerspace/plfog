@@ -108,6 +108,7 @@ from classes.forms import (
     FinishRegistrationForm,
     RegistrationForm,
     RegistrationQuestionForm,
+    InstructorInquiryFilterForm,
     TeachingApplicationForm,
     parse_gallery_focus,
     build_class_faq_formset,
@@ -1690,6 +1691,9 @@ def teach_apply(request: HttpRequest) -> HttpResponse:
             form.cleaned_data["note"],
             contact_method=form.cleaned_data["contact_method"],
             contact_detail=form.cleaned_data["contact_detail"],
+            website=form.cleaned_data["website"],
+            socials=form.cleaned_data["socials"],
+            experience=form.cleaned_data["experience"],
         )
     except ValueError:
         if member.can_create_classes:
@@ -4348,6 +4352,39 @@ def admin_teaching_approve(request: HttpRequest, pk: int) -> HttpResponse:
 
 
 @classes_admin_access_required
+def admin_instructor_inquiries(request: HttpRequest) -> HttpResponse:
+    """Instructor Inquiries (#690): every teaching application, pending and decided.
+
+    The filter bar is a GET form, so the same query string drives the CSV export. A
+    filter with an error (To before From) lists nothing, draws no Board Report and
+    shows the field error.
+    """
+    form = InstructorInquiryFilterForm(request.GET)
+    valid = form.is_valid()
+    return render(
+        request,
+        "classes/admin/instructor_inquiries.html",
+        {
+            "form": form,
+            "inquiries": list(form.inquiries()) if valid else [],
+            "report": form.board_report(timezone.now()) if valid else None,
+            "filter_query": request.GET.urlencode(),
+        },
+    )
+
+
+@classes_admin_access_required
+def admin_instructor_inquiries_export(request: HttpRequest) -> StreamingHttpResponse | HttpResponse:
+    """The Instructor Inquiries CSV: exactly the rows the same filter lists on the page."""
+    from classes.exports import stream_instructor_inquiries_csv
+
+    form = InstructorInquiryFilterForm(request.GET)
+    if not form.is_valid():
+        return HttpResponseBadRequest("Fix the filter dates before exporting.")
+    return stream_instructor_inquiries_csv(form.inquiries())
+
+
+@classes_admin_access_required
 @require_POST
 def admin_teaching_decline(request: HttpRequest, pk: int) -> HttpResponse:
     """Decline a teaching application, with the reason the applicant will read.
@@ -5031,9 +5068,16 @@ def _granted_instructor_pk(request: HttpRequest) -> int | None:
 @classes_registrations_access_required
 def admin_registrations(request: HttpRequest) -> HttpResponse:
     scoped = _scoped_registrations(request)
+    # The Class Date column and its sort: the class's sessions, the same span the admin
+    # Classes list shows as Date(s). Annotated here rather than in _filter_registrations so
+    # the CSV export keeps its own columns.
+    rows = _filter_registrations(request, scoped).annotate(
+        class_first_session=Min("class_offering__sessions__starts_at"),
+        class_last_session=Max("class_offering__sessions__starts_at"),
+    )
     table = prepare_table(
         request,
-        _filter_registrations(request, scoped),
+        rows,
         search_fields=["first_name", "last_name", "email", "class_offering__title"],
         default_sort="registered_at",
         default_dir="desc",
@@ -5233,11 +5277,16 @@ def admin_registration_refund(request: HttpRequest, pk: int) -> HttpResponse:
         return _render_refund_form(request, registration, form)
     if registration.is_eventbrite:
         return _refund_through_eventbrite(request, registration, form)
+    from billing.refunds import issue_refund
+
     try:
-        refund = registration.issue_refund(
+        # The service directly, to carry the required share choice (#662) the delegate does not take.
+        refund = issue_refund(
+            registration,
             amount_cents=form.amount_cents,
             reason=form.cleaned_data["reason"],
-            actor=request.user,
+            actor=request.user,  # type: ignore[arg-type]
+            share_decision=form.chosen_share_decision,
         )
     except RefundError as exc:
         registration.refresh_from_db()

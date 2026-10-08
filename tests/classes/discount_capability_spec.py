@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import pytest
-from django.conf import settings
 from django.contrib.auth.models import User
 from django.urls import reverse
 from django.utils import timezone
@@ -32,8 +31,9 @@ def describe_discount_code_requested_notification():
         approver.admin_capabilities.create(capability=AdminCapability.Capability.DISCOUNT_APPROVER)
         DiscountCode.objects.create(code="spring20", discount_pct=20)
         row = Notification.objects.get(user=approver.user, trigger="discount_code.requested")
-        # Absolute, because the email channel uses the url verbatim and a bare path is dead in mail.
-        assert row.url == f"{settings.MEMBER_BASE_URL}{reverse('classes:admin_discount_codes')}"
+        # The sender passes an absolute url for the email; the bell keeps only the path, so a
+        # click stays on the member's host.
+        assert row.url == reverse("classes:admin_discount_codes")
 
     def it_does_not_notify_a_plain_member():
         bystander = _member("bystander")

@@ -1,0 +1,41 @@
+/* Instructor Inquiries (#690): the admin page listing every teaching application,
+   its filter bar, the status pills and the Board Report charts. */
+
+.pl-inquiries__lead { margin: 0 0 1rem; }
+.pl-inquiries__card { padding: 1.5rem; margin-bottom: 1.5rem; }
+
+.pl-inquiries__filters {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  gap: 0 1rem;
+  margin-bottom: 1.25rem;
+}
+.pl-inquiries__filters .pl-form-group { flex: 1 1 10rem; min-width: 0; }
+/* Top aligned so a field error under one input never shifts the row; the actions drop by a label's height. */
+.pl-inquiries__actions { display: flex; gap: 0.5rem; align-items: center; margin: 1.75rem 0 1rem; }
+.pl-inquiries__filters input[type="date"]::-webkit-calendar-picker-indicator { filter: invert(1); cursor: pointer; }
+[data-theme="light"] .pl-inquiries__filters input[type="date"]::-webkit-calendar-picker-indicator { filter: none; }
+
+.pl-inquiries__date { white-space: nowrap; }
+.pl-inquiries__table th, .pl-inquiries__table td { padding-left: 0.5rem; padding-right: 0.5rem; }
+.pl-inquiries__note { min-width: 10rem; max-width: 16rem; }
+.pl-inquiries__wrap { min-width: 6.5rem; max-width: 9rem; overflow-wrap: anywhere; }
+.pl-inquiries__empty { margin: 0; }
+
+.pl-inquiries__status--pending { background: rgba(251, 191, 36, 0.15); color: #fbbf24; }
+.pl-inquiries__status--approved { background: rgba(52, 211, 153, 0.15); color: #6ee7b7; }
+.pl-inquiries__status--declined { background: rgba(224, 85, 85, 0.16); color: #f0a0a0; }
+[data-theme="light"] .pl-inquiries__status--pending { color: #8a5a00; }
+[data-theme="light"] .pl-inquiries__status--approved { color: #1f7a52; }
+[data-theme="light"] .pl-inquiries__status--declined { color: #a12b2b; }
+
+/* Board Report: the svg's own fill and stroke attributes are the downloaded image's
+   colours (dark on white); these rules theme it on the page. */
+.pl-inquiries__charts { display: grid; grid-template-columns: 1fr; gap: 1.5rem; }
+@media (min-width: 900px) { .pl-inquiries__charts { grid-template-columns: 1fr 1fr; } }
+.pl-inquiries__chart { margin: 0; min-width: 0; }
+.pl-inquiries__chart svg { display: block; width: 100%; height: auto; }
+.pl-inquiries__chart text { fill: var(--hub-text); }
+.pl-inquiries__chart .pl-inquiries__chart-muted { fill: var(--hub-text-muted); }
+.pl-inquiries__chart .pl-inquiries__chart-axis { stroke: var(--hub-border); }

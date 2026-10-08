@@ -50,6 +50,7 @@ from core.fcm import (
 )
 from core.models import EventDelivery, FcmDevice, Notification, PushSubscription, TransactionalEmailLog
 from core.push import send_web_push
+from core.urls_util import notification_click_url
 
 if TYPE_CHECKING:
     from datetime import datetime, timedelta
@@ -151,7 +152,7 @@ class InAppAdapter:
             trigger=message.trigger_kind or "",
             title=_fit(message.title, 200),
             body=_fit(message.body, 500),
-            url=message.url,
+            url=notification_click_url(message.url),
         )
         # The row is written or the create raised — reaching here means delivered.
         return True
@@ -228,6 +229,7 @@ _CHANNEL_BY_CATEGORY: dict[str, str] = {
     "Membership": PUSH_CHANNEL_GENERAL,
     "Orientations": PUSH_CHANNEL_GENERAL,
     "Spaces & Equipment": PUSH_CHANNEL_GENERAL,
+    "Your requests": PUSH_CHANNEL_GENERAL,
     # The wiki is guild-shaped: a report routes to a guild's leadership and a
     # verification comes from one, so both ride the Guilds channel.
     "Wiki": PUSH_CHANNEL_GUILDS,
@@ -316,10 +318,12 @@ class PushAdapter:
         # hard mid-word cut. Push carries no file attachments.
         title, body = _push_safe(message.title, message.body)
         channel_id = push_channel_for(message.trigger_kind)
+        # The app's own host, never another: see notification_click_url.
+        url = notification_click_url(message.url)
         for sub in PushSubscription.objects.filter(user=user):
-            send_web_push(sub, title=title, body=body, url=message.url)
+            send_web_push(sub, title=title, body=body, url=url)
         for device in FcmDevice.objects.filter(user=user):
-            send_fcm(device, title=title, body=body, url=message.url, channel_id=channel_id)
+            send_fcm(device, title=title, body=body, url=url, channel_id=channel_id)
         # Always spend the slot. A member with no registered device received nothing, but
         # re-pushing on some later run would drop a stale line in their tray instead of
         # fixing anything — unlike email, the miss is not worth repairing late.

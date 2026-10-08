@@ -1,0 +1,60 @@
+{% comment %}
+"Your requests" on the Feedback page (#693): the viewer's own FeedbackRequest rows, newest first,
+one .pl-disclosure each. The row whose pk is open_request_pk (the one just sent) renders open, and
+the script below opens the row a #request-<pk> link points at (a notification's link). The GitHub
+issue link is admin only and never appears here.
+
+Context: feedback_requests (FeedbackRequest.objects.sent_by(user)), open_request_pk (int or None).
+{% endcomment %}
+<section class="hub-card pl-feedback-requests" id="your-requests" data-feedback-requests>
+  <h2 class="pl-feedback-requests__title">Your Requests</h2>
+  {% if feedback_requests %}
+  <div class="pl-feedback-requests__list">
+    {% for item in feedback_requests %}
+    <details class="pl-disclosure pl-feedback-request" id="{{ item.anchor }}" data-feedback-request="{{ item.pk }}"{% if item.pk == open_request_pk %} open{% endif %}>
+      <summary class="pl-disclosure__summary">
+        <span class="pl-disclosure__text">
+          <span class="pl-disclosure__title">{{ item.subject }}</span>
+          <span class="pl-disclosure__hint pl-feedback-request__meta">
+            <span class="hub-pill hub-pill--{{ item.status_tone }}" data-feedback-status="{{ item.status }}">{{ item.status_label }}</span>
+            <span>{{ item.get_category_display }}</span>
+            <span>Updated {{ item.status_changed_at|date:"M j, Y" }}</span>
+          </span>
+        </span>
+        <span class="pl-disclosure__chevron" aria-hidden="true"></span>
+      </summary>
+      <div class="pl-disclosure__body pl-feedback-request__body">
+        {% if item.staff_note %}
+        <div class="pl-feedback-request__note" data-feedback-note>
+          <p class="pl-feedback-request__label">A note from Past Lives</p>
+          <p>{{ item.staff_note|linebreaksbr }}</p>
+        </div>
+        {% endif %}
+        <p class="pl-feedback-request__label">What you sent on {{ item.created_at|date:"M j, Y" }}</p>
+        <p class="pl-feedback-request__message">{{ item.message|linebreaksbr }}</p>
+        {% if item.photos.all %}
+        <div class="pl-feedback-photos">
+          {% for photo in item.photos.all %}
+          <a href="{{ photo.image.url }}" target="_blank" rel="noopener" hx-boost="false" class="pl-feedback-photos__item"><img src="{{ photo.image.url }}" alt="Photo {{ forloop.counter }} you sent" loading="lazy"></a>
+          {% endfor %}
+        </div>
+        {% endif %}
+      </div>
+    </details>
+    {% endfor %}
+  </div>
+  {% else %}
+  <p class="hub-text-muted" data-feedback-requests-empty>Nothing sent yet. Ideas and bug reports you send show up here, with where they stand.</p>
+  {% endif %}
+</section>
+<script>
+(function () {
+  var hash = window.location.hash;
+  if (hash.indexOf("#request-") !== 0) return;
+  var row = document.getElementById(hash.slice(1));
+  if (row && row.tagName === "DETAILS") {
+    row.open = true;
+    row.scrollIntoView({ block: "start" });
+  }
+})();
+</script>

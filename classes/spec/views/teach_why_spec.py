@@ -29,8 +29,9 @@ APPROVED_BANNER = "You Can Host Classes"
 PLACEHOLDER = "The guide has not been loaded yet."
 BLANK_NOTE_ERROR = "Tell us a little about what you want to host."
 OPEN_MODAL = "$dispatch('open-modal', 'apply-to-teach')"
-# Issue #536: the modal also asks how to reach the member. Every valid POST carries this pair.
-CONTACT = {"contact_method": "text", "contact_detail": "503 555 0100"}
+# Issue #536: the modal also asks how to reach the member, and #690 how much they have
+# taught. Every valid POST carries these.
+CONTACT = {"contact_method": "text", "contact_detail": "503 555 0100", "experience": "a_few"}
 MISSING_METHOD_ERROR = "Pick how you would like us to reach you."
 MISSING_DETAIL_ERROR = "Tell us where to reach you: an email address or a phone number."
 BAD_EMAIL_ERROR = "That does not look like an email address. Check it and try again."
@@ -438,6 +439,32 @@ def describe_teach_apply():
         assert member.teaching_contact_detail == "503 555 0100"
         assert SiteActivity.objects.filter(kind=SiteActivity.Kind.TEACHING_APPLIED).count() == 1
 
+    def it_saves_the_website_socials_and_experience(db, client):
+        """#690: the three answers land on the member with the note."""
+        user, member = _active_member_user("apply-answers@example.com")
+        client.force_login(user)
+        response = client.post(
+            reverse("classes:teach_apply"),
+            {"note": "Wheel throwing.", **CONTACT, "website": "https://robin.example", "socials": "@robinmakes"},
+        )
+        assert response.status_code == 302
+        member.refresh_from_db()
+        assert member.teaching_website == "https://robin.example"
+        assert member.teaching_socials == "@robinmakes"
+        assert member.teaching_experience == Member.TeachingExperience.A_FEW
+
+    def it_reopens_the_modal_with_the_error_when_no_experience_is_picked(db, client):
+        user, member = _active_member_user("no-level@example.com")
+        client.force_login(user)
+        response = client.post(reverse("classes:teach_apply"), {"note": "Wheel throwing.", **CONTACT, "experience": ""})
+        assert response.status_code == 200
+        content = response.content.decode()
+        assert "Pick how much teaching you have done." in content
+        assert '<select name="experience"' in content
+        assert OPEN_MODAL in content
+        member.refresh_from_db()
+        assert member.teaching_applied_at is None
+
     def it_refuses_an_instructor_and_says_the_portal_is_already_open(db, client):
         from django.contrib.messages import get_messages
 
@@ -627,7 +654,12 @@ def describe_the_interest_modals_contact_fields():
         client.force_login(user)
         response = client.post(
             reverse("classes:teach_apply"),
-            {"note": "Wheel throwing.", "contact_method": "text", "contact_detail": "+1 (503) 555-0100"},
+            {
+                "note": "Wheel throwing.",
+                "contact_method": "text",
+                "contact_detail": "+1 (503) 555-0100",
+                "experience": "a_few",
+            },
         )
         assert response.status_code == 302
         member.refresh_from_db()
@@ -639,7 +671,12 @@ def describe_the_interest_modals_contact_fields():
         client.force_login(user)
         response = client.post(
             reverse("classes:teach_apply"),
-            {"note": "Wheel throwing.", "contact_method": "email", "contact_detail": "robin@example.com"},
+            {
+                "note": "Wheel throwing.",
+                "contact_method": "email",
+                "contact_detail": "robin@example.com",
+                "experience": "a_few",
+            },
         )
         assert response.status_code == 302
         member.refresh_from_db()

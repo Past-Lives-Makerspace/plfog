@@ -498,6 +498,7 @@ BILLING_LATE_FEE_PAID = "billing.late_fee_paid"  # the receipt for a paid late c
 BILLING_LATE_FEE_WAIVED = "billing.late_fee_waived"  # an unpaid late cancellation fee was forgiven
 BILLING_PAYOUT_FAILED_ADMIN = "billing.payout_failed_admin"  # Stripe rejected a payout transfer (#662)
 BILLING_PAYOUTS_INVITE = "billing.payouts_invite"  # a payee's first owed share: set up payouts (#662)
+BILLING_PAYOUT_REVERSAL_FAILED_ADMIN = "billing.payout_reversal_failed_admin"  # a share take back failed (#662)
 # Staff and admin emails that used to go out to a fixed address list (#524). The four
 # payment alerts keep their old trigger_kind strings as keys, so the email log reads as one series.
 CLASS_REGISTRATION_ADMIN_NOTICE = "class_registration_admin_notice"  # the Admins' copy of a new registration
@@ -507,6 +508,7 @@ CLASSES_EVENTBRITE_FINISH_REGISTRATION = "classes.eventbrite_finish_registration
 BILLING_LATE_FEE_ORPHAN_PAYMENT = "billing.late_fee_orphan_payment"  # a paid fee Checkout with no fee to mark
 MEMBERSHIP_ORIENTATION_ORPHAN_PAYMENT = "membership.orientation_orphan_payment"  # a paid Checkout, no booking
 AUTOMATION_FAILED = "automation.failed"  # a scheduled job failed (Webmasters, once a day per job)
+FEEDBACK_REQUEST_UPDATED = "feedback.request_updated"  # your feature request or bug report moved, or got a note (#693)
 
 # event.reminder keeps Discord OFF (the bell is enough; per-offset channel posts would
 # clutter the guild channel) but declares it so a lead can flip it on later; happening-now
@@ -1206,6 +1208,18 @@ _NEW_EVENTS: list[EventType] = [
         channels=(_IN_APP_ON, _EMAIL_ON),
         activity_kind=None,
     ),
+    # billing.payout_reversal_failed_admin — taking a sent share back after a refund failed (#662,
+    # part 3): Stripe refused it, so Past Lives covers the refund and the line is flagged, or Stripe
+    # was unreachable for three days. Billing Administrators, once per refund; in-app + email.
+    EventType(
+        key=BILLING_PAYOUT_REVERSAL_FAILED_ADMIN,
+        label="Share take back failed (admin alert)",
+        description="A refund's share could not be taken back from the payee; Past Lives covers it.",
+        category="Billing",
+        recipient=Recipients.BILLING_APPROVERS,
+        channels=(_IN_APP_ON, _EMAIL_ON),
+        activity_kind=None,
+    ),
     # class_cancelled_admin_notice — an instructor cancelled their own live class and
     # paid registrations need refunds. Money never moves on an instructor click, so the
     # people who CAN refund (fog admins OR REFUNDS holders, the REFUND_AUTHORITY union)
@@ -1375,6 +1389,20 @@ _NEW_EVENTS: list[EventType] = [
         ),
         category="Membership",
         recipient=Recipients.WEBMASTERS,
+        channels=(_IN_APP_ON, _EMAIL_ON),
+        activity_kind=None,
+    ),
+    # feedback.request_updated — a request sent from the Feedback page moved to Planned,
+    # Building, Live (Fixed for a bug) or Not planned, or got a new note (#693). One key for
+    # every transition: the status and the note travel in the context. The sender is a User,
+    # who may have no Member row. The period carries the status and a timestamp, so each
+    # transition notifies once. No activity row: the request's own status date is the record.
+    EventType(
+        key=FEEDBACK_REQUEST_UPDATED,
+        label="Updates to your requests",
+        description="A feature request or bug report you sent is planned, being built, live, or not planned.",
+        category="Your requests",
+        recipient=Recipients.SINGLE_USER,
         channels=(_IN_APP_ON, _EMAIL_ON),
         activity_kind=None,
     ),

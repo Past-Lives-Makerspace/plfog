@@ -14,7 +14,7 @@ Member-facing views. All views are `@login_required`. No models — reads from `
 | `member_directory` | `hub_member_directory` | `/members/` |
 | `profile_settings` | `hub_profile_settings` | `/settings/profile/` |
 | `email_preferences` | `hub_email_preferences` | `/settings/emails/` |
-| `beta_feedback` | `hub_beta_feedback` | `/feedback/` |
+| `beta_feedback` | `hub_beta_feedback` | `/feedback/` (the form, then "Your requests": the viewer's own `FeedbackRequest` rows, #693; `?sent=<pk>` and `#request-<pk>` open a row) |
 | `tab_detail` | `hub_tab_detail` | `/tab/` |
 | `tab_history` | `hub_tab_history` | `/tab/history/` |
 | `announcements_overview` | `hub_announcements` | `/announcements/` (Drafts and Sent tabs, `?tab=drafts\|sent`) |
@@ -22,6 +22,7 @@ Member-facing views. All views are `@login_required`. No models — reads from `
 | `orientations_views.hub_orientations` | `hub_orientations` | `/orientations/` (every bookable orientation as a card; its controls post `next` so the member lands back, `views._orientation_return`; the header's "+ Add an Orientation" links to `hub_orientation_add`, #637 and #680) |
 | `orientations_views.hub_orientation_add` | `hub_orientation_add` | `/orientations/add/` (Add an Orientation, #680: `NewOrientationTypeForm`, the Guild first, its choices and its gate `membership.permissions.guilds_for_new_orientation`; `?guild=<pk>` preselects; Save lands on the guild's Orientations page) |
 | `orientations_views.hub_orientations_calendar_events` | `hub_orientations_calendar_events` | `/orientations/calendar/events/` (the Orientations page's Calendar view: grid and list for its navigation, `?shell=1` for the whole calendar on first open) |
+| `feedback_views.hub_admin_feedback_inbox` | `hub_admin_feedback_inbox` | `/manage/feedback/` (admin only, #693: every feedback request, filterable by category and status; `hub_admin_feedback_request` at `/manage/feedback/<pk>/` sets status, note and GitHub link; `hub_admin_feedback_mark_live` POSTs Mark live) |
 | `location_views.hub_admin_locations` | `hub_admin_locations` | `/manage/locations/` (admin only: every Location, with the add form; `hub_admin_location_edit` at `/manage/locations/<pk>/`) |
 | `orientations_views.hub_orientation_type_permalink` | `hub_orientation_type_permalink` | `/orientations/types/<pk>/` (the stable link an orientation QR sheet encodes, #631: redirects to the type's current booking link, `OrientationType.booking_landing_path`) |
 | `orientations_views.hub_orientation_type_flyer`, `hub_orientation_type_qr` | `hub_orientation_type_flyer`, `hub_orientation_type_qr` | `/orientations/types/<pk>/flyer/`, `/orientations/types/<pk>/qr.<svg\|png>/` (the orientation QR sheet and its downloads, #631; gated by `_require_can_run_orientation_type`, refused with `OrientationType.qr_sheet_refusal`) |
@@ -54,7 +55,8 @@ All views call `_get_hub_context(request)` for sidebar data (guild list, user in
 - `VotePreferenceForm` — 3 guild FK selects (guild_1st, guild_2nd, guild_3rd)
 - `ProfileSettingsForm` — edits Member fields (pronouns, about_me, discord_handle, etc.)
 - `EmailPreferencesForm` — email notification toggles
-- `BetaFeedbackForm` — bug/feature/general feedback; calls `form.send(user=user)`
+- `BetaFeedbackForm` — bug/feature/general feedback; `form.submit(user=user)` saves a `core.models.FeedbackRequest`, then emails the admins with a link to it
+- `FeedbackRequestAdminForm` — the inbox's status, note and GitHub link (a plain Form, so the instance keeps its saved values until `apply_admin_update`)
 - Self-service tab-entry form: `billing.forms.TabItemForm` with `context="member_tab_page"` (replaces the old `AddTabEntryForm` removed in v1.5.0)
 
 ## Templates
