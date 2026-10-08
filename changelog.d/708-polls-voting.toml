@@ -1,0 +1,8 @@
+bump = "minor"
+date = "2026-10-08"
+title = "Vote in polls and see every past poll"
+changes = [
+  "When a poll is open, tap an answer to vote. The results show right away with your answer marked.",
+  "You get one vote per poll, and it cannot be changed. Votes are anonymous: nobody can see who picked what.",
+  "The Past polls page at /polls/ lists every poll, newest first, with how many people voted and how each answer did.",
+]

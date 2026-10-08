@@ -119,6 +119,7 @@ Those seven plus `plfog/` are the whole of `INSTALLED_APPS` for this project. Ot
 /account/                       Book CMS account area (classes.account)
 /kiln/                          Kiln tickets (a guest's home; members land on the Ceramics Guild page's ?tab=kiln; /kiln/load/, /kiln/unload/, /kiln/log/, /kiln/lists/ for the crew and admins)
 /manage/spotlight/              Admin Tools > Spotlight (#708): Spotlight text and meeting with a preview, polls, past polls
+/polls/                         Past polls (#708): every poll with results, members only; POST /polls/<pk>/vote/ casts a vote
 ```
 
 ## Test Structure

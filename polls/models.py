@@ -14,11 +14,13 @@ from datetime import datetime, timedelta
 from typing import TYPE_CHECKING, Any
 
 from django.conf import settings
-from django.db import models, transaction
+from django.db import IntegrityError, models, transaction
 from django.db.models import Count, OuterRef, Q, Subquery
 
 if TYPE_CHECKING:
     from django.contrib.auth.models import User
+
+    from membership.models import Member
 
 MIN_CHOICES = 2
 MAX_CHOICES = 6
@@ -31,6 +33,22 @@ ANSWER_MAX_LENGTH = 120
 
 class PollAlreadyOpenError(Exception):
     """A poll is open, and the admin did not ask to close it first."""
+
+
+class VoteRefusedError(Exception):
+    """A vote that cannot count; the message is written for the member."""
+
+
+class PollClosedError(VoteRefusedError):
+    """The poll is not open: it has closed, or has not opened yet."""
+
+
+class AlreadyVotedError(VoteRefusedError):
+    """This member already voted in this poll; votes cannot change."""
+
+
+class NotAVoterError(VoteRefusedError):
+    """The account has no member, or is a guest account (#691)."""
 
 
 @dataclass(frozen=True)
@@ -151,6 +169,30 @@ class Poll(models.Model):
         """Every answer in order with its votes and percent, in one query."""
         return tally(self.choices.annotate(vote_count=Count("votes")).order_by("position"))
 
+    def vote(self, *, member: Member | None, choice_pk: int, now: datetime) -> PollVote:
+        """Record ``member``'s one vote for the answer ``choice_pk``: the single way a vote is cast.
+
+        Goes through ``PollVote.save`` (never a bulk insert), so the cross-poll guard runs, and
+        turns the one-vote constraint's race into :class:`AlreadyVotedError`, not a 500.
+
+        Raises:
+            NotAVoterError: No member, or a guest account.
+            PollClosedError: The poll is not open at ``now``.
+            AlreadyVotedError: This member already voted here.
+            PollChoice.DoesNotExist: ``choice_pk`` is not an answer to this poll.
+        """
+        if not can_vote(member):
+            raise NotAVoterError("Polls are for members.")
+        assert member is not None  # can_vote refused None
+        if not self.is_open(now):
+            raise PollClosedError("This poll has closed.")
+        choice = self.choices.get(pk=choice_pk)
+        try:
+            with transaction.atomic():
+                return PollVote.objects.create(poll=self, choice=choice, member=member)
+        except IntegrityError as error:
+            raise AlreadyVotedError("You already voted in this poll.") from error
+
 
 class PollChoice(models.Model):
     """One answer to a poll, in the order the admin wrote them."""
@@ -232,3 +274,65 @@ def open_poll_with_results(now: datetime) -> tuple[Poll | None, list[ChoiceResul
         return None, []
     poll = rows[0].poll
     return poll, tally([row for row in rows if row.poll_id == poll.pk])
+
+
+def can_vote(member: Member | None) -> bool:
+    """Whether this account may vote: a member record that is not a guest (#691) or a former member."""
+    from membership.models import Member
+
+    return member is not None and member.status not in (Member.Status.GUEST, Member.Status.FORMER)
+
+
+@dataclass(frozen=True)
+class PollCard:
+    """One poll as one member sees it: the tally, their own answer, and whether to offer choices.
+
+    Built for a page of polls at once by :meth:`for_polls`, so a page costs two queries however
+    many polls it shows. The same card renders on /polls/ and in the Spotlight (#709).
+    """
+
+    poll: Poll
+    results: list[ChoiceResult]
+    my_choice_pk: int | None
+    is_open: bool
+    can_vote: bool
+
+    @property
+    def total_votes(self) -> int:
+        """Votes cast in this poll."""
+        return sum(result.votes for result in self.results)
+
+    @property
+    def shows_choices(self) -> bool:
+        """Offer the answers as buttons: open, a voter, and not voted yet. Otherwise show results."""
+        return self.is_open and self.can_vote and self.my_choice_pk is None
+
+    @classmethod
+    def for_polls(cls, polls: list[Poll], member: Member | None, now: datetime) -> list[PollCard]:
+        """Cards for ``polls`` in their order: one query for every tally, one for this member's votes."""
+        ids = [poll.pk for poll in polls]
+        rows = (
+            PollChoice.objects.filter(poll_id__in=ids).annotate(vote_count=Count("votes")).order_by("poll", "position")
+        )
+        by_poll: dict[int, list[PollChoice]] = {pk: [] for pk in ids}
+        for row in rows:
+            by_poll[row.poll_id].append(row)
+        mine: dict[int, int] = {}
+        if member is not None:
+            mine = dict(PollVote.objects.filter(member=member, poll_id__in=ids).values_list("poll_id", "choice_id"))
+        voter = can_vote(member)
+        return [
+            cls(
+                poll=poll,
+                results=tally(by_poll[poll.pk]),
+                my_choice_pk=mine.get(poll.pk),
+                is_open=poll.is_open(now),
+                can_vote=voter,
+            )
+            for poll in polls
+        ]
+
+    @classmethod
+    def for_poll(cls, poll: Poll, member: Member | None, now: datetime) -> PollCard:
+        """One poll's card."""
+        return cls.for_polls([poll], member, now)[0]

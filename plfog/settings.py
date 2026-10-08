@@ -146,6 +146,7 @@ MEMBER_ONLY_PATH_PREFIXES: tuple[str, ...] = (
     # whole point of a QR on a machine), but it must not resolve on the book surface.
     "/m/",
     "/members/",
+    "/polls/",
     "/push/",
     "/restart-login/",
     "/settings/",

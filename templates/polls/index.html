@@ -1,0 +1,24 @@
+{% extends "hub/base.html" %}
+{% load static %}
+{% block title %}Past Polls{% endblock %}
+{% block extra_head %}
+<link rel="stylesheet" href="{% static 'css/spotlight.css' %}">
+{% endblock %}
+{% block content %}
+{# Every poll, newest first, ten a page (#708 part 2); the open one offers its answers until this member votes. #}
+{% include "components/page_header.html" with title="Past Polls" description="Every poll the makerspace has asked, newest first. Votes are anonymous." %}
+{% if cards %}
+<div class="pl-poll-list" data-poll-list>
+  {% for card in cards %}{% include "polls/partials/_poll_card.html" with card=card next_url=next_url %}{% endfor %}
+</div>
+{% if page.has_other_pages %}
+<nav class="pl-poll-list__pages" aria-label="Poll pages" data-poll-pages>
+  {% if page.has_previous %}<a href="?page={{ page.previous_page_number }}" class="pl-btn pl-btn--ghost pl-btn--sm">Newer</a>{% endif %}
+  <span class="hub-text-muted">Page {{ page.number }} of {{ page.paginator.num_pages }}</span>
+  {% if page.has_next %}<a href="?page={{ page.next_page_number }}" class="pl-btn pl-btn--ghost pl-btn--sm">Older</a>{% endif %}
+</nav>
+{% endif %}
+{% else %}
+<div class="hub-card"><p class="hub-text-muted" data-polls-empty>No polls yet. When one opens, it shows up here.</p></div>
+{% endif %}
+{% endblock %}
