@@ -45,7 +45,7 @@ the inbox's query string, kept on every link and post so Back to inbox keeps the
 {% if feedback_request.status != "live" and not feedback_request.stays_received %}
 <div class="hub-card pl-feedback-admin__card" data-feedback-mark-live>
   <h2 class="hub-detail-label">Shipped?</h2>
-  <p class="hub-text-muted">Mark it {% if feedback_request.category == "bug" %}Fixed{% else %}Live{% endif %} and tell {{ feedback_request.sender_label }}, keeping the note below.</p>
+  <p class="hub-text-muted">Mark it {% if feedback_request.category == "bug" %}Fixed{% else %}Live{% endif %} and tell {{ feedback_request.sender_label }}{% if feedback_request.status == "not_planned" %}. The Not planned reason is cleared.{% else %}, keeping the note below.{% endif %}</p>
   <form method="post" action="{% url 'hub_admin_feedback_mark_live' feedback_request.pk %}{% if inbox_query %}?{{ inbox_query }}{% endif %}">
     {% csrf_token %}
     <button type="submit" class="hub-btn hub-btn--sm pl-feedback-admin__mark-live">Mark {% if feedback_request.category == "bug" %}Fixed{% else %}Live{% endif %}</button>
