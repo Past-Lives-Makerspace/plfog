@@ -50,7 +50,7 @@
     font-weight: 700;
     letter-spacing: 0.06em;
     text-transform: uppercase;
-    color: var(--color-tuscan-yellow);
+    color: var(--hub-link);
 }
 
 .pl-spotlight__question {
@@ -126,7 +126,7 @@
 
 .pl-spotlight__pill {
     background-color: rgba(238, 180, 75, 0.18);
-    color: var(--color-tuscan-yellow);
+    color: var(--hub-link);
 }
 
 .pl-spotlight__details {
@@ -403,7 +403,7 @@
     padding: 0.0625rem 0.5rem;
     border-radius: 999px;
     background-color: rgba(238, 180, 75, 0.18);
-    color: var(--color-tuscan-yellow);
+    color: var(--hub-link);
     font-weight: 700;
 }
 
@@ -577,7 +577,7 @@ html:not([data-spotlight-min]) .pl-spotlight-live .pl-spotlight--minimized {
 .pl-spotlight-panel__link {
     align-self: flex-start;
     font-size: 0.875rem;
-    color: var(--color-tuscan-yellow);
+    color: var(--hub-link);
 }
 
 .pl-spotlight-panel__version {
@@ -641,7 +641,7 @@ html:not([data-spotlight-min]) .pl-spotlight-live .pl-spotlight--minimized {
 
 .pl-spotlight__update-title:hover,
 .pl-spotlight__update-title:focus-visible {
-    color: var(--color-tuscan-yellow);
+    color: var(--hub-link);
     text-decoration: underline;
 }
 
@@ -715,7 +715,7 @@ html:not([data-spotlight-min]) .pl-spotlight-live .pl-spotlight--minimized {
     min-height: 32px;
     font-size: 0.875rem;
     font-weight: 600;
-    color: var(--color-tuscan-yellow);
+    color: var(--hub-link);
     text-decoration: none;
 }
 
