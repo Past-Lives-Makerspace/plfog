@@ -6,7 +6,7 @@
         </div>
         <div class="changelog-modal__body">
             {% for entry in changelog %}
-            <div class="changelog-entry">
+            <div class="changelog-entry"{% if entry.slug %} id="changelog-{{ entry.slug }}"{% endif %}>
                 <div class="changelog-entry__header">
                     {% comment %}
                     Only swept history carries a version number; a changelog.d/ entry has a date
@@ -27,3 +27,15 @@
         </div>
     </div>
 </div>
+{# A link ending #changelog-<slug> (the "it's live" notice, #693) opens the modal at that entry. #}
+<script>
+(function () {
+  var hash = window.location.hash;
+  if (hash.indexOf("#changelog-") !== 0) return;
+  var entry = document.getElementById(hash.slice(1));
+  var modal = document.getElementById("changelog-modal");
+  if (!entry || !modal) return;
+  modal.style.display = "flex";
+  entry.scrollIntoView({ block: "start" });
+})();
+</script>

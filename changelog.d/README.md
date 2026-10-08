@@ -32,8 +32,32 @@ changes = [
 | `title` | for `members` | The Discord headline and the changelog heading. |
 | `changes` | for `members` | The bullets. Plain member-facing language: no jargon, no PR numbers, no commit hashes. |
 | `screenshot` | no | A feature-shot slug for the release email's card. |
+| `requests` | no | Feedback request numbers this change delivers, like `[12, 15]`. See below. |
 
-## Picking a bump
+## `requests`: telling the people who asked
+
+When a change delivers something a member asked for on the Feedback page, list the request
+numbers (the number on the request's page in the admin Feedback inbox):
+
+```toml
+requests = [12, 15]
+```
+
+Once the web service is serving the release that carries this fragment, the next
+`run_scheduled_tasks` tick (the `announce_live_requests` job) marks each listed request Live,
+Fixed for a bug, and tells its sender once, linking to this entry in the changelog. Rules:
+
+- Positive whole numbers, no repeats, and only on a `members` fragment; anything else fails
+  the `fragment` check with a message naming the file.
+- The numbers never appear anywhere members read: not on Discord, not in the release email,
+  not in the changelog.
+- A request already Live, or already told it is live, is skipped; so is a number that does
+  not exist or a request that is general feedback. Each skip is logged on the job's run, never
+  an error.
+- Re-running the job, redeploying or sweeping the fragment never notifies twice. A sweep
+  freezes the entry without `requests`.
+
+
 
 - **`patch`** — a fix to something already live on production. Members lived with the bug, so
   it is member-facing and it gets bullets.

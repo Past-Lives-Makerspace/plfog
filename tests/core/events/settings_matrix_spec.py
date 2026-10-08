@@ -418,6 +418,11 @@ def describe_row_groups():
             "Your proposed announcement was approved, sent back for changes, or declined.",
             "Guilds",
         ),
+        "group.feedback_request": (
+            "Updates to your requests",
+            "A feature request or bug report you sent is planned, being built, live, or not planned.",
+            "Your requests",
+        ),
         "group.space_request_decision": (
             "Updates to your space request",
             "Your studio or cubby request was approved or declined.",

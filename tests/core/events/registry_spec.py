@@ -80,6 +80,7 @@ _BRAND_NEW_KEYS = {
     "membership.orientation_orphan_payment",
     "automation.failed",
     "feedback.request_updated",
+    "feedback.request_live",
 }
 
 # The five staff emails #524 moved off fixed address lists, pinned as a literal: who gets

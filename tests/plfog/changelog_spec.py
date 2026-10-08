@@ -186,6 +186,7 @@ def describe_as_entry():
             "date": "2026-09-13",
             "title": "A thing members can see",
             "changes": ["It does the thing now."],
+            "slug": "1-example",
         }
 
     def it_carries_no_version_key():
@@ -402,3 +403,45 @@ def describe_the_repos_own_files():
         base = parse_version(BASE_VERSION)
         for entry in load_history(HISTORY_PATH):
             assert parse_version(str(entry["version"])) <= base, entry["version"]
+
+
+def describe_requests():
+    def it_reads_the_request_numbers_a_change_delivers():
+        assert parse_fragment(_toml(requests=[12, 15]), _PATH).requests == (12, 15)
+
+    def it_defaults_to_none_listed():
+        assert parse_fragment(_toml(), _PATH).requests == ()
+
+    @pytest.mark.parametrize(
+        ("value", "message"),
+        [
+            (12, "non-empty list"),
+            ([], "non-empty list"),
+            (["12"], "positive whole number"),
+            ([0], "positive whole number"),
+            ([-3], "positive whole number"),
+            ([1.5], "positive whole number"),
+            ([True], "positive whole number"),
+            ([12, 12], "more than once"),
+        ],
+    )
+    def it_rejects_any_other_shape_with_a_readable_message(value: object, message: str):
+        with pytest.raises(FragmentError, match=message) as raised:
+            parse_fragment(_toml(requests=value), _PATH)
+
+        assert str(_PATH) in str(raised.value)
+
+    def it_rejects_requests_on_an_internal_fragment():
+        source = 'bump = "patch"\naudience = "internal"\nrequests = [3]\n'
+
+        with pytest.raises(FragmentError, match="members fragment"):
+            parse_fragment(source, _PATH)
+
+    def it_keeps_request_numbers_out_of_the_changelog_entry():
+        entry = parse_fragment(_toml(requests=[12]), _PATH).as_entry()
+
+        assert "requests" not in entry
+        assert "12" not in json.dumps(entry)
+
+    def it_names_the_entry_by_the_fragment_filename():
+        assert parse_fragment(_toml(), _PATH).slug == "1-example"
