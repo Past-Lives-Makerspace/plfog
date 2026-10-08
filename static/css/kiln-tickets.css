@@ -204,3 +204,10 @@ a.pl-kiln-row__title { color: var(--hub-link); text-decoration: none; }
 .pl-kiln-crumb a { color: var(--hub-link); text-decoration: none; }
 /* The maker's detail is one column; on a wide screen it stops at a readable width. */
 .pl-kiln-detail--maker { max-width: 760px; }
+
+/* The site feedback bubble (.hub-feedback-fab, fixed 1rem from the bottom right, 52px) sits over
+   the sticky action bar on phones. Keep the bar's buttons clear of it with the same footprint
+   hub.css lifts its other floating controls by: the bubble, its 1rem inset and a 0.75rem gap. */
+@media (max-width: 768px) {
+    body:has(.hub-feedback-fab) .pl-kiln-actionbar { padding-right: calc(env(safe-area-inset-right, 0px) + 1rem + 52px + 0.75rem); }
+}

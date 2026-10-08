@@ -42,6 +42,22 @@ def _capture(page, name: str) -> None:
         page.screenshot(path=str(SHOTS / name), full_page=True)
 
 
+def _clear_of_the_feedback_bubble(page, button) -> None:
+    """The sticky action bar's button and the fixed feedback bubble must not overlap (#695 review)."""
+    page.evaluate("window.scrollTo(0, 0)")
+    fab = page.locator(".hub-feedback-fab")
+    expect(fab).to_be_visible()
+    a, b = button.bounding_box(), fab.bounding_box()
+    assert a is not None and b is not None
+    apart = (
+        a["x"] + a["width"] <= b["x"]
+        or b["x"] + b["width"] <= a["x"]
+        or a["y"] + a["height"] <= b["y"]
+        or b["y"] + b["height"] <= a["y"]
+    )
+    assert apart, f"Submit {a} sits under the feedback bubble {b}"
+
+
 def _add_photo(page) -> None:
     page.locator("[data-kiln-photo-add] input[type=file]").set_input_files(_jpeg())
     expect(page.locator("[data-kiln-new-photo]")).to_have_count(1)
@@ -99,6 +115,7 @@ def describe_filing_kiln_tickets():
         expect(notice).to_contain_text("you added stilts")
         assert page.evaluate(NO_SIDEWAYS_SCROLL)
         _capture(page, "kiln-tickets-691-new-ticket-phone.png")
+        _clear_of_the_feedback_bubble(page, submit)
 
         submit.click()
         expect(page).to_have_url(f"{live_server.url}{reverse('kiln:mine')}")

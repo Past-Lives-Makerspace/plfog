@@ -489,3 +489,112 @@ def describe_maker():
         member = MemberFactory()
 
         assert KilnTicketFactory(maker=member).maker == member
+
+
+def describe_a_cleared_flag_when_the_answer_changes():
+    def _cleared(ticket: KilnTicket, kind: str, crew) -> KilnFlag:
+        from django.utils import timezone
+
+        flag = ticket.flags.get(kind=kind)
+        flag.cleared_at = timezone.now()
+        flag.cleared_by = crew
+        flag.save()
+        return flag
+
+    def it_records_the_answer_that_raised_each_flag():
+        ticket = _glaze(
+            clay_other=True, clay_other_name="Standard 266", glaze_commercial=True, commercial_glaze_name="Amaco"
+        )
+
+        ticket.sync_automatic_flags()
+
+        answers = dict(ticket.flags.values_list("kind", "answer"))
+        assert answers == {Kind.OTHER_CLAY: "Standard 266", Kind.COMMERCIAL_GLAZE: "Amaco"}
+
+    def it_stays_cleared_while_the_answer_is_the_same(make_member):
+        crew = make_member()
+        ticket = KilnTicketFactory(clay_other=True, clay_other_name="Standard 266")
+        ticket.sync_automatic_flags()
+        flag = _cleared(ticket, Kind.OTHER_CLAY, crew)
+        ticket.quantity = 4
+        ticket.save()
+
+        ticket.sync_automatic_flags()
+
+        flag.refresh_from_db()
+        assert flag.cleared_at is not None and flag.cleared_by == crew
+
+    def it_opens_again_when_the_answer_behind_it_changes(make_member):
+        crew = make_member()
+        ticket = KilnTicketFactory(clay_other=True, clay_other_name="Standard 266")
+        ticket.sync_automatic_flags()
+        flag = _cleared(ticket, Kind.OTHER_CLAY, crew)
+        ticket.clay_other_name = "Laguna B-Mix"
+        ticket.save()
+
+        ticket.sync_automatic_flags()
+
+        flag.refresh_from_db()
+        assert flag.cleared_at is None and flag.cleared_by is None
+        assert flag.answer == "Laguna B-Mix"
+        assert ticket.flags.count() == 1
+
+    def it_opens_the_no_stilts_flag_when_unanswered_becomes_no(make_member):
+        ticket = _glaze(bottom_free_of_glaze=False)
+        ticket.sync_automatic_flags()
+        flag = _cleared(ticket, Kind.GLAZE_ON_BOTTOM_NO_STILTS, make_member())
+        ticket.stilts_added = False
+        ticket.save()
+
+        ticket.sync_automatic_flags()
+
+        flag.refresh_from_db()
+        assert flag.cleared_at is None and flag.answer == "glazed bottom, no stilts"
+
+
+def describe_photo_storage_and_races():
+    def it_deletes_the_files_only_once_the_removal_commits(django_capture_on_commit_callbacks):
+        ticket = KilnTicketFactory()
+        photo = ticket.add_photo(photo_upload())
+        storage, names = photo.image.storage, [photo.image.name, photo.tile.name]
+
+        with django_capture_on_commit_callbacks(execute=False) as callbacks:
+            ticket.remove_photo(photo.pk)
+        assert all(storage.exists(name) for name in names)
+        assert len(callbacks) == 1
+
+        callbacks[0]()
+        assert not any(storage.exists(name) for name in names)
+
+    def it_keeps_the_files_when_the_removal_rolls_back(django_capture_on_commit_callbacks):
+        from django.db import transaction
+
+        ticket = KilnTicketFactory()
+        photo = ticket.add_photo(photo_upload())
+        storage, name = photo.image.storage, photo.image.name
+
+        with django_capture_on_commit_callbacks(execute=True) as callbacks:
+            try:
+                with transaction.atomic():
+                    ticket.remove_photo(photo.pk)
+                    raise RuntimeError("the save failed")
+            except RuntimeError:
+                pass
+
+        assert callbacks == []
+        assert storage.exists(name)
+        assert KilnTicketPhoto.objects.filter(pk=photo.pk).exists()
+
+    def it_saves_a_racing_second_first_upload_as_a_plain_photo():
+        from unittest.mock import patch
+
+        ticket = KilnTicketFactory()
+        winner = ticket.add_photo(photo_upload())
+
+        # The other request read "no cover yet" before the winner's photo landed.
+        with patch.object(KilnTicket, "_has_cover", return_value=False):
+            loser = ticket.add_photo(photo_upload())
+
+        assert winner.is_cover and not loser.is_cover
+        assert ticket.photos.filter(is_cover=True).count() == 1
+        assert ticket.photos.count() == 2

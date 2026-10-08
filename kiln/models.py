@@ -14,12 +14,13 @@ from typing import TYPE_CHECKING, Any, TypeVar
 
 from django.conf import settings
 from django.core.validators import MaxValueValidator, MinValueValidator
-from django.db import models, transaction
+from django.db import IntegrityError, models, transaction
 from django.utils import timezone
 
 from core.images import normalize_image
 
 if TYPE_CHECKING:
+    from django.core.files.storage import Storage
     from django.core.files.uploadedfile import UploadedFile
 
     from membership.models import Member
@@ -434,36 +435,59 @@ class KilnTicket(models.Model):
     # ---- flags -----------------------------------------------------------------------
 
     def automatic_flag_kinds(self) -> list[KilnFlag.Kind]:
-        """The flags these answers raise. Flags never block; they ask the crew to look."""
-        kinds: list[KilnFlag.Kind] = []
+        """The flags these answers raise, in question order. Flags never block; they ask the crew to look."""
+        return list(self.automatic_flags())
+
+    def automatic_flags(self) -> dict[KilnFlag.Kind, str]:
+        """Each flag these answers raise, with the answer that raised it.
+
+        The answer is what the crew checked when they cleared the flag, so a change to it
+        opens the flag again (:meth:`sync_automatic_flags`).
+        """
+        flags: dict[KilnFlag.Kind, str] = {}
         if self.clay_other:
-            kinds.append(KilnFlag.Kind.OTHER_CLAY)
+            flags[KilnFlag.Kind.OTHER_CLAY] = self.clay_other_name.strip()
         if self.firing_type == self.FiringType.BISQUE and self.walls_under_inch is False:
-            kinds.append(KilnFlag.Kind.THICK_WALLS)
+            flags[KilnFlag.Kind.THICK_WALLS] = "walls 1 inch or thicker"
         if self.firing_type == self.FiringType.GLAZE:
             if self.glaze_commercial:
-                kinds.append(KilnFlag.Kind.COMMERCIAL_GLAZE)
+                flags[KilnFlag.Kind.COMMERCIAL_GLAZE] = self.commercial_glaze_name.strip()
             if self.glaze_self_made:
-                kinds.append(KilnFlag.Kind.SELF_MADE_GLAZE)
+                flags[KilnFlag.Kind.SELF_MADE_GLAZE] = self.self_made_glaze_description.strip()
             if self.bottom_free_of_glaze is False:
                 # No stilts, or no answer about stilts, is the loud one.
-                kinds.append(
-                    KilnFlag.Kind.GLAZE_ON_BOTTOM if self.stilts_added else KilnFlag.Kind.GLAZE_ON_BOTTOM_NO_STILTS
-                )
-        return kinds
+                if self.stilts_added:
+                    flags[KilnFlag.Kind.GLAZE_ON_BOTTOM] = "glazed bottom, stilts added"
+                else:
+                    no_answer = self.stilts_added is None
+                    flags[KilnFlag.Kind.GLAZE_ON_BOTTOM_NO_STILTS] = (
+                        "glazed bottom, stilts not answered" if no_answer else "glazed bottom, no stilts"
+                    )
+        return flags
 
     def sync_automatic_flags(self) -> None:
-        """Make the automatic flags match the answers: add the new ones, drop the stale ones.
+        """Make the automatic flags match the answers.
 
-        A flag the answers still raise is kept as it is, cleared or not, so the crew's check
-        stands. Flags the crew added by hand are never touched.
+        New flags are added in question order and stale ones dropped. A flag the answers still
+        raise keeps the crew's clear while the answer behind it is unchanged; a changed answer
+        (another Other clay, a different commercial glaze) opens it again for a fresh look.
+        Flags the crew added by hand are never touched.
         """
-        wanted = self.automatic_flag_kinds()
+        wanted = self.automatic_flags()
         automatic = self.flags.exclude(kind=KilnFlag.Kind.MANUAL)
-        automatic.exclude(kind__in=wanted).delete()
-        have = set(automatic.values_list("kind", flat=True))
-        # In question order, so the maker reads them in the order they answered.
-        KilnFlag.objects.bulk_create([KilnFlag(ticket=self, kind=kind) for kind in wanted if kind not in have])
+        automatic.exclude(kind__in=list(wanted)).delete()
+        existing = {flag.kind: flag for flag in automatic}
+        new: list[KilnFlag] = []
+        for kind, answer in wanted.items():
+            flag = existing.get(kind)
+            if flag is None:
+                new.append(KilnFlag(ticket=self, kind=kind, answer=answer))
+            elif flag.answer != answer:
+                flag.answer = answer
+                flag.cleared_at = None
+                flag.cleared_by = None
+                flag.save(update_fields=["answer", "cleared_at", "cleared_by"])
+        KilnFlag.objects.bulk_create(new)
 
     def submit(self) -> None:
         """Put the ticket in the queue (first time) and refresh its flags (every time)."""
@@ -476,18 +500,34 @@ class KilnTicket(models.Model):
     # ---- photos ----------------------------------------------------------------------
 
     def add_photo(self, upload: UploadedFile) -> KilnTicketPhoto:
-        """Store an upload as a photo; the first photo becomes the cover."""
-        is_cover = not self.photos.filter(is_cover=True).exists()
-        next_order = self.photos.count()
-        photo = KilnTicketPhoto(ticket=self, is_cover=is_cover, sort_order=next_order)
+        """Store an upload as a photo; the first photo becomes the cover.
+
+        The ticket row is locked while the cover is chosen, so two first uploads arriving
+        together cannot both take it. Where the database cannot lock (SQLite), the one-cover
+        constraint still holds: the loser of the race is saved as an ordinary photo.
+        """
+        photo = KilnTicketPhoto(ticket=self)
         photo.image.save(
             "photo.jpg",
             normalize_image(upload, max_long_edge=settings.IMAGE_MAX_LONG_EDGE_GALLERY),
             save=False,
         )
         photo.tile.save("tile.jpg", normalize_image(upload, max_long_edge=TILE_LONG_EDGE), save=False)
-        photo.save()
+        with transaction.atomic():
+            list(KilnTicket.objects.select_for_update().filter(pk=self.pk).values_list("pk", flat=True))
+            photo.is_cover = not self._has_cover()
+            photo.sort_order = self.photos.count()
+            try:
+                with transaction.atomic():
+                    photo.save()
+            except IntegrityError:
+                photo.pk = None
+                photo.is_cover = False
+                photo.save()
         return photo
+
+    def _has_cover(self) -> bool:
+        return self.photos.filter(is_cover=True).exists()
 
     def set_cover(self, photo_pk: int) -> None:
         """Make one of this ticket's photos the cover, and only that one.
@@ -510,13 +550,20 @@ class KilnTicket(models.Model):
         """
         photo = self.photos.get(pk=photo_pk)
         was_cover = photo.is_cover
-        photo.image.delete(save=False)
-        photo.tile.delete(save=False)
+        storage, names = photo.image.storage, [name for name in (photo.image.name, photo.tile.name) if name]
         photo.delete()
+        # The files go only once the row is gone for good: a rolled back save keeps both.
+        transaction.on_commit(lambda: _delete_files(storage, names))
         if was_cover:
             successor = self.photos.order_by("sort_order", "pk").first()
             if successor is not None:
                 self.set_cover(successor.pk)
+
+
+def _delete_files(storage: Storage, names: list[str]) -> None:
+    """Remove stored files once the rows that named them are gone for good."""
+    for name in names:
+        storage.delete(name)
 
 
 def _yes_no(value: bool | None) -> str:
@@ -585,6 +632,11 @@ class KilnFlag(models.Model):
     )
     kind = models.CharField(max_length=30, choices=Kind.choices, help_text="Why the ticket is flagged.")
     note = models.TextField(blank=True, help_text="The crew's note on a flag they added by hand.")
+    answer = models.CharField(
+        max_length=300,
+        blank=True,
+        help_text="The answer that raised an automatic flag. When the maker changes it, a cleared flag opens again.",
+    )
     added_by = models.ForeignKey(
         "membership.Member",
         null=True,

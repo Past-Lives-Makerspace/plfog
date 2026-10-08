@@ -222,6 +222,14 @@ def describe_the_guest_gate():
         assert reverse("hub_member_directory") not in nav
         assert f'href="{reverse("hub_beta_feedback")}"' not in body
         assert f'href="{reverse("hub_user_settings")}"' not in body
+        assert f'href="{reverse("hub_tab_detail")}"' not in body
+        assert f'href="{reverse("hub_home")}"' not in body
+        assert f'href="{MINE}" class="pl-brand"' in body
+
+    def it_keeps_the_tab_and_home_links_for_a_member(make_member):
+        body = signed_in(make_member()).get(MINE).content.decode()
+
+        assert f'href="{reverse("hub_home")}" class="pl-brand"' in body
 
 
 def describe_signing_in():
