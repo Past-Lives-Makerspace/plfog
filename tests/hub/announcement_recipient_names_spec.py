@@ -144,14 +144,14 @@ def describe_the_other_names_shown_next_to_an_email():
         user = _account("fixer@example.com", "Fran Fixer").user
         form = BetaFeedbackForm(data={"category": "bug", "subject": "Broken", "message": "It broke."})
         assert form.is_valid(), form.errors
-        form.send(user=user)
+        form.submit(user=user)
         assert "From: Fran Fixer (fixer@example.com)" in mailoutbox[0].body
 
     def it_names_the_feedback_sender_by_email_once_without_a_name(mailoutbox: Any):
         user = _account("anon@example.com", "").user
         form = BetaFeedbackForm(data={"category": "bug", "subject": "Broken", "message": "It broke."})
         assert form.is_valid(), form.errors
-        form.send(user=user)
+        form.submit(user=user)
         assert "From: anon@example.com\n" in mailoutbox[0].body
 
 
