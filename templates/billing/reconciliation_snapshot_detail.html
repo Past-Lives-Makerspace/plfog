@@ -50,6 +50,7 @@
           <tr>
             <th>Recipient</th><th class="text-right">Transactions</th><th class="text-right">Amount</th>
             {% if kind.value == "guild" %}<th class="text-right">Voting</th><th class="text-right">Total</th>{% endif %}
+            {% if kind.value == "instructor" or kind.value == "orientator" %}<th class="text-right">Sent through Stripe</th><th class="text-right">Owed manually</th>{% endif %}
           </tr>
         </thead>
         <tbody>
@@ -62,6 +63,7 @@
             <td class="text-right">{{ alloc.voting_cents|cents_as_dollars }}</td>
             <td class="text-right">{{ alloc.combined_cents|cents_as_dollars }}</td>
             {% endif %}
+            {% if kind.value == "instructor" or kind.value == "orientator" %}<td class="text-right">{{ alloc.stripe_cents|cents_as_dollars }}</td><td class="text-right">{{ alloc.manual_cents|cents_as_dollars }}</td>{% endif %}
           </tr>
           {% endfor %}
         </tbody>

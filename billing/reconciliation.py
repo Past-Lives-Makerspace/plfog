@@ -136,6 +136,12 @@ class RecipientAllocation:
     transaction_count: int
     voting_cents: int = 0
     voting_projected: bool = False
+    stripe_cents: int = 0  # instructor and orientor rows: the part sent (or scheduled) through Stripe (#662)
+
+    @property
+    def manual_cents(self) -> int:
+        """Instructor and orientor rows: what the finance lead still pays by hand at month end."""
+        return self.total_cents - self.stripe_cents
 
     @property
     def combined_cents(self) -> int:
@@ -205,6 +211,7 @@ class ReconciliationResult:
                             "total_cents": alloc.total_cents,
                             "transaction_count": alloc.transaction_count,
                             "voting_cents": alloc.voting_cents,
+                            "stripe_cents": alloc.stripe_cents,
                         }
                         for alloc in self.groups[kind]
                     ],
@@ -349,32 +356,36 @@ def _class_lines(
         .select_related("class_offering__instructor", "class_offering__category__guild", "member")
         .prefetch_related("refunds")
     )
-    lines: list[TransactionLine] = []
-    for reg in registrations:
-        offering = reg.class_offering
-        instructor = offering.instructor
-        guild = offering.category.guild
-        guest_name = f"{reg.first_name} {reg.last_name}".strip()
-        payer_name = reg.member.display_name if reg.member is not None else (guest_name or reg.email)
-        lines.append(
-            _member_share_line(
-                source_kind="class",
-                source_pk=reg.pk,
-                when=reg.confirmed_at,
-                payer_name=payer_name,
-                item=offering.title,
-                gross_cents=reg.amount_paid_cents,
-                refunded_cents=reg.amount_refunded_cents,
-                producer_key=("instructor", instructor.id) if instructor is not None else None,
-                producer_label=instructor.display_name if instructor is not None else None,
-                producer_role="instructor",
-                guild_key=("guild", guild.id) if guild is not None else None,
-                guild_label=guild.name if guild is not None else None,
-                percents=percents,
-                adjustment=adjustments.get(("class", reg.pk)),
-            )
-        )
-    return lines
+    return [_class_line(reg, percents, adjustments) for reg in registrations]
+
+
+def _class_line(
+    reg: Any,
+    percents: dict[str, Decimal],
+    adjustments: dict[AdjustmentKey, TransactionAdjustment],
+) -> TransactionLine:
+    """One paid registration's line. ``reg`` needs its offering, instructor, guild, member and refunds loaded."""
+    offering = reg.class_offering
+    instructor = offering.instructor
+    guild = offering.category.guild
+    guest_name = f"{reg.first_name} {reg.last_name}".strip()
+    payer_name = reg.member.display_name if reg.member is not None else (guest_name or reg.email)
+    return _member_share_line(
+        source_kind="class",
+        source_pk=reg.pk,
+        when=reg.confirmed_at,
+        payer_name=payer_name,
+        item=offering.title,
+        gross_cents=reg.amount_paid_cents,
+        refunded_cents=reg.amount_refunded_cents,
+        producer_key=("instructor", instructor.id) if instructor is not None else None,
+        producer_label=instructor.display_name if instructor is not None else None,
+        producer_role="instructor",
+        guild_key=("guild", guild.id) if guild is not None else None,
+        guild_label=guild.name if guild is not None else None,
+        percents=percents,
+        adjustment=adjustments.get(("class", reg.pk)),
+    )
 
 
 def _orientation_lines(
@@ -391,28 +402,64 @@ def _orientation_lines(
         .select_related("guild", "member", "oriented_by", "orientation_type__guild", "orientation_type__equipment")
         .prefetch_related("refunds")
     )
-    lines: list[TransactionLine] = []
-    for booking in bookings:
-        orientator = booking.oriented_by
-        lines.append(
-            _member_share_line(
-                source_kind="orientation",
-                source_pk=booking.pk,
-                when=booking.requested_at,
-                payer_name=booking.member.display_name,
-                item=f"Orientation — {booking.orientation_type.owner_name}",
-                gross_cents=booking.amount_paid_cents,
-                refunded_cents=booking.amount_refunded_cents,
-                producer_key=("orientator", orientator.id) if orientator is not None else None,
-                producer_label=orientator.display_name if orientator is not None else None,
-                producer_role="orientator",
-                guild_key=("guild", booking.guild.id) if booking.guild is not None else None,
-                guild_label=booking.guild.name if booking.guild is not None else None,
-                percents=percents,
-                adjustment=adjustments.get(("orientation", booking.pk)),
-            )
-        )
-    return lines
+    return [_orientation_line(booking, percents, adjustments) for booking in bookings]
+
+
+def _orientation_line(
+    booking: Any,
+    percents: dict[str, Decimal],
+    adjustments: dict[AdjustmentKey, TransactionAdjustment],
+) -> TransactionLine:
+    """One paid orientation booking's line. ``booking`` needs its guild, member, orientor, type and refunds loaded."""
+    orientator = booking.oriented_by
+    return _member_share_line(
+        source_kind="orientation",
+        source_pk=booking.pk,
+        when=booking.requested_at,
+        payer_name=booking.member.display_name,
+        item=f"Orientation — {booking.orientation_type.owner_name}",
+        gross_cents=booking.amount_paid_cents,
+        refunded_cents=booking.amount_refunded_cents,
+        producer_key=("orientator", orientator.id) if orientator is not None else None,
+        producer_label=orientator.display_name if orientator is not None else None,
+        producer_role="orientator",
+        guild_key=("guild", booking.guild.id) if booking.guild is not None else None,
+        guild_label=booking.guild.name if booking.guild is not None else None,
+        percents=percents,
+        adjustment=adjustments.get(("orientation", booking.pk)),
+    )
+
+
+class ShareSource:
+    """Producer shares for single payments: the one share calculation the payouts code uses (#662).
+
+    Loads the split percents and the adjustments once, then answers per registration or
+    booking with the same ``_member_share_line`` the Reconciliation tab sums. An omitted
+    payment, or one whose producer is unset, earns its producer nothing.
+    """
+
+    def __init__(self) -> None:
+        from billing.models import BillingSettings, TransactionAdjustment
+
+        settings_obj = BillingSettings.load()
+        self._class_percents = _class_percents(settings_obj)
+        self._orientation_percents = _orientation_percents(settings_obj)
+        self._adjustments = TransactionAdjustment.objects.as_map()
+
+    def for_registration(self, reg: Any) -> int:
+        """The instructor's share of ``reg`` in cents, collected less refunds so far."""
+        line = _class_line(reg, self._class_percents, self._adjustments)
+        instructor = reg.class_offering.instructor
+        if line.omitted or instructor is None:
+            return 0
+        return line.shares[("instructor", instructor.id)]
+
+    def for_booking(self, booking: Any) -> int:
+        """The orientor's share of ``booking`` in cents, collected less refunds so far."""
+        line = _orientation_line(booking, self._orientation_percents, self._adjustments)
+        if line.omitted or booking.oriented_by is None:
+            return 0
+        return line.shares[("orientator", booking.oriented_by.id)]
 
 
 def _tab_lines(
@@ -573,7 +620,9 @@ def build_reconciliation(
     lines.extend(_orientation_lines(window, orientation_percents, adjustments))
     lines.sort(key=lambda line: line.date, reverse=True)
 
-    aggregate = _aggregate_lines(lines)
+    from billing.payouts import through_stripe_keys
+
+    aggregate = _aggregate_lines(lines, through_stripe_keys(lines))
 
     voting_by_guild: dict[int, int] = {}
     voting_projected = True
@@ -605,10 +654,19 @@ class _Aggregate:
     grand_total_cents: int
     unassigned_note_count: int
     omitted_count: int
+    stripe_totals: dict[RecipientKey, int]
 
 
-def _aggregate_lines(lines: list[TransactionLine]) -> _Aggregate:
-    """Sum non-omitted lines' shares per recipient; tally grand total, notes, and omissions."""
+_PRODUCER_KINDS = frozenset({"instructor", "orientator"})
+
+
+def _aggregate_lines(lines: list[TransactionLine], stripe_keys: set[tuple[str, int]]) -> _Aggregate:
+    """Sum non-omitted lines' shares per recipient; tally grand total, notes, and omissions.
+
+    ``stripe_keys`` names the lines whose producer share goes through Stripe (#662); that
+    share also adds to the producer's ``stripe_totals``. Guild and Past Lives rows ignore it.
+    """
+    stripe_totals: dict[RecipientKey, int] = {}
     totals: dict[RecipientKey, int] = {}
     counts: dict[RecipientKey, int] = {}
     labels: dict[RecipientKey, str] = {}
@@ -622,12 +680,15 @@ def _aggregate_lines(lines: list[TransactionLine]) -> _Aggregate:
         if line.unassigned:
             unassigned_note_count += 1
         grand_total += line.net_cents
+        through_stripe = (line.source_kind, line.source_pk) in stripe_keys
         for key, cents in line.shares.items():
             totals[key] = totals.get(key, 0) + cents
+            if through_stripe and key[0] in _PRODUCER_KINDS:
+                stripe_totals[key] = stripe_totals.get(key, 0) + cents
             labels[key] = line.labels[key]
             if cents > 0:
                 counts[key] = counts.get(key, 0) + 1
-    return _Aggregate(totals, counts, labels, grand_total, unassigned_note_count, omitted_count)
+    return _Aggregate(totals, counts, labels, grand_total, unassigned_note_count, omitted_count, stripe_totals)
 
 
 def _build_groups(
@@ -654,6 +715,7 @@ def _build_groups(
             label=aggregate.labels[key],
             total_cents=total,
             transaction_count=aggregate.counts.get(key, 0),
+            stripe_cents=aggregate.stripe_totals.get(key, 0),
         )
         if kind is RecipientKind.GUILD and recipient_id is not None:
             alloc.voting_cents = voting_by_guild.get(recipient_id, 0)
@@ -712,6 +774,8 @@ def result_from_snapshot(snapshot: ReconciliationSnapshot) -> ReconciliationResu
                     transaction_count=int(row["transaction_count"]),
                     voting_cents=int(row.get("voting_cents", 0)),
                     voting_projected=False,
+                    # Snapshots taken before #662 carry no split: all of it was owed by hand.
+                    stripe_cents=int(row.get("stripe_cents", 0)),
                 )
             )
     class_percents = {k: Decimal(v) for k, v in data.get("class_percents", {}).items()}
@@ -743,7 +807,16 @@ class _Echo:
         return value
 
 
-CSV_HEADERS = ["Group", "Recipient", "Transactions", "Amount", "Voting", "Total"]
+CSV_HEADERS = [
+    "Group",
+    "Recipient",
+    "Transactions",
+    "Amount",
+    "Voting",
+    "Total",
+    "Sent through Stripe",
+    "Owed manually",
+]
 
 
 def _csv_lines(result: ReconciliationResult, writer: Any) -> Iterator[str]:
@@ -751,6 +824,7 @@ def _csv_lines(result: ReconciliationResult, writer: Any) -> Iterator[str]:
     for kind, heading, rows in result.ordered_groups():
         for alloc in rows:
             voting = f"{alloc.voting_cents / 100:.2f}" if kind is RecipientKind.GUILD else ""
+            producer = kind in (RecipientKind.INSTRUCTOR, RecipientKind.ORIENTATOR)
             yield writer.writerow(
                 [
                     heading,
@@ -759,6 +833,8 @@ def _csv_lines(result: ReconciliationResult, writer: Any) -> Iterator[str]:
                     f"{alloc.total_cents / 100:.2f}",
                     voting,
                     f"{alloc.combined_cents / 100:.2f}",
+                    f"{alloc.stripe_cents / 100:.2f}" if producer else "",
+                    f"{alloc.manual_cents / 100:.2f}" if producer else "",
                 ]
             )
 

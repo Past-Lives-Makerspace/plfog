@@ -1,3 +1,4 @@
+{% load classes_tags %}
 {% comment %}Settings, Payouts (#662): the payee's Stripe Express state. Four states keyed on payouts_tab.state:
 not_set_up, needs_info, active, paused. The signup buttons POST to billing_payouts_start, which
 redirects off site to Stripe, so the forms and the Open Stripe link opt out of hx-boost: a boosted
@@ -58,4 +59,36 @@ request would follow the redirect over XHR and fail on Stripe's origin.{% endcom
     </form>
   {% endif %}
 </div>
+
+{% with earnings=payouts_tab.earnings %}
+<div class="hub-card pl-payouts" data-payouts-earnings>
+  <h2 class="hub-detail-label">Your earnings</h2>
+  {% if earnings.rows %}
+  <div class="pl-payouts-totals">
+    {% if state == "active" or state == "paused" %}
+    <div><strong>{{ earnings.upcoming_cents|cents_as_dollars }}</strong><span>Upcoming</span></div>
+    <div><strong>{{ earnings.sent_this_month_cents|cents_as_dollars }}</strong><span>Sent this month</span></div>
+    {% endif %}
+    <div><strong>{{ earnings.owed_cents|cents_as_dollars }}</strong><span>Owed at month end</span></div>
+  </div>
+  <div class="admin-table-wrap">
+    <table>
+      <thead><tr><th>Class or orientation</th><th>Taught</th><th>Status</th><th class="pl-payouts-amt">Your share</th></tr></thead>
+      <tbody>
+        {% for row in earnings.rows %}
+        <tr data-earning-state="{{ row.state }}">
+          <td>{{ row.item }}<span class="pl-payouts-sub">{{ row.detail }}</span></td>
+          <td>{{ row.taught_on|date:"D M j" }}</td>
+          <td><span class="pl-status-badge pl-status-badge--{{ row.badge }}">{{ row.label }}</span></td>
+          <td class="pl-payouts-amt">{% if row.amount_cents < 0 %}&minus;{{ row.amount_cents|cents_as_dollars|cut:"-" }}{% else %}{{ row.amount_cents|cents_as_dollars }}{% endif %}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% else %}
+  <p class="pl-table-empty">No earnings yet. When someone pays for a class or orientation you teach, it shows here with the day it will be sent.</p>
+  {% endif %}
+</div>
+{% endwith %}
 {% endwith %}

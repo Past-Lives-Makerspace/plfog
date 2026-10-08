@@ -63,6 +63,8 @@ _BRAND_NEW_KEYS = {
     "equipment.reservation_cancelled",
     "billing.late_fee_paid",
     "billing.late_fee_waived",
+    "billing.payout_failed_admin",
+    "billing.payouts_invite",
     "class_cancelled_admin_notice",
     "class_change_requested",
     "instructor_application_received",

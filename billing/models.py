@@ -144,6 +144,14 @@ class BillingSettings(models.Model):
             "Payouts tab or its nudges and no share is sent. Charges never read this switch."
         ),
     )
+    payouts_on_since = models.DateTimeField(
+        null=True,
+        blank=True,
+        help_text=(
+            "When payouts were first turned on. A share that fell due before it is never sent and stays owed "
+            "at month end. Turning the switch off pauses sending; nothing is sent while it is off."
+        ),
+    )
     connect_client_id = models.CharField(
         max_length=255,
         blank=True,
@@ -330,8 +338,12 @@ class BillingSettings(models.Model):
             )
 
     def save(self, *args: Any, **kwargs: Any) -> None:
-        """Force singleton by always using pk=1."""
+        """Force singleton by always using pk=1, and stamp ``payouts_on_since`` the first time payouts turn on."""
         self.pk = 1
+        if self.connect_enabled and self.payouts_on_since is None:
+            self.payouts_on_since = timezone.now()
+            if kwargs.get("update_fields") is not None:
+                kwargs["update_fields"] = [*kwargs["update_fields"], "payouts_on_since"]
         super().save(*args, **kwargs)
 
     @classmethod
@@ -1535,25 +1547,31 @@ class ReconciliationSnapshot(models.Model):
     ) -> ReconciliationSnapshot:
         """Freeze the reconciliation for ``[period_start, period_end]``.
 
-        A plain create plus one ``SiteActivity`` audit row — no event, no email,
-        no Airtable, unlike ``FundingSnapshot.take()``.
+        A create plus one ``SiteActivity`` audit row — no event, no email, no Airtable,
+        unlike ``FundingSnapshot.take()``. It also binds the payout split (#662): in the
+        same transaction, every instructor and orientor share in the window gets its
+        ``Payout`` row (``billing.payouts.freeze_split``), classified by the same rule the
+        results just used, so what the snapshot calls "Sent through Stripe" is what gets sent.
         """
         from core.models import SiteActivity
 
         from billing.payments_panel import PanelWindow
+        from billing.payouts import freeze_split
         from billing.reconciliation import build_reconciliation
 
         window = PanelWindow(start=period_start, end=period_end)
-        result = build_reconciliation(window=window)
-        snapshot = cls.objects.create(
-            title=title.strip(),
-            period_start=period_start,
-            period_end=period_end,
-            results=result.to_snapshot_dict(),
-            grand_total_cents=result.grand_total_cents,
-            is_auto=is_auto,
-            taken_by=actor if (actor is not None and getattr(actor, "pk", None)) else None,
-        )
+        with transaction.atomic():
+            result = build_reconciliation(window=window)
+            snapshot = cls.objects.create(
+                title=title.strip(),
+                period_start=period_start,
+                period_end=period_end,
+                results=result.to_snapshot_dict(),
+                grand_total_cents=result.grand_total_cents,
+                is_auto=is_auto,
+                taken_by=actor if (actor is not None and getattr(actor, "pk", None)) else None,
+            )
+            freeze_split(snapshot, window)
         SiteActivity.log(SiteActivity.Kind.RECONCILIATION_SNAPSHOT_TAKEN, actor=actor, target=snapshot)
         return snapshot
 
@@ -1868,6 +1886,14 @@ class PayoutAccount(models.Model):
         default=Status.NEEDS_INFO,
         help_text="Where the account stands with Stripe, from the account.updated webhook or the return from signup.",
     )
+    active_since = models.DateTimeField(
+        null=True,
+        blank=True,
+        help_text=(
+            "When Stripe first turned payouts on for this account. Only a share paid for after this goes "
+            "through Stripe; one paid for earlier stays owed at month end."
+        ),
+    )
     created_at = models.DateTimeField(auto_now_add=True, help_text="When the Stripe account was created.")
     updated_at = models.DateTimeField(auto_now=True, help_text="Last time the status was written.")
 
@@ -1935,11 +1961,19 @@ class PayoutAccount(models.Model):
         return PayoutAccount.Status.NEEDS_INFO
 
     def apply_stripe_account(self, account: dict[str, Any]) -> None:
-        """Write the status a Stripe Account object implies, saving only when it changed."""
+        """Write the status a Stripe Account object implies, saving only when it changed.
+
+        The first move to Payouts on stamps ``active_since``; a later pause keeps it.
+        """
         status = self.status_from_stripe(account)
-        if status != self.status:
-            self.status = status
-            self.save(update_fields=["status", "updated_at"])
+        if status == self.status:
+            return
+        self.status = status
+        fields = ["status", "updated_at"]
+        if status == self.Status.ACTIVE and self.active_since is None:
+            self.active_since = timezone.now()
+            fields.append("active_since")
+        self.save(update_fields=fields)
 
     def refresh_from_stripe(self) -> None:
         """Read the account back from Stripe and apply it: the return from signup does this."""
@@ -1958,3 +1992,343 @@ class PayoutAccount(models.Model):
         from billing import stripe_utils
 
         return stripe_utils.create_login_link(account_id=self.stripe_account_id)
+
+
+# ---------------------------------------------------------------------------
+# Payout (#662): one instructor or orientor share, sent through Stripe or owed by hand
+# ---------------------------------------------------------------------------
+
+PAYOUT_RETRY_AFTER = timedelta(hours=24)
+"""A transfer Stripe rejected is tried again on the first send run this long after the last try."""
+
+PAYOUT_SEND_WINDOW = timedelta(days=3)
+"""A share still unsent this long after it fell due (payouts off, Stripe unreachable) is owed by hand instead."""
+
+PAYOUT_LOOKUP_UNREACHABLE = "Stripe could not be reached to check whether this share was already sent."
+"""The failure reason (and the one alert) for a stale share whose transfer lookup keeps failing to connect."""
+
+
+def _stripe_unanswered() -> tuple[type[Exception], ...]:
+    """Stripe errors that are no answer at all (connection, timeout, 5xx, rate limit), as opposed to a refusal."""
+    import stripe
+
+    return (stripe.APIConnectionError, stripe.APIError, stripe.RateLimitError)
+
+
+class PayoutQuerySet(models.QuerySet["Payout"]):
+    """Query helpers for the payout ledger."""
+
+    def to_send(self, now: datetime) -> PayoutQuerySet:
+        """Due rows waiting for a transfer (or a replay of a timed-out one), and failed ones whose retry is due.
+
+        A PENDING row made by a snapshot before its share fell due waits here until ``due_at``.
+        """
+        return self.filter(
+            Q(status=Payout.Status.PENDING, due_at__lte=now)
+            | Q(status=Payout.Status.FAILED, attempted_at__lte=now - PAYOUT_RETRY_AFTER)
+        )
+
+    def stale(self, now: datetime) -> PayoutQuerySet:
+        """PENDING rows more than ``PAYOUT_SEND_WINDOW`` past due, for any reason: they are given up."""
+        return self.filter(status=Payout.Status.PENDING, due_at__lt=now - PAYOUT_SEND_WINDOW)
+
+    def in_current_mode(self) -> PayoutQuerySet:
+        """Rows never attempted, or attempted in the Stripe mode Testing Mode selects now.
+
+        A live transfer is invisible to the test key and the reverse, so a row attempted in
+        the other mode is neither looked up, sent nor given up until that mode is back.
+        """
+        return self.filter(Q(livemode__isnull=True) | Q(livemode=not BillingSettings.load().test_mode))
+
+    def needs_attention(self) -> PayoutQuerySet:
+        """What the Reconciliation tab flags: transfers Stripe rejected, still retrying or given up."""
+        return self.filter(
+            Q(status=Payout.Status.FAILED)
+            | Q(status=Payout.Status.OWED_MANUALLY, owed_reason=Payout.OwedReason.TRANSFER_FAILED)
+            | Q(status=Payout.Status.PENDING, failure_reason=PAYOUT_LOOKUP_UNREACHABLE)
+        )
+
+
+class Payout(models.Model):
+    """One instructor or orientor share of one paid registration or orientation booking (#662).
+
+    Made by ``billing.payouts.run_payouts`` when the share falls due (48 hours after the first
+    session or slot starts, or after payment if that came later). A share that goes through
+    Stripe is PENDING until its transfer, then SENT; one that does not is OWED_MANUALLY with
+    the reason. The amount is the reconciliation split (``billing.reconciliation.ShareSource``)
+    at the moment it fell due. One row per earning, so a rerun can never send twice; the
+    Stripe idempotency key is per row and attempt.
+    """
+
+    class Status(models.TextChoices):
+        PENDING = "pending", "Sending"
+        SENT = "sent", "Sent"
+        FAILED = "failed", "Transfer failed"
+        OWED_MANUALLY = "owed_manually", "Owed at month end"
+        TAKEN_BACK = "taken_back", "Taken back"
+        NOTHING_DUE = "nothing_due", "Nothing left to send"
+
+    class OwedReason(models.TextChoices):
+        NOT_APPLICABLE = "", "Not owed by hand"
+        NOT_CONNECTED = "not_connected", "Payouts were not on when this was paid for"
+        NOT_THROUGH_STRIPE = "not_through_stripe", "Not paid through Stripe"
+        TRANSFER_FAILED = "transfer_failed", "Stripe kept rejecting the transfer"
+
+    registration = models.OneToOneField(
+        "classes.Registration",
+        null=True,
+        blank=True,
+        on_delete=models.PROTECT,
+        related_name="payout",
+        help_text="The class registration this share comes from (exactly one of this and the booking).",
+    )
+    orientation_booking = models.OneToOneField(
+        "membership.OrientationBooking",
+        null=True,
+        blank=True,
+        on_delete=models.PROTECT,
+        related_name="payout",
+        help_text="The orientation booking this share comes from (exactly one of this and the registration).",
+    )
+    payee = models.ForeignKey(
+        "membership.Member",
+        on_delete=models.PROTECT,
+        related_name="payouts",
+        help_text="The instructor or orientor who earned the share.",
+    )
+    amount_cents = models.PositiveIntegerField(
+        help_text="The share in cents: the reconciliation split when it fell due."
+    )
+    due_at = models.DateTimeField(
+        help_text="When the share fell due: 48 hours after the class or slot started, or after payment if later."
+    )
+    status = models.CharField(
+        max_length=20, choices=Status.choices, default=Status.PENDING, help_text="Where the share stands."
+    )
+    owed_reason = models.CharField(
+        max_length=20,
+        choices=OwedReason.choices,
+        blank=True,
+        default=OwedReason.NOT_APPLICABLE,
+        help_text="Why an owed share is paid by hand at month end instead of through Stripe.",
+    )
+    stripe_transfer_id = models.CharField(
+        max_length=64, blank=True, default="", help_text="The Stripe transfer (tr_...) once sent."
+    )
+    failure_reason = models.TextField(
+        blank=True, default="", help_text="Stripe's reason for the last rejected transfer."
+    )
+    attempt = models.PositiveSmallIntegerField(
+        default=1, help_text="Transfer attempt number; part of the idempotency key."
+    )
+    attempted_at = models.DateTimeField(null=True, blank=True, help_text="When the last transfer was tried.")
+    sent_at = models.DateTimeField(null=True, blank=True, help_text="When Stripe accepted the transfer.")
+    livemode = models.BooleanField(
+        null=True,
+        blank=True,
+        help_text=(
+            "The Stripe mode of the last transfer attempt (True live, False test, empty never attempted). "
+            "Only the mode Testing Mode selects can look up, send or give up the row."
+        ),
+    )
+    counted_as_stripe_in = models.ForeignKey(
+        "billing.ReconciliationSnapshot",
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="payouts_counted_as_stripe",
+        help_text=(
+            "The month-end snapshot that counted this share as Sent through Stripe, so the finance lead did not "
+            "pay it. If Stripe then rejects it, it is owed by hand at once and flagged with this snapshot."
+        ),
+    )
+    created_at = models.DateTimeField(
+        auto_now_add=True, help_text="When this row was made: the share fell due, or a snapshot froze it."
+    )
+
+    objects = PayoutQuerySet.as_manager()
+
+    class Meta:
+        ordering = ["-due_at"]
+        constraints = [
+            models.CheckConstraint(
+                condition=(
+                    Q(registration__isnull=False, orientation_booking__isnull=True)
+                    | Q(registration__isnull=True, orientation_booking__isnull=False)
+                ),
+                name="payout_exactly_one_source",
+            ),
+        ]
+
+    def __str__(self) -> str:
+        return f"{self.payee} ${self.amount_cents / 100:.2f} ({self.get_status_display()})"
+
+    @property
+    def source(self) -> Any:
+        """The registration or orientation booking that paid for this share."""
+        return self.registration if self.registration_id is not None else self.orientation_booking
+
+    @property
+    def paid_on(self) -> Any:
+        """The date reconciliation files the payment under (its line date)."""
+        if self.registration_id is not None:
+            return cast("Any", self.registration).confirmed_at
+        return cast("Any", self.orientation_booking).requested_at
+
+    def send(self) -> None:
+        """Transfer the share to the payee's Stripe account, linked to the original charge.
+
+        Records SENT with the transfer id, or, on a definite rejection, FAILED with Stripe's
+        reason (and alerts the billing admins once per share). A connection error, timeout,
+        rate limit or 5xx gives no definite answer, so the row stays PENDING on the same
+        attempt: the idempotency key ``payout-<pk>-a<attempt>`` then makes the next run's
+        replay return the transfer that may already have landed instead of sending again.
+        """
+        import stripe
+
+        from billing import stripe_utils
+
+        replay = self.attempt_was_unanswered  # read before this attempt stamps attempted_at
+        self.attempted_at = timezone.now()
+        self.livemode = not BillingSettings.load().test_mode
+        self.save(update_fields=["livemode"])
+        account = PayoutAccount.for_member(self.payee)
+        if account is None:
+            self._fail("The payee has no payout account in the current Stripe mode.")
+            return
+        if replay:
+            # Stripe forgets an idempotency key after 24 hours; a replay later than that would send
+            # again, so first find the transfer the unanswered attempt may have made. If Stripe
+            # cannot be asked, decide nothing: the row stays PENDING on the same attempt.
+            try:
+                existing = self.existing_transfer_id()
+            except _stripe_unanswered():
+                self.save(update_fields=["attempted_at"])
+                return
+            except stripe.StripeError as exc:
+                # A refusal (a rotated key, a revoked permission) will not fix itself: owe it by hand.
+                self.give_up(f"Stripe refused the check for an earlier transfer: {exc}", lookup=False)
+                return
+            if existing:
+                self.mark_sent(existing)
+                return
+        try:
+            charge_id = stripe_utils.charge_for_payment_intent(payment_intent_id=self.source.stripe_payment_id)
+            self.stripe_transfer_id = stripe_utils.create_transfer(
+                amount_cents=self.amount_cents,
+                destination=account.stripe_account_id,
+                source_transaction=charge_id,
+                idempotency_key=f"payout-{self.pk}-a{self.attempt}",
+                metadata={"payout_pk": str(self.pk)},
+            )
+        except _stripe_unanswered() as exc:
+            # No definite answer: the transfer may have landed. Stay PENDING on the same attempt so
+            # the next run replays the same idempotency key and Stripe returns that transfer.
+            self.status = self.Status.PENDING
+            self.failure_reason = getattr(exc, "user_message", None) or str(exc)
+            self.save(update_fields=["status", "failure_reason", "attempted_at"])
+            return
+        except stripe.StripeError as exc:
+            self._fail(getattr(exc, "user_message", None) or str(exc))
+            return
+        self.mark_sent(self.stripe_transfer_id)
+
+    @property
+    def attempt_was_unanswered(self) -> bool:
+        """True when this attempt was already made and Stripe gave no definite answer (still PENDING)."""
+        return self.status == self.Status.PENDING and self.attempted_at is not None
+
+    def existing_transfer_id(self) -> str | None:
+        """The transfer an earlier attempt made for this share, found by its ``payout_pk`` metadata.
+
+        Raises:
+            stripe.StripeError: Stripe could not be asked; the caller decides nothing this run.
+        """
+        from billing import stripe_utils
+
+        return stripe_utils.find_payout_transfer(payout_pk=self.pk, created_after=self.created_at)
+
+    def mark_sent(self, transfer_id: str) -> None:
+        """Record the share as sent with Stripe's transfer id."""
+        self.status = self.Status.SENT
+        self.stripe_transfer_id = transfer_id
+        self.sent_at = timezone.now()
+        self.failure_reason = ""
+        self.save(update_fields=["status", "stripe_transfer_id", "sent_at", "failure_reason", "attempted_at"])
+
+    def _fail(self, reason: str) -> None:
+        """Record a definite rejection and alert the billing admins (once per share).
+
+        A share a snapshot already counted as Sent through Stripe is owed by hand at once
+        instead of retrying: the finance lead did not pay it, and a later retry landing after
+        they do would pay it twice. The alert and the Reconciliation row name the snapshot.
+        """
+        from billing.notifications import notify_admins_payout_failed
+
+        if self.counted_as_stripe_in_id is not None:
+            # No lookup needed: this attempt was refused outright, and every earlier one was either
+            # refused too or replayed after a lookup, so no transfer for this share exists.
+            self.give_up(reason, lookup=False)
+            return
+        self.failure_reason = reason
+        self.status = self.Status.FAILED
+        self.save(update_fields=["status", "failure_reason", "attempted_at"])
+        notify_admins_payout_failed(self)
+
+    def alert_unsendable(self) -> None:
+        """A stale share whose lookup cannot reach Stripe: flag it and alert the admins, once.
+
+        It stays PENDING (a transfer may have landed, so it cannot be owed by hand yet) and
+        shows on the Reconciliation tab until a lookup gets an answer.
+        """
+        from billing.notifications import notify_admins_payout_failed
+
+        if self.failure_reason == PAYOUT_LOOKUP_UNREACHABLE:
+            return
+        self.failure_reason = PAYOUT_LOOKUP_UNREACHABLE
+        self.save(update_fields=["failure_reason"])
+        notify_admins_payout_failed(self)
+
+    def retry(self) -> None:
+        """Try a rejected transfer again under a fresh attempt number (a new idempotency key)."""
+        self.attempt += 1
+        self.save(update_fields=["attempt"])
+        self.send()
+
+    def give_up(self, reason: str = "", *, lookup: bool = True) -> bool:
+        """Stop trying: the finance lead pays the share by hand, and it is never sent again.
+
+        First asks Stripe whether an earlier attempt landed after all (``lookup``); if it did,
+        the row is SENT instead and this returns False. Otherwise the row is OWED_MANUALLY,
+        keeps ``reason`` as what went wrong, and the billing admins are alerted once (the alert
+        and the Reconciliation row name the snapshot that counted it as Stripe, if one did).
+
+        A lookup Stripe refuses outright (a rotated key) counts as no transfer found, and its
+        error joins the reason; only an unanswered lookup stops the give up.
+
+        Raises:
+            stripe.APIConnectionError, stripe.APIError, stripe.RateLimitError: the lookup got no
+                answer; nothing changed.
+        """
+        import stripe
+
+        from billing.notifications import notify_admins_payout_failed
+
+        if lookup and self.attempted_at is not None:
+            try:
+                existing = self.existing_transfer_id()
+            except _stripe_unanswered():
+                raise
+            except stripe.StripeError as exc:
+                existing = None
+                reason = f"{reason} Stripe refused the check for an earlier transfer: {exc}".strip()
+            if existing:
+                self.mark_sent(existing)
+                return False
+        self.status = self.Status.OWED_MANUALLY
+        self.owed_reason = self.OwedReason.TRANSFER_FAILED
+        if reason:
+            self.failure_reason = reason
+        self.save(update_fields=["status", "owed_reason", "failure_reason", "attempted_at"])
+        notify_admins_payout_failed(self)
+        return True

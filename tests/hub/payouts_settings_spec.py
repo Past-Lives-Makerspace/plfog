@@ -135,3 +135,29 @@ def describe_orientations_nudge():
         _login(client)
         _payouts(on=True)
         assert "data-payouts-nudge" not in client.get(reverse("hub_orientations")).content.decode()
+
+
+def describe_earnings_card():
+    def it_says_so_when_there_are_no_earnings(client):
+        _login(client, teacher=True)
+        _payouts(on=True)
+        html = client.get(reverse("hub_user_settings")).content.decode()
+        assert "data-payouts-earnings" in html
+        assert 'class="pl-table-empty"' in html
+        assert "data-earning-state" not in html
+
+    def it_lists_an_earning_owed_at_month_end_for_an_unconnected_teacher(client):
+        from datetime import timedelta
+
+        from classes.factories import ClassOfferingFactory, ClassSessionFactory, RegistrationFactory
+
+        member = _login(client, teacher=True)
+        _payouts(on=True)
+        offering = ClassOfferingFactory(instructor=member, title="Glaze Chemistry")
+        ClassSessionFactory(class_offering=offering, starts_at=timezone.now() - timedelta(days=2))
+        RegistrationFactory(
+            class_offering=offering, amount_paid_cents=9000, stripe_payment_id="pi_1", confirmed_at=timezone.now()
+        )
+        html = client.get(reverse("hub_user_settings")).content.decode()
+        assert 'data-earning-state="owed"' in html
+        assert "pl-status-badge--muted" in html

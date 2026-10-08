@@ -16,7 +16,7 @@ from django.urls import reverse
 from django.utils import timezone
 
 if TYPE_CHECKING:
-    from billing.models import TabCharge
+    from billing.models import Payout, TabCharge
 
 logger = logging.getLogger(__name__)
 
@@ -120,4 +120,74 @@ def notify_admin_charge_failed(charge: TabCharge) -> None:
         url="/tab/",
         email_trigger_kind="tab_charge_failed",
         period=f"charge:{charge.pk}:admin",
+    )
+
+
+def _payout_item(payout: Payout) -> str:
+    """What the share was for: the class title or the orientation's owner name."""
+    if payout.registration is not None:
+        return payout.registration.class_offering.title
+    return f"{payout.source.orientation_type.owner_name} orientation"
+
+
+def _counted_note(payout: Payout) -> str:
+    """For a share a snapshot counted as Sent through Stripe: it was not paid and needs paying by hand now."""
+    snapshot = payout.counted_as_stripe_in
+    if snapshot is None:
+        return "plfog retries it daily. If it still fails when its month is snapshotted, it is owed by hand."
+    return (
+        f"The {snapshot.period_start:%B %Y} snapshot counted it as Sent through Stripe, so it was not paid at month end. "
+        "It will not be retried: pay it by hand."
+    )
+
+
+def notify_admins_payout_failed(payout: Payout) -> None:
+    """Tell the Billing Administrators, once per share, that Stripe rejected a payout transfer (#662).
+
+    The ``period`` is per share and not per attempt, so the daily retries stay quiet.
+    """
+    from core.events.emit import emit
+
+    emit(
+        "billing.payout_failed_admin",
+        actor=None,
+        target=payout,
+        context={
+            "payee_name": payout.payee.display_name,
+            "item_title": _payout_item(payout),
+            "amount": f"${payout.amount_cents / 100:.2f}",
+            "failure_reason": payout.failure_reason,
+            "counted_note": _counted_note(payout),
+            "admin_url": _member_url(f"{reverse('billing_admin_dashboard')}?tab=reconciliation"),
+        },
+        url=f"{reverse('billing_admin_dashboard')}?tab=reconciliation",
+        period=f"payout:{payout.pk}:failed",
+    )
+
+
+def send_payouts_invite(payout: Payout) -> None:
+    """Invite a payee who has not set up payouts to do it, once ever: the first share they earn (#662).
+
+    ``period`` is per member, so a second owed share sends nothing. A payee with no login
+    account has nowhere to receive it and is skipped.
+    """
+    from core.events.emit import emit
+
+    member = payout.payee
+    if member.user is None:
+        return
+    settings_url = f"{reverse('hub_user_settings')}?tab=payouts"
+    emit(
+        "billing.payouts_invite",
+        actor=None,
+        target=member,
+        context={
+            "user": member.user,
+            "member_name": member.display_name,
+            "item_title": _payout_item(payout),
+            "amount": f"${payout.amount_cents / 100:.2f}",
+            "setup_url": _member_url(settings_url),
+        },
+        url=settings_url,
+        period=f"payouts:invite:{member.pk}",
     )

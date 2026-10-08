@@ -15,6 +15,7 @@ Stripe tab billing system. Members accumulate charges on a tab; a management com
 | `TabCharge` | tab FK, status, amount, stripe_payment_intent_id | Batched charge — one per tab per billing cycle |
 | `LateCancellationFee` | member FK, orientation_booking / reservation OneToOne (exactly one), amount_cents, status (unpaid / paid / waived / refunded), stripe_session_id, stripe_payment_id | A late self cancel's fee (#456). Never the tab: paid through a Stripe Checkout tagged `kind=late_cancel_fee`; `billing/late_fees.py` owns charge, checkout, mark paid, the block until paid and `waive` (guild staff, equipment managers or an admin forgive an unpaid fee). A paid fee is a `RefundableSource`: `PaymentRefund.late_fee` points at it and the Payments dashboard refunds it through `billing/refunds.py` |
 | `PayoutAccount` | member FK, stripe_account_id, livemode, status (needs info / on / paused) | A payee's Stripe Express account (#662). ID and status only: no bank, SSN or tax field exists anywhere. One row per member per Stripe mode, since a test `acct_` is not a live one. `billing/payouts.py` owns the switch (`BillingSettings.connect_enabled`, read by no charge path), the payee rule and the Settings, Payouts state; status arrives from `account.updated` on the second, Connected accounts webhook endpoint (same URL, its own secret) and on the return from signup |
+| `Payout` | registration / orientation_booking OneToOne (exactly one), payee, amount_cents, due_at, status (pending / sent / failed / owed at month end / taken back), owed_reason, stripe_transfer_id, attempt | One instructor or orientor share (#662). `billing/payouts.py` `run_payouts` (the `send_payouts` job, every 15 min) records each share 48h after the first session or slot starts (or after payment if later), using `reconciliation.ShareSource` for the amount, and sends it with `source_transaction` and key `payout-<pk>-a<attempt>`. `goes_through_stripe` is the one rule (paid through Stripe, payee active before the payment, payouts on before it fell due) that the job, the Payouts tab and the Reconciliation "Sent through Stripe / Owed manually" split all read. A rejected transfer retries daily, alerts admins once, and is owed by hand once its month is snapshotted |
 
 ## Revenue split
 
@@ -84,6 +85,8 @@ Set on local, Hetzner, and Render. **Losing this key bricks the stored Stripe cr
 - `payouts/dashboard/` → single use login link to the payee's Express dashboard
 
 ## Management Command
+
+`billing/management/commands/send_payouts.py` — records and sends due instructor and orientor shares; idle while payouts are off.
 
 `billing/management/commands/bill_tabs.py` — creates one `TabCharge` per tab with pending entries and executes the Stripe charge. Run on schedule per `BillingSettings.charge_frequency`.
 

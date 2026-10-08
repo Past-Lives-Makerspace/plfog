@@ -20,6 +20,7 @@ from core.scheduled_jobs import (
 # independent copy so the parity test catches a job added to the registry but not wired,
 # or a dispatcher job dropped from the registry.
 _DISPATCHER_ALWAYS = {
+    "send_payouts",
     "send_voting_reminders",
     "take_cycle_snapshot",
     "send_lease_expiry_reminders",
@@ -85,21 +86,23 @@ def describe_registry():
         # money_job also renders a "charges cards" badge, which would be false here.
         assert JOBS_BY_KEY["welcome_new_members"].money_job is False
 
-    def it_marks_only_bill_tabs_as_a_money_job():
+    def it_marks_only_the_two_jobs_that_move_money_as_money_jobs():
         money = {job.key for job in SCHEDULED_JOBS if job.money_job}
-        assert money == {"bill_tabs"}
+        assert money == {"bill_tabs", "send_payouts"}
 
     def it_makes_the_money_job_non_toggleable():
         # Decision 2: bill_tabs is Run-now only (a hidden billing kill-switch would decouple
         # from BillingSettings), so it renders an "Always on" chip, not a toggle.
         assert JOBS_BY_KEY["bill_tabs"].toggleable is False
+        # send_payouts (#662) follows the same rule: BillingSettings.connect_enabled is its switch.
+        assert JOBS_BY_KEY["send_payouts"].toggleable is False
 
     def it_pins_only_the_jobs_that_must_never_be_paused():
         # send_queued_announcements: the dispatcher skips a disabled job BEFORE it records a
         # run, so pausing this one would leave an admin's queued announcement unsent, with no
         # run record and nothing in the composer or the voting UI to show it had stalled.
         pinned = {job.key for job in SCHEDULED_JOBS if not job.toggleable}
-        assert pinned == {"bill_tabs", "send_queued_announcements"}
+        assert pinned == {"bill_tabs", "send_payouts", "send_queued_announcements"}
 
     def it_no_longer_registers_or_ships_the_retired_results_email_queue():
         # Retired with the results announcement (October 2026): nothing may re-add the job

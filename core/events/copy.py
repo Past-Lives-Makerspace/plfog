@@ -2257,6 +2257,87 @@ _CURATED: dict[str, EventCopy] = {
             ),
         },
     ),
+    # billing.payout_failed_admin — Stripe rejected an instructor or orientor payout transfer
+    # (#662). Once per share; the send job retries daily and the Reconciliation tab flags it.
+    "billing.payout_failed_admin": EventCopy(
+        placeholders=("payee_name", "item_title", "amount", "failure_reason", "counted_note", "admin_url"),
+        sample_context={
+            "counted_note": "plfog retries it daily. If it still fails when its month is snapshotted, it is owed by hand.",
+            "payee_name": "Renee Marsh",
+            "item_title": "Intro to Wheel Throwing",
+            "amount": "$42.00",
+            "failure_reason": "The account needs verification.",
+            "admin_url": "https://pastlives.example/billing/admin/dashboard/?tab=reconciliation",
+        },
+        channels={
+            Channel.IN_APP: ChannelCopy(
+                subject="A payout transfer failed",
+                body_text="Stripe rejected the {{ amount }} share to {{ payee_name }} for {{ item_title }}. {{ counted_note }}",
+            ),
+            Channel.EMAIL: ChannelCopy(
+                subject="A payout transfer failed",
+                body_text=(
+                    "Stripe rejected a payout transfer.\n\n"
+                    "Payee: {{ payee_name }}\n"
+                    "For: {{ item_title }}\n"
+                    "Share: {{ amount }}\n"
+                    "Stripe's reason: {{ failure_reason }}\n\n"
+                    "{{ counted_note }}\n\n"
+                    "Reconciliation: {{ admin_url }}\n\nPast Lives Makerspace"
+                ),
+                body_html=(
+                    "<p>Stripe rejected a payout transfer.</p>"
+                    "<p>Payee: {{ payee_name }}<br>For: {{ item_title }}<br>Share: {{ amount }}<br>"
+                    "Stripe's reason: {{ failure_reason }}</p>"
+                    "<p>{{ counted_note }}</p>"
+                    '<p><a href="{{ admin_url }}">Open Reconciliation</a></p>'
+                    "<p>Past Lives Makerspace</p>"
+                ),
+            ),
+        },
+    ),
+    # billing.payouts_invite — the first share a payee earns while not set up for payouts
+    # (#662). Once per member; the call to action is Settings, Payouts.
+    "billing.payouts_invite": EventCopy(
+        placeholders=("member_name", "item_title", "amount", "setup_url"),
+        sample_context={
+            "member_name": "Dana Okafor",
+            "item_title": "Intro to Wheel Throwing",
+            "amount": "$42.00",
+            "setup_url": "https://pastlives.example/settings/?tab=payouts",
+        },
+        channels={
+            Channel.IN_APP: ChannelCopy(
+                subject="Get paid a few days after you teach",
+                body_text=(
+                    "You earned {{ amount }} for {{ item_title }}. Set up payouts and future shares reach "
+                    "your bank 48 hours after you teach."
+                ),
+            ),
+            Channel.EMAIL: ChannelCopy(
+                subject="Get paid a few days after you teach",
+                body_text=(
+                    "Hi {{ member_name }},\n\n"
+                    "You earned {{ amount }} for {{ item_title }}. It is paid at the end of the month, as usual.\n\n"
+                    "Set up payouts once, in about five minutes on Stripe's page, and from then on your share "
+                    "of each paid class or orientation reaches your bank 48 hours after it starts.\n\n"
+                    "Set up payouts: {{ setup_url }}\n\nPast Lives Makerspace"
+                ),
+                body_html=(
+                    "<p>Hi {{ member_name }},</p>"
+                    "<p>You earned <strong>{{ amount }}</strong> for {{ item_title }}. "
+                    "It is paid at the end of the month, as usual.</p>"
+                    "<p>Set up payouts once, in about five minutes on Stripe's page, and from then on your share "
+                    "of each paid class or orientation reaches your bank 48 hours after it starts.</p>"
+                    '<p style="text-align:center;margin:24px 0 8px;"><a href="{{ setup_url }}" '
+                    'style="display:inline-block;padding:12px 28px;background-color:#EEB44B;color:#092E4C;'
+                    'font-size:14px;font-weight:700;text-decoration:none;border-radius:6px;">'
+                    "Set Up Payouts</a></p>"
+                    "<p>Past Lives Makerspace</p>"
+                ),
+            ),
+        },
+    ),
 }
 
 

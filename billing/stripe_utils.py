@@ -13,7 +13,7 @@ page (Payments → Reports) and paid out manually.
 
 from __future__ import annotations
 
-from datetime import timedelta
+from datetime import datetime, timedelta
 from typing import TYPE_CHECKING, Any
 
 import stripe
@@ -446,3 +446,52 @@ def retrieve_account(*, account_id: str) -> dict[str, Any]:
     """The Account object as a plain dict, the same shape ``account.updated`` delivers."""
     client = _get_stripe_client()
     return client.v1.accounts.retrieve(account_id).to_dict()
+
+
+def charge_for_payment_intent(*, payment_intent_id: str) -> str:
+    """The charge (ch_...) behind a PaymentIntent: its ``latest_charge``, the transfer's ``source_transaction``."""
+    client = _get_stripe_client()
+    payment_intent = client.v1.payment_intents.retrieve(payment_intent_id)
+    latest_charge = payment_intent.latest_charge
+    if latest_charge is None:
+        # No charge behind it (never captured): the transfer fails and is flagged like any Stripe rejection.
+        raise stripe.InvalidRequestError(f"{payment_intent_id} has no charge to send a share from.", param=None)
+    return latest_charge if isinstance(latest_charge, str) else latest_charge.id
+
+
+def create_transfer(
+    *, amount_cents: int, destination: str, source_transaction: str, idempotency_key: str, metadata: dict[str, str]
+) -> str:
+    """Transfer ``amount_cents`` to a connected account, tied to the charge that paid for it.
+
+    ``source_transaction`` lets the transfer succeed while the charge is still settling; once
+    the charge has settled it draws on the available balance (#662 plan, Risk). Returns the
+    ``tr_...`` id. Stripe errors propagate to ``Payout.send``.
+    """
+    client = _get_stripe_client()
+    transfer = client.v1.transfers.create(
+        params={
+            "amount": amount_cents,
+            "currency": "usd",
+            "destination": destination,
+            "source_transaction": source_transaction,
+            "metadata": metadata,
+        },
+        options={"idempotency_key": idempotency_key},
+    )
+    return transfer.id
+
+
+def find_payout_transfer(*, payout_pk: int, created_after: datetime) -> str | None:
+    """The transfer plfog made for payout ``payout_pk`` (its ``payout_pk`` metadata), if any.
+
+    Lists the platform's transfers created since the payout row; volume is a few a day.
+    Stripe errors propagate.
+    """
+    client = _get_stripe_client()
+    page = client.v1.transfers.list(params={"created": {"gte": int(created_after.timestamp())}, "limit": 100})
+    for transfer in page.auto_paging_iter():
+        metadata = transfer.metadata
+        if metadata is not None and "payout_pk" in metadata and metadata["payout_pk"] == str(payout_pk):
+            return transfer.id
+    return None
