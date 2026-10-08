@@ -37,6 +37,7 @@ beyond the interpreter, so a YAML fragment would parse locally and fail in CI.
 
 from __future__ import annotations
 
+import datetime as dt
 import json
 import pathlib
 import re
@@ -198,6 +199,15 @@ def _requests(data: dict[str, Any], path: pathlib.Path) -> tuple[int, ...]:
     return tuple(requests)
 
 
+def _is_calendar_date(value: str) -> bool:
+    """Whether ``value`` names a day that exists, so ``2026-02-30`` fails here, not on a page."""
+    try:
+        dt.date.fromisoformat(value)
+    except ValueError:
+        return False
+    return True
+
+
 def _member_fields(data: dict[str, Any], path: pathlib.Path) -> tuple[str, str, tuple[str, ...], str]:
     """The prose an ``audience = "members"`` fragment must carry, validated.
 
@@ -205,7 +215,7 @@ def _member_fields(data: dict[str, Any], path: pathlib.Path) -> tuple[str, str, 
     because these are the checks that only apply once a fragment claims it will be published.
     """
     date = _require_str(data, "date", path)
-    if not _DATE_RE.match(date):
+    if not _DATE_RE.match(date) or not _is_calendar_date(date):
         raise FragmentError(f"{path}: 'date' must be YYYY-MM-DD (got {date!r})")
 
     changes = data.get("changes")

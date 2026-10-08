@@ -138,7 +138,7 @@ def describe_parse_fragment():
             with pytest.raises(FragmentError, match="unknown key\\(s\\) aaa, zzz"):
                 parse_fragment(_toml(zzz=1, aaa=2), _PATH)
 
-        @pytest.mark.parametrize("bad", ["2026-9-13", "13-09-2026", "2026/09/13", "soon"])
+        @pytest.mark.parametrize("bad", ["2026-9-13", "13-09-2026", "2026/09/13", "soon", "2026-02-30", "2026-13-01"])
         def it_refuses_a_date_that_is_not_iso(bad: str):
             with pytest.raises(FragmentError, match="'date' must be YYYY-MM-DD"):
                 parse_fragment(_toml(date=bad), _PATH)
