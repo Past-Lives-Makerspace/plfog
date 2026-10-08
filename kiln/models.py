@@ -553,7 +553,7 @@ class KilnTicket(models.Model):
         storage, names = photo.image.storage, [name for name in (photo.image.name, photo.tile.name) if name]
         photo.delete()
         # The files go only once the row is gone for good: a rolled back save keeps both.
-        transaction.on_commit(lambda: _delete_files(storage, names))
+        transaction.on_commit(lambda: _delete_files(storage, names), robust=True)
         if was_cover:
             successor = self.photos.order_by("sort_order", "pk").first()
             if successor is not None:
