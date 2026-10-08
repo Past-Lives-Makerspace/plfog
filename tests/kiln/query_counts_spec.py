@@ -87,3 +87,86 @@ def describe_the_crew_ticket_view():
         body = crew_client.get(reverse("kiln:detail", args=[ticket.pk])).content.decode()
 
         assert f"by {loader.primary_email} in Glaze firing 1" in body
+
+
+def _unloaded_with_a_note(loader: Member, unloader: Member, maker: Member) -> None:
+    """A firing of one nameless maker's piece, unloaded by another nameless member with an exception note."""
+    from kiln.forms import ExceptionNote
+    from kiln.services import load_kiln, unload_kiln
+
+    ticket = _waiting(maker)
+    result = load_kiln(firing_type="glaze", ticket_pks=[ticket.pk], by=loader)
+    assert result.firing is not None
+    note = ExceptionNote(ticket_pk=ticket.pk, what_happened="cracked", note="Cracked at the foot.", outcome="fired")
+    unload_kiln(firing_pk=result.firing.pk, exceptions={ticket.pk: note}, by=unloader)
+
+
+def describe_unload():
+    def it_names_nameless_makers_without_a_query_per_ticket(crew, crew_client, nameless):
+        from kiln.services import load_kiln
+
+        tickets = [_waiting(nameless())]
+        firing = load_kiln(firing_type="glaze", ticket_pks=[tickets[0].pk], by=nameless()).firing
+        assert firing is not None
+        url = reverse("kiln:unload", args=[firing.pk])
+        one = _queries(crew_client, url)
+        more = [_waiting(nameless()) for _ in range(14)]
+        KilnTicket.objects.filter(pk__in=[t.pk for t in more]).update(status="loaded", firing=firing)
+
+        fifteen = _queries(crew_client, url)
+
+        assert fifteen == one
+        body = crew_client.get(url).content.decode()
+        assert tickets[0].maker.primary_email in body and firing.loaded_by.primary_email in body
+
+    def it_lists_firings_in_the_kiln_without_a_query_per_firing(crew_client, nameless):
+        from kiln.services import load_kiln
+
+        url = reverse("kiln:unload_list")
+        loader = nameless()
+        load_kiln(firing_type="glaze", ticket_pks=[_waiting(nameless()).pk], by=loader)
+        one = _queries(crew_client, url)
+        for _ in range(14):
+            load_kiln(firing_type="glaze", ticket_pks=[_waiting(nameless()).pk], by=nameless())
+
+        fifteen = _queries(crew_client, url)
+
+        assert fifteen == one
+        assert loader.primary_email in crew_client.get(url).content.decode()
+
+
+def describe_the_kiln_log():
+    def it_names_nameless_loaders_and_unloaders_without_a_query_per_firing(crew_client, nameless):
+        url = reverse("kiln:log")
+        unloader = nameless()
+        _unloaded_with_a_note(nameless(), unloader, nameless())
+        one = _queries(crew_client, url)
+        for _ in range(14):
+            _unloaded_with_a_note(nameless(), nameless(), nameless())
+
+        fifteen = _queries(crew_client, url)
+
+        assert fifteen == one
+        body = crew_client.get(url).content.decode()
+        assert unloader.primary_email in body and "1 exception: cracked" in body
+
+    def it_shows_a_firings_tickets_without_a_query_per_ticket(crew_client, nameless):
+        def unloaded_firing(fired: int, returned: int) -> tuple[str, KilnTicket]:
+            from kiln.forms import ExceptionNote
+            from kiln.services import load_kiln, unload_kiln
+
+            tickets = [_waiting(nameless()) for _ in range(fired + returned)]
+            firing = load_kiln(firing_type="glaze", ticket_pks=[t.pk for t in tickets], by=nameless()).firing
+            assert firing is not None
+            notes = {
+                t.pk: ExceptionNote(ticket_pk=t.pk, what_happened="stuck", note="Stuck.", outcome="back_to_queue")
+                for t in tickets[fired:]
+            }
+            unload_kiln(firing_pk=firing.pk, exceptions=notes, by=nameless())
+            return reverse("kiln:firing", args=[firing.pk]), tickets[-1]
+
+        small, _ = unloaded_firing(fired=1, returned=1)
+        large, returned = unloaded_firing(fired=8, returned=7)
+
+        assert _queries(crew_client, large) == _queries(crew_client, small)
+        assert returned.maker.primary_email in crew_client.get(large).content.decode()

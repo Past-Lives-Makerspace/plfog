@@ -1,4 +1,4 @@
-"""Kiln ticket screens for makers, and the crew's Load the Kiln, ticket view and lists (#691)."""
+"""Kiln ticket screens for makers, and the crew's Load the Kiln, Unload, Kiln Log, ticket view and lists (#691)."""
 
 from __future__ import annotations
 
@@ -22,9 +22,23 @@ from kiln.forms import (
     LoadKilnForm,
     ManualFlagForm,
     ReplyForm,
+    UnloadForm,
 )
 from kiln.models import ClayOption, GlazeOption, KilnFiring, KilnFlag, KilnTicket, ListOption, ListOptionNameTaken
-from kiln.services import TicketNotEditable, load_kiln, load_queue, post_reply, primary_emails, save_ticket
+from kiln.services import (
+    FiringAlreadyUnloaded,
+    TicketNotEditable,
+    firing_sheet,
+    in_kiln_firings,
+    kiln_log,
+    load_kiln,
+    load_queue,
+    post_reply,
+    primary_emails,
+    save_ticket,
+    unload_kiln,
+    unload_sheet,
+)
 
 if TYPE_CHECKING:
     from django.db.models import QuerySet
@@ -33,6 +47,9 @@ if TYPE_CHECKING:
 
 # How many fired tickets My Tickets shows before "Show older tickets".
 HISTORY_PAGE = 10
+
+# How many firings the Kiln Log shows before "Show older firings" (about half a year of firings).
+LOG_PAGE = 50
 
 LIST_MODELS: dict[str, type[ListOption]] = {"clay": ClayOption, "glaze": GlazeOption}
 
@@ -43,12 +60,21 @@ def _member(request: HttpRequest) -> Member:
 
 
 def _tickets_for(member: Member) -> QuerySet[KilnTicket]:
-    return member.kiln_tickets.select_related("clay").prefetch_related("photos", "flags", "studio_glazes")
+    """A maker's tickets, fired ones by when they came out (newest first), with what a row shows."""
+    return (
+        member.kiln_tickets.newest_fired_first()  # type: ignore[attr-defined]  # KilnTicketQuerySet manager
+        .select_related("clay")
+        .prefetch_related("photos", "flags", "studio_glazes")
+    )
 
 
-def _crew_tabs() -> dict[str, Any]:
-    """What the crew's tab row needs: the count on Load the Kiln."""
-    return {"is_crew": True, "waiting_count": KilnTicket.objects.waiting().count()}
+def _crew_tabs(**counts: int) -> dict[str, Any]:
+    """What the crew's tab row needs: the counts on Load the Kiln and Unload (pass one the page already has)."""
+    return {
+        "is_crew": True,
+        "waiting_count": counts["waiting_count"] if "waiting_count" in counts else KilnTicket.objects.waiting().count(),
+        "unload_count": counts["unload_count"] if "unload_count" in counts else KilnFiring.objects.in_kiln().count(),
+    }
 
 
 @login_required
@@ -159,15 +185,17 @@ def _visible_ticket(member: Member, pk: int, *, crew: bool) -> KilnTicket:
     """A ticket the viewer may open (any, for the crew; their own, for a maker), or a 404."""
     tickets = (
         KilnTicket.objects.visible_to(member, crew=crew)
-        .select_related("maker__user", "clay", "firing__loaded_by__user")
+        .select_related("maker__user", "clay", "firing__loaded_by__user", "firing__unloaded_by__user")
         .prefetch_related(
             "photos",
             "studio_glazes",
             "flags__added_by",
             "flags__cleared_by",
             "replies__author__user",
+            "replies__firing",
             primary_emails("maker__user"),
             primary_emails("firing__loaded_by__user"),
+            primary_emails("firing__unloaded_by__user"),
             primary_emails("replies__author__user"),
         )
     )
@@ -276,10 +304,77 @@ def load(request: HttpRequest) -> HttpResponse:
         "firing_type": firing_type,
         "next_number": KilnFiring.next_number(),
         "kiln_tab": "load",
-        "is_crew": True,
-        "waiting_count": len(queue.tickets),
+        **_crew_tabs(waiting_count=len(queue.tickets)),
     }
     return render(request, "kiln/load.html", context)
+
+
+# ---- unloading and the log -------------------------------------------------------------
+
+
+@login_required
+@kiln_open_required
+@crew_required
+def unload_list(request: HttpRequest) -> HttpResponse:
+    """Unload: the firings still in the kiln, oldest load first."""
+    firings = in_kiln_firings()
+    context = {"firings": firings, "kiln_tab": "unload", **_crew_tabs(unload_count=len(firings))}
+    return render(request, "kiln/unload_list.html", context)
+
+
+@login_required
+@kiln_open_required
+@crew_required
+def unload(request: HttpRequest, pk: int) -> HttpResponse:
+    """One firing's tickets, all ticked; untick a piece that did not come out right, then Mark fired and notify."""
+    firing = get_object_or_404(
+        KilnFiring.objects.select_related("loaded_by__user").prefetch_related(primary_emails("loaded_by__user")),
+        pk=pk,
+    )
+    if firing.is_unloaded:
+        messages.info(request, f"{firing.name} is already unloaded.")
+        return redirect("kiln:firing", pk=firing.pk)
+    tickets = unload_sheet(firing)
+    form = UnloadForm(request.POST or None, tickets=tickets)
+    if request.method == "POST" and form.is_valid():
+        try:
+            result = unload_kiln(firing_pk=firing.pk, exceptions=form.exception_notes, by=_member(request))
+        except FiringAlreadyUnloaded as refused:
+            messages.error(request, refused.message)
+            return redirect("kiln:firing", pk=firing.pk)
+        messages.success(request, result.message)
+        return redirect("kiln:log")
+    context = {"firing": firing, "form": form, "kiln_tab": "unload", **_crew_tabs()}
+    return render(request, "kiln/unload.html", context)
+
+
+@login_required
+@kiln_open_required
+@crew_required
+def log(request: HttpRequest) -> HttpResponse:
+    """Kiln Log: every firing, newest first, with who loaded and unloaded it and how many pieces went in."""
+    firings = kiln_log()
+    show_older = request.GET.get("older") == "1"
+    context = {
+        "firings": firings if show_older else firings[:LOG_PAGE],
+        "has_older": not show_older and len(firings) > LOG_PAGE,
+        "kiln_tab": "log",
+        **_crew_tabs(unload_count=sum(1 for f in firings if not f.is_unloaded)),
+    }
+    return render(request, "kiln/log.html", context)
+
+
+@login_required
+@kiln_open_required
+@crew_required
+def firing(request: HttpRequest, pk: int) -> HttpResponse:
+    """One firing from the log: every piece that went in, and what the crew noted at the unload."""
+    try:
+        the_firing, rows = firing_sheet(pk)
+    except KilnFiring.DoesNotExist:
+        raise Http404("No such firing.") from None
+    context = {"firing": the_firing, "rows": rows, "kiln_tab": "log", **_crew_tabs()}
+    return render(request, "kiln/firing.html", context)
 
 
 # ---- the crew's lists ------------------------------------------------------------------

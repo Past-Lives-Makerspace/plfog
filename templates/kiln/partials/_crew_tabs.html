@@ -1,6 +1,8 @@
-{# The crew's tab row on the kiln pages. Only guild staff see it; part 3 adds Unload and Kiln Log. Expects kiln_tab and waiting_count. #}
+{# The crew's tab row on the kiln pages. Only guild staff see it. Expects kiln_tab, waiting_count and unload_count. #}
 <nav class="pl-tabs" aria-label="Kiln pages">
     <a href="{% url 'kiln:mine' %}" class="vote-tab{% if kiln_tab == 'mine' %} vote-tab--active{% endif %}"{% if kiln_tab == 'mine' %} aria-current="page"{% endif %}>My Tickets</a>
     <a href="{% url 'kiln:load' %}" class="vote-tab{% if kiln_tab == 'load' %} vote-tab--active{% endif %}"{% if kiln_tab == 'load' %} aria-current="page"{% endif %} data-kiln-tab="load">Load the Kiln<span class="pl-kiln-count" aria-label="{{ waiting_count }} waiting">{{ waiting_count }}</span></a>
+    <a href="{% url 'kiln:unload_list' %}" class="vote-tab{% if kiln_tab == 'unload' %} vote-tab--active{% endif %}"{% if kiln_tab == 'unload' %} aria-current="page"{% endif %} data-kiln-tab="unload">Unload<span class="pl-kiln-count" aria-label="{{ unload_count }} in the kiln">{{ unload_count }}</span></a>
+    <a href="{% url 'kiln:log' %}" class="vote-tab{% if kiln_tab == 'log' %} vote-tab--active{% endif %}"{% if kiln_tab == 'log' %} aria-current="page"{% endif %} data-kiln-tab="log">Kiln Log</a>
     <a href="{% url 'kiln:lists' %}" class="vote-tab{% if kiln_tab == 'lists' %} vote-tab--active{% endif %}"{% if kiln_tab == 'lists' %} aria-current="page"{% endif %}>Lists</a>
 </nav>

@@ -2089,6 +2089,76 @@ _CURATED: dict[str, EventCopy] = {
             ),
         },
     ),
+    # kiln.ready_for_pickup — one notice per maker per unloaded firing (#691 part 3). Built by
+    # kiln.services.PickupNotice: headline says ready, back in the queue, or some of each;
+    # summary is the bell's line; pieces_text / pieces_block list every piece with the crew's
+    # note under one that did not come out right (pieces_block is escaped where it is built).
+    "kiln.ready_for_pickup": EventCopy(
+        placeholders=(
+            "headline",
+            "summary",
+            "firing_name",
+            "pieces_text",
+            "pieces_block",
+            "unloaded_line",
+            "tickets_url",
+        ),
+        sample_context={
+            "headline": "Some of your pieces are ready for pickup",
+            "summary": (
+                "Ticket 412 came out of Glaze firing 88. It is on the pickup shelf. Ticket 411 was not fired "
+                "and was put back in the queue. The kiln crew left you a note."
+            ),
+            "firing_name": "Glaze firing 88",
+            "pieces_text": (
+                "Ticket 411 (Glaze · 1 piece): Back in the queue\n"
+                "  Stuck to the shelf. Sam Whitlock: The shelf was full, so it goes in the next glaze firing.\n"
+                "Ticket 412 (Glaze · 3 pieces): Ready for pickup"
+            ),
+            "pieces_block": mark_safe(  # trusted app-built markup, like kiln.services.PickupNotice builds it
+                '<table role="presentation" width="100%" cellpadding="0" cellspacing="0" '
+                'style="margin:0 0 22px;border:1px solid #e3e7ec;border-radius:10px;">'
+                '<tr><td style="padding:12px;border-top:1px solid #e3e7ec;">'
+                '<a href="https://pastlives.example/kiln/411/" style="color:#092E4C;font-weight:700;">Ticket 411</a> '
+                '<span style="font-size:14px;color:#5B6B77;">Glaze · 1 piece · Back in the queue</span><br>'
+                '<span style="white-space:pre-line;">Stuck to the shelf. Sam Whitlock: The shelf was full, '
+                "so it goes in the next glaze firing.</span></td></tr>"
+                '<tr><td style="padding:12px;border-top:1px solid #e3e7ec;">'
+                '<a href="https://pastlives.example/kiln/412/" style="color:#092E4C;font-weight:700;">Ticket 412</a> '
+                '<span style="font-size:14px;color:#5B6B77;">Glaze · 3 pieces · Ready for pickup</span></td></tr>'
+                "</table>"
+            ),
+            "unloaded_line": "Unloaded Tue, Oct 7 by Sam Whitlock.",
+            "tickets_url": "https://pastlives.example/kiln/",
+        },
+        channels={
+            Channel.IN_APP: ChannelCopy(subject="{{ headline }}", body_text="{{ summary }}"),
+            Channel.EMAIL: ChannelCopy(
+                subject="{{ headline }}",
+                body_text=(
+                    "{{ summary }}\n\n"
+                    "{{ pieces_text }}\n\n"
+                    "{{ unloaded_line }} Something not right with a piece? Reply on its ticket and the "
+                    "kiln crew will see it.\n\n"
+                    "See your kiln tickets: {{ tickets_url }}\n\nPast Lives Makerspace"
+                ),
+                body_html=(
+                    '<p style="margin:0 0 6px;font-size:13px;color:#5B6B77;text-transform:uppercase;'
+                    'letter-spacing:0.06em;">Ceramics Guild · Kiln tickets</p>'
+                    '<h1 style="margin:0 0 14px;font-size:24px;line-height:1.25;color:#092E4C;">{{ headline }}</h1>'
+                    "<p>{{ summary }}</p>"
+                    "{{ pieces_block }}"
+                    '<p style="text-align:center;margin:24px 0 8px;"><a href="{{ tickets_url }}" '
+                    'style="display:inline-block;padding:12px 28px;background-color:#EEB44B;color:#092E4C;'
+                    'font-size:14px;font-weight:700;text-decoration:none;border-radius:6px;">'
+                    "See Your Kiln Tickets</a></p>"
+                    '<p style="font-size:14px;color:#5B6B77;">{{ unloaded_line }} Something not right with a '
+                    "piece? Reply on its ticket and the kiln crew will see it.</p>"
+                    "<p>Past Lives Makerspace</p>"
+                ),
+            ),
+        },
+    ),
     # meeting.minutes_approved — a broadcast to the guild's members, so NO channel may
     # address a single recipient. Before this curated copy existed, the generic fallback's
     # email greeting leaked "Hi [missing: member_name]" into guild Discord channels; the
