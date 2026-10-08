@@ -10,7 +10,7 @@ from django.contrib.auth.models import User
 from django.db import IntegrityError, connection, transaction
 from django.test.utils import CaptureQueriesContext
 
-from polls.models import ChoiceResult, Poll, PollAlreadyOpenError, open_poll_with_results
+from polls.models import ChoiceResult, Poll, PollAlreadyOpenError, PollVote, open_poll_with_results
 from tests.membership.factories import MemberFactory
 from tests.polls.factories import PollChoiceFactory, PollFactory, PollVoteFactory, poll_with
 
@@ -125,6 +125,8 @@ def describe_post():
             ({"choices": ["Laser", "  "]}, "none blank"),
             ({"days": 0}, "1 to 60"),
             ({"days": 61}, "1 to 60"),
+            ({"question": "Z" * 201}, "at most 200 characters"),
+            ({"choices": ["Laser", "L" * 121]}, "at most 120 characters"),
         ],
     )
     def it_refuses_a_poll_out_of_bounds(overrides: dict, message: str):
@@ -132,6 +134,14 @@ def describe_post():
             _post(**overrides)
 
         assert not Poll.objects.exists()
+
+
+def describe_post_lengths():
+    def it_accepts_answers_and_a_question_at_their_limits():
+        poll = _post(question="Z" * 200, choices=["L" * 120, "Lathe"])
+
+        assert len(poll.question) == 200
+        assert len(poll.choices.first().text) == 120
 
 
 def describe_votes():
@@ -143,6 +153,23 @@ def describe_votes():
 
         with pytest.raises(IntegrityError), transaction.atomic():
             PollVoteFactory(choice=lathe, member=member)
+
+    def it_takes_the_poll_from_the_choice():
+        choice = PollChoiceFactory()
+
+        vote = PollVote(choice=choice, member=MemberFactory())
+        vote.save()
+
+        assert vote.poll == choice.poll
+
+    def it_refuses_a_choice_from_another_poll():
+        choice = PollChoiceFactory()
+        other_poll = PollFactory(question="Zorblax elsewhere?")
+
+        with pytest.raises(ValueError, match="belongs to poll"):
+            PollVote(poll=other_poll, choice=choice, member=MemberFactory()).save()
+
+        assert not PollVote.objects.exists()
 
     def it_lets_the_same_member_vote_in_another_poll():
         member = MemberFactory()

@@ -123,6 +123,21 @@ def describe_the_text_and_meeting():
 
         assert SiteConfiguration.load().spotlight_text_changed_at == stamped
 
+    def it_saves_only_the_spotlight_columns_so_a_concurrent_edit_survives():
+        from hub.spotlight_forms import SpotlightTextForm
+
+        form = SpotlightTextForm({"spotlight_first_line": "Vote now"}, instance=SiteConfiguration.load())
+        assert form.is_valid(), form.errors
+        # Another admin saves a different setting after this form loaded the row.
+        SiteConfiguration.objects.filter(pk=1).update(org_name="Zorblax Makerspace")
+
+        form.save_at(timezone.now())
+
+        config = SiteConfiguration.load()
+        assert config.org_name == "Zorblax Makerspace"
+        assert config.spotlight_first_line == "Vote now"
+        assert config.spotlight_text_changed_at is not None
+
     def it_offers_published_upcoming_events_and_no_meeting(admin_client: Client):
         event = _meeting()
         pending = _meeting()
@@ -179,6 +194,8 @@ def describe_posting_a_poll():
             (_poll_post(choices=("Laser", "laser")), "Two answers are the same"),
             (_poll_post(question=""), "This field is required"),
             ({**_poll_post(), "days": "61"}, "less than or equal to 60"),
+            (_poll_post(choices=("Laser", "L" * 121)), "Keep each answer to 120 characters or fewer"),
+            (_poll_post(question="Z" * 201), "at most 200 characters"),
         ],
     )
     def it_refuses_a_poll_with_a_readable_message(admin_client: Client, data: dict, message: str):

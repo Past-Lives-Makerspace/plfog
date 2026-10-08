@@ -22,7 +22,7 @@ from hub.spotlight import SECOND_LINE_DEFAULT, Spotlight, SpotlightMeeting
 from hub.spotlight_forms import NewPollForm, SpotlightTextForm
 from hub.view_as import fog_admin_required
 from hub.views import _get_hub_context
-from polls.models import MAX_CHOICES, Poll, PollAlreadyOpenError
+from polls.models import ANSWER_MAX_LENGTH, MAX_CHOICES, Poll, PollAlreadyOpenError
 
 if TYPE_CHECKING:
     from datetime import datetime
@@ -76,6 +76,7 @@ def _render_page(
         "text_form": text_form,
         "poll_form": poll_form or NewPollForm(),
         "max_choices": MAX_CHOICES,
+        "answer_max_length": ANSWER_MAX_LENGTH,
         "second_line_default": SECOND_LINE_DEFAULT,
         "spotlight_preview": {
             "first": text_form["spotlight_first_line"].value() or "",

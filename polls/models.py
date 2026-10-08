@@ -11,7 +11,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import datetime, timedelta
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from django.conf import settings
 from django.db import models, transaction
@@ -25,6 +25,8 @@ MAX_CHOICES = 6
 MIN_DAYS = 1
 MAX_DAYS = 60
 DEFAULT_DAYS = 7
+QUESTION_MAX_LENGTH = 200
+ANSWER_MAX_LENGTH = 120
 
 
 class PollAlreadyOpenError(Exception):
@@ -68,7 +70,7 @@ class PollQuerySet(models.QuerySet["Poll"]):
 class Poll(models.Model):
     """One question with two to six answers, open for a set number of days."""
 
-    question = models.CharField(max_length=200, help_text="What members are asked, in plain words.")
+    question = models.CharField(max_length=QUESTION_MAX_LENGTH, help_text="What members are asked, in plain words.")
     opens_at = models.DateTimeField(help_text="When members can start voting.")
     closes_at = models.DateTimeField(help_text="When voting ends. Close now sets it to the moment the admin closed it.")
     created_by = models.ForeignKey(
@@ -104,15 +106,20 @@ class Poll(models.Model):
 
         Raises:
             PollAlreadyOpenError: A poll is open and ``close_current`` is false.
-            ValueError: The question is blank, the answers are not 2 to 6, or days is not 1 to 60.
+            ValueError: The question is blank or too long, the answers are not 2 to 6 or one is
+                too long, or days is not 1 to 60.
         """
         from core.models import SiteConfiguration
 
         answers = [choice.strip() for choice in choices]
         if not question.strip():
             raise ValueError("A poll needs a question.")
+        if len(question.strip()) > QUESTION_MAX_LENGTH:
+            raise ValueError(f"A question is at most {QUESTION_MAX_LENGTH} characters.")
         if not MIN_CHOICES <= len(answers) <= MAX_CHOICES or not all(answers):
             raise ValueError(f"A poll needs {MIN_CHOICES} to {MAX_CHOICES} answers, none blank.")
+        if any(len(answer) > ANSWER_MAX_LENGTH for answer in answers):
+            raise ValueError(f"An answer is at most {ANSWER_MAX_LENGTH} characters.")
         if not MIN_DAYS <= days <= MAX_DAYS:
             raise ValueError(f"A poll runs {MIN_DAYS} to {MAX_DAYS} days.")
         with transaction.atomic():
@@ -149,7 +156,7 @@ class PollChoice(models.Model):
     """One answer to a poll, in the order the admin wrote them."""
 
     poll = models.ForeignKey(Poll, on_delete=models.CASCADE, related_name="choices", help_text="The poll this answers.")
-    text = models.CharField(max_length=120, help_text="The answer as members see it.")
+    text = models.CharField(max_length=ANSWER_MAX_LENGTH, help_text="The answer as members see it.")
     position = models.PositiveSmallIntegerField(help_text="Its place in the list, from 0.")
 
     class Meta:
@@ -177,6 +184,21 @@ class PollVote(models.Model):
 
     def __str__(self) -> str:
         return f"Vote in poll {self.poll_id}"
+
+    def save(self, *args: Any, **kwargs: Any) -> None:
+        """Take the poll from the choice, refusing a choice from another poll.
+
+        ``poll`` is kept beside ``choice`` because the one-vote-per-member constraint needs it,
+        so the two must never disagree.
+
+        Raises:
+            ValueError: ``poll`` is set and is not the choice's poll.
+        """
+        if self.poll_id is None:
+            self.poll_id = self.choice.poll_id
+        elif self.poll_id != self.choice.poll_id:
+            raise ValueError(f"Answer {self.choice_id} belongs to poll {self.choice.poll_id}, not poll {self.poll_id}.")
+        super().save(*args, **kwargs)
 
 
 def tally(choices: models.QuerySet[PollChoice] | list[PollChoice]) -> list[ChoiceResult]:

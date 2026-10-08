@@ -11,7 +11,16 @@ from django.utils import timezone
 
 from core.models import SiteConfiguration
 from membership.models import CommunityEvent
-from polls.models import DEFAULT_DAYS, MAX_CHOICES, MAX_DAYS, MIN_CHOICES, MIN_DAYS, Poll
+from polls.models import (
+    ANSWER_MAX_LENGTH,
+    DEFAULT_DAYS,
+    MAX_CHOICES,
+    MAX_DAYS,
+    MIN_CHOICES,
+    MIN_DAYS,
+    QUESTION_MAX_LENGTH,
+    Poll,
+)
 
 if TYPE_CHECKING:
     from django.contrib.auth.models import User
@@ -52,9 +61,13 @@ class SpotlightTextForm(forms.ModelForm):
         Members see the Spotlight's dot until they open it after that time (#709).
         """
         config: SiteConfiguration = self.save(commit=False)
+        fields = ["spotlight_meeting_event", *_LINE_FIELDS]
         if any(name in self.changed_data for name in _LINE_FIELDS):
             config.spotlight_text_changed_at = now
-        config.save()
+            fields.append("spotlight_text_changed_at")
+        # Only these columns: a whole-row save would revert another admin's concurrent edit
+        # to any other setting.
+        config.save(update_fields=fields)
         return config
 
 
@@ -65,7 +78,7 @@ class NewPollForm(forms.Form):
     are read from the raw data rather than declared as fields.
     """
 
-    question = forms.CharField(max_length=200, label="Question")
+    question = forms.CharField(max_length=QUESTION_MAX_LENGTH, label="Question")
     days = forms.IntegerField(
         min_value=MIN_DAYS,
         max_value=MAX_DAYS,
@@ -88,6 +101,8 @@ class NewPollForm(forms.Form):
             self.add_error(None, f"A poll needs at least {MIN_CHOICES} answers.")
         elif len(self.choices) > MAX_CHOICES:
             self.add_error(None, f"A poll can have at most {MAX_CHOICES} answers.")
+        elif any(len(text) > ANSWER_MAX_LENGTH for text in self.choices):
+            self.add_error(None, f"Keep each answer to {ANSWER_MAX_LENGTH} characters or fewer.")
         elif len({text.casefold() for text in self.choices}) < len(self.choices):
             self.add_error(None, "Two answers are the same. Make each one different.")
         return cleaned
