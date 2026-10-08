@@ -321,3 +321,96 @@ def describe_changelog_dates():
         for html in (panel, login):
             assert '<span class="changelog-entry__date">Oct 7, 2026</span>' in html
             assert "2026-10-07</span>" not in html
+
+
+LATEST = {"title": "Zorblax latest", "date": "2026-10-07", "changes": ["One"], "slug": "701-zorblax"}
+
+
+def describe_with_no_open_poll():
+    def it_shows_the_latest_update_in_standard_linking_into_the_changelog(monkeypatch: pytest.MonkeyPatch):
+        monkeypatch.setattr("plfog.version.CHANGELOG", [LATEST])
+        client, _member = _client_for()
+        _settings(spotlight_meeting_event=_meeting())
+
+        standard = _standard(client.get(HOME).content.decode())
+
+        assert "data-poll-card" not in standard
+        assert "Latest update" in standard
+        assert 'href="#changelog-701-zorblax"' in standard
+        assert (
+            'data-anchor="changelog-701-zorblax" @click.prevent="$store.spotlight.showChange($el.dataset.anchor)"'
+            in standard
+        )
+        assert ">Zorblax latest</a>" in standard
+        assert "Oct 7, 2026" in standard
+
+    def it_puts_the_latest_update_in_expanded_too(monkeypatch: pytest.MonkeyPatch):
+        monkeypatch.setattr("plfog.version.CHANGELOG", [LATEST])
+        client, _member = _client_for()
+
+        panel = client.get(HOME).content.decode().split("data-spotlight-panel", 1)[1]
+
+        assert "data-spotlight-panel-update" in panel
+        assert ">Zorblax latest</a>" in panel
+
+    def it_falls_back_to_the_update_title_on_minimized_line_one(monkeypatch: pytest.MonkeyPatch):
+        monkeypatch.setattr("plfog.version.CHANGELOG", [LATEST])
+        client, _member = _client_for()
+
+        minimized = _section(client.get(HOME).content.decode(), 'data-spotlight-state="minimized"', "</button>")
+
+        assert "data-spotlight-first>Zorblax latest</span>" in minimized
+
+    def it_keeps_the_admins_first_line_over_the_update(monkeypatch: pytest.MonkeyPatch):
+        monkeypatch.setattr("plfog.version.CHANGELOG", [LATEST])
+        client, _member = _client_for()
+        _settings(spotlight_first_line="Zorblax admin line")
+
+        minimized = _section(client.get(HOME).content.decode(), 'data-spotlight-state="minimized"', "</button>")
+
+        assert "data-spotlight-first>Zorblax admin line</span>" in minimized
+
+
+def describe_with_no_poll_and_no_meeting():
+    def it_shows_the_spotlight_while_the_toggle_is_on():
+        client, _member = _client_for()
+
+        html = client.get(HOME).content.decode()
+
+        assert "data-spotlight-update" in html
+        assert "data-spotlight-home" in html
+        assert "pl-badge--version" not in html
+
+    def it_goes_back_to_the_logo_and_version_while_the_toggle_is_off():
+        client, _member = _client_for()
+        _settings(spotlight_show_when_empty=False)
+
+        html = client.get(HOME).content.decode()
+
+        assert "data-spotlight" not in html
+        assert "pl-badge--version" in html
+        assert 'id="changelog-modal"' in html
+
+    def it_comes_back_when_a_poll_opens_with_the_toggle_off():
+        client, _member = _client_for()
+        _settings(spotlight_show_when_empty=False)
+        poll_with("Laser", "Lathe")
+
+        html = client.get(HOME).content.decode()
+
+        assert "hub-sidebar__spotlight" in html
+        assert "pl-badge--version" not in html
+
+    def it_still_costs_one_query_when_hidden(monkeypatch: pytest.MonkeyPatch):
+        _settings(spotlight_show_when_empty=False)
+        client, member = _client_for()
+        client.get(HOME)
+
+        with CaptureQueriesContext(connection) as with_spotlight:
+            client.get(HOME)
+        prebuilt = Spotlight.load(member, timezone.now())
+        monkeypatch.setattr(hub.context_processors, "_spotlight", lambda _member: prebuilt)
+        with CaptureQueriesContext(connection) as without_spotlight:
+            client.get(HOME)
+
+        assert len(with_spotlight) - len(without_spotlight) == 1

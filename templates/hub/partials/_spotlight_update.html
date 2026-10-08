@@ -1,0 +1,7 @@
+{# The newest changelog entry in the poll's place when no poll is open (#709); update is hub.spotlight.LatestUpdate. Opens Expanded on that entry. #}
+{% load hub_tags %}
+<div class="pl-spotlight__update" data-spotlight-update>
+    <p class="pl-spotlight__eyebrow">Latest update</p>
+    <a class="pl-spotlight__update-title" href="#{{ update.anchor }}" data-anchor="{{ update.anchor }}" @click.prevent="$store.spotlight.showChange($el.dataset.anchor)" data-spotlight-update-link>{{ update.title }}</a>
+    <p class="pl-spotlight__update-date">{{ update.date|changelog_date }}</p>
+</div>

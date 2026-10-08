@@ -44,7 +44,12 @@ class SpotlightTextForm(forms.ModelForm):
 
     class Meta:
         model = SiteConfiguration
-        fields = ["spotlight_meeting_event", "spotlight_first_line", "spotlight_second_line"]
+        fields = [
+            "spotlight_meeting_event",
+            "spotlight_first_line",
+            "spotlight_second_line",
+            "spotlight_show_when_empty",
+        ]
         field_classes = {"spotlight_meeting_event": MeetingEventChoiceField}
 
     def __init__(self, *args: Any, **kwargs: Any) -> None:
@@ -61,7 +66,7 @@ class SpotlightTextForm(forms.ModelForm):
         Members see the Spotlight's dot until they open it after that time (#709).
         """
         config: SiteConfiguration = self.save(commit=False)
-        fields = ["spotlight_meeting_event", *_LINE_FIELDS]
+        fields = ["spotlight_meeting_event", *_LINE_FIELDS, "spotlight_show_when_empty"]
         if any(name in self.changed_data for name in _LINE_FIELDS):
             config.spotlight_text_changed_at = now
             fields.append("spotlight_text_changed_at")

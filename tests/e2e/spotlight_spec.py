@@ -104,6 +104,18 @@ def describe_the_spotlight():
         expect(page.locator("#spotlight-changelog [data-changelog-label]")).to_contain_text("Page 2 of")
 
 
+def describe_with_no_open_poll():
+    def it_opens_the_changelog_at_the_latest_update(page, live_server, login_via_code):
+        _sign_in(page, login_via_code)
+        slug = CHANGELOG[0]["slug"]
+        _home(page, live_server)
+
+        page.locator(f"{STANDARD} [data-spotlight-update-link]").click()
+
+        expect(page.locator("[data-spotlight-panel-changelog]")).to_be_visible()
+        expect(page.locator(f"#changelog-{slug}")).to_be_visible()
+
+
 def describe_the_plain_changelog():
     def it_pages_five_at_a_time_on_the_login_page(page, live_server):
         page.goto(f"{live_server.url}/accounts/login/")

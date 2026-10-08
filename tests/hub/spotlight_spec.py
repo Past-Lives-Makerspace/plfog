@@ -121,7 +121,16 @@ def describe_the_lines():
         assert spotlight.first_line == "Zorblax next?"
         assert spotlight.second_line == SECOND_LINE_DEFAULT == "Feature Request Meeting"
 
-    def it_leaves_the_first_line_empty_with_no_text_and_no_poll():
+    def it_falls_back_to_the_latest_update_with_no_text_and_no_poll(monkeypatch: pytest.MonkeyPatch):
+        monkeypatch.setattr(
+            "plfog.version.CHANGELOG", [{"title": "Zorblax update", "date": "2026-10-07", "changes": [], "slug": "zx"}]
+        )
+
+        assert _build().first_line == "Zorblax update"
+
+    def it_is_empty_with_no_text_no_poll_and_no_changelog(monkeypatch: pytest.MonkeyPatch):
+        monkeypatch.setattr("plfog.version.CHANGELOG", [])
+
         assert _build().first_line == ""
 
 
@@ -229,3 +238,60 @@ def describe_seen_signature():
         before = _build().seen_signature
 
         assert _build(spotlight_text_changed_at=NOW).seen_signature != before
+
+
+ENTRY = {"title": "Zorblax update", "date": "2026-10-07", "changes": [], "slug": "701-zorblax"}
+
+
+def describe_no_open_poll():
+    def it_offers_the_newest_update_with_its_anchor(monkeypatch: pytest.MonkeyPatch):
+        monkeypatch.setattr("plfog.version.CHANGELOG", [ENTRY, {**ENTRY, "title": "Older", "slug": "older"}])
+
+        update = _build(spotlight_meeting_event=_monthly_meeting()).latest_update
+
+        assert update is not None
+        assert (update.title, update.date, update.anchor) == ("Zorblax update", "2026-10-07", "changelog-701-zorblax")
+
+    def it_gives_a_swept_entry_no_anchor(monkeypatch: pytest.MonkeyPatch):
+        monkeypatch.setattr(
+            "plfog.version.CHANGELOG", [{"version": "2.60.0", "title": "Old", "date": "2026-09-30", "changes": []}]
+        )
+
+        update = _build().latest_update
+
+        assert update is not None and update.anchor == ""
+
+    def it_still_shows_with_a_meeting_even_with_the_toggle_off():
+        spotlight = _build(spotlight_meeting_event=_monthly_meeting(), spotlight_show_when_empty=False)
+
+        assert spotlight.is_empty is False
+        assert bool(spotlight) is True
+
+    def it_still_shows_with_a_poll_even_with_the_toggle_off():
+        poll_with("Laser", "Lathe", opens_at=NOW - timedelta(hours=1))
+
+        assert bool(_build(spotlight_show_when_empty=False)) is True
+
+
+def describe_no_poll_and_no_meeting():
+    def it_shows_while_the_toggle_is_on():
+        spotlight = _build(spotlight_show_when_empty=True)
+
+        assert spotlight.is_empty is True
+        assert bool(spotlight) is True
+
+    def it_is_gone_while_the_toggle_is_off():
+        assert bool(_build(spotlight_show_when_empty=False)) is False
+
+    def it_defaults_to_on():
+        assert SiteConfiguration.load().spotlight_show_when_empty is True
+
+
+def describe_the_dot_and_releases():
+    def it_never_changes_the_signature_for_a_new_release(monkeypatch: pytest.MonkeyPatch):
+        monkeypatch.setattr("plfog.version.CHANGELOG", [ENTRY])
+        before = _build().seen_signature
+
+        monkeypatch.setattr("plfog.version.CHANGELOG", [{**ENTRY, "title": "Newer", "slug": "702-newer"}, ENTRY])
+
+        assert _build().seen_signature == before

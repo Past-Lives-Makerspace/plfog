@@ -86,6 +86,8 @@ def _render_page(
             "meetings": _meeting_previews(text_form, now),
             "pollQuestion": admin_spotlight.first_line_fallback,
             "secondDefault": SECOND_LINE_DEFAULT,
+            "showWhenEmpty": bool(text_form["spotlight_show_when_empty"].value()),
+            "hasPoll": admin_spotlight.poll is not None,
         },
         "page": table["page"],
         "sort": table["sort"],

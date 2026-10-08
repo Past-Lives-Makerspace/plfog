@@ -621,3 +621,44 @@ html:not([data-spotlight-min]) .pl-spotlight-live .pl-spotlight--minimized {
     flex-wrap: wrap;
     row-gap: 0.25rem;
 }
+
+/* No open poll: the newest update in the poll's place (#709). */
+.pl-spotlight__update {
+    display: flex;
+    flex-direction: column;
+    gap: 0.125rem;
+}
+
+.pl-spotlight__update-title {
+    margin-right: 1.5rem;
+    font-family: var(--font-heading);
+    font-size: 0.95rem;
+    font-weight: 700;
+    line-height: 1.3;
+    color: var(--hub-text);
+    text-decoration: none;
+}
+
+.pl-spotlight__update-title:hover,
+.pl-spotlight__update-title:focus-visible {
+    color: var(--color-tuscan-yellow);
+    text-decoration: underline;
+}
+
+.pl-spotlight__update-date {
+    margin: 0;
+    font-size: 0.8rem;
+    color: var(--hub-text-muted);
+}
+
+.pl-spotlight-admin__states {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+}
+
+.pl-spotlight-admin__hidden-note {
+    margin: 0;
+    font-size: 0.85rem;
+    color: var(--hub-text-muted);
+}

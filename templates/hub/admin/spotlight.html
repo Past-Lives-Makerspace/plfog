@@ -14,7 +14,7 @@ and the Past polls table. Nothing here notifies anyone.
 <div class="hub-card pl-spotlight-admin" id="spotlight-text"
      x-data="JSON.parse(document.getElementById('spotlight-preview-data').textContent)"
      @input="if ($event.target.name === 'spotlight_first_line') first = $event.target.value; if ($event.target.name === 'spotlight_second_line') second = $event.target.value"
-     @change="if ($event.target.name === 'spotlight_meeting_event') meeting = $event.target.value">
+     @change="if ($event.target.name === 'spotlight_meeting_event') meeting = $event.target.value; if ($event.target.name === 'spotlight_show_when_empty') showWhenEmpty = $event.target.checked">
   <h2 class="pl-spotlight-admin__title">Spotlight Text and Meeting</h2>
   <div class="pl-spotlight-admin__split">
     <form method="post" action="{% url 'hub_admin_spotlight_text' %}" class="pl-spotlight-admin__form" data-spotlight-text-form>
@@ -22,13 +22,17 @@ and the Past polls table. Nothing here notifies anyone.
       {% include "components/form_field.html" with field=text_form.spotlight_meeting_event %}
       {% include "components/form_field.html" with field=text_form.spotlight_first_line %}
       {% include "components/form_field.html" with field=text_form.spotlight_second_line %}
+      {% include "components/form_field.html" with field=text_form.spotlight_show_when_empty %}
       <div class="pl-spotlight-admin__save"><button type="submit" class="pl-btn pl-btn--primary">Save</button></div>
     </form>
     <div class="pl-spotlight-admin__preview" data-spotlight-preview aria-label="Preview">
+      <p class="pl-spotlight-admin__hidden-note" x-cloak x-show="!(showWhenEmpty || hasPoll || meetings[meeting])" data-spotlight-preview-hidden>Hidden. With no poll and no meeting, members see the logo and version number.</p>
+      <div class="pl-spotlight-admin__states" x-show="showWhenEmpty || hasPoll || meetings[meeting]">
       <p class="pl-spotlight-admin__label">Standard</p>
       {% include "hub/partials/_spotlight.html" with spotlight=admin_spotlight state="standard" preview=True past_polls_url="#past-polls" %}
       <p class="pl-spotlight-admin__label">Minimized</p>
       {% include "hub/partials/_spotlight.html" with spotlight=admin_spotlight state="minimized" preview=True %}
+      </div>
     </div>
   </div>
 </div>

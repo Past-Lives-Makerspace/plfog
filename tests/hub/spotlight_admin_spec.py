@@ -365,3 +365,36 @@ def describe_the_admins_own_spotlight_on_this_page():
 
         assert "data-spotlight-choice=" in preview
         assert "data-my-vote" not in preview
+
+
+def describe_the_show_when_empty_toggle():
+    def it_renders_as_a_toggle_in_the_text_section(admin_client: Client):
+        html = admin_client.get(PAGE).content.decode()
+        section = html.split('id="spotlight-text"', 1)[1].split('id="open-poll"', 1)[0]
+
+        assert "Show the Spotlight when there is no poll and no meeting" in section
+        assert 'name="spotlight_show_when_empty"' in section
+        assert "pl-toggle-row" in section
+
+    def it_saves_off_without_stamping_the_text(admin_client: Client):
+        admin_client.post(reverse("hub_admin_spotlight_text"), {"spotlight_first_line": ""})
+        config = SiteConfiguration.load()
+
+        assert config.spotlight_show_when_empty is False
+        assert config.spotlight_text_changed_at is None
+
+    def it_saves_on(admin_client: Client):
+        SiteConfiguration.objects.filter(pk=1).update(spotlight_show_when_empty=False)
+
+        admin_client.post(reverse("hub_admin_spotlight_text"), {"spotlight_show_when_empty": "on"})
+
+        assert SiteConfiguration.load().spotlight_show_when_empty is True
+
+    def it_previews_the_hidden_state(admin_client: Client):
+        SiteConfiguration.objects.filter(pk=SiteConfiguration.load().pk).update(spotlight_show_when_empty=False)
+
+        html = admin_client.get(PAGE).content.decode()
+
+        assert "data-spotlight-preview-hidden" in html
+        assert '"showWhenEmpty": false' in html
+        assert '"hasPoll": false' in html

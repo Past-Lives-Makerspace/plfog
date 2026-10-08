@@ -7,12 +7,18 @@ the meeting, Have an idea, the version link) and the changelog, five releases a 
 {% endcomment %}
 <div class="pl-spotlight-panel" data-spotlight-panel
      x-data="{ view: 'main' }"
+     @spotlight-changelog.window="view = 'changelog'; $nextTick(() => { const pages = document.getElementById('spotlight-changelog'); const entry = $event.detail ? pages.plShowEntry($event.detail) : null; if (entry) entry.scrollIntoView({ block: 'start' }); else pages.plShowPage(0) })"
      x-init="if (location.hash.indexOf('#changelog-') === 0) { const pages = document.getElementById('spotlight-changelog'); const entry = pages && pages.plShowEntry ? pages.plShowEntry(location.hash.slice(1)) : null; if (entry) { view = 'changelog'; $store.spotlight.markSeen(); $dispatch('open-modal', 'spotlight-expanded'); setTimeout(() => entry.scrollIntoView({ block: 'start' }), 50) } }">
     <div class="pl-spotlight-panel__main" x-show="view === 'main'" data-spotlight-panel-main>
         {% if spotlight.card %}
         <section class="pl-spotlight-panel__section" aria-label="This week's poll">
             <p class="pl-spotlight__eyebrow">This week's poll</p>
             {% include "polls/partials/_poll_card.html" with card=spotlight.card variant="panel" %}
+            <a class="pl-spotlight-panel__link" href="{% url 'polls:index' %}" data-spotlight-all-polls>See all past polls</a>
+        </section>
+        {% elif spotlight.latest_update %}
+        <section class="pl-spotlight-panel__section" aria-label="Latest update" data-spotlight-panel-update>
+            {% include "hub/partials/_spotlight_update.html" with update=spotlight.latest_update %}
             <a class="pl-spotlight-panel__link" href="{% url 'polls:index' %}" data-spotlight-all-polls>See all past polls</a>
         </section>
         {% endif %}

@@ -1077,6 +1077,12 @@ class SiteConfiguration(models.Model):
         verbose_name="Minimized second line",
         help_text="Empty uses Feature Request Meeting. The date and time pill always follows it.",
     )
+    spotlight_show_when_empty = models.BooleanField(
+        default=True,
+        db_default=True,
+        verbose_name="Show the Spotlight when there is no poll and no meeting",
+        help_text="On: members see the latest update and Details. Off: the corner goes back to the logo and version number.",
+    )
     spotlight_text_changed_at = models.DateTimeField(
         null=True,
         blank=True,

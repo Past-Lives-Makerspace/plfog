@@ -117,6 +117,26 @@ def _row_annotations(member: Member | None, now: datetime) -> dict[str, Any]:
 
 
 @dataclass(frozen=True)
+class LatestUpdate:
+    """The newest member-facing changelog entry, shown in the poll's place when no poll is open."""
+
+    title: str
+    date: str
+    anchor: str
+
+    @classmethod
+    def newest(cls) -> LatestUpdate | None:
+        """The first entry of the composed changelog (member-facing only, newest first), or None."""
+        from plfog import version
+
+        if not version.CHANGELOG:
+            return None
+        entry = version.CHANGELOG[0]
+        slug = entry.get("slug", "")  # swept history entries have no slug, so no anchor
+        return cls(title=entry["title"], date=entry["date"], anchor=f"changelog-{slug}" if slug else "")
+
+
+@dataclass(frozen=True)
 class Spotlight:
     """Everything the Spotlight shows one member at one moment."""
 
@@ -128,6 +148,22 @@ class Spotlight:
     text_changed_at: datetime | None
     my_choice_pk: int | None = None
     can_vote: bool = False
+    latest_update: LatestUpdate | None = None
+    show_when_empty: bool = True
+
+    def __bool__(self) -> bool:
+        """Whether there is a Spotlight to show at all (#709).
+
+        With no open poll and no meeting it shows only while the admin's "Show the Spotlight when
+        there is no poll and no meeting" is on; off, the hub falls back to the logo and the
+        version number, which every template gets by testing ``{% if spotlight %}``.
+        """
+        return not self.is_empty or self.show_when_empty
+
+    @property
+    def is_empty(self) -> bool:
+        """No open poll and no upcoming meeting."""
+        return self.poll is None and self.meeting is None
 
     @classmethod
     def load(cls, member: Member | None, now: datetime) -> Spotlight:
@@ -175,6 +211,8 @@ class Spotlight:
             text_changed_at=row.spotlight_text_changed_at,
             my_choice_pk=values["sp_my_choice"],
             can_vote=can_vote(member),
+            latest_update=LatestUpdate.newest(),
+            show_when_empty=row.spotlight_show_when_empty,
         )
 
     @property
@@ -203,8 +241,10 @@ class Spotlight:
 
     @property
     def first_line_fallback(self) -> str:
-        """What the first line says when the admin leaves it empty: the poll question, if any."""
-        return self.poll.question if self.poll is not None else ""
+        """What the first line says when the admin leaves it empty: the poll question, else the latest update."""
+        if self.poll is not None:
+            return self.poll.question
+        return self.latest_update.title if self.latest_update is not None else ""
 
     @property
     def first_line(self) -> str:

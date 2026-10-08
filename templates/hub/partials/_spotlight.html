@@ -33,6 +33,8 @@ Expanded panel. next_url is where a plain vote post lands.
             {% for result in spotlight.results %}<button type="button" class="pl-spotlight__choice" data-spotlight-choice="{{ result.pk }}" disabled>{{ result.text }}</button>{% endfor %}
         </div>
     </div>
+    {% elif spotlight.latest_update %}
+    {% include "hub/partials/_spotlight_update.html" with update=spotlight.latest_update %}
     {% endif %}
     {% if past_polls_url %}<a class="pl-spotlight__past" href="{{ past_polls_url }}" data-spotlight-past>Past polls</a>{% endif %}
     <div class="pl-spotlight__meeting" data-spotlight-meeting x-show="meetings[meeting]">
@@ -59,7 +61,7 @@ Expanded panel. next_url is where a plain vote post lands.
     </div>
     <section class="pl-spotlight pl-spotlight--standard" data-spotlight-state="standard" aria-label="Spotlight">
         <button type="button" class="pl-spotlight__minimize" aria-label="Minimize the Spotlight" data-spotlight-minimize @click="$store.spotlight.minimize()">&minus;</button>
-        {% if spotlight.card %}{% include "polls/partials/_poll_card.html" with card=spotlight.card variant="spotlight" %}{% endif %}
+        {% if spotlight.card %}{% include "polls/partials/_poll_card.html" with card=spotlight.card variant="spotlight" %}{% elif spotlight.latest_update %}{% include "hub/partials/_spotlight_update.html" with update=spotlight.latest_update %}{% endif %}
         <a class="pl-spotlight__past" href="{% url 'polls:index' %}" data-spotlight-past>Past polls</a>
         {% if spotlight.meeting %}
         <div class="pl-spotlight__meeting" data-spotlight-meeting>

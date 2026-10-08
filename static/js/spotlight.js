@@ -68,6 +68,11 @@
                 this.markSeen();
                 window.dispatchEvent(new CustomEvent("open-modal", { detail: "spotlight-expanded" }));
             },
+            // Expanded on the changelog, at the entry with this id ("" for the newest page).
+            showChange(anchor) {
+                this.expand();
+                window.dispatchEvent(new CustomEvent("spotlight-changelog", { detail: anchor }));
+            },
         });
     }
 
