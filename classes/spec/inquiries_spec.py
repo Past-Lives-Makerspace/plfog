@@ -24,10 +24,13 @@ def _inquiry(applied: str, **fields: object) -> Member:
     return MemberFactory(teaching_applied_at=stamp, **fields)
 
 
-def _past_class(instructor: Member, status: str, *, published: bool = True) -> None:
+def _past_class(instructor: Member, status: str, *, published: bool = True, cancelled: bool = False) -> None:
     """A class taught by ``instructor`` whose only session started three days before NOW."""
     offering = ClassOfferingFactory(
-        instructor=instructor, status=status, published_at=NOW - timedelta(days=30) if published else None
+        instructor=instructor,
+        status=status,
+        published_at=NOW - timedelta(days=30) if published else None,
+        cancelled_at=NOW - timedelta(days=5) if cancelled else None,
     )
     ClassSessionFactory(class_offering=offering, starts_at=NOW - timedelta(days=3))
 
@@ -94,19 +97,21 @@ def describe_the_funnel():
         assert report.is_empty is False
 
     def it_counts_a_run_only_on_a_class_that_went_live():
-        """A past session on a cancelled, draft, pending or unpublished class is not a class run."""
+        """A past session on a cancelled (even later archived), draft, pending or unpublished class is not a run."""
         cancelled = _inquiry("2026-09-05T10:00", instructor_oriented_at=NOW)
         _past_class(cancelled, ClassOffering.Status.CANCELLED)
         never_live = _inquiry("2026-09-06T10:00", instructor_oriented_at=NOW)
         _past_class(never_live, ClassOffering.Status.DRAFT, published=False)
         _past_class(never_live, ClassOffering.Status.PENDING, published=False)
         _past_class(never_live, ClassOffering.Status.ARCHIVED, published=False)
+        cancelled_then_archived = _inquiry("2026-09-08T10:00", instructor_oriented_at=NOW)
+        _past_class(cancelled_then_archived, ClassOffering.Status.ARCHIVED, cancelled=True)
         archived = _inquiry("2026-09-07T10:00", instructor_oriented_at=NOW)
         _past_class(archived, ClassOffering.Status.ARCHIVED)
         report = _report(date(2026, 9, 1), date(2026, 9, 30))
         assert [(b.label, b.count) for b in report.funnel] == [
-            ("Inquired", 3),
-            ("Approved", 3),
+            ("Inquired", 4),
+            ("Approved", 4),
             ("First class run", 1),
         ]
 

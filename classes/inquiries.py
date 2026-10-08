@@ -122,7 +122,7 @@ def board_report(
     The months run from the range's first day (or the earliest inquiry) to its last day
     (or today), with empty months drawn as zero. "First class run" means the member is
     the instructor on a class that went live (published, or archived after publishing;
-    never a draft, a pending or a cancelled class) with a session that started before
+    never a draft, a pending or a cancelled class, even one archived later) with a session that started before
     ``now``.
 
     Args:
@@ -157,6 +157,7 @@ def board_report(
         class_offering__instructor=OuterRef("pk"),
         class_offering__status__in=[ClassOffering.Status.PUBLISHED, ClassOffering.Status.ARCHIVED],
         class_offering__published_at__isnull=False,
+        class_offering__cancelled_at__isnull=True,  # cancel() keeps published_at, and may be archived later
         starts_at__lt=now,
     )
     funnel = _bars(
