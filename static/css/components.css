@@ -2169,3 +2169,40 @@ select[multiple] option:checked {
 
 /* Reconciliation: refunds where the payee kept a share already sent (#662, part 3). */
 .pl-payouts-kept-banner { display: block; padding: 0.75rem 1rem; margin-bottom: 1rem; border-radius: 6px; }
+
+/* Busy submit (#713, components/busy_submit.html). The .btn[aria-busy] spinner lives in
+   style.css, which hub pages never load, and it hides the label; here the spinner sits beside
+   a visible "Saving..." in the button's own colour, so it reads in both themes. */
+.hub-btn[aria-busy="true"],
+.hub-btn[aria-busy="true"]:disabled {
+    cursor: progress;
+    opacity: 0.85;
+}
+
+.hub-btn[aria-busy="true"]::before {
+    content: '';
+    display: inline-block;
+    width: 0.9em;
+    height: 0.9em;
+    margin-right: 0.5em;
+    vertical-align: -0.1em;
+    border: 2px solid currentColor;
+    border-right-color: transparent;
+    border-radius: 50%;
+    animation: pl-btn-spin 0.6s linear infinite;
+}
+
+@keyframes pl-btn-spin {
+    to { transform: rotate(360deg); }
+}
+
+/* The Overview's Eventbrite row: the check beside "Listed on Eventbrite" and the admin's Sync button. */
+.pl-eventbrite-sync__ok {
+    color: var(--color-success, #34d399);
+    font-weight: 700;
+}
+
+.pl-eventbrite-sync__form {
+    display: inline-block;
+    margin-left: 0.75rem;
+}

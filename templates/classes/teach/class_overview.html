@@ -73,7 +73,13 @@ an admin reading a queue wants the glance.{% endcomment %}
         {% if show_eventbrite_sync %}
         <tr data-overview-eventbrite>
             <td style="font-weight:600; color:var(--hub-text-muted);">Eventbrite</td>
-            <td><span data-eventbrite-sync>{{ offering.eventbrite_sync_label }}</span>{% if offering.eventbrite_event_url %} <a href="{{ offering.eventbrite_event_url }}" target="_blank" rel="noopener">View on Eventbrite</a>{% endif %}</td>
+            <td>
+                <span data-eventbrite-sync>{% if offering.eventbrite_sync_state == 'listed' %}<span class="pl-eventbrite-sync__ok" aria-hidden="true">&#10003;</span> {% endif %}{{ offering.eventbrite_sync_label }}</span>{% if offering.eventbrite_event_url %} <a href="{{ offering.eventbrite_event_url }}" target="_blank" rel="noopener">View on Eventbrite</a>{% endif %}
+                <form method="post" action="{% url 'classes:teach_class_eventbrite_sync' pk=offering.pk %}" class="pl-eventbrite-sync__form" data-pl-busy-submit data-pl-busy-label="Syncing...">
+                    {% csrf_token %}
+                    <button type="submit" class="hub-btn hub-btn--sm hub-btn--ghost" data-pl-busy data-eventbrite-sync-button>Sync to Eventbrite</button>
+                </form>
+            </td>
         </tr>
         {% endif %}
     </tbody>
@@ -244,4 +250,5 @@ an admin reading a queue wants the glance.{% endcomment %}
 {% include "components/modal.html" with modal_id="class-sale" modal_title="Put This Class On Sale" modal_size="md" modal_body_include="classes/_components/sale_form.html" %}
 {% endif %}
 </div>
+{% include "components/busy_submit.html" %}
 {% endblock %}
