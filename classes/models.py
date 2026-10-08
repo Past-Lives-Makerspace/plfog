@@ -2244,8 +2244,9 @@ class ClassOffering(HeroCropMixin, models.Model):
     def sync_eventbrite_listing(self) -> None:
         """Create, update or end this class's Eventbrite listing, and save the sync fields.
 
-        Called after anything that changes what the listing should say: publish, unpublish,
-        cancel, and a saved edit. Best-effort: the service records ``PENDING`` or ``FAILED``
+        Called in the request by publish, unpublish, cancel, archive, delete and the admin's
+        Sync to Eventbrite button; a saved edit goes through :meth:`mark_eventbrite_edit_saved`
+        and reaches here on the ``retry_eventbrite_pushes`` tick. Best-effort: the service records ``PENDING`` or ``FAILED``
         instead of raising, so Eventbrite never blocks a plfog save. A class never opted in
         and never listed returns without a query.
         """
@@ -2264,6 +2265,31 @@ class ClassOffering(HeroCropMixin, models.Model):
                 "updated_at",
             ]
         )
+
+    def mark_eventbrite_edit_saved(self) -> None:
+        """After an edit save, leave the listing for ``retry_eventbrite_pushes`` instead of syncing it now.
+
+        Called by every edit save (the admin composer, the published class edit page, the sale
+        modal) so the save never waits on Eventbrite: a class that still belongs on Eventbrite is
+        marked ``PENDING`` with :attr:`EventbriteSync.EDIT_SAVED` (or ``SYNC_OFF`` while sync is
+        off) and the next tick sends it. A save that takes the class off Eventbrite (the opt in
+        unchecked, made private, its dates gone) stops selling, so like unpublish it ends the
+        live listing in the request. A class never opted in and never listed returns without a query.
+        """
+        if not self.eventbrite_enabled and not self.eventbrite_event_id:
+            return
+        state = self.EventbriteSyncState
+        if not self.wants_eventbrite_listing:
+            if self.eventbrite_event_id and self.eventbrite_sync_state != state.ENDED:
+                self.sync_eventbrite_listing()
+            return
+        from core.integrations.eventbrite import EventbriteClient, EventbriteSync
+
+        self.eventbrite_sync_state = state.PENDING
+        self.eventbrite_sync_error = (
+            EventbriteSync.EDIT_SAVED if EventbriteClient.from_settings().enabled else EventbriteSync.SYNC_OFF
+        )
+        self.save(update_fields=["eventbrite_sync_state", "eventbrite_sync_error", "updated_at"])
 
     @classmethod
     def push_eventbrite_quantity_for(cls, pk: int) -> None:
@@ -2726,7 +2752,7 @@ class ClassOffering(HeroCropMixin, models.Model):
         """
         self.sale_enabled = False
         self.save(update_fields=["sale_enabled", "updated_at"])
-        self.sync_eventbrite_listing()
+        self.mark_eventbrite_edit_saved()
 
     @property
     def sale_banner_display(self) -> str:

@@ -332,7 +332,11 @@ def describe_share_card():
         assert LIVE_HINT in body
         assert PENDING_HINT not in body
         # Between Locked Details and the form, so Save stays the last thing on the page.
-        assert body.index("Locked Details") < body.index("pl-qr-share-block") < body.index('<form method="post">')
+        assert (
+            body.index("Locked Details")
+            < body.index("pl-qr-share-block")
+            < body.index('<form method="post" data-pl-busy-submit>')
+        )
 
     def it_shows_an_admin_the_draft_flyer_button_and_downloads_as_before(admin_user, client, db):
         offering = ClassOfferingFactory(status=Status.DRAFT)

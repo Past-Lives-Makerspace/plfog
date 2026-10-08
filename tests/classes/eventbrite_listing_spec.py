@@ -292,9 +292,12 @@ def describe_editing_a_listed_class():
         ticket = eventbrite.args("update_ticket_class")[2]["ticket_class"]
         assert ticket["cost"] == "USD,6500"
 
-    def it_follows_a_sale_price(eventbrite: FakeEventbrite):
+    def it_follows_a_sale_price_on_the_next_retry_tick(eventbrite: FakeEventbrite):
         offering = _listed(sale_enabled=True, sale_percent=20)
         offering.turn_sale_off()
+        assert eventbrite.calls == []
+
+        call_command("retry_eventbrite_pushes")
 
         assert eventbrite.args("update_ticket_class")[2]["ticket_class"]["cost"] == "USD,5000"
 
@@ -887,7 +890,7 @@ def describe_publishing_follows_the_status_eventbrite_reports():
 
 
 def describe_saving_a_live_class_with_its_faq():
-    def it_syncs_after_the_faq_saves_so_the_listing_carries_the_new_question(eventbrite: FakeEventbrite, client: Any):
+    def it_sends_the_new_question_on_the_next_tick(eventbrite: FakeEventbrite, client: Any):
         MembershipPlanFactory()
         instructor = InstructorFactory(user=UserFactory(username="eb-faq@example.com", email="eb-faq@example.com"))
         offering = _listed(instructor=instructor)
@@ -906,6 +909,7 @@ def describe_saving_a_live_class_with_its_faq():
         response = client.post(reverse("classes:teach_class_edit", kwargs={"pk": offering.pk}), payload)
 
         assert response.status_code == 302
+        call_command("retry_eventbrite_pushes")
         assert eventbrite.descriptions()[-1][3] == [{"question": "Is the kiln vented?", "answer": "Yes."}]
 
 

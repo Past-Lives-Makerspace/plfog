@@ -46,7 +46,7 @@
     {% include "classes/_components/class_qr_share.html" %}
 </div>
 
-<form method="post">
+<form method="post" data-pl-busy-submit>
     {% csrf_token %}
     {% if form.non_field_errors %}
     <ul class="pl-field-errors" style="margin-bottom:1rem;">
@@ -84,7 +84,7 @@
     {% include "classes/_components/faq_formset.html" %}
 
     <div style="display:flex; gap:0.5rem; margin-top:1.5rem; flex-wrap:wrap;">
-        <button class="hub-btn hub-btn--sm hub-btn--primary" type="submit">Save</button>
+        <button class="hub-btn hub-btn--sm hub-btn--primary" type="submit" data-pl-busy>Save</button>
         {# cancel_url, not a hardcoded class screen: guild staff on someone else's class have no Overview and would land on a 404. Resolved in _teach_published_class_edit (classes/views.py). #}
         <a class="hub-btn hub-btn--sm hub-btn--ghost" href="{{ cancel_url }}">Cancel</a>
     </div>
@@ -93,4 +93,5 @@
 </div>
 {# Boots the banner cropper on every arrival; see the note above the same tag in class_composer.html. #}
 <script src="{% static 'js/hero_cropper.js' %}" defer></script>
+{% include "components/busy_submit.html" %}
 {% endblock %}

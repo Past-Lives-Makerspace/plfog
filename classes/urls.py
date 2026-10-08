@@ -91,6 +91,11 @@ urlpatterns = [
     path("teach/classes/<int:pk>/cancel/", views.teach_class_cancel, name="teach_class_cancel"),
     path("teach/classes/<int:pk>/sale/", views.teach_class_sale, name="teach_class_sale"),
     path(
+        "teach/classes/<int:pk>/eventbrite-sync/",
+        views.teach_class_eventbrite_sync,
+        name="teach_class_eventbrite_sync",
+    ),
+    path(
         "teach/classes/<int:pk>/request-change/",
         views.teach_class_request_change,
         name="teach_class_request_change",
