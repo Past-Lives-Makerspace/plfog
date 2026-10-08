@@ -46,6 +46,13 @@ def describe_in_app_adapter():
         assert note.body == "B"
         assert note.url == "/x/"
 
+    def it_stores_a_link_on_our_classes_host_as_a_path_on_the_members_host(settings):
+        # The classes host 404s teach pages, and the app opens other hosts signed out.
+        settings.BOOK_BASE_URL = "https://classes.pastlives.space"
+        user = _user()
+        InAppAdapter().deliver(user, _message(url="https://classes.pastlives.space/classes/teach/classes/5/"))
+        assert Notification.objects.get(user=user).url == "/classes/teach/classes/5/"
+
     def it_clips_an_over_length_title_and_body_to_the_column_limits():
         # A long sitewide announcement must not overflow Notification.title (200) /
         # body (500) — that would crash the whole emit() mid-fan-out.
@@ -116,6 +123,14 @@ def describe_push_adapter():
         with patch("core.events.channels.send_fcm") as mock_fcm:
             PushAdapter().deliver(user, _message(trigger_kind="class_reminder"))
         assert mock_fcm.call_args.kwargs["channel_id"] == "urgent"
+
+    def it_pushes_a_link_on_our_hosts_as_a_path_the_app_opens_in_place(settings):
+        settings.MEMBER_BASE_URL = "https://members.pastlives.space"
+        user = _user()
+        FcmDevice.objects.create(user=user, token="d1", platform=FcmDevice.Platform.ANDROID)
+        with patch("core.events.channels.send_fcm") as mock_fcm:
+            PushAdapter().deliver(user, _message(url="https://members.pastlives.space/events/9/?x=1#rsvp"))
+        assert mock_fcm.call_args.kwargs["url"] == "/events/9/?x=1#rsvp"
 
     def it_does_nothing_without_fcm_devices():
         user = _user()

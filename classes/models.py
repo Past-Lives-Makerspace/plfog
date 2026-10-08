@@ -5248,7 +5248,7 @@ class Registration(models.Model):
             "payer_name": self.member.display_name if self.member is not None else (guest_name or self.email),
             "member": self.member,
             "manage_url": _absolute_url(reverse("classes:my_registration", kwargs={"token": self.self_serve_token})),
-            "in_app_url": "/classes/account/",
+            "in_app_url": reverse("account:overview"),
         }
 
     def on_fully_refunded(self, reason: str, actor: "User | None") -> None:

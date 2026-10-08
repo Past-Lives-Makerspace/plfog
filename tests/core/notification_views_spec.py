@@ -30,6 +30,14 @@ def describe_notification_list():
         resp = client.get(reverse("notification_list"))
         assert b"Secret" not in resp.content
 
+    def it_opens_each_row_with_a_full_page_post_not_a_boosted_one(client):
+        # A boosted POST follows the redirect over XHR, which the browser blocks when the
+        # target is another host (/account/ redirects to the classes host): the click did nothing.
+        user = _login(client, 19)
+        n = Notification.objects.create(user=user, trigger="x", title="Hello", body="b")
+        content = client.get(reverse("notification_list")).content.decode()
+        assert f'action="{reverse("notification_read", args=[n.pk])}" hx-boost="false"' in content
+
     def it_emphasizes_unread_rows(client):
         user = _login(client, 3)
         Notification.objects.create(user=user, trigger="x", title="Unread one", body="b")
@@ -85,6 +93,21 @@ def describe_notification_read():
         assert n.read_at is not None
         assert resp.status_code == 302
         assert resp.url == "/tab/"
+
+    def it_sends_an_older_row_on_another_of_our_hosts_to_the_path_here(client, settings):
+        settings.PUBLIC_REDIRECT_HOSTS = ["book.pastlives.space"]
+        user = _login(client, 17)
+        url = "https://book.pastlives.space/classes/teach/classes/3/edit/"
+        n = Notification.objects.create(user=user, trigger="x", title="t", body="b", url=url)
+        resp = client.post(reverse("notification_read", args=[n.pk]))
+        assert resp.url == "/classes/teach/classes/3/edit/"
+
+    def it_leaves_a_foreign_link_alone(client):
+        user = _login(client, 18)
+        url = "https://dashboard.stripe.com/payments/pi_1"
+        n = Notification.objects.create(user=user, trigger="x", title="t", body="b", url=url)
+        resp = client.post(reverse("notification_read", args=[n.pk]))
+        assert resp.url == url
 
 
 def describe_notification_read_all():
