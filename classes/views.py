@@ -2230,7 +2230,11 @@ def _composer_context(
         # The genuine CatalogGroup for this class, so the preview frames render exactly
         # the card the catalog would build. None until the class has a pk.
         "card_group": CatalogGroup(saved) if saved is not None else None,
-        "composer_tabs": [{"step": step, "done": marks.get(step.number, False)} for step in COMPOSER_STEPS],
+        # A published class is finished, so every step carries the check; before then only the
+        # steps that own a readiness item can earn one (step_marks).
+        "composer_tabs": [
+            {"step": step, "done": is_published or marks.get(step.number, False)} for step in COMPOSER_STEPS
+        ],
         # The map's own count: every "how many steps" and "the last step" in the template reads it.
         "step_count": STEP_COUNT,
         "composer_can_view_discount_codes": can_view_discount_codes,

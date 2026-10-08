@@ -1079,6 +1079,12 @@ def describe_admin_composer():
         assert "Save Draft" not in html
         assert "submit-class" not in html
 
+    def it_checks_every_step_on_a_published_class(admin_user, client, db):
+        offering = ClassOfferingFactory(status=Status.PUBLISHED, ready=True)
+        client.force_login(admin_user)
+        html = client.get(reverse("classes:teach_class_edit", kwargs={"pk": offering.pk})).content.decode()
+        assert html.count("pl-phase-tab--done") == STEP_COUNT
+
     def it_saves_a_draft_on_create_without_publishing(admin_user, client, db):
         cat = CategoryFactory()
         inst = InstructorFactory()
