@@ -149,6 +149,12 @@ urlpatterns = [
     path("admin/", views.admin_overview, name="admin_overview"),
     path("admin/classes/", views.admin_classes, name="admin_classes"),
     # Teaching applications queue actions (the overview card).
+    path("admin/instructor-inquiries/", views.admin_instructor_inquiries, name="admin_instructor_inquiries"),
+    path(
+        "admin/instructor-inquiries/export/",
+        views.admin_instructor_inquiries_export,
+        name="admin_instructor_inquiries_export",
+    ),
     path(
         "admin/teaching-applications/<int:pk>/approve/",
         views.admin_teaching_approve,

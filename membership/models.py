@@ -314,6 +314,39 @@ class MemberQuerySet(models.QuerySet):
             .order_by("teaching_applied_at")
         )
 
+    def teaching_inquiries(
+        self, *, applied_from: date_type | None = None, applied_to: date_type | None = None
+    ) -> MemberQuerySet:
+        """Every member who has asked to teach, pending or decided, newest ask first.
+
+        The Instructor Inquiries page and its CSV read this. Only the latest ask per member
+        exists (``apply_to_teach`` overwrites ``teaching_applied_at``). The bounds are local
+        calendar days and both are inclusive.
+        """
+        inquiries = self.filter(teaching_applied_at__isnull=False)
+        if applied_from is not None:
+            inquiries = inquiries.filter(teaching_applied_at__date__gte=applied_from)
+        if applied_to is not None:
+            inquiries = inquiries.filter(teaching_applied_at__date__lte=applied_to)
+        return inquiries.order_by("-teaching_applied_at")
+
+    def in_teaching_state(self, state: Member.TeachingApplicationState) -> MemberQuerySet:
+        """Members whose :attr:`Member.teaching_application_state` is ``state``, decided in SQL.
+
+        Mirrors the property's resolution order: the teaching unlock wins, a decline needs
+        both a reason and a decision stamp, and an application stamp otherwise means pending.
+        """
+        states = Member.TeachingApplicationState
+        declined = Q(teaching_decided_at__isnull=False, teaching_decline_reason__gt="")
+        locked = Q(instructor_oriented_at__isnull=True)
+        conditions = {
+            states.APPROVED: Q(instructor_oriented_at__isnull=False),
+            states.DECLINED: locked & declined,
+            states.PENDING: locked & ~declined & Q(teaching_applied_at__isnull=False),
+            states.NONE: locked & ~declined & Q(teaching_applied_at__isnull=True),
+        }
+        return self.filter(conditions[state])
+
     def awaiting_welcome_email(self) -> MemberQuerySet:
         """Paying (Standard), active members imported from Airtable who have not yet been sent the
         automated welcome email — the candidate set for the ``welcome_new_members`` automation.
@@ -555,6 +588,18 @@ class Member(models.Model):
         EMAIL = "email", "Email"
         TEXT = "text", "Text message"
         PHONE = "phone", "Phone call"
+
+    class TeachingExperience(models.TextChoices):
+        """How much teaching a member says they have done, asked on the I'm Interested form.
+
+        A fixed set in code, not admin editable (#690). Stored on
+        :attr:`Member.teaching_experience`.
+        """
+
+        FIRST_TIME = "first_time", "First time teaching"
+        INFORMAL = "informal", "Taught informally"
+        A_FEW = "a_few", "Taught a few classes"
+        EXPERIENCED = "experienced", "Experienced instructor"
 
     class EmailGap(models.TextChoices):
         """Why a member has no usable email (labels only; no field stores this).
@@ -801,6 +846,27 @@ class Member(models.Model):
         blank=True,
         default="",
         help_text="The email address or phone number the member gave for that method, exactly as they typed it.",
+    )
+    teaching_website = models.URLField(
+        blank=True,
+        default="",
+        help_text="The website the member gave on their teaching application. Optional.",
+    )
+    teaching_socials = models.CharField(
+        max_length=500,
+        blank=True,
+        default="",
+        help_text="Social handles or links the member gave on their teaching application, as typed. Optional.",
+    )
+    teaching_experience = models.CharField(
+        max_length=20,
+        choices=TeachingExperience.choices,
+        blank=True,
+        default="",
+        help_text=(
+            "How much teaching the member says they have done. "
+            "Blank for an application filed before the question was asked."
+        ),
     )
     teaching_decided_at = models.DateTimeField(
         null=True,
@@ -1557,7 +1623,25 @@ class Member(models.Model):
             return ""
         return str(self.TeachingContactMethod(self.teaching_contact_method).label).lower()
 
-    def apply_to_teach(self, note: str, *, contact_method: str, contact_detail: str) -> None:
+    @property
+    def teaching_contact_summary(self) -> str:
+        """Where to reach an applicant, as the Instructor Inquiries page and CSV show it.
+
+        "503 555 0100 (text message)"; the bare detail when no method was asked.
+        """
+        method = self.teaching_contact_method_label
+        return f"{self.teaching_contact_detail} ({method})" if method else self.teaching_contact_detail
+
+    def apply_to_teach(
+        self,
+        note: str,
+        *,
+        contact_method: str,
+        contact_detail: str,
+        website: str = "",
+        socials: str = "",
+        experience: str = "",
+    ) -> None:
         """Record this member's ask to teach and put it in front of the admins.
 
         Teaching is not self-service: this only files the request. An admin turns the
@@ -1573,11 +1657,15 @@ class Member(models.Model):
                 reached. Required.
             contact_detail: The email address or phone number for that method, stored
                 as typed. Required; the form has already checked its shape.
+            website: The member's website, already checked by the form. Optional.
+            socials: Social handles or links, as typed. Optional.
+            experience: A :class:`TeachingExperience` value. The form requires it; blank
+                is kept for callers that file an application without the question.
 
         Raises:
             ValueError: If the member is not ACTIVE, if ``note``, ``contact_method`` or
-                ``contact_detail`` is blank, if ``contact_method`` is not a known method,
-                or if they already have an application waiting on an admin.
+                ``contact_detail`` is blank, if ``contact_method`` or a given ``experience``
+                is not a known choice, or if they already have an application waiting on an admin.
         """
         from core.events.emit import emit
         from core.models import SiteActivity
@@ -1593,6 +1681,8 @@ class Member(models.Model):
         contact_detail = contact_detail.strip()
         if not contact_detail:
             raise ValueError("A teaching application needs an email address or phone number to reach the member at")
+        if experience:
+            experience = self.TeachingExperience(experience)  # an unknown level raises ValueError
         if self.teaching_application_state == self.TeachingApplicationState.PENDING:
             raise ValueError(f"Member {self.pk} already has a teaching application waiting on an admin")
         if self.can_create_classes:
@@ -1603,6 +1693,9 @@ class Member(models.Model):
         self.teaching_application_note = note
         self.teaching_contact_method = method
         self.teaching_contact_detail = contact_detail
+        self.teaching_website = website.strip()
+        self.teaching_socials = socials.strip()
+        self.teaching_experience = experience
         self.teaching_decided_at = None
         self.teaching_decline_reason = ""
         self.save(
@@ -1611,6 +1704,9 @@ class Member(models.Model):
                 "teaching_application_note",
                 "teaching_contact_method",
                 "teaching_contact_detail",
+                "teaching_website",
+                "teaching_socials",
+                "teaching_experience",
                 "teaching_decided_at",
                 "teaching_decline_reason",
             ]

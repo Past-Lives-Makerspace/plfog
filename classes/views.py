@@ -108,6 +108,7 @@ from classes.forms import (
     FinishRegistrationForm,
     RegistrationForm,
     RegistrationQuestionForm,
+    InstructorInquiryFilterForm,
     TeachingApplicationForm,
     parse_gallery_focus,
     build_class_faq_formset,
@@ -1690,6 +1691,9 @@ def teach_apply(request: HttpRequest) -> HttpResponse:
             form.cleaned_data["note"],
             contact_method=form.cleaned_data["contact_method"],
             contact_detail=form.cleaned_data["contact_detail"],
+            website=form.cleaned_data["website"],
+            socials=form.cleaned_data["socials"],
+            experience=form.cleaned_data["experience"],
         )
     except ValueError:
         if member.can_create_classes:
@@ -4345,6 +4349,39 @@ def admin_teaching_approve(request: HttpRequest, pk: int) -> HttpResponse:
         message += " We let them know."
     messages.success(request, message)
     return redirect("classes:admin_overview")
+
+
+@classes_admin_access_required
+def admin_instructor_inquiries(request: HttpRequest) -> HttpResponse:
+    """Instructor Inquiries (#690): every teaching application, pending and decided.
+
+    The filter bar is a GET form, so the same query string drives the CSV export. A
+    filter with an error (To before From) lists nothing, draws no Board Report and
+    shows the field error.
+    """
+    form = InstructorInquiryFilterForm(request.GET)
+    valid = form.is_valid()
+    return render(
+        request,
+        "classes/admin/instructor_inquiries.html",
+        {
+            "form": form,
+            "inquiries": list(form.inquiries()) if valid else [],
+            "report": form.board_report(timezone.now()) if valid else None,
+            "filter_query": request.GET.urlencode(),
+        },
+    )
+
+
+@classes_admin_access_required
+def admin_instructor_inquiries_export(request: HttpRequest) -> StreamingHttpResponse | HttpResponse:
+    """The Instructor Inquiries CSV: exactly the rows the same filter lists on the page."""
+    from classes.exports import stream_instructor_inquiries_csv
+
+    form = InstructorInquiryFilterForm(request.GET)
+    if not form.is_valid():
+        return HttpResponseBadRequest("Fix the filter dates before exporting.")
+    return stream_instructor_inquiries_csv(form.inquiries())
 
 
 @classes_admin_access_required

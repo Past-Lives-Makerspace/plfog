@@ -161,6 +161,7 @@ def describe_admin_tools_card_order():
         assert _card_titles(client) == [
             "Activity",
             "Announcements",
+            "Instructor Inquiries",
             "Leadership Directory",
             "Locations",
             "Manage Classes",
@@ -182,6 +183,15 @@ def describe_admin_tools_card_order():
         def it_does_not_show_for_a_guild_lead(client: Client):
             _login_guild_lead(client, "slideshow_lead")
             assert reverse("hub_admin_slideshow") not in _tools_grid(client)
+
+    def describe_the_instructor_inquiries_tile():
+        def it_shows_for_a_fog_admin(client: Client):
+            _login_superuser(client, "inquiries_admin")
+            assert reverse("classes:admin_instructor_inquiries") in _tools_grid(client)
+
+        def it_does_not_show_for_a_guild_lead(client: Client):
+            _login_guild_lead(client, "inquiries_lead")
+            assert reverse("classes:admin_instructor_inquiries") not in _tools_grid(client)
 
     def describe_the_leadership_directory_tile():
         def it_shows_for_a_fog_admin(client: Client):

@@ -1,0 +1,22 @@
+{% comment %}
+One Board Report bar chart on the Instructor Inquiries page (#690). The geometry comes
+from classes/inquiries.py. The fill and stroke attributes are the colours of the
+downloaded image (dark text on white); instructor-inquiries.css overrides them on the
+page so the chart follows the theme. chart_download.js turns the svg into a PNG.
+
+Parameters: chart_title, bars (ChartBar list), range_label, filename.
+{% endcomment %}
+<figure class="pl-inquiries__chart" data-chart>
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 400 300" width="400" height="300" role="img" aria-label="{{ chart_title }}, {{ range_label }}" font-family="Inter, Arial, sans-serif">
+    <text class="pl-inquiries__chart-title" x="0" y="26" font-size="20" font-weight="700" fill="#1D1E1E">{{ chart_title }}</text>
+    <text class="pl-inquiries__chart-muted" x="0" y="50" font-size="14" fill="#5b6675">{{ range_label }}</text>
+    <line class="pl-inquiries__chart-axis" x1="0" y1="250" x2="400" y2="250" stroke="#c8ccd2" stroke-width="1"/>
+    {% for bar in bars %}
+    <rect x="{{ bar.x }}" y="{{ bar.y }}" width="{{ bar.width }}" height="{{ bar.height }}" rx="3" fill="#EEB44B" data-chart-bar="{{ bar.count }}"/>
+    <text x="{{ bar.center }}" y="{{ bar.value_y }}" font-size="14" font-weight="700" text-anchor="middle" fill="#1D1E1E">{{ bar.count }}</text>
+    <text x="{{ bar.center }}" y="270" font-size="14" text-anchor="middle" fill="#1D1E1E">{{ bar.label }}</text>
+    {% if bar.sublabel %}<text class="pl-inquiries__chart-muted" x="{{ bar.center }}" y="288" font-size="12" text-anchor="middle" fill="#5b6675">{{ bar.sublabel }}</text>{% endif %}
+    {% endfor %}
+  </svg>
+  <button type="button" class="hub-btn hub-btn--sm hub-btn--ghost pl-btn--spaced" data-chart-download="{{ filename }}" data-pl-download>Download</button>
+</figure>
