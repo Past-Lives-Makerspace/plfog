@@ -404,7 +404,7 @@ def describe_the_listing_eventbrite_receives():
         return _sent(route)["modules"][0]["data"]["body"]["text"]
 
     @respx.mock
-    def it_writes_the_faq_as_both_faq_widgets_in_order_as_plain_text():
+    def it_writes_the_faq_as_one_faqs_widget_in_order_as_plain_text():
         routes = _listing_routes("ev-1")
 
         _with_faq(_live()).sync_eventbrite_listing()
@@ -415,7 +415,6 @@ def describe_the_listing_eventbrite_receives():
         ]
         assert _sent(routes["description"])["widgets"] == [
             {"id": "", "type": "faqs", "data": {"faqs": entries}},
-            {"id": "", "type": "faq", "data": {"faqs": entries}},
         ]
         assert "Questions:" not in _text(routes["description"])
 
@@ -434,7 +433,7 @@ def describe_the_listing_eventbrite_receives():
 
         sent = _sent(routes["description"])["widgets"]
         assert sent[0] == CAROUSEL
-        assert [w["type"] for w in sent] == ["herocarousel", "faqs", "faq"]
+        assert [w["type"] for w in sent] == ["herocarousel", "faqs"]
         assert sent[1]["data"] == {"faqs": [{"question": "Is the kiln vented?", "answer": "Yes."}]}
 
     @respx.mock
