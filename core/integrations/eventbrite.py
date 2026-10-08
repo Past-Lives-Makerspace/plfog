@@ -72,6 +72,7 @@ class EventbriteSync:
     SYNC_OFF = "Eventbrite sync is off."
     STILL_UP = "Sales are closed. Eventbrite keeps the event page up while it holds orders."
     GALLERY_CHANGED = "The gallery changed."
+    EDIT_SAVED = "your changes are saved and go to Eventbrite within 15 minutes"
 
     @staticmethod
     def photos_not_sent(reasons: list[str]) -> str:

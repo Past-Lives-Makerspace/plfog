@@ -1,0 +1,57 @@
+{% comment %}
+Busy submit buttons (#713). A form marked data-pl-busy-submit disables every [data-pl-busy]
+button inside it once it really submits, sets aria-busy="true" (components.css draws the
+spinner) and swaps the label to "Saving..." (or the form's data-pl-busy-label) until the page
+leaves. A boosted save is caught on htmx:beforeRequest, a plain one on an uncancelled submit.
+A failed request or a page restored from the back-forward cache gets its buttons back.
+
+A body script, so it re-runs on every boosted arrival: guarded on window and delegated on
+document (FRONTEND.md, Scripts under hx-boost). The original label is kept in an element
+property, never an attribute.
+{% endcomment %}
+<script>
+(function () {
+  if (window.plBusySubmitBound) return;
+  window.plBusySubmitBound = true;
+
+  function buttons(form) {
+    return form.querySelectorAll('[data-pl-busy]');
+  }
+
+  function busy(form) {
+    if (!form || !form.matches || !form.matches('form[data-pl-busy-submit]')) return;
+    var label = form.getAttribute('data-pl-busy-label') || 'Saving...';
+    buttons(form).forEach(function (btn) {
+      if (btn.plBusyLabel === undefined) btn.plBusyLabel = btn.innerHTML;
+      btn.textContent = label;
+      btn.disabled = true;
+      btn.setAttribute('aria-busy', 'true');
+    });
+  }
+
+  function idle(form) {
+    buttons(form).forEach(function (btn) {
+      if (btn.plBusyLabel === undefined) return;
+      btn.innerHTML = btn.plBusyLabel;
+      btn.plBusyLabel = undefined;
+      btn.disabled = false;
+      btn.removeAttribute('aria-busy');
+    });
+  }
+
+  document.addEventListener('htmx:beforeRequest', function (e) {
+    busy(e.detail && e.detail.elt);
+  });
+  document.addEventListener('htmx:afterRequest', function (e) {
+    var elt = e.detail && e.detail.elt;
+    if (elt && elt.matches && elt.matches('form[data-pl-busy-submit]') && !e.detail.successful) idle(elt);
+  });
+  document.addEventListener('submit', function (e) {
+    if (!e.defaultPrevented) busy(e.target);
+  });
+  window.addEventListener('pageshow', function (e) {
+    if (!e.persisted) return;
+    document.querySelectorAll('form[data-pl-busy-submit]').forEach(idle);
+  });
+})();
+</script>

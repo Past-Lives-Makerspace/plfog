@@ -286,9 +286,12 @@ def describe_editing_a_listed_class():
         ticket = eventbrite.args("update_ticket_class")[2]["ticket_class"]
         assert ticket["cost"] == "USD,6500"
 
-    def it_follows_a_sale_price(eventbrite: FakeEventbrite):
+    def it_follows_a_sale_price_on_the_next_retry_tick(eventbrite: FakeEventbrite):
         offering = _listed(sale_enabled=True, sale_percent=20)
         offering.turn_sale_off()
+        assert eventbrite.calls == []
+
+        call_command("retry_eventbrite_pushes")
 
         assert eventbrite.args("update_ticket_class")[2]["ticket_class"]["cost"] == "USD,5000"
 

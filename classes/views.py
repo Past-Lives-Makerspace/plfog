@@ -2536,8 +2536,9 @@ def _teach_published_class_edit(request: HttpRequest, offering: ClassOffering, t
         else ""
     )
     if request.method == "POST" and form.is_valid() and faq_formset.is_valid():
-        form.save().sync_eventbrite_listing()
+        saved = form.save()
         faq_formset.save()
+        saved.mark_eventbrite_edit_saved()
         messages.success(request, "Class updated.")
         return redirect(leave_url)
     return render(
@@ -3037,7 +3038,7 @@ def _save_sale(request: HttpRequest, offering: ClassOffering) -> ClassSaleForm |
     form = ClassSaleForm(request.POST, instance=offering)
     if not form.is_valid():
         return form
-    form.save().sync_eventbrite_listing()
+    form.save().mark_eventbrite_edit_saved()
     messages.success(request, "Sale updated." if was_active else "Sale is on. Members see it now.")
     return None
 
@@ -3067,6 +3068,22 @@ def teach_class_sale(request: HttpRequest, pk: int) -> HttpResponse:
     form = _save_sale(request, offering)
     if form is not None:
         return _render_class_overview(request, offering, sale_form=form)
+    return redirect("classes:teach_class_detail", pk=offering.pk)
+
+
+@class_screen_required
+@require_POST
+def teach_class_eventbrite_sync(request: HttpRequest, pk: int) -> HttpResponse:
+    """The admin's Sync to Eventbrite button on the Overview: push the listing now, back to the Overview.
+
+    Behind the same check that draws the Eventbrite row (``show_eventbrite_sync``). The row then
+    reads the outcome: Listed on Eventbrite with a check, or the failure reason.
+    """
+    access: ClassAccess = request.class_access  # type: ignore[attr-defined]
+    offering = get_object_or_404(ClassOffering, pk=pk)
+    if not access.can_administer or offering.eventbrite_sync_state == ClassOffering.EventbriteSyncState.IDLE:
+        raise Http404("This class has no Eventbrite listing for this viewer to sync.")
+    offering.sync_eventbrite_listing()
     return redirect("classes:teach_class_detail", pk=offering.pk)
 
 
@@ -4188,7 +4205,7 @@ def _admin_composer(request: HttpRequest, pk: int) -> HttpResponse:
         session_formset.save()
         offering.apply_scheduling_model()
         faq_formset.save()
-        offering.sync_eventbrite_listing()
+        offering.mark_eventbrite_edit_saved()
         _mark_composer_saved(request, offering)
         if request.POST.get("action") == "publish":
             # publish() checks readiness, not status: a crafted publish on a live class would
