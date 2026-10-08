@@ -40,7 +40,7 @@ and the Past polls table. Nothing here notifies anyone.
   <h2 class="pl-spotlight-admin__title">This Week's Poll</h2>
   {% if spotlight.poll %}
   <p class="pl-spotlight-admin__question" data-open-poll="{{ spotlight.poll.pk }}">{{ spotlight.poll.question }}</p>
-  <p class="hub-text-muted pl-spotlight-admin__meta">{{ spotlight.total_votes }} vote{{ spotlight.total_votes|pluralize }} so far. Closes in {{ spotlight.poll.closes_at|timeuntil }}, on {{ spotlight.poll.closes_at|date:"D M j, g:i A" }}.</p>
+  <p class="hub-text-muted pl-spotlight-admin__meta">{{ spotlight.total_votes }} vote{{ spotlight.total_votes|pluralize }} so far. Closes in {{ spotlight.poll.closes_at|timeuntil }}, on {{ spotlight.poll.closes_label }}.</p>
   {% include "hub/partials/_poll_results.html" with results=spotlight.results %}
   <button type="button" class="pl-btn pl-btn--danger pl-btn--sm pl-btn--spaced" @click="$dispatch('open-confirm', 'close-poll')" data-close-poll>Close now</button>
   {% url 'hub_admin_spotlight_poll_close' spotlight.poll.pk as close_url %}

@@ -13,7 +13,7 @@ with the member's own answer marked. Never who voted for what.
             <span>{{ card.poll.opens_at|date:"M j, Y" }}</span>
             <span aria-hidden="true">·</span>
             <span data-poll-total>{{ card.total_votes }} vote{{ card.total_votes|pluralize }}</span>
-            {% if card.is_open %}<span aria-hidden="true">·</span><span>Closes {{ card.poll.closes_at|date:"M j" }}</span>{% endif %}
+            {% if card.is_open %}<span aria-hidden="true">·</span><span data-poll-closes>Closes {{ card.poll.closes_label }}</span>{% endif %}
         </p>
     </header>
     {% if card.shows_choices %}

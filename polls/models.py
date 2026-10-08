@@ -16,6 +16,7 @@ from typing import TYPE_CHECKING, Any
 from django.conf import settings
 from django.db import IntegrityError, models, transaction
 from django.db.models import Count, OuterRef, Q, Subquery
+from django.utils import timezone
 
 if TYPE_CHECKING:
     from django.contrib.auth.models import User
@@ -154,6 +155,12 @@ class Poll(models.Model):
                 PollChoice(poll=poll, text=text, position=index) for index, text in enumerate(answers)
             )
         return poll
+
+    @property
+    def closes_label(self) -> str:
+        """When voting ends, in Portland time: ``Tue, Oct 13 at 2:11 PM``."""
+        local = timezone.localtime(self.closes_at)
+        return f"{local:%a}, {local:%b} {local.day} at {local.hour % 12 or 12}:{local.minute:02d} {local:%p}"
 
     def is_open(self, now: datetime) -> bool:
         """Whether members can vote at ``now``."""

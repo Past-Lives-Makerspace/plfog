@@ -104,6 +104,19 @@ def describe_vote():
             poll.vote(member=None, choice_pk=poll.choices.first().pk, now=NOW)
 
 
+def describe_closes_label():
+    def it_reads_the_closing_time_in_portland():
+        poll = poll_with("Laser", "Lathe", opens_at=NOW, closes_at=datetime(2026, 10, 13, 14, 11, tzinfo=PORTLAND))
+
+        assert poll.closes_label == "Tue, Oct 13 at 2:11 PM"
+
+    def it_converts_a_utc_closing_time_to_portland():
+        utc_close = datetime(2026, 10, 14, 1, 5, tzinfo=ZoneInfo("UTC"))  # 6:05 PM Tuesday in Portland
+        poll = poll_with("Laser", "Lathe", opens_at=NOW, closes_at=utc_close)
+
+        assert poll.closes_label == "Tue, Oct 13 at 6:05 PM"
+
+
 def describe_can_vote():
     @pytest.mark.parametrize(
         ("status", "allowed"),

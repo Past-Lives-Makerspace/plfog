@@ -98,6 +98,15 @@ def describe_the_polls_page():
         assert f'hx-post="{reverse("polls:vote", args=[poll.pk])}"' in html
         assert f'data-poll-choice="{poll.choices.get(text="Laser").pk}"' in html
 
+    def it_says_when_the_open_poll_closes_with_the_time():
+        client, _member = _client_for()
+        poll = poll_with("Laser", "Lathe", question="Zorblax open")
+
+        html = client.get(INDEX).content.decode()
+
+        assert f"<span data-poll-closes>Closes {poll.closes_label}</span>" in html
+        assert " at " in poll.closes_label
+
     def it_marks_the_members_own_answer_after_voting():
         client, member = _client_for()
         poll = poll_with("Laser", "Lathe")
