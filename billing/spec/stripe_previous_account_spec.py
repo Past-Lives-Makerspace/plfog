@@ -18,6 +18,7 @@ from billing import refunds, stripe_utils
 from billing.models import BillingSettings, PaymentRefund
 from classes.factories import RegistrationFactory
 from classes.models import Registration
+from tests.billing.factories import TabFactory
 
 pytestmark = pytest.mark.django_db
 
@@ -25,6 +26,11 @@ ACTIVE_KEY = "sk_live_new_account"
 PREVIOUS_KEY = "sk_live_old_account"
 ACTIVE_WEBHOOK = "whsec_new_account"
 PREVIOUS_WEBHOOK = "whsec_old_account"
+TEST_ACTIVE_KEY = "sk_test_new_account"
+TEST_PREVIOUS_KEY = "sk_test_old_account"
+TEST_ACTIVE_WEBHOOK = "whsec_test_new_account"
+TEST_PREVIOUS_WEBHOOK = "whsec_test_old_account"
+ACCOUNTS_WEBHOOK = "whsec_connected_accounts"
 
 
 def _missing() -> stripe.InvalidRequestError:
@@ -45,7 +51,7 @@ def _configure(*, previous_key: str = PREVIOUS_KEY, previous_webhook: str = PREV
 @pytest.fixture
 def accounts() -> Iterator[dict[str, MagicMock]]:
     """One fake Stripe client per secret key, so a spec can see which account a call reached."""
-    clients = {ACTIVE_KEY: MagicMock(name="active"), PREVIOUS_KEY: MagicMock(name="previous")}
+    clients = {key: MagicMock(name=key) for key in (ACTIVE_KEY, PREVIOUS_KEY, TEST_ACTIVE_KEY, TEST_PREVIOUS_KEY)}
     with patch("billing.stripe_utils.stripe.StripeClient", side_effect=lambda key: clients[key]):
         yield clients
 
@@ -255,3 +261,129 @@ def describe_creation_calls():
             call()
 
         assert _previous(accounts).mock_calls == []
+
+
+def _event(event_type: str, obj: dict[str, Any]) -> bytes:
+    return json.dumps({"id": "evt_1", "object": "event", "type": event_type, "data": {"object": obj}}).encode()
+
+
+def _post(client: Client, payload: bytes, secret: str) -> int:
+    return client.post(
+        "/billing/webhooks/stripe/",
+        data=payload,
+        content_type="application/json",
+        HTTP_STRIPE_SIGNATURE=_signed(payload, secret),
+    ).status_code
+
+
+_CARD_EVENTS = {
+    "setup_intent.succeeded": {
+        "id": "seti_old",
+        "object": "setup_intent",
+        "customer": "cus_moved",
+        "payment_method": "pm_other",
+    },
+    "payment_method.detached": {"id": "pm_moved", "object": "payment_method"},
+    "payment_method.updated": {
+        "id": "pm_moved",
+        "object": "payment_method",
+        "card": {"last4": "0000", "brand": "amex"},
+    },
+}
+
+
+def describe_previous_account_card_events():
+    @pytest.mark.parametrize("event_type", list(_CARD_EVENTS))
+    def it_acknowledges_and_ignores_them_leaving_the_tab_untouched(event_type: str, client: Client, accounts):
+        _configure()
+        tab = TabFactory(stripe_customer_id="cus_moved", stripe_payment_method_id="pm_moved")
+
+        status = _post(client, _event(event_type, _CARD_EVENTS[event_type]), PREVIOUS_WEBHOOK)
+
+        assert status == 200
+        tab.refresh_from_db()
+        assert (tab.stripe_payment_method_id, tab.payment_method_last4, tab.payment_method_brand) == (
+            "pm_moved",
+            "4242",
+            "visa",
+        )
+        assert all(stripe_client.mock_calls == [] for stripe_client in accounts.values())
+
+    def it_still_handles_the_same_detach_from_the_active_account(client: Client):
+        _configure()
+        tab = TabFactory(stripe_customer_id="cus_moved", stripe_payment_method_id="pm_moved")
+
+        status = _post(
+            client, _event("payment_method.detached", _CARD_EVENTS["payment_method.detached"]), ACTIVE_WEBHOOK
+        )
+
+        assert status == 200
+        tab.refresh_from_db()
+        assert tab.stripe_payment_method_id == ""
+
+
+def describe_webhook_secret_order():
+    def it_verifies_with_the_previous_secret_when_the_connected_accounts_secret_does_not_match():
+        bs = _configure()
+        bs.connect_accounts_webhook_secret = ACCOUNTS_WEBHOOK
+        bs.save()
+        payload = _event("charge.refunded", {"id": "ch_old", "object": "charge", "payment_intent": "pi_old"})
+
+        event = stripe_utils.construct_webhook_event(payload=payload, sig_header=_signed(payload, PREVIOUS_WEBHOOK))
+
+        assert event is not None
+        assert event.type == "charge.refunded"
+
+
+def _configure_both_modes(*, test_mode: bool) -> None:
+    bs = _configure()
+    bs.test_mode = test_mode
+    bs.test_connect_platform_secret_key = TEST_ACTIVE_KEY
+    bs.test_connect_platform_webhook_secret = TEST_ACTIVE_WEBHOOK
+    bs.test_previous_secret_key = TEST_PREVIOUS_KEY
+    bs.test_previous_webhook_secret = TEST_PREVIOUS_WEBHOOK
+    bs.save()
+
+
+def describe_previous_account_mode_selection():
+    def describe_with_testing_mode_on():
+        def it_falls_back_to_the_test_previous_key_only(accounts):
+            _configure_both_modes(test_mode=True)
+            accounts[TEST_ACTIVE_KEY].v1.checkout.sessions.expire.side_effect = _missing()
+
+            stripe_utils.expire_checkout_session(session_id="cs_old_t")
+
+            accounts[TEST_PREVIOUS_KEY].v1.checkout.sessions.expire.assert_called_once_with("cs_old_t")
+            assert accounts[PREVIOUS_KEY].mock_calls == []
+            assert accounts[ACTIVE_KEY].mock_calls == []
+
+        def it_verifies_with_the_test_previous_webhook_secret_only():
+            _configure_both_modes(test_mode=True)
+            payload = _event("charge.refunded", {"id": "ch_old", "object": "charge", "payment_intent": "pi_old"})
+
+            assert stripe_utils.construct_webhook_event(
+                payload=payload, sig_header=_signed(payload, TEST_PREVIOUS_WEBHOOK)
+            )
+            with pytest.raises(stripe.SignatureVerificationError):
+                stripe_utils.construct_webhook_event(payload=payload, sig_header=_signed(payload, PREVIOUS_WEBHOOK))
+
+    def describe_with_testing_mode_off():
+        def it_falls_back_to_the_live_previous_key_only(accounts):
+            _configure_both_modes(test_mode=False)
+            accounts[ACTIVE_KEY].v1.checkout.sessions.expire.side_effect = _missing()
+
+            stripe_utils.expire_checkout_session(session_id="cs_old_l")
+
+            accounts[PREVIOUS_KEY].v1.checkout.sessions.expire.assert_called_once_with("cs_old_l")
+            assert accounts[TEST_PREVIOUS_KEY].mock_calls == []
+            assert accounts[TEST_ACTIVE_KEY].mock_calls == []
+
+        def it_verifies_with_the_live_previous_webhook_secret_only():
+            _configure_both_modes(test_mode=False)
+            payload = _event("charge.refunded", {"id": "ch_old", "object": "charge", "payment_intent": "pi_old"})
+
+            assert stripe_utils.construct_webhook_event(payload=payload, sig_header=_signed(payload, PREVIOUS_WEBHOOK))
+            with pytest.raises(stripe.SignatureVerificationError):
+                stripe_utils.construct_webhook_event(
+                    payload=payload, sig_header=_signed(payload, TEST_PREVIOUS_WEBHOOK)
+                )

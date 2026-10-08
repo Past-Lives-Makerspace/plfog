@@ -13,8 +13,9 @@ page (Payments → Reports) and paid out manually.
 
 from __future__ import annotations
 
-from datetime import datetime, timedelta
+import logging
 from collections.abc import Callable
+from datetime import datetime, timedelta
 from typing import TYPE_CHECKING, Any, TypeVar
 
 import stripe
@@ -27,6 +28,8 @@ if TYPE_CHECKING:
     from billing.models import BillingSettings
 
 _T = TypeVar("_T")
+
+logger = logging.getLogger(__name__)
 
 CLASS_CHECKOUT_SESSION_LIFETIME = timedelta(hours=1)
 """How long a class Checkout Session stays payable before Stripe expires it server-side.
@@ -92,9 +95,31 @@ def _on_owning_account(call: Callable[[stripe.StripeClient], _T]) -> _T:
         return call(stripe.StripeClient(previous_key))
 
 
-def _previous_webhook_secret(bs: BillingSettings) -> str:
-    """The previous account endpoint's signing secret for the current mode; blank when there is none."""
-    return bs.active_previous_webhook_secret
+_PREVIOUS_ACCOUNT_IGNORED_EVENTS = ("setup_intent.", "payment_method.")
+"""Event type prefixes acknowledged and ignored when the previous account sends them.
+
+Only the payment and refund lifecycle (charge, refund, checkout session, payment intent,
+dispute) is handled from the previous account. Saved cards are the active account's:
+copied cards keep their ids, so a ``payment_method.detached`` on the previous account
+must not clear a card that still works on the active one, and a ``setup_intent`` there
+would look its card up on the wrong account.
+"""
+
+
+def _previous_account_event(*, payload: bytes, sig_header: str, bs: BillingSettings) -> stripe.Event | None:
+    """Verify ``payload`` with the previous account's webhook secret; ``None`` for an event plfog ignores there.
+
+    Raises:
+        stripe.SignatureVerificationError: No previous secret is set, or it does not match.
+    """
+    secret = bs.active_previous_webhook_secret
+    if not secret:
+        raise stripe.SignatureVerificationError("No previous account webhook secret is set.", sig_header)
+    event = stripe.Webhook.construct_event(payload=payload, sig_header=sig_header, secret=secret)
+    if event.type.startswith(_PREVIOUS_ACCOUNT_IGNORED_EVENTS):
+        logger.info("Ignored %s %s from the previous Stripe account.", event.type, event.id)
+        return None
+    return event
 
 
 # ---------------------------------------------------------------------------
@@ -372,13 +397,17 @@ def list_refunds_for_payment_intent(*, payment_intent_id: str) -> list[dict[str,
     return [{"id": refund.id, "status": refund.status, "amount": refund.amount} for refund in refunds.data]
 
 
-def construct_webhook_event(*, payload: bytes, sig_header: str) -> stripe.Event:
+def construct_webhook_event(*, payload: bytes, sig_header: str) -> stripe.Event | None:
     """Verify and construct a Stripe webhook event from the raw payload.
 
     Uses the raw request body to verify the Stripe signature. The signing
     secrets are read from BillingSettings and tried in order: the platform
     endpoint's, the Connected accounts endpoint's, then the previous Stripe
-    account endpoint's (#702). The last one set decides the error raised.
+    account endpoint's (#702).
+
+    Returns:
+        The event, or ``None`` for a previous account event plfog acknowledges
+        without handling (see ``_PREVIOUS_ACCOUNT_IGNORED_EVENTS``).
 
     Raises:
         stripe.SignatureVerificationError: If no configured secret matches the signature.
@@ -391,20 +420,20 @@ def construct_webhook_event(*, payload: bytes, sig_header: str) -> stripe.Event:
             secret=_platform_webhook_secret(),
         )
     except stripe.SignatureVerificationError as platform_error:
+        bs = _billing_settings()
         # Connect events (account.updated for payouts, #662) come from a second Stripe
         # endpoint scoped to Connected accounts, pointed at the same URL with its own secret.
-        # Events about payments made before the switch come from the previous account's endpoint.
-        bs = _billing_settings()
-        fallback_secrets = [
-            secret for secret in (bs.active_accounts_webhook_secret, _previous_webhook_secret(bs)) if secret
-        ]
-        error = platform_error
-        for secret in fallback_secrets:
+        accounts_secret = bs.active_accounts_webhook_secret
+        if accounts_secret:
             try:
-                return stripe.Webhook.construct_event(payload=payload, sig_header=sig_header, secret=secret)
-            except stripe.SignatureVerificationError as fallback_error:
-                error = fallback_error
-        raise error from None
+                return stripe.Webhook.construct_event(payload=payload, sig_header=sig_header, secret=accounts_secret)
+            except stripe.SignatureVerificationError:
+                pass
+        # Events about payments made before the switch come from the previous account's endpoint.
+        try:
+            return _previous_account_event(payload=payload, sig_header=sig_header, bs=bs)
+        except stripe.SignatureVerificationError:
+            raise platform_error from None
 
 
 def verify_platform_credentials(secret_key: str) -> dict[str, Any]:

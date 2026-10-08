@@ -182,6 +182,9 @@ def stripe_webhook(request: HttpRequest) -> HttpResponse:
     except Exception:
         logger.exception("Webhook signature verification failed.")
         return HttpResponse(status=400)
+    if event is None:
+        # A previous Stripe account event plfog acknowledges without handling (#702).
+        return HttpResponse(status=200)
 
     event_type = event.type if hasattr(event, "type") else event.get("type", "")
     handler = _WEBHOOK_HANDLERS.get(event_type)
