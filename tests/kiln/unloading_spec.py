@@ -76,6 +76,17 @@ def describe_unload_kiln():
         assert result.message == f"{firing.name} is unloaded: 2 tickets ready for pickup. 2 makers notified."
         assert not KilnReply.objects.exists()
 
+    def it_counts_only_makers_a_notice_can_reach(crew, maker, make_member, kiln_guild):
+        userless = make_member()
+        one, two = _waiting(maker), _waiting(userless)
+        firing = _loaded(crew, one, two)
+        type(userless).objects.filter(pk=userless.pk).update(user=None)
+
+        result = unload_kiln(firing_pk=firing.pk, exceptions={}, by=crew)
+
+        assert (result.fired, result.notified) == (2, 1)
+        assert result.message.endswith("1 maker notified.")
+
     def it_fires_an_exception_with_its_note_on_the_thread(crew, maker, kiln_guild):
         ticket = _waiting(maker)
         firing = _loaded(crew, ticket)

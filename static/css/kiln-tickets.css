@@ -273,10 +273,6 @@ a.pl-kiln-row__title { color: var(--hub-link); text-decoration: none; }
 .pl-kiln-log-table .pl-kiln-num { text-align: right; font-variant-numeric: tabular-nums; }
 .pl-kiln-log-table a { color: var(--hub-link); font-weight: 600; text-decoration: none; }
 .pl-kiln-log-table small { display: block; color: var(--hub-text-muted); font-size: 0.78rem; }
-.pl-kiln-log-open td { background: var(--hub-surface); }
-.pl-kiln-log-strip { display: flex; gap: 0.5rem; flex-wrap: wrap; padding: 0.25rem 0; }
-.pl-kiln-log-strip > a { width: 72px; text-align: center; font-size: 0.72rem; color: var(--hub-text-muted); font-weight: 500; }
-.pl-kiln-log-strip > a > span:first-child { display: block; width: 72px; height: 72px; border-radius: 8px; overflow: hidden; margin-bottom: 0.2rem; }
 .pl-kiln-type { display: inline-flex; align-items: center; gap: 0.3rem; font-weight: 600; }
 .pl-kiln-log-cards { display: none; list-style: none; margin: 0; padding: 0; }
 @media (max-width: 768px) {

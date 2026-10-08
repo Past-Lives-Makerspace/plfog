@@ -482,7 +482,7 @@ def ticket_url(ticket: KilnTicket) -> str:
 
 
 def _notify_makers(firing: KilnFiring, ticket_pks: list[int], notes: dict[int, KilnReply], by: Member) -> int:
-    """Send each maker with a piece in ``firing`` one notice, and say how many were sent.
+    """Send each maker with a piece in ``firing`` one notice, and say how many it reached.
 
     The period is the firing, so even a retry of the same firing never tells a maker twice.
     The crew member unloading is not told about their own pieces. Guests (class students)
@@ -500,6 +500,7 @@ def _notify_makers(firing: KilnFiring, ticket_pks: list[int], notes: dict[int, K
     by_maker: dict[int, list[KilnTicket]] = {}
     for ticket in tickets:
         by_maker.setdefault(ticket.maker_id, []).append(ticket)
+    reached = 0
     for maker_tickets in by_maker.values():
         notice = PickupNotice(
             firing=firing,
@@ -508,7 +509,7 @@ def _notify_makers(firing: KilnFiring, ticket_pks: list[int], notes: dict[int, K
             returned=[t for t in maker_tickets if t.status == KilnTicket.Status.SUBMITTED],
             notes={t.pk: notes[t.pk] for t in maker_tickets if t.pk in notes},
         )
-        emit(
+        sent = emit(
             KILN_READY_FOR_PICKUP,
             target=firing,
             context={
@@ -524,7 +525,9 @@ def _notify_makers(firing: KilnFiring, ticket_pks: list[int], notes: dict[int, K
             url=notice.url,
             period=f"firing-{firing.pk}",
         )
-    return len(by_maker)
+        # A member with no login (kept on purpose after account merges) has nobody to tell.
+        reached += sent.recipient_count > 0
+    return reached
 
 
 # ---- the kiln log ----------------------------------------------------------------------
