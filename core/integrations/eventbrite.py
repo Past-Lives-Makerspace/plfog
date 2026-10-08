@@ -27,6 +27,7 @@ from django.conf import settings
 from django.utils import timezone
 
 if TYPE_CHECKING:
+    from collections.abc import Sequence
     from datetime import datetime
 
     from classes.models import ClassOffering
@@ -67,6 +68,18 @@ class EventbriteSync:
 
     SYNC_OFF = "Eventbrite sync is off."
     STILL_UP = "Sales are closed. Eventbrite keeps the event page up while it holds orders."
+    GALLERY_CHANGED = "The gallery changed."
+
+    @staticmethod
+    def photos_not_sent(reasons: list[str]) -> str:
+        """The note a listed class carries when some gallery photos did not upload; the first reason shown."""
+        count = len(reasons)
+        return f"{count} photo{'' if count == 1 else 's'} could not be sent: {reasons[0]}"
+
+    @staticmethod
+    def photos_not_shown(reason: str) -> str:
+        """The note a listed class carries when Eventbrite refused the description with its photos."""
+        return f"Photos could not be shown, the description went without them: {reason}"
 
 
 def estimate_fee_cents(price_cents: int) -> int:
@@ -113,20 +126,34 @@ class EventbriteClient:
     def update_ticket_class(self, event_id: str, ticket_class_id: str, body: dict[str, Any]) -> dict[str, Any]:
         return self._call("POST", f"/events/{event_id}/ticket_classes/{ticket_class_id}/", json=body)
 
-    def set_description(self, event_id: str, html: str) -> None:
-        """Publish ``html`` as the listing's one text module (structured content, next version)."""
+    def set_description(self, event_id: str, html: str, image_ids: Sequence[str] = ()) -> None:
+        """Publish ``html`` as the listing's text module, then one image module per media ID in order.
+
+        Structured content is versioned and replaced whole, so every call sends the next version
+        with everything the page should show. An ``<img>`` inside the text module is stripped by
+        Eventbrite, which is why photos go as image modules of uploaded media.
+        """
         current = self._call("GET", f"/events/{event_id}/structured_content/edit/", params={"purpose": "listing"})
         try:
             version = int(field(current, "page_version_number")) + 1
         except (TypeError, ValueError) as exc:
             raise EventbriteError(f"Unreadable structured content version: {current!r}"[:300]) from exc
-        module = {"type": "text", "data": {"body": {"type": "text", "text": html, "alignment": "left"}}}
-        body = {"modules": [module], "publish": True, "purpose": "listing"}
+        text = {"type": "text", "data": {"body": {"type": "text", "text": html, "alignment": "left"}}}
+        images = [{"type": "image", "data": {"image": {"type": "image", "image_id": i}}} for i in image_ids]
+        body = {"modules": [text, *images], "publish": True, "purpose": "listing"}
         self._call("POST", f"/events/{event_id}/structured_content/{version}/", json=body)
 
     def upload_logo(self, filename: str, content: bytes) -> str:
-        """Upload an event image and return its media ID (Eventbrite's three step media upload)."""
-        ticket = self._call("GET", "/media/upload/", params={"type": "image-event-logo"})
+        """Upload the event's main image and return its media ID."""
+        return self._upload_media(filename, content, "image-event-logo")
+
+    def upload_content_image(self, filename: str, content: bytes) -> str:
+        """Upload a photo for an image module of the description and return its media ID."""
+        return self._upload_media(filename, content, "image-structured-content")
+
+    def _upload_media(self, filename: str, content: bytes, media_type: str) -> str:
+        """Eventbrite's three step media upload: a ticket, the file to its bucket, then the finish."""
+        ticket = self._call("GET", "/media/upload/", params={"type": media_type})
         files = {field(ticket, "file_parameter_name"): (filename, content)}
         url, data = field(ticket, "upload_url"), field(ticket, "upload_data")
         try:
@@ -249,8 +276,63 @@ def _logo_id(client: EventbriteClient, offering: ClassOffering) -> str:
         return ""
 
 
-def _list(client: EventbriteClient, offering: ClassOffering) -> None:
-    """Create or update the event and its ticket class, then publish it if it is not live."""
+def _gallery_image_ids(client: EventbriteClient, offering: ClassOffering) -> tuple[list[str], list[str]]:
+    """The gallery's Eventbrite media IDs in gallery order, and why any photo was left out.
+
+    A photo is uploaded once: its media ID is stored on the row and reused by every later sync.
+    A photo that will not upload is skipped, because a picture never fails a listing.
+    """
+    image_ids: list[str] = []
+    refused: list[str] = []
+    for photo in offering.gallery_images.all():
+        if not photo.eventbrite_image_id:
+            try:
+                with photo.image.open("rb") as file:
+                    name = PurePosixPath(photo.image.name or "photo.jpg").name
+                    photo.remember_eventbrite_image(client.upload_content_image(name, file.read()))
+            except (EventbriteError, OSError) as exc:
+                logger.warning("Eventbrite gallery upload failed for class image %s: %s", photo.pk, exc)
+                refused.append(str(exc))
+                continue
+        image_ids.append(photo.eventbrite_image_id)
+    return image_ids, refused
+
+
+def _set_description(client: EventbriteClient, offering: ClassOffering, html: str) -> str:
+    """Publish the description with the gallery; returns the note for the class ("" when all went).
+
+    When Eventbrite refuses the description with its photos (400), it goes again as text only,
+    so the listing still syncs and publishes; any other failure raises as before.
+    """
+    image_ids, refused = _gallery_image_ids(client, offering)
+    note = EventbriteSync.photos_not_sent(refused) if refused else ""
+    try:
+        client.set_description(offering.eventbrite_event_id, html, image_ids)
+    except EventbriteError as exc:
+        if exc.status != 400 or not image_ids:
+            raise
+        logger.warning("Eventbrite refused the gallery for class %s: %s", offering.pk, exc)
+        client.set_description(offering.eventbrite_event_id, html)
+        note = EventbriteSync.photos_not_shown(str(exc))
+    return note
+
+
+def _is_live(offering: ClassOffering) -> bool:
+    """Whether the event is already live: listed, or back in the retry set only because its gallery changed."""
+    state = offering.EventbriteSyncState
+    if offering.eventbrite_sync_state == state.LISTED:
+        return True
+    return (
+        offering.eventbrite_sync_state == state.PENDING
+        and offering.eventbrite_sync_error == EventbriteSync.GALLERY_CHANGED
+    )
+
+
+def _list(client: EventbriteClient, offering: ClassOffering) -> str:
+    """Create or update the event and its ticket class, then publish it if it is not live.
+
+    Returns the note to record on the listed class: blank, or why some photos are missing.
+    """
     sessions = list(offering.sessions.order_by("starts_at"))
     event = _event_body(offering, client, sessions)
     if not offering.eventbrite_event_id:
@@ -267,9 +349,10 @@ def _list(client: EventbriteClient, offering: ClassOffering) -> None:
     else:
         ticket = _ticket_body(offering, sessions, _quantity_total(client, offering))
         client.update_ticket_class(offering.eventbrite_event_id, offering.eventbrite_ticket_class_id, ticket)
-    client.set_description(offering.eventbrite_event_id, _description_html(offering, sessions))
-    if offering.eventbrite_sync_state != offering.EventbriteSyncState.LISTED:
+    note = _set_description(client, offering, _description_html(offering, sessions))
+    if not _is_live(offering):
         client.publish(offering.eventbrite_event_id)
+    return note
 
 
 def _end(client: EventbriteClient, offering: ClassOffering) -> str:
@@ -305,8 +388,8 @@ def sync_class_listing(offering: ClassOffering) -> None:
         return
     try:
         if wanted:
-            _list(client, offering)
-            offering.eventbrite_sync_state, offering.eventbrite_sync_error = state.LISTED, ""
+            note = _list(client, offering)
+            offering.eventbrite_sync_state, offering.eventbrite_sync_error = state.LISTED, note[:_SYNC_ERROR_MAX]
         else:
             offering.eventbrite_sync_error = _end(client, offering)
             offering.eventbrite_sync_state = state.ENDED

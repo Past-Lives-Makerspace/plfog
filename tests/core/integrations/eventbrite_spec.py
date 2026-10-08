@@ -121,6 +121,58 @@ def describe_requests():
         assert body["modules"][0]["data"]["body"]["text"] == "<p>Hi</p>"
 
     @respx.mock
+    def it_publishes_each_gallery_photo_as_an_image_module_after_the_text():
+        # The body Eventbrite took on event 2003170172911 (#707): text first, then one image module per photo.
+        respx.get(f"{API_BASE}/events/ev-1/structured_content/edit/").respond(json={"page_version_number": "3"})
+        route = respx.post(f"{API_BASE}/events/ev-1/structured_content/4/").respond(json={})
+
+        _client().set_description("ev-1", "<p>Hi</p>", ["111", "222"])
+
+        assert json.loads(route.calls.last.request.content) == {
+            "modules": [
+                {"type": "text", "data": {"body": {"type": "text", "text": "<p>Hi</p>", "alignment": "left"}}},
+                {"type": "image", "data": {"image": {"type": "image", "image_id": "111"}}},
+                {"type": "image", "data": {"image": {"type": "image", "image_id": "222"}}},
+            ],
+            "publish": True,
+            "purpose": "listing",
+        }
+
+    @respx.mock
+    def it_uploads_a_gallery_photo_as_structured_content_media():
+        ticket = respx.get(f"{API_BASE}/media/upload/").respond(
+            json={
+                "upload_url": "https://uploads.example.com/",
+                "upload_data": {"key": "k"},
+                "file_parameter_name": "file",
+                "upload_token": "tok",
+            }
+        )
+        respx.post("https://uploads.example.com/").respond(204)
+        respx.post(f"{API_BASE}/media/upload/").respond(json={"id": 1195404694})
+
+        assert _client().upload_content_image("bowl.jpg", b"jpeg") == "1195404694"
+
+        assert ticket.calls.last.request.url.params["type"] == "image-structured-content"
+
+    @respx.mock
+    def it_uploads_the_main_image_as_an_event_logo():
+        ticket = respx.get(f"{API_BASE}/media/upload/").respond(
+            json={
+                "upload_url": "https://uploads.example.com/",
+                "upload_data": {},
+                "file_parameter_name": "f",
+                "upload_token": "t",
+            }
+        )
+        respx.post("https://uploads.example.com/").respond(204)
+        respx.post(f"{API_BASE}/media/upload/").respond(json={"id": 5})
+
+        _client().upload_logo("hero.jpg", b"jpeg")
+
+        assert ticket.calls.last.request.url.params["type"] == "image-event-logo"
+
+    @respx.mock
     def it_uploads_an_image_in_three_steps_and_returns_its_media_id():
         respx.get(f"{API_BASE}/media/upload/").respond(
             json={
