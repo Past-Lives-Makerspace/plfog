@@ -6,6 +6,7 @@ Every Eventbrite call goes to the :class:`FakeEventbrite` the listing specs use,
 
 from __future__ import annotations
 
+import re
 from collections.abc import Iterator
 from typing import Any
 from unittest.mock import MagicMock, patch
@@ -95,6 +96,13 @@ def _composer_payload(offering: ClassOffering) -> dict[str, str]:
         "sessions-0-ends_at": session.ends_at.astimezone().strftime("%Y-%m-%dT%H:%M"),
         **_faq_management(),
     }
+
+
+def _busy_buttons(html: str) -> list[str]:
+    """The labels of the composer bar's buttons that carry ``data-pl-busy``, in page order."""
+    bar = html.split('<div class="pl-composer-bar">', 1)[1].split("</form>", 1)[0]
+    tags = re.findall(r"<button\b([^>]*)>(.*?)</button>", bar, re.S)
+    return [label.strip() for attrs, label in tags if re.search(r"\sdata-pl-busy(\s|$)", attrs)]
 
 
 def _assert_waiting(offering: ClassOffering, eventbrite: FakeEventbrite) -> None:
@@ -187,6 +195,21 @@ def describe_an_edit_save_on_a_listed_class():
         offering.mark_eventbrite_edit_saved()
 
         _assert_waiting(offering, eventbrite)
+
+    def it_still_publishes_a_draft_event_whose_publish_failed_on_the_retry_tick(eventbrite: FakeEventbrite):
+        # #710's status rule survives the deferral: Eventbrite says draft, so the retry publishes it.
+        eventbrite.event_status = "draft"
+        offering = _listed(eventbrite_sync_state=State.FAILED, eventbrite_sync_error="POST publish: 400")
+
+        offering.mark_eventbrite_edit_saved()
+        _assert_waiting(offering, eventbrite)
+        call_command("retry_eventbrite_pushes")
+
+        assert eventbrite.names()[-1] == "publish"
+        assert eventbrite.args("publish") == ("ev-9",)
+        offering.refresh_from_db()
+        assert offering.eventbrite_sync_state == State.LISTED
+        assert offering.eventbrite_sync_label == "Listed on Eventbrite"
 
 
 def describe_mark_eventbrite_edit_saved():
@@ -338,12 +361,21 @@ def describe_the_busy_save_buttons():
         assert 'type="submit" data-pl-busy>Save</button>' in html
         assert "window.plBusySubmitBound" in html
 
-    def it_marks_every_composer_submit_button_busy(client: Client):
+    def it_marks_the_admin_composer_save_and_publish_busy(client: Client):
         offering = ClassOfferingFactory(status=ClassOffering.Status.DRAFT)
         client.force_login(_admin())
 
         html = client.get(reverse("classes:teach_class_edit", kwargs={"pk": offering.pk})).content.decode()
 
         assert 'id="composer-form" x-ref="composerForm" novalidate data-pl-busy-submit>' in html
-        assert html.count("data-pl-busy\n") + html.count("data-pl-busy ") >= 2
+        assert _busy_buttons(html) == ["Save Draft", "Publish"]
         assert "window.plBusySubmitBound" in html
+
+    def it_marks_the_instructor_composer_save_and_submit_busy(client: Client):
+        instructor = _instructor()
+        offering = ClassOfferingFactory(instructor=instructor, status=ClassOffering.Status.DRAFT)
+        client.force_login(instructor.user)
+
+        html = client.get(reverse("classes:teach_class_edit", kwargs={"pk": offering.pk})).content.decode()
+
+        assert _busy_buttons(html) == ["Save Draft", "Submit for Review"]
