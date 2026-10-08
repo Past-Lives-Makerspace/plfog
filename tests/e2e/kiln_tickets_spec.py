@@ -22,7 +22,7 @@ from PIL import Image
 from playwright.sync_api import expect
 
 from core.models import SiteConfiguration
-from kiln.models import KilnFlag, KilnTicket
+from kiln.models import GlazeOption, KilnFlag, KilnTicket
 from tests.membership.factories import GuildFactory, GuildMembershipFactory, MembershipPlanFactory
 
 EMAIL = "kiln-maker@example.com"
@@ -70,6 +70,8 @@ def describe_filing_kiln_tickets():
         config.kiln_tickets_open = True  # the launch switch; off by default until the crew screens ship
         config.save(update_fields=["kiln_tickets_open"])
         guild = GuildFactory(name="Ceramics Guild", slug="ceramics-guild")
+        # An earlier live_server spec flushes the tables, seeded lists included, so make the one glaze this picks.
+        GlazeOption.objects.get_or_create(name="Ritual Clear", archived_at=None)
         login_via_code(EMAIL)
         member = get_user_model().objects.get(username=EMAIL).member
         GuildMembershipFactory(guild=guild, member=member)
