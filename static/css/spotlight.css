@@ -662,3 +662,66 @@ html:not([data-spotlight-min]) .pl-spotlight-live .pl-spotlight--minimized {
     font-size: 0.85rem;
     color: var(--hub-text-muted);
 }
+
+/* ---- Felix's visual fixes (#717) ---- */
+/* Standard: the Virtual pill and Details share one row; Details keeps the right. */
+.pl-spotlight__actions {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.5rem;
+}
+
+.pl-spotlight__actions .pl-spotlight__details {
+    margin-left: auto;
+}
+
+/* Minimized: the dot sits left of the two lines, centred on the first. The slot keeps its
+   width with no dot, so the text never jumps when the dot clears. */
+.pl-spotlight-live .pl-spotlight__min {
+    flex-direction: row;
+    align-items: flex-start;
+    gap: 0.5rem;
+    padding-right: 0.75rem;
+}
+
+.pl-spotlight__dot-slot {
+    display: flex;
+    flex-shrink: 0;
+    align-items: center;
+    width: 8px;
+    height: calc(0.8125rem * 1.5);
+}
+
+.pl-spotlight-live .pl-spotlight__dot {
+    position: static;
+}
+
+.pl-spotlight__min-text {
+    display: flex;
+    flex-direction: column;
+    gap: 0.25rem;
+    min-width: 0;
+}
+
+/* Past polls reads as a link: the accent colour, an arrow, underline on hover, a real target. */
+.pl-spotlight__past,
+.pl-spotlight-panel__link {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.25rem;
+    align-self: flex-start;
+    min-height: 32px;
+    font-size: 0.875rem;
+    font-weight: 600;
+    color: var(--color-tuscan-yellow);
+    text-decoration: none;
+}
+
+.pl-spotlight__past:hover,
+.pl-spotlight__past:focus-visible,
+.pl-spotlight-panel__link:hover,
+.pl-spotlight-panel__link:focus-visible {
+    text-decoration: underline;
+}

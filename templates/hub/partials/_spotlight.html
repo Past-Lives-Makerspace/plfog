@@ -39,40 +39,43 @@ Expanded panel. next_url is where a plain vote post lands.
     {% if past_polls_url %}<a class="pl-spotlight__past" href="{{ past_polls_url }}" data-spotlight-past>Past polls</a>{% endif %}
     <div class="pl-spotlight__meeting" data-spotlight-meeting x-show="meetings[meeting]">
         <p class="pl-spotlight__eyebrow">Next Feature Request Meeting</p>
-        <p class="pl-spotlight__when">
-            <span data-spotlight-when x-text="meetings[meeting] && meetings[meeting].when">{{ spotlight.meeting.when }}</span>
-            <span class="pl-spotlight__virtual" x-show="meetings[meeting] && meetings[meeting].virtual">Virtual</span>
-        </p>
+        <p class="pl-spotlight__when"><span data-spotlight-when x-text="meetings[meeting] && meetings[meeting].when">{{ spotlight.meeting.when }}</span></p>
     </div>
-    <button type="button" class="pl-btn pl-btn--primary pl-btn--sm pl-spotlight__details" data-spotlight-details>Details</button>
+    <div class="pl-spotlight__actions">
+        <span class="pl-spotlight__virtual" x-show="meetings[meeting] && meetings[meeting].virtual">Virtual</span>
+        <button type="button" class="pl-btn pl-btn--primary pl-btn--sm pl-spotlight__details" data-spotlight-details>Details</button>
+    </div>
 </section>
 {% endif %}
 {% else %}
 <div class="pl-spotlight-live" data-spotlight data-spotlight-signature="{{ spotlight.seen_signature }}" x-data x-init="$store.spotlight.arrive($el.dataset.spotlightSignature)">
     <div class="pl-spotlight pl-spotlight--minimized" data-spotlight-state="minimized">
         <button type="button" class="pl-spotlight__min" aria-label="Open the Spotlight" @click="$store.spotlight.open()">
-            <span class="pl-spotlight__dot" data-spotlight-dot x-show="$store.spotlight.unseen" x-cloak aria-label="Something new"></span>
-            <span class="pl-spotlight__line" data-spotlight-first>{{ spotlight.first_line }}</span>
-            <span class="pl-spotlight__line pl-spotlight__line--second">
-                <span data-spotlight-second>{{ spotlight.second_line }}</span>
-                {% if spotlight.meeting %}<span class="pl-spotlight__pill" data-spotlight-pill>{{ spotlight.meeting.pill }}</span>{% endif %}
+            <span class="pl-spotlight__dot-slot"><span class="pl-spotlight__dot" data-spotlight-dot x-show="$store.spotlight.unseen" x-cloak aria-label="Something new"></span></span>
+            <span class="pl-spotlight__min-text">
+                <span class="pl-spotlight__line" data-spotlight-first>{{ spotlight.first_line }}</span>
+                <span class="pl-spotlight__line pl-spotlight__line--second">
+                    <span data-spotlight-second>{{ spotlight.second_line }}</span>
+                    {% if spotlight.meeting %}<span class="pl-spotlight__pill" data-spotlight-pill>{{ spotlight.meeting.pill }}</span>{% endif %}
+                </span>
             </span>
         </button>
     </div>
     <section class="pl-spotlight pl-spotlight--standard" data-spotlight-state="standard" aria-label="Spotlight">
         <button type="button" class="pl-spotlight__minimize" aria-label="Minimize the Spotlight" data-spotlight-minimize @click="$store.spotlight.minimize()">&minus;</button>
         {% if spotlight.card %}{% include "polls/partials/_poll_card.html" with card=spotlight.card variant="spotlight" %}{% elif spotlight.latest_update %}{% include "hub/partials/_spotlight_update.html" with update=spotlight.latest_update %}{% endif %}
-        <a class="pl-spotlight__past" href="{% url 'polls:index' %}" data-spotlight-past>Past polls</a>
+        <a class="pl-spotlight__past" href="{% url 'polls:index' %}" data-spotlight-past>Past polls <span aria-hidden="true">&rarr;</span></a>
         {% if spotlight.meeting %}
         <div class="pl-spotlight__meeting" data-spotlight-meeting>
             <p class="pl-spotlight__eyebrow">Next Feature Request Meeting</p>
-            <p class="pl-spotlight__when">
-                <span data-spotlight-when>{{ spotlight.meeting.when }}</span>
-                {% if spotlight.meeting.video_url %}<span class="pl-spotlight__virtual">Virtual</span>{% endif %}
-            </p>
+            <p class="pl-spotlight__when"><span data-spotlight-when>{{ spotlight.meeting.when }}</span></p>
         </div>
         {% endif %}
-        <button type="button" class="pl-btn pl-btn--primary pl-btn--sm pl-spotlight__details" data-spotlight-details @click="$store.spotlight.expand()">Details</button>
+        {# Virtual on the left and Details on the right of one row; with no pill, Details keeps the right. #}
+        <div class="pl-spotlight__actions" data-spotlight-actions>
+            {% if spotlight.meeting.video_url %}<span class="pl-spotlight__virtual">Virtual</span>{% endif %}
+            <button type="button" class="pl-btn pl-btn--primary pl-btn--sm pl-spotlight__details" data-spotlight-details @click="$store.spotlight.expand()">Details</button>
+        </div>
     </section>
 </div>
 {% endif %}
