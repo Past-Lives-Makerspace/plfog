@@ -5031,9 +5031,16 @@ def _granted_instructor_pk(request: HttpRequest) -> int | None:
 @classes_registrations_access_required
 def admin_registrations(request: HttpRequest) -> HttpResponse:
     scoped = _scoped_registrations(request)
+    # The Class Date column and its sort: the class's sessions, the same span the admin
+    # Classes list shows as Date(s). Annotated here rather than in _filter_registrations so
+    # the CSV export keeps its own columns.
+    rows = _filter_registrations(request, scoped).annotate(
+        class_first_session=Min("class_offering__sessions__starts_at"),
+        class_last_session=Max("class_offering__sessions__starts_at"),
+    )
     table = prepare_table(
         request,
-        _filter_registrations(request, scoped),
+        rows,
         search_fields=["first_name", "last_name", "email", "class_offering__title"],
         default_sort="registered_at",
         default_dir="desc",

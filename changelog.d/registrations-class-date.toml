@@ -1,0 +1,6 @@
+bump = "minor"
+date = "2026-10-07"
+title = "Registrations show when each class meets"
+changes = [
+  "The Registrations list in Admin Tools has a Class Date column beside the class name, and it sorts.",
+]
