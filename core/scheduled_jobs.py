@@ -317,6 +317,17 @@ SCHEDULED_JOBS: list[ScheduledJob] = [
         schedule_label="Daily (digest on the 1st)",
         cadence=Cadence.DAILY,
     ),
+    ScheduledJob(
+        key="announce_live_requests",
+        name="Requests gone live",
+        description=(
+            "Once a release that lists feedback requests is serving, marks each one Live and tells "
+            "the member who asked, once."
+        ),
+        command="announce_live_requests",
+        schedule_label="Every 15 min",
+        cadence=Cadence.ALWAYS,
+    ),
 ]
 
 JOBS_BY_KEY: dict[str, ScheduledJob] = {job.key: job for job in SCHEDULED_JOBS}

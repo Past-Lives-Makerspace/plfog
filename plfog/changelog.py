@@ -76,6 +76,15 @@ class Fragment:
     title: str
     changes: tuple[str, ...]
     screenshot: str
+    #: Feedback request numbers (``core.models.FeedbackRequest`` pks) this change delivers
+    #: (#693). Read only by the ``announce_live_requests`` job; never part of :meth:`as_entry`,
+    #: so no announcement or changelog shows them.
+    requests: tuple[int, ...] = ()
+
+    @property
+    def slug(self) -> str:
+        """The fragment's filename stem: the stable id of its changelog entry."""
+        return self.path.stem
 
     @property
     def is_member_facing(self) -> bool:
@@ -88,11 +97,14 @@ class Fragment:
         No ``version`` key: see the module docstring. ``screenshot`` is omitted when unset so
         the entry matches a legacy entry that never had one, and
         ``core.release_email.build_release_cards`` keeps treating it as genuinely optional.
+        ``slug`` lets a link open this entry in the changelog, and the sweep keeps it.
+        ``requests`` is deliberately absent: request numbers are bookkeeping, not news.
         """
         entry: dict[str, Any] = {
             "date": self.date,
             "title": self.title,
             "changes": list(self.changes),
+            "slug": self.slug,
         }
         if self.screenshot:
             entry["screenshot"] = self.screenshot
@@ -142,13 +154,16 @@ def parse_fragment(source: str, path: pathlib.Path) -> Fragment:
     if audience not in AUDIENCES:
         raise FragmentError(f"{path}: 'audience' must be one of {', '.join(AUDIENCES)} (got {audience!r})")
 
-    unknown = set(data) - {"bump", "audience", "date", "title", "changes", "screenshot"}
+    unknown = set(data) - {"bump", "audience", "date", "title", "changes", "screenshot", "requests"}
     if unknown:
         # A misspelled key is a bullet that silently never reaches members. Cheaper to
         # reject here than to notice it missing from a Discord post nobody can unsend.
         raise FragmentError(f"{path}: unknown key(s) {', '.join(sorted(unknown))}")
 
     if audience == "internal":
+        if "requests" in data:
+            # An internal release is announced nowhere, so it has no changelog entry to link.
+            raise FragmentError(f"{path}: 'requests' needs a members fragment, not an internal one")
         return Fragment(path=path, bump=bump, audience=audience, date="", title="", changes=(), screenshot="")
 
     date, title, changes, screenshot = _member_fields(data, path)
@@ -160,7 +175,27 @@ def parse_fragment(source: str, path: pathlib.Path) -> Fragment:
         title=title,
         changes=changes,
         screenshot=screenshot,
+        requests=_requests(data, path),
     )
+
+
+def _requests(data: dict[str, Any], path: pathlib.Path) -> tuple[int, ...]:
+    """The optional ``requests`` list: feedback request numbers this change delivers (#693).
+
+    Each must be a positive integer, and the list must not repeat one. ``bool`` is excluded
+    explicitly because TOML ``true`` parses to a Python ``bool``, which is an ``int``.
+    """
+    if "requests" not in data:
+        return ()
+    requests = data["requests"]
+    if not isinstance(requests, list) or not requests:
+        raise FragmentError(f"{path}: 'requests' must be a non-empty list of request numbers, like [12, 15]")
+    for number in requests:
+        if isinstance(number, bool) or not isinstance(number, int) or number < 1:
+            raise FragmentError(f"{path}: every entry in 'requests' must be a positive whole number (got {number!r})")
+    if len(set(requests)) != len(requests):
+        raise FragmentError(f"{path}: 'requests' lists the same request number more than once")
+    return tuple(requests)
 
 
 def _member_fields(data: dict[str, Any], path: pathlib.Path) -> tuple[str, str, tuple[str, ...], str]:

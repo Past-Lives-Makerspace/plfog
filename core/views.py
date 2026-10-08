@@ -120,8 +120,14 @@ def relay_accept(request: HttpRequest) -> HttpResponse:
 
 
 def health_check(request):
-    """Health check endpoint."""
-    return JsonResponse({"status": "ok"})
+    """Health check endpoint, with the version this process is serving.
+
+    The version is already public (the login page shows it). The ``announce_live_requests``
+    job reads it from the web service so it acts only once the web serves a release (#693).
+    """
+    from plfog.version import VERSION
+
+    return JsonResponse({"status": "ok", "version": VERSION})
 
 
 @csrf_exempt

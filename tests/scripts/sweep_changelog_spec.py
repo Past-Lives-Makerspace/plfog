@@ -155,7 +155,13 @@ def describe_plan():
         entries, new_base = module.plan("origin/main")
 
         assert [(e["version"], e["title"]) for e in entries] == [("1.63.2", "A fix"), ("1.63.0", "A visible thing")]
-        assert entries[0] == {"version": "1.63.2", "date": "2026-09-14", "title": "A fix", "changes": ["It is fixed."]}
+        assert entries[0] == {
+            "version": "1.63.2",
+            "date": "2026-09-14",
+            "title": "A fix",
+            "changes": ["It is fixed."],
+            "slug": "11-fix",
+        }
         assert new_base == "1.63.2"
 
     def it_gives_an_internal_fragment_no_entry(tree, monkeypatch):

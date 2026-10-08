@@ -363,6 +363,12 @@ ROW_GROUPS: tuple[RowGroup, ...] = (
         ),
     ),
     RowGroup(
+        group_id="group.feedback_request",
+        label="Updates to your requests",
+        description="A feature request or bug report you sent is planned, being built, live, or not planned.",
+        event_keys=("feedback.request_updated", "feedback.request_live"),
+    ),
+    RowGroup(
         group_id="group.space_request_decision",
         label="Updates to your space request",
         description="Your studio or cubby request was approved or declined.",

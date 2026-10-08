@@ -1973,6 +1973,46 @@ _CURATED: dict[str, EventCopy] = {
             ),
         },
     ),
+    # feedback.request_live — the release that delivers a request shipped (#693 part 2).
+    # status_phrase is "live" or "fixed"; changelog_url opens the release's entry in the
+    # changelog; request_url is the request on the sender's Feedback page.
+    "feedback.request_live": EventCopy(
+        placeholders=("request_subject", "status_phrase", "release_title", "changelog_url", "request_url"),
+        sample_context={
+            "request_subject": "Let me book the laser cutter from my phone",
+            "status_phrase": "live",
+            "release_title": "Book equipment from your phone",
+            "changelog_url": "https://pastlives.example/home/#changelog-701-phone-booking",
+            "request_url": "https://pastlives.example/feedback/#request-12",
+        },
+        channels={
+            Channel.IN_APP: ChannelCopy(
+                subject="You asked for this. It's {{ status_phrase }} now.",
+                body_text="{{ request_subject }}",
+            ),
+            Channel.EMAIL: ChannelCopy(
+                subject="You asked for {{ request_subject }}. It's {{ status_phrase }} now.",
+                body_text=(
+                    'You asked for "{{ request_subject }}". It\'s {{ status_phrase }} now, in this '
+                    "update: {{ release_title }}.\n\n"
+                    "See what's new: {{ changelog_url }}\n"
+                    "Your request: {{ request_url }}\n\n"
+                    "Thanks for telling us what you need.\n\nPast Lives Makerspace"
+                ),
+                body_html=(
+                    '<p>You asked for <strong><a href="{{ request_url }}">{{ request_subject }}</a></strong>. '
+                    "It's {{ status_phrase }} now, in this update: "
+                    '<a href="{{ changelog_url }}">{{ release_title }}</a>.</p>'
+                    '<p style="text-align:center;margin:24px 0 8px;"><a href="{{ changelog_url }}" '
+                    'style="display:inline-block;padding:12px 28px;background-color:#EEB44B;color:#092E4C;'
+                    'font-size:14px;font-weight:700;text-decoration:none;border-radius:6px;">'
+                    "See What's New</a></p>"
+                    "<p>Thanks for telling us what you need.</p>"
+                    "<p>Past Lives Makerspace</p>"
+                ),
+            ),
+        },
+    ),
     # meeting.minutes_approved — a broadcast to the guild's members, so NO channel may
     # address a single recipient. Before this curated copy existed, the generic fallback's
     # email greeting leaked "Hi [missing: member_name]" into guild Discord channels; the

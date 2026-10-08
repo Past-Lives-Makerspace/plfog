@@ -1,0 +1,6 @@
+bump = "minor"
+date = "2026-10-07"
+title = "Hear it the moment your request is live"
+changes = [
+  "When an update delivers something you asked for on the Feedback page, we tell you it's live (or fixed, for a bug) as soon as it's out, with a link to what changed.",
+]

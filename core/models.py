@@ -2708,6 +2708,66 @@ class FeedbackRequest(models.Model):
         self.refresh_from_db()
         return notify
 
+    def live_announcement_skip(self) -> str | None:
+        """Why a release listing this request must not announce it, or ``None`` when it may.
+
+        Already told it is live covers a request an admin marked Live by hand and one the job
+        announced before (``live_notified_at``), including after an admin moved it back.
+        """
+        if self.stays_received:
+            return "is general feedback, which stays Received"
+        if self.status == self.Status.LIVE:
+            return "is already Live"
+        if self.live_notified_at is not None:
+            return "was already told it is live"
+        return None
+
+    def announce_live(self, *, release_title: str, changelog_url: str) -> str | None:
+        """Mark the request Live because a release listing it shipped, and tell the sender once.
+
+        Runs on the row locked with ``select_for_update``, re-checking
+        :meth:`live_announcement_skip` there, so two overlapping job runs announce it once. A Not
+        planned reason is cleared on the way, as :meth:`apply_admin_update` does.
+
+        Args:
+            release_title: The changelog entry's title, named in the notice.
+            changelog_url: Absolute link that opens that entry in the changelog.
+
+        Returns:
+            ``None`` when announced, else why it was skipped.
+        """
+        from core.events.emit import emit
+        from core.events.registry import FEEDBACK_REQUEST_LIVE
+
+        with transaction.atomic():
+            locked = type(self).objects.select_for_update().get(pk=self.pk)
+            skip = locked.live_announcement_skip()
+            if skip is not None:
+                return skip
+            now = timezone.now()
+            if locked.status == self.Status.NOT_PLANNED:
+                locked.staff_note = ""
+            locked.status = self.Status.LIVE
+            locked.status_changed_at = now
+            locked.live_notified_at = now
+            locked.save()
+            emit(
+                FEEDBACK_REQUEST_LIVE,
+                target=locked,
+                context={
+                    "user": locked.user,
+                    "request_subject": locked.subject,
+                    "status_phrase": locked.status_phrase,
+                    "release_title": release_title,
+                    "changelog_url": changelog_url,
+                    "request_url": locked.member_url,
+                },
+                url=changelog_url,
+                period=f"feedback:{locked.pk}:live-release",
+            )
+        self.refresh_from_db()
+        return None
+
     def _notify_sender(self, *, actor: User, note: str, period: str) -> None:
         """Tell the sender where their request stands, with ``note`` when this update wrote one."""
         from django.utils.html import linebreaks
