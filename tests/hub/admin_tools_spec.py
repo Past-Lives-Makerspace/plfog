@@ -161,6 +161,7 @@ def describe_admin_tools_card_order():
         assert _card_titles(client) == [
             "Activity",
             "Announcements",
+            "Feedback Inbox",
             "Instructor Inquiries",
             "Leadership Directory",
             "Locations",

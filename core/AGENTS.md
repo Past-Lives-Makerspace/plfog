@@ -9,6 +9,7 @@ Auth infrastructure, site configuration, and Web Push.
 | `SiteConfiguration` | registration_mode | Singleton (pk=1); load via `SiteConfiguration.load()` |
 | `Invite` | email, invited_by FK, member 1:1, accepted_at | Email invite flow for invite-only registration |
 | `PushSubscription` | user FK, endpoint, p256dh, auth | Web Push subscription per user |
+| `FeedbackRequest` | user FK, category, subject, message, status, staff_note, github_issue_url, status_changed_at, live_notified_at | A bug report, feature request or feedback sent from the Feedback page (#693). The sender is a `User`, not a `Member`. `apply_admin_update` / `mark_live` move it and emit `feedback.request_updated` to the sender, once per real change (Received never notifies; Not planned needs a note). `live_notified_at` keeps the automatic live notice from repeating one. Photos are `FeedbackRequestPhoto` rows on the default storage. |
 
 ## Registration Modes
 

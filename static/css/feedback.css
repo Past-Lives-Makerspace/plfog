@@ -1,0 +1,91 @@
+/* The Feedback page's "Your requests" section and the admin Feedback inbox (#693).
+   Loaded by hub/beta_feedback.html, hub/admin/feedback_inbox.html and
+   hub/admin/feedback_request.html. Status pills are the shared .hub-pill family. */
+
+.pl-feedback-lead { margin-bottom: 1.5rem; }
+.pl-feedback-submit { margin-top: 1.5rem; }
+
+/* Your requests */
+.pl-feedback-requests { margin-top: 1.5rem; }
+.pl-feedback-requests__title { margin: 0 0 1rem; font-size: 1.15rem; }
+.pl-feedback-requests__list { display: flex; flex-direction: column; gap: 0.75rem; }
+.pl-feedback-request { scroll-margin-top: 5rem; }
+.pl-feedback-request__meta {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.5rem;
+    margin-top: 0.25rem;
+}
+.pl-feedback-request__body { display: flex; flex-direction: column; gap: 0.5rem; }
+.pl-feedback-request__label {
+    margin: 0;
+    font-size: 0.75rem;
+    font-weight: 700;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    color: var(--hub-text-muted);
+}
+.pl-feedback-request__message,
+.pl-feedback-request__note p { margin: 0; overflow-wrap: anywhere; }
+.pl-feedback-request__note {
+    padding: 0.75rem 1rem;
+    border-left: 3px solid var(--color-tuscan-yellow);
+    background: var(--hub-surface);
+    border-radius: 6px;
+}
+
+/* Photo thumbnails, on the member's row and the admin page */
+.pl-feedback-photos { display: flex; flex-wrap: wrap; gap: 0.5rem; }
+.pl-feedback-photos__item {
+    display: block;
+    width: 96px;
+    height: 96px;
+    border-radius: 6px;
+    overflow: hidden;
+    border: 1px solid var(--hub-input-border, rgba(139, 151, 168, 0.3));
+}
+.pl-feedback-photos__item img { width: 100%; height: 100%; object-fit: cover; display: block; }
+
+/* Inbox */
+.pl-feedback-inbox__filters {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: flex-end;
+    gap: 0.75rem 1rem;
+    margin-bottom: 1rem;
+}
+.pl-feedback-inbox__filters .hub-form-group { margin: 0; min-width: 12rem; }
+.pl-feedback-inbox__actions { display: flex; gap: 0.5rem; padding-bottom: 0.15rem; }
+.pl-feedback-inbox__subject a { font-weight: 600; overflow-wrap: anywhere; }
+
+/* One request's admin page */
+.pl-feedback-admin__back { margin: 0 0 1rem; }
+.pl-feedback-admin__meta {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.5rem 0.75rem;
+    margin: -0.5rem 0 1.5rem;
+    color: var(--hub-text-muted);
+    font-size: 0.875rem;
+}
+.pl-feedback-admin__card { margin-bottom: 1.5rem; }
+.pl-feedback-admin__card .hub-detail-label { margin-top: 1rem; }
+.pl-feedback-admin__card .hub-detail-label:first-child { margin-top: 0; }
+.pl-feedback-admin__sender { display: flex; flex-wrap: wrap; align-items: center; gap: 0.5rem; margin: 0.25rem 0 0; }
+.pl-feedback-admin__message { margin: 0.25rem 0 0; overflow-wrap: anywhere; }
+.pl-feedback-admin__save { margin-top: 1.5rem; }
+.pl-feedback-admin__mark-live { margin-top: 0.75rem; }
+.pl-feedback-inbox__table .hub-pill { white-space: nowrap; }
+
+/* Light (Slate) legibility for the shared pills, as the other pages scope it */
+[data-theme="light"] .pl-feedback-requests .hub-pill--ok,
+[data-theme="light"] .pl-feedback-inbox .hub-pill--ok,
+[data-theme="light"] .pl-feedback-admin .hub-pill--ok { color: #1f7a52; }
+[data-theme="light"] .pl-feedback-requests .hub-pill--neutral,
+[data-theme="light"] .pl-feedback-inbox .hub-pill--neutral,
+[data-theme="light"] .pl-feedback-admin .hub-pill--neutral { color: #5b6675; }
+[data-theme="light"] .pl-feedback-requests .hub-pill--primary,
+[data-theme="light"] .pl-feedback-inbox .hub-pill--primary,
+[data-theme="light"] .pl-feedback-admin .hub-pill--primary { color: #8a5a00; }

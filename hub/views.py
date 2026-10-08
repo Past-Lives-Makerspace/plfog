@@ -43,7 +43,7 @@ from classes.access import class_access
 from classes.models import Category, ClassOffering
 from core.htmx import wants_fragment
 from core.features import is_on
-from core.models import BiometricCredential, HeroCropMixin, SiteConfiguration
+from core.models import BiometricCredential, FeedbackRequest, HeroCropMixin, SiteConfiguration
 from hub.view_as import ALL_ROLES, ROLE_ADMIN, ROLE_GUEST, ROLE_MEMBER, SESSION_ROLE_KEY, fog_admin_required
 from hub.forms import (
     BetaFeedbackForm,
@@ -4941,6 +4941,8 @@ def hub_admin_tools(request: HttpRequest) -> HttpResponse:
             "tool_instructor_inquiries": is_admin,
             "tool_leadership": is_admin,
             "tool_locations": is_admin,
+            "tool_feedback": is_admin,
+            "feedback_received_count": FeedbackRequest.objects.received().count() if is_admin else 0,
             "tool_push_test": is_admin,
         },
     )
@@ -6736,7 +6738,13 @@ def event_retry_sync(request: HttpRequest, pk: int) -> HttpResponse:
 
 @login_required
 def beta_feedback(request: HttpRequest) -> HttpResponse:
-    """Feedback page — users can report bugs, request features, or leave general feedback."""
+    """Feedback page: send a bug report, feature request or feedback, and follow your requests (#693).
+
+    A valid send saves a :class:`core.models.FeedbackRequest` and emails the admins, then lands
+    back here with ``?sent=<pk>`` so the new request renders open (a boosted redirect drops the
+    ``#request-<pk>`` fragment, so the query string carries it). The "Your requests" section lists
+    only the viewer's own requests.
+    """
     ctx = _get_hub_context(request)
 
     user: User = request.user  # type: ignore[assignment]  # @login_required guarantees User
@@ -6744,13 +6752,23 @@ def beta_feedback(request: HttpRequest) -> HttpResponse:
     if request.method == "POST":
         form = BetaFeedbackForm(request.POST, request.FILES)
         if form.is_valid():
-            form.send(user=user)
-            messages.success(request, "Thanks for your feedback! We'll review it soon.")
-            return redirect("hub_beta_feedback")
+            feedback_request = form.submit(user=user)
+            messages.success(request, "Thanks! You can follow it below.")
+            return redirect(f"{reverse('hub_beta_feedback')}?sent={feedback_request.pk}#{feedback_request.anchor}")
     else:
         form = BetaFeedbackForm()
 
-    return render(request, "hub/beta_feedback.html", {**ctx, "form": form})
+    sent = request.GET.get("sent", "")
+    return render(
+        request,
+        "hub/beta_feedback.html",
+        {
+            **ctx,
+            "form": form,
+            "feedback_requests": FeedbackRequest.objects.sent_by(user),
+            "open_request_pk": int(sent) if sent.isdigit() else None,
+        },
+    )
 
 
 @login_required
