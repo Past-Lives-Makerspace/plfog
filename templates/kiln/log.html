@@ -1,0 +1,60 @@
+{% extends "hub/base.html" %}
+{% load static %}
+{% block title %}Kiln Log{% endblock %}
+
+{% block extra_head %}
+<link rel="stylesheet" href="{% static 'css/kiln-tickets.css' %}">
+{% endblock %}
+
+{% block content %}
+{% include "kiln/partials/_icons.html" %}
+<div class="pl-kiln-head">
+    <h1 class="hub-page-title">Kiln Tickets</h1>
+    {% include "kiln/partials/_crew_tabs.html" %}
+</div>
+
+{% comment %}
+The Kiln Log (#691 part 3): every firing, newest first. A table on a wide screen and cards on a
+phone, from the same rows. Alpine only filters by type. A firing still in the kiln links to its
+Unload page; any other opens its own page with every piece that went in.
+{% endcomment %}
+{% if firings %}
+<div x-data="{ show: 'all' }" data-kiln-log>
+    <div class="pl-kiln-filters" role="group" aria-label="Show">
+        <label class="pl-chip"><input type="radio" name="show" value="all" x-model="show" checked>All</label>
+        <label class="pl-chip"><input type="radio" name="show" value="bisque" x-model="show">Bisque</label>
+        <label class="pl-chip"><input type="radio" name="show" value="glaze" x-model="show">Glaze</label>
+    </div>
+
+    <div class="admin-table-wrap pl-kiln-log-wide">
+        <table class="pl-kiln-log-table">
+            <thead><tr><th scope="col">Firing</th><th scope="col">Type</th><th scope="col">Loaded</th><th scope="col">Unloaded</th><th scope="col" class="pl-kiln-num">Tickets</th><th scope="col">Notes</th></tr></thead>
+            <tbody>
+                {% for firing in firings %}
+                <tr data-firing="{{ firing.pk }}" x-show="show === 'all' || show === '{{ firing.firing_type }}'">
+                    <td><a href="{% if firing.is_unloaded %}{% url 'kiln:firing' firing.pk %}{% else %}{% url 'kiln:unload' firing.pk %}{% endif %}">{{ firing.name }}</a></td>
+                    <td><span class="pl-kiln-type">{% if firing.firing_type == "glaze" %}<svg class="pl-kiln-ico" aria-hidden="true"><use href="#kiln-i-flame"/></svg>{% endif %}{{ firing.get_firing_type_display }}</span></td>
+                    <td>{{ firing.loaded_at|date:"D, M j" }}<small>{{ firing.loaded_by_name }}</small></td>
+                    <td>{% if firing.is_unloaded %}{{ firing.unloaded_at|date:"D, M j" }}<small>{{ firing.unloaded_by_name }}</small>{% else %}<span class="pl-status-badge pl-status-badge--warn pl-kiln-status"><svg class="pl-kiln-ico" aria-hidden="true"><use href="#kiln-i-flame"/></svg>In the kiln</span>{% endif %}</td>
+                    <td class="pl-kiln-num">{{ firing.ticket_count }}</td>
+                    <td>{% if not firing.is_unloaded %}<a href="{% url 'kiln:unload' firing.pk %}">Unload</a>{% elif firing.exceptions_label %}<span class="pl-kiln-flag"><svg class="pl-kiln-ico" aria-hidden="true"><use href="#kiln-i-msg"/></svg>{{ firing.exceptions_label }}</span>{% endif %}</td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+
+    <ul class="pl-kiln-log-cards">
+        {% for firing in firings %}
+        <li x-show="show === 'all' || show === '{{ firing.firing_type }}'"><a class="pl-kiln-log-card" href="{% if firing.is_unloaded %}{% url 'kiln:firing' firing.pk %}{% else %}{% url 'kiln:unload' firing.pk %}{% endif %}" data-firing="{{ firing.pk }}">
+            <div class="pl-kiln-log-card__top"><span class="pl-kiln-log-card__name">{{ firing.name }}</span>{% if firing.is_unloaded %}<span class="pl-status-badge pl-status-badge--muted pl-kiln-status"><svg class="pl-kiln-ico" aria-hidden="true"><use href="#kiln-i-check"/></svg>Fired</span>{% else %}<span class="pl-status-badge pl-status-badge--warn pl-kiln-status"><svg class="pl-kiln-ico" aria-hidden="true"><use href="#kiln-i-flame"/></svg>In the kiln</span>{% endif %}</div>
+            <div class="pl-kiln-log-card__lines"><strong>{{ firing.ticket_count }} ticket{{ firing.ticket_count|pluralize }}</strong>{% if firing.exceptions_label %} · <span class="pl-kiln-flag"><svg class="pl-kiln-ico" aria-hidden="true"><use href="#kiln-i-msg"/></svg>{{ firing.exceptions_label }}</span>{% endif %}<br>Loaded {{ firing.loaded_at|date:"D, M j" }} by {{ firing.loaded_by_name }}<br>{% if firing.is_unloaded %}Unloaded {{ firing.unloaded_at|date:"D, M j" }} by {{ firing.unloaded_by_name }}{% else %}Tap to unload{% endif %}</div>
+        </a></li>
+        {% endfor %}
+    </ul>
+    {% if has_older %}<a href="{% url 'kiln:log' %}?older=1" class="hub-btn hub-btn--ghost hub-btn--sm pl-btn--spaced">Show older firings</a>{% endif %}
+</div>
+{% else %}
+<p class="hub-text-muted" data-kiln-empty>No firings yet. Each load of the kiln shows up here, with who loaded and unloaded it.</p>
+{% endif %}
+{% endblock %}

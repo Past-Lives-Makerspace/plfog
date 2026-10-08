@@ -1,0 +1,29 @@
+{% extends "hub/base.html" %}
+{% load static %}
+{% block title %}Unload the Kiln{% endblock %}
+
+{% block extra_head %}
+<link rel="stylesheet" href="{% static 'css/kiln-tickets.css' %}">
+{% endblock %}
+
+{% block content %}
+{% include "kiln/partials/_icons.html" %}
+<div class="pl-kiln-head">
+    <h1 class="hub-page-title">Kiln Tickets</h1>
+    {% include "kiln/partials/_crew_tabs.html" %}
+</div>
+
+{% if firings %}
+<p class="hub-text-muted">Open a firing when it comes out of the kiln. Every piece starts ticked; untick one that did not come out right and tell its maker what happened.</p>
+<ul class="pl-kiln-log-cards pl-kiln-log-cards--always" data-kiln-unload-list>
+    {% for firing in firings %}
+    <li><a class="pl-kiln-log-card" href="{% url 'kiln:unload' firing.pk %}" data-firing="{{ firing.pk }}">
+        <div class="pl-kiln-log-card__top"><span class="pl-kiln-log-card__name">{{ firing.name }}</span><span class="pl-status-badge pl-status-badge--warn pl-kiln-status"><svg class="pl-kiln-ico" aria-hidden="true"><use href="#kiln-i-flame"/></svg>In the kiln</span></div>
+        <div class="pl-kiln-log-card__lines"><strong>{{ firing.ticket_count }} ticket{{ firing.ticket_count|pluralize }}</strong> · loaded {{ firing.loaded_at|date:"D, M j" }} by {{ firing.loaded_by_name }}<br>Tap to unload</div>
+    </a></li>
+    {% endfor %}
+</ul>
+{% else %}
+<p class="hub-text-muted" data-kiln-empty>Nothing is in the kiln. A firing shows up here once the crew loads it.</p>
+{% endif %}
+{% endblock %}

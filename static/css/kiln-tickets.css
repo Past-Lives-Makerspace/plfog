@@ -1,9 +1,8 @@
 /* Kiln tickets (#691): My Tickets, the ticket form, ticket detail (maker and crew), Load the
-   Kiln and the crew's lists. Lifted from the approved mockup (mockups/kiln-tickets.html).
-   Tokens only; every flag carries an icon and words, never color alone. Unloading and the
-   log land in part 3 with their own rules. */
+   Kiln, Unload, the Kiln Log and the crew's lists. Lifted from the approved mockup
+   (mockups/kiln-tickets.html). Tokens only; every flag carries an icon and words, never color alone. */
 
-.pl-kiln-form textarea, .pl-kiln-reply textarea { font: inherit; font-size: 0.95rem; line-height: 1.45; }
+.pl-kiln-form textarea, .pl-kiln-reply textarea, .pl-kiln-except textarea { font: inherit; font-size: 0.95rem; line-height: 1.45; }
 .pl-kiln-ico { width: 1em; height: 1em; flex: 0 0 auto; vertical-align: -0.125em; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
 
 /* Page head: title, one line lead, and (crew only) the tab row. */
@@ -249,6 +248,63 @@ a.pl-kiln-row__title { color: var(--hub-link); text-decoration: none; }
 .pl-kiln-tile:has(input:disabled) { opacity: 0.5; cursor: not-allowed; }
 .pl-kiln-flaglist form { margin: 0; }
 .pl-kiln-thread__empty { margin: 0 0 1rem; font-size: 0.875rem; color: var(--hub-text-muted); }
+
+/* ---- Unload: a checklist, every row ticked; an unticked row opens what happened ---- */
+.pl-kiln-unload { list-style: none; margin: 0; padding: 0; display: grid; gap: 0.625rem; }
+.pl-kiln-unload__row { border: 2px solid var(--hub-border); border-radius: 12px; background: var(--hub-card-bg); }
+.pl-kiln-unload__main { display: grid; grid-template-columns: auto 72px 1fr; gap: 0.75rem; align-items: center; padding: 0.625rem 0.75rem; cursor: pointer; }
+@media (min-width: 769px) { .pl-kiln-unload__main { grid-template-columns: auto 96px 1fr auto; } }
+.pl-kiln-unload__main input { width: 26px; height: 26px; margin: 0; accent-color: var(--color-tuscan-yellow); }
+.pl-kiln-unload__photo { width: 72px; height: 72px; border-radius: 8px; overflow: hidden; }
+@media (min-width: 769px) { .pl-kiln-unload__photo { width: 96px; height: 96px; } }
+.pl-kiln-unload__who { display: block; font-weight: 700; }
+.pl-kiln-unload__sub { display: block; font-size: 0.82rem; color: var(--hub-text-muted); line-height: 1.4; }
+.pl-kiln-unload__out { display: inline-flex; align-items: center; gap: 0.3rem; font-size: 0.8rem; font-weight: 600; }
+.pl-kiln-unload__row--ok .pl-kiln-unload__out { color: var(--pl-lifecycle-live); }
+.pl-kiln-unload__row--except { border-color: var(--hub-blue); border-style: dashed; }
+.pl-kiln-unload__row--except .pl-kiln-unload__out { color: var(--hub-blue); }
+.pl-kiln-except { padding: 0.25rem 1rem 1rem; border-top: 1px solid var(--hub-border); }
+.pl-kiln-except .pl-form-group textarea { min-height: 96px; font-size: 1rem; }
+.pl-kiln-except .pl-radio-option { margin-bottom: 0.5rem; }
+
+/* ---- Kiln log ---- */
+.pl-kiln-log-table td, .pl-kiln-log-table th { padding: 0.7rem 0.75rem; font-size: 0.9rem; vertical-align: middle; }
+.pl-kiln-log-table tbody tr { border-top: 1px solid var(--hub-border); }
+.pl-kiln-log-table .pl-kiln-num { text-align: right; font-variant-numeric: tabular-nums; }
+.pl-kiln-log-table a { color: var(--hub-link); font-weight: 600; text-decoration: none; }
+.pl-kiln-log-table small { display: block; color: var(--hub-text-muted); font-size: 0.78rem; }
+.pl-kiln-type { display: inline-flex; align-items: center; gap: 0.3rem; font-weight: 600; }
+.pl-kiln-log-cards { display: none; list-style: none; margin: 0; padding: 0; }
+@media (max-width: 768px) {
+    .pl-kiln-log-wide { display: none; }
+    .pl-kiln-log-cards { display: grid; gap: 0.625rem; }
+}
+.pl-kiln-log-card { display: block; padding: 0.875rem 1rem; border: 1px solid var(--hub-border); border-radius: 12px; background: var(--hub-card-bg); color: var(--hub-text); text-decoration: none; }
+.pl-kiln-log-card__top { display: flex; justify-content: space-between; align-items: center; gap: 0.5rem; margin-bottom: 0.35rem; }
+.pl-kiln-log-card__name { font-weight: 700; font-family: var(--font-heading); font-size: 1.02rem; }
+.pl-kiln-log-card__lines { font-size: 0.85rem; color: var(--hub-text-muted); line-height: 1.5; }
+.pl-kiln-log-card__lines strong { color: var(--hub-text); font-weight: 600; }
+
+/* Unload and the log, for the build: real photos, the firing page's rows as links, the action
+   bar's one line per note, the Unload tab's cards at every width, and an unload note's tag in
+   the thread. */
+.pl-kiln-unload__photo img { display: block; width: 100%; height: 100%; object-fit: cover; }
+.pl-kiln-unload__main:has(input:focus-visible) { outline: 3px solid var(--hub-blue); outline-offset: 2px; border-radius: 10px; }
+.pl-kiln-unload__main--link { grid-template-columns: 72px 1fr; color: var(--hub-text); text-decoration: none; }
+@media (min-width: 769px) { .pl-kiln-unload__main--link { grid-template-columns: 96px 1fr; } }
+.pl-kiln-unload__note { display: block; margin-top: 0.35rem; font-size: 0.85rem; line-height: 1.45; }
+.pl-kiln-except .pl-kiln-q__label { margin: 0.75rem 0 0.5rem; }
+.pl-kiln-actionbar__line { display: block; }
+/* Unload's bar carries a line per note, so on a phone the words take the full width and the
+   button sits under them rather than squeezing them into a sliver beside it. */
+@media (max-width: 768px) {
+    .pl-kiln-actionbar--stack { flex-wrap: wrap; }
+    .pl-kiln-actionbar--stack .pl-kiln-actionbar__note { flex-basis: 100%; }
+}
+.pl-kiln-log-cards--always { display: grid; gap: 0.625rem; }
+.pl-kiln-log-table { width: 100%; border-collapse: collapse; }
+.pl-kiln-log-table th { text-align: left; font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.06em; color: var(--hub-text-muted); }
+.pl-kiln-msg__unload { display: inline-flex; align-items: center; gap: 0.35rem; margin-bottom: 0.35rem; font-size: 0.8rem; font-weight: 600; color: var(--hub-blue); }
 
 /* Enter in a text box submits through the first submit button in the form. This one, first in
    the form and out of sight, makes that "Save as draft" rather than a photo's Remove. */

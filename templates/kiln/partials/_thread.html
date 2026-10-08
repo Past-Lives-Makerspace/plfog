@@ -10,6 +10,7 @@ notifies the other side. Expects ticket, replies, viewer, reply_form and as_crew
         {% for reply in replies %}
         <li class="pl-kiln-msg{% if reply.author_id == viewer.pk %} pl-kiln-msg--mine{% endif %}" data-reply="{{ reply.pk }}">
             <div class="pl-kiln-msg__who"><strong>{% if reply.author_id == viewer.pk %}You{% else %}{{ reply.author_name }}{% endif %}</strong>{% if reply.from_crew %}<span class="pl-kiln-msg__role">Kiln crew</span>{% endif %}<span>{{ reply.created_at|date:"D, M j · g:i a" }}</span></div>
+            {% if reply.is_unload_note %}<div class="pl-kiln-msg__unload" data-kiln-unload-note><svg class="pl-kiln-ico" aria-hidden="true"><use href="#kiln-i-{% if reply.outcome == 'back_to_queue' %}undo{% else %}flame{% endif %}"/></svg>{{ reply.get_what_happened_display }} · {{ reply.firing.name }} · {% if reply.outcome == "back_to_queue" %}back to the queue{% else %}fired{% endif %}</div>{% endif %}
             <div class="pl-kiln-msg__body">{{ reply.body|linebreaksbr }}</div>
         </li>
         {% endfor %}

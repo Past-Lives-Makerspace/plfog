@@ -1,0 +1,47 @@
+{% extends "hub/base.html" %}
+{% load static %}
+{% block title %}{{ firing.name }}{% endblock %}
+
+{% block extra_head %}
+<link rel="stylesheet" href="{% static 'css/kiln-tickets.css' %}">
+{% endblock %}
+
+{% block content %}
+{% include "kiln/partials/_icons.html" %}
+<div class="pl-kiln-head">
+    <h1 class="hub-page-title">Kiln Tickets</h1>
+    {% include "kiln/partials/_crew_tabs.html" %}
+</div>
+
+{# One firing from the Kiln Log (#691 part 3): every piece that went in, what the crew noted at the unload, and a link to each ticket. #}
+<p class="pl-kiln-crumb"><a href="{% url 'kiln:log' %}">Kiln Log</a></p>
+<div class="hub-card pl-kiln-firingbar" data-kiln-firing="{{ firing.pk }}">
+    <div>
+        <div class="pl-kiln-firingbar__name">{{ firing.name }}</div>
+        <div class="pl-kiln-firingbar__label">Loaded {{ firing.loaded_at|date:"D, M j" }} by {{ firing.loaded_by_name }} · {{ rows|length }} ticket{{ rows|length|pluralize }}</div>
+        <div class="pl-kiln-firingbar__label">{% if firing.is_unloaded %}Unloaded {{ firing.unloaded_at|date:"D, M j" }} by {{ firing.unloaded_by_name }}{% else %}Still in the kiln{% endif %}</div>
+    </div>
+    {% if not firing.is_unloaded %}<a href="{% url 'kiln:unload' firing.pk %}" class="hub-btn hub-btn--primary"><svg class="pl-kiln-ico" aria-hidden="true"><use href="#kiln-i-bell"/></svg>Unload</a>{% endif %}
+</div>
+
+<ul class="pl-kiln-unload">
+    {% for row in rows %}
+    {% with ticket=row.ticket cover=row.ticket.cover_photo %}
+    <li class="pl-kiln-unload__row {% if row.note %}pl-kiln-unload__row--except{% else %}pl-kiln-unload__row--ok{% endif %}" data-ticket="{{ ticket.pk }}">
+        <a class="pl-kiln-unload__main pl-kiln-unload__main--link" href="{% url 'kiln:detail' ticket.pk %}">
+            <span class="pl-kiln-unload__photo">{% if cover %}<img src="{{ cover.tile.url }}" alt="Cover photo of ticket {{ ticket.pk }}" loading="lazy">{% else %}<span class="pl-kiln-row__photo--empty pl-kiln-tile__nophoto"><svg class="pl-kiln-ico" aria-hidden="true"><use href="#kiln-i-camera"/></svg><span class="sr-only">No photo</span></span>{% endif %}</span>
+            <span>
+                <span class="pl-kiln-unload__who">{{ ticket.maker_name }}{% if ticket.maker_type == "student" %} · {{ ticket.get_maker_type_display }}{% endif %}</span>
+                <span class="pl-kiln-unload__sub">Ticket {{ ticket.pk }} · {{ ticket.summary }}{% if ticket.glaze_names %} · {{ ticket.glaze_names }}{% elif ticket.clay_label %} · {{ ticket.clay_label }}{% endif %}</span>
+                {% if row.returned %}<span class="pl-kiln-unload__out"><svg class="pl-kiln-ico" aria-hidden="true"><use href="#kiln-i-undo"/></svg>Back to the queue: {{ row.note.get_what_happened_display|lower }}</span>
+                {% elif row.note %}<span class="pl-kiln-unload__out"><svg class="pl-kiln-ico" aria-hidden="true"><use href="#kiln-i-msg"/></svg>Fired, with a note: {{ row.note.get_what_happened_display|lower }}</span>
+                {% elif firing.is_unloaded %}<span class="pl-kiln-unload__out"><svg class="pl-kiln-ico" aria-hidden="true"><use href="#kiln-i-check"/></svg>Fired</span>
+                {% else %}<span class="pl-kiln-unload__out"><svg class="pl-kiln-ico" aria-hidden="true"><use href="#kiln-i-flame"/></svg>In the kiln</span>{% endif %}
+                {% if row.note %}<span class="pl-kiln-unload__note">{{ row.note.body|linebreaksbr }}</span>{% endif %}
+            </span>
+        </a>
+    </li>
+    {% endwith %}
+    {% endfor %}
+</ul>
+{% endblock %}

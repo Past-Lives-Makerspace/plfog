@@ -1,7 +1,8 @@
 """End-to-end: kiln tickets for the Ceramics Guild (#691).
 
 Part 1: a member files a glaze ticket and a bisque copy of it. Part 2: the crew loads the kiln
-and the maker and crew talk on the ticket.
+and the maker and crew talk on the ticket. Part 3: the crew unloads a firing of two makers'
+pieces, sends one back to the queue with a note, and the other maker reads Ready for pickup.
 
 In a real browser on a phone sized viewport: the sidebar's Kiln Tickets entry, the New ticket
 form's branches (Alpine shows and hides them), a photo picked through the camera input
@@ -9,7 +10,9 @@ form's branches (Alpine shows and hides them), a photo picked through the camera
 My Tickets with the ticket In the queue. "Make another like this" carries every answer but
 the photo and the Cone 6 confirmations into a bisque ticket. On Load the Kiln the crew filter the
 tiles, cannot tick the other firing's tile, tick one glaze ticket and confirm; the maker then sees
-it In the kiln and answers the crew's message. Waits are on what the page shows, never a snapshot
+it In the kiln and answers the crew's message. On Unload every piece starts ticked; unticking one
+opens what happened, the note and the choice, and the action bar says who gets which note. Waits
+are on what the page shows, never a snapshot
 after it. Every spec makes the guild, list options and members it uses, because an earlier
 live_server spec flushes the tables. Set ``CAPTURE_691_SCREENSHOTS=1`` to write the PR screenshots to
 ``mockups/screenshots/`` (or ``CAPTURE_691_DIR``). Run with ``pytest -m e2e`` on PostgreSQL.
@@ -31,12 +34,16 @@ from playwright.sync_api import expect
 from django.core.files.uploadedfile import SimpleUploadedFile
 from django.utils import timezone
 
-from core.models import SiteConfiguration
-from kiln.models import ClayOption, GlazeOption, KilnFlag, KilnTicket
+from core.events.registry import KILN_READY_FOR_PICKUP
+from core.models import Notification, SiteConfiguration
+from kiln.models import ClayOption, GlazeOption, KilnFiring, KilnFlag, KilnReply, KilnTicket
+from kiln.services import load_kiln
+from membership.services.provisioning import provision_user_for_member
 from tests.membership.factories import (
     GuildFactory,
     GuildMembershipFactory,
     GuildStaffMembershipFactory,
+    MemberFactory,
     MembershipPlanFactory,
 )
 
@@ -320,3 +327,127 @@ def describe_loading_the_kiln():
         assert page.evaluate(NO_SIDEWAYS_SCROLL)
         page.evaluate("window.scrollTo(0, 0)")
         _capture(page, "kiln-tickets-691-thread-phone.png")
+
+
+def describe_unloading_the_kiln():
+    def it_sends_one_piece_back_with_a_note_and_tells_the_other_maker_it_is_ready(
+        live_server, page, login_via_code, serve_media
+    ):
+        MembershipPlanFactory()
+        _open_the_kiln()
+        guild = GuildFactory(name="Ceramics Guild", slug="ceramics-guild")
+        glaze_option, _ = GlazeOption.objects.get_or_create(name="Ritual Clear", archived_at=None)
+
+        # The maker who will hear Ready for pickup signs in first, so the login flow makes their account.
+        login_via_code(EMAIL)
+        maya = get_user_model().objects.get(username=EMAIL).member
+        maya.preferred_name = "Maya Okafor"
+        maya.save(update_fields=["preferred_name"])
+        GuildMembershipFactory(guild=guild, member=maya)
+        page.context.clear_cookies()
+        ben = MemberFactory(preferred_name="Ben Carter")
+        provision_user_for_member(ben)
+
+        login_via_code(CREW_EMAIL)
+        crew = get_user_model().objects.get(username=CREW_EMAIL).member
+        crew.preferred_name = "Dana Reyes"
+        crew.save(update_fields=["preferred_name"])
+        GuildStaffMembershipFactory(guild=guild, member=crew)
+
+        bowls = _queued_ticket(
+            maya, "glaze", (110, 45, 77), glaze_studio=True, bottom_free_of_glaze=True, glaze_cone6=True, quantity=3
+        )
+        bowls.studio_glazes.add(glaze_option)
+        vase = _queued_ticket(
+            ben, "glaze", (70, 120, 80), glaze_studio=True, bottom_free_of_glaze=True, glaze_cone6=True
+        )
+        vase.studio_glazes.add(glaze_option)
+        firing = load_kiln(firing_type="glaze", ticket_pks=[bowls.pk, vase.pk], by=crew).firing
+        assert firing is not None
+
+        # Unload from the tab: the count says one firing is in the kiln.
+        page.set_viewport_size({"width": 1280, "height": 900})
+        page.goto(f"{live_server.url}{reverse('kiln:mine')}")
+        unload_tab = page.locator('[data-kiln-tab="unload"]')
+        expect(unload_tab).to_contain_text("Unload1")
+        unload_tab.click()
+        page.locator(f'[data-kiln-unload-list] [data-firing="{firing.pk}"]').click()
+        expect(page.locator("[data-kiln-unload]")).to_be_visible()
+        rows = page.locator("[data-unload-row]")
+        expect(rows).to_have_count(2)
+        expect(page.locator('input[name="fired"]:checked')).to_have_count(2)
+        expect(page.locator("[data-kiln-except]").filter(visible=True)).to_have_count(0)
+
+        def send_bens_vase_back() -> None:
+            row = page.locator(f'[data-unload-row][data-ticket="{vase.pk}"]')
+            row.locator(".pl-kiln-unload__photo").click()
+            expect(row.locator('input[name="fired"]')).not_to_be_checked()
+            expect(row.locator("[data-kiln-except]")).to_be_visible()
+            expect(row).to_contain_text("Gets your message instead")
+            row.locator("label.pl-chip", has_text="Cracked").click()
+            row.get_by_label("Message to Ben Carter").fill(
+                "Hi Ben, your vase cracked near the base before the glaze matured. It goes in the next glaze firing."
+            )
+            row.locator("label.pl-radio-option", has_text="Put it back in the queue").click()
+            summary = page.locator("[data-kiln-unload-summary]")
+            expect(summary).to_contain_text("1 ready, 1 note")
+            expect(summary).to_contain_text(f"Ben Carter gets your note, and ticket {vase.pk} goes back to the queue.")
+
+        send_bens_vase_back()
+        assert page.evaluate(NO_SIDEWAYS_SCROLL)
+        page.evaluate("window.scrollTo(0, 0)")
+        _capture(page, "kiln-tickets-691-unload-desktop.png")
+
+        # A phone loads the page at its own width; the choices start over, as a fresh page does.
+        page.set_viewport_size({"width": 390, "height": 844})
+        page.reload()
+        expect(page.locator(".hub-sidebar")).not_to_be_in_viewport()
+        send_bens_vase_back()
+        assert page.evaluate(NO_SIDEWAYS_SCROLL)
+        page.evaluate("window.scrollTo(0, 0)")
+        _capture(page, "kiln-tickets-691-unload-phone.png")
+        confirm = page.get_by_role("button", name="Mark fired and notify")
+        _clear_of_the_feedback_bubble(page, confirm)
+
+        confirm.click()
+        expect(page).to_have_url(f"{live_server.url}{reverse('kiln:log')}")
+        expect(page.locator(".plt-msg", has_text=f"{firing.name} is unloaded")).to_be_visible()
+        assert KilnTicket.objects.get(pk=bowls.pk).status == KilnTicket.Status.FIRED
+        back = KilnTicket.objects.get(pk=vase.pk)
+        assert (back.status, back.firing) == (KilnTicket.Status.SUBMITTED, None)
+        note = KilnReply.objects.get(ticket=vase)
+        assert (note.author, note.outcome, note.what_happened) == (crew, "back_to_queue", "cracked")
+        assert KilnFiring.objects.get(pk=firing.pk).unloaded_by == crew
+
+        # The Kiln Log lists the firing with who loaded and unloaded it, both pieces and the exception.
+        page.set_viewport_size({"width": 1280, "height": 900})
+        page.reload()
+        row = page.locator(f'tr[data-firing="{firing.pk}"]')
+        expect(row).to_contain_text(firing.name)
+        expect(row).to_contain_text("Dana Reyes")
+        expect(row.locator(".pl-kiln-num")).to_have_text("2")
+        expect(row).to_contain_text("1 exception: cracked")
+        assert page.evaluate(NO_SIDEWAYS_SCROLL)
+        page.evaluate("window.scrollTo(0, 0)")
+        _capture(page, "kiln-tickets-691-log-desktop.png")
+        row.get_by_role("link", name=firing.name).click()
+        expect(page.locator(f'[data-kiln-firing="{firing.pk}"]')).to_contain_text("Unloaded")
+        expect(page.locator(f'[data-ticket="{vase.pk}"]')).to_contain_text("Back to the queue: cracked")
+        page.context.clear_cookies()
+
+        # Maya reads one notice, and her bowls are Ready for pickup.
+        bells = Notification.objects.filter(user=maya.user, trigger=KILN_READY_FOR_PICKUP)
+        assert [b.title for b in bells] == ["Your piece is ready for pickup"]
+        assert Notification.objects.filter(user=ben.user, trigger=KILN_READY_FOR_PICKUP).get().title == (
+            "Your piece is back in the queue"
+        )
+        page.set_viewport_size({"width": 390, "height": 844})
+        login_via_code(EMAIL)
+        page.goto(f"{live_server.url}{reverse('kiln:mine')}")
+        history = page.locator('[data-group="history"]')
+        expect(history).to_contain_text(f"Ticket {bowls.pk}")
+        expect(history.locator(".pl-kiln-status")).to_have_text("Ready for pickup")
+        page.goto(f"{live_server.url}{reverse('notification_list')}")
+        expect(page.get_by_text("Your piece is ready for pickup")).to_be_visible()
+        page.goto(f"{live_server.url}{reverse('kiln:detail', args=[bowls.pk])}")
+        expect(page.locator("[data-kiln-timeline]")).to_contain_text("unloaded by Dana Reyes")

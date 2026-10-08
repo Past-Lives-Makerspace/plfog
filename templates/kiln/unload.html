@@ -1,0 +1,95 @@
+{% extends "hub/base.html" %}
+{% load static %}
+{% block title %}Unload {{ firing.name }}{% endblock %}
+
+{% block extra_head %}
+<link rel="stylesheet" href="{% static 'css/kiln-tickets.css' %}">
+{% endblock %}
+
+{% block content %}
+{% include "kiln/partials/_icons.html" %}
+<div class="pl-kiln-head">
+    <h1 class="hub-page-title">Kiln Tickets</h1>
+    {% include "kiln/partials/_crew_tabs.html" %}
+</div>
+
+{% comment %}
+Unload one firing (#691 part 3). Every ticket starts ticked. Unticking a row opens what happened,
+a note to its maker and the choice of fired with the note or back to the queue. Alpine only shows
+that panel and writes the action bar's summary of who gets which note; the server checks every
+unticked row (kiln.forms.UnloadForm) and does the unload under a lock (kiln.services.unload_kiln).
+{% endcomment %}
+<form method="post" action="{% url 'kiln:unload' firing.pk %}" data-kiln-unload
+      x-data="{ ready: 0, lines: [],
+                recount() {
+                    const rows = [...this.$root.querySelectorAll('[data-unload-row]')];
+                    this.ready = rows.filter((row) => row.querySelector('input[name=fired]').checked).length;
+                    this.lines = rows.filter((row) => !row.querySelector('input[name=fired]').checked).map((row) =>
+                        row.querySelector('input[value=back_to_queue]:checked')
+                            ? row.dataset.maker + ' gets your note, and ticket ' + row.dataset.ticket + ' goes back to the queue.'
+                            : row.dataset.maker + ' gets your note with ticket ' + row.dataset.ticket + ' ready for pickup.');
+                } }"
+      x-init="recount()" @change="recount()">
+    {% csrf_token %}
+    <div class="hub-card pl-kiln-firingbar">
+        <div>
+            <div class="pl-kiln-firingbar__label">Unloading</div>
+            <div class="pl-kiln-firingbar__name">{{ firing.name }}</div>
+            <div class="pl-kiln-firingbar__label">Loaded {{ firing.loaded_at|date:"D, M j" }} by {{ firing.loaded_by_name }} · {{ form.tickets|length }} ticket{{ form.tickets|length|pluralize }}</div>
+        </div>
+    </div>
+
+    {% if form.errors %}
+    <div class="pl-kiln-errors" role="alert">
+        <strong>Some unticked pieces still need an answer.</strong>
+        {% if form.non_field_errors or form.fired.errors %}<ul>{% for error in form.non_field_errors %}<li>{{ error }}</li>{% endfor %}{% for error in form.fired.errors %}<li>{{ error }}</li>{% endfor %}</ul>{% endif %}
+    </div>
+    {% endif %}
+
+    <p class="hub-text-muted">Everything is ticked. Untick a piece that did not come out right, and tell its maker what happened.</p>
+
+    <ul class="pl-kiln-unload">
+        {% for row in form.rows %}
+        {% with ticket=row.ticket cover=row.ticket.cover_photo %}
+        <li class="pl-kiln-unload__row {% if row.ticked %}pl-kiln-unload__row--ok{% else %}pl-kiln-unload__row--except{% endif %}" data-unload-row data-ticket="{{ ticket.pk }}" data-maker="{{ ticket.maker_name }}"
+            x-data="{ ticked: {{ row.ticked|yesno:'true,false' }} }" :class="ticked ? 'pl-kiln-unload__row--ok' : 'pl-kiln-unload__row--except'">
+            <label class="pl-kiln-unload__main">
+                <input type="checkbox" name="fired" value="{{ ticket.pk }}" x-model="ticked"{% if row.ticked %} checked{% endif %} aria-label="Ticket {{ ticket.pk }}, {{ ticket.maker_name }}, came out right">
+                <span class="pl-kiln-unload__photo">{% if cover %}<img src="{{ cover.tile.url }}" alt="Cover photo of ticket {{ ticket.pk }}" loading="lazy">{% else %}<span class="pl-kiln-row__photo--empty pl-kiln-tile__nophoto"><svg class="pl-kiln-ico" aria-hidden="true"><use href="#kiln-i-camera"/></svg><span class="sr-only">No photo</span></span>{% endif %}</span>
+                <span>
+                    <span class="pl-kiln-unload__who">{{ ticket.maker_name }}{% if ticket.maker_type == "student" %} · {{ ticket.get_maker_type_display }}{% endif %}</span>
+                    <span class="pl-kiln-unload__sub">Ticket {{ ticket.pk }} · {{ ticket.summary }}{% if ticket.glaze_names %} · {{ ticket.glaze_names }}{% elif ticket.clay_label %} · {{ ticket.clay_label }}{% endif %}</span>
+                    <span class="pl-kiln-unload__out" x-show="ticked"{% if not row.ticked %} x-cloak{% endif %}><svg class="pl-kiln-ico" aria-hidden="true"><use href="#kiln-i-check"/></svg>Ready for pickup</span>
+                    <span class="pl-kiln-unload__out" x-show="!ticked"{% if row.ticked %} x-cloak{% endif %}><svg class="pl-kiln-ico" aria-hidden="true"><use href="#kiln-i-msg"/></svg>Gets your message instead</span>
+                </span>
+            </label>
+            <div class="pl-kiln-except" x-show="!ticked"{% if row.ticked %} x-cloak{% endif %} data-kiln-except>
+                <p class="pl-kiln-q__label" id="kiln-what-{{ ticket.pk }}">What happened?</p>
+                <div class="pl-kiln-chips" role="radiogroup" aria-labelledby="kiln-what-{{ ticket.pk }}">
+                    {% for radio in row.what %}<label class="pl-chip">{{ radio.tag }}{{ radio.choice_label }}</label>{% endfor %}
+                </div>
+                {% if row.what.errors %}<ul class="pl-field-errors">{% for error in row.what.errors %}<li class="pl-field-error">{{ error }}</li>{% endfor %}</ul>{% endif %}
+                <div class="pl-btn--spaced">{% include "components/form_field.html" with field=row.note field_hint_off=True %}</div>
+                <p class="pl-kiln-q__label" id="kiln-next-{{ ticket.pk }}">What happens to the ticket?</p>
+                <div role="radiogroup" aria-labelledby="kiln-next-{{ ticket.pk }}">
+                    {% for radio in row.next %}
+                    <label class="pl-radio-option">{{ radio.tag }}<span class="pl-radio-option__label">{% if radio.data.value == "back_to_queue" %}It was not fired. Put it back in the queue and send my message.{% else %}It was fired. Mark it fired and send my message.{% endif %}</span></label>
+                    {% endfor %}
+                </div>
+                {% if row.next.errors %}<ul class="pl-field-errors">{% for error in row.next.errors %}<li class="pl-field-error">{{ error }}</li>{% endfor %}</ul>{% endif %}
+            </div>
+        </li>
+        {% endwith %}
+        {% endfor %}
+    </ul>
+
+    <div class="pl-kiln-actionbar pl-kiln-actionbar--stack">
+        <div class="pl-kiln-actionbar__note" data-kiln-unload-summary>
+            <strong><span x-text="ready">{{ form.tickets|length }}</span> ready<span x-show="lines.length" x-cloak>, <span x-text="lines.length"></span> <span x-text="lines.length === 1 ? 'note' : 'notes'"></span></span></strong>
+            <span x-show="!lines.length">Each maker gets one ready for pickup notice.</span>
+            <template x-for="line in lines"><span class="pl-kiln-actionbar__line" x-text="line"></span></template>
+        </div>
+        <button type="submit" class="hub-btn hub-btn--primary"><svg class="pl-kiln-ico" aria-hidden="true"><use href="#kiln-i-bell"/></svg>Mark fired and notify</button>
+    </div>
+</form>
+{% endblock %}

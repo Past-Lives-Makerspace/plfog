@@ -163,13 +163,17 @@ class KilnTicketQuerySet(models.QuerySet["KilnTicket"]):
         """Every ticket for the crew; a maker's own tickets for anyone else."""
         return self if crew else self.filter(maker=member)
 
+    def newest_fired_first(self) -> KilnTicketQuerySet:
+        """Fired tickets by when they came out, newest first; every other ticket after, newest first."""
+        return self.order_by(models.F("fired_at").desc(nulls_last=True), "-created_at", "-pk")
+
 
 class KilnTicket(models.Model):
     """One piece, or a set of identical pieces, waiting for a firing."""
 
     class Status(models.TextChoices):
-        # The whole lifecycle is declared now so loading (part 2) and unloading (part 3)
-        # need no status migration. Part 1 moves tickets from DRAFT to SUBMITTED only.
+        # Submit moves DRAFT to SUBMITTED, loading SUBMITTED to LOADED, and unloading LOADED
+        # to FIRED, or back to SUBMITTED for a piece the crew sends back to the queue.
         DRAFT = "draft", "Draft"
         SUBMITTED = "submitted", "In the queue"
         LOADED = "loaded", "In the kiln"
@@ -272,6 +276,9 @@ class KilnTicket(models.Model):
     created_at = models.DateTimeField(auto_now_add=True, help_text="When the ticket was started.")
     updated_at = models.DateTimeField(auto_now=True, help_text="When the ticket was last saved.")
     submitted_at = models.DateTimeField(null=True, blank=True, help_text="When the ticket first went in the queue.")
+    fired_at = models.DateTimeField(
+        null=True, blank=True, help_text="When the crew unloaded it and marked it Ready for pickup."
+    )
     firing = models.ForeignKey(
         "KilnFiring",
         null=True,
@@ -365,6 +372,13 @@ class KilnTicket(models.Model):
         """Every flag for the crew's ticket view: open ones loudest first, then cleared ones."""
         cleared = [f for f in self.flags.all() if f.cleared_at is not None]
         return self.open_flags() + cleared
+
+    def returned_to_queue(self) -> list[KilnReply]:
+        """The crew's notes that sent this piece back to the queue at an unload, oldest first.
+
+        Reads the prefetched replies, so the timeline costs no query of its own.
+        """
+        return [r for r in self.replies.all() if r.outcome == KilnReply.Outcome.BACK_TO_QUEUE]
 
     def add_flag(self, note: str, by: Member) -> KilnFlag:
         """A flag the crew adds by hand, with a note only the crew sees."""
@@ -798,11 +812,20 @@ class KilnFlag(models.Model):
         self.save(update_fields=["cleared_at", "cleared_by"])
 
 
+class KilnFiringQuerySet(models.QuerySet["KilnFiring"]):
+    """Firings still in the kiln, and the ones the crew has unloaded."""
+
+    def in_kiln(self) -> KilnFiringQuerySet:
+        """Loaded and not unloaded yet, the oldest load first (the one to unload next)."""
+        return self.filter(unloaded_at__isnull=True).order_by("loaded_at", "pk")
+
+
 class KilnFiring(models.Model):
     """One load of the kiln: a bisque or glaze firing and the tickets that went in.
 
     Numbered in one sequence across both types ("Glaze firing 88"), so the crew can name
-    a load out loud. Part 3 adds the unloading.
+    a load out loud. Unloading (``kiln.services.unload_kiln``) sets ``unloaded_by`` and
+    ``unloaded_at`` once; a firing is never unloaded twice.
     """
 
     firing_type = models.CharField(
@@ -818,6 +841,19 @@ class KilnFiring(models.Model):
         help_text="The crew member who confirmed the load.",
     )
     loaded_at = models.DateTimeField(default=timezone.now, help_text="When the load was confirmed.")
+    unloaded_by = models.ForeignKey(
+        "membership.Member",
+        null=True,
+        blank=True,
+        on_delete=models.PROTECT,
+        related_name="+",
+        help_text="The crew member who unloaded it and told the makers; blank while it is in the kiln.",
+    )
+    unloaded_at = models.DateTimeField(
+        null=True, blank=True, help_text="When it was unloaded; blank while it is in the kiln."
+    )
+
+    objects = KilnFiringQuerySet.as_manager()
 
     class Meta:
         ordering = ["-number"]
@@ -828,6 +864,29 @@ class KilnFiring(models.Model):
     @property
     def loaded_by_name(self) -> str:
         return member_name(self.loaded_by)
+
+    @property
+    def is_unloaded(self) -> bool:
+        return self.unloaded_at is not None
+
+    @property
+    def unloaded_by_name(self) -> str:
+        """Who unloaded it, or blank while it is in the kiln."""
+        return member_name(self.unloaded_by) if self.unloaded_by is not None else ""
+
+    def exception_notes(self) -> list[KilnReply]:
+        """The crew's notes on pieces that did not come out right (reads the prefetched ``exceptions``)."""
+        return list(self.exceptions.all())
+
+    @property
+    def exceptions_label(self) -> str:
+        """The log's note: "1 exception: glaze ran", "2 exceptions: cracked, stuck to the shelf"; blank when none."""
+        notes = self.exception_notes()
+        if not notes:
+            return ""
+        noun = "exception" if len(notes) == 1 else "exceptions"
+        kinds = list(dict.fromkeys(str(n.get_what_happened_display()).lower() for n in notes))
+        return f"{len(notes)} {noun}: {', '.join(kinds)}"
 
     @property
     def name(self) -> str:
@@ -856,7 +915,23 @@ class KilnFiring(models.Model):
 
 
 class KilnReply(models.Model):
-    """One message on a ticket's thread between the maker and the crew."""
+    """One message on a ticket's thread between the maker and the crew.
+
+    A note the crew writes while unloading (a piece that cracked, or did not get fired) is a
+    reply too, with ``firing``, ``what_happened`` and ``outcome`` set: the exception record
+    the timeline and the kiln log read. It reaches the maker in the ready for pickup notice,
+    never as a separate message notification.
+    """
+
+    class WhatHappened(models.TextChoices):
+        CRACKED = "cracked", "Cracked"
+        GLAZE_RAN = "glaze_ran", "Glaze ran"
+        STUCK = "stuck", "Stuck to the shelf"
+        OTHER = "other", "Something else"
+
+    class Outcome(models.TextChoices):
+        FIRED = "fired", "Fired, with this note"
+        BACK_TO_QUEUE = "back_to_queue", "Back to the queue"
 
     ticket = models.ForeignKey(
         KilnTicket, on_delete=models.CASCADE, related_name="replies", help_text="The ticket this message is on."
@@ -869,9 +944,39 @@ class KilnReply(models.Model):
     )
     body = models.TextField(help_text="The message.")
     created_at = models.DateTimeField(auto_now_add=True, help_text="When it was sent.")
+    firing = models.ForeignKey(
+        KilnFiring,
+        null=True,
+        blank=True,
+        on_delete=models.PROTECT,
+        related_name="exceptions",
+        help_text="The firing being unloaded when the crew wrote this note; blank for an ordinary message.",
+    )
+    what_happened = models.CharField(
+        max_length=20,
+        choices=WhatHappened.choices,
+        blank=True,
+        help_text="What went wrong with the piece at the unload; blank for an ordinary message.",
+    )
+    outcome = models.CharField(
+        max_length=20,
+        choices=Outcome.choices,
+        blank=True,
+        help_text="Whether the piece was fired anyway or went back to the queue; blank for an ordinary message.",
+    )
 
     class Meta:
         ordering = ["created_at", "pk"]
+        constraints = [
+            # An unload note carries its firing, what happened and the outcome; a message carries none.
+            models.CheckConstraint(
+                condition=(
+                    models.Q(firing__isnull=True, what_happened="", outcome="")
+                    | (models.Q(firing__isnull=False) & ~models.Q(what_happened="") & ~models.Q(outcome=""))
+                ),
+                name="ck_kiln_reply_unload_note",
+            ),
+        ]
 
     def __str__(self) -> str:
         return f"Message {self.pk} on ticket {self.ticket_id}"
@@ -879,6 +984,10 @@ class KilnReply(models.Model):
     @property
     def author_name(self) -> str:
         return member_name(self.author)
+
+    @property
+    def is_unload_note(self) -> bool:
+        return self.firing_id is not None
 
     @property
     def from_crew(self) -> bool:
