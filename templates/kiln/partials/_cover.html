@@ -1,0 +1,5 @@
+{# A ticket's cover photo in a row, or a placeholder when it has none yet. Expects ticket. #}
+{% with cover=ticket.cover_photo %}
+{% if cover %}<span class="pl-kiln-row__photo"><img src="{{ cover.tile.url }}" alt="Cover photo of ticket {{ ticket.pk }}" loading="lazy"></span>
+{% else %}<span class="pl-kiln-row__photo pl-kiln-row__photo--empty"><svg class="pl-kiln-ico" aria-hidden="true"><use href="#kiln-i-camera"/></svg><span class="sr-only">No photo yet</span></span>{% endif %}
+{% endwith %}

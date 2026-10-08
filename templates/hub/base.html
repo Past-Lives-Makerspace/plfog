@@ -121,7 +121,8 @@
     {% if user.is_authenticated and not request.GET.public and not is_guest_surface and not is_framed %}
     <div class="hub-sidebar-backdrop" :class="{ 'hub-sidebar-backdrop--visible': sidebarOpen }" @click="sidebarOpen = false"></div>
     <aside class="hub-sidebar" :class="{ 'hub-sidebar--closed': !sidebarOpen }">
-        <a href="{% url 'hub_home' %}" class="pl-brand">
+        {# A guest reaches only the kiln pages (#691), so its logo goes there rather than bouncing off Home. #}
+        <a href="{% if kiln_nav.guest_only %}{% url 'kiln:mine' %}{% else %}{% url 'hub_home' %}{% endif %}" class="pl-brand">
             <img src="{% firstof brand_logo_url fallback_logo %}" alt="{{ brand_short_name }}" class="pl-brand__icon" width="24" height="24">
             <span class="pl-brand__info">
                 <span class="pl-brand__text">Member Portal</span>
@@ -130,6 +131,15 @@
         </a>
 
         <nav class="hub-sidebar__nav" aria-label="Hub navigation" data-help-key="nav.sidebar" hx-boost="false" @click="if ($event.target.closest('a') && window.innerWidth <= 768) sidebarOpen = false">
+            {% if kiln_nav.guest_only %}
+            {# A guest account (#691) reaches the kiln pages and nothing else, so their menu is those and Sign out. #}
+            {% include "hub/partials/_sidebar_kiln_link.html" %}
+            <hr class="hub-sidebar__divider" />
+            <a href="{% url 'account_logout' %}" class="hub-sidebar__link" hx-boost="false">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>
+                Sign out
+            </a>
+            {% else %}
             {% if request.view_as.is_admin %}
             <a href="{% url 'hub_home' %}" class="hub-sidebar__link {% active_nav 'hub_home' %}">
                 <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
@@ -214,6 +224,7 @@
             {% active_nav 'hub_equipment_index' as equipment_active %}
             {% url 'hub_equipment_index' as equipment_url %}
             {% include "hub/partials/_sidebar_feature_link.html" with feature=features.equipment url=equipment_url label="Reservations" icon="hub/partials/nav_icons/_equipment.html" active=equipment_active %}
+            {% if kiln_nav.show %}{% include "hub/partials/_sidebar_kiln_link.html" %}{% endif %}
 
             {# The admin destination. The member block below points the same switch at hub_guild_voting. #}
             {% active_nav 'hub_admin_voting_overview' as voting_active %}
@@ -331,6 +342,7 @@
             {% active_nav 'hub_equipment_index' as equipment_active %}
             {% url 'hub_equipment_index' as equipment_url %}
             {% include "hub/partials/_sidebar_feature_link.html" with feature=features.equipment url=equipment_url label="Reservations" icon="hub/partials/nav_icons/_equipment.html" active=equipment_active %}
+            {% if kiln_nav.show %}{% include "hub/partials/_sidebar_kiln_link.html" %}{% endif %}
 
             <hr class="hub-sidebar__divider" />
 
@@ -396,9 +408,11 @@
                 <span class="pl-help__bubble" role="tooltip">{{ features.guilds.message }}</span>
             </span>
             {% endif %}
+            {% endif %}
 
         </nav>
 
+        {% if not kiln_nav.guest_only %}
         <div class="hub-sidebar__footer" aria-label="Member resources">
             {# The Member Guide + Code of Conduct Google Docs moved into the Help page (/help/). #}
             <div class="hub-sidebar__icons">
@@ -425,9 +439,11 @@
                 <span>Feedback</span>
             </a>
         </div>
+        {% endif %}
     </aside>
 
     {# Mobile-only floating feedback bubble — always reachable without opening the sidebar. #}
+    {% if not kiln_nav.guest_only %}
     <a href="{% url 'hub_beta_feedback' %}"
        class="hub-feedback-fab {% active_nav 'hub_beta_feedback' %}"
        hx-boost="false"
@@ -436,6 +452,7 @@
             <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/>
         </svg>
     </a>
+    {% endif %}
     {% endif %}
 
     <div class="hub-main-wrapper {% if not user.is_authenticated or request.GET.public or is_guest_surface or is_framed %}hub-main-wrapper--public hub-main-wrapper--expanded{% endif %}" {% if user.is_authenticated and not request.GET.public and not is_guest_surface and not is_framed %}:class="{ 'hub-main-wrapper--expanded': !sidebarOpen }"{% endif %}>
@@ -530,8 +547,8 @@
             </div>
             {% endif %}
             <div class="pl-topbar__spacer"></div>
-            {% include "hub/_notification_bell.html" %}
-            {% if tab_balance is not None %}
+            {% if not kiln_nav.guest_only %}{% include "hub/_notification_bell.html" %}{% endif %}
+            {% if tab_balance is not None and not kiln_nav.guest_only %}
             <a href="{% url 'hub_tab_detail' %}" class="pl-topbar__tab-pill{% if tab_is_locked %} pl-topbar__tab-pill--locked{% endif %}" title="My Tab">
                 ${{ tab_balance }}
             </a>
@@ -560,7 +577,7 @@
                         <div class="pl-profile__dropdown-name">{{ user.get_full_name|default:user.email }}</div>
                         <div class="pl-profile__dropdown-email">{{ user.email }}</div>
                     </div>
-                    <a href="{% url 'hub_user_settings' %}" class="pl-profile__dropdown-item" role="menuitem">Settings</a>
+                    {% if not kiln_nav.guest_only %}<a href="{% url 'hub_user_settings' %}" class="pl-profile__dropdown-item" role="menuitem">Settings</a>{% endif %}
                     <button type="button" class="pl-profile__dropdown-item pl-profile__dropdown-mobile-item" @click="$store.theme.light = !$store.theme.light; window.__plSetTheme($store.theme.light)" role="menuitem"><span x-text="$store.theme.light ? 'Switch to Dark Mode' : 'Switch to Light Mode'"></span></button>
                     <div class="pl-profile__dropdown-divider"></div>
                     <a href="{% url 'account_logout' %}" class="pl-profile__dropdown-item pl-profile__dropdown-item--danger" role="menuitem" hx-boost="false">Log Out</a>

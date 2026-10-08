@@ -10,9 +10,10 @@
 | `core/` | Auth + platform infra: Invite, SiteConfiguration, PushSubscription, notifications/triggers, transactional email (`core.email.send`), SiteActivity, scheduled tasks |
 | `hub/` | Member-facing views (guild voting, directory, tab, profile, guild pages) |
 | `airtable_sync/` | Airtable bidirectional sync for members, spaces, leases, votes |
+| `kiln/` | Ceramics Guild kiln tickets (#691): tickets with photos and flags, the clay and glaze lists; see `kiln/AGENTS.md` |
 | `plfog/` | Django project: settings, urls, wsgi, auto_admin, adapters |
 
-Those six plus `plfog/` are the whole of `INSTALLED_APPS` for this project. Other top-level directories are not Django apps:
+Those seven plus `plfog/` are the whole of `INSTALLED_APPS` for this project. Other top-level directories are not Django apps:
 
 | Directory | What it is |
 |-----------|-----------|
@@ -113,6 +114,7 @@ Those six plus `plfog/` are the whole of `INSTALLED_APPS` for this project. Othe
 /classes/admin/                 CMS admin (overview, classes, registrations, categories, discount codes, settings)
 /classes/admin/registrations/export/  Registrations CSV download (admins only)
 /account/                       Book CMS account area (classes.account)
+/kiln/                          Kiln tickets (members, guests; /kiln/lists/ for the Ceramics Guild crew)
 ```
 
 ## Test Structure

@@ -79,7 +79,7 @@ jobs:
         run: ruff format --check .
 
       - name: Mypy
-        run: mypy plfog/ core/ membership/ hub/
+        run: mypy plfog/ core/ membership/ hub/ kiln/
 
       - name: No inline <style> in template extra_head blocks
         run: python scripts/check_no_inline_style_in_extra_head.py

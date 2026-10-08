@@ -1,0 +1,213 @@
+/* Kiln tickets (#691): My Tickets, the ticket form, ticket detail and the crew's lists.
+   Lifted from the approved mockup (mockups/kiln-tickets.html). Tokens only; every flag
+   carries an icon and words, never color alone. Loading, unloading and the log land in
+   parts 2 and 3 with their own rules. */
+
+.pl-kiln-form textarea { font: inherit; font-size: 0.95rem; line-height: 1.45; }
+.pl-kiln-ico { width: 1em; height: 1em; flex: 0 0 auto; vertical-align: -0.125em; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+
+/* Page head: title, one line lead, and (crew only) the tab row. */
+.pl-kiln-head { margin-bottom: 1.25rem; }
+.pl-kiln-head .hub-page-title { margin-bottom: 0.25rem; }
+.pl-kiln-head__lead { margin: 0 0 1rem; color: var(--hub-text-muted); max-width: 60ch; }
+.pl-kiln-head .pl-tabs { margin-bottom: 0; }
+.pl-kiln-count { display: inline-block; min-width: 1.4rem; padding: 0 0.35rem; margin-left: 0.35rem; border-radius: 999px; background: var(--hub-surface); font-size: 0.75rem; font-weight: 700; text-align: center; color: var(--hub-text); }
+
+/* The big New ticket button: full width on phones, a thumb's reach. */
+.pl-kiln-new { display: flex; align-items: center; justify-content: center; gap: 0.5rem; width: 100%; min-height: 56px; font-size: 1.0625rem; margin-bottom: 1.5rem; }
+@media (min-width: 769px) { .pl-kiln-new { width: auto; display: inline-flex; padding-inline: 2rem; } }
+
+/* Status groups on My kiln tickets. */
+.pl-kiln-group { margin: 0 0 1.75rem; }
+.pl-kiln-group__title { display: flex; align-items: center; gap: 0.5rem; margin: 0 0 0.625rem; font-family: var(--font-heading); font-size: 1rem; font-weight: 700; color: var(--color-tuscan-yellow); text-transform: capitalize; }
+.pl-kiln-group__title .pl-kiln-count { margin-left: 0; }
+
+/* A ticket row: cover photo, summary, status, and its actions. */
+.pl-kiln-row { display: grid; grid-template-columns: 76px 1fr; gap: 0.25rem 0.875rem; padding: 0.875rem; margin-bottom: 0.625rem; border: 1px solid var(--hub-border); border-radius: 12px; background: var(--hub-card-bg); color: var(--hub-text); text-decoration: none; }
+.pl-kiln-row__photo { grid-row: span 2; width: 76px; height: 76px; border-radius: 8px; overflow: hidden; }
+.pl-kiln-row__top { display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap; }
+.pl-kiln-row__title { font-weight: 600; font-size: 0.975rem; }
+.pl-kiln-row__sub { font-size: 0.85rem; color: var(--hub-text-muted); line-height: 1.4; }
+.pl-kiln-row__extras { grid-column: 1 / -1; display: flex; flex-wrap: wrap; gap: 0.5rem; align-items: center; margin-top: 0.5rem; }
+.pl-kiln-row__extras .hub-btn { display: inline-flex; align-items: center; gap: 0.4rem; min-height: 40px; }
+.pl-kiln-row--draft { border-style: dashed; }
+.pl-kiln-unread { display: inline-flex; align-items: center; gap: 0.3rem; font-size: 0.8rem; font-weight: 600; color: var(--hub-link); }
+
+/* Status badge: pl-status-badge plus an icon, so the state reads without color. */
+.pl-kiln-status { display: inline-flex; align-items: center; gap: 0.3rem; }
+
+/* Flags. Quiet: outlined chip with a flag icon. Loud ("no stilts"): filled, striped,
+   a warning triangle and bold words. Cleared: struck through with who cleared it. */
+.pl-kiln-flag { display: inline-flex; align-items: center; gap: 0.35rem; padding: 0.2rem 0.55rem; border: 1px solid currentColor; border-radius: 6px; font-size: 0.8rem; font-weight: 600; color: var(--pl-lifecycle-review); background: transparent; line-height: 1.3; }
+.pl-kiln-flag--loud { color: var(--hub-text); border: 2px solid var(--hub-danger-text); background: repeating-linear-gradient(135deg, rgba(220, 60, 60, 0.22) 0 6px, rgba(220, 60, 60, 0.08) 6px 12px); font-weight: 700; }
+.pl-kiln-flag--loud .pl-kiln-ico { color: var(--hub-danger-text); }
+.pl-kiln-flag--cleared { color: var(--hub-text-muted); border-style: dashed; font-weight: 500; }
+.pl-kiln-flag--cleared span { text-decoration: line-through; }
+
+/* The kind notice a maker sees: no red, no scolding, says what happens next. */
+.pl-kiln-notice { display: flex; gap: 0.75rem; padding: 0.875rem 1rem; border: 1px solid var(--hub-border-strong); border-left: 4px solid var(--hub-blue); border-radius: 10px; background: var(--hub-blue-soft); font-size: 0.9rem; line-height: 1.5; }
+.pl-kiln-notice > .pl-kiln-ico { width: 1.25rem; height: 1.25rem; color: var(--hub-blue); margin-top: 0.1rem; }
+.pl-kiln-notice strong { display: block; margin-bottom: 0.15rem; }
+.pl-kiln-notice ul { margin: 0.35rem 0 0; padding-left: 1.1rem; }
+.pl-kiln-notice li + li { margin-top: 0.2rem; }
+
+/* ---- New ticket form ---- */
+.pl-kiln-form .hub-card { padding: 1.25rem; margin-bottom: 1rem; }
+.pl-kiln-q { margin: 0 0 1.25rem; }
+.pl-kiln-q:last-child { margin-bottom: 0; }
+.pl-kiln-q__label { display: block; margin: 0 0 0.5rem; font-size: 0.95rem; font-weight: 600; color: var(--hub-text); }
+.pl-kiln-q__hint { display: block; margin: -0.25rem 0 0.5rem; font-size: 0.8125rem; color: var(--hub-text-muted); }
+.pl-kiln-step { font-family: var(--font-heading); font-size: 1.05rem; font-weight: 700; color: var(--color-tuscan-yellow); margin: 0 0 0.875rem; text-transform: capitalize; }
+
+/* Firing type: two big cards, first on the form. */
+.pl-kiln-firing { display: grid; grid-template-columns: 1fr 1fr; gap: 0.625rem; }
+.pl-kiln-firing .pl-radio-option { min-height: 76px; align-items: center; padding: 0.875rem; }
+.pl-kiln-firing__name { display: block; font-weight: 700; font-size: 1.05rem; }
+.pl-kiln-firing__desc { display: block; font-size: 0.8rem; color: var(--hub-text-muted); }
+
+/* Yes / No answered by two cards (an unanswered question has no default). */
+.pl-kiln-yesno { display: grid; grid-template-columns: 1fr 1fr; gap: 0.625rem; }
+.pl-kiln-yesno .pl-radio-option { min-height: 48px; align-items: center; font-weight: 600; }
+
+/* Checkbox cards (glaze kinds) reuse .pl-radio-option's look. */
+.pl-radio-option input[type="checkbox"] { flex: 0 0 auto; width: 1.1rem; height: 1.1rem; margin: 0.1rem 0 0; accent-color: var(--color-tuscan-yellow); }
+.pl-kiln-checks { display: grid; gap: 0.5rem; }
+.pl-kiln-chips { display: flex; flex-wrap: wrap; gap: 0.5rem; }
+.pl-kiln-chips .pl-chip { min-height: 44px; padding-inline: 0.875rem; }
+.pl-kiln-chips .pl-chip input { width: 1rem; height: 1rem; accent-color: var(--hub-blue); }
+
+/* A follow up revealed by an answer: indented under it with a rule, so it reads as "because you said". */
+.pl-kiln-follow { margin: 0.625rem 0 0 0.6rem; padding: 0.25rem 0 0.25rem 1rem; border-left: 2px solid var(--hub-border-strong); }
+.pl-kiln-follow .pl-form-group { margin-bottom: 0.75rem; }
+
+/* The branch block (bisque or glaze questions). */
+.pl-kiln-branch__tag { display: inline-flex; align-items: center; gap: 0.35rem; margin-bottom: 0.875rem; }
+
+/* Size: three boxes on one line with the unit after. */
+.pl-kiln-size { display: grid; grid-template-columns: 1fr 1fr 1fr auto; gap: 0.5rem; align-items: end; }
+.pl-kiln-size .pl-form-group { margin: 0; }
+.pl-kiln-size__unit { padding-bottom: 0.6rem; font-size: 0.85rem; color: var(--hub-text-muted); }
+.pl-kiln-form .pl-form-group input, .pl-kiln-form .pl-form-group select, .pl-kiln-form .pl-form-group textarea { min-height: 48px; font-size: 1rem; }
+
+/* Photos: square tiles, one marked Cover (star + word), an Add tile with camera. */
+.pl-kiln-photos { display: grid; grid-template-columns: repeat(3, 1fr); gap: 0.5rem; }
+.pl-kiln-photo { position: relative; aspect-ratio: 1; border-radius: 10px; overflow: hidden; border: 2px solid transparent; }
+.pl-kiln-photo--cover { border-color: var(--color-tuscan-yellow); }
+.pl-kiln-photo__cover { position: absolute; left: 0.35rem; bottom: 0.35rem; display: inline-flex; align-items: center; gap: 0.25rem; padding: 0.15rem 0.45rem; border-radius: 999px; background: var(--color-tuscan-yellow); color: var(--color-navy); font-size: 0.72rem; font-weight: 700; }
+.pl-kiln-photo__make { position: absolute; left: 0.35rem; bottom: 0.35rem; padding: 0.2rem 0.45rem; border: 0; border-radius: 999px; background: rgba(10, 11, 16, 0.75); color: #F4EFDD; font-size: 0.72rem; font-weight: 600; min-height: 28px; }
+.pl-kiln-photo__remove { position: absolute; top: 0.3rem; right: 0.3rem; width: 32px; height: 32px; border: 0; border-radius: 999px; background: rgba(10, 11, 16, 0.7); color: #F4EFDD; display: inline-flex; align-items: center; justify-content: center; }
+.pl-kiln-photo-add { aspect-ratio: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 0.35rem; border: 2px dashed var(--hub-border-strong); border-radius: 10px; background: var(--hub-surface); color: var(--hub-text); font-size: 0.85rem; font-weight: 600; text-align: center; cursor: pointer; }
+.pl-kiln-photo-add .pl-kiln-ico { width: 1.6rem; height: 1.6rem; color: var(--hub-link); }
+.pl-kiln-photo-add input { position: absolute; width: 1px; height: 1px; opacity: 0; }
+.pl-kiln-photo-add--big { aspect-ratio: auto; min-height: 150px; grid-column: 1 / -1; font-size: 1rem; border-color: var(--color-tuscan-yellow); }
+
+/* Copied ticket banner. */
+.pl-kiln-copied { display: flex; gap: 0.75rem; align-items: flex-start; padding: 0.875rem 1rem; margin-bottom: 1rem; border-radius: 10px; border: 1px solid var(--hub-border-strong); background: var(--hub-elevated); font-size: 0.9rem; }
+.pl-kiln-copied .pl-kiln-ico { width: 1.25rem; height: 1.25rem; color: var(--hub-link); margin-top: 0.1rem; }
+
+/* The action bar stays under the thumb while the form scrolls. Submit is the last control. */
+.pl-kiln-actionbar { position: sticky; bottom: 0; z-index: 20; display: flex; gap: 0.625rem; align-items: center; padding: 0.75rem 1rem calc(0.75rem + env(safe-area-inset-bottom, 0px)); margin: 1.5rem -1rem 0; background: var(--hub-card-bg); border-top: 1px solid var(--hub-border-strong); box-shadow: 0 -8px 20px rgba(0, 0, 0, 0.25); }
+.pl-kiln-actionbar .hub-btn { min-height: 48px; display: inline-flex; align-items: center; justify-content: center; gap: 0.4rem; }
+.pl-kiln-actionbar__grow { flex: 1; }
+.pl-kiln-actionbar__note { flex: 1; font-size: 0.85rem; color: var(--hub-text-muted); line-height: 1.35; }
+.pl-kiln-actionbar__note strong { display: block; color: var(--hub-text); font-size: 0.95rem; }
+.pl-kiln-actionbar .hub-btn[disabled] { opacity: 0.45; cursor: not-allowed; }
+@media (min-width: 769px) { .pl-kiln-actionbar { margin-inline: 0; border: 1px solid var(--hub-border-strong); border-radius: 12px; } }
+
+/* ---- Ticket detail ---- */
+.pl-kiln-detail { display: grid; gap: 1rem; }
+.pl-kiln-detail .hub-card { padding: 1.25rem; }
+.pl-kiln-detail__title { display: flex; align-items: center; gap: 0.625rem; flex-wrap: wrap; }
+.pl-kiln-detail__title .hub-page-title { margin: 0; }
+.pl-kiln-detail__sub { margin: -0.5rem 0 0; }
+@media (min-width: 1000px) {
+    .pl-kiln-detail--crew { grid-template-columns: minmax(0, 1.35fr) minmax(0, 1fr); align-items: start; }
+    .pl-kiln-detail__col { display: grid; gap: 1rem; }
+}
+.pl-kiln-detail__col { display: grid; gap: 1rem; min-width: 0; }
+.pl-kiln-card-title { margin: 0 0 0.75rem; font-family: var(--font-heading); font-size: 1rem; font-weight: 700; color: var(--color-tuscan-yellow); text-transform: capitalize; display: flex; align-items: center; gap: 0.5rem; }
+.pl-kiln-gallery__main { border-radius: 10px; overflow: hidden; aspect-ratio: 4 / 3; }
+.pl-kiln-gallery__strip { display: flex; gap: 0.5rem; margin-top: 0.5rem; }
+.pl-kiln-gallery__strip > * { width: 64px; height: 64px; border-radius: 8px; overflow: hidden; border: 2px solid transparent; }
+.pl-kiln-gallery__strip > [aria-current="true"] { border-color: var(--color-tuscan-yellow); }
+
+.pl-kiln-answers { margin: 0; display: grid; grid-template-columns: minmax(0, 11rem) minmax(0, 1fr); gap: 0.5rem 1rem; font-size: 0.9rem; }
+.pl-kiln-answers dt { color: var(--hub-text-muted); }
+.pl-kiln-answers dd { margin: 0; }
+@media (max-width: 480px) { .pl-kiln-answers { grid-template-columns: 1fr; gap: 0.1rem; } .pl-kiln-answers dd { margin-bottom: 0.5rem; } }
+
+.pl-kiln-crewonly { display: inline-flex; align-items: center; gap: 0.3rem; font-size: 0.75rem; color: var(--hub-text-muted); }
+
+.pl-kiln-timeline { list-style: none; margin: 0; padding: 0; }
+.pl-kiln-timeline li { position: relative; display: grid; grid-template-columns: 1.5rem 1fr; gap: 0.75rem; padding-bottom: 0.875rem; font-size: 0.9rem; }
+.pl-kiln-timeline li:not(:last-child)::before { content: ""; position: absolute; left: calc(0.75rem - 1px); top: 1.5rem; bottom: 0; width: 2px; background: var(--hub-border-strong); }
+.pl-kiln-timeline__dot { width: 1.5rem; height: 1.5rem; border-radius: 999px; display: inline-flex; align-items: center; justify-content: center; border: 2px solid var(--hub-border-strong); background: var(--hub-card-bg); }
+.pl-kiln-timeline__dot .pl-kiln-ico { width: 0.85rem; height: 0.85rem; }
+.pl-kiln-timeline li[data-state="done"] .pl-kiln-timeline__dot { background: var(--color-tuscan-yellow); border-color: var(--color-tuscan-yellow); color: var(--color-navy); }
+.pl-kiln-timeline li[data-state="now"] .pl-kiln-timeline__dot { border-color: var(--color-tuscan-yellow); border-width: 3px; }
+.pl-kiln-timeline li[data-state="next"] { color: var(--hub-text-muted); }
+.pl-kiln-timeline strong { display: block; }
+.pl-kiln-timeline span { font-size: 0.82rem; color: var(--hub-text-muted); }
+
+.pl-kiln-maker { display: flex; gap: 0.75rem; align-items: center; }
+.pl-kiln-maker__avatar { width: 44px; height: 44px; border-radius: 999px; background: var(--hub-elevated); border: 1px solid var(--hub-border-strong); display: inline-flex; align-items: center; justify-content: center; font-weight: 700; }
+.pl-kiln-maker__lines { font-size: 0.875rem; line-height: 1.5; }
+.pl-kiln-maker__lines a { color: var(--hub-link); }
+
+/* ---- Clay and glaze lists ---- */
+.pl-kiln-lists { display: grid; gap: 1rem; }
+@media (min-width: 1000px) { .pl-kiln-lists { grid-template-columns: 1fr 1fr; align-items: start; } }
+.pl-kiln-lists .hub-card { padding: 1.25rem; }
+.pl-kiln-listrow { display: grid; grid-template-columns: 1fr auto; gap: 0.25rem 0.75rem; align-items: center; padding: 0.625rem 0; border-top: 1px solid var(--hub-border); }
+.pl-kiln-listrow .pl-form-group { margin: 0; }
+.pl-kiln-listrow .pl-form-group input { min-height: 44px; font-size: 0.95rem; }
+.pl-kiln-listrow__meta { grid-column: 1 / -1; font-size: 0.78rem; color: var(--hub-text-muted); }
+.pl-kiln-listrow .hub-btn { min-height: 40px; display: inline-flex; align-items: center; gap: 0.35rem; }
+.pl-kiln-listrow--fixed .pl-kiln-listrow__name { font-weight: 600; padding: 0.6rem 0; }
+.pl-kiln-saved { display: inline-flex; align-items: center; gap: 0.3rem; font-size: 0.78rem; color: var(--pl-lifecycle-live); }
+.pl-kiln-lists .pl-disclosure { margin-top: 1rem; }
+.pl-kiln-archived { list-style: none; margin: 0; padding: 0; }
+.pl-kiln-archived li { display: flex; justify-content: space-between; align-items: center; gap: 0.75rem; padding: 0.6rem 0; border-top: 1px solid var(--hub-border); font-size: 0.9rem; }
+.pl-kiln-archived li:first-child { border-top: 0; }
+.pl-kiln-archived small { display: block; color: var(--hub-text-muted); font-size: 0.78rem; }
+.pl-kiln-add { margin-top: 0.875rem; display: inline-flex; align-items: center; gap: 0.35rem; min-height: 44px; }
+.pl-kiln-rule { margin: 0 0 1rem; font-size: 0.85rem; color: var(--hub-text-muted); line-height: 1.5; }
+
+/* ---- Additions for the build: real photos instead of the mockup's drawn pots ---- */
+.pl-kiln-row__photo img, .pl-kiln-photo img, .pl-kiln-gallery__main img, .pl-kiln-gallery__strip img { display: block; width: 100%; height: 100%; object-fit: cover; }
+.pl-kiln-row__photo--empty { display: flex; align-items: center; justify-content: center; background: var(--hub-surface); color: var(--hub-text-muted); }
+.pl-kiln-row__photo--empty .pl-kiln-ico { width: 1.75rem; height: 1.75rem; }
+a.pl-kiln-row__title { color: var(--hub-link); text-decoration: none; }
+.pl-kiln-gallery__strip > button { padding: 0; background: none; cursor: pointer; }
+.pl-kiln-photo--new::after { content: "New"; position: absolute; left: 0.35rem; top: 0.35rem; padding: 0.1rem 0.45rem; border-radius: 999px; background: rgba(10, 11, 16, 0.75); color: #F4EFDD; font-size: 0.72rem; font-weight: 600; }
+.pl-kiln-photo-add { position: relative; }
+.pl-kiln-photo-pick { margin-top: 0.75rem; display: inline-flex; align-items: center; gap: 0.4rem; min-height: 44px; cursor: pointer; }
+.pl-kiln-photo-pick input { position: absolute; width: 1px; height: 1px; opacity: 0; }
+
+/* Enter in a text box submits through the first submit button in the form. This one, first in
+   the form and out of sight, makes that "Save as draft" rather than a photo's Remove. */
+.pl-kiln-default-submit { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0; padding: 0; }
+
+/* Submit refused: what is missing, said once at the top and again under each question. */
+.pl-kiln-errors { margin: 0 0 1rem; padding: 0.875rem 1rem; border: 1px solid var(--hub-danger-text); border-radius: 10px; background: var(--hub-surface); font-size: 0.9rem; }
+.pl-kiln-errors strong { display: block; margin-bottom: 0.25rem; }
+.pl-kiln-errors ul { margin: 0; padding-left: 1.1rem; }
+.pl-kiln-q .pl-field-errors { margin-top: 0.4rem; }
+.pl-kiln-lists .pl-field-errors { margin-top: 0.5rem; }
+.pl-kiln-addrow { display: flex; gap: 0.5rem; align-items: flex-end; margin-top: 0.875rem; }
+.pl-kiln-addrow .pl-form-group { flex: 1; margin: 0; }
+.pl-kiln-addrow .pl-form-group input { min-height: 44px; }
+.pl-kiln-addrow .pl-kiln-add { margin-top: 0; }
+.pl-kiln-actions { display: flex; flex-wrap: wrap; gap: 0.625rem; }
+.pl-kiln-actions .pl-kiln-new { margin-bottom: 0; }
+.pl-kiln-crumb { font-size: 0.85rem; margin: 0 0 0.5rem; }
+.pl-kiln-crumb a { color: var(--hub-link); text-decoration: none; }
+/* The maker's detail is one column; on a wide screen it stops at a readable width. */
+.pl-kiln-detail--maker { max-width: 760px; }
+
+/* The site feedback bubble (.hub-feedback-fab, fixed 1rem from the bottom right, 52px) sits over
+   the sticky action bar on phones. Keep the bar's buttons clear of it with the same footprint
+   hub.css lifts its other floating controls by: the bubble, its 1rem inset and a 0.75rem gap. */
+@media (max-width: 768px) {
+    body:has(.hub-feedback-fab) .pl-kiln-actionbar { padding-right: calc(env(safe-area-inset-right, 0px) + 1rem + 52px + 0.75rem); }
+}

@@ -50,7 +50,7 @@ if [ -z "${DATABASE_URL:-}" ] && [ -f .env ]; then
     DATABASE_URL=${DATABASE_URL%\"}; DATABASE_URL=${DATABASE_URL#\"}
     export DATABASE_URL
 fi
-mypy plfog/ core/ membership/ hub/
+mypy plfog/ core/ membership/ hub/ kiln/
 
 echo "=== Pre-push: no inline <style> in template extra_head blocks ==="
 python3 scripts/check_no_inline_style_in_extra_head.py
