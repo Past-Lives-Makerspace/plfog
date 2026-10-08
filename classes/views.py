@@ -4356,14 +4356,20 @@ def admin_instructor_inquiries(request: HttpRequest) -> HttpResponse:
     """Instructor Inquiries (#690): every teaching application, pending and decided.
 
     The filter bar is a GET form, so the same query string drives the CSV export. A
-    filter with an error (To before From) lists nothing and shows the field error.
+    filter with an error (To before From) lists nothing, draws no Board Report and
+    shows the field error.
     """
     form = InstructorInquiryFilterForm(request.GET)
-    inquiries = list(form.inquiries()) if form.is_valid() else []
+    valid = form.is_valid()
     return render(
         request,
         "classes/admin/instructor_inquiries.html",
-        {"form": form, "inquiries": inquiries, "filter_query": request.GET.urlencode()},
+        {
+            "form": form,
+            "inquiries": list(form.inquiries()) if valid else [],
+            "report": form.board_report(timezone.now()) if valid else None,
+            "filter_query": request.GET.urlencode(),
+        },
     )
 
 

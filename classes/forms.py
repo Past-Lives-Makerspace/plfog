@@ -80,6 +80,9 @@ def _video_url_widget() -> forms.TextInput:
 if TYPE_CHECKING:
     from django.contrib.auth.models import AbstractBaseUser, AnonymousUser
 
+    from datetime import datetime
+
+    from classes.inquiries import BoardReport
     from membership.models import Member, MemberQuerySet
 
 
@@ -1028,15 +1031,28 @@ class InstructorInquiryFilterForm(forms.Form):
             self.add_error("date_to", "Date to is before Date from. Pick a later date.")
         return data
 
+    def in_range(self) -> MemberQuerySet:
+        """Every inquiry in a valid filter's date range, whatever its status."""
+        from membership.models import Member
+
+        data = self.cleaned_data
+        return Member.objects.teaching_inquiries(applied_from=data["date_from"], applied_to=data["date_to"])
+
     def inquiries(self) -> MemberQuerySet:
         """The members who asked to teach that match a valid filter, newest ask first."""
         from membership.models import Member
 
-        data = self.cleaned_data
-        inquiries = Member.objects.teaching_inquiries(applied_from=data["date_from"], applied_to=data["date_to"])
-        if data["status"]:
-            inquiries = inquiries.in_teaching_state(Member.TeachingApplicationState(data["status"]))
+        inquiries = self.in_range()
+        if self.cleaned_data["status"]:
+            inquiries = inquiries.in_teaching_state(Member.TeachingApplicationState(self.cleaned_data["status"]))
         return inquiries
+
+    def board_report(self, now: datetime) -> BoardReport:
+        """The Board Report charts for a valid filter's date range; the status filter does not apply."""
+        from classes.inquiries import board_report
+
+        data = self.cleaned_data
+        return board_report(self.in_range(), applied_from=data["date_from"], applied_to=data["date_to"], now=now)
 
 
 class ClassSessionForm(forms.ModelForm):

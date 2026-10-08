@@ -46,10 +46,10 @@
           <td class="pl-inquiries__date">{{ member.teaching_applied_at|date:"M j, Y" }}</td>
           <td><a href="{% url 'hub_admin_member_edit' member.pk %}">{{ member.display_name }}</a></td>
           <td class="pl-inquiries__note">{{ member.teaching_application_note|linebreaksbr }}</td>
-          <td>{% if member.teaching_website %}<a href="{{ member.teaching_website }}" target="_blank" rel="noopener">{{ member.teaching_website }}</a>{% endif %}</td>
-          <td class="pl-inquiries__socials">{{ member.teaching_socials|urlize }}</td>
+          <td class="pl-inquiries__wrap">{% if member.teaching_website %}<a href="{{ member.teaching_website }}" target="_blank" rel="noopener">{{ member.teaching_website }}</a>{% endif %}</td>
+          <td class="pl-inquiries__wrap">{{ member.teaching_socials|urlize }}</td>
           <td>{{ member.get_teaching_experience_display }}</td>
-          <td>{{ member.teaching_contact_summary }}</td>
+          <td class="pl-inquiries__wrap">{{ member.teaching_contact_summary }}</td>
           <td><span class="hub-pill pl-inquiries__status pl-inquiries__status--{{ member.teaching_application_state.value }}">{{ member.teaching_application_state.value|capfirst }}</span></td>
         </tr>
         {% endfor %}
@@ -60,5 +60,16 @@
   <p class="hub-text-muted pl-inquiries__empty" data-inquiries-empty>No one has asked to teach in this range.</p>
   {% endif %}
 </div>
+
+{% if report and not report.is_empty %}
+<div class="hub-card pl-inquiries__card" data-board-report>
+  <h2 class="hub-detail-label">Board Report</h2>
+  <div class="pl-inquiries__charts">
+    {% include "classes/admin/partials/inquiry_chart.html" with chart_title="Inquiries per Month" bars=report.by_month range_label=report.range_label filename="instructor-inquiries-per-month.png" %}
+    {% include "classes/admin/partials/inquiry_chart.html" with chart_title="Success Funnel" bars=report.funnel range_label=report.range_label filename="instructor-inquiries-funnel.png" %}
+  </div>
 </div>
+{% endif %}
+</div>
+<script src="{% static 'js/chart_download.js' %}"></script>
 {% endblock %}

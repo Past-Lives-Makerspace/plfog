@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import csv
 import io
+import re
 from datetime import datetime
 from zoneinfo import ZoneInfo
 
@@ -62,8 +63,6 @@ def three(db) -> dict[str, Member]:
 
 def _rows(content: str) -> list[str]:
     """The data-inquiry-row pks in page order."""
-    import re
-
     return re.findall(r'data-inquiry-row="(\d+)"', content)
 
 
@@ -174,3 +173,32 @@ def describe_the_csv():
         client.force_login(admin_user)
         response = client.get(EXPORT, {"date_from": "2026-10-01", "date_to": "2026-09-01"})
         assert response.status_code == 400
+
+
+def describe_the_board_report():
+    def it_draws_both_charts_with_a_download_button_each(admin_user, client, three):
+        client.force_login(admin_user)
+        content = client.get(PAGE).content.decode()
+        assert "data-board-report" in content
+        assert 'aria-label="Inquiries per Month, All time"' in content
+        assert 'aria-label="Success Funnel, All time"' in content
+        assert 'data-chart-download="instructor-inquiries-per-month.png" data-pl-download>Download</button>' in content
+        assert 'data-chart-download="instructor-inquiries-funnel.png" data-pl-download>Download</button>' in content
+        assert "js/chart_download" in content
+
+    def it_counts_the_whole_date_range_even_when_the_list_is_filtered_by_status(admin_user, client, three):
+        client.force_login(admin_user)
+        content = client.get(PAGE, {"status": "pending"}).content.decode()
+        assert _rows(content) == [str(three["pending"].pk)]
+        funnel = content[content.index('aria-label="Success Funnel') :]
+        assert re.findall(r'data-chart-bar="(\d+)"', funnel) == ["3", "1", "0"]
+
+    def it_draws_nothing_when_no_one_asked_in_the_range(admin_user, client, three):
+        client.force_login(admin_user)
+        content = client.get(PAGE, {"date_from": "2025-01-01", "date_to": "2025-01-31"}).content.decode()
+        assert "data-board-report" not in content
+
+    def it_draws_nothing_for_a_filter_with_an_error(admin_user, client, three):
+        client.force_login(admin_user)
+        content = client.get(PAGE, {"date_from": "2026-10-01", "date_to": "2026-09-01"}).content.decode()
+        assert "data-board-report" not in content
