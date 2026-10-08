@@ -23,7 +23,8 @@ from django.urls import reverse
 from django.utils import timezone
 
 from classes import eventbrite_orders
-from classes.eventbrite_finish import eventbrite_offers_account
+from classes.emails import eventbrite_finish_subject
+from classes.eventbrite_finish import eventbrite_offers_account, resend_unsent_finish_emails
 from classes.eventbrite_orders import apply_order
 from classes.factories import (
     ClassOfferingFactory,
@@ -36,7 +37,7 @@ from classes.factories import (
 from classes.forms import FinishRegistrationForm
 from classes.models import ClassOffering, ClassSettings, Registration, RegistrationAnswer, RegistrationQuestion, Waiver
 from core.integrations.eventbrite import EventbriteClient
-from core.models import SiteConfiguration
+from core.models import SiteConfiguration, TransactionalEmailLog
 from core.services.guest_account import ensure_account_for_registration
 from membership.models import Member
 from membership.services.provisioning import provision_user_for_member
@@ -465,3 +466,62 @@ def describe_resending_the_finish_email():
         _retry()
 
         assert mail.outbox == []
+
+    def it_stops_after_three_failed_sends_and_says_so_once(
+        eventbrite: FakeEventbrite, alerts: None, caplog: pytest.LogCaptureFixture
+    ):
+        listed_class()
+        eventbrite.orders["o-1"] = order("o-1", attendee("a-1"))
+        out = StringIO()
+        with patch("core.email._deliver", side_effect=SMTPException("down")) as deliver:
+            apply_order("o-1")
+            _retry()
+            call_command("retry_eventbrite_pushes", stdout=out)
+            _retry()
+            _retry()
+
+        assert deliver.call_count == 3
+        assert TransactionalEmailLog.objects.filter(status=TransactionalEmailLog.Status.FAILED).count() == 3
+        assert "Stopped resending to 1 ticket(s)" in out.getvalue()
+        assert [r.message for r in caplog.records].count(
+            f"Gave up on the finish registering email for registration "
+            f"{Registration.objects.get().pk} (ada@example.com) after 3 failed sends."
+        ) == 1
+
+    def it_never_lets_a_capped_ticket_block_a_new_seat():
+        fresh = _ticket(email="fresh@example.com", class_offering=listed_class())
+        capped = _ticket(email="capped@example.com", class_offering=listed_class())
+        for _ in range(3):
+            TransactionalEmailLog.objects.create(
+                to_email="capped@example.com",
+                subject=eventbrite_finish_subject(capped.class_offering),
+                trigger_kind="classes.eventbrite_finish_registration",
+                status=TransactionalEmailLog.Status.FAILED,
+            )
+
+        result = resend_unsent_finish_emails(limit=1)
+
+        assert result.tried == 1
+        assert [m.to for m in mail.outbox] == [[fresh.email]]
+
+    def it_does_not_retry_a_send_the_environment_suppressed():
+        ticket = _ticket(class_offering=listed_class())
+        TransactionalEmailLog.objects.create(
+            to_email="ada@example.com",
+            subject=eventbrite_finish_subject(ticket.class_offering),
+            trigger_kind="classes.eventbrite_finish_registration",
+            status=TransactionalEmailLog.Status.SUPPRESSED,
+        )
+
+        _retry()
+
+        assert mail.outbox == []
+
+    def it_sends_the_newest_seats_first_up_to_the_limit():
+        _ticket(email="older@example.com", class_offering=listed_class())
+        newer = _ticket(email="newer@example.com", class_offering=listed_class())
+
+        result = resend_unsent_finish_emails(limit=1)
+
+        assert result.tried == 1
+        assert [m.to for m in mail.outbox] == [[newer.email]]

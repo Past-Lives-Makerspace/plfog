@@ -27,7 +27,11 @@ class Command(BaseCommand):
         from core.integrations.eventbrite import EventbriteClient
 
         resent = resend_unsent_finish_emails(_MAX_PER_RUN)
-        self.stdout.write(f"Resent the finish registering email to {resent} Eventbrite ticket(s).")
+        self.stdout.write(f"Resent the finish registering email to {resent.tried} Eventbrite ticket(s).")
+        if resent.capped:
+            self.stdout.write(
+                self.style.WARNING(f"Stopped resending to {resent.capped} ticket(s) after repeated failed sends.")
+            )
         if not EventbriteClient.from_settings().enabled:
             self.stdout.write("Eventbrite sync is off, nothing to retry.")
             return

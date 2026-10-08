@@ -6,13 +6,15 @@ without importing the forms and questions modules.
 
 from __future__ import annotations
 
+import logging
 import re
+from dataclasses import dataclass
 
 from django.db.models import CharField, Exists, OuterRef, QuerySet, Value
 from django.db.models.functions import Cast, Concat
 from django.utils import timezone
 
-from classes.emails import send_eventbrite_finish_registration
+from classes.emails import eventbrite_finish_subject, send_eventbrite_finish_registration
 from classes.models import (
     CAPACITY_CONSUMING_REGISTRATION_STATUSES,
     ClassOffering,
@@ -20,11 +22,14 @@ from classes.models import (
     RegistrationQuestion,
     Waiver,
 )
-from core.models import EventDelivery
+from core.models import EventDelivery, TransactionalEmailLog
 
 _SEAT_ALIAS = re.compile(r"(?P<local>.+)\+seat\d+@(?P<domain>[^@]+)")
 
 FINISH_EVENT = "classes.eventbrite_finish_registration"
+MAX_FINISH_ATTEMPTS = 3
+
+logger = logging.getLogger(__name__)
 
 
 def unfinished_registrations() -> QuerySet[Registration]:
@@ -59,13 +64,28 @@ def send_finish_email(registration: Registration, *, to: str) -> None:
     )
 
 
-def resend_unsent_finish_emails(limit: int) -> int:
+@dataclass(frozen=True)
+class ResendResult:
+    """What one retry pass did: emails tried, and tickets that just reached the attempt cap."""
+
+    tried: int
+    capped: int
+
+
+def resend_unsent_finish_emails(limit: int) -> ResendResult:
     """Resend the finish email to unfinished seats in upcoming classes that never got it.
 
     The email is best effort: a failed send gives its ``EventDelivery`` slot back, and a
     redelivered order seats nothing, so nothing else would try again. The slot doubles as
     the sent marker, and emit claims it before sending, so a seat whose email went out is
-    never sent another. Returns how many were tried.
+    never sent another.
+
+    Each address is tried at most ``MAX_FINISH_ATTEMPTS`` times per class, counted from the
+    FAILED rows on the email log (its address, the event key and the class's subject; the log
+    has no registration link, so a buyer's seats in one class share the count). A SUPPRESSED
+    row means the environment withheld it (staging), and retrying cannot change that. Newest
+    seats go first and capped ones are skipped before they count, so they never crowd out a
+    new seat. Reaching the cap logs a warning, once.
     """
     sent = EventDelivery.objects.filter(
         event_key=FINISH_EVENT,
@@ -77,13 +97,32 @@ def resend_unsent_finish_emails(limit: int) -> int:
         .exclude(Exists(sent))
         .select_related("class_offering")
         .distinct()
-        .order_by("pk")[:limit]
+        .order_by("-pk")
     )
-    tried = 0
+    tried = capped = 0
     for registration in rows:
-        send_finish_email(registration, to=seat_owner_email(registration.email))
+        if tried >= limit:
+            break
+        to = seat_owner_email(registration.email)
+        log = TransactionalEmailLog.objects.filter(
+            trigger_kind=FINISH_EVENT, to_email=to, subject=eventbrite_finish_subject(registration.class_offering)
+        )
+        if log.filter(status=TransactionalEmailLog.Status.SUPPRESSED).exists():
+            continue
+        failures = log.filter(status=TransactionalEmailLog.Status.FAILED)
+        if failures.count() >= MAX_FINISH_ATTEMPTS:
+            continue
+        send_finish_email(registration, to=to)
         tried += 1
-    return tried
+        if failures.count() >= MAX_FINISH_ATTEMPTS:
+            capped += 1
+            logger.warning(
+                "Gave up on the finish registering email for registration %s (%s) after %s failed sends.",
+                registration.pk,
+                to,
+                MAX_FINISH_ATTEMPTS,
+            )
+    return ResendResult(tried=tried, capped=capped)
 
 
 def seat_owner_email(email: str) -> str:

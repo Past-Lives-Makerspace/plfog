@@ -975,6 +975,11 @@ def send_eventbrite_shared_email_alert(registration: "Registration", email: str)
     )
 
 
+def eventbrite_finish_subject(offering: "ClassOffering") -> str:
+    """The finish email's subject; the retry also reads it back off the email log to count failures."""
+    return f"Finish registering for {offering.title}"
+
+
 def send_eventbrite_finish_registration(
     registration: "Registration", *, to: str, offers_account: bool, has_questions: bool
 ) -> None:
@@ -994,7 +999,7 @@ def send_eventbrite_finish_registration(
         "classes.eventbrite_finish_registration",
         target=registration,
         context={"member": None},
-        subject=f"Finish registering for {offering.title}",
+        subject=eventbrite_finish_subject(offering),
         text_template="classes/emails/eventbrite_finish.txt",
         html_template="classes/emails/eventbrite_finish.html",
         template_context={
