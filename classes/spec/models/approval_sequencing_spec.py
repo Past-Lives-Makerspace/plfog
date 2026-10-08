@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import pytest
 from django.contrib.auth import get_user_model
+from django.urls import reverse
 
 from classes.factories import CategoryFactory, ClassOfferingFactory, InstructorFactory
 from classes.models import ClassApproval, ClassOffering
@@ -142,6 +143,12 @@ def describe_escalation_notifications():
         note = Notification.objects.get(user=guild_lead_user, trigger="class_review_requested")
         assert "Iris Smith" in note.body
         assert "Forge Guild" in note.body
+
+    def it_links_the_guild_lead_to_the_class_they_are_asked_to_review(guilded_offering, guild_lead_user):
+        # It once linked to the lead's own teach overview, which does not show the class.
+        (gl_row,) = guilded_offering.submit_for_review()
+        note = Notification.objects.get(user=guild_lead_user, trigger="class_review_requested")
+        assert note.url == reverse("classes:class_review", kwargs={"token": gl_row.token})
 
     def it_notifies_class_administrators_on_guild_lead_approval(guilded_offering, guild_lead_user, admin_user):
         # The validation in-app resolves to CLASS_APPROVERS (the capability holders).

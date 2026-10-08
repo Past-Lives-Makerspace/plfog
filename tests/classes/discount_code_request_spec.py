@@ -234,8 +234,8 @@ def describe_a_new_request():
         assert "SPRING20" in row.body
         assert req.class_offering.title in row.body
         # The review page itself, so a holder who cannot open the admin queue can still act.
-        assert row.url.endswith(reverse("classes:admin_discount_code_request_review", kwargs={"pk": req.pk}))
-        assert row.url.startswith("http")
+        # A path, so the click stays on the member's host; the email keeps the absolute link.
+        assert row.url == reverse("classes:admin_discount_code_request_review", kwargs={"pk": req.pk})
 
     def it_does_not_notify_a_plain_member():
         bystander = _member("bystander")

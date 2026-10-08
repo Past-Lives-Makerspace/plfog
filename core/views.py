@@ -752,7 +752,10 @@ def notification_read(request: HttpRequest, pk: int) -> HttpResponse:
     if note is None:
         return redirect("home")
     note.mark_read()
-    return redirect(note.url or "home")
+    from core.urls_util import notification_click_url
+
+    # Rows written before the link was normalized at delivery still carry other hosts.
+    return redirect(notification_click_url(note.url) or "home")
 
 
 @require_POST

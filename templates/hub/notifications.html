@@ -18,7 +18,7 @@
 <div class="hub-card">
     {% if page.object_list %}
     {% for n in page.object_list %}
-    <form method="post" action="{% url 'notification_read' n.pk %}" class="pl-note{% if n.is_unread %} pl-note--unread{% endif %}">
+    <form method="post" action="{% url 'notification_read' n.pk %}" hx-boost="false" class="pl-note{% if n.is_unread %} pl-note--unread{% endif %}">
         {% csrf_token %}
         <button type="submit" class="pl-note__btn">
             <span class="pl-note__title">{{ n.title }}</span>
