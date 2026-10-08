@@ -93,14 +93,9 @@ class EventbriteSync:
         return f"The event is {status} on Eventbrite, so nothing is for sale."
 
     @staticmethod
-    def photos_not_shown(reason: str) -> str:
-        """The note a listed class carries when Eventbrite refused the description with its photos."""
-        return f"Photos could not be shown, the description went without them: {reason}"
-
-    @staticmethod
-    def faq_as_text(reason: str) -> str:
-        """The note a listed class carries when Eventbrite refused its FAQ section (#716)."""
-        return f"The FAQ went into the description, Eventbrite refused its FAQ section: {reason}"
+    def left_out(parts: Sequence[str], reason: str) -> str:
+        """The note a listed class carries when Eventbrite refused part of its page, naming every part left out."""
+        return f"Eventbrite refused the page, so it went without {' and '.join(parts)}: {reason}"
 
 
 def estimate_fee_cents(price_cents: int) -> int:
@@ -152,16 +147,17 @@ class EventbriteClient:
         event_id: str,
         html: str,
         image_ids: Sequence[str] = (),
-        faqs: Sequence[dict[str, str]] = (),
+        faqs: Sequence[dict[str, str]] | None = None,
     ) -> None:
         """Publish ``html`` as the listing's text module, one image module per media ID, and the FAQ.
 
         Structured content is versioned and replaced whole, so every call sends the next version
         with everything the page should show. An ``<img>`` inside the text module is stripped by
         Eventbrite, which is why photos go as image modules of uploaded media. The widgets ride in
-        the same version: every widget read back goes out unchanged (the dashboard's photo carousel
-        among them) except the FAQ ones, which ``faqs`` replaces; no ``faqs`` sends no FAQ section.
-        An event whose edit payload has no ``widgets`` key has none to keep.
+        the same version when ``faqs`` is a list: every widget read back goes out unchanged (the
+        dashboard's photo carousel among them) except the FAQ ones, which ``faqs`` replaces (an
+        empty list drops them). ``faqs=None`` sends no ``widgets`` key at all, the request verified
+        before #716. A missing or null ``widgets`` in the edit payload means none to keep.
         """
         current = self._call("GET", f"/events/{event_id}/structured_content/edit/", params={"purpose": "listing"})
         try:
@@ -170,10 +166,12 @@ class EventbriteClient:
             raise EventbriteError(f"Unreadable structured content version: {current!r}"[:300]) from exc
         text = {"type": "text", "data": {"body": {"type": "text", "text": html, "alignment": "left"}}}
         images = [{"type": "image", "data": {"image": {"type": "image", "image_id": i}}} for i in image_ids]
-        widgets = [w for w in current.get("widgets", []) if field(w, "type") not in _FAQ_WIDGET_TYPES]
-        if faqs:
-            widgets += [{"id": "", "type": kind, "data": {"faqs": list(faqs)}} for kind in _FAQ_WIDGET_TYPES]
-        body = {"modules": [text, *images], "widgets": widgets, "publish": True, "purpose": "listing"}
+        body: dict[str, Any] = {"modules": [text, *images], "publish": True, "purpose": "listing"}
+        if faqs is not None:
+            widgets = [w for w in current.get("widgets") or [] if field(w, "type") not in _FAQ_WIDGET_TYPES]
+            if faqs:
+                widgets += [{"id": "", "type": kind, "data": {"faqs": list(faqs)}} for kind in _FAQ_WIDGET_TYPES]
+            body["widgets"] = widgets
         self._call("POST", f"/events/{event_id}/structured_content/{version}/", json=body)
 
     def upload_logo(self, filename: str, content: bytes) -> str:
@@ -359,37 +357,36 @@ def _gallery_image_ids(client: EventbriteClient, offering: ClassOffering) -> tup
 def _set_description(client: EventbriteClient, offering: ClassOffering, sessions: list[Any]) -> str:
     """Publish the description with the gallery and the FAQ; returns the note for the class ("" when all went).
 
-    Each 400 drops one part and tries again, so the listing still syncs and publishes: first the
-    FAQ section, whose write shape was read back from the dashboard rather than documented (the
-    FAQ then goes as text in the description), then the photos. Any other failure raises as before.
+    The first request carries the widgets (the FAQ section, and every other widget sent back as
+    read), whose write shape was read back from the dashboard rather than documented. Any 400 to it
+    retries once as the request verified before #716: no ``widgets`` key, the FAQ as text in the
+    description. A 400 to that with photos retries as text alone. So widgets never fail a sync,
+    and the worst case is the text only page. Any other failure raises as before.
     """
     event_id = offering.eventbrite_event_id
     image_ids, refused = _gallery_image_ids(client, offering)
     photo_note = EventbriteSync.photos_not_sent(refused) if refused else ""
-    faq_note = ""
     faqs = list(offering.faqs.all())
-    html = _description_html(offering, sessions)
     try:
-        client.set_description(event_id, html, image_ids, _faq_entries(faqs))
+        client.set_description(event_id, _description_html(offering, sessions), image_ids, _faq_entries(faqs))
         return photo_note
     except EventbriteError as exc:
-        if exc.status != 400 or not (faqs or image_ids):
+        if exc.status != 400:
             raise
         refusal = exc
-    if faqs:
-        logger.warning("Eventbrite refused the FAQ section for class %s: %s", offering.pk, refusal)
-        html = _description_html(offering, sessions, _faq_html(faqs))
-        faq_note = EventbriteSync.faq_as_text(str(refusal))
-        try:
-            client.set_description(event_id, html, image_ids)
-            return " ".join(note for note in (faq_note, photo_note) if note)
-        except EventbriteError as exc:
-            if exc.status != 400 or not image_ids:
-                raise
-            refusal = exc
+    logger.warning("Eventbrite refused the widgets for class %s: %s", offering.pk, refusal)
+    dropped = ["its widgets (the FAQ went into the description as text)" if faqs else "its widgets"]
+    html = _description_html(offering, sessions, _faq_html(faqs) if faqs else "")
+    try:
+        client.set_description(event_id, html, image_ids)
+        return " ".join(note for note in (EventbriteSync.left_out(dropped, str(refusal)), photo_note) if note)
+    except EventbriteError as exc:
+        if exc.status != 400 or not image_ids:
+            raise
+        refusal = exc
     logger.warning("Eventbrite refused the gallery for class %s: %s", offering.pk, refusal)
     client.set_description(event_id, html)
-    return " ".join(note for note in (faq_note, EventbriteSync.photos_not_shown(str(refusal))) if note)
+    return EventbriteSync.left_out([*dropped, "its photos"], str(refusal))
 
 
 def _list(client: EventbriteClient, offering: ClassOffering) -> str:

@@ -139,8 +139,6 @@ def describe_requests():
                 {"type": "image", "data": {"image": {"type": "image", "image_id": "111"}}},
                 {"type": "image", "data": {"image": {"type": "image", "image_id": "222"}}},
             ],
-            # #716: the widgets always go back; an event with none read sends none.
-            "widgets": [],
             "publish": True,
             "purpose": "listing",
         }
@@ -449,7 +447,7 @@ def describe_the_listing_eventbrite_receives():
         assert "Questions:" not in _text(routes["description"])
 
     @respx.mock
-    def it_puts_the_faq_in_the_description_after_the_dates_when_eventbrite_refuses_the_faq_widgets():
+    def it_retries_without_widgets_with_the_faq_after_the_dates_when_eventbrite_refuses_the_widgets():
         routes = _listing_routes("ev-1", widgets=[CAROUSEL])
         routes["description"].side_effect = [
             httpx.Response(400, json={"error": "BAD_WIDGET"}),
@@ -460,7 +458,7 @@ def describe_the_listing_eventbrite_receives():
         offering.sync_eventbrite_listing()
 
         retry = _sent(routes["description"])
-        assert retry["widgets"] == [CAROUSEL]
+        assert "widgets" not in retry
         faq = (
             "<p>Questions:</p>"
             "<p><strong>&lt;b&gt;Gloves&lt;/b&gt; and boots?</strong></p>"
@@ -473,7 +471,8 @@ def describe_the_listing_eventbrite_receives():
         offering.refresh_from_db()
         assert offering.eventbrite_sync_state == ClassOffering.EventbriteSyncState.LISTED
         assert offering.eventbrite_sync_error.startswith(
-            "The FAQ went into the description, Eventbrite refused its FAQ section: POST /events/ev-1/structured_content/2/: 400"
+            "Eventbrite refused the page, so it went without its widgets (the FAQ went into the description as text): "
+            "POST /events/ev-1/structured_content/2/: 400"
         )
 
     @respx.mock
@@ -487,3 +486,38 @@ def describe_the_listing_eventbrite_receives():
         offering.refresh_from_db()
         assert routes["description"].call_count == 2
         assert offering.eventbrite_sync_state == ClassOffering.EventbriteSyncState.FAILED
+
+    @respx.mock
+    def it_lists_a_class_with_no_faq_and_no_photos_when_eventbrite_refuses_its_widgets():
+        routes = _listing_routes("ev-9", widgets=[CAROUSEL])
+        routes["description"].side_effect = [
+            httpx.Response(400, json={"error": "READ_ONLY"}),
+            httpx.Response(200, json={}),
+        ]
+        offering = _listed()
+
+        offering.sync_eventbrite_listing()
+
+        first, retry = (json.loads(call.request.content) for call in routes["description"].calls)
+        assert first["widgets"] == [CAROUSEL]
+        assert "widgets" not in retry
+        assert retry["modules"] == first["modules"]
+        offering.refresh_from_db()
+        assert offering.eventbrite_sync_state == ClassOffering.EventbriteSyncState.LISTED
+        assert offering.eventbrite_sync_error.startswith(
+            "Eventbrite refused the page, so it went without its widgets: "
+        )
+
+    @respx.mock
+    def it_treats_a_null_widgets_list_as_none_to_keep():
+        routes = _listing_routes("ev-1", widgets=None)
+        respx.get(f"{API_BASE}/events/ev-1/structured_content/edit/").respond(
+            json={"page_version_number": "1", "modules": [], "widgets": None}
+        )
+        offering = _live()
+
+        offering.sync_eventbrite_listing()
+
+        assert _sent(routes["description"])["widgets"] == []
+        offering.refresh_from_db()
+        assert offering.eventbrite_sync_state == ClassOffering.EventbriteSyncState.LISTED

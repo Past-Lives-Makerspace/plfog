@@ -55,9 +55,10 @@ class FakeEventbrite:
         return {"id": event_id, "status": "live"}
 
     def set_description(
-        self, event_id: str, html: str, image_ids: Sequence[str] = (), faqs: Sequence[dict[str, str]] = ()
+        self, event_id: str, html: str, image_ids: Sequence[str] = (), faqs: Sequence[dict[str, str]] | None = None
     ) -> None:
-        self._record("set_description", event_id, html, list(image_ids), list(faqs))
+        # faqs None is a request without widgets; a list (even empty) carries them.
+        self._record("set_description", event_id, html, list(image_ids), None if faqs is None else list(faqs))
 
     def upload_content_image(self, filename: str, content: bytes) -> str:
         self._record("upload_content_image", filename)
