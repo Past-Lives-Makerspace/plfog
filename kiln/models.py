@@ -32,6 +32,10 @@ TILE_LONG_EDGE = 480
 _OptionT = TypeVar("_OptionT", bound="ListOption")
 
 
+class ListOptionNameTaken(Exception):
+    """An archived option cannot come back while an active one already carries its name."""
+
+
 class ListOptionQuerySet(models.QuerySet[_OptionT]):
     """The active and archived halves of a clay or glaze list."""
 
@@ -42,6 +46,11 @@ class ListOptionQuerySet(models.QuerySet[_OptionT]):
     def archived(self) -> ListOptionQuerySet[_OptionT]:
         """Options hidden from new tickets that old tickets still show."""
         return self.filter(archived_at__isnull=False)
+
+    def append(self, name: str) -> _OptionT:
+        """Add an option at the end of the list."""
+        last = self.order_by("-sort_order").first()
+        return self.create(name=name, sort_order=(last.sort_order + 1) if last else 0)
 
 
 class ListOption(models.Model):
@@ -80,7 +89,13 @@ class ListOption(models.Model):
         self.save(update_fields=["archived_at", "archived_by"])
 
     def restore(self) -> None:
-        """Offer this option on new tickets again."""
+        """Offer this option on new tickets again.
+
+        Raises:
+            ListOptionNameTaken: an active option already has this name.
+        """
+        if type(self)._default_manager.filter(archived_at__isnull=True, name__iexact=self.name).exists():
+            raise ListOptionNameTaken(self.name)
         self.archived_at = None
         self.archived_by = None
         self.save(update_fields=["archived_at", "archived_by"])

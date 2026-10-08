@@ -14,7 +14,7 @@ from django.views.decorators.http import require_POST
 from core.htmx import wants_fragment
 from kiln.access import crew_required, is_crew, kiln_open_required, maker_required
 from kiln.forms import ACTION_COVER, ACTION_DRAFT, ACTION_REMOVE, KilnTicketForm, ListOptionForm
-from kiln.models import ClayOption, GlazeOption, KilnFlag, KilnTicket, ListOption
+from kiln.models import ClayOption, GlazeOption, KilnFlag, KilnTicket, ListOption, ListOptionNameTaken
 from kiln.services import save_ticket
 
 if TYPE_CHECKING:
@@ -202,10 +202,7 @@ def list_add(request: HttpRequest, kind: str) -> HttpResponse:
     form = ListOptionForm(request.POST, model=model)
     if not form.is_valid():
         return _list_response(request, kind, error=_first_error(form))
-    last = model.objects.order_by("-sort_order").first()  # type: ignore[attr-defined]
-    option = model.objects.create(  # type: ignore[attr-defined]
-        name=form.cleaned_data["name"], sort_order=(last.sort_order + 1) if last else 0
-    )
+    option = model.objects.append(form.cleaned_data["name"])  # type: ignore[attr-defined]
     return _list_response(request, kind, saved_pk=option.pk)
 
 
@@ -242,10 +239,9 @@ def list_archive(request: HttpRequest, kind: str, pk: int) -> HttpResponse:
 @require_POST
 def list_restore(request: HttpRequest, kind: str, pk: int) -> HttpResponse:
     """Offer an archived option on new tickets again."""
-    model = _list_model(kind)
-    option = get_object_or_404(model, pk=pk)
-    clash = model.objects.active().filter(name__iexact=option.name).exists()  # type: ignore[attr-defined]
-    if clash:
+    option = get_object_or_404(_list_model(kind), pk=pk)
+    try:
+        option.restore()
+    except ListOptionNameTaken:
         return _list_response(request, kind, error=f"{option.name} is already on the list.")
-    option.restore()
     return _list_response(request, kind)

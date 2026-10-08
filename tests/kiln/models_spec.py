@@ -7,7 +7,7 @@ from decimal import Decimal
 import pytest
 from django.db import IntegrityError
 
-from kiln.models import ClayOption, GlazeOption, KilnFlag, KilnTicket, KilnTicketPhoto
+from kiln.models import ClayOption, GlazeOption, KilnFlag, KilnTicket, KilnTicketPhoto, ListOptionNameTaken
 from tests.kiln.conftest import photo_upload
 from tests.kiln.factories import (
     ClayOptionFactory,
@@ -66,6 +66,25 @@ def describe_list_options():
         assert not clay.is_archived
         assert clay.archived_by is None
         assert clay in ClayOption.objects.active()
+
+    def it_appends_an_option_at_the_end_of_its_list():
+        GlazeOption.objects.all().delete()
+
+        first = GlazeOption.objects.append("Shino")
+        second = GlazeOption.objects.append("Tenmoku")
+
+        assert (first.sort_order, second.sort_order) == (0, 1)
+
+    def it_refuses_to_restore_an_option_whose_name_is_back_on_the_list():
+        old = ClayOptionFactory(name="B-Mix 5")
+        old.archive(by=MemberFactory())
+        ClayOptionFactory(name="b-mix 5")
+
+        with pytest.raises(ListOptionNameTaken):
+            old.restore()
+
+        old.refresh_from_db()
+        assert old.is_archived
 
     def it_refuses_two_active_options_with_one_name():
         GlazeOptionFactory(name="Shino")
