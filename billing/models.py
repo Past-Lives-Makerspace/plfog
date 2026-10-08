@@ -334,6 +334,44 @@ class BillingSettings(models.Model):
         """The Connected accounts webhook signing secret for the currently selected (test/live) mode."""
         return self.test_connect_accounts_webhook_secret if self.test_mode else self.connect_accounts_webhook_secret
 
+    # ---- Previous Stripe account (#702): remove with the previous_* fields ----
+
+    def switch_to_new_account(
+        self, *, publishable_key: str, secret_key: str, webhook_secret: str, accounts_webhook_secret: str
+    ) -> None:
+        """Make a new Stripe account the active one for the current mode; the current one becomes Previous account.
+
+        In one transaction: the current mode's secret key and platform webhook secret
+        overwrite that mode's previous fields, and the four new values become the
+        active ones. The normal Stripe tab save never moves credentials; only this does.
+
+        Raises:
+            ValidationError: keyed by argument name, with nothing saved, when the secret
+                key's prefix does not match the mode, when it is the current secret key,
+                or when payouts are on and the Connected accounts webhook secret is blank.
+        """
+        slot = "test_" if self.test_mode else ""
+        prefix = "sk_test_" if self.test_mode else "sk_live_"
+        with transaction.atomic():
+            locked = BillingSettings.objects.select_for_update().get(pk=self.pk)
+            current_secret_key = getattr(locked, f"{slot}connect_platform_secret_key")
+            if not secret_key.startswith(prefix):
+                raise ValidationError({"secret_key": f"A {locked.mode_label} mode secret key starts with {prefix}."})
+            if secret_key == current_secret_key:
+                raise ValidationError(
+                    {"secret_key": "This is the current account's secret key. Paste the new account's key."}
+                )
+            if locked.connect_enabled and not accounts_webhook_secret:
+                raise ValidationError({"accounts_webhook_secret": "Required while payouts are on."})
+            setattr(locked, f"{slot}previous_secret_key", current_secret_key)
+            setattr(locked, f"{slot}previous_webhook_secret", getattr(locked, f"{slot}connect_platform_webhook_secret"))
+            setattr(locked, f"{slot}connect_platform_publishable_key", publishable_key)
+            setattr(locked, f"{slot}connect_platform_secret_key", secret_key)
+            setattr(locked, f"{slot}connect_platform_webhook_secret", webhook_secret)
+            setattr(locked, f"{slot}connect_accounts_webhook_secret", accounts_webhook_secret)
+            locked.save()
+        self.refresh_from_db()
+
     @property
     def active_previous_secret_key(self) -> str:
         """The previous Stripe account's secret key for the current mode (#702); blank when there is none."""

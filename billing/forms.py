@@ -506,6 +506,50 @@ class ConnectPlatformSettingsForm(forms.ModelForm):
         }
 
 
+class NewStripeAccountForm(forms.Form):
+    """The "Put new account credentials" modal on the Stripe tab (#702).
+
+    Collects the new account's keys for the current mode; ``switch`` hands them to
+    ``BillingSettings.switch_to_new_account``, which moves the current keys to Previous account.
+    """
+
+    publishable_key = forms.CharField(
+        max_length=255,
+        widget=forms.TextInput(attrs={"placeholder": "pk_…", "autocomplete": "off"}),
+        help_text="The new account's publishable key for this mode.",
+    )
+    secret_key = forms.CharField(
+        max_length=512,
+        widget=forms.PasswordInput(attrs={"placeholder": "sk_…", "autocomplete": "off"}),
+        help_text="The new account's secret key. Must match the current mode (sk_live_ or sk_test_).",
+    )
+    webhook_secret = forms.CharField(
+        max_length=512,
+        widget=forms.PasswordInput(attrs={"placeholder": "whsec_…", "autocomplete": "off"}),
+        help_text="Signing secret of the new account's webhook endpoint pointed at this site.",
+    )
+    accounts_webhook_secret = forms.CharField(
+        max_length=512,
+        required=False,
+        widget=forms.PasswordInput(attrs={"placeholder": "whsec_…", "autocomplete": "off"}),
+        help_text="Signing secret of the new account's Connected accounts endpoint. Required while payouts are on.",
+    )
+
+    def switch(self, settings: BillingSettings) -> bool:
+        """Switch ``settings`` to the new account; on a rejected key add the errors here and return False."""
+        try:
+            settings.switch_to_new_account(
+                publishable_key=self.cleaned_data["publishable_key"],
+                secret_key=self.cleaned_data["secret_key"],
+                webhook_secret=self.cleaned_data["webhook_secret"],
+                accounts_webhook_secret=self.cleaned_data["accounts_webhook_secret"],
+            )
+        except forms.ValidationError as exc:
+            self.add_error(None, exc)
+            return False
+        return True
+
+
 class ProductForm(forms.ModelForm):
     """Product fields only — splits are handled by ProductRevenueSplitFormSet."""
 

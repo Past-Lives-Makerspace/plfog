@@ -566,6 +566,11 @@
 
       </div>
 
+      <div class="pl-form-actions">
+        <button type="button" class="pl-btn pl-btn--secondary" x-data @click="$dispatch('open-modal', 'new-stripe-account')">Put new account credentials</button>
+        <span style="color:#96ACBB;font-size:0.8125rem;margin-left:0.75rem">For {{ billing_settings.mode_label }} mode. The current keys move to Previous account.</span>
+      </div>
+
       {# ---- Previous account (#702): remove with the previous_* fields once PLM FOG closes ---- #}
       <div class="pl-section-label" style="margin-top:1.5rem">Previous Account</div>
       <p style="color:#96ACBB;font-size:0.875rem;margin:0 0 1.25rem">
@@ -592,6 +597,8 @@
         <button type="submit" class="pl-btn pl-btn--primary">Save Stripe Settings</button>
       </div>
     </form>
+
+    {% include "components/modal.html" with modal_id="new-stripe-account" modal_title="Put new account credentials" modal_size="md" modal_body_include="billing/partials/new_stripe_account_form.html" %}
   </div>
 
   {# ---- Guild Products ---- #}

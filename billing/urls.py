@@ -99,4 +99,9 @@ urlpatterns = [
         views.billing_save_connect_platform,
         name="billing_save_connect_platform",
     ),
+    path(
+        "admin/connect-platform/switch-account/",
+        views.billing_switch_stripe_account,
+        name="billing_switch_stripe_account",
+    ),
 ]

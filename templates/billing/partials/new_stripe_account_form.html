@@ -1,0 +1,15 @@
+{# Put new account credentials modal body (#702): the current mode's keys move to Previous account. #}
+<form method="post" action="{% url 'billing_switch_stripe_account' %}">
+  {% csrf_token %}
+  <p style="margin:0 0 1rem;font-size:0.875rem;color:var(--hub-text-muted, #96ACBB)">
+    For {{ billing_settings.mode_label }} mode. The current secret key and webhook signing secret move to Previous account, and these become the active keys.
+  </p>
+  {% include "components/form_field.html" with field=new_stripe_account_form.publishable_key field_label="Publishable Key" %}
+  {% include "components/form_field.html" with field=new_stripe_account_form.secret_key field_label="Secret Key" %}
+  {% include "components/form_field.html" with field=new_stripe_account_form.webhook_secret field_label="Webhook Signing Secret" %}
+  {% include "components/form_field.html" with field=new_stripe_account_form.accounts_webhook_secret field_label="Connected Accounts Webhook Secret" %}
+  <div class="pl-form-actions">
+    <button type="button" class="pl-btn pl-btn--secondary" @click="$dispatch('close-modal', 'new-stripe-account')">Cancel</button>
+    <button type="submit" class="pl-btn pl-btn--primary">Put new account credentials</button>
+  </div>
+</form>
