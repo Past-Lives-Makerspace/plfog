@@ -4954,6 +4954,7 @@ def hub_admin_tools(request: HttpRequest) -> HttpResponse:
             "tool_leadership": is_admin,
             "tool_locations": is_admin,
             "tool_feedback": is_admin,
+            "tool_spotlight": is_admin,
             "feedback_received_count": FeedbackRequest.objects.received().count() if is_admin else 0,
             "tool_push_test": is_admin,
         },

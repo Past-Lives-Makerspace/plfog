@@ -140,5 +140,14 @@
     <span class="pl-tool-card__desc">The wall monitors: screens, slides, and what shows automatically.</span>
   </a>
   {% endif %}
+  {% if tool_spotlight %}
+  <a class="hub-card pl-tool-card" href="{% url 'hub_admin_spotlight' %}" data-tool-spotlight>
+    <span class="pl-tool-card__icon">
+      <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="4"/><path d="M12 2v2"/><path d="M12 20v2"/><path d="M4.93 4.93l1.41 1.41"/><path d="M17.66 17.66l1.41 1.41"/><path d="M2 12h2"/><path d="M20 12h2"/></svg>
+    </span>
+    <span class="pl-tool-card__title">Spotlight</span>
+    <span class="pl-tool-card__desc">The top left of the Member Portal: this week's poll, the next Feature Request Meeting and its short text.</span>
+  </a>
+  {% endif %}
 </div>
 {% endblock %}

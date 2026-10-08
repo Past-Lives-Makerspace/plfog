@@ -11,6 +11,7 @@
 | `hub/` | Member-facing views (guild voting, directory, tab, profile, guild pages) |
 | `airtable_sync/` | Airtable bidirectional sync for members, spaces, leases, votes |
 | `kiln/` | Ceramics Guild kiln tickets (#691), a tab on that guild's page: tickets with photos and flags, loading, unloading with ready for pickup notices, the kiln log, the clay and glaze lists; see `kiln/AGENTS.md` |
+| `polls/` | Polls for the Spotlight (#708): a question, 2 to 6 answers, open until it expires, one vote per member; posted from Admin Tools > Spotlight; see `polls/AGENTS.md` |
 | `plfog/` | Django project: settings, urls, wsgi, auto_admin, adapters |
 
 Those seven plus `plfog/` are the whole of `INSTALLED_APPS` for this project. Other top-level directories are not Django apps:
@@ -57,6 +58,8 @@ Those seven plus `plfog/` are the whole of `INSTALLED_APPS` for this project. Ot
 - `TransactionalEmailLog` — logs every email sent via `core.email.send()` (sync; console in dev, Resend in prod)
 - `SiteActivity` — cross-app activity/audit feed
 
+### polls
+- `Poll` / `PollChoice` / `PollVote` — Spotlight polls (#708); open while `opens_at <= now < closes_at`; one vote per member per poll
 ### classes (book CMS — `book.` subdomain)
 - `Category` (+ `verbose_name`) — class grouping; **UI labeled "Guild"** (see relabel plan); optional FK to `membership.Guild`
 - `ClassOffering` (+ `ClassOfferingQuerySet`) — a class; status DRAFT/PENDING/PUBLISHED/ARCHIVED; `public()` / `bookable()`; sequential approval state machine; instructor welcome-email fields
@@ -115,6 +118,7 @@ Those seven plus `plfog/` are the whole of `INSTALLED_APPS` for this project. Ot
 /classes/admin/registrations/export/  Registrations CSV download (admins only)
 /account/                       Book CMS account area (classes.account)
 /kiln/                          Kiln tickets (a guest's home; members land on the Ceramics Guild page's ?tab=kiln; /kiln/load/, /kiln/unload/, /kiln/log/, /kiln/lists/ for the crew and admins)
+/manage/spotlight/              Admin Tools > Spotlight (#708): Spotlight text and meeting with a preview, polls, past polls
 ```
 
 ## Test Structure

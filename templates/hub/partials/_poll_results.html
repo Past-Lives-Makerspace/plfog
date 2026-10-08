@@ -1,0 +1,9 @@
+{# A poll's tally: each answer with its count, percent and a bar. results is a list of polls.models.ChoiceResult; never who voted. #}
+<ol class="pl-poll-results" data-poll-results>
+    {% for result in results %}
+    <li class="pl-poll-results__row" data-poll-result="{{ result.pk }}">
+        <div class="pl-poll-results__label"><span>{{ result.text }}</span><span class="pl-poll-results__count">{{ result.votes }} vote{{ result.votes|pluralize }} · {{ result.percent }}%</span></div>
+        <progress class="pl-poll-results__bar" max="100" value="{{ result.percent }}">{{ result.percent }}%</progress>
+    </li>
+    {% endfor %}
+</ol>

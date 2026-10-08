@@ -1051,6 +1051,37 @@ class SiteConfiguration(models.Model):
         verbose_name="App Store URL",
         help_text="The app's App Store listing. Blank means not launched: the badge is left out everywhere and the copy says iOS is coming soon.",
     )
+    # #708: the Spotlight in the top left of the Member Portal, edited at Admin Tools > Spotlight.
+    spotlight_meeting_event = models.ForeignKey(
+        "membership.CommunityEvent",
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="+",
+        verbose_name="Feature Request Meeting event",
+        help_text="The Spotlight always shows this event's next date, so a monthly event rolls on by itself.",
+    )
+    spotlight_first_line = models.CharField(
+        max_length=120,
+        blank=True,
+        default="",
+        db_default="",
+        verbose_name="Minimized first line",
+        help_text="Empty uses this week's poll question.",
+    )
+    spotlight_second_line = models.CharField(
+        max_length=120,
+        blank=True,
+        default="",
+        db_default="",
+        verbose_name="Minimized second line",
+        help_text="Empty uses Feature Request Meeting. The date and time pill always follows it.",
+    )
+    spotlight_text_changed_at = models.DateTimeField(
+        null=True,
+        blank=True,
+        help_text="When either Spotlight line last changed; members see the Spotlight's dot until they open it.",
+    )
 
     class Meta:
         verbose_name = "Site Settings"
@@ -1076,6 +1107,12 @@ class SiteConfiguration(models.Model):
     def load(cls) -> SiteConfiguration:
         """Load the singleton instance, creating it with defaults if needed."""
         obj, _created = cls.objects.get_or_create(pk=1)
+        return obj
+
+    @classmethod
+    def load_with_spotlight_meeting(cls) -> SiteConfiguration:
+        """:meth:`load`, with the Spotlight's meeting event joined in, so both cost one query (#708)."""
+        obj, _created = cls.objects.select_related("spotlight_meeting_event").get_or_create(pk=1)
         return obj
 
     @property
