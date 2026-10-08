@@ -13,6 +13,7 @@ from membership.models import Member
 from polls.models import (
     AlreadyVotedError,
     NotAVoterError,
+    Poll,
     PollCard,
     PollChoice,
     PollClosedError,
@@ -28,7 +29,7 @@ PORTLAND = ZoneInfo("America/Los_Angeles")
 NOW = datetime(2026, 10, 8, 9, 0, tzinfo=PORTLAND)
 
 
-def _open_poll(*answers: str, votes: tuple[int, ...] = ()):
+def _open_poll(*answers: str, votes: tuple[int, ...] = ()) -> Poll:
     return poll_with(
         *(answers or ("Laser", "Lathe")),
         votes=votes,
