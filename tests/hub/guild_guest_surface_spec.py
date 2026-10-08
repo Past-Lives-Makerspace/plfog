@@ -68,13 +68,17 @@ def describe_guest_guild_page():
             assert b"1 member" in body
             assert b"Rosa Roster" not in body
 
-        def it_shows_member_names_to_a_logged_in_member(client: Client):
+        def it_links_a_logged_in_member_to_the_members_site_directory(client: Client):
+            from django.conf import settings
+
             guild = GuildFactory(name="Roster Guild", show_members=True)
             listed = MemberFactory(full_legal_name="Rosa Roster", show_in_directory=True)
             GuildMembership.objects.create(guild=guild, member=listed)
             _login_member(client)
-            body = _guest_get(client, guild).content
-            assert b"Rosa Roster" in body
+            body = _guest_get(client, guild).content.decode()
+            assert f'href="{settings.MEMBER_BASE_URL}/members/?guild={guild.slug}"' in body
+            assert "See all 1 member in the Member Directory" in body
+            assert "Rosa Roster" not in body
 
     def describe_class_links_and_teach():  # MUST-FIX #3
         def it_makes_featured_class_links_absolute_to_the_book_host(client: Client):

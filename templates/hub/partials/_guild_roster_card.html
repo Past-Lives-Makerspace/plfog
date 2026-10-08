@@ -1,31 +1,9 @@
-{# The Members roster card. Wrapper always renders so the OOB swap after a join/leave #}
-{# always lands; the card itself appears once the guild opts in and has a roster. #}
-{# The first eight show; the rest fold behind "Show all" so a big guild's card stays short. #}
+{# The Members card: a count and a link to the Member Directory filtered to this guild. Wrapper always renders so the OOB swap after a join/leave lands. #}
 <div id="guild-roster-card"{% if oob %} hx-swap-oob="true"{% endif %}>
     {% if user.is_authenticated and guild.show_members and roster %}
     <div class="hub-card">
-        <h3 class="hub-detail-label">Members <span class="pl-guild-roster__count">{{ roster|length }}</span></h3>
-        <div class="pl-guild-roster">
-            {% for m in roster|slice:":8" %}
-            <div class="hub-member-row">
-                <div class="hub-member-avatar">{{ m.display_name|make_list|first|upper }}</div>
-                <span class="hub-member-name">{{ m.display_name }}</span>
-            </div>
-            {% endfor %}
-        </div>
-        {% if roster|length > 8 %}
-        <details class="pl-guild-roster__more">
-            <summary>Show all {{ roster|length }} members</summary>
-            <div class="pl-guild-roster">
-                {% for m in roster|slice:"8:" %}
-                <div class="hub-member-row">
-                    <div class="hub-member-avatar">{{ m.display_name|make_list|first|upper }}</div>
-                    <span class="hub-member-name">{{ m.display_name }}</span>
-                </div>
-                {% endfor %}
-            </div>
-        </details>
-        {% endif %}
+        <h3 class="hub-detail-label">Members</h3>
+        <a href="{% if is_guilds_surface %}{{ MEMBER_BASE_URL }}{% endif %}{% url 'hub_member_directory' %}?guild={{ guild.slug|urlencode }}" class="pl-guild-roster__link"{% if is_guilds_surface %} hx-boost="false"{% endif %} data-guild-roster-link>See all {{ roster|length }} member{{ roster|length|pluralize }} in the Member Directory</a>
     </div>
     {% endif %}
 </div>

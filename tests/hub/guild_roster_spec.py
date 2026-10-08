@@ -88,9 +88,9 @@ def describe_delete_permissions():
 
 @pytest.mark.django_db
 def describe_members_card():
-    """The guild page's Members card shows eight and folds the rest behind "Show all"."""
+    """The guild page's Members card is a count and a link to the directory filtered to the guild."""
 
-    def _page(client: Client, joined: int) -> str:
+    def _card(client: Client, joined: int) -> tuple[str, str]:
         from tests.membership.factories import GuildMembershipFactory, MemberFactory
 
         _member_user("viewer")
@@ -100,44 +100,21 @@ def describe_members_card():
             member = MemberFactory(preferred_name=f"Rosterperson{i:02d}", show_in_directory=True)
             GuildMembershipFactory(guild=guild, member=member)
         body = client.get(reverse("hub_guild_detail", args=[guild.slug])).content.decode()
-        return body.split('id="guild-roster-card"')[1].split('<div class="hub-card">', 2)[1]
+        return guild.slug, body.split('id="guild-roster-card"')[1].split("</div>\n</div>")[0]
 
-    def it_shows_eight_and_folds_the_rest_of_twelve(client: Client):
-        card = _page(client, 12)
-        shown, folded = card.split('<details class="pl-guild-roster__more">')
+    def it_links_to_the_directory_filtered_to_the_guild_instead_of_listing_names(client: Client):
+        slug, card = _card(client, 12)
 
-        assert '<span class="pl-guild-roster__count">12</span>' in shown
-        assert shown.count("hub-member-row") == 8
-        assert folded.split("</details>")[0].count("hub-member-row") == 4
-        assert "Show all 12 members" in folded
+        assert f'href="{reverse("hub_member_directory")}?guild={slug}"' in card
+        assert "See all 12 members in the Member Directory" in card
+        assert "Rosterperson" not in card
 
-    def it_has_nothing_to_fold_for_three(client: Client):
-        card = _page(client, 3)
+    def it_says_member_for_one(client: Client):
+        _slug, card = _card(client, 1)
 
-        assert card.count("hub-member-row") == 3
-        assert "<details" not in card
-        assert '<span class="pl-guild-roster__count">3</span>' in card
+        assert "See all 1 member in the Member Directory" in card
 
-    def it_reads_the_roster_in_one_query_however_many_fold(client: Client):
-        from django.db import connection
-        from django.test.utils import CaptureQueriesContext
+    def it_shows_no_card_without_a_roster(client: Client):
+        _slug, card = _card(client, 0)
 
-        def _roster_queries(joined: int) -> int:
-            from tests.membership.factories import GuildMembershipFactory, MemberFactory
-
-            guild = GuildFactory(show_members=True)
-            for _ in range(joined):
-                GuildMembershipFactory(guild=guild, member=MemberFactory(show_in_directory=True))
-            with CaptureQueriesContext(connection) as captured:
-                client.get(reverse("hub_guild_detail", args=[guild.slug]))
-            return sum(
-                1
-                for q in captured.captured_queries
-                if "membership_guildmembership" in q["sql"] and "show_in_directory" in q["sql"]
-            )
-
-        _member_user("counter")
-        client.login(username="counter", password="pw")
-
-        assert _roster_queries(3) == 1
-        assert _roster_queries(12) == 1
+        assert "data-guild-roster-link" not in card

@@ -1,6 +1,6 @@
 bump = "patch"
 date = "2026-10-08"
-title = "Guild member lists stay short"
+title = "Guild pages link to their members instead of listing them"
 changes = [
-  "A guild page shows its first eight members and how many there are in all. Tap Show all to see everyone.",
+  "A guild page's Members card now says how many members the guild has and opens the Member Directory showing just them.",
 ]
