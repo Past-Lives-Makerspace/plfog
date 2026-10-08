@@ -465,3 +465,104 @@ def describe_backfill_migration():
         assert by_offering.instructor_oriented_at is None
         assert slugged_by_other_means.instructor_oriented_at is None  # the honest over-clear
         assert plain_unlocked.instructor_oriented_at is not None  # not in the base predicate
+
+
+def describe_apply_to_teach_inquiry_answers():
+    """#690: website, socials and experience ride along with the application."""
+
+    def it_stores_the_three_answers_trimmed():
+        member = _linked_member("apply-answers")
+        member.apply_to_teach(
+            "Wheel throwing.",
+            contact_method="email",
+            contact_detail="reach@example.com",
+            website=" https://robin.example ",
+            socials=" @robinmakes ",
+            experience="a_few",
+        )
+        member.refresh_from_db()
+        assert member.teaching_website == "https://robin.example"
+        assert member.teaching_socials == "@robinmakes"
+        assert member.teaching_experience == Member.TeachingExperience.A_FEW
+
+    def it_refuses_an_unknown_experience_level():
+        member = _linked_member("apply-bad-level")
+        with pytest.raises(ValueError):
+            member.apply_to_teach(
+                "Wheel throwing.", contact_method="email", contact_detail="reach@example.com", experience="guru"
+            )
+        member.refresh_from_db()
+        assert member.teaching_applied_at is None
+
+    def it_replaces_the_previous_answers_when_they_apply_again():
+        member = _linked_member("apply-answers-again")
+        member.apply_to_teach(
+            "First ask.",
+            contact_method="email",
+            contact_detail="reach@example.com",
+            website="https://old.example",
+            socials="@old",
+            experience="first_time",
+        )
+        member.decline_teaching(decided_by=None, reason="Not yet.")
+        member.apply_to_teach("Second ask.", contact_method="email", contact_detail="reach@example.com")
+        member.refresh_from_db()
+        assert (member.teaching_website, member.teaching_socials, member.teaching_experience) == ("", "", "")
+
+
+def describe_teaching_contact_summary():
+    def it_puts_the_method_after_the_detail():
+        member = MemberFactory(teaching_contact_method="text", teaching_contact_detail="503 555 0100")
+        assert member.teaching_contact_summary == "503 555 0100 (text message)"
+
+    def it_is_the_bare_detail_when_no_method_was_asked():
+        member = MemberFactory(teaching_contact_method="", teaching_contact_detail="old@example.com")
+        assert member.teaching_contact_summary == "old@example.com"
+
+
+def _inquiry(name: str, applied: str, **fields: object) -> Member:
+    """A member who applied at ``applied`` (an ISO datetime, Portland time), with any extra fields."""
+    from datetime import datetime
+    from zoneinfo import ZoneInfo
+
+    stamp = datetime.fromisoformat(applied).replace(tzinfo=ZoneInfo("America/Los_Angeles"))
+    return MemberFactory(full_legal_name=name, preferred_name="", teaching_applied_at=stamp, **fields)
+
+
+def describe_teaching_inquiries():
+    def it_lists_every_applicant_newest_first_and_skips_members_who_never_asked():
+        older = _inquiry("Older", "2026-09-01T10:00")
+        newer = _inquiry("Newer", "2026-10-01T10:00")
+        MemberFactory()
+        assert list(Member.objects.teaching_inquiries()) == [newer, older]
+
+    def it_keeps_both_bounds_inclusive_by_local_day():
+        _inquiry("Before", "2026-08-31T23:30")
+        first = _inquiry("First day", "2026-09-01T00:30")
+        last = _inquiry("Last day", "2026-09-30T23:30")
+        _inquiry("After", "2026-10-01T00:30")
+        from datetime import date
+
+        found = Member.objects.teaching_inquiries(applied_from=date(2026, 9, 1), applied_to=date(2026, 9, 30))
+        assert list(found) == [last, first]
+
+
+def describe_in_teaching_state():
+    @pytest.fixture
+    def members() -> dict[str, Member]:
+        now = timezone.now()
+        return {
+            "approved": _inquiry("Approved", "2026-09-01T10:00", instructor_oriented_at=now),
+            "declined": _inquiry(
+                "Declined", "2026-09-02T10:00", teaching_decided_at=now, teaching_decline_reason="Not yet."
+            ),
+            "pending": _inquiry("Pending", "2026-09-03T10:00"),
+            "half_decline": _inquiry("Half", "2026-09-04T10:00", teaching_decided_at=now),
+            "none": MemberFactory(),
+        }
+
+    @pytest.mark.parametrize("state", list(Member.TeachingApplicationState))
+    def it_matches_the_property_for_every_state(members, state):
+        found = set(Member.objects.filter(pk__in=[m.pk for m in members.values()]).in_teaching_state(state))
+        assert found == {m for m in members.values() if m.teaching_application_state == state}
+        assert found  # every state is represented in the fixture

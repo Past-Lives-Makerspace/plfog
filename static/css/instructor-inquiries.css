@@ -1,0 +1,29 @@
+/* Instructor Inquiries (#690): the admin page listing every teaching application,
+   its filter bar, the status pills and the Board Report charts. */
+
+.pl-inquiries__lead { margin: 0 0 1rem; }
+.pl-inquiries__card { padding: 1.5rem; margin-bottom: 1.5rem; }
+
+.pl-inquiries__filters {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 0 1rem;
+  margin-bottom: 1.25rem;
+}
+.pl-inquiries__filters .pl-form-group { flex: 1 1 10rem; min-width: 0; }
+.pl-inquiries__actions { display: flex; gap: 0.5rem; align-items: center; margin-bottom: 1rem; }
+.pl-inquiries__filters input[type="date"]::-webkit-calendar-picker-indicator { filter: invert(1); cursor: pointer; }
+[data-theme="light"] .pl-inquiries__filters input[type="date"]::-webkit-calendar-picker-indicator { filter: none; }
+
+.pl-inquiries__date { white-space: nowrap; }
+.pl-inquiries__note { min-width: 14rem; max-width: 28rem; }
+.pl-inquiries__socials { overflow-wrap: anywhere; max-width: 14rem; }
+.pl-inquiries__empty { margin: 0; }
+
+.pl-inquiries__status--pending { background: rgba(251, 191, 36, 0.15); color: #fbbf24; }
+.pl-inquiries__status--approved { background: rgba(52, 211, 153, 0.15); color: #6ee7b7; }
+.pl-inquiries__status--declined { background: rgba(224, 85, 85, 0.16); color: #f0a0a0; }
+[data-theme="light"] .pl-inquiries__status--pending { color: #8a5a00; }
+[data-theme="light"] .pl-inquiries__status--approved { color: #1f7a52; }
+[data-theme="light"] .pl-inquiries__status--declined { color: #a12b2b; }
