@@ -222,11 +222,13 @@ def _earnings(registrations: Iterable[Any], bookings: Iterable[Any]) -> list[Ear
                 share_cents=shares.for_booking(booking),
             )
         )
-    # A share taken back to zero by a refund still shows, as Taken back, on the Payouts tab.
+    # A share already sent stays listed by what was sent, even once a refund (taken back or
+    # covered by Past Lives) brings its current share to zero.
     return [
         earning
         for earning in earnings
-        if earning.share_cents > 0 or (earning.payout is not None and earning.payout.status == Payout.Status.TAKEN_BACK)
+        if earning.share_cents > 0
+        or (earning.payout is not None and earning.payout.status in (Payout.Status.SENT, Payout.Status.TAKEN_BACK))
     ]
 
 
@@ -607,13 +609,23 @@ def settle_refund_share(refund: Any) -> None:
     """
     from billing.models import PaymentRefund
 
-    if sent_payout_for(refund.source_object) is None:
-        return
-    if refund.share_decision == PaymentRefund.ShareDecision.TAKE_BACK:
-        transaction.on_commit(lambda: take_back(refund.pk))
-    elif refund.share_decision == PaymentRefund.ShareDecision.NOT_APPLICABLE:
-        refund.share_decision = PaymentRefund.ShareDecision.NOT_ASKED
-        refund.save(update_fields=["share_decision"])
+    if refund.registration_id is not None:
+        rows = Payout.objects.filter(registration_id=refund.registration_id)
+    elif refund.orientation_booking_id is not None:
+        rows = Payout.objects.filter(orientation_booking_id=refund.orientation_booking_id)
+    else:
+        return  # a late fee earns no share
+    with transaction.atomic():
+        # Blocks on the share's row while a send holds it through ``mark_sent``, so a refund
+        # and a send never both miss each other: whichever runs second sees the other's write.
+        payout = rows.select_for_update(of=("self",)).first()
+        if payout is None or payout.status not in _SENT_STATUSES or payout.amount_cents <= payout.reversed_cents:
+            return
+        if refund.share_decision == PaymentRefund.ShareDecision.TAKE_BACK:
+            transaction.on_commit(lambda: take_back(refund.pk))
+        elif refund.share_decision == PaymentRefund.ShareDecision.NOT_APPLICABLE:
+            refund.share_decision = PaymentRefund.ShareDecision.NOT_ASKED
+            refund.save(update_fields=["share_decision"])
 
 
 def _pending_take_backs() -> QuerySet[Any]:
@@ -665,7 +677,12 @@ def take_back(refund_pk: int, now: datetime | None = None) -> None:
         refund = _pending_take_backs().select_for_update(of=("self",)).filter(pk=refund_pk).first()
         if refund is None:
             return
-        payout = sent_payout_for(refund.source_object)
+        source = refund.source_object
+        payout = sent_payout_for(source)
+        if payout is not None:  # take the same row lock a send holds, then read its committed state
+            payout = Payout.objects.select_for_update(of=("self",)).get(pk=payout.pk)
+            if payout.status not in _SENT_STATUSES or payout.amount_cents <= payout.reversed_cents:
+                payout = None
         portion = _refunded_portion(refund, payout) if payout is not None else 0
         if payout is None or portion == 0:
             refund.stripe_transfer_reversal_id = NOTHING_TO_REVERSE

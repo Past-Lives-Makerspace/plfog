@@ -428,3 +428,47 @@ def describe_review_round_1():
         periods = [c.kwargs["period"] for c in emit.call_args_list if c.args[0] == "billing.payout_failed_admin"]
         assert periods == [f"payout:{payout.pk}:failed", f"payout:{payout.pk}:owed"]
         assert Payout.objects.get().status == Payout.Status.OWED_MANUALLY
+
+
+def describe_review_round_2():
+    def it_still_lists_a_fully_refunded_share_past_lives_covered_as_sent(django_capture_on_commit_callbacks):
+        payee = _payee()
+        reg = _sent_registration(payee)
+        with _Reversals(), django_capture_on_commit_callbacks(execute=True):
+            issue_refund(reg, share_decision=PL_COVERS)
+        earnings = payouts.payee_earnings(payee)
+        assert [(row.state, row.amount_cents) for row in earnings.rows] == [("sent", 7000)]
+        assert earnings.sent_this_month_cents == 7000
+
+    def it_records_not_asked_when_the_refund_lands_after_the_send():
+        reg = _sent_registration(_payee())  # the send committed first
+        with _Reversals():
+            issue_refund(reg)
+        assert PaymentRefund.objects.get().share_decision == PaymentRefund.ShareDecision.NOT_ASKED
+
+    def it_records_not_asked_when_the_send_lands_after_the_refund():
+        reg = _sent_registration(_payee())
+        payout = Payout.objects.get()
+        Payout.objects.filter(pk=payout.pk).update(status=Payout.Status.PENDING, stripe_transfer_id="", sent_at=None)
+        with _Reversals():
+            issue_refund(reg)  # the refund committed first: no sent share yet
+        assert PaymentRefund.objects.get().share_decision == PaymentRefund.ShareDecision.NOT_APPLICABLE
+        payout.refresh_from_db()
+        payout.mark_sent("tr_after")  # the send completes second and sees the refund
+        assert PaymentRefund.objects.get().share_decision == PaymentRefund.ShareDecision.NOT_ASKED
+
+    def it_locks_the_share_row_when_a_refund_settles():
+        from django.db.models.query import QuerySet
+
+        reg = _sent_registration(_payee())
+        calls: list[dict[str, Any]] = []
+        real = QuerySet.select_for_update
+
+        def spy(self: QuerySet, *args: Any, **kwargs: Any) -> QuerySet:
+            if self.model is Payout:
+                calls.append(kwargs)
+            return real(self, *args, **kwargs)
+
+        with _Reversals(), patch.object(QuerySet, "select_for_update", spy):
+            issue_refund(reg)
+        assert calls and all("skip_locked" not in kw for kw in calls)
