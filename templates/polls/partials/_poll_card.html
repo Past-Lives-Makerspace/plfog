@@ -1,0 +1,32 @@
+{% comment %}
+One poll as one member sees it (#708 part 2; reused by the Spotlight in #709). card is
+polls.models.PollCard; next_url is where a plain post lands. While it is open and not yet
+answered it offers the answers as buttons, which post to polls:vote and swap this card for its
+results (HTMX), or post the page and come back (no script). Otherwise it shows the results
+with the member's own answer marked. Never who voted for what.
+{% endcomment %}
+<article class="pl-poll-card{% if card.is_open %} pl-poll-card--open{% endif %}" id="poll-{{ card.poll.pk }}" data-poll-card="{{ card.poll.pk }}">
+    <header class="pl-poll-card__header">
+        <h2 class="pl-poll-card__question">{{ card.poll.question }}</h2>
+        <p class="pl-poll-card__meta">
+            {% if card.is_open %}<span class="pl-poll-card__status" data-poll-open>Open</span>{% endif %}
+            <span>{{ card.poll.opens_at|date:"M j, Y" }}</span>
+            <span aria-hidden="true">·</span>
+            <span data-poll-total>{{ card.total_votes }} vote{{ card.total_votes|pluralize }}</span>
+            {% if card.is_open %}<span aria-hidden="true">·</span><span data-poll-closes>Closes {{ card.poll.closes_label }}</span>{% endif %}
+        </p>
+    </header>
+    {% if card.shows_choices %}
+    <form method="post" action="{% url 'polls:vote' card.poll.pk %}" class="pl-poll-card__choices" data-poll-choices
+          hx-post="{% url 'polls:vote' card.poll.pk %}" hx-target="closest [data-poll-card]" hx-swap="outerHTML">
+        {% csrf_token %}
+        <input type="hidden" name="next" value="{{ next_url }}">
+        {% for result in card.results %}
+        <button type="submit" name="choice" value="{{ result.pk }}" class="pl-poll-card__choice" data-poll-choice="{{ result.pk }}">{{ result.text }}</button>
+        {% endfor %}
+        <p class="pl-poll-card__hint">Tap an answer to vote. Votes are anonymous and cannot be changed.</p>
+    </form>
+    {% else %}
+    {% include "hub/partials/_poll_results.html" with results=card.results my_choice_pk=card.my_choice_pk %}
+    {% endif %}
+</article>

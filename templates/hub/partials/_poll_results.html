@@ -1,8 +1,8 @@
-{# A poll's tally: each answer with its count, percent and a bar. results is a list of polls.models.ChoiceResult; never who voted. #}
+{# A poll's tally: each answer with its count, percent and a bar. results is a list of polls.models.ChoiceResult; my_choice_pk (optional) marks the viewer's own answer. Never who voted. #}
 <ol class="pl-poll-results" data-poll-results>
     {% for result in results %}
-    <li class="pl-poll-results__row" data-poll-result="{{ result.pk }}">
-        <div class="pl-poll-results__label"><span>{{ result.text }}</span><span class="pl-poll-results__count">{{ result.votes }} vote{{ result.votes|pluralize }} · {{ result.percent }}%</span></div>
+    <li class="pl-poll-results__row{% if result.pk == my_choice_pk %} pl-poll-results__row--mine{% endif %}" data-poll-result="{{ result.pk }}"{% if result.pk == my_choice_pk %} data-my-vote{% endif %}>
+        <div class="pl-poll-results__label"><span>{{ result.text }}{% if result.pk == my_choice_pk %} <span class="pl-poll-results__mine">Your vote</span>{% endif %}</span><span class="pl-poll-results__count">{{ result.votes }} vote{{ result.votes|pluralize }} · {{ result.percent }}%</span></div>
         <progress class="pl-poll-results__bar" max="100" value="{{ result.percent }}">{{ result.percent }}%</progress>
     </li>
     {% endfor %}
