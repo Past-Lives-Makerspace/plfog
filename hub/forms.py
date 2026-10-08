@@ -901,10 +901,9 @@ class FeedbackRequestAdminForm(forms.Form):
     staff_note = forms.CharField(required=False, label="Note to the member", widget=forms.Textarea(attrs={"rows": 4}))
     github_issue_url = forms.URLField(required=False, label="GitHub issue link", assume_scheme="https")
 
-    @classmethod
-    def for_request(cls, feedback_request: FeedbackRequest, data: Any = None) -> FeedbackRequestAdminForm:
-        """The form for ``feedback_request``, filled with its saved values."""
-        return cls(
+    def __init__(self, data: Any = None, *, feedback_request: FeedbackRequest) -> None:
+        """Fill the form with ``feedback_request``'s saved values; general feedback offers only Received."""
+        super().__init__(
             data,
             initial={
                 "status": feedback_request.status,
@@ -912,14 +911,20 @@ class FeedbackRequestAdminForm(forms.Form):
                 "github_issue_url": feedback_request.github_issue_url,
             },
         )
+        self.category = feedback_request.category
+        if feedback_request.stays_received:
+            received = FeedbackRequest.Status.RECEIVED
+            cast(forms.ChoiceField, self.fields["status"]).choices = [(received.value, received.label)]
 
     def clean(self) -> dict[str, Any]:
-        """Refuse Not planned without a reason, in the model's words."""
+        """Refuse what the model refuses (Not planned without a reason), in its words."""
         cleaned = cast(dict[str, Any], super().clean())
         status = cleaned.get("status")  # absent when the status itself failed validation
         if status is None:
             return cleaned
-        refusal = FeedbackRequest.update_refusal(status=status, staff_note=cleaned["staff_note"])
+        refusal = FeedbackRequest.update_refusal(
+            category=self.category, status=status, staff_note=cleaned["staff_note"]
+        )
         if refusal is not None:
             self.add_error("staff_note", refusal)
         return cleaned

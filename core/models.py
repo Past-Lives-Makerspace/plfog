@@ -2495,6 +2495,7 @@ class FeedbackRequest(models.Model):
     }
 
     NOT_PLANNED_NEEDS_REASON = "Write a short reason in the note to the member. They see it with Not planned."
+    FEEDBACK_STAYS_RECEIVED = "General feedback stays Received. Reply with a note to the member instead."
 
     user = models.ForeignKey(
         settings.AUTH_USER_MODEL,
@@ -2568,6 +2569,11 @@ class FeedbackRequest(models.Model):
         return self._STATUS_TONES[self.status]
 
     @property
+    def stays_received(self) -> bool:
+        """General feedback has no Planned or Live: an admin answers it with a note."""
+        return self.category == self.Category.FEEDBACK
+
+    @property
     def sender_label(self) -> str:
         """The sender's name, else their email: what the inbox and the admin's toast call them."""
         from membership.names import user_name_or_email
@@ -2617,8 +2623,14 @@ class FeedbackRequest(models.Model):
         return request
 
     @classmethod
-    def update_refusal(cls, *, status: str, staff_note: str) -> str | None:
-        """Why an admin may not save this status and note, or ``None`` when they may."""
+    def update_refusal(cls, *, category: str, status: str, staff_note: str) -> str | None:
+        """Why an admin may not save this status and note, or ``None`` when they may.
+
+        General feedback stays Received (an admin answers it with a note), and Not planned
+        needs a reason the sender can read.
+        """
+        if category == cls.Category.FEEDBACK and status != cls.Status.RECEIVED:
+            return cls.FEEDBACK_STAYS_RECEIVED
         if status == cls.Status.NOT_PLANNED and not staff_note.strip():
             return cls.NOT_PLANNED_NEEDS_REASON
         return None
@@ -2627,8 +2639,14 @@ class FeedbackRequest(models.Model):
         """Save an admin's status, note and GitHub link, and tell the sender when it matters.
 
         The sender hears about a move to a :attr:`NOTIFYING_STATUSES` status or a changed,
-        non-blank note: once per save, carrying both when both changed. Saving the same values
-        again changes nothing and notifies nobody.
+        non-blank note: once per save, carrying both when both changed. The notice carries the
+        note only when this save changed it, so an old note never rides along on a later move.
+        Leaving Not planned clears its reason unless the admin wrote a new note in the same save.
+        Saving the same values again changes nothing and notifies nobody.
+
+        The compare and the write run on the row locked with ``select_for_update``, so of two
+        identical saves at once (a double clicked Save) only the first notifies: the second
+        reads the status the first wrote.
 
         Args:
             status: A :class:`Status` value.
@@ -2640,46 +2658,64 @@ class FeedbackRequest(models.Model):
             Whether the sender was notified.
 
         Raises:
-            FeedbackRequestError: Not planned with a blank note.
+            FeedbackRequestError: General feedback moved off Received, or Not planned with a
+                blank note.
         """
-        refusal = self.update_refusal(status=status, staff_note=staff_note)
-        if refusal is not None:
-            raise FeedbackRequestError(refusal)
-        staff_note = staff_note.strip()
-        status_changed = status != self.status
-        note_changed = staff_note != self.staff_note
-        now = timezone.now()
-        self.status = status
-        self.staff_note = staff_note
-        self.github_issue_url = github_issue_url
-        if status_changed:
-            self.status_changed_at = now
-        notify = (status_changed and status in self.NOTIFYING_STATUSES) or (note_changed and bool(staff_note))
-        if notify and status == self.Status.LIVE:
-            self.live_notified_at = now
-        self.save()
-        if notify:
-            self._notify_sender(actor=actor, period=f"feedback:{self.pk}:{status}:{now:%Y%m%d%H%M%S%f}")
-        return notify
+        return self._apply(status=status, staff_note=staff_note, github_issue_url=github_issue_url, actor=actor)
 
     def mark_live(self, *, actor: User) -> bool:
-        """Move the request to Live (Fixed for a bug), keeping its note and link; see :meth:`apply_admin_update`."""
-        return self.apply_admin_update(
-            status=self.Status.LIVE,
-            staff_note=self.staff_note,
-            github_issue_url=self.github_issue_url,
-            actor=actor,
-        )
+        """Move the request to Live (Fixed for a bug), keeping its saved note and link.
 
-    def _notify_sender(self, *, actor: User, period: str) -> None:
-        """Tell the sender where their request stands, with the note when there is one."""
+        See :meth:`apply_admin_update`; a Not planned reason is cleared on the way.
+
+        Raises:
+            FeedbackRequestError: The request is general feedback, which stays Received.
+        """
+        return self._apply(status=self.Status.LIVE, staff_note=None, github_issue_url=None, actor=actor)
+
+    def _apply(self, *, status: str, staff_note: str | None, github_issue_url: str | None, actor: User) -> bool:
+        """The locked read, compare, write and notify behind both admin updates.
+
+        ``None`` for the note or the link keeps what the locked row holds.
+        """
+        with transaction.atomic():
+            locked = type(self).objects.select_for_update().get(pk=self.pk)
+            note = locked.staff_note if staff_note is None else staff_note.strip()
+            refusal = self.update_refusal(category=locked.category, status=status, staff_note=note)
+            if refusal is not None:
+                raise FeedbackRequestError(refusal)
+            status_changed = status != locked.status
+            note_changed = note != locked.staff_note
+            if status_changed and locked.status == self.Status.NOT_PLANNED and not note_changed:
+                note = ""  # the old reason no longer explains where the request stands
+            now = timezone.now()
+            notify = (status_changed and status in self.NOTIFYING_STATUSES) or (note_changed and bool(note))
+            locked.status = status
+            locked.staff_note = note
+            if github_issue_url is not None:
+                locked.github_issue_url = github_issue_url
+            if status_changed:
+                locked.status_changed_at = now
+            if notify and status == self.Status.LIVE:
+                locked.live_notified_at = now
+            locked.save()
+            if notify:
+                locked._notify_sender(
+                    actor=actor,
+                    note=note if note_changed else "",
+                    period=f"feedback:{locked.pk}:{status}:{now:%Y%m%d%H%M%S%f}",
+                )
+        self.refresh_from_db()
+        return notify
+
+    def _notify_sender(self, *, actor: User, note: str, period: str) -> None:
+        """Tell the sender where their request stands, with ``note`` when this update wrote one."""
         from django.utils.html import linebreaks
         from django.utils.safestring import mark_safe
 
         from core.events.emit import emit
         from core.events.registry import FEEDBACK_REQUEST_UPDATED
 
-        note = self.staff_note
         # The copy renderer has no conditionals, so the note arrives pre-built, and empty when
         # unset. linebreaks(autoescape=True) escapes the admin's words before they are marked safe.
         note_line = f"A note from Past Lives:\n{note}\n\n" if note else ""

@@ -42,7 +42,7 @@ the inbox's query string, kept on every link and post so Back to inbox keeps the
   {% endwith %}
 </div>
 
-{% if feedback_request.status != "live" %}
+{% if feedback_request.status != "live" and not feedback_request.stays_received %}
 <div class="hub-card pl-feedback-admin__card" data-feedback-mark-live>
   <h2 class="hub-detail-label">Shipped?</h2>
   <p class="hub-text-muted">Mark it {% if feedback_request.category == "bug" %}Fixed{% else %}Live{% endif %} and tell {{ feedback_request.sender_label }}, keeping the note below.</p>
@@ -58,7 +58,11 @@ the inbox's query string, kept on every link and post so Back to inbox keeps the
   <form method="post" class="hub-form" data-feedback-admin-form>
     {% csrf_token %}
     {% for error in form.non_field_errors %}<p class="pl-field-error">{{ error }}</p>{% endfor %}
+    {% if feedback_request.stays_received %}
+    {% include "components/form_field.html" with field=form.status field_hint="General feedback stays Received. A note to the member notifies them." %}
+    {% else %}
     {% include "components/form_field.html" with field=form.status field_hint="The member sees this. Planned, Building, Live and Not planned notify them." %}
+    {% endif %}
     {% include "components/form_field.html" with field=form.staff_note field_hint="The member sees this. Required for Not planned." %}
     {% include "components/form_field.html" with field=form.github_issue_url field_hint="Only admins see this." %}
     <button type="submit" class="hub-btn hub-btn--primary pl-feedback-admin__save">Save</button>

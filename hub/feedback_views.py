@@ -18,7 +18,7 @@ from django.urls import reverse
 from django.views.decorators.http import require_POST
 
 from classes.table import prepare_table
-from core.models import FeedbackRequest
+from core.models import FeedbackRequest, FeedbackRequestError
 from hub.forms import FeedbackRequestAdminForm
 from hub.view_as import fog_admin_required
 from hub.views import _get_hub_context
@@ -85,7 +85,7 @@ def hub_admin_feedback_request(request: HttpRequest, pk: int) -> HttpResponse:
         FeedbackRequest.objects.select_related("user__member").prefetch_related("photos"), pk=pk
     )
     query = request.GET.urlencode()
-    form = FeedbackRequestAdminForm.for_request(feedback_request, request.POST or None)
+    form = FeedbackRequestAdminForm(request.POST or None, feedback_request=feedback_request)
     if request.method == "POST" and form.is_valid():
         notified = feedback_request.apply_admin_update(
             status=form.cleaned_data["status"],
@@ -111,8 +111,15 @@ def hub_admin_feedback_request(request: HttpRequest, pk: int) -> HttpResponse:
 @fog_admin_required
 @require_POST
 def hub_admin_feedback_mark_live(request: HttpRequest, pk: int) -> HttpResponse:
-    """Mark a request Live (Fixed for a bug) in one click, for anything shipped without a fragment."""
+    """Mark a request Live (Fixed for a bug) in one click, for anything shipped without a fragment.
+
+    General feedback stays Received, so it is refused with the model's message.
+    """
     feedback_request = get_object_or_404(FeedbackRequest.objects.select_related("user__member"), pk=pk)
-    notified = feedback_request.mark_live(actor=cast("User", request.user))
-    messages.success(request, _saved_message(feedback_request, notified))
+    try:
+        notified = feedback_request.mark_live(actor=cast("User", request.user))
+    except FeedbackRequestError as refusal:
+        messages.error(request, str(refusal))
+    else:
+        messages.success(request, _saved_message(feedback_request, notified))
     return redirect(_request_url(feedback_request, request.GET.urlencode()))

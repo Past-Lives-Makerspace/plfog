@@ -307,3 +307,51 @@ def describe_mark_live():
 
         assert "Mark Fixed" in client.get(_page(bug.pk)).content.decode()
         assert "data-feedback-mark-live" not in client.get(_page(live.pk)).content.decode()
+
+
+def describe_general_feedback_page():
+    def it_offers_only_received_as_the_status(client: Client):
+        _admin(client)
+        request = FeedbackRequestFactory(category="feedback")
+
+        response = client.get(_page(request.pk))
+
+        assert response.context["form"].fields["status"].choices == [("received", "Received")]
+        assert "General feedback stays Received." in response.content.decode()
+
+    def it_hides_mark_live(client: Client):
+        _admin(client)
+        request = FeedbackRequestFactory(category="feedback")
+
+        assert "data-feedback-mark-live" not in client.get(_page(request.pk)).content.decode()
+
+    def it_refuses_a_posted_status_change(client: Client):
+        _admin(client)
+        request = FeedbackRequestFactory(category="feedback")
+
+        response = _post(client, request, status="planned", note="Hi")
+
+        assert response.status_code == 200
+        assert "status" in response.context["form"].errors
+        request.refresh_from_db()
+        assert request.status == Status.RECEIVED
+
+    def it_refuses_mark_live_with_a_message(client: Client):
+        _admin(client)
+        request = FeedbackRequestFactory(category="feedback")
+
+        response = client.post(reverse("hub_admin_feedback_mark_live", args=[request.pk]))
+
+        follow = client.get(response["Location"])
+        assert [str(m) for m in follow.context["messages"]] == [FeedbackRequest.FEEDBACK_STAYS_RECEIVED]
+        request.refresh_from_db()
+        assert request.status == Status.RECEIVED
+        assert mail.outbox == []
+
+    def it_saves_and_sends_a_note_only_reply(client: Client):
+        _admin(client)
+        request = FeedbackRequestFactory(category="feedback")
+
+        _post(client, request, status="received", note="Thanks for this.")
+
+        assert "Thanks for this." in mail.outbox[0].body

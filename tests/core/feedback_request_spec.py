@@ -355,3 +355,130 @@ def describe_mark_live():
         assert request.mark_live(actor=admin) is False
 
         assert len(_bells(request)) == 1
+
+
+def describe_two_saves_at_once():
+    def it_notifies_only_the_first_of_two_identical_saves_from_stale_copies(admin: User):
+        request = FeedbackRequestFactory()
+        first = FeedbackRequest.objects.get(pk=request.pk)
+        second = FeedbackRequest.objects.get(pk=request.pk)  # loaded before the first save, like a double click
+
+        assert _update(first, admin, status=Status.PLANNED, note="Soon.") is True
+        assert _update(second, admin, status=Status.PLANNED, note="Soon.") is False
+
+        assert len(_bells(request)) == 1
+        assert len(mail.outbox) == 1
+        assert second.status == Status.PLANNED
+
+    def it_notifies_only_the_first_of_two_mark_live_clicks(admin: User):
+        request = FeedbackRequestFactory(status=Status.BUILDING)
+        first = FeedbackRequest.objects.get(pk=request.pk)
+        second = FeedbackRequest.objects.get(pk=request.pk)
+
+        assert first.mark_live(actor=admin) is True
+        assert second.mark_live(actor=admin) is False
+
+        assert len(_bells(request)) == 1
+
+    def it_compares_against_the_row_locked_for_update(admin: User, monkeypatch: pytest.MonkeyPatch):
+        from core.models import FeedbackRequestQuerySet
+
+        locked: list[bool] = []
+        original = FeedbackRequestQuerySet.select_for_update
+
+        def spy(queryset: FeedbackRequestQuerySet, *args: object, **kwargs: object) -> FeedbackRequestQuerySet:
+            locked.append(True)
+            return original(queryset, *args, **kwargs)  # type: ignore[arg-type]
+
+        monkeypatch.setattr(FeedbackRequestQuerySet, "select_for_update", spy)
+        request = FeedbackRequestFactory()
+
+        _update(request, admin, status=Status.PLANNED)
+        request.mark_live(actor=admin)
+
+        assert locked == [True, True]
+
+
+def describe_the_note_in_a_notice():
+    def it_leaves_out_a_note_that_did_not_change_in_this_save(admin: User):
+        request = FeedbackRequestFactory()
+        _update(request, admin, status=Status.PLANNED, note="Zzplanned note")
+        mail.outbox.clear()
+
+        _update(request, admin, status=Status.BUILDING, note="Zzplanned note")
+        request.mark_live(actor=admin)
+
+        assert len(mail.outbox) == 2
+        for message in mail.outbox:
+            assert "Zzplanned note" not in message.body
+            assert "Zzplanned note" not in message.alternatives[0][0]
+        request.refresh_from_db()
+        assert request.staff_note == "Zzplanned note"
+
+    def it_carries_a_note_written_in_the_same_save(admin: User):
+        request = FeedbackRequestFactory(status=Status.PLANNED, staff_note="Old words")
+
+        _update(request, admin, status=Status.BUILDING, note="Zznew words")
+
+        [message] = mail.outbox
+        assert "Zznew words" in message.body
+        assert "Old words" not in message.body
+
+    def it_clears_the_not_planned_reason_when_the_request_goes_live(admin: User):
+        request = FeedbackRequestFactory(status=Status.NOT_PLANNED, staff_note="Zzno room this year")
+
+        request.mark_live(actor=admin)
+
+        request.refresh_from_db()
+        assert (request.status, request.staff_note) == (Status.LIVE, "")
+        assert "Zzno room this year" not in mail.outbox[0].body
+
+    @pytest.mark.parametrize("status", [Status.RECEIVED, Status.PLANNED, Status.BUILDING])
+    def it_clears_the_not_planned_reason_on_any_move_away(admin: User, status: str):
+        request = FeedbackRequestFactory(status=Status.NOT_PLANNED, staff_note="Zzreason")
+
+        _update(request, admin, status=status, note="Zzreason")
+
+        request.refresh_from_db()
+        assert request.staff_note == ""
+
+    def it_keeps_a_new_note_written_while_leaving_not_planned(admin: User):
+        request = FeedbackRequestFactory(status=Status.NOT_PLANNED, staff_note="Zzreason")
+
+        _update(request, admin, status=Status.PLANNED, note="Changed our minds.")
+
+        request.refresh_from_db()
+        assert request.staff_note == "Changed our minds."
+        assert "Changed our minds." in mail.outbox[0].body
+
+
+def describe_general_feedback():
+    @pytest.mark.parametrize("status", [Status.PLANNED, Status.BUILDING, Status.LIVE, Status.NOT_PLANNED])
+    def it_refuses_any_status_but_received(admin: User, status: str):
+        request = FeedbackRequestFactory(category=Category.FEEDBACK)
+
+        with pytest.raises(FeedbackRequestError, match="stays Received"):
+            _update(request, admin, status=status, note="A reason.")
+
+        request.refresh_from_db()
+        assert request.status == Status.RECEIVED
+        assert _bells(request) == []
+
+    def it_refuses_mark_live(admin: User):
+        request = FeedbackRequestFactory(category=Category.FEEDBACK)
+
+        with pytest.raises(FeedbackRequestError):
+            request.mark_live(actor=admin)
+
+        assert mail.outbox == []
+
+    def it_still_notifies_a_note_only_reply(admin: User):
+        request = FeedbackRequestFactory(category=Category.FEEDBACK)
+
+        assert _update(request, admin, status=Status.RECEIVED, note="Thank you!") is True
+
+        assert "Thank you!" in mail.outbox[0].body
+
+    def it_stays_received_only_for_general_feedback():
+        assert FeedbackRequestFactory.build(category=Category.FEEDBACK).stays_received is True
+        assert FeedbackRequestFactory.build(category=Category.BUG).stays_received is False
