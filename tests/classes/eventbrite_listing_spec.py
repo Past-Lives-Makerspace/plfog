@@ -845,6 +845,29 @@ def describe_publishing_follows_the_status_eventbrite_reports():
 
         assert "publish" not in eventbrite.names()
 
+    def it_notes_an_event_canceled_on_eventbrite_that_nothing_is_for_sale(eventbrite: FakeEventbrite):
+        eventbrite.event_status = "canceled"
+        offering = _listed(eventbrite_sync_state=State.FAILED)
+
+        offering.sync_eventbrite_listing()
+
+        assert "publish" not in eventbrite.names()
+        offering.refresh_from_db()
+        assert offering.eventbrite_sync_state == State.LISTED
+        assert offering.eventbrite_sync_label == (
+            "Listed on Eventbrite. The event is canceled on Eventbrite, so nothing is for sale."
+        )
+
+    @pytest.mark.parametrize("status", ["live", "started"])
+    def it_adds_no_note_while_the_event_is_selling_or_running(eventbrite: FakeEventbrite, status: str):
+        eventbrite.event_status = status
+        offering = _listed(eventbrite_sync_state=State.FAILED, eventbrite_sync_error="old")
+
+        offering.sync_eventbrite_listing()
+
+        offering.refresh_from_db()
+        assert offering.eventbrite_sync_error == ""
+
     def it_records_an_answer_with_no_status_as_a_failure(eventbrite: FakeEventbrite):
         eventbrite.event_status = None
         offering = _listed(eventbrite_sync_state=State.FAILED)

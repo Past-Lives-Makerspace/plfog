@@ -43,6 +43,8 @@ _SYNC_ERROR_MAX = 500
 _EVENT_TIMEZONE = "America/Los_Angeles"
 _SUMMARY_MAX = 140
 _DRAFT = "draft"  # the event status Eventbrite publishes from (others: live, started, ended, completed, canceled)
+# Statuses where nothing is for sale; ``started`` is not one, the event is simply running.
+_NOT_SELLING = frozenset({"ended", "completed", "canceled"})
 # Eventbrite's US fees for a paid ticket (eventbrite.com/organizer/pricing, checked 2026-10-07).
 SERVICE_FEE_PERCENT = 3.7
 SERVICE_FEE_FIXED_CENTS = 179
@@ -76,6 +78,11 @@ class EventbriteSync:
         """The note a listed class carries when some gallery photos did not upload; the first reason shown."""
         count = len(reasons)
         return f"{count} photo{'' if count == 1 else 's'} could not be sent: {reasons[0]}"
+
+    @staticmethod
+    def not_selling(status: str) -> str:
+        """The note a listed class carries when its Eventbrite event is over or canceled."""
+        return f"The event is {status} on Eventbrite, so nothing is for sale."
 
     @staticmethod
     def photos_not_shown(reason: str) -> str:
@@ -348,6 +355,8 @@ def _list(client: EventbriteClient, offering: ClassOffering) -> str:
     note = _set_description(client, offering, _description_html(offering, sessions))
     if status == _DRAFT:
         client.publish(offering.eventbrite_event_id)
+    elif status in _NOT_SELLING:
+        note = " ".join(part for part in (EventbriteSync.not_selling(status), note) if part)
     return note
 
 
