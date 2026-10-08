@@ -2338,6 +2338,46 @@ _CURATED: dict[str, EventCopy] = {
             ),
         },
     ),
+    # billing.payout_reversal_failed_admin — a refund's sent share could not be taken back (#662, part 3).
+    "billing.payout_reversal_failed_admin": EventCopy(
+        placeholders=("payee_name", "item_title", "amount", "failure_reason", "admin_url"),
+        sample_context={
+            "payee_name": "Renee Marsh",
+            "item_title": "Intro to Wheel Throwing",
+            "amount": "$60.00",
+            "failure_reason": "The connected account has insufficient funds.",
+            "admin_url": "https://pastlives.example/billing/admin/dashboard/?tab=reconciliation",
+        },
+        channels={
+            Channel.IN_APP: ChannelCopy(
+                subject="A share could not be taken back",
+                body_text=(
+                    "Taking {{ payee_name }}'s share back for a {{ amount }} refund of {{ item_title }} did not "
+                    "happen: {{ failure_reason }}"
+                ),
+            ),
+            Channel.EMAIL: ChannelCopy(
+                subject="A share could not be taken back",
+                body_text=(
+                    "An admin chose to take a payee's share back after a refund, and it did not happen.\n\n"
+                    "Payee: {{ payee_name }}\n"
+                    "For: {{ item_title }}\n"
+                    "Refund: {{ amount }}\n"
+                    "Why: {{ failure_reason }}\n\n"
+                    "If Stripe refused it, Past Lives covers the refund and the line is flagged on Reconciliation.\n\n"
+                    "Reconciliation: {{ admin_url }}\n\nPast Lives Makerspace"
+                ),
+                body_html=(
+                    "<p>An admin chose to take a payee's share back after a refund, and it did not happen.</p>"
+                    "<p>Payee: {{ payee_name }}<br>For: {{ item_title }}<br>Refund: {{ amount }}<br>"
+                    "Why: {{ failure_reason }}</p>"
+                    "<p>If Stripe refused it, Past Lives covers the refund and the line is flagged on Reconciliation.</p>"
+                    '<p><a href="{{ admin_url }}">Open Reconciliation</a></p>'
+                    "<p>Past Lives Makerspace</p>"
+                ),
+            ),
+        },
+    ),
 }
 
 

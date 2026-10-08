@@ -489,7 +489,7 @@ def describe_payee_earnings():
         taken = _registration(instructor, class_at=NOW - timedelta(days=6))
         with _Stripe():
             payouts.run_payouts(NOW)
-        Payout.objects.filter(registration=taken).update(status=Payout.Status.TAKEN_BACK)
+        Payout.objects.filter(registration=taken).update(status=Payout.Status.TAKEN_BACK, reversed_cents=7000)
         assert Payout.objects.get(registration=sent).status == Payout.Status.SENT
         with patch("django.utils.timezone.now", return_value=NOW):
             earnings = payouts.payee_earnings(instructor, NOW)
@@ -813,7 +813,7 @@ def describe_no_share_sits_or_doubles():
             payouts.run_payouts(NOW + timedelta(days=11))  # 4 days past due
         payout = Payout.objects.get()
         assert (payout.status, payout.owed_reason) == (Payout.Status.OWED_MANUALLY, Payout.OwedReason.TRANSFER_FAILED)
-        assert fake.lookups == []  # never attempted, so no transfer can exist
+        assert fake.lookups == [payout.pk]  # looked up even with no recorded attempt (a crash rolls that back)
         emit.assert_called_once()
         assert "October 2026 snapshot" in emit.call_args.kwargs["context"]["counted_note"]
         _switch(True)
@@ -949,3 +949,36 @@ def describe_lookup_errors_and_stripe_modes():
         payout.refresh_from_db()
         assert fake.lookups == [payout.pk]
         assert (payout.status, payout.stripe_transfer_id) == (Payout.Status.SENT, "tr_live")
+
+
+def describe_carried_into_part_3():
+    def it_finds_a_transfer_whose_attempt_a_crash_rolled_back_before_giving_up():
+        _turn_on()
+        instructor = _payee()
+        payout = Payout.objects.create(
+            registration=_registration(instructor), payee=instructor, amount_cents=7000, due_at=NOW - timedelta(days=4)
+        )
+        assert payout.attempted_at is None
+        with _Stripe(existing="tr_landed") as fake, patch("core.events.emit.emit") as emit:
+            payouts.run_payouts(NOW)
+        payout.refresh_from_db()
+        assert fake.transfers == []
+        assert (payout.status, payout.stripe_transfer_id) == (Payout.Status.SENT, "tr_landed")
+        emit.assert_not_called()
+
+    def it_says_pay_it_by_hand_only_once_the_share_has_given_up():
+        from billing.notifications import _counted_note
+
+        _turn_on()
+        instructor = _payee()
+        snapshot = ReconciliationSnapshot.objects.create(
+            title="Oct", period_start=date(2026, 10, 1), period_end=date(2026, 10, 31), results={}, grand_total_cents=0
+        )
+        payout = Payout(payee=instructor, amount_cents=1, due_at=NOW, counted_as_stripe_in=snapshot)
+        payout.status = Payout.Status.PENDING
+        pending = _counted_note(payout)
+        assert "do not pay it yet" in pending
+        assert "pay it by hand" not in pending
+        payout.status = Payout.Status.OWED_MANUALLY
+        assert _counted_note(payout).endswith("pay it by hand.")
+        assert "October 2026 snapshot" in _counted_note(payout)

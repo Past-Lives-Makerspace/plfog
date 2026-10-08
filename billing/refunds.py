@@ -108,8 +108,13 @@ def issue_refund(
     amount_cents: int | None = None,
     reason: str = "",
     actor: User | None = None,
+    share_decision: str = "",
 ) -> PaymentRefund:
     """Issue a Stripe refund for ``source`` — full when ``amount_cents`` is ``None``.
+
+    ``share_decision`` is the admin's answer when the payment's producer share was already
+    sent through Stripe (``PaymentRefund.ShareDecision``, #662): the refund form requires it
+    then. Left empty, a refund that turns out to touch a sent share records Not asked.
 
     The one entry point the thin per-source ``issue_refund`` delegates call.
     Creates the ledger row, calls Stripe under the source-row lock, and stamps
@@ -134,6 +139,7 @@ def issue_refund(
             source=PaymentRefund.Source.IN_APP,
             reason=reason,
             initiated_by=actor,
+            share_decision=share_decision,
         )
         error = _call_stripe(refund, locked)
     if error is not None:
@@ -294,6 +300,9 @@ def _mark_succeeded(refund: PaymentRefund) -> None:
     refund.settled_at = timezone.now()
     refund.save(update_fields=["status", "settled_at"])
     source = refund.source_object
+    from billing.payouts import settle_refund_share
+
+    settle_refund_share(refund)  # #662: take a sent share back, or record Past Lives covering it
     transaction.on_commit(lambda: _emit_refund_receipt(refund, source))
     if source.refundable_cents <= 0:
         # For a Retry that re-succeeds on an already-REFUNDED registration this

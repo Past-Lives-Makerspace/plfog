@@ -2166,3 +2166,6 @@ select[multiple] option:checked {
 .pl-payouts-sub { display: block; font-size: 0.8rem; color: var(--hub-text-muted); }
 .pl-payouts-attention { margin-bottom: 1.25rem; }
 .pl-recon-attn td { background: rgba(220, 60, 60, 0.06); }
+
+/* Reconciliation: refunds where the payee kept a share already sent (#662, part 3). */
+.pl-payouts-kept-banner { display: block; padding: 0.75rem 1rem; margin-bottom: 1rem; border-radius: 6px; }

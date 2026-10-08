@@ -616,11 +616,16 @@ def payment_orientation_refund(request: HttpRequest, booking_pk: int) -> HttpRes
     form = OrientationRefundForm(request.POST, booking=booking)
     if not form.is_valid():
         return _render_orientation_refund_form(request, booking, form)
+    from billing.refunds import issue_refund
+
     try:
-        refund = booking.issue_refund(
+        # The service directly, to carry the required share choice (#662) the delegate does not take.
+        refund = issue_refund(
+            booking,
             amount_cents=form.amount_cents,
             reason=form.cleaned_data["reason"],
-            actor=request.user,
+            actor=request.user,  # type: ignore[arg-type]
+            share_decision=form.chosen_share_decision,
         )
     except RefundError as exc:
         booking.refresh_from_db()

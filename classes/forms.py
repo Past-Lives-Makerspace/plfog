@@ -16,6 +16,7 @@ from django.forms import inlineformset_factory
 from django.utils import timezone
 from django.utils.text import slugify
 
+from billing.forms import RefundShareDecisionForm
 from core.html_sanitize import clean_rich_body, clean_rich_html
 from core.widgets import PageContentEditorWidget, RichBodyEditorWidget, RichTextEditorWidget
 
@@ -2338,7 +2339,7 @@ class TeachWelcomeEmailForm(forms.ModelForm):
         return super().save(commit=commit)
 
 
-class PaymentRefundForm(forms.Form):
+class PaymentRefundForm(RefundShareDecisionForm):
     """Validates the refund modal — amount bounds live here, not in the view.
 
     ``amount`` is pre-filled with the full refundable remainder (full refund is
@@ -2361,6 +2362,7 @@ class PaymentRefundForm(forms.Form):
         self.fields["reason"].help_text = "Internal note. The payer never sees this."
         # Eventbrite refunds a whole ticket, so its form posts no amount.
         self.fields["amount"].required = not registration.is_eventbrite
+        self._add_share_decision(registration)  # #662: the required choice once the share was sent
 
     def clean_amount(self) -> Decimal:
         refundable = Decimal(self.registration.refundable_cents) / 100

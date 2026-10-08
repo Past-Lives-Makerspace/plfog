@@ -42,6 +42,7 @@ attempt renders the slim Retry confirm; otherwise the editable form.
     {% csrf_token %}
     {% include "components/form_field.html" with field=form.amount %}
     {% include "components/form_field.html" with field=form.reason %}
+    {% if form.sent_payout %}{% include "components/radio_group.html" with field=form.share_decision %}{% endif %}
     <p class="pl-refund-consequence">This sends money back to the payer's card. The booking itself is unchanged — cancel or decline it from its respond page if that's the intent.</p>
     <div class="pl-modal__actions">
         <button type="button" class="pl-btn pl-btn--secondary" @click="$dispatch('close-modal', 'refund-modal')">Cancel</button>

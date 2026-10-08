@@ -498,6 +498,7 @@ BILLING_LATE_FEE_PAID = "billing.late_fee_paid"  # the receipt for a paid late c
 BILLING_LATE_FEE_WAIVED = "billing.late_fee_waived"  # an unpaid late cancellation fee was forgiven
 BILLING_PAYOUT_FAILED_ADMIN = "billing.payout_failed_admin"  # Stripe rejected a payout transfer (#662)
 BILLING_PAYOUTS_INVITE = "billing.payouts_invite"  # a payee's first owed share: set up payouts (#662)
+BILLING_PAYOUT_REVERSAL_FAILED_ADMIN = "billing.payout_reversal_failed_admin"  # a share take back failed (#662)
 # Staff and admin emails that used to go out to a fixed address list (#524). The four
 # payment alerts keep their old trigger_kind strings as keys, so the email log reads as one series.
 CLASS_REGISTRATION_ADMIN_NOTICE = "class_registration_admin_notice"  # the Admins' copy of a new registration
@@ -1203,6 +1204,18 @@ _NEW_EVENTS: list[EventType] = [
         description="You earned a share and could get paid through Stripe days after you teach.",
         category="Billing",
         recipient=Recipients.SINGLE_USER,
+        channels=(_IN_APP_ON, _EMAIL_ON),
+        activity_kind=None,
+    ),
+    # billing.payout_reversal_failed_admin — taking a sent share back after a refund failed (#662,
+    # part 3): Stripe refused it, so Past Lives covers the refund and the line is flagged, or Stripe
+    # was unreachable for three days. Billing Administrators, once per refund; in-app + email.
+    EventType(
+        key=BILLING_PAYOUT_REVERSAL_FAILED_ADMIN,
+        label="Share take back failed (admin alert)",
+        description="A refund's share could not be taken back from the payee; Past Lives covers it.",
+        category="Billing",
+        recipient=Recipients.BILLING_APPROVERS,
         channels=(_IN_APP_ON, _EMAIL_ON),
         activity_kind=None,
     ),

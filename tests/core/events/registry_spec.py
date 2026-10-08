@@ -65,6 +65,7 @@ _BRAND_NEW_KEYS = {
     "billing.late_fee_waived",
     "billing.payout_failed_admin",
     "billing.payouts_invite",
+    "billing.payout_reversal_failed_admin",
     "class_cancelled_admin_notice",
     "class_change_requested",
     "instructor_application_received",
