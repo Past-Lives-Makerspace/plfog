@@ -7,6 +7,7 @@ from datetime import timedelta
 import pytest
 from django.contrib.auth.models import User
 from django.core import mail
+from django.http import HttpResponse
 from django.test import Client
 from django.urls import reverse
 from django.utils import timezone
@@ -41,7 +42,7 @@ def _closed(question: str, days_ago: int, votes: tuple[int, ...] = (1, 0)) -> Po
     )
 
 
-def _vote(client: Client, poll: Poll, text: str, *, htmx: bool, next_url: str = "/home/"):
+def _vote(client: Client, poll: Poll, text: str, *, htmx: bool, next_url: str = "/home/") -> HttpResponse:
     choice = poll.choices.get(text=text)
     headers = {"HTTP_HX_REQUEST": "true"} if htmx else {}
     return client.post(reverse("polls:vote", args=[poll.pk]), {"choice": choice.pk, "next": next_url}, **headers)
