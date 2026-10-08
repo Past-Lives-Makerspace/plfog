@@ -13,7 +13,10 @@ from PIL import Image
 
 from django.contrib.auth.models import User
 
+from core.models import FeedbackRequest
 from hub.forms import MAX_FEEDBACK_PHOTOS, BetaFeedbackForm
+from membership.models import Member
+from tests.core.factories import FeedbackRequestFactory
 
 VALID_DATA = {"category": "bug", "subject": "Broken page", "message": "Something is wrong"}
 
@@ -135,7 +138,7 @@ def describe_BetaFeedbackForm():
             form = _form_with_photos([_photo("first.png"), _photo("second.png")])
             assert form.is_valid()
 
-            form.send(user=user)
+            form.submit(user=user)
 
             assert len(mail.outbox) == 1
             sent = mail.outbox[0]
@@ -152,7 +155,7 @@ def describe_BetaFeedbackForm():
             form = BetaFeedbackForm(dict(VALID_DATA))
             assert form.is_valid()
 
-            form.send(user=user)
+            form.submit(user=user)
 
             assert len(mail.outbox) == 1
             sent = mail.outbox[0]
@@ -214,7 +217,7 @@ def describe_beta_feedback_view():
         assert response.status_code == 200
         messages_list = list(response.context["messages"])
         assert len(messages_list) == 1
-        assert "feedback" in str(messages_list[0]).lower()
+        assert str(messages_list[0]) == "Thanks! You can follow it below."
 
     def it_renders_the_multipart_enctype(client: Client):
         User.objects.create_user(username="enctyper", password="pass")
@@ -267,3 +270,137 @@ def describe_beta_feedback_view():
         assert b"My subject stays" in response.content
         assert b"My message stays" in response.content
         assert len(mail.outbox) == 0
+
+
+@pytest.mark.django_db
+def describe_saving_a_request():
+    def it_saves_one_received_request_with_sender_and_photos(client: Client):
+        user = User.objects.create_user(username="saver", password="pass", email="saver@example.com")
+        client.login(username="saver", password="pass")
+
+        client.post(
+            "/feedback/",
+            {"category": "feature", "subject": "Kiln log", "message": "Track firings", "photos": _photo("kiln.png")},
+        )
+
+        request = FeedbackRequest.objects.get()
+        assert (request.user, request.category, request.subject, request.message) == (
+            user,
+            "feature",
+            "Kiln log",
+            "Track firings",
+        )
+        assert request.status == FeedbackRequest.Status.RECEIVED
+        assert request.photos.count() == 1
+
+    def it_links_the_saved_request_in_the_email_to_the_admins(client: Client, settings):
+        settings.MEMBER_BASE_URL = "https://members.example"
+        User.objects.create_user(username="linker", password="pass", email="linker@example.com")
+        client.login(username="linker", password="pass")
+
+        client.post("/feedback/", dict(VALID_DATA))
+
+        request = FeedbackRequest.objects.get()
+        assert f"In the Feedback inbox: https://members.example/manage/feedback/{request.pk}/" in mail.outbox[0].body
+
+    def it_lands_back_with_the_new_request_open(client: Client):
+        User.objects.create_user(username="lander", password="pass")
+        client.login(username="lander", password="pass")
+
+        response = client.post("/feedback/", dict(VALID_DATA))
+
+        request = FeedbackRequest.objects.get()
+        assert response["Location"] == f"/feedback/?sent={request.pk}#request-{request.pk}"
+        body = client.get(response["Location"]).content.decode()
+        assert f'id="request-{request.pk}" data-feedback-request="{request.pk}" open' in body
+
+    def it_saves_nothing_on_an_invalid_post(client: Client):
+        User.objects.create_user(username="nothing", password="pass")
+        client.login(username="nothing", password="pass")
+
+        client.post("/feedback/", {"category": "bug", "subject": "", "message": ""})
+
+        assert not FeedbackRequest.objects.exists()
+
+    def it_lets_an_account_with_no_membership_send_and_follow(client: Client):
+        user = User.objects.create_user(username="nomember", password="pass", email="nomember@example.com")
+        Member.objects.filter(user=user).delete()
+        client.login(username="nomember", password="pass")
+
+        client.post("/feedback/", {"category": "bug", "subject": "Unlinked report", "message": "Hi"})
+
+        request = FeedbackRequest.objects.get(user=user)
+        body = client.get("/feedback/").content.decode()
+        assert f'data-feedback-request="{request.pk}"' in body
+
+
+@pytest.mark.django_db
+def describe_your_requests():
+    def _login(client: Client, username: str) -> User:
+        user = User.objects.create_user(username=username, password="pass", email=f"{username}@example.com")
+        client.login(username=username, password="pass")
+        return user
+
+    def it_says_nothing_is_sent_yet_when_empty(client: Client):
+        _login(client, "empty")
+
+        body = client.get("/feedback/").content.decode()
+
+        assert "data-feedback-requests-empty" in body
+
+    def it_lists_only_the_viewers_requests_newest_first(client: Client):
+        user = _login(client, "lister")
+        older = FeedbackRequestFactory(user=user, subject="Zzolder request")
+        newer = FeedbackRequestFactory(user=user, subject="Zznewer request")
+        other = FeedbackRequestFactory(subject="Zzsomeone else")
+        FeedbackRequest.objects.filter(pk=older.pk).update(created_at=older.created_at.replace(year=2025))
+
+        response = client.get("/feedback/")
+
+        assert list(response.context["feedback_requests"]) == [newer, older]
+        body = response.content.decode()
+        assert body.index("Zznewer request") < body.index("Zzolder request")
+        assert f'data-feedback-request="{other.pk}"' not in body
+
+    def it_shows_status_last_changed_date_and_the_staff_note(client: Client):
+        user = _login(client, "detail")
+        FeedbackRequestFactory(user=user, status=FeedbackRequest.Status.PLANNED, staff_note="Zznote from the admins")
+
+        body = client.get("/feedback/").content.decode()
+
+        assert 'data-feedback-status="planned">Planned<' in body
+        assert "Zznote from the admins" in body
+        assert "Updated " in body
+
+    def it_shows_fixed_for_a_bug_and_live_for_a_feature(client: Client):
+        user = _login(client, "fixer")
+        FeedbackRequestFactory(user=user, category="bug", status=FeedbackRequest.Status.LIVE)
+        FeedbackRequestFactory(user=user, category="feature", status=FeedbackRequest.Status.LIVE)
+
+        body = client.get("/feedback/").content.decode()
+
+        assert 'data-feedback-status="live">Fixed<' in body
+        assert 'data-feedback-status="live">Live<' in body
+
+    def it_never_shows_the_github_issue_link(client: Client):
+        user = _login(client, "nogithub")
+        FeedbackRequestFactory(user=user, github_issue_url="https://github.com/o/r/issues/987654")
+
+        body = client.get("/feedback/").content.decode()
+
+        assert "issues/987654" not in body
+
+    def it_shows_the_photos_sent_with_a_request(client: Client):
+        user = _login(client, "photos")
+        request = FeedbackRequest.submit(user=user, category="bug", subject="s", message="m", photos=[_photo()])
+
+        body = client.get("/feedback/").content.decode()
+
+        assert request.photos.get().image.url in body
+
+    def it_ignores_a_sent_value_that_is_not_a_number(client: Client):
+        _login(client, "badsent")
+
+        response = client.get("/feedback/?sent=abc")
+
+        assert response.context["open_request_pk"] is None

@@ -1,11 +1,16 @@
 {% extends "hub/base.html" %}
+{% load static %}
 {% block title %}Send Feedback{% endblock %}
+
+{% block extra_head %}
+<link rel="stylesheet" href="{% static 'css/feedback.css' %}">
+{% endblock %}
 
 {% block content %}
 <div class="hub-card">
     <h1 class="hub-page-title">Send Feedback</h1>
-    <p class="hub-text-muted" style="margin-bottom: 1.5rem;">
-        Found a bug? Have an idea? Let us know.
+    <p class="hub-text-muted pl-feedback-lead">
+        Found a bug? Have an idea? Let us know. <a href="#your-requests">Follow your requests below.</a>
     </p>
 
     <form method="post" enctype="multipart/form-data" class="hub-form">
@@ -20,9 +25,11 @@
             {% endfor %}
         </ul>
         {% endif %}
-        <div style="margin-top: 1.5rem;">
+        <div class="pl-feedback-submit">
             <button type="submit" class="hub-btn hub-btn--primary">Send Feedback</button>
         </div>
     </form>
 </div>
+
+{% include "hub/partials/_feedback_requests.html" %}
 {% endblock %}

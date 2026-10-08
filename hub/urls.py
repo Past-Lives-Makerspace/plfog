@@ -4,6 +4,7 @@ from django.views.generic import RedirectView
 from . import (
     discord_views,
     equipment_views,
+    feedback_views,
     leadership_views,
     location_views,
     meeting_views,
@@ -788,6 +789,14 @@ urlpatterns = [
     # The Locations admin (#616): the list with its add form, and one edit page per location.
     path("manage/locations/", location_views.hub_admin_locations, name="hub_admin_locations"),
     path("manage/locations/<int:pk>/", location_views.hub_admin_location_edit, name="hub_admin_location_edit"),
+    # The admin Feedback inbox (#693): every request from the Feedback page, and one page per request.
+    path("manage/feedback/", feedback_views.hub_admin_feedback_inbox, name="hub_admin_feedback_inbox"),
+    path("manage/feedback/<int:pk>/", feedback_views.hub_admin_feedback_request, name="hub_admin_feedback_request"),
+    path(
+        "manage/feedback/<int:pk>/mark-live/",
+        feedback_views.hub_admin_feedback_mark_live,
+        name="hub_admin_feedback_mark_live",
+    ),
     # The Leadership Directory editor (#476; tabs and auto save, #564): the page, then one
     # endpoint per object, every one of them POST only (hub/leadership_views.py).
     path("manage/leadership/", leadership_views.hub_admin_leadership, name="hub_admin_leadership"),

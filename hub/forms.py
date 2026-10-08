@@ -34,7 +34,7 @@ from core.html_sanitize import clean_rich_body, clean_rich_html, limit_rich_text
 from core.validators import ALLOWED_WIKI_IMAGE_EXTENSIONS, validate_image_size, validate_wiki_upload
 from core.features import DEFAULT_SOON_MESSAGE
 from core.events.scheduling import next_tick
-from core.models import CalendarFeed, FeatureSwitch, ScheduledJobState, SiteConfiguration
+from core.models import CalendarFeed, FeatureSwitch, FeedbackRequest, ScheduledJobState, SiteConfiguration
 from core.widgets import PageContentEditorWidget, RichBodyEditorWidget, RichTextEditorWidget
 from membership.forms import setup_location_field
 from membership.markdown import sanitize_page_submission, sanitize_wiki_submission
@@ -798,11 +798,7 @@ class MultiplePhotoField(forms.FileField):
 class BetaFeedbackForm(forms.Form):
     """Form for submitting feedback (bug reports, feature requests, general feedback)."""
 
-    CATEGORY_CHOICES = [
-        ("bug", "Bug Report"),
-        ("feature", "Feature Request"),
-        ("feedback", "General Feedback"),
-    ]
+    CATEGORY_CHOICES = FeedbackRequest.Category.choices
 
     category = forms.ChoiceField(choices=CATEGORY_CHOICES, label="Category")
     subject = forms.CharField(max_length=200, label="Subject")
@@ -840,8 +836,23 @@ class BetaFeedbackForm(forms.Form):
             raise forms.ValidationError(f"Your photos add up to too much. Please keep the total under {limit_mb} MB.")
         return photos
 
-    def send(self, *, user: User) -> None:
-        """Send the feedback email to the configured recipients.
+    def submit(self, *, user: User) -> FeedbackRequest:
+        """Save the request with its photos (#693), then email the admins as before.
+
+        The row is written first, so a failed email never loses what the sender wrote.
+        """
+        feedback_request = FeedbackRequest.submit(
+            user=user,
+            category=self.cleaned_data["category"],
+            subject=self.cleaned_data["subject"],
+            message=self.cleaned_data["message"],
+            photos=self.cleaned_data["photos"],
+        )
+        self.send(user=user, feedback_request=feedback_request)
+        return feedback_request
+
+    def send(self, *, user: User, feedback_request: FeedbackRequest) -> None:
+        """Send the feedback email to the configured recipients, linking the saved request.
 
         Routes through the ``core.email.send`` choke-point (Decision 8) so the
         send is audited in ``TransactionalEmailLog`` instead of bypassing it via
@@ -858,7 +869,10 @@ class BetaFeedbackForm(forms.Form):
         photos_line = f"Photos attached: {len(photos)}\n" if photos else ""
         sender_name = user_display_name(user)
         sender = f"{sender_name} ({user.email})" if sender_name else user.email
-        body = f"From: {sender}\nCategory: {category_label}\n{photos_line}\n{self.cleaned_data['message']}"
+        body = (
+            f"From: {sender}\nCategory: {category_label}\n{photos_line}"
+            f"In the Feedback inbox: {feedback_request.inbox_url}\n\n{self.cleaned_data['message']}"
+        )
         attachments: list[Attachment] = []
         for photo in photos:
             photo.seek(0)  # ImageField's Pillow verification may leave the pointer mid-file.
@@ -873,6 +887,42 @@ class BetaFeedbackForm(forms.Form):
             best_effort=True,
             attachments=attachments or None,
         )
+
+
+class FeedbackRequestAdminForm(forms.Form):
+    """An admin's status, note to the sender and GitHub link for one request (#693).
+
+    A plain form, not a ModelForm: a ModelForm writes the posted values onto the instance while
+    validating, and :meth:`core.models.FeedbackRequest.apply_admin_update` needs the saved values
+    to tell whether anything changed.
+    """
+
+    status = forms.ChoiceField(choices=FeedbackRequest.Status.choices, label="Status")
+    staff_note = forms.CharField(required=False, label="Note to the member", widget=forms.Textarea(attrs={"rows": 4}))
+    github_issue_url = forms.URLField(required=False, label="GitHub issue link", assume_scheme="https")
+
+    @classmethod
+    def for_request(cls, feedback_request: FeedbackRequest, data: Any = None) -> FeedbackRequestAdminForm:
+        """The form for ``feedback_request``, filled with its saved values."""
+        return cls(
+            data,
+            initial={
+                "status": feedback_request.status,
+                "staff_note": feedback_request.staff_note,
+                "github_issue_url": feedback_request.github_issue_url,
+            },
+        )
+
+    def clean(self) -> dict[str, Any]:
+        """Refuse Not planned without a reason, in the model's words."""
+        cleaned = cast(dict[str, Any], super().clean())
+        status = cleaned.get("status")  # absent when the status itself failed validation
+        if status is None:
+            return cleaned
+        refusal = FeedbackRequest.update_refusal(status=status, staff_note=cleaned["staff_note"])
+        if refusal is not None:
+            self.add_error("staff_note", refusal)
+        return cleaned
 
 
 class MemberAdminEditForm(forms.ModelForm):

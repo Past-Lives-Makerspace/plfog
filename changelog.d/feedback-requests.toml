@@ -1,0 +1,7 @@
+bump = "minor"
+date = "2026-10-07"
+title = "Follow the ideas and bug reports you send"
+changes = [
+  "The Feedback page now lists everything you have sent under Your Requests, newest first. Open one to see what you wrote and where it stands: Received, Planned, Building, Live (Fixed for a bug) or Not planned.",
+  "You hear about it when your request moves along or gets a note from us: in the bell, and by email or push if you have those turned on in Settings > Notifications.",
+]

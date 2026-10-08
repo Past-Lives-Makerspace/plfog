@@ -22,6 +22,7 @@ from core.validators import validate_hex_color, validate_image_size
 
 if TYPE_CHECKING:
     from django.contrib.auth.models import AbstractBaseUser, User
+    from django.core.files.uploadedfile import UploadedFile
 
     from classes.models import Registration
 
@@ -2433,6 +2434,295 @@ class FeatureSwitch(models.Model):
 
     def __str__(self) -> str:
         return f"{self.feature_key} ({self.get_state_display()})"
+
+
+class FeedbackRequestError(Exception):
+    """A feedback request update an admin may not make; carries the copy to show them."""
+
+
+class FeedbackRequestQuerySet(models.QuerySet["FeedbackRequest"]):
+    """Query helpers for the Feedback page and the admin Feedback inbox (#693)."""
+
+    def sent_by(self, user: User) -> FeedbackRequestQuerySet:
+        """``user``'s own requests, newest first, with their photos loaded in one query."""
+        return self.filter(user=user).prefetch_related("photos").order_by("-created_at")
+
+    def received(self) -> FeedbackRequestQuerySet:
+        """Requests nobody has moved past Received yet: the inbox's to-do pile."""
+        return self.filter(status=FeedbackRequest.Status.RECEIVED)
+
+
+class FeedbackRequest(models.Model):
+    """One bug report, feature request or piece of feedback sent from the Feedback page (#693).
+
+    The sender is a ``User``, not a ``Member``: the Feedback page is open to any signed-in
+    account. An admin moves it through :class:`Status` from the Feedback inbox, and each move
+    to a :attr:`NOTIFYING_STATUSES` status, or a new note, tells the sender through the
+    ``feedback.request_updated`` event (:meth:`apply_admin_update`).
+    """
+
+    class Category(models.TextChoices):
+        BUG = "bug", "Bug Report"
+        FEATURE = "feature", "Feature Request"
+        FEEDBACK = "feedback", "General Feedback"
+
+    class Status(models.TextChoices):
+        RECEIVED = "received", "Received"
+        PLANNED = "planned", "Planned"
+        BUILDING = "building", "Building"
+        LIVE = "live", "Live"
+        NOT_PLANNED = "not_planned", "Not planned"
+
+    # A move to one of these tells the sender; a move back to Received does not.
+    NOTIFYING_STATUSES: frozenset[str] = frozenset({Status.PLANNED, Status.BUILDING, Status.LIVE, Status.NOT_PLANNED})
+
+    # How a status reads in a sentence: "Your request: <subject> is <phrase>".
+    _STATUS_PHRASES: dict[str, str] = {
+        Status.RECEIVED: "received",
+        Status.PLANNED: "planned",
+        Status.BUILDING: "being built",
+        Status.LIVE: "live",
+        Status.NOT_PLANNED: "not planned",
+    }
+
+    # The existing hub-pill tone for each status.
+    _STATUS_TONES: dict[str, str] = {
+        Status.RECEIVED: "neutral",
+        Status.PLANNED: "primary",
+        Status.BUILDING: "primary",
+        Status.LIVE: "ok",
+        Status.NOT_PLANNED: "neutral",
+    }
+
+    NOT_PLANNED_NEEDS_REASON = "Write a short reason in the note to the member. They see it with Not planned."
+
+    user = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name="feedback_requests",
+        help_text="Who sent it. Any signed-in account, with or without a membership.",
+    )
+    category = models.CharField(
+        max_length=10,
+        choices=Category.choices,
+        help_text="What kind of request the sender picked on the Feedback page.",
+    )
+    subject = models.CharField(max_length=200, help_text="The sender's one-line summary.")
+    message = models.TextField(help_text="The sender's full message.")
+    status = models.CharField(
+        max_length=12,
+        choices=Status.choices,
+        default=Status.RECEIVED,
+        help_text="Where the request stands. The sender sees it on the Feedback page.",
+    )
+    staff_note = models.TextField(
+        blank=True,
+        default="",
+        help_text="A note to the sender, shown with the request. Required for Not planned.",
+    )
+    github_issue_url = models.URLField(
+        blank=True,
+        default="",
+        help_text="The GitHub issue tracking the work. Only admins see it.",
+    )
+    status_changed_at = models.DateTimeField(
+        default=timezone.now,
+        help_text="When the status last changed; the sender sees this date.",
+    )
+    live_notified_at = models.DateTimeField(
+        null=True,
+        blank=True,
+        help_text="When the sender was last told this is live, so the automatic live notice never repeats it.",
+    )
+    created_at = models.DateTimeField(auto_now_add=True, help_text="When the sender sent it.")
+
+    objects = FeedbackRequestQuerySet.as_manager()
+
+    class Meta:
+        ordering = ["-created_at"]
+        indexes = [
+            models.Index(fields=["status", "-created_at"], name="fbreq_status_created_idx"),
+            models.Index(fields=["user", "-created_at"], name="fbreq_user_created_idx"),
+        ]
+
+    def __str__(self) -> str:
+        return f"#{self.pk} {self.subject} ({self.get_status_display()})"
+
+    @property
+    def status_label(self) -> str:
+        """The member's word for the status: a live bug report reads Fixed."""
+        if self.status == self.Status.LIVE and self.category == self.Category.BUG:
+            return "Fixed"
+        return self.get_status_display()
+
+    @property
+    def status_phrase(self) -> str:
+        """The status as it reads after "is": "being built", "fixed", "not planned"."""
+        if self.status == self.Status.LIVE and self.category == self.Category.BUG:
+            return "fixed"
+        return self._STATUS_PHRASES[self.status]
+
+    @property
+    def status_tone(self) -> str:
+        """The ``hub-pill--<tone>`` modifier for this status."""
+        return self._STATUS_TONES[self.status]
+
+    @property
+    def sender_label(self) -> str:
+        """The sender's name, else their email: what the inbox and the admin's toast call them."""
+        from membership.names import user_name_or_email
+
+        return user_name_or_email(self.user)
+
+    @property
+    def anchor(self) -> str:
+        """The element id of this request's row on the Feedback page."""
+        return f"request-{self.pk}"
+
+    @property
+    def member_url(self) -> str:
+        """Absolute link to this request, open, on the sender's Feedback page."""
+        from django.urls import reverse
+
+        return f"{settings.MEMBER_BASE_URL}{reverse('hub_beta_feedback')}#{self.anchor}"
+
+    @property
+    def inbox_url(self) -> str:
+        """Absolute link to this request's page in the admin Feedback inbox."""
+        from django.urls import reverse
+
+        return f"{settings.MEMBER_BASE_URL}{reverse('hub_admin_feedback_request', args=[self.pk])}"
+
+    @classmethod
+    def submit(
+        cls,
+        *,
+        user: User,
+        category: str,
+        subject: str,
+        message: str,
+        photos: list[UploadedFile],
+    ) -> FeedbackRequest:
+        """Save a request sent from the Feedback page, with its photos, as Received.
+
+        Each upload is rewound before it is stored and after, so the caller can still read it
+        (the email to the admins attaches the same files).
+        """
+        with transaction.atomic():
+            request = cls.objects.create(user=user, category=category, subject=subject, message=message)
+            for photo in photos:
+                photo.seek(0)
+                FeedbackRequestPhoto.objects.create(request=request, image=photo)
+                photo.seek(0)
+        return request
+
+    @classmethod
+    def update_refusal(cls, *, status: str, staff_note: str) -> str | None:
+        """Why an admin may not save this status and note, or ``None`` when they may."""
+        if status == cls.Status.NOT_PLANNED and not staff_note.strip():
+            return cls.NOT_PLANNED_NEEDS_REASON
+        return None
+
+    def apply_admin_update(self, *, status: str, staff_note: str, github_issue_url: str, actor: User) -> bool:
+        """Save an admin's status, note and GitHub link, and tell the sender when it matters.
+
+        The sender hears about a move to a :attr:`NOTIFYING_STATUSES` status or a changed,
+        non-blank note: once per save, carrying both when both changed. Saving the same values
+        again changes nothing and notifies nobody.
+
+        Args:
+            status: A :class:`Status` value.
+            staff_note: The note to the sender; required for Not planned.
+            github_issue_url: The tracking issue, or blank.
+            actor: The admin saving it.
+
+        Returns:
+            Whether the sender was notified.
+
+        Raises:
+            FeedbackRequestError: Not planned with a blank note.
+        """
+        refusal = self.update_refusal(status=status, staff_note=staff_note)
+        if refusal is not None:
+            raise FeedbackRequestError(refusal)
+        staff_note = staff_note.strip()
+        status_changed = status != self.status
+        note_changed = staff_note != self.staff_note
+        now = timezone.now()
+        self.status = status
+        self.staff_note = staff_note
+        self.github_issue_url = github_issue_url
+        if status_changed:
+            self.status_changed_at = now
+        notify = (status_changed and status in self.NOTIFYING_STATUSES) or (note_changed and bool(staff_note))
+        if notify and status == self.Status.LIVE:
+            self.live_notified_at = now
+        self.save()
+        if notify:
+            self._notify_sender(actor=actor, period=f"feedback:{self.pk}:{status}:{now:%Y%m%d%H%M%S%f}")
+        return notify
+
+    def mark_live(self, *, actor: User) -> bool:
+        """Move the request to Live (Fixed for a bug), keeping its note and link; see :meth:`apply_admin_update`."""
+        return self.apply_admin_update(
+            status=self.Status.LIVE,
+            staff_note=self.staff_note,
+            github_issue_url=self.github_issue_url,
+            actor=actor,
+        )
+
+    def _notify_sender(self, *, actor: User, period: str) -> None:
+        """Tell the sender where their request stands, with the note when there is one."""
+        from django.utils.html import linebreaks
+        from django.utils.safestring import mark_safe
+
+        from core.events.emit import emit
+        from core.events.registry import FEEDBACK_REQUEST_UPDATED
+
+        note = self.staff_note
+        # The copy renderer has no conditionals, so the note arrives pre-built, and empty when
+        # unset. linebreaks(autoescape=True) escapes the admin's words before they are marked safe.
+        note_line = f"A note from Past Lives:\n{note}\n\n" if note else ""
+        note_block = (
+            mark_safe("<p><strong>A note from Past Lives:</strong></p>" + linebreaks(note, autoescape=True))
+            if note
+            else ""
+        )
+        emit(
+            FEEDBACK_REQUEST_UPDATED,
+            actor=actor,
+            target=self,
+            context={
+                "user": self.user,
+                "request_subject": self.subject,
+                "status_label": self.status_label,
+                "status_phrase": self.status_phrase,
+                "request_url": self.member_url,
+                "note_line": note_line,
+                "note_block": note_block,
+            },
+            url=self.member_url,
+            period=period,
+        )
+
+
+class FeedbackRequestPhoto(models.Model):
+    """One photo or screenshot attached to a :class:`FeedbackRequest`."""
+
+    request = models.ForeignKey(
+        FeedbackRequest,
+        on_delete=models.CASCADE,
+        related_name="photos",
+        help_text="The request this photo was sent with.",
+    )
+    image = models.ImageField(upload_to="feedback/%Y/%m/", help_text="The uploaded photo, on the default storage.")
+    created_at = models.DateTimeField(auto_now_add=True, help_text="When it was uploaded.")
+
+    class Meta:
+        ordering = ["pk"]
+
+    def __str__(self) -> str:
+        return f"Photo {self.pk} on request #{self.request_id}"
 
 
 # ── TEMPORARY — remove on/after 2026-08-10 ─────────────────────────────────────

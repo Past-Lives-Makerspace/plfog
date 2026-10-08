@@ -508,6 +508,7 @@ CLASSES_EVENTBRITE_FINISH_REGISTRATION = "classes.eventbrite_finish_registration
 BILLING_LATE_FEE_ORPHAN_PAYMENT = "billing.late_fee_orphan_payment"  # a paid fee Checkout with no fee to mark
 MEMBERSHIP_ORIENTATION_ORPHAN_PAYMENT = "membership.orientation_orphan_payment"  # a paid Checkout, no booking
 AUTOMATION_FAILED = "automation.failed"  # a scheduled job failed (Webmasters, once a day per job)
+FEEDBACK_REQUEST_UPDATED = "feedback.request_updated"  # your feature request or bug report moved, or got a note (#693)
 
 # event.reminder keeps Discord OFF (the bell is enough; per-offset channel posts would
 # clutter the guild channel) but declares it so a lead can flip it on later; happening-now
@@ -1388,6 +1389,20 @@ _NEW_EVENTS: list[EventType] = [
         ),
         category="Membership",
         recipient=Recipients.WEBMASTERS,
+        channels=(_IN_APP_ON, _EMAIL_ON),
+        activity_kind=None,
+    ),
+    # feedback.request_updated — a request sent from the Feedback page moved to Planned,
+    # Building, Live (Fixed for a bug) or Not planned, or got a new note (#693). One key for
+    # every transition: the status and the note travel in the context. The sender is a User,
+    # who may have no Member row. The period carries the status and a timestamp, so each
+    # transition notifies once. No activity row: the request's own status date is the record.
+    EventType(
+        key=FEEDBACK_REQUEST_UPDATED,
+        label="Updates to your requests",
+        description="A feature request or bug report you sent is planned, being built, live, or not planned.",
+        category="Your requests",
+        recipient=Recipients.SINGLE_USER,
         channels=(_IN_APP_ON, _EMAIL_ON),
         activity_kind=None,
     ),
