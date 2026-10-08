@@ -70,7 +70,6 @@ def describe_ConnectPlatformSettingsForm():
             instance=settings,
             data={
                 "connect_enabled": False,
-                "connect_client_id": "",
                 "connect_platform_publishable_key": "",
                 "connect_platform_secret_key": "",
                 "connect_platform_webhook_secret": "",
@@ -84,7 +83,6 @@ def describe_ConnectPlatformSettingsForm():
             instance=settings,
             data={
                 "connect_enabled": True,
-                "connect_client_id": "",
                 "connect_platform_publishable_key": "",
                 "connect_platform_secret_key": "",
                 "connect_platform_webhook_secret": "",
@@ -92,7 +90,6 @@ def describe_ConnectPlatformSettingsForm():
         )
         assert not form.is_valid()
         for field in (
-            "connect_client_id",
             "connect_platform_publishable_key",
             "connect_platform_secret_key",
             "connect_platform_webhook_secret",
@@ -106,7 +103,6 @@ def describe_ConnectPlatformSettingsForm():
             instance=settings,
             data={
                 "connect_enabled": True,
-                "connect_client_id": "ca_123",
                 "connect_platform_publishable_key": "pk_test_123",
                 "connect_platform_secret_key": "sk_test_123",
                 "connect_platform_webhook_secret": "whsec_test_123",
@@ -122,7 +118,6 @@ def describe_ConnectPlatformSettingsForm():
             data={
                 "connect_enabled": True,
                 "test_mode": True,
-                "test_connect_client_id": "",
                 "test_connect_platform_publishable_key": "",
                 "test_connect_platform_secret_key": "",
                 "test_connect_platform_webhook_secret": "",
@@ -130,7 +125,6 @@ def describe_ConnectPlatformSettingsForm():
         )
         assert not form.is_valid()
         for field in (
-            "test_connect_client_id",
             "test_connect_platform_publishable_key",
             "test_connect_platform_secret_key",
             "test_connect_platform_webhook_secret",
@@ -138,7 +132,7 @@ def describe_ConnectPlatformSettingsForm():
         ):
             assert field in form.errors
         # The inactive (live) slot must not be flagged.
-        assert "connect_client_id" not in form.errors
+        assert "connect_platform_secret_key" not in form.errors
 
     def it_accepts_full_test_credential_set():
         settings = BillingSettingsFactory()
@@ -147,7 +141,6 @@ def describe_ConnectPlatformSettingsForm():
             data={
                 "connect_enabled": True,
                 "test_mode": True,
-                "test_connect_client_id": "ca_test_1",
                 "test_connect_platform_publishable_key": "pk_test_1",
                 "test_connect_platform_secret_key": "sk_test_1",
                 "test_connect_platform_webhook_secret": "whsec_test_1",
@@ -163,12 +156,10 @@ def describe_ConnectPlatformSettingsForm():
             data={
                 "connect_enabled": True,
                 "test_mode": True,
-                "test_connect_client_id": "ca_test_1",
                 "test_connect_platform_publishable_key": "pk_test_1",
                 "test_connect_platform_secret_key": "sk_test_1",
                 "test_connect_platform_webhook_secret": "whsec_test_1",
                 "test_connect_accounts_webhook_secret": "whsec_acct",
-                "connect_client_id": "",
                 "connect_platform_publishable_key": "",
                 "connect_platform_secret_key": "",
                 "connect_platform_webhook_secret": "",
@@ -183,12 +174,10 @@ def describe_ConnectPlatformSettingsForm():
             data={
                 "connect_enabled": True,
                 "test_mode": True,
-                "test_connect_client_id": "ca_test_1",
                 "test_connect_platform_publishable_key": "pk_test_1",
                 "test_connect_platform_secret_key": "sk_test_1",
                 "test_connect_platform_webhook_secret": "whsec_test_1",
                 "test_connect_accounts_webhook_secret": "whsec_acct",
-                "connect_client_id": "ca_live_1",
                 "connect_platform_publishable_key": "pk_live_1",
                 "connect_platform_secret_key": "sk_live_1",
                 "connect_platform_webhook_secret": "whsec_live_1",

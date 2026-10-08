@@ -776,7 +776,6 @@ def describe_billing_save_connect_platform():
             "/billing/admin/connect-platform/save/",
             {
                 "connect_enabled": "on",
-                "connect_client_id": "ca_test_123",
                 "connect_platform_publishable_key": "pk_test_123",
                 "connect_platform_secret_key": "sk_test_123",
                 "connect_platform_webhook_secret": "whsec_123",
@@ -790,7 +789,6 @@ def describe_billing_save_connect_platform():
 
         settings = BillingSettings.load()
         assert settings.connect_enabled is True
-        assert settings.connect_client_id == "ca_test_123"
 
     def it_shows_error_messages_on_invalid_form_and_redirects(client: Client):
         from tests.billing.factories import BillingSettingsFactory
@@ -803,7 +801,6 @@ def describe_billing_save_connect_platform():
             "/billing/admin/connect-platform/save/",
             {
                 "connect_enabled": "on",
-                "connect_client_id": "",
                 "connect_platform_publishable_key": "",
                 "connect_platform_secret_key": "",
                 "connect_platform_webhook_secret": "",
@@ -824,7 +821,6 @@ def describe_billing_save_connect_platform():
             {
                 "connect_enabled": "on",
                 "test_mode": "on",
-                "test_connect_client_id": "ca_test_1",
                 "test_connect_platform_publishable_key": "pk_test_1",
                 "test_connect_platform_secret_key": "sk_test_1",
                 "test_connect_platform_webhook_secret": "whsec_test_1",
@@ -848,12 +844,10 @@ def describe_billing_save_connect_platform():
             {
                 "connect_enabled": "on",
                 "test_mode": "on",
-                "test_connect_client_id": "ca_test_1",
                 "test_connect_platform_publishable_key": "pk_test_1",
                 "test_connect_platform_secret_key": "sk_test_1",
                 "test_connect_platform_webhook_secret": "whsec_test_1",
                 "test_connect_accounts_webhook_secret": "whsec_acct",
-                "connect_client_id": "ca_live_1",
                 "connect_platform_publishable_key": "pk_live_1",
                 "connect_platform_secret_key": "sk_live_1",
                 "connect_platform_webhook_secret": "whsec_live_1",

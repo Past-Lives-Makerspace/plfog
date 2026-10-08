@@ -67,7 +67,6 @@ def configured_billing_stripe(db):
     from billing.models import BillingSettings
 
     bs = BillingSettings.load()
-    bs.connect_client_id = "ca_test_fake_for_testing"
     bs.connect_platform_publishable_key = "pk_test_fake_for_testing"
     bs.connect_platform_secret_key = "sk_test_fake_for_testing"
     bs.connect_platform_webhook_secret = "whsec_fake_for_testing"

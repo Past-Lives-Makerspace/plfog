@@ -38,7 +38,6 @@ def staging(settings, monkeypatch):
 def _plant(*, secret: str = SECRET, webhook: str = "") -> None:
     """Write production-keyed ciphertext into the row, past the field's own encryption."""
     row = BillingSettings.load()
-    row.test_connect_client_id = "ca_test_prod"
     row.test_connect_platform_publishable_key = "pk_test_prod"
     row.connect_platform_secret_key = "sk_live_should_be_blanked"
     row.connect_platform_webhook_secret = "whsec_live_should_be_blanked"
@@ -115,7 +114,6 @@ def describe_staging_import_stripe_test_keys():
             row = BillingSettings.load()
             assert row.test_connect_platform_secret_key == SECRET
             assert row.test_connect_platform_webhook_secret == WEBHOOK
-            assert row.test_connect_client_id == "ca_test_prod"
             assert row.test_connect_platform_publishable_key == "pk_test_prod"
             assert row.connect_platform_secret_key == ""
             assert row.connect_platform_webhook_secret == ""

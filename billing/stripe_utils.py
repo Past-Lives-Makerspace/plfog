@@ -14,7 +14,8 @@ page (Payments → Reports) and paid out manually.
 from __future__ import annotations
 
 from datetime import datetime, timedelta
-from typing import TYPE_CHECKING, Any
+from collections.abc import Callable
+from typing import TYPE_CHECKING, Any, TypeVar
 
 import stripe
 from django.core.exceptions import ImproperlyConfigured
@@ -24,6 +25,8 @@ from stripe.params.checkout import SessionCreateParams
 
 if TYPE_CHECKING:
     from billing.models import BillingSettings
+
+_T = TypeVar("_T")
 
 CLASS_CHECKOUT_SESSION_LIFETIME = timedelta(hours=1)
 """How long a class Checkout Session stays payable before Stripe expires it server-side.
@@ -66,6 +69,35 @@ def _platform_webhook_secret() -> str:
 def _get_stripe_client() -> stripe.StripeClient:
     """Get a Stripe client configured with the platform secret key (from DB)."""
     return stripe.StripeClient(_platform_secret_key())
+
+
+# ---------------------------------------------------------------------------
+# Previous account (#702): remove this block once PLM FOG closes
+# ---------------------------------------------------------------------------
+# plfog moved to a new Stripe account; payments made before the switch live on the
+# previous one. Stripe ids belong to one account, so ``resource_missing`` on the active
+# account is a definitive "not here" and the call is retried once on the previous
+# account. Only calls on an object that already exists go through here; creation calls
+# never do, so nothing new is ever made on the previous account.
+
+
+def _on_owning_account(call: Callable[[stripe.StripeClient], _T]) -> _T:
+    """Run ``call`` on the active account, or on the previous one when the active one has no such object."""
+    try:
+        return call(_get_stripe_client())
+    except stripe.InvalidRequestError as exc:
+        previous_key = _billing_settings().active_previous_secret_key
+        if exc.code != "resource_missing" or not previous_key:
+            raise
+        return call(stripe.StripeClient(previous_key))
+
+
+def _previous_webhook_secret(bs: BillingSettings) -> str:
+    """The previous account endpoint's signing secret for the current mode; blank when there is none."""
+    return bs.active_previous_webhook_secret
+
+
+# ---------------------------------------------------------------------------
 
 
 def create_customer(*, email: str, name: str, member_pk: int) -> str:
@@ -263,8 +295,7 @@ def expire_checkout_session(*, session_id: str) -> None:
     be able to pay for a booking that no longer exists. Stripe errors propagate;
     callers swallow them (the session's own ``expires_at`` is the backstop).
     """
-    client = _get_stripe_client()
-    client.v1.checkout.sessions.expire(session_id)
+    _on_owning_account(lambda client: client.v1.checkout.sessions.expire(session_id))
 
 
 class CheckoutSessionNotFound(Exception):
@@ -293,9 +324,8 @@ def retrieve_checkout_session(*, session_id: str) -> dict[str, Any]:
         CheckoutSessionNotFound: Stripe knows no such session. A definitive answer, not a
             failure to answer, so a caller may act on it rather than retrying forever.
     """
-    client = _get_stripe_client()
     try:
-        session = client.v1.checkout.sessions.retrieve(session_id)
+        session = _on_owning_account(lambda client: client.v1.checkout.sessions.retrieve(session_id))
     except stripe.InvalidRequestError as exc:
         # resource_missing is the only InvalidRequestError that means "no such object".
         # The rest (a malformed parameter, a bad API version) are our bug and must keep
@@ -318,15 +348,14 @@ def create_refund(*, payment_intent_id: str, amount_cents: int | None = None, id
 
     Returns dict with 'id' (the Stripe ``re_…`` refund id), 'status', and 'amount'.
     The idempotency_key is REQUIRED so a retried request never double-refunds.
-    Stripe errors propagate — the caller (``billing.refunds``) handles them loudly.
+    Stripe errors propagate — the caller (``billing.refunds``) handles them loudly. A payment
+    made on the previous Stripe account is refunded there (#702).
     """
-    client = _get_stripe_client()
     params: RefundCreateParams = {"payment_intent": payment_intent_id}
     if amount_cents is not None:
         params["amount"] = amount_cents
-    refund = client.v1.refunds.create(
-        params=params,
-        options={"idempotency_key": idempotency_key},
+    refund = _on_owning_account(
+        lambda client: client.v1.refunds.create(params=params, options={"idempotency_key": idempotency_key})
     )
     return {"id": refund.id, "status": refund.status, "amount": refund.amount}
 
@@ -339,8 +368,7 @@ def list_refunds_for_payment_intent(*, payment_intent_id: str) -> list[dict[str,
     webhook handler fetches them explicitly. Returns a list of dicts with
     'id', 'status', and 'amount' — the shape the reconciler reads.
     """
-    client = _get_stripe_client()
-    refunds = client.v1.refunds.list(params={"payment_intent": payment_intent_id})
+    refunds = _on_owning_account(lambda client: client.v1.refunds.list(params={"payment_intent": payment_intent_id}))
     return [{"id": refund.id, "status": refund.status, "amount": refund.amount} for refund in refunds.data]
 
 
@@ -348,11 +376,12 @@ def construct_webhook_event(*, payload: bytes, sig_header: str) -> stripe.Event:
     """Verify and construct a Stripe webhook event from the raw payload.
 
     Uses the raw request body to verify the Stripe signature. The signing
-    secret is read from BillingSettings: the platform endpoint's first, then the
-    Connected accounts endpoint's when that one does not match.
+    secrets are read from BillingSettings and tried in order: the platform
+    endpoint's, the Connected accounts endpoint's, then the previous Stripe
+    account endpoint's (#702). The last one set decides the error raised.
 
     Raises:
-        stripe.SignatureVerificationError: If the signature is invalid.
+        stripe.SignatureVerificationError: If no configured secret matches the signature.
         ImproperlyConfigured: If the platform webhook secret is not set.
     """
     try:
@@ -361,13 +390,21 @@ def construct_webhook_event(*, payload: bytes, sig_header: str) -> stripe.Event:
             sig_header=sig_header,
             secret=_platform_webhook_secret(),
         )
-    except stripe.SignatureVerificationError:
+    except stripe.SignatureVerificationError as platform_error:
         # Connect events (account.updated for payouts, #662) come from a second Stripe
         # endpoint scoped to Connected accounts, pointed at the same URL with its own secret.
-        accounts_secret = _billing_settings().active_accounts_webhook_secret
-        if not accounts_secret:
-            raise
-        return stripe.Webhook.construct_event(payload=payload, sig_header=sig_header, secret=accounts_secret)
+        # Events about payments made before the switch come from the previous account's endpoint.
+        bs = _billing_settings()
+        fallback_secrets = [
+            secret for secret in (bs.active_accounts_webhook_secret, _previous_webhook_secret(bs)) if secret
+        ]
+        error = platform_error
+        for secret in fallback_secrets:
+            try:
+                return stripe.Webhook.construct_event(payload=payload, sig_header=sig_header, secret=secret)
+            except stripe.SignatureVerificationError as fallback_error:
+                error = fallback_error
+        raise error from None
 
 
 def verify_platform_credentials(secret_key: str) -> dict[str, Any]:

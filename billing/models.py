@@ -152,15 +152,6 @@ class BillingSettings(models.Model):
             "at month end. Turning the switch off pauses sending; nothing is sent while it is off."
         ),
     )
-    connect_client_id = models.CharField(
-        max_length=255,
-        blank=True,
-        default="",
-        help_text=(
-            "Stripe Connect application client ID (ca_…) for LIVE mode. From dashboard.stripe.com/settings/connect. "
-            "Used only while Testing Mode is off."
-        ),
-    )
     connect_platform_publishable_key = models.CharField(
         max_length=255,
         blank=True,
@@ -205,12 +196,6 @@ class BillingSettings(models.Model):
             "dashboard → Stripe tab."
         ),
     )
-    test_connect_client_id = models.CharField(
-        max_length=255,
-        blank=True,
-        default="",
-        help_text="Stripe Connect application client ID (ca_…) for TEST mode. Used only while Testing Mode is on.",
-    )
     test_connect_platform_publishable_key = models.CharField(
         max_length=255,
         blank=True,
@@ -242,13 +227,54 @@ class BillingSettings(models.Model):
         ),
     )
 
+    # ---- Previous Stripe account (#702) ----
+    # PLM FOG, the account plfog charged on before the switch. Only calls on an object
+    # that already exists there (a refund, a refund list, a Checkout Session) and its
+    # webhooks read these; nothing new is ever created on it. Remove this block, its
+    # accessors and stripe_utils' "Previous account" block in one PR once PLM FOG closes.
+    previous_secret_key = EncryptedCharField(
+        max_length=512,
+        blank=True,
+        default="",
+        help_text=(
+            "LIVE-mode secret key (sk_live_…) of the previous Stripe account. Refunds and lookups on payments made "
+            "there use it while Testing Mode is off. Leave blank when there is no previous account. Encrypted at rest."
+        ),
+    )
+    previous_webhook_secret = EncryptedCharField(
+        max_length=512,
+        blank=True,
+        default="",
+        help_text=(
+            "LIVE-mode webhook signing secret of the previous Stripe account's endpoint. Leave blank when there is "
+            "no previous account. Encrypted at rest."
+        ),
+    )
+    test_previous_secret_key = EncryptedCharField(
+        max_length=512,
+        blank=True,
+        default="",
+        help_text=(
+            "TEST-mode secret key (sk_test_…) of the previous Stripe account. Used only while Testing Mode is on. "
+            "Leave blank when there is no previous account. Encrypted at rest."
+        ),
+    )
+    test_previous_webhook_secret = EncryptedCharField(
+        max_length=512,
+        blank=True,
+        default="",
+        help_text=(
+            "TEST-mode webhook signing secret of the previous Stripe account's endpoint. Used only while Testing "
+            "Mode is on. Leave blank when there is no previous account. Encrypted at rest."
+        ),
+    )
+
     updated_at = models.DateTimeField(auto_now=True, help_text="Last time billing settings were changed.")
 
     # Field-name suffixes shared by the LIVE (``connect_*``) and TEST
     # (``test_connect_*``) credential slots — the single source of truth for
-    # which four fields each slot holds.
+    # which credential fields each slot requires.
     _CREDENTIAL_SUFFIXES = (
-        "client_id",
         "platform_publishable_key",
         "platform_secret_key",
         "platform_webhook_secret",
@@ -289,11 +315,6 @@ class BillingSettings(models.Model):
         return "Billing Settings"
 
     @property
-    def active_client_id(self) -> str:
-        """The Connect client ID for the currently selected (test/live) mode."""
-        return self.test_connect_client_id if self.test_mode else self.connect_client_id
-
-    @property
     def active_publishable_key(self) -> str:
         """The publishable key for the currently selected (test/live) mode."""
         return self.test_connect_platform_publishable_key if self.test_mode else self.connect_platform_publishable_key
@@ -314,12 +335,22 @@ class BillingSettings(models.Model):
         return self.test_connect_accounts_webhook_secret if self.test_mode else self.connect_accounts_webhook_secret
 
     @property
+    def active_previous_secret_key(self) -> str:
+        """The previous Stripe account's secret key for the current mode (#702); blank when there is none."""
+        return self.test_previous_secret_key if self.test_mode else self.previous_secret_key
+
+    @property
+    def active_previous_webhook_secret(self) -> str:
+        """The previous Stripe account's webhook signing secret for the current mode (#702); blank when there is none."""
+        return self.test_previous_webhook_secret if self.test_mode else self.previous_webhook_secret
+
+    @property
     def mode_label(self) -> str:
         """Human-readable name of the current mode."""
         return "Test" if self.test_mode else "Live"
 
     def clean(self) -> None:
-        """If payouts are on, the active mode's five credential fields must be non-empty.
+        """If payouts are on, the active mode's credential fields must be non-empty.
 
         Only the slot selected by ``test_mode`` is required — the inactive slot may be
         left blank or pre-filled so both key sets can live side by side.

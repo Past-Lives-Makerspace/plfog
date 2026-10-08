@@ -542,7 +542,6 @@
             <span class="pl-key-group__title">Test Keys</span>
             {% if billing_settings.test_mode %}<span class="pl-badge pl-badge--ok">ACTIVE</span>{% endif %}
           </div>
-          {% include "components/form_field.html" with field=connect_platform_form.test_connect_client_id field_label="Connect Client ID" %}
           {% include "components/form_field.html" with field=connect_platform_form.test_connect_platform_publishable_key field_label="Publishable Key" %}
           {% include "components/form_field.html" with field=connect_platform_form.test_connect_platform_secret_key field_label="Secret Key" %}
           {% include "components/form_field.html" with field=connect_platform_form.test_connect_platform_webhook_secret field_label="Webhook Signing Secret" %}
@@ -557,7 +556,6 @@
             <span class="pl-key-group__title">Live Keys</span>
             {% if not billing_settings.test_mode %}<span class="pl-badge pl-badge--fail">ACTIVE</span>{% endif %}
           </div>
-          {% include "components/form_field.html" with field=connect_platform_form.connect_client_id field_label="Connect Client ID" %}
           {% include "components/form_field.html" with field=connect_platform_form.connect_platform_publishable_key field_label="Publishable Key" %}
           {% include "components/form_field.html" with field=connect_platform_form.connect_platform_secret_key field_label="Secret Key" %}
           {% include "components/form_field.html" with field=connect_platform_form.connect_platform_webhook_secret field_label="Webhook Signing Secret" %}
@@ -566,6 +564,28 @@
           <button type="button" class="pl-btn pl-btn--secondary pl-btn--sm" onclick="testConnectPlatform('live')">Test connection</button>
         </div>
 
+      </div>
+
+      {# ---- Previous account (#702): remove with the previous_* fields once PLM FOG closes ---- #}
+      <div class="pl-section-label">Previous Account</div>
+      <p style="color:#96ACBB;font-size:0.875rem;margin:0 0 1.25rem">
+        The Stripe account plfog charged on before the switch. Refunds, refund lookups and webhooks for payments made there use these keys; nothing new is charged on it. Leave blank when there is no previous account.
+      </p>
+      <div class="pl-key-groups">
+        <div class="pl-key-group">
+          <div class="pl-key-group__header">
+            <span class="pl-key-group__title">Previous Test Keys</span>
+          </div>
+          {% include "components/form_field.html" with field=connect_platform_form.test_previous_secret_key field_label="Secret Key" %}
+          {% include "components/form_field.html" with field=connect_platform_form.test_previous_webhook_secret field_label="Webhook Signing Secret" field_hint="From the previous account's webhook endpoint, which still points at this site." %}
+        </div>
+        <div class="pl-key-group">
+          <div class="pl-key-group__header">
+            <span class="pl-key-group__title">Previous Live Keys</span>
+          </div>
+          {% include "components/form_field.html" with field=connect_platform_form.previous_secret_key field_label="Secret Key" %}
+          {% include "components/form_field.html" with field=connect_platform_form.previous_webhook_secret field_label="Webhook Signing Secret" field_hint="From the previous account's webhook endpoint, which still points at this site." %}
+        </div>
       </div>
 
       <div class="pl-form-actions">

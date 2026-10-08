@@ -542,7 +542,6 @@ def describe_admin_switch():
         client.force_login(user)
         credentials = {
             "test_mode": "on",
-            "test_connect_client_id": "ca_t",
             "test_connect_platform_publishable_key": "pk_test_1",
             "test_connect_platform_secret_key": "sk_test_1",
             "test_connect_platform_webhook_secret": "whsec_p",
