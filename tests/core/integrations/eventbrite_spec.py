@@ -1,4 +1,7 @@
-"""BDD specs for the Eventbrite client (#652). HTTP is mocked with respx; nothing reaches Eventbrite."""
+"""BDD specs for the Eventbrite client (#652) and the listing bodies it posts (#716).
+
+HTTP is mocked with respx; nothing reaches Eventbrite.
+"""
 
 from __future__ import annotations
 
@@ -10,6 +13,8 @@ import httpx
 import pytest
 import respx
 
+from classes.factories import ClassFaqFactory, ClassOfferingFactory
+from classes.models import ClassOffering
 from core.integrations.eventbrite import API_BASE, EventbriteClient, EventbriteError, estimate_fee_cents
 from core.models import SiteConfiguration
 
@@ -134,6 +139,8 @@ def describe_requests():
                 {"type": "image", "data": {"image": {"type": "image", "image_id": "111"}}},
                 {"type": "image", "data": {"image": {"type": "image", "image_id": "222"}}},
             ],
+            # #716: the widgets always go back; an event with none read sends none.
+            "widgets": [],
             "publish": True,
             "purpose": "listing",
         }
@@ -288,3 +295,195 @@ def describe_order_and_ticket_reads():
             client.get_ticket_class("ev-1", "tc-1")
 
         assert request.call_args.kwargs["timeout"] == 3.0
+
+
+# Widgets as event 2003170172911's edit payload carried them after the owner added an FAQ in the dashboard.
+CAROUSEL = {"id": "", "type": "herocarousel", "data": {"slides": [{"image_id": "m-1", "caption": "Kiln room"}]}}
+DASHBOARD_FAQ = {"faqs": [{"question": "Test question", "answer": "Test answer"}]}
+
+
+def _listing_routes(event_id: str, widgets: list[dict[str, Any]] | None = None) -> dict[str, Any]:
+    """Every call a class sync makes, answered as Eventbrite answers; returns the routes that carry a body."""
+    edit: dict[str, Any] = {"page_version_number": "1", "modules": []}
+    if widgets is not None:
+        edit["widgets"] = widgets
+    respx.get(f"{API_BASE}/events/{event_id}/structured_content/edit/").respond(json=edit)
+    respx.get(f"{API_BASE}/events/{event_id}/ticket_classes/tc-1/").respond(json={"quantity_sold": 0})
+    respx.post(f"{API_BASE}/events/{event_id}/ticket_classes/tc-1/").respond(json={})
+    respx.post(f"{API_BASE}/events/{event_id}/publish/").respond(json={})
+    return {
+        "create": respx.post(f"{API_BASE}/organizations/org-1/events/").respond(
+            json={"id": event_id, "status": "draft"}
+        ),
+        "update": respx.post(f"{API_BASE}/events/{event_id}/").respond(json={"id": event_id, "status": "live"}),
+        "ticket": respx.post(f"{API_BASE}/events/{event_id}/ticket_classes/").respond(json={"id": "tc-1"}),
+        "description": respx.post(f"{API_BASE}/events/{event_id}/structured_content/2/").respond(json={}),
+    }
+
+
+def _sent(route: Any) -> dict[str, Any]:
+    return json.loads(route.calls.last.request.content)
+
+
+def describe_the_listing_eventbrite_receives():
+    """#716: the event's format and category, and the FAQ in the description, as posted to Eventbrite."""
+
+    @pytest.fixture(autouse=True)
+    def _integration_on(settings: Any) -> None:
+        _credentials(settings)
+        _switch_on()
+
+    def _live(**kwargs: Any) -> ClassOffering:
+        fields = {"ready": True, "status": ClassOffering.Status.PUBLISHED, "image": "", "gallery": 0}
+        return ClassOfferingFactory(**{**fields, "eventbrite_enabled": True, **kwargs})
+
+    def _listed(**kwargs: Any) -> ClassOffering:
+        return _live(eventbrite_event_id="ev-9", eventbrite_ticket_class_id="tc-1", **kwargs)
+
+    @respx.mock
+    def it_creates_every_class_as_a_class_training_or_workshop_with_no_category_by_default():
+        routes = _listing_routes("ev-1")
+
+        _live().sync_eventbrite_listing()
+
+        event = _sent(routes["create"])["event"]
+        assert event["format_id"] == "9"
+        assert "category_id" not in event
+        assert "subcategory_id" not in event
+
+    @respx.mock
+    def it_creates_the_event_with_the_chosen_category_and_subcategory():
+        routes = _listing_routes("ev-1")
+
+        _live(eventbrite_category="105", eventbrite_subcategory="5014").sync_eventbrite_listing()
+
+        event = _sent(routes["create"])["event"]
+        assert (event["format_id"], event["category_id"], event["subcategory_id"]) == ("9", "105", "5014")
+
+    @respx.mock
+    def it_sends_a_category_alone_without_a_subcategory():
+        routes = _listing_routes("ev-1")
+
+        _live(eventbrite_category="119").sync_eventbrite_listing()
+
+        event = _sent(routes["create"])["event"]
+        assert event["category_id"] == "119"
+        assert "subcategory_id" not in event
+
+    @respx.mock
+    def it_updates_a_listed_event_with_a_changed_category():
+        routes = _listing_routes("ev-9")
+        offering = _listed(eventbrite_category="105", eventbrite_subcategory="5014")
+        offering.eventbrite_category, offering.eventbrite_subcategory = "119", "19003"
+
+        offering.sync_eventbrite_listing()
+
+        assert not routes["create"].called
+        event = _sent(routes["update"])["event"]
+        assert (event["format_id"], event["category_id"], event["subcategory_id"]) == ("9", "119", "19003")
+
+    @respx.mock
+    def it_updates_a_listed_event_with_no_category_as_before():
+        routes = _listing_routes("ev-9")
+
+        _listed().sync_eventbrite_listing()
+
+        event = _sent(routes["update"])["event"]
+        assert event["format_id"] == "9"
+        assert not {"category_id", "subcategory_id"} & set(event)
+
+    def _with_faq(offering: ClassOffering) -> ClassOffering:
+        ClassFaqFactory(class_offering=offering, sort_order=1, question="What if I'm late?", answer="Text the shop.")
+        ClassFaqFactory(
+            class_offering=offering,
+            sort_order=0,
+            question="<b>Gloves</b> and boots?",
+            answer="Both & more.\nSee https://pastlives.space\n\nAsk us.",
+        )
+        return offering
+
+    def _text(route: Any) -> str:
+        return _sent(route)["modules"][0]["data"]["body"]["text"]
+
+    @respx.mock
+    def it_writes_the_faq_as_both_faq_widgets_in_order_as_plain_text():
+        routes = _listing_routes("ev-1")
+
+        _with_faq(_live()).sync_eventbrite_listing()
+
+        entries = [
+            {"question": "Gloves and boots?", "answer": "Both & more.\nSee https://pastlives.space\n\nAsk us."},
+            {"question": "What if I'm late?", "answer": "Text the shop."},
+        ]
+        assert _sent(routes["description"])["widgets"] == [
+            {"id": "", "type": "faqs", "data": {"faqs": entries}},
+            {"id": "", "type": "faq", "data": {"faqs": entries}},
+        ]
+        assert "Questions:" not in _text(routes["description"])
+
+    @respx.mock
+    def it_sends_every_other_widget_back_unchanged_and_replaces_the_dashboards_faq():
+        dashboard = [
+            CAROUSEL,
+            {"id": "", "type": "faqs", "data": DASHBOARD_FAQ},
+            {"id": "", "type": "faq", "data": DASHBOARD_FAQ},
+        ]
+        routes = _listing_routes("ev-9", widgets=dashboard)
+        offering = _listed()
+        ClassFaqFactory(class_offering=offering, question="Is the kiln vented?", answer="Yes.")
+
+        offering.sync_eventbrite_listing()
+
+        sent = _sent(routes["description"])["widgets"]
+        assert sent[0] == CAROUSEL
+        assert [w["type"] for w in sent] == ["herocarousel", "faqs", "faq"]
+        assert sent[1]["data"] == {"faqs": [{"question": "Is the kiln vented?", "answer": "Yes."}]}
+
+    @respx.mock
+    def it_drops_the_faq_widgets_but_keeps_the_others_for_a_class_without_faq_rows():
+        routes = _listing_routes("ev-9", widgets=[CAROUSEL, {"id": "", "type": "faqs", "data": DASHBOARD_FAQ}])
+
+        _listed().sync_eventbrite_listing()
+
+        assert _sent(routes["description"])["widgets"] == [CAROUSEL]
+        assert "Questions:" not in _text(routes["description"])
+
+    @respx.mock
+    def it_puts_the_faq_in_the_description_after_the_dates_when_eventbrite_refuses_the_faq_widgets():
+        routes = _listing_routes("ev-1", widgets=[CAROUSEL])
+        routes["description"].side_effect = [
+            httpx.Response(400, json={"error": "BAD_WIDGET"}),
+            httpx.Response(200, json={}),
+        ]
+        offering = _with_faq(_live())
+
+        offering.sync_eventbrite_listing()
+
+        retry = _sent(routes["description"])
+        assert retry["widgets"] == [CAROUSEL]
+        faq = (
+            "<p>Questions:</p>"
+            "<p><strong>&lt;b&gt;Gloves&lt;/b&gt; and boots?</strong></p>"
+            '<p>Both &amp; more.<br>See <a href="https://pastlives.space" rel="nofollow">https://pastlives.space</a></p>'
+            "\n\n<p>Ask us.</p>"
+            "<p><strong>What if I&#x27;m late?</strong></p><p>Text the shop.</p>"
+        )
+        html = retry["modules"][0]["data"]["body"]["text"]
+        assert html.index("<p>Sessions:</p>") < html.index(faq) < html.index("Full details and booking")
+        offering.refresh_from_db()
+        assert offering.eventbrite_sync_state == ClassOffering.EventbriteSyncState.LISTED
+        assert offering.eventbrite_sync_error.startswith(
+            "The FAQ went into the description, Eventbrite refused its FAQ section: POST /events/ev-1/structured_content/2/: 400"
+        )
+
+    @respx.mock
+    def it_records_a_failure_when_the_text_fallback_is_refused_too():
+        routes = _listing_routes("ev-1")
+        routes["description"].respond(400, json={"error": "BAD"})
+        offering = _with_faq(_live())
+
+        offering.sync_eventbrite_listing()
+
+        offering.refresh_from_db()
+        assert routes["description"].call_count == 2
+        assert offering.eventbrite_sync_state == ClassOffering.EventbriteSyncState.FAILED

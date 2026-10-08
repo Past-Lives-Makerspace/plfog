@@ -2536,8 +2536,10 @@ def _teach_published_class_edit(request: HttpRequest, offering: ClassOffering, t
         else ""
     )
     if request.method == "POST" and form.is_valid() and faq_formset.is_valid():
-        form.save().sync_eventbrite_listing()
+        offering = form.save()
+        # FAQ first: the listing carries the FAQ (#716), so syncing before it would send the old one.
         faq_formset.save()
+        offering.sync_eventbrite_listing()
         messages.success(request, "Class updated.")
         return redirect(leave_url)
     return render(

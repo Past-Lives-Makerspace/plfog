@@ -1,0 +1,5 @@
+{# Eventbrite category and subcategory (#716), shared by the composer and the published edit page; the category select sets ebCategory and the subcategory options follow it (classes.forms._EventbriteCategoryMixin). #}
+<div data-eventbrite-category x-data="{ ebCategory: '' }">
+  {% include "components/form_field.html" with field=form.eventbrite_category %}
+  {% include "components/form_field.html" with field=form.eventbrite_subcategory %}
+</div>

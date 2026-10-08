@@ -321,12 +321,13 @@ Do not merge them.
               {% include "components/form_field.html" with field=form.registration_cutoff_hours %}
             </div>
           </div>
-          {# Eventbrite rides with the dates too: a flexible class has none to list, so it is not offered there, and the form drops both fields while the integration is off (#652). #}
+          {# Eventbrite rides with the dates too: a flexible class has none to list, so it is not offered there, and the form drops every Eventbrite field while the integration is off (#652, #716). #}
           {% if "eventbrite_enabled" in form.fields %}
           <div class="pl-eventbrite" data-eventbrite>
             <h4 class="pl-compose-section__subtitle">Eventbrite</h4>
             {% include "components/form_field.html" with field=form.eventbrite_enabled %}
             {% include "components/form_field.html" with field=form.eventbrite_fee_payer %}
+            {% include "classes/_components/eventbrite_category_fields.html" %}
           </div>
           {% endif %}
         </div>
