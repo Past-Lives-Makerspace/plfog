@@ -25,6 +25,7 @@ if TYPE_CHECKING:
     from django.core.files.uploadedfile import UploadedFile
 
     from classes.models import Registration
+    from core.building_with_you import BuildingWithYou
 
 logger = logging.getLogger(__name__)
 
@@ -1051,6 +1052,30 @@ class SiteConfiguration(models.Model):
         verbose_name="App Store URL",
         help_text="The app's App Store listing. Blank means not launched: the badge is left out everywhere and the copy says iOS is coming soon.",
     )
+    # #699: the "Building with you" panel behind the sidebar version pill.
+    feature_meeting_event = models.ForeignKey(
+        "membership.CommunityEvent",
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="+",
+        verbose_name="Feature Meeting event",
+        help_text="The recurring meeting where members see what's new and say what to build.",
+    )
+    being_built_now = models.TextField(
+        blank=True,
+        default="",
+        db_default="",
+        verbose_name="Being built now",
+        help_text="Shown to every member. Leave empty to hide the list. One item per line, in plain words.",
+    )
+    backlog_url = models.URLField(
+        blank=True,
+        default="https://github.com/orgs/Past-Lives-Makerspace/projects/1",
+        db_default="https://github.com/orgs/Past-Lives-Makerspace/projects/1",
+        verbose_name="Backlog link",
+        help_text="The public board of planned work. Blank hides the link.",
+    )
 
     class Meta:
         verbose_name = "Site Settings"
@@ -1077,6 +1102,19 @@ class SiteConfiguration(models.Model):
         """Load the singleton instance, creating it with defaults if needed."""
         obj, _created = cls.objects.get_or_create(pk=1)
         return obj
+
+    @classmethod
+    def load_with_feature_meeting(cls) -> SiteConfiguration:
+        """:meth:`load`, with the Feature Meeting event joined in, so the panel costs one query."""
+        obj, _created = cls.objects.select_related("feature_meeting_event").get_or_create(pk=1)
+        return obj
+
+    def building_with_you(self, now: datetime) -> BuildingWithYou:
+        """The "Building with you" panel as of ``now`` (#699); see :mod:`core.building_with_you`."""
+        from core.building_with_you import BuildingWithYou
+        from plfog.version import CHANGELOG
+
+        return BuildingWithYou.build(self, now, CHANGELOG)
 
     @property
     def instructor_discount_codes_approval_mode(self) -> bool:

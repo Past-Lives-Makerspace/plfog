@@ -7,12 +7,17 @@ and are deliberately not duplicated across the two forms.
 
 from __future__ import annotations
 
+from datetime import datetime, timedelta
+
 import pytest
 from django.contrib.auth.models import User
 from django.test import Client
+from django.utils import timezone
 
 from core.models import SiteConfiguration
 from hub.forms import SiteSettingsForm, SlideshowSettingsForm
+from membership.models import CommunityEvent
+from tests.membership.factories import CommunityEventFactory
 
 pytestmark = pytest.mark.django_db
 
@@ -282,3 +287,116 @@ def describe_member_agreement_fields() -> None:
         # as visible text and this spec would sail past it — but tests/template_comment_lint_spec.py
         # already catches that repo-wide, for every template, with a self-test of its own
         # (FRONTEND.md Rule 17). A second, weaker copy here would only rot.
+
+
+def describe_SiteSettingsForm_building_with_you():
+    """The three "Building with you" settings behind the version pill's panel (#699)."""
+
+    def _meeting(**kwargs: object) -> CommunityEvent:
+        start = timezone.now() + timedelta(days=5)
+        return CommunityEventFactory(
+            community=True,
+            title="Zorblax Feature Meeting",
+            starts_at=start,
+            ends_at=start + timedelta(hours=1),
+            **kwargs,
+        )
+
+    def it_declares_the_three_fields():
+        for name in ("feature_meeting_event", "being_built_now", "backlog_url"):
+            assert name in SiteSettingsForm.Meta.fields
+
+    def it_offers_published_upcoming_or_repeating_events_and_a_blank():
+        upcoming = _meeting()
+        past_start = timezone.now() - timedelta(days=40)
+        repeating = CommunityEventFactory(
+            community=True,
+            starts_at=past_start,
+            ends_at=past_start + timedelta(hours=1),
+            recurrence=CommunityEvent.Recurrence.MONTHLY,
+        )
+        over = CommunityEventFactory(community=True, starts_at=past_start, ends_at=past_start + timedelta(hours=1))
+        pending = _meeting(pending=True)
+
+        field = SiteSettingsForm(instance=SiteConfiguration.load()).fields["feature_meeting_event"]
+
+        offered = set(field.queryset)
+        assert {upcoming, repeating} <= offered
+        assert over not in offered
+        assert pending not in offered
+        assert field.required is False
+        assert field.empty_label == "No Feature Meeting"
+
+    def it_keeps_the_current_pick_on_offer_after_it_ends():
+        past_start = timezone.now() - timedelta(days=40)
+        over = CommunityEventFactory(community=True, starts_at=past_start, ends_at=past_start + timedelta(hours=1))
+        config = SiteConfiguration.load()
+        config.feature_meeting_event = over
+        config.save()
+
+        assert over in SiteSettingsForm(instance=config).fields["feature_meeting_event"].queryset
+
+    def it_labels_a_choice_with_its_first_date_and_how_it_repeats():
+        start = timezone.make_aware(datetime(2026, 9, 8, 18, 0))
+        event = CommunityEventFactory(
+            community=True,
+            title="Zorblax Feature Meeting",
+            starts_at=start,
+            ends_at=start + timedelta(hours=1),
+            recurrence=CommunityEvent.Recurrence.MONTHLY,
+        )
+        field = SiteSettingsForm(instance=SiteConfiguration.load()).fields["feature_meeting_event"]
+
+        assert field.label_from_instance(event) == "Zorblax Feature Meeting (from Sep 8, 2026, every month)"
+
+    def it_labels_a_one_off_without_a_repeat():
+        event = _meeting()
+        field = SiteSettingsForm(instance=SiteConfiguration.load()).fields["feature_meeting_event"]
+
+        assert field.label_from_instance(event).endswith(f"{timezone.localtime(event.starts_at):%Y})")
+
+    def it_saves_the_three_settings():
+        event = _meeting()
+        config = SiteConfiguration.load()
+        form = SiteSettingsForm(instance=config)
+        data = {k: v for k, v in form.initial.items() if v is not None}
+        data.update(
+            {
+                "feature_meeting_event": str(event.pk),
+                "being_built_now": "Zorblax kiln queue\nZorblax laser hours",
+                "backlog_url": "https://example.org/zorblax-board",
+            }
+        )
+        bound = SiteSettingsForm(data=data, instance=config)
+        assert bound.is_valid(), bound.errors
+        bound.save()
+
+        saved = SiteConfiguration.objects.get(pk=config.pk)
+        assert saved.feature_meeting_event == event
+        assert saved.being_built_now == "Zorblax kiln queue\nZorblax laser hours"
+        assert saved.backlog_url == "https://example.org/zorblax-board"
+
+    def it_saves_with_no_meeting_and_no_backlog():
+        config = SiteConfiguration.load()
+        form = SiteSettingsForm(instance=config)
+        data = {k: v for k, v in form.initial.items() if v is not None}
+        data.update({"feature_meeting_event": "", "being_built_now": "", "backlog_url": ""})
+        bound = SiteSettingsForm(data=data, instance=config)
+        assert bound.is_valid(), bound.errors
+        bound.save()
+
+        saved = SiteConfiguration.objects.get(pk=config.pk)
+        assert saved.feature_meeting_event is None
+        assert saved.backlog_url == ""
+
+    def it_renders_its_own_section_on_the_general_tab_once(client: Client, admin_user: User) -> None:
+        from django.urls import reverse
+
+        client.force_login(admin_user)
+        html = client.get(reverse("hub_admin_site_settings")).content.decode()
+
+        section = html.split('id="building-with-you-settings"', 1)[1].split("x-show=\"tab === 'calendar'\"", 1)[0]
+        assert "Building With You" in section
+        for name in ("feature_meeting_event", "being_built_now", "backlog_url"):
+            assert html.count(f'name="{name}"') == 1
+            assert f'name="{name}"' in section

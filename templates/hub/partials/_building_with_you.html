@@ -1,0 +1,45 @@
+{# The "Building with you" panel at the top of the hub's version pill modal (#699); bwy is core.building_with_you.BuildingWithYou. #}
+<div class="pl-bwy" id="building-with-you">
+    {% if bwy.meeting %}
+    <section class="pl-bwy__section pl-bwy__meeting" id="bwy-meeting" aria-labelledby="bwy-meeting-heading">
+        <h3 class="pl-bwy__heading" id="bwy-meeting-heading">Next Feature Meeting</h3>
+        <p class="pl-bwy__meeting-title">{{ bwy.meeting.title }}</p>
+        <p class="pl-bwy__when"><time datetime="{{ bwy.meeting.starts_at|date:'c' }}">{{ bwy.meeting.starts_at|date:"D M j, g:i A" }}</time></p>
+        <div class="pl-btn-row pl-bwy__actions">
+            {% if bwy.meeting.video_url %}<a href="{{ bwy.meeting.video_url }}" class="pl-btn pl-btn--primary pl-btn--sm" target="_blank" rel="noopener noreferrer" id="bwy-join">Join online</a>{% endif %}
+            <a href="{{ bwy.meeting.ics_url }}" class="pl-btn pl-btn--ghost pl-btn--sm" id="bwy-ics" hx-boost="false" data-pl-download download>Add to calendar</a>
+            <a href="{{ bwy.meeting.detail_url }}" class="pl-btn pl-btn--ghost pl-btn--sm" id="bwy-details">Details</a>
+        </div>
+        <p class="pl-bwy__note">A short, open check-in: see what's new and tell us what to build next.</p>
+    </section>
+    {% endif %}
+
+    <section class="pl-bwy__section" id="bwy-ask" aria-labelledby="bwy-ask-heading">
+        <h3 class="pl-bwy__heading" id="bwy-ask-heading">Ask for Something</h3>
+        <p class="pl-bwy__note">Ideas and bug reports go straight to the people building this. You'll hear back as it moves.</p>
+        <a href="{% url 'hub_beta_feedback' %}?category=feature" class="pl-btn pl-btn--primary pl-btn--sm pl-bwy__ask" id="bwy-ask-link">Ask for something</a>
+    </section>
+
+    {% if bwy.being_built %}
+    <section class="pl-bwy__section" id="bwy-building" aria-labelledby="bwy-building-heading">
+        <h3 class="pl-bwy__heading" id="bwy-building-heading">Being Built Now</h3>
+        <ul class="pl-bwy__list">
+            {% for line in bwy.being_built %}<li>{{ line }}</li>{% endfor %}
+        </ul>
+    </section>
+    {% endif %}
+
+    <section class="pl-bwy__section" id="bwy-shipped" aria-labelledby="bwy-shipped-heading">
+        <h3 class="pl-bwy__heading" id="bwy-shipped-heading">Recently Shipped</h3>
+        <ul class="pl-bwy__shipped">
+            {% for entry in bwy.recently_shipped %}
+            <li class="pl-bwy__shipped-item"><span class="pl-bwy__shipped-title">{{ entry.title }}</span><span class="pl-bwy__shipped-date">{{ entry.shipped_on|date:"M j" }}</span></li>
+            {% endfor %}
+        </ul>
+        <button type="button" class="pl-bwy__more" id="bwy-see-all" x-show="!showAll" @click="showAll = true; $nextTick(() => document.getElementById('changelog-all').scrollIntoView({ block: 'start', behavior: 'smooth' }))">See every update</button>
+    </section>
+
+    {% if bwy.backlog_url %}
+    <p class="pl-bwy__backlog"><a href="{{ bwy.backlog_url }}" target="_blank" rel="noopener noreferrer" id="bwy-backlog">See the full backlog on GitHub</a></p>
+    {% endif %}
+</div>

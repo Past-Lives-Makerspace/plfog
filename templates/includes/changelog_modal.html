@@ -1,10 +1,15 @@
 <div id="changelog-modal" class="changelog-overlay" style="display:none;" onclick="if(event.target===this)this.style.display='none'">
     <div class="changelog-modal">
         <div class="changelog-modal__header">
-            <h2 class="changelog-modal__title">Changelog</h2>
+            <h2 class="changelog-modal__title">{% if building_panel %}Building With You{% else %}Changelog{% endif %}</h2>
             <button class="changelog-modal__close" onclick="document.getElementById('changelog-modal').style.display='none'" aria-label="Close changelog">&times;</button>
         </div>
-        <div class="changelog-modal__body">
+        {# Only the hub passes building_panel (#699); public, login and admin keep the plain list. #}
+        <div class="changelog-modal__body"{% if building_panel %} x-data="{ showAll: false }" x-init="if (location.hash.indexOf('#changelog-') === 0) { showAll = true; $nextTick(() => { const e = document.getElementById(location.hash.slice(1)); if (e) e.scrollIntoView({ block: 'start' }) }) }"{% endif %}>
+            {% if building_panel %}
+            {% include "hub/partials/_building_with_you.html" with bwy=building_with_you %}
+            <div id="changelog-all" class="pl-bwy__all" x-show="showAll" x-cloak>
+            {% endif %}
             {% for entry in changelog %}
             <div class="changelog-entry"{% if entry.slug %} id="changelog-{{ entry.slug }}"{% endif %}>
                 <div class="changelog-entry__header">
@@ -24,6 +29,7 @@
                 </ul>
             </div>
             {% endfor %}
+            {% if building_panel %}</div>{% endif %}
         </div>
     </div>
 </div>

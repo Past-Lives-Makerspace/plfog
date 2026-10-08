@@ -404,3 +404,31 @@ def describe_your_requests():
         response = client.get("/feedback/?sent=abc")
 
         assert response.context["open_request_pk"] is None
+
+
+@pytest.mark.django_db
+def describe_beta_feedback_category_preselect():
+    """The version pill's Ask for something links here with ``?category=feature`` (#699)."""
+
+    def it_preselects_feature_request_from_the_query_string(client: Client):
+        User.objects.create_user(username="asker", password="pass")
+        client.login(username="asker", password="pass")
+
+        response = client.get("/feedback/?category=feature")
+
+        assert response.context["form"]["category"].value() == "feature"
+        assert '<option value="feature" selected>' in response.content.decode()
+
+    def it_ignores_a_category_that_does_not_exist(client: Client):
+        User.objects.create_user(username="guesser", password="pass")
+        client.login(username="guesser", password="pass")
+
+        response = client.get("/feedback/?category=zorblax")
+
+        assert response.context["form"]["category"].value() is None
+
+    def it_builds_an_unbound_form_with_the_category_chosen():
+        form = BetaFeedbackForm.preselected("feature")
+
+        assert not form.is_bound
+        assert form.initial == {"category": "feature"}

@@ -14,7 +14,7 @@ Member-facing views. All views are `@login_required`. No models — reads from `
 | `member_directory` | `hub_member_directory` | `/members/` |
 | `profile_settings` | `hub_profile_settings` | `/settings/profile/` |
 | `email_preferences` | `hub_email_preferences` | `/settings/emails/` |
-| `beta_feedback` | `hub_beta_feedback` | `/feedback/` (the form, then "Your requests": the viewer's own `FeedbackRequest` rows, #693; `?sent=<pk>` and `#request-<pk>` open a row) |
+| `beta_feedback` | `hub_beta_feedback` | `/feedback/` (the form, then "Your requests": the viewer's own `FeedbackRequest` rows, #693; `?sent=<pk>` and `#request-<pk>` open a row; `?category=feature` preselects the category, #699) |
 | `tab_detail` | `hub_tab_detail` | `/tab/` |
 | `tab_history` | `hub_tab_history` | `/tab/history/` |
 | `announcements_overview` | `hub_announcements` | `/announcements/` (Drafts and Sent tabs, `?tab=drafts\|sent`) |
@@ -45,6 +45,10 @@ The Reservations page and the guild page's Reservations tab (#502) build their g
 ## Announcements
 
 The composer (`hub_compose*`) and the Announcements page share one visibility rule, `_announcement_rows(request, member)` in `hub/views.py`: a row is visible and actionable exactly when `_compose_audience_forbidden(request, draft.audience_value)` is `None` (admins short-circuit to every row). Every composer lookup that takes a `draft_pk` goes through `_handled_draft`, which applies it to resumable rows only. Drafts are shared; `author` is whoever saved last, and the sender once sent.
+
+## Version pill panel (#699)
+
+`hub_sidebar` adds `building_with_you`, a lazy `BuildingWithYou` (one query, run only when a page renders it). `hub/base.html` passes `building_panel=True` into `includes/changelog_modal.html`, which then opens with `partials/_building_with_you.html` and hides the full changelog behind See every update; public, login and admin pages include the modal without the flag and keep the plain list. A guest account (#691) keeps the plain list too, since it cannot reach the Feedback page. The pill, the topbar menu button and the phone profile menu's What's being built read the same object.
 
 ## Common Pattern
 

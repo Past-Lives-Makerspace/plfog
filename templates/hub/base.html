@@ -11,6 +11,7 @@
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;700&family=Lato:wght@400;700;900&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="{% static 'css/hub.css' %}">
     <link rel="stylesheet" href="{% static 'css/components.css' %}">
+    <link rel="stylesheet" href="{% static 'css/building-with-you.css' %}">
     {% if IS_STAGING %}<link rel="stylesheet" href="{% static 'css/staging-ribbon.css' %}">{% endif %}
     <meta name="default-theme" content="{% block default_theme %}dark{% endblock %}">
     {% include "includes/google_analytics.html" %}
@@ -126,7 +127,11 @@
             <img src="{% firstof brand_logo_url fallback_logo %}" alt="{{ brand_short_name }}" class="pl-brand__icon" width="24" height="24">
             <span class="pl-brand__info">
                 <span class="pl-brand__text">Member Portal</span>
-                <button type="button" class="pl-badge--version" onclick="event.preventDefault();event.stopPropagation();document.getElementById('changelog-modal').style.display='flex'">v{{ app_version }}</button>
+                {% if building_with_you.is_loud and not kiln_nav.guest_only %}
+                <button type="button" class="pl-badge--version pl-badge--version-new" id="version-pill" onclick="event.preventDefault();event.stopPropagation();document.getElementById('changelog-modal').style.display='flex'"><span class="pl-bwy-dot" aria-hidden="true"></span>v{{ app_version }} · new</button>
+                {% else %}
+                <button type="button" class="pl-badge--version" id="version-pill" onclick="event.preventDefault();event.stopPropagation();document.getElementById('changelog-modal').style.display='flex'">v{{ app_version }}</button>
+                {% endif %}
             </span>
         </a>
 
@@ -465,6 +470,7 @@
                     <rect x="3" y="3" width="18" height="18" rx="2"/>
                     <path d="M9 3v18"/>
                 </svg>
+                {% if building_with_you.is_loud and not kiln_nav.guest_only %}<span class="pl-bwy-dot pl-bwy-dot--corner" id="menu-news-dot" aria-hidden="true"></span>{% endif %}
             </button>
             {% if request.view_as.show_dropdown %}
             <span class="pl-topbar__divider"></span>
@@ -577,6 +583,7 @@
                         <div class="pl-profile__dropdown-name">{{ user.get_full_name|default:user.email }}</div>
                         <div class="pl-profile__dropdown-email">{{ user.email }}</div>
                     </div>
+                    {% if building_with_you and not is_guest_surface and not kiln_nav.guest_only %}<button type="button" class="pl-profile__dropdown-item pl-profile__dropdown-mobile-item" id="whats-being-built" role="menuitem" @click="open = false; document.getElementById('changelog-modal').style.display = 'flex'">What's being built</button>{% endif %}
                     {% if not kiln_nav.guest_only %}<a href="{% url 'hub_user_settings' %}" class="pl-profile__dropdown-item" role="menuitem">Settings</a>{% endif %}
                     <button type="button" class="pl-profile__dropdown-item pl-profile__dropdown-mobile-item" @click="$store.theme.light = !$store.theme.light; window.__plSetTheme($store.theme.light)" role="menuitem"><span x-text="$store.theme.light ? 'Switch to Dark Mode' : 'Switch to Light Mode'"></span></button>
                     <div class="pl-profile__dropdown-divider"></div>
@@ -632,7 +639,11 @@
         </main>
     </div>
 
+    {% if building_with_you and not is_guest_surface and not kiln_nav.guest_only %}
+    {% include "includes/changelog_modal.html" with building_panel=True %}
+    {% else %}
     {% include "includes/changelog_modal.html" %}
+    {% endif %}
     {% if show_welcome_modal %}{% include "includes/welcome_modal.html" %}{% endif %}
     {# HTMX fires HX-Trigger JSON keys as events plus a kebab alias, so trigger_toast's #}
     {# `showToast` key reaches the toast script (components/toast.html) as `show-toast`. #}

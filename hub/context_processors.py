@@ -6,7 +6,11 @@ import re
 from typing import Any
 
 from django.http import HttpRequest
+from django.utils import timezone
+from django.utils.functional import SimpleLazyObject
 
+from core.building_with_you import BuildingWithYou
+from core.models import SiteConfiguration
 from kiln.access import KilnNav
 from membership.models import AdminCapability, Guild, Member
 
@@ -43,6 +47,7 @@ def hub_sidebar(request: HttpRequest) -> dict[str, Any]:
             "classes_admin_nav_active": False,
             "classes_catalog_active_class": "",
             "kiln_nav": KilnNav(None),
+            "building_with_you": None,
         }
 
     initials = ""
@@ -70,7 +75,14 @@ def hub_sidebar(request: HttpRequest) -> dict[str, Any]:
         "classes_catalog_active_class": _classes_catalog_active_class(request, admin_nav_active, teach_nav),
         # The guest menu and the kiln pages' way back (#691); no query.
         "kiln_nav": KilnNav(member),
+        # Lazy too (#699): the panel's one query runs only when the pill renders.
+        "building_with_you": SimpleLazyObject(_building_with_you),
     }
+
+
+def _building_with_you() -> BuildingWithYou:
+    """The version pill's "Building with you" panel as of now (#699)."""
+    return SiteConfiguration.load_with_feature_meeting().building_with_you(timezone.now())
 
 
 def _classes_admin_nav_active(request: HttpRequest) -> bool:

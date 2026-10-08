@@ -822,6 +822,16 @@ class BetaFeedbackForm(forms.Form):
             "If the form shows an error, please pick your photos again before resending."
         )
 
+    @classmethod
+    def preselected(cls, category: str) -> BetaFeedbackForm:
+        """An empty form with ``category`` already chosen when it names a real one (``?category=``, #699).
+
+        The version pill's "Ask for something" links here with ``?category=feature``; anything
+        else in the query string leaves the select at its first choice, as a bare visit does.
+        """
+        initial = {"category": category} if category in FeedbackRequest.Category.values else {}
+        return cls(initial=initial)
+
     def clean_photos(self) -> list[UploadedFile]:
         """Enforce the photo count and combined-size caps with plain messages."""
         photos: list[UploadedFile] = self.cleaned_data["photos"]
@@ -1497,6 +1507,16 @@ class MemberBadgesForm(forms.Form):
         return [MemberBadgeToggle(badge=badge, field=self[f"badge_{badge.pk}"]) for badge in self._badges]
 
 
+class FeatureMeetingChoiceField(forms.ModelChoiceField):
+    """The Feature Meeting select (#699), labelled without ``CommunityEvent.__str__``, which reads each row's guild."""
+
+    def label_from_instance(self, obj: CommunityEvent) -> str:
+        """The title, its first date and how it repeats: "Member Portal Feature Meeting (from Oct 14, 2026, every month)"."""
+        start = timezone.localtime(obj.starts_at)
+        repeats = "" if obj.recurrence == obj.Recurrence.NONE else f", {obj.get_recurrence_display().lower()}"
+        return f"{obj.title} (from {start:%b %-d, %Y}{repeats})"
+
+
 class SiteSettingsForm(forms.ModelForm):
     """Admin form for the SiteConfiguration singleton.
 
@@ -1565,6 +1585,9 @@ class SiteSettingsForm(forms.ModelForm):
             "discord_info_channel_id",
             "discord_info_message_id",
             "discord_info_links_content",
+            "feature_meeting_event",
+            "being_built_now",
+            "backlog_url",
         ]
         widgets = {
             "org_primary_color": forms.TextInput(attrs={"type": "color"}),
@@ -1576,7 +1599,21 @@ class SiteSettingsForm(forms.ModelForm):
             "member_google_calendar_id": forms.TextInput(attrs={"placeholder": "abc123@group.calendar.google.com"}),
             "public_google_calendar_id": forms.TextInput(attrs={"placeholder": "abc123@group.calendar.google.com"}),
             "discord_info_links_content": forms.Textarea(attrs={"rows": 14}),
+            "being_built_now": forms.Textarea(attrs={"rows": 4}),
         }
+        field_classes = {"feature_meeting_event": FeatureMeetingChoiceField}
+
+    def __init__(self, *args: Any, **kwargs: Any) -> None:
+        super().__init__(*args, **kwargs)
+        self._limit_feature_meeting_choices()
+
+    def _limit_feature_meeting_choices(self) -> None:
+        """Offer published events that are still ahead or repeat, plus the one already picked (#699)."""
+        field = cast(forms.ModelChoiceField, self.fields["feature_meeting_event"])
+        upcoming = CommunityEvent.objects.published().upcoming().values("pk")
+        picked = Q(pk=self.instance.feature_meeting_event_id) if self.instance.feature_meeting_event_id else Q()
+        field.queryset = CommunityEvent.objects.filter(Q(pk__in=upcoming) | picked).order_by("title", "starts_at")
+        field.empty_label = "No Feature Meeting"
 
     def clean(self) -> dict[str, Any]:
         cleaned = cast(dict[str, Any], super().clean())

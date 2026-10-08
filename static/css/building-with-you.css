@@ -1,0 +1,191 @@
+/* "Building with you" (#699): the panel at the top of the hub's version pill modal, and the
+   news dot on the pill and the topbar menu button. Loaded from hub/base.html. */
+
+.pl-bwy {
+    display: flex;
+    flex-direction: column;
+    gap: 1.25rem;
+    margin-bottom: 1.5rem;
+}
+
+.pl-bwy__section + .pl-bwy__section {
+    padding-top: 1.25rem;
+    border-top: 1px solid var(--hub-input-border);
+}
+
+.pl-bwy__heading {
+    font-family: var(--font-heading);
+    font-size: 0.75rem;
+    font-weight: 700;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: var(--color-tuscan-yellow);
+    margin: 0 0 0.5rem;
+}
+
+.pl-bwy__meeting {
+    padding: 1rem;
+    border-radius: 10px;
+    background-color: var(--hub-surface);
+    border: 1px solid var(--hub-input-border);
+}
+
+.pl-bwy__meeting + .pl-bwy__section {
+    padding-top: 0;
+    border-top: none;
+}
+
+.pl-bwy__meeting-title {
+    font-family: var(--font-heading);
+    font-size: 1.05rem;
+    font-weight: 700;
+    color: var(--hub-text);
+    margin: 0;
+}
+
+.pl-bwy__when {
+    font-size: 0.9rem;
+    color: var(--hub-text);
+    margin: 0.125rem 0 0.75rem;
+}
+
+.pl-bwy__actions {
+    flex-wrap: wrap;
+}
+
+.pl-bwy__note {
+    font-size: 0.85rem;
+    line-height: 1.45;
+    color: var(--hub-text-muted);
+    margin: 0.75rem 0 0;
+}
+
+.pl-bwy__section > .pl-bwy__note:first-of-type {
+    margin: 0 0 0.75rem;
+}
+
+.pl-bwy__list,
+.pl-bwy__shipped {
+    list-style: none;
+    padding: 0;
+    margin: 0;
+}
+
+.pl-bwy__list li {
+    position: relative;
+    padding: 0.25rem 0 0.25rem 1rem;
+    font-size: 0.9rem;
+    color: var(--hub-text);
+}
+
+.pl-bwy__list li::before {
+    content: "";
+    position: absolute;
+    left: 0;
+    top: 0.7rem;
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background-color: var(--hub-blue);
+}
+
+.pl-bwy__shipped-item {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    gap: 1rem;
+    padding: 0.375rem 0;
+    font-size: 0.9rem;
+}
+
+.pl-bwy__shipped-item + .pl-bwy__shipped-item {
+    border-top: 1px dashed var(--hub-input-border);
+}
+
+.pl-bwy__shipped-title {
+    color: var(--hub-text);
+}
+
+.pl-bwy__shipped-date {
+    flex-shrink: 0;
+    font-size: 0.8rem;
+    color: var(--hub-text-muted);
+}
+
+.pl-bwy__more {
+    margin-top: 0.5rem;
+    padding: 0;
+    background: none;
+    border: none;
+    font-family: var(--font-body);
+    font-size: 0.875rem;
+    font-weight: 600;
+    color: var(--color-tuscan-yellow);
+    cursor: pointer;
+}
+
+.pl-bwy__more:hover,
+.pl-bwy__backlog a:hover {
+    text-decoration: underline;
+}
+
+.pl-bwy__backlog {
+    margin: 0;
+    font-size: 0.8rem;
+}
+
+.pl-bwy__backlog a {
+    color: var(--hub-text-muted);
+}
+
+.pl-bwy__all {
+    padding-top: 1.25rem;
+    border-top: 1px solid var(--hub-input-border);
+}
+
+/* The news dot: on the pill when a Feature Meeting is near or a release just shipped. */
+.pl-bwy-dot {
+    display: inline-block;
+    width: 7px;
+    height: 7px;
+    margin-right: 0.375rem;
+    border-radius: 50%;
+    background-color: var(--color-tuscan-yellow);
+    box-shadow: 0 0 0 2px rgba(238, 180, 75, 0.3);
+}
+
+.pl-badge--version-new {
+    background-color: rgba(238, 180, 75, 0.25);
+}
+
+.pl-topbar__toggle {
+    position: relative;
+}
+
+.pl-bwy-dot--corner {
+    position: absolute;
+    top: 2px;
+    right: 2px;
+    margin: 0;
+}
+
+/* Site Settings > General: the "Building With You" fields. */
+.pl-bwy-settings {
+    display: flex;
+    flex-direction: column;
+    gap: 1rem;
+    padding-top: 1.25rem;
+    border-top: 1px solid var(--hub-input-border);
+}
+
+.pl-bwy-settings__title {
+    margin: 0;
+    font-size: 1rem;
+    color: var(--hub-text);
+}
+
+.pl-bwy-settings__intro {
+    margin: -0.75rem 0 0;
+    font-size: 0.875rem;
+    color: var(--hub-text-muted);
+}

@@ -1,0 +1,9 @@
+bump = "minor"
+date = "2026-10-08"
+title = "See what is being built, and ask for something"
+changes = [
+  "Click the version number next to Member Portal to see what we are building with you: what is being built now, the last three updates, and a button to ask for a feature or report a bug.",
+  "When a Feature Meeting is on the calendar, the same window shows when the next one is, with buttons to join online and add it to your calendar.",
+  "A small dot on the version number means there is news: a Feature Meeting within three days, or an update from today or yesterday.",
+  "On a phone, open your profile menu and tap What's being built.",
+]
