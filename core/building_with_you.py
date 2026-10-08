@@ -38,14 +38,19 @@ class FeatureMeeting:
 
     @classmethod
     def next_after(cls, event: CommunityEvent, now: datetime) -> FeatureMeeting | None:
-        """The first occurrence of ``event`` that starts after ``now``, or None.
+        """The first occurrence of ``event`` that has not ended by ``now``, or None.
 
-        An unpublished event counts as no meeting: its page and its ``.ics`` 404.
+        A meeting in progress stays, so Join online is there while it runs; this is the rule
+        :meth:`CommunityEvent.next_occurrence_start` uses, which reads its own clock and falls
+        back to the first date, so it is not called here. An unpublished event counts as no
+        meeting: its page and its ``.ics`` 404.
         """
         if event.moderation_state != event.ModerationState.PUBLISHED:
             return None
         today = timezone.localdate(now)
-        upcoming = [start for start in event.occurrences_in(today, today + timedelta(days=SEARCH_DAYS)) if start > now]
+        duration = event.ends_at - event.starts_at
+        window = event.occurrences_in(today, today + timedelta(days=SEARCH_DAYS))
+        upcoming = [start for start in window if start + duration > now]
         if not upcoming:
             return None
         start = upcoming[0]

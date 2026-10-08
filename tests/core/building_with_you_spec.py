@@ -75,12 +75,41 @@ def describe_the_next_feature_meeting():
         assert meeting.detail_url == f"/events/{event.pk}/?date=2026-10-13"
         assert meeting.video_url == "https://meet.example.org/feature-meeting"
 
-    def it_skips_a_meeting_that_already_started_today():
-        during = datetime(2026, 10, 13, 18, 30, tzinfo=PORTLAND)
-        meeting = _build(now=during, feature_meeting_event=_monthly_meeting()).meeting
+    def it_keeps_a_repeating_meeting_that_is_under_way_on_today():
+        ten_minutes_in = datetime(2026, 10, 13, 18, 10, tzinfo=PORTLAND)
+        meeting = _build(now=ten_minutes_in, feature_meeting_event=_monthly_meeting()).meeting
+
+        assert meeting is not None
+        assert meeting.starts_at == datetime(2026, 10, 13, 18, 0, tzinfo=PORTLAND)
+
+    def it_keeps_a_one_off_meeting_that_is_under_way_with_its_join_link():
+        start = datetime(2026, 10, 20, 18, 0, tzinfo=PORTLAND)
+        event = _monthly_meeting(starts_at=start, ends_at=start + timedelta(hours=1), recurrence="none")
+        meeting = _build(now=start + timedelta(minutes=10), feature_meeting_event=event).meeting
+
+        assert meeting is not None
+        assert meeting.starts_at == start
+        assert meeting.video_url == "https://meet.example.org/feature-meeting"
+
+    def it_moves_on_a_minute_after_the_meeting_ends():
+        a_minute_after = datetime(2026, 10, 13, 19, 1, tzinfo=PORTLAND)
+        meeting = _build(now=a_minute_after, feature_meeting_event=_monthly_meeting()).meeting
 
         assert meeting is not None
         assert meeting.starts_at == datetime(2026, 11, 10, 18, 0, tzinfo=PORTLAND)
+
+    def it_moves_on_the_moment_the_meeting_ends():
+        at_the_end = datetime(2026, 10, 13, 19, 0, tzinfo=PORTLAND)
+        meeting = _build(now=at_the_end, feature_meeting_event=_monthly_meeting()).meeting
+
+        assert meeting is not None
+        assert meeting.starts_at == datetime(2026, 11, 10, 18, 0, tzinfo=PORTLAND)
+
+    def it_drops_a_one_off_meeting_a_minute_after_it_ends():
+        start = datetime(2026, 10, 20, 18, 0, tzinfo=PORTLAND)
+        event = _monthly_meeting(starts_at=start, ends_at=start + timedelta(hours=1), recurrence="none")
+
+        assert _build(now=start + timedelta(hours=1, minutes=1), feature_meeting_event=event).meeting is None
 
     def it_shows_a_future_one_off_meeting_with_plain_links():
         start = datetime(2026, 10, 20, 18, 0, tzinfo=PORTLAND)
@@ -160,6 +189,11 @@ def describe_is_loud():
         before = datetime(2026, 10, 10, 17, 59, tzinfo=PORTLAND)
 
         assert _build(now=before, feature_meeting_event=_monthly_meeting()).is_loud is False
+
+    def it_stays_loud_while_the_meeting_is_under_way():
+        ten_minutes_in = datetime(2026, 10, 13, 18, 10, tzinfo=PORTLAND)
+
+        assert _build(now=ten_minutes_in, feature_meeting_event=_monthly_meeting()).is_loud is True
 
     def it_is_loud_when_a_release_is_dated_today():
         fresh = [{"title": "Today", "date": "2026-10-08", "changes": []}, *OLD_CHANGELOG]
