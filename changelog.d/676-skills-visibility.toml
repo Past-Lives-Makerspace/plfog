@@ -1,0 +1,6 @@
+bump = "patch"
+date = "2026-10-07"
+title = "Your skills show in the member directory again"
+changes = [
+  "Saving your profile was hiding your skills from your directory card. Skills are back on every card, and My Skills in Settings has a switch to hide them if you prefer.",
+]
