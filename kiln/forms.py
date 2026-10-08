@@ -2,17 +2,19 @@
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, cast
 
 from django import forms
 from django.core.exceptions import ValidationError
 
 from core.validators import validate_image_content, validate_image_size
-from kiln.models import ClayOption, GlazeOption, KilnTicket, ListOption
+from kiln.models import ClayOption, GlazeOption, KilnReply, KilnTicket, ListOption
 
 if TYPE_CHECKING:
     from django.core.files.uploadedfile import UploadedFile
     from django.db.models import QuerySet
+    from django.forms import BoundField
 
 OTHER = "other"
 YES_NO = [("yes", "Yes"), ("no", "No")]
@@ -235,3 +237,177 @@ class ListOptionForm(forms.Form):
         if clash.exists():
             raise ValidationError(f"{name} is already on the list.")
         return name
+
+
+class ToastForm(forms.Form):
+    """A form whose refusal is one toast: its first error."""
+
+    @property
+    def first_error(self) -> str:
+        return str(next(iter(self.errors.values()))[0])
+
+
+class LoadKilnForm(ToastForm):
+    """Confirm loaded: the firing's type and the tickets ticked on Load the Kiln.
+
+    A ticked ticket is any ticket that exists; whether it can still go in (in the queue, of
+    this firing's type) is decided under a row lock when the load runs
+    (:func:`kiln.services.load_kiln`), never here, where it could change a moment later.
+    """
+
+    firing_type = forms.ChoiceField(
+        choices=KilnTicket.FiringType.choices,
+        error_messages={"required": "Choose bisque or glaze.", "invalid_choice": "Choose bisque or glaze."},
+    )
+    tickets = forms.ModelMultipleChoiceField(
+        queryset=KilnTicket.objects.all(),
+        error_messages={
+            "required": "Tick at least one ticket to load.",
+            "invalid_choice": "One of the ticked tickets no longer exists.",
+            "invalid_pk_value": "One of the ticked tickets no longer exists.",
+        },
+    )
+
+
+class ReplyForm(ToastForm):
+    """A message on a ticket's thread."""
+
+    body = forms.CharField(
+        max_length=2000,
+        widget=forms.Textarea(attrs={"rows": 3, "placeholder": "Write a message"}),
+        label="Message",
+        error_messages={"required": "Write a message first.", "max_length": "Keep it under 2000 characters."},
+    )
+
+
+class ManualFlagForm(ToastForm):
+    """A flag the crew adds by hand. The note is for the crew only."""
+
+    note = forms.CharField(
+        max_length=300,
+        widget=forms.Textarea(
+            attrs={"rows": 2, "placeholder": "Example: glaze is thick near the foot, check before loading"}
+        ),
+        label="What should the crew check?",
+        error_messages={"required": "Say what the crew should check.", "max_length": "Keep it under 300 characters."},
+    )
+
+
+@dataclass(frozen=True)
+class ExceptionNote:
+    """A piece the crew unticked at the unload: what happened, the note to its maker, and where it goes."""
+
+    ticket_pk: int
+    what_happened: str
+    note: str
+    outcome: str
+
+    @property
+    def back_to_queue(self) -> bool:
+        return self.outcome == KilnReply.Outcome.BACK_TO_QUEUE
+
+
+@dataclass(frozen=True)
+class UnloadRow:
+    """One ticket on the Unload page with its exception fields."""
+
+    ticket: KilnTicket
+    ticked: bool
+    what: BoundField
+    note: BoundField
+    next: BoundField
+
+
+class UnloadForm(ToastForm):
+    """Mark fired and notify: every ticket in the firing comes out ticked unless the crew unticks it.
+
+    ``fired`` holds the ticked tickets. Each unticked one is an exception and needs its
+    ``what-<pk>`` (what happened), ``note-<pk>`` (the message to its maker) and ``next-<pk>``
+    (fired with the note, or back to the queue). The fields of a ticked ticket are ignored.
+
+    Args:
+        tickets: The firing's tickets, in page order.
+    """
+
+    fired = forms.TypedMultipleChoiceField(
+        coerce=int,
+        required=False,
+        error_messages={"invalid_choice": "A ticked ticket is not in this firing."},
+    )
+
+    def __init__(self, *args: Any, tickets: list[KilnTicket], **kwargs: Any) -> None:
+        super().__init__(*args, **kwargs)
+        self.tickets = tickets
+        cast("forms.TypedMultipleChoiceField", self.fields["fired"]).choices = [(t.pk, t.pk) for t in tickets]
+        if not self.is_bound:
+            self.initial["fired"] = [t.pk for t in tickets]
+        for ticket in tickets:
+            self.fields[f"what-{ticket.pk}"] = forms.ChoiceField(
+                choices=KilnReply.WhatHappened.choices,
+                required=False,
+                widget=forms.RadioSelect,
+                label="What happened?",
+            )
+            self.fields[f"note-{ticket.pk}"] = forms.CharField(
+                max_length=2000,
+                required=False,
+                widget=forms.Textarea(attrs={"rows": 3}),
+                label=f"Message to {ticket.maker_name}",
+                error_messages={"max_length": "Keep the note under 2000 characters."},
+            )
+            self.fields[f"next-{ticket.pk}"] = forms.ChoiceField(
+                choices=KilnReply.Outcome.choices,
+                required=False,
+                initial=KilnReply.Outcome.FIRED,
+                widget=forms.RadioSelect,
+                label="What happens to the ticket?",
+            )
+
+    def _ticked(self) -> set[int]:
+        """The ticked tickets as posted (or all of them on a fresh page), garbled values left out."""
+        return {int(pk) for pk in self["fired"].value() or [] if str(pk).isdigit()}
+
+    @property
+    def rows(self) -> list[UnloadRow]:
+        """Each ticket with whether it is ticked and its exception fields, for the page."""
+        ticked = self._ticked()
+        return [
+            UnloadRow(
+                ticket=t,
+                ticked=t.pk in ticked,
+                what=self[f"what-{t.pk}"],
+                note=self[f"note-{t.pk}"],
+                next=self[f"next-{t.pk}"],
+            )
+            for t in self.tickets
+        ]
+
+    def clean(self) -> dict[str, Any]:
+        cleaned = super().clean() or {}
+        ticked = set(cleaned.get("fired") or [])
+        for ticket in self.tickets:
+            if ticket.pk in ticked:
+                continue
+            pk = ticket.pk
+            if not cleaned.get(f"what-{pk}"):
+                self.add_error(f"what-{pk}", f"Say what happened to ticket {pk}.")
+            if not cleaned.get(f"note-{pk}", "").strip() and f"note-{pk}" not in self.errors:
+                self.add_error(f"note-{pk}", f"Write {ticket.maker_name} a note about ticket {pk}.")
+            if not cleaned.get(f"next-{pk}"):
+                self.add_error(f"next-{pk}", f"Choose fired or back to the queue for ticket {pk}.")
+        return cleaned
+
+    @property
+    def exception_notes(self) -> dict[int, ExceptionNote]:
+        """The unticked tickets by pk, once the form is valid."""
+        ticked = set(self.cleaned_data["fired"])
+        return {
+            t.pk: ExceptionNote(
+                ticket_pk=t.pk,
+                what_happened=self.cleaned_data[f"what-{t.pk}"],
+                note=self.cleaned_data[f"note-{t.pk}"].strip(),
+                outcome=self.cleaned_data[f"next-{t.pk}"],
+            )
+            for t in self.tickets
+            if t.pk not in ticked
+        }

@@ -1,0 +1,8 @@
+{# Who filed the ticket and how to reach them, read from the member record, never typed. Expects ticket. #}
+<div class="hub-card" data-kiln-maker>
+    <h2 class="pl-kiln-card-title">Maker</h2>
+    <div class="pl-kiln-maker">
+        <span class="pl-kiln-maker__avatar" aria-hidden="true">{{ ticket.maker.initials }}</span>
+        <div class="pl-kiln-maker__lines"><strong>{{ ticket.maker.display_name|default:ticket.maker.primary_email }}</strong> · {{ ticket.get_maker_type_display }}{% if ticket.maker.primary_email %}<br><a href="mailto:{{ ticket.maker.primary_email }}">{{ ticket.maker.primary_email }}</a>{% endif %}{% if ticket.maker.phone %}<br><a href="tel:{{ ticket.maker.phone }}">{{ ticket.maker.phone }}</a>{% endif %}</div>
+    </div>
+</div>

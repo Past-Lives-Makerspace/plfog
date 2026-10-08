@@ -1,9 +1,8 @@
-/* Kiln tickets (#691): My Tickets, the ticket form, ticket detail and the crew's lists.
-   Lifted from the approved mockup (mockups/kiln-tickets.html). Tokens only; every flag
-   carries an icon and words, never color alone. Loading, unloading and the log land in
-   parts 2 and 3 with their own rules. */
+/* Kiln tickets (#691): My Tickets, the ticket form, ticket detail (maker and crew), Load the
+   Kiln, Unload, the Kiln Log and the crew's lists. Lifted from the approved mockup
+   (mockups/kiln-tickets.html). Tokens only; every flag carries an icon and words, never color alone. */
 
-.pl-kiln-form textarea { font: inherit; font-size: 0.95rem; line-height: 1.45; }
+.pl-kiln-form textarea, .pl-kiln-reply textarea, .pl-kiln-except textarea { font: inherit; font-size: 0.95rem; line-height: 1.45; }
 .pl-kiln-ico { width: 1em; height: 1em; flex: 0 0 auto; vertical-align: -0.125em; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
 
 /* Page head: title, one line lead, and (crew only) the tab row. */
@@ -136,6 +135,10 @@
 .pl-kiln-answers dd { margin: 0; }
 @media (max-width: 480px) { .pl-kiln-answers { grid-template-columns: 1fr; gap: 0.1rem; } .pl-kiln-answers dd { margin-bottom: 0.5rem; } }
 
+.pl-kiln-flaglist { list-style: none; margin: 0; padding: 0; display: grid; gap: 0.625rem; }
+.pl-kiln-flaglist li { display: flex; gap: 0.75rem; align-items: flex-start; justify-content: space-between; padding: 0.75rem; border-radius: 10px; background: var(--hub-surface); border: 1px solid var(--hub-border); }
+.pl-kiln-flaglist p { margin: 0.35rem 0 0; font-size: 0.85rem; color: var(--hub-text-muted); }
+.pl-kiln-flaglist .hub-btn { flex: 0 0 auto; min-height: 36px; }
 .pl-kiln-crewonly { display: inline-flex; align-items: center; gap: 0.3rem; font-size: 0.75rem; color: var(--hub-text-muted); }
 
 .pl-kiln-timeline { list-style: none; margin: 0; padding: 0; }
@@ -149,10 +152,63 @@
 .pl-kiln-timeline strong { display: block; }
 .pl-kiln-timeline span { font-size: 0.82rem; color: var(--hub-text-muted); }
 
+.pl-kiln-thread { list-style: none; margin: 0 0 1rem; padding: 0; display: grid; gap: 0.75rem; }
+.pl-kiln-msg { max-width: 88%; padding: 0.625rem 0.875rem; border-radius: 12px; background: var(--hub-surface); border: 1px solid var(--hub-border); font-size: 0.9rem; line-height: 1.45; overflow-wrap: anywhere; }
+.pl-kiln-msg--mine { justify-self: end; background: var(--hub-blue-soft); border-color: var(--hub-border-strong); }
+.pl-kiln-msg__who { display: flex; gap: 0.4rem; align-items: baseline; flex-wrap: wrap; margin-bottom: 0.2rem; font-size: 0.78rem; color: var(--hub-text-muted); }
+.pl-kiln-msg__who strong { color: var(--hub-text); font-size: 0.82rem; }
+.pl-kiln-msg__role { padding: 0 0.35rem; border-radius: 4px; border: 1px solid var(--hub-border-strong); font-size: 0.7rem; }
+.pl-kiln-reply .pl-form-group textarea { min-height: 88px; }
+.pl-kiln-reply__row { display: flex; gap: 0.75rem; align-items: center; justify-content: space-between; flex-wrap: wrap; }
+.pl-kiln-reply__row .hub-btn { min-height: 44px; }
+.pl-kiln-reply__note { font-size: 0.8rem; color: var(--hub-text-muted); }
+
 .pl-kiln-maker { display: flex; gap: 0.75rem; align-items: center; }
 .pl-kiln-maker__avatar { width: 44px; height: 44px; border-radius: 999px; background: var(--hub-elevated); border: 1px solid var(--hub-border-strong); display: inline-flex; align-items: center; justify-content: center; font-weight: 700; }
 .pl-kiln-maker__lines { font-size: 0.875rem; line-height: 1.5; }
 .pl-kiln-maker__lines a { color: var(--hub-link); }
+
+/* ---- Load the kiln: firing picker, filters, big photo tiles ---- */
+.pl-kiln-firingbar { display: flex; gap: 1rem; align-items: center; justify-content: space-between; flex-wrap: wrap; padding: 1rem 1.25rem; margin-bottom: 1rem; }
+.pl-kiln-firingbar__label { font-size: 0.8rem; color: var(--hub-text-muted); }
+.pl-kiln-firingbar__name { font-family: var(--font-heading); font-weight: 700; font-size: 1.15rem; }
+.pl-kiln-seg { display: inline-flex; padding: 3px; border-radius: 10px; background: var(--hub-surface); border: 1px solid var(--hub-border); }
+.pl-kiln-seg label { position: relative; display: inline-flex; align-items: center; gap: 0.35rem; min-height: 40px; padding: 0 1rem; border-radius: 8px; font-weight: 600; font-size: 0.9rem; color: var(--hub-text-muted); cursor: pointer; }
+.pl-kiln-seg input { position: absolute; opacity: 0; }
+.pl-kiln-seg label:has(input:checked) { background: var(--color-tuscan-yellow); color: var(--color-navy); }
+.pl-kiln-seg label:has(input:focus-visible) { outline: 2px solid var(--hub-blue); outline-offset: 2px; }
+.pl-kiln-filters { display: flex; gap: 0.5rem; flex-wrap: wrap; align-items: center; margin-bottom: 1rem; }
+.pl-kiln-filters .pl-chip { min-height: 40px; }
+.pl-kiln-filters__sort { margin-left: auto; font-size: 0.8rem; color: var(--hub-text-muted); }
+
+.pl-kiln-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(160px, 1fr)); gap: 0.75rem; }
+@media (min-width: 769px) { .pl-kiln-grid { grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 1rem; } }
+.pl-kiln-tile { position: relative; display: flex; flex-direction: column; border: 2px solid var(--hub-border); border-radius: 12px; background: var(--hub-card-bg); overflow: hidden; cursor: pointer; }
+.pl-kiln-tile input[type="checkbox"] { position: absolute; opacity: 0; }
+.pl-kiln-tile__photo { position: relative; aspect-ratio: 1; }
+.pl-kiln-tile__qty { position: absolute; left: 0.4rem; bottom: 0.4rem; padding: 0.15rem 0.5rem; border-radius: 999px; background: rgba(10, 11, 16, 0.78); color: #F4EFDD; font-size: 0.8rem; font-weight: 700; }
+.pl-kiln-tile__dots { position: absolute; right: 0.5rem; bottom: 0.55rem; display: flex; gap: 3px; }
+.pl-kiln-tile__dots i { width: 6px; height: 6px; border-radius: 999px; background: rgba(244, 239, 221, 0.5); }
+.pl-kiln-tile__dots i:first-child { background: #F4EFDD; }
+.pl-kiln-tile__check { position: absolute; top: 0.45rem; right: 0.45rem; width: 34px; height: 34px; border-radius: 999px; border: 2px solid #F4EFDD; background: rgba(10, 11, 16, 0.45); display: inline-flex; align-items: center; justify-content: center; color: transparent; }
+.pl-kiln-tile__check .pl-kiln-ico { width: 1.15rem; height: 1.15rem; stroke-width: 3; }
+.pl-kiln-tile__body { padding: 0.6rem 0.7rem 0.7rem; display: grid; gap: 0.15rem; font-size: 0.82rem; }
+.pl-kiln-tile__who { font-weight: 700; font-size: 0.9rem; }
+.pl-kiln-tile__size { font-weight: 600; font-size: 0.9rem; font-variant-numeric: tabular-nums; }
+.pl-kiln-tile__glaze { color: var(--hub-text-muted); line-height: 1.35; }
+.pl-kiln-tile__foot { display: flex; justify-content: space-between; align-items: center; gap: 0.5rem; margin-top: 0.3rem; font-size: 0.75rem; color: var(--hub-text-muted); }
+.pl-kiln-tile__foot a { color: var(--hub-link); font-weight: 600; text-decoration: none; padding: 0.35rem 0; }
+.pl-kiln-tile__state { display: none; align-items: center; gap: 0.3rem; font-weight: 700; color: var(--hub-text); }
+.pl-kiln-tile:has(input:checked) { border-color: var(--color-tuscan-yellow); box-shadow: 0 0 0 2px var(--color-tuscan-yellow); }
+.pl-kiln-tile:has(input:checked) .pl-kiln-tile__check { background: var(--color-tuscan-yellow); border-color: var(--color-tuscan-yellow); color: var(--color-navy); }
+.pl-kiln-tile:has(input:checked) .pl-kiln-tile__state { display: inline-flex; }
+.pl-kiln-tile:has(input:checked) .pl-kiln-tile__age { display: none; }
+.pl-kiln-tile__flag { display: flex; align-items: flex-start; gap: 0.35rem; padding: 0.4rem 0.6rem; font-size: 0.78rem; font-weight: 700; line-height: 1.3; color: var(--hub-text); background: repeating-linear-gradient(135deg, rgba(238, 180, 75, 0.28) 0 6px, rgba(238, 180, 75, 0.12) 6px 12px); border-bottom: 1px solid var(--pl-lifecycle-review); }
+.pl-kiln-tile__flag .pl-kiln-ico { color: var(--pl-lifecycle-review); margin-top: 0.05rem; }
+.pl-kiln-tile__flag--loud { background: repeating-linear-gradient(135deg, rgba(220, 60, 60, 0.32) 0 6px, rgba(220, 60, 60, 0.12) 6px 12px); border-bottom-color: var(--hub-danger-text); }
+.pl-kiln-tile__flag--loud .pl-kiln-ico { color: var(--hub-danger-text); }
+.pl-kiln-tile--flagged { border-style: dashed; border-color: var(--pl-lifecycle-review); }
+.pl-kiln-tile--loud { border-style: dashed; border-color: var(--hub-danger-text); }
 
 /* ---- Clay and glaze lists ---- */
 .pl-kiln-lists { display: grid; gap: 1rem; }
@@ -183,6 +239,72 @@ a.pl-kiln-row__title { color: var(--hub-link); text-decoration: none; }
 .pl-kiln-photo-add { position: relative; }
 .pl-kiln-photo-pick { margin-top: 0.75rem; display: inline-flex; align-items: center; gap: 0.4rem; min-height: 44px; cursor: pointer; }
 .pl-kiln-photo-pick input { position: absolute; width: 1px; height: 1px; opacity: 0; }
+
+/* Load the Kiln, for the build: real photos, a keyboard focus ring, and the other firing's
+   tiles held back (disabled, faded, and not tickable) so a load never mixes types. */
+.pl-kiln-tile__photo img { display: block; width: 100%; height: 100%; object-fit: cover; }
+.pl-kiln-tile__nophoto { width: 100%; height: 100%; }
+.pl-kiln-tile:has(input:focus-visible) { outline: 3px solid var(--hub-blue); outline-offset: 2px; }
+.pl-kiln-tile:has(input:disabled) { opacity: 0.5; cursor: not-allowed; }
+.pl-kiln-flaglist form { margin: 0; }
+.pl-kiln-thread__empty { margin: 0 0 1rem; font-size: 0.875rem; color: var(--hub-text-muted); }
+
+/* ---- Unload: a checklist, every row ticked; an unticked row opens what happened ---- */
+.pl-kiln-unload { list-style: none; margin: 0; padding: 0; display: grid; gap: 0.625rem; }
+.pl-kiln-unload__row { border: 2px solid var(--hub-border); border-radius: 12px; background: var(--hub-card-bg); }
+.pl-kiln-unload__main { display: grid; grid-template-columns: auto 72px 1fr; gap: 0.75rem; align-items: center; padding: 0.625rem 0.75rem; cursor: pointer; }
+@media (min-width: 769px) { .pl-kiln-unload__main { grid-template-columns: auto 96px 1fr auto; } }
+.pl-kiln-unload__main input { width: 26px; height: 26px; margin: 0; accent-color: var(--color-tuscan-yellow); }
+.pl-kiln-unload__photo { width: 72px; height: 72px; border-radius: 8px; overflow: hidden; }
+@media (min-width: 769px) { .pl-kiln-unload__photo { width: 96px; height: 96px; } }
+.pl-kiln-unload__who { display: block; font-weight: 700; }
+.pl-kiln-unload__sub { display: block; font-size: 0.82rem; color: var(--hub-text-muted); line-height: 1.4; }
+.pl-kiln-unload__out { display: inline-flex; align-items: center; gap: 0.3rem; font-size: 0.8rem; font-weight: 600; }
+.pl-kiln-unload__row--ok .pl-kiln-unload__out { color: var(--pl-lifecycle-live); }
+.pl-kiln-unload__row--except { border-color: var(--hub-blue); border-style: dashed; }
+.pl-kiln-unload__row--except .pl-kiln-unload__out { color: var(--hub-blue); }
+.pl-kiln-except { padding: 0.25rem 1rem 1rem; border-top: 1px solid var(--hub-border); }
+.pl-kiln-except .pl-form-group textarea { min-height: 96px; font-size: 1rem; }
+.pl-kiln-except .pl-radio-option { margin-bottom: 0.5rem; }
+
+/* ---- Kiln log ---- */
+.pl-kiln-log-table td, .pl-kiln-log-table th { padding: 0.7rem 0.75rem; font-size: 0.9rem; vertical-align: middle; }
+.pl-kiln-log-table tbody tr { border-top: 1px solid var(--hub-border); }
+.pl-kiln-log-table .pl-kiln-num { text-align: right; font-variant-numeric: tabular-nums; }
+.pl-kiln-log-table a { color: var(--hub-link); font-weight: 600; text-decoration: none; }
+.pl-kiln-log-table small { display: block; color: var(--hub-text-muted); font-size: 0.78rem; }
+.pl-kiln-type { display: inline-flex; align-items: center; gap: 0.3rem; font-weight: 600; }
+.pl-kiln-log-cards { display: none; list-style: none; margin: 0; padding: 0; }
+@media (max-width: 768px) {
+    .pl-kiln-log-wide { display: none; }
+    .pl-kiln-log-cards { display: grid; gap: 0.625rem; }
+}
+.pl-kiln-log-card { display: block; padding: 0.875rem 1rem; border: 1px solid var(--hub-border); border-radius: 12px; background: var(--hub-card-bg); color: var(--hub-text); text-decoration: none; }
+.pl-kiln-log-card__top { display: flex; justify-content: space-between; align-items: center; gap: 0.5rem; margin-bottom: 0.35rem; }
+.pl-kiln-log-card__name { font-weight: 700; font-family: var(--font-heading); font-size: 1.02rem; }
+.pl-kiln-log-card__lines { font-size: 0.85rem; color: var(--hub-text-muted); line-height: 1.5; }
+.pl-kiln-log-card__lines strong { color: var(--hub-text); font-weight: 600; }
+
+/* Unload and the log, for the build: real photos, the firing page's rows as links, the action
+   bar's one line per note, the Unload tab's cards at every width, and an unload note's tag in
+   the thread. */
+.pl-kiln-unload__photo img { display: block; width: 100%; height: 100%; object-fit: cover; }
+.pl-kiln-unload__main:has(input:focus-visible) { outline: 3px solid var(--hub-blue); outline-offset: 2px; border-radius: 10px; }
+.pl-kiln-unload__main--link { grid-template-columns: 72px 1fr; color: var(--hub-text); text-decoration: none; }
+@media (min-width: 769px) { .pl-kiln-unload__main--link { grid-template-columns: 96px 1fr; } }
+.pl-kiln-unload__note { display: block; margin-top: 0.35rem; font-size: 0.85rem; line-height: 1.45; }
+.pl-kiln-except .pl-kiln-q__label { margin: 0.75rem 0 0.5rem; }
+.pl-kiln-actionbar__line { display: block; }
+/* Unload's bar carries a line per note, so on a phone the words take the full width and the
+   button sits under them rather than squeezing them into a sliver beside it. */
+@media (max-width: 768px) {
+    .pl-kiln-actionbar--stack { flex-wrap: wrap; }
+    .pl-kiln-actionbar--stack .pl-kiln-actionbar__note { flex-basis: 100%; }
+}
+.pl-kiln-log-cards--always { display: grid; gap: 0.625rem; }
+.pl-kiln-log-table { width: 100%; border-collapse: collapse; }
+.pl-kiln-log-table th { text-align: left; font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.06em; color: var(--hub-text-muted); }
+.pl-kiln-msg__unload { display: inline-flex; align-items: center; gap: 0.35rem; margin-bottom: 0.35rem; font-size: 0.8rem; font-weight: 600; color: var(--hub-blue); }
 
 /* Enter in a text box submits through the first submit button in the form. This one, first in
    the form and out of sight, makes that "Save as draft" rather than a photo's Remove. */

@@ -145,6 +145,7 @@ _AUDIENCE_DESCRIPTIONS: dict[Recipients, str] = {
         "The page's guild lead and staff; for a space-wide page, or a guild with nobody on it, the FOG admins."
     ),
     Recipients.WIKI_PAGE_CONTRIBUTORS: "Everyone who has written a version of the page, except the verifier.",
+    Recipients.KILN_CREW: "The Ceramics Guild's lead and staff (the kiln crew), except whoever wrote the message.",
 }
 
 
@@ -2008,6 +2009,151 @@ _CURATED: dict[str, EventCopy] = {
                     'font-size:14px;font-weight:700;text-decoration:none;border-radius:6px;">'
                     "See What's New</a></p>"
                     "<p>Thanks for telling us what you need.</p>"
+                    "<p>Past Lives Makerspace</p>"
+                ),
+            ),
+        },
+    ),
+    # kiln.crew_replied / kiln.maker_replied — the reply thread on a kiln ticket (#691). The
+    # message itself is the content, so the email shows it whole (escaped, line breaks kept).
+    # ticket_label is "Ticket 412"; ticket_summary is "Glaze · 3 pieces"; ticket_url opens
+    # the ticket's messages on the members site, where a class guest can reach it too.
+    "kiln.crew_replied": EventCopy(
+        placeholders=("author_name", "ticket_label", "ticket_summary", "reply_body", "ticket_url"),
+        sample_context={
+            "author_name": "Dana Reyes",
+            "ticket_label": "Ticket 412",
+            "ticket_summary": "Glaze · 3 pieces",
+            "reply_body": "Hi Maya! Quick check before these go in: is the Standard 266 the Cone 6 one?",
+            "ticket_url": "https://pastlives.example/kiln/412/#kiln-messages",
+        },
+        channels={
+            Channel.IN_APP: ChannelCopy(
+                subject="The kiln crew wrote on {{ ticket_label }}",
+                body_text="{{ author_name }}: {{ reply_body }}",
+            ),
+            Channel.EMAIL: ChannelCopy(
+                subject="The kiln crew wrote on your {{ ticket_label }}",
+                body_text=(
+                    "{{ author_name }} from the Ceramics Guild kiln crew wrote on your "
+                    "{{ ticket_label }} ({{ ticket_summary }}):\n\n"
+                    "{{ reply_body }}\n\n"
+                    "Read it and reply: {{ ticket_url }}\n\nPast Lives Makerspace"
+                ),
+                body_html=(
+                    "<p>{{ author_name }} from the Ceramics Guild kiln crew wrote on your "
+                    '<strong><a href="{{ ticket_url }}">{{ ticket_label }}</a></strong> ({{ ticket_summary }}):</p>'
+                    '<p style="white-space:pre-line;">{{ reply_body }}</p>'
+                    '<p style="text-align:center;margin:24px 0 8px;"><a href="{{ ticket_url }}" '
+                    'style="display:inline-block;padding:12px 28px;background-color:#EEB44B;color:#092E4C;'
+                    'font-size:14px;font-weight:700;text-decoration:none;border-radius:6px;">'
+                    "Read And Reply</a></p>"
+                    "<p>Past Lives Makerspace</p>"
+                ),
+            ),
+        },
+    ),
+    "kiln.maker_replied": EventCopy(
+        placeholders=("author_name", "ticket_label", "ticket_summary", "reply_body", "ticket_url"),
+        sample_context={
+            "author_name": "Maya Okafor",
+            "ticket_label": "Ticket 412",
+            "ticket_summary": "Glaze · 3 pieces",
+            "reply_body": "Yes, it is Cone 6. I bought it at Georgies last month. Thanks for checking!",
+            "ticket_url": "https://pastlives.example/kiln/412/#kiln-messages",
+        },
+        channels={
+            Channel.IN_APP: ChannelCopy(
+                subject="{{ author_name }} wrote on {{ ticket_label }}",
+                body_text="{{ reply_body }}",
+            ),
+            Channel.EMAIL: ChannelCopy(
+                subject="{{ author_name }} wrote on kiln {{ ticket_label }}",
+                body_text=(
+                    "{{ author_name }} wrote on kiln {{ ticket_label }} ({{ ticket_summary }}):\n\n"
+                    "{{ reply_body }}\n\n"
+                    "Read it and reply: {{ ticket_url }}\n\n"
+                    "You get this as Ceramics Guild staff.\n\nPast Lives Makerspace"
+                ),
+                body_html=(
+                    "<p>{{ author_name }} wrote on kiln "
+                    '<strong><a href="{{ ticket_url }}">{{ ticket_label }}</a></strong> ({{ ticket_summary }}):</p>'
+                    '<p style="white-space:pre-line;">{{ reply_body }}</p>'
+                    '<p style="text-align:center;margin:24px 0 8px;"><a href="{{ ticket_url }}" '
+                    'style="display:inline-block;padding:12px 28px;background-color:#EEB44B;color:#092E4C;'
+                    'font-size:14px;font-weight:700;text-decoration:none;border-radius:6px;">'
+                    "Read And Reply</a></p>"
+                    "<p>You get this as Ceramics Guild staff.</p>"
+                    "<p>Past Lives Makerspace</p>"
+                ),
+            ),
+        },
+    ),
+    # kiln.ready_for_pickup — one notice per maker per unloaded firing (#691 part 3). Built by
+    # kiln.services.PickupNotice: headline says ready, back in the queue, or some of each;
+    # summary is the bell's line; pieces_text / pieces_block list every piece with the crew's
+    # note under one that did not come out right (pieces_block is escaped where it is built).
+    "kiln.ready_for_pickup": EventCopy(
+        placeholders=(
+            "headline",
+            "summary",
+            "firing_name",
+            "pieces_text",
+            "pieces_block",
+            "unloaded_line",
+            "tickets_url",
+        ),
+        sample_context={
+            "headline": "Some of your pieces are ready for pickup",
+            "summary": (
+                "Ticket 412 came out of Glaze firing 88. It is on the pickup shelf. Ticket 411 was not fired "
+                "and was put back in the queue. The kiln crew left you a note."
+            ),
+            "firing_name": "Glaze firing 88",
+            "pieces_text": (
+                "Ticket 411 (Glaze · 1 piece): Back in the queue\n"
+                "  Stuck to the shelf. Sam Whitlock: The shelf was full, so it goes in the next glaze firing.\n"
+                "Ticket 412 (Glaze · 3 pieces): Ready for pickup"
+            ),
+            "pieces_block": mark_safe(  # trusted app-built markup, like kiln.services.PickupNotice builds it
+                '<table role="presentation" width="100%" cellpadding="0" cellspacing="0" '
+                'style="margin:0 0 22px;border:1px solid #e3e7ec;border-radius:10px;">'
+                '<tr><td style="padding:12px;border-top:1px solid #e3e7ec;">'
+                '<a href="https://pastlives.example/kiln/411/" style="color:#092E4C;font-weight:700;">Ticket 411</a> '
+                '<span style="font-size:14px;color:#5B6B77;">Glaze · 1 piece · Back in the queue</span><br>'
+                '<span style="white-space:pre-line;">Stuck to the shelf. Sam Whitlock: The shelf was full, '
+                "so it goes in the next glaze firing.</span></td></tr>"
+                '<tr><td style="padding:12px;border-top:1px solid #e3e7ec;">'
+                '<a href="https://pastlives.example/kiln/412/" style="color:#092E4C;font-weight:700;">Ticket 412</a> '
+                '<span style="font-size:14px;color:#5B6B77;">Glaze · 3 pieces · Ready for pickup</span></td></tr>'
+                "</table>"
+            ),
+            "unloaded_line": "Unloaded Tue, Oct 7 by Sam Whitlock.",
+            "tickets_url": "https://pastlives.example/kiln/",
+        },
+        channels={
+            Channel.IN_APP: ChannelCopy(subject="{{ headline }}", body_text="{{ summary }}"),
+            Channel.EMAIL: ChannelCopy(
+                subject="{{ headline }}",
+                body_text=(
+                    "{{ summary }}\n\n"
+                    "{{ pieces_text }}\n\n"
+                    "{{ unloaded_line }} Something not right with a piece? Reply on its ticket and the "
+                    "kiln crew will see it.\n\n"
+                    "See your kiln tickets: {{ tickets_url }}\n\nPast Lives Makerspace"
+                ),
+                body_html=(
+                    '<p style="margin:0 0 6px;font-size:13px;color:#5B6B77;text-transform:uppercase;'
+                    'letter-spacing:0.06em;">Ceramics Guild · Kiln tickets</p>'
+                    '<h1 style="margin:0 0 14px;font-size:24px;line-height:1.25;color:#092E4C;">{{ headline }}</h1>'
+                    "<p>{{ summary }}</p>"
+                    "{{ pieces_block }}"
+                    '<p style="text-align:center;margin:24px 0 8px;"><a href="{{ tickets_url }}" '
+                    'style="display:inline-block;padding:12px 28px;background-color:#EEB44B;color:#092E4C;'
+                    'font-size:14px;font-weight:700;text-decoration:none;border-radius:6px;">'
+                    "See Your Kiln Tickets</a></p>"
+                    '<p style="font-size:14px;color:#5B6B77;">{{ unloaded_line }} Something not right with a '
+                    "piece? Reply on its ticket and the kiln crew will see it.</p>"
                     "<p>Past Lives Makerspace</p>"
                 ),
             ),

@@ -114,6 +114,7 @@ _CATEGORY_SECTIONS: dict[str, str] = {
     "Membership": "Membership & Account",
     "Spaces & Equipment": "Membership & Account",
     "Your requests": "Membership & Account",  # feedback.request_updated (#693)
+    "Kiln tickets": "Guilds & Orientations",  # kiln.crew_replied / kiln.maker_replied (#691)
     "Voting": "Voting",
     "Events": "Events",
     "Meetings": "Events",  # meetings ride the events rails; their spine cards group there

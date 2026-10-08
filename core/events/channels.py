@@ -233,6 +233,8 @@ _CHANNEL_BY_CATEGORY: dict[str, str] = {
     # The wiki is guild-shaped: a report routes to a guild's leadership and a
     # verification comes from one, so both ride the Guilds channel.
     "Wiki": PUSH_CHANNEL_GUILDS,
+    # Kiln ticket messages run between a maker and the Ceramics Guild crew (#691).
+    "Kiln tickets": PUSH_CHANNEL_GUILDS,
 }
 
 

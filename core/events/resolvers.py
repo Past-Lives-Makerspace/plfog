@@ -697,6 +697,22 @@ def wiki_page_contributors(context: dict[str, Any]) -> list[Recipient]:
     return _members_to_recipients(members, "wiki_contributor")
 
 
+# --- Kiln tickets (#691) ------------------------------------------------------
+
+
+def kiln_crew(context: dict[str, Any]) -> list[Recipient]:
+    """The kiln guild's lead and staff (``kiln.access``), or nobody when there is no kiln guild.
+
+    Needs nothing from the context: there is one kiln, found by ``settings.KILN_GUILD_SLUG``.
+    """
+    from kiln.access import kiln_guild
+
+    guild = kiln_guild()
+    if guild is None:
+        return []
+    return _members_to_recipients(guild.leadership_members(), "kiln_crew")
+
+
 # --- Registry ----------------------------------------------------------------
 
 _RESOLVERS: dict[Recipients, ResolverFn] = {
@@ -734,6 +750,7 @@ _RESOLVERS: dict[Recipients, ResolverFn] = {
     Recipients.SINGLE_USER: single_user,
     Recipients.WIKI_SCOPE_LEADERSHIP: wiki_scope_leadership,
     Recipients.WIKI_PAGE_CONTRIBUTORS: wiki_page_contributors,
+    Recipients.KILN_CREW: kiln_crew,
 }
 
 

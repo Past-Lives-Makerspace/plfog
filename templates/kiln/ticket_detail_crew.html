@@ -1,0 +1,87 @@
+{% extends "hub/base.html" %}
+{% load static %}
+{% block title %}Ticket {{ ticket.pk }}{% endblock %}
+
+{% block extra_head %}
+<link rel="stylesheet" href="{% static 'css/kiln-tickets.css' %}">
+{% endblock %}
+
+{% block content %}
+{% include "kiln/partials/_icons.html" %}
+{% comment %}
+The crew's view of any ticket (#691): every flag, open and cleared, with who did what; adding a
+flag only the crew see; the photos and the thread on the left, and the maker's contact, the
+answers and the history on the right (stacked on a phone).
+{% endcomment %}
+<p class="pl-kiln-crumb"><a href="{% url 'kiln:load' %}">Load the Kiln</a></p>
+<div class="pl-kiln-detail__title">
+    <h1 class="hub-page-title">Ticket {{ ticket.pk }} · {{ ticket.maker_name }}</h1>
+    {% include "kiln/partials/_status_badge.html" %}
+</div>
+<p class="hub-text-muted pl-kiln-head__lead">{{ ticket.summary }}{% if ticket.size_label %} · {{ ticket.size_label }}{% endif %}{% if ticket.submitted_at %} · submitted {{ ticket.submitted_at|date:"D, M j" }}{% endif %}{% if ticket.firing %} · {{ ticket.firing.name }}{% endif %}</p>
+
+<div class="pl-kiln-detail pl-kiln-detail--crew">
+    <div class="pl-kiln-detail__col">
+        <div class="hub-card" data-kiln-crew-flags>
+            {% with flags=ticket.crew_flags open=ticket.open_flags %}
+            <h2 class="pl-kiln-card-title"><svg class="pl-kiln-ico" aria-hidden="true"><use href="#kiln-i-flag"/></svg>Flags <span class="pl-kiln-count">{{ open|length }}</span></h2>
+            {% if flags %}
+            <ul class="pl-kiln-flaglist">
+                {% for flag in flags %}
+                <li data-flag="{{ flag.pk }}"{% if flag.cleared_at %} data-cleared{% endif %}>
+                    <div>
+                        {% if flag.cleared_at %}<span class="pl-kiln-flag pl-kiln-flag--cleared"><svg class="pl-kiln-ico" aria-hidden="true"><use href="#kiln-i-check"/></svg><span>{{ flag.get_kind_display }}</span></span>
+                        {% elif flag.is_loud %}<span class="pl-kiln-flag pl-kiln-flag--loud"><svg class="pl-kiln-ico" aria-hidden="true"><use href="#kiln-i-alert"/></svg>{{ flag.get_kind_display }}</span>
+                        {% else %}<span class="pl-kiln-flag"><svg class="pl-kiln-ico" aria-hidden="true"><use href="#kiln-i-flag"/></svg>{{ flag.get_kind_display }}</span>{% endif %}
+                        <p>{% if flag.kind == "manual" %}{{ flag.note }} Added by {{ flag.added_by.display_name|default:"the crew" }}, {{ flag.created_at|date:"D, M j" }}.{% elif flag.answer %}"{{ flag.answer }}".{% endif %}{% if flag.cleared_at %} Cleared by {{ flag.cleared_by.display_name|default:"the crew" }}, {{ flag.cleared_at|date:"D, M j" }}.{% endif %}</p>
+                    </div>
+                    {% if not flag.cleared_at %}
+                    <form method="post" action="{% url 'kiln:flag_clear' ticket.pk flag.pk %}">
+                        {% csrf_token %}
+                        <button type="submit" class="hub-btn hub-btn--sm hub-btn--ghost">Clear</button>
+                    </form>
+                    {% endif %}
+                </li>
+                {% endfor %}
+            </ul>
+            {% else %}
+            <p class="pl-kiln-thread__empty">No flags. Nothing in the answers needs a second look.</p>
+            {% endif %}
+            {% endwith %}
+            <details class="pl-disclosure pl-btn--spaced">
+                <summary class="pl-disclosure__summary"><span class="pl-disclosure__title">Add a flag</span><span class="pl-disclosure__chevron" aria-hidden="true"></span></summary>
+                <div class="pl-disclosure__body">
+                    <form method="post" action="{% url 'kiln:flag_add' ticket.pk %}" class="pl-kiln-reply" data-kiln-flag-form>
+                        {% csrf_token %}
+                        {% include "components/form_field.html" with field=flag_form.note field_hint_off=True %}
+                        <p class="pl-kiln-crewonly"><svg class="pl-kiln-ico" aria-hidden="true"><use href="#kiln-i-lock"/></svg>Only the kiln crew sees flags you add. To ask {{ ticket.maker_name }} something, send a message.</p>
+                        <button type="submit" class="hub-btn hub-btn--sm hub-btn--primary pl-btn--spaced">Add flag</button>
+                    </form>
+                </div>
+            </details>
+        </div>
+
+        {% include "kiln/partials/_gallery.html" %}
+
+        {% include "kiln/partials/_thread.html" with as_crew=True %}
+    </div>
+
+    <div class="pl-kiln-detail__col">
+        {% include "kiln/partials/_maker_card.html" %}
+        <div class="hub-card">
+            <h2 class="pl-kiln-card-title">Answers</h2>
+            {% include "kiln/partials/_answers.html" %}
+        </div>
+        <div class="hub-card">
+            <h2 class="pl-kiln-card-title">History</h2>
+            {% include "kiln/partials/_timeline.html" with as_crew=True %}
+        </div>
+        {% if ticket.maker_id == viewer.pk %}
+        <div class="pl-kiln-actions">
+            {% if ticket.is_editable %}<a href="{% url 'kiln:edit' ticket.pk %}" class="hub-btn hub-btn--primary pl-kiln-new"><svg class="pl-kiln-ico" aria-hidden="true"><use href="#kiln-i-pencil"/></svg>{% if ticket.status == "draft" %}Finish and submit{% else %}Change answers{% endif %}</a>{% endif %}
+            <a href="{% url 'kiln:new' %}?from={{ ticket.pk }}" class="hub-btn hub-btn--ghost pl-kiln-new"><svg class="pl-kiln-ico" aria-hidden="true"><use href="#kiln-i-copy"/></svg>Make another like this</a>
+        </div>
+        {% endif %}
+    </div>
+</div>
+{% endblock %}

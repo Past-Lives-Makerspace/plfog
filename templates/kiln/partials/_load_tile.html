@@ -1,0 +1,26 @@
+{% comment %}
+One waiting ticket on Load the Kiln (#691): a big tap target. The whole tile is the label of its
+checkbox; a ticked tile shows a check and the word Loaded, never color alone. A tile of the other
+firing type is disabled. Expects ticket and firing_type (the server's first choice).
+{% endcomment %}
+{% with flags=ticket.open_flags cover=ticket.cover_photo %}
+<label class="pl-kiln-tile{% if flags.0.is_loud %} pl-kiln-tile--loud{% elif flags %} pl-kiln-tile--flagged{% endif %}" data-tile data-ticket="{{ ticket.pk }}" data-type="{{ ticket.firing_type }}"
+       x-show="(show === 'all' || show === '{{ ticket.firing_type }}') && (!flaggedOnly || {{ flags|yesno:'true,false' }})">
+    <input type="checkbox" name="tickets" value="{{ ticket.pk }}" aria-label="Load ticket {{ ticket.pk }}, {{ ticket.maker_name }}"{% if ticket.firing_type != firing_type %} disabled{% endif %} :disabled="firing !== '{{ ticket.firing_type }}'">
+    {% if flags %}
+    <span class="pl-kiln-tile__flag{% if flags.0.is_loud %} pl-kiln-tile__flag--loud{% endif %}"><svg class="pl-kiln-ico" aria-hidden="true"><use href="#kiln-i-{% if flags.0.is_loud %}alert{% else %}flag{% endif %}"/></svg><span>{% for flag in flags %}{{ flag.crew_label|truncatechars:80 }}{% if not forloop.last %} · {% endif %}{% endfor %}</span></span>
+    {% endif %}
+    <span class="pl-kiln-tile__photo">
+        {% if cover %}<img src="{{ cover.tile.url }}" alt="Cover photo of ticket {{ ticket.pk }}" loading="lazy">{% else %}<span class="pl-kiln-row__photo--empty pl-kiln-tile__nophoto"><svg class="pl-kiln-ico" aria-hidden="true"><use href="#kiln-i-camera"/></svg><span class="sr-only">No photo</span></span>{% endif %}
+        <span class="pl-kiln-tile__qty">{{ ticket.pieces_label }}</span>
+        {% with count=ticket.photos.all|length %}{% if count > 1 %}<span class="pl-kiln-tile__dots" aria-label="{{ count }} photos">{% for photo in ticket.photos.all|slice:":5" %}<i></i>{% endfor %}</span>{% endif %}{% endwith %}
+        <span class="pl-kiln-tile__check" aria-hidden="true"><svg class="pl-kiln-ico"><use href="#kiln-i-check"/></svg></span>
+    </span>
+    <span class="pl-kiln-tile__body">
+        <span class="pl-kiln-tile__who">{{ ticket.maker_name }}{% if ticket.maker_type == "student" %} · {{ ticket.get_maker_type_display }}{% endif %}</span>
+        <span class="pl-kiln-tile__size">{{ ticket.size_label|default:"Size not given" }}</span>
+        <span class="pl-kiln-tile__glaze">{% if ticket.glaze_names %}{{ ticket.glaze_names }}{% else %}{{ ticket.get_firing_type_display }}{% if ticket.clay_label %} · {{ ticket.clay_label }}{% endif %}{% endif %}</span>
+        <span class="pl-kiln-tile__foot"><span class="pl-kiln-tile__age">{{ ticket.waiting_label }}</span><span class="pl-kiln-tile__state"><svg class="pl-kiln-ico" aria-hidden="true"><use href="#kiln-i-check"/></svg>Loaded</span><a href="{% url 'kiln:detail' ticket.pk %}">Details</a></span>
+    </span>
+</label>
+{% endwith %}
