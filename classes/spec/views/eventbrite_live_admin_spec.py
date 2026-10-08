@@ -51,7 +51,10 @@ def describe_the_overview_eventbrite_row():
     def it_shows_admins_a_listed_class_with_a_link(client: Any, admin_user: Any):
         html = _overview(client, admin_user, _live())
 
-        assert "<span data-eventbrite-sync>Listed on Eventbrite</span>" in html
+        assert (
+            '<span data-eventbrite-sync><span class="pl-eventbrite-sync__ok" aria-hidden="true">&#10003;</span> Listed on Eventbrite</span>'
+            in html
+        )
         assert 'href="https://www.eventbrite.com/e/123"' in html
 
     def it_shows_admins_a_failure_with_its_reason(client: Any, admin_user: Any):
