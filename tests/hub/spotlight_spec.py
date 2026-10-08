@@ -10,9 +10,9 @@ import pytest
 
 from core.models import SiteConfiguration
 from hub.spotlight import SECOND_LINE_DEFAULT, Spotlight
-from membership.models import CommunityEvent
-from tests.membership.factories import CommunityEventFactory
-from tests.polls.factories import poll_with
+from membership.models import CommunityEvent, Member
+from tests.membership.factories import CommunityEventFactory, MemberFactory
+from tests.polls.factories import PollVoteFactory, poll_with
 
 pytestmark = pytest.mark.django_db
 
@@ -40,7 +40,7 @@ def _build(now: datetime = NOW, **fields: Any) -> Spotlight:
     for name, value in fields.items():
         setattr(config, name, value)
     config.save()
-    return Spotlight.build(SiteConfiguration.load_with_spotlight_meeting(), now)
+    return Spotlight.load(None, now)
 
 
 def describe_the_meeting():
@@ -141,3 +141,91 @@ def describe_the_poll():
 
         assert spotlight.poll is None
         assert spotlight.results == []
+
+
+def describe_load():
+    def it_reads_settings_meeting_poll_answers_and_vote_in_one_query():
+        from django.db import connection
+        from django.test.utils import CaptureQueriesContext
+
+        poll = poll_with("Laser", "Lathe", "Kiln", votes=(2, 1, 0), opens_at=NOW - timedelta(hours=1))
+        member = MemberFactory()
+        PollVoteFactory(choice=poll.choices.get(text="Kiln"), member=member)
+        config = SiteConfiguration.load()
+        config.spotlight_meeting_event = _monthly_meeting()
+        config.save()
+
+        with CaptureQueriesContext(connection) as queries:
+            spotlight = Spotlight.load(member, NOW)
+            meeting_title = spotlight.meeting.title if spotlight.meeting else ""
+
+        assert len(queries) == 1
+        assert meeting_title == "Feature Request Meeting"
+        assert spotlight.poll is not None and spotlight.poll.pk == poll.pk
+        assert [(r.text, r.votes) for r in spotlight.results] == [("Laser", 2), ("Lathe", 1), ("Kiln", 1)]
+        assert spotlight.my_choice_pk == poll.choices.get(text="Kiln").pk
+
+    def it_reads_six_answers_in_order():
+        answers = [f"Answer {n}" for n in range(6)]
+        poll_with(*answers, opens_at=NOW - timedelta(hours=1))
+
+        assert [r.text for r in _build().results] == answers
+
+    def it_leaves_the_vote_unmarked_for_a_member_who_has_not_voted():
+        poll_with("Laser", "Lathe", opens_at=NOW - timedelta(hours=1))
+
+        spotlight = Spotlight.load(MemberFactory(), NOW)
+
+        assert spotlight.my_choice_pk is None
+        assert spotlight.card is not None and spotlight.card.shows_choices is True
+
+    def it_shows_a_voters_card_as_results():
+        poll = poll_with("Laser", "Lathe", opens_at=NOW - timedelta(hours=1))
+        member = MemberFactory()
+        PollVoteFactory(choice=poll.choices.first(), member=member)
+
+        card = Spotlight.load(member, NOW).card
+
+        assert card is not None and card.shows_choices is False
+
+    def it_has_no_card_without_an_open_poll():
+        assert Spotlight.load(MemberFactory(), NOW).card is None
+
+    def it_never_lets_a_guest_vote_from_it():
+        poll_with("Laser", "Lathe", opens_at=NOW - timedelta(hours=1))
+
+        card = Spotlight.load(MemberFactory(status=Member.Status.GUEST), NOW).card
+
+        assert card is not None and card.shows_choices is False
+
+
+def describe_seen_signature():
+    def it_is_empty_parts_with_nothing_to_show():
+        assert _build().seen_signature == "||"
+
+    def it_names_the_poll_the_next_meeting_and_the_text_stamp():
+        poll = poll_with("Laser", "Lathe", opens_at=NOW - timedelta(hours=1))
+        stamp = datetime(2026, 10, 7, 12, 0, tzinfo=PORTLAND)
+
+        signature = _build(spotlight_meeting_event=_monthly_meeting(), spotlight_text_changed_at=stamp).seen_signature
+
+        assert signature == f"{poll.pk}|2026-10-14T01:00:00+00:00|2026-10-07T19:00:00+00:00"
+
+    def it_changes_when_the_monthly_meeting_rolls_on():
+        event = _monthly_meeting()
+        before = _build(spotlight_meeting_event=event).seen_signature
+
+        after = _build(now=datetime(2026, 10, 13, 19, 0, tzinfo=PORTLAND), spotlight_meeting_event=event).seen_signature
+
+        assert before != after
+
+    def it_changes_when_a_new_poll_opens():
+        before = _build().seen_signature
+        poll_with("Laser", "Lathe", opens_at=NOW - timedelta(hours=1))
+
+        assert _build().seen_signature != before
+
+    def it_changes_when_the_text_changes():
+        before = _build().seen_signature
+
+        assert _build(spotlight_text_changed_at=NOW).seen_signature != before

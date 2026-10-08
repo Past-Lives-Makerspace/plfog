@@ -33,6 +33,7 @@ HEAD_ORDER = (
     "js/guild_autosave.js",
     "js/list_calendar.js",
     "js/pl_help.js",
+    "js/spotlight.js",
     "js/alpine.min.js",
     "js/biometric-auth.js",
     "js/app-store-badges.js",

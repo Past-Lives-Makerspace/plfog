@@ -1,0 +1,9 @@
+bump = "minor"
+date = "2026-10-08"
+title = "The Spotlight: this week's poll and the next Feature Request Meeting, top left"
+changes = [
+  "The top left of the Member Portal now shows this week's poll and the next Feature Request Meeting. Tap an answer to vote, right there.",
+  "Tap Details for more: the poll's results, the meeting with Join online and Add to calendar, and buttons to suggest a feature or report a bug.",
+  "Tap the minus to shrink it to two short lines. It stays that way until you open it again, and a yellow dot shows when there is a new poll, a new meeting date or new words in the Spotlight.",
+  "What changed, at the bottom of Details, lists every update five at a time. On a phone, the Spotlight sits at the top of Home.",
+]

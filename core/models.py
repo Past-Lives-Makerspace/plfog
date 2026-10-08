@@ -1109,12 +1109,6 @@ class SiteConfiguration(models.Model):
         obj, _created = cls.objects.get_or_create(pk=1)
         return obj
 
-    @classmethod
-    def load_with_spotlight_meeting(cls) -> SiteConfiguration:
-        """:meth:`load`, with the Spotlight's meeting event joined in, so both cost one query (#708)."""
-        obj, _created = cls.objects.select_related("spotlight_meeting_event").get_or_create(pk=1)
-        return obj
-
     @property
     def instructor_discount_codes_approval_mode(self) -> bool:
         """Instructors request and an admin decides: both discount code settings on."""

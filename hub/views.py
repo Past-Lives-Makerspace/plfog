@@ -6769,7 +6769,7 @@ def beta_feedback(request: HttpRequest) -> HttpResponse:
             messages.success(request, "Thanks! You can follow it below.")
             return redirect(f"{reverse('hub_beta_feedback')}?sent={feedback_request.pk}#{feedback_request.anchor}")
     else:
-        form = BetaFeedbackForm()
+        form = BetaFeedbackForm.preselected(request.GET.get("category", ""))
 
     sent = request.GET.get("sent", "")
     return render(

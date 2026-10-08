@@ -1,9 +1,5 @@
 {% extends "hub/base.html" %}
-{% load static %}
 {% block title %}Past Polls{% endblock %}
-{% block extra_head %}
-<link rel="stylesheet" href="{% static 'css/spotlight.css' %}">
-{% endblock %}
 {% block content %}
 {# Every poll, newest first, ten a page (#708 part 2); the open one offers its answers until this member votes. #}
 {% include "components/page_header.html" with title="Past Polls" description="Every poll the makerspace has asked, newest first. Votes are anonymous." %}

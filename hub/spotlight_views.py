@@ -59,9 +59,8 @@ def _render_page(
     status: int = 200,
 ) -> HttpResponse:
     now = timezone.now()
-    config = SiteConfiguration.load_with_spotlight_meeting()
-    spotlight = Spotlight.build(config, now)
-    text_form = text_form or SpotlightTextForm(instance=config)
+    spotlight = Spotlight.load(None, now)
+    text_form = text_form or SpotlightTextForm(instance=SiteConfiguration.load())
     table = prepare_table(
         request,
         Poll.objects.closed_at(now).with_totals(),

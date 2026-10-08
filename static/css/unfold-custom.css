@@ -1691,3 +1691,42 @@ textarea:focus {
 .pl-admin-snapshot-link {
     color: #EEB44B;
 }
+
+/* The changelog's pager, five releases a page (#709, includes/_changelog_pages.html). */
+.changelog-entry.changelog-entry--first {
+    margin-top: 0;
+    padding-top: 0;
+    border-top: none;
+}
+
+.changelog-pages__nav {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 1rem;
+    margin-top: 1.5rem;
+    padding-top: 1rem;
+    border-top: 1px solid var(--hub-input-border, rgba(127, 127, 127, 0.3));
+}
+
+.changelog-pages__button {
+    padding: 0.375rem 0.875rem;
+    border: 1px solid var(--hub-input-border, rgba(127, 127, 127, 0.4));
+    border-radius: 6px;
+    background: none;
+    color: inherit;
+    font: inherit;
+    font-size: 0.85rem;
+    font-weight: 600;
+    cursor: pointer;
+}
+
+.changelog-pages__button:disabled {
+    opacity: 0.4;
+    cursor: default;
+}
+
+.changelog-pages__label {
+    font-size: 0.8rem;
+    opacity: 0.7;
+}

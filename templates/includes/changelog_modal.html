@@ -5,36 +5,20 @@
             <button class="changelog-modal__close" onclick="document.getElementById('changelog-modal').style.display='none'" aria-label="Close changelog">&times;</button>
         </div>
         <div class="changelog-modal__body">
-            {% for entry in changelog %}
-            <div class="changelog-entry"{% if entry.slug %} id="changelog-{{ entry.slug }}"{% endif %}>
-                <div class="changelog-entry__header">
-                    {% comment %}
-                    Only swept history carries a version number; a changelog.d/ entry has a date
-                    and no number, so the badge is omitted rather than rendering a bare "v".
-                    See plfog/changelog.py for why a fragment cannot know its own release number.
-                    {% endcomment %}
-                    {% if entry.version %}<span class="changelog-entry__version">v{{ entry.version }}</span>{% endif %}
-                    <span class="changelog-entry__date">{{ entry.date }}</span>
-                </div>
-                <h3 class="changelog-entry__title">{{ entry.title }}</h3>
-                <ul class="changelog-entry__list">
-                    {% for change in entry.changes %}
-                    <li>{{ change }}</li>
-                    {% endfor %}
-                </ul>
-            </div>
-            {% endfor %}
+            {% include "includes/_changelog_pages.html" with pages_id="changelog-modal-pages" %}
         </div>
     </div>
 </div>
-{# A link ending #changelog-<slug> (the "it's live" notice, #693) opens the modal at that entry. #}
+{# A link ending #changelog-<slug> (the "it's live" notice, #693) opens the modal on the page holding that entry. #}
 <script>
 (function () {
   var hash = window.location.hash;
   if (hash.indexOf("#changelog-") !== 0) return;
-  var entry = document.getElementById(hash.slice(1));
+  var pages = document.getElementById("changelog-modal-pages");
   var modal = document.getElementById("changelog-modal");
-  if (!entry || !modal) return;
+  if (!pages || !modal || !pages.plShowEntry) return;
+  var entry = pages.plShowEntry(hash.slice(1));
+  if (!entry) return;
   modal.style.display = "flex";
   entry.scrollIntoView({ block: "start" });
 })();

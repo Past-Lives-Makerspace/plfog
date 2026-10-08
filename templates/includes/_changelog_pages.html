@@ -1,0 +1,70 @@
+{% comment %}
+The changelog, five releases a page with Newer and Older (#709). Used by the Spotlight's
+Expanded panel and by the plain changelog modal on public, login and admin pages, so the pager
+is plain script, not Alpine (the Unfold admin need not have it). pages_id names this copy;
+root.plShowEntry(id) turns to the page holding that entry and returns it, which the
+#changelog-<slug> deep link (#693) uses. Hidden entries use the hidden attribute, never an
+inline display.
+{% endcomment %}
+<div class="changelog-pages" id="{{ pages_id }}" data-changelog-pages>
+    {% for entry in changelog %}
+    <div class="changelog-entry" data-changelog-entry{% if entry.slug %} id="changelog-{{ entry.slug }}"{% endif %}>
+        <div class="changelog-entry__header">
+            {# Only swept history carries a version number; a changelog.d/ entry has a date and no number. #}
+            {% if entry.version %}<span class="changelog-entry__version">v{{ entry.version }}</span>{% endif %}
+            <span class="changelog-entry__date">{{ entry.date }}</span>
+        </div>
+        <h3 class="changelog-entry__title">{{ entry.title }}</h3>
+        <ul class="changelog-entry__list">
+            {% for change in entry.changes %}
+            <li>{{ change }}</li>
+            {% endfor %}
+        </ul>
+    </div>
+    {% endfor %}
+    <nav class="changelog-pages__nav" aria-label="Changelog pages">
+        <button type="button" class="changelog-pages__button" data-changelog-newer>Newer</button>
+        <span class="changelog-pages__label" data-changelog-label></span>
+        <button type="button" class="changelog-pages__button" data-changelog-older>Older</button>
+    </nav>
+</div>
+<script>
+(function () {
+  var root = document.getElementById("{{ pages_id|escapejs }}");
+  if (!root || root.plShowPage) return;
+  var PER_PAGE = 5;
+  var entries = Array.prototype.slice.call(root.querySelectorAll("[data-changelog-entry]"));
+  var pages = Math.max(1, Math.ceil(entries.length / PER_PAGE));
+  var newer = root.querySelector("[data-changelog-newer]");
+  var older = root.querySelector("[data-changelog-older]");
+  var label = root.querySelector("[data-changelog-label]");
+  var current = 0;
+  root.plShowPage = function (page) {
+    current = Math.max(0, Math.min(page, pages - 1));
+    entries.forEach(function (entry, index) {
+      entry.hidden = Math.floor(index / PER_PAGE) !== current;
+      entry.classList.toggle("changelog-entry--first", index === current * PER_PAGE);
+    });
+    root.dataset.page = String(current + 1);
+    newer.disabled = current === 0;
+    older.disabled = current === pages - 1;
+    label.textContent = "Page " + (current + 1) + " of " + pages;
+  };
+  root.plShowEntry = function (id) {
+    var entry = document.getElementById(id);
+    var index = entries.indexOf(entry);
+    if (index < 0) return null;
+    root.plShowPage(Math.floor(index / PER_PAGE));
+    return entry;
+  };
+  // A new page starts at the top of whatever scrolls it, so Back and the first entry show.
+  function toTop() {
+    var scroller = root.closest(".pl-modal, .changelog-modal__body");
+    if (scroller) scroller.scrollTop = 0;
+    else root.scrollIntoView({ block: "start" });
+  }
+  newer.addEventListener("click", function () { root.plShowPage(current - 1); toTop(); });
+  older.addEventListener("click", function () { root.plShowPage(current + 1); toTop(); });
+  root.plShowPage(0);
+})();
+</script>

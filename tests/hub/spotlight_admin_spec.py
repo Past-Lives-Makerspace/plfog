@@ -287,7 +287,7 @@ def describe_past_polls():
         poll_with("Laser", "Lathe", question="Zorblax open now")
 
         html = admin_client.get(PAGE).content.decode()
-        table = html.split("data-past-polls>", 1)[1]
+        table = html.split("data-past-polls>", 1)[1].split("</table>", 1)[0]
 
         assert table.index("Zorblax newer") < table.index("Zorblax older")
         assert "Zorblax open now" not in table

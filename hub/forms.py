@@ -822,6 +822,17 @@ class BetaFeedbackForm(forms.Form):
             "If the form shows an error, please pick your photos again before resending."
         )
 
+    @classmethod
+    def preselected(cls, category: str) -> BetaFeedbackForm:
+        """An empty form with ``category`` already chosen when it names a real one (``?category=``).
+
+        The Spotlight's Suggest a feature and Report a bug link here with ``?category=feature`` and
+        ``?category=bug`` (#709); anything else leaves the select at its first choice, as a bare
+        visit does.
+        """
+        initial = {"category": category} if category in FeedbackRequest.Category.values else {}
+        return cls(initial=initial)
+
     def clean_photos(self) -> list[UploadedFile]:
         """Enforce the photo count and combined-size caps with plain messages."""
         photos: list[UploadedFile] = self.cleaned_data["photos"]

@@ -77,9 +77,9 @@ def _preview_as(client: Client, role: str) -> None:
 # 34 since the Member Agreement gate added one SiteConfiguration read per request.
 # 35 since the welcome popup waits for the agreement (#487): the hub context asks
 # needs_member_agreement once more, a second SiteConfiguration read for a member who has
-# not dismissed the popup yet.
+# not dismissed the popup yet. 36 with the Spotlight's one query (#709).
 # That fixed cost must stay the same with one page or a full list of cards.
-_HOME_QUERY_BUDGET = 35
+_HOME_QUERY_BUDGET = 36
 
 
 def describe_the_feature_switch():

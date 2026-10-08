@@ -458,3 +458,166 @@
     gap: 1rem;
     margin-top: 1.5rem;
 }
+
+/* ---- The member Spotlight (#709) ---- */
+/* Standard or Minimized follows <html data-spotlight-min>, set before first paint and kept in
+   step by static/js/spotlight.js; no inline display on either block. */
+html[data-spotlight-min] .pl-spotlight-live .pl-spotlight--standard,
+html:not([data-spotlight-min]) .pl-spotlight-live .pl-spotlight--minimized {
+    display: none;
+}
+
+.hub-sidebar__spotlight {
+    padding: 0 0.75rem 0.75rem;
+}
+
+.hub-sidebar__spotlight .pl-spotlight {
+    max-width: none;
+}
+
+.pl-spotlight-live .pl-spotlight__min {
+    position: relative;
+}
+
+.pl-spotlight__dot {
+    position: absolute;
+    top: 0.5rem;
+    right: 0.5rem;
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background-color: var(--color-tuscan-yellow);
+    box-shadow: 0 0 0 3px rgba(238, 180, 75, 0.25);
+}
+
+/* The poll card's compact copy inside Standard. */
+.pl-poll-card--spotlight {
+    gap: 0.5rem;
+    padding: 0;
+    border: none;
+    background: none;
+}
+
+.pl-poll-card--spotlight .pl-poll-card__question {
+    margin-right: 1.5rem;
+    font-size: 0.95rem;
+}
+
+.pl-poll-card--spotlight .pl-poll-card__choice {
+    padding: 0.45rem 0.75rem;
+    font-size: 0.85rem;
+}
+
+.pl-poll-card--spotlight .pl-poll-results__label {
+    font-size: 0.8125rem;
+}
+
+.pl-poll-card--spotlight .pl-poll-results__count {
+    font-size: 0.75rem;
+}
+
+.pl-poll-card--panel {
+    padding: 1rem;
+}
+
+/* Phones: the Spotlight sits at the top of Home, since the sidebar starts closed. */
+.pl-spotlight-home {
+    display: none;
+}
+
+@media (max-width: 768px) {
+    .pl-spotlight-home {
+        display: block;
+        margin-bottom: 1.25rem;
+    }
+
+    .pl-spotlight-home .pl-spotlight {
+        max-width: none;
+    }
+}
+
+/* The Expanded panel. */
+.pl-spotlight-panel__main,
+.pl-spotlight-panel__changelog {
+    display: flex;
+    flex-direction: column;
+    gap: 1.5rem;
+}
+
+.pl-spotlight-panel__section {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+}
+
+.pl-spotlight-panel__section + .pl-spotlight-panel__section {
+    padding-top: 1.25rem;
+    border-top: 1px solid var(--hub-input-border);
+}
+
+.pl-spotlight-panel__title {
+    margin: 0;
+    font-family: var(--font-heading);
+    font-size: 1.05rem;
+    color: var(--hub-text);
+}
+
+.pl-spotlight-panel__text {
+    margin: 0;
+    font-size: 0.9rem;
+    line-height: 1.5;
+    color: var(--hub-text-muted);
+}
+
+.pl-spotlight-panel__actions {
+    flex-wrap: wrap;
+    margin-top: 0.25rem;
+}
+
+.pl-spotlight-panel__link {
+    align-self: flex-start;
+    font-size: 0.875rem;
+    color: var(--color-tuscan-yellow);
+}
+
+.pl-spotlight-panel__version {
+    align-self: flex-start;
+    padding: 0;
+    border: none;
+    background: none;
+    font-family: var(--font-body);
+    font-size: 0.8125rem;
+    color: var(--hub-text-muted);
+    cursor: pointer;
+}
+
+.pl-spotlight-panel__version:hover,
+.pl-spotlight-panel__version:focus-visible {
+    color: var(--hub-text);
+    text-decoration: underline;
+}
+
+.pl-spotlight-panel__back {
+    align-self: flex-start;
+}
+
+/* In the narrow sidebar, the count sits under the answer instead of beside it. */
+.pl-poll-card--spotlight .pl-poll-results__label {
+    flex-direction: column;
+    gap: 0.125rem;
+}
+
+.pl-poll-results__mine {
+    white-space: nowrap;
+}
+
+/* Minimized in the narrow sidebar: room for the dot, and the date pill drops under the
+   meeting name rather than cutting it short. */
+.pl-spotlight-live .pl-spotlight__min {
+    padding-right: 1.5rem;
+}
+
+.pl-spotlight-live .pl-spotlight__line--second {
+    flex-wrap: wrap;
+    row-gap: 0.25rem;
+}
