@@ -86,6 +86,7 @@ CATEGORY_ORDER: tuple[str, ...] = (
     "Security",
     "Meetings",
     "Your requests",
+    "Kiln tickets",
 )
 
 # The one section that collects every event a viewer gets because of a role or an admin
@@ -125,6 +126,8 @@ STAFF_RECIPIENTS: frozenset[Recipients] = frozenset(
         # the pair, and hiding it in the staff section would hide it from the very people
         # it exists for.
         Recipients.WIKI_SCOPE_LEADERSHIP,
+        # The kiln guild's lead and staff (#691): shown to them alone (_eligible_for).
+        Recipients.KILN_CREW,
     }
 )
 
@@ -186,6 +189,7 @@ _GROUPS_BY_RECIPIENT: dict[Recipients, tuple[PermissionGroup, ...]] = {
     Recipients.GUILD_LEAD: (PermissionGroup.GUILD_LEADERSHIP,),
     Recipients.GUILD_ORIENTERS: (PermissionGroup.GUILD_LEADERSHIP,),
     Recipients.ALL_GUILD_LEADS: (PermissionGroup.GUILD_LEADERSHIP,),
+    Recipients.KILN_CREW: (PermissionGroup.GUILD_LEADERSHIP,),
 }
 
 
@@ -450,6 +454,8 @@ class _StaffProfile:
     is_orienter: bool
     manages_equipment: bool
     capabilities: frozenset[str]
+    # The kiln guild's lead or staff (#691, kiln.access.is_crew). Always leadership too.
+    is_kiln_crew: bool = False
 
     @property
     def is_leadership(self) -> bool:
@@ -488,21 +494,25 @@ def _staff_profile(user: User) -> _StaffProfile:
     A user with no linked member is a plain member on every axis (an all-``False`` profile),
     so none of the staff rows are eligible.
     """
+    from kiln.access import is_crew
     from membership.models import GuildStaffMembership, Member
 
     member = Member.objects.filter(user=user).only("id", "fog_role", "status").first()
     if member is None:
         return _StaffProfile(False, False, False, False, False, False, False, frozenset())
     staff_roles = set(member.guild_staff_roles.values_list("role", flat=True))
+    leads_guild = member.led_guilds.exists()
     return _StaffProfile(
         is_admin=member.fog_role == Member.FogRole.ADMIN,
         is_active=member.status == Member.Status.ACTIVE,
         is_officer=member.fog_role == Member.FogRole.GUILD_OFFICER,
-        leads_guild=member.led_guilds.exists(),
+        leads_guild=leads_guild,
         staffs_guild=bool(staff_roles),
         is_orienter=GuildStaffMembership.Role.ORIENTER in staff_roles,
         manages_equipment=member.equipment_staff_memberships.exists(),
         capabilities=frozenset(member.admin_capabilities.values_list("capability", flat=True)),
+        # Kiln crew is a lead or a staff row, so a plain member is never asked about it.
+        is_kiln_crew=(leads_guild or bool(staff_roles)) and is_crew(member),
     )
 
 
@@ -548,6 +558,8 @@ def _eligible_for(recipient: Recipients, profile: _StaffProfile) -> bool:
         # Either audience of the composed wiki_scope_leadership resolver: a guild's
         # leadership for a scoped page, the admins for a space-wide one.
         Recipients.WIKI_SCOPE_LEADERSHIP: lead or profile.is_admin,
+        # Only the kiln guild's lead and staff receive kiln.maker_replied (#691).
+        Recipients.KILN_CREW: profile.is_kiln_crew,
     }
     return checks[recipient]
 

@@ -40,6 +40,7 @@ _DISPATCHER_ALWAYS = {
     "release_abandoned_class_holds",
     "take_reconciliation_snapshot",
     "send_queued_announcements",
+    "announce_live_requests",
 }
 _DISPATCHER_DAILY = {
     "sync_all_sources",

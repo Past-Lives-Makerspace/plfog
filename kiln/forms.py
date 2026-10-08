@@ -235,3 +235,57 @@ class ListOptionForm(forms.Form):
         if clash.exists():
             raise ValidationError(f"{name} is already on the list.")
         return name
+
+
+class ToastForm(forms.Form):
+    """A form whose refusal is one toast: its first error."""
+
+    @property
+    def first_error(self) -> str:
+        return str(next(iter(self.errors.values()))[0])
+
+
+class LoadKilnForm(ToastForm):
+    """Confirm loaded: the firing's type and the tickets ticked on Load the Kiln.
+
+    A ticked ticket is any ticket that exists; whether it can still go in (in the queue, of
+    this firing's type) is decided under a row lock when the load runs
+    (:func:`kiln.services.load_kiln`), never here, where it could change a moment later.
+    """
+
+    firing_type = forms.ChoiceField(
+        choices=KilnTicket.FiringType.choices,
+        error_messages={"required": "Choose bisque or glaze.", "invalid_choice": "Choose bisque or glaze."},
+    )
+    tickets = forms.ModelMultipleChoiceField(
+        queryset=KilnTicket.objects.all(),
+        error_messages={
+            "required": "Tick at least one ticket to load.",
+            "invalid_choice": "One of the ticked tickets no longer exists.",
+            "invalid_pk_value": "One of the ticked tickets no longer exists.",
+        },
+    )
+
+
+class ReplyForm(ToastForm):
+    """A message on a ticket's thread."""
+
+    body = forms.CharField(
+        max_length=2000,
+        widget=forms.Textarea(attrs={"rows": 3, "placeholder": "Write a message"}),
+        label="Message",
+        error_messages={"required": "Write a message first.", "max_length": "Keep it under 2000 characters."},
+    )
+
+
+class ManualFlagForm(ToastForm):
+    """A flag the crew adds by hand. The note is for the crew only."""
+
+    note = forms.CharField(
+        max_length=300,
+        widget=forms.Textarea(
+            attrs={"rows": 2, "placeholder": "Example: glaze is thick near the foot, check before loading"}
+        ),
+        label="What should the crew check?",
+        error_messages={"required": "Say what the crew should check.", "max_length": "Keep it under 300 characters."},
+    )

@@ -1,0 +1,17 @@
+{# Every answer on a ticket, plus the dates the system recorded. Expects ticket. #}
+<dl class="pl-kiln-answers">
+    <dt>Firing</dt><dd>{{ ticket.get_firing_type_display|default:"Not answered" }}</dd>
+    <dt>Size</dt><dd>{{ ticket.size_label|default:"Not answered" }}</dd>
+    <dt>Quantity</dt><dd>{{ ticket.piece_count }}</dd>
+    <dt>Clay</dt><dd>{{ ticket.clay_label|default:"Not answered" }}{% if ticket.clay_other and ticket.clay_other_cone6 %}<br>Confirmed safe to Cone 6{% endif %}</dd>
+    {% if ticket.firing_type == "bisque" %}
+    <dt>All walls under 1 inch</dt><dd>{% if ticket.walls_under_inch is None %}Not answered{% else %}{{ ticket.walls_under_inch|yesno:"Yes,No" }}{% endif %}</dd>
+    {% elif ticket.firing_type == "glaze" %}
+    <dt>Glaze</dt><dd>{% for line in ticket.glaze_lines %}{{ line }}{% if not forloop.last %}<br>{% endif %}{% empty %}Not answered{% endfor %}</dd>
+    <dt>Bottom 1/4 inch free of glaze</dt><dd>{% if ticket.bottom_free_of_glaze is None %}Not answered{% else %}{{ ticket.bottom_free_of_glaze|yesno:"Yes,No" }}{% endif %}</dd>
+    {% if ticket.bottom_free_of_glaze is False %}<dt>Stilts or cookies added</dt><dd>{% if ticket.stilts_added is None %}Not answered{% else %}{{ ticket.stilts_added|yesno:"Yes,No" }}{% endif %}</dd>{% endif %}
+    <dt>Cone 6 confirmation</dt><dd>{{ ticket.glaze_cone6|yesno:"Yes,No" }}</dd>
+    {% endif %}
+    <dt>Created</dt><dd>{{ ticket.created_at|date:"D, M j, Y · g:i a" }}</dd>
+    <dt>Submitted</dt><dd>{% if ticket.submitted_at %}{{ ticket.submitted_at|date:"D, M j, Y · g:i a" }}{% else %}Not yet{% endif %}</dd>
+</dl>

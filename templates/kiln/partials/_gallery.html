@@ -1,0 +1,15 @@
+{# A ticket's photos: the cover large, the others as a strip that swaps it. Expects ticket and photos. #}
+{% if photos %}
+{% with cover=ticket.cover_photo %}
+<div class="hub-card" x-data="{ main: '{{ cover.image.url|escapejs }}' }">
+    <div class="pl-kiln-gallery__main"><img :src="main" src="{{ cover.image.url }}" alt="Photo of ticket {{ ticket.pk }}"></div>
+    {% if photos|length > 1 %}
+    <div class="pl-kiln-gallery__strip">
+        {% for photo in photos %}
+        <button type="button" @click="main = '{{ photo.image.url|escapejs }}'" :aria-current="main === '{{ photo.image.url|escapejs }}' ? 'true' : 'false'" aria-label="Photo {{ forloop.counter }}{% if photo.is_cover %}, cover{% endif %}"><img src="{{ photo.tile.url }}" alt=""></button>
+        {% endfor %}
+    </div>
+    {% endif %}
+</div>
+{% endwith %}
+{% endif %}

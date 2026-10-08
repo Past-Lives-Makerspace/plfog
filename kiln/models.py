@@ -2,7 +2,8 @@
 
 A maker files one ticket per piece (or set of matching pieces) waiting on the shelf. The
 ticket carries photos, the guild's questions and the flags its answers raise; the crew loads
-and unloads from it (parts 2 and 3). Clay and studio glaze choices are guild-edited lists
+it into a :class:`KilnFiring` (part 2) and unloads it (part 3). A reply thread on the ticket
+runs between the maker and the crew. Clay and studio glaze choices are guild-edited lists
 that are archived, never deleted, so an old ticket always shows what was really used.
 """
 
@@ -30,6 +31,15 @@ if TYPE_CHECKING:
 TILE_LONG_EDGE = 480
 
 _OptionT = TypeVar("_OptionT", bound="ListOption")
+
+
+def member_name(member: Member) -> str:
+    """What the kiln pages call a person: their name, or their email when no name is on file.
+
+    A class guest's account can carry no name, and a blank name in "Loaded by" or on a tile
+    reads as a bug. The email is looked up only when the name is blank.
+    """
+    return member.display_name or member.primary_email
 
 
 class ListOptionNameTaken(Exception):
@@ -142,6 +152,18 @@ class MissingAnswer:
     message: str
 
 
+class KilnTicketQuerySet(models.QuerySet["KilnTicket"]):
+    """The queue the crew loads from, and which tickets a viewer may open."""
+
+    def waiting(self) -> KilnTicketQuerySet:
+        """Tickets in the queue, the longest wait first."""
+        return self.filter(status=KilnTicket.Status.SUBMITTED).order_by("submitted_at", "pk")
+
+    def visible_to(self, member: Member, *, crew: bool) -> KilnTicketQuerySet:
+        """Every ticket for the crew; a maker's own tickets for anyone else."""
+        return self if crew else self.filter(maker=member)
+
+
 class KilnTicket(models.Model):
     """One piece, or a set of identical pieces, waiting for a firing."""
 
@@ -250,6 +272,16 @@ class KilnTicket(models.Model):
     created_at = models.DateTimeField(auto_now_add=True, help_text="When the ticket was started.")
     updated_at = models.DateTimeField(auto_now=True, help_text="When the ticket was last saved.")
     submitted_at = models.DateTimeField(null=True, blank=True, help_text="When the ticket first went in the queue.")
+    firing = models.ForeignKey(
+        "KilnFiring",
+        null=True,
+        blank=True,
+        on_delete=models.PROTECT,
+        related_name="tickets",
+        help_text="The firing the crew loaded this piece into; blank until it is loaded.",
+    )
+
+    objects = KilnTicketQuerySet.as_manager()
 
     class Meta:
         ordering = ["-created_at"]
@@ -321,9 +353,57 @@ class KilnTicket(models.Model):
         return None
 
     def open_flags(self) -> list[KilnFlag]:
-        """Flags the crew has not cleared, loudest first."""
+        """Flags the crew has not cleared, loudest first (the crew's view: hand-added ones too)."""
         flags = [f for f in self.flags.all() if f.cleared_at is None]
         return sorted(flags, key=lambda f: (not f.is_loud, f.pk))
+
+    def maker_flags(self) -> list[KilnFlag]:
+        """The open flags the maker sees: automatic ones only. A crew flag and its note stay with the crew."""
+        return [f for f in self.open_flags() if f.kind != KilnFlag.Kind.MANUAL]
+
+    def crew_flags(self) -> list[KilnFlag]:
+        """Every flag for the crew's ticket view: open ones loudest first, then cleared ones."""
+        cleared = [f for f in self.flags.all() if f.cleared_at is not None]
+        return self.open_flags() + cleared
+
+    def add_flag(self, note: str, by: Member) -> KilnFlag:
+        """A flag the crew adds by hand, with a note only the crew sees."""
+        return KilnFlag.objects.create(ticket=self, kind=KilnFlag.Kind.MANUAL, note=note, added_by=by)
+
+    @property
+    def glaze_names(self) -> str:
+        """The glazes by name alone, for a loading tile: "Ritual Clear, Amaco Blue Rutile"."""
+        if self.firing_type != self.FiringType.GLAZE:
+            return ""
+        names: list[str] = []
+        if self.glaze_studio:
+            names.extend(g.name for g in self.studio_glazes.all())
+        if self.glaze_commercial:
+            names.append(self.commercial_glaze_name)
+        if self.glaze_self_made:
+            names.append(self.self_made_glaze_description)
+        return ", ".join(name for name in names if name)
+
+    @property
+    def waiting_label(self) -> str:
+        """How long the piece has been in the queue, in whole days: "Today", "1 day", "6 days"."""
+        if self.submitted_at is None:
+            return ""
+        days = (timezone.localdate() - timezone.localdate(self.submitted_at)).days
+        if days < 1:
+            return "Today"
+        return "1 day" if days == 1 else f"{days} days"
+
+    @property
+    def maker_name(self) -> str:
+        return member_name(self.maker)
+
+    @property
+    def member_url(self) -> str:
+        """Absolute link to the ticket's messages, for a notification."""
+        from django.urls import reverse
+
+        return f"{settings.MEMBER_BASE_URL}{reverse('kiln:detail', args=[self.pk])}#kiln-messages"
 
     # ---- answers ---------------------------------------------------------------------
 
@@ -615,9 +695,9 @@ class KilnTicketPhoto(models.Model):
 class KilnFlag(models.Model):
     """A request for the crew to double check a ticket, and maybe reach out.
 
-    Automatic flags come from the answers (``added_by`` is blank). Part 2 adds the crew's own
-    flags (``MANUAL`` with a ``note`` and ``added_by``) and clearing (``cleared_at`` and
-    ``cleared_by``), so the fields are here from the start.
+    Automatic flags come from the answers (``added_by`` is blank) and the maker sees each as a
+    kind note. The crew add their own (``MANUAL``, with a ``note`` and ``added_by``) that only
+    the crew see, and clear any flag (``cleared_at`` and ``cleared_by``).
     """
 
     class Kind(models.TextChoices):
@@ -630,7 +710,8 @@ class KilnFlag(models.Model):
         MANUAL = "manual", "Added by the crew"
 
     # What the maker reads: kind, never a scolding, and what happens next is said once
-    # around the list ("the crew will take a look").
+    # around the list ("the crew will take a look"). A crew flag has no maker note: the
+    # maker never sees it (KilnTicket.maker_flags).
     MAKER_NOTES: dict[str, str] = {
         Kind.OTHER_CLAY: "Your clay is not on the studio list.",
         Kind.COMMERCIAL_GLAZE: "You used a commercial glaze.",
@@ -639,7 +720,6 @@ class KilnFlag(models.Model):
         Kind.GLAZE_ON_BOTTOM: "There is glaze near the bottom, and you added stilts. Thank you!",
         Kind.GLAZE_ON_BOTTOM_NO_STILTS: "There is glaze near the bottom and no stilts yet, so the crew will check "
         "before it goes on a shelf.",
-        Kind.MANUAL: "The crew wants a closer look.",
     }
 
     ticket = models.ForeignKey(
@@ -697,3 +777,110 @@ class KilnFlag(models.Model):
     def short_label(self) -> str:
         """Lowercase label for a row chip: "The crew will take a look: thick walls"."""
         return str(self.get_kind_display()).lower()
+
+    @property
+    def crew_label(self) -> str:
+        """What the crew reads on a loading tile: the kind, or a hand flag's own note."""
+        if self.kind == self.Kind.MANUAL:
+            return f"Crew note: {self.note}"
+        return str(self.get_kind_display())
+
+    def clear(self, by: Member) -> None:
+        """The crew checked it. The first clear is the one kept; clearing again changes nothing.
+
+        An automatic flag opens again only when the maker changes the answer that raised it
+        (:meth:`KilnTicket.sync_automatic_flags`).
+        """
+        if self.cleared_at is not None:
+            return
+        self.cleared_at = timezone.now()
+        self.cleared_by = by
+        self.save(update_fields=["cleared_at", "cleared_by"])
+
+
+class KilnFiring(models.Model):
+    """One load of the kiln: a bisque or glaze firing and the tickets that went in.
+
+    Numbered in one sequence across both types ("Glaze firing 88"), so the crew can name
+    a load out loud. Part 3 adds the unloading.
+    """
+
+    firing_type = models.CharField(
+        max_length=10, choices=KilnTicket.FiringType.choices, help_text="Bisque or glaze; every ticket in it matches."
+    )
+    number = models.PositiveIntegerField(
+        unique=True, help_text="The firing's number, one sequence across bisque and glaze."
+    )
+    loaded_by = models.ForeignKey(
+        "membership.Member",
+        on_delete=models.PROTECT,
+        related_name="+",
+        help_text="The crew member who confirmed the load.",
+    )
+    loaded_at = models.DateTimeField(default=timezone.now, help_text="When the load was confirmed.")
+
+    class Meta:
+        ordering = ["-number"]
+
+    def __str__(self) -> str:
+        return self.name
+
+    @property
+    def loaded_by_name(self) -> str:
+        return member_name(self.loaded_by)
+
+    @property
+    def name(self) -> str:
+        """ "Glaze firing 88"."""
+        return f"{self.get_firing_type_display()} firing {self.number}"
+
+    @classmethod
+    def next_number(cls) -> int:
+        """The number the next firing will carry."""
+        last = cls.objects.aggregate(last=models.Max("number"))["last"]
+        return (last or 0) + 1
+
+    @classmethod
+    def start(cls, firing_type: str, by: Member) -> KilnFiring:
+        """Create the next firing. Two crews confirming at once each get their own number.
+
+        The unique number decides a tie: the loser of the race takes the next one.
+        """
+        for _attempt in range(5):
+            try:
+                with transaction.atomic():
+                    return cls.objects.create(firing_type=firing_type, number=cls.next_number(), loaded_by=by)
+            except IntegrityError:
+                continue
+        raise IntegrityError("Could not number a new firing.")
+
+
+class KilnReply(models.Model):
+    """One message on a ticket's thread between the maker and the crew."""
+
+    ticket = models.ForeignKey(
+        KilnTicket, on_delete=models.CASCADE, related_name="replies", help_text="The ticket this message is on."
+    )
+    author = models.ForeignKey(
+        "membership.Member",
+        on_delete=models.PROTECT,
+        related_name="kiln_replies",
+        help_text="Who wrote it: the maker or a crew member.",
+    )
+    body = models.TextField(help_text="The message.")
+    created_at = models.DateTimeField(auto_now_add=True, help_text="When it was sent.")
+
+    class Meta:
+        ordering = ["created_at", "pk"]
+
+    def __str__(self) -> str:
+        return f"Message {self.pk} on ticket {self.ticket_id}"
+
+    @property
+    def author_name(self) -> str:
+        return member_name(self.author)
+
+    @property
+    def from_crew(self) -> bool:
+        """Anyone but the maker writing on a ticket is the crew (only the crew can open another's ticket)."""
+        return self.author_id != self.ticket.maker_id

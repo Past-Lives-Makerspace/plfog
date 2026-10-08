@@ -12,7 +12,7 @@
     <span class="pl-kiln-row__top"><a href="{% url 'kiln:detail' ticket.pk %}" class="pl-kiln-row__title">Ticket {{ ticket.pk }} · {{ ticket.summary }}</a></span>
     <span class="pl-kiln-row__sub">{% with glazes=ticket.glaze_lines %}{% if glazes %}{{ glazes|join:" · " }}{% else %}{{ ticket.clay_label }}{% endif %}{% endwith %}{% if ticket.size_label %} · {{ ticket.size_label }}{% endif %}<br>{% include "kiln/partials/_status_badge.html" %}{% if ticket.status == "submitted" and ticket.submitted_at %} since {{ ticket.submitted_at|date:"D, M j" }}{% endif %}</span>
     <span class="pl-kiln-row__extras">
-        {% with flags=ticket.open_flags %}{% if flags and ticket.status == "submitted" %}
+        {% with flags=ticket.maker_flags %}{% if flags and ticket.status == "submitted" %}
         <span class="pl-kiln-flag{% if flags.0.is_loud %} pl-kiln-flag--loud{% endif %}"><svg class="pl-kiln-ico" aria-hidden="true"><use href="#kiln-i-{% if flags.0.is_loud %}alert{% else %}eye{% endif %}"/></svg>The crew will take a look: {% for flag in flags %}{{ flag.short_label }}{% if not forloop.last %}, {% endif %}{% endfor %}</span>
         {% endif %}{% endwith %}
         <a href="{% url 'kiln:new' %}?from={{ ticket.pk }}" class="hub-btn hub-btn--sm hub-btn--ghost"><svg class="pl-kiln-ico" aria-hidden="true"><use href="#kiln-i-copy"/></svg>Make another like this</a>

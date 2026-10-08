@@ -14,39 +14,16 @@
         <h1 class="hub-page-title">{% if ticket.status == "draft" %}Draft Ticket{% else %}Ticket {{ ticket.pk }}{% endif %}</h1>
         {% include "kiln/partials/_status_badge.html" %}
     </div>
-    <p class="hub-text-muted pl-kiln-detail__sub">{{ ticket.summary }}{% if ticket.size_label %} · {{ ticket.size_label }}{% endif %}</p>
+    <p class="hub-text-muted pl-kiln-detail__sub">{{ ticket.summary }}{% if ticket.size_label %} · {{ ticket.size_label }}{% endif %}{% if ticket.firing %} · {{ ticket.firing.name }}{% endif %}</p>
 
-    {% if photos %}
-    {% with cover=ticket.cover_photo %}
-    <div class="hub-card" x-data="{ main: '{{ cover.image.url|escapejs }}' }">
-        <div class="pl-kiln-gallery__main"><img :src="main" src="{{ cover.image.url }}" alt="Photo of ticket {{ ticket.pk }}"></div>
-        {% if photos|length > 1 %}
-        <div class="pl-kiln-gallery__strip">
-            {% for photo in photos %}
-            <button type="button" @click="main = '{{ photo.image.url|escapejs }}'" :aria-current="main === '{{ photo.image.url|escapejs }}' ? 'true' : 'false'" aria-label="Photo {{ forloop.counter }}{% if photo.is_cover %}, cover{% endif %}"><img src="{{ photo.tile.url }}" alt=""></button>
-            {% endfor %}
-        </div>
-        {% endif %}
-    </div>
-    {% endwith %}
-    {% endif %}
+    {% include "kiln/partials/_gallery.html" %}
 
     <div class="hub-card">
         <h2 class="pl-kiln-card-title">Where It Is</h2>
-        <ol class="pl-kiln-timeline">
-            <li data-state="done"><span class="pl-kiln-timeline__dot"><svg class="pl-kiln-ico" aria-hidden="true"><use href="#kiln-i-check"/></svg></span><div><strong>Created</strong><span>{{ ticket.created_at|date:"D, M j · g:i a" }}</span></div></li>
-            {% if ticket.status == "draft" %}
-            <li data-state="now"><span class="pl-kiln-timeline__dot"><svg class="pl-kiln-ico" aria-hidden="true"><use href="#kiln-i-pencil"/></svg></span><div><strong>Draft</strong><span>Submit it to put it in the queue</span></div></li>
-            <li data-state="next"><span class="pl-kiln-timeline__dot"></span><div><strong>In the queue</strong></div></li>
-            {% else %}
-            <li data-state="{% if ticket.status == 'submitted' %}now{% else %}done{% endif %}"><span class="pl-kiln-timeline__dot"><svg class="pl-kiln-ico" aria-hidden="true"><use href="#kiln-i-{% if ticket.status == 'submitted' %}clock{% else %}check{% endif %}"/></svg></span><div><strong>In the queue</strong><span>Submitted {{ ticket.submitted_at|date:"D, M j · g:i a" }}</span></div></li>
-            {% endif %}
-            <li data-state="{% if ticket.status == 'loaded' %}now{% elif ticket.status == 'fired' %}done{% else %}next{% endif %}"><span class="pl-kiln-timeline__dot">{% if ticket.status == 'loaded' or ticket.status == 'fired' %}<svg class="pl-kiln-ico" aria-hidden="true"><use href="#kiln-i-{% if ticket.status == 'loaded' %}flame{% else %}check{% endif %}"/></svg>{% endif %}</span><div><strong>In the kiln</strong></div></li>
-            <li data-state="{% if ticket.status == 'fired' %}now{% else %}next{% endif %}"><span class="pl-kiln-timeline__dot">{% if ticket.status == 'fired' %}<svg class="pl-kiln-ico" aria-hidden="true"><use href="#kiln-i-check"/></svg>{% endif %}</span><div><strong>Ready for pickup</strong>{% if ticket.status != 'fired' %}<span>You will get a notification</span>{% endif %}</div></li>
-        </ol>
+        {% include "kiln/partials/_timeline.html" %}
     </div>
 
-    {% with flags=ticket.open_flags %}{% if flags %}
+    {% with flags=ticket.maker_flags %}{% if flags %}
     <div class="pl-kiln-notice" data-kiln-flags>
         <svg class="pl-kiln-ico" aria-hidden="true"><use href="#kiln-i-eye"/></svg>
         <div>
@@ -57,32 +34,13 @@
     </div>
     {% endif %}{% endwith %}
 
-    <div class="hub-card">
-        <h2 class="pl-kiln-card-title">Maker</h2>
-        <div class="pl-kiln-maker">
-            <span class="pl-kiln-maker__avatar" aria-hidden="true">{{ ticket.maker.initials }}</span>
-            <div class="pl-kiln-maker__lines"><strong>{{ ticket.maker.display_name|default:ticket.maker.primary_email }}</strong> · {{ ticket.get_maker_type_display }}{% if ticket.maker.primary_email %}<br><a href="mailto:{{ ticket.maker.primary_email }}">{{ ticket.maker.primary_email }}</a>{% endif %}{% if ticket.maker.phone %}<br><a href="tel:{{ ticket.maker.phone }}">{{ ticket.maker.phone }}</a>{% endif %}</div>
-        </div>
-    </div>
+    {% include "kiln/partials/_thread.html" with as_crew=False %}
+
+    {% include "kiln/partials/_maker_card.html" %}
 
     <div class="hub-card">
         <h2 class="pl-kiln-card-title">Your Answers</h2>
-        <dl class="pl-kiln-answers">
-            <dt>Firing</dt><dd>{{ ticket.get_firing_type_display|default:"Not answered" }}</dd>
-            <dt>Size</dt><dd>{{ ticket.size_label|default:"Not answered" }}</dd>
-            <dt>Quantity</dt><dd>{{ ticket.piece_count }}</dd>
-            <dt>Clay</dt><dd>{{ ticket.clay_label|default:"Not answered" }}{% if ticket.clay_other and ticket.clay_other_cone6 %}<br>Confirmed safe to Cone 6{% endif %}</dd>
-            {% if ticket.firing_type == "bisque" %}
-            <dt>All walls under 1 inch</dt><dd>{% if ticket.walls_under_inch is None %}Not answered{% else %}{{ ticket.walls_under_inch|yesno:"Yes,No" }}{% endif %}</dd>
-            {% elif ticket.firing_type == "glaze" %}
-            <dt>Glaze</dt><dd>{% for line in ticket.glaze_lines %}{{ line }}{% if not forloop.last %}<br>{% endif %}{% empty %}Not answered{% endfor %}</dd>
-            <dt>Bottom 1/4 inch free of glaze</dt><dd>{% if ticket.bottom_free_of_glaze is None %}Not answered{% else %}{{ ticket.bottom_free_of_glaze|yesno:"Yes,No" }}{% endif %}</dd>
-            {% if ticket.bottom_free_of_glaze is False %}<dt>Stilts or cookies added</dt><dd>{% if ticket.stilts_added is None %}Not answered{% else %}{{ ticket.stilts_added|yesno:"Yes,No" }}{% endif %}</dd>{% endif %}
-            <dt>Cone 6 confirmation</dt><dd>{{ ticket.glaze_cone6|yesno:"Yes,No" }}</dd>
-            {% endif %}
-            <dt>Created</dt><dd>{{ ticket.created_at|date:"D, M j, Y · g:i a" }}</dd>
-            <dt>Submitted</dt><dd>{% if ticket.submitted_at %}{{ ticket.submitted_at|date:"D, M j, Y · g:i a" }}{% else %}Not yet{% endif %}</dd>
-        </dl>
+        {% include "kiln/partials/_answers.html" %}
     </div>
 
     <div class="pl-kiln-actions">

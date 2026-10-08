@@ -1,0 +1,59 @@
+{% extends "hub/base.html" %}
+{% load static %}
+{% block title %}Load the Kiln{% endblock %}
+
+{% block extra_head %}
+<link rel="stylesheet" href="{% static 'css/kiln-tickets.css' %}">
+{% endblock %}
+
+{% block content %}
+{% include "kiln/partials/_icons.html" %}
+<div class="pl-kiln-head">
+    <h1 class="hub-page-title">Kiln Tickets</h1>
+    {% include "kiln/partials/_crew_tabs.html" %}
+</div>
+
+{% comment %}
+Load the Kiln (#691). Choose the firing, tick the tiles going in, Confirm loaded. Alpine only
+filters the tiles, keeps the other type's tiles unticked and disabled, and counts the ticks; the
+server decides what goes in (kiln.services.load_kiln) and says in the toast what it left out.
+{% endcomment %}
+<form method="post" action="{% url 'kiln:load' %}" data-kiln-load
+      x-data="{ firing: '{{ firing_type|escapejs }}', show: '{{ firing_type|escapejs }}', flaggedOnly: false, count: 0,
+                recount() { this.count = this.$root.querySelectorAll('input[name=tickets]:checked').length },
+                pick(type) { this.firing = type; this.show = type; this.$root.querySelectorAll('[data-tile]').forEach((tile) => { if (tile.dataset.type !== type) { tile.querySelector('input').checked = false } }); this.recount() } }"
+      @change="recount()">
+    {% csrf_token %}
+    <div class="hub-card pl-kiln-firingbar">
+        <div>
+            <div class="pl-kiln-firingbar__label">Starting</div>
+            <div class="pl-kiln-firingbar__name" data-kiln-firing-name x-text="(firing === 'glaze' ? 'Glaze' : 'Bisque') + ' firing {{ next_number }}'">{% if firing_type == "glaze" %}Glaze{% else %}Bisque{% endif %} firing {{ next_number }}</div>
+        </div>
+        <div class="pl-kiln-seg" role="radiogroup" aria-label="Type of firing">
+            <label><input type="radio" name="firing_type" value="bisque"{% if firing_type == "bisque" %} checked{% endif %} @change="pick('bisque')">Bisque</label>
+            <label><input type="radio" name="firing_type" value="glaze"{% if firing_type == "glaze" %} checked{% endif %} @change="pick('glaze')">Glaze</label>
+        </div>
+    </div>
+
+    {% if queue.tickets %}
+    <div class="pl-kiln-filters" role="group" aria-label="Show">
+        <label class="pl-chip"><input type="radio" name="show" value="all" x-model="show">All {{ queue.tickets|length }}</label>
+        <label class="pl-chip"><input type="radio" name="show" value="bisque" x-model="show"{% if firing_type == "bisque" %} checked{% endif %}>Bisque {{ queue.bisque_count }}</label>
+        <label class="pl-chip"><input type="radio" name="show" value="glaze" x-model="show"{% if firing_type == "glaze" %} checked{% endif %}>Glaze {{ queue.glaze_count }}</label>
+        <label class="pl-chip"><input type="checkbox" name="flagged" x-model="flaggedOnly"><svg class="pl-kiln-ico" aria-hidden="true"><use href="#kiln-i-flag"/></svg>Flagged {{ queue.flagged_count }}</label>
+        <span class="pl-kiln-filters__sort">Waiting longest first</span>
+    </div>
+
+    <div class="pl-kiln-grid">
+        {% for ticket in queue.tickets %}{% include "kiln/partials/_load_tile.html" %}{% endfor %}
+    </div>
+
+    <div class="pl-kiln-actionbar">
+        <div class="pl-kiln-actionbar__note"><strong data-kiln-ticked><span x-text="count">0</span> <span x-text="count === 1 ? 'ticket ticked' : 'tickets ticked'">tickets ticked</span></strong>They move to In the kiln. Makers are not notified yet.</div>
+        <button type="submit" class="hub-btn hub-btn--primary" :disabled="count < 1"><svg class="pl-kiln-ico" aria-hidden="true"><use href="#kiln-i-flame"/></svg>Confirm loaded</button>
+    </div>
+    {% else %}
+    <p class="hub-text-muted" data-kiln-empty>Nothing is waiting for the kiln. New tickets show up here as makers submit them.</p>
+    {% endif %}
+</form>
+{% endblock %}
