@@ -8,6 +8,7 @@ import pytest
 from django.test import Client
 from django.urls import reverse
 
+from kiln.access import kiln_home_url
 from kiln.models import ClayOption, GlazeOption, KilnFlag, KilnTicket
 from membership.models import Member
 from tests.kiln.conftest import photo_upload, signed_in
@@ -23,6 +24,12 @@ pytestmark = pytest.mark.django_db
 
 NEW = reverse("kiln:new")
 MINE = reverse("kiln:mine")
+HOME = kiln_home_url()  # where /kiln/ sends everyone but a guest: the Ceramics Guild's Kiln Tickets tab
+
+
+@pytest.fixture(autouse=True)
+def _ceramics_guild(kiln_guild):
+    """The guild page that holds a member's kiln home."""
 
 
 def _bisque(clay: ClayOption, **extra: Any) -> dict[str, Any]:
@@ -71,7 +78,9 @@ def describe_access():
         assert client.get(MINE).status_code == 403
 
     def it_lets_any_active_member_in(maker_client):
-        assert maker_client.get(MINE).status_code == 200
+        assert maker_client.get(MINE)["Location"] == HOME
+        assert maker_client.get(HOME).status_code == 200
+        assert maker_client.get(NEW).status_code == 200
 
 
 def describe_my_tickets():
@@ -82,14 +91,14 @@ def describe_my_tickets():
         fired = KilnTicketFactory(maker=maker, status="fired")
         KilnTicketFactory()  # someone else's
 
-        response = maker_client.get(MINE)
+        response = maker_client.get(HOME)
 
-        assert response.context["drafts"] == [draft]
-        assert response.context["queued"] == [queued]
-        assert response.context["loaded"] == [loaded]
-        assert response.context["history"] == [fired]
-        assert not response.context["has_older"]
-        assert not response.context["is_crew"]
+        assert response.context["kiln_home"].drafts == [draft]
+        assert response.context["kiln_home"].queued == [queued]
+        assert response.context["kiln_home"].loaded == [loaded]
+        assert response.context["kiln_home"].history == [fired]
+        assert not response.context["kiln_home"].has_older
+        assert not response.context["kiln_home"].runs_kiln
         body = response.content.decode()
         assert 'data-group="submitted"' in body and "In The Queue" in body
         assert f"Ticket {queued.pk} · Bisque · 1 piece" in body
@@ -99,17 +108,17 @@ def describe_my_tickets():
         for _ in range(11):
             KilnTicketFactory(maker=maker, status="fired")
 
-        first = maker_client.get(MINE)
-        everything = maker_client.get(f"{MINE}?older=1")
+        first = maker_client.get(HOME)
+        everything = maker_client.get(kiln_home_url(older=True))
 
-        assert len(first.context["history"]) == 10 and first.context["has_older"]
-        assert len(everything.context["history"]) == 11 and not everything.context["has_older"]
+        assert len(first.context["kiln_home"].history) == 10 and first.context["kiln_home"].has_older
+        assert len(everything.context["kiln_home"].history) == 11 and not everything.context["kiln_home"].has_older
 
     def it_says_what_a_draft_still_needs(maker, maker_client):
         KilnTicketFactory(maker=maker)
         KilnTicketFactory(maker=maker, ready=True)
 
-        body = maker_client.get(MINE).content.decode()
+        body = maker_client.get(HOME).content.decode()
 
         assert "Still needs: a photo, the firing, the clay" in body
         assert "Ready to submit" in body
@@ -120,7 +129,7 @@ def describe_my_tickets():
         loud = KilnTicketFactory(maker=maker, status="submitted")
         KilnFlagFactory(ticket=loud, kind=KilnFlag.Kind.GLAZE_ON_BOTTOM_NO_STILTS)
 
-        body = maker_client.get(MINE).content.decode()
+        body = maker_client.get(HOME).content.decode()
 
         assert "The crew will take a look: thick walls" in body
         assert "pl-kiln-flag pl-kiln-flag--loud" in body
@@ -129,15 +138,15 @@ def describe_my_tickets():
         ticket = KilnTicketFactory(maker=maker, status="submitted")
         cover = KilnTicketPhotoFactory(ticket=ticket, is_cover=True)
 
-        assert cover.tile.url in maker_client.get(MINE).content.decode()
+        assert cover.tile.url in maker_client.get(HOME).content.decode()
 
     def it_offers_a_first_ticket_when_there_are_none(maker_client):
-        assert "No tickets yet." in maker_client.get(MINE).content.decode()
+        assert "No tickets yet." in maker_client.get(HOME).content.decode()
 
-    def it_shows_the_crew_tabs_to_guild_staff(crew_client):
-        response = crew_client.get(MINE)
+    def it_shows_the_crew_links_to_guild_staff(crew_client):
+        response = crew_client.get(HOME)
 
-        assert response.context["is_crew"]
+        assert response.context["kiln_home"].runs_kiln
         assert reverse("kiln:lists") in response.content.decode()
 
 
@@ -157,7 +166,7 @@ def describe_new_ticket():
     def it_saves_a_draft_with_nothing_answered(maker, maker_client):
         response = _post(maker_client, NEW, {}, action="draft", photos=0)
 
-        assert response.status_code == 302 and response["Location"] == MINE
+        assert response.status_code == 302 and response["Location"] == HOME
         ticket = KilnTicket.objects.get(maker=maker)
         assert ticket.status == KilnTicket.Status.DRAFT
         assert ticket.submitted_at is None
@@ -176,13 +185,13 @@ def describe_new_ticket():
     def it_files_a_bisque_ticket_into_the_queue(maker, maker_client):
         response = _post(maker_client, NEW, _bisque(ClayOptionFactory()))
 
-        assert response["Location"] == MINE
+        assert response["Location"] == HOME
         ticket = KilnTicket.objects.get(maker=maker)
         assert ticket.status == KilnTicket.Status.SUBMITTED
         assert ticket.submitted_at is not None
         assert ticket.maker_type == KilnTicket.MakerType.MEMBER
         assert ticket.photos.get().is_cover
-        page = maker_client.get(MINE).content.decode()
+        page = maker_client.get(HOME).content.decode()
         assert f"Ticket {ticket.pk} is in the queue." in page
 
     def it_files_a_glaze_ticket_with_every_glaze_kind(maker, maker_client):
@@ -353,11 +362,11 @@ def describe_editing():
 
         response = _post(maker_client, url, _bisque(ticket.clay, walls_under_inch="no"), photos=0)
 
-        assert response["Location"] == MINE
+        assert response["Location"] == HOME
         ticket.refresh_from_db()
         assert ticket.status == KilnTicket.Status.SUBMITTED
         assert list(ticket.flags.values_list("kind", flat=True)) == [KilnFlag.Kind.THICK_WALLS]
-        assert f"Ticket {ticket.pk} is updated." in maker_client.get(MINE).content.decode()
+        assert f"Ticket {ticket.pk} is updated." in maker_client.get(HOME).content.decode()
 
     def it_checks_a_queued_ticket_like_a_submit_even_from_the_draft_button(maker, maker_client):
         ticket = KilnTicketFactory(maker=maker, status="submitted", ready=True)

@@ -7,6 +7,7 @@
 {% block extra_head %}{{ block.super }}
 <link rel="stylesheet" href="{% static 'css/calendar.css' %}">
 <link rel="stylesheet" href="{% static 'css/locations.css' %}">
+{% if kiln_home %}<link rel="stylesheet" href="{% static 'css/kiln-tickets.css' %}">{% endif %}
 {% if is_guilds_surface %}{# ── OG / SEO — only where the guild link is shared publicly ── #}
 <link rel="canonical" href="{{ GUILDS_BASE_URL }}{% url 'hub_guild_detail' guild.slug %}">
 <meta property="og:type" content="website">
@@ -124,10 +125,11 @@
 
 {% comment %} Legacy ?tab=notes deep links land on the renamed Meetings tab (spec §6.4); only the two known values map, so a garbage ?tab can't blank every pane. {% endcomment %}
 <div x-data="{ section: 'overview' }"
-     x-init="const t = new URLSearchParams(window.location.search).get('tab'); if (t === 'notes' || t === 'meetings') section = 'meetings';{% if show_orientation %} if (t === 'orientations' || window.location.hash === '#guild-orientation') { section = 'orientations'; const ot = new URLSearchParams(window.location.search).get('type'); const target = ot ? 'orientation-type-' + ot : (window.location.hash === '#guild-orientation' ? 'guild-orientation' : null); if (target) $nextTick(() => document.getElementById(target)?.scrollIntoView()); }{% endif %}{% if show_reservations %} if (t === 'reservations') section = 'reservations';{% endif %}{% if wiki_tab_enabled %} if (t === 'wiki') section = 'wiki';{% endif %}">
+     x-init="const t = new URLSearchParams(window.location.search).get('tab'); if (t === 'notes' || t === 'meetings') section = 'meetings';{% if show_orientation %} if (t === 'orientations' || window.location.hash === '#guild-orientation') { section = 'orientations'; const ot = new URLSearchParams(window.location.search).get('type'); const target = ot ? 'orientation-type-' + ot : (window.location.hash === '#guild-orientation' ? 'guild-orientation' : null); if (target) $nextTick(() => document.getElementById(target)?.scrollIntoView()); }{% endif %}{% if show_reservations %} if (t === 'reservations') section = 'reservations';{% endif %}{% if wiki_tab_enabled %} if (t === 'wiki') section = 'wiki';{% endif %}{% if kiln_home %} if (t === 'kiln') section = 'kiln';{% endif %}">
 <nav role="tablist" class="pl-tabs">
     <button type="button" class="vote-tab" :class="section === 'overview' ? 'vote-tab--active' : ''" @click="section = 'overview'">Overview</button>
     <button type="button" class="vote-tab" :class="section === 'schedule' ? 'vote-tab--active' : ''" @click="section = 'schedule'">Guild Calendar</button>
+    {% if kiln_home %}<button type="button" class="vote-tab" :class="section === 'kiln' ? 'vote-tab--active' : ''" @click="section = 'kiln'" data-guild-tab="kiln">Kiln Tickets</button>{% endif %}
     {% if show_orientation %}<button type="button" class="vote-tab" :class="section === 'orientations' ? 'vote-tab--active' : ''" @click="section = 'orientations'">Orientations</button>{% endif %}
     {% if show_reservations %}<button type="button" class="vote-tab" :class="section === 'reservations' ? 'vote-tab--active' : ''" @click="section = 'reservations'">Reservations</button>{% endif %}
     {% if wiki_tab_enabled %}<button type="button" class="vote-tab" :class="section === 'wiki' ? 'vote-tab--active' : ''" @click="section = 'wiki'">Wiki</button>{% endif %}
@@ -320,10 +322,6 @@
                     Teach a Class
                 </a>
                 {% endif %}
-                {% if user.is_authenticated and not is_guilds_surface and guild.slug == kiln_nav.guild_slug and kiln_nav.guild_link %}
-                {# Every member can file a kiln ticket from the guild that runs the kiln (#691), once the launch switch is on; until then only its crew sees the link. #}
-                <a href="{% url 'kiln:mine' %}" class="pl-btn pl-btn--secondary pl-btn--block" data-nav="kiln-guild-link">Kiln Tickets</a>
-                {% endif %}
                 {% if is_guilds_surface and products %}
                 {# No in-place cart on the guest surface — buyables live on the members hub. #}
                 <a href="{{ MEMBER_BASE_URL }}{% url 'hub_guild_detail' guild.slug %}" class="pl-btn pl-btn--secondary" style="width:100%;" hx-boost="false">{% if user.is_authenticated %}Buy this guild's items on the members hub{% else %}Log in on the members hub to shop{% endif %}</a>
@@ -449,6 +447,10 @@
     </p>
     {% endif %}
 </div>
+
+{% if kiln_home %}
+<div x-show="section === 'kiln'" x-cloak data-guild-kiln>{% include "kiln/partials/_guild_tab.html" with home=kiln_home %}</div>
+{% endif %}
 
 {% if wiki_tab_enabled %}
 <div x-show="section === 'wiki'" x-cloak>{% include "hub/partials/_guild_wiki_tab.html" %}</div>

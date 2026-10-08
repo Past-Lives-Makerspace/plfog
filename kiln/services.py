@@ -2,7 +2,8 @@
 
 Saving a ticket (answers, photos, cover and flags in one step), loading a firing, posting
 to a ticket's reply thread with its notification, and unloading a firing with its ready
-for pickup notices; plus the reads behind the crew's Unload, Kiln Log and firing pages.
+for pickup notices; plus the reads behind a maker's kiln home (the Ceramics Guild's Kiln
+Tickets tab, or a guest's ``/kiln/``) and the crew's Unload, Kiln Log and firing pages.
 """
 
 from __future__ import annotations
@@ -19,12 +20,17 @@ from django.utils import dateformat, timezone
 from django.utils.html import format_html, format_html_join
 from django.utils.safestring import SafeString
 
-from kiln.access import maker_type_for
+from kiln.access import can_file_tickets, can_run_kiln, is_crew, kiln_home_url, kiln_is_open, maker_type_for
 from kiln.forms import ACTION_COVER, ACTION_REMOVE, ExceptionNote, KilnTicketForm
 from kiln.models import KilnFiring, KilnReply, KilnTicket, member_name
 
 if TYPE_CHECKING:
-    from membership.models import Member
+    from django.db.models import QuerySet
+
+    from membership.models import Guild, Member
+
+# How many fired tickets a kiln home shows before "Show older tickets".
+HISTORY_PAGE = 10
 
 
 class TicketNotEditable(Exception):
@@ -601,3 +607,84 @@ def firing_sheet(pk: int) -> tuple[KilnFiring, list[FiringRow]]:
     rows = [FiringRow(ticket=t, note=notes.pop(t.pk, None)) for t in firing.tickets.all()]
     rows += [FiringRow(ticket=note.ticket, note=note) for note in notes.values()]
     return firing, sorted(rows, key=lambda r: r.ticket.pk)
+
+
+# ---- a maker's kiln home ---------------------------------------------------------------
+
+
+def tickets_for(member: Member) -> QuerySet[KilnTicket]:
+    """A maker's tickets, fired ones by when they came out (newest first), with what a row shows."""
+    return (
+        member.kiln_tickets.newest_fired_first()  # type: ignore[attr-defined]  # KilnTicketQuerySet manager
+        .select_related("clay")
+        .prefetch_related("photos", "flags", "studio_glazes")
+    )
+
+
+@dataclass(frozen=True)
+class KilnHome:
+    """A maker's tickets by status, and for the crew and admins the counts their links show.
+
+    One shape for both homes: a guest's ``/kiln/`` page and everyone else's Kiln Tickets tab on
+    the Ceramics Guild page (``kiln/partials/_home.html``).
+    """
+
+    drafts: list[KilnTicket]
+    queued: list[KilnTicket]
+    loaded: list[KilnTicket]
+    history: list[KilnTicket]
+    has_older: bool
+    older_url: str
+    runs_kiln: bool
+    waiting_count: int
+    unload_count: int
+
+    @property
+    def is_empty(self) -> bool:
+        return not (self.drafts or self.queued or self.loaded or self.history)
+
+
+def kiln_home(member: Member, *, show_older: bool, runs_kiln: bool, older_url: str) -> KilnHome:
+    """``member``'s kiln home in a fixed number of queries, however many tickets they have.
+
+    Args:
+        member: The maker.
+        show_older: Show every fired ticket, not just the newest :data:`HISTORY_PAGE`.
+        runs_kiln: Whether the viewer sees the crew links (:func:`kiln.access.can_run_kiln`);
+            their two counts are read only then.
+        older_url: Where "Show older tickets" goes on this home.
+    """
+    by_status: dict[str, list[KilnTicket]] = {status: [] for status in KilnTicket.Status.values}
+    for ticket in tickets_for(member):
+        by_status[ticket.status].append(ticket)
+    history = by_status[KilnTicket.Status.FIRED]
+    return KilnHome(
+        drafts=by_status[KilnTicket.Status.DRAFT],
+        queued=by_status[KilnTicket.Status.SUBMITTED],
+        loaded=by_status[KilnTicket.Status.LOADED],
+        history=history if show_older else history[:HISTORY_PAGE],
+        has_older=not show_older and len(history) > HISTORY_PAGE,
+        older_url=older_url,
+        runs_kiln=runs_kiln,
+        waiting_count=KilnTicket.objects.waiting().count() if runs_kiln else 0,
+        unload_count=KilnFiring.objects.in_kiln().count() if runs_kiln else 0,
+    )
+
+
+def guild_kiln_home(
+    guild: Guild, member: Member | None, *, guilds_surface: bool, show_older: bool, acting_admin: bool
+) -> KilnHome | None:
+    """The Kiln Tickets tab on a guild page, or None where the tab does not show.
+
+    It shows on the kiln guild's page alone, on the members surface, to a signed in maker:
+    everyone while the launch switch is on, the crew and admins while it is off. Every other
+    guild page returns before any query. ``acting_admin`` is the View As role, so an admin
+    previewing as a member sees the tab a member would; the kiln URLs still answer to the
+    real role, like every admin page.
+    """
+    if guild.slug != settings.KILN_GUILD_SLUG or guilds_surface or member is None or not can_file_tickets(member):
+        return None
+    runs_kiln = is_crew(member, guild) if member.is_fog_admin and not acting_admin else can_run_kiln(member, guild)
+    if not runs_kiln and not kiln_is_open():
+        return None
+    return kiln_home(member, show_older=show_older, runs_kiln=runs_kiln, older_url=kiln_home_url(older=True))

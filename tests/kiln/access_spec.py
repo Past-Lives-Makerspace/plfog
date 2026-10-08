@@ -21,7 +21,6 @@ from kiln.access import (
     is_crew,
     maker_required,
     maker_type_for,
-    shows_kiln_nav,
 )
 from kiln.models import KilnTicket
 from membership.models import Member
@@ -103,37 +102,23 @@ def describe_maker_type():
         assert KilnTicket.MakerType.STUDENT.label == "Student or guest"
 
 
-def describe_sidebar_entry():
-    def it_shows_for_guild_members_staff_and_lead(kiln_guild, make_member):
-        joined, staff, lead = make_member(), make_member(), make_member()
-        GuildMembershipFactory(guild=kiln_guild, member=joined)
-        GuildStaffMembershipFactory(guild=kiln_guild, member=staff)
-        kiln_guild.guild_lead = lead
-        kiln_guild.save(update_fields=["guild_lead"])
-
-        assert all(shows_kiln_nav(m) for m in (joined, staff, lead))
-
-    def it_hides_for_everyone_else(kiln_guild, make_member):
-        outsider = make_member()
-        GuildMembershipFactory(guild=GuildFactory(), member=outsider)
-
-        assert not shows_kiln_nav(outsider)
-
-    def it_computes_once_and_only_when_read(make_member):
-        nav = KilnNav(make_member())
-
-        with patch("kiln.access.shows_kiln_nav", return_value=True) as check:
-            assert nav.show and nav.show
-        assert check.call_count == 1
-
-    def it_is_off_for_nobody_and_marks_guests_guest_only(make_member, settings):
+def describe_kiln_nav():
+    def it_marks_only_guests_guest_only(make_member, settings):
         settings.KILN_GUILD_SLUG = "ceramics-guild"
         nobody = KilnNav(None)
 
-        assert not nobody.show and not nobody.guest_only
+        assert not nobody.guest_only
         assert nobody.guild_slug == "ceramics-guild"
         assert KilnNav(make_member(status=GUEST)).guest_only
         assert not KilnNav(make_member()).guest_only
+
+    def it_sends_a_guest_home_to_kiln_and_everyone_else_to_the_guild_tab(make_member):
+        guest, member = KilnNav(make_member(status=GUEST)), KilnNav(make_member())
+
+        assert (guest.home_url, guest.home_label) == (MINE, "Kiln Tickets")
+        assert member.home_url == f"{reverse('hub_guild_detail', args=['ceramics-guild'])}?tab=kiln"
+        assert member.home_label == "Ceramics Guild"
+        assert KilnNav(None).home_url == member.home_url
 
 
 def describe_decorators():
@@ -226,8 +211,8 @@ def describe_the_guest_gate():
         assert f'href="{reverse("hub_home")}"' not in body
         assert f'href="{MINE}" class="pl-brand"' in body
 
-    def it_keeps_the_tab_and_home_links_for_a_member(make_member):
-        body = signed_in(make_member()).get(MINE).content.decode()
+    def it_keeps_the_tab_and_home_links_for_a_member(kiln_guild, make_member):
+        body = signed_in(make_member()).get(reverse("hub_guild_detail", args=[kiln_guild.slug])).content.decode()
 
         assert f'href="{reverse("hub_home")}" class="pl-brand"' in body
 
@@ -270,32 +255,32 @@ def describe_signing_in():
 
 
 def describe_entry_points():
-    def it_lists_kiln_tickets_in_a_guild_members_sidebar(kiln_guild, make_member):
-        member = make_member()
+    """Kiln Tickets is a tab on the Ceramics Guild page, never a sidebar entry (``guild_tab_spec``)."""
+
+    @pytest.mark.parametrize("role", ["member", "crew", "admin"])
+    def it_lists_no_kiln_entry_in_the_sidebar(kiln_guild, make_member, role):
+        member = make_member(fog_role=Member.FogRole.ADMIN) if role == "admin" else make_member()
+        member.sync_user_permissions()
         GuildMembershipFactory(guild=kiln_guild, member=member)
+        if role == "crew":
+            GuildStaffMembershipFactory(guild=kiln_guild, member=member)
 
         body = signed_in(member).get(reverse("hub_community_calendar")).content.decode()
 
-        assert 'data-nav="kiln"' in body
-
-    def it_leaves_it_out_for_other_members(kiln_guild, make_member):
-        body = signed_in(make_member()).get(reverse("hub_community_calendar")).content.decode()
-
         assert 'data-nav="kiln"' not in body
+        assert reverse("kiln:mine") not in body.split('aria-label="Hub navigation"')[1].split("</nav>")[0]
 
-    def it_lists_it_for_an_admin_in_the_guild(kiln_guild, make_member):
-        admin = make_member(fog_role=Member.FogRole.ADMIN)
-        admin.sync_user_permissions()
-        GuildMembershipFactory(guild=kiln_guild, member=admin)
-
-        body = signed_in(admin).get(reverse("hub_community_calendar")).content.decode()
-
-        assert 'data-nav="kiln"' in body
-
-    def it_links_kiln_tickets_from_the_ceramics_guild_page_for_everyone(kiln_guild, make_member):
-        page = signed_in(make_member()).get(reverse("hub_guild_detail", args=[kiln_guild.slug])).content.decode()
+    def it_lights_the_ceramics_guild_in_the_sidebar_on_a_kiln_page(kiln_guild, make_member):
+        crew = make_member()
+        GuildStaffMembershipFactory(guild=kiln_guild, member=crew)
         other = GuildFactory(name="Print Guild", slug="print-guild")
-        other_page = signed_in(make_member()).get(reverse("hub_guild_detail", args=[other.slug])).content.decode()
 
-        assert 'data-nav="kiln-guild-link"' in page
-        assert 'data-nav="kiln-guild-link"' not in other_page
+        body = signed_in(crew).get(reverse("kiln:log")).content.decode()
+
+        assert f'href="{reverse("hub_guild_detail", args=[kiln_guild.slug])}" class="hub-sidebar__link  active"' in body
+        assert f'href="{reverse("hub_guild_detail", args=[other.slug])}" class="hub-sidebar__link "' in body
+
+    def it_drops_the_old_get_involved_link(kiln_guild, make_member):
+        page = signed_in(make_member()).get(reverse("hub_guild_detail", args=[kiln_guild.slug])).content.decode()
+
+        assert 'data-nav="kiln-guild-link"' not in page

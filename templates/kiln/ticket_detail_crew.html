@@ -13,7 +13,7 @@ The crew's view of any ticket (#691): every flag, open and cleared, with who did
 flag only the crew see; the photos and the thread on the left, and the maker's contact, the
 answers and the history on the right (stacked on a phone).
 {% endcomment %}
-<p class="pl-kiln-crumb"><a href="{% url 'kiln:load' %}">Load the Kiln</a></p>
+{% url 'kiln:load' as load_url %}{% include "kiln/partials/_crumb.html" with then_url=load_url then_label="Load the Kiln" %}
 <div class="pl-kiln-detail__title">
     <h1 class="hub-page-title">Ticket {{ ticket.pk }} · {{ ticket.maker_name }}</h1>
     {% include "kiln/partials/_status_badge.html" %}

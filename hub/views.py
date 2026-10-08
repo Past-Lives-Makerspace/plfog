@@ -818,6 +818,17 @@ def guild_detail(request: HttpRequest, slug: str) -> HttpResponse:
         else []
     )
 
+    # The Kiln Tickets tab (#691): the kiln guild's page only; None (no query) on every other guild.
+    from kiln.services import guild_kiln_home
+
+    kiln_home = guild_kiln_home(
+        guild,
+        member,
+        guilds_surface=guilds_surface,
+        show_older=request.GET.get("older") == "1",
+        acting_admin=bool(getattr(getattr(request, "view_as", None), "is_admin", False)),
+    )
+
     guild_ct = ContentType.objects.get_for_model(Guild)
 
     from membership.services.location_status import guild_location_statuses
@@ -869,6 +880,7 @@ def guild_detail(request: HttpRequest, slug: str) -> HttpResponse:
             "join_form": join_form,
             "wiki_tab_enabled": wiki_tab_enabled,
             **wiki_tab_context,
+            "kiln_home": kiln_home,
             "location_statuses": guild_location_statuses(guild),
         },
     )

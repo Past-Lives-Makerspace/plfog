@@ -444,6 +444,6 @@ def describe_the_ticket_after_the_unload():
         second = _loaded(crew, early)
         unload_kiln(firing_pk=second.pk, exceptions={}, by=crew)
 
-        history = maker_client.get(reverse("kiln:mine")).context["history"]
+        history = maker_client.get(reverse("kiln:mine"), follow=True).context["kiln_home"].history
 
         assert history == [_fresh(early), _fresh(late)]

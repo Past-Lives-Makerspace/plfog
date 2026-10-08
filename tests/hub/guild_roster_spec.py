@@ -84,3 +84,43 @@ def describe_delete_permissions():
         resp = client.post(reverse("hub_guild_image_delete", args=[guild.pk, img.pk]))
         assert resp.status_code == 403
         assert GuildImage.objects.filter(pk=img.pk).exists()
+
+
+@pytest.mark.django_db
+def describe_members_card():
+    """The guild page's Members card is a count and a link to the directory filtered to the guild."""
+
+    def _card(client: Client, joined: int) -> tuple[str, str]:
+        from tests.membership.factories import GuildMembershipFactory, MemberFactory
+
+        _member_user("viewer")
+        client.login(username="viewer", password="pw")
+        guild = GuildFactory(show_members=True)
+        for i in range(joined):
+            member = MemberFactory(preferred_name=f"Rosterperson{i:02d}", show_in_directory=True)
+            GuildMembershipFactory(guild=guild, member=member)
+        body = client.get(reverse("hub_guild_detail", args=[guild.slug])).content.decode()
+        return guild.slug, body.split('id="guild-roster-card"')[1].split("</div>\n</div>")[0]
+
+    def it_links_to_the_directory_filtered_to_the_guild_instead_of_listing_names(client: Client):
+        slug, card = _card(client, 12)
+
+        assert f'href="{reverse("hub_member_directory")}?guild={slug}"' in card
+        assert "See this guild's members in the Member Directory" in card
+        assert "Rosterperson" not in card
+
+    def it_hides_the_card_on_an_inactive_guild(client: Client):
+        from tests.membership.factories import GuildMembershipFactory, MemberFactory
+
+        _member_user("viewer")
+        client.login(username="viewer", password="pw")
+        guild = GuildFactory(show_members=True, is_active=False)
+        GuildMembershipFactory(guild=guild, member=MemberFactory(show_in_directory=True))
+        body = client.get(reverse("hub_guild_detail", args=[guild.slug])).content.decode()
+
+        assert "data-guild-roster-link" not in body
+
+    def it_shows_no_card_without_a_roster(client: Client):
+        _slug, card = _card(client, 0)
+
+        assert "data-guild-roster-link" not in card

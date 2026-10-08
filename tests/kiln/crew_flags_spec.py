@@ -182,7 +182,7 @@ def describe_what_the_maker_sees():
         ticket.add_flag("Secret crew note", by=crew)
 
         detail = maker_client.get(_detail(ticket)).content.decode()
-        mine = maker_client.get(reverse("kiln:mine")).content.decode()
+        mine = maker_client.get(reverse("kiln:mine"), follow=True).content.decode()
 
         assert "Secret crew note" not in detail and "Secret crew note" not in mine
         assert 'data-flag="manual"' not in detail

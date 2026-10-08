@@ -1,0 +1,6 @@
+bump = "patch"
+date = "2026-10-08"
+title = "Guild pages link to their members instead of listing them"
+changes = [
+  "A guild page's Members card no longer lists every name. It opens the Member Directory showing just that guild's members.",
+]

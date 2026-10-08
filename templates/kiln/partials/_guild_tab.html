@@ -1,0 +1,15 @@
+{# The Kiln Tickets tab on the Ceramics Guild page (#691): the maker's kiln home, and for the crew and admins their kiln pages. Expects home (kiln.services.KilnHome, from guild_kiln_home). #}
+{% include "kiln/partials/_icons.html" %}
+<section class="pl-guild-section">
+    <h2 class="pl-guild-section__h2">Kiln Tickets</h2>
+    <p class="pl-kiln-head__lead">One ticket for each piece or set of matching pieces. The crew finds your work by the cover photo and tells you when it is ready.</p>
+    {% if home.runs_kiln %}
+    <nav class="pl-kiln-crewlinks" aria-label="Kiln crew pages" data-kiln-crew-links>
+        <a href="{% url 'kiln:load' %}" class="hub-btn hub-btn--secondary hub-btn--sm" data-kiln-tab="load">Load the Kiln<span class="pl-kiln-count" aria-label="{{ home.waiting_count }} waiting">{{ home.waiting_count }}</span></a>
+        <a href="{% url 'kiln:unload_list' %}" class="hub-btn hub-btn--secondary hub-btn--sm" data-kiln-tab="unload">Unload<span class="pl-kiln-count" aria-label="{{ home.unload_count }} in the kiln">{{ home.unload_count }}</span></a>
+        <a href="{% url 'kiln:log' %}" class="hub-btn hub-btn--secondary hub-btn--sm" data-kiln-tab="log">Kiln Log</a>
+        <a href="{% url 'kiln:lists' %}" class="hub-btn hub-btn--secondary hub-btn--sm">Clay and glaze lists</a>
+    </nav>
+    {% endif %}
+    {% include "kiln/partials/_home.html" %}
+</section>

@@ -1,0 +1,35 @@
+{# A maker's kiln home (#691): New ticket, then their tickets by status. Expects home (kiln.services.KilnHome); shared by a guest's /kiln/ page and the Ceramics Guild's Kiln Tickets tab. #}
+<a href="{% url 'kiln:new' %}" class="hub-btn hub-btn--primary pl-kiln-new"><svg class="pl-kiln-ico" aria-hidden="true"><use href="#kiln-i-plus"/></svg>New ticket</a>
+
+{% if home.drafts %}
+<section class="pl-kiln-group" aria-labelledby="kiln-drafts">
+    <h2 class="pl-kiln-group__title" id="kiln-drafts">Drafts <span class="pl-kiln-count">{{ home.drafts|length }}</span></h2>
+    {% for ticket in home.drafts %}{% include "kiln/partials/_ticket_row.html" %}{% endfor %}
+</section>
+{% endif %}
+
+{% if home.queued %}
+<section class="pl-kiln-group" aria-labelledby="kiln-queued" data-group="submitted">
+    <h2 class="pl-kiln-group__title" id="kiln-queued">In The Queue <span class="pl-kiln-count">{{ home.queued|length }}</span></h2>
+    {% for ticket in home.queued %}{% include "kiln/partials/_ticket_row.html" %}{% endfor %}
+</section>
+{% endif %}
+
+{% if home.loaded %}
+<section class="pl-kiln-group" aria-labelledby="kiln-loaded" data-group="loaded">
+    <h2 class="pl-kiln-group__title" id="kiln-loaded">In The Kiln <span class="pl-kiln-count">{{ home.loaded|length }}</span></h2>
+    {% for ticket in home.loaded %}{% include "kiln/partials/_ticket_row.html" %}{% endfor %}
+</section>
+{% endif %}
+
+{% if home.history %}
+<section class="pl-kiln-group" aria-labelledby="kiln-history" data-group="history">
+    <h2 class="pl-kiln-group__title" id="kiln-history">History</h2>
+    {% for ticket in home.history %}{% include "kiln/partials/_ticket_row.html" %}{% endfor %}
+    {% if home.has_older %}<a href="{{ home.older_url }}" class="hub-btn hub-btn--ghost hub-btn--sm">Show older tickets</a>{% endif %}
+</section>
+{% endif %}
+
+{% if home.is_empty %}
+<p class="hub-text-muted">No tickets yet. Put your piece on the shelf, take a photo, and file your first one.</p>
+{% endif %}

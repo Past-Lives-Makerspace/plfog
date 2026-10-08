@@ -224,7 +224,6 @@
             {% active_nav 'hub_equipment_index' as equipment_active %}
             {% url 'hub_equipment_index' as equipment_url %}
             {% include "hub/partials/_sidebar_feature_link.html" with feature=features.equipment url=equipment_url label="Reservations" icon="hub/partials/nav_icons/_equipment.html" active=equipment_active %}
-            {% if kiln_nav.show %}{% include "hub/partials/_sidebar_kiln_link.html" %}{% endif %}
 
             {# The admin destination. The member block below points the same switch at hub_guild_voting. #}
             {% active_nav 'hub_admin_voting_overview' as voting_active %}
@@ -342,7 +341,6 @@
             {% active_nav 'hub_equipment_index' as equipment_active %}
             {% url 'hub_equipment_index' as equipment_url %}
             {% include "hub/partials/_sidebar_feature_link.html" with feature=features.equipment url=equipment_url label="Reservations" icon="hub/partials/nav_icons/_equipment.html" active=equipment_active %}
-            {% if kiln_nav.show %}{% include "hub/partials/_sidebar_kiln_link.html" %}{% endif %}
 
             <hr class="hub-sidebar__divider" />
 
@@ -386,8 +384,10 @@
                 </button>
                 <div class="hub-sidebar__collapsible" :class="{ 'open': open }">
                     <div class="hub-sidebar__collapsible-inner">
+                        {# Kiln Tickets is a tab on the kiln guild's page (#691), so a kiln page lights that guild. #}
+                        {% active_path '/kiln/' as on_kiln_page %}
                         {% for guild in guilds %}
-                        <a href="{% url 'hub_guild_detail' guild.slug %}" class="hub-sidebar__link {% active_nav 'hub_guild_detail' guild.slug %}">
+                        <a href="{% url 'hub_guild_detail' guild.slug %}" class="hub-sidebar__link {% active_nav 'hub_guild_detail' guild.slug %}{% if on_kiln_page and guild.slug == kiln_nav.guild_slug %} active{% endif %}">
                             {% if guild.logo_prefix %}
                             <img src="{% static 'img/guild_logos/'|add:guild.logo_prefix|add:'_color.svg' %}" width="16" height="16" alt="" style="flex-shrink:0;">
                             {% else %}

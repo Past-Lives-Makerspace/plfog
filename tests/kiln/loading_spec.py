@@ -236,7 +236,7 @@ def describe_load_page():
         firing = load_kiln(firing_type="glaze", ticket_pks=[ticket.pk], by=crew).firing
         assert firing is not None
 
-        mine = maker_client.get(reverse("kiln:mine")).content.decode()
+        mine = maker_client.get(reverse("kiln:mine"), follow=True).content.decode()
         detail = maker_client.get(reverse("kiln:detail", args=[ticket.pk])).content.decode()
 
         assert 'data-group="loaded"' in mine and "In the kiln" in mine

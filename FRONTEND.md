@@ -394,7 +394,7 @@ All under `static/css/`. The pattern in use: one stylesheet per surface, linked 
 | `notifications-catalogue.css`, `notifications-edit-copy.css`, `notifications-edit-discord.css` | `hub/admin/notifications/*.html` | Notification admin pages. |
 | `feedback.css` | `hub/beta_feedback.html`, `hub/admin/feedback_inbox.html`, `hub/admin/feedback_request.html` | The Feedback page's Your Requests rows, the admin Feedback inbox and a request's admin page (#693). |
 | `locations.css` | `hub/guild_detail.html`, `hub/admin/locations.html`, `hub/admin/location_edit.html` | The guild page's location lights (with token fallbacks, since the guilds surface does not load the hub tokens) and the admin Locations page. |
-| `kiln-tickets.css` | `kiln/*.html` | Kiln tickets (#691): ticket rows, the ticket form, detail (maker and crew) with flags and the reply thread, Load the Kiln's photo tiles, Unload's checklist, the Kiln Log (table on desktop, cards on a phone), a firing's page and the crew's lists, lifted from `mockups/kiln-tickets.html`. |
+| `kiln-tickets.css` | `kiln/*.html`, and `hub/guild_detail.html` when it shows the Kiln Tickets tab | Kiln tickets (#691): ticket rows, the tab's crew links, the ticket form, detail (maker and crew) with flags and the reply thread, Load the Kiln's photo tiles, Unload's checklist, the Kiln Log (table on desktop, cards on a phone), a firing's page and the crew's lists, lifted from `mockups/kiln-tickets.html`. |
 | `instructor-inquiries.css` | `classes/admin/instructor_inquiries.html` | The Instructor Inquiries page (#690): filter bar, status pills and the Board Report charts. |
 | `signage.css` | `signage/base.html` | The lobby signage display. |
 | `wiki-stickers.css` | `hub/wiki_sticker_sheet.html` | The QR sticker sheet. |

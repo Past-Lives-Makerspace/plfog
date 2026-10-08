@@ -14,7 +14,7 @@
 </div>
 
 {# One firing from the Kiln Log (#691 part 3): every piece that went in, what the crew noted at the unload, and a link to each ticket. #}
-<p class="pl-kiln-crumb"><a href="{% url 'kiln:log' %}">Kiln Log</a></p>
+{% url 'kiln:log' as log_url %}{% include "kiln/partials/_crumb.html" with then_url=log_url then_label="Kiln Log" %}
 <div class="hub-card pl-kiln-firingbar" data-kiln-firing="{{ firing.pk }}">
     <div>
         <div class="pl-kiln-firingbar__name">{{ firing.name }}</div>

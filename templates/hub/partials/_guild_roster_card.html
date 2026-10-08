@@ -1,17 +1,9 @@
-{# The Members roster card. Wrapper always renders so the OOB swap after a join/leave #}
-{# always lands; the card itself appears once the guild opts in and has a roster. #}
+{# The Members card: a link to the Member Directory filtered to this guild. Wrapper always renders so the OOB swap after a join/leave lands. #}
 <div id="guild-roster-card"{% if oob %} hx-swap-oob="true"{% endif %}>
-    {% if user.is_authenticated and guild.show_members and roster %}
+    {% if user.is_authenticated and guild.show_members and guild.is_active and roster.exists %}
     <div class="hub-card">
         <h3 class="hub-detail-label">Members</h3>
-        <div class="pl-guild-roster">
-            {% for m in roster %}
-            <div class="hub-member-row">
-                <div class="hub-member-avatar">{{ m.display_name|make_list|first|upper }}</div>
-                <span class="hub-member-name">{{ m.display_name }}</span>
-            </div>
-            {% endfor %}
-        </div>
+        <a href="{% if is_guilds_surface %}{{ MEMBER_BASE_URL }}{% endif %}{% url 'hub_member_directory' %}?guild={{ guild.slug|urlencode }}" class="pl-guild-roster__link"{% if is_guilds_surface %} hx-boost="false"{% endif %} data-guild-roster-link>See this guild's members in the Member Directory</a>
     </div>
     {% endif %}
 </div>
