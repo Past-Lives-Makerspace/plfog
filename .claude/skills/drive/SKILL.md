@@ -225,6 +225,9 @@ multi call commands like `gh pr create` fail almost every time without it.
    the merge: refine the one fragment inside the PR rather than adding a second. `CHANGELOG` renders into
    every hub page's context, so a UI copy string in a fragment can trip a negative test assertion; rerun
    `tests/plfog/` after writing it. *(Any guidance saying to bump a `VERSION` literal is stale. Fix it.)*
+   **If a member asked for it**, list their feedback request so they are told when it ships: look up the
+   requests whose GitHub issue link is this ticket (prod read: `FeedbackRequest.objects.filter(
+   github_issue_url__endswith="/issues/<n>")`) and add `requests = [<ids>]` (README, `requests`).
 2. **Push.** The pre push hook runs real ruff and real mypy. A failure there is a real finding: fix, amend,
    push again. Never bypass the hook past red.
 3. **Open the PR** against `main` as HexagonStorms, **in the shape of `.github/pull_request_template.md`**

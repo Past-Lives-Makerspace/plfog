@@ -82,6 +82,9 @@ Traps that have bitten:
   the dashboard). No dashes, plain ELI14 language.
 - **Refine the fragment inside your own PR, never add a second one.** It is announced when its own PR
   merges, so the editing window closes at merge, not at the next sweep.
+- **List the member requests it delivers.** Look up feedback requests whose GitHub issue link is the
+  ticket (prod read: `FeedbackRequest.objects.filter(github_issue_url__endswith="/issues/<n>")`) and add
+  `requests = [<ids>]`; the sender is told once the release is serving (`changelog.d/README.md`).
 
 ### 5. Push through the gate
 `git push` runs ruff check/format + real mypy. A failure here is a REAL finding — fix it (typed Stripe
