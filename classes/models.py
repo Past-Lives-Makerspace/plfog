@@ -300,6 +300,20 @@ class ClassOfferingQuerySet(models.QuerySet["ClassOffering"]):
             ]
         )
 
+    def mark_eventbrite_gallery_changed(self) -> int:
+        """Send the listed classes here back to the retry set because their gallery changed; returns how many.
+
+        One UPDATE and no Eventbrite call, so a gallery upload, reorder or delete stays instant;
+        ``retry_eventbrite_pushes`` re-syncs them on its next tick. Only ``LISTED`` rows move:
+        a pending or failed class is already in the retry set, and an unlisted one has no page.
+        """
+        from core.integrations.eventbrite import EventbriteSync
+
+        return self.filter(eventbrite_sync_state=ClassOffering.EventbriteSyncState.LISTED).update(
+            eventbrite_sync_state=ClassOffering.EventbriteSyncState.PENDING,
+            eventbrite_sync_error=EventbriteSync.GALLERY_CHANGED,
+        )
+
     def refile_into_guild_categories(self, assignments: dict[int, int]) -> int:
         """Re-file offerings into guild-linked categories; returns how many changed.
 
@@ -2194,7 +2208,7 @@ class ClassOffering(HeroCropMixin, models.Model):
         labels = {
             state.IDLE: "Not on Eventbrite yet",
             state.PENDING: f"Waiting to sync: {error}" if error else "Waiting to sync",
-            state.LISTED: "Listed on Eventbrite",
+            state.LISTED: f"Listed on Eventbrite. {error}" if error else "Listed on Eventbrite",
             state.ENDED: f"Ended on Eventbrite. {error}" if error else "Ended on Eventbrite",
             state.FAILED: f"Failed: {error}",
         }
@@ -3646,6 +3660,16 @@ class ClassImage(models.Model):
         validators=[MaxValueValidator(100)],
         help_text="Vertical focal point for the gallery frame, 0 to 100. Null is the centre.",
     )
+    eventbrite_image_id = models.CharField(
+        max_length=64,
+        blank=True,
+        default="",
+        db_default="",
+        help_text=(
+            "The Eventbrite media ID of this photo once it was uploaded for the class's Eventbrite listing. "
+            "Blank until then; later syncs reuse it instead of uploading again."
+        ),
+    )
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:
@@ -3676,6 +3700,15 @@ class ClassImage(models.Model):
         """
         self.focus_x, self.focus_y = point if point is not None else (None, None)
         self.save(update_fields=["focus_x", "focus_y"])
+
+    def remember_eventbrite_image(self, media_id: str) -> None:
+        """Store the Eventbrite media ID this photo was uploaded as, so no later sync uploads it again.
+
+        A bare UPDATE: :meth:`save` would re-run the image normalising and orphan sweep for a
+        column that has nothing to do with the file.
+        """
+        self.eventbrite_image_id = media_id
+        type(self).objects.filter(pk=self.pk).update(eventbrite_image_id=media_id)
 
     def clean(self) -> None:
         from django.core.exceptions import ValidationError
