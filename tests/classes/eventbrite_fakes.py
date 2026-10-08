@@ -52,7 +52,7 @@ class FakeEventbrite:
 
     def update_event(self, event_id: str, body: dict[str, Any]) -> dict[str, Any]:
         self._record("update_event", event_id, body)
-        return {"id": event_id}
+        return {"id": event_id, "status": "live"}
 
     def set_description(self, event_id: str, html: str, image_ids: Sequence[str] = ()) -> None:
         self._record("set_description", event_id, html, list(image_ids))

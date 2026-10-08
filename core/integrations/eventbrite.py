@@ -42,6 +42,7 @@ QUANTITY_PUSH_TIMEOUT_SECONDS = 3.0
 _SYNC_ERROR_MAX = 500
 _EVENT_TIMEZONE = "America/Los_Angeles"
 _SUMMARY_MAX = 140
+_DRAFT = "draft"  # the event status Eventbrite publishes from (others: live, started, ended, completed, canceled)
 # Eventbrite's US fees for a paid ticket (eventbrite.com/organizer/pricing, checked 2026-10-07).
 SERVICE_FEE_PERCENT = 3.7
 SERVICE_FEE_FIXED_CENTS = 179
@@ -317,19 +318,12 @@ def _set_description(client: EventbriteClient, offering: ClassOffering, html: st
     return note
 
 
-def _is_live(offering: ClassOffering) -> bool:
-    """Whether the event is already live: listed, or back in the retry set only because its gallery changed."""
-    state = offering.EventbriteSyncState
-    if offering.eventbrite_sync_state == state.LISTED:
-        return True
-    return (
-        offering.eventbrite_sync_state == state.PENDING
-        and offering.eventbrite_sync_error == EventbriteSync.GALLERY_CHANGED
-    )
-
-
 def _list(client: EventbriteClient, offering: ClassOffering) -> str:
-    """Create or update the event and its ticket class, then publish it if it is not live.
+    """Create or update the event and its ticket class, then publish it while it is a draft.
+
+    Whether to publish is Eventbrite's answer, not our sync state: the event object a create or
+    update returns carries its ``status``, so a live event behind a failed or pending sync is
+    never published again, and a draft (never published, or unpublished) always is.
 
     Returns the note to record on the listed class: blank, or why some photos are missing.
     """
@@ -339,9 +333,11 @@ def _list(client: EventbriteClient, offering: ClassOffering) -> str:
         logo = _logo_id(client, offering)
         if logo:
             event["event"]["logo_id"] = logo
-        offering.eventbrite_event_id = str(field(client.create_event(event), "id"))
+        answer = client.create_event(event)
+        offering.eventbrite_event_id = str(field(answer, "id"))
     else:
-        client.update_event(offering.eventbrite_event_id, event)
+        answer = client.update_event(offering.eventbrite_event_id, event)
+    status = field(answer, "status")
     if not offering.eventbrite_ticket_class_id:
         ticket = _ticket_body(offering, sessions, int(offering.spots_remaining or 0))
         created = client.create_ticket_class(offering.eventbrite_event_id, ticket)
@@ -350,7 +346,7 @@ def _list(client: EventbriteClient, offering: ClassOffering) -> str:
         ticket = _ticket_body(offering, sessions, _quantity_total(client, offering))
         client.update_ticket_class(offering.eventbrite_event_id, offering.eventbrite_ticket_class_id, ticket)
     note = _set_description(client, offering, _description_html(offering, sessions))
-    if not _is_live(offering):
+    if status == _DRAFT:
         client.publish(offering.eventbrite_event_id)
     return note
 

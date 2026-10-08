@@ -18,7 +18,7 @@ from classes.import_service import (
     LegacyGalleryImportError,
     sync_legacy_gallery,
 )
-from classes.models import CLASS_IMAGE_PREFIX, MAX_GALLERY_IMAGES, ClassImage
+from classes.models import CLASS_IMAGE_PREFIX, MAX_GALLERY_IMAGES, ClassImage, ClassOffering
 from core.images import is_content_addressed
 
 pytestmark = pytest.mark.django_db
@@ -119,6 +119,26 @@ def describe_sync_legacy_gallery():
         assert all(is_content_addressed(row.image.name, prefix=CLASS_IMAGE_PREFIX) for row in rows)
         assert (result.created, result.downloaded, result.reused, result.failed) == (2, 2, 0, 0)
         assert "Added 2 gallery photo(s): 2 downloaded" in result.summary()
+
+    def it_sends_a_class_listed_on_eventbrite_back_for_a_resync_only_when_photos_were_added():
+        listed = {"eventbrite_event_id": "ev-9", "eventbrite_sync_state": ClassOffering.EventbriteSyncState.LISTED}
+        gaining = _legacy("node-1", **listed)
+        unchanged = _legacy("node-2", **listed)
+        ClassImageFactory(class_offering=unchanged, legacy_source_url=B_URL)
+        pages = {
+            LEGACY_CMS_GALLERY_API_URL: _page(
+                [_node("node-1", [("f-a", "")]), _node("node-2", [("f-b", "")])],
+                [_file("f-a", A_PATH), _file("f-b", B_PATH)],
+            )
+        }
+
+        _run(pages, {A_URL: _jpeg_bytes(seed=1), B_URL: _jpeg_bytes(seed=2)})
+
+        gaining.refresh_from_db()
+        unchanged.refresh_from_db()
+        assert gaining.eventbrite_sync_state == ClassOffering.EventbriteSyncState.PENDING
+        assert gaining.eventbrite_sync_error == "The gallery changed."
+        assert unchanged.eventbrite_sync_state == ClassOffering.EventbriteSyncState.LISTED
 
     def it_normalizes_each_file_to_the_gallery_ceiling(settings):
         settings.IMAGE_MAX_LONG_EDGE_GALLERY = 120

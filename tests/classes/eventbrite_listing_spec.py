@@ -46,7 +46,8 @@ class FakeEventbrite:
     def __init__(self) -> None:
         self.calls: list[tuple[str, tuple[Any, ...]]] = []
         self.fail: dict[str, EventbriteError] = {}
-        self.created_event: dict[str, Any] = {"id": "ev-1"}
+        self.created_event: dict[str, Any] = {"id": "ev-1", "status": "draft"}
+        self.event_status: str | None = "live"  # what an update answers; None leaves ``status`` out
         self.quantity_sold = 0
         self.refused_photos: dict[str, EventbriteError] = {}
         self.refuse_image_modules: EventbriteError | None = None
@@ -73,7 +74,9 @@ class FakeEventbrite:
 
     def update_event(self, event_id: str, body: dict[str, Any]) -> dict[str, Any]:
         self._record("update_event", event_id, body)
-        return {"id": event_id}
+        if self.event_status is None:
+            return {"id": event_id}
+        return {"id": event_id, "status": self.event_status}
 
     def create_ticket_class(self, event_id: str, body: dict[str, Any]) -> dict[str, Any]:
         self._record("create_ticket_class", event_id, body)
@@ -290,6 +293,7 @@ def describe_editing_a_listed_class():
         assert eventbrite.args("update_ticket_class")[2]["ticket_class"]["cost"] == "USD,5000"
 
     def it_creates_a_missing_ticket_type_on_the_next_push(eventbrite: FakeEventbrite):
+        eventbrite.event_status = "draft"
         offering = _listed(eventbrite_ticket_class_id="", eventbrite_sync_state=State.FAILED)
 
         offering.sync_eventbrite_listing()
@@ -378,6 +382,7 @@ def describe_ending_a_listing():
         assert eventbrite.calls == []
 
     def it_relists_and_publishes_when_switched_back_on(eventbrite: FakeEventbrite):
+        eventbrite.event_status = "draft"  # an unpublished event is a draft again
         offering = _listed(eventbrite_sync_state=State.ENDED)
 
         offering.sync_eventbrite_listing()
@@ -797,3 +802,56 @@ def describe_a_gallery_change_on_a_listed_class():
 
         offering.refresh_from_db()
         assert (offering.eventbrite_sync_state, offering.eventbrite_sync_error) == (state, "kept")
+
+
+def describe_publishing_follows_the_status_eventbrite_reports():
+    """Publish is decided by the event's ``status`` on Eventbrite, never by the sync state or its note."""
+
+    def it_does_not_publish_a_live_event_again_after_a_failed_push(eventbrite: FakeEventbrite):
+        offering = _listed(eventbrite_sync_state=State.FAILED, eventbrite_sync_error="POST: 500 down")
+
+        offering.sync_eventbrite_listing()
+
+        assert "publish" not in eventbrite.names()
+        offering.refresh_from_db()
+        assert (offering.eventbrite_sync_state, offering.eventbrite_sync_error) == (State.LISTED, "")
+
+    def it_does_not_publish_a_live_event_left_pending_while_sync_was_off(eventbrite: FakeEventbrite):
+        offering = _listed(eventbrite_sync_state=State.PENDING, eventbrite_sync_error=EventbriteSync.SYNC_OFF)
+
+        call_command("retry_eventbrite_pushes")
+
+        assert "publish" not in eventbrite.names()
+        offering.refresh_from_db()
+        assert offering.eventbrite_sync_state == State.LISTED
+
+    def it_publishes_a_draft_event_whose_publish_failed(eventbrite: FakeEventbrite):
+        # Class 675's shape: the event exists on Eventbrite but its publish was refused.
+        eventbrite.event_status = "draft"
+        offering = _listed(eventbrite_sync_state=State.FAILED, eventbrite_sync_error="POST publish: 400")
+
+        call_command("retry_eventbrite_pushes")
+
+        assert eventbrite.names()[-1] == "publish"
+        assert eventbrite.args("publish") == ("ev-9",)
+        offering.refresh_from_db()
+        assert offering.eventbrite_sync_state == State.LISTED
+
+    @pytest.mark.parametrize("status", ["live", "started", "ended", "completed", "canceled"])
+    def it_publishes_only_a_draft(eventbrite: FakeEventbrite, status: str):
+        eventbrite.event_status = status
+
+        _listed(eventbrite_sync_state=State.FAILED).sync_eventbrite_listing()
+
+        assert "publish" not in eventbrite.names()
+
+    def it_records_an_answer_with_no_status_as_a_failure(eventbrite: FakeEventbrite):
+        eventbrite.event_status = None
+        offering = _listed(eventbrite_sync_state=State.FAILED)
+
+        offering.sync_eventbrite_listing()
+
+        assert "publish" not in eventbrite.names()
+        offering.refresh_from_db()
+        assert offering.eventbrite_sync_state == State.FAILED
+        assert "'status'" in offering.eventbrite_sync_error

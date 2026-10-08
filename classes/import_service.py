@@ -467,6 +467,9 @@ def sync_legacy_gallery() -> GalleryImportResult:
                 unmatched += 1
                 continue
             counts = _import_offering_gallery(offering, files, keys_by_url)
+            if counts[0]:
+                # New photos reach a class listed on Eventbrite on the next retry tick (#707).
+                ClassOffering.objects.filter(pk=offering.pk).mark_eventbrite_gallery_changed()
             created, downloaded, reused, over_cap, failed = (
                 created + counts[0],
                 downloaded + counts[1],
