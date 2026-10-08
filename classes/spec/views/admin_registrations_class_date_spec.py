@@ -62,6 +62,34 @@ def describe_class_date_column():
         cells = _cells(client.get(reverse("classes:admin_registrations")).content, "none@example.com")
         assert cells[cells.index(reg.class_offering.title) + 1] == "—"
 
+    def it_shows_a_flexible_class_window(admin_user, client, db):
+        from datetime import date
+
+        from classes.factories import RegistrationFactory
+        from classes.models import ClassOffering
+
+        client.force_login(admin_user)
+        RegistrationFactory(
+            class_offering__scheduling_model=ClassOffering.SchedulingModel.FLEXIBLE,
+            class_offering__flexible_starts_on=date(2026, 11, 2),
+            class_offering__flexible_ends_on=date(2026, 12, 1),
+            email="window@example.com",
+        )
+        cells = _cells(client.get(reverse("classes:admin_registrations")).content, "window@example.com")
+        assert "Nov 2 to Dec 1, 2026" in cells
+
+    def it_says_flexible_for_a_flexible_class_with_no_window(admin_user, client, db):
+        from classes.factories import RegistrationFactory
+        from classes.models import ClassOffering
+
+        client.force_login(admin_user)
+        RegistrationFactory(
+            class_offering__scheduling_model=ClassOffering.SchedulingModel.FLEXIBLE,
+            email="flex@example.com",
+        )
+        cells = _cells(client.get(reverse("classes:admin_registrations")).content, "flex@example.com")
+        assert "Flexible" in cells
+
     def it_sorts_by_class_date(admin_user, client, db):
         from classes.factories import ClassSessionFactory, RegistrationFactory
 
