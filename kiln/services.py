@@ -1,7 +1,8 @@
 """Kiln ticket steps that touch more than one model (#691).
 
-Saving a ticket (answers, photos, cover and flags in one step), loading a firing, and
-posting to a ticket's reply thread with its notification.
+Saving a ticket (answers, photos, cover and flags in one step), loading a firing, posting
+to a ticket's reply thread with its notification, and unloading a firing with its ready
+for pickup notices; plus the reads behind the crew's Unload, Kiln Log and firing pages.
 """
 
 from __future__ import annotations
@@ -10,13 +11,17 @@ from collections.abc import Iterable
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
+from django.conf import settings
 from django.db import transaction
-from django.db.models import Prefetch
-from django.utils import timezone
+from django.db.models import Count, Prefetch, Q
+from django.urls import reverse
+from django.utils import dateformat, timezone
+from django.utils.html import format_html, format_html_join
+from django.utils.safestring import SafeString
 
 from kiln.access import maker_type_for
-from kiln.forms import ACTION_COVER, ACTION_REMOVE, KilnTicketForm
-from kiln.models import KilnFiring, KilnReply, KilnTicket
+from kiln.forms import ACTION_COVER, ACTION_REMOVE, ExceptionNote, KilnTicketForm
+from kiln.models import KilnFiring, KilnReply, KilnTicket, member_name
 
 if TYPE_CHECKING:
     from membership.models import Member
@@ -228,3 +233,368 @@ def _notify_reply(reply: KilnReply) -> None:
         period=period,
         recipient_user_ids=crew_user_ids,
     )
+
+
+# ---- unloading -------------------------------------------------------------------------
+
+
+class FiringAlreadyUnloaded(Exception):
+    """Another crew member unloaded this firing first; nothing was changed or sent."""
+
+    def __init__(self, firing: KilnFiring) -> None:
+        super().__init__(firing.pk)
+        self.firing = firing
+
+    @property
+    def message(self) -> str:
+        """The toast the second crew member sees."""
+        firing = self.firing
+        when = dateformat.format(timezone.localtime(firing.unloaded_at), "g:i a")
+        return (
+            f"{firing.name} was already unloaded by {firing.unloaded_by_name} at {when}. "
+            "Nothing changed and no one was notified twice."
+        )
+
+
+def in_kiln_firings() -> list[KilnFiring]:
+    """The firings waiting to be unloaded, oldest load first, with their ticket counts and loaders."""
+    return list(
+        KilnFiring.objects.in_kiln()
+        .select_related("loaded_by__user")
+        .prefetch_related(primary_emails("loaded_by__user"))
+        .annotate(ticket_count=Count("tickets"))
+    )
+
+
+def unload_sheet(firing: KilnFiring) -> list[KilnTicket]:
+    """The tickets still in ``firing``, as Unload shows them: cover photo, maker and glazes loaded at once."""
+    return list(
+        firing.tickets.filter(status=KilnTicket.Status.LOADED)
+        .select_related("maker__user", "clay")
+        .prefetch_related("photos", "studio_glazes", primary_emails("maker__user"))
+        .order_by("maker_id", "pk")
+    )
+
+
+@dataclass(frozen=True)
+class UnloadResult:
+    """What Mark fired and notify did."""
+
+    firing: KilnFiring
+    fired: int
+    returned: int
+    notified: int
+
+    @property
+    def message(self) -> str:
+        """The toast the crew member sees."""
+        fired = f"{self.fired} ticket{'' if self.fired == 1 else 's'} ready for pickup"
+        returned = f", {self.returned} back in the queue" if self.returned else ""
+        makers = f"{self.notified} maker{'' if self.notified == 1 else 's'} notified"
+        return f"{self.firing.name} is unloaded: {fired}{returned}. {makers}."
+
+
+def unload_kiln(*, firing_pk: int, exceptions: dict[int, ExceptionNote], by: Member) -> UnloadResult:
+    """Unload a firing: mark its tickets fired or send them back, record the notes, tell each maker once.
+
+    One transaction locks the firing row first, so a second crew member pressing Mark fired
+    and notify on the same firing waits, then finds it unloaded and is refused
+    (:class:`FiringAlreadyUnloaded`) with nothing written and nothing sent. Every ticket of
+    the firing still in the kiln is fired unless it is in ``exceptions``; an exception is
+    fired with its note, or goes back to the queue (status In the queue, firing cleared, so
+    the maker can edit it again). Each note is saved on the ticket's thread as a crew reply
+    that carries the firing, what happened and the outcome. It does not send a message
+    notification of its own: the maker reads it in the one ready for pickup notice
+    (:func:`_notify_makers`), sent after the transaction commits.
+
+    Args:
+        firing_pk: The firing being unloaded.
+        exceptions: The unticked tickets by pk. A pk that is not in the firing is ignored.
+        by: The crew member unloading.
+
+    Returns:
+        How many tickets were fired and sent back, and how many makers were notified.
+
+    Raises:
+        FiringAlreadyUnloaded: The firing was unloaded before this request got the lock.
+        KilnFiring.DoesNotExist: No such firing.
+    """
+    with transaction.atomic():
+        firing = KilnFiring.objects.select_for_update().get(pk=firing_pk)
+        if firing.is_unloaded:
+            raise FiringAlreadyUnloaded(_with_unloader(firing))
+        # Lock the rows on their own: a select_related join through the maker's nullable user
+        # would be an outer join, which PostgreSQL refuses to lock.
+        tickets = list(firing.tickets.select_for_update().filter(status=KilnTicket.Status.LOADED).order_by("pk"))
+        now = timezone.now()
+        notes = [exceptions[t.pk] for t in tickets if t.pk in exceptions]
+        returned = [n.ticket_pk for n in notes if n.back_to_queue]
+        fired = [t.pk for t in tickets if t.pk not in returned]
+        KilnTicket.objects.filter(pk__in=fired).update(status=KilnTicket.Status.FIRED, fired_at=now, updated_at=now)
+        KilnTicket.objects.filter(pk__in=returned).update(
+            status=KilnTicket.Status.SUBMITTED, firing=None, updated_at=now
+        )
+        replies = KilnReply.objects.bulk_create(
+            [
+                KilnReply(
+                    ticket_id=n.ticket_pk,
+                    author=by,
+                    body=n.note,
+                    firing=firing,
+                    what_happened=n.what_happened,
+                    outcome=n.outcome,
+                )
+                for n in notes
+            ]
+        )
+        firing.unloaded_by = by
+        firing.unloaded_at = now
+        firing.save(update_fields=["unloaded_by", "unloaded_at"])
+    notified = _notify_makers(firing, [t.pk for t in tickets], {r.ticket_id: r for r in replies}, by)
+    return UnloadResult(firing=firing, fired=len(fired), returned=len(returned), notified=notified)
+
+
+def _with_unloader(firing: KilnFiring) -> KilnFiring:
+    """The firing again with who unloaded it, for the refusal's toast."""
+    return (
+        KilnFiring.objects.select_related("unloaded_by__user")
+        .prefetch_related(primary_emails("unloaded_by__user"))
+        .get(pk=firing.pk)
+    )
+
+
+# ---- the ready for pickup notice ---------------------------------------------------------
+
+
+def _ticket_numbers(tickets: list[KilnTicket]) -> str:
+    """ "Ticket 409", "Tickets 409 and 412", "Tickets 401, 409 and 412"."""
+    numbers = [str(t.pk) for t in tickets]
+    if len(numbers) == 1:
+        return f"Ticket {numbers[0]}"
+    return f"Tickets {', '.join(numbers[:-1])} and {numbers[-1]}"
+
+
+@dataclass(frozen=True)
+class PickupNotice:
+    """One maker's notice for one unloaded firing: every piece of theirs in it, and the crew's notes.
+
+    A maker whose pieces all came out gets "ready for pickup"; one whose only piece went back
+    to the queue gets "back in the queue" with the note; a maker with both gets one notice
+    that says both. Never more than one per maker per firing.
+    """
+
+    firing: KilnFiring
+    unloaded_by: Member
+    fired: list[KilnTicket]
+    returned: list[KilnTicket]
+    notes: dict[int, KilnReply]
+
+    @property
+    def headline(self) -> str:
+        if not self.returned:
+            return "Your piece is ready for pickup" if len(self.fired) == 1 else "Your pieces are ready for pickup"
+        if not self.fired:
+            return "Your piece is back in the queue" if len(self.returned) == 1 else "Your pieces are back in the queue"
+        return "Some of your pieces are ready for pickup"
+
+    @property
+    def summary(self) -> str:
+        """The bell's line: what came out, what went back, and whether the crew left a note."""
+        parts: list[str] = []
+        if self.fired:
+            pronoun = "It is" if len(self.fired) == 1 else "They are"
+            parts.append(
+                f"{_ticket_numbers(self.fired)} came out of {self.firing.name}. {pronoun} on the pickup shelf."
+            )
+        if self.returned:
+            verb = "was" if len(self.returned) == 1 else "were"
+            parts.append(f"{_ticket_numbers(self.returned)} {verb} not fired and {verb} put back in the queue.")
+        if self.notes:
+            parts.append("The kiln crew left you a note.")
+        return " ".join(parts)
+
+    def _outcome(self, ticket: KilnTicket) -> str:
+        return "Back in the queue" if ticket in self.returned else "Ready for pickup"
+
+    def _note_text(self, ticket: KilnTicket) -> str:
+        note = self.notes.get(ticket.pk)
+        if note is None:
+            return ""
+        return f"{note.get_what_happened_display()}. {member_name(self.unloaded_by)}: {note.body}"
+
+    @property
+    def tickets(self) -> list[KilnTicket]:
+        return sorted(self.fired + self.returned, key=lambda t: t.pk)
+
+    @property
+    def pieces_text(self) -> str:
+        """One line per piece for the plain text email, with any note under it."""
+        lines: list[str] = []
+        for ticket in self.tickets:
+            lines.append(f"{ticket} ({ticket.summary}): {self._outcome(ticket)}")
+            note = self._note_text(ticket)
+            if note:
+                lines.append(f"  {note}")
+        return "\n".join(lines)
+
+    @property
+    def pieces_block(self) -> SafeString:
+        """The pieces as the email's table, escaped here because the renderer passes it through."""
+        rows = format_html_join(
+            "",
+            '<tr><td style="padding:12px;border-top:1px solid #e3e7ec;">'
+            '<a href="{}" style="color:#092E4C;font-weight:700;">{}</a> '
+            '<span style="font-size:14px;color:#5B6B77;">{} · {}</span>{}</td></tr>',
+            (
+                (
+                    ticket_url(ticket),
+                    str(ticket),
+                    ticket.summary,
+                    self._outcome(ticket),
+                    format_html('<br><span style="white-space:pre-line;">{}</span>', self._note_text(ticket))
+                    if ticket.pk in self.notes
+                    else "",
+                )
+                for ticket in self.tickets
+            ),
+        )
+        return format_html(
+            '<table role="presentation" width="100%" cellpadding="0" cellspacing="0" '
+            'style="margin:0 0 22px;border:1px solid #e3e7ec;border-radius:10px;">{}</table>',
+            rows,
+        )
+
+    @property
+    def unloaded_line(self) -> str:
+        when = dateformat.format(timezone.localtime(self.firing.unloaded_at), "D, M j")
+        return f"Unloaded {when} by {member_name(self.unloaded_by)}."
+
+    @property
+    def url(self) -> str:
+        """The one ticket when there is one, else My Tickets."""
+        tickets = self.tickets
+        return ticket_url(tickets[0]) if len(tickets) == 1 else f"{settings.MEMBER_BASE_URL}{reverse('kiln:mine')}"
+
+
+def ticket_url(ticket: KilnTicket) -> str:
+    """Absolute link to a ticket's page, for a notice."""
+    return f"{settings.MEMBER_BASE_URL}{reverse('kiln:detail', args=[ticket.pk])}"
+
+
+def _notify_makers(firing: KilnFiring, ticket_pks: list[int], notes: dict[int, KilnReply], by: Member) -> int:
+    """Send each maker with a piece in ``firing`` one notice, and say how many were sent.
+
+    The period is the firing, so even a retry of the same firing never tells a maker twice.
+    The crew member unloading is not told about their own pieces. Guests (class students)
+    are told like members: the notice goes to the maker's account.
+    """
+    from core.events.emit import emit
+    from core.events.registry import KILN_READY_FOR_PICKUP
+
+    tickets = (
+        KilnTicket.objects.filter(pk__in=ticket_pks)
+        .exclude(maker=by)
+        .select_related("maker__user")
+        .order_by("maker_id", "pk")
+    )
+    by_maker: dict[int, list[KilnTicket]] = {}
+    for ticket in tickets:
+        by_maker.setdefault(ticket.maker_id, []).append(ticket)
+    for maker_tickets in by_maker.values():
+        notice = PickupNotice(
+            firing=firing,
+            unloaded_by=by,
+            fired=[t for t in maker_tickets if t.status == KilnTicket.Status.FIRED],
+            returned=[t for t in maker_tickets if t.status == KilnTicket.Status.SUBMITTED],
+            notes={t.pk: notes[t.pk] for t in maker_tickets if t.pk in notes},
+        )
+        emit(
+            KILN_READY_FOR_PICKUP,
+            target=firing,
+            context={
+                "user": maker_tickets[0].maker.user,
+                "headline": notice.headline,
+                "summary": notice.summary,
+                "firing_name": firing.name,
+                "pieces_text": notice.pieces_text,
+                "pieces_block": notice.pieces_block,
+                "unloaded_line": notice.unloaded_line,
+                "tickets_url": notice.url,
+            },
+            url=notice.url,
+            period=f"firing-{firing.pk}",
+        )
+    return len(by_maker)
+
+
+# ---- the kiln log ----------------------------------------------------------------------
+
+
+def _exceptions() -> Prefetch:
+    return Prefetch("exceptions", queryset=KilnReply.objects.order_by("pk"))
+
+
+def kiln_log() -> list[KilnFiring]:
+    """Every firing, newest first, with who loaded and unloaded it, its ticket count and its exceptions.
+
+    A ticket sent back to the queue at the unload has left the firing, so it is counted
+    through its note: the count is the pieces that went in.
+    """
+    return list(
+        KilnFiring.objects.order_by("-loaded_at", "-pk")
+        .select_related("loaded_by__user", "unloaded_by__user")
+        .prefetch_related(primary_emails("loaded_by__user"), primary_emails("unloaded_by__user"), _exceptions())
+        .annotate(
+            ticket_count=Count("tickets", distinct=True)
+            + Count(
+                "exceptions",
+                filter=Q(exceptions__outcome=KilnReply.Outcome.BACK_TO_QUEUE),
+                distinct=True,
+            )
+        )
+    )
+
+
+@dataclass(frozen=True)
+class FiringRow:
+    """A ticket on a firing's page, with the crew's unload note when it has one."""
+
+    ticket: KilnTicket
+    note: KilnReply | None
+
+    @property
+    def returned(self) -> bool:
+        return self.note is not None and self.note.outcome == KilnReply.Outcome.BACK_TO_QUEUE
+
+
+def firing_sheet(pk: int) -> tuple[KilnFiring, list[FiringRow]]:
+    """One firing and every ticket that went in, including the ones sent back to the queue.
+
+    Raises:
+        KilnFiring.DoesNotExist: No such firing.
+    """
+    tile = ("maker__user", "clay")
+    tile_prefetch = ("photos", "studio_glazes", primary_emails("maker__user"))
+    firing = (
+        KilnFiring.objects.select_related("loaded_by__user", "unloaded_by__user")
+        .prefetch_related(
+            primary_emails("loaded_by__user"),
+            primary_emails("unloaded_by__user"),
+            Prefetch(
+                "exceptions",
+                queryset=KilnReply.objects.select_related(*(f"ticket__{p}" for p in tile)).prefetch_related(
+                    *(f"ticket__{p}" for p in ("photos", "studio_glazes")),
+                    primary_emails("ticket__maker__user"),
+                ),
+            ),
+            Prefetch(
+                "tickets",
+                queryset=KilnTicket.objects.select_related(*tile).prefetch_related(*tile_prefetch),
+            ),
+        )
+        .get(pk=pk)
+    )
+    notes = {note.ticket_id: note for note in firing.exceptions.all()}
+    rows = [FiringRow(ticket=t, note=notes.pop(t.pk, None)) for t in firing.tickets.all()]
+    rows += [FiringRow(ticket=note.ticket, note=note) for note in notes.values()]
+    return firing, sorted(rows, key=lambda r: r.ticket.pk)

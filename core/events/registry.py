@@ -239,6 +239,8 @@ _PUSH_ON_BY_DEFAULT: frozenset[str] = frozenset(
         "automation.failed",
         # Kiln tickets — the crew asked about your piece, usually before it goes in (#691)
         "kiln.crew_replied",
+        # ...and your piece came out of the kiln, or went back to the queue with a note (#691)
+        "kiln.ready_for_pickup",
     }
 )
 
@@ -518,6 +520,7 @@ FEEDBACK_REQUEST_LIVE = "feedback.request_live"  # a release listing your reques
 FEEDBACK_REQUEST_UPDATED = "feedback.request_updated"  # your feature request or bug report moved, or got a note (#693)
 KILN_CREW_REPLIED = "kiln.crew_replied"  # the kiln crew wrote on your kiln ticket (#691)
 KILN_MAKER_REPLIED = "kiln.maker_replied"  # a maker wrote on a kiln ticket (the kiln crew, #691)
+KILN_READY_FOR_PICKUP = "kiln.ready_for_pickup"  # your pieces came out of a firing (#691 part 3)
 
 # event.reminder keeps Discord OFF (the bell is enough; per-offset channel posts would
 # clutter the guild channel) but declares it so a lead can flip it on later; happening-now
@@ -1451,6 +1454,21 @@ _NEW_EVENTS: list[EventType] = [
         description="A maker wrote on a kiln ticket. Goes to the Ceramics Guild's lead and staff.",
         category="Kiln tickets",
         recipient=Recipients.KILN_CREW,
+        channels=(_IN_APP_ON, _EMAIL_ON),
+        activity_kind=None,
+    ),
+    # kiln.ready_for_pickup — the crew unloaded a firing with the maker's pieces in it (#691
+    # part 3). One notice per maker per firing, listing every piece of theirs and any note
+    # the crew wrote on one that did not come out right. The same key carries a piece sent
+    # back to the queue, so a maker with one of each still gets one notice; the headline says
+    # which. The period is the firing. Reaches class guests (the maker's account is the User).
+    # No activity row: the firing and the ticket are the record.
+    EventType(
+        key=KILN_READY_FOR_PICKUP,
+        label="Ready for pickup",
+        description="Your kiln pieces came out of a firing, or went back to the queue with a note from the crew.",
+        category="Kiln tickets",
+        recipient=Recipients.SINGLE_USER,
         channels=(_IN_APP_ON, _EMAIL_ON),
         activity_kind=None,
     ),
