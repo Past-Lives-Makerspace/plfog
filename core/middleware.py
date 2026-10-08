@@ -260,6 +260,13 @@ class ToastFlashMiddleware:
         return response
 
 
+def _kiln_is_open() -> bool:
+    """The kiln launch switch, read only for a locked-out guest (#691)."""
+    from kiln.access import guest_may_use_kiln
+
+    return guest_may_use_kiln()
+
+
 class MemberLockoutMiddleware:
     """Keep a signed-in, locked-out member to the pages they may still use (#409).
 
@@ -274,6 +281,10 @@ class MemberLockoutMiddleware:
       ``settings.LOCKED_OUT_BOOK_BLOCKED_PREFIXES`` (registration management); anything else
       goes to the lockout page on book (``/accounts/`` is on that list, so it cannot loop).
     - Guilds and signage surfaces are guest surfaces with their own allowlists: untouched.
+    - The one exception (#691): while ``SiteConfiguration.kiln_tickets_open`` is on, a guest
+      account is served the kiln ticket pages (``/kiln/``) on the members surface, and every
+      other gated members path sends them there instead of to the lockout page. While it is
+      off, guests are handled as above. Former and suspended members always are.
 
     Runs after AuthenticationMiddleware and before MemberAgreementMiddleware, so a locked-out
     member is never bounced to the agreement. Cost: one Member lookup per authenticated
@@ -299,8 +310,16 @@ class MemberLockoutMiddleware:
         from django.urls import reverse
 
         from core.htmx import wants_fragment
+        from membership.models import Member
 
         locked_url = f"{reverse('account_locked')}?reason={reason}"
+        if reason == Member.Status.GUEST and getattr(request, "surface", None) == "members" and _kiln_is_open():
+            # A guest (#691) may use the kiln pages and nothing else on the members surface;
+            # any other page sends them back to their tickets.
+            kiln_home = reverse("kiln:mine")
+            if request.path.startswith(kiln_home):
+                return self.get_response(request)
+            locked_url = kiln_home
         if wants_fragment(request):
             res = HttpResponse(status=200)
             res["HX-Redirect"] = locked_url

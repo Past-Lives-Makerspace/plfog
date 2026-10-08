@@ -141,6 +141,7 @@ MEMBER_ONLY_PATH_PREFIXES: tuple[str, ...] = (
     "/feedback/",
     "/find-account/",
     "/guilds/",
+    "/kiln/",
     # The wiki sticker short link. Reachable pre-login on the members host (that is the
     # whole point of a QR on a machine), but it must not resolve on the book surface.
     "/m/",
@@ -264,6 +265,7 @@ INSTALLED_APPS = [
     "membership",
     "billing",
     "airtable_sync",
+    "kiln",
     # REST API
     "rest_framework",
     "rest_framework.authtoken",
@@ -410,6 +412,10 @@ R2_ACCESS_KEY_ID = os.environ.get("R2_ACCESS_KEY_ID", "")
 R2_SECRET_ACCESS_KEY = os.environ.get("R2_SECRET_ACCESS_KEY", "")
 R2_PUBLIC_URL = os.environ.get("R2_PUBLIC_URL", "").rstrip("/")
 _R2_READY = all([R2_ACCOUNT_ID, R2_BUCKET_NAME, R2_ACCESS_KEY_ID, R2_SECRET_ACCESS_KEY, R2_PUBLIC_URL])
+
+# The guild whose kiln the kiln tickets serve (#691): its staff are the kiln crew. Production's
+# Ceramics Guild carries this slug; an environment variable points a preview at another guild.
+KILN_GUILD_SLUG = os.environ.get("KILN_GUILD_SLUG", "ceramics-guild")
 
 # Maximum upload size for ImageField uploads (members, guilds, classes).
 MAX_UPLOAD_IMAGE_BYTES = int(os.environ.get("MAX_UPLOAD_IMAGE_BYTES", str(10 * 1024 * 1024)))  # 10 MB

@@ -45,6 +45,10 @@ disallow_untyped_defs = true
 module = "billing.*"
 disallow_untyped_defs = true
 
+[[tool.mypy.overrides]]
+module = "kiln.*"
+disallow_untyped_defs = true
+
 [tool.django-stubs]
 django_settings_module = "plfog.settings"
 

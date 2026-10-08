@@ -431,8 +431,9 @@ def describe_equipment_index():
             client.get(url)  # warm the session and per-request caches
             # Measured on this grid before the extraction (36), plus the one staff prefetch (#615),
             # less the joined guild lookup the equipment guild gate needed, plus the two fixed
-            # unlocking orientation prefetches (#656): the gate's list and the Book links' list.
-            with django_assert_num_queries(38):
+            # unlocking orientation prefetches (#656): the gate's list and the Book links' list,
+            # plus the sidebar's one Kiln Tickets check (#691).
+            with django_assert_num_queries(39):
                 assert client.get(url).status_code == 200
 
         def it_answers_an_empty_grid_without_the_member_lookups(django_assert_num_queries):

@@ -7,6 +7,7 @@ from typing import Any
 
 from django.http import HttpRequest
 
+from kiln.access import KilnNav
 from membership.models import AdminCapability, Guild, Member
 
 # The per-class management screen an admin lands on. After #399 that is
@@ -41,6 +42,7 @@ def hub_sidebar(request: HttpRequest) -> dict[str, Any]:
             "teach_nav": None,
             "classes_admin_nav_active": False,
             "classes_catalog_active_class": "",
+            "kiln_nav": KilnNav(None),
         }
 
     initials = ""
@@ -66,6 +68,8 @@ def hub_sidebar(request: HttpRequest) -> dict[str, Any]:
         "teach_nav": teach_nav,
         "classes_admin_nav_active": admin_nav_active,
         "classes_catalog_active_class": _classes_catalog_active_class(request, admin_nav_active, teach_nav),
+        # Lazy: the sidebar's one query runs only when a page renders the sidebar (#691).
+        "kiln_nav": KilnNav(member),
     }
 
 

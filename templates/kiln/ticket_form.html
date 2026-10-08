@@ -1,0 +1,202 @@
+{% extends "hub/base.html" %}
+{% load static %}
+{% block title %}{% if ticket %}Ticket {{ ticket.pk }}{% else %}New Ticket{% endif %}{% endblock %}
+
+{% block extra_head %}
+<link rel="stylesheet" href="{% static 'css/kiln-tickets.css' %}">
+{% endblock %}
+
+{% block content %}
+{% include "kiln/partials/_icons.html" %}
+<p class="pl-kiln-crumb"><a href="{% url 'kiln:mine' %}">Kiln Tickets</a></p>
+<h1 class="hub-page-title">{% if not ticket %}New Ticket{% elif ticket.status == "draft" %}Draft Ticket{% else %}Ticket {{ ticket.pk }}{% endif %}</h1>
+<p class="hub-text-muted">{% if ticket and ticket.status != "draft" %}You can change this ticket until the crew loads it. Saving checks the flags again.{% else %}Save as a draft to finish later, or submit to put it in the queue.{% endif %}</p>
+
+{% if copied_from %}
+<div class="pl-kiln-copied" role="status">
+    <svg class="pl-kiln-ico" aria-hidden="true"><use href="#kiln-i-copy"/></svg>
+    <div><strong>Copied from ticket {{ copied_from.pk }}.</strong> Every answer is filled in. Add a photo of this piece, check the size, confirm Cone 6, and submit.</div>
+</div>
+{% endif %}
+
+{% if form.errors %}
+<div class="pl-kiln-errors" role="alert">
+    <strong>This ticket is not ready yet.</strong>
+    {% if form.non_field_errors %}<ul>{% for error in form.non_field_errors %}<li>{{ error }}</li>{% endfor %}</ul>{% endif %}
+    {% if form.non_field_errors|length < form.errors|length %}<p class="pl-kiln-q__hint">Some answers below need a look.</p>{% endif %}
+</div>
+{% endif %}
+
+{% comment %}
+One form, several submit buttons (#691). "action" says which: draft, submit, or cover:<pk> /
+remove:<pk> for a photo, which save the whole page first so nothing typed is lost. Not boosted:
+it uploads files, and a plain post with a redirect is the sturdy path for that on a phone.
+Alpine only shows and hides the branches; the server decides everything.
+{% endcomment %}
+<form method="post" enctype="multipart/form-data" action="{{ request.get_full_path }}" class="pl-kiln-form" hx-boost="false" novalidate data-kiln-form
+      x-data="{ firing: '{{ form.firing_type.value|default_if_none:''|escapejs }}', clay: '{{ form.clay_choice.value|default_if_none:''|escapejs }}', studio: {% if form.glaze_studio.value %}true{% else %}false{% endif %}, commercial: {% if form.glaze_commercial.value %}true{% else %}false{% endif %}, selfmade: {% if form.glaze_self_made.value %}true{% else %}false{% endif %}, walls: '{{ form.walls_under_inch.value|default_if_none:''|escapejs }}', bottom: '{{ form.bottom_free_of_glaze.value|default_if_none:''|escapejs }}', stilts: '{{ form.stilts_added.value|default_if_none:''|escapejs }}', photos: {{ photos|length }}, newPhotos: 0 }"
+      @kiln-photos-changed="newPhotos = $event.detail.count">
+    {% csrf_token %}
+    <button type="submit" name="action" value="{% if ticket and ticket.status != 'draft' %}submit{% else %}draft{% endif %}" class="pl-kiln-default-submit" tabindex="-1" aria-hidden="true">Save</button>
+
+    <div class="hub-card">
+        <h2 class="pl-kiln-step">What Firing Is This For?</h2>
+        <div class="pl-kiln-firing" role="radiogroup" aria-label="Type of firing">
+            {% for radio in form.firing_type %}
+            <label class="pl-radio-option"><input type="radio" name="{{ radio.data.name }}" value="{{ radio.data.value }}" x-model="firing"{% if radio.data.selected %} checked{% endif %}><span class="pl-radio-option__label"><span class="pl-kiln-firing__name">{{ radio.choice_label }}</span><span class="pl-kiln-firing__desc">{% if radio.data.value == "bisque" %}First firing, no glaze yet{% else %}Second firing, glaze is on{% endif %}</span></span></label>
+            {% endfor %}
+        </div>
+        {% if form.firing_type.errors %}<ul class="pl-field-errors">{% for error in form.firing_type.errors %}<li class="pl-field-error">{{ error }}</li>{% endfor %}</ul>{% endif %}
+    </div>
+
+    <div class="hub-card" id="kiln-photos">
+        <h2 class="pl-kiln-step">Photos Of The Piece</h2>
+        <span class="pl-kiln-q__hint">Take the cover photo from the side with the whole piece in view. The crew uses it to find your piece on the shelf.</span>
+        <div class="pl-kiln-photos" data-kiln-photos>
+            {% for photo in photos %}
+            <div class="pl-kiln-photo{% if photo.is_cover %} pl-kiln-photo--cover{% endif %}" data-kiln-photo="{{ photo.pk }}">
+                <img src="{{ photo.tile.url }}" alt="Photo {{ forloop.counter }}{% if photo.is_cover %}, the cover{% endif %}">
+                {% if photo.is_cover %}
+                <span class="pl-kiln-photo__cover"><svg class="pl-kiln-ico" aria-hidden="true"><use href="#kiln-i-star"/></svg>Cover</span>
+                {% else %}
+                <button type="submit" name="action" value="cover:{{ photo.pk }}" class="pl-kiln-photo__make">Make cover</button>
+                {% endif %}
+                <button type="submit" name="action" value="remove:{{ photo.pk }}" class="pl-kiln-photo__remove" aria-label="Remove photo {{ forloop.counter }}"><svg class="pl-kiln-ico" aria-hidden="true"><use href="#kiln-i-x"/></svg></button>
+            </div>
+            {% endfor %}
+            <label class="pl-kiln-photo-add{% if not photos %} pl-kiln-photo-add--big{% endif %}" data-kiln-photo-add>
+                <input type="file" name="photos" accept="image/*" capture="environment" multiple data-kiln-photo-input>
+                <svg class="pl-kiln-ico" aria-hidden="true"><use href="#kiln-i-camera"/></svg>{% if photos %}Add photo{% else %}Take a photo{% endif %}
+            </label>
+        </div>
+        <label class="hub-btn hub-btn--sm hub-btn--ghost pl-kiln-photo-pick">
+            <input type="file" name="photos" accept="image/*" multiple data-kiln-photo-input>
+            <svg class="pl-kiln-ico" aria-hidden="true"><use href="#kiln-i-image"/></svg>Choose from your phone
+        </label>
+        <div hidden data-kiln-photo-holder></div>
+        <p class="pl-kiln-q__hint">{% if photos %}The first photo is the cover until you choose another.{% else %}The first photo you add is the cover. You can change it after saving.{% endif %} Photos up to 10 MB.</p>
+    </div>
+
+    <div class="hub-card">
+        <h2 class="pl-kiln-step">About The Piece</h2>
+        <div class="pl-kiln-q">
+            <span class="pl-kiln-q__label" id="kiln-size">Piece size</span>
+            <div class="pl-kiln-size" role="group" aria-labelledby="kiln-size">
+                {% include "components/form_field.html" with field=form.height_in field_hint_off=True %}
+                {% include "components/form_field.html" with field=form.width_in field_hint_off=True %}
+                {% include "components/form_field.html" with field=form.length_in field_hint_off=True %}
+                <span class="pl-kiln-size__unit">inches</span>
+            </div>
+        </div>
+        {% include "components/form_field.html" with field=form.quantity field_hint_off=True %}
+        <div class="pl-form-group">
+            <label class="pl-form-label" for="{{ form.clay_choice.id_for_label }}">{{ form.clay_choice.label }}</label>
+            <select name="{{ form.clay_choice.html_name }}" id="{{ form.clay_choice.id_for_label }}" x-model="clay">
+                {% for value, label in form.fields.clay_choice.choices %}
+                <option value="{{ value }}"{% if form.clay_choice.value|stringformat:"s" == value|stringformat:"s" %} selected{% endif %}>{{ label }}</option>
+                {% endfor %}
+            </select>
+            {% if form.clay_choice.errors %}<ul class="pl-field-errors">{% for error in form.clay_choice.errors %}<li class="pl-field-error">{{ error }}</li>{% endfor %}</ul>{% endif %}
+        </div>
+        <div class="pl-kiln-follow" x-show="clay === 'other'"{% if form.clay_choice.value != "other" %} x-cloak{% endif %} data-follow="clay-other">
+            {% include "components/form_field.html" with field=form.clay_other_name field_hint_off=True %}
+            {% include "components/toggle.html" with field=form.clay_other_cone6 toggle_label=form.clay_other_cone6.label %}
+            {% if form.clay_other_cone6.errors %}<ul class="pl-field-errors">{% for error in form.clay_other_cone6.errors %}<li class="pl-field-error">{{ error }}</li>{% endfor %}</ul>{% endif %}
+        </div>
+    </div>
+
+    <div class="hub-card" x-show="firing === 'bisque'"{% if form.firing_type.value != "bisque" %} x-cloak{% endif %} data-branch="bisque">
+        <span class="pl-status-badge pl-status-badge--muted pl-kiln-branch__tag"><svg class="pl-kiln-ico" aria-hidden="true"><use href="#kiln-i-flame"/></svg>Bisque question</span>
+        <div class="pl-kiln-q">
+            <span class="pl-kiln-q__label" id="kiln-walls">{{ form.walls_under_inch.label }}</span>
+            <div class="pl-kiln-yesno" role="radiogroup" aria-labelledby="kiln-walls">
+                {% for radio in form.walls_under_inch %}
+                <label class="pl-radio-option"><input type="radio" name="{{ radio.data.name }}" value="{{ radio.data.value }}" x-model="walls"{% if radio.data.selected %} checked{% endif %}><span class="pl-radio-option__label">{{ radio.choice_label }}</span></label>
+                {% endfor %}
+            </div>
+            <div class="pl-kiln-follow" x-show="walls === 'no'"{% if form.walls_under_inch.value != "no" %} x-cloak{% endif %} data-follow="thick-walls">
+                <div class="pl-kiln-notice">
+                    <svg class="pl-kiln-ico" aria-hidden="true"><use href="#kiln-i-eye"/></svg>
+                    <div><strong>Thanks for telling us</strong>Thick walls can trap air and crack in the kiln, so the crew will take a look before loading. Hollowing the piece out or poking a small hole helps if you still can.</div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="hub-card" x-show="firing === 'glaze'"{% if form.firing_type.value != "glaze" %} x-cloak{% endif %} data-branch="glaze">
+        <span class="pl-status-badge pl-status-badge--muted pl-kiln-branch__tag"><svg class="pl-kiln-ico" aria-hidden="true"><use href="#kiln-i-flame"/></svg>Glaze questions</span>
+        <div class="pl-kiln-q">
+            <span class="pl-kiln-q__label">What glaze is on this piece?</span>
+            <span class="pl-kiln-q__hint">Pick all that apply.</span>
+            <div class="pl-kiln-checks">
+                <label class="pl-radio-option"><input type="checkbox" name="{{ form.glaze_studio.html_name }}" x-model="studio"{% if form.glaze_studio.value %} checked{% endif %}><span class="pl-radio-option__label">{{ form.glaze_studio.label }}</span></label>
+                <div class="pl-kiln-follow" x-show="studio"{% if not form.glaze_studio.value %} x-cloak{% endif %} data-follow="studio-glazes">
+                    <span class="pl-kiln-q__hint">Which studio glazes?</span>
+                    <div class="pl-kiln-chips">
+                        {% for box in form.studio_glazes %}<label class="pl-chip">{{ box.tag }}{{ box.choice_label }}</label>{% endfor %}
+                    </div>
+                    {% if form.studio_glazes.errors %}<ul class="pl-field-errors">{% for error in form.studio_glazes.errors %}<li class="pl-field-error">{{ error }}</li>{% endfor %}</ul>{% endif %}
+                </div>
+                <label class="pl-radio-option"><input type="checkbox" name="{{ form.glaze_commercial.html_name }}" x-model="commercial"{% if form.glaze_commercial.value %} checked{% endif %}><span class="pl-radio-option__label">{{ form.glaze_commercial.label }}</span></label>
+                <div class="pl-kiln-follow" x-show="commercial"{% if not form.glaze_commercial.value %} x-cloak{% endif %} data-follow="commercial">
+                    {% include "components/form_field.html" with field=form.commercial_glaze_name field_hint_off=True %}
+                </div>
+                <label class="pl-radio-option"><input type="checkbox" name="{{ form.glaze_self_made.html_name }}" x-model="selfmade"{% if form.glaze_self_made.value %} checked{% endif %}><span class="pl-radio-option__label">{{ form.glaze_self_made.label }}</span></label>
+                <div class="pl-kiln-follow" x-show="selfmade"{% if not form.glaze_self_made.value %} x-cloak{% endif %} data-follow="self-made">
+                    {% include "components/form_field.html" with field=form.self_made_glaze_description field_hint_off=True %}
+                </div>
+            </div>
+        </div>
+
+        <div class="pl-kiln-q">
+            <span class="pl-kiln-q__label" id="kiln-bottom">{{ form.bottom_free_of_glaze.label }}</span>
+            <div class="pl-kiln-yesno" role="radiogroup" aria-labelledby="kiln-bottom">
+                {% for radio in form.bottom_free_of_glaze %}
+                <label class="pl-radio-option"><input type="radio" name="{{ radio.data.name }}" value="{{ radio.data.value }}" x-model="bottom"{% if radio.data.selected %} checked{% endif %}><span class="pl-radio-option__label">{{ radio.choice_label }}</span></label>
+                {% endfor %}
+            </div>
+            <div class="pl-kiln-follow" x-show="bottom === 'no'"{% if form.bottom_free_of_glaze.value != "no" %} x-cloak{% endif %} data-follow="stilts">
+                <span class="pl-kiln-q__label" id="kiln-stilts">{{ form.stilts_added.label }}</span>
+                <div class="pl-kiln-yesno" role="radiogroup" aria-labelledby="kiln-stilts">
+                    {% for radio in form.stilts_added %}
+                    <label class="pl-radio-option"><input type="radio" name="{{ radio.data.name }}" value="{{ radio.data.value }}" x-model="stilts"{% if radio.data.selected %} checked{% endif %}><span class="pl-radio-option__label">{{ radio.choice_label }}</span></label>
+                    {% endfor %}
+                </div>
+            </div>
+        </div>
+
+        {% include "components/toggle.html" with field=form.glaze_cone6 toggle_label=form.glaze_cone6.label toggle_description="Needed to submit." %}
+        {% if form.glaze_cone6.errors %}<ul class="pl-field-errors">{% for error in form.glaze_cone6.errors %}<li class="pl-field-error">{{ error }}</li>{% endfor %}</ul>{% endif %}
+    </div>
+
+    <div class="pl-kiln-notice" role="status" x-show="clay === 'other' || (firing === 'glaze' && (commercial || selfmade || bottom === 'no'))" x-cloak data-kiln-flag-notice>
+        <svg class="pl-kiln-ico" aria-hidden="true"><use href="#kiln-i-eye"/></svg>
+        <div>
+            <strong>The crew will take a quick look at this one</strong>
+            Nothing is wrong. A few answers mean a second pair of eyes before it goes in:
+            <ul>
+                <li x-show="clay === 'other'">{{ flag_notes.other_clay }}</li>
+                <li x-show="firing === 'glaze' && commercial">{{ flag_notes.commercial_glaze }}</li>
+                <li x-show="firing === 'glaze' && selfmade">{{ flag_notes.self_made_glaze }}</li>
+                <li x-show="firing === 'glaze' && bottom === 'no' && stilts === 'yes'">{{ flag_notes.glaze_on_bottom }}</li>
+                <li x-show="firing === 'glaze' && bottom === 'no' && stilts !== 'yes'">{{ flag_notes.glaze_no_stilts }}</li>
+            </ul>
+            If they have a question, they will get in touch.
+        </div>
+    </div>
+
+    <div class="pl-kiln-actionbar">
+        {% if not ticket or ticket.status == "draft" %}
+        <button type="submit" name="action" value="draft" class="hub-btn hub-btn--ghost">Save as draft</button>
+        <button type="submit" name="action" value="submit" class="hub-btn hub-btn--primary pl-kiln-actionbar__grow" :disabled="photos + newPhotos < 1" aria-describedby="kiln-needs-photo">Submit ticket</button>
+        {% else %}
+        <button type="submit" name="action" value="submit" class="hub-btn hub-btn--primary pl-kiln-actionbar__grow" :disabled="photos + newPhotos < 1" aria-describedby="kiln-needs-photo">Save changes</button>
+        {% endif %}
+    </div>
+    <p class="hub-text-muted" id="kiln-needs-photo" x-show="photos + newPhotos < 1"{% if photos %} x-cloak{% endif %}>Add at least one photo to submit.</p>
+</form>
+{% endblock %}
+
+{% block extra_js %}
+<script src="{% static 'js/kiln_ticket_form.js' %}"></script>
+{% endblock %}

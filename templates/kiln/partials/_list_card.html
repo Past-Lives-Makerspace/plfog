@@ -1,0 +1,44 @@
+{% comment %}
+One of the crew's lists (#691): clays or studio glazes. A name saves when the box loses focus,
+Archive and Restore save at once, and each answer swaps this whole card. Without htmx each
+form posts and lands back on the Lists page. Expects card (kiln.views._list_card_context).
+{% endcomment %}
+<div class="hub-card" id="kiln-list-{{ card.kind }}" data-kiln-list="{{ card.kind }}">
+    <h2 class="pl-kiln-card-title">{{ card.title }}</h2>
+    {% for option in card.active %}
+    <form method="post" action="{% url 'kiln:list_rename' card.kind option.pk %}" class="pl-kiln-listrow" data-option="{{ option.pk }}"
+          hx-post="{% url 'kiln:list_rename' card.kind option.pk %}" hx-trigger="change" hx-target="#kiln-list-{{ card.kind }}" hx-swap="outerHTML">
+        {% csrf_token %}
+        <div class="pl-form-group"><label class="sr-only" for="kiln-{{ card.kind }}-{{ option.pk }}">{{ card.noun|capfirst }} name</label><input id="kiln-{{ card.kind }}-{{ option.pk }}" name="name" value="{{ option.name }}" maxlength="80" required></div>
+        <button type="submit" formaction="{% url 'kiln:list_archive' card.kind option.pk %}" hx-post="{% url 'kiln:list_archive' card.kind option.pk %}" hx-target="#kiln-list-{{ card.kind }}" hx-swap="outerHTML" class="hub-btn hub-btn--sm hub-btn--ghost"><svg class="pl-kiln-ico" aria-hidden="true"><use href="#kiln-i-archive"/></svg>Archive</button>
+        <span class="pl-kiln-listrow__meta">On {{ option.ticket_count }} ticket{{ option.ticket_count|pluralize }}{% if card.saved_pk == option.pk %} · <span class="pl-kiln-saved"><svg class="pl-kiln-ico" aria-hidden="true"><use href="#kiln-i-check"/></svg>Saved</span>{% endif %}</span>
+    </form>
+    {% endfor %}
+    {% if card.kind == "clay" %}
+    <div class="pl-kiln-listrow pl-kiln-listrow--fixed"><span class="pl-kiln-listrow__name">Other (specify)</span><span class="pl-kiln-crewonly"><svg class="pl-kiln-ico" aria-hidden="true"><use href="#kiln-i-lock"/></svg>Always last</span><span class="pl-kiln-listrow__meta">Asks which clay and the Cone 6 confirmation. Always flags the ticket.</span></div>
+    {% endif %}
+    <form method="post" action="{% url 'kiln:list_add' card.kind %}" class="pl-kiln-addrow"
+          hx-post="{% url 'kiln:list_add' card.kind %}" hx-target="#kiln-list-{{ card.kind }}" hx-swap="outerHTML">
+        {% csrf_token %}
+        <div class="pl-form-group"><label class="sr-only" for="kiln-{{ card.kind }}-new">New {{ card.noun }} name</label><input id="kiln-{{ card.kind }}-new" name="name" placeholder="New {{ card.noun }} name" maxlength="80" required></div>
+        <button type="submit" class="hub-btn hub-btn--sm hub-btn--primary pl-kiln-add"><svg class="pl-kiln-ico" aria-hidden="true"><use href="#kiln-i-plus"/></svg>Add {{ card.noun }}</button>
+    </form>
+    {% if card.error %}<ul class="pl-field-errors" role="alert"><li class="pl-field-error">{{ card.error }}</li></ul>{% endif %}
+    {% if card.archived %}
+    <details class="pl-disclosure">
+        <summary class="pl-disclosure__summary"><span class="pl-disclosure__text"><span class="pl-disclosure__title">Archived ({{ card.archived|length }})</span><span class="pl-disclosure__hint">Hidden from new tickets. Old tickets still show them.</span></span><span class="pl-disclosure__chevron" aria-hidden="true"></span></summary>
+        <div class="pl-disclosure__body">
+            <ul class="pl-kiln-archived">
+                {% for option in card.archived %}
+                <li data-option="{{ option.pk }}"><span>{{ option.name }}<small>Archived {{ option.archived_at|date:"M j" }}{% if option.archived_by %} by {{ option.archived_by.display_name }}{% endif %} · on {{ option.ticket_count }} ticket{{ option.ticket_count|pluralize }}</small></span>
+                    <form method="post" action="{% url 'kiln:list_restore' card.kind option.pk %}" hx-post="{% url 'kiln:list_restore' card.kind option.pk %}" hx-target="#kiln-list-{{ card.kind }}" hx-swap="outerHTML">
+                        {% csrf_token %}
+                        <button type="submit" class="hub-btn hub-btn--sm hub-btn--ghost"><svg class="pl-kiln-ico" aria-hidden="true"><use href="#kiln-i-undo"/></svg>Restore</button>
+                    </form>
+                </li>
+                {% endfor %}
+            </ul>
+        </div>
+    </details>
+    {% endif %}
+</div>

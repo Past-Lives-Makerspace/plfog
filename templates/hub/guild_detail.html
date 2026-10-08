@@ -320,6 +320,10 @@
                     Teach a Class
                 </a>
                 {% endif %}
+                {% if user.is_authenticated and not is_guilds_surface and guild.slug == kiln_nav.guild_slug and kiln_nav.guild_link %}
+                {# Every member can file a kiln ticket from the guild that runs the kiln (#691), once the launch switch is on; until then only its crew sees the link. #}
+                <a href="{% url 'kiln:mine' %}" class="pl-btn pl-btn--secondary pl-btn--block" data-nav="kiln-guild-link">Kiln Tickets</a>
+                {% endif %}
                 {% if is_guilds_surface and products %}
                 {# No in-place cart on the guest surface — buyables live on the members hub. #}
                 <a href="{{ MEMBER_BASE_URL }}{% url 'hub_guild_detail' guild.slug %}" class="pl-btn pl-btn--secondary" style="width:100%;" hx-boost="false">{% if user.is_authenticated %}Buy this guild's items on the members hub{% else %}Log in on the members hub to shop{% endif %}</a>

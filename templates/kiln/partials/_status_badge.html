@@ -1,0 +1,5 @@
+{# A ticket's status as a badge with an icon, so it reads without color. Expects ticket. #}
+{% if ticket.status == "draft" %}<span class="pl-status-badge pl-status-badge--muted pl-kiln-status"><svg class="pl-kiln-ico" aria-hidden="true"><use href="#kiln-i-pencil"/></svg>{{ ticket.get_status_display }}</span>
+{% elif ticket.status == "submitted" %}<span class="pl-status-badge pl-status-badge--warn pl-kiln-status"><svg class="pl-kiln-ico" aria-hidden="true"><use href="#kiln-i-clock"/></svg>{{ ticket.get_status_display }}</span>
+{% elif ticket.status == "loaded" %}<span class="pl-status-badge pl-status-badge--ok pl-kiln-status"><svg class="pl-kiln-ico" aria-hidden="true"><use href="#kiln-i-flame"/></svg>{{ ticket.get_status_display }}</span>
+{% else %}<span class="pl-status-badge pl-status-badge--ok pl-kiln-status"><svg class="pl-kiln-ico" aria-hidden="true"><use href="#kiln-i-check"/></svg>{{ ticket.get_status_display }}</span>{% endif %}

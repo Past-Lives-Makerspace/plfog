@@ -1466,6 +1466,7 @@ class SiteSettingsForm(forms.ModelForm):
             "former_member_signin_message",
             "guest_member_signin_message",
             "suspended_members_locked_out",
+            "kiln_tickets_open",
             "suspended_member_signin_message",
             "member_agreement_required",
             "member_agreement_url",

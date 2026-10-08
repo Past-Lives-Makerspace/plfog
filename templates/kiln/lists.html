@@ -1,0 +1,19 @@
+{% extends "hub/base.html" %}
+{% load static %}
+{% block title %}Clay and Glaze Lists{% endblock %}
+
+{% block extra_head %}
+<link rel="stylesheet" href="{% static 'css/kiln-tickets.css' %}">
+{% endblock %}
+
+{% block content %}
+{% include "kiln/partials/_icons.html" %}
+<div class="pl-kiln-head">
+    <h1 class="hub-page-title">Kiln Tickets</h1>
+    {% include "kiln/partials/_crew_tabs.html" %}
+</div>
+<p class="pl-kiln-rule">These are the choices on every new ticket. Rename to fix a typo. If the clay or glaze itself changed, archive the old one and add a new one, so old tickets keep showing what was really used. Nothing here is ever deleted.</p>
+<div class="pl-kiln-lists">
+    {% for card in cards %}{% include "kiln/partials/_list_card.html" %}{% endfor %}
+</div>
+{% endblock %}

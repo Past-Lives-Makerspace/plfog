@@ -1,0 +1,51 @@
+{% extends "hub/base.html" %}
+{% load static %}
+{% block title %}Kiln Tickets{% endblock %}
+
+{% block extra_head %}
+<link rel="stylesheet" href="{% static 'css/kiln-tickets.css' %}">
+{% endblock %}
+
+{% block content %}
+{% include "kiln/partials/_icons.html" %}
+<div class="pl-kiln-head">
+    <h1 class="hub-page-title">Kiln Tickets</h1>
+    <p class="pl-kiln-head__lead">One ticket for each piece or set of matching pieces. The crew finds your work by the cover photo and tells you when it is ready.</p>
+    {% if is_crew %}{% include "kiln/partials/_crew_tabs.html" %}{% endif %}
+</div>
+
+<a href="{% url 'kiln:new' %}" class="hub-btn hub-btn--primary pl-kiln-new"><svg class="pl-kiln-ico" aria-hidden="true"><use href="#kiln-i-plus"/></svg>New ticket</a>
+
+{% if drafts %}
+<section class="pl-kiln-group" aria-labelledby="kiln-drafts">
+    <h2 class="pl-kiln-group__title" id="kiln-drafts">Drafts <span class="pl-kiln-count">{{ drafts|length }}</span></h2>
+    {% for ticket in drafts %}{% include "kiln/partials/_ticket_row.html" %}{% endfor %}
+</section>
+{% endif %}
+
+{% if queued %}
+<section class="pl-kiln-group" aria-labelledby="kiln-queued" data-group="submitted">
+    <h2 class="pl-kiln-group__title" id="kiln-queued">In The Queue <span class="pl-kiln-count">{{ queued|length }}</span></h2>
+    {% for ticket in queued %}{% include "kiln/partials/_ticket_row.html" %}{% endfor %}
+</section>
+{% endif %}
+
+{% if loaded %}
+<section class="pl-kiln-group" aria-labelledby="kiln-loaded" data-group="loaded">
+    <h2 class="pl-kiln-group__title" id="kiln-loaded">In The Kiln <span class="pl-kiln-count">{{ loaded|length }}</span></h2>
+    {% for ticket in loaded %}{% include "kiln/partials/_ticket_row.html" %}{% endfor %}
+</section>
+{% endif %}
+
+{% if history %}
+<section class="pl-kiln-group" aria-labelledby="kiln-history" data-group="history">
+    <h2 class="pl-kiln-group__title" id="kiln-history">History</h2>
+    {% for ticket in history %}{% include "kiln/partials/_ticket_row.html" %}{% endfor %}
+    {% if has_older %}<a href="{% url 'kiln:mine' %}?older=1" class="hub-btn hub-btn--ghost hub-btn--sm">Show older tickets</a>{% endif %}
+</section>
+{% endif %}
+
+{% if not drafts and not queued and not loaded and not history %}
+<p class="hub-text-muted">No tickets yet. Put your piece on the shelf, take a photo, and file your first one.</p>
+{% endif %}
+{% endblock %}

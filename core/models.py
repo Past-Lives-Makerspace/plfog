@@ -706,6 +706,16 @@ class SiteConfiguration(models.Model):
         help_text="When on, a suspended member cannot sign in to the member site and sees the message below. "
         "Former members are always locked out.",
     )
+    kiln_tickets_open = models.BooleanField(
+        default=False,
+        db_default=False,
+        verbose_name="Open kiln tickets to everyone",
+        help_text=(
+            "When on, every member and every guest account can file kiln tickets, and guests can sign in "
+            "to the member site for that alone. When off, only the Ceramics Guild lead and staff can open "
+            "Kiln Tickets, and guest accounts stay locked out of the member site."
+        ),
+    )
     suspended_member_signin_message = models.TextField(
         blank=True,
         default="Your membership is paused right now, so this account cannot sign in to the member site.",

@@ -69,6 +69,13 @@ def _extract_bodies(msg: object) -> tuple[str, str | None]:
     return body, html_body
 
 
+def _kiln_is_open() -> bool:
+    """The kiln launch switch, read only when a guest signs in (#691)."""
+    from kiln.access import guest_may_use_kiln
+
+    return guest_may_use_kiln()
+
+
 class AdminRedirectAccountAdapter(DefaultAccountAdapter):
     """Grant admin privileges on login and route each surface to its landing page.
 
@@ -143,12 +150,17 @@ class AdminRedirectAccountAdapter(DefaultAccountAdapter):
         A former (or, by setting, suspended) member on the members surface is sent to the
         lockout page instead of being logged in, and the half-finished login-code stage is
         cleared so their next attempt starts clean. Other surfaces sign them in: the book site
-        keeps their class receipts (#409, ``core/member_lockout.py``).
+        keeps their class receipts (#409, ``core/member_lockout.py``). While the kiln launch
+        switch is on, a guest account signs in, to the kiln ticket pages only (#691).
         """
         from core.member_lockout import lockout_reason
+        from membership.models import Member
 
         reason = lockout_reason(user) if getattr(request, "surface", None) == "members" else None
-        if reason is not None:
+        # A guest signs in to file kiln tickets once the launch switch is on (#691); the lockout
+        # middleware then keeps the session to the kiln pages. Former and suspended members are
+        # always refused, and guests are while the switch is off.
+        if reason is not None and not (reason == Member.Status.GUEST and _kiln_is_open()):
             clear_login(request)
             return HttpResponseRedirect(f"{reverse('account_locked')}?reason={reason}")
 

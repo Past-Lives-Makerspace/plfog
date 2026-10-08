@@ -1,0 +1,7 @@
+{# The Kiln Tickets sidebar entry (#691), shared by the admin, member and student sidebars. kiln_nav comes from hub.context_processors.hub_sidebar. #}
+{% load hub_tags %}
+{% active_path '/kiln/' as kiln_active %}
+<a href="{% url 'kiln:mine' %}" class="hub-sidebar__link {{ kiln_active }}"{% if kiln_active %} aria-current="page"{% endif %} data-nav="kiln">
+    {% include "hub/partials/nav_icons/_kiln.html" %}
+    Kiln Tickets
+</a>

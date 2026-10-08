@@ -1,0 +1,5 @@
+{# The crew's tab row on the kiln pages. Only guild staff see it; part 2 and 3 add Load the Kiln, Unload and Kiln Log. Expects kiln_tab. #}
+<nav class="pl-tabs" aria-label="Kiln pages">
+    <a href="{% url 'kiln:mine' %}" class="vote-tab{% if kiln_tab == 'mine' %} vote-tab--active{% endif %}"{% if kiln_tab == 'mine' %} aria-current="page"{% endif %}>My Tickets</a>
+    <a href="{% url 'kiln:lists' %}" class="vote-tab{% if kiln_tab == 'lists' %} vote-tab--active{% endif %}"{% if kiln_tab == 'lists' %} aria-current="page"{% endif %}>Lists</a>
+</nav>
