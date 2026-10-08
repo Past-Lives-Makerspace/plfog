@@ -521,3 +521,15 @@ def describe_the_listing_eventbrite_receives():
         assert _sent(routes["description"])["widgets"] == []
         offering.refresh_from_db()
         assert offering.eventbrite_sync_state == ClassOffering.EventbriteSyncState.LISTED
+
+    @respx.mock
+    def it_keeps_a_widget_with_no_type_as_read():
+        untyped = {"id": "w-1", "data": {"note": "no type"}}
+        routes = _listing_routes("ev-1", widgets=[untyped, {"id": "", "type": "faq", "data": DASHBOARD_FAQ}])
+        offering = _live()
+
+        offering.sync_eventbrite_listing()
+
+        assert _sent(routes["description"])["widgets"] == [untyped]
+        offering.refresh_from_db()
+        assert offering.eventbrite_sync_state == ClassOffering.EventbriteSyncState.LISTED

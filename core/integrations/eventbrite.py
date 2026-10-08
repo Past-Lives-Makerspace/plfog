@@ -168,7 +168,7 @@ class EventbriteClient:
         images = [{"type": "image", "data": {"image": {"type": "image", "image_id": i}}} for i in image_ids]
         body: dict[str, Any] = {"modules": [text, *images], "publish": True, "purpose": "listing"}
         if faqs is not None:
-            widgets = [w for w in current.get("widgets") or [] if field(w, "type") not in _FAQ_WIDGET_TYPES]
+            widgets = [w for w in current.get("widgets") or [] if w.get("type") not in _FAQ_WIDGET_TYPES]
             if faqs:
                 widgets += [{"id": "", "type": kind, "data": {"faqs": list(faqs)}} for kind in _FAQ_WIDGET_TYPES]
             body["widgets"] = widgets
