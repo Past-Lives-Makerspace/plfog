@@ -49,7 +49,7 @@ Expanded panel. next_url is where a plain vote post lands.
 <div class="pl-spotlight-live" data-spotlight data-spotlight-signature="{{ spotlight.seen_signature }}" x-data x-init="$store.spotlight.arrive($el.dataset.spotlightSignature)">
     <div class="pl-spotlight pl-spotlight--minimized" data-spotlight-state="minimized">
         <button type="button" class="pl-spotlight__min" aria-label="Open the Spotlight" @click="$store.spotlight.open()">
-            <span class="pl-spotlight__dot" data-spotlight-dot x-show="$store.spotlight.unseen" aria-label="Something new"></span>
+            <span class="pl-spotlight__dot" data-spotlight-dot x-show="$store.spotlight.unseen" x-cloak aria-label="Something new"></span>
             <span class="pl-spotlight__line" data-spotlight-first>{{ spotlight.first_line }}</span>
             <span class="pl-spotlight__line pl-spotlight__line--second">
                 <span data-spotlight-second>{{ spotlight.second_line }}</span>

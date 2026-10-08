@@ -26,21 +26,21 @@ and the Past polls table. Nothing here notifies anyone.
     </form>
     <div class="pl-spotlight-admin__preview" data-spotlight-preview aria-label="Preview">
       <p class="pl-spotlight-admin__label">Standard</p>
-      {% include "hub/partials/_spotlight.html" with state="standard" preview=True past_polls_url="#past-polls" %}
+      {% include "hub/partials/_spotlight.html" with spotlight=admin_spotlight state="standard" preview=True past_polls_url="#past-polls" %}
       <p class="pl-spotlight-admin__label">Minimized</p>
-      {% include "hub/partials/_spotlight.html" with state="minimized" preview=True %}
+      {% include "hub/partials/_spotlight.html" with spotlight=admin_spotlight state="minimized" preview=True %}
     </div>
   </div>
 </div>
 
 <div class="hub-card pl-spotlight-admin" id="open-poll">
   <h2 class="pl-spotlight-admin__title">This Week's Poll</h2>
-  {% if spotlight.poll %}
-  <p class="pl-spotlight-admin__question" data-open-poll="{{ spotlight.poll.pk }}">{{ spotlight.poll.question }}</p>
-  <p class="hub-text-muted pl-spotlight-admin__meta">{{ spotlight.total_votes }} vote{{ spotlight.total_votes|pluralize }} so far. Closes in {{ spotlight.poll.closes_at|timeuntil }}, on {{ spotlight.poll.closes_label }}.</p>
-  {% include "hub/partials/_poll_results.html" with results=spotlight.results %}
+  {% if admin_spotlight.poll %}
+  <p class="pl-spotlight-admin__question" data-open-poll="{{ admin_spotlight.poll.pk }}">{{ admin_spotlight.poll.question }}</p>
+  <p class="hub-text-muted pl-spotlight-admin__meta">{{ admin_spotlight.total_votes }} vote{{ admin_spotlight.total_votes|pluralize }} so far. Closes in {{ admin_spotlight.poll.closes_at|timeuntil }}, on {{ admin_spotlight.poll.closes_label }}.</p>
+  {% include "hub/partials/_poll_results.html" with results=admin_spotlight.results %}
   <button type="button" class="pl-btn pl-btn--danger pl-btn--sm pl-btn--spaced" @click="$dispatch('open-confirm', 'close-poll')" data-close-poll>Close now</button>
-  {% url 'hub_admin_spotlight_poll_close' spotlight.poll.pk as close_url %}
+  {% url 'hub_admin_spotlight_poll_close' admin_spotlight.poll.pk as close_url %}
   {% include "components/confirm_modal.html" with confirm_id="close-poll" confirm_title="Close this poll now?" confirm_message="Voting ends at once and the results stay as they are." confirm_action_url=close_url confirm_button_text="Close now" %}
   {% else %}
   <p class="hub-text-muted" data-open-poll-empty>No poll is open. Post one below.</p>
@@ -70,14 +70,14 @@ and the Past polls table. Nothing here notifies anyone.
     {# Always empty on render: only the confirm modal's Close it and post sets it, so a re-shown form never closes the open poll on its own. #}
     <input type="hidden" name="close_current" id="id_close_current" value="">
     <div class="pl-spotlight-admin__save">
-      {% if spotlight.poll %}
+      {% if admin_spotlight.poll %}
       <button type="button" class="pl-btn pl-btn--primary" @click="$dispatch('open-confirm', 'replace-poll')" data-post-poll>Post poll</button>
       {% else %}
       <button type="submit" class="pl-btn pl-btn--primary" data-post-poll>Post poll</button>
       {% endif %}
     </div>
   </form>
-  {% if spotlight.poll %}
+  {% if admin_spotlight.poll %}
   {% include "components/confirm_modal.html" with confirm_id="replace-poll" confirm_title="Close the open poll first?" confirm_message="Only one poll is open at a time. Posting this one closes the current poll now; its results stay." confirm_button_text="Close it and post" confirm_button_style="primary" confirm_js="document.getElementById('id_close_current').value = 'on'; document.getElementById('new-poll-form').requestSubmit();" %}
   {% endif %}
 </div>

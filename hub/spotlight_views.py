@@ -59,7 +59,9 @@ def _render_page(
     status: int = 200,
 ) -> HttpResponse:
     now = timezone.now()
-    spotlight = Spotlight.load(None, now)
+    # Read as nobody for the preview and the poll card. It must not be called "spotlight":
+    # that key is the context processor's Spotlight for the signed-in admin (#709).
+    admin_spotlight = Spotlight.load(None, now)
     text_form = text_form or SpotlightTextForm(instance=SiteConfiguration.load())
     table = prepare_table(
         request,
@@ -71,7 +73,7 @@ def _render_page(
     )
     context: dict[str, Any] = {
         **_get_hub_context(request),
-        "spotlight": spotlight,
+        "admin_spotlight": admin_spotlight,
         "text_form": text_form,
         "poll_form": poll_form or NewPollForm(),
         "max_choices": MAX_CHOICES,
@@ -82,7 +84,7 @@ def _render_page(
             "second": text_form["spotlight_second_line"].value() or "",
             "meeting": str(text_form["spotlight_meeting_event"].value() or ""),
             "meetings": _meeting_previews(text_form, now),
-            "pollQuestion": spotlight.first_line_fallback,
+            "pollQuestion": admin_spotlight.first_line_fallback,
             "secondDefault": SECOND_LINE_DEFAULT,
         },
         "page": table["page"],

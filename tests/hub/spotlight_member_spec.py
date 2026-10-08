@@ -154,7 +154,8 @@ def describe_minimized():
 
         html = client.get(HOME).content.decode()
 
-        assert 'data-spotlight-dot x-show="$store.spotlight.unseen"' in html
+        # x-cloak: hidden until the store decides, so a minimized member with nothing new never sees it flash.
+        assert 'data-spotlight-dot x-show="$store.spotlight.unseen" x-cloak' in html
         assert f'data-spotlight-signature="{poll.pk}||"' in html
 
     def it_sets_the_remembered_state_before_the_first_paint():
@@ -295,3 +296,28 @@ def describe_query_count():
             client.get(HOME)
 
         assert len(with_spotlight) - len(without_spotlight) == 1
+
+
+def describe_changelog_dates():
+    def it_writes_dates_the_way_the_portal_does():
+        from hub.templatetags.hub_tags import changelog_date
+
+        assert changelog_date("2026-10-07") == "Oct 7, 2026"
+
+    def it_refuses_a_date_that_is_not_iso():
+        from hub.templatetags.hub_tags import changelog_date
+
+        with pytest.raises(ValueError):
+            changelog_date("October 7")
+
+    def it_shows_written_dates_in_the_panel_and_the_plain_modal(monkeypatch: pytest.MonkeyPatch):
+        entry = {"title": "Zorblax release", "date": "2026-10-07", "changes": ["One"], "slug": "zorblax"}
+        monkeypatch.setattr("plfog.version.CHANGELOG", [entry])
+        client, _member = _client_for()
+
+        panel = client.get(HOME).content.decode().split("data-spotlight-panel", 1)[1]
+        login = Client().get("/accounts/login/").content.decode()
+
+        for html in (panel, login):
+            assert '<span class="changelog-entry__date">Oct 7, 2026</span>' in html
+            assert "2026-10-07</span>" not in html

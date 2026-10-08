@@ -171,3 +171,16 @@ def calendar_day(event: Any) -> Any:
     from hub.calendar_entries import calendar_day as day_of
 
     return day_of(event)
+
+
+@register.filter
+def changelog_date(value: str) -> str:
+    """A changelog entry's ``YYYY-MM-DD`` as the portal writes dates: ``Oct 7, 2026`` (#709).
+
+    Entries carry the date as text (``changelog.d/`` and ``changelog/history.json``); both are
+    validated as ISO dates, so anything else raises rather than showing members a raw string.
+    """
+    from datetime import date
+
+    day = date.fromisoformat(value)
+    return f"{day:%b} {day.day}, {day.year}"

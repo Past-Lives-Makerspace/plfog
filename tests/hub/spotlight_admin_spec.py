@@ -328,3 +328,40 @@ def describe_past_polls():
         assert "Zorblax results" in html
         assert "1 vote · 100%" in html
         assert "Zorblax Voterperson" not in html
+
+
+def describe_the_admins_own_spotlight_on_this_page():
+    """The page's preview reads the Spotlight as nobody; the sidebar must still be the admin's own (#709)."""
+
+    def _sidebar(html: str) -> str:
+        return html.split('class="hub-sidebar__spotlight"', 1)[1].split("hub-sidebar__nav", 1)[0]
+
+    def it_offers_the_answers_to_an_admin_who_has_not_voted(admin_client: Client):
+        poll_with("Laser", "Lathe", question="Zorblax admin?")
+
+        sidebar = _sidebar(admin_client.get(PAGE).content.decode())
+
+        assert "data-poll-choices" in sidebar
+        assert "data-my-vote" not in sidebar
+
+    def it_marks_the_admins_own_vote(admin_client: Client):
+        poll = poll_with("Laser", "Lathe")
+        admin = User.objects.get(username="spotadmin")
+        lathe = poll.choices.get(text="Lathe")
+        PollVoteFactory(choice=lathe, member=admin.member)
+
+        html = admin_client.get(PAGE).content.decode()
+
+        assert f'data-poll-result="{lathe.pk}" data-my-vote' in _sidebar(html)
+        assert "Your vote" in html.split("data-spotlight-panel", 1)[1]
+
+    def it_still_previews_as_nobody(admin_client: Client):
+        poll = poll_with("Laser", "Lathe")
+        PollVoteFactory(choice=poll.choices.first(), member=User.objects.get(username="spotadmin").member)
+
+        preview = (
+            admin_client.get(PAGE).content.decode().split("data-spotlight-preview", 1)[1].split('id="open-poll"', 1)[0]
+        )
+
+        assert "data-spotlight-choice=" in preview
+        assert "data-my-vote" not in preview

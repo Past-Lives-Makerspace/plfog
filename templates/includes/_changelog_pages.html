@@ -6,13 +6,14 @@ root.plShowEntry(id) turns to the page holding that entry and returns it, which 
 #changelog-<slug> deep link (#693) uses. Hidden entries use the hidden attribute, never an
 inline display.
 {% endcomment %}
+{% load hub_tags %}
 <div class="changelog-pages" id="{{ pages_id }}" data-changelog-pages>
     {% for entry in changelog %}
     <div class="changelog-entry" data-changelog-entry{% if entry.slug %} id="changelog-{{ entry.slug }}"{% endif %}>
         <div class="changelog-entry__header">
             {# Only swept history carries a version number; a changelog.d/ entry has a date and no number. #}
             {% if entry.version %}<span class="changelog-entry__version">v{{ entry.version }}</span>{% endif %}
-            <span class="changelog-entry__date">{{ entry.date }}</span>
+            <span class="changelog-entry__date">{{ entry.date|changelog_date }}</span>
         </div>
         <h3 class="changelog-entry__title">{{ entry.title }}</h3>
         <ul class="changelog-entry__list">
