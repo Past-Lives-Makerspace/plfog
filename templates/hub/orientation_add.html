@@ -1,0 +1,25 @@
+{% extends "hub/base.html" %}
+{% block title %}Add an Orientation{% endblock %}
+
+{% block content %}
+<div style="margin-bottom:1rem;">
+  <a href="{% url 'hub_orientations' %}" class="hub-btn hub-btn--sm hub-btn--ghost">← Back to Orientations</a>
+</div>
+{% include "components/page_header.html" with title="Add an Orientation" description="Pick the guild that runs it, then describe it. You set its hours on the guild's Orientations page after you save." %}
+
+{# The Add an Orientation form (#680): hub.forms.NewOrientationTypeForm, the Guild first; Save is the last control. #}
+<div class="hub-card pl-equip-form-card">
+  <form method="post" action="{% url 'hub_orientation_add' %}" enctype="multipart/form-data" class="hub-form" data-orientation-add-form>
+    {% csrf_token %}
+    {% for error in form.non_field_errors %}<p class="pl-field-error">{{ error }}</p>{% endfor %}
+    {% include "components/form_field.html" with field=form.guild %}
+    {% include "hub/partials/_orientation_type_fields.html" with type_form=form %}
+    {% include "components/image_field.html" with field=form.photo current_image=None label="Photo" shape="rect" max_bytes=max_upload_image_bytes tooltip_html="Wide photo, about 1600x900, JPG or PNG. Shown on this orientation's card. Leave empty to use the guild banner." %}
+    {% include "components/form_field.html" with field=form.is_active %}
+    <div class="pl-equip-save-row">
+      <a href="{% url 'hub_orientations' %}" class="hub-btn hub-btn--sm hub-btn--ghost">Cancel</a>
+      <button type="submit" class="pl-btn pl-btn--primary">Save</button>
+    </div>
+  </form>
+</div>
+{% endblock %}

@@ -209,6 +209,7 @@ urlpatterns = [
     # The Orientations page (#502) and its Bookings tab (#626); manage/ is the old dashboard, now a redirect to the tab.
     path("orientations/", orientations_views.hub_orientations, name="hub_orientations"),
     path("orientations/bookings/", orientations_views.hub_orientations_bookings, name="hub_orientations_bookings"),
+    path("orientations/add/", orientations_views.hub_orientation_add, name="hub_orientation_add"),
     path(
         "orientations/calendar/events/",
         orientations_views.hub_orientations_calendar_events,

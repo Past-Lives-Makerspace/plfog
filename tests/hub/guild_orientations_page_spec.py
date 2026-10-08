@@ -63,10 +63,11 @@ def describe_the_page():
         assert "<title>Tech Guild Orientations" in content
         assert '<h1 class="hub-page-title pl-guild-settings__title">Tech Guild Orientations</h1>' in content
         page = content.split("data-guild-orientations", 1)[1]
-        first_button = page[page.index("<button") : page.index("</button>")]
-        assert 'form="otypes-form"' in first_button
-        assert "data-formset-add" in first_button
-        assert first_button.endswith(">+ Add an orientation type")
+        # The first control is the link to the Add an Orientation page with this guild chosen (#680).
+        first_control = page[page.index("<a ") : page.index("</a>")]
+        assert first_control.startswith(f'<a href="{reverse("hub_orientation_add")}?guild={guild.pk}"')
+        assert "data-add-orientation-type" in first_control
+        assert first_control.endswith(">+ Add an orientation type")
         assert f'<a href="{reverse("hub_guild_edit", args=[guild.pk])}"' in page
         assert "Back to Tech Guild Settings" in page
 

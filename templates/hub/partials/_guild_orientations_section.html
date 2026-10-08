@@ -46,19 +46,7 @@
       {% for t in orientation_type_formset %}
         <div class="hub-card" style="padding:1rem; background:rgba(255,255,255,0.02);" data-formset-row>
           {% for error in t.non_field_errors %}<p class="pl-field-error">{{ error }}</p>{% endfor %}
-          <div style="display:flex; gap:0.75rem; flex-wrap:wrap;">
-            <div style="flex:2; min-width:160px;">{% include "components/form_field.html" with field=t.name %}</div>
-            <div style="flex:1; min-width:110px;">{% include "components/form_field.html" with field=t.duration_minutes %}</div>
-          </div>
-          <div style="display:flex; gap:0.75rem; flex-wrap:wrap;">
-            <div style="flex:1; min-width:100px;">{% include "components/form_field.html" with field=t.default_seats %}</div>
-            <div style="flex:2; min-width:160px;">{% include "components/form_field.html" with field=t.area %}</div>
-            <div style="flex:2; min-width:160px;">{% include "components/form_field.html" with field=t.default_location %}</div>
-            <div style="flex:1; min-width:100px;">{% include "components/form_field.html" with field=t.sort_order %}</div>
-          </div>
-          {% include "hub/partials/_orientation_type_uses_equipment_field.html" with field=t.uses_equipment %}
-          {% include "hub/partials/_orientation_type_pricing_fields.html" with type_form=t %}
-          {% include "components/form_field.html" with field=t.description %}
+          {% include "hub/partials/_orientation_type_fields.html" with type_form=t %}
           {# The card photo (#502); a saved row also gets the delete control. #}
           {% if t.instance.pk %}{% url 'hub_orientation_type_photo_delete' t.instance.pk as otype_photo_delete_url %}{% endif %}
           {% with opk=t.instance.pk|stringformat:"s" %}
@@ -80,19 +68,7 @@
     <template id="otype-empty-template" data-formset-template>
       <div class="hub-card" style="padding:1rem; background:rgba(255,255,255,0.02);" data-formset-row>
         {% with orientation_type_formset.empty_form as ef %}
-          <div style="display:flex; gap:0.75rem; flex-wrap:wrap;">
-            <div style="flex:2; min-width:160px;">{% include "components/form_field.html" with field=ef.name %}</div>
-            <div style="flex:1; min-width:110px;">{% include "components/form_field.html" with field=ef.duration_minutes %}</div>
-          </div>
-          <div style="display:flex; gap:0.75rem; flex-wrap:wrap;">
-            <div style="flex:1; min-width:100px;">{% include "components/form_field.html" with field=ef.default_seats %}</div>
-            <div style="flex:2; min-width:160px;">{% include "components/form_field.html" with field=ef.area %}</div>
-            <div style="flex:2; min-width:160px;">{% include "components/form_field.html" with field=ef.default_location %}</div>
-            <div style="flex:1; min-width:100px;">{% include "components/form_field.html" with field=ef.sort_order %}</div>
-          </div>
-          {% include "hub/partials/_orientation_type_uses_equipment_field.html" with field=ef.uses_equipment %}
-          {% include "hub/partials/_orientation_type_pricing_fields.html" with type_form=ef %}
-          {% include "components/form_field.html" with field=ef.description %}
+          {% include "hub/partials/_orientation_type_fields.html" with type_form=ef %}
           {% include "components/image_field.html" with field=ef.photo current_image=None label="Photo" shape="rect" max_bytes=max_upload_image_bytes tooltip_html="Wide photo, about 1600x900, JPG or PNG. Shown on this orientation's card. Leave empty to use the guild banner." %}
           {% include "components/form_field.html" with field=ef.is_active %}
           {{ ef.id }}

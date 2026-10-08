@@ -81,8 +81,7 @@ def describe_the_orientations_page():
 
         page.goto(f"{live_server.url}{reverse('hub_guild_orientations', args=[guild.pk])}")
         page.wait_for_function(ALPINE_READY)
-        # The header's add (#672) drives the Orientation Types form through its form= owner.
-        page.locator("[data-add-orientation-type]").click()
+        page.locator("#otypes-form [data-formset-add]").click()
         page.locator('input[name="otypes-0-photo"]').set_input_files(
             {"name": "press.png", "mimeType": "image/png", "buffer": _PNG}
         )

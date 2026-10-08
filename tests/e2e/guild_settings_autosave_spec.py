@@ -418,7 +418,7 @@ def describe_guild_settings_autosave():
         # not clear a file it never sent.
         page.evaluate(HOLD_SAVES)
 
-        page.locator("[data-add-orientation-type]").click()
+        page.locator("#otypes-form [data-formset-add]").click()
         page.locator('input[name="otypes-0-name"]').fill("Wheel basics")
         page.locator('input[name="otypes-0-duration_minutes"]').fill("60")
         page.wait_for_function("() => window.plHeldSaves > 0")

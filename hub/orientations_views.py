@@ -14,6 +14,7 @@ from __future__ import annotations
 
 from typing import Any, cast
 
+from django.conf import settings
 from django.contrib import messages
 from django.contrib.auth.models import User
 from django.db import IntegrityError, transaction
@@ -24,7 +25,12 @@ from django.urls import reverse
 from django.views.decorators.http import require_POST
 
 from hub.calendar_pages import calendar_nav_params, orientations_calendar_context
-from hub.forms import OrientationAmountForm, OrientationCustomRequestForm, OrientationRecordForm
+from hub.forms import (
+    NewOrientationTypeForm,
+    OrientationAmountForm,
+    OrientationCustomRequestForm,
+    OrientationRecordForm,
+)
 from hub.orientation_bookings import bookings_pane_context
 from hub.views import (
     _get_hub_context,
@@ -271,6 +277,39 @@ def hub_orientations_calendar_events(request: HttpRequest) -> HttpResponse:
     if request.GET.get("shell"):
         return render(request, "hub/partials/guild_calendar_app.html", {"cal": cal, "cal_key": CALENDAR_KEY})
     return render(request, "hub/partials/calendar_content.html", cal)
+
+
+@login_required
+def hub_orientation_add(request: HttpRequest) -> HttpResponse:
+    """The Add an Orientation page (#680): one form, the Guild first, then the type's fields.
+
+    Open to whoever sees "+ Add an Orientation" on ``/orientations/``: the viewer's
+    ``guilds_for_new_orientation`` (preview aware) is the gate and the Guild choices, and an
+    empty list answers 403 like the orientation editors. One guild starts selected, and so
+    does ``?guild=<pk>`` when it is one of the choices. A valid Save creates the guild owned
+    type, materialises that guild's slots as the types editor does, and lands on the guild's
+    Orientations page, where its hours are set. Nothing is announced.
+    """
+    from membership import orientations
+
+    guilds = guilds_for_new_orientation(request)
+    if not guilds:
+        return HttpResponse("Forbidden", status=403)
+    form = NewOrientationTypeForm(request.POST or None, request.FILES or None, guilds=guilds)
+    if request.method == "POST" and form.is_valid():
+        orientation_type = form.save()
+        guild = form.cleaned_data["guild"]
+        orientations.generate_slots(guild=guild)
+        messages.success(request, f"{orientation_type.name} added. Set its hours below.")
+        return redirect(_guild_orientations_url(guild))
+    asked = request.GET.get("guild", "")
+    if request.method != "POST" and asked.isdigit() and any(guild.pk == int(asked) for guild in guilds):
+        form.fields["guild"].initial = int(asked)
+    return render(
+        request,
+        "hub/orientation_add.html",
+        {**_get_hub_context(request), "form": form, "max_upload_image_bytes": settings.MAX_UPLOAD_IMAGE_BYTES},
+    )
 
 
 @login_required

@@ -1,9 +1,10 @@
-"""BDD specs for the Orientations page's "+ Add an Orientation" button (#637).
+"""BDD specs for the Orientations page's "+ Add an Orientation" button (#637, #680).
 
-Admins, guild officers and anyone who leads or staffs an active guild see it in the page
-header on every tab; one guild links straight to that guild's settings on the Orientations
-tab, several open a menu. Assertions anchor on the ``data-add-orientation`` hooks and URLs,
-never on copy a changelog entry could carry (STANDARDS.md, Testing Traps).
+Admins, guild officers and anyone who leads or staffs a guild see it in the page header on
+every tab, and for every one of them it is a plain link to the Add an Orientation page,
+where the guild is the first field; no guild menu renders for anyone. Assertions anchor on
+the ``data-add-orientation`` hooks and URLs, never on copy a changelog entry could carry
+(STANDARDS.md, Testing Traps).
 """
 
 from __future__ import annotations
@@ -17,7 +18,6 @@ from django.db import connection
 from django.template.loader import render_to_string
 from django.test import Client
 from django.test.utils import CaptureQueriesContext
-from django.urls import reverse
 
 from hub.view_as import ViewAs
 from membership.models import Guild, Member
@@ -67,8 +67,15 @@ def _targets(content: bytes) -> list[str]:
     return LINK.findall(content.decode())
 
 
-def _orientations_page(guild: Guild) -> str:
-    return reverse("hub_guild_orientations", args=[guild.pk])
+ADD_PAGE = "/orientations/add/"
+GUILD_OPTION = re.compile(r'<option value="(\d+)"')
+
+
+def _guild_choices(content: bytes) -> list[int]:
+    """The pks the add page's Guild select offers, in order (its empty choice has no number)."""
+    html = content.decode()
+    select = html[html.index('name="guild"') : html.index("</select>", html.index('name="guild"'))]
+    return [int(pk) for pk in GUILD_OPTION.findall(select)]
 
 
 def describe_who_sees_it():
@@ -85,13 +92,14 @@ def describe_who_sees_it():
     def it_shows_for_a_guild_lead(client: Client):
         member = _login(client, "ao_lead")
         guild = GuildFactory(name="Lead Seen Guild", guild_lead=member)
-        assert _targets(client.get(PAGE).content) == [_orientations_page(guild)]
+        assert _targets(client.get(PAGE).content) == [ADD_PAGE]
+        assert _guild_choices(client.get(ADD_PAGE).content) == [guild.pk]
 
     def it_shows_for_guild_staff(client: Client):
         member = _login(client, "ao_staff")
         guild = GuildFactory(name="Staff Seen Guild")
         GuildStaffMembershipFactory(guild=guild, member=member)
-        assert _targets(client.get(PAGE).content) == [_orientations_page(guild)]
+        assert _targets(client.get(PAGE).content) == [ADD_PAGE]
 
     def it_hides_from_a_plain_member(client: Client):
         _login(client, "ao_plain")
@@ -124,73 +132,57 @@ def describe_who_sees_it():
         led = GuildFactory(name="Preview Led Guild", guild_lead=member)
         GuildFactory(name="Preview Other Guild")
         _preview_as_member(client)
-        assert _targets(client.get(PAGE).content) == [_orientations_page(led)]
+        assert _targets(client.get(PAGE).content) == [ADD_PAGE]
+        assert _guild_choices(client.get(ADD_PAGE).content) == [led.pk]
 
     def it_shows_for_a_lead_whose_only_guild_is_hidden(client: Client):
         # A hidden guild's settings and orientations still work, so its lead keeps the button.
         member = _login(client, "ao_inactive")
         hidden = GuildFactory(name="Dormant Guild", guild_lead=member, is_active=False)
-        assert _targets(client.get(PAGE).content) == [_orientations_page(hidden)]
+        assert _targets(client.get(PAGE).content) == [ADD_PAGE]
+        assert _guild_choices(client.get(ADD_PAGE).content) == [hidden.pk]
 
     def it_shows_for_staff_whose_only_guild_is_hidden(client: Client):
         member = _login(client, "ao_inactive_staff")
         hidden = GuildFactory(name="Dormant Staff Guild", is_active=False)
         GuildStaffMembershipFactory(guild=hidden, member=member)
-        assert _targets(client.get(PAGE).content) == [_orientations_page(hidden)]
+        assert _targets(client.get(PAGE).content) == [ADD_PAGE]
+        assert _guild_choices(client.get(ADD_PAGE).content) == [hidden.pk]
 
     @pytest.mark.parametrize("view", ["", "?view=calendar", "?view=bookings"])
     def it_sits_in_the_header_on_every_tab(client: Client, view: str):
         member = _login(client, "ao_tab")
-        guild = GuildFactory(name="Every Tab Guild", guild_lead=member)
+        GuildFactory(name="Every Tab Guild", guild_lead=member)
         content = client.get(PAGE + view).content.decode()
-        assert _orientations_page(guild) in content
+        assert _targets(content.encode()) == [ADD_PAGE]
         header = content[content.index('class="hub-page-header"') : content.index("plListCalendar")]
         assert "data-add-orientation" in header
 
 
-def describe_one_guild_or_several():
-    def it_links_one_guild_straight_to_its_orientations_page(client: Client):
+def describe_one_link_for_everyone():
+    def it_links_a_lead_of_one_guild_to_the_add_page(client: Client):
         member = _login(client, "ao_single")
-        guild = GuildFactory(name="Single Guild", guild_lead=member)
+        GuildFactory(name="Single Guild", guild_lead=member)
         content = client.get(PAGE).content.decode()
         assert (
-            f'<a href="{_orientations_page(guild)}" class="hub-btn hub-btn--sm hub-btn--primary" data-add-orientation-link>'
-            in content
+            f'<a href="{ADD_PAGE}" class="hub-btn hub-btn--sm hub-btn--primary" data-add-orientation-link>' in content
         )
-        block = content[content.index("data-add-orientation>") :].split("</div>")[0]
-        assert 'aria-haspopup="menu"' not in block
 
-    def it_opens_a_menu_of_guilds_sorted_by_name_for_several(client: Client):
-        member = _login(client, "ao_several")
-        zinc = GuildFactory(name="Zinc Guild", guild_lead=member)
+    @pytest.mark.parametrize("fog_role", [Member.FogRole.MEMBER, Member.FogRole.ADMIN, Member.FogRole.GUILD_OFFICER])
+    def it_links_a_viewer_of_several_guilds_to_the_add_page_with_no_menu(client: Client, fog_role: str):
+        member = _login(client, "ao_several", fog_role)
+        GuildFactory(name="Zinc Guild", guild_lead=member)
         amber = GuildFactory(name="Amber Guild")
         GuildStaffMembershipFactory(guild=amber, member=member)
-        mid = GuildFactory(name="Mid Guild", guild_lead=member)
+        GuildFactory(name="Mid Guild", guild_lead=member)
         content = client.get(PAGE).content.decode()
-        block = content[content.index("data-add-orientation>") :]
-        assert 'aria-haspopup="menu"' in block
-        assert 'role="menuitem"' in block
-        assert _targets(content.encode()) == [
-            _orientations_page(amber),
-            _orientations_page(mid),
-            _orientations_page(zinc),
-        ]
-
-    def it_lists_every_active_guild_for_an_admin_and_no_inactive_or_deleted_one(client: Client):
-        _login(client, "ao_admin_all", Member.FogRole.ADMIN)
-        second = GuildFactory(name="Beta Admin Guild")  # made first, listed second: the order is by name
-        first = GuildFactory(name="Alpha Admin Guild")
-        dormant = GuildFactory(name="Dormant Admin Guild", is_active=False)
-        gone = GuildFactory(name="Gone Admin Guild")
-        gone.soft_delete()
-        targets = _targets(client.get(PAGE).content)
-        assert targets == [_orientations_page(g) for g in Guild.objects.filter(is_active=True).order_by("name")]
-        assert targets.index(_orientations_page(first)) < targets.index(_orientations_page(second))
-        assert _orientations_page(dormant) not in targets
-        assert _orientations_page(gone) not in targets
+        block = content[content.index("data-add-orientation>") :].split("</div>")[0]
+        assert _targets(content.encode()) == [ADD_PAGE]
+        assert 'aria-haspopup="menu"' not in block
+        assert 'role="menuitem"' not in block
 
 
-def describe_every_link_is_editable():
+def describe_every_choice_is_editable():
     @pytest.mark.parametrize(
         ("fog_role", "lead", "staff", "preview"),
         [
@@ -243,11 +235,14 @@ def describe_every_link_is_editable():
         if lead or staff:
             assert any(not g.is_active for g in listed) is not every_guild
 
-        # The page links exactly those, and each one opens for this viewer.
+        # The button shows exactly when there is a guild, and the add page offers exactly those.
         targets = _targets(client.get(PAGE).content)
-        assert targets == [_orientations_page(g) for g in listed]
-        for target in targets:
-            assert client.get(target).status_code == 200
+        assert targets == ([ADD_PAGE] if listed else [])
+        add_page = client.get(ADD_PAGE)
+        if listed:
+            assert _guild_choices(add_page.content) == [g.pk for g in listed]
+        else:
+            assert add_page.status_code == 403
 
 
 def describe_the_cost():
@@ -261,7 +256,7 @@ def describe_the_cost():
             GuildStaffMembershipFactory(guild=GuildFactory(name=f"Cost Guild {index}"), member=member)
         with CaptureQueriesContext(connection) as five:
             content = client.get(PAGE).content
-        assert len(_targets(content)) == 5
+        assert _targets(content) == [ADD_PAGE]
         assert len(five.captured_queries) == len(one.captured_queries)
 
 
@@ -269,24 +264,20 @@ def describe_the_components():
     def it_renders_page_headers_action_include_in_place_of_the_link():
         html = render_to_string(
             "components/page_header.html",
-            {
-                "title": "Orientations",
-                "action_include": "hub/partials/add_orientation_menu_items.html",
-                "add_orientation_guilds": [],
-            },
+            {"title": "Orientations", "action_include": "hub/partials/add_orientation_action.html"},
         )
         assert 'class="hub-page-header"' in html
-        assert "<a href" not in html
+        assert _targets(html.encode()) == [ADD_PAGE]
+        assert html.count("<a href") == 1
 
     def it_gives_row_actions_a_labelled_trigger_when_asked():
         html = render_to_string(
             "components/row_actions.html",
             {
-                "menu_include": "hub/partials/add_orientation_menu_items.html",
+                "menu_include": "hub/partials/orientation_record_row_menu.html",
                 "menu_label": "Pick one",
                 "menu_trigger_text": "+ Open It",
                 "menu_trigger_class": "hub-btn hub-btn--sm",
-                "add_orientation_guilds": [],
             },
         )
         assert 'class="hub-btn hub-btn--sm" x-ref="trigger"' in html
@@ -297,10 +288,9 @@ def describe_the_components():
         html = render_to_string(
             "components/row_actions.html",
             {
-                "menu_include": "hub/partials/add_orientation_menu_items.html",
+                "menu_include": "hub/partials/orientation_record_row_menu.html",
                 "menu_label": "Pick one",
                 "menu_trigger_text": "+ Open It",
-                "add_orientation_guilds": [],
             },
         )
         assert 'class="hub-btn hub-btn--sm" x-ref="trigger"' in html
@@ -308,7 +298,7 @@ def describe_the_components():
     def it_renders_the_kebab_byte_for_byte_as_before():
         html = render_to_string(
             "components/row_actions.html",
-            {"menu_include": "hub/partials/add_orientation_menu_items.html", "menu_label": "Actions"},
+            {"menu_include": "hub/partials/orientation_record_row_menu.html", "menu_label": "Actions"},
         )
         assert KEBAB_BUTTON in html
 
@@ -316,9 +306,8 @@ def describe_the_components():
         html = render_to_string(
             "components/row_actions.html",
             {
-                "menu_include": "hub/partials/add_orientation_menu_items.html",
+                "menu_include": "hub/partials/orientation_record_row_menu.html",
                 "menu_label": "Actions",
-                "add_orientation_guilds": [],
             },
         )
         assert 'class="pl-row-menu__trigger" x-ref="trigger"' in html
