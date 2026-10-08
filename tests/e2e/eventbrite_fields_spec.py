@@ -1,4 +1,4 @@
-"""End-to-end: an instructor opts a class into Eventbrite on the composer's dates step (#652).
+"""End-to-end: Eventbrite on the composer's dates step, the opt in (#652) and the category (#716).
 
 The two fields sit inside the Fixed block of step 3, so they leave with it when the class is
 switched to Flexible; that is Alpine's x-show, which only a browser runs. Saving keeps both.
@@ -84,3 +84,36 @@ def describe_eventbrite_fields_on_the_instructor_composer():
         offering.refresh_from_db()
         assert offering.eventbrite_enabled is True
         assert offering.eventbrite_fee_payer == ClassOffering.EventbriteFeePayer.INCLUDED
+
+
+def describe_eventbrite_category_on_the_instructor_composer():
+    """#716: the subcategory list narrows to the chosen category in the browser (Alpine), and the pair saves."""
+
+    def it_offers_only_the_chosen_categorys_subcategories_and_saves_the_pair(
+        live_server, page, login_via_code, settings
+    ):
+        offering = _seed(settings)
+        login_via_code(EMAIL)
+        page.goto(f"{live_server.url}{reverse('classes:teach_class_edit', kwargs={'pk': offering.pk})}?step=3")
+        category = page.locator("select[name='eventbrite_category']")
+        subcategory = page.locator("select[name='eventbrite_subcategory']")
+        jewelry, diy = subcategory.locator("option[value='5014']"), subcategory.locator("option[value='19003']")
+        expect(jewelry).to_be_disabled()
+
+        category.select_option("105")
+        expect(jewelry).to_be_enabled()
+        expect(diy).to_be_disabled()
+        subcategory.select_option("5014")
+
+        category.select_option("119")
+        expect(subcategory).to_have_value("")
+        expect(jewelry).to_be_disabled()
+        expect(diy).to_be_enabled()
+        subcategory.select_option("19003")
+
+        page.locator(SAVE_DRAFT).click()
+        page.get_by_text("Draft saved.").wait_for()
+        expect(subcategory).to_have_value("19003")
+        expect(jewelry).to_be_disabled()
+        offering.refresh_from_db()
+        assert (offering.eventbrite_category, offering.eventbrite_subcategory) == ("119", "19003")

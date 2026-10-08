@@ -11,7 +11,7 @@ from urllib.parse import urlencode
 from django import forms
 from django.core.exceptions import ValidationError
 from django.core.validators import MaxValueValidator, MinValueValidator, validate_email
-from django.db.models import Q
+from django.db.models import BLANK_CHOICE_DASH, Q
 from django.forms import inlineformset_factory
 from django.utils import timezone
 from django.utils.text import slugify
@@ -20,6 +20,7 @@ from billing.forms import RefundShareDecisionForm
 from core.html_sanitize import clean_rich_body, clean_rich_html
 from core.widgets import PageContentEditorWidget, RichBodyEditorWidget, RichTextEditorWidget
 
+from classes.eventbrite_categories import SUBCATEGORY_PARENT, EventbriteSubcategory, subcategory_fits
 from classes.models import (
     DEFAULT_CLASS_FAQS,
     DEFAULT_SALE_BANNER_TEXT,
@@ -594,8 +595,68 @@ class _RichDescriptionMixin:
         return clean_rich_body(self.cleaned_data["description"])
 
 
-class _EventbriteMixin:
-    """The two Eventbrite fields (#652): the opt-in and who pays Eventbrite's fee.
+_SUBCATEGORY_MISMATCH = "Pick a subcategory from the chosen Eventbrite category."
+
+
+class _EventbriteSubcategorySelect(forms.Select):
+    """The subcategory dropdown: each option is offered only under its parent category (#716).
+
+    Every option carries Alpine bindings on ``ebCategory`` (set by the category dropdown, see
+    :class:`_EventbriteCategoryMixin`), so the list narrows in the browser without a request.
+    The blank option stays offered. The form refuses a mismatched pair whatever the browser sent.
+    """
+
+    def create_option(
+        self,
+        name: str,
+        value: Any,
+        label: Any,
+        selected: bool,
+        index: int,
+        subindex: int | None = None,
+        attrs: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        option = super().create_option(name, value, label, selected, index, subindex=subindex, attrs=attrs)
+        if value:
+            elsewhere = f"ebCategory !== '{SUBCATEGORY_PARENT[str(value)]}'"
+            option["attrs"].update({":disabled": elsewhere, ":hidden": elsewhere})
+        return option
+
+
+class _EventbriteCategoryMixin:
+    """Eventbrite's category and subcategory (#716), on the composer and the published edit page.
+
+    Both render through ``classes/_components/eventbrite_category_fields.html``, whose ``x-data``
+    holds ``ebCategory``. Picking a category clears the subcategory, because no subcategory has two
+    parents. A form whose Eventbrite opt in is gone drops these two with it.
+    """
+
+    fields: dict[str, forms.Field]
+    cleaned_data: dict[str, Any]
+
+    def setup_eventbrite_category_fields(self) -> None:
+        self.fields["eventbrite_category"].widget.attrs.update(
+            {"x-init": "ebCategory = $el.value", "@change": "ebCategory = $el.value; $refs.ebSubcategory.value = ''"}
+        )
+        self.fields["eventbrite_subcategory"].widget = _EventbriteSubcategorySelect(
+            attrs={"x-ref": "ebSubcategory"}, choices=[*BLANK_CHOICE_DASH, *EventbriteSubcategory.choices]
+        )
+
+    def drop_eventbrite_category_fields(self) -> None:
+        del self.fields["eventbrite_category"], self.fields["eventbrite_subcategory"]
+
+    def check_eventbrite_category_pair(self) -> None:
+        """Refuse a subcategory that is not a child of the chosen category (or comes with none)."""
+        if "eventbrite_category" not in self.fields:
+            return
+        category = self.cleaned_data.get("eventbrite_category", "")
+        subcategory = self.cleaned_data.get("eventbrite_subcategory", "")
+        if not subcategory_fits(category, subcategory):
+            self.add_error("eventbrite_subcategory", _SUBCATEGORY_MISMATCH)  # type: ignore[attr-defined]
+
+
+class _EventbriteMixin(_EventbriteCategoryMixin):
+    """The Eventbrite fields (#652): the opt-in, who pays Eventbrite's fee, and the category (#716).
 
     The fee's help text works the example at the class's own price (a new class shows $50). A
     flexible class has no dates to list, so the opt-in is cleared whatever was posted. While the
@@ -613,7 +674,9 @@ class _EventbriteMixin:
 
         if not EventbriteClient.from_settings().enabled:
             del self.fields["eventbrite_enabled"], self.fields["eventbrite_fee_payer"]
+            self.drop_eventbrite_category_fields()
             return
+        self.setup_eventbrite_category_fields()
         price = self.instance.price_cents or 5000
         fee = estimate_fee_cents(price)
         # Optional so a post without it (an older client, the opt-in left off) keeps the default.
@@ -629,6 +692,7 @@ class _EventbriteMixin:
     def clean_eventbrite(self) -> None:
         if "eventbrite_enabled" not in self.fields:
             return
+        self.check_eventbrite_category_pair()
         if not self.cleaned_data.get("eventbrite_fee_payer"):
             self.cleaned_data["eventbrite_fee_payer"] = ClassOffering.EventbriteFeePayer.BUYER
         if self.cleaned_data.get("scheduling_model") == ClassOffering.SchedulingModel.FLEXIBLE:
@@ -676,6 +740,8 @@ class ClassOfferingForm(
             "registration_cutoff_hours",
             "eventbrite_enabled",
             "eventbrite_fee_payer",
+            "eventbrite_category",
+            "eventbrite_subcategory",
             "area",
             "is_private",
             "private_for_name",
@@ -775,6 +841,8 @@ class TeachClassOfferingForm(
             "registration_cutoff_hours",
             "eventbrite_enabled",
             "eventbrite_fee_payer",
+            "eventbrite_category",
+            "eventbrite_subcategory",
             "area",
             "image",
             "video_url",
@@ -1144,7 +1212,7 @@ class CategoryForm(forms.ModelForm):
         fields = ["name", "slug", "sort_order", "hero_image"]
 
 
-class TeachPublishedClassForm(_RichDescriptionMixin, _HeroCropMixin, forms.ModelForm):
+class TeachPublishedClassForm(_EventbriteCategoryMixin, _RichDescriptionMixin, _HeroCropMixin, forms.ModelForm):
     """Light edits an instructor may make to a LIVE class without re-review.
 
     Only fields that do not change what registrants booked on: the subtitle (#563), description,
@@ -1173,6 +1241,8 @@ class TeachPublishedClassForm(_RichDescriptionMixin, _HeroCropMixin, forms.Model
             "flexible_note",
             "video_url",
             "eventbrite_enabled",
+            "eventbrite_category",
+            "eventbrite_subcategory",
         ]
         widgets = {
             "video_url": _video_url_widget(),
@@ -1194,7 +1264,15 @@ class TeachPublishedClassForm(_RichDescriptionMixin, _HeroCropMixin, forms.Model
 
         if self.instance.is_flexible or not EventbriteClient.from_settings().enabled:
             del self.fields["eventbrite_enabled"]
+            self.drop_eventbrite_category_fields()
+        else:
+            self.setup_eventbrite_category_fields()
         self.add_hero_crop_field()
+
+    def clean(self) -> dict:
+        data = super().clean() or {}
+        self.check_eventbrite_category_pair()
+        return data
 
     def clean_flexible_booking_text(self) -> str:
         return clean_flexible_booking_text(self)

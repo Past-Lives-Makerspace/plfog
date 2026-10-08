@@ -61,6 +61,10 @@
             {# Rendered by the banner photo field below, beside the cropper that writes it. #}
         {% elif field.is_hidden %}
             {{ field }}
+        {% elif field.name == 'eventbrite_category' %}
+            {% include "classes/_components/eventbrite_category_fields.html" %}
+        {% elif field.name == 'eventbrite_subcategory' %}
+            {# Rendered beside the category above, which narrows it. #}
         {% elif field.name == 'video_url' or field.name == 'subtitle' %}
             {% include "components/form_field.html" with field=field %}
         {% else %}

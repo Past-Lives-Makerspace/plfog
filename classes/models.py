@@ -44,6 +44,7 @@ from django.utils.safestring import SafeString, mark_safe
 from django.utils.timezone import localtime
 from PIL import Image, ImageOps, UnidentifiedImageError
 
+from classes.eventbrite_categories import EventbriteCategory, EventbriteSubcategory
 from core.files import delete_orphan_on_replace
 from core.html_sanitize import is_editor_html, rich_body_to_text, rich_html_to_text
 from core.images import normalize_field_if_uploaded
@@ -1396,6 +1397,25 @@ class ClassOffering(HeroCropMixin, models.Model):
         db_default=EventbriteFeePayer.BUYER,
         verbose_name="Who pays Eventbrite's fee",
         help_text="Whether Eventbrite's fee is added on top of the class price or taken out of it.",
+    )
+    # Eventbrite's own browse lists (#716), stored as its IDs; blank sends neither field.
+    eventbrite_category = models.CharField(
+        max_length=8,
+        choices=EventbriteCategory.choices,
+        blank=True,
+        default="",
+        db_default="",
+        verbose_name="Eventbrite category",
+        help_text="Where Eventbrite files this class when people browse. Optional.",
+    )
+    eventbrite_subcategory = models.CharField(
+        max_length=8,
+        choices=EventbriteSubcategory.choices,
+        blank=True,
+        default="",
+        db_default="",
+        verbose_name="Eventbrite subcategory",
+        help_text="A narrower spot inside the Eventbrite category. Optional; pick the category first.",
     )
     eventbrite_event_id = models.CharField(
         max_length=64, blank=True, default="", db_default="", help_text="The Eventbrite event ID. Blank until listed."

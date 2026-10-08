@@ -19,6 +19,7 @@ from django.urls import reverse
 from django.utils import timezone
 
 from classes.factories import (
+    ClassFaqFactory,
     ClassImageFactory,
     ClassOfferingFactory,
     ClassSessionFactory,
@@ -51,6 +52,7 @@ class FakeEventbrite:
         self.quantity_sold = 0
         self.refused_photos: dict[str, EventbriteError] = {}
         self.refuse_image_modules: EventbriteError | None = None
+        self.refuse_widgets: EventbriteError | None = None
         self.uploads = 0
 
     def _record(self, name: str, *args: Any) -> None:
@@ -90,8 +92,13 @@ class FakeEventbrite:
         self._record("get_ticket_class", event_id, ticket_class_id)
         return {"id": ticket_class_id, "quantity_sold": self.quantity_sold}
 
-    def set_description(self, event_id: str, html: str, image_ids: Sequence[str] = ()) -> None:
-        self._record("set_description", event_id, html, list(image_ids))
+    def set_description(
+        self, event_id: str, html: str, image_ids: Sequence[str] = (), faqs: Sequence[dict[str, str]] | None = None
+    ) -> None:
+        # faqs None is a request without widgets; a list (even empty) carries them.
+        self._record("set_description", event_id, html, list(image_ids), None if faqs is None else list(faqs))
+        if faqs is not None and self.refuse_widgets is not None:
+            raise self.refuse_widgets
         if image_ids and self.refuse_image_modules is not None:
             raise self.refuse_image_modules
 
@@ -757,12 +764,18 @@ def describe_a_description_eventbrite_refuses_with_its_photos():
 
         offering.publish(None)
 
-        assert [args[2] for args in eventbrite.descriptions()] == [["img-1"], []]
+        # With widgets, then without (the request verified before #716), then without the photos.
+        assert [(args[2], args[3]) for args in eventbrite.descriptions()] == [
+            (["img-1"], []),
+            (["img-1"], None),
+            ([], None),
+        ]
         assert "publish" in eventbrite.names()
         offering.refresh_from_db()
         assert offering.eventbrite_sync_state == State.LISTED
         assert offering.eventbrite_sync_error == (
-            "Photos could not be shown, the description went without them: POST structured_content: 400 bad module"
+            "Eventbrite refused the page, so it went without its widgets and its photos: "
+            "POST structured_content: 400 bad module"
         )
 
     def it_records_a_failure_when_the_refusal_is_not_about_the_content(eventbrite: FakeEventbrite):
@@ -881,3 +894,51 @@ def describe_publishing_follows_the_status_eventbrite_reports():
         offering.refresh_from_db()
         assert offering.eventbrite_sync_state == State.FAILED
         assert "'status'" in offering.eventbrite_sync_error
+
+
+def describe_saving_a_live_class_with_its_faq():
+    def it_sends_the_new_question_on_the_next_tick(eventbrite: FakeEventbrite, client: Any):
+        MembershipPlanFactory()
+        instructor = InstructorFactory(user=UserFactory(username="eb-faq@example.com", email="eb-faq@example.com"))
+        offering = _listed(instructor=instructor)
+        client.force_login(instructor.user)
+        payload = {
+            "description": offering.description,
+            "eventbrite_enabled": "on",
+            "faq-TOTAL_FORMS": "1",
+            "faq-INITIAL_FORMS": "0",
+            "faq-MIN_NUM_FORMS": "0",
+            "faq-MAX_NUM_FORMS": "1000",
+            "faq-0-question": "Is the kiln vented?",
+            "faq-0-answer": "Yes.",
+        }
+
+        response = client.post(reverse("classes:teach_class_edit", kwargs={"pk": offering.pk}), payload)
+
+        assert response.status_code == 302
+        call_command("retry_eventbrite_pushes")
+        assert eventbrite.descriptions()[-1][3] == [{"question": "Is the kiln vented?", "answer": "Yes."}]
+
+
+def describe_a_listing_eventbrite_refuses_with_its_faq_and_its_photos():
+    def it_sends_the_faq_as_text_without_photos_and_notes_both(eventbrite: FakeEventbrite):
+        eventbrite.refuse_widgets = EventbriteError("POST structured_content: 400 bad widget", 400)
+        eventbrite.refuse_image_modules = EventbriteError("POST structured_content: 400 bad module", 400)
+        offering = _opted_in()
+        ClassFaqFactory(class_offering=offering, question="Is the kiln vented?", answer="Yes.")
+
+        offering.publish(None)
+
+        attempts = eventbrite.descriptions()
+        assert [(bool(images), faqs is not None) for _, _, images, faqs in attempts] == [
+            (True, True),
+            (True, False),
+            (False, False),
+        ]
+        assert "<p><strong>Is the kiln vented?</strong></p><p>Yes.</p>" in attempts[-1][1]
+        offering.refresh_from_db()
+        assert offering.eventbrite_sync_state == State.LISTED
+        assert offering.eventbrite_sync_error == (
+            "Eventbrite refused the page, so it went without its widgets (the FAQ went into the description as text) "
+            "and its photos: POST structured_content: 400 bad module"
+        )
