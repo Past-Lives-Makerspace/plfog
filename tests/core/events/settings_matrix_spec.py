@@ -393,6 +393,7 @@ def _single_standing_profiles():
         _profile(staffs_guild=True),
         _profile(staffs_guild=True, is_orienter=True),
         _profile(manages_equipment=True),
+        _profile(staffs_guild=True, is_kiln_crew=True),
     ]
     profiles += [_profile(capabilities=frozenset({value})) for value in AdminCapability.Capability.values]
     return profiles

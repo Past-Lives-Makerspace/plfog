@@ -145,6 +145,7 @@ _AUDIENCE_DESCRIPTIONS: dict[Recipients, str] = {
         "The page's guild lead and staff; for a space-wide page, or a guild with nobody on it, the FOG admins."
     ),
     Recipients.WIKI_PAGE_CONTRIBUTORS: "Everyone who has written a version of the page, except the verifier.",
+    Recipients.KILN_CREW: "The Ceramics Guild's lead and staff (the kiln crew), except whoever wrote the message.",
 }
 
 

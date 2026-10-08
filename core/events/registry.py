@@ -117,6 +117,10 @@ class Recipients(str, Enum):
     WIKI_SCOPE_LEADERSHIP = "wiki_scope_leadership"
     # Everyone who has authored a revision of the verified page, minus the verifier.
     WIKI_PAGE_CONTRIBUTORS = "wiki_page_contributors"
+    # The kiln guild's lead and staff (#691), found by settings.KILN_GUILD_SLUG. Its own
+    # audience so the settings page shows its rows to the kiln crew only, not to every
+    # guild's leadership.
+    KILN_CREW = "kiln_crew"
 
 
 @dataclass(frozen=True)
@@ -1438,15 +1442,15 @@ _NEW_EVENTS: list[EventType] = [
         channels=(_IN_APP_ON, _EMAIL_ON),
         activity_kind=None,
     ),
-    # kiln.maker_replied — a maker wrote on their kiln ticket (#691). Goes to the kiln guild's
-    # lead and staff; the sender passes that set minus the author (a crew member's own
-    # ticket), so it rides GUILD_LEADERSHIP's settings row rather than a new audience.
+    # kiln.maker_replied — a maker wrote on their kiln ticket (#691). Goes to the kiln crew
+    # (the kiln guild's lead and staff); the sender passes that set minus the author, so a
+    # crew member writing on their own ticket is not told about it.
     EventType(
         key=KILN_MAKER_REPLIED,
         label="Replies on kiln tickets",
         description="A maker wrote on a kiln ticket. Goes to the Ceramics Guild's lead and staff.",
         category="Kiln tickets",
-        recipient=Recipients.GUILD_LEADERSHIP,
+        recipient=Recipients.KILN_CREW,
         channels=(_IN_APP_ON, _EMAIL_ON),
         activity_kind=None,
     ),

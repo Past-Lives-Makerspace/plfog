@@ -24,7 +24,7 @@ from kiln.forms import (
     ReplyForm,
 )
 from kiln.models import ClayOption, GlazeOption, KilnFiring, KilnFlag, KilnTicket, ListOption, ListOptionNameTaken
-from kiln.services import TicketNotEditable, load_kiln, load_queue, post_reply, save_ticket
+from kiln.services import TicketNotEditable, load_kiln, load_queue, post_reply, primary_emails, save_ticket
 
 if TYPE_CHECKING:
     from django.db.models import QuerySet
@@ -159,8 +159,17 @@ def _visible_ticket(member: Member, pk: int, *, crew: bool) -> KilnTicket:
     """A ticket the viewer may open (any, for the crew; their own, for a maker), or a 404."""
     tickets = (
         KilnTicket.objects.visible_to(member, crew=crew)
-        .select_related("maker__user", "clay", "firing__loaded_by")
-        .prefetch_related("photos", "studio_glazes", "flags__added_by", "flags__cleared_by", "replies__author")
+        .select_related("maker__user", "clay", "firing__loaded_by__user")
+        .prefetch_related(
+            "photos",
+            "studio_glazes",
+            "flags__added_by",
+            "flags__cleared_by",
+            "replies__author__user",
+            primary_emails("maker__user"),
+            primary_emails("firing__loaded_by__user"),
+            primary_emails("replies__author__user"),
+        )
     )
     return get_object_or_404(tickets, pk=pk)
 

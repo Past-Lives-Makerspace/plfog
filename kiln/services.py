@@ -11,9 +11,10 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
 from django.db import transaction
+from django.db.models import Prefetch
 from django.utils import timezone
 
-from kiln.access import kiln_guild, maker_type_for
+from kiln.access import maker_type_for
 from kiln.forms import ACTION_COVER, ACTION_REMOVE, KilnTicketForm
 from kiln.models import KilnFiring, KilnReply, KilnTicket
 
@@ -71,6 +72,21 @@ def save_ticket(form: KilnTicketForm, maker: Member) -> KilnTicket:
 # ---- loading ---------------------------------------------------------------------------
 
 
+def primary_emails(user_path: str) -> Prefetch:
+    """Prefetch the primary email of the users at ``user_path``, where ``Member.primary_email`` reads it.
+
+    Without it, naming a member with no name on file (``kiln.models.member_name``) costs a
+    query for each one on the page.
+    """
+    from allauth.account.models import EmailAddress
+
+    return Prefetch(
+        f"{user_path}__emailaddress_set",
+        queryset=EmailAddress.objects.filter(primary=True),
+        to_attr="_primary_emailaddresses",
+    )
+
+
 @dataclass(frozen=True)
 class LoadQueue:
     """Every ticket waiting for the kiln, and the counts the Load the Kiln filters show."""
@@ -96,11 +112,15 @@ class LoadQueue:
 
 
 def load_queue() -> LoadQueue:
-    """The waiting tickets, the longest wait first, with what every tile shows loaded at once."""
+    """The waiting tickets, the longest wait first, with what every tile shows loaded at once.
+
+    The makers' primary email rows come along too: a maker with no name on file is named by
+    their email (``member_name``), which would otherwise cost a query per tile.
+    """
     tickets = (
         KilnTicket.objects.waiting()
-        .select_related("maker", "clay")
-        .prefetch_related("photos", "flags", "studio_glazes")
+        .select_related("maker__user", "clay")
+        .prefetch_related("photos", "flags", "studio_glazes", primary_emails("maker__user"))
     )
     return LoadQueue(tickets=list(tickets))
 
@@ -177,6 +197,7 @@ def post_reply(ticket: KilnTicket, author: Member, body: str) -> KilnReply:
 def _notify_reply(reply: KilnReply) -> None:
     from core.events.emit import emit
     from core.events.registry import KILN_CREW_REPLIED, KILN_MAKER_REPLIED
+    from core.events.resolvers import kiln_crew
 
     ticket, author = reply.ticket, reply.author
     context: dict[str, object] = {
@@ -197,13 +218,12 @@ def _notify_reply(reply: KilnReply) -> None:
             period=period,
         )
         return
-    guild = kiln_guild()
-    crew = guild.leadership_members() if guild is not None else []
-    crew_user_ids = {m.user_id for m in crew if m.user_id is not None and m.pk != author.pk}
+    # The kiln crew minus the author: a crew member writing on their own ticket is not told.
+    crew_user_ids = {user.pk for user, _reason in kiln_crew({}) if user.pk != author.user_id}
     emit(
         KILN_MAKER_REPLIED,
         target=reply,
-        context={**context, "guild": guild},
+        context=context,
         url=ticket.member_url,
         period=period,
         recipient_user_ids=crew_user_ids,
