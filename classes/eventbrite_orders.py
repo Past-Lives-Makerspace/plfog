@@ -26,11 +26,15 @@ from classes.emails import (
     send_eventbrite_oversold_alert,
     send_eventbrite_shared_email_alert,
 )
-from classes.models import ClassOffering, Registration
+from classes.eventbrite_finish import send_finish_email
+from classes.models import ClassOffering, ClassSettings, Registration
 from core.integrations.eventbrite import EventbriteClient, EventbriteError, EventbriteSync, field
+from core.services.guest_account import ensure_account_for_registration
 
 if TYPE_CHECKING:
     from django.contrib.auth.models import User
+
+    from classes.forms import FinishRegistrationForm
 
 logger = logging.getLogger(__name__)
 
@@ -55,6 +59,10 @@ class UnverifiedDeliveryError(Exception):
 
 class EventbriteRefundRefusedError(Exception):
     """Eventbrite did not take the refund; the message is what the refund panel shows."""
+
+
+class AlreadyFinishedError(Exception):
+    """The ticket's waiver was signed by another submit first."""
 
 
 def order_id_from_delivery(body: bytes) -> str | None:
@@ -142,6 +150,7 @@ def _seat(offering: ClassOffering, order_id: str, attendee_id: str, attendee: di
         send_eventbrite_oversold_alert(registration)
     if registration.email != email:
         send_eventbrite_shared_email_alert(registration, email)
+    send_finish_email(registration, to=email)
 
 
 def _create_confirmed(
@@ -241,3 +250,23 @@ def _ticket_total(client: EventbriteClient, registration: Registration) -> str:
             cents = int(field(field(field(attendee, "costs"), "gross"), "value"))
             return f"{cents / 100:.2f}"
     raise EventbriteError(f"Order {registration.eventbrite_order_id} no longer lists this ticket.")
+
+
+def finish_registration(registration: Registration, form: FinishRegistrationForm, *, client_ip: str) -> None:
+    """Save the finish page: the waivers and answers together, then the account if ticked.
+
+    The account follows the commit and never raises (``ensure_account_for_registration``
+    logs and swallows), so a failure there never loses a signed waiver.
+
+    Raises:
+        AlreadyFinishedError: A second submit lost the race to the unique waiver.
+    """
+    try:
+        with transaction.atomic():
+            form.save_to(registration, settings_obj=ClassSettings.load(), client_ip=client_ip)
+    except IntegrityError as exc:
+        raise AlreadyFinishedError from exc
+    if form.wants_account:
+        registration.create_account = True
+        registration.save(update_fields=["create_account"])
+        ensure_account_for_registration(registration, despite_invite_only=True)

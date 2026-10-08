@@ -135,18 +135,7 @@
               We filled in answers from a previous booking with this email — please review and update anything that's changed.
             </div>
             {% endif %}
-            {% if form.custom_question_fields %}
-            <fieldset class="reg-custom-questions" style="margin:14px 0 4px;padding:12px 14px;border:1px solid var(--steel-dim,#1a4568);border-radius:8px;">
-              <legend style="padding:0 6px;font-size:12px;color:var(--steel-dim);">A few more questions</legend>
-              {% for cf in form.custom_question_fields %}
-              <div class="reg-field" style="margin-top:8px;">
-                <label for="{{ cf.id_for_label }}">{{ cf.label }}{% if cf.field.required %} <span aria-hidden="true">*</span>{% endif %}</label>
-                {{ cf }}
-                {% if cf.errors %}<ul class="reg-errors">{% for e in cf.errors %}<li>{{ e }}</li>{% endfor %}</ul>{% endif %}
-              </div>
-              {% endfor %}
-            </fieldset>
-            {% endif %}
+            {% include "classes/public/_custom_questions.html" %}
           </div>
 
           {% if form.wants_newsletter %}
@@ -163,37 +152,7 @@
           </label>
           {% endif %}
 
-          <div class="reg-waiver">
-            <h3>Liability Waiver</h3>
-            <div class="reg-waiver-text">{{ settings_obj.liability_waiver_text }}</div>
-            <div class="reg-field">
-              <label for="{{ form.liability_signature.id_for_label }}">Type your full name to sign</label>
-              {{ form.liability_signature }}
-              {% if form.liability_signature.errors %}<ul class="reg-errors">{% for e in form.liability_signature.errors %}<li>{{ e }}</li>{% endfor %}</ul>{% endif %}
-            </div>
-            <label class="reg-check" style="margin-top:8px">
-              {{ form.accepts_liability }}
-              <span>I have read and agree to the liability waiver above.</span>
-            </label>
-            {% if form.accepts_liability.errors %}<ul class="reg-errors">{% for e in form.accepts_liability.errors %}<li>{{ e }}</li>{% endfor %}</ul>{% endif %}
-          </div>
-
-          {% if offering.requires_model_release %}
-          <div class="reg-waiver">
-            <h3>Photo Release</h3>
-            <div class="reg-waiver-text">{{ settings_obj.model_release_waiver_text }}</div>
-            <div class="reg-field">
-              <label for="{{ form.model_release_signature.id_for_label }}">Type your full name to sign</label>
-              {{ form.model_release_signature }}
-              {% if form.model_release_signature.errors %}<ul class="reg-errors">{% for e in form.model_release_signature.errors %}<li>{{ e }}</li>{% endfor %}</ul>{% endif %}
-            </div>
-            <label class="reg-check" style="margin-top:8px">
-              {{ form.accepts_model_release }}
-              <span>I have read and agree to the photo release above.</span>
-            </label>
-            {% if form.accepts_model_release.errors %}<ul class="reg-errors">{% for e in form.accepts_model_release.errors %}<li>{{ e }}</li>{% endfor %}</ul>{% endif %}
-          </div>
-          {% endif %}
+          {% include "classes/public/_waivers.html" %}
 
           <button type="submit" class="btn-reg" style="margin-top:8px">
             {% comment %}Free-vs-paid stays keyed on price_cents — a paid class on sale is

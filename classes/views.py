@@ -105,6 +105,7 @@ from classes.forms import (
     TeachPublishedClassForm,
     TeachWelcomeEmailForm,
     TeachingPageSettingsForm,
+    FinishRegistrationForm,
     RegistrationForm,
     RegistrationQuestionForm,
     TeachingApplicationForm,
@@ -128,6 +129,7 @@ from classes.models import (
     ReadinessItem,
     Registration,
     RegistrationQuestion,
+    Waiver,
     flexible_window_has_ended,
     readiness_items,
 )
@@ -1207,6 +1209,15 @@ def my_registration(request: HttpRequest, token: str) -> HttpResponse:
         Registration.objects.select_related("class_offering", "class_offering__instructor"),
         self_serve_token=token,
     )
+    return _render_my_registration(request, registration)
+
+
+def _render_my_registration(
+    request: HttpRequest, registration: Registration, *, finish_form: FinishRegistrationForm | None = None
+) -> HttpResponse:
+    """The self-serve page, with the finish form while an Eventbrite seat is unsigned (#652)."""
+    from classes.eventbrite_finish import eventbrite_offers_account, needs_finishing
+
     offering = registration.class_offering
     upcoming_sessions = list(offering.sessions.filter(starts_at__gte=timezone.now()).order_by("starts_at"))
     class_cancelled = offering.status == ClassOffering.Status.CANCELLED
@@ -1220,6 +1231,8 @@ def my_registration(request: HttpRequest, token: str) -> HttpResponse:
         and (not upcoming_sessions or upcoming_sessions[0].starts_at > timezone.now())
         and not class_cancelled
     )
+    if finish_form is None and needs_finishing(registration):
+        finish_form = FinishRegistrationForm(offering=offering, offers_account=eventbrite_offers_account(registration))
     return render(
         request,
         "classes/public/my_registration.html",
@@ -1230,10 +1243,36 @@ def my_registration(request: HttpRequest, token: str) -> HttpResponse:
             "can_self_cancel": can_self_cancel,
             "class_cancelled": class_cancelled,
             "paid_banner": request.GET.get("paid") == "1",
+            "finish_form": finish_form,
             "settings_obj": ClassSettings.load(),
             "site_config": SiteConfiguration.load(),
         },
     )
+
+
+@require_POST
+def my_registration_finish(request: HttpRequest, token: str) -> HttpResponse:
+    """Save an Eventbrite buyer's waivers, answers and account choice from their registration page."""
+    from classes.eventbrite_finish import eventbrite_offers_account, needs_finishing
+    from classes.eventbrite_orders import AlreadyFinishedError, finish_registration
+
+    registration = get_object_or_404(
+        Registration.objects.select_related("class_offering", "class_offering__instructor"),
+        self_serve_token=token,
+    )
+    if not needs_finishing(registration):
+        return redirect("classes:my_registration", token=token)
+    form = FinishRegistrationForm(
+        request.POST, offering=registration.class_offering, offers_account=eventbrite_offers_account(registration)
+    )
+    if not form.is_valid():
+        return _render_my_registration(request, registration, finish_form=form)
+    try:
+        finish_registration(registration, form, client_ip=_client_ip(request))
+    except AlreadyFinishedError:
+        return redirect("classes:my_registration", token=token)
+    messages.success(request, "You're all set. Your waiver is signed.")
+    return redirect("classes:my_registration", token=token)
 
 
 def my_registration_cancel(request: HttpRequest, token: str) -> HttpResponse:
@@ -3123,7 +3162,10 @@ def _annotated_registrations(offering: ClassOffering) -> QuerySet[Registration]:
     return (
         offering.registrations.select_related("member")
         .prefetch_related("custom_answers__question", _refunds_prefetch())
-        .annotate(promoted_email_sent=Exists(promoted_delivery))
+        .annotate(
+            promoted_email_sent=Exists(promoted_delivery),
+            has_liability_waiver=Exists(Waiver.objects.filter(registration=OuterRef("pk"), kind=Waiver.Kind.LIABILITY)),
+        )
         .order_by("-registered_at")
     )
 

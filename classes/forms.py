@@ -1725,21 +1725,95 @@ class RegistrationForm(forms.ModelForm):
         return [self[f"custom_q_{q.pk}"] for q in self._custom_questions]
 
     def _create_waivers(self, registration: Registration) -> None:
+        create_waivers(
+            registration, settings_obj=self.settings_obj, cleaned_data=self.cleaned_data, client_ip=self.client_ip
+        )
+
+
+def create_waivers(
+    registration: Registration, *, settings_obj: ClassSettings, cleaned_data: dict[str, Any], client_ip: str
+) -> None:
+    """Record the signed liability waiver, and the photo release when the class asks for one.
+
+    The one place a Waiver row is written, so the site's registration form and the
+    Eventbrite finish page (#652) record a signature identically: the text as shown, the
+    typed name and the signer's IP.
+    """
+    Waiver.objects.create(
+        registration=registration,
+        kind=Waiver.Kind.LIABILITY,
+        waiver_text=settings_obj.liability_waiver_text,
+        signature_text=cleaned_data["liability_signature"],
+        ip_address=client_ip or None,
+    )
+    if registration.class_offering.requires_model_release:
         Waiver.objects.create(
             registration=registration,
-            kind=Waiver.Kind.LIABILITY,
-            waiver_text=self.settings_obj.liability_waiver_text,
-            signature_text=self.cleaned_data["liability_signature"],
-            ip_address=self.client_ip or None,
+            kind=Waiver.Kind.MODEL_RELEASE,
+            waiver_text=settings_obj.model_release_waiver_text,
+            signature_text=cleaned_data["model_release_signature"],
+            ip_address=client_ip or None,
         )
-        if self.offering.requires_model_release:
-            Waiver.objects.create(
-                registration=registration,
-                kind=Waiver.Kind.MODEL_RELEASE,
-                waiver_text=self.settings_obj.model_release_waiver_text,
-                signature_text=self.cleaned_data["model_release_signature"],
-                ip_address=self.client_ip or None,
-            )
+
+
+class FinishRegistrationForm(forms.Form):
+    """The Eventbrite buyer's finish page: the waivers, the site's questions and an account (#652).
+
+    Eventbrite has already taken the name, email and payment, so this asks only what its
+    checkout cannot: the same signatures and questions :class:`RegistrationForm` asks, saved
+    the same way. ``offers_account`` comes from ``eventbrite_offers_account``; without it the
+    account box is not shown.
+    """
+
+    liability_signature = forms.CharField(max_length=255, label="Type your full name to sign the liability waiver")
+    accepts_liability = forms.BooleanField(label="I have read and agree to the liability waiver above.")
+    model_release_signature = forms.CharField(
+        max_length=255, required=False, label="Type your full name to sign the photo release"
+    )
+    accepts_model_release = forms.BooleanField(
+        required=False, label="I have read and agree to the photo release above."
+    )
+    create_account = forms.BooleanField(
+        required=False,
+        initial=True,
+        label="Create a Past Lives account so you can manage your bookings. No password, we'll email you a sign-in code.",
+    )
+
+    def __init__(self, *args: Any, offering: ClassOffering, offers_account: bool, **kwargs: Any) -> None:
+        super().__init__(*args, **kwargs)
+        self.offering = offering
+        if not offering.requires_model_release:
+            self.fields.pop("model_release_signature")
+            self.fields.pop("accepts_model_release")
+        if not offers_account:
+            self.fields.pop("create_account")
+        self._custom_questions = list(active_questions())
+        inject_fields(self, self._custom_questions)
+
+    def clean(self) -> dict[str, Any]:
+        data = super().clean() or {}
+        if self.offering.requires_model_release and not data.get("accepts_model_release"):
+            self.add_error("accepts_model_release", "Photo release acceptance is required for this class.")
+        return data
+
+    @property
+    def custom_question_fields(self) -> list[forms.BoundField]:
+        """The question fields, for the shared questions block."""
+        return [self[f"custom_q_{q.pk}"] for q in self._custom_questions]
+
+    @property
+    def wants_account(self) -> bool:
+        """Whether the account box was offered and left ticked."""
+        return bool(self.cleaned_data.get("create_account"))
+
+    def save_to(self, registration: Registration, *, settings_obj: ClassSettings, client_ip: str) -> None:
+        """Write the signatures and answers onto ``registration``, as :class:`RegistrationForm` does."""
+        create_waivers(registration, settings_obj=settings_obj, cleaned_data=self.cleaned_data, client_ip=client_ip)
+        rows = [
+            RegistrationAnswer(registration=registration, question_id=qid, answer_text=text)
+            for qid, text in collect_answers(self, self._custom_questions).items()
+        ]
+        RegistrationAnswer.objects.bulk_create(rows)
 
 
 class ClassSettingsForm(forms.ModelForm):

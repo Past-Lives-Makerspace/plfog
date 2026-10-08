@@ -398,6 +398,23 @@ def removed_context(data: SampleData) -> dict[str, Any]:
     }
 
 
+def eventbrite_finish_context(data: SampleData) -> dict[str, Any]:
+    """Mirrors ``classes.emails.send_eventbrite_finish_registration`` for a buyer's own ticket."""
+    registration = data.registration
+    return {
+        "subject": f"Finish registering for {data.offering.title}",
+        "template_context": {
+            "registration": registration,
+            "offering": data.offering,
+            "upcoming_sessions": _upcoming_sessions(data),
+            "finish_url": _class_urls(data, registration)["self_serve_url"],
+            "for_another_seat": False,
+            "has_questions": True,
+            "offers_account": True,
+        },
+    }
+
+
 def moved_context(data: SampleData) -> dict[str, Any]:
     """Mirrors ``classes.emails.send_registration_moved`` — the confirmed seat-holder variant.
 

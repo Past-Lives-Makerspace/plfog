@@ -4,7 +4,7 @@ Shared roster row — included by the teach + admin Registrations tabs and retur
 standalone by the roster action endpoints (hx-target="#reg-row-<pk>", outerHTML).
 
 Context:
-  reg                         — Registration, annotated with promoted_email_sent
+  reg                         — Registration, annotated with promoted_email_sent and has_liability_waiver
   can_manage                  — the viewer may act on this row (all four tabs pass True)
   viewer_has_refund_authority — fog-admin or REFUNDS holder (refund buttons)
 {% endcomment %}
@@ -12,6 +12,10 @@ Context:
     <td>
         <a href="{% url 'classes:admin_registration_detail' pk=reg.pk %}">{{ reg.first_name }} {{ reg.last_name }}</a>
         {% if reg.pronouns %} <span style="color:var(--hub-text-muted); font-size:0.8rem;">({{ reg.pronouns }})</span>{% endif %}
+        {% if reg.source == "eventbrite" %}
+            <span class="pl-status-badge pl-status-badge--muted" data-roster-source="eventbrite">Eventbrite</span>
+            {% if not reg.has_liability_waiver and reg.consumes_seat %}<span class="pl-status-badge pl-status-badge--warn" data-roster-flag="no-waiver">No waiver</span>{% endif %}
+        {% endif %}
     </td>
     <td style="font-size:0.9rem;">{{ reg.email }}</td>
     <td>

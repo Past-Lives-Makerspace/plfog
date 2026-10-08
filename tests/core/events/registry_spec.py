@@ -74,6 +74,7 @@ _BRAND_NEW_KEYS = {
     "class_registration_admin_notice",
     "classes.duplicate_payment_alert",
     "classes.orphaned_payment_alert",
+    "classes.eventbrite_finish_registration",
     "billing.late_fee_orphan_payment",
     "membership.orientation_orphan_payment",
     "automation.failed",
@@ -147,6 +148,8 @@ def describe_event_registry():
                 "member.login_invite",
                 "discord_guilds_imported",
                 "guild_welcome",
+                # The Eventbrite buyer's finish link goes by email_to to an address that may have no account (#652).
+                "classes.eventbrite_finish_registration",
                 "voting.discord_reminder",
                 "voting.results_discord",
                 "orientation.completed",
