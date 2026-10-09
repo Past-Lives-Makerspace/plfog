@@ -13,7 +13,7 @@ so it follows edits made before the row is collapsed again.
 <div class="hub-card pl-equip-hours-row" x-data="plEquipHoursRow({{ open|yesno:'true,false' }})" @change="refresh()" data-hours-row>
   <div class="pl-equip-hours-row__summary">
     <span class="pl-equip-hours-row__text" x-text="summary" data-hours-summary></span>
-    <button type="button" class="pl-btn pl-btn--secondary pl-btn--sm" @click="editing = !editing" :aria-expanded="editing ? 'true' : 'false'" x-text="editing ? 'Done' : 'Edit'" data-hours-edit>Edit</button>
+    <button type="button" class="pl-btn pl-btn--secondary pl-btn--sm" @click="editing = !editing" :aria-expanded="editing ? 'true' : 'false'" :aria-label="(editing ? 'Done editing ' : 'Edit ') + summary" x-text="editing ? 'Done' : 'Edit'" data-hours-edit>Edit</button>
   </div>
   <div class="pl-equip-hours-row__body" x-show="editing"{% if not open %} x-cloak{% endif %} data-hours-body>
     {% for error in window.non_field_errors %}<p class="pl-field-error">{{ error }}</p>{% endfor %}

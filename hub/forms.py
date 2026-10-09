@@ -6101,9 +6101,14 @@ class EquipmentSettingsForm(LateCancelFeeFormMixin):
         self.fields["max_active_reservations_per_member"].help_text = ""
         self.fields["late_cancel_fee"].help_text = "In dollars."
 
+    #: Posted beside the switch, so an unchecked box means "closed" only when the switch was on the page.
+    #: A Manage page loaded before #731 posts no switch, and must not close the equipment on Save.
+    SWITCH_MARKER = "reservations_open_shown"
+
     def save(self, commit: bool = True) -> Any:
-        """Write the Active switch back as its inverse, ``is_closed``."""
-        self.instance.is_closed = not self.cleaned_data["reservations_open"]
+        """Write the Active switch back as its inverse, ``is_closed``, when the switch was posted."""
+        if self.SWITCH_MARKER in self.data:
+            self.instance.is_closed = not self.cleaned_data["reservations_open"]
         return super().save(commit=commit)
 
     def clean(self) -> dict[str, Any]:

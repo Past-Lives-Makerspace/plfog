@@ -161,6 +161,7 @@
     <div class="hub-card pl-equip-panel" x-data="{ reservationsOpen: {{ settings_form.reservations_open.value|yesno:'true,false' }} }" data-availability-card>
       <h2 class="hub-detail-label pl-equip-panel__title">Availability</h2>
       <div @change="reservationsOpen = $event.target.checked">
+        <input type="hidden" name="reservations_open_shown" value="1">
         {% include "components/form_field.html" with field=settings_form.reservations_open %}
       </div>
       <div x-show="!reservationsOpen"{% if settings_form.reservations_open.value %} x-cloak{% endif %} data-closed-message>

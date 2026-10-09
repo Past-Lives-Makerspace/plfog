@@ -515,6 +515,7 @@ def describe_equipment_hours_save():
             "hours-INITIAL_FORMS": "0",
             "hours-MIN_NUM_FORMS": "0",
             "hours-MAX_NUM_FORMS": "1000",
+            "reservations_open_shown": "1",
             "reservations_open": "on",
             "closed_message": "",
             "min_duration_minutes": "30",
@@ -873,6 +874,7 @@ def describe_reopen_regeneration():
             "hours-INITIAL_FORMS": "0",
             "hours-MIN_NUM_FORMS": "0",
             "hours-MAX_NUM_FORMS": "1000",
+            "reservations_open_shown": "1",
             "reservations_open": "on",
             "closed_message": "",
             "min_duration_minutes": "30",
@@ -1055,6 +1057,7 @@ def _limits_data(**overrides: str) -> dict[str, str]:
         "hours-INITIAL_FORMS": "0",
         "hours-MIN_NUM_FORMS": "0",
         "hours-MAX_NUM_FORMS": "1000",
+        "reservations_open_shown": "1",
         "reservations_open": "on",
         "closed_message": "",
         "min_duration_minutes": "30",
@@ -1238,6 +1241,18 @@ def describe_hours_and_limits_tab_layout():
             _login(client, "act_on", fog_role=Member.FogRole.ADMIN)
             equipment = EquipmentFactory(is_closed=True)
             response = client.post(reverse("hub_equipment_hours_save", args=[equipment.slug]), _limits_data())
+            assert response.status_code == 302
+            equipment.refresh_from_db()
+            assert equipment.is_closed is False
+
+        def it_leaves_closure_alone_when_a_page_without_the_switch_posts(client: Client):
+            # A Manage page loaded before the switch existed posts neither key; Save must not close the tool.
+            _login(client, "act_stale", fog_role=Member.FogRole.ADMIN)
+            equipment = EquipmentFactory()
+            data = _limits_data()
+            del data["reservations_open"]
+            del data["reservations_open_shown"]
+            response = client.post(reverse("hub_equipment_hours_save", args=[equipment.slug]), data)
             assert response.status_code == 302
             equipment.refresh_from_db()
             assert equipment.is_closed is False
