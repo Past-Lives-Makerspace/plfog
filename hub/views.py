@@ -1348,7 +1348,9 @@ def _guild_edit_context(
         "mailing_list_formset": (
             mailing_list_formset
             if mailing_list_formset is not None
-            else GuildMailingListFormSet(instance=guild, prefix="mailing_list")
+            else GuildMailingListFormSet(
+                instance=guild, prefix="mailing_list", queryset=guild.mailing_list_emails.select_related("user__member")
+            )
         ),
         "staff_by_member": guild.staff_by_member(),
         "staff_add_form": GuildStaffAddForm(
@@ -4823,6 +4825,35 @@ def hub_compose_site_add(request: HttpRequest) -> HttpResponse:
 
 @login_required
 @require_POST
+def hub_compose_add_addresses(request: HttpRequest) -> HttpResponse:
+    """HTMX: vet addresses typed into a guild or class announcement and return a row for each (#729).
+
+    Takes ``add_addresses`` (commas, spaces or new lines between them) and the posted ``audience``,
+    which must be a guild or class the request may address (403 otherwise). Each valid address
+    comes back as a checked ``recipients`` row to append to the added area: a member's address as
+    that member, any other as email only (:func:`hub.forms.classify_announcement_additions`).
+    Anything refused comes back as one error toast. Nothing is saved here; a guild's list is
+    written when the announcement is sent.
+    """
+    from hub.forms import classify_announcement_additions, split_site_additions
+
+    raw = request.POST.get("audience") or ""
+    forbidden = _compose_audience_forbidden(request, raw)
+    if forbidden is not None:
+        return forbidden
+    if not raw.startswith(("guild:", "class:")):
+        return HttpResponse("Forbidden", status=403)
+    rows, refused = classify_announcement_additions(split_site_additions(request.POST.get("add_addresses") or ""))
+    if not rows and not refused:
+        refused = ["Type an email address to add."]
+    response = render(request, "hub/partials/_compose_added_rows.html", {"rows": rows})
+    if refused:
+        trigger_toast(response, " ".join(refused), "error")
+    return response
+
+
+@login_required
+@require_POST
 def hub_compose_test(request: HttpRequest) -> HttpResponse:
     """HTMX: send a branded test of the current draft to the author's own inbox (never the spine)."""
     from core.email import send as send_email
@@ -5452,7 +5483,12 @@ def guild_mailing_list_save(request: HttpRequest, pk: int) -> HttpResponse:
     if request.method != "POST":
         return redirect(announcements_tab)
 
-    formset = GuildMailingListFormSet(request.POST, instance=guild, prefix="mailing_list")
+    formset = GuildMailingListFormSet(
+        request.POST,
+        instance=guild,
+        prefix="mailing_list",
+        queryset=guild.mailing_list_emails.select_related("user__member"),
+    )
     if formset.is_valid():
         formset.save()
         if wants_autosave(request):

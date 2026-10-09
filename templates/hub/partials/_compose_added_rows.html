@@ -1,0 +1,15 @@
+{% comment %}
+People typed into a guild or class announcement's "Add email addresses" box (#729), one checked
+recipients row each, returned by hub_compose_add_addresses to append to #compose-added-recipients.
+Each row calls composeAddPeople's adoptRow() as it lands, which drops it when that person is
+already listed (re-checking their row instead) and recounts.
+
+Params:
+  rows — (value, label, email_only) tuples from hub.forms.classify_announcement_additions
+{% endcomment %}
+{% for value, label, email_only in rows %}
+<label class="pl-recipient-checklist__row" data-compose-added-row x-init="adoptRow($el)">
+  <input type="checkbox" name="recipients" value="{{ value }}" class="pl-recipient-checklist__box" checked>
+  <span class="pl-recipient-checklist__label">{{ label }}{% if email_only %} (email only){% endif %}</span>
+</label>
+{% endfor %}

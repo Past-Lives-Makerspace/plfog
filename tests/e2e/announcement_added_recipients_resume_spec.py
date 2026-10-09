@@ -1,4 +1,4 @@
-"""End-to-end (#620): a member added from "Add a member" survives reopening the draft.
+"""End-to-end (#620): a member added from "Add people" survives reopening the draft.
 
 The added row is built in the browser when picked; on resume the server renders it back as a
 checked row, so saving again keeps it and unchecking it drops it. Only a browser proves the
@@ -54,7 +54,9 @@ def describe_resuming_a_draft_with_added_members():
         page.goto(f"{live_server.url}{reverse('hub_compose')}?audience=guild:{guild.pk}")
         expect(page.locator(f'#compose-recipients input[value="user:{roster.user_id}"]')).to_be_attached()
         page.locator(EDITOR).fill("Open shop night moves to Thursday.")
-        page.locator("#compose-add-member").select_option(f"user:{added.user_id}")
+        page.locator("[data-compose-add-toggle]").click()
+        page.locator(f'[data-compose-add-pick][value="user:{added.user_id}"]').check()
+        page.locator("[data-compose-add-selected]").click()
         added_row = page.locator(f'#compose-added-recipients input[value="user:{added.user_id}"]')
         expect(added_row).to_be_checked()
 
