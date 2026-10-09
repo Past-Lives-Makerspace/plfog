@@ -19,12 +19,12 @@ The locked questions (LOCKED_CLASS_FAQS) render read only above the rows, outsid
   Below them, reword the starting question, add your own, or delete ones that don't fit.
 </p>
 {{ faq_formset.management_form }}
-<div id="faq-locked" style="display:flex; flex-direction:column; gap:1rem; margin-bottom:1rem;">
+<div id="faq-locked" class="pl-faq-locked-list" role="group" aria-label="Questions Past Lives sets for every class">
   {% for faq in faq_formset.locked_faqs %}
-    <div class="hub-card pl-faq-locked" style="padding:1rem; background:rgba(255,255,255,0.02);">
-      <p style="margin:0 0 0.5rem;"><strong>{{ faq.question }}</strong></p>
-      <div style="font-size:0.9rem;">{{ faq.answer|urlize|linebreaks }}</div>
-      <p style="color:var(--hub-text-muted); font-size:0.8rem; margin:0.5rem 0 0;">Set by Past Lives for every class</p>
+    <div class="hub-card pl-faq-locked">
+      <p class="pl-faq-locked__question"><strong>{{ faq.question }}</strong></p>
+      <div class="pl-faq-locked__answer">{{ faq.answer|urlize|linebreaks }}</div>
+      <p class="pl-faq-locked__note">Set by Past Lives for every class</p>
     </div>
   {% endfor %}
 </div>
@@ -34,7 +34,8 @@ The locked questions (LOCKED_CLASS_FAQS) render read only above the rows, outsid
       {% for error in f.non_field_errors %}<p class="pl-field-error">{{ error }}</p>{% endfor %}
       {% include "components/form_field.html" with field=f.question %}
       {% include "components/form_field.html" with field=f.answer %}
-      {% if f.instance.pk %}
+      {# A row posted as saved keeps Delete even when its id is gone (a tab opened before a deploy), since Remove would leave it in the posted count. #}
+      {% if forloop.counter0 < faq_formset.initial_form_count %}
         <div style="display:none;">{{ f.DELETE }}</div>
         <button type="button" class="pl-btn pl-btn--danger pl-btn--sm pl-btn--spaced"
                 onclick="document.getElementById('{{ f.DELETE.id_for_label }}').checked = true; this.form.requestSubmit();">

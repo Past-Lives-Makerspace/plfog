@@ -7,6 +7,7 @@ import io
 import logging
 import re
 import secrets
+import unicodedata
 from collections.abc import Callable, Iterable, Sequence
 from dataclasses import dataclass
 from functools import partial
@@ -2864,7 +2865,7 @@ class ClassOffering(HeroCropMixin, models.Model):
     def own_faqs(self) -> list[dict]:
         """The class's own ``ClassFaq`` rows in order, minus any asking a locked question.
 
-        A row asking one of the ``LOCKED_CLASS_FAQS`` (case and surrounding space ignored) is
+        A row asking one of the ``LOCKED_CLASS_FAQS`` (as ``is_locked_class_faq`` matches) is
         skipped, so the locked copy is the only answer to it anywhere the FAQ shows. Each entry
         is ``{"question": str, "answer": str}``.
         """
@@ -3846,16 +3847,26 @@ DEFAULT_CLASS_FAQS: list[dict] = [
 ]
 
 
+# Curly single quotes typed by phones and word processors, read as the straight one.
+_FAQ_APOSTROPHES = str.maketrans({"\u2018": "'", "\u2019": "'"})
+
+
 def _faq_key(question: str) -> str:
-    """A question as the locked check compares it: case and surrounding space ignored."""
-    return question.strip().casefold()
+    """A question as the locked check compares it, so a lookalike cannot slip past.
+
+    NFKC folds compatibility characters (a no-break space becomes a space), curly
+    apostrophes become straight, every run of whitespace becomes one space, case is
+    folded, and a trailing question mark is dropped. Migration 0085 freezes a copy.
+    """
+    text = unicodedata.normalize("NFKC", question).translate(_FAQ_APOSTROPHES)
+    return " ".join(text.split()).casefold().rstrip("?").rstrip()
 
 
 _LOCKED_FAQ_KEYS = frozenset(_faq_key(faq["question"]) for faq in LOCKED_CLASS_FAQS)
 
 
 def is_locked_class_faq(question: str) -> bool:
-    """Whether ``question`` asks one of the ``LOCKED_CLASS_FAQS``, ignoring case and surrounding space."""
+    """Whether ``question`` asks one of the ``LOCKED_CLASS_FAQS``, as ``_faq_key`` compares them."""
     return _faq_key(question) in _LOCKED_FAQ_KEYS
 
 

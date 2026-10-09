@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from io import BytesIO
 
+import pytest
+
 from django.core.files.uploadedfile import SimpleUploadedFile
 
 from classes.factories import CategoryFactory, ClassFaqFactory, ClassImageFactory, ClassOfferingFactory
@@ -40,6 +42,19 @@ def describe_is_locked_class_faq():
         for faq in LOCKED_CLASS_FAQS:
             assert is_locked_class_faq(faq["question"])
             assert is_locked_class_faq(f"  {faq['question'].upper()}\n")
+
+    @pytest.mark.parametrize(
+        "question",
+        [
+            "What\u2019s your cancellation policy?",
+            "what's your cancellation policy",
+            "Is\u00a0the  space\taccessible ?",
+            "Is the space accessible??",
+            "Is the space accessible\uff1f",
+        ],
+    )
+    def it_matches_a_lookalike(question):
+        assert is_locked_class_faq(question)
 
     def it_does_not_match_any_other_question(db):
         assert not is_locked_class_faq(DEFAULT_CLASS_FAQS[0]["question"])

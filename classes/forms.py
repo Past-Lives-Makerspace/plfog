@@ -13,6 +13,7 @@ from django.core.exceptions import ValidationError
 from django.core.validators import MaxValueValidator, MinValueValidator, validate_email
 from django.db.models import BLANK_CHOICE_DASH, Q
 from django.forms import BaseInlineFormSet, inlineformset_factory
+from django.forms.formsets import DELETION_FIELD_NAME
 from django.utils import timezone
 from django.utils.text import slugify
 
@@ -1172,7 +1173,7 @@ ClassImageFormSet = inlineformset_factory(
 )
 
 
-LOCKED_FAQ_ERROR = "This question is set by Past Lives for every class. Ask a different question."
+LOCKED_FAQ_ERROR = "Past Lives already shows this question on every class. Delete this row or ask something else."
 
 
 class ClassFaqForm(forms.ModelForm):
@@ -1194,7 +1195,52 @@ class ClassFaqForm(forms.ModelForm):
 
 
 class BaseClassFaqFormSet(BaseInlineFormSet):
-    """The class FAQ formset; carries the locked questions the editor shows read only above its rows."""
+    """The class FAQ formset: the class's own rows, never a locked one.
+
+    A row asking a locked question is left out of the queryset, so it never renders as
+    editable, and a successful save deletes any such row the class still holds (one saved
+    by the previous release while a deploy was going out, say).
+
+    A tab opened before the deploy can post a saved row this formset no longer holds: its
+    id was deleted by migration 0085, or it is a locked row left out of the queryset.
+    Django would build that row as an unsaved instance, fail its hidden id with an error
+    nobody sees, and drop it from the save. Here such a "stale" row asking a locked question
+    is dropped quietly (the locked copy shows on the page anyway), and any other stale row
+    is saved as a new row, so a stale tab still saves what was typed in it.
+    """
+
+    def add_fields(self, form: forms.ModelForm, index: int | None) -> None:
+        super().add_fields(form, index)
+        if self._is_stale(form, index):
+            # The posted id names no row this formset can save; carry it as plain text so
+            # it cannot fail as an invalid choice under a hidden input.
+            form.fields["id"] = forms.CharField(required=False, widget=forms.HiddenInput)
+
+    def _is_stale(self, form: forms.ModelForm, index: int | None) -> bool:
+        """A bound row posted as saved whose id this formset could not load."""
+        return form.is_bound and index is not None and index < self.initial_form_count() and form.instance._state.adding
+
+    def _stale_forms(self) -> list[forms.ModelForm]:
+        return [form for i, form in enumerate(self.forms) if self._is_stale(form, i)]
+
+    def _should_delete_form(self, form: forms.ModelForm) -> bool:
+        """A row with Delete ticked (Django's own rule), or a stale row asking a locked question."""
+        if form.cleaned_data.get(DELETION_FIELD_NAME, False):
+            return True
+        return form in self._stale_forms() and is_locked_class_faq(form["question"].value() or "")
+
+    def save(self, commit: bool = True) -> list[ClassFaq]:
+        """Save the rows, keep a stale row's text as a new row, and clear any locked row left behind."""
+        saved: list[ClassFaq] = super().save(commit=commit)
+        deleted = self.deleted_forms
+        saved += [
+            self.save_new(form, commit=commit)
+            for form in self._stale_forms()
+            if form not in deleted and form.has_changed()
+        ]
+        locked = [faq.pk for faq in self.instance.faqs.all() if is_locked_class_faq(faq.question)]
+        ClassFaq.objects.filter(pk__in=locked).delete()
+        return saved
 
     @property
     def locked_faqs(self) -> list[dict]:
@@ -1205,14 +1251,17 @@ class BaseClassFaqFormSet(BaseInlineFormSet):
 def build_class_faq_formset(data: Any, offering: ClassOffering) -> Any:
     """FAQ formset for the class edit form.
 
-    When the class has no ``ClassFaq`` rows yet, the unbound (GET) formset renders the
-    site-wide ``DEFAULT_CLASS_FAQS`` as prefilled extra rows: the instructor's editable
-    starting point. Saving materializes whatever rows come back as the class's own list
-    (bound extra forms carry data against empty initial, so untouched defaults still
-    save). The ``LOCKED_CLASS_FAQS`` are never rows; the editor shows them read only
-    (``locked_faqs``) and a row asking one fails validation.
+    The formset holds the class's own rows only (a row asking a locked question is left
+    out). When the class has none yet, the unbound (GET) formset renders the site-wide
+    ``DEFAULT_CLASS_FAQS`` as prefilled extra rows: the instructor's editable starting
+    point. Saving materializes whatever rows come back as the class's own list (bound
+    extra forms carry data against empty initial, so untouched defaults still save). The
+    ``LOCKED_CLASS_FAQS`` are never rows; the editor shows them read only (``locked_faqs``)
+    and a new or edited row asking one fails validation.
     """
-    seed = data is None and not offering.faqs.exists()
+    locked = [faq.pk for faq in offering.faqs.all() if is_locked_class_faq(faq.question)]
+    own = offering.faqs.exclude(pk__in=locked)
+    seed = data is None and not own.exists()
     formset_cls = inlineformset_factory(
         ClassOffering,
         ClassFaq,
@@ -1225,6 +1274,7 @@ def build_class_faq_formset(data: Any, offering: ClassOffering) -> Any:
         data,
         instance=offering,
         prefix="faq",
+        queryset=own,
         initial=[dict(faq) for faq in DEFAULT_CLASS_FAQS] if seed else None,
     )
 
