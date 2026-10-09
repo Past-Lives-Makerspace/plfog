@@ -28,7 +28,7 @@ from classes.factories import (
     UserFactory,
 )
 from classes.forms import ClassOfferingForm, TeachClassOfferingForm, TeachPublishedClassForm
-from classes.models import ClassImage, ClassOffering
+from classes.models import LOCKED_CLASS_FAQS, ClassImage, ClassOffering
 from core.integrations.eventbrite import EventbriteClient, EventbriteError, EventbriteSync
 from core.models import SiteConfiguration
 from tests.membership.factories import MembershipPlanFactory
@@ -766,7 +766,7 @@ def describe_a_description_eventbrite_refuses_with_its_photos():
 
         # With widgets, then without (the request verified before #716), then without the photos.
         assert [(args[2], args[3]) for args in eventbrite.descriptions()] == [
-            (["img-1"], []),
+            (["img-1"], LOCKED_CLASS_FAQS),
             (["img-1"], None),
             ([], None),
         ]
@@ -774,7 +774,8 @@ def describe_a_description_eventbrite_refuses_with_its_photos():
         offering.refresh_from_db()
         assert offering.eventbrite_sync_state == State.LISTED
         assert offering.eventbrite_sync_error == (
-            "Eventbrite refused the page, so it went without its widgets and its photos: "
+            "Eventbrite refused the page, so it went without its widgets "
+            "(the FAQ went into the description as text) and its photos: "
             "POST structured_content: 400 bad module"
         )
 
@@ -917,7 +918,10 @@ def describe_saving_a_live_class_with_its_faq():
 
         assert response.status_code == 302
         call_command("retry_eventbrite_pushes")
-        assert eventbrite.descriptions()[-1][3] == [{"question": "Is the kiln vented?", "answer": "Yes."}]
+        assert eventbrite.descriptions()[-1][3] == [
+            *LOCKED_CLASS_FAQS,
+            {"question": "Is the kiln vented?", "answer": "Yes."},
+        ]
 
 
 def describe_a_listing_eventbrite_refuses_with_its_faq_and_its_photos():

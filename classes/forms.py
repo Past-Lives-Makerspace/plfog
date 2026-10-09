@@ -12,7 +12,7 @@ from django import forms
 from django.core.exceptions import ValidationError
 from django.core.validators import MaxValueValidator, MinValueValidator, validate_email
 from django.db.models import BLANK_CHOICE_DASH, Q
-from django.forms import inlineformset_factory
+from django.forms import BaseInlineFormSet, inlineformset_factory
 from django.utils import timezone
 from django.utils.text import slugify
 
@@ -24,6 +24,7 @@ from classes.eventbrite_categories import SUBCATEGORY_PARENT, EventbriteSubcateg
 from classes.models import (
     DEFAULT_CLASS_FAQS,
     DEFAULT_SALE_BANNER_TEXT,
+    LOCKED_CLASS_FAQS,
     READINESS_MIN_DESCRIPTION_CHARS,
     Category,
     ClassFaq,
@@ -40,6 +41,7 @@ from classes.models import (
     RegistrationQuestion,
     Waiver,
     _unique_slug,
+    is_locked_class_faq,
 )
 from classes.questions import active_questions, collect_answers, inject_fields
 from classes.video_providers import validate_video_url
@@ -1170,6 +1172,9 @@ ClassImageFormSet = inlineformset_factory(
 )
 
 
+LOCKED_FAQ_ERROR = "This question is set by Past Lives for every class. Ask a different question."
+
+
 class ClassFaqForm(forms.ModelForm):
     """A single FAQ question/answer row on the class edit form."""
 
@@ -1180,21 +1185,39 @@ class ClassFaqForm(forms.ModelForm):
             "answer": forms.Textarea(attrs={"rows": 3}),
         }
 
+    def clean_question(self) -> str:
+        """Refuse a row asking a locked question, so its copy changes only in code (admins too)."""
+        question: str = self.cleaned_data["question"]
+        if is_locked_class_faq(question):
+            raise forms.ValidationError(LOCKED_FAQ_ERROR)
+        return question
+
+
+class BaseClassFaqFormSet(BaseInlineFormSet):
+    """The class FAQ formset; carries the locked questions the editor shows read only above its rows."""
+
+    @property
+    def locked_faqs(self) -> list[dict]:
+        """The ``LOCKED_CLASS_FAQS``, for the template to render without inputs."""
+        return LOCKED_CLASS_FAQS
+
 
 def build_class_faq_formset(data: Any, offering: ClassOffering) -> Any:
     """FAQ formset for the class edit form.
 
     When the class has no ``ClassFaq`` rows yet, the unbound (GET) formset renders the
-    site-wide ``DEFAULT_CLASS_FAQS`` as prefilled extra rows — the instructor's editable
+    site-wide ``DEFAULT_CLASS_FAQS`` as prefilled extra rows: the instructor's editable
     starting point. Saving materializes whatever rows come back as the class's own list
     (bound extra forms carry data against empty initial, so untouched defaults still
-    save — editing one default can never silently drop the other two from the page).
+    save). The ``LOCKED_CLASS_FAQS`` are never rows; the editor shows them read only
+    (``locked_faqs``) and a row asking one fails validation.
     """
     seed = data is None and not offering.faqs.exists()
     formset_cls = inlineformset_factory(
         ClassOffering,
         ClassFaq,
         form=ClassFaqForm,
+        formset=BaseClassFaqFormSet,
         extra=len(DEFAULT_CLASS_FAQS) if seed else 0,
         can_delete=True,
     )

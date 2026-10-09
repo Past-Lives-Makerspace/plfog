@@ -7,7 +7,7 @@ from io import BytesIO
 from django.core.files.uploadedfile import SimpleUploadedFile
 
 from classes.factories import CategoryFactory, ClassFaqFactory, ClassImageFactory, ClassOfferingFactory
-from classes.models import ARRIVAL_CLASS_FAQ, DEFAULT_CLASS_FAQS
+from classes.models import ARRIVAL_CLASS_FAQ, DEFAULT_CLASS_FAQS, LOCKED_CLASS_FAQS, is_locked_class_faq
 
 
 def _image_file(name: str = "shot.png") -> SimpleUploadedFile:
@@ -35,22 +35,56 @@ def describe_ClassFaq():
         assert not ClassFaq.objects.filter(pk=faq.pk).exists()
 
 
-def describe_display_faqs():
-    def it_falls_back_to_the_site_defaults_plus_the_arrival_faq_when_the_class_has_no_rows(db):
-        offering = ClassOfferingFactory()
-        assert offering.display_faqs == [*DEFAULT_CLASS_FAQS, ARRIVAL_CLASS_FAQ]
+def describe_is_locked_class_faq():
+    def it_matches_each_locked_question_ignoring_case_and_surrounding_space(db):
+        for faq in LOCKED_CLASS_FAQS:
+            assert is_locked_class_faq(faq["question"])
+            assert is_locked_class_faq(f"  {faq['question'].upper()}\n")
 
-    def it_returns_the_classes_own_rows_plus_the_arrival_faq_when_customized(db):
+    def it_does_not_match_any_other_question(db):
+        assert not is_locked_class_faq(DEFAULT_CLASS_FAQS[0]["question"])
+        assert not is_locked_class_faq("Is the space accessible by bike?")
+
+
+def describe_display_faqs():
+    def it_leads_with_the_locked_questions_then_the_defaults_then_arrival_when_the_class_has_no_rows(db):
+        offering = ClassOfferingFactory()
+        assert offering.display_faqs == [*LOCKED_CLASS_FAQS, *DEFAULT_CLASS_FAQS, ARRIVAL_CLASS_FAQ]
+
+    def it_puts_the_classes_own_rows_between_the_locked_questions_and_arrival(db):
         offering = ClassOfferingFactory()
         ClassFaqFactory(class_offering=offering, question="Can I bring my dog?", answer="Sadly no.")
         faqs = offering.display_faqs
-        assert faqs == [{"question": "Can I bring my dog?", "answer": "Sadly no."}, ARRIVAL_CLASS_FAQ]
+        assert faqs == [
+            *LOCKED_CLASS_FAQS,
+            {"question": "Can I bring my dog?", "answer": "Sadly no."},
+            ARRIVAL_CLASS_FAQ,
+        ]
 
     def it_does_not_leak_defaults_alongside_custom_rows(db):
         offering = ClassOfferingFactory()
         ClassFaqFactory(class_offering=offering)
         questions = [faq["question"] for faq in offering.display_faqs]
         assert DEFAULT_CLASS_FAQS[0]["question"] not in questions
+
+    def it_shows_a_locked_question_once_with_the_codes_copy_when_a_row_asks_it(db):
+        offering = ClassOfferingFactory()
+        ClassFaqFactory(
+            class_offering=offering, sort_order=0, question=" what's your CANCELLATION policy? ", answer="Old copy."
+        )
+        ClassFaqFactory(class_offering=offering, sort_order=1, question="Is the space accessible?", answer="Old.")
+        ClassFaqFactory(class_offering=offering, sort_order=2, question="Can I bring my dog?", answer="Sadly no.")
+        faqs = offering.display_faqs
+        assert faqs == [
+            *LOCKED_CLASS_FAQS,
+            {"question": "Can I bring my dog?", "answer": "Sadly no."},
+            ARRIVAL_CLASS_FAQ,
+        ]
+
+    def it_falls_back_to_the_defaults_when_every_row_asks_a_locked_question(db):
+        offering = ClassOfferingFactory()
+        ClassFaqFactory(class_offering=offering, question=LOCKED_CLASS_FAQS[0]["question"], answer="Old copy.")
+        assert offering.display_faqs == [*LOCKED_CLASS_FAQS, *DEFAULT_CLASS_FAQS, ARRIVAL_CLASS_FAQ]
 
     def it_does_not_duplicate_the_arrival_faq_when_a_custom_row_asks_it(db):
         offering = ClassOfferingFactory()
@@ -65,8 +99,25 @@ def describe_display_faqs():
             {"question": ARRIVAL_CLASS_FAQ["question"], "answer": "Meet me at the loading dock instead."}
         ]
 
+    def it_hands_out_copies_so_a_caller_cannot_change_the_site_copy(db):
+        offering = ClassOfferingFactory()
+        offering.display_faqs[0]["answer"] = "Changed."
+        assert LOCKED_CLASS_FAQS[0]["answer"] != "Changed."
 
-def describe_default_cancellation_policy():
+
+def describe_own_faqs():
+    def it_lists_the_classes_rows_in_order_without_the_locked_ones(db):
+        offering = ClassOfferingFactory()
+        ClassFaqFactory(class_offering=offering, sort_order=1, question="Gloves?", answer="Provided.")
+        ClassFaqFactory(class_offering=offering, sort_order=0, question="Is the space accessible?", answer="Old.")
+        ClassFaqFactory(class_offering=offering, sort_order=2, question="Age?", answer="16 and up.")
+        assert offering.own_faqs() == [
+            {"question": "Gloves?", "answer": "Provided."},
+            {"question": "Age?", "answer": "16 and up."},
+        ]
+
+
+def describe_locked_cancellation_policy():
     def it_points_cancellations_to_the_classes_inbox_with_no_late_fee(db):
         offering = ClassOfferingFactory()
         answer = next(

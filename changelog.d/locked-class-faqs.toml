@@ -1,0 +1,7 @@
+bump = "minor"
+date = "2026-10-09"
+title = "Every class shows the same cancellation and accessibility answers"
+changes = [
+  "The cancellation policy and the accessibility answer now come first on every class page, worded the same everywhere.",
+  "Instructors see both questions in the class editor but can no longer change them. They can still reword the other questions and add their own.",
+]

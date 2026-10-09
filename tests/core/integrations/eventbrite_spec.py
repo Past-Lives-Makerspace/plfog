@@ -14,7 +14,7 @@ import pytest
 import respx
 
 from classes.factories import ClassFaqFactory, ClassOfferingFactory
-from classes.models import ClassOffering
+from classes.models import LOCKED_CLASS_FAQS, ClassOffering
 from core.integrations.eventbrite import API_BASE, EventbriteClient, EventbriteError, estimate_fee_cents
 from core.models import SiteConfiguration
 
@@ -403,6 +403,9 @@ def describe_the_listing_eventbrite_receives():
     def _text(route: Any) -> str:
         return _sent(route)["modules"][0]["data"]["body"]["text"]
 
+    # Every class carries the locked questions first (they are plain text, so they go as written).
+    locked = [{"question": faq["question"], "answer": faq["answer"]} for faq in LOCKED_CLASS_FAQS]
+
     @respx.mock
     def it_writes_the_faq_as_one_faqs_widget_in_order_as_plain_text():
         routes = _listing_routes("ev-1")
@@ -410,6 +413,7 @@ def describe_the_listing_eventbrite_receives():
         _with_faq(_live()).sync_eventbrite_listing()
 
         entries = [
+            *locked,
             {"question": "Gloves and boots?", "answer": "Both & more.\nSee https://pastlives.space\n\nAsk us."},
             {"question": "What if I'm late?", "answer": "Text the shop."},
         ]
@@ -434,15 +438,35 @@ def describe_the_listing_eventbrite_receives():
         sent = _sent(routes["description"])["widgets"]
         assert sent[0] == CAROUSEL
         assert [w["type"] for w in sent] == ["herocarousel", "faqs"]
-        assert sent[1]["data"] == {"faqs": [{"question": "Is the kiln vented?", "answer": "Yes."}]}
+        assert sent[1]["data"] == {"faqs": [*locked, {"question": "Is the kiln vented?", "answer": "Yes."}]}
 
     @respx.mock
-    def it_drops_the_faq_widgets_but_keeps_the_others_for_a_class_without_faq_rows():
+    def it_leaves_a_row_asking_a_locked_question_to_the_locked_copy():
+        routes = _listing_routes("ev-9")
+        offering = _listed()
+        ClassFaqFactory(class_offering=offering, sort_order=0, question="is the space ACCESSIBLE?", answer="Stale.")
+        ClassFaqFactory(class_offering=offering, sort_order=1, question="Is the kiln vented?", answer="Yes.")
+
+        offering.sync_eventbrite_listing()
+
+        assert _sent(routes["description"])["widgets"] == [
+            {
+                "id": "",
+                "type": "faqs",
+                "data": {"faqs": [*locked, {"question": "Is the kiln vented?", "answer": "Yes."}]},
+            },
+        ]
+
+    @respx.mock
+    def it_sends_the_locked_questions_alone_for_a_class_without_faq_rows():
         routes = _listing_routes("ev-9", widgets=[CAROUSEL, {"id": "", "type": "faqs", "data": DASHBOARD_FAQ}])
 
         _listed().sync_eventbrite_listing()
 
-        assert _sent(routes["description"])["widgets"] == [CAROUSEL]
+        assert _sent(routes["description"])["widgets"] == [
+            CAROUSEL,
+            {"id": "", "type": "faqs", "data": {"faqs": locked}},
+        ]
         assert "Questions:" not in _text(routes["description"])
 
     @respx.mock
@@ -458,15 +482,23 @@ def describe_the_listing_eventbrite_receives():
 
         retry = _sent(routes["description"])
         assert "widgets" not in retry
-        faq = (
-            "<p>Questions:</p>"
+        own = (
             "<p><strong>&lt;b&gt;Gloves&lt;/b&gt; and boots?</strong></p>"
             '<p>Both &amp; more.<br>See <a href="https://pastlives.space" rel="nofollow">https://pastlives.space</a></p>'
             "\n\n<p>Ask us.</p>"
             "<p><strong>What if I&#x27;m late?</strong></p><p>Text the shop.</p>"
         )
         html = retry["modules"][0]["data"]["body"]["text"]
-        assert html.index("<p>Sessions:</p>") < html.index(faq) < html.index("Full details and booking")
+        questions = [
+            "<p>Sessions:</p>",
+            "<p>Questions:</p>",
+            "<p><strong>What&#x27;s your cancellation policy?</strong></p>",
+            "<p><strong>Is the space accessible?</strong></p>",
+            own,
+            "Full details and booking",
+        ]
+        positions = [html.index(part) for part in questions]
+        assert positions == sorted(positions)
         offering.refresh_from_db()
         assert offering.eventbrite_sync_state == ClassOffering.EventbriteSyncState.LISTED
         assert offering.eventbrite_sync_error.startswith(
@@ -487,7 +519,7 @@ def describe_the_listing_eventbrite_receives():
         assert offering.eventbrite_sync_state == ClassOffering.EventbriteSyncState.FAILED
 
     @respx.mock
-    def it_lists_a_class_with_no_faq_and_no_photos_when_eventbrite_refuses_its_widgets():
+    def it_lists_a_class_with_no_faq_rows_and_no_photos_with_the_locked_questions_as_text_when_refused():
         routes = _listing_routes("ev-9", widgets=[CAROUSEL])
         routes["description"].side_effect = [
             httpx.Response(400, json={"error": "READ_ONLY"}),
@@ -498,13 +530,14 @@ def describe_the_listing_eventbrite_receives():
         offering.sync_eventbrite_listing()
 
         first, retry = (json.loads(call.request.content) for call in routes["description"].calls)
-        assert first["widgets"] == [CAROUSEL]
+        assert first["widgets"] == [CAROUSEL, {"id": "", "type": "faqs", "data": {"faqs": locked}}]
         assert "widgets" not in retry
-        assert retry["modules"] == first["modules"]
+        assert "Questions:" not in first["modules"][0]["data"]["body"]["text"]
+        assert "<p><strong>Is the space accessible?</strong></p>" in retry["modules"][0]["data"]["body"]["text"]
         offering.refresh_from_db()
         assert offering.eventbrite_sync_state == ClassOffering.EventbriteSyncState.LISTED
         assert offering.eventbrite_sync_error.startswith(
-            "Eventbrite refused the page, so it went without its widgets: "
+            "Eventbrite refused the page, so it went without its widgets (the FAQ went into the description as text): "
         )
 
     @respx.mock
@@ -517,7 +550,7 @@ def describe_the_listing_eventbrite_receives():
 
         offering.sync_eventbrite_listing()
 
-        assert _sent(routes["description"])["widgets"] == []
+        assert _sent(routes["description"])["widgets"] == [{"id": "", "type": "faqs", "data": {"faqs": locked}}]
         offering.refresh_from_db()
         assert offering.eventbrite_sync_state == ClassOffering.EventbriteSyncState.LISTED
 
@@ -529,6 +562,9 @@ def describe_the_listing_eventbrite_receives():
 
         offering.sync_eventbrite_listing()
 
-        assert _sent(routes["description"])["widgets"] == [untyped]
+        assert _sent(routes["description"])["widgets"] == [
+            untyped,
+            {"id": "", "type": "faqs", "data": {"faqs": locked}},
+        ]
         offering.refresh_from_db()
         assert offering.eventbrite_sync_state == ClassOffering.EventbriteSyncState.LISTED

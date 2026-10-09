@@ -529,7 +529,7 @@ Your confirmation email includes a personal link to your registration page. No l
 
 To cancel, click **Cancel my registration**. You can cancel any time before the class starts.
 
-Refunds aren't automatic: for a paid class, an admin handles the refund — email info@pastlives.space. Each class page also lists its own cancellation policy in the **Questions** section, so check that before you cancel late.
+Refunds aren't automatic: for a paid class, an admin handles the refund — email info@pastlives.space. Every class page shows the cancellation policy first in its **Questions** section, so check that before you cancel late.
 """,
         "screenshots": [
             {
