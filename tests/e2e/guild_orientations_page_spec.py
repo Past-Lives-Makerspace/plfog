@@ -1,8 +1,9 @@
 """End-to-end: the guild's Orientations page (#672) in a real browser.
 
-A lead opens "<Guild> Orientations", clicks the Orientation Types card's "+ Add an
-orientation type", sees the new row scrolled into view with the cursor in it, types a name and
-the autosave creates the type; the header's add links to the Add an Orientation page (#680). The old Guild Settings link (``?tab=orientations``) lands on the page, and Guild
+A lead opens "<Guild> Orientations" and the Orientations card's one "Add New Orientation +"
+opens the Add an Orientation page (#680, #732); on a hidden guild that page does not offer, an
+admin's click adds a row in place, scrolled into view with the cursor in it, and the autosave
+creates the orientation. The old Guild Settings link (``?tab=orientations``) lands on the page, and Guild
 Settings' Orientations tab is a link there. An orienter on staff sees only their own Edit
 Hours row. The page holds together at 375px and in the dark theme. Set
 ``CAPTURE_672_SCREENSHOTS=1`` to write the PR screenshots to ``mockups/screenshots/``. Run
@@ -78,9 +79,24 @@ def describe_the_orientations_page():
         # A lead sees every orienter's Edit Hours row: their own and Sam's.
         expect(page.locator(".pl-orient-overview__group")).to_have_count(2)
         _capture(page, "672-lead.png")
-        expect(page.locator("[data-add-orientation-type]")).to_have_attribute(
-            "href", f"{reverse('hub_orientation_add')}?guild={guild.pk}"
-        )
+        # The page's one add sits at the top right of the Orientations card (#732).
+        add = page.locator("#otypes-form [data-add-orientation-type]")
+        expect(page.locator("[data-add-orientation-type]")).to_have_count(1)
+        expect(add).to_have_attribute("href", f"{reverse('hub_orientation_add')}?guild={guild.pk}")
+        add.click()
+        expect(page).to_have_url(f"{live_server.url}{reverse('hub_orientation_add')}?guild={guild.pk}")
+
+    def it_adds_a_row_in_place_on_a_hidden_guild_and_autosaves_it(live_server, page, login_via_code):
+        page.set_viewport_size({"width": 1280, "height": 900})
+        # An admin's add page lists active guilds only, so on a hidden guild the card's add adds a row (#680, #732).
+        lead = _member(login_via_code, LEAD_EMAIL, "Lena Lead")
+        lead.user.is_staff = True
+        lead.user.is_superuser = True
+        lead.user.save(update_fields=["is_staff", "is_superuser"])
+        guild = _tech_guild(lead)
+        guild.is_active = False
+        guild.save(update_fields=["is_active"])
+        _open(page, live_server, guild)
 
         page.locator("#otypes-form [data-formset-add]").click()
         name = page.locator('input[name="otypes-1-name"]')
@@ -106,7 +122,7 @@ def describe_the_orientations_page():
         assert link.evaluate(tab_style) == neighbour.evaluate(tab_style)
         link.click()
         expect(page).to_have_url(page_url)
-        expect(page.get_by_role("heading", name="Orientation Types")).to_be_visible()
+        expect(page.get_by_role("heading", name="Orientations", exact=True)).to_be_visible()
 
     def it_shows_an_orienter_only_their_own_hours(live_server, page, login_via_code):
         page.set_viewport_size({"width": 1280, "height": 900})

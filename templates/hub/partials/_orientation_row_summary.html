@@ -1,0 +1,18 @@
+{% comment %}
+One orientation's collapsed line (#732): its photo, name, length and price, and the Edit button
+that opens the full form below it. Shared by the guild Orientations page and the equipment
+Orientation tab; render it first inside a row carrying x-data="plOrientationRow(open)"
+(static/js/orientation_row.js), with the row's fields in a sibling x-show="editing" block.
+The server writes the line (OrientationTypeForm.summary_name / summary_meta) so it reads
+before Alpine starts; the component keeps it in step with what is typed. Context:
+  type_form — an OrientationTypeForm (a formset row or its empty_form)
+  open      — True when the row starts expanded, so the button reads Done before Alpine starts
+{% endcomment %}
+<div class="pl-otype-row__summary">
+  {% if type_form.instance.photo %}<img src="{{ type_form.instance.photo.url }}" alt="" class="pl-otype-row__thumb" data-otype-thumb>{% endif %}
+  <span class="pl-otype-row__text">
+    <span class="pl-otype-row__name" x-text="name" data-otype-name>{{ type_form.summary_name }}</span>
+    <span class="pl-otype-row__meta" x-text="meta" data-otype-meta>{{ type_form.summary_meta }}</span>
+  </span>
+  <button type="button" class="pl-btn pl-btn--secondary pl-btn--sm" @click="editing = !editing" :aria-expanded="editing ? 'true' : 'false'" :aria-label="(editing ? 'Done editing ' : 'Edit ') + name" x-text="editing ? 'Done' : 'Edit'" aria-label="{% if open %}Done editing{% else %}Edit{% endif %} {{ type_form.summary_name }}" aria-expanded="{{ open|yesno:'true,false' }}" data-otype-edit>{% if open %}Done{% else %}Edit{% endif %}</button>
+</div>

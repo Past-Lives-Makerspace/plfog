@@ -280,7 +280,7 @@ def describe_an_invalid_save():
         assert not OrientationType.objects.exists()
 
 
-def describe_the_guild_orientations_page_header():
+def describe_the_orientations_cards_add_button():
     def it_links_its_add_button_to_the_add_page_with_the_guild_chosen(client: Client):
         member = _login(client, "oa_header")
         guild = GuildFactory(name="Header Guild", guild_lead=member)
@@ -303,8 +303,9 @@ def describe_the_guild_orientations_page_header():
             )
         ]
         assert button.startswith("<button")
-        assert 'form="otypes-form"' in button
         assert "data-formset-add" in button
+        types_form = html[html.index('id="otypes-form"') : html.index("</form>", html.index('id="otypes-form"'))]
+        assert "data-add-orientation-type" in types_form
 
     def it_links_a_hidden_guilds_own_lead_to_the_add_page(client: Client):
         member = _login(client, "oa_hidden_lead")
@@ -312,9 +313,12 @@ def describe_the_guild_orientations_page_header():
         html = client.get(_orientations_page(hidden)).content.decode()
         assert f'<a href="{ADD_PAGE}?guild={hidden.pk}"' in html
 
-    def it_keeps_the_in_card_add_row_button(client: Client):
+    def it_is_the_one_add_and_sits_in_the_orientations_card(client: Client):
+        # #732: one "Add New Orientation +", at the top right of the Orientations card.
         member = _login(client, "oa_incard")
         guild = GuildFactory(name="In Card Guild", guild_lead=member)
         html = client.get(_orientations_page(guild)).content.decode()
+        assert html.count("data-add-orientation-type") == 1
         types_form = html[html.index('id="otypes-form"') : html.index("</form>", html.index('id="otypes-form"'))]
-        assert "data-formset-add" in types_form
+        assert f'<a href="{ADD_PAGE}?guild={guild.pk}"' in types_form
+        assert "data-formset-add" not in types_form

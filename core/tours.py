@@ -294,7 +294,7 @@ TOURS: dict[str, Tour] = {
                 target='[data-help-key="guild.run-orientations"]',
                 title="Orientations",
                 body=(
-                    "This tab opens your guild's Orientations page: add orientation types, set hours and "
+                    "This tab opens your guild's Orientations page: add orientations, set hours and "
                     "open slots, and write the thank-you email. Bookings show up on the Orientations "
                     "page's Bookings tab, where you confirm them."
                 ),

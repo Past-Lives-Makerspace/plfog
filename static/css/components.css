@@ -2241,3 +2241,75 @@ select[multiple] option:checked {
     font-size: 0.8rem;
     margin: 0.5rem 0 0;
 }
+
+/* ── Orientations editor (#732): the guild Orientations page and the equipment Orientation tab ──
+   One card whose header carries "Add New Orientation +" at its right, and each orientation
+   collapsed to a line of photo, name and length / price, with Edit opening the full form. */
+.pl-otype-card {
+    padding: 1.5rem;
+    margin-bottom: 1.5rem;
+}
+.pl-otype-card__head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.75rem;
+    flex-wrap: wrap;
+    margin-bottom: 0.5rem;
+}
+.pl-otype-card__title {
+    margin: 0;
+}
+.pl-otype-card__intro {
+    margin: 0 0 1rem;
+    font-size: 0.8125rem;
+}
+.pl-otype-rows {
+    display: flex;
+    flex-direction: column;
+    gap: 0.75rem;
+}
+.pl-otype-row {
+    padding: 1rem;
+    background: var(--hub-surface);
+}
+.pl-otype-row__summary {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+}
+.pl-otype-row__thumb {
+    width: 64px;
+    height: 36px;
+    flex: 0 0 auto;
+    object-fit: cover;
+    border-radius: 6px;
+    border: 1px solid var(--hub-border);
+}
+.pl-otype-row__text {
+    flex: 1;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 0.125rem;
+}
+.pl-otype-row__name {
+    color: var(--hub-text);
+    font-weight: 600;
+    overflow-wrap: anywhere;
+}
+.pl-otype-row__meta {
+    color: var(--hub-text-muted);
+    font-size: 0.8125rem;
+}
+.pl-otype-row__meta:empty {
+    display: none;
+}
+.pl-otype-row__summary > .pl-btn {
+    flex: 0 0 auto;
+}
+.pl-otype-row__body {
+    margin-top: 1rem;
+    padding-top: 1rem;
+    border-top: 1px solid var(--hub-border);
+}

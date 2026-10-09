@@ -112,11 +112,17 @@ def describe_orientation_tab_rendering():
         assert response.context["active_tab"] == "orientation"
         content = response.content.decode()
         assert "No pending requests." in content
-        assert "No orientation types yet. Add one to start taking bookings on the equipment page." in content
+        assert "No orientations yet. Add one to start taking bookings on the equipment page." in content
         assert "No upcoming times. They appear as soon as hours are saved, or add a one time slot here." in content
         assert "Orientation Schedule" in content
         assert "No hours published" in content
-        assert "+ Add Orientation Type" in content
+        assert ">Add New Orientation +</button>" in content
+        # The card itself; What's New elsewhere on the page quotes the old name on purpose.
+        card = content.split('class="pl-otype-card__head"', 1)[1].split(
+            '<template id="equip-otype-empty-template">', 1
+        )[0]
+        assert ">Orientations</h2>" in card
+        assert "orientation type" not in card.lower()
         assert "+ Add a Time" in content
         assert "{ showAdd: false }" in content
         # The 1.35.0 window editor and day chips are gone for good (the Hours tab's own
