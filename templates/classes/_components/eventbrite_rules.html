@@ -1,0 +1,21 @@
+{# Eventbrite's selling rules, the switch, the agreement and what the push leaves out (#725); shared by the composer and the live class edit page so both say the same thing. #}
+<p class="pl-compose-section__note" data-eventbrite-rules>{{ form.eventbrite_rules_text }}</p>
+{% include "components/form_field.html" with field=form.eventbrite_enabled %}
+{# A switch renders through components/toggle.html, which shows no errors, so the refusal and the agreement's error are listed here. #}
+{% if form.eventbrite_enabled.errors %}
+  <ul class="pl-field-errors" data-eventbrite-refusal>{% for error in form.eventbrite_enabled.errors %}<li class="pl-field-error">{{ error }}</li>{% endfor %}</ul>
+{% endif %}
+{% if "eventbrite_rules_agreed" in form.fields %}
+  {% include "components/form_field.html" with field=form.eventbrite_rules_agreed %}
+  {% if form.eventbrite_rules_agreed.errors %}
+    <ul class="pl-field-errors">{% for error in form.eventbrite_rules_agreed.errors %}<li class="pl-field-error">{{ error }}</li>{% endfor %}</ul>
+  {% endif %}
+{% else %}
+  <p class="pl-compose-section__note" data-eventbrite-agreed>Eventbrite's rules agreed to on {{ form.instance.eventbrite_rules_agreed_at|date:"M j, Y" }}{% if form.instance.eventbrite_rules_agreed_by %} by {{ form.instance.eventbrite_rules_agreed_by.get_full_name|default:form.instance.eventbrite_rules_agreed_by.username }}{% endif %}.</p>
+{% endif %}
+{% if form.eventbrite_check.left_out %}
+  <p class="pl-compose-section__note" data-eventbrite-left-out>Won't appear on Eventbrite, removed on the way out:</p>
+  <ul class="pl-compose-section__note">
+    {% for finding in form.eventbrite_check.left_out %}<li>{{ finding }}</li>{% endfor %}
+  </ul>
+{% endif %}

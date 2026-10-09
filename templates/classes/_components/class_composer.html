@@ -325,7 +325,7 @@ Do not merge them.
           {% if "eventbrite_enabled" in form.fields %}
           <div class="pl-eventbrite" data-eventbrite>
             <h4 class="pl-compose-section__subtitle">Eventbrite</h4>
-            {% include "components/form_field.html" with field=form.eventbrite_enabled %}
+            {% include "classes/_components/eventbrite_rules.html" %}
             {% include "components/form_field.html" with field=form.eventbrite_fee_payer %}
             {% include "classes/_components/eventbrite_category_fields.html" %}
           </div>

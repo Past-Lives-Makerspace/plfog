@@ -19,6 +19,7 @@ from django.utils.text import slugify
 
 from billing.forms import RefundShareDecisionForm
 from core.html_sanitize import clean_rich_body, clean_rich_html
+from core.integrations.eventbrite import EVENTBRITE_RULES, ListingCheck
 from core.widgets import PageContentEditorWidget, RichBodyEditorWidget, RichTextEditorWidget
 
 from classes.eventbrite_categories import SUBCATEGORY_PARENT, EventbriteSubcategory, subcategory_fits
@@ -83,7 +84,7 @@ def _video_url_widget() -> forms.TextInput:
 
 
 if TYPE_CHECKING:
-    from django.contrib.auth.models import AbstractBaseUser, AnonymousUser
+    from django.contrib.auth.models import AbstractBaseUser, AnonymousUser, User
 
     from datetime import datetime
 
@@ -658,7 +659,70 @@ class _EventbriteCategoryMixin:
             self.add_error("eventbrite_subcategory", _SUBCATEGORY_MISMATCH)  # type: ignore[attr-defined]
 
 
-class _EventbriteMixin(_EventbriteCategoryMixin):
+_AGREEMENT_LABEL = "I agree to keep this listing within Eventbrite's rules"
+_AGREEMENT_HELP = "Needed to turn Eventbrite on. We record who agreed and when."
+_AGREEMENT_MISSING = "Tick I agree to sell this class on Eventbrite."
+
+
+class _EventbriteRulesMixin:
+    """Eventbrite's selling rules (#725): the agreement to turn the switch on, and the listing check.
+
+    The agreement box is offered until someone agrees for the class, so a class switched on
+    before the rules existed asks for it on its next save. The listing check runs after
+    validation, through :meth:`accepts_eventbrite_listing`, because it reads the posted FAQ rows,
+    which live on their own formset. ``eventbrite_check`` holds the last check for the template:
+    the saved class's on a fresh page, the posted text's after a save attempt.
+    """
+
+    fields: dict[str, forms.Field]
+    instance: ClassOffering
+    cleaned_data: dict[str, Any]
+    is_bound: bool
+    eventbrite_rules_text = EVENTBRITE_RULES
+    eventbrite_check: ListingCheck | None = None
+
+    def setup_eventbrite_rules(self) -> None:
+        """Add the agreement box while nobody has agreed; show a saved opted-in class what is left out."""
+        if self.instance.needs_eventbrite_agreement:
+            self.fields["eventbrite_rules_agreed"] = forms.BooleanField(
+                required=False, label=_AGREEMENT_LABEL, help_text=_AGREEMENT_HELP
+            )
+        if not self.is_bound and self.instance.pk and self.instance.eventbrite_enabled:
+            self.eventbrite_check = self.instance.eventbrite_listing_check()
+
+    def check_eventbrite_agreement(self) -> None:
+        """Refuse turning Eventbrite on, or keeping it on, without the agreement."""
+        if "eventbrite_rules_agreed" not in self.fields or not self.cleaned_data["eventbrite_enabled"]:
+            return
+        if not self.cleaned_data["eventbrite_rules_agreed"]:
+            self.add_error("eventbrite_rules_agreed", _AGREEMENT_MISSING)  # type: ignore[attr-defined]
+
+    def accepts_eventbrite_listing(self, agreed_by: User, faq_formset: BaseClassFaqFormSet | None = None) -> bool:
+        """After ``is_valid``: check a class with Eventbrite on against its rules, and record the agreement.
+
+        Refuses with every problem on the switch, so the save does not happen; otherwise
+        records who ticked the agreement, for the form's save to write.
+
+        Args:
+            agreed_by: The user saving, recorded when they ticked the agreement.
+            faq_formset: The posted FAQ rows; omitted on a new class, which has none yet.
+
+        Returns:
+            True when the save may go ahead.
+        """
+        if "eventbrite_enabled" not in self.fields or not self.cleaned_data["eventbrite_enabled"]:
+            return True
+        faqs = faq_formset.posted_faqs() if faq_formset is not None else []
+        self.eventbrite_check = check = self.instance.eventbrite_listing_check(faqs)
+        if check.problems:
+            self.add_error("eventbrite_enabled", ValidationError(check.refusal_lines))  # type: ignore[attr-defined]
+            return False
+        if "eventbrite_rules_agreed" in self.fields and self.cleaned_data["eventbrite_rules_agreed"]:
+            self.instance.agree_to_eventbrite_rules(agreed_by)
+        return True
+
+
+class _EventbriteMixin(_EventbriteRulesMixin, _EventbriteCategoryMixin):
     """The Eventbrite fields (#652): the opt-in, who pays Eventbrite's fee, and the category (#716).
 
     The fee's help text works the example at the class's own price (a new class shows $50). A
@@ -680,6 +744,7 @@ class _EventbriteMixin(_EventbriteCategoryMixin):
             self.drop_eventbrite_category_fields()
             return
         self.setup_eventbrite_category_fields()
+        self.setup_eventbrite_rules()
         price = self.instance.price_cents or 5000
         fee = estimate_fee_cents(price)
         # Optional so a post without it (an older client, the opt-in left off) keeps the default.
@@ -700,6 +765,7 @@ class _EventbriteMixin(_EventbriteCategoryMixin):
             self.cleaned_data["eventbrite_fee_payer"] = ClassOffering.EventbriteFeePayer.BUYER
         if self.cleaned_data.get("scheduling_model") == ClassOffering.SchedulingModel.FLEXIBLE:
             self.cleaned_data["eventbrite_enabled"] = False
+        self.check_eventbrite_agreement()
 
 
 class ClassOfferingForm(
@@ -1242,6 +1308,14 @@ class BaseClassFaqFormSet(BaseInlineFormSet):
         ClassFaq.objects.filter(pk__in=locked).delete()
         return saved
 
+    def posted_faqs(self) -> list[dict[str, str]]:
+        """After ``is_valid``: the rows the save keeps, as ``question`` and ``answer``, for the Eventbrite check (#725)."""
+        return [
+            {"question": form.cleaned_data["question"], "answer": form.cleaned_data["answer"]}
+            for form in self.forms
+            if form.cleaned_data and not self._should_delete_form(form)
+        ]
+
     @property
     def locked_faqs(self) -> list[dict]:
         """The ``LOCKED_CLASS_FAQS``, for the template to render without inputs."""
@@ -1285,7 +1359,9 @@ class CategoryForm(forms.ModelForm):
         fields = ["name", "slug", "sort_order", "hero_image"]
 
 
-class TeachPublishedClassForm(_EventbriteCategoryMixin, _RichDescriptionMixin, _HeroCropMixin, forms.ModelForm):
+class TeachPublishedClassForm(
+    _EventbriteRulesMixin, _EventbriteCategoryMixin, _RichDescriptionMixin, _HeroCropMixin, forms.ModelForm
+):
     """Light edits an instructor may make to a LIVE class without re-review.
 
     Only fields that do not change what registrants booked on: the subtitle (#563), description,
@@ -1340,11 +1416,13 @@ class TeachPublishedClassForm(_EventbriteCategoryMixin, _RichDescriptionMixin, _
             self.drop_eventbrite_category_fields()
         else:
             self.setup_eventbrite_category_fields()
+            self.setup_eventbrite_rules()
         self.add_hero_crop_field()
 
     def clean(self) -> dict:
         data = super().clean() or {}
         self.check_eventbrite_category_pair()
+        self.check_eventbrite_agreement()
         return data
 
     def clean_flexible_booking_text(self) -> str:

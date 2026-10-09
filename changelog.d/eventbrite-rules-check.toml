@@ -1,0 +1,8 @@
+bump = "minor"
+date = "2026-10-09"
+title = "Classes are checked against Eventbrite's rules before they sell there"
+changes = [
+  "The Eventbrite section of the class editor now shows Eventbrite's rules, and turning Eventbrite on asks you to tick I agree.",
+  "Saving a class with Eventbrite on is stopped when it asks for payment outside the ticket, lists a fee not included in the price, names a discount code, or has a link, email, phone number or handle in the title. The message quotes the words to fix.",
+  "Links, emails, phone numbers, social handles and cancellation or refund questions are listed as left out of Eventbrite, and are removed from the listing on the way out.",
+]

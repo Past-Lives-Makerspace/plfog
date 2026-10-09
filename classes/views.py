@@ -2323,7 +2323,12 @@ def teach_class_create(request: HttpRequest) -> HttpResponse:
     teaching_member: Member = request.teaching_member  # type: ignore[attr-defined]
     form = TeachClassOfferingForm(request.POST or None, request.FILES or None, teaching_member=teaching_member)
     formset = ClassSessionFormSet(request.POST or None, prefix="sessions")
-    if request.method == "POST" and form.is_valid() and formset.is_valid():
+    if (
+        request.method == "POST"
+        and form.is_valid()
+        and formset.is_valid()
+        and form.accepts_eventbrite_listing(cast("User", request.user))
+    ):
         offering = form.save()
         formset.instance = offering
         formset.save()
@@ -2404,7 +2409,13 @@ def _instructor_composer(request: HttpRequest, pk: int) -> HttpResponse:
     )
     formset = ClassSessionFormSet(request.POST or None, instance=offering, prefix="sessions")
     faq_formset = build_class_faq_formset(request.POST or None, offering)
-    if request.method == "POST" and form.is_valid() and formset.is_valid() and faq_formset.is_valid():
+    if (
+        request.method == "POST"
+        and form.is_valid()
+        and formset.is_valid()
+        and faq_formset.is_valid()
+        and form.accepts_eventbrite_listing(cast("User", request.user), faq_formset)
+    ):
         offering = form.save()  # type: ignore[assignment]  # django-stubs infers an annotated row type for offering
         formset.save()
         offering.apply_scheduling_model()
@@ -2535,7 +2546,12 @@ def _teach_published_class_edit(request: HttpRequest, offering: ClassOffering, t
         if _may_run_again(access) and access.can_view_overview
         else ""
     )
-    if request.method == "POST" and form.is_valid() and faq_formset.is_valid():
+    if (
+        request.method == "POST"
+        and form.is_valid()
+        and faq_formset.is_valid()
+        and form.accepts_eventbrite_listing(cast("User", request.user), faq_formset)
+    ):
         saved = form.save()
         faq_formset.save()
         saved.mark_eventbrite_edit_saved()
@@ -4093,7 +4109,12 @@ def admin_class_create(request: HttpRequest) -> HttpResponse:
     form = ClassOfferingForm(request.POST or None, request.FILES or None)
     session_formset = ClassSessionFormSet(request.POST or None, prefix="sessions")
     preflight: list[ReadinessItem] = []
-    if request.method == "POST" and form.is_valid() and session_formset.is_valid():
+    if (
+        request.method == "POST"
+        and form.is_valid()
+        and session_formset.is_valid()
+        and form.accepts_eventbrite_listing(cast("User", request.user))
+    ):
         gallery_files = request.FILES.getlist("gallery_images")
         publish_now = request.POST.get("action") == "publish"
         preflight = _create_form_readiness(form, session_formset, gallery_files) if publish_now else []
@@ -4200,7 +4221,13 @@ def _admin_composer(request: HttpRequest, pk: int) -> HttpResponse:
     form = ClassOfferingForm(request.POST or None, request.FILES or None, instance=offering)
     session_formset = ClassSessionFormSet(request.POST or None, instance=offering, prefix="sessions")
     faq_formset = build_class_faq_formset(request.POST or None, offering)
-    if request.method == "POST" and form.is_valid() and session_formset.is_valid() and faq_formset.is_valid():
+    if (
+        request.method == "POST"
+        and form.is_valid()
+        and session_formset.is_valid()
+        and faq_formset.is_valid()
+        and form.accepts_eventbrite_listing(cast("User", request.user), faq_formset)
+    ):
         form.save()
         session_formset.save()
         offering.apply_scheduling_model()

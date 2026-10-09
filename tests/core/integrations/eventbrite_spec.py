@@ -842,3 +842,244 @@ def describe_text_that_is_not_an_address():
 
         assert _listing_text(f"Before {typed} after") == f"Before {typed} after"
         assert _listing_html(f"<p>Before {typed} after</p>") == f"<p>Before {typed} after</p>"
+
+
+def _check(description: str = "", *, title: str = "Intro to Welding", subtitle: str = "", faqs: Any = ()) -> Any:
+    from core.integrations.eventbrite import check_listing
+
+    return check_listing(title, subtitle, f"<p>{description}</p>", list(faqs))
+
+
+def _lines(check: Any) -> list[str]:
+    return [str(finding) for finding in check.problems]
+
+
+def describe_the_listing_check():
+    """#725: what Eventbrite takes a listing down for, in the words production classes use."""
+
+    def describe_payment_outside_the_ticket():
+        @pytest.mark.parametrize(
+            ("typed", "quoted"),
+            [
+                ("Materials are paid at the session (cash/venmo).", "“paid at the session”, “cash”, “venmo”"),
+                ("Send $20 by PayPal or Zelle, or Cash App.", "“PayPal”, “Zelle”, “Cash App”"),
+                ("Pay at the door.", "“Pay at the door”"),
+                ("Payment to the instructor on the day.", "“Payment to the instructor”"),
+                ("Pay the instructor $15 for clay.", "“Pay the instructor”"),
+                ("The rest is payable at the workshop.", "“payable at the workshop”"),
+                ("Clay is paid to the studio.", "“paid to the studio”"),
+                ("Bring CashApp for snacks.", "“CashApp”"),
+            ],
+        )
+        def it_refuses_a_pay_app_cash_or_paying_at_the_session(typed: str, quoted: str):
+            assert _lines(_check(typed)) == [f"Description: payment outside the ticket: {quoted}"]
+
+        @pytest.mark.parametrize(
+            "typed",
+            [
+                "Pay attention to the instructor's demo.",
+                "Everything you need is in the ticket price.",
+                "Cashmere scarves welcome.",
+                "We pay close attention. Then the class starts.",
+            ],
+        )
+        def it_passes_text_that_only_looks_like_payment(typed: str):
+            assert _check(typed).problems == ()
+
+    def describe_a_cost_not_included_in_the_price():
+        @pytest.mark.parametrize(
+            ("typed", "quoted"),
+            [
+                ("Lab fees apply and are not included in the price.", "“Lab fees apply”"),
+                ("Materials not included.", "“Materials not included”"),
+                ("There is an additional cost for clay.", "“additional cost”"),
+                ("Firing has an extra fee.", "“extra fee”"),
+                ("Kiln fees are extra.", "“Kiln fees are extra”"),
+                ("Studio charges are separate.", "“Studio charges are separate”"),
+                ("A supply cost applies.", "“supply cost applies”"),
+                (
+                    "The price does not cover glaze, which is not included.",
+                    "“price does not cover glaze, which is not included”",
+                ),
+            ],
+        )
+        def it_refuses_a_fee_on_top_of_the_ticket(typed: str, quoted: str):
+            assert _lines(_check(typed)) == [f"Description: a cost not included in the price: {quoted}"]
+
+        @pytest.mark.parametrize(
+            "typed",
+            [
+                "$10 materials fee is included in class price.",
+                "A $15 materials fee is included in the class price.",
+                "All materials included.",
+                "No additional cost for glaze.",
+                "Firing at no extra charge.",
+                "Glaze without extra fees.",
+                "Zero additional costs.",
+            ],
+        )
+        def it_passes_a_fee_stated_as_included_or_absent(typed: str):
+            assert _check(typed).problems == ()
+
+    def describe_a_discount_code():
+        @pytest.mark.parametrize(
+            ("typed", "quoted"),
+            [
+                ("Use code PL-10%off at checkout.", "“Use code PL-10%off”"),
+                ("Members get half off with PLHalfOff.", "“PLHalfOff”"),
+                ("Metal guild members: code PLMetal10", "“code PLMetal10”"),
+                ("Ask for a coupon code.", "“coupon code”"),
+                ("Enter the coupon at checkout.", "“Enter the coupon”"),
+                ("Promo codes work here.", "“Promo codes”"),
+                ("Code: SAVE20 for friends.", "“Code: SAVE20”"),
+                ("PL10% off for members.", "“PL10% off”"),
+            ],
+        )
+        def it_refuses_a_code_named_as_one_or_shaped_like_ours(typed: str, quoted: str):
+            assert _lines(_check(typed)) == [f"Description: a discount code: {quoted}"]
+
+        @pytest.mark.parametrize(
+            "typed",
+            [
+                "Dress code: closed toe shoes.",
+                "Dress code Black clothes.",
+                "Scan the QR code below.",
+                "Read our code of conduct.",
+                "Learn to code Python.",
+                "Plastics and PLA filament.",
+            ],
+        )
+        def it_passes_a_code_that_is_not_a_discount(typed: str):
+            assert _check(typed).problems == ()
+
+    def describe_an_address_in_the_title():
+        @pytest.mark.parametrize(
+            ("title", "quoted"),
+            [
+                ("Welding (call 503-555-0182)", "“503-555-0182”"),
+                ("Rings with @covo.studio", "“@covo.studio”"),
+                ("Glass at pastlives.space", "“pastlives.space”"),
+                ("Glass, see https://pastlives.space/glass", "“https://pastlives.space/glass”"),
+                ("Email hi@pastlives.space to book", "“hi@pastlives.space”"),
+            ],
+        )
+        def it_refuses_a_link_email_phone_or_handle_in_the_title(title: str, quoted: str):
+            assert _lines(_check(title=title)) == [
+                f"Title: a link, email, phone number or handle in the title: {quoted}"
+            ]
+
+        def it_reads_the_title_for_the_selling_rules_too():
+            assert _lines(_check(title="Venmo Night: Rings")) == ["Title: payment outside the ticket: “Venmo”"]
+
+        @pytest.mark.parametrize("title", ["Intro to Welding 101", "Mr.Smith's Glass", "Node.js for Makers"])
+        def it_passes_a_title_with_none(title: str):
+            assert _check(title=title).problems == ()
+
+    def describe_the_refusal():
+        def it_says_what_to_do_then_lists_every_problem_with_its_field_and_words():
+            check = _check(
+                "Materials are paid at the session (cash/venmo).",
+                title="Welding @covo",
+                subtitle="Lab fees apply",
+                faqs=[{"question": "Any deals?", "answer": "Use discount code MEMBER10."}],
+            )
+
+            assert check.refusal_lines == [
+                "Eventbrite would take this listing down. Fix it, or turn Eventbrite off:",
+                "Title: a link, email, phone number or handle in the title: “@covo”",
+                "Subtitle: a cost not included in the price: “Lab fees apply”",
+                "Description: payment outside the ticket: “paid at the session”, “cash”, “venmo”",
+                "FAQ “Any deals?”: a discount code: “discount code MEMBER10”",
+            ]
+            assert check.refusal == (
+                "Eventbrite would take this listing down. Fix it, or turn Eventbrite off: "
+                "Title: a link, email, phone number or handle in the title: “@covo”; "
+                "Subtitle: a cost not included in the price: “Lab fees apply”; "
+                "Description: payment outside the ticket: “paid at the session”, “cash”, “venmo”; "
+                "FAQ “Any deals?”: a discount code: “discount code MEMBER10”"
+            )
+
+        def it_quotes_each_word_once_across_paragraphs():
+            check = _check("Venmo works.</p><p>So does venmo and Venmo.")
+
+            assert _lines(check) == ["Description: payment outside the ticket: “Venmo”, “venmo”"]
+
+        def it_reads_entities_and_tags_as_words():
+            assert _lines(_check("Bring <strong>cash</strong>&nbsp;only")) == [
+                "Description: payment outside the ticket: “cash”"
+            ]
+
+        def it_finds_nothing_in_a_clean_class():
+            check = _check("Learn to weld. All materials included.", subtitle="A first weld")
+
+            assert (check.problems, check.left_out, check.refusal_lines[1:]) == ((), (), [])
+
+
+def describe_what_the_listing_leaves_out():
+    """#725 AC6: addresses and refund FAQs are listed, never blocking, and dropped on the way out."""
+
+    def it_lists_every_address_in_the_subtitle_description_and_faq_without_blocking():
+        check = _check(
+            "Call 503-555-0182, follow @covo.studio, see pastlives.space or email hi@pastlives.space.",
+            subtitle="Photos at www.pastlives.space",
+            faqs=[{"question": "Questions?", "answer": "Text (503) 555-0182."}],
+        )
+
+        assert check.problems == ()
+        assert [str(finding) for finding in check.left_out] == [
+            "Subtitle: a link, email, phone number or handle: “www.pastlives.space”",
+            "Description: a link, email, phone number or handle: “hi@pastlives.space”, “pastlives.space”, "
+            "“503-555-0182”, “@covo.studio”",
+            "FAQ “Questions?”: a link, email, phone number or handle: “(503) 555-0182”",
+        ]
+
+    def it_lists_a_refund_faq_and_reads_nothing_else_in_it():
+        check = _check(faqs=[{"question": "Refunds?", "answer": "Venmo us and we refund you."}])
+
+        assert check.problems == ()
+        assert [str(finding) for finding in check.left_out] == [
+            "FAQ “Refunds?”: a cancellation, refund or no-show question"
+        ]
+
+    def it_still_checks_the_faq_rows_after_a_refund_one():
+        check = _check(
+            faqs=[
+                {"question": "Can I cancel?", "answer": "Yes."},
+                {"question": "What to <em>bring</em>?", "answer": "Cash for snacks."},
+            ]
+        )
+
+        assert _lines(check) == ["FAQ “What to bring ?”: payment outside the ticket: “Cash”"]
+
+    @pytest.mark.parametrize(
+        ("typed", "sent"),
+        [
+            ("Call 503-555-0182 today", "Call today"),
+            ("Call (503) 555-0182 today", "Call today"),
+            ("Call +1 503.555.0182 today", "Call today"),
+            ("Call 5035550182 today", "Call today"),
+            ("Follow @covo.studio. Then come", "Follow . Then come"),
+            ("Tag @past_lives_makerspace now", "Tag now"),
+        ],
+    )
+    def it_strips_phone_numbers_and_handles_like_links(typed: str, sent: str):
+        from core.integrations.eventbrite import _listing_html
+
+        assert _listing_text(typed) == sent
+        assert " ".join(_listing_html(f"<p>{typed}</p>").split()) == f"<p>{sent}</p>"
+
+    @pytest.mark.parametrize(
+        "typed",
+        [
+            "Doors at 12.30, $5.00 for clay, 2.5 lbs",
+            "On 2026-10-09 at 12:30, 1/2 inch",
+            "Kits cost $1,234.56 or $5035550182",
+            "Order 12345678901 ships",
+            "Room 503.555.01829",
+            "Meet @ 5pm, a @ b",
+            "Grade 503-555-0182.5 steel",
+        ],
+    )
+    def it_keeps_numbers_and_at_signs_that_are_not_phones_or_handles(typed: str):
+        assert _listing_text(typed) == typed
+        assert _check(typed).left_out == ()

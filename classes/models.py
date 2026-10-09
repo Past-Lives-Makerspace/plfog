@@ -8,7 +8,7 @@ import logging
 import re
 import secrets
 import unicodedata
-from collections.abc import Callable, Iterable, Sequence
+from collections.abc import Callable, Iterable, Mapping, Sequence
 from dataclasses import dataclass
 from functools import partial
 from datetime import UTC, date as date_type, datetime, timedelta
@@ -60,6 +60,7 @@ if TYPE_CHECKING:
     from django.forms import ModelForm
 
     from billing.models import PaymentRefund
+    from core.integrations.eventbrite import ListingCheck
     from membership.models import Member
 
 logger = logging.getLogger(__name__)
@@ -1497,6 +1498,28 @@ class ClassOffering(HeroCropMixin, models.Model):
         verbose_name="Published on Eventbrite by plfog",
         help_text="plfog has published this class's Eventbrite event. A draft after that was taken down outside plfog and is never republished.",
     )
+    # Who agreed to Eventbrite's selling rules for this class, and when (#725). Turning the
+    # switch on needs the agreement; a class switched on before it asks on its next save.
+    # ``default=None`` beside ``db_default``: an unsaved class reads None, not a DatabaseDefault.
+    eventbrite_rules_agreed_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        default=None,
+        db_default=None,
+        related_name="+",
+        verbose_name="Agreed to Eventbrite's rules",
+        help_text="Who ticked I agree to Eventbrite's selling rules for this class. Blank until someone does.",
+    )
+    eventbrite_rules_agreed_at = models.DateTimeField(
+        null=True,
+        blank=True,
+        default=None,
+        db_default=None,
+        verbose_name="Agreed to Eventbrite's rules on",
+        help_text="When Eventbrite's selling rules were agreed to for this class. Blank until they are.",
+    )
 
     objects = ClassOfferingQuerySet.as_manager()
 
@@ -2294,6 +2317,28 @@ class ClassOffering(HeroCropMixin, models.Model):
         if self.eventbrite_sync_state != self.EventbriteSyncState.LISTED or not self.eventbrite_event_id:
             return ""
         return f"https://www.eventbrite.com/e/{self.eventbrite_event_id}"
+
+    def eventbrite_listing_check(self, faqs: "Sequence[Mapping[str, str]] | None" = None) -> "ListingCheck":
+        """This class's text against Eventbrite's selling rules (#725); the form and the sync both ask here.
+
+        Args:
+            faqs: The FAQ rows to check, for a form checking what was posted (an unsaved class
+                must pass them); omitted, the class's saved rows (:meth:`own_faqs`).
+        """
+        from core.integrations.eventbrite import check_listing
+
+        rows = self.own_faqs() if faqs is None else faqs
+        return check_listing(self.title, self.subtitle, self.description, rows)
+
+    @property
+    def needs_eventbrite_agreement(self) -> bool:
+        """Nobody has agreed to Eventbrite's selling rules for this class yet."""
+        return self.eventbrite_rules_agreed_at is None
+
+    def agree_to_eventbrite_rules(self, user: "User") -> None:
+        """Record who agreed to Eventbrite's selling rules and when; the caller's save writes it."""
+        self.eventbrite_rules_agreed_by_id = user.pk
+        self.eventbrite_rules_agreed_at = timezone.now()
 
     def sync_eventbrite_listing(self) -> None:
         """Create, update or end this class's Eventbrite listing, and save the sync fields.

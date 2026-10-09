@@ -68,6 +68,7 @@ COMPOSER_STEPS: tuple[ComposerStep, ...] = (
             "registration_cutoff_enabled",
             "registration_cutoff_hours",
             "eventbrite_enabled",
+            "eventbrite_rules_agreed",
             "eventbrite_fee_payer",
             "eventbrite_category",
             "eventbrite_subcategory",
