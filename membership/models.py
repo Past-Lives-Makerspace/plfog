@@ -3245,9 +3245,11 @@ class Guild(HeroCropMixin, models.Model):
         Called on send, before anything is posted, so the next announcement shows them pre-checked
         for every lead of the guild. Someone on the roster is never saved, nor anyone already saved.
         A member is saved as a linked row (by name, reached as a member). A plain row holding any
-        of that member's addresses (account email, notification email or a login alias) becomes
-        their linked row, and any other such plain row is folded into it, so they are emailed once.
-        Turned off or memberless accounts are skipped, and so is a member with no email address:
+        of that member's addresses (account email, notification email or a verified login alias)
+        becomes their linked row, and any other such plain row is folded into it, so they are
+        emailed once; a label the lead wrote on a folded row is kept. Only active members are
+        linked: a former member or guest is never tied to a lead's plain row, which would stop it
+        being emailed. Turned off accounts are skipped too, and so is a member with no address:
         they still get this send, but a row with no address could never be saved again in Guild
         Settings. Addresses that are a roster member's own are skipped.
 
@@ -3272,13 +3274,15 @@ class Guild(HeroCropMixin, models.Model):
             roster_emails = {(user.email or "").strip().lower() for user, _reason in roster}
             wanted_ids = {int(pk) for pk in user_ids} - roster_ids
             users = list(
-                User.objects.filter(pk__in=wanted_ids, is_active=True, member__isnull=False)
+                User.objects.filter(pk__in=wanted_ids, is_active=True, member__status=Member.Status.ACTIVE)
                 .exclude(email="")
                 .select_related("member")
                 .order_by("pk")
             )
             aliases: dict[int, set[str]] = {}
-            for user_id, alias in EmailAddress.objects.filter(user__in=users).values_list("user_id", "email"):
+            for user_id, alias in EmailAddress.objects.filter(user__in=users, verified=True).values_list(
+                "user_id", "email"
+            ):
                 aliases.setdefault(user_id, set()).add(alias.strip().lower())
             rows = {(row.email or "").strip().lower(): row for row in self.mailing_list_emails.select_for_update()}
             linked = {row.user_id for row in rows.values() if row.user_id is not None}
@@ -3295,7 +3299,8 @@ class Guild(HeroCropMixin, models.Model):
                 if plain:
                     keep, *folded = plain
                     keep.user = user
-                    keep.save(update_fields=["user"])
+                    keep.label = keep.label or next((row.label for row in folded if row.label), "")
+                    keep.save(update_fields=["user", "label"])
                     for row in folded:
                         del rows[row.email.strip().lower()]
                         row.delete()

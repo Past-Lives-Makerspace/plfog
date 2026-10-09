@@ -145,6 +145,38 @@ def describe_remember_announcement_recipients():
         assert guild.remember_announcement_recipients(user_ids=[second.user_id], emails=[]) == 0
         assert list(guild.mailing_list_emails.values_list("user_id", flat=True)) == [first.user_id]
 
+    def it_never_links_a_member_who_is_not_active_to_a_leads_plain_row():
+        guild = GuildFactory()
+        former = _account("former@example.com")
+        Member.objects.filter(pk=former.pk).update(status=Member.Status.FORMER)
+        plain = GuildMailingListEmailFactory(guild=guild, email="former@example.com")
+        assert guild.remember_announcement_recipients(user_ids=[former.user_id], emails=[]) == 0
+        plain.refresh_from_db()
+        assert plain.user_id is None
+        assert guild.mailing_list_emails_deduped(set()) == ["former@example.com"]
+
+    def it_ignores_an_unverified_alias_that_is_someone_elses_row():
+        from allauth.account.models import EmailAddress
+
+        guild = GuildFactory()
+        member = _account("main@example.com")
+        EmailAddress.objects.create(user=member.user, email="theirs@example.com", verified=False, primary=False)
+        theirs = GuildMailingListEmailFactory(guild=guild, email="theirs@example.com", label="Partner org")
+        assert guild.remember_announcement_recipients(user_ids=[member.user_id], emails=[]) == 1
+        theirs.refresh_from_db()
+        assert (theirs.user_id, theirs.label) == (None, "Partner org")
+        assert guild.mailing_list_emails.get(user=member.user).email == "main@example.com"
+
+    def it_keeps_the_leads_label_from_a_folded_row():
+        guild = GuildFactory()
+        member = _account("main@example.com")
+        Member.objects.filter(pk=member.pk).update(notification_email="notify@example.com")
+        GuildMailingListEmailFactory(guild=guild, email="main@example.com")
+        GuildMailingListEmailFactory(guild=guild, email="notify@example.com", label="Book club")
+        guild.remember_announcement_recipients(user_ids=[member.user_id], emails=[])
+        linked = guild.mailing_list_emails.get()
+        assert (linked.email, linked.user_id, linked.label) == ("main@example.com", member.user_id, "Book club")
+
     def it_locks_the_guild_row_while_it_saves():
         from django.db import connection
         from django.test.utils import CaptureQueriesContext
