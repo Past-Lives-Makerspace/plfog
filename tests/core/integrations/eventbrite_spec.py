@@ -14,8 +14,8 @@ import pytest
 import respx
 
 from classes.factories import ClassFaqFactory, ClassOfferingFactory
-from classes.models import ClassOffering
-from core.integrations.eventbrite import API_BASE, EventbriteClient, EventbriteError, estimate_fee_cents
+from classes.models import LOCKED_CLASS_FAQS, ClassOffering
+from core.integrations.eventbrite import API_BASE, EventbriteClient, EventbriteError, _listing_text, estimate_fee_cents
 from core.models import SiteConfiguration
 
 pytestmark = pytest.mark.django_db
@@ -414,6 +414,14 @@ def describe_the_listing_eventbrite_receives():
     def _text(route: Any) -> str:
         return _sent(route)["modules"][0]["data"]["body"]["text"]
 
+    # Every class carries the locked questions first, minus the cancellation one (#720 keeps
+    # cancelling and refunds off Eventbrite), as listing text: the accessibility answer loses its address.
+    locked = [
+        {"question": faq["question"], "answer": _listing_text(faq["answer"])}
+        for faq in LOCKED_CLASS_FAQS
+        if "cancel" not in faq["question"].lower()
+    ]
+
     @respx.mock
     def it_writes_the_faq_as_one_faqs_widget_in_order_as_plain_text_without_addresses():
         routes = _listing_routes("ev-1")
@@ -421,6 +429,7 @@ def describe_the_listing_eventbrite_receives():
         _with_faq(_live()).sync_eventbrite_listing()
 
         entries = [
+            *locked,
             {"question": "Gloves and boots?", "answer": "Both & more.\nSee\n\nAsk us."},
             {"question": "What if I'm late?", "answer": "Text the shop."},
         ]
@@ -445,15 +454,35 @@ def describe_the_listing_eventbrite_receives():
         sent = _sent(routes["description"])["widgets"]
         assert sent[0] == CAROUSEL
         assert [w["type"] for w in sent] == ["herocarousel", "faqs"]
-        assert sent[1]["data"] == {"faqs": [{"question": "Is the kiln vented?", "answer": "Yes."}]}
+        assert sent[1]["data"] == {"faqs": [*locked, {"question": "Is the kiln vented?", "answer": "Yes."}]}
 
     @respx.mock
-    def it_drops_the_faq_widgets_but_keeps_the_others_for_a_class_without_faq_rows():
+    def it_leaves_a_row_asking_a_locked_question_to_the_locked_copy():
+        routes = _listing_routes("ev-9")
+        offering = _listed()
+        ClassFaqFactory(class_offering=offering, sort_order=0, question="is the space ACCESSIBLE?", answer="Stale.")
+        ClassFaqFactory(class_offering=offering, sort_order=1, question="Is the kiln vented?", answer="Yes.")
+
+        offering.sync_eventbrite_listing()
+
+        assert _sent(routes["description"])["widgets"] == [
+            {
+                "id": "",
+                "type": "faqs",
+                "data": {"faqs": [*locked, {"question": "Is the kiln vented?", "answer": "Yes."}]},
+            },
+        ]
+
+    @respx.mock
+    def it_sends_the_locked_questions_alone_for_a_class_without_faq_rows():
         routes = _listing_routes("ev-9", widgets=[CAROUSEL, {"id": "", "type": "faqs", "data": DASHBOARD_FAQ}])
 
         _listed().sync_eventbrite_listing()
 
-        assert _sent(routes["description"])["widgets"] == [CAROUSEL]
+        assert _sent(routes["description"])["widgets"] == [
+            CAROUSEL,
+            {"id": "", "type": "faqs", "data": {"faqs": locked}},
+        ]
         assert "Questions:" not in _text(routes["description"])
 
     @respx.mock
@@ -469,16 +498,23 @@ def describe_the_listing_eventbrite_receives():
 
         retry = _sent(routes["description"])
         assert "widgets" not in retry
-        faq = (
-            "<p>Questions:</p>"
+        own = (
             "<p><strong>Gloves and boots?</strong></p>"
             "<p>Both &amp; more.<br>See</p>"
             "\n\n<p>Ask us.</p>"
             "<p><strong>What if I&#x27;m late?</strong></p><p>Text the shop.</p>"
         )
         html = retry["modules"][0]["data"]["body"]["text"]
-        assert html.index("<p>Sessions:</p>") < html.index(faq)
-        assert html.endswith(faq)
+        questions = [
+            "<p>Sessions:</p>",
+            "<p>Questions:</p>",
+            "<p><strong>Is the space accessible?</strong></p>",
+            own,
+        ]
+        positions = [html.index(part) for part in questions]
+        assert positions == sorted(positions)
+        assert html.endswith(own)
+        assert "cancellation" not in html
         offering.refresh_from_db()
         assert offering.eventbrite_sync_state == ClassOffering.EventbriteSyncState.LISTED
         assert offering.eventbrite_sync_error.startswith(
@@ -499,7 +535,7 @@ def describe_the_listing_eventbrite_receives():
         assert offering.eventbrite_sync_state == ClassOffering.EventbriteSyncState.FAILED
 
     @respx.mock
-    def it_lists_a_class_with_no_faq_and_no_photos_when_eventbrite_refuses_its_widgets():
+    def it_lists_a_class_with_no_faq_rows_and_no_photos_with_the_locked_questions_as_text_when_refused():
         routes = _listing_routes("ev-9", widgets=[CAROUSEL])
         routes["description"].side_effect = [
             httpx.Response(400, json={"error": "READ_ONLY"}),
@@ -510,13 +546,14 @@ def describe_the_listing_eventbrite_receives():
         offering.sync_eventbrite_listing()
 
         first, retry = (json.loads(call.request.content) for call in routes["description"].calls)
-        assert first["widgets"] == [CAROUSEL]
+        assert first["widgets"] == [CAROUSEL, {"id": "", "type": "faqs", "data": {"faqs": locked}}]
         assert "widgets" not in retry
-        assert retry["modules"] == first["modules"]
+        assert "Questions:" not in first["modules"][0]["data"]["body"]["text"]
+        assert "<p><strong>Is the space accessible?</strong></p>" in retry["modules"][0]["data"]["body"]["text"]
         offering.refresh_from_db()
         assert offering.eventbrite_sync_state == ClassOffering.EventbriteSyncState.LISTED
         assert offering.eventbrite_sync_error.startswith(
-            "Eventbrite refused the page, so it went without its widgets: "
+            "Eventbrite refused the page, so it went without its widgets (the FAQ went into the description as text): "
         )
 
     @respx.mock
@@ -529,7 +566,7 @@ def describe_the_listing_eventbrite_receives():
 
         offering.sync_eventbrite_listing()
 
-        assert _sent(routes["description"])["widgets"] == []
+        assert _sent(routes["description"])["widgets"] == [{"id": "", "type": "faqs", "data": {"faqs": locked}}]
         offering.refresh_from_db()
         assert offering.eventbrite_sync_state == ClassOffering.EventbriteSyncState.LISTED
 
@@ -541,7 +578,10 @@ def describe_the_listing_eventbrite_receives():
 
         offering.sync_eventbrite_listing()
 
-        assert _sent(routes["description"])["widgets"] == [untyped]
+        assert _sent(routes["description"])["widgets"] == [
+            untyped,
+            {"id": "", "type": "faqs", "data": {"faqs": locked}},
+        ]
         offering.refresh_from_db()
         assert offering.eventbrite_sync_state == ClassOffering.EventbriteSyncState.LISTED
 
@@ -605,7 +645,7 @@ def describe_eventbrites_selling_rules():
             ("Can I get my money back?", "Refunds go through the front desk."),
             ("What if I miss it?", "No-shows lose their seat."),
             ("Is it ever called off?", "We Cancel for snow."),
-            ("Is the space accessible?", "There is a ramp; see pastlives.space/access."),
+            ("Is there parking?", "Street parking; see pastlives.space/parking."),
         ]
         for order, (question, answer) in enumerate(rows):
             ClassFaqFactory(class_offering=offering, sort_order=order, question=question, answer=answer)
@@ -618,8 +658,12 @@ def describe_eventbrites_selling_rules():
         _faqs(_live()).sync_eventbrite_listing()
 
         widgets = json.loads(routes["description"].calls.last.request.content)["widgets"]
+        accessible = next(faq for faq in LOCKED_CLASS_FAQS if faq["question"] == "Is the space accessible?")
         assert [w["data"]["faqs"] for w in widgets] == [
-            [{"question": "Is the space accessible?", "answer": "There is a ramp; see"}]
+            [
+                {"question": "Is the space accessible?", "answer": _listing_text(accessible["answer"])},
+                {"question": "Is there parking?", "answer": "Street parking; see"},
+            ]
         ]
 
     @respx.mock
@@ -634,7 +678,8 @@ def describe_eventbrites_selling_rules():
 
         text = _text(routes["description"])
         _assert_no_address(text)
-        assert "<p><strong>Is the space accessible?</strong></p><p>There is a ramp; see</p>" in text
+        assert "<p><strong>Is the space accessible?</strong></p>" in text
+        assert "<p><strong>Is there parking?</strong></p><p>Street parking; see</p>" in text
         for left_out in ("cancellation", "money back", "miss it", "called off"):
             assert left_out not in text
 
@@ -769,10 +814,7 @@ def describe_the_address_and_faq_rules():
     def it_leaves_out_a_no_show_faq_however_the_dash_is_typed(question: str):
         from core.integrations.eventbrite import _sendable_faqs
 
-        offering = ClassOfferingFactory()
-        faq = ClassFaqFactory(class_offering=offering, question=question, answer="You lose the seat.")
-
-        assert _sendable_faqs([faq]) == []
+        assert _sendable_faqs([{"question": question, "answer": "You lose the seat."}]) == []
 
 
 def describe_text_that_is_not_an_address():

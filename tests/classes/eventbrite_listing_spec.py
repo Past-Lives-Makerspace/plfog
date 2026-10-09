@@ -28,14 +28,22 @@ from classes.factories import (
     UserFactory,
 )
 from classes.forms import ClassOfferingForm, TeachClassOfferingForm, TeachPublishedClassForm
-from classes.models import ClassImage, ClassOffering
-from core.integrations.eventbrite import EventbriteClient, EventbriteError, EventbriteSync
+from classes.models import LOCKED_CLASS_FAQS, ClassImage, ClassOffering
+from core.integrations.eventbrite import EventbriteClient, EventbriteError, EventbriteSync, _listing_text
 from core.models import SiteConfiguration
 from tests.membership.factories import MembershipPlanFactory
 
 pytestmark = pytest.mark.django_db
 
 State = ClassOffering.EventbriteSyncState
+
+# What Eventbrite receives of the locked FAQs: the accessibility one as listing text, never the
+# cancellation one (#720 keeps cancelling and refunds off Eventbrite).
+_EVENTBRITE_LOCKED = [
+    {"question": faq["question"], "answer": _listing_text(faq["answer"])}
+    for faq in LOCKED_CLASS_FAQS
+    if "cancel" not in faq["question"].lower()
+]
 
 
 class FakeEventbrite:
@@ -883,7 +891,7 @@ def describe_a_description_eventbrite_refuses_with_its_photos():
 
         # With widgets, then without (the request verified before #716), then without the photos.
         assert [(args[2], args[3]) for args in eventbrite.descriptions()] == [
-            (["img-1"], []),
+            (["img-1"], _EVENTBRITE_LOCKED),
             (["img-1"], None),
             ([], None),
         ]
@@ -891,7 +899,8 @@ def describe_a_description_eventbrite_refuses_with_its_photos():
         offering.refresh_from_db()
         assert offering.eventbrite_sync_state == State.LISTED
         assert offering.eventbrite_sync_error == (
-            "Eventbrite refused the page, so it went without its widgets and its photos: "
+            "Eventbrite refused the page, so it went without its widgets "
+            "(the FAQ went into the description as text) and its photos: "
             "POST structured_content: 400 bad module"
         )
 
@@ -1034,7 +1043,10 @@ def describe_saving_a_live_class_with_its_faq():
 
         assert response.status_code == 302
         call_command("retry_eventbrite_pushes")
-        assert eventbrite.descriptions()[-1][3] == [{"question": "Is the kiln vented?", "answer": "Yes."}]
+        assert eventbrite.descriptions()[-1][3] == [
+            *_EVENTBRITE_LOCKED,
+            {"question": "Is the kiln vented?", "answer": "Yes."},
+        ]
 
 
 def describe_a_listing_eventbrite_refuses_with_its_faq_and_its_photos():

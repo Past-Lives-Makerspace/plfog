@@ -8,21 +8,34 @@ button that submits the whole form; un-saved rows get a plain Remove.
 
 When the class has no ClassFaq rows yet, the view seeds the formset with the site
 default questions as prefilled editable rows — saving the form materializes them.
+
+The locked questions (LOCKED_CLASS_FAQS) render read only above the rows, outside
+#faq-rows, with no inputs: they are site policy and a row asking one fails validation.
 {% endcomment %}
 {% if faq_formset %}
 <h3 style="margin-top:1.75rem; margin-bottom:0.25rem;">FAQ</h3>
 <p style="color:var(--hub-text-muted); font-size:0.85rem; margin-top:0;">
-  The FAQ section on the public class page. Reword the starting questions, add your own,
-  or delete ones that don't fit — deleting all of them brings back the site defaults.
+  The FAQ section on the public class page. The first questions are the same on every class.
+  Below them, reword the starting question, add your own, or delete ones that don't fit.
 </p>
 {{ faq_formset.management_form }}
+<div id="faq-locked" class="pl-faq-locked-list" role="group" aria-label="Questions Past Lives sets for every class">
+  {% for faq in faq_formset.locked_faqs %}
+    <div class="hub-card pl-faq-locked">
+      <p class="pl-faq-locked__question"><strong>{{ faq.question }}</strong></p>
+      <div class="pl-faq-locked__answer">{{ faq.answer|urlize|linebreaks }}</div>
+      <p class="pl-faq-locked__note">Set by Past Lives for every class</p>
+    </div>
+  {% endfor %}
+</div>
 <div id="faq-rows" style="display:flex; flex-direction:column; gap:1rem;">
   {% for f in faq_formset %}
     <div class="hub-card" style="padding:1rem; background:rgba(255,255,255,0.02);">
       {% for error in f.non_field_errors %}<p class="pl-field-error">{{ error }}</p>{% endfor %}
       {% include "components/form_field.html" with field=f.question %}
       {% include "components/form_field.html" with field=f.answer %}
-      {% if f.instance.pk %}
+      {# A row posted as saved keeps Delete even when its id is gone (a tab opened before a deploy), since Remove would leave it in the posted count. #}
+      {% if forloop.counter0 < faq_formset.initial_form_count %}
         <div style="display:none;">{{ f.DELETE }}</div>
         <button type="button" class="pl-btn pl-btn--danger pl-btn--sm pl-btn--spaced"
                 onclick="document.getElementById('{{ f.DELETE.id_for_label }}').checked = true; this.form.requestSubmit();">

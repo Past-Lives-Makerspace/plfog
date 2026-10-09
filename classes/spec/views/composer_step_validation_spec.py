@@ -33,7 +33,7 @@ from classes.forms import (
     TeachClassOfferingForm,
     build_class_faq_formset,
 )
-from classes.models import READINESS_MIN_DESCRIPTION_CHARS, ClassOffering
+from classes.models import DEFAULT_CLASS_FAQS, READINESS_MIN_DESCRIPTION_CHARS, ClassOffering
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
 JS_PATH = REPO_ROOT / "static" / "js" / "composer_validation.js"
@@ -369,7 +369,9 @@ def describe_formset_rows():
         row_fields = ClassFaqForm().fields
         assert row_fields["question"].required and row_fields["answer"].required
         rows = [c for c in _parse(html).controls[4] if c.name and c.name.startswith("faq-") and c.kind != "hidden"]
-        assert {c.name for c in rows} == {f"faq-{i}-{name}" for i in range(3) for name in ("question", "answer")}
+        assert {c.name for c in rows} == {
+            f"faq-{i}-{name}" for i in range(len(DEFAULT_CLASS_FAQS)) for name in ("question", "answer")
+        }
         assert not any(c.required for c in rows)
         assert not any("minlength" in c.attrs or "pattern" in c.attrs for c in rows)
         empty = html.split('id="faq-empty-template"')[1].split("</template>")[0]

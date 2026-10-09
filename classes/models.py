@@ -7,6 +7,7 @@ import io
 import logging
 import re
 import secrets
+import unicodedata
 from collections.abc import Callable, Iterable, Sequence
 from dataclasses import dataclass
 from functools import partial
@@ -2870,19 +2871,32 @@ class ClassOffering(HeroCropMixin, models.Model):
             for gi in self.gallery_images.all()
         ]
 
+    def own_faqs(self) -> list[dict]:
+        """The class's own ``ClassFaq`` rows in order, minus any asking a locked question.
+
+        A row asking one of the ``LOCKED_CLASS_FAQS`` (as ``is_locked_class_faq`` matches) is
+        skipped, so the locked copy is the only answer to it anywhere the FAQ shows. Each entry
+        is ``{"question": str, "answer": str}``.
+        """
+        return [
+            {"question": faq.question, "answer": faq.answer}
+            for faq in self.faqs.all()
+            if not is_locked_class_faq(faq.question)
+        ]
+
     @property
     def display_faqs(self) -> list[dict]:
         """Question/answer pairs for the public detail page's Questions section.
 
-        A class's own ``ClassFaq`` rows when it has any; otherwise the site-wide
-        ``DEFAULT_CLASS_FAQS``. The arrival FAQ (``ARRIVAL_CLASS_FAQ``) is site
-        policy — the building is locked — so it is always appended, even for
-        classes with their own FAQ list, unless a custom row already asks the
-        same question. Each entry is ``{"question": str, "answer": str}`` with
-        plain-text answers (the template runs them through urlize/linebreaks).
+        The ``LOCKED_CLASS_FAQS`` first, with the code's copy; then the class's own rows
+        (:meth:`own_faqs`), or the site-wide ``DEFAULT_CLASS_FAQS`` when it has none. The
+        arrival FAQ (``ARRIVAL_CLASS_FAQ``) is site policy too (the building is locked), so it
+        is always appended unless a custom row already asks the same question. Each entry is
+        ``{"question": str, "answer": str}`` with plain-text answers (the template runs them
+        through urlize/linebreaks).
         """
-        custom = [{"question": faq.question, "answer": faq.answer} for faq in self.faqs.all()]
-        faqs = custom or [dict(faq) for faq in DEFAULT_CLASS_FAQS]
+        own = self.own_faqs() or [dict(faq) for faq in DEFAULT_CLASS_FAQS]
+        faqs = [*(dict(faq) for faq in LOCKED_CLASS_FAQS), *own]
         if not any(faq["question"] == ARRIVAL_CLASS_FAQ["question"] for faq in faqs):
             faqs.append(dict(ARRIVAL_CLASS_FAQ))
         return faqs
@@ -3430,6 +3444,8 @@ class ClassOffering(HeroCropMixin, models.Model):
         already sits under ``MAX_GALLERY_IMAGES``). Shared keys are why every gallery delete
         goes through ``core.files.delete_if_unreferenced``: the file leaves storage only once
         no row points at it.
+
+        A FAQ row asking a locked question stays behind: the locked copy shows on every class.
         """
         ClassImage.objects.bulk_create(
             ClassImage(
@@ -3445,6 +3461,7 @@ class ClassOffering(HeroCropMixin, models.Model):
         ClassFaq.objects.bulk_create(
             ClassFaq(class_offering=self, question=faq.question, answer=faq.answer, sort_order=faq.sort_order)
             for faq in ClassFaq.objects.filter(class_offering_id=source_pk).order_by("sort_order", "pk")
+            if not is_locked_class_faq(faq.question)
         )
 
     def duplicate_as_new_run(self) -> "ClassOffering":
@@ -3783,10 +3800,7 @@ class ClassImage(models.Model):
         super().save(*args, **kwargs)
 
 
-# Site-wide starting-point FAQs shown on every class page until the class saves its own
-# ClassFaq rows. The class edit form seeds these as editable rows, so instructors can
-# reword them or add more; answers are plain text (urlize turns the email into a link).
-# Shown on every class page (see ClassOffering.display_faqs) — site policy, not
+# Shown on every class page (see ClassOffering.display_faqs) as site policy, not
 # per-class copy: the building is locked, so every student needs the arrival drill.
 ARRIVAL_CLASS_FAQ: dict = {
     "question": "What do I do once I arrive at Past Lives?",
@@ -3797,7 +3811,10 @@ ARRIVAL_CLASS_FAQ: dict = {
     ),
 }
 
-DEFAULT_CLASS_FAQS: list[dict] = [
+# Site policy shown first on every class page and on Eventbrite, the same for every class
+# (Felix, 2026-10-09). The copy lives here only: the FAQ editor shows these read only and
+# refuses a row asking one of them (``is_locked_class_faq``), for admins too.
+LOCKED_CLASS_FAQS: list[dict] = [
     {
         "question": "What's your cancellation policy?",
         "answer": (
@@ -3822,6 +3839,12 @@ DEFAULT_CLASS_FAQS: list[dict] = [
             "studios@pastlives.space and we'll do our best to help."
         ),
     },
+]
+
+# Site-wide starting-point FAQs shown on every class page until the class saves its own
+# ClassFaq rows. The class edit form seeds these as editable rows, so instructors can
+# reword them or add more; answers are plain text (urlize turns the email into a link).
+DEFAULT_CLASS_FAQS: list[dict] = [
     {
         "question": "Do I need any prior experience or skill level?",
         "answer": (
@@ -3833,12 +3856,36 @@ DEFAULT_CLASS_FAQS: list[dict] = [
 ]
 
 
+# Curly single quotes typed by phones and word processors, read as the straight one.
+_FAQ_APOSTROPHES = str.maketrans({"\u2018": "'", "\u2019": "'"})
+
+
+def _faq_key(question: str) -> str:
+    """A question as the locked check compares it, so a lookalike cannot slip past.
+
+    NFKC folds compatibility characters (a no-break space becomes a space), curly
+    apostrophes become straight, every run of whitespace becomes one space, case is
+    folded, and a trailing question mark is dropped. Migration 0086 freezes a copy.
+    """
+    text = unicodedata.normalize("NFKC", question).translate(_FAQ_APOSTROPHES)
+    return " ".join(text.split()).casefold().rstrip("?").rstrip()
+
+
+_LOCKED_FAQ_KEYS = frozenset(_faq_key(faq["question"]) for faq in LOCKED_CLASS_FAQS)
+
+
+def is_locked_class_faq(question: str) -> bool:
+    """Whether ``question`` asks one of the ``LOCKED_CLASS_FAQS``, as ``_faq_key`` compares them."""
+    return _faq_key(question) in _LOCKED_FAQ_KEYS
+
+
 class ClassFaq(models.Model):
     """A question/answer pair shown in the public class page's Questions section.
 
     While a class has no rows, the page falls back to ``DEFAULT_CLASS_FAQS``; the first
     save from the class edit form materializes those defaults as rows, so from then on
     the class fully owns its own list. Deleting every row returns it to the defaults.
+    The ``LOCKED_CLASS_FAQS`` are never rows: they show on every class from code.
     """
 
     class_offering = models.ForeignKey(

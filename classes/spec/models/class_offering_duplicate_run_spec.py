@@ -15,7 +15,7 @@ from classes.factories import (
     ClassSessionFactory,
     SeriesClassOfferingFactory,
 )
-from classes.models import ClassOffering
+from classes.models import LOCKED_CLASS_FAQS, ClassOffering
 
 #: The two ways a class is copied: the admin's Duplicate and Run it again. One helper serves
 #: both (``_copy_photos_and_faqs_from``), and these specs run every carry-over rule on each.
@@ -109,6 +109,14 @@ def describe_what_a_copy_carries():
             ("Age?", "16 and up.", 0),
             ("Gloves?", "Provided.", 1),
         ]
+
+    @pytest.mark.parametrize("path", CLONE_PATHS)
+    def it_leaves_a_row_asking_a_locked_question_behind(db, path):
+        source = _source()
+        ClassFaqFactory(class_offering=source, question=" IS THE SPACE ACCESSIBLE? ", answer="Old copy.", sort_order=2)
+        copy = _clone(source, path)
+        assert list(copy.faqs.values_list("question", flat=True)) == ["Age?", "Gloves?"]
+        assert [faq["question"] for faq in copy.display_faqs].count(LOCKED_CLASS_FAQS[1]["question"]) == 1
 
     @pytest.mark.parametrize("path", CLONE_PATHS)
     def it_passes_the_photo_readiness_checks_without_an_upload(db, path):

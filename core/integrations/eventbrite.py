@@ -43,7 +43,7 @@ if TYPE_CHECKING:
     from collections.abc import Sequence
     from datetime import datetime
 
-    from classes.models import ClassFaq, ClassOffering
+    from classes.models import ClassOffering
 
 logger = logging.getLogger(__name__)
 
@@ -320,27 +320,36 @@ def _description_html(offering: ClassOffering, sessions: list[Any], faq_html: st
     return f"{_listing_html(offering.description)}<p>Sessions:</p><ul>{dates}</ul>{faq_html}"
 
 
-def _sendable_faqs(faqs: list[ClassFaq]) -> list[ClassFaq]:
-    """The FAQ rows Eventbrite may show: none about cancelling, refunds or no-shows (#720)."""
+def _sendable_faqs(faqs: list[dict[str, str]]) -> list[dict[str, str]]:
+    """The FAQ items Eventbrite may show: none about cancelling, refunds or no-shows (#720), locked or not."""
     return [
-        faq for faq in faqs if not _OFF_PLATFORM_FAQ_RE.search(f"{strip_tags(faq.question)} {strip_tags(faq.answer)}")
+        faq
+        for faq in faqs
+        if not _OFF_PLATFORM_FAQ_RE.search(f"{strip_tags(faq['question'])} {strip_tags(faq['answer'])}")
     ]
 
 
-def _faq_entries(faqs: list[ClassFaq]) -> list[dict[str, str]]:
-    """The FAQ rows in order, as the plain text Eventbrite's FAQ section holds (#716), without addresses (#720)."""
-    return [{"question": _listing_text(faq.question), "answer": _listing_text(faq.answer)} for faq in faqs]
+def _faq_items(offering: ClassOffering) -> list[dict[str, str]]:
+    """The locked questions first, then the class's own rows in order (the arrival FAQ stays off Eventbrite)."""
+    from classes.models import LOCKED_CLASS_FAQS
+
+    return [*(dict(faq) for faq in LOCKED_CLASS_FAQS), *offering.own_faqs()]
 
 
-def _faq_html(faqs: list[ClassFaq]) -> str:
+def _faq_entries(faqs: list[dict[str, str]]) -> list[dict[str, str]]:
+    """The FAQ in order, as the plain text Eventbrite's FAQ section holds (#716), without addresses (#720)."""
+    return [{"question": _listing_text(faq["question"]), "answer": _listing_text(faq["answer"])} for faq in faqs]
+
+
+def _faq_html(faqs: list[dict[str, str]]) -> str:
     """The FAQ as description text, when Eventbrite refuses its FAQ section: each question bold, its answer under it.
 
     Answers keep their line breaks (``linebreaks``, escaping on), as on the class page, but no
     address becomes a link: addresses are dropped (#720).
     """
     items = "".join(
-        f"<p><strong>{escape(_listing_text(faq.question))}</strong></p>"
-        f"{linebreaks_filter(_listing_text(faq.answer), autoescape=True)}"
+        f"<p><strong>{escape(_listing_text(faq['question']))}</strong></p>"
+        f"{linebreaks_filter(_listing_text(faq['answer']), autoescape=True)}"
         for faq in faqs
     )
     return f"<p>Questions:</p>{items}"
@@ -442,7 +451,7 @@ def _set_description(client: EventbriteClient, offering: ClassOffering, sessions
     event_id = offering.eventbrite_event_id
     image_ids, refused = _gallery_image_ids(client, offering)
     photo_note = EventbriteSync.photos_not_sent(refused) if refused else ""
-    faqs = _sendable_faqs(list(offering.faqs.all()))
+    faqs = _sendable_faqs(_faq_items(offering))
     try:
         client.set_description(event_id, _description_html(offering, sessions), image_ids, _faq_entries(faqs))
         return photo_note
@@ -451,8 +460,9 @@ def _set_description(client: EventbriteClient, offering: ClassOffering, sessions
             raise
         refusal = exc
     logger.warning("Eventbrite refused the widgets for class %s: %s", offering.pk, refusal)
-    dropped = ["its widgets (the FAQ went into the description as text)" if faqs else "its widgets"]
-    html = _description_html(offering, sessions, _faq_html(faqs) if faqs else "")
+    # The FAQ is never empty: the locked accessibility question rides on every class (#720 keeps cancellation off).
+    dropped = ["its widgets (the FAQ went into the description as text)"]
+    html = _description_html(offering, sessions, _faq_html(faqs))
     try:
         client.set_description(event_id, html, image_ids)
         return " ".join(note for note in (EventbriteSync.left_out(dropped, str(refusal)), photo_note) if note)

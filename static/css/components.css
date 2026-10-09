@@ -2206,3 +2206,31 @@ select[multiple] option:checked {
     display: inline-block;
     margin-left: 0.75rem;
 }
+
+/* The class FAQ editor's locked questions (templates/classes/_components/faq_formset.html):
+   site policy shown read only above the editable rows, in the rows' own card look. */
+.pl-faq-locked-list {
+    display: flex;
+    flex-direction: column;
+    gap: 1rem;
+    margin-bottom: 1rem;
+}
+
+.pl-faq-locked {
+    padding: 1rem;
+    background: rgba(255, 255, 255, 0.02);
+}
+
+.pl-faq-locked__question {
+    margin: 0 0 0.5rem;
+}
+
+.pl-faq-locked__answer {
+    font-size: 0.9rem;
+}
+
+.pl-faq-locked__note {
+    color: var(--hub-text-muted);
+    font-size: 0.8rem;
+    margin: 0.5rem 0 0;
+}
