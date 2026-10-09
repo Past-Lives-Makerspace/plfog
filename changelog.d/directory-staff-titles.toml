@@ -1,0 +1,7 @@
+bump = "minor"
+date = "2026-10-09"
+title = "The member directory shows staff titles"
+changes = [
+  "Member directory cards now show a person's titles from the Leadership Directory, right under their name.",
+  "The member type that used to read Employee now reads Staff.",
+]

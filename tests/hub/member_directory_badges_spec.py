@@ -65,7 +65,7 @@ def describe_badges_on_a_directory_card():
         badge = LeadershipBadgeFactory(label="Community Engagement Manager", color="#FFE066")
         badge.give(dixie)
         card = _card(client.get(_DIRECTORY).content.decode(), "Dixie Directory")
-        assert card.index('class="directory-card__role">Employee<') < card.index("Community Engagement Manager")
+        assert card.index('class="directory-card__role">Staff<') < card.index("Community Engagement Manager")
         assert (
             '<li class="pl-leader-badge" style="background-color: #FFE066; color: #000000;">'
             "Community Engagement Manager</li>"
@@ -89,7 +89,7 @@ def describe_badges_on_a_directory_card():
         card = _card(client.get(_DIRECTORY).content.decode(), "Dixie Directory")
         assert "directory-card__avatar--photo" in card
         assert '<ul class="pl-directory-badges pl-directory-badges--center" aria-label="Badges">' in card
-        assert card.index('class="directory-card__role">Employee<') < card.index("Elevator Certified")
+        assert card.index('class="directory-card__role">Staff<') < card.index("Elevator Certified")
         assert 'style="background-color: #092E4C; color: #FFFFFF;">Elevator Certified</li>' in card
 
     def it_shows_only_the_member_type_without_badges(client: Client):
@@ -97,7 +97,7 @@ def describe_badges_on_a_directory_card():
         _dixie()
         LeadershipBadgeFactory(label="Held By Nobody")
         card = _card(client.get(_DIRECTORY).content.decode(), "Dixie Directory")
-        assert 'class="directory-card__role">Employee<' in card
+        assert 'class="directory-card__role">Staff<' in card
         assert "pl-directory-badges" not in card
         assert "Held By Nobody" not in card
 
