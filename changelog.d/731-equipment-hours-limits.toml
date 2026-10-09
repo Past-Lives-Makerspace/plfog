@@ -1,0 +1,9 @@
+bump = "minor"
+date = "2026-10-09"
+title = "Clearer equipment settings for managers"
+changes = [
+  "Opening hours show as one line each (days and times) with an Edit button, instead of every form open at once.",
+  "Equipment now has an Active switch in its own Availability card: on means members can reserve it. The closed message only shows when it is off.",
+  "Every limit has a question mark tooltip explaining it, including how far ahead members can book.",
+  "The Reservations tab's cards are spaced properly, and the late cancellation fees card explains what it lists.",
+]

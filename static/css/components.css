@@ -867,6 +867,13 @@
     color: var(--hub-text-muted, #96ACBB);
 }
 
+/* A label with a ? help bubble beside it (form_field.html's field_tooltip). */
+.pl-form-label-row {
+    display: flex;
+    align-items: center;
+    gap: 0.4rem;
+}
+
 /* The bare input confirm_modal.html renders for its note and typed-confirmation fields.
    That markup has always claimed this class and nothing ever defined it, so both inputs
    shipped as browser-default white boxes with near-invisible text on the Obsidian theme,
