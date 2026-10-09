@@ -9681,7 +9681,9 @@ mark { background: color-mix(in srgb, var(--color-tuscan-yellow) 30%, transparen
 }
 
 /* ── Equipment hours window editor: compact day-pill checkboxes ── */
-.pl-equip-days ul {
+/* Django 5+ renders CheckboxSelectMultiple as nested divs, not ul/li (#731); both shapes get the pills. */
+.pl-equip-days ul,
+.pl-equip-days > div {
     list-style: none;
     display: flex;
     flex-wrap: wrap;
@@ -9689,7 +9691,8 @@ mark { background: color-mix(in srgb, var(--color-tuscan-yellow) 30%, transparen
     padding: 0;
     margin: 0.25rem 0 0;
 }
-.pl-equip-days li label {
+.pl-equip-days li label,
+.pl-equip-days > div > div > label {
     display: inline-flex;
     align-items: center;
     gap: 0.35rem;
@@ -9703,11 +9706,14 @@ mark { background: color-mix(in srgb, var(--color-tuscan-yellow) 30%, transparen
     font-size: 0.85rem;
     cursor: pointer;
 }
-.pl-equip-days li label:has(input:checked) {
+.pl-equip-days li label:has(input:checked),
+.pl-equip-days > div > div > label:has(input:checked) {
     border-color: var(--color-tuscan-yellow);
 }
 .pl-equip-days input[type="checkbox"] {
     accent-color: var(--color-tuscan-yellow);
+    width: auto;
+    padding: 0;
     margin: 0;
 }
 

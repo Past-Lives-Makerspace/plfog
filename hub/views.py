@@ -1348,7 +1348,9 @@ def _guild_edit_context(
         "mailing_list_formset": (
             mailing_list_formset
             if mailing_list_formset is not None
-            else GuildMailingListFormSet(instance=guild, prefix="mailing_list")
+            else GuildMailingListFormSet(
+                instance=guild, prefix="mailing_list", queryset=guild.mailing_list_emails.select_related("user__member")
+            )
         ),
         "staff_by_member": guild.staff_by_member(),
         "staff_add_form": GuildStaffAddForm(
@@ -4237,6 +4239,8 @@ def _compose_form_kwargs(request: HttpRequest, requested: str | None = None) -> 
     ``requested`` overrides the request's own ``audience`` parameter — the draft-resume path
     passes the draft's audience, which arrives in no query string.
     """
+    from core.events.discord_dm import discord_user_id_for
+
     member = _get_member(request)
     editable_guilds = list(_compose_editable_guilds(request, member))
     editable_classes = list(_compose_editable_classes(request, member))
@@ -4257,6 +4261,8 @@ def _compose_form_kwargs(request: HttpRequest, requested: str | None = None) -> 
         "is_admin": _viewing_as_admin(request),
         "editable_guilds": editable_guilds,
         "editable_classes": editable_classes,
+        # The sender is the signed in account (the save names it the author), never a viewed-as member.
+        "sender_discord_linked": bool(discord_user_id_for(cast(User, request.user))),
     }
 
 
@@ -4382,20 +4388,25 @@ def _announcement_previews(draft: AnnouncementDraft) -> dict[str, Any]:
     The composer's preview and the sent view both render from here, so the two cannot drift: the
     email from :meth:`AnnouncementDraft.build_email_message`, the Discord card from
     :meth:`AnnouncementDraft.build_discord_message` through the embed builder the send posts with,
-    and the push line from :meth:`AnnouncementDraft.build_push_message`.
+    and the push line from :meth:`AnnouncementDraft.build_push_message`. With "Post on Discord as
+    me" on, the card shows the sender's Discord name and picture from the same payload, read through
+    the briefly remembered lookup so a preview refresh is not a Discord call.
     """
     from core.events.discord import build_embed_payload, discord_markdown_html
     from membership.orientations import _absolute_url
 
     site_url = _absolute_url("/")
     message = draft.build_email_message(site_url)
-    embeds = cast(list[dict[str, str]], build_embed_payload(draft.build_discord_message(site_url))["embeds"])
+    payload = build_embed_payload(draft.build_discord_message(site_url, draft.discord_sender_identity(cached=True)))
+    embeds = cast(list[dict[str, str]], payload["embeds"])
     push = draft.build_push_message(site_url)
     return {
         "preview_html": message.html_body,
         "preview_subject": draft.title,
         "discord_title": embeds[0]["title"],
         "discord_description_html": discord_markdown_html(embeds[0]["description"]),
+        "discord_sender_name": payload.get("username", ""),
+        "discord_sender_avatar_url": payload.get("avatar_url", ""),
         "push_title": push.title,
         "push_body": push.body,
     }
@@ -4447,6 +4458,7 @@ def _draft_initial(draft: AnnouncementDraft) -> dict[str, Any]:
         + [f"custom:{addr}" for addr in (draft.added_recipients or {}).get("custom", [])],
         "discord_channel": draft.discord_channel,
         "mention": draft.mention,
+        "discord_post_as_me": draft.discord_post_as_me,
         "expires_at": draft.expires_at,
     }
     # A present selection resumes exactly those recipients; an empty one (the default) is left
@@ -4734,6 +4746,7 @@ def _compose_preview_draft(request: HttpRequest) -> AnnouncementDraft:
         # body with its own message, so this only bounds the work an oversized POST can cost.
         body=sanitize_rich_html((request.POST.get("body") or "")[:RICH_TEXT_MAX_CHARS]),
         push_message=(request.POST.get("push_message") or "").strip(),
+        discord_post_as_me=bool(request.POST.get("discord_post_as_me")),
         funding_snapshot=handled.funding_snapshot if handled is not None else None,
     )
     draft.title = draft.announcement_category
@@ -4816,6 +4829,35 @@ def hub_compose_site_add(request: HttpRequest) -> HttpResponse:
     response = render(
         request, "hub/partials/_compose_site_added_rows.html", {"rows": [row for row in rows if row[0] not in already]}
     )
+    if refused:
+        trigger_toast(response, " ".join(refused), "error")
+    return response
+
+
+@login_required
+@require_POST
+def hub_compose_add_addresses(request: HttpRequest) -> HttpResponse:
+    """HTMX: vet addresses typed into a guild or class announcement and return a row for each (#729).
+
+    Takes ``add_addresses`` (commas, spaces or new lines between them) and the posted ``audience``,
+    which must be a guild or class the request may address (403 otherwise). Each valid address
+    comes back as a checked ``recipients`` row to append to the added area: a member's address as
+    that member, any other as email only (:func:`hub.forms.classify_announcement_additions`).
+    Anything refused comes back as one error toast. Nothing is saved here; a guild's list is
+    written when the announcement is sent.
+    """
+    from hub.forms import classify_announcement_additions, split_site_additions
+
+    raw = request.POST.get("audience") or ""
+    forbidden = _compose_audience_forbidden(request, raw)
+    if forbidden is not None:
+        return forbidden
+    if not raw.startswith(("guild:", "class:")):
+        return HttpResponse("Forbidden", status=403)
+    rows, refused = classify_announcement_additions(split_site_additions(request.POST.get("add_addresses") or ""))
+    if not rows and not refused:
+        refused = ["Type an email address to add."]
+    response = render(request, "hub/partials/_compose_added_rows.html", {"rows": rows})
     if refused:
         trigger_toast(response, " ".join(refused), "error")
     return response
@@ -5452,7 +5494,12 @@ def guild_mailing_list_save(request: HttpRequest, pk: int) -> HttpResponse:
     if request.method != "POST":
         return redirect(announcements_tab)
 
-    formset = GuildMailingListFormSet(request.POST, instance=guild, prefix="mailing_list")
+    formset = GuildMailingListFormSet(
+        request.POST,
+        instance=guild,
+        prefix="mailing_list",
+        queryset=guild.mailing_list_emails.select_related("user__member"),
+    )
     if formset.is_valid():
         formset.save()
         if wants_autosave(request):

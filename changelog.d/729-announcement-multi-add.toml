@@ -1,0 +1,9 @@
+bump = "minor"
+date = "2026-10-09"
+title = "Add many people to an announcement at once"
+changes = [
+  "When writing a guild or class announcement, Add people opens a searchable list where you can tick as many members as you like and add them in one click.",
+  "You can also paste several email addresses at once.",
+  "Everyone you add to a guild announcement is saved to that guild's mailing list, so they are already ticked next time, for every lead. Remove people in Guild Settings.",
+]
+requests = [3]

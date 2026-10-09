@@ -22,7 +22,7 @@ jobs:
     timeout-minutes: 45
     services:
       postgres:
-        image: postgres:18
+        image: public.ecr.aws/docker/library/postgres:18
         env:
           POSTGRES_DB: plfog
           POSTGRES_USER: plfog

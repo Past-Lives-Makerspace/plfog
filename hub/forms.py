@@ -2010,12 +2010,21 @@ GuildLinkFormSet = forms.inlineformset_factory(Guild, GuildLink, form=GuildLinkF
 
 
 class GuildMailingListEmailForm(forms.ModelForm):
-    """A single custom (non-member) mailing-list address row on the guild edit page."""
+    """A single mailing-list row on the guild edit page: a plain address, or a saved member (#729).
+
+    A saved member's row is listed by name; its address is theirs, so it is not edited here (the
+    field is disabled and keeps the saved value). Deleting the row removes them from the list.
+    """
 
     class Meta:
         model = GuildMailingListEmail
         fields = ["email", "label", "sort_order"]
         widgets = {"sort_order": forms.HiddenInput()}
+
+    def __init__(self, *args: Any, **kwargs: Any) -> None:
+        super().__init__(*args, **kwargs)
+        if self.instance.user_id is not None:
+            self.fields["email"].disabled = True
 
 
 GuildMailingListFormSet = forms.inlineformset_factory(
@@ -4685,7 +4694,11 @@ def announcement_recipient_choices(
     if audience == AnnouncementDraft.Audience.GUILD.value and guild is not None:
         recipients = guild.announcement_recipients()
         member_emails = {(user.email or "").strip().lower() for user, _reason in recipients}
-        choices = _by_label([_member_choice(user) for user, _reason in recipients])
+        roster_users = {user.pk: user for user, _reason in recipients}
+        # Members saved on the guild's mailing list (#729) are listed by name beside the roster.
+        for listed in guild.mailing_list_users():
+            roster_users.setdefault(listed.pk, listed)
+        choices = _by_label([_member_choice(account) for account in roster_users.values()])
         choices += [(f"custom:{addr}", addr) for addr in guild.mailing_list_emails_deduped(member_emails)]
         return choices
     if audience == AnnouncementDraft.Audience.CLASS.value and offering is not None:
@@ -4727,6 +4740,49 @@ def announcement_add_member_choices() -> list[tuple[str, str]]:
         .select_related("member")
     )
     return _by_label([_member_choice(user) for user in members])
+
+
+def _is_email_address(address: str) -> bool:
+    """Whether ``address`` passes Django's email validator."""
+    from django.core.exceptions import ValidationError
+    from django.core.validators import validate_email
+
+    try:
+        validate_email(address)
+    except ValidationError:
+        return False
+    return True
+
+
+def classify_announcement_additions(tokens: list[str]) -> tuple[list[tuple[str, str, bool]], list[str]]:
+    """Vet addresses typed into a guild or class announcement's "Add email addresses" box (#729).
+
+    A typed address that is a member's (alias, notification email or account email, as
+    :func:`_accounts_by_address` matches a person) joins as that member, reached in the app too,
+    when that member could be picked from the add list; any other valid address joins as email
+    only (``custom:<addr>``). Rows come back once each, in order, as ``(value, label, email_only)``,
+    with why any token was refused. At most three queries, whatever the number of tokens.
+    """
+    addresses: list[str] = []
+    problems: list[str] = []
+    for raw in tokens:
+        address = raw.strip().removeprefix("custom:").lower()
+        if not _is_email_address(address):
+            problems.append(f"{raw.strip()} isn't an email address.")
+            continue
+        addresses.append(address)
+    accounts = _accounts_by_address(addresses)
+    rows: list[tuple[str, str, bool]] = []
+    for address in dict.fromkeys(addresses):
+        user = accounts.get(address)
+        if user is not None and user.is_active and not user.member.hide_from_directory:
+            value, label = _member_choice(user)
+            row = (value, label, False)
+        else:
+            row = (f"custom:{address}", address, True)
+        if row[0] not in {value for value, _label, _email_only in rows}:
+            rows.append(row)
+    return rows, problems
 
 
 _SITE_ADD_SEPARATORS = re.compile(r"[\s,;]+")
@@ -4956,6 +5012,7 @@ class AnnouncementComposeForm(forms.Form):
         widget=forms.Select,
         label="Ping",
     )
+    discord_post_as_me = forms.BooleanField(required=False, initial=False, label="Post on Discord as me")
     expires_at = forms.DateField(
         required=False,
         widget=forms.DateInput(attrs={"type": "date"}),
@@ -4973,10 +5030,17 @@ class AnnouncementComposeForm(forms.Form):
         require_body: bool = False,
         results_announcement: bool = False,
         draft: AnnouncementDraft | None = None,
+        sender_discord_linked: bool = False,
         **kwargs: Any,
     ) -> None:
         super().__init__(*args, **kwargs)
         from membership.models import AnnouncementDraft
+
+        # "Post on Discord as me" is offered only to a sender who linked Discord; for anyone else
+        # the field is gone, so a crafted POST cannot turn it on and the save stores it off.
+        self.offers_discord_post_as_me = sender_discord_linked
+        if not sender_discord_linked:
+            del self.fields["discord_post_as_me"]
 
         # Members the draft being saved already holds stay valid even when they have left the
         # "add anyone" list since (#614: a member later hidden is not dropped on the next save).
@@ -5024,6 +5088,9 @@ class AnnouncementComposeForm(forms.Form):
             recipient_field.initial = [value for value, _label in self.recipient_choices]
         recipient_field.widget.attrs.setdefault("class", "pl-recipient-checklist__box")
         self.added_member_rows = self._added_member_rows()
+        # The "Add people" list (#729): every member not already listed above.
+        listed = {value for value, _label in self.recipient_choices} | {value for value, _l in self.added_member_rows}
+        self.add_people_choices = [choice for choice in self.add_member_choices if choice[0] not in listed]
 
         # A site announcement's added people (admins only, as the site audience is): the "Add a
         # member" list, and the rows already added, vetted as the add endpoint vets them.
@@ -5073,6 +5140,11 @@ class AnnouncementComposeForm(forms.Form):
         self.fields["include_waitlist"].widget.attrs.setdefault("x-model", "includeWaitlist")
         self.fields["mention"].widget.attrs.setdefault("x-model", "mention")
         channel_field.widget.attrs.setdefault("x-model", "discordChannel")
+        if sender_discord_linked:
+            # The Discord Preview card follows the switch: it shows the sender's name while it is on.
+            self.fields["discord_post_as_me"].widget.attrs.setdefault(
+                "@change", "$refs.refreshPreview && $refs.refreshPreview.click()"
+            )
         self.fields["expires_at"].widget.attrs.setdefault(
             "@click", "try { $event.currentTarget.showPicker() } catch (e) {}"
         )
@@ -5091,11 +5163,12 @@ class AnnouncementComposeForm(forms.Form):
         return value in self._addable_users or value in self._saved_recipient_users
 
     def _added_member_rows(self) -> list[tuple[str, str]]:
-        """The checked members picked from "Add a member" who are not on the roster, as ``(value, label)``.
+        """The checked people added from "Add people" who are not on the roster, as ``(value, label)``.
 
         A resumed draft (its saved selection is the initial) or a re-rendered POST shows them
-        again in the added area, so the next save keeps them (#620). Only a member the save
-        would keep is shown: one on the "add anyone" list or already saved on the draft.
+        again in the added area, so the next save keeps them (#620). Only someone the save
+        would keep is shown: a member on the "add anyone" list or already saved on the draft,
+        then any typed address (#729), labelled email only.
         """
         from django.contrib.auth.models import User
 
@@ -5105,18 +5178,30 @@ class AnnouncementComposeForm(forms.Form):
         else:
             selected = self.initial.get("recipients") or []
         roster = {value for value, _label in self.recipient_choices}
+        values = [value for value in dict.fromkeys(str(value) for value in selected) if value not in roster]
         wanted = [
             value
-            for value in dict.fromkeys(str(value) for value in selected)
-            if value.startswith("user:")
-            and value[5:].isdigit()
-            and value not in roster
-            and self._addable_off_roster(value)
+            for value in values
+            if value.startswith("user:") and value[5:].isdigit() and self._addable_off_roster(value)
         ]
-        if not wanted:
-            return []
-        users = User.objects.filter(pk__in=[int(value[5:]) for value in wanted]).select_related("member")
-        return _by_label([_member_choice(user) for user in users])
+        rows: list[tuple[str, str]] = []
+        if wanted:
+            users = User.objects.filter(pk__in=[int(value[5:]) for value in wanted]).select_related("member")
+            rows = _by_label([_member_choice(user) for user in users])
+        return rows + [(value, f"{value[7:]} (email only)") for value in values if self._addable_address(value, roster)]
+
+    def _addable_address(self, value: str, roster: set[str]) -> bool:
+        """Whether a ``custom:<addr>`` off the roster may be kept: a valid address on a guild or class (#729)."""
+        from membership.models import AnnouncementDraft
+
+        return (
+            value.startswith("custom:")
+            and value not in roster
+            and value == value.lower()
+            and self.current_audience
+            in (AnnouncementDraft.Audience.GUILD.value, AnnouncementDraft.Audience.CLASS.value)
+            and _is_email_address(value[7:])
+        )
 
     def _raw_added(self) -> list[str]:
         """The added people's row values (``user:<pk>`` / ``custom:<addr>``): bound data, else initial."""
@@ -5242,6 +5327,20 @@ class AnnouncementComposeForm(forms.Form):
         }
 
     @property
+    def allows_add_people(self) -> bool:
+        """Whether the checklist offers "Add people" (#729): a guild or class announcement."""
+        from membership.models import AnnouncementDraft
+
+        return self.current_audience in (AnnouncementDraft.Audience.GUILD.value, AnnouncementDraft.Audience.CLASS.value)
+
+    @property
+    def saves_added_people(self) -> bool:
+        """Whether sending saves the added people to a mailing list (#729): a guild announcement only."""
+        from membership.models import AnnouncementDraft
+
+        return self.current_audience == AnnouncementDraft.Audience.GUILD.value and self.current_guild is not None
+
+    @property
     def has_email_only_recipients(self) -> bool:
         """True when any roster row is an email-only address (no linked app account).
 
@@ -5256,17 +5355,21 @@ class AnnouncementComposeForm(forms.Form):
         Members (``user:<pk>``) may be ANY member — a roster row OR one added via the "add anyone"
         search — so they validate against the full member list, not just the roster. One the
         draft already held stays valid even if they have left that list since (#614). Custom
-        (``custom:<addr>``) values validate against the guild's mailing-list addresses. An
-        unchanged submission (exactly the roster, nothing added or removed) collapses to ``{}`` =
-        "everyone in the audience" (the default); anything else stores ``{"users": [...],
-        "custom": [...]}``.
+        (``custom:<addr>``) values are the roster's addresses, plus on a guild or class any valid
+        address typed into "Add email addresses" (#729). An unchanged submission (exactly the
+        roster, nothing added or removed) collapses to ``{}`` = "everyone in the audience" (the
+        default); anything else stores ``{"users": [...], "custom": [...]}``.
         """
         roster_values = {value for value, _label in self.recipient_choices}
-        submitted = cleaned.get("recipients") or []
+        submitted = list(dict.fromkeys(cleaned.get("recipients") or []))
         chosen_users = [
             v for v in submitted if v.startswith("user:") and (v in roster_values or self._addable_off_roster(v))
         ]
-        chosen_custom = [v for v in submitted if v.startswith("custom:") and v in roster_values]
+        chosen_custom = [
+            v
+            for v in submitted
+            if v.startswith("custom:") and (v in roster_values or self._addable_address(v, roster_values))
+        ]
         chosen = chosen_users + chosen_custom
 
         # Nothing chosen (an untouched or all-unchecked checklist — HTML omits unchecked boxes, so
@@ -6058,12 +6161,25 @@ EquipmentHoursWindowFormSet = forms.formset_factory(
 
 
 class EquipmentSettingsForm(LateCancelFeeFormMixin):
-    """The Hours & Limits tab's closure + booking-limit fields (spec §7.4) and the late cancellation fee."""
+    """The Hours & Limits tab's availability + booking-limit fields (spec §7.4) and the late cancellation fee.
+
+    The Availability card's "Active" switch is ``reservations_open``, the inverse of
+    ``Equipment.is_closed`` (#731): on means members can reserve. The column keeps its
+    name, so the form flips it on the way in and on the way out rather than migrating.
+    """
+
+    reservations_open = forms.BooleanField(
+        required=False,
+        label="Active",
+        help_text=(
+            "When on, members can reserve this equipment. Turn off to stop new reservations; "
+            "existing reservations stay until you cancel them."
+        ),
+    )
 
     class Meta:
         model = Equipment
         fields = [
-            "is_closed",
             "closed_message",
             "min_duration_minutes",
             "max_duration_minutes",
@@ -6071,7 +6187,6 @@ class EquipmentSettingsForm(LateCancelFeeFormMixin):
             "max_active_reservations_per_member",
         ]
         labels = {
-            "is_closed": "Closed for new reservations",
             "closed_message": "Closed message",
             "min_duration_minutes": "Shortest reservation (minutes)",
             "max_duration_minutes": "Longest reservation (minutes)",
@@ -6081,14 +6196,23 @@ class EquipmentSettingsForm(LateCancelFeeFormMixin):
 
     def __init__(self, *args: Any, **kwargs: Any) -> None:
         super().__init__(*args, **kwargs)
-        self.fields["is_closed"].help_text = ""
-        self.fields[
-            "closed_message"
-        ].help_text = "Members will see this message. Existing reservations stay until you cancel them."
+        self.fields["reservations_open"].initial = not self.instance.is_closed
+        self.fields["closed_message"].help_text = "Members see this while the equipment is not active."
         self.fields["min_duration_minutes"].help_text = "Half hour steps."
         self.fields["max_duration_minutes"].help_text = "Half hour steps."
-        self.fields["max_advance_days"].help_text = "How far ahead members can book, in days."
-        self.fields["max_active_reservations_per_member"].help_text = "How many upcoming times one member can hold."
+        self.fields["max_advance_days"].help_text = ""
+        self.fields["max_active_reservations_per_member"].help_text = ""
+        self.fields["late_cancel_fee"].help_text = "In dollars."
+
+    #: Posted beside the switch, so an unchecked box means "closed" only when the switch was on the page.
+    #: A Manage page loaded before #731 posts no switch, and must not close the equipment on Save.
+    SWITCH_MARKER = "reservations_open_shown"
+
+    def save(self, commit: bool = True) -> Any:
+        """Write the Active switch back as its inverse, ``is_closed``, when the switch was posted."""
+        if self.SWITCH_MARKER in self.data:
+            self.instance.is_closed = not self.cleaned_data["reservations_open"]
+        return super().save(commit=commit)
 
     def clean(self) -> dict[str, Any]:
         cleaned = cast(dict[str, Any], super().clean())

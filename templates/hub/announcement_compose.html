@@ -97,7 +97,7 @@
 
       <div class="pl-compose-section" x-show="audience.startsWith('guild') || audience.startsWith('class')" x-cloak>
         <h2 class="pl-compose-section__title">Recipients</h2>
-        <p class="pl-compose-section__note">Everyone below is included. Uncheck anyone you don't want to reach, or add a member who is not on the list.</p>
+        <p class="pl-compose-section__note">Everyone below is included. Uncheck anyone you don't want to reach, or add people who are not on the list.</p>
         <div x-show="audience.startsWith('class')" x-cloak>
           {% include "components/toggle.html" with field=form.include_waitlist toggle_label="Also include the waitlist" toggle_help="Send this to waitlisted registrants too, not just confirmed ones." %}
         </div>
@@ -236,6 +236,12 @@
       <div class="pl-compose-channel" x-show="discordOn &amp;&amp; !audience.startsWith('class')" x-cloak>
         <h3 class="pl-compose-channel__title">Discord</h3>
         {% include "hub/partials/_compose_channel_picker.html" %}
+        {% if form.offers_discord_post_as_me %}
+        {# Offered only to a sender who linked Discord, and only while a channel is chosen. #}
+        <div x-show="discordChannel !== 'none'" x-cloak data-compose-post-as-me>
+          {% include "components/toggle.html" with field=form.discord_post_as_me toggle_label="Post on Discord as me" toggle_description="Show your Discord name and picture on the post instead of Past Lives Makerspace. Discord still marks it as an app." %}
+        </div>
+        {% endif %}
         {% include "hub/partials/_compose_discord_preview.html" with oob=False %}
       </div>
 
@@ -306,28 +312,6 @@
     new MutationObserver(sync).observe(bodyMount, { childList: true, subtree: true, characterData: true });
   }
   sync();
-
-  var addSelect = document.getElementById("compose-add-member");
-  var addedBox = document.getElementById("compose-added-recipients");
-  if (addSelect && addedBox) {
-    addSelect.addEventListener("change", function () {
-      var val = addSelect.value;
-      if (!val) { return; }
-      var label = addSelect.options[addSelect.selectedIndex].textContent;
-      if (!document.querySelector('input[name=recipients][value="' + val + '"]')) {
-        var row = document.createElement("label");
-        row.className = "pl-recipient-checklist__row";
-        var cb = document.createElement("input");
-        cb.type = "checkbox"; cb.name = "recipients"; cb.value = val; cb.checked = true;
-        var span = document.createElement("span");
-        span.className = "pl-recipient-checklist__label";
-        span.textContent = label;
-        row.appendChild(cb); row.appendChild(span);
-        addedBox.appendChild(row);
-      }
-      addSelect.value = "";
-    });
-  }
 })();
 </script>
 {% endblock %}

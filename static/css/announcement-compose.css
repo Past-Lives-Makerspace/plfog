@@ -9,6 +9,15 @@
     max-width: 34rem;
     border-left: 4px solid #5865f2;
 }
+/* The sender's Discord picture when the post goes out as them (#730), in place of the app icon. */
+.pl-discord-preview__avatar {
+    flex: 0 0 auto;
+    width: 2rem;
+    height: 2rem;
+    border-radius: 50%;
+    object-fit: cover;
+    background: #1e293b;
+}
 .pl-discord-preview__description {
     margin-top: 0.35rem;
     font-size: 0.85rem;
@@ -43,4 +52,48 @@
 .pl-compose-draft-meta__line--failed {
     margin-top: 0.25rem;
     color: var(--hub-danger-text);
+}
+
+/* ----------------------------------------------------------------------------
+   "Add people" on a guild or class announcement's recipient checklist (#729): a toggle
+   reveals a searchable checklist of members not yet listed, one "Add selected" button
+   and the "Add email addresses" box. Rows reuse .pl-recipient-checklist__row (hub.css);
+   a row that does not match the search, or is already added, is [hidden].
+   ------------------------------------------------------------------------- */
+.pl-recipient-checklist__row[hidden] {
+    display: none;
+}
+.pl-recipient-checklist__added {
+    display: flex;
+    flex-direction: column;
+    gap: 0.4rem;
+}
+.pl-recipient-checklist__added:empty {
+    display: none;
+}
+.pl-add-people__panel {
+    margin-top: 0.75rem;
+    padding: 1rem;
+    border: 1px solid var(--hub-border);
+    border-radius: 8px;
+    background: var(--hub-surface);
+    max-width: 36rem;
+}
+.pl-add-people__search {
+    margin-bottom: 0.75rem;
+}
+.pl-add-people__list {
+    max-height: 16rem;
+}
+.pl-add-people__actions {
+    display: flex;
+    justify-content: flex-end;
+    margin-top: 0.75rem;
+}
+.pl-add-people__emails {
+    margin-top: 1.25rem;
+    margin-bottom: 0;
+}
+.pl-add-people__saved {
+    margin: 1rem 0 0;
 }

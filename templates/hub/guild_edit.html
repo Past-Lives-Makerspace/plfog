@@ -624,20 +624,27 @@ confirm modal carries its own POST form, and template content can't nest a form.
     {% csrf_token %}
     <div class="hub-card" style="padding:1.5rem; margin-bottom:1.5rem;" data-help-key="guild.contact-emails">
       <h2 class="hub-detail-label" style="margin-top:0; margin-bottom:0.25rem;">Custom addresses</h2>
-      <p class="hub-text-muted" style="font-size:0.8125rem; margin:0 0 1rem;">Add non-member addresses — a booster, a partner org, your own inbox — that should also receive this guild's announcement emails.</p>
+      <p class="hub-text-muted" style="font-size:0.8125rem; margin:0 0 1rem;">Add addresses outside the guild (a booster, a partner org, your own inbox) that should also receive this guild's announcement emails. People you add to an announcement are saved here when you send it; saved members get it in the app too.</p>
       {{ mailing_list_formset.management_form }}
       {% for error in mailing_list_formset.non_form_errors %}<p class="pl-field-error">{{ error }}</p>{% endfor %}
       <div id="mailing-list-rows" style="display:flex; flex-direction:column; gap:1rem;" data-formset-rows>
         {% for f in mailing_list_formset %}
           <div class="hub-card" style="padding:1rem; background:rgba(255,255,255,0.02);" data-formset-row>
             {% for error in f.non_field_errors %}<p class="pl-field-error">{{ error }}</p>{% endfor %}
+            {% if f.instance.user_id %}
+              {# A member saved from an announcement (#729): listed by name, removed with Delete. #}
+              <p class="pl-mailing-list-member" data-mailing-list-member="{{ f.instance.user_id }}"><span class="pl-mailing-list-member__name">{{ f.instance.member_label }}</span> <span class="pl-mailing-list-member__tag">Member</span></p>
+              <div hidden>{{ f.email }}</div>
+              {% include "components/form_field.html" with field=f.label %}
+            {% else %}
             <div style="display:flex; gap:1rem; flex-wrap:wrap;">
               <div style="flex:2; min-width:200px;">{% include "components/form_field.html" with field=f.email %}</div>
               <div style="flex:1; min-width:160px;">{% include "components/form_field.html" with field=f.label %}</div>
             </div>
+            {% endif %}
             {% if f.instance.pk %}
               <div style="display:none;">{{ f.DELETE }}</div>
-              <button type="button" class="pl-btn pl-btn--danger pl-btn--sm pl-btn--spaced" data-formset-remove>Delete this address</button>
+              <button type="button" class="pl-btn pl-btn--danger pl-btn--sm pl-btn--spaced" data-formset-remove>{% if f.instance.user_id %}Remove this member{% else %}Delete this address{% endif %}</button>
             {% endif %}
             {{ f.id }}
             {{ f.sort_order }}

@@ -136,19 +136,24 @@ def describe_announcement_draft_send_selection():
         # the email additively but are not counted as members.
         assert counts == (1, 1)
 
-    def it_drops_a_stale_pk_and_a_removed_custom_row_at_send(mailoutbox):
+    def it_drops_a_stale_pk_and_saves_an_added_address_at_send(mailoutbox):
         author = User.objects.create_user(username="stale_author", email="author2@example.com", password="pw")
         guild = GuildFactory()
         a = _guild_member(guild, "a@example.com")
         GuildMailingListEmailFactory(guild=guild, email="booster@example.com")
-        # 999999 is not a member; ghost@ is not a custom row — both must be dropped, not resurrected.
+        # 999999 is not a member: dropped. added@ is not on the list: since #729 a typed address
+        # (the composer vets it) is saved to the guild's list on send and emailed.
         draft = _guild_draft(
             author,
             guild,
-            selection={"users": [a.user_id, 999999], "custom": ["booster@example.com", "ghost@example.com"]},
+            selection={"users": [a.user_id, 999999], "custom": ["booster@example.com", "added@example.com"]},
         )
         counts = draft.send()
-        assert _recipients(mailoutbox) == {"a@example.com", "booster@example.com"}
+        assert _recipients(mailoutbox) == {"a@example.com", "booster@example.com", "added@example.com"}
+        assert set(guild.mailing_list_emails.values_list("email", flat=True)) == {
+            "booster@example.com",
+            "added@example.com",
+        }
         assert counts == (2, 2)  # both selected ids are counted; the non-existent one simply delivers nothing
 
     def it_reaches_everyone_when_the_selection_is_empty(mailoutbox):
