@@ -1,0 +1,6 @@
+bump = "patch"
+date = "2026-10-09"
+title = "The version and Details sit with the Member Portal name"
+changes = [
+  "With no poll open and no meeting coming up, the version, the date of the last update and Details now sit in one card with the Member Portal name, above the menu's dividing line, with more room around Details.",
+]

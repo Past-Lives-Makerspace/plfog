@@ -128,7 +128,7 @@
     <div class="hub-sidebar-backdrop" :class="{ 'hub-sidebar-backdrop--visible': sidebarOpen }" @click="sidebarOpen = false"></div>
     <aside class="hub-sidebar" :class="{ 'hub-sidebar--closed': !sidebarOpen }">
         {# A guest reaches only the kiln pages (#691), so its logo goes there rather than bouncing off Home. #}
-        <a href="{% if kiln_nav.guest_only %}{% url 'kiln:mine' %}{% else %}{% url 'hub_home' %}{% endif %}" class="pl-brand">
+        <a href="{% if kiln_nav.guest_only %}{% url 'kiln:mine' %}{% else %}{% url 'hub_home' %}{% endif %}" class="pl-brand{% if spotlight and spotlight.is_empty %} pl-brand--quiet{% endif %}">
             <img src="{% firstof brand_logo_url fallback_logo %}" alt="{{ brand_short_name }}" class="pl-brand__icon" width="24" height="24">
             <span class="pl-brand__info">
                 <span class="pl-brand__text">Member Portal</span>
@@ -136,7 +136,8 @@
                 {% if not spotlight %}<button type="button" class="pl-badge--version" onclick="event.preventDefault();event.stopPropagation();document.getElementById('changelog-modal').style.display='flex'">v{{ app_version }}</button>{% endif %}
             </span>
         </a>
-        {% if spotlight %}<div class="hub-sidebar__spotlight">{% include "hub/partials/_spotlight.html" with spotlight=spotlight next_url=request.get_full_path %}</div>{% endif %}
+        {# Quiet (no poll, no meeting) joins the logo above the divider, where the version pill sat. #}
+        {% if spotlight %}<div class="hub-sidebar__spotlight{% if spotlight.is_empty %} hub-sidebar__spotlight--quiet{% endif %}">{% include "hub/partials/_spotlight.html" with spotlight=spotlight next_url=request.get_full_path %}</div>{% endif %}
 
         <nav class="hub-sidebar__nav" aria-label="Hub navigation" data-help-key="nav.sidebar" hx-boost="false" @click="if ($event.target.closest('a') && window.innerWidth <= 768) sidebarOpen = false">
             {% if kiln_nav.guest_only %}
