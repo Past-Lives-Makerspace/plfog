@@ -80,6 +80,11 @@ def describe_identity_from_user_json():
     def it_gives_none_for_a_name_discord_refuses():
         assert identity_from_user_json(_USER_ID, {"global_name": "Discord Dan", "avatar": "abc"}) is None
 
+    def it_falls_back_to_the_account_name_when_the_display_name_is_refused():
+        identity = identity_from_user_json(_USER_ID, {"global_name": "Felix :)", "username": "covo", "avatar": "abc"})
+        assert identity is not None
+        assert identity.username == "covo"
+
     def it_gives_none_with_no_name_at_all():
         assert identity_from_user_json(_USER_ID, {}) is None
 

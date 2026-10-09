@@ -72,7 +72,8 @@ def webhook_username_allowed(name: str) -> bool:
 def identity_from_user_json(user_id: str, data: dict[str, object]) -> DiscordIdentity | None:
     """The identity a ``GET /users/{id}`` answer gives, or ``None`` when its name cannot be used.
 
-    The display name (``global_name``) wins over the account name (``username``). A user with no
+    The display name (``global_name``) wins over the account name (``username``); a display name
+    Discord would refuse on a webhook falls through to the account name. A user with no
     avatar hash gets no ``avatar_url``, so Discord shows the webhook's own picture.
 
     Args:
@@ -82,8 +83,9 @@ def identity_from_user_json(user_id: str, data: dict[str, object]) -> DiscordIde
     Returns:
         The identity, or ``None`` when neither name passes :func:`webhook_username_allowed`.
     """
-    name = str(data.get("global_name") or data.get("username") or "").strip()
-    if not webhook_username_allowed(name):
+    candidates = (str(data.get(key) or "").strip() for key in ("global_name", "username"))
+    name = next((candidate for candidate in candidates if webhook_username_allowed(candidate)), None)
+    if name is None:
         return None
     avatar_hash = str(data.get("avatar") or "").strip()
     avatar_url = _CDN_AVATAR_URL.format(user_id=user_id, avatar_hash=avatar_hash) if avatar_hash else ""
