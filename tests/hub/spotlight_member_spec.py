@@ -404,6 +404,8 @@ def describe_with_no_poll_and_no_meeting():
 
         html = client.get(HOME).content.decode()
 
+        assert "pl-brand--quiet" not in html
+
         assert "data-spotlight" not in html
         assert BACKUP_PILL in html
         assert 'id="changelog-modal"' in html
