@@ -502,6 +502,19 @@ def describe_the_migration_marking_listed_events_published():
         )
         assert published == {**{o.pk: True for o in marked}, ended.pk: False, never.pk: False}
 
+    def it_clears_every_mark_on_the_way_back():
+        from importlib import import_module
+
+        from django.apps import apps
+
+        migration = import_module("classes.migrations.0085_classoffering_eventbrite_published")
+        offering = _listed(eventbrite_published=True)
+
+        migration.unmark_published_events(apps, None)
+
+        offering.refresh_from_db()
+        assert offering.eventbrite_published is False
+
 
 def describe_when_a_push_fails():
     def it_records_the_failure_and_the_retry_command_lists_it(eventbrite: FakeEventbrite):

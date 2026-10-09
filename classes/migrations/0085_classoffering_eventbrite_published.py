@@ -21,6 +21,12 @@ def mark_listed_events_published(apps: Apps, schema_editor: BaseDatabaseSchemaEd
     )
 
 
+def unmark_published_events(apps: Apps, schema_editor: BaseDatabaseSchemaEditor) -> None:
+    """Reverse: clear the mark, as the field's default has it, before the column is dropped."""
+    ClassOffering = apps.get_model("classes", "ClassOffering")
+    ClassOffering.objects.filter(eventbrite_published=True).update(eventbrite_published=False)
+
+
 class Migration(migrations.Migration):
     dependencies = [
         ("classes", "0084_classoffering_eventbrite_category"),
@@ -37,5 +43,5 @@ class Migration(migrations.Migration):
                 verbose_name="Published on Eventbrite by plfog",
             ),
         ),
-        migrations.RunPython(mark_listed_events_published, migrations.RunPython.noop),
+        migrations.RunPython(mark_listed_events_published, unmark_published_events),
     ]
