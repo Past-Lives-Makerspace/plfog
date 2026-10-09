@@ -1,0 +1,7 @@
+bump = "minor"
+date = "2026-10-09"
+title = "Instagram videos on class pages show their picture"
+changes = [
+  "When a class links an Instagram video, its class page now shows the post's picture with a play button instead of a plain link. Tap it to watch on Instagram.",
+  "A newly added Instagram link gets its picture within about 15 minutes.",
+]

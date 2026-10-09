@@ -232,12 +232,12 @@ appends and runs it on the first boosted arrival here (FRONTEND.md, Scripts unde
         </section>
       {% endif %}
 
-      {# Video (YouTube embeds; Instagram and Facebook link out). Empty or unrecognised renders nothing. #}
+      {# Video (YouTube embeds; Instagram and Facebook link out, Instagram with the post's picture once the job has it). Empty or unrecognised renders nothing. #}
       {% with video=offering.video_url|video_link %}
         {% if video %}
           <section class="cp-detail__section">
             <h2 class="cp-detail__h2">Watch</h2>
-            {% include "components/video_embed.html" with video=video title=offering.title|add:" preview video" frame_class="cp-detail__video" %}
+            {% include "components/video_embed.html" with video=video title=offering.title|add:" preview video" frame_class="cp-detail__video" thumbnail=offering.video_thumbnail_for_link thumbnail_alt=offering.title %}
           </section>
         {% endif %}
       {% endwith %}

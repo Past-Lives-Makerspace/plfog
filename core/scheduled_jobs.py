@@ -328,6 +328,17 @@ SCHEDULED_JOBS: list[ScheduledJob] = [
         schedule_label="Every 15 min",
         cadence=Cadence.ALWAYS,
     ),
+    ScheduledJob(
+        key="fetch_video_thumbnails",
+        name="Instagram video pictures",
+        description=(
+            "Copies the post picture for each class with an Instagram video link, so the class page "
+            "shows it. A post that cannot be fetched is tried again a day later."
+        ),
+        command="fetch_video_thumbnails",
+        schedule_label="Every 15 min",
+        cadence=Cadence.ALWAYS,
+    ),
 ]
 
 JOBS_BY_KEY: dict[str, ScheduledJob] = {job.key: job for job in SCHEDULED_JOBS}

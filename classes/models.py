@@ -241,6 +241,10 @@ class Category(HeroCropMixin, models.Model):
 # many offerings is stored exactly once.
 CLASS_IMAGE_PREFIX = "classes/images/"
 
+# Where an Instagram post's picture is stored, content addressed, so classes linking the
+# same post (and clones, which carry the key across) share one object.
+VIDEO_THUMBNAIL_PREFIX = "classes/video-thumbnails/"
+
 # The four columns the composer's crop box (or the Adjust tool's focal point) lives in.
 # ``ClassOffering.save()`` reads them from the stored row to tell whether the box moved.
 HERO_CROP_FIELDS = ("hero_crop_x", "hero_crop_y", "hero_crop_w", "hero_crop_h")
@@ -1301,6 +1305,47 @@ class ClassOffering(HeroCropMixin, models.Model):
             "public class page; an Instagram or Facebook link shows a card that opens the video on their site."
         ),
     )
+    # The three video_thumbnail columns are written only by classes.video_thumbnails (the
+    # fetch_video_thumbnails job), never inside a page request. Nullable or db-defaulted on
+    # purpose: the columns land while the previous release still serves (STANDARDS.md section 10).
+    video_thumbnail = models.ImageField(
+        upload_to=VIDEO_THUMBNAIL_PREFIX,
+        null=True,
+        blank=True,
+        help_text=(
+            "The Instagram post's picture, copied into our storage by the video thumbnail job and shown "
+            "on the class page's Watch card. Empty until fetched, and for any other kind of link."
+        ),
+    )
+    video_thumbnail_source_url = models.URLField(
+        max_length=500,
+        blank=True,
+        db_default="",
+        help_text=(
+            "The video link the picture was taken from, or last tried. When it no longer matches the "
+            "video link, the picture is stale: the page hides it and the job fetches again."
+        ),
+    )
+    video_thumbnail_checked_at = models.DateTimeField(
+        null=True,
+        blank=True,
+        help_text="When the job last tried to fetch the picture. A failed try waits a day before the next.",
+    )
+
+    @property
+    def video_thumbnail_for_link(self) -> ImageFieldFile | None:
+        """The stored picture when it belongs to the current video link, else None.
+
+        A picture taken from an earlier link stays on the row until the job runs, so the
+        page asks this instead of reading the column: an edited link shows the text card
+        until its own picture lands, never the old post's picture.
+        """
+        if not self.video_thumbnail:
+            return None
+        if self.video_thumbnail_source_url != self.video_url.strip():
+            return None
+        return self.video_thumbnail
+
     requires_model_release = models.BooleanField(
         default=False, help_text="When on, registrants also sign photo release."
     )
