@@ -301,6 +301,7 @@ urlpatterns = [
     path("announcements/compose/preview/", views.hub_compose_preview, name="hub_compose_preview"),
     path("announcements/compose/count/", views.hub_compose_count, name="hub_compose_count"),
     path("announcements/compose/site-add/", views.hub_compose_site_add, name="hub_compose_site_add"),
+    path("announcements/compose/add/", views.hub_compose_add_addresses, name="hub_compose_add_addresses"),
     path("announcements/compose/test/", views.hub_compose_test, name="hub_compose_test"),
     path("announcements/compose/push-test/", views.hub_compose_push_test, name="hub_compose_push_test"),
     path("announcements/compose/save/", views.hub_compose_save_draft, name="hub_compose_save_draft"),

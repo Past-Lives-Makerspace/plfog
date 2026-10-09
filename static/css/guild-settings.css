@@ -16,3 +16,22 @@
 .pl-guild-reservables__empty { margin: 0; }
 [data-theme="light"] .pl-guild-reservables .hub-pill--ok { color: #1f7a52; }
 [data-theme="light"] .pl-guild-reservables .hub-pill--neutral { color: #5b6675; }
+
+/* A member saved on the mailing list from an announcement (#729): their name and a small tag. */
+.pl-mailing-list-member {
+    margin: 0 0 0.75rem;
+    color: var(--hub-text);
+    font-weight: 500;
+    overflow-wrap: anywhere;
+}
+.pl-mailing-list-member__tag {
+    display: inline-block;
+    margin-left: 0.5rem;
+    padding: 0.1rem 0.5rem;
+    border-radius: 999px;
+    background: var(--hub-elevated);
+    border: 1px solid var(--hub-border);
+    color: var(--hub-text-muted);
+    font-size: 0.75rem;
+    font-weight: 500;
+}
