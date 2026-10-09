@@ -2,7 +2,7 @@
 
 Pytest's Django client never runs the page's script, so this walks it in a real browser: Dixie
 is on no Leadership Directory tab; a give that loses its connection puts the switch back with
-an error toast; a real give says so in a toast and her Member Directory card shows Employee then
+an error toast; a real give says so in a toast and her Member Directory card shows Staff then
 the badge in its color; taking it back from the Edit page takes it off the card.
 
 Waits are on what the page shows (a toast's text, a switch's state, a pill), never a fixed
@@ -27,7 +27,7 @@ SHOTS = Path("mockups/screenshots")
 
 
 def _seed() -> tuple[Member, LeadershipBadge]:
-    """An admin, Dixie (an Employee on no tab), the badge to give her and one she never gets."""
+    """An admin, Dixie (Staff, on no tab), the badge to give her and one she never gets."""
     MembershipPlanFactory()  # so the user signal provisions the member this then promotes
     user = User.objects.create_user(username=ADMIN_EMAIL, email=ADMIN_EMAIL)
     admin = user.member
@@ -90,7 +90,7 @@ def describe_member_edit_badges():
             SHOTS.mkdir(parents=True, exist_ok=True)
             page.locator(".pl-leadership").screenshot(path=str(SHOTS / "650-member-edit-badges.png"))
 
-        # Her directory card: Employee, then the badge in its own color with the text that reads on it.
+        # Her directory card: Staff, then the badge in its own color with the text that reads on it.
         page.goto(directory_url)
         pill = _card(page).locator(".pl-directory-badges .pl-leader-badge")
         pill.wait_for(state="visible")
@@ -100,7 +100,7 @@ def describe_member_edit_badges():
             "rgb(0, 0, 0)" if badge.text_color == "#000000" else "rgb(255, 255, 255)",
         ]
         meta = _card(page).locator(".directory-card__meta")
-        assert meta.inner_text().index("Employee") < meta.inner_text().index("Community Engagement Manager")
+        assert meta.inner_text().index("Staff") < meta.inner_text().index("Community Engagement Manager")
         if CAPTURE:
             _card(page).screenshot(path=str(SHOTS / "650-directory-badges.png"))
 

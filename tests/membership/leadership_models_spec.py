@@ -16,6 +16,7 @@ from datetime import timedelta
 import pytest
 from django.core.exceptions import ValidationError
 from django.db import IntegrityError, connection, transaction
+from django.db.models import Prefetch
 from django.test.utils import CaptureQueriesContext
 from django.utils import timezone
 
@@ -386,6 +387,17 @@ def describe_LeadershipListing():
             stray.refresh_from_db()
             assert stray.tab is None
 
+    def describe_on_tabs():
+        def it_lists_every_card_on_show_on_a_tab_in_tab_then_card_order():
+            first_tab = LeadershipTabFactory(sort_order=1)
+            second_tab = LeadershipTabFactory(sort_order=2)
+            late_card = LeadershipListingFactory(tab=second_tab, sort_order=0)
+            second_card = LeadershipListingFactory(tab=first_tab, sort_order=3)
+            first_card = LeadershipListingFactory(tab=first_tab, sort_order=0)
+            LeadershipListingFactory(tab=first_tab, is_listed=False)
+            LeadershipListingFactory(tab=None)  # a stray no tab shows
+            assert list(LeadershipListing.objects.on_tabs()) == [first_card, second_card, late_card]
+
     def describe_on_tabs_for():
         def it_lists_the_members_cards_on_show_in_tab_order_with_tab_and_lines(django_assert_num_queries):
             member = MemberFactory()
@@ -440,6 +452,57 @@ def describe_LeadershipRole():
         late = LeadershipRoleFactory(listing=listing, sort_order=1)
         early = LeadershipRoleFactory(listing=listing, sort_order=0)
         assert list(listing.roles.all()) == [early, late]
+
+
+def describe_Member_leadership_titles():
+    def it_joins_the_titles_in_tab_then_line_order_once_each():
+        member = MemberFactory()
+        later = LeadershipListingFactory(member=member, tab=LeadershipTabFactory(sort_order=5))
+        earlier = LeadershipListingFactory(member=member, tab=LeadershipTabFactory(sort_order=1))
+        LeadershipRoleFactory(listing=earlier, title="Board Advisor", sort_order=1)
+        LeadershipRoleFactory(listing=earlier, title="Co-Executive Director / Director of Operations", sort_order=0)
+        LeadershipRoleFactory(listing=later, title="board advisor ", sort_order=0)
+        LeadershipRoleFactory(listing=later, title="Shop Steward", sort_order=1)
+        assert member.leadership_titles == (
+            "Co-Executive Director / Director of Operations · Board Advisor · Shop Steward"
+        )
+
+    def it_skips_a_blank_title_so_no_stray_separator_shows():
+        member = MemberFactory()
+        listing = LeadershipListingFactory(member=member)
+        LeadershipRoleFactory(listing=listing, title="  ", sort_order=0)
+        LeadershipRoleFactory(listing=listing, title="Millwright", sort_order=1)
+        assert member.leadership_titles == "Millwright"
+
+    def it_leaves_out_a_hidden_card_and_a_card_on_no_tab():
+        member = MemberFactory()
+        LeadershipRoleFactory(listing=LeadershipListingFactory(member=member, is_listed=False), title="Taken Off")
+        LeadershipRoleFactory(listing=LeadershipListingFactory(member=member, tab=None), title="Stray")
+        LeadershipRoleFactory(listing=LeadershipListingFactory(member=member), title="On Show")
+        assert member.leadership_titles == "On Show"
+
+    def it_is_blank_for_a_member_with_no_lines():
+        member = MemberFactory()
+        LeadershipListingFactory(member=member)  # a card with no role lines
+        assert member.leadership_titles == ""
+        assert MemberFactory().leadership_titles == ""
+
+    def it_reads_the_prefetched_cards_without_a_query(django_assert_num_queries):
+        member = MemberFactory()
+        LeadershipRoleFactory(listing=LeadershipListingFactory(member=member), title="Treasurer")
+        loaded = (
+            Member.objects.filter(pk=member.pk)
+            .prefetch_related(
+                Prefetch(
+                    "leadership_listings",
+                    queryset=LeadershipListing.objects.on_tabs(),
+                    to_attr="listed_leadership_listings",
+                )
+            )
+            .get()
+        )
+        with django_assert_num_queries(0):
+            assert loaded.leadership_titles == "Treasurer"
 
 
 def describe_Member_discord_profile_url():

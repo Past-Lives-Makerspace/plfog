@@ -407,6 +407,13 @@ def member_directory(request: HttpRequest) -> HttpResponse:
             # Leadership badges beside the member type (#650): one query for every card, in the
             # order they were made, as on the Leadership Directory cards.
             Prefetch("leadership_badges", queryset=LeadershipBadge.objects.order_by("id")),
+            # Titles under the name: the cards on show on the Leadership Directory and their
+            # role lines, two queries for every card (Member.leadership_titles reads them).
+            Prefetch(
+                "leadership_listings",
+                queryset=LeadershipListing.objects.on_tabs(),
+                to_attr="listed_leadership_listings",
+            ),
         )
         .order_by("full_legal_name")
     )

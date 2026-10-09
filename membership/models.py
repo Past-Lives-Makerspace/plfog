@@ -555,7 +555,7 @@ class Member(models.Model):
         STANDARD = "standard", "Standard"
         GUILD_LEAD = "guild_lead", "Guild Lead"
         WORK_TRADE = "work_trade", "Work-Trade"
-        EMPLOYEE = "employee", "Employee"
+        EMPLOYEE = "employee", "Staff"
         CONTRACTOR = "contractor", "Contractor"
         VOLUNTEER = "volunteer", "Volunteer"
 
@@ -1277,6 +1277,32 @@ class Member(models.Model):
     def approved_skills(self) -> models.QuerySet[MemberSkill]:
         """This member's skills whose vocabulary entry is approved, ready for display."""
         return self.skills.filter(skill__status=Skill.Status.APPROVED).select_related("skill__category")
+
+    @property
+    def leadership_titles(self) -> str:
+        """The titles of this member's Leadership Directory role lines, joined in one line, or "".
+
+        Only cards on show count (``LeadershipListingQuerySet.on_tabs``), in tab order and then
+        each card's line order, and a title held on two tabs shows once whatever its case. The
+        Member Directory card shows it under the name.
+
+        List views rendering many members prefetch the cards with
+        ``Prefetch("leadership_listings", queryset=LeadershipListing.objects.on_tabs(),
+        to_attr="listed_leadership_listings")``; when present, this reads that list instead of
+        querying.
+        """
+        listings = getattr(self, "listed_leadership_listings", None)
+        if listings is None:
+            listings = LeadershipListing.objects.on_tabs_for(self)
+        seen: set[str] = set()
+        titles: list[str] = []
+        for listing in listings:
+            for role in listing.roles.all():
+                title = role.title.strip()
+                if title and title.casefold() not in seen:
+                    seen.add(title.casefold())
+                    titles.append(title)
+        return " · ".join(titles)
 
     @property
     def directory_contacts(self) -> models.QuerySet[MemberContact]:
@@ -4105,14 +4131,22 @@ class LeadershipListingQuerySet(models.QuerySet["LeadershipListing"]):
                 stray.delete()
         return len(strays)
 
-    def on_tabs_for(self, member: Member) -> LeadershipListingQuerySet:
-        """The member's cards on show, in tab order, each with its tab and role lines: the Details tab's list."""
+    def on_tabs(self) -> LeadershipListingQuerySet:
+        """Every card on show on a tab, in tab order, each with its tab and role lines.
+
+        The Member Directory prefetches it per member for the titles under each name
+        (``Member.leadership_titles``): two queries however many members and lines.
+        """
         return (
             self.listed()
-            .filter(member=member, tab__isnull=False)
+            .filter(tab__isnull=False)
             .select_related("tab")
-            .order_by("tab__sort_order", "tab_id")
+            .order_by("tab__sort_order", "tab_id", "sort_order", "id")
         )
+
+    def on_tabs_for(self, member: Member) -> LeadershipListingQuerySet:
+        """The member's cards on show, in tab order, each with its tab and role lines: the Details tab's list."""
+        return self.on_tabs().filter(member=member)
 
 
 class LeadershipListing(models.Model):

@@ -17,3 +17,22 @@
 .pl-directory-badges--center {
     justify-content: center;
 }
+
+/* The titles from the member's Leadership Directory role lines, one line under the name, styled
+   like that directory's card titles (.pl-leader-card__title) a step smaller. Both themes read
+   --hub-text, so no light override. */
+.pl-directory-titles {
+    margin-top: 0.125rem;
+    font-size: 0.85rem;
+    font-weight: 600;
+    line-height: 1.35;
+    color: var(--hub-text);
+    overflow-wrap: anywhere;
+}
+
+/* The photo layout gives its name a 0.75rem gap above the photo; the titles tuck under the name
+   and carry that gap instead. */
+.pl-directory-titles--photo {
+    margin-top: -0.5rem;
+    margin-bottom: 0.75rem;
+}

@@ -383,7 +383,7 @@ All under `static/css/`. The pattern in use: one stylesheet per surface, linked 
 | `qr-sheet.css` | `hub/equipment_flyer.html`, `hub/orientation_type_flyer.html` | The equipment and orientation QR sheets (#631): printable one page Letter flyers, forced light like the other two. |
 | `calendar.css`, `session-calendar.css` | community calendar, guild pages, the Orientations and Reservations pages, class composer | Calendar grids. |
 | `member-edit.css` | `hub/admin/member_edit.html` | One admin page. |
-| `member-directory.css` | `hub/member_directory.html` | The Member Directory's additions since #650: a card's leadership badge pills. Its older card rules stay in `hub.css`; the pill itself (`.pl-leader-badge`) is in `components.css`. |
+| `member-directory.css` | `hub/member_directory.html` | The Member Directory's additions since #650: a card's leadership badge pills and the line of Leadership Directory titles under the name (`.pl-directory-titles`). Its older card rules stay in `hub.css`; the pill itself (`.pl-leader-badge`) is in `components.css`. |
 | `leadership.css` | `hub/leadership_directory.html`, `hub/admin/leadership.html` | The Leadership Directory cards and its admin page. |
 | `voting-admin.css` | `hub/admin/voting_*.html` | Voting admin pages. |
 | `announcement-compose.css` | `hub/announcement_compose.html`, `hub/announcement_sent.html` | The announcement composer's own additions (the Discord preview card, the back link, the line about a resumed draft); its older styles still live in `hub.css`. The sent view loads it for the preview cards. |
