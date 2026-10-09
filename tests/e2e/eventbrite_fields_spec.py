@@ -45,6 +45,7 @@ def _seed(settings: Any) -> ClassOffering:
     settings.EVENTBRITE_PRIVATE_TOKEN = "token"
     settings.EVENTBRITE_ORGANIZATION_ID = "org"
     settings.EVENTBRITE_VENUE_ID = "venue"
+    settings.EVENTBRITE_ORGANIZER_ID = "organizer-1"
     config = SiteConfiguration.load()
     config.eventbrite_sync_enabled = True
     config.save(update_fields=["eventbrite_sync_enabled"])

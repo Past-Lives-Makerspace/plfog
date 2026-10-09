@@ -43,12 +43,14 @@ class FakeEventbrite:
 
     enabled = True
     venue_id = "venue-1"
+    organizer_id = "organizer-1"
 
     def __init__(self) -> None:
         self.calls: list[tuple[str, tuple[Any, ...]]] = []
         self.fail: dict[str, EventbriteError] = {}
         self.created_event: dict[str, Any] = {"id": "ev-1", "status": "draft"}
         self.event_status: str | None = "live"  # what an update answers; None leaves ``status`` out
+        self.read_status = "live"  # what reading the event answers
         self.quantity_sold = 0
         self.refused_photos: dict[str, EventbriteError] = {}
         self.refuse_image_modules: EventbriteError | None = None
@@ -120,6 +122,10 @@ class FakeEventbrite:
     def unpublish(self, event_id: str) -> None:
         self._record("unpublish", event_id)
 
+    def get_event(self, event_id: str) -> dict[str, Any]:
+        self._record("get_event", event_id)
+        return {"id": event_id, "status": self.read_status}
+
 
 @pytest.fixture
 def eventbrite() -> Iterator[FakeEventbrite]:
@@ -133,6 +139,7 @@ def _switch_integration_on(settings: Any) -> None:
     settings.EVENTBRITE_PRIVATE_TOKEN = "token"
     settings.EVENTBRITE_ORGANIZATION_ID = "org"
     settings.EVENTBRITE_VENUE_ID = "venue"
+    settings.EVENTBRITE_ORGANIZER_ID = "organizer-1"
     config = SiteConfiguration.load()
     config.eventbrite_sync_enabled = True
     config.save(update_fields=["eventbrite_sync_enabled"])
@@ -179,7 +186,8 @@ def describe_publishing_an_opted_in_class():
         assert ticket["quantity_total"] == 8
         assert ticket["include_fee"] is False
         html = eventbrite.args("set_description")[1]
-        assert offering.public_url in html
+        assert offering.public_url not in html  # no link back to the site's booking (#720)
+        assert "booking" not in html
         offering.refresh_from_db()
         assert (offering.eventbrite_event_id, offering.eventbrite_ticket_class_id) == ("ev-1", "tc-1")
         assert offering.eventbrite_sync_state == State.LISTED
@@ -400,6 +408,114 @@ def describe_ending_a_listing():
         assert eventbrite.names()[-1] == "publish"
 
 
+def describe_an_event_taken_down_outside_plfog():
+    """#720: plfog publishes an event once; a published event that reads draft again stays down."""
+
+    def it_publishes_a_never_published_draft_and_remembers_it(eventbrite: FakeEventbrite):
+        offering = _opted_in()
+
+        offering.publish(None)
+
+        assert eventbrite.names()[-1] == "publish"
+        offering.refresh_from_db()
+        assert offering.eventbrite_published is True
+        assert offering.eventbrite_sync_state == State.LISTED
+
+    def it_never_republishes_an_event_plfog_published_that_reads_draft_again(eventbrite: FakeEventbrite):
+        eventbrite.event_status = "draft"
+        offering = _listed(eventbrite_published=True)
+
+        offering.sync_eventbrite_listing()
+
+        assert "publish" not in eventbrite.names()
+        assert "set_description" in eventbrite.names()  # the cleaned text still reaches the draft
+        offering.refresh_from_db()
+        assert offering.eventbrite_published is True
+        assert offering.eventbrite_sync_state == State.ENDED
+        assert offering.eventbrite_sync_error == EventbriteSync.TAKEN_DOWN
+        assert offering.eventbrite_sync_label == (
+            "Ended on Eventbrite. Unpublished on Eventbrite outside plfog; not republished."
+        )
+
+    def it_does_not_republish_it_on_the_next_retry_tick_after_an_edit(eventbrite: FakeEventbrite):
+        eventbrite.event_status = "draft"
+        offering = _listed(eventbrite_published=True)
+        offering.mark_eventbrite_edit_saved()
+
+        call_command("retry_eventbrite_pushes")
+
+        assert "publish" not in eventbrite.names()
+        offering.refresh_from_db()
+        assert offering.eventbrite_sync_error == EventbriteSync.TAKEN_DOWN
+
+    def it_leaves_the_taken_down_event_as_it_is_when_the_class_comes_off_eventbrite(eventbrite: FakeEventbrite):
+        eventbrite.read_status = "draft"
+        offering = _listed(eventbrite_published=True)
+
+        offering.unpublish()
+
+        assert eventbrite.names() == ["update_ticket_class", "get_event"]
+        offering.refresh_from_db()
+        assert offering.eventbrite_published is True  # so switching it back on never republishes it
+        assert offering.eventbrite_sync_state == State.ENDED
+        assert offering.eventbrite_sync_error == EventbriteSync.TAKEN_DOWN
+
+    def it_forgets_the_publish_when_plfog_unpublishes_the_event_itself(eventbrite: FakeEventbrite):
+        offering = _listed(eventbrite_published=True)
+
+        offering.unpublish()
+
+        assert eventbrite.names() == ["update_ticket_class", "get_event", "unpublish"]
+        offering.refresh_from_db()
+        assert offering.eventbrite_published is False
+        assert offering.eventbrite_sync_state == State.ENDED
+
+    def it_keeps_the_publish_when_eventbrite_refuses_the_unpublish(eventbrite: FakeEventbrite):
+        eventbrite.fail["unpublish"] = EventbriteError("has orders", 400)
+        offering = _listed(eventbrite_published=True)
+
+        offering.unpublish()
+
+        offering.refresh_from_db()
+        assert offering.eventbrite_published is True
+        assert offering.eventbrite_sync_error == EventbriteSync.STILL_UP
+
+
+def describe_the_migration_marking_listed_events_published():
+    def it_marks_every_class_with_an_event_plfog_has_not_ended():
+        from importlib import import_module
+
+        from django.apps import apps
+
+        migration = import_module("classes.migrations.0085_classoffering_eventbrite_published")
+        marked = [
+            _listed(eventbrite_sync_state=state) for state in (State.LISTED, State.PENDING, State.FAILED, State.IDLE)
+        ]
+        ended = _listed(eventbrite_sync_state=State.ENDED)
+        never = _opted_in()
+
+        migration.mark_listed_events_published(apps, None)
+
+        rows = [*marked, ended, never]
+        published = dict(
+            ClassOffering.objects.filter(pk__in=[o.pk for o in rows]).values_list("pk", "eventbrite_published")
+        )
+        assert published == {**{o.pk: True for o in marked}, ended.pk: False, never.pk: False}
+
+    def it_clears_every_mark_on_the_way_back():
+        from importlib import import_module
+
+        from django.apps import apps
+
+        migration = import_module("classes.migrations.0085_classoffering_eventbrite_published")
+        offering = _listed(eventbrite_published=True)
+
+        migration.unmark_published_events(apps, None)
+
+        offering.refresh_from_db()
+        assert offering.eventbrite_published is False
+
+
 def describe_when_a_push_fails():
     def it_records_the_failure_and_the_retry_command_lists_it(eventbrite: FakeEventbrite):
         eventbrite.fail["create_event"] = EventbriteError("POST /events/: 500 down", 500)
@@ -461,6 +577,7 @@ def describe_when_sync_is_off():
         settings.EVENTBRITE_PRIVATE_TOKEN = "token"
         settings.EVENTBRITE_ORGANIZATION_ID = "org"
         settings.EVENTBRITE_VENUE_ID = "venue"
+        settings.EVENTBRITE_ORGANIZER_ID = "organizer-1"
         offering = _opted_in()
 
         with patch("core.integrations.eventbrite.httpx.request") as request:
