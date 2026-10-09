@@ -1299,7 +1299,7 @@ class Member(models.Model):
         for listing in listings:
             for role in listing.roles.all():
                 title = role.title.strip()
-                if title.casefold() not in seen:
+                if title and title.casefold() not in seen:
                     seen.add(title.casefold())
                     titles.append(title)
         return " · ".join(titles)

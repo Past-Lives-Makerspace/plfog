@@ -467,6 +467,13 @@ def describe_Member_leadership_titles():
             "Co-Executive Director / Director of Operations · Board Advisor · Shop Steward"
         )
 
+    def it_skips_a_blank_title_so_no_stray_separator_shows():
+        member = MemberFactory()
+        listing = LeadershipListingFactory(member=member)
+        LeadershipRoleFactory(listing=listing, title="  ", sort_order=0)
+        LeadershipRoleFactory(listing=listing, title="Millwright", sort_order=1)
+        assert member.leadership_titles == "Millwright"
+
     def it_leaves_out_a_hidden_card_and_a_card_on_no_tab():
         member = MemberFactory()
         LeadershipRoleFactory(listing=LeadershipListingFactory(member=member, is_listed=False), title="Taken Off")
