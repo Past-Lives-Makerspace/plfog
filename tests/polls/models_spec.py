@@ -7,10 +7,9 @@ from zoneinfo import ZoneInfo
 
 import pytest
 from django.contrib.auth.models import User
-from django.db import IntegrityError, connection, transaction
-from django.test.utils import CaptureQueriesContext
+from django.db import IntegrityError, transaction
 
-from polls.models import ChoiceResult, Poll, PollAlreadyOpenError, PollVote, open_poll_with_results
+from polls.models import ChoiceResult, Poll, PollAlreadyOpenError, PollVote
 from tests.membership.factories import MemberFactory
 from tests.polls.factories import PollChoiceFactory, PollFactory, PollVoteFactory, poll_with
 
@@ -214,21 +213,3 @@ def describe_with_totals():
         poll = Poll.objects.with_totals().get()
         assert poll.total_votes == 0
         assert poll.top_answer is None
-
-
-def describe_open_poll_with_results():
-    def it_reads_the_open_poll_and_its_tally_in_one_query():
-        poll = poll_with("Laser", "Lathe", votes=(1, 0))
-        poll_with("Old", "Older", opens_at=NOW - timedelta(days=30), closes_at=NOW - timedelta(days=20))
-
-        with CaptureQueriesContext(connection) as queries:
-            found, results = open_poll_with_results(poll.opens_at + timedelta(minutes=1))
-
-        assert len(queries) == 1
-        assert found == poll
-        assert [(result.text, result.votes) for result in results] == [("Laser", 1), ("Lathe", 0)]
-
-    def it_finds_nothing_with_no_open_poll():
-        poll_with("Old", "Older", opens_at=NOW - timedelta(days=30), closes_at=NOW - timedelta(days=20))
-
-        assert open_poll_with_results(NOW) == (None, [])

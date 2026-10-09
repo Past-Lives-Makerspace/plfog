@@ -1,0 +1,52 @@
+{% comment %}
+The Spotlight's Expanded panel (#709), the body of components/modal.html "spotlight-expanded".
+spotlight is hub.spotlight.Spotlight. Two views in one Alpine scope: the main view (the poll,
+the meeting, Have an idea, the version link) and the changelog, five releases a page
+(includes/_changelog_pages.html) with Back. A #changelog-<slug> link (the "it's live" notice,
+#693) opens the panel on the changelog page holding that release.
+{% endcomment %}
+<div class="pl-spotlight-panel" data-spotlight-panel
+     x-data="{ view: 'main' }"
+     @spotlight-changelog.window="view = 'changelog'; $nextTick(() => { const pages = document.getElementById('spotlight-changelog'); const entry = $event.detail ? pages.plShowEntry($event.detail) : null; if (entry) entry.scrollIntoView({ block: 'start' }); else pages.plShowPage(0) })"
+     x-init="if (location.hash.indexOf('#changelog-') === 0) { const pages = document.getElementById('spotlight-changelog'); const entry = pages && pages.plShowEntry ? pages.plShowEntry(location.hash.slice(1)) : null; if (entry) { view = 'changelog'; $store.spotlight.markSeen(); $dispatch('open-modal', 'spotlight-expanded'); setTimeout(() => entry.scrollIntoView({ block: 'start' }), 50) } }">
+    <div class="pl-spotlight-panel__main" x-show="view === 'main'" data-spotlight-panel-main>
+        {% if spotlight.card %}
+        <section class="pl-spotlight-panel__section" aria-label="This week's poll">
+            <p class="pl-spotlight__eyebrow">This week's poll</p>
+            {% include "polls/partials/_poll_card.html" with card=spotlight.card variant="panel" %}
+            <a class="pl-spotlight-panel__link" href="{% url 'polls:index' %}" data-spotlight-all-polls>See all past polls <span aria-hidden="true">&rarr;</span></a>
+        </section>
+        {% elif spotlight.latest_update %}
+        <section class="pl-spotlight-panel__section" aria-label="Latest update" data-spotlight-panel-update>
+            {% include "hub/partials/_spotlight_update.html" with update=spotlight.latest_update %}
+            <a class="pl-spotlight-panel__link" href="{% url 'polls:index' %}" data-spotlight-all-polls>See all past polls <span aria-hidden="true">&rarr;</span></a>
+        </section>
+        {% endif %}
+        {% if spotlight.meeting %}
+        <section class="pl-spotlight-panel__section" aria-label="Next Feature Request Meeting" data-spotlight-panel-meeting>
+            <p class="pl-spotlight__eyebrow">Next Feature Request Meeting</p>
+            <h3 class="pl-spotlight-panel__title">{{ spotlight.meeting.title }}</h3>
+            <p class="pl-spotlight__when"><span>{{ spotlight.meeting.when }}</span>{% if spotlight.meeting.video_url %}<span class="pl-spotlight__virtual">Virtual</span>{% endif %}</p>
+            {% if spotlight.meeting.description %}<p class="pl-spotlight-panel__text">{{ spotlight.meeting.description }}</p>{% endif %}
+            <div class="pl-btn-row pl-spotlight-panel__actions">
+                {% if spotlight.meeting.video_url %}<a href="{{ spotlight.meeting.video_url }}" class="pl-btn pl-btn--primary pl-btn--sm" target="_blank" rel="noopener noreferrer" data-spotlight-join>Join online</a>{% endif %}
+                <a href="{{ spotlight.meeting.ics_url }}" class="pl-btn pl-btn--ghost pl-btn--sm" hx-boost="false" data-pl-download download data-spotlight-ics>Add to calendar</a>
+                <a href="{{ spotlight.meeting.detail_url }}" class="pl-btn pl-btn--ghost pl-btn--sm" data-spotlight-event>Event page</a>
+            </div>
+        </section>
+        {% endif %}
+        <section class="pl-spotlight-panel__section" aria-label="Have an idea?">
+            <p class="pl-spotlight__eyebrow">Have an idea?</p>
+            <p class="pl-spotlight-panel__text">Ideas and bug reports go straight to the people building the portal.</p>
+            <div class="pl-btn-row pl-spotlight-panel__actions">
+                <a href="{% url 'hub_beta_feedback' %}?category=feature" class="pl-btn pl-btn--primary pl-btn--sm" data-spotlight-suggest>Suggest a feature</a>
+                <a href="{% url 'hub_beta_feedback' %}?category=bug" class="pl-btn pl-btn--ghost pl-btn--sm" data-spotlight-bug>Report a bug</a>
+            </div>
+        </section>
+        <button type="button" class="pl-spotlight-panel__version" @click="view = 'changelog'" data-spotlight-version>Version {{ app_version_short }} · What changed</button>
+    </div>
+    <div class="pl-spotlight-panel__changelog" x-show="view === 'changelog'" data-spotlight-panel-changelog>
+        <button type="button" class="pl-btn pl-btn--ghost pl-btn--sm pl-spotlight-panel__back" @click="view = 'main'" data-spotlight-back>Back</button>
+        {% include "includes/_changelog_pages.html" with pages_id="spotlight-changelog" %}
+    </div>
+</div>

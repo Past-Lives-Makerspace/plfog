@@ -21,7 +21,8 @@ def app_version(request: HttpRequest) -> dict[str, Any]:
     """Add app version and changelog to template context."""
     from plfog.version import CHANGELOG, VERSION
 
-    return {"app_version": VERSION, "changelog": CHANGELOG}
+    # The Spotlight's footer names the release as major.minor (#709): "Version 2.63".
+    return {"app_version": VERSION, "app_version_short": ".".join(VERSION.split(".")[:2]), "changelog": CHANGELOG}
 
 
 def makerspace_wiki(request: HttpRequest) -> dict[str, str]:

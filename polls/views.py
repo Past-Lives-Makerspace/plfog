@@ -25,6 +25,8 @@ from polls.models import Poll, PollCard, PollChoice, VoteRefusedError, can_vote
 
 #: Polls per page on /polls/.
 PER_PAGE = 10
+#: The card copies a vote can come from (#709): /polls/, the Spotlight's Standard, Expanded.
+VARIANTS = frozenset({"", "spotlight", "panel"})
 
 
 def _back(request: HttpRequest) -> str:
@@ -73,10 +75,15 @@ def poll_vote(request: HttpRequest, pk: int) -> HttpResponse:
         else:
             messages.success(request, "Thanks, your vote is in.")
         return HttpResponseRedirect(_back(request))
+    variant = request.POST.get("variant", "")
     response = render(
         request,
         "polls/partials/_poll_card.html",
-        {"card": PollCard.for_poll(poll, member, now), "next_url": _back(request)},
+        {
+            "card": PollCard.for_poll(poll, member, now),
+            "next_url": _back(request),
+            "variant": variant if variant in VARIANTS else "",
+        },
     )
     trigger_toast(response, refusal or "Thanks, your vote is in.", "error" if refusal else "success")
     return response

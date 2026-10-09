@@ -11,6 +11,7 @@
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;700&family=Lato:wght@400;700;900&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="{% static 'css/hub.css' %}">
     <link rel="stylesheet" href="{% static 'css/components.css' %}">
+    <link rel="stylesheet" href="{% static 'css/spotlight.css' %}">
     {% if IS_STAGING %}<link rel="stylesheet" href="{% static 'css/staging-ribbon.css' %}">{% endif %}
     <meta name="default-theme" content="{% block default_theme %}dark{% endblock %}">
     {% include "includes/google_analytics.html" %}
@@ -69,6 +70,8 @@
             };
         })();
     </script>
+    {# The Spotlight's minimized choice (#709), set before the first paint so a minimized Spotlight never flashes open; static/js/spotlight.js keeps it in step. #}
+    <script>try { if (localStorage.getItem('plSpotlightMinimized') === '1') document.documentElement.dataset.spotlightMin = '1'; } catch (e) {}</script>
     {# Read by hub_boot.js for the X-CSRFToken header on every htmx request. Django masks the token per render, so head-support swaps this tag on each boosted arrival and the header always carries a fresh one. #}
     <meta name="csrf-token" content="{{ csrf_token }}">
     {% comment %}
@@ -93,6 +96,7 @@
     <script defer src="{% static 'js/guild_autosave.js' %}"></script>
     <script defer src="{% static 'js/list_calendar.js' %}"></script>
     <script defer src="{% static 'js/pl_help.js' %}"></script>
+    <script defer src="{% static 'js/spotlight.js' %}"></script>
     <script defer src="{% static 'js/alpine.min.js' %}"></script>
     {% comment %}Biometric sign in for the native app. This document is not a child of
     base.html, so the hub needs its own copy: the enrollment offer and the Signed In Devices
@@ -126,9 +130,11 @@
             <img src="{% firstof brand_logo_url fallback_logo %}" alt="{{ brand_short_name }}" class="pl-brand__icon" width="24" height="24">
             <span class="pl-brand__info">
                 <span class="pl-brand__text">Member Portal</span>
-                <button type="button" class="pl-badge--version" onclick="event.preventDefault();event.stopPropagation();document.getElementById('changelog-modal').style.display='flex'">v{{ app_version }}</button>
+                {# The Spotlight replaces the version number for members (#709); guests keep it. #}
+                {% if not spotlight %}<button type="button" class="pl-badge--version" onclick="event.preventDefault();event.stopPropagation();document.getElementById('changelog-modal').style.display='flex'">v{{ app_version }}</button>{% endif %}
             </span>
         </a>
+        {% if spotlight %}<div class="hub-sidebar__spotlight">{% include "hub/partials/_spotlight.html" with spotlight=spotlight next_url=request.get_full_path %}</div>{% endif %}
 
         <nav class="hub-sidebar__nav" aria-label="Hub navigation" data-help-key="nav.sidebar" hx-boost="false" @click="if ($event.target.closest('a') && window.innerWidth <= 768) sidebarOpen = false">
             {% if kiln_nav.guest_only %}
@@ -632,7 +638,11 @@
         </main>
     </div>
 
+    {% if spotlight and not request.GET.public and not is_guest_surface and not is_framed %}
+    {% include "components/modal.html" with modal_id="spotlight-expanded" modal_title="Spotlight" modal_size="lg" modal_body_include="hub/partials/_spotlight_expanded.html" %}
+    {% else %}
     {% include "includes/changelog_modal.html" %}
+    {% endif %}
     {% if show_welcome_modal %}{% include "includes/welcome_modal.html" %}{% endif %}
     {# HTMX fires HX-Trigger JSON keys as events plus a kebab alias, so trigger_toast's #}
     {# `showToast` key reaches the toast script (components/toast.html) as `show-toast`. #}

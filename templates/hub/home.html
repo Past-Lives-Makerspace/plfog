@@ -4,6 +4,8 @@
 {% block title %}Home{% endblock %}
 
 {% block content %}
+{# On phones the sidebar starts closed, so the Spotlight sits at the top of Home there (#709); hidden on wider screens. #}
+{% if spotlight %}<div class="pl-spotlight-home" data-spotlight-home>{% include "hub/partials/_spotlight.html" with spotlight=spotlight next_url=request.get_full_path %}</div>{% endif %}
 {% if member %}
 {% with greeting="Welcome back, "|add:member.display_name %}
 {% include "components/page_header.html" with title=greeting description="Your home base — what's coming up, the latest from your guilds, and quick ways in." action_url="?tour=member-welcome" action_label="Show me around" %}

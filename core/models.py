@@ -1077,6 +1077,12 @@ class SiteConfiguration(models.Model):
         verbose_name="Minimized second line",
         help_text="Empty uses Feature Request Meeting. The date and time pill always follows it.",
     )
+    spotlight_show_when_empty = models.BooleanField(
+        default=True,
+        db_default=True,
+        verbose_name="Show the Spotlight when there is no poll and no meeting",
+        help_text="On: members see the latest update and Details. Off: the corner goes back to the logo and version number.",
+    )
     spotlight_text_changed_at = models.DateTimeField(
         null=True,
         blank=True,
@@ -1107,12 +1113,6 @@ class SiteConfiguration(models.Model):
     def load(cls) -> SiteConfiguration:
         """Load the singleton instance, creating it with defaults if needed."""
         obj, _created = cls.objects.get_or_create(pk=1)
-        return obj
-
-    @classmethod
-    def load_with_spotlight_meeting(cls) -> SiteConfiguration:
-        """:meth:`load`, with the Spotlight's meeting event joined in, so both cost one query (#708)."""
-        obj, _created = cls.objects.select_related("spotlight_meeting_event").get_or_create(pk=1)
         return obj
 
     @property

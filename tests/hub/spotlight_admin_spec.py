@@ -287,7 +287,7 @@ def describe_past_polls():
         poll_with("Laser", "Lathe", question="Zorblax open now")
 
         html = admin_client.get(PAGE).content.decode()
-        table = html.split("data-past-polls>", 1)[1]
+        table = html.split("data-past-polls>", 1)[1].split("</table>", 1)[0]
 
         assert table.index("Zorblax newer") < table.index("Zorblax older")
         assert "Zorblax open now" not in table
@@ -328,3 +328,73 @@ def describe_past_polls():
         assert "Zorblax results" in html
         assert "1 vote · 100%" in html
         assert "Zorblax Voterperson" not in html
+
+
+def describe_the_admins_own_spotlight_on_this_page():
+    """The page's preview reads the Spotlight as nobody; the sidebar must still be the admin's own (#709)."""
+
+    def _sidebar(html: str) -> str:
+        return html.split('class="hub-sidebar__spotlight"', 1)[1].split("hub-sidebar__nav", 1)[0]
+
+    def it_offers_the_answers_to_an_admin_who_has_not_voted(admin_client: Client):
+        poll_with("Laser", "Lathe", question="Zorblax admin?")
+
+        sidebar = _sidebar(admin_client.get(PAGE).content.decode())
+
+        assert "data-poll-choices" in sidebar
+        assert "data-my-vote" not in sidebar
+
+    def it_marks_the_admins_own_vote(admin_client: Client):
+        poll = poll_with("Laser", "Lathe")
+        admin = User.objects.get(username="spotadmin")
+        lathe = poll.choices.get(text="Lathe")
+        PollVoteFactory(choice=lathe, member=admin.member)
+
+        html = admin_client.get(PAGE).content.decode()
+
+        assert f'data-poll-result="{lathe.pk}" data-my-vote' in _sidebar(html)
+        assert "Your vote" in html.split("data-spotlight-panel", 1)[1]
+
+    def it_still_previews_as_nobody(admin_client: Client):
+        poll = poll_with("Laser", "Lathe")
+        PollVoteFactory(choice=poll.choices.first(), member=User.objects.get(username="spotadmin").member)
+
+        preview = (
+            admin_client.get(PAGE).content.decode().split("data-spotlight-preview", 1)[1].split('id="open-poll"', 1)[0]
+        )
+
+        assert "data-spotlight-choice=" in preview
+        assert "data-my-vote" not in preview
+
+
+def describe_the_show_when_empty_toggle():
+    def it_renders_as_a_toggle_in_the_text_section(admin_client: Client):
+        html = admin_client.get(PAGE).content.decode()
+        section = html.split('id="spotlight-text"', 1)[1].split('id="open-poll"', 1)[0]
+
+        assert "Show the Spotlight when there is no poll and no meeting" in section
+        assert 'name="spotlight_show_when_empty"' in section
+        assert "pl-toggle-row" in section
+
+    def it_saves_off_without_stamping_the_text(admin_client: Client):
+        admin_client.post(reverse("hub_admin_spotlight_text"), {"spotlight_first_line": ""})
+        config = SiteConfiguration.load()
+
+        assert config.spotlight_show_when_empty is False
+        assert config.spotlight_text_changed_at is None
+
+    def it_saves_on(admin_client: Client):
+        SiteConfiguration.objects.filter(pk=1).update(spotlight_show_when_empty=False)
+
+        admin_client.post(reverse("hub_admin_spotlight_text"), {"spotlight_show_when_empty": "on"})
+
+        assert SiteConfiguration.load().spotlight_show_when_empty is True
+
+    def it_previews_the_hidden_state(admin_client: Client):
+        SiteConfiguration.objects.filter(pk=SiteConfiguration.load().pk).update(spotlight_show_when_empty=False)
+
+        html = admin_client.get(PAGE).content.decode()
+
+        assert "data-spotlight-preview-hidden" in html
+        assert '"showWhenEmpty": false' in html
+        assert '"hasPoll": false' in html

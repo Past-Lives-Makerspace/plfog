@@ -1,13 +1,17 @@
 {% comment %}
-One poll as one member sees it (#708 part 2; reused by the Spotlight in #709). card is
-polls.models.PollCard; next_url is where a plain post lands. While it is open and not yet
-answered it offers the answers as buttons, which post to polls:vote and swap this card for its
-results (HTMX), or post the page and come back (no script). Otherwise it shows the results
-with the member's own answer marked. Never who voted for what.
+One poll as one member sees it (#708 part 2, #709). card is polls.models.PollCard; next_url is
+where a plain post lands. variant is "" on /polls/, "spotlight" for the compact Standard copy
+in the sidebar (an eyebrow, no meta line) and "panel" inside the Expanded panel; the vote posts
+it back so the swapped card matches. Only the /polls/ card carries an id: the Spotlight can show
+the same poll twice on one page. While open and not yet answered it offers the answers as
+buttons, which swap this card for its results (HTMX) or post the page and come back (no
+script); otherwise it shows the results with the member's own answer marked. Never who voted.
 {% endcomment %}
-<article class="pl-poll-card{% if card.is_open %} pl-poll-card--open{% endif %}" id="poll-{{ card.poll.pk }}" data-poll-card="{{ card.poll.pk }}">
+<article class="pl-poll-card{% if card.is_open %} pl-poll-card--open{% endif %}{% if variant %} pl-poll-card--{{ variant }}{% endif %}"{% if not variant %} id="poll-{{ card.poll.pk }}"{% endif %} data-poll-card="{{ card.poll.pk }}">
     <header class="pl-poll-card__header">
+        {% if variant == "spotlight" %}<p class="pl-spotlight__eyebrow">This week's poll</p>{% endif %}
         <h2 class="pl-poll-card__question">{{ card.poll.question }}</h2>
+        {% if variant != "spotlight" %}
         <p class="pl-poll-card__meta">
             {% if card.is_open %}<span class="pl-poll-card__status" data-poll-open>Open</span>{% endif %}
             <span>{{ card.poll.opens_at|date:"M j, Y" }}</span>
@@ -15,16 +19,18 @@ with the member's own answer marked. Never who voted for what.
             <span data-poll-total>{{ card.total_votes }} vote{{ card.total_votes|pluralize }}</span>
             {% if card.is_open %}<span aria-hidden="true">·</span><span data-poll-closes>Closes {{ card.poll.closes_label }}</span>{% endif %}
         </p>
+        {% endif %}
     </header>
     {% if card.shows_choices %}
     <form method="post" action="{% url 'polls:vote' card.poll.pk %}" class="pl-poll-card__choices" data-poll-choices
           hx-post="{% url 'polls:vote' card.poll.pk %}" hx-target="closest [data-poll-card]" hx-swap="outerHTML">
         {% csrf_token %}
         <input type="hidden" name="next" value="{{ next_url }}">
+        {% if variant %}<input type="hidden" name="variant" value="{{ variant }}">{% endif %}
         {% for result in card.results %}
         <button type="submit" name="choice" value="{{ result.pk }}" class="pl-poll-card__choice" data-poll-choice="{{ result.pk }}">{{ result.text }}</button>
         {% endfor %}
-        <p class="pl-poll-card__hint">Tap an answer to vote. Votes are anonymous and cannot be changed.</p>
+        {% if variant != "spotlight" %}<p class="pl-poll-card__hint">Tap an answer to vote. Votes are anonymous and cannot be changed.</p>{% endif %}
     </form>
     {% else %}
     {% include "hub/partials/_poll_results.html" with results=card.results my_choice_pk=card.my_choice_pk %}

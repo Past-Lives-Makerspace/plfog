@@ -10,11 +10,11 @@ Polls for the Spotlight (#708): an admin asks one question, members pick one ans
 | `PollChoice` | poll, text, position | Answers in the admin's order; `results()` / `tally()` give `ChoiceResult(pk, text, votes, percent)`. |
 | `PollVote` | poll, choice, member | One per member per poll (`pollvote_one_per_member`). Counted only: no page shows who voted for what. |
 
-`open_poll_with_results(now)` reads the open poll and its tally in one query from the answer side, because the Spotlight renders on every hub page.
+The Spotlight reads the open poll, its tally and the member's vote in its own single query (`hub.spotlight.Spotlight.load`, #709), because it renders on every hub page.
 
 ## Voting and /polls/ (part 2)
 
 - `Poll.vote(member=, choice_pk=, now=)` is the only way a vote is cast. It refuses with a `VoteRefusedError` subclass whose message is written for the member: `NotAVoterError` (no member, a guest #691 or a former member; `can_vote`), `PollClosedError`, `AlreadyVotedError` (the one-vote constraint's IntegrityError, so a double tap or a race never 500s). It saves through `PollVote.save`, never a bulk insert, so the cross-poll guard runs.
 - `PollCard` is one poll as one member sees it: the tally, their own answer and `shows_choices`. `PollCard.for_polls(polls, member, now)` builds a page of them in two queries.
 - `polls.views.polls_index` (`polls:index`, `/polls/`): every poll newest first, ten a page, each through `templates/polls/partials/_poll_card.html`; members only (`can_vote`), and `/polls/` is in `MEMBER_ONLY_PATH_PREFIXES`.
-- `polls.views.poll_vote` (`polls:vote`, `POST /polls/<pk>/vote/`): an `HX-Request` gets the card back to swap in place with a toast; a plain post redirects to a same-site `next`, else `/polls/`. The card partial is built for the Spotlight (#709) to include as is.
+- `polls.views.poll_vote` (`polls:vote`, `POST /polls/<pk>/vote/`): an `HX-Request` gets the card back to swap in place with a toast; a plain post redirects to a same-site `next`, else `/polls/`. The card takes a `variant`: "" on /polls/ (the only copy with an `id`), "spotlight" (compact, in Standard) and "panel" (in Expanded); the vote posts it back so the swapped card matches.
