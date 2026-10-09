@@ -106,6 +106,36 @@ def describe_rich_html_to_text():
         assert rich_html_to_text("") == ""
 
 
+def describe_rich_html_to_lines():
+    def it_separates_paragraphs_with_one_blank_line():
+        from core.html_sanitize import rich_html_to_lines
+
+        assert rich_html_to_lines("<p>One.</p><p>Two.</p><p>Three.</p>") == "One.\n\nTwo.\n\nThree."
+
+    def it_writes_one_dash_line_per_bullet_with_a_gap_around_the_list():
+        from core.html_sanitize import rich_html_to_lines
+
+        html = sanitize_rich_html(
+            '<p>Bring:</p><ol><li data-list="bullet">gloves</li><li data-list="bullet">apron</li></ol><p>Thanks</p>'
+        )
+        assert rich_html_to_lines(html) == "Bring:\n\n- gloves\n- apron\n\nThanks"
+
+    def it_collapses_quills_blank_spacer_paragraph_to_one_blank_line():
+        from core.html_sanitize import rich_html_to_lines
+
+        assert rich_html_to_lines("<p>A</p><p><br></p><p><br></p><p>B</p>") == "A\n\nB"
+
+    def it_keeps_a_soft_break_and_unescapes_entities():
+        from core.html_sanitize import rich_html_to_lines
+
+        assert rich_html_to_lines("<p>Tom &amp; Jo<br>at six</p>") == "Tom & Jo\nat six"
+
+    def it_returns_empty_for_empty_input():
+        from core.html_sanitize import rich_html_to_lines
+
+        assert rich_html_to_lines("") == ""
+
+
 def describe_render_rich_email_body():
     def it_styles_editor_html_for_the_light_card():
         raw = (
@@ -244,8 +274,7 @@ def describe_rich_body_to_text():
         from core.html_sanitize import rich_body_to_text
 
         assert (
-            rich_body_to_text("<p>Make a hook.</p><ul><li>one</li><li>two</li></ul>")
-            == "Make a hook.\n\n- one\n\n- two"
+            rich_body_to_text("<p>Make a hook.</p><ul><li>one</li><li>two</li></ul>") == "Make a hook.\n\n- one\n- two"
         )
 
     def it_returns_plain_text_unchanged():

@@ -16,6 +16,7 @@ import hub.context_processors
 from core.models import SiteConfiguration
 from hub.spotlight import Spotlight
 from membership.models import CommunityEvent, Member
+from plfog.version import VERSION
 from membership.services.provisioning import provision_user_for_member
 from tests.membership.factories import CommunityEventFactory, MemberFactory
 from tests.polls.factories import PollVoteFactory, poll_with
@@ -23,6 +24,8 @@ from tests.polls.factories import PollVoteFactory, poll_with
 pytestmark = pytest.mark.django_db
 
 HOME = reverse("hub_home")
+#: The sidebar's version pill from before the Spotlight, the backup when the Spotlight is hidden.
+BACKUP_PILL = 'class="pl-badge--version" onclick'
 
 
 def _client_for(status: str = Member.Status.ACTIVE) -> tuple[Client, Member]:
@@ -103,21 +106,12 @@ def describe_standard():
         assert "data-poll-choices" not in standard
         assert f'data-poll-result="{lathe.pk}" data-my-vote' in standard
 
-    def it_hides_the_poll_with_none_open_and_the_meeting_with_none_set():
-        client, _member = _client_for()
-
-        standard = _standard(client.get(HOME).content.decode())
-
-        assert "data-poll-card" not in standard
-        assert "data-spotlight-meeting" not in standard
-        assert "data-spotlight-past" in standard
-
     def it_replaces_the_version_number_in_the_sidebar():
         client, _member = _client_for()
 
         html = client.get(HOME).content.decode()
 
-        assert "pl-badge--version" not in html
+        assert BACKUP_PILL not in html
         assert 'id="changelog-modal"' not in html
 
 
@@ -236,7 +230,7 @@ def describe_who_sees_it():
         html = client.get(reverse("kiln:mine")).content.decode()
 
         assert "data-spotlight" not in html
-        assert "pl-badge--version" in html
+        assert BACKUP_PILL in html
         assert 'id="changelog-modal"' in html
 
     def it_leaves_the_login_page_with_the_paged_plain_changelog():
@@ -356,6 +350,7 @@ def describe_with_no_open_poll():
     def it_falls_back_to_the_update_title_on_minimized_line_one(monkeypatch: pytest.MonkeyPatch):
         monkeypatch.setattr("plfog.version.CHANGELOG", [LATEST])
         client, _member = _client_for()
+        _settings(spotlight_meeting_event=_meeting())
 
         minimized = _section(client.get(HOME).content.decode(), 'data-spotlight-state="minimized"', "</button>")
 
@@ -364,7 +359,7 @@ def describe_with_no_open_poll():
     def it_keeps_the_admins_first_line_over_the_update(monkeypatch: pytest.MonkeyPatch):
         monkeypatch.setattr("plfog.version.CHANGELOG", [LATEST])
         client, _member = _client_for()
-        _settings(spotlight_first_line="Zorblax admin line")
+        _settings(spotlight_meeting_event=_meeting(), spotlight_first_line="Zorblax admin line")
 
         minimized = _section(client.get(HOME).content.decode(), 'data-spotlight-state="minimized"', "</button>")
 
@@ -377,9 +372,31 @@ def describe_with_no_poll_and_no_meeting():
 
         html = client.get(HOME).content.decode()
 
-        assert "data-spotlight-update" in html
+        assert 'data-spotlight-state="quiet"' in html
         assert "data-spotlight-home" in html
-        assert "pl-badge--version" not in html
+        assert BACKUP_PILL not in html
+
+    def it_is_quiet_the_version_pill_the_update_date_and_details(monkeypatch: pytest.MonkeyPatch):
+        monkeypatch.setattr("plfog.version.CHANGELOG", [LATEST])
+        client, _member = _client_for()
+
+        sidebar = _section(client.get(HOME).content.decode(), 'class="hub-sidebar__spotlight"', "hub-sidebar__nav")
+
+        short = ".".join(VERSION.split(".")[:2])
+        assert 'data-spotlight-state="quiet"' in sidebar
+        assert f"data-spotlight-quiet-version>v{short}</button>" in sidebar
+        assert 'title="Oct 7, 2026" data-spotlight-quiet-date>Updated Oct 7</span>' in sidebar
+        assert "data-spotlight-details" in sidebar
+        assert "Zorblax latest" not in sidebar
+
+    def it_leaves_out_the_card_minimized_and_past_polls():
+        client, _member = _client_for()
+
+        sidebar = _section(client.get(HOME).content.decode(), 'class="hub-sidebar__spotlight"', "hub-sidebar__nav")
+
+        for gone in ('data-spotlight-state="standard"', 'data-spotlight-state="minimized"', "data-spotlight-past"):
+            assert gone not in sidebar
+        assert "data-spotlight-minimize" not in sidebar
 
     def it_goes_back_to_the_logo_and_version_while_the_toggle_is_off():
         client, _member = _client_for()
@@ -388,7 +405,7 @@ def describe_with_no_poll_and_no_meeting():
         html = client.get(HOME).content.decode()
 
         assert "data-spotlight" not in html
-        assert "pl-badge--version" in html
+        assert BACKUP_PILL in html
         assert 'id="changelog-modal"' in html
 
     def it_comes_back_when_a_poll_opens_with_the_toggle_off():
@@ -399,7 +416,7 @@ def describe_with_no_poll_and_no_meeting():
         html = client.get(HOME).content.decode()
 
         assert "hub-sidebar__spotlight" in html
-        assert "pl-badge--version" not in html
+        assert BACKUP_PILL not in html
 
     def it_still_costs_one_query_when_hidden(monkeypatch: pytest.MonkeyPatch):
         _settings(spotlight_show_when_empty=False)

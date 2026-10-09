@@ -415,7 +415,7 @@ def describe_a_results_draft():
             message = draft.build_discord_message("https://members.example/")
             prose = (
                 "The votes for September 2026 are in. 12 members voted on how the $1,000.00 guild funding pool "
-                "is split. Thank you to everyone who voted. See the full breakdown on the voting results page."
+                "is split. Thank you to everyone who voted.\n\nSee the full breakdown on the voting results page."
             )
             block = draft.funding_snapshot.allocation_discord_block()
             assert message.title == "September 2026 Voting Results"
@@ -443,13 +443,13 @@ def describe_a_results_draft():
             body = draft.build_discord_message("https://members.example/").body
             prose = (
                 "The votes for September 2026 are in. 12 members voted on how the $1,000.00 guild funding pool "
-                "is split. Thank you to everyone who voted. See the full breakdown on the voting results page."
+                "is split. Thank you to everyone who voted.\n\nSee the full breakdown on the voting results page."
             )
             assert len(body) <= 4096
             assert body.startswith(prose + "\n\n**How the $1,000.00 funding pool was split**\n")
             lines = body.split("\n")
             assert lines[-1].startswith("And ") and lines[-1].endswith(" more guilds on the voting results page.")
-            assert all(line.endswith("(2.5%)") for line in lines[3:-1])
+            assert all(line.endswith("(2.5%)") for line in lines[5:-1])
 
         def it_hands_the_bold_and_the_bars_to_discord_unescaped():
             message = _draft().build_discord_message("https://members.example/")

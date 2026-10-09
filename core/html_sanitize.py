@@ -10,8 +10,10 @@ welcome emails). Editor HTML is treated as **hostile**:
   text from before the editor existed — into inline-styled, email-ready HTML for the
   dark ``#092E4C`` card.
 * :func:`render_rich_email_text` produces the plain-text ``.txt`` counterpart.
-* :func:`rich_html_to_text` flattens HTML to one readable line for the in-app bell and
-  Discord fallback.
+* :func:`rich_html_to_text` flattens HTML to one readable line, for a snippet, a count or a
+  push tray line.
+* :func:`rich_html_to_lines` flattens HTML to readable lines, paragraphs and bullets kept, for
+  an announcement's Discord post, bell notification and guild page post.
 * :func:`clean_rich_body`, :func:`render_rich_body` and :func:`rich_body_to_text` are the
   same three steps for a body that renders on a page rather than in an email (the class
   description): what a form stores, what the page shows, and the plain text for a feed.
@@ -243,7 +245,7 @@ def _normalize_quill_lists(raw: str) -> str:
 
 
 def rich_html_to_text(html: str) -> str:
-    """Flatten sanitized HTML to one readable line (in-app bell + Discord fallback).
+    """Flatten sanitized HTML to one readable line (a snippet, a length count, a push tray line).
 
     Tags become plain text, line-breaking tags become spaces, entities are unescaped,
     and runs of whitespace collapse to single spaces.
@@ -381,16 +383,25 @@ def render_rich_email_text(value: str) -> str:
         return ""
     if not is_editor_html(value):
         return value
-    return _html_to_multiline_text(sanitize_rich_html(value))
+    return rich_html_to_lines(sanitize_rich_html(value))
 
 
-def _html_to_multiline_text(html: str) -> str:
-    """Flatten sanitized HTML to multi-line plain text, preserving paragraphs and bullets."""
+def rich_html_to_lines(html: str) -> str:
+    """Flatten sanitized HTML to readable multi-line text, the counterpart of :func:`rich_html_to_text`.
+
+    Paragraphs and headings are separated by one blank line, a ``<br>`` is a line break, and
+    each list item is one ``- `` line with no blank line between items. Tags go, entities are
+    unescaped, runs of spaces collapse and runs of blank lines collapse to one. What an
+    announcement's Discord post, bell notification and guild page post carry, so a member's
+    paragraphs stay paragraphs there as they do in the email. Returns ``""`` for empty input.
+    """
     if not html:
         return ""
     text = re.sub(r"<li(?:\s[^>]*)?>", "\n- ", html, flags=re.IGNORECASE)
     text = re.sub(r"<br\s*/?>", "\n", text, flags=re.IGNORECASE)
-    text = re.sub(r"</(?:p|h2|h3|blockquote|ul|ol|li)>", "\n", text, flags=re.IGNORECASE)
+    # No break for ``</li>``: the next item's ``- `` already starts a line, and the list's own
+    # closer ends the last one.
+    text = re.sub(r"</(?:p|h2|h3|blockquote|ul|ol)>", "\n", text, flags=re.IGNORECASE)
     unescaped = html_module.unescape(_TEXT_ONLY.clean(text))
     collapsed = re.sub(r"[ \t]+", " ", unescaped)
     collapsed = re.sub(r" *\n *", "\n", collapsed)

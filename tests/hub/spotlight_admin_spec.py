@@ -398,3 +398,10 @@ def describe_the_show_when_empty_toggle():
         assert "data-spotlight-preview-hidden" in html
         assert '"showWhenEmpty": false' in html
         assert '"hasPoll": false' in html
+
+    def it_previews_the_quiet_state_while_there_is_no_poll_and_no_meeting(admin_client: Client):
+        html = admin_client.get(PAGE).content.decode()
+        preview = html.split("data-spotlight-preview ", 1)[1].split('id="open-poll"', 1)[0]
+
+        assert "data-spotlight-preview-quiet" in preview
+        assert 'data-spotlight-state="quiet"' in preview

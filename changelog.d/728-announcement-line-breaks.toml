@@ -1,0 +1,8 @@
+bump = "patch"
+date = "2026-10-09"
+title = "Announcements keep their paragraphs on Discord and in the portal"
+changes = [
+  "Paragraph breaks you write in an announcement now show on Discord, in the Discord preview, on your Notifications page and on the guild page, not only in the email.",
+  "Bullet lists show one item per line.",
+]
+requests = [1, 2]
