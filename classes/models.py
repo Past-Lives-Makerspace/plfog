@@ -2350,14 +2350,14 @@ class ClassOffering(HeroCropMixin, models.Model):
         and never listed returns without a query.
 
         A class that fails the listing check here (it was queued, and goes live failing) sends
-        its instructor the problems, once: on the move into that failure, never on a retry
-        tick that finds the same failure again (#725).
+        its instructor the problems, once per list: only when the problems differ from the
+        refusal the class already records, so a retry tick or an unrelated save never repeats it (#725).
         """
         if not self.eventbrite_enabled and not self.eventbrite_event_id:
             return
         from core.integrations.eventbrite import EventbriteSync, sync_class_listing
 
-        before = (self.eventbrite_sync_state, self.eventbrite_sync_error)
+        recorded = self.eventbrite_sync_error
         sync_class_listing(self)
         self.save(
             update_fields=[
@@ -2370,9 +2370,11 @@ class ClassOffering(HeroCropMixin, models.Model):
                 "updated_at",
             ]
         )
-        after = (self.eventbrite_sync_state, self.eventbrite_sync_error)
-        refused = after[0] == self.EventbriteSyncState.FAILED and after[1].startswith(EventbriteSync.RULES_REFUSAL)
-        if refused and after != before:
+        refusal = self.eventbrite_sync_error
+        refused = self.eventbrite_sync_state == self.EventbriteSyncState.FAILED and refusal.startswith(
+            EventbriteSync.RULES_REFUSAL
+        )
+        if refused and refusal != recorded:
             from classes.emails import send_eventbrite_rules_failed
 
             send_eventbrite_rules_failed(self)
@@ -2394,12 +2396,17 @@ class ClassOffering(HeroCropMixin, models.Model):
             if self.eventbrite_event_id and self.eventbrite_sync_state != state.ENDED:
                 self.sync_eventbrite_listing()
             return
+        if self.needs_eventbrite_agreement:
+            return  # nothing goes to Eventbrite until someone agrees, so nothing is queued (#725)
         from core.integrations.eventbrite import EventbriteClient, EventbriteSync
 
         self.eventbrite_sync_state = state.PENDING
-        self.eventbrite_sync_error = (
-            EventbriteSync.EDIT_SAVED if EventbriteClient.from_settings().enabled else EventbriteSync.SYNC_OFF
-        )
+        # A rules refusal stays while the class waits, so the tick that refuses it again knows
+        # the instructor already has this list and sends no second email (#725).
+        if not self.eventbrite_sync_error.startswith(EventbriteSync.RULES_REFUSAL):
+            self.eventbrite_sync_error = (
+                EventbriteSync.EDIT_SAVED if EventbriteClient.from_settings().enabled else EventbriteSync.SYNC_OFF
+            )
         self.save(update_fields=["eventbrite_sync_state", "eventbrite_sync_error", "updated_at"])
 
     @classmethod
@@ -3526,7 +3533,7 @@ class ClassOffering(HeroCropMixin, models.Model):
         self.cancelled_at = None
         self.cancelled_by = None
         self.cancellation_reason = ""
-        # The opt-in carries over; the listing does not, or the clone would edit the source's event.
+        # The listing does not carry over, or the clone would edit the source's event.
         self.eventbrite_event_id = ""
         self.eventbrite_ticket_class_id = ""
         self.eventbrite_sync_state = self.EventbriteSyncState.IDLE
@@ -3534,7 +3541,8 @@ class ClassOffering(HeroCropMixin, models.Model):
         self.eventbrite_synced_at = None
         # Published belongs to the source's event: kept, the copy's new event reads as taken down.
         self.eventbrite_published = False
-        # The agreement is per class (#725): a copy asks for it again before it can sell there.
+        # The agreement is per class (#725): a copy starts off Eventbrite and asks for it again.
+        self.eventbrite_enabled = False
         self.eventbrite_rules_agreed_by = None
         self.eventbrite_rules_agreed_at = None
 

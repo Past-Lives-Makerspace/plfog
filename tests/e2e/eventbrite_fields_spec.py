@@ -16,6 +16,7 @@ from typing import Any, cast
 
 import pytest
 from django.urls import reverse
+from django.utils import timezone
 from playwright.sync_api import Error as PlaywrightError
 from playwright.sync_api import expect
 
@@ -183,7 +184,9 @@ def describe_submit_to_eventbrite_checks_as_you_type():
 
         offering = _seed(settings)
         ClassOffering.objects.filter(pk=offering.pk).update(
-            eventbrite_enabled=True, description="<p>Materials are paid at the session (cash/venmo).</p>"
+            eventbrite_enabled=True,
+            eventbrite_rules_agreed_at=timezone.now(),
+            description="<p>Materials are paid at the session (cash/venmo).</p>",
         )
         offering.refresh_from_db()
         # The check fails before any Eventbrite call, so nothing here reaches Eventbrite.

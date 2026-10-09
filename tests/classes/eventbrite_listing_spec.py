@@ -603,12 +603,13 @@ def describe_when_sync_is_off():
 
 
 def describe_run_it_again():
-    def it_keeps_the_opt_in_but_not_the_listing():
+    def it_starts_the_run_off_eventbrite_with_no_listing():
+        # #725: Submit to Eventbrite is ticked per class, with its own agreement.
         offering = _listed(eventbrite_synced_at=timezone.now())
 
         run = offering.duplicate_as_new_run()
 
-        assert run.eventbrite_enabled is True
+        assert run.eventbrite_enabled is False
         assert (run.eventbrite_event_id, run.eventbrite_ticket_class_id) == ("", "")
         assert run.eventbrite_sync_state == State.IDLE
         assert run.eventbrite_synced_at is None
@@ -1260,14 +1261,74 @@ def describe_the_rules_check_on_the_class_forms():
             assert before - timedelta(seconds=5) <= offering.eventbrite_rules_agreed_at <= timezone.now()
             assert offering.needs_eventbrite_agreement is False
 
-        def it_records_a_class_already_on_on_its_next_save():
-            offering = _listed()  # on before the rules existed, like class 675
-            user = UserFactory()
-            form = _form(offering)
+        def describe_a_class_on_without_an_agreement():
+            """Class 675's case: switched on before the rules; the box shows unticked and the sync waits."""
 
-            assert offering.needs_eventbrite_agreement is True
-            assert form.accepts_eventbrite_listing(user) is True
-            assert form.save().eventbrite_rules_agreed_by == user
+            def _unagreed(**kwargs: Any) -> ClassOffering:
+                return _listed(eventbrite_rules_agreed_at=None, **kwargs)
+
+            def it_offers_the_box_unticked():
+                offering = _unagreed()
+                form = TeachClassOfferingForm(instance=offering)
+
+                assert form.eventbrite_awaiting_agreement is True
+                assert form["eventbrite_enabled"].value() is False
+                assert form.eventbrite_check is None
+
+            def it_keeps_the_opt_in_on_an_unticked_save_and_checks_and_records_nothing():
+                offering = _described(_unagreed(), _KATE)
+                data = _composer_post(offering, description=_KATE)
+                del data["eventbrite_enabled"]
+                form = TeachClassOfferingForm(data, instance=offering)
+                assert form.is_valid(), form.errors
+
+                assert form.accepts_eventbrite_listing(UserFactory()) is True
+                saved = form.save()
+                assert (saved.eventbrite_enabled, saved.eventbrite_rules_agreed_at) == (True, None)
+
+            def it_checks_and_records_the_agreement_once_ticked():
+                offering = _unagreed()
+                user = UserFactory()
+                form = _form(offering)
+
+                assert form.accepts_eventbrite_listing(user) is True
+                assert form.save().eventbrite_rules_agreed_by == user
+
+            def it_refuses_a_ticked_save_that_fails_the_check():
+                offering = _unagreed()
+
+                assert _form(offering, description=_KATE).accepts_eventbrite_listing(UserFactory()) is False
+
+            def it_does_not_sync_or_end_the_listing_until_someone_agrees(eventbrite: FakeEventbrite):
+                offering = _unagreed()
+
+                offering.sync_eventbrite_listing()
+                offering.refresh_from_db()
+
+                assert eventbrite.calls == []
+                assert (offering.eventbrite_sync_state, offering.eventbrite_enabled) == (State.LISTED, True)
+
+            def it_leaves_a_taken_down_event_alone_on_an_unticked_live_page_save(
+                eventbrite: FakeEventbrite, client: Any
+            ):
+                instructor = _rules_instructor()
+                offering = _unagreed(
+                    instructor=instructor,
+                    eventbrite_published=True,
+                    eventbrite_sync_state=State.ENDED,
+                    eventbrite_sync_error=EventbriteSync.TAKEN_DOWN,
+                )
+                client.force_login(instructor.user)
+
+                response = client.post(
+                    reverse("classes:teach_class_edit", kwargs={"pk": offering.pk}),
+                    {"description": "A hands-on class, edited.", **_faq_post()},
+                )
+
+                assert response.status_code == 302
+                offering.refresh_from_db()
+                assert eventbrite.calls == []
+                assert (offering.eventbrite_enabled, offering.eventbrite_sync_state) == (True, State.ENDED)
 
         def it_keeps_the_first_agreement():
             first = UserFactory()
@@ -1669,7 +1730,7 @@ def describe_a_refused_save_through_each_page():
         )
 
     def it_refuses_an_edit_on_the_admin_composer(client: Any):
-        offering = _listed()
+        offering = _listed(eventbrite_rules_agreed_at=None)
         session = offering.sessions.get()
         client.force_login(_rules_admin())
         data = _composer_post(offering, title="Welding, call 503-555-0182", instructor=str(offering.instructor_id)) | {
@@ -1700,7 +1761,7 @@ def describe_a_refused_save_through_each_page():
 
     def it_saves_a_clean_live_class_edit_and_records_the_agreement(client: Any):
         instructor = _rules_instructor()
-        offering = _listed(instructor=instructor)
+        offering = _listed(instructor=instructor, eventbrite_rules_agreed_at=None)
         client.force_login(instructor.user)
         data = {"description": _INCLUDED, "eventbrite_enabled": "on", **_faq_post()}
 
@@ -1727,6 +1788,7 @@ def describe_a_copied_class():
 
         assert (clone.eventbrite_rules_agreed_by, clone.eventbrite_rules_agreed_at) == (None, None)
         assert clone.needs_eventbrite_agreement is True
+        assert clone.eventbrite_enabled is False
         assert ClassOffering.objects.get(pk=source_pk).eventbrite_rules_agreed_by == agreed_by
 
     def it_lets_a_copy_of_a_listed_class_publish_its_own_event(eventbrite: FakeEventbrite):
@@ -1739,7 +1801,9 @@ def describe_a_copied_class():
 
         start = timezone.now() + timedelta(days=3)
         ClassSessionFactory(class_offering=copy, starts_at=start, ends_at=start + timedelta(hours=1))
-        ClassOffering.objects.filter(pk=copy.pk).update(status=ClassOffering.Status.PUBLISHED)
+        ClassOffering.objects.filter(pk=copy.pk).update(  # Submit to Eventbrite ticked and saved on the copy
+            status=ClassOffering.Status.PUBLISHED, eventbrite_enabled=True, eventbrite_rules_agreed_at=timezone.now()
+        )
         copy.refresh_from_db()
         copy.sync_eventbrite_listing()
 
@@ -1797,6 +1861,31 @@ def describe_a_queued_class_going_live():
         offering.sync_eventbrite_listing()
         call_command("retry_eventbrite_pushes")
 
+        assert len(_rules_emails()) == 1
+
+    def it_does_not_email_again_after_a_save_that_changes_nothing_on_the_listing(eventbrite: FakeEventbrite):
+        offering = _described(_queued(), f"<p>{_KATE}</p>")
+        offering.publish(UserFactory())
+
+        offering.mark_eventbrite_edit_saved()  # what a sale modal save does
+        assert offering.eventbrite_sync_state == State.PENDING
+        call_command("retry_eventbrite_pushes")
+
+        offering.refresh_from_db()
+        assert offering.eventbrite_sync_state == State.FAILED
+        assert len(_rules_emails()) == 1
+
+    def it_lists_a_failed_class_on_the_next_tick_once_it_is_fixed(eventbrite: FakeEventbrite):
+        offering = _described(_queued(), f"<p>{_KATE}</p>")
+        offering.publish(UserFactory())
+        _described(offering, f"<p>{_INCLUDED}</p>")
+
+        offering.mark_eventbrite_edit_saved()  # the fix saved through the class editor
+        call_command("retry_eventbrite_pushes")
+
+        offering.refresh_from_db()
+        assert offering.eventbrite_sync_state == State.LISTED
+        assert "publish" in eventbrite.names()
         assert len(_rules_emails()) == 1
 
     def it_emails_again_for_a_different_failure(eventbrite: FakeEventbrite):

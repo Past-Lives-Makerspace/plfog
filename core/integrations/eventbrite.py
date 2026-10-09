@@ -134,6 +134,10 @@ _FEE_RE = re.compile(
     re.IGNORECASE,
 )
 _NEGATED_RE = re.compile(r"\b(?:no|without|zero)\s+$", re.IGNORECASE)
+# A payment mention that says there is nothing more to pay ("pay nothing extra on the day") or
+# that the ticket already covers it ("Your payment to the studio covers firing").
+_NOTHING_TO_PAY_RE = re.compile(r"\b(?:nothing|no)\b", re.IGNORECASE)
+_COVERED_RE = re.compile(r"\s+(?:covers|includes|is\s+included)\b", re.IGNORECASE)
 # A discount or coupon code, named as one or by the makerspace's own code shapes
 # (PLHalfOff, PLMetal10, PL-10%off). A token after "code" counts only with a digit, a "%" or two
 # capitals, so "dress code Black", "QR code below" and "use the code editor" are text.
@@ -426,6 +430,19 @@ def _addresses(text: str) -> list[str]:
     return found + _HANDLE_RE.findall(_PHONE_RE.sub(" ", text))
 
 
+def _payments(text: str) -> list[str]:
+    """Each payment outside the ticket, skipping one the text rules out ("no payment at the door", "pay nothing")."""
+    return [
+        match.group(0)
+        for match in _PAYMENT_RE.finditer(text)
+        if not (
+            _NEGATED_RE.search(text[: match.start()])
+            or _NOTHING_TO_PAY_RE.search(match.group(0))
+            or _COVERED_RE.match(text, match.end())
+        )
+    ]
+
+
 def _fees(text: str) -> list[str]:
     """Each cost on top of the ticket, skipping one the text says there is none of ("no extra fee")."""
     return [match.group(0) for match in _FEE_RE.finditer(text) if not _NEGATED_RE.search(text[: match.start()])]
@@ -450,7 +467,7 @@ def _finding(where: str, rule: ListingRule, words: list[str]) -> list[ListingFin
 
 def _selling_problems(where: str, text: str) -> list[ListingFinding]:
     return [
-        *_finding(where, ListingRule.OFF_TICKET_PAYMENT, _PAYMENT_RE.findall(text)),
+        *_finding(where, ListingRule.OFF_TICKET_PAYMENT, _payments(text)),
         *_finding(where, ListingRule.FEE_NOT_INCLUDED, _fees(text)),
         *_finding(where, ListingRule.DISCOUNT_CODE, _codes(text)),
     ]
@@ -751,6 +768,10 @@ def sync_class_listing(offering: ClassOffering) -> None:
         offering.eventbrite_sync_state, offering.eventbrite_sync_error = state.IDLE, ""
         return
     if not wanted and offering.eventbrite_sync_state == state.ENDED:
+        return
+    if wanted and offering.needs_eventbrite_agreement:
+        # On without anyone's agreement (switched on before #725): it waits, unchanged and unsent,
+        # until someone ticks Submit to Eventbrite and saves. Never the end path: that is no decision.
         return
     if wanted and (check := offering.eventbrite_listing_check()).problems:
         # Edited through a path the form check does not guard (#725): nothing is sent.

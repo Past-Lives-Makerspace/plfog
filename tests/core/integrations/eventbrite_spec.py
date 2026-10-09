@@ -892,6 +892,10 @@ def describe_the_listing_check():
                 "Everything you need is in the ticket price.",
                 "Cashmere scarves welcome.",
                 "We pay close attention. Then the class starts.",
+                # Fix round of #741:
+                "Tickets include all materials; pay nothing extra on the day.",
+                "Your payment to the studio covers firing.",
+                "No payment at the door.",
                 "Gift cards have no cash value.",
                 "Students cash in on skills.",
                 "Paying attention to the teacher helps.",

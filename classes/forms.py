@@ -684,14 +684,33 @@ class _EventbriteRulesMixin:
     is_bound: bool
     eventbrite_rules_text = EVENTBRITE_RULES
     eventbrite_check: ListingCheck | None = None
+    # A class switched on before the rules existed (class 675), with nobody's agreement: the box
+    # shows unticked, an unticked save keeps the opt in as it was, and the sync waits (#725).
+    eventbrite_awaiting_agreement = False
+    eventbrite_ticked = False
 
     def setup_eventbrite_rules(self) -> None:
         """Name the opt in Submit to Eventbrite, say it is the agreement, and check a saved opted-in class."""
         switch = self.fields["eventbrite_enabled"]
         switch.label, switch.help_text = _SUBMIT_LABEL, _AGREEMENT_HELP
         switch.widget.attrs.update(_SUBMIT_ALPINE)
-        if not self.is_bound and self.instance.pk and self.instance.eventbrite_enabled:
+        if self.instance.eventbrite_enabled and self.instance.needs_eventbrite_agreement:
+            self.eventbrite_awaiting_agreement = True
+            self.initial["eventbrite_enabled"] = False  # ticked only by a real agreement
+        elif not self.is_bound and self.instance.pk and self.instance.eventbrite_enabled:
             self.eventbrite_check = self.instance.eventbrite_listing_check()
+
+    def keep_unagreed_opt_in(self) -> None:
+        """Remember whether the box was ticked; leave an unagreed class's opt in as it was when it was not.
+
+        Unticking on such a class is not a decision to end its listing, so nothing reaches the
+        end and unpublish path; the class just does not sync until someone ticks and saves.
+        """
+        if "eventbrite_enabled" not in self.fields:
+            return
+        self.eventbrite_ticked = bool(self.cleaned_data["eventbrite_enabled"])
+        if self.eventbrite_awaiting_agreement and not self.eventbrite_ticked:
+            self.cleaned_data["eventbrite_enabled"] = True
 
     def accepts_eventbrite_listing(self, agreed_by: User, faq_formset: BaseClassFaqFormSet | None = None) -> bool:
         """After ``is_valid``: check a class with Eventbrite on against its rules, and record the agreement.
@@ -707,7 +726,7 @@ class _EventbriteRulesMixin:
         Returns:
             True when the save may go ahead.
         """
-        if "eventbrite_enabled" not in self.fields or not self.cleaned_data["eventbrite_enabled"]:
+        if "eventbrite_enabled" not in self.fields or not self.eventbrite_ticked:
             return True
         faqs = faq_formset.posted_faqs() if faq_formset is not None else []
         self.eventbrite_check = check = self.instance.eventbrite_listing_check(faqs)
@@ -795,8 +814,10 @@ class _EventbriteMixin(_EventbriteRulesMixin, _EventbriteCategoryMixin):
         self.check_eventbrite_category_pair()
         if not self.cleaned_data.get("eventbrite_fee_payer"):
             self.cleaned_data["eventbrite_fee_payer"] = ClassOffering.EventbriteFeePayer.BUYER
+        self.keep_unagreed_opt_in()
         if self.cleaned_data.get("scheduling_model") == ClassOffering.SchedulingModel.FLEXIBLE:
             self.cleaned_data["eventbrite_enabled"] = False
+            self.eventbrite_ticked = False
 
 
 class ClassOfferingForm(
@@ -1456,6 +1477,7 @@ class TeachPublishedClassForm(
     def clean(self) -> dict:
         data = super().clean() or {}
         self.check_eventbrite_category_pair()
+        self.keep_unagreed_opt_in()
         return data
 
     def clean_flexible_booking_text(self) -> str:
