@@ -145,7 +145,7 @@ def describe_post_on_discord_as_me():
 
     @respx.mock
     def it_posts_under_the_default_name_when_discord_would_refuse_the_name():
-        _lookup(global_name="Discord Dan")
+        _lookup(global_name="Discord Dan", username="discordfan")
         hook = respx.post(_GENERAL_HOOK).mock(return_value=httpx.Response(204))
         _draft(_sender()).send()
         payload = _posted(hook)
