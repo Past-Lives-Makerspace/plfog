@@ -823,10 +823,12 @@ html.dark .cp-page {
   object-fit: contain;
   opacity: .9;
 }
+/* A neutral shade under the title only: the photo keeps its own colours (no navy tint), and the
+   bottom darkens just enough for cream text to read on a bright photo. */
 .cp-detail__hero-overlay {
   position: absolute;
   inset: 0;
-  background: linear-gradient(180deg, rgba(9,46,76,0) 0%, rgba(9,46,76,.55) 60%, rgba(9,46,76,.85) 100%);
+  background: linear-gradient(180deg, rgba(0,0,0,0) 50%, rgba(0,0,0,.6) 100%);
 }
 .cp-detail__hero-content {
   position: relative;
@@ -891,7 +893,7 @@ a.cp-detail__cat-chip:hover { background: #f5ca6e; color: var(--color-navy); tex
 }
 /* The optional second line under the title (#563): the title's face in italic at 500 (the one
    italic weight base_public.html loads), lighter and smaller, so title, subtitle and byline read
-   as one block. Always on the navy hero overlay, so cream in both themes. */
+   as one block. Always on the dark hero shade, so cream in both themes. */
 .cp-detail__subtitle {
   font-family: var(--heading);
   font-style: italic;
