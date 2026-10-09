@@ -1,0 +1,6 @@
+bump = "patch"
+date = "2026-10-09"
+title = "Class photos show their true colors"
+changes = [
+  "The photo at the top of a class page no longer has a blue tint over it. The lower part darkens a little instead, so the class name stays easy to read.",
+]
