@@ -453,11 +453,15 @@ GOOGLE_CALENDAR_SYNC_ENABLED = os.environ.get("GOOGLE_CALENDAR_SYNC_ENABLED", ""
 
 # Eventbrite listing push for classes (#652). A private token from the Past Lives Eventbrite
 # account, the organization the events are created under, and the venue every class meets at.
-# Blank by default so the app and tests run without them; any blank one disables the push, as
-# does the admin toggle SiteConfiguration.eventbrite_sync_enabled and ENVIRONMENT=staging.
+# Blank by default so the app and tests run without them; any blank one (the organizer below too)
+# disables the push, as does the admin toggle SiteConfiguration.eventbrite_sync_enabled and
+# ENVIRONMENT=staging.
 EVENTBRITE_PRIVATE_TOKEN = os.environ.get("EVENTBRITE_PRIVATE_TOKEN", "").strip()
 EVENTBRITE_ORGANIZATION_ID = os.environ.get("EVENTBRITE_ORGANIZATION_ID", "").strip()
 EVENTBRITE_VENUE_ID = os.environ.get("EVENTBRITE_VENUE_ID", "").strip()
+# The Past Lives organizer profile every event is created and updated under (#720). Blank turns
+# the push off, like a missing token.
+EVENTBRITE_ORGANIZER_ID = os.environ.get("EVENTBRITE_ORGANIZER_ID", "").strip()
 # The secret path segment of the inbound order webhook (/billing/webhooks/eventbrite/<secret>/).
 # Eventbrite signs nothing, so this keeps strangers from making plfog spend its API allowance;
 # blank turns the webhook off (every delivery is a 404).

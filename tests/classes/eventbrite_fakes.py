@@ -19,6 +19,7 @@ class FakeEventbrite:
 
     enabled = True
     venue_id = "venue-1"
+    organizer_id = "organizer-1"
 
     def __init__(self) -> None:
         self.calls: list[tuple[str, tuple[Any, ...]]] = []

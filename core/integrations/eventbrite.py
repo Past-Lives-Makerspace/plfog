@@ -4,31 +4,40 @@ Mirrors :mod:`core.integrations.discord_events`: build via :meth:`EventbriteClie
 check ``.enabled``, and **never raise to the caller**. An Eventbrite outage records a sync error
 on the class and the plfog save proceeds regardless; ``retry_eventbrite_pushes`` tries again.
 
-Four gates make a client ``enabled``: the admin toggle
-(``SiteConfiguration.eventbrite_sync_enabled``), a private token, an organization ID and a venue
-ID (``EVENTBRITE_*`` settings). Staging is always disabled, because its database is a copy of
-production and names the same classes.
+Five gates make a client ``enabled``: the admin toggle
+(``SiteConfiguration.eventbrite_sync_enabled``), a private token, an organization ID, an organizer
+ID and a venue ID (``EVENTBRITE_*`` settings). Staging is always disabled, because its database
+is a copy of production and names the same classes.
 
 plfog owns the seat count: the ticket quantity is always set from ``spots_remaining`` and never
 read back. Eventbrite refuses to unpublish a paid event that holds orders, so ending a listing
 closes ticket sales first; the unpublish that follows may then be refused and that is recorded,
 not retried.
+
+What goes to Eventbrite follows its Unauthorized Selling policy (#720, after Trust and Safety took
+down class 675's event): no links, addresses or booking line in the listing's text, no
+cancellation or refund FAQ, and an event plfog published that reads ``draft`` again is never
+published a second time.
 """
 
 from __future__ import annotations
 
+import html as html_module
 import logging
+import re
 from datetime import UTC
 from pathlib import PurePosixPath
 from typing import TYPE_CHECKING, Any
 
 import httpx
 from django.conf import settings
-from django.template.defaultfilters import linebreaks_filter, urlize
+from django.template.defaultfilters import linebreaks_filter
 from django.utils import timezone
 from django.utils.html import escape, strip_tags
 
 from classes.eventbrite_categories import CLASS_FORMAT_ID
+from core.html_sanitize import AllowlistCleaner
+from core.linkify import linkify
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
@@ -57,6 +66,24 @@ SERVICE_FEE_PERCENT = 3.7
 SERVICE_FEE_FIXED_CENTS = 179
 PROCESSING_FEE_PERCENT = 2.9
 
+# What the listing's text may carry (#720): the class editor's tags (core.html_sanitize) without
+# ``a`` and with no attributes, so a link goes as its text and no href or src reaches Eventbrite.
+_LISTING_CLEANER = AllowlistCleaner(
+    ["p", "br", "strong", "b", "em", "i", "u", "h2", "h3", "ul", "ol", "li", "blockquote"], {}
+)
+_TEXT_CLEANER = AllowlistCleaner((), {})
+_EMAIL_RE = re.compile(r"[\w.+-]+@[\w-]+(?:\.[\w-]+)+")
+# An address with a scheme or ``www.``, or a bare host on a newer TLD that core.linkify's
+# bleach list lacks (pastlives.space, aidu.glass); linkify finds the bare hosts on the classic ones.
+_ADDRESS_RE = re.compile(
+    r"\b(?:[a-z][a-z0-9+.-]*://|www\.)[^\s<]+"
+    r"|\b(?:[a-z0-9-]+\.)+(?:space|glass|app|dev|art|studio|shop|store|online|site|xyz|link|live)\b(?:/[^\s<]*)?",
+    re.IGNORECASE,
+)
+_LINKED_RE = re.compile(r"<a\b[^>]*>.*?</a>", re.DOTALL)
+# A FAQ about cancelling, refunds or no-shows tells buyers how to get money back off Eventbrite.
+_OFF_PLATFORM_FAQ_RE = re.compile(r"\b(?:cancel\w*|refund\w*|no[\s-]?shows?)\b", re.IGNORECASE)
+
 
 class EventbriteError(Exception):
     """An Eventbrite API call failed; ``status`` is the HTTP status, or None for a transport error."""
@@ -80,6 +107,7 @@ class EventbriteSync:
     STILL_UP = "Sales are closed. Eventbrite keeps the event page up while it holds orders."
     GALLERY_CHANGED = "The gallery changed."
     EDIT_SAVED = "your changes are saved and go to Eventbrite within 15 minutes"
+    TAKEN_DOWN = "Unpublished on Eventbrite outside plfog; not republished."
 
     @staticmethod
     def photos_not_sent(reasons: list[str]) -> str:
@@ -107,11 +135,12 @@ def estimate_fee_cents(price_cents: int) -> int:
 class EventbriteClient:
     """Minimal Eventbrite v3 client. Disabled when the toggle is off or any credential is blank."""
 
-    def __init__(self, *, token: str, organization_id: str, venue_id: str) -> None:
+    def __init__(self, *, token: str, organization_id: str, venue_id: str, organizer_id: str) -> None:
         self._token = token
         self.timeout = _TIMEOUT_SECONDS
         self.organization_id = organization_id
         self.venue_id = venue_id
+        self.organizer_id = organizer_id
 
     @classmethod
     def from_settings(cls) -> EventbriteClient:
@@ -119,16 +148,20 @@ class EventbriteClient:
         from core.models import SiteConfiguration
 
         if settings.IS_STAGING or not SiteConfiguration.load().eventbrite_sync_enabled:
-            return cls(token="", organization_id="", venue_id="")
+            return cls(token="", organization_id="", venue_id="", organizer_id="")
         return cls(
             token=settings.EVENTBRITE_PRIVATE_TOKEN,
             organization_id=settings.EVENTBRITE_ORGANIZATION_ID,
             venue_id=settings.EVENTBRITE_VENUE_ID,
+            organizer_id=settings.EVENTBRITE_ORGANIZER_ID,
         )
 
     @property
     def enabled(self) -> bool:
-        return bool(self._token and self.organization_id and self.venue_id)
+        return bool(self._token and self.organization_id and self.venue_id and self.organizer_id)
+
+    def get_event(self, event_id: str) -> dict[str, Any]:
+        return self._call("GET", f"/events/{event_id}/")
 
     def create_event(self, body: dict[str, Any]) -> dict[str, Any]:
         return self._call("POST", f"/organizations/{self.organization_id}/events/", json=body)
@@ -245,38 +278,67 @@ def _when(moment: datetime) -> dict[str, str]:
     return {"timezone": _EVENT_TIMEZONE, "utc": _utc(moment)}
 
 
+def _without_addresses(clean_html: str) -> str:
+    """``nh3`` output with every email address and web address dropped, text and all."""
+    text = _ADDRESS_RE.sub("", _EMAIL_RE.sub("", clean_html))
+    return _LINKED_RE.sub("", linkify(text, lambda attrs: attrs))
+
+
+def _listing_html(html: str) -> str:
+    """Author HTML as the listing may carry it: the editor's formatting, links as their text, no addresses."""
+    return _without_addresses(_LISTING_CLEANER.clean(html))
+
+
+def _listing_text(text: str) -> str:
+    """Plain text as the listing may carry it: tags gone, no addresses, line breaks kept."""
+    plain = html_module.unescape(_without_addresses(_TEXT_CLEANER.clean(text)))
+    return re.sub(r"[ \t]+(?=\n|$)", "", re.sub(r"[ \t]{2,}", " ", plain)).strip()
+
+
 def _description_html(offering: ClassOffering, sessions: list[Any], faq_html: str = "") -> str:
-    """The class description, every session (a series lists them all), the FAQ when it goes as text, and the link back."""
+    """The class description and every session (a series lists them all), then the FAQ when it goes as text.
+
+    No booking line and no link back to the site (#720): Eventbrite counts sending buyers
+    elsewhere as Unauthorized Selling.
+    """
     local = [timezone.localtime(s.starts_at) for s in sessions]
     dates = "".join(f"<li>{moment:%A %B %-d, %Y at %-I:%M %p}</li>" for moment in local)
-    link = f'<p>Full details and booking: <a href="{offering.public_url}">{offering.public_url}</a></p>'
-    return f"{offering.description}<p>Sessions:</p><ul>{dates}</ul>{faq_html}{link}"
+    return f"{_listing_html(offering.description)}<p>Sessions:</p><ul>{dates}</ul>{faq_html}"
+
+
+def _sendable_faqs(faqs: list[ClassFaq]) -> list[ClassFaq]:
+    """The FAQ rows Eventbrite may show: none about cancelling, refunds or no-shows (#720)."""
+    return [
+        faq for faq in faqs if not _OFF_PLATFORM_FAQ_RE.search(f"{strip_tags(faq.question)} {strip_tags(faq.answer)}")
+    ]
 
 
 def _faq_entries(faqs: list[ClassFaq]) -> list[dict[str, str]]:
-    """The class's own FAQ rows in order, as the plain text Eventbrite's FAQ section holds (#716)."""
-    return [{"question": strip_tags(faq.question), "answer": strip_tags(faq.answer)} for faq in faqs]
+    """The FAQ rows in order, as the plain text Eventbrite's FAQ section holds (#716), without addresses (#720)."""
+    return [{"question": _listing_text(faq.question), "answer": _listing_text(faq.answer)} for faq in faqs]
 
 
 def _faq_html(faqs: list[ClassFaq]) -> str:
     """The FAQ as description text, when Eventbrite refuses its FAQ section: each question bold, its answer under it.
 
-    Answers go through the class page's own filters (``urlize`` then ``linebreaks``, escaping on),
-    so Eventbrite shows what the page shows.
+    Answers keep their line breaks (``linebreaks``, escaping on), as on the class page, but no
+    address becomes a link: addresses are dropped (#720).
     """
     items = "".join(
-        f"<p><strong>{escape(faq.question)}</strong></p>{linebreaks_filter(urlize(faq.answer, autoescape=True), autoescape=True)}"
+        f"<p><strong>{escape(_listing_text(faq.question))}</strong></p>"
+        f"{linebreaks_filter(_listing_text(faq.answer), autoescape=True)}"
         for faq in faqs
     )
     return f"<p>Questions:</p>{items}"
 
 
 def _event_body(offering: ClassOffering, client: EventbriteClient, sessions: list[Any]) -> dict[str, Any]:
-    summary = offering.subtitle or offering.title
+    summary = _listing_text(offering.subtitle) or _listing_text(offering.title)
     body: dict[str, Any] = {
         "event": {
             "name": {"html": offering.title},
             "summary": summary[:_SUMMARY_MAX],
+            "organizer_id": client.organizer_id,
             "start": _when(sessions[0].starts_at),
             "end": _when(sessions[-1].ends_at),
             "currency": "USD",
@@ -366,7 +428,7 @@ def _set_description(client: EventbriteClient, offering: ClassOffering, sessions
     event_id = offering.eventbrite_event_id
     image_ids, refused = _gallery_image_ids(client, offering)
     photo_note = EventbriteSync.photos_not_sent(refused) if refused else ""
-    faqs = list(offering.faqs.all())
+    faqs = _sendable_faqs(list(offering.faqs.all()))
     try:
         client.set_description(event_id, _description_html(offering, sessions), image_ids, _faq_entries(faqs))
         return photo_note
@@ -389,14 +451,16 @@ def _set_description(client: EventbriteClient, offering: ClassOffering, sessions
     return EventbriteSync.left_out([*dropped, "its photos"], str(refusal))
 
 
-def _list(client: EventbriteClient, offering: ClassOffering) -> str:
-    """Create or update the event and its ticket class, then publish it while it is a draft.
+def _list(client: EventbriteClient, offering: ClassOffering) -> tuple[str, str]:
+    """Create or update the event and its ticket class, then publish it while it is a draft plfog never published.
 
-    Whether to publish is Eventbrite's answer, not our sync state: the event object a create or
-    update returns carries its ``status``, so a live event behind a failed or pending sync is
-    never published again, and a draft (never published, or unpublished) always is.
+    Whether to publish is Eventbrite's answer plus :attr:`ClassOffering.eventbrite_published`, not
+    our sync state: the event object a create or update returns carries its ``status``, so a live
+    event behind a failed or pending sync is never published again, and a draft plfog never
+    published (or unpublished itself) is. A draft plfog published was taken down outside plfog,
+    by Eventbrite or in the dashboard, and is left down (#720); the class records that as ``ENDED``.
 
-    Returns the note to record on the listed class: blank, or why some photos are missing.
+    Returns the sync state and the note to record: blank, or why some photos are missing.
     """
     sessions = list(offering.sessions.order_by("starts_at"))
     event = _event_body(offering, client, sessions)
@@ -417,24 +481,38 @@ def _list(client: EventbriteClient, offering: ClassOffering) -> str:
         ticket = _ticket_body(offering, sessions, _quantity_total(client, offering))
         client.update_ticket_class(offering.eventbrite_event_id, offering.eventbrite_ticket_class_id, ticket)
     note = _set_description(client, offering, sessions)
+    listed = offering.EventbriteSyncState.LISTED
+    if status == _DRAFT and offering.eventbrite_published:
+        taken_down = " ".join(part for part in (EventbriteSync.TAKEN_DOWN, note) if part)
+        return offering.EventbriteSyncState.ENDED, taken_down
     if status == _DRAFT:
         client.publish(offering.eventbrite_event_id)
+        offering.eventbrite_published = True
     elif status in _NOT_SELLING:
         note = " ".join(part for part in (EventbriteSync.not_selling(status), note) if part)
-    return note
+    return listed, note
 
 
 def _end(client: EventbriteClient, offering: ClassOffering) -> str:
-    """Close ticket sales, then unpublish; returns the note to record ("" when fully down)."""
+    """Close ticket sales, then unpublish; returns the note to record ("" when fully down).
+
+    plfog's own unpublish clears :attr:`ClassOffering.eventbrite_published`, so switching the
+    class back on publishes it again. An event plfog published that already reads ``draft`` was
+    taken down outside plfog: it is left as it is and stays remembered, so no relist undoes it (#720).
+    """
+    event_id = offering.eventbrite_event_id
     if offering.eventbrite_ticket_class_id:
         closed = {"ticket_class": {"sales_end": _utc(timezone.now())}}
-        client.update_ticket_class(offering.eventbrite_event_id, offering.eventbrite_ticket_class_id, closed)
+        client.update_ticket_class(event_id, offering.eventbrite_ticket_class_id, closed)
+    if offering.eventbrite_published and field(client.get_event(event_id), "status") == _DRAFT:
+        return EventbriteSync.TAKEN_DOWN
     try:
-        client.unpublish(offering.eventbrite_event_id)
+        client.unpublish(event_id)
     except EventbriteError as exc:
         if exc.status != 400:
             raise
         return EventbriteSync.STILL_UP
+    offering.eventbrite_published = False
     return ""
 
 
@@ -457,8 +535,8 @@ def sync_class_listing(offering: ClassOffering) -> None:
         return
     try:
         if wanted:
-            note = _list(client, offering)
-            offering.eventbrite_sync_state, offering.eventbrite_sync_error = state.LISTED, note[:_SYNC_ERROR_MAX]
+            listed_state, note = _list(client, offering)
+            offering.eventbrite_sync_state, offering.eventbrite_sync_error = listed_state, note[:_SYNC_ERROR_MAX]
         else:
             offering.eventbrite_sync_error = _end(client, offering)
             offering.eventbrite_sync_state = state.ENDED
