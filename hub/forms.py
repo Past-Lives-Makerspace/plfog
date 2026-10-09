@@ -5012,6 +5012,7 @@ class AnnouncementComposeForm(forms.Form):
         widget=forms.Select,
         label="Ping",
     )
+    discord_post_as_me = forms.BooleanField(required=False, initial=False, label="Post on Discord as me")
     expires_at = forms.DateField(
         required=False,
         widget=forms.DateInput(attrs={"type": "date"}),
@@ -5029,10 +5030,17 @@ class AnnouncementComposeForm(forms.Form):
         require_body: bool = False,
         results_announcement: bool = False,
         draft: AnnouncementDraft | None = None,
+        sender_discord_linked: bool = False,
         **kwargs: Any,
     ) -> None:
         super().__init__(*args, **kwargs)
         from membership.models import AnnouncementDraft
+
+        # "Post on Discord as me" is offered only to a sender who linked Discord; for anyone else
+        # the field is gone, so a crafted POST cannot turn it on and the save stores it off.
+        self.offers_discord_post_as_me = sender_discord_linked
+        if not sender_discord_linked:
+            del self.fields["discord_post_as_me"]
 
         # Members the draft being saved already holds stay valid even when they have left the
         # "add anyone" list since (#614: a member later hidden is not dropped on the next save).
@@ -5132,6 +5140,11 @@ class AnnouncementComposeForm(forms.Form):
         self.fields["include_waitlist"].widget.attrs.setdefault("x-model", "includeWaitlist")
         self.fields["mention"].widget.attrs.setdefault("x-model", "mention")
         channel_field.widget.attrs.setdefault("x-model", "discordChannel")
+        if sender_discord_linked:
+            # The Discord Preview card follows the switch: it shows the sender's name while it is on.
+            self.fields["discord_post_as_me"].widget.attrs.setdefault(
+                "@change", "$refs.refreshPreview && $refs.refreshPreview.click()"
+            )
         self.fields["expires_at"].widget.attrs.setdefault(
             "@click", "try { $event.currentTarget.showPicker() } catch (e) {}"
         )

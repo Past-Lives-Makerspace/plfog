@@ -66,6 +66,7 @@ if TYPE_CHECKING:
     from billing.models import LateCancellationFee, PaymentRefund
     from classes.models import ClassOffering
     from core.events.channels import Channel, Message
+    from core.events.discord_identity import DiscordIdentity
     from core.events.emit import EmitResult
 
 logger = logging.getLogger(__name__)
@@ -5794,6 +5795,14 @@ class AnnouncementDraft(models.Model):
         default=Mention.NONE,
         help_text="Opt-in Discord ping — none, @here (online), or @everyone. Off by default.",
     )
+    discord_post_as_me = models.BooleanField(
+        default=False,
+        db_default=False,
+        help_text=(
+            "Post the Discord message under the sender's own Discord name and picture instead of the "
+            "webhook's. Offered only to a sender who linked Discord; read from Discord when it sends."
+        ),
+    )
     expires_at = models.DateField(
         null=True,
         blank=True,
@@ -6311,7 +6320,7 @@ class AnnouncementDraft(models.Model):
         text = (self.push_message or "").strip() or rich_html_to_text(self.body)
         return Message(title=self.title, body=text, url=self._landing_url(base_url), trigger_kind=self._trigger_kind())
 
-    def build_discord_message(self, base_url: str) -> "Message":
+    def build_discord_message(self, base_url: str, discord_identity: "DiscordIdentity | None" = None) -> "Message":
         """The Discord embed :class:`Message` — the composer's Discord preview card *is* this.
 
         A plain announcement posts the in-app message (the category title + the body as lines),
@@ -6323,6 +6332,9 @@ class AnnouncementDraft(models.Model):
         ``_DISCORD_PROSE_FLOOR`` characters (all of any realistic message); the results block takes
         the rest and, when it would not fit, drops whole guild lines from the bottom with a note
         that the rest are on the voting results page, so no line is cut in half.
+
+        ``discord_identity`` (the sender's Discord name and picture, :meth:`discord_sender_identity`)
+        becomes the post's webhook name and picture; ``None`` keeps the webhook's own.
         """
         import dataclasses
 
@@ -6330,6 +6342,12 @@ class AnnouncementDraft(models.Model):
         from membership.discord_commands import _EMBED_DESCRIPTION_LIMIT
 
         message = self._in_app_message(base_url)
+        if discord_identity is not None:
+            message = dataclasses.replace(
+                message,
+                discord_username=discord_identity.username,
+                discord_avatar_url=discord_identity.avatar_url,
+            )
         snapshot = self.funding_snapshot
         if snapshot is None:
             return dataclasses.replace(message, body=truncate(message.body, _EMBED_DESCRIPTION_LIMIT))
@@ -6339,20 +6357,49 @@ class AnnouncementDraft(models.Model):
         block = snapshot.allocation_discord_block(max_length=_EMBED_DESCRIPTION_LIMIT - len(prose) - 2)
         return dataclasses.replace(message, body="\n\n".join(part for part in (prose, block) if part))
 
-    def _channel_overrides(self, base_url: str) -> "dict[Channel, Message]":
+    def discord_sender_identity(self, *, cached: bool = False) -> "DiscordIdentity | None":
+        """The Discord name and picture this announcement posts under, or ``None`` for the default.
+
+        Only when :attr:`discord_post_as_me` is on and the sender (:attr:`author`, who saved it
+        last, so a queued send resolves the same person the job runs for) has a verified Discord
+        link. The send reads it live; the composer's preview and the sent view pass ``cached`` so a
+        refresh is not a Discord call (:func:`core.events.discord_identity.cached_identity`).
+
+        Args:
+            cached: Use the briefly remembered lookup instead of asking Discord now.
+
+        Returns:
+            The identity, or ``None`` when it is off, nobody linked, or the lookup failed.
+        """
+        from core.events import discord_identity
+        from core.events.discord_dm import discord_user_id_for
+
+        if not self.discord_post_as_me or self.author is None:
+            return None
+        discord_user_id = discord_user_id_for(self.author)
+        if not discord_user_id:
+            return None
+        if cached:
+            return discord_identity.cached_identity(discord_user_id)
+        return discord_identity.fetch_identity(discord_user_id)
+
+    def _channel_overrides(
+        self, base_url: str, discord_identity: "DiscordIdentity | None" = None
+    ) -> "dict[Channel, Message]":
         """Per-channel Message overrides handed to ``emit`` — every channel leads with the category.
 
         With no member-typed subject, the auto category is the title on the in-app bell, push,
         Discord embed, and email, so nothing falls back to the copy catalogue's guild-name-prefixed
         default. Email additionally carries the class subline + optional "From" line, and a results
-        announcement's email and Discord post carry the results visual.
+        announcement's email and Discord post carry the results visual. ``discord_identity`` puts the
+        sender's Discord name and picture on the Discord post (:meth:`build_discord_message`).
         """
         from core.events.channels import Channel
 
         return {
             Channel.IN_APP: self._in_app_message(base_url),
             Channel.PUSH: self.build_push_message(base_url),
-            Channel.DISCORD: self.build_discord_message(base_url),
+            Channel.DISCORD: self.build_discord_message(base_url, discord_identity),
             Channel.EMAIL: self.build_email_message(base_url),
         }
 
@@ -6453,6 +6500,8 @@ class AnnouncementDraft(models.Model):
         draft.recipient_selection = cd.get("recipient_selection") or {}
         draft.discord_channel = cd["discord_channel"]
         draft.mention = cd["mention"]
+        # The form offers it only to a sender who linked Discord; anyone else saves it off.
+        draft.discord_post_as_me = cd.get("discord_post_as_me", False)
         draft.expires_at = cd.get("expires_at")
         if draft.audience == cls.Audience.GUILD and draft.guild is None:
             raise ValidationError("Choose a guild for this announcement.")
@@ -6514,6 +6563,8 @@ class AnnouncementDraft(models.Model):
         mention_str = self._mention_literal() if discord_on else ""
         recipient_ids = self._selected_recipient_ids()
         suppress_push = not self.push_enabled
+        # Asked of Discord once, and only when a channel post goes out; a failed lookup posts as usual.
+        identity = self.discord_sender_identity() if self.discord_on else None
 
         if self.audience == self.Audience.SITE:
             site_url = _absolute_url("/")
@@ -6534,7 +6585,7 @@ class AnnouncementDraft(models.Model):
                 },
                 url=site_url,
                 period=period,
-                messages=self._channel_overrides(site_url),
+                messages=self._channel_overrides(site_url, identity),
                 suppress_broadcast=(webhook == ""),
                 suppress_email=not self.send_email,
                 suppress_push=suppress_push,
@@ -6565,7 +6616,7 @@ class AnnouncementDraft(models.Model):
                 },
                 url=leads_url,
                 period=period,
-                messages=self._channel_overrides(leads_url),
+                messages=self._channel_overrides(leads_url, identity),
                 suppress_broadcast=(webhook == ""),
                 suppress_email=not self.send_email,
                 suppress_push=suppress_push,
@@ -6634,7 +6685,7 @@ class AnnouncementDraft(models.Model):
             )
             announcement.notify_members(
                 discord_mention=mention_str,
-                channel_messages=self._channel_overrides(guild_url),
+                channel_messages=self._channel_overrides(guild_url, identity),
                 recipient_user_ids=recipient_ids,
                 selected_custom_emails=self._selected_custom_emails(),
                 suppress_push=suppress_push,

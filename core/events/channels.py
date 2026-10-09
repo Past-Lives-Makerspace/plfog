@@ -77,6 +77,10 @@ class Message:
     ``""`` for none) — only the Discord broadcast reads it (via
     :func:`core.events.discord.build_embed_payload`); every other channel ignores it,
     so a blank value leaves every existing payload byte-identical.
+
+    ``discord_username`` / ``discord_avatar_url`` are the name and picture a Discord webhook
+    post shows instead of the webhook's own (an announcement posted "as me", #730); blank
+    leaves the webhook's default, and every other channel ignores them.
     """
 
     title: str
@@ -85,6 +89,8 @@ class Message:
     html_body: str | None = None
     trigger_kind: str = ""
     discord_mention: str = ""
+    discord_username: str = ""
+    discord_avatar_url: str = ""
 
 
 @runtime_checkable
