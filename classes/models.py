@@ -3521,6 +3521,8 @@ class ClassOffering(HeroCropMixin, models.Model):
         self.eventbrite_sync_state = self.EventbriteSyncState.IDLE
         self.eventbrite_sync_error = ""
         self.eventbrite_synced_at = None
+        # Published belongs to the source's event: kept, the copy's new event reads as taken down.
+        self.eventbrite_published = False
         # The agreement is per class (#725): a copy asks for it again before it can sell there.
         self.eventbrite_rules_agreed_by = None
         self.eventbrite_rules_agreed_at = None

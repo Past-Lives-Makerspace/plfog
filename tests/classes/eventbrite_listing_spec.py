@@ -1564,3 +1564,21 @@ def describe_a_copied_class():
         assert (clone.eventbrite_rules_agreed_by, clone.eventbrite_rules_agreed_at) == (None, None)
         assert clone.needs_eventbrite_agreement is True
         assert ClassOffering.objects.get(pk=source_pk).eventbrite_rules_agreed_by == agreed_by
+
+    def it_lets_a_copy_of_a_listed_class_publish_its_own_event(eventbrite: FakeEventbrite):
+        """Fix round 2 of #741: a kept ``eventbrite_published`` read the copy's new draft event as taken down."""
+        source = _listed(eventbrite_published=True)
+
+        copy = ClassOffering.objects.get(pk=source.pk).duplicate()
+        copy.refresh_from_db()
+        assert (copy.eventbrite_published, copy.eventbrite_event_id) == (False, "")
+
+        start = timezone.now() + timedelta(days=3)
+        ClassSessionFactory(class_offering=copy, starts_at=start, ends_at=start + timedelta(hours=1))
+        ClassOffering.objects.filter(pk=copy.pk).update(status=ClassOffering.Status.PUBLISHED)
+        copy.refresh_from_db()
+        copy.sync_eventbrite_listing()
+
+        assert "publish" in eventbrite.names()
+        assert (copy.eventbrite_sync_state, copy.eventbrite_published) == (State.LISTED, True)
+        assert ClassOffering.objects.get(pk=source.pk).eventbrite_published is True
