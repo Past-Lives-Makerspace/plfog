@@ -49,9 +49,11 @@ _SUMMARY_MAX = 140
 _DRAFT = "draft"  # the event status Eventbrite publishes from (others: live, started, ended, completed, canceled)
 # Statuses where nothing is for sale; ``started`` is not one, the event is simply running.
 _NOT_SELLING = frozenset({"ended", "completed", "canceled"})
-# The listing's FAQ section. The dashboard writes the same list under both types (read back from
-# event 2003170172911, #716), so plfog writes both and leaves every other widget as it read it.
+# The listing's FAQ section reads back under two types, "faqs" and a "faq" copy Eventbrite makes
+# itself. Only "faqs" may be written: a POST carrying "faq" is refused with a 400 FIELD_ERROR
+# (tried live on event 2003170172911, 2026-10-08). Both are dropped from what was read.
 _FAQ_WIDGET_TYPES = ("faqs", "faq")
+_FAQ_WIDGET_WRITE_TYPE = "faqs"
 # Eventbrite's US fees for a paid ticket (eventbrite.com/organizer/pricing, checked 2026-10-07).
 SERVICE_FEE_PERCENT = 3.7
 SERVICE_FEE_FIXED_CENTS = 179
@@ -170,7 +172,7 @@ class EventbriteClient:
         if faqs is not None:
             widgets = [w for w in current.get("widgets") or [] if w.get("type") not in _FAQ_WIDGET_TYPES]
             if faqs:
-                widgets += [{"id": "", "type": kind, "data": {"faqs": list(faqs)}} for kind in _FAQ_WIDGET_TYPES]
+                widgets.append({"id": "", "type": _FAQ_WIDGET_WRITE_TYPE, "data": {"faqs": list(faqs)}})
             body["widgets"] = widgets
         self._call("POST", f"/events/{event_id}/structured_content/{version}/", json=body)
 
