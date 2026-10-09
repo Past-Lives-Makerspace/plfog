@@ -3521,6 +3521,9 @@ class ClassOffering(HeroCropMixin, models.Model):
         self.eventbrite_sync_state = self.EventbriteSyncState.IDLE
         self.eventbrite_sync_error = ""
         self.eventbrite_synced_at = None
+        # The agreement is per class (#725): a copy asks for it again before it can sell there.
+        self.eventbrite_rules_agreed_by = None
+        self.eventbrite_rules_agreed_at = None
 
     def _copy_photos_and_faqs_from(self, source_pk: int) -> None:
         """Re-point the source's gallery and FAQ rows at this freshly saved clone.

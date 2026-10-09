@@ -869,6 +869,17 @@ def describe_the_listing_check():
                 ("The rest is payable at the workshop.", "“payable at the workshop”"),
                 ("Clay is paid to the studio.", "“paid to the studio”"),
                 ("Bring CashApp for snacks.", "“CashApp”"),
+                # Second review of #741:
+                ("Materials cost $15, payable in class.", "“payable in class”"),
+                ("$25 materials fee due at the start of class.", "“$25 materials fee due at the start of class”"),
+                ("Bring $20 for clay.", "“Bring $20”"),
+                ("You will be paying the teacher for clay.", "“paying the teacher”"),
+                ("A materials fee of $15 is collected on the day.", "“fee of $15 is collected on the day”"),
+                ("Cash only at the door.", "“Cash”"),
+                ("Bring cash for clay.", "“Bring cash”"),
+                ("Pay $10 in cash.", "“Pay $10 in cash”"),
+                ("Cash or Venmo accepted.", "“Cash”, “Venmo”"),
+                ("Clay is $5, payment by cash.", "“by cash”"),
             ],
         )
         def it_refuses_a_pay_app_cash_or_paying_at_the_session(typed: str, quoted: str):
@@ -881,6 +892,11 @@ def describe_the_listing_check():
                 "Everything you need is in the ticket price.",
                 "Cashmere scarves welcome.",
                 "We pay close attention. Then the class starts.",
+                "Gift cards have no cash value.",
+                "Students cash in on skills.",
+                "Paying attention to the teacher helps.",
+                "Homework is due at the next session.",
+                "Bring your own apron.",
             ],
         )
         def it_passes_text_that_only_looks_like_payment(typed: str):
@@ -901,6 +917,12 @@ def describe_the_listing_check():
                     "The price does not cover glaze, which is not included.",
                     "“price does not cover glaze, which is not included”",
                 ),
+                # Second review of #741:
+                ("Materials are extra.", "“Materials are extra”"),
+                ("Supplies are an additional $20.", "“Supplies are an additional”"),
+                ("Price does not include materials.", "“Price does not include”"),
+                ("Ticket doesn't include clay.", "“Ticket doesn't include”"),
+                ("Plus a $10 kit fee.", "“Plus a $10 kit fee”"),
             ],
         )
         def it_refuses_a_fee_on_top_of_the_ticket(typed: str, quoted: str):
@@ -933,6 +955,8 @@ def describe_the_listing_check():
                 ("Promo codes work here.", "“Promo codes”"),
                 ("Code: SAVE20 for friends.", "“Code: SAVE20”"),
                 ("PL10% off for members.", "“PL10% off”"),
+                ("Use coupon code: PL-10%off at checkout.", "“Use coupon code: PL-10%off”"),
+                ("Use code PLHalfOff.", "“Use code PLHalfOff”"),
             ],
         )
         def it_refuses_a_code_named_as_one_or_shaped_like_ours(typed: str, quoted: str):
@@ -947,6 +971,8 @@ def describe_the_listing_check():
                 "Read our code of conduct.",
                 "Learn to code Python.",
                 "Plastics and PLA filament.",
+                "Use the code editor in class.",
+                "Enter the code of conduct room",
             ],
         )
         def it_passes_a_code_that_is_not_a_discount(typed: str):
@@ -1006,7 +1032,7 @@ def describe_the_listing_check():
 
         def it_reads_entities_and_tags_as_words():
             assert _lines(_check("Bring <strong>cash</strong>&nbsp;only")) == [
-                "Description: payment outside the ticket: “cash”"
+                "Description: payment outside the ticket: “Bring cash”"
             ]
 
         def it_finds_nothing_in_a_clean_class():
@@ -1045,11 +1071,11 @@ def describe_what_the_listing_leaves_out():
         check = _check(
             faqs=[
                 {"question": "Can I cancel?", "answer": "Yes."},
-                {"question": "What to <em>bring</em>?", "answer": "Cash for snacks."},
+                {"question": "What to <em>bring</em>?", "answer": "Bring cash for snacks."},
             ]
         )
 
-        assert _lines(check) == ["FAQ “What to bring ?”: payment outside the ticket: “Cash”"]
+        assert _lines(check) == ["FAQ “What to bring ?”: payment outside the ticket: “Bring cash”"]
 
     @pytest.mark.parametrize(
         ("typed", "sent"),

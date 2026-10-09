@@ -1545,3 +1545,22 @@ def describe_a_refused_save_through_each_page():
         assert response.status_code == 302
         offering.refresh_from_db()
         assert offering.eventbrite_rules_agreed_by == instructor.user
+
+
+def describe_a_copied_class():
+    """Second review of #741: the agreement is per class, so a copy asks for it again."""
+
+    @pytest.mark.parametrize("copy", ["duplicate", "duplicate_as_new_run"])
+    def it_clears_the_agreement_on_the_copy_and_keeps_it_on_the_source(copy: str):
+        agreed_by = UserFactory()
+        source = ClassOfferingFactory(
+            eventbrite_enabled=True, eventbrite_rules_agreed_by=agreed_by, eventbrite_rules_agreed_at=timezone.now()
+        )
+        source_pk = source.pk
+
+        clone = getattr(ClassOffering.objects.get(pk=source_pk), copy)()
+        clone.refresh_from_db()
+
+        assert (clone.eventbrite_rules_agreed_by, clone.eventbrite_rules_agreed_at) == (None, None)
+        assert clone.needs_eventbrite_agreement is True
+        assert ClassOffering.objects.get(pk=source_pk).eventbrite_rules_agreed_by == agreed_by

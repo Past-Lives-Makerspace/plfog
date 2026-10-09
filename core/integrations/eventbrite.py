@@ -104,35 +104,48 @@ _PHONE_RE = re.compile(
 _HANDLE_RE = re.compile(r"(?<![\w@.&/-])@[A-Za-z0-9_][A-Za-z0-9_.]*[A-Za-z0-9_]")
 
 # Eventbrite's selling rules (#725, eventbrite.com/l/contentstandards and the Merchant Agreement).
-# Payment asked for outside the ticket: a pay app, cash, or paying at the session, door or instructor.
+# Payment asked for outside the ticket: a pay app; cash in a paying sense ("cash only", "in cash",
+# "cash/venmo", "bring cash", never "no cash value" or "cash in on"); paying at the session, door,
+# instructor or on the day; a fee due or collected there; or money brought along ("Bring $20").
 _PAYMENT_RE = re.compile(
-    r"\b(?:venmo|paypal|zelle|cash\s?app|cash)\b"
-    r"|\b(?:pay(?!\s+attention)|paid|payable|payment)\b[^.\n!?]{0,40}?\b(?:at|to)\s+(?:the\s+)?"
-    r"(?:session|door|class|instructor|studio|workshop)\b"
-    r"|\bpay\s+(?:the\s+)?instructor\b",
+    r"\b(?:venmo|paypal|zelle|cash\s?app)\b"
+    r"|\bcash\b(?=\s*(?:/|only\b|payments?\b|(?:is\s+)?due\b|at\s+the\b|to\s+the\b|,?\s*(?:or|and)\s+(?:venmo|paypal|zelle|check|card)\b))"
+    r"|(?<=/)cash\b"
+    r"|\b(?:in|with|by)\s+cash\b"
+    r"|\b(?:pay|paid|paying|bring|bringing)\s+(?:\$?\d+(?:\.\d\d)?\s+)?(?:in\s+)?cash\b"
+    r"|\b(?:pay(?:s|ing|able)?|paid|payments?)\b(?!\s+attention)[^.\n!?]{0,40}?\b(?:at|to|in|on)\s+(?:the\s+)?"
+    r"(?:session|door|class|instructor|teacher|studio|workshop|day)\b"
+    r"|\bpay(?:s|ing)?\s+(?:the\s+|your\s+)?(?:instructor|teacher)\b"
+    r"|(?:\$\d|\bfees?\b|\bcosts?\b|\bpayments?\b)[^.\n!?]{0,40}?\b(?:due|collected)\s+(?:at|on|in)\s+(?:the\s+)?"
+    r"(?:start\s+of\s+(?:the\s+)?)?(?:session|door|class|day|workshop)\b"
+    r"|\bbring(?:ing)?\s+\$\d[\d.,]*",
     re.IGNORECASE,
 )
 # A cost on top of the ticket. A fee stated as included ("$10 materials fee is included in the
 # class price") matches none of these; "no extra fee" is let through by _NEGATED_RE.
 _FEE_RE = re.compile(
-    r"\b(?:(?:lab|materials?|supply|supplies|studio|kiln|firing)\s+)?(?:fees?|costs?|charges?)\s+"
+    r"\b(?:(?:lab|materials?|supply|supplies|studio|kiln|firing|kit)\s+)?(?:fees?|costs?|charges?)\s+"
     r"(?:apply|applies|(?:is\s+|are\s+)?extra|(?:is\s+|are\s+)?separate)\b"
+    r"|\b(?:materials?|supplies|kits?)\s+(?:is\s+|are\s+)?(?:an?\s+)?(?:extra|additional|separate)\b"
     r"|\b(?:fees?|costs?|charges?|materials?|supplies|price)\b[^.\n!?;]{0,40}?\bnot\s+included\b"
-    r"|\b(?:additional|extra)\s+(?:costs?|fees?|charges?)\b",
+    r"|\b(?:price|ticket|cost|fee)\s+(?:does\s+not|doesn[’']t)\s+include\b"
+    r"|\b(?:additional|extra)\s+(?:costs?|fees?|charges?)\b"
+    r"|\bplus\s+(?:an?\s+)?\$\d[\d.,]*\s+(?:[a-z]+\s+)?(?:fees?|charges?|costs?)\b",
     re.IGNORECASE,
 )
 _NEGATED_RE = re.compile(r"\b(?:no|without|zero)\s+$", re.IGNORECASE)
 # A discount or coupon code, named as one or by the makerspace's own code shapes
 # (PLHalfOff, PLMetal10, PL-10%off). A token after "code" counts only with a digit, a "%" or two
-# capitals, so "dress code Black" and "QR code below" are text.
+# capitals, so "dress code Black", "QR code below" and "use the code editor" are text.
 _CODE_RE = re.compile(
     r"\b(?:discount|coupon|promo|promotional|promotion)\s+codes?\b"
-    r"|\b(?:use|enter|apply)\s+(?:the\s+)?(?:code|coupon)\b"
+    r"|\b(?:use|enter|apply)\s+(?:the\s+)?coupon(?:\s+codes?)?\b"
     r"|\bPL-?\d+\s?%\s?off\b",
     re.IGNORECASE,
 )
 _CODE_TOKEN_RE = re.compile(
-    r"\b[Cc]ode\s*[:=]?\s*[\"“'‘]?(?=[\w%-]*(?:\d|%|[A-Z][\w-]*[A-Z]))[A-Za-z0-9][\w%-]{2,}"
+    r"\b(?:(?:[Uu]se|[Ee]nter|[Aa]pply)\s+(?:the\s+)?)?[Cc]ode\s*[:=]?\s*[\"“'‘]?"
+    r"(?=[\w%-]*(?:\d|%|[A-Z][\w-]*[A-Z]))[A-Za-z0-9][\w%-]{2,}"
     r"|\bPL(?:[A-Z][a-z]+)+\d*\b"
 )
 _TAG_RE = re.compile(r"<[^>]*>")
