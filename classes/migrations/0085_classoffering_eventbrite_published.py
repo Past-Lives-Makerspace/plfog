@@ -8,14 +8,15 @@ from django.db.backends.base.schema import BaseDatabaseSchemaEditor
 
 
 def mark_listed_events_published(apps: Apps, schema_editor: BaseDatabaseSchemaEditor) -> None:
-    """Every class listed on Eventbrite was published by plfog's sync (#720).
+    """Every class with an Eventbrite event that plfog has not ended was published by plfog's sync (#720).
 
-    An ended class is left unmarked: plfog unpublished it itself, so a relist publishes it again.
-    In production on 2026-10-08 the one listed class is 675, whose event Eventbrite took down;
-    marking it keeps the next sync from republishing it.
+    Listed, pending, failed or idle alike: a save before this deploy moves a listed class to
+    pending, and it must still count as published. An ended class is left unmarked, because plfog
+    unpublished it itself and a relist publishes it again. In production on 2026-10-08 that marks
+    class 675, whose event Eventbrite took down, so the next sync never republishes it.
     """
     ClassOffering = apps.get_model("classes", "ClassOffering")
-    ClassOffering.objects.exclude(eventbrite_event_id="").filter(eventbrite_sync_state="listed").update(
+    ClassOffering.objects.exclude(eventbrite_event_id="").exclude(eventbrite_sync_state="ended").update(
         eventbrite_published=True
     )
 

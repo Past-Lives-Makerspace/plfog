@@ -73,16 +73,19 @@ _LISTING_CLEANER = AllowlistCleaner(
 )
 _TEXT_CLEANER = AllowlistCleaner((), {})
 _EMAIL_RE = re.compile(r"[\w.+-]+@[\w-]+(?:\.[\w-]+)+")
-# An address with a scheme or ``www.``, or a bare host on a newer TLD that core.linkify's
-# bleach list lacks (pastlives.space, aidu.glass); linkify finds the bare hosts on the classic ones.
+# An address with a scheme or ``www.``, or a bare host on any TLD: dotted labels ending in 2 to
+# 24 letters, then an optional path. A one letter ending ("e.g.", "i.e.") or a digit one ("12.30",
+# "$5.00") is not a host. Emails go first, so no host here is an email's tail.
 _ADDRESS_RE = re.compile(
     r"\b(?:[a-z][a-z0-9+.-]*://|www\.)[^\s<]+"
-    r"|\b(?:[a-z0-9-]+\.)+(?:space|glass|app|dev|art|studio|shop|store|online|site|xyz|link|live)\b(?:/[^\s<]*)?",
+    r"|(?<![\w@.-])(?:[a-z0-9](?:[a-z0-9-]*[a-z0-9])?\.)+[a-z]{2,24}\b(?:/[^\s<]*)?",
     re.IGNORECASE,
 )
 _LINKED_RE = re.compile(r"<a\b[^>]*>.*?</a>", re.DOTALL)
 # A FAQ about cancelling, refunds or no-shows tells buyers how to get money back off Eventbrite.
-_OFF_PLATFORM_FAQ_RE = re.compile(r"\b(?:cancel\w*|refund\w*|no[\s-]?shows?)\b", re.IGNORECASE)
+_OFF_PLATFORM_FAQ_RE = re.compile(r"\b(?:cancel\w*|refund\w*|no[\s\-\u2013\u2014]?shows?)\b", re.IGNORECASE)
+# Statuses that show the event was published, by plfog or anyone: plfog never publishes it again (#720).
+_PUBLISHED = frozenset({"live", "started"})
 
 
 class EventbriteError(Exception):
@@ -473,6 +476,10 @@ def _list(client: EventbriteClient, offering: ClassOffering) -> tuple[str, str]:
     else:
         answer = client.update_event(offering.eventbrite_event_id, event)
     status = field(answer, "status")
+    if status in _PUBLISHED:
+        # Remembered from Eventbrite's answer too, not only after plfog's own publish call: a
+        # publish that landed but timed out or answered 5xx shows up here as live on the retry.
+        offering.eventbrite_published = True
     if not offering.eventbrite_ticket_class_id:
         ticket = _ticket_body(offering, sessions, int(offering.spots_remaining or 0))
         created = client.create_ticket_class(offering.eventbrite_event_id, ticket)

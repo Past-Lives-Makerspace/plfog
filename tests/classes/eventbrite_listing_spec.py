@@ -482,22 +482,25 @@ def describe_an_event_taken_down_outside_plfog():
 
 
 def describe_the_migration_marking_listed_events_published():
-    def it_marks_a_listed_class_and_leaves_ended_and_unlisted_ones():
+    def it_marks_every_class_with_an_event_plfog_has_not_ended():
         from importlib import import_module
 
         from django.apps import apps
 
         migration = import_module("classes.migrations.0085_classoffering_eventbrite_published")
-        listed = _listed()
+        marked = [
+            _listed(eventbrite_sync_state=state) for state in (State.LISTED, State.PENDING, State.FAILED, State.IDLE)
+        ]
         ended = _listed(eventbrite_sync_state=State.ENDED)
         never = _opted_in()
 
         migration.mark_listed_events_published(apps, None)
 
-        published = {
-            o.pk: o.eventbrite_published for o in ClassOffering.objects.filter(pk__in=[listed.pk, ended.pk, never.pk])
-        }
-        assert published == {listed.pk: True, ended.pk: False, never.pk: False}
+        rows = [*marked, ended, never]
+        published = dict(
+            ClassOffering.objects.filter(pk__in=[o.pk for o in rows]).values_list("pk", "eventbrite_published")
+        )
+        assert published == {**{o.pk: True for o in marked}, ended.pk: False, never.pk: False}
 
 
 def describe_when_a_push_fails():

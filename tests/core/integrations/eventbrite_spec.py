@@ -319,8 +319,8 @@ def _listing_routes(event_id: str, widgets: list[dict[str, Any]] | None = None) 
     respx.get(f"{API_BASE}/events/{event_id}/structured_content/edit/").respond(json=edit)
     respx.get(f"{API_BASE}/events/{event_id}/ticket_classes/tc-1/").respond(json={"quantity_sold": 0})
     respx.post(f"{API_BASE}/events/{event_id}/ticket_classes/tc-1/").respond(json={})
-    respx.post(f"{API_BASE}/events/{event_id}/publish/").respond(json={})
     return {
+        "publish": respx.post(f"{API_BASE}/events/{event_id}/publish/").respond(json={}),
         "create": respx.post(f"{API_BASE}/organizations/org-1/events/").respond(
             json={"id": event_id, "status": "draft"}
         ),
@@ -659,3 +659,117 @@ def describe_eventbrites_selling_rules():
         request.assert_not_called()
         offering.refresh_from_db()
         assert offering.eventbrite_sync_state == ClassOffering.EventbriteSyncState.PENDING
+
+
+def describe_an_event_taken_down_on_the_http_layer():
+    """#720 on the real client: what plfog sends once Eventbrite has taken an event it published down."""
+
+    @pytest.fixture(autouse=True)
+    def _integration_on(settings: Any) -> None:
+        _credentials(settings)
+        _switch_on()
+
+    def _listed(**kwargs: Any) -> ClassOffering:
+        fields = {"ready": True, "status": ClassOffering.Status.PUBLISHED, "image": "", "gallery": 0}
+        listed = {"eventbrite_event_id": "ev-9", "eventbrite_ticket_class_id": "tc-1"}
+        return ClassOfferingFactory(**{**fields, "eventbrite_enabled": True, **listed, **kwargs})
+
+    def _answer_update(routes: dict[str, Any], status: str) -> None:
+        routes["update"].return_value = httpx.Response(200, json={"id": "ev-9", "status": status})
+
+    @respx.mock
+    def it_sends_no_publish_when_a_published_event_reads_draft():
+        routes = _listing_routes("ev-9")
+        _answer_update(routes, "draft")
+        offering = _listed(eventbrite_published=True)
+
+        offering.sync_eventbrite_listing()
+
+        assert not routes["publish"].called
+        assert routes["description"].called
+        offering.refresh_from_db()
+        assert offering.eventbrite_sync_state == ClassOffering.EventbriteSyncState.ENDED
+
+    @respx.mock
+    def it_remembers_a_publish_that_timed_out_once_eventbrite_answers_live():
+        routes = _listing_routes("ev-1")
+        routes["publish"].side_effect = httpx.ReadTimeout("timed out")
+        offering = ClassOfferingFactory(
+            ready=True, status=ClassOffering.Status.PUBLISHED, image="", gallery=0, eventbrite_enabled=True
+        )
+
+        offering.sync_eventbrite_listing()  # created as a draft; the publish lands but times out
+        offering.refresh_from_db()
+        assert offering.eventbrite_sync_state == ClassOffering.EventbriteSyncState.FAILED
+        assert offering.eventbrite_published is False
+
+        respx.post(f"{API_BASE}/events/ev-1/").respond(json={"id": "ev-1", "status": "live"})
+        offering.sync_eventbrite_listing()  # the retry reads it live
+        offering.refresh_from_db()
+        assert offering.eventbrite_published is True
+        assert offering.eventbrite_sync_state == ClassOffering.EventbriteSyncState.LISTED
+
+        respx.post(f"{API_BASE}/events/ev-1/").respond(json={"id": "ev-1", "status": "draft"})
+        offering.sync_eventbrite_listing()  # Eventbrite takes it down
+
+        assert routes["publish"].call_count == 1  # the one that timed out; never a second
+        offering.refresh_from_db()
+        assert offering.eventbrite_sync_error == "Unpublished on Eventbrite outside plfog; not republished."
+
+    @respx.mock
+    def it_reads_the_event_before_ending_and_unpublishes_one_that_is_live():
+        respx.post(f"{API_BASE}/events/ev-9/ticket_classes/tc-1/").respond(json={})
+        read = respx.get(f"{API_BASE}/events/ev-9/").respond(json={"id": "ev-9", "status": "live"})
+        unpublish = respx.post(f"{API_BASE}/events/ev-9/unpublish/").respond(json={"unpublished": True})
+        offering = _listed(eventbrite_enabled=False, eventbrite_published=True)
+
+        offering.sync_eventbrite_listing()
+
+        assert read.called
+        assert unpublish.called
+        offering.refresh_from_db()
+        assert offering.eventbrite_published is False
+
+    @respx.mock
+    def it_reads_the_event_before_ending_and_leaves_a_taken_down_one_alone():
+        respx.post(f"{API_BASE}/events/ev-9/ticket_classes/tc-1/").respond(json={})
+        read = respx.get(f"{API_BASE}/events/ev-9/").respond(json={"id": "ev-9", "status": "draft"})
+        unpublish = respx.post(f"{API_BASE}/events/ev-9/unpublish/").respond(json={"unpublished": True})
+        offering = _listed(eventbrite_enabled=False, eventbrite_published=True)
+
+        offering.sync_eventbrite_listing()
+
+        assert read.called
+        assert not unpublish.called
+        offering.refresh_from_db()
+        assert offering.eventbrite_published is True
+
+
+def describe_the_address_and_faq_rules():
+    """#720 review: any TLD counts as an address, plain numbers and abbreviations do not."""
+
+    @pytest.mark.parametrize(
+        ("typed", "sent"),
+        [
+            ("See pastlives.events now", "See now"),
+            ("Photos at pastlives.gallery/x today", "Photos at today"),
+            ("Learn at pastlives.academy", "Learn at"),
+            ("Bring gloves, e.g. leather, i.e. thick ones", "Bring gloves, e.g. leather, i.e. thick ones"),
+            ("Doors at 12.30, $5.00 for clay, 2.5 lbs", "Doors at 12.30, $5.00 for clay, 2.5 lbs"),
+        ],
+    )
+    def it_drops_any_bare_host_and_keeps_abbreviations_times_and_prices(typed: str, sent: str):
+        from core.integrations.eventbrite import _listing_text
+
+        assert _listing_text(typed) == sent
+
+    @pytest.mark.parametrize(
+        "question", ["What about a no\u2013show?", "What about a no\u2014show?", "What about no shows?"]
+    )
+    def it_leaves_out_a_no_show_faq_however_the_dash_is_typed(question: str):
+        from core.integrations.eventbrite import _sendable_faqs
+
+        offering = ClassOfferingFactory()
+        faq = ClassFaqFactory(class_offering=offering, question=question, answer="You lose the seat.")
+
+        assert _sendable_faqs([faq]) == []
