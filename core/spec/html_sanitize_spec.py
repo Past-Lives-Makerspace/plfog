@@ -201,6 +201,21 @@ def describe_render_rich_body():
         out = render_rich_body("Wear <closed toe shoes>.\nBring glasses.\n\nTake it home.")
         assert out == "<p>Wear &lt;closed toe shoes&gt;.<br>Bring glasses.</p><p>Take it home.</p>"
 
+    def it_drops_blank_spacer_paragraphs_so_the_margin_is_the_only_gap():
+        from core.html_sanitize import render_rich_body
+
+        stored = (
+            "<p>Intro.</p><p><br></p><p>Participants will:</p><p><br></p>"
+            "<ul><li>Cut glass</li></ul><p> &nbsp; </p><p><br/><br></p><p>Bring shoes.</p>"
+        )
+        out = render_rich_body(stored)
+        assert out == "<p>Intro.</p><p>Participants will:</p><ul><li>Cut glass</li></ul><p>Bring shoes.</p>"
+
+    def it_keeps_a_line_break_inside_a_paragraph_with_words():
+        from core.html_sanitize import render_rich_body
+
+        assert render_rich_body("<p>One<br>Two</p>") == "<p>One<br>Two</p>"
+
     def it_is_blank_for_blank():
         from core.html_sanitize import render_rich_body
 
