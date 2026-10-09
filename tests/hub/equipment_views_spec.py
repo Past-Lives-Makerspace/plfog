@@ -888,9 +888,13 @@ def describe_equipment_manage():
         _login(client, "eq_mng_wide", fog_role=Member.FogRole.ADMIN)
         equipment = EquipmentFactory()
         response = client.get(reverse("hub_equipment_manage", args=[equipment.slug]))
-        assert b'class="hub-card pl-equip-form-card pl-equip-form-card--full"' in response.content
+        details = response.content.split(b"x-show=\"section === 'details'\"", 1)[1].split(
+            b"x-show=\"section === 'staff'\"", 1
+        )[0]
+        assert b"pl-equip-panel" in details
+        assert b"pl-equip-form-card" not in details
         add_page = client.get(reverse("hub_equipment_add"))
-        assert b"pl-equip-form-card--full" not in add_page.content
+        assert b"pl-equip-form-card" in add_page.content
 
     def it_denies_a_manager_of_other_equipment(client: Client):
         # Cross-resource probe: an EquipmentStaffMembership row on A grants nothing on B.
