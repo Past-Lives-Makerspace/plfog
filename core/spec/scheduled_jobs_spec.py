@@ -41,6 +41,7 @@ _DISPATCHER_ALWAYS = {
     "take_reconciliation_snapshot",
     "send_queued_announcements",
     "announce_live_requests",
+    "fetch_video_thumbnails",
 }
 _DISPATCHER_DAILY = {
     "sync_all_sources",

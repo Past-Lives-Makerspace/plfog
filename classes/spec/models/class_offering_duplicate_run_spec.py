@@ -83,6 +83,23 @@ def describe_what_a_copy_carries():
         ]
 
     @pytest.mark.parametrize("path", CLONE_PATHS)
+    def it_carries_the_instagram_picture_by_reference(db, path):
+        # The row's own columns come across, so the copy shares the stored key and shows the
+        # picture at once; the job leaves it alone because the link still matches.
+        link = "https://www.instagram.com/p/CvxovSSs8dw/"
+        source = ClassOfferingFactory(
+            title="Forge Night",
+            slug="forge-night",
+            video_url=link,
+            video_thumbnail="classes/video-thumbnails/abc.jpg",
+            video_thumbnail_source_url=link,
+        )
+        copy = _clone(source, path)
+        assert copy.pk != source.pk
+        assert copy.video_thumbnail.name == "classes/video-thumbnails/abc.jpg"
+        assert copy.video_thumbnail_for_link == copy.video_thumbnail
+
+    @pytest.mark.parametrize("path", CLONE_PATHS)
     def it_carries_each_photos_focus(db, path):
         source = ClassOfferingFactory(title="Jewelry 101", slug="jw-101", gallery=0, ready=True)
         ClassImageFactory(class_offering=source, sort_order=0, alt_text="Pendant", focus_x=12, focus_y=88)

@@ -14,10 +14,17 @@ import pytest
 from django.urls import reverse
 from django.utils import timezone
 
-from classes.factories import CategoryFactory, ClassOfferingFactory, ClassSessionFactory, InstructorFactory
+from classes.factories import (
+    CategoryFactory,
+    ClassOfferingFactory,
+    ClassSessionFactory,
+    InstructorFactory,
+    UserFactory,
+)
 from classes.models import ClassOffering
 
 INSTAGRAM_URL = "https://www.instagram.com/reel/CxYzAbCdEfG/"
+PICTURE = "classes/video-thumbnails/0123abcd.jpg"
 FACEBOOK_URL = "https://www.facebook.com/watch/?v=1234567890"
 
 
@@ -78,6 +85,65 @@ def describe_public_class_video():
             body = _page(client, class_with_video(INSTAGRAM_URL))
             assert "instagram.com/embed.js" not in body
             assert "connect.facebook.net" not in body
+
+    def describe_instagram_with_the_posts_picture():
+        @pytest.fixture
+        def pictured(class_with_video):
+            offering = class_with_video(INSTAGRAM_URL)
+            ClassOffering.objects.filter(pk=offering.pk).update(
+                video_thumbnail=PICTURE, video_thumbnail_source_url=INSTAGRAM_URL
+            )
+            offering.refresh_from_db()
+            return offering
+
+        def _card(body: str) -> str:
+            card = re.search(r'<a class="pl-video-card pl-video-card--picture".*?</a>', body, re.S)
+            assert card, "the picture card did not render"
+            return card.group(0)
+
+        def it_shows_the_picture_linking_to_the_post_in_a_new_tab(pictured, client):
+            markup = _card(_page(client, pictured))
+            assert f'href="{INSTAGRAM_URL}"' in markup
+            assert 'target="_blank"' in markup
+            assert 'rel="noopener noreferrer"' in markup
+            img = re.search(r"<img[^>]*>", markup)
+            assert img
+            assert f'src="/media/{PICTURE}"' in img.group(0)
+            assert 'alt="Forge Night"' in img.group(0)
+            assert 'loading="lazy"' in img.group(0)
+
+        def it_carries_a_play_mark_and_the_watch_label(pictured, client):
+            markup = _card(_page(client, pictured))
+            assert '<span class="pl-video-card__play" aria-hidden="true"></span>' in markup
+            assert "Watch on Instagram" in markup
+            assert "Opens www.instagram.com/reel/CxYzAbCdEfG in a new tab." in markup
+
+        def it_loads_nothing_from_instagram(pictured, client):
+            body = _page(client, pictured)
+            assert "cdninstagram.com" not in body
+            assert "<iframe" not in body
+
+        def it_keeps_the_text_card_while_the_picture_belongs_to_an_earlier_link(pictured, client):
+            ClassOffering.objects.filter(pk=pictured.pk).update(video_url="https://www.instagram.com/p/Other123/")
+            body = _page(client, pictured)
+            assert "pl-video-card--picture" not in body
+            assert PICTURE not in body
+            assert "Watch this video on Instagram" in body
+
+        def it_shows_the_picture_on_the_preview_page_too(pictured, client):
+            client.force_login(UserFactory(is_superuser=True, is_staff=True))
+            response = client.get(reverse("classes:class_preview", kwargs={"pk": pictured.pk}))
+            assert response.status_code == 200
+            assert "pl-video-card--picture" in _card(response.content.decode())
+
+        def it_ignores_a_picture_on_a_youtube_class(class_with_video, client):
+            offering = class_with_video("https://youtu.be/dQw4w9WgXcQ")
+            ClassOffering.objects.filter(pk=offering.pk).update(
+                video_thumbnail=PICTURE, video_thumbnail_source_url="https://youtu.be/dQw4w9WgXcQ"
+            )
+            body = _page(client, offering)
+            assert "youtube-nocookie.com/embed/dQw4w9WgXcQ" in body
+            assert PICTURE not in body
 
     def describe_facebook():
         def it_renders_a_linked_card_and_no_iframe(class_with_video, client):
