@@ -265,24 +265,6 @@ def tally(choices: models.QuerySet[PollChoice] | list[PollChoice]) -> list[Choic
     ]
 
 
-def open_poll_with_results(now: datetime) -> tuple[Poll | None, list[ChoiceResult]]:
-    """The poll open at ``now`` and its tally, from one query on its answers.
-
-    The Spotlight renders on every hub page (#709), so this reads the answers with their poll
-    joined and their counts annotated rather than the poll and then its answers.
-    """
-    rows = list(
-        PollChoice.objects.filter(poll__opens_at__lte=now, poll__closes_at__gt=now)
-        .select_related("poll")
-        .annotate(vote_count=Count("votes"))
-        .order_by("-poll__opens_at", "position")
-    )
-    if not rows:
-        return None, []
-    poll = rows[0].poll
-    return poll, tally([row for row in rows if row.poll_id == poll.pk])
-
-
 def can_vote(member: Member | None) -> bool:
     """Whether this account may vote: a member record that is not a guest (#691) or a former member."""
     from membership.models import Member

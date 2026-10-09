@@ -1,9 +1,5 @@
 {% extends "hub/base.html" %}
-{% load static %}
 {% block title %}Poll Results{% endblock %}
-{% block extra_head %}
-<link rel="stylesheet" href="{% static 'css/spotlight.css' %}">
-{% endblock %}
 {% block content %}
 {# One poll's results for admins (#708): totals only, never who voted. #}
 {% include "components/page_header.html" with title="Poll Results" %}

@@ -8,17 +8,18 @@ preview and the member Spotlight both render it through ``hub/partials/_spotligh
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import datetime, timedelta
-from typing import TYPE_CHECKING
+from datetime import UTC, datetime, timedelta
+from typing import TYPE_CHECKING, Any
 
+from django.db.models import Count, IntegerField, Subquery, Value
 from django.urls import reverse
 from django.utils import timezone
 
-from polls.models import ChoiceResult, Poll, open_poll_with_results
+from core.models import SiteConfiguration
+from polls.models import MAX_CHOICES, ChoiceResult, Poll, PollCard, PollChoice, PollVote, can_vote, tally
 
 if TYPE_CHECKING:
-    from core.models import SiteConfiguration
-    from membership.models import CommunityEvent
+    from membership.models import CommunityEvent, Member
 
 #: The second minimized line when the admin leaves it empty.
 SECOND_LINE_DEFAULT = "Feature Request Meeting"
@@ -86,9 +87,58 @@ class SpotlightMeeting:
         return f"{local:%b} {local.day} @ {_clock(self.starts_at)}"
 
 
+def _row_annotations(member: Member | None, now: datetime) -> dict[str, Any]:
+    """The open poll, its answers with counts and this member's vote, as columns on the settings row.
+
+    The open poll does not depend on the settings row, so every value is an uncorrelated scalar
+    subquery: the whole Spotlight is one SELECT however many answers the poll has (at most
+    ``MAX_CHOICES``), which keeps the hub's one-extra-query budget (#709).
+    """
+    open_polls = Poll.objects.open_at(now).order_by("-opens_at", "-pk")
+    open_pk = Subquery(open_polls.values("pk")[:1])
+    columns: dict[str, Any] = {
+        "sp_poll_pk": open_pk,
+        "sp_poll_question": Subquery(open_polls.values("question")[:1]),
+        "sp_poll_opens_at": Subquery(open_polls.values("opens_at")[:1]),
+        "sp_poll_closes_at": Subquery(open_polls.values("closes_at")[:1]),
+        "sp_my_choice": (
+            Subquery(PollVote.objects.filter(poll_id=open_pk, member=member).values("choice_id")[:1])
+            if member is not None
+            else Value(None, output_field=IntegerField())
+        ),
+    }
+    answers = PollChoice.objects.filter(poll_id=open_pk).order_by("position")
+    counted = answers.annotate(sp_votes=Count("votes"))
+    for index in range(MAX_CHOICES):
+        columns[f"sp_a{index}_pk"] = Subquery(answers.values("pk")[index : index + 1])
+        columns[f"sp_a{index}_text"] = Subquery(answers.values("text")[index : index + 1])
+        columns[f"sp_a{index}_votes"] = Subquery(counted.values("sp_votes")[index : index + 1])
+    return columns
+
+
+@dataclass(frozen=True)
+class LatestUpdate:
+    """The newest member-facing changelog entry, shown in the poll's place when no poll is open."""
+
+    title: str
+    date: str
+    anchor: str
+
+    @classmethod
+    def newest(cls) -> LatestUpdate | None:
+        """The first entry of the composed changelog (member-facing only, newest first), or None."""
+        from plfog import version
+
+        if not version.CHANGELOG:
+            return None
+        entry = version.CHANGELOG[0]
+        slug = entry.get("slug", "")  # swept history entries have no slug, so no anchor
+        return cls(title=entry["title"], date=entry["date"], anchor=f"changelog-{slug}" if slug else "")
+
+
 @dataclass(frozen=True)
 class Spotlight:
-    """Everything the Spotlight shows at one moment."""
+    """Everything the Spotlight shows one member at one moment."""
 
     poll: Poll | None
     results: list[ChoiceResult]
@@ -96,30 +146,105 @@ class Spotlight:
     first_line_text: str
     second_line_text: str
     text_changed_at: datetime | None
+    my_choice_pk: int | None = None
+    can_vote: bool = False
+    latest_update: LatestUpdate | None = None
+    show_when_empty: bool = True
+
+    def __bool__(self) -> bool:
+        """Whether there is a Spotlight to show at all (#709).
+
+        With no open poll and no meeting it shows only while the admin's "Show the Spotlight when
+        there is no poll and no meeting" is on; off, the hub falls back to the logo and the
+        version number, which every template gets by testing ``{% if spotlight %}``.
+        """
+        return not self.is_empty or self.show_when_empty
+
+    @property
+    def is_empty(self) -> bool:
+        """No open poll and no upcoming meeting."""
+        return self.poll is None and self.meeting is None
 
     @classmethod
-    def build(cls, config: SiteConfiguration, now: datetime) -> Spotlight:
-        """Read the Spotlight from the settings row (meeting joined in) and the open poll.
+    def load(cls, member: Member | None, now: datetime) -> Spotlight:
+        """Read the whole Spotlight for ``member`` in one query.
 
         Args:
-            config: The settings row, from ``SiteConfiguration.load_with_spotlight_meeting``.
+            member: Whose vote to mark; None reads the Spotlight as nobody (the admin preview).
             now: The moment to judge the open poll and the next meeting against.
         """
-        poll, results = open_poll_with_results(now)
-        event = config.spotlight_meeting_event
+        row = (
+            SiteConfiguration.objects.select_related("spotlight_meeting_event")
+            .annotate(**_row_annotations(member, now))
+            .filter(pk=1)
+            .first()
+        )
+        if row is None:
+            # A fresh install has no settings row yet; make it, then read again.
+            SiteConfiguration.load()
+            return cls.load(member, now)
+        values = vars(row)
+        poll: Poll | None = None
+        results: list[ChoiceResult] = []
+        if values["sp_poll_pk"] is not None:
+            poll = Poll(
+                pk=values["sp_poll_pk"],
+                question=values["sp_poll_question"],
+                opens_at=values["sp_poll_opens_at"],
+                closes_at=values["sp_poll_closes_at"],
+            )
+            answers = []
+            for index in range(MAX_CHOICES):
+                if values[f"sp_a{index}_pk"] is None:
+                    break
+                answer = PollChoice(pk=values[f"sp_a{index}_pk"], text=values[f"sp_a{index}_text"], position=index)
+                answer.vote_count = values[f"sp_a{index}_votes"]  # type: ignore[attr-defined]
+                answers.append(answer)
+            results = tally(answers)
+        event = row.spotlight_meeting_event
         return cls(
             poll=poll,
             results=results,
             meeting=SpotlightMeeting.next_for(event, now) if event is not None else None,
-            first_line_text=config.spotlight_first_line,
-            second_line_text=config.spotlight_second_line,
-            text_changed_at=config.spotlight_text_changed_at,
+            first_line_text=row.spotlight_first_line,
+            second_line_text=row.spotlight_second_line,
+            text_changed_at=row.spotlight_text_changed_at,
+            my_choice_pk=values["sp_my_choice"],
+            can_vote=can_vote(member),
+            latest_update=LatestUpdate.newest(),
+            show_when_empty=row.spotlight_show_when_empty,
         )
 
     @property
+    def card(self) -> PollCard | None:
+        """The open poll as this member sees it, for the Spotlight and Expanded; None with no poll."""
+        if self.poll is None:
+            return None
+        return PollCard(
+            poll=self.poll, results=self.results, my_choice_pk=self.my_choice_pk, is_open=True, can_vote=self.can_vote
+        )
+
+    @property
+    def seen_signature(self) -> str:
+        """What the member has seen, for the yellow dot: the open poll, the next meeting and the text stamp.
+
+        The browser keeps the last signature the member opened the Spotlight on; a different one
+        here means something is new. A monthly meeting rolling to its next date changes it too.
+        """
+        # Times in UTC, so a value read back from the database in another zone signs the same.
+        parts = [
+            str(self.poll.pk) if self.poll is not None else "",
+            self.meeting.starts_at.astimezone(UTC).isoformat() if self.meeting is not None else "",
+            self.text_changed_at.astimezone(UTC).isoformat() if self.text_changed_at is not None else "",
+        ]
+        return "|".join(parts)
+
+    @property
     def first_line_fallback(self) -> str:
-        """What the first line says when the admin leaves it empty: the poll question, if any."""
-        return self.poll.question if self.poll is not None else ""
+        """What the first line says when the admin leaves it empty: the poll question, else the latest update."""
+        if self.poll is not None:
+            return self.poll.question
+        return self.latest_update.title if self.latest_update is not None else ""
 
     @property
     def first_line(self) -> str:

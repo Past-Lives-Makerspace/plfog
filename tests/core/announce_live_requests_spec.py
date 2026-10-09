@@ -284,4 +284,6 @@ def describe_the_changelog_modal():
 
         assert slugged, "the repo has at least this PR's own fragment"
         assert f'id="changelog-{slugged[0]["slug"]}"' in body
-        assert 'hash.indexOf("#changelog-")' in body
+        # Since #709 a member's hub page opens the link in the Spotlight's Expanded panel.
+        assert "location.hash.indexOf('#changelog-')" in body
+        assert "plShowEntry(location.hash.slice(1))" in body
