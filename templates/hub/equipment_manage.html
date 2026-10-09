@@ -234,6 +234,11 @@
                 ">Add New Orientation +</button>
       </div>
       <p class="hub-text-muted pl-equip-panel__intro">What members must complete before using this equipment. Each orientation books on the equipment page.</p>
+      {# The guilds' custom request switch (#733); the marker tells the save this card drew it. #}
+      <div data-orientation-requests>
+        <input type="hidden" name="{{ orientation_requests_form.SHOWN_FIELD }}" value="1">
+        {% include "components/form_field.html" with field=orientation_requests_form.allow_custom_requests %}
+      </div>
       {{ orientation_types_formset.management_form }}
       {% for error in orientation_types_formset.non_form_errors %}<p class="pl-field-error">{{ error }}</p>{% endfor %}
       <div id="equip-otype-rows" class="pl-otype-rows">

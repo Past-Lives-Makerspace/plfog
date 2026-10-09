@@ -11792,6 +11792,11 @@ class GuildOrientationSettings(models.Model):
         """True when this guild is taking orientation bookings right now."""
         return self.is_enabled and not self.is_closed
 
+    @property
+    def takes_custom_requests(self) -> bool:
+        """True when members may propose their own time for this guild's orientations right now."""
+        return self.is_accepting and self.allow_custom_requests
+
 
 class OrientationTypeQuerySet(models.QuerySet):
     def active(self) -> OrientationTypeQuerySet:
@@ -12139,6 +12144,26 @@ class OrientationType(models.Model):
     def owner_name(self) -> str:
         """The owner's display name, whichever kind it is."""
         return self.owner.name
+
+    @property
+    def allows_custom_requests(self) -> bool:
+        """True when a member may propose their own time for this orientation (#733).
+
+        The one rule the Orientations page card, the equipment page and the request roads
+        read: an active type whose owner takes custom requests right now, a guild through
+        :attr:`GuildOrientationSettings.takes_custom_requests` (a guild with no settings row
+        takes none), equipment through :attr:`Equipment.takes_custom_orientation_requests`.
+        Reads the owner rows, so a list of types should ``select_related`` them.
+        """
+        if not self.is_active:
+            return False
+        if self.equipment is not None:
+            return self.equipment.takes_custom_orientation_requests
+        try:
+            settings_obj = cast(Guild, self.guild).orientation_settings
+        except GuildOrientationSettings.DoesNotExist:
+            return False
+        return settings_obj.takes_custom_requests
 
     def owner_page_path(self) -> str:
         """The relative hub path of the owner's page — for redirects and in-app URLs."""
@@ -14960,6 +14985,14 @@ class Equipment(HeroCropMixin, models.Model):
     closed_message = models.CharField(
         max_length=200, blank=True, default="", help_text="Shown to members while closed, e.g. 'Down for maintenance.'"
     )
+    allow_custom_requests = models.BooleanField(
+        default=True,
+        db_default=True,
+        help_text=(
+            "Let members propose their own orientation time when none of this equipment's orientations "
+            "has an open time, the guilds' switch of the same name (#733)."
+        ),
+    )
 
     objects = EquipmentQuerySet.as_manager()
 
@@ -15059,6 +15092,15 @@ class Equipment(HeroCropMixin, models.Model):
                 "This equipment is retired, so it has no QR sheet. Turn it back on from the manage panel to print one."
             )
         return ""
+
+    @property
+    def takes_custom_orientation_requests(self) -> bool:
+        """True when members may propose their own orientation time on this equipment right now (#733).
+
+        The switch, on active equipment that is not closed: closed equipment pauses its
+        orientation cards (:attr:`OrientationType.paused_message`), so it takes no requests either.
+        """
+        return self.is_active and not self.is_closed and self.allow_custom_requests
 
     @property
     def qr_sheet_orientations(self) -> list[OrientationType]:
