@@ -1,0 +1,8 @@
+bump = "minor"
+date = "2026-10-09"
+title = "Orientations are easier to manage"
+changes = [
+  "What used to be called Orientation Types are now just Orientations, everywhere.",
+  "On equipment and guild orientation pages, each orientation shows as one line with its photo, length and price. Press Edit to open it.",
+  "The Add New Orientation + button now sits at the top right of the Orientations card.",
+]

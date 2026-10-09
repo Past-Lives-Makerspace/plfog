@@ -48,6 +48,11 @@ def _admin_guild() -> Guild:
     return GuildFactory(name="Ceramics Guild", about="", allow_member_announcement_suggestions=False)
 
 
+def _hide(guild: Guild) -> None:
+    guild.is_active = False
+    guild.save(update_fields=["is_active"])
+
+
 def _sign_in_as_admin(login_via_code) -> None:
     login_via_code(ADMIN_EMAIL)
     user = get_user_model().objects.get(username=ADMIN_EMAIL)
@@ -412,6 +417,8 @@ def describe_guild_settings_autosave():
 
     def it_keeps_a_photo_dropped_while_the_rows_first_save_is_in_flight(live_server, page, login_via_code):
         guild = _admin_guild()
+        # A hidden guild (#732): the Add an Orientation page does not offer it, so the card's add adds a row here.
+        _hide(guild)
         _sign_in_as_admin(login_via_code)
         _open_orientations(page, live_server, guild)
         # The name's save is held open, so the photo lands while it is in flight: its answer must
@@ -437,11 +444,12 @@ def describe_guild_settings_autosave():
         # A blank new row ahead of a saved one swaps places when the answer renumbers them; the
         # sent photo must still be cleared, or the next edit uploads it again.
         guild = _admin_guild()
+        # A hidden guild (#732): the Add an Orientation page does not offer it, so the card's add adds a row here.
+        _hide(guild)
         _sign_in_as_admin(login_via_code)
         _open_orientations(page, live_server, guild)
 
-        # The card's own add, below its rows, still works beside the header's.
-        add = page.locator("#otypes-form").get_by_role("button", name="+ Add an orientation type")
+        add = page.locator("#otypes-form").get_by_role("button", name="Add New Orientation +")
         add.click()
         add.click()
         # The photo waits on the half typed row; filling the name sends both in the save whose

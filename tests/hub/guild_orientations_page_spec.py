@@ -1,8 +1,8 @@
 """BDD specs for the guild's Orientations page (#672).
 
 Orientation setup moved off the Orientations tab of Guild Settings onto its own page,
-``/guilds/<pk>/orientations/``, titled "<Guild> Orientations" with "+ Add an orientation
-type" first. These specs pin the page and its permission tiers, the redirect from the old
+``/guilds/<pk>/orientations/``, titled "<Guild> Orientations" with "Add New Orientation +"
+first. These specs pin the page and its permission tiers, the redirect from the old
 tab URL, where every orientation save lands, and every link into the page.
 """
 
@@ -54,7 +54,7 @@ def _edit_hours_targets(content: str, guild: Guild) -> list[str]:
 
 
 def describe_the_page():
-    def it_is_titled_for_the_guild_and_puts_add_an_orientation_type_first(client: Client):
+    def it_is_titled_for_the_guild_and_puts_add_new_orientation_atop_the_orientations_card(client: Client):
         _user(client, "gop_admin", fog_role=Member.FogRole.ADMIN)
         guild = GuildFactory(name="Tech Guild")
         response = client.get(_page(guild))
@@ -63,11 +63,15 @@ def describe_the_page():
         assert "<title>Tech Guild Orientations" in content
         assert '<h1 class="hub-page-title pl-guild-settings__title">Tech Guild Orientations</h1>' in content
         page = content.split("data-guild-orientations", 1)[1]
-        # The first control is the link to the Add an Orientation page with this guild chosen (#680).
-        first_control = page[page.index("<a ") : page.index("</a>")]
-        assert first_control.startswith(f'<a href="{reverse("hub_orientation_add")}?guild={guild.pk}"')
-        assert "data-add-orientation-type" in first_control
-        assert first_control.endswith(">+ Add an orientation type")
+        # The page's one add (#680) sits in the Orientations card's header (#732), not the page header.
+        assert page.count("data-add-orientation-type") == 1
+        header = page.split("pl-guild-settings__header", 1)[1].split('id="otypes-form"', 1)[0]
+        assert "Add New Orientation +" not in header
+        card_head = page.split('class="pl-otype-card__head" data-card-head>', 1)[1].split("</div>", 1)[0]
+        add = card_head[card_head.index("<a ") : card_head.index("</a>")]
+        assert add.startswith(f'<a href="{reverse("hub_orientation_add")}?guild={guild.pk}"')
+        assert "data-add-orientation-type" in add
+        assert add.endswith(">Add New Orientation +")
         assert f'<a href="{reverse("hub_guild_edit", args=[guild.pk])}"' in page
         assert "Back to Tech Guild Settings" in page
 
@@ -244,7 +248,7 @@ def describe_links_into_the_page():
         guild = GuildFactory(name="Print Guild")
         equipment = EquipmentFactory(guild=guild)
         content = client.get(reverse("hub_equipment_manage", args=[equipment.slug])).content.decode()
-        assert f'<a href="{_page(guild)}">Create a new Print Guild orientation type</a>' in content
+        assert f'<a href="{_page(guild)}">Create a new Print Guild orientation</a>' in content
 
     def it_points_both_running_orientations_screenshots_at_the_page():
         article = next(a for a in help_content.ARTICLES if a["slug"] == "running-orientations")

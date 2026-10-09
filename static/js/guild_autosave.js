@@ -61,7 +61,7 @@
   function formOf(el) {
     if (!el.closest) return null;
     // A control outside its form names it with form="<id>": the Orientations page's header
-    // "+ Add an orientation type" (#672). Inside a form, el.form is that same form.
+    // "Add New Orientation +" (#672). Inside a form, el.form is that same form.
     var owner = el.form;
     if (owner && owner.matches && owner.matches("form[data-autosave]")) return owner;
     return el.closest("form[data-autosave]");
@@ -309,13 +309,21 @@
 
   function atTopOf(container, list) {
     var heading = container.querySelector("h2");
-    if (heading) heading.insertAdjacentElement("afterend", list);
+    // A heading that shares a header row with a button (the Orientations card, #732): below the row.
+    if (heading) (heading.closest("[data-card-head]") || heading).insertAdjacentElement("afterend", list);
     else container.insertAdjacentElement("afterbegin", list);
   }
 
+  // Each list, once placed, announces itself with a bubbling `pl-autosave-error`, so a collapsed
+  // row it lands in can open (plOrientationRow, #732).
   function placeErrors(form, key, messages) {
-    var prefix = prefixOf(form);
     var list = errorList(messages);
+    insertErrors(form, key, list);
+    list.dispatchEvent(new CustomEvent("pl-autosave-error", { bubbles: true }));
+  }
+
+  function insertErrors(form, key, list) {
+    var prefix = prefixOf(form);
     var rowMatch = prefix && key.match(new RegExp("^" + prefix + "-(\\d+)-__all__$"));
     if (rowMatch) {
       var input = form.querySelector('input[name="' + prefix + "-" + rowMatch[1] + '-id"]');

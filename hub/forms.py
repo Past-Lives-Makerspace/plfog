@@ -2477,7 +2477,7 @@ class GuildOrientationSettingsForm(LateCancelFeeFormMixin):
 
 
 class OrientationTypeForm(forms.ModelForm):
-    """One row of the guild editor's Orientation Types list.
+    """One row of the Orientations list on the guild and equipment editors.
 
     ``price`` is entered in dollars ("15" or "15.50", never cents) and mapped to
     ``price_cents`` on save. Blank normalizes to 0 (free), and a free type renders
@@ -2550,6 +2550,11 @@ class OrientationTypeForm(forms.ModelForm):
             "is_active": "Active",
             "photo": "Photo",
         }
+        # The model's help texts say "type"; the editors say "orientation" (#732).
+        help_texts = {
+            "default_seats": "Default capacity for new slots of this orientation.",
+            "is_active": "Offer this orientation to members. An inactive one keeps its history but takes no new bookings.",
+        }
 
     USES_EQUIPMENT_HINT = (
         "A booked slot holds each of these like a reservation. An open slot with no booking holds nothing. Optional."
@@ -2596,6 +2601,35 @@ class OrientationTypeForm(forms.ModelForm):
         setup_location_field(
             self, hint="The area its slots use. A booked slot shows the area in use on its guild page. Optional."
         )
+
+    @property
+    def summary_name(self) -> str:
+        """The row's name as typed, for its collapsed line (#732); "New orientation" while blank."""
+        return str(self["name"].value() or "").strip() or "New orientation"
+
+    @property
+    def summary_meta(self) -> str:
+        """The collapsed row's short line (#732): length, price and whether it is off, as typed.
+
+        "60 min · $15", "45 min · Free", "90 min · Donation based · Inactive". Read from the
+        bound values, so a row that failed to save shows what was entered. ``plOrientationRow``
+        (static/js/orientation_row.js) composes the same line in the browser as it is edited.
+        """
+        parts = []
+        duration = str(self["duration_minutes"].value() or "").strip()
+        if duration:
+            parts.append(f"{duration} min")
+        if self["is_donation"].value():
+            parts.append("Donation based")
+        else:
+            try:
+                cents = int(Decimal(str(self["price"].value() or "0").strip() or "0") * 100)
+            except ArithmeticError:
+                cents = 0
+            parts.append(OrientationType.dollars(cents) if cents > 0 else "Free")
+        if not self["is_active"].value():
+            parts.append("Inactive")
+        return " · ".join(parts)
 
     def clean_price(self) -> int:
         """Normalize the dollar input to cents — blank means free."""
@@ -2778,7 +2812,7 @@ class BaseOrientationTypeFormSet(forms.BaseInlineFormSet):
                 continue
             if name in seen_names:
                 raise forms.ValidationError(
-                    f'Two orientation types can\'t share the name "{data["name"]}". Give each one its own name.'
+                    f'Two orientations can\'t share the name "{data["name"]}". Give each one its own name.'
                 )
             seen_names.add(name)
 

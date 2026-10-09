@@ -1249,7 +1249,7 @@ def _guild_orientations_context(
     return {
         **_get_hub_context(request),
         "guild": guild,
-        # The header add opens the Add an Orientation page only when its Guild select offers this
+        # The Orientations card's add opens the Add an Orientation page only when its Guild select offers this
         # guild (#680); a hidden guild an admin opens is not offered, so it adds a row here instead.
         "add_page_offers_guild": any(g.pk == guild.pk for g in guilds_for_new_orientation(request)),
         "orientation_form": (
@@ -1586,7 +1586,7 @@ def guild_orientation_types_save(request: HttpRequest, pk: int) -> HttpResponse:
         orientations.generate_slots(guild=guild)
         if wants_autosave(request):
             return autosave_saved({"otypes": formset_rows(formset)})
-        messages.success(request, "Orientation types saved.")
+        messages.success(request, "Orientations saved.")
         return redirect(_guild_orientations_url(guild))
     if wants_autosave(request):
         return autosave_refused(formset)

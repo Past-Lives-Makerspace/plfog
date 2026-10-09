@@ -1,0 +1,31 @@
+{% comment %}
+One orientation on the guild Orientations page (#732), collapsed to its summary line with an
+Edit button; the clone source for "Add New Orientation +" renders it too. A row of the
+autosaving otypes formset (static/js/guild_autosave.js): [data-formset-row], with Delete /
+Remove as [data-formset-remove]. Parameters:
+  t    — required, one OrientationTypeForm of OrientationTypeFormSet (or its empty_form)
+  open — True starts the row expanded (a new row, or one the server refused)
+The fields stay in the DOM while collapsed (x-show), so every autosave posts every row; an
+autosave error placed inside the row opens it (pl-autosave-error).
+{% endcomment %}
+<div class="hub-card pl-otype-row" x-data="plOrientationRow({{ open|yesno:'true,false' }})" @input="refresh()" @change="refresh()" @pl-autosave-error="editing = true" data-formset-row data-otype-row>
+  {% include "hub/partials/_orientation_row_summary.html" with type_form=t open=open %}
+  <div class="pl-otype-row__body" x-show="editing"{% if not open %} x-cloak{% endif %} data-otype-body>
+    {% for error in t.non_field_errors %}<p class="pl-field-error">{{ error }}</p>{% endfor %}
+    {% include "hub/partials/_orientation_type_fields.html" with type_form=t %}
+    {# The card photo (#502); a saved row also gets the delete control. #}
+    {% if t.instance.pk %}{% url 'hub_orientation_type_photo_delete' t.instance.pk as otype_photo_delete_url %}{% endif %}
+    {% with opk=t.instance.pk|stringformat:"s" %}
+    {% include "components/image_field.html" with field=t.photo current_image=t.instance.photo delete_url=otype_photo_delete_url modal_id="delete-otype-photo-"|add:opk label="Photo" shape="rect" max_bytes=max_upload_image_bytes tooltip_html="Wide photo, about 1600x900, JPG or PNG. Shown on this orientation's card. Leave empty to use the guild banner." delete_button_text="Delete photo" confirm_title="Delete this photo?" confirm_message="The card goes back to the guild banner. This can't be undone." %}
+    {% endwith %}
+    {% include "components/form_field.html" with field=t.is_active %}
+    {% if t.instance.pk and t.instance.is_active %}<a href="{% url 'hub_orientation_type_flyer' t.instance.pk %}" target="_blank" rel="noopener" class="pl-btn pl-btn--secondary pl-btn--sm" data-qr-sheet-type-link>Print QR Sheet</a>{% endif %}
+    {% if t.instance.pk %}
+    <div hidden>{{ t.DELETE }}</div>
+    <button type="button" class="pl-btn pl-btn--danger pl-btn--sm pl-btn--spaced" data-formset-remove>Delete</button>
+    {% else %}
+    <button type="button" class="pl-btn pl-btn--danger pl-btn--sm pl-btn--spaced" data-formset-remove>Remove</button>
+    {% endif %}
+    {{ t.id }}
+  </div>
+</div>

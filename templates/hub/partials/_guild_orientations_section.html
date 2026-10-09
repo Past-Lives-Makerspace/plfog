@@ -11,7 +11,7 @@
     {% if late_cancel_fees_enabled %}
     {% include "components/form_field.html" with field=orientation_form.late_cancel_fee %}
     {% endif %}
-    <p class="hub-text-muted" style="font-size:0.8125rem; margin:0.5rem 0 0;">Length, price, seats, and location are set per orientation in the Orientation Types card below.</p>
+    <p class="hub-text-muted" style="font-size:0.8125rem; margin:0.5rem 0 0;">Length, price, seats, and location are set per orientation in the Orientations card below.</p>
   </div>
 
   <div class="hub-card" style="padding:1.5rem; margin-bottom:1.5rem;">
@@ -34,50 +34,37 @@
   </div>
 </form>
 
-{# ── Orientation Types (its own form + endpoint, the FAQ idiom) ──── #}
+{# ── Orientations (#732): its own form + endpoint, the FAQ idiom; each row collapsed to a summary line ── #}
 <form method="post" action="{% url 'hub_guild_orientation_types_save' guild.pk %}" enctype="multipart/form-data" class="hub-form" id="otypes-form" data-autosave data-formset="otypes" data-formset-required="{{ orientation_type_formset.empty_form|required_fields }}">
   {% csrf_token %}
-  <div class="hub-card" style="padding:1.5rem; margin-bottom:1.5rem;">
-    <h2 class="hub-detail-label" style="margin-top:0; margin-bottom:0.25rem;">Orientation Types</h2>
-    <p class="hub-text-muted" style="font-size:0.8125rem; margin:0 0 1rem;">The kinds of orientation your guild offers, e.g. Shop Basics, Lathe, CNC. Each has its own length, price, seats, and location. Members book each one separately; completing any one counts as oriented for the guild. Set a price and members pay by card when they book, or make it donation based and members choose the amount; declines and cancellations refund automatically.</p>
+  <div class="hub-card pl-otype-card">
+    <div class="pl-otype-card__head" data-card-head>
+      <h2 class="hub-detail-label pl-otype-card__title">Orientations</h2>
+      {# The page's one add (#680, #732): the Add an Orientation page with this guild chosen; a hidden guild that page does not offer adds a row here. #}
+      {% if add_page_offers_guild %}
+      <a href="{% url 'hub_orientation_add' %}?guild={{ guild.pk }}" class="hub-btn hub-btn--sm hub-btn--primary" data-add-orientation-type>Add New Orientation +</a>
+      {% else %}
+      <button type="button" class="hub-btn hub-btn--sm hub-btn--primary" data-formset-add data-add-orientation-type>Add New Orientation +</button>
+      {% endif %}
+    </div>
+    <p class="hub-text-muted pl-otype-card__intro">The orientations your guild offers, e.g. Shop Basics, Lathe, CNC. Each has its own length, price, seats, and location. Members book each one separately; completing any one counts as oriented for the guild. Set a price and members pay by card when they book, or make it donation based and members choose the amount; declines and cancellations refund automatically.</p>
     {{ orientation_type_formset.management_form }}
     {% for error in orientation_type_formset.non_form_errors %}<p class="pl-field-error">{{ error }}</p>{% endfor %}
-    <div id="otype-rows" style="display:flex; flex-direction:column; gap:1rem;" data-formset-rows>
+    <div id="otype-rows" class="pl-otype-rows" data-formset-rows>
       {% for t in orientation_type_formset %}
-        <div class="hub-card" style="padding:1rem; background:rgba(255,255,255,0.02);" data-formset-row>
-          {% for error in t.non_field_errors %}<p class="pl-field-error">{{ error }}</p>{% endfor %}
-          {% include "hub/partials/_orientation_type_fields.html" with type_form=t %}
-          {# The card photo (#502); a saved row also gets the delete control. #}
-          {% if t.instance.pk %}{% url 'hub_orientation_type_photo_delete' t.instance.pk as otype_photo_delete_url %}{% endif %}
-          {% with opk=t.instance.pk|stringformat:"s" %}
-          {% include "components/image_field.html" with field=t.photo current_image=t.instance.photo delete_url=otype_photo_delete_url modal_id="delete-otype-photo-"|add:opk label="Photo" shape="rect" max_bytes=max_upload_image_bytes tooltip_html="Wide photo, about 1600x900, JPG or PNG. Shown on this orientation's card. Leave empty to use the guild banner." delete_button_text="Delete photo" confirm_title="Delete this photo?" confirm_message="The card goes back to the guild banner. This can't be undone." %}
-          {% endwith %}
-          {% include "components/form_field.html" with field=t.is_active %}
-          {% if t.instance.pk and t.instance.is_active %}<a href="{% url 'hub_orientation_type_flyer' t.instance.pk %}" target="_blank" rel="noopener" class="pl-btn pl-btn--secondary pl-btn--sm" data-qr-sheet-type-link>Print QR Sheet</a>{% endif %}
-          {% if t.instance.pk %}
-            <div style="display:none;">{{ t.DELETE }}</div>
-            <button type="button" class="pl-btn pl-btn--danger pl-btn--sm pl-btn--spaced" data-formset-remove>Delete</button>
-          {% endif %}
-          {{ t.id }}
-        </div>
+      {% if t.errors or orientation_type_formset.non_form_errors or not t.instance.pk %}
+      {% include "hub/partials/_guild_orientation_row.html" with t=t open=True %}
+      {% else %}
+      {% include "hub/partials/_guild_orientation_row.html" with t=t open=False %}
+      {% endif %}
       {% endfor %}
-      <p class="hub-text-muted" data-formset-empty{% if orientation_type_formset.forms %} hidden{% endif %}>No orientation types yet. Add your first below. Members can only book once at least one type exists.</p>
+      <p class="hub-text-muted" data-formset-empty{% if orientation_type_formset.forms %} hidden{% endif %}>No orientations yet. Add your first with Add New Orientation +. Members can only book once at least one exists.</p>
     </div>
 
-    {# Hidden empty-form template, cloned by the +Add button below. #}
+    {# Hidden empty-form template, cloned by Add New Orientation + above; a new row starts open. #}
     <template id="otype-empty-template" data-formset-template>
-      <div class="hub-card" style="padding:1rem; background:rgba(255,255,255,0.02);" data-formset-row>
-        {% with orientation_type_formset.empty_form as ef %}
-          {% include "hub/partials/_orientation_type_fields.html" with type_form=ef %}
-          {% include "components/image_field.html" with field=ef.photo current_image=None label="Photo" shape="rect" max_bytes=max_upload_image_bytes tooltip_html="Wide photo, about 1600x900, JPG or PNG. Shown on this orientation's card. Leave empty to use the guild banner." %}
-          {% include "components/form_field.html" with field=ef.is_active %}
-          {{ ef.id }}
-          <button type="button" class="pl-btn pl-btn--danger pl-btn--sm pl-btn--spaced" data-formset-remove>Remove</button>
-        {% endwith %}
-      </div>
+      {% include "hub/partials/_guild_orientation_row.html" with t=orientation_type_formset.empty_form open=True %}
     </template>
-
-    <button type="button" class="hub-btn hub-btn--sm" style="margin-top:1rem;" data-formset-add>+ Add an orientation type</button>
 
     {% if orientation_is_paid %}
     {# Read-only: the split is set by an admin on the Payments Dashboard, not here. #}

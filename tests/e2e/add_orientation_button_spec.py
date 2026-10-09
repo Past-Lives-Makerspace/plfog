@@ -81,7 +81,7 @@ def describe_adding_an_orientation():
         page.get_by_role("button", name="Save", exact=True).click()
 
         expect(page).to_have_url(f"{live_server.url}{reverse('hub_guild_orientations', args=[guild.pk])}")
-        expect(page.locator('#otypes-form input[value="Vinyl Cutter"]')).to_be_visible()
+        expect(page.locator("#otypes-form [data-otype-name]", has_text="Vinyl Cutter")).to_be_visible()
         created = OrientationType.objects.get(name="Vinyl Cutter")
         assert (created.guild_id, created.duration_minutes, created.default_seats) == (guild.pk, 45, 2)
         assert (created.is_donation, created.donation_minimum_cents) == (True, 500)

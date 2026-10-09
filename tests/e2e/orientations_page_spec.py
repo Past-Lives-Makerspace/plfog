@@ -1,9 +1,9 @@
 """End-to-end: the Orientations page (#502 parts 2 and 3) in a real browser.
 
 A member books a slot from a card and lands back on the page with the card reading
-Requested; a lead adds an orientation type on the guild's Orientations page, picks a photo on the
+Requested; a lead adds an orientation on the guild's Orientations page, picks a photo on the
 freshly added row and sees its preview (the row's cloned image field script has to run),
-and the autosave stores it; the equipment editor's own "+ Add Orientation Type" row does the
+and the autosave stores it; the equipment editor's own "Add New Orientation +" row does the
 same through its Save button. On the Calendar view (part 3) a member finds a seeded slot's
 chip, follows its entry and lands on that type's card; the guild page's own calendar
 still files its filters under the guild. Waits are on what the page shows. Run with
@@ -71,7 +71,8 @@ def describe_the_orientations_page():
 
     def it_previews_and_saves_a_photo_on_a_freshly_added_type_row(live_server, page, login_via_code):
         MembershipPlanFactory()
-        guild = GuildFactory(name="Print Guild")
+        # Hidden, so the Orientations card's add adds a row in place instead of opening the add page (#732).
+        guild = GuildFactory(name="Print Guild", is_active=False)
         GuildOrientationSettingsFactory(guild=guild, is_enabled=True)
         login_via_code(ADMIN_EMAIL)
         user = get_user_model().objects.get(username=ADMIN_EMAIL)
@@ -106,7 +107,7 @@ def describe_the_orientations_page():
         user.save(update_fields=["is_staff", "is_superuser"])
 
         page.goto(f"{live_server.url}{reverse('hub_equipment_manage', args=[equipment.slug])}?tab=orientation")
-        page.get_by_role("button", name="+ Add Orientation Type").click()
+        page.get_by_role("button", name="Add New Orientation +").click()
         page.locator('input[name="otypes-0-photo"]').set_input_files(
             {"name": "laser.png", "mimeType": "image/png", "buffer": _PNG}
         )
