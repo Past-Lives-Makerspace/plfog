@@ -823,9 +823,17 @@ html.dark .cp-page {
   object-fit: contain;
   opacity: .9;
 }
+/* A neutral shade, not a navy tint, so the photo keeps its own colours. It starts a third of the
+   way down because on a phone a wrapped title climbs above the middle of a short photo, and cream
+   text has to read there on a bright one. */
 .cp-detail__hero-overlay {
   position: absolute;
   inset: 0;
+  background: linear-gradient(180deg, rgba(0,0,0,0) 30%, rgba(0,0,0,.4) 60%, rgba(0,0,0,.7) 100%);
+}
+/* The logo fallback has no photo to tint, and in light theme its panel is near white, so it keeps
+   the navy wash that cream text needs. */
+.cp-detail__hero-logo + .cp-detail__hero-overlay {
   background: linear-gradient(180deg, rgba(9,46,76,0) 0%, rgba(9,46,76,.55) 60%, rgba(9,46,76,.85) 100%);
 }
 .cp-detail__hero-content {
@@ -891,7 +899,7 @@ a.cp-detail__cat-chip:hover { background: #f5ca6e; color: var(--color-navy); tex
 }
 /* The optional second line under the title (#563): the title's face in italic at 500 (the one
    italic weight base_public.html loads), lighter and smaller, so title, subtitle and byline read
-   as one block. Always on the navy hero overlay, so cream in both themes. */
+   as one block. Always on the hero's dark shade (navy on the logo fallback), so cream in both themes. */
 .cp-detail__subtitle {
   font-family: var(--heading);
   font-style: italic;
