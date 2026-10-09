@@ -6146,13 +6146,17 @@ class AnnouncementDraft(models.Model):
         return _absolute_url("/guilds/voting/history/")
 
     def _in_app_message(self, base_url: str) -> "Message":
-        """The in-app bell / Discord :class:`Message` — the category title + the flattened body."""
+        """The in-app bell / Discord :class:`Message`: the category title + the body as lines.
+
+        The body keeps its paragraphs (a blank line between) and bullets (one ``- `` line each),
+        so a long announcement reads the same on Discord and the Notifications page as in email.
+        """
         from core.events.channels import Message
-        from core.html_sanitize import rich_html_to_text
+        from core.html_sanitize import rich_html_to_lines
 
         return Message(
             title=self.title,
-            body=rich_html_to_text(self.body),
+            body=rich_html_to_lines(self.body),
             url=self._landing_url(base_url),
             trigger_kind=self._trigger_kind(),
         )
@@ -6173,7 +6177,8 @@ class AnnouncementDraft(models.Model):
     def build_discord_message(self, base_url: str) -> "Message":
         """The Discord embed :class:`Message` — the composer's Discord preview card *is* this.
 
-        A plain announcement posts the in-app message (the category title + the flattened body).
+        A plain announcement posts the in-app message (the category title + the body as lines),
+        cut to Discord's embed description limit.
         A results announcement adds the snapshot's results block under the message, one
         ``/voting`` style bar line per guild (:meth:`FundingSnapshot.allocation_discord_block`).
 
@@ -6190,7 +6195,7 @@ class AnnouncementDraft(models.Model):
         message = self._in_app_message(base_url)
         snapshot = self.funding_snapshot
         if snapshot is None:
-            return message
+            return dataclasses.replace(message, body=truncate(message.body, _EMBED_DESCRIPTION_LIMIT))
         full_block = snapshot.allocation_discord_block()
         room = max(_EMBED_DESCRIPTION_LIMIT - len(full_block) - 2, min(len(message.body), _DISCORD_PROSE_FLOOR))
         prose = truncate(message.body, room)
@@ -6220,15 +6225,15 @@ class AnnouncementDraft(models.Model):
         The one builder renders both the live preview and the override handed to the spine
         (``emit`` for a site send, ``notify_members(email_message=…)`` for a guild send), so
         the preview is always byte-faithful to what sends. ``base_url`` is the site root for a
-        site send and the guild-detail URL for a guild send. The text part is the flattened
-        rich body (matching the bell / Discord render). A results announcement adds the results
+        site send and the guild-detail URL for a guild send. The text part is the rich body as
+        lines, paragraphs and bullets kept (matching the bell / Discord render). A results announcement adds the results
         visual under the message: the heading and bar chart in the HTML, the heading and one line
         per guild in the text part.
         """
         from core.events.channels import Message
-        from core.html_sanitize import rich_html_to_text
+        from core.html_sanitize import rich_html_to_lines
 
-        body_text = rich_html_to_text(self.body)
+        body_text = rich_html_to_lines(self.body)
         subline = self._email_subline()
         sender = self._sender_line()
         text_parts = [self.title]
@@ -6361,7 +6366,7 @@ class AnnouncementDraft(models.Model):
         from django.urls import reverse
 
         from core.events.emit import emit
-        from core.html_sanitize import rich_html_to_text
+        from core.html_sanitize import rich_html_to_lines
         from membership.orientations import _absolute_url
 
         if self.author is None:
@@ -6385,7 +6390,7 @@ class AnnouncementDraft(models.Model):
                 context={
                     "member_name": "there",
                     "announcement_title": self.title,
-                    "announcement_body": rich_html_to_text(body_html),
+                    "announcement_body": rich_html_to_lines(body_html),
                     "site_url": site_url,
                     "discord_broadcast_webhook": webhook,
                     "include_never_logged_in": self.include_never_logged_in,
@@ -6417,7 +6422,7 @@ class AnnouncementDraft(models.Model):
                 context={
                     "member_name": "there",
                     "announcement_title": self.title,
-                    "announcement_body": rich_html_to_text(body_html),
+                    "announcement_body": rich_html_to_lines(body_html),
                     "site_url": leads_url,
                     "discord_broadcast_webhook": webhook,
                 },
@@ -6451,7 +6456,7 @@ class AnnouncementDraft(models.Model):
                 context={
                     "class_name": offering.title,
                     "announcement_title": self.title,
-                    "announcement_body": rich_html_to_text(body_html),
+                    "announcement_body": rich_html_to_lines(body_html),
                     "class_url": class_url,
                     "class_offering": offering,
                 },
@@ -6476,9 +6481,9 @@ class AnnouncementDraft(models.Model):
                 author=self.author,
                 title=self.title,
                 # The guild page + slideshow render the body as plain text (|linebreaksbr),
-                # so store the flattened rich body — the rich formatting still shows in the
-                # branded email (the draft's own body keeps the rich HTML).
-                body=rich_html_to_text(body_html),
+                # so store the rich body as lines, paragraphs and bullets kept; the rich
+                # formatting still shows in the branded email (the draft keeps the rich HTML).
+                body=rich_html_to_lines(body_html),
                 expires_at=self.expires_at,
                 send_email=self.send_email,
                 discord_channel=self.discord_channel if discord_on else GuildAnnouncement.DiscordChannel.NONE,

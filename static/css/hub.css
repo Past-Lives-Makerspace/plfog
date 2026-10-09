@@ -3831,7 +3831,7 @@ html:not(.dark) .admin-table-wrap tbody tr:nth-child(even) {
 .pl-note--unread .pl-note__btn { background: rgba(238,180,75,0.08); }
 [data-theme="light"] .pl-note--unread .pl-note__btn { background: rgba(238,180,75,0.16); }
 .pl-note__title { font-weight: 600; font-size: 0.875rem; overflow-wrap: anywhere; }
-.pl-note__body { font-size: 0.8125rem; color: var(--hub-text-muted); overflow-wrap: anywhere; }
+.pl-note__body { font-size: 0.8125rem; color: var(--hub-text-muted); overflow-wrap: anywhere; white-space: pre-line; }
 .pl-note__time { font-size: 0.6875rem; color: var(--hub-text-muted); }
 
 /* ── Guild detail page redesign (pl-guild-*) ──────────────────────────── */

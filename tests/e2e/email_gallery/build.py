@@ -111,14 +111,14 @@ def _render_release(email: GalleryEmail, data: SampleData) -> RenderedEmail:
 def _render_announcement(email: GalleryEmail, data: SampleData) -> RenderedEmail:
     from django.conf import settings
 
-    from core.html_sanitize import rich_html_to_text
+    from core.html_sanitize import rich_html_to_lines
     from membership.models import build_announcement_email_html
 
     built = _built_context(email, data)
     title, body = str(built["title"]), str(built["body"])
     html = build_announcement_email_html(title, body)
     base_url = settings.MEMBER_BASE_URL
-    text = f"{title}\n\n{rich_html_to_text(body)}\n\n{base_url}"  # mirrors AnnouncementDraft.build_email_message
+    text = f"{title}\n\n{rich_html_to_lines(body)}\n\n{base_url}"  # mirrors AnnouncementDraft.build_email_message
     return RenderedEmail(email=email, subject=title, html=html, text=text)
 
 

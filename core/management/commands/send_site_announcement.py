@@ -44,14 +44,14 @@ class Command(BaseCommand):
         from core.events.channels import Channel, Message
         from core.events.emit import emit
         from core.events.templates import wrap_email_html
-        from core.html_sanitize import render_rich_email_body, rich_html_to_text, sanitize_rich_html
+        from core.html_sanitize import render_rich_email_body, rich_html_to_lines, sanitize_rich_html
 
         title = self._decode(options["subject_b64"], "--subject-b64").strip()
         body_html = sanitize_rich_html(self._decode(options["body_b64"], "--body-b64"))
         if not title or not body_html:
             raise CommandError("Subject and body must both be non-empty (body must survive sanitization).")
 
-        body_text = rich_html_to_text(body_html)
+        body_text = rich_html_to_lines(body_html)
         site_url = settings.MEMBER_BASE_URL
         email = Message(
             title=title,

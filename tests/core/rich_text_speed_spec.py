@@ -48,6 +48,7 @@ ENTRY_POINTS: dict[str, Callable[[str], object]] = {
     "render_rich_email_body": html_sanitize.render_rich_email_body,
     "render_rich_email_text": html_sanitize.render_rich_email_text,
     "rich_html_to_text": html_sanitize.rich_html_to_text,
+    "rich_html_to_lines": html_sanitize.rich_html_to_lines,
     "render_markdown_member": markdown.render_markdown,
     "render_markdown_wiki": lambda source: markdown.render_markdown(source, profile="wiki"),
     "render_markdown_help": lambda source: markdown.render_markdown(source, profile="help"),
