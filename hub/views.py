@@ -576,8 +576,8 @@ def _orientation_sections(
     member's bookings on exactly these types; the (caller-filtered, ordered) slot
     lists render only when the type is open for the member. ``slot_cap`` can bound
     each type's list; both pages pass ``None`` (the five per page pager bounds the
-    view). Guild-only extras (availability blocks, custom requests) are layered on
-    by the guild view.
+    view). Extras are layered on by each caller: the guild view adds availability blocks
+    and custom requests, the equipment page adds custom requests.
     """
     from core.models import SiteConfiguration
     from membership.late_cancel import booking_cancel_warning, booking_sentence, policy_for_type
