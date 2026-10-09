@@ -211,6 +211,22 @@ def describe_render_rich_body():
         out = render_rich_body(stored)
         assert out == "<p>Intro.</p><p>Participants will:</p><ul><li>Cut glass</li></ul><p>Bring shoes.</p>"
 
+    def it_drops_spacers_from_the_email_rendering_too():
+        from core.html_sanitize import render_rich_email_body
+
+        out = render_rich_email_body("<p>One.</p><p><br></p><p>Two.</p>")
+        assert out.count("<p") == 2
+
+    def it_matches_a_long_raw_nbsp_run_in_linear_time():
+        import time
+
+        from core.html_sanitize import SPACER_PARAGRAPH_RE
+
+        started = time.perf_counter()
+        assert SPACER_PARAGRAPH_RE.sub("", "<p>" + "\xa0" * 5000 + "x</p>") == "<p>" + "\xa0" * 5000 + "x</p>"
+        assert SPACER_PARAGRAPH_RE.sub("", "<p>" + "\xa0" * 50 + "</p>") == ""
+        assert time.perf_counter() - started < 1
+
     def it_keeps_a_line_break_inside_a_paragraph_with_words():
         from core.html_sanitize import render_rich_body
 

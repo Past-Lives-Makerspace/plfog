@@ -10,4 +10,4 @@ Cause: the editor (Quill) stores an Enter-twice gap as an empty paragraph, `<p><
 - Drupal import keeps stripping the same spacers, from one shared pattern.
 
 ## Out of scope
-- Emails and Eventbrite renderings of the description.
+- The Eventbrite rendering of the description. (HTML emails built from a body, class welcome and reminder, guild and announcement emails, drop spacers too, because `render_rich_email_body` builds on `render_rich_body`; their paragraphs carry the same margin.)

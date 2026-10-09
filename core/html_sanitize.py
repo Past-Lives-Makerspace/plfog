@@ -171,8 +171,9 @@ _RICH_CLEANER = AllowlistCleaner(_ALLOWED_TAGS, _ALLOWED_ATTRS)
 _BLOCK_TAG_RE = re.compile(r"<(?:p|br|h2|h3|ul|ol|li|blockquote)\b", re.IGNORECASE)
 # A paragraph holding nothing but space or line breaks: Quill's Enter-twice gap (``<p><br></p>``)
 # and Drupal's ``<p>&nbsp;</p>``. On a page every paragraph already carries a bottom margin, so a
-# spacer adds a whole blank line on top of it.
-SPACER_PARAGRAPH_RE = re.compile(r"<p(?:\s[^>]*)?>(?:\s|&nbsp;|\xa0|<br\s*/?>)*</p>", re.IGNORECASE)
+# spacer adds a whole blank line on top of it. ``\s`` already matches a raw U+00A0; a second
+# alternative for it would backtrack exponentially on a long run (the import feeds raw HTML).
+SPACER_PARAGRAPH_RE = re.compile(r"<p(?:\s[^>]*)?>(?:\s|&nbsp;|<br\s*/?>)*</p>", re.IGNORECASE)
 # A close tag (or ``<br>``) that marks a line break when flattening HTML to text.
 _LINE_BREAK_RE = re.compile(r"<br\s*/?>|</(?:p|li|h2|h3|blockquote|ul|ol)>", re.IGNORECASE)
 # Quill 2.x emits a bullet list as ``<ol>`` whose items carry ``data-list="bullet"``. A list
@@ -321,7 +322,8 @@ def render_rich_body(value: str) -> str:
     The on-page counterpart of :func:`render_rich_email_body`, without the inline styles: the
     page's own stylesheet styles the fragment, and its paragraph margin is the gap between
     paragraphs, so blank spacer paragraphs (:data:`SPACER_PARAGRAPH_RE`) are dropped rather than
-    doubling it. The stored body keeps them, so the editor shows what was typed. Returns ``""``
+    doubling it; emails built on this (:func:`render_rich_email_body`) drop them too. The stored
+    body keeps them, so the editor shows what was typed. Returns ``""``
     for empty input; the result is safe to ``mark_safe``.
     """
     if not value or not value.strip():
