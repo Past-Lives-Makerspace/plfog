@@ -188,9 +188,10 @@ def describe_admin_section():
             assert _section_of(user, "class_validation_requested") is None
 
     def describe_an_equipment_manager():
-        # equipment.reservation_made routes to EQUIPMENT_MANAGERS — the three manage
-        # tiers (per-equipment staff row / guild leadership / EQUIPMENT capability)
-        # each see the row; a plain member never does. Page == delivery.
+        # equipment.reservation_made routes to EQUIPMENT_MANAGERS: a per-equipment staff
+        # row and guild leadership each see the row, and so does an EQUIPMENT holder,
+        # because equipment nobody runs falls back to them (#746). A plain member never
+        # does. Page == delivery.
         EQUIPMENT_EVENT = "equipment.reservation_made"
 
         def it_shows_the_row_to_a_per_equipment_staff_row_holder(db):
