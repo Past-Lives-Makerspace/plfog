@@ -253,7 +253,7 @@ def _rows(*rows: tuple[int | None, str, str], initial: int) -> dict[str, str]:
 
 def describe_a_tab_opened_before_the_deploy():
     """The page was rendered by the previous release with the locked questions as saved rows;
-    migration 0085 then deleted them, or the previous release saved one during the deploy."""
+    migration 0086 then deleted them, or the previous release saved one during the deploy."""
 
     @pytest.fixture
     def materialized(db) -> tuple[ClassOffering, list[ClassFaq]]:
@@ -276,7 +276,7 @@ def describe_a_tab_opened_before_the_deploy():
     def it_saves_with_the_locked_rows_dropped_after_the_migration_deleted_them(materialized, admin_user, client):
         offering, rows = materialized
         stale = _stale_post(rows, "Edited in the old tab.")
-        ClassFaq.objects.filter(pk__in=[rows[0].pk, rows[1].pk]).delete()  # what 0085 does
+        ClassFaq.objects.filter(pk__in=[rows[0].pk, rows[1].pk]).delete()  # what 0086 does
         client.force_login(admin_user)
 
         response = client.post(

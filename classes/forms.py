@@ -1202,7 +1202,7 @@ class BaseClassFaqFormSet(BaseInlineFormSet):
     by the previous release while a deploy was going out, say).
 
     A tab opened before the deploy can post a saved row this formset no longer holds: its
-    id was deleted by migration 0085, or it is a locked row left out of the queryset.
+    id was deleted by migration 0086, or it is a locked row left out of the queryset.
     Django would build that row as an unsaved instance, fail its hidden id with an error
     nobody sees, and drop it from the save. Here such a "stale" row asking a locked question
     is dropped quietly (the locked copy shows on the page anyway), and any other stale row

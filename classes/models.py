@@ -3865,7 +3865,7 @@ def _faq_key(question: str) -> str:
 
     NFKC folds compatibility characters (a no-break space becomes a space), curly
     apostrophes become straight, every run of whitespace becomes one space, case is
-    folded, and a trailing question mark is dropped. Migration 0085 freezes a copy.
+    folded, and a trailing question mark is dropped. Migration 0086 freezes a copy.
     """
     text = unicodedata.normalize("NFKC", question).translate(_FAQ_APOSTROPHES)
     return " ".join(text.split()).casefold().rstrip("?").rstrip()
