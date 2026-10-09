@@ -1,0 +1,6 @@
+bump = "patch"
+date = "2026-10-09"
+title = "A calmer top left when there is no poll or meeting"
+changes = [
+  "With no poll open and no meeting coming up, the top left of the Member Portal shrinks to the version number, the date of the last update and a Details button.",
+]

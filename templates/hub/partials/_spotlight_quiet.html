@@ -1,0 +1,9 @@
+{# The Spotlight with no poll and no meeting (spotlight is hub.spotlight.Spotlight): the version pill, which opens the changelog, the newest update's date and Details. #}
+{% load hub_tags %}
+{% with update=spotlight.latest_update %}
+<div class="pl-spotlight__quiet-info">
+    <button type="button" class="pl-badge--version" @click="$store.spotlight.showChange('')" data-spotlight-quiet-version>v{{ app_version_short }}</button>
+    {% if update %}<span class="pl-spotlight__quiet-date" title="{{ update.date|changelog_date }}" data-spotlight-quiet-date>Updated {{ update.short_date }}</span>{% endif %}
+</div>
+<button type="button" class="pl-spotlight__quiet-details" data-spotlight-details @click="$store.spotlight.expand()">Details<svg aria-hidden="true" viewBox="0 0 16 16" width="14" height="14"><path d="M6 3.5 10.5 8 6 12.5" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
+{% endwith %}

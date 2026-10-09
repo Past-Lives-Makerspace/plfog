@@ -21,6 +21,7 @@ from tests.polls.factories import poll_with
 EMAIL = "spotlight-e2e@example.com"
 STANDARD = ".hub-sidebar__spotlight [data-spotlight-state='standard']"
 MINIMIZED = ".hub-sidebar__spotlight [data-spotlight-state='minimized']"
+QUIET = ".hub-sidebar__spotlight [data-spotlight-state='quiet']"
 
 
 def _sign_in(page, login_via_code) -> None:
@@ -56,6 +57,8 @@ def describe_the_spotlight():
 
     def it_remembers_the_minimized_choice_across_a_reload(page, live_server, login_via_code):
         _sign_in(page, login_via_code)
+        poll_with("Laser", "Lathe", question="Zorblax keep?", opens_at=timezone.now() - timedelta(hours=1))
+        page.evaluate("() => localStorage.removeItem('plSpotlightMinimized')")
         _home(page, live_server)
         page.locator(f"{STANDARD} [data-spotlight-minimize]").click()
         expect(page.locator(MINIMIZED)).to_be_visible()
@@ -80,7 +83,7 @@ def describe_the_spotlight():
         _sign_in(page, login_via_code)
         _home(page, live_server)
 
-        page.locator(f"{STANDARD} [data-spotlight-details]").click()
+        page.locator(f"{QUIET} [data-spotlight-details]").click()
         panel = page.locator("[data-spotlight-panel]")
         expect(panel.locator("[data-spotlight-version]")).to_be_visible()
         panel.locator("[data-spotlight-version]").click()
@@ -104,13 +107,23 @@ def describe_the_spotlight():
         expect(page.locator("#spotlight-changelog [data-changelog-label]")).to_contain_text("Page 2 of")
 
 
-def describe_with_no_open_poll():
-    def it_opens_the_changelog_at_the_latest_update(page, live_server, login_via_code):
+def describe_with_no_poll_and_no_meeting():
+    def it_stays_quiet_even_after_a_minimize_elsewhere(page, live_server, login_via_code):
+        _sign_in(page, login_via_code)
+        page.evaluate("() => localStorage.setItem('plSpotlightMinimized', '1')")
+
+        _home(page, live_server)
+
+        expect(page.locator(QUIET)).to_be_visible()
+        expect(page.locator(STANDARD)).to_have_count(0)
+        expect(page.locator(MINIMIZED)).to_have_count(0)
+
+    def it_opens_the_changelog_from_the_version_pill(page, live_server, login_via_code):
         _sign_in(page, login_via_code)
         slug = CHANGELOG[0]["slug"]
         _home(page, live_server)
 
-        page.locator(f"{STANDARD} [data-spotlight-update-link]").click()
+        page.locator(f"{QUIET} [data-spotlight-quiet-version]").click()
 
         expect(page.locator("[data-spotlight-panel-changelog]")).to_be_visible()
         expect(page.locator(f"#changelog-{slug}")).to_be_visible()
