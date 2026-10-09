@@ -607,7 +607,7 @@ def describe_equipment_owned_orientations_service():
         assert member.is_oriented_for_type(slot.orientation_type) is True
         assert equipment.booking_blockers(member) == []  # the unlock
 
-    def it_routes_a_personal_slot_to_its_manager_the_capability_holders_and_the_guild_lead():
+    def it_routes_a_personal_slot_to_its_manager_and_the_guild_lead_only():
         from membership.models import AdminCapability, EquipmentStaffMembership
         from tests.membership.factories import EquipmentFactory
 
@@ -627,13 +627,14 @@ def describe_equipment_owned_orientations_service():
             orientations.request_orientation(slot, requester)
         # One message per recipient: union the whole request fan-out.
         addressed = {addr for m in mail.outbox if "New orientation request" in m.subject for addr in m.to}
-        assert addressed == {dana.primary_email, holder.primary_email, lead.primary_email}
-        assert other_manager.primary_email not in addressed
+        # #746: the item's other managers and the Equipment Administrators hear nothing.
+        assert addressed == {dana.primary_email, lead.primary_email}
         # The confirm and decline links credit the manager the member booked.
         confirm_call = next(call for call in spy.call_args_list if call.args[1] == "confirm")
         assert confirm_call.kwargs["recipient"] == dana
         assert Notification.objects.filter(user=dana.user, trigger="orientation_requested").exists()
         assert not Notification.objects.filter(user=other_manager.user, trigger="orientation_requested").exists()
+        assert not Notification.objects.filter(user=holder.user, trigger="orientation_requested").exists()
 
     def it_dedupes_a_manager_who_is_also_a_holder_and_lead_and_copes_with_a_standalone_tool():
         from membership.models import AdminCapability, EquipmentStaffMembership
@@ -673,6 +674,78 @@ def describe_equipment_owned_orientations_service():
         # The in-app row lands for the manager via the composed resolver.
         assert Notification.objects.filter(user=manager.user, trigger="orientation_requested").exists()
         assert not Notification.objects.filter(user=bystander_lead.user, trigger="orientation_requested").exists()
+
+    def _holder(username: str):
+        from membership.models import AdminCapability
+
+        holder = _member_with_user(username)
+        holder.admin_capabilities.create(capability=AdminCapability.Capability.EQUIPMENT)
+        return holder
+
+    def _requests_to(user) -> bool:
+        return Notification.objects.filter(user=user, trigger="orientation_requested").exists()
+
+    def it_leaves_out_an_equipment_administrator_who_does_not_manage_a_guildless_tool():
+        # #746: Amber holds the capability and manages other equipment; Sami's CNC is not hers.
+        from membership.models import EquipmentStaffMembership
+
+        slot = _equipment_slot(name="CNC Machine")
+        sami = _member_with_user("eq_746_sami")
+        EquipmentStaffMembership.objects.create(equipment=slot.orientation_type.equipment, member=sami)
+        amber = _holder("eq_746_amber")
+        mail.outbox.clear()
+        orientations.request_orientation(slot, _member_with_user("eq_746_member"))
+        addressed = {addr for m in mail.outbox if "New orientation request" in m.subject for addr in m.to}
+        assert addressed == {sami.primary_email}
+        assert _requests_to(sami.user)
+        assert not _requests_to(amber.user)
+
+    def it_routes_a_guild_tool_to_its_managers_and_the_guild_leadership_only():
+        from membership.models import EquipmentStaffMembership
+        from tests.membership.factories import EquipmentFactory
+
+        lead = _member_with_user("eq_746g_lead")
+        guild = GuildFactory(guild_lead=lead)
+        staffer = _member_with_user("eq_746g_staff")
+        GuildStaffMembershipFactory(guild=guild, member=staffer, role=GuildStaffMembership.Role.SECRETARY)
+        equipment = EquipmentFactory(name="Etching Press", guild=guild)
+        manager = _member_with_user("eq_746g_mgr")
+        EquipmentStaffMembership.objects.create(equipment=equipment, member=manager)
+        holder = _holder("eq_746g_holder")
+        orientation_type = OrientationTypeFactory(equipment_owned=True, equipment=equipment, name="Press Basics")
+        slot = OrientationSlotFactory(equipment_owned=True, orientation_type=orientation_type)
+        mail.outbox.clear()
+        orientations.request_orientation(slot, _member_with_user("eq_746g_member"))
+        addressed = {addr for m in mail.outbox if "New orientation request" in m.subject for addr in m.to}
+        assert addressed == {lead.primary_email, staffer.primary_email, manager.primary_email}
+        assert not _requests_to(holder.user)
+
+    def it_falls_back_to_the_equipment_administrators_for_a_tool_nobody_runs():
+        slot = _equipment_slot(name="Orphan Lathe")
+        holder = _holder("eq_746_fallback")
+        mail.outbox.clear()
+        orientations.request_orientation(slot, _member_with_user("eq_746_fb_member"))
+        addressed = {addr for m in mail.outbox if "New orientation request" in m.subject for addr in m.to}
+        assert addressed == {holder.primary_email}
+        assert _requests_to(holder.user)
+
+    def it_sends_the_cancel_ping_to_the_same_audience():
+        from membership.models import EquipmentStaffMembership
+
+        slot = _equipment_slot(name="CNC Machine")
+        sami = _member_with_user("eq_746c_sami")
+        EquipmentStaffMembership.objects.create(equipment=slot.orientation_type.equipment, member=sami)
+        amber = _holder("eq_746c_amber")
+        booking = OrientationBookingFactory(slot=slot, member=_member_with_user("eq_746c_member"))
+        Notification.objects.all().delete()
+        orientations.cancel_orientation(booking, actor_label="the member")
+        pinged = set(
+            Notification.objects.filter(trigger="orientation_requested", title="Orientation cancelled").values_list(
+                "user", flat=True
+            )
+        )
+        assert pinged == {sami.user.pk}
+        assert amber.user.pk not in pinged
 
     def it_builds_the_ics_and_emails_around_the_equipment_name():
         slot = _equipment_slot(name="Big Laser")

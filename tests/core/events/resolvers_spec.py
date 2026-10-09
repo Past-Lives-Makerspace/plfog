@@ -344,7 +344,7 @@ def describe_guild_orienters_or_equipment_managers():
         MembershipPlanFactory()
         return User.objects.create_user(username=username, email=f"{username}@example.com").member
 
-    def it_routes_an_equipment_context_to_the_managers_deduped():
+    def it_routes_an_equipment_context_to_its_managers_and_guild_leadership_only():
         from membership.models import AdminCapability, EquipmentStaffMembership
         from tests.membership.factories import EquipmentFactory
 
@@ -355,12 +355,13 @@ def describe_guild_orienters_or_equipment_managers():
         EquipmentStaffMembership.objects.create(equipment=equipment, member=row_manager)
         holder = _linked("goem_cap")
         holder.admin_capabilities.create(capability=AdminCapability.Capability.EQUIPMENT)
-        # The row manager also holds the capability — must resolve once.
+        # The row manager also holds the capability: resolves once, as a manager.
         row_manager.admin_capabilities.create(capability=AdminCapability.Capability.EQUIPMENT)
         recipients = resolvers.resolve(
             Recipients.GUILD_ORIENTERS_OR_EQUIPMENT_MANAGERS, {"equipment": equipment, "slot": None}
         )
-        assert _user_pks(recipients) == {lead.user.pk, row_manager.user.pk, holder.user.pk}
+        # #746: a holder who does not run this equipment hears nothing about it.
+        assert _user_pks(recipients) == {lead.user.pk, row_manager.user.pk}
 
     def _staffed_guild(prefix):
         lead = _linked(f"{prefix}_lead")
@@ -417,7 +418,7 @@ def describe_equipment_managers_personal_slot_narrowing():
         MembershipPlanFactory()
         return User.objects.create_user(username=username, email=f"{username}@example.com").member
 
-    def it_narrows_to_the_manager_the_capability_holders_and_the_owning_guild_lead():
+    def it_narrows_to_the_manager_and_the_owning_guild_lead_without_the_capability_holders():
         from membership.models import AdminCapability, EquipmentStaffMembership
         from tests.membership.factories import EquipmentFactory, OrientationSlotFactory, OrientationTypeFactory
 
@@ -434,9 +435,10 @@ def describe_equipment_managers_personal_slot_narrowing():
         shared = OrientationSlotFactory(equipment_owned=True, orientation_type=orientation_type)
 
         narrowed = resolvers.equipment_managers({"equipment": equipment, "slot": personal})
-        assert _user_pks(narrowed) == {dana.user_id, holder.user_id, lead.user_id}
+        assert _user_pks(narrowed) == {dana.user_id, lead.user_id}
         everyone = resolvers.equipment_managers({"equipment": equipment, "slot": shared})
-        assert _user_pks(everyone) == {dana.user_id, other.user_id, holder.user_id, lead.user_id}
+        assert _user_pks(everyone) == {dana.user_id, other.user_id, lead.user_id}
+        assert holder.user_id not in _user_pks(narrowed) | _user_pks(everyone)
 
     def it_narrows_to_the_manager_alone_on_a_standalone_tool():
         from membership.models import EquipmentStaffMembership
@@ -448,3 +450,74 @@ def describe_equipment_managers_personal_slot_narrowing():
         orientation_type = OrientationTypeFactory(equipment_owned=True, equipment=equipment, name="Basics")
         personal = OrientationSlotFactory(equipment_owned=True, orientation_type=orientation_type, orienter=dana)
         assert _user_pks(resolvers.equipment_managers({"equipment": equipment, "slot": personal})) == {dana.user_id}
+
+
+def describe_equipment_managers_audience():
+    """#746: the people who run the equipment; Equipment Administrators only when nobody does."""
+
+    def _linked(username):
+        from tests.membership.factories import MembershipPlanFactory
+
+        MembershipPlanFactory()
+        return User.objects.create_user(username=username, email=f"{username}@example.com").member
+
+    def _holder(username):
+        from membership.models import AdminCapability
+
+        holder = _linked(username)
+        holder.admin_capabilities.create(capability=AdminCapability.Capability.EQUIPMENT)
+        return holder
+
+    def it_reaches_only_the_manager_of_a_guildless_tool():
+        from membership.models import EquipmentStaffMembership
+        from tests.membership.factories import EquipmentFactory
+
+        equipment = EquipmentFactory(guild=None)
+        sami = _linked("ema_sami")
+        EquipmentStaffMembership.objects.create(equipment=equipment, member=sami)
+        amber = _holder("ema_amber")
+        recipients = resolvers.resolve(Recipients.EQUIPMENT_MANAGERS, {"equipment": equipment})
+        assert _user_pks(recipients) == {sami.user_id}
+        assert amber.user_id not in _user_pks(recipients)
+
+    def it_reaches_the_managers_and_the_whole_guild_leadership_of_a_guild_tool():
+        from membership.models import EquipmentStaffMembership
+        from tests.membership.factories import EquipmentFactory
+
+        lead = _linked("ema_g_lead")
+        guild = GuildFactory(guild_lead=lead)
+        staffer = _linked("ema_g_staff")
+        GuildStaffMembershipFactory(guild=guild, member=staffer, role=GuildStaffMembership.Role.TREASURER)
+        equipment = EquipmentFactory(guild=guild)
+        manager = _linked("ema_g_mgr")
+        EquipmentStaffMembership.objects.create(equipment=equipment, member=manager)
+        _holder("ema_g_holder")
+        recipients = resolvers.resolve(Recipients.EQUIPMENT_MANAGERS, {"equipment": equipment})
+        assert _user_pks(recipients) == {lead.user_id, staffer.user_id, manager.user_id}
+
+    def it_falls_back_to_the_equipment_administrators_for_a_tool_nobody_runs():
+        from tests.membership.factories import EquipmentFactory
+
+        equipment = EquipmentFactory(guild=None)
+        holder = _holder("ema_fb_holder")
+        recipients = resolvers.resolve(Recipients.EQUIPMENT_MANAGERS, {"equipment": equipment})
+        assert _user_pks(recipients) == {holder.user_id}
+        assert {reason for _user, reason in recipients} == {"capability:equipment"}
+
+    def it_falls_back_when_the_owning_guild_has_no_leadership_either():
+        from tests.membership.factories import EquipmentFactory
+
+        equipment = EquipmentFactory(guild=GuildFactory(guild_lead=None))
+        holder = _holder("ema_fb_empty_guild")
+        recipients = resolvers.resolve(Recipients.EQUIPMENT_MANAGERS, {"equipment": equipment})
+        assert _user_pks(recipients) == {holder.user_id}
+
+    def it_never_falls_back_once_anyone_runs_the_tool():
+        from membership.models import EquipmentStaffMembership
+        from tests.membership.factories import EquipmentFactory
+
+        equipment = EquipmentFactory(guild=None)
+        manager = _linked("ema_nf_mgr")
+        EquipmentStaffMembership.objects.create(equipment=equipment, member=manager)
+        _holder("ema_nf_holder")
+        assert _user_pks(resolvers.equipment_managers({"equipment": equipment, "slot": None})) == {manager.user_id}

@@ -908,7 +908,7 @@ def describe_equipment_events():
         for event in (confirmed, cancelled, made):
             assert event.category == "Spaces & Equipment"
 
-    def it_resolves_equipment_managers_across_all_three_tiers_deduped():
+    def it_resolves_equipment_managers_to_the_managers_and_guild_leadership_deduped():
         lead = _linked_member("ev_lead")
         guild = GuildFactory(guild_lead=lead)
         GuildStaffMembershipFactory(guild=guild, member=_linked_member("ev_staff"))
@@ -917,11 +917,30 @@ def describe_equipment_events():
         EquipmentStaffMembershipFactory(equipment=equipment, member=row_manager)
         holder = _linked_member("ev_cap")
         holder.admin_capabilities.create(capability=AdminCapability.Capability.EQUIPMENT)
-        # The row manager ALSO holds the capability — must resolve once.
+        # The row manager ALSO holds the capability: resolves once, as a manager.
         row_manager.admin_capabilities.create(capability=AdminCapability.Capability.EQUIPMENT)
         recipients = resolvers.resolve(Recipients.EQUIPMENT_MANAGERS, {"equipment": equipment})
         usernames = sorted(user.username for user, _reason in recipients)
-        assert usernames == ["ev_cap", "ev_lead", "ev_row", "ev_staff"]
+        # #746: the holder who does not run this equipment is not told about it.
+        assert usernames == ["ev_lead", "ev_row", "ev_staff"]
+
+    def it_pings_only_the_tools_own_manager_about_a_reservation():
+        equipment = _open_tool()
+        manager = _linked_member("ev_746_mgr")
+        EquipmentStaffMembershipFactory(equipment=equipment, member=manager)
+        holder = _linked_member("ev_746_holder")
+        holder.admin_capabilities.create(capability=AdminCapability.Capability.EQUIPMENT)
+        equipment_service.reserve(equipment, _linked_member("ev_746_booker"), _at(_day(), 10), 60)
+        pinged = set(Notification.objects.filter(trigger="equipment.reservation_made").values_list("user", flat=True))
+        assert pinged == {manager.user.pk}
+
+    def it_pings_the_equipment_administrators_about_a_tool_nobody_runs():
+        equipment = _open_tool()
+        holder = _linked_member("ev_746_fb_holder")
+        holder.admin_capabilities.create(capability=AdminCapability.Capability.EQUIPMENT)
+        equipment_service.reserve(equipment, _linked_member("ev_746_fb_booker"), _at(_day(), 10), 60)
+        pinged = set(Notification.objects.filter(trigger="equipment.reservation_made").values_list("user", flat=True))
+        assert pinged == {holder.user.pk}
 
     def it_supplies_every_documented_placeholder_in_each_emit_context():
         # The context each emit builds must cover every placeholder any channel's copy

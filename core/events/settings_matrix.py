@@ -539,7 +539,8 @@ def _eligible_for(recipient: Recipients, profile: _StaffProfile) -> bool:
         Recipients.GUILD_ORIENTERS: profile.leads_guild or profile.is_orienter,
         # Every audience of the composed orientation_requested resolver: a guild's leadership
         # (whole team for a shared slot, orienter plus lead for a personal one) or the
-        # equipment's managers.
+        # equipment's managers. An EQUIPMENT holder keeps the row because equipment nobody
+        # manages falls back to them (#746).
         Recipients.GUILD_ORIENTERS_OR_EQUIPMENT_MANAGERS: lead or profile.manages_equipment or cap.EQUIPMENT in caps,
         Recipients.CLASS_APPROVERS: cap.CLASS_APPROVER in caps,
         Recipients.GUILD_LEADERSHIP_OR_CLASS_APPROVERS: lead or cap.CLASS_APPROVER in caps,
@@ -552,8 +553,9 @@ def _eligible_for(recipient: Recipients, profile: _StaffProfile) -> bool:
         # Everyone who may refund: the Admin role OR the REFUNDS capability (a union, unlike
         # the other capability audiences), mirroring the refund_authority resolver.
         Recipients.REFUND_AUTHORITY: profile.is_admin or cap.REFUNDS in caps,
-        # The three equipment-manage tiers, mirroring the equipment_managers resolver:
-        # per-equipment staff row, owning-guild leadership, or the EQUIPMENT capability.
+        # Everyone the equipment_managers resolver can reach: a per-equipment staff row,
+        # owning-guild leadership, or the EQUIPMENT capability (#746: holders hear only
+        # about equipment nobody manages, but that fallback can still reach them).
         Recipients.EQUIPMENT_MANAGERS: lead or profile.manages_equipment or cap.EQUIPMENT in caps,
         # Either audience of the composed wiki_scope_leadership resolver: a guild's
         # leadership for a scoped page, the admins for a space-wide one.
