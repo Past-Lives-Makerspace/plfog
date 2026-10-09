@@ -244,7 +244,7 @@ def describe_equipment_schedule():
 
 
 def describe_equipment_reserve():
-    def _post(client: Client, equipment: Equipment, *, hour: int = 10, duration: int = 60, day=None):
+    def _limits_data(client: Client, equipment: Equipment, *, hour: int = 10, duration: int = 60, day=None):
         target = day if day is not None else _day()
         return client.post(
             reverse("hub_equipment_reserve", args=[equipment.slug]),
@@ -259,7 +259,7 @@ def describe_equipment_reserve():
     def it_books_and_reswaps_the_schedule_with_a_toast(client: Client):
         user = _login(client, "bk_happy")
         equipment = _open_tool()
-        response = _post(client, equipment)
+        response = _limits_data(client, equipment)
         assert response.status_code == 200
         assert _toast(response).startswith("Reserved. See you ")
         reservation = EquipmentReservation.objects.get(equipment=equipment, member=user.member)
@@ -271,7 +271,7 @@ def describe_equipment_reserve():
         _login(client, "bk_race")
         equipment = _open_tool()
         EquipmentReservationFactory(equipment=equipment, starts_at=_at(_day(), 10), ends_at=_at(_day(), 11))
-        response = _post(client, equipment, hour=10)
+        response = _limits_data(client, equipment, hour=10)
         assert response.status_code == 200
         assert _toast(response) == "That time was just taken. Please pick another time."
         assert b"equipment-schedule" in response.content
@@ -279,14 +279,14 @@ def describe_equipment_reserve():
     def it_rejects_booking_on_closed_equipment(client: Client):
         user = _login(client, "bk_closed")
         equipment = _open_tool(is_closed=True, closed_message="Down for maintenance.")
-        response = _post(client, equipment)
+        response = _limits_data(client, equipment)
         assert _toast(response) == "Down for maintenance."
         assert not EquipmentReservation.objects.filter(member=user.member).exists()
 
     def it_rejects_an_unoriented_member(client: Client):
         user = _login(client, "bk_unoriented")
         equipment = _open_tool(unlocking_orientations=[OrientationTypeFactory(name="Lathe")])
-        response = _post(client, equipment)
+        response = _limits_data(client, equipment)
         assert "Lathe orientation" in _toast(response)
         assert not EquipmentReservation.objects.filter(member=user.member).exists()
 
@@ -308,7 +308,7 @@ def describe_equipment_reserve():
     def it_rejects_an_over_limit_duration(client: Client):
         user = _login(client, "bk_long")
         equipment = _open_tool()
-        response = _post(client, equipment, duration=300)
+        response = _limits_data(client, equipment, duration=300)
         assert "at most 240" in _toast(response)
         assert not EquipmentReservation.objects.filter(member=user.member).exists()
 
@@ -326,12 +326,12 @@ def describe_equipment_reserve():
         user.member.delete()
         client.login(username="bk_no_member", password="pass")
         equipment = _open_tool()
-        assert _post(client, equipment).status_code == 403
+        assert _limits_data(client, equipment).status_code == 403
 
     def it_404s_a_crafted_reserve_on_retired_equipment(client: Client):
         user = _login(client, "bk_retired")
         equipment = _open_tool(is_active=False)
-        response = _post(client, equipment)
+        response = _limits_data(client, equipment)
         assert response.status_code == 404
         assert not EquipmentReservation.objects.filter(member=user.member).exists()
 
@@ -515,6 +515,7 @@ def describe_equipment_hours_save():
             "hours-INITIAL_FORMS": "0",
             "hours-MIN_NUM_FORMS": "0",
             "hours-MAX_NUM_FORMS": "1000",
+            "reservations_open": "on",
             "closed_message": "",
             "min_duration_minutes": "30",
             "max_duration_minutes": "240",
@@ -548,7 +549,7 @@ def describe_equipment_hours_save():
             **{
                 "hours-TOTAL_FORMS": "1",
                 **_window(0, "09:00", "17:00", ["0", "2", "4"]),
-                "is_closed": "on",
+                "reservations_open": "",
                 "closed_message": "Down for maintenance.",
                 "max_advance_days": "14",
             }
@@ -760,7 +761,7 @@ def describe_equipment_manage_tabs():
         assert response.context["active_tab"] == "hours"
         assert b"+ Add Hours" in response.content
         assert b"No opening hours yet. Members cannot book until you add some." in response.content
-        assert b"Closed for new reservations" in response.content
+        assert b'name="reservations_open"' in response.content
 
     def it_renders_the_reservations_tab_with_rows_and_the_reason_modal(client: Client):
         _login(client, "tab_res", fog_role=Member.FogRole.ADMIN)
@@ -872,6 +873,7 @@ def describe_reopen_regeneration():
             "hours-INITIAL_FORMS": "0",
             "hours-MIN_NUM_FORMS": "0",
             "hours-MAX_NUM_FORMS": "1000",
+            "reservations_open": "on",
             "closed_message": "",
             "min_duration_minutes": "30",
             "max_duration_minutes": "240",
@@ -908,7 +910,9 @@ def describe_reopen_regeneration():
         rule = _tool_rule(equipment)
         assert client.post(reverse("hub_equipment_hours_save", args=[equipment.slug]), _limits()).status_code == 302
         assert not rule.slots.exists()
-        response = client.post(reverse("hub_equipment_hours_save", args=[equipment.slug]), _limits(is_closed="on"))
+        response = client.post(
+            reverse("hub_equipment_hours_save", args=[equipment.slug]), _limits(reservations_open="")
+        )
         assert response.status_code == 302
         equipment.refresh_from_db()
         assert equipment.is_closed is True
@@ -1051,6 +1055,7 @@ def _limits_data(**overrides: str) -> dict[str, str]:
         "hours-INITIAL_FORMS": "0",
         "hours-MIN_NUM_FORMS": "0",
         "hours-MAX_NUM_FORMS": "1000",
+        "reservations_open": "on",
         "closed_message": "",
         "min_duration_minutes": "30",
         "max_duration_minutes": "240",
@@ -1201,3 +1206,135 @@ def describe_late_cancel_fee_on_the_limits_card():
         assert 'name="late_cancel_fee"' not in client.get(url).content.decode()
         _late_fees(True)
         assert 'name="late_cancel_fee"' in client.get(url).content.decode()
+
+
+def describe_hours_and_limits_tab_layout():
+    """#731: collapsed hours rows, the Availability card's Active switch, Limits tooltips, the fee card's line."""
+
+    def _manage(client: Client, equipment: Equipment, tab: str) -> str:
+        return client.get(reverse("hub_equipment_manage", args=[equipment.slug]), {"tab": tab}).content.decode()
+
+    def describe_the_active_switch():
+        def it_starts_on_for_open_equipment_and_off_for_closed():
+            from hub.forms import EquipmentSettingsForm
+
+            assert EquipmentSettingsForm(instance=EquipmentFactory()).fields["reservations_open"].initial is True
+            closed = EquipmentFactory(is_closed=True)
+            assert EquipmentSettingsForm(instance=closed).fields["reservations_open"].initial is False
+
+        def it_closes_the_equipment_when_the_switch_is_left_off(client: Client):
+            # A browser posts no key at all for an unchecked switch.
+            _login(client, "act_off", fog_role=Member.FogRole.ADMIN)
+            equipment = EquipmentFactory()
+            data = _limits_data(closed_message="Down for a new spindle.")
+            del data["reservations_open"]
+            response = client.post(reverse("hub_equipment_hours_save", args=[equipment.slug]), data)
+            assert response.status_code == 302
+            equipment.refresh_from_db()
+            assert equipment.is_closed is True
+            assert equipment.closed_message == "Down for a new spindle."
+
+        def it_reopens_closed_equipment_when_the_switch_is_on(client: Client):
+            _login(client, "act_on", fog_role=Member.FogRole.ADMIN)
+            equipment = EquipmentFactory(is_closed=True)
+            response = client.post(reverse("hub_equipment_hours_save", args=[equipment.slug]), _limits_data())
+            assert response.status_code == 302
+            equipment.refresh_from_db()
+            assert equipment.is_closed is False
+
+        def it_shows_members_the_closed_message_once_saved_off(client: Client):
+            _login(client, "act_msg", fog_role=Member.FogRole.ADMIN)
+            equipment = EquipmentFactory()
+            data = _limits_data(closed_message="Back Tuesday after the belt swap.")
+            del data["reservations_open"]
+            client.post(reverse("hub_equipment_hours_save", args=[equipment.slug]), data)
+            _login(client, "act_msg_member")
+            page = client.get(reverse("hub_equipment_detail", args=[equipment.slug])).content.decode()
+            assert "Back Tuesday after the belt swap." in page
+
+        def it_hides_the_closed_message_field_until_the_switch_is_off(client: Client):
+            _login(client, "act_cloak", fog_role=Member.FogRole.ADMIN)
+            open_page = _manage(client, EquipmentFactory(), "hours")
+            assert "reservationsOpen: true" in open_page
+            assert '<div x-show="!reservationsOpen" x-cloak data-closed-message>' in open_page
+            closed_page = _manage(client, EquipmentFactory(is_closed=True), "hours")
+            assert "reservationsOpen: false" in closed_page
+            assert '<div x-show="!reservationsOpen" data-closed-message>' in closed_page
+
+        def it_keeps_the_posted_switch_state_on_a_failed_save(client: Client):
+            _login(client, "act_bound", fog_role=Member.FogRole.ADMIN)
+            equipment = EquipmentFactory()
+            data = _limits_data(max_advance_days="0")
+            del data["reservations_open"]
+            response = client.post(reverse("hub_equipment_hours_save", args=[equipment.slug]), data)
+            assert response.status_code == 200
+            assert "reservationsOpen: false" in response.content.decode()
+
+    def describe_the_limits_tooltips():
+        def it_puts_a_tooltip_beside_every_limit(client: Client):
+            _login(client, "lim_tips", fog_role=Member.FogRole.ADMIN)
+            _late_fees(True)
+            page = _manage(client, EquipmentFactory(), "hours")
+            for text in (
+                "The least time a member can book in one reservation, in minutes.",
+                "The most time a member can book in one reservation, in minutes.",
+                "How many days ahead a member can reserve. 30 means they can book up to 30 days from today.",
+                "How many future reservations one member can hold at a time.",
+                "Charged when a member cancels inside the notice window set in Site Settings. Leave blank for no fee.",
+            ):
+                assert f'<span class="pl-help__bubble" role="tooltip">{text}</span>' in page
+
+        def it_sets_the_tooltip_beside_the_label_not_inside_it():
+            from django.template.loader import render_to_string
+
+            from hub.forms import EquipmentSettingsForm
+
+            field = EquipmentSettingsForm(instance=EquipmentFactory())["max_advance_days"]
+            with_tip = render_to_string("components/form_field.html", {"field": field, "field_tooltip": "Days ahead."})
+            assert '<div class="pl-form-label-row">' in with_tip
+            assert with_tip.index("</label>") < with_tip.index("pl-help__bubble")
+            plain = render_to_string("components/form_field.html", {"field": field})
+            assert "pl-help" not in plain
+            assert "pl-form-label-row" not in plain
+
+    def describe_the_opening_hours_rows():
+        def it_renders_saved_rows_collapsed_and_a_new_row_open(client: Client):
+            _login(client, "hrs_fold", fog_role=Member.FogRole.ADMIN)
+            equipment = EquipmentFactory()
+            EquipmentHoursFactory(equipment=equipment)
+            page = _manage(client, equipment, "hours")
+            rows, template = page.split('<template id="equip-hours-empty-template">')
+            assert rows.count('x-data="plEquipHoursRow(false)"') == 1
+            assert 'x-data="plEquipHoursRow(true)"' not in rows
+            assert 'x-data="plEquipHoursRow(true)"' in template
+            # Collapsed, not removed: the row's fields still post with Save.
+            assert 'name="hours-0-start_time"' in rows
+
+        def it_opens_every_row_when_the_hours_fail_to_save(client: Client):
+            _login(client, "hrs_fold_err", fog_role=Member.FogRole.ADMIN)
+            equipment = EquipmentFactory()
+            data = _limits_data(
+                **{
+                    "hours-TOTAL_FORMS": "1",
+                    "hours-INITIAL_FORMS": "1",
+                    "hours-0-start_time": "17:00",
+                    "hours-0-end_time": "09:00",
+                    "hours-0-days": "1",
+                    "hours-0-is_active": "on",
+                }
+            )
+            response = client.post(reverse("hub_equipment_hours_save", args=[equipment.slug]), data)
+            rows = response.content.decode().split('<template id="equip-hours-empty-template">')[0]
+            assert rows.count('x-data="plEquipHoursRow(true)"') == 1
+            assert "The end time must be after the start time." in rows
+
+    def describe_the_reservations_tab():
+        def it_spaces_the_upcoming_card_and_explains_the_fee_card(client: Client):
+            _login(client, "res_gap", fog_role=Member.FogRole.ADMIN)
+            _late_fees(True)
+            page = _manage(client, EquipmentFactory(), "reservations")
+            assert '<div class="hub-card pl-equip-panel" data-upcoming-reservations-card>' in page
+            assert (
+                "Fees charged when a member cancels a reservation or orientation on this equipment too late. "
+                "Waive unpaid ones here."
+            ) in page

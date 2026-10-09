@@ -6058,12 +6058,25 @@ EquipmentHoursWindowFormSet = forms.formset_factory(
 
 
 class EquipmentSettingsForm(LateCancelFeeFormMixin):
-    """The Hours & Limits tab's closure + booking-limit fields (spec §7.4) and the late cancellation fee."""
+    """The Hours & Limits tab's availability + booking-limit fields (spec §7.4) and the late cancellation fee.
+
+    The Availability card's "Active" switch is ``reservations_open``, the inverse of
+    ``Equipment.is_closed`` (#731): on means members can reserve. The column keeps its
+    name, so the form flips it on the way in and on the way out rather than migrating.
+    """
+
+    reservations_open = forms.BooleanField(
+        required=False,
+        label="Active",
+        help_text=(
+            "When on, members can reserve this equipment. Turn off to stop new reservations; "
+            "existing reservations stay until you cancel them."
+        ),
+    )
 
     class Meta:
         model = Equipment
         fields = [
-            "is_closed",
             "closed_message",
             "min_duration_minutes",
             "max_duration_minutes",
@@ -6071,7 +6084,6 @@ class EquipmentSettingsForm(LateCancelFeeFormMixin):
             "max_active_reservations_per_member",
         ]
         labels = {
-            "is_closed": "Closed for new reservations",
             "closed_message": "Closed message",
             "min_duration_minutes": "Shortest reservation (minutes)",
             "max_duration_minutes": "Longest reservation (minutes)",
@@ -6081,14 +6093,18 @@ class EquipmentSettingsForm(LateCancelFeeFormMixin):
 
     def __init__(self, *args: Any, **kwargs: Any) -> None:
         super().__init__(*args, **kwargs)
-        self.fields["is_closed"].help_text = ""
-        self.fields[
-            "closed_message"
-        ].help_text = "Members will see this message. Existing reservations stay until you cancel them."
+        self.fields["reservations_open"].initial = not self.instance.is_closed
+        self.fields["closed_message"].help_text = "Members see this while the equipment is not active."
         self.fields["min_duration_minutes"].help_text = "Half hour steps."
         self.fields["max_duration_minutes"].help_text = "Half hour steps."
-        self.fields["max_advance_days"].help_text = "How far ahead members can book, in days."
-        self.fields["max_active_reservations_per_member"].help_text = "How many upcoming times one member can hold."
+        self.fields["max_advance_days"].help_text = ""
+        self.fields["max_active_reservations_per_member"].help_text = ""
+        self.fields["late_cancel_fee"].help_text = "In dollars."
+
+    def save(self, commit: bool = True) -> Any:
+        """Write the Active switch back as its inverse, ``is_closed``."""
+        self.instance.is_closed = not self.cleaned_data["reservations_open"]
+        return super().save(commit=commit)
 
     def clean(self) -> dict[str, Any]:
         cleaned = cast(dict[str, Any], super().clean())

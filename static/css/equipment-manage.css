@@ -1,0 +1,41 @@
+/* The equipment Manage page (hub/equipment_manage.html), additions since #731.
+   Its older rules (.pl-equip-hours-row, .pl-equip-days, .pl-equip-save-row) stay in hub.css. */
+
+/* One card on the Hours & Limits and Reservations tabs, with the page's standard gap below it. */
+.pl-equip-panel {
+    padding: 1.5rem;
+    margin-bottom: 1.5rem;
+}
+.pl-equip-panel__title {
+    margin: 0 0 0.75rem;
+}
+.pl-equip-panel__title:has(+ .pl-equip-panel__intro) {
+    margin-bottom: 0.25rem;
+}
+.pl-equip-panel__intro {
+    margin: 0 0 1rem;
+    font-size: 0.8125rem;
+}
+.pl-equip-panel__add {
+    margin-top: 1rem;
+}
+
+/* An Opening Hours row collapsed to its summary line, with Edit on the right. */
+.pl-equip-hours-row__summary {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.75rem;
+    flex-wrap: wrap;
+}
+.pl-equip-hours-row__text {
+    color: var(--hub-text);
+    font-weight: 500;
+    min-width: 0;
+    overflow-wrap: anywhere;
+}
+.pl-equip-hours-row__body {
+    margin-top: 1rem;
+    padding-top: 1rem;
+    border-top: 1px solid var(--hub-border);
+}
