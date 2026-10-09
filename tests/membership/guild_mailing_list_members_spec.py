@@ -53,6 +53,19 @@ def _emails(mailoutbox) -> list[str]:
     return [address for message in mailoutbox for address in message.to]
 
 
+def _draft(guild, selection: dict) -> AnnouncementDraft:
+    author = User.objects.create_user(username=f"author_{guild.pk}", email=f"author{guild.pk}@x.com")
+    return AnnouncementDraftFactory(
+        author=author,
+        audience=AnnouncementDraft.Audience.GUILD,
+        guild=guild,
+        body="<p>Hello.</p>",
+        send_email=True,
+        discord_channel=GuildAnnouncement.DiscordChannel.NONE,
+        recipient_selection=selection,
+    )
+
+
 def describe_remember_announcement_recipients():
     def it_saves_an_added_member_as_a_linked_row():
         guild = GuildFactory()
@@ -100,12 +113,49 @@ def describe_remember_announcement_recipients():
         assert guild.remember_announcement_recipients(user_ids=[off.user_id, 999999], emails=[]) == 0
         assert not guild.mailing_list_emails.exists()
 
-    def it_skips_a_second_member_with_no_address_rather_than_failing():
+    def it_never_saves_a_member_with_no_address():
         guild = GuildFactory()
-        first = _account("")
-        second = _account("")
-        assert guild.remember_announcement_recipients(user_ids=[first.user_id, second.user_id], emails=[]) == 1
+        blank = _account("")
+        assert guild.remember_announcement_recipients(user_ids=[blank.user_id], emails=[]) == 0
+        assert not guild.mailing_list_emails.exists()
+
+    def it_folds_a_plain_row_holding_a_members_other_login_address_into_their_row():
+        from allauth.account.models import EmailAddress
+
+        guild = GuildFactory()
+        member = _account("main@example.com")
+        EmailAddress.objects.create(user=member.user, email="Alias@example.com", verified=True, primary=False)
+        Member.objects.filter(pk=member.pk).update(notification_email="notify@example.com")
+        GuildMailingListEmailFactory(guild=guild, email="alias@example.com", label="Old alias")
+        GuildMailingListEmailFactory(guild=guild, email="notify@example.com")
+        GuildMailingListEmailFactory(guild=guild, email="booster@example.com")
+        assert guild.remember_announcement_recipients(user_ids=[member.user_id], emails=[]) == 1
+        linked = guild.mailing_list_emails.get(user=member.user)
+        assert (linked.email, linked.label) == ("alias@example.com", "Old alias")
+        assert sorted(guild.mailing_list_emails.values_list("email", flat=True)) == [
+            "alias@example.com",
+            "booster@example.com",
+        ]
+
+    def it_skips_a_member_whose_address_is_another_saved_members_row():
+        guild = GuildFactory()
+        first = _account("shared@example.com")
+        second = _account("shared@example.com")
+        GuildMailingListEmailFactory(guild=guild, email="shared@example.com", user=first.user)
+        assert guild.remember_announcement_recipients(user_ids=[second.user_id], emails=[]) == 0
         assert list(guild.mailing_list_emails.values_list("user_id", flat=True)) == [first.user_id]
+
+    def it_locks_the_guild_row_while_it_saves():
+        from django.db import connection
+        from django.test.utils import CaptureQueriesContext
+
+        if not connection.features.has_select_for_update:
+            pytest.skip("SQLite has no row locks; CI's Postgres run checks this.")
+        guild = GuildFactory()
+        added = _account("added@example.com")
+        with CaptureQueriesContext(connection) as queries:
+            guild.remember_announcement_recipients(user_ids=[added.user_id], emails=[])
+        assert any('FROM "membership_guild"' in query["sql"] and "FOR UPDATE" in query["sql"] for query in queries)
 
 
 def describe_saved_members_on_the_guild():
@@ -118,6 +168,15 @@ def describe_saved_members_on_the_guild():
         GuildMailingListEmailFactory(guild=guild, email="booster@example.com")
         assert guild.mailing_list_users() == [saved.user]
         assert guild.mailing_list_emails_deduped(set()) == ["booster@example.com"]
+
+    def it_drops_a_saved_member_who_is_no_longer_active_from_delivery_but_keeps_the_row():
+        guild = GuildFactory()
+        former = _account("former@example.com")
+        Member.objects.filter(pk=former.pk).update(status=Member.Status.FORMER)
+        GuildMailingListEmailFactory(guild=guild, email="former@example.com", user=former.user)
+        assert guild.mailing_list_users() == []
+        assert guild.announcement_member_ids() == set()
+        assert guild.mailing_list_emails.filter(user=former.user).exists()
 
     def it_reaches_the_roster_and_the_saved_members_once_each():
         guild = GuildFactory()
@@ -149,18 +208,6 @@ def describe_notify_members_with_saved_members():
 
 
 def describe_draft_send_saves_additions():
-    def _draft(guild, selection: dict) -> AnnouncementDraft:
-        author = User.objects.create_user(username=f"author_{guild.pk}", email=f"author{guild.pk}@x.com")
-        return AnnouncementDraftFactory(
-            author=author,
-            audience=AnnouncementDraft.Audience.GUILD,
-            guild=guild,
-            body="<p>Hello.</p>",
-            send_email=True,
-            discord_channel=GuildAnnouncement.DiscordChannel.NONE,
-            recipient_selection=selection,
-        )
-
     def it_saves_added_people_and_reaches_them_as_members(mailoutbox):
         guild = GuildFactory()
         roster = _roster_member(guild, "roster@example.com")
@@ -183,6 +230,13 @@ def describe_draft_send_saves_additions():
         assert "typed@example.com" in emails
         assert counts == (4, 4)
 
+    def it_reaches_a_member_with_no_address_without_saving_them():
+        guild = GuildFactory()
+        blank = _account("")
+        _draft(guild, {"users": [blank.user_id], "custom": []}).send()
+        assert Notification.objects.filter(user=blank.user, trigger="guild_announcement").exists()
+        assert not guild.mailing_list_emails.exists()
+
     def it_counts_saved_members_when_the_whole_list_is_kept(mailoutbox):
         guild = GuildFactory()
         _roster_member(guild, "roster@example.com")
@@ -192,6 +246,41 @@ def describe_draft_send_saves_additions():
         assert draft.recipient_count() == 2
         assert draft.send() == (2, 2)
         assert sorted(_emails(mailoutbox)) == ["roster@example.com", "saved@example.com"]
+
+
+def describe_draft_send_order_and_selection():
+    def it_emails_no_saved_address_when_every_one_was_unchecked(mailoutbox):
+        guild = GuildFactory()
+        roster = _roster_member(guild, "roster@example.com")
+        GuildMailingListEmailFactory(guild=guild, email="booster@example.com")
+        _draft(guild, {"users": [roster.user_id], "custom": []}).send()
+        assert _emails(mailoutbox) == ["roster@example.com"]
+
+    def it_still_emails_every_saved_address_for_an_old_draft_without_the_key(mailoutbox):
+        guild = GuildFactory()
+        roster = _roster_member(guild, "roster@example.com")
+        GuildMailingListEmailFactory(guild=guild, email="booster@example.com")
+        _draft(guild, {"users": [roster.user_id]}).send()
+        assert sorted(_emails(mailoutbox)) == ["booster@example.com", "roster@example.com"]
+
+    def it_posts_nothing_when_saving_the_list_fails(monkeypatch):
+        from django.db import IntegrityError
+
+        from membership.models import Guild
+
+        guild = GuildFactory()
+        added = _account("added@example.com")
+        draft = _draft(guild, {"users": [added.user_id], "custom": []})
+
+        def _fail(self, **_kwargs):
+            raise IntegrityError("duplicate")
+
+        monkeypatch.setattr(Guild, "remember_announcement_recipients", _fail)
+        with pytest.raises(IntegrityError):
+            draft.send()
+        assert not GuildAnnouncement.objects.filter(guild=guild).exists()
+        draft.refresh_from_db()
+        assert draft.sent_at is None
 
 
 def describe_class_send_saves_nothing():

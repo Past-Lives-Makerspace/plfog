@@ -3218,13 +3218,18 @@ class Guild(HeroCropMixin, models.Model):
     def mailing_list_users(self) -> list["User"]:
         """The member accounts saved on this guild's mailing list (#729), reached as members.
 
-        Only active accounts that still have a member; ordered by pk. A saved member who is also
+        Only active members, by the rule the roster uses (``Member.Status.ACTIVE``, on an account
+        that is not turned off); ordered by pk. A former member's row stays in Guild Settings, so a
+        lead can see and remove it, but is neither listed in the composer nor delivered. Members
+        hidden from the directory stay: a lead added them on purpose. A saved member who is also
         on the roster is returned too, so callers union by pk (never deliver twice).
         """
         from django.contrib.auth.models import User
 
         return list(
-            User.objects.filter(guild_mailing_list_rows__guild=self, is_active=True, member__isnull=False)
+            User.objects.filter(
+                guild_mailing_list_rows__guild=self, is_active=True, member__status=Member.Status.ACTIVE
+            )
             .select_related("member")
             .order_by("pk")
         )
@@ -3237,11 +3242,17 @@ class Guild(HeroCropMixin, models.Model):
     def remember_announcement_recipients(self, *, user_ids: Iterable[int], emails: Iterable[str]) -> int:
         """Save who a lead sent a guild announcement to onto this guild's mailing list (#729).
 
-        Called on send, so the next announcement shows them pre-checked for every lead of the
-        guild. Someone on the roster is never saved, nor anyone already saved. A member is saved
-        as a linked row (by name, reached as a member); an existing plain row with that member's
-        address is linked to them instead of adding a second row. Inactive or memberless accounts
-        are skipped, as are addresses that are a roster member's own.
+        Called on send, before anything is posted, so the next announcement shows them pre-checked
+        for every lead of the guild. Someone on the roster is never saved, nor anyone already saved.
+        A member is saved as a linked row (by name, reached as a member). A plain row holding any
+        of that member's addresses (account email, notification email or a login alias) becomes
+        their linked row, and any other such plain row is folded into it, so they are emailed once.
+        Turned off or memberless accounts are skipped, and so is a member with no email address:
+        they still get this send, but a row with no address could never be saved again in Guild
+        Settings. Addresses that are a roster member's own are skipped.
+
+        The guild row is locked for the whole save, so two sends adding the same person at once
+        wait for each other instead of failing on the list's unique rules.
 
         Args:
             user_ids: The member accounts the announcement went to (roster ones are skipped).
@@ -3250,39 +3261,52 @@ class Guild(HeroCropMixin, models.Model):
         Returns:
             How many rows were added or linked.
         """
+        from allauth.account.models import EmailAddress
         from django.contrib.auth.models import User
 
-        roster = self.announcement_recipients()
-        roster_ids = {user.pk for user, _reason in roster}
-        roster_emails = {(user.email or "").strip().lower() for user, _reason in roster}
-        wanted_ids = {int(pk) for pk in user_ids} - roster_ids
-        users = (
-            User.objects.filter(pk__in=wanted_ids, is_active=True, member__isnull=False).order_by("pk")
-            if wanted_ids
-            else User.objects.none()
-        )
         saved = 0
         with transaction.atomic():
+            Guild.objects.select_for_update().get(pk=self.pk)
+            roster = self.announcement_recipients()
+            roster_ids = {user.pk for user, _reason in roster}
+            roster_emails = {(user.email or "").strip().lower() for user, _reason in roster}
+            wanted_ids = {int(pk) for pk in user_ids} - roster_ids
+            users = list(
+                User.objects.filter(pk__in=wanted_ids, is_active=True, member__isnull=False)
+                .exclude(email="")
+                .select_related("member")
+                .order_by("pk")
+            )
+            aliases: dict[int, set[str]] = {}
+            for user_id, alias in EmailAddress.objects.filter(user__in=users).values_list("user_id", "email"):
+                aliases.setdefault(user_id, set()).add(alias.strip().lower())
             rows = {(row.email or "").strip().lower(): row for row in self.mailing_list_emails.select_for_update()}
             linked = {row.user_id for row in rows.values() if row.user_id is not None}
             next_order = max((row.sort_order for row in rows.values()), default=0) + 1
             for user in users:
                 if user.pk in linked:
                     continue
-                address = (user.email or "").strip().lower()
-                existing = rows.get(address)
-                if existing is not None:
-                    if existing.user_id is None and address:
-                        existing.user = user
-                        existing.save(update_fields=["user"])
-                        linked.add(user.pk)
-                        saved += 1
-                    continue
-                rows[address] = GuildMailingListEmail.objects.create(
-                    guild=self, email=address, user=user, sort_order=next_order
+                address = user.email.strip().lower()
+                known = {address, (user.member.notification_email or "").strip().lower(), *aliases.get(user.pk, ())}
+                plain = sorted(
+                    (rows[key] for key in known if key in rows and rows[key].user_id is None),
+                    key=lambda row: (row.email.strip().lower() != address, row.sort_order, row.pk),
                 )
+                if plain:
+                    keep, *folded = plain
+                    keep.user = user
+                    keep.save(update_fields=["user"])
+                    for row in folded:
+                        del rows[row.email.strip().lower()]
+                        row.delete()
+                elif address not in rows:
+                    rows[address] = GuildMailingListEmail.objects.create(
+                        guild=self, email=address, user=user, sort_order=next_order
+                    )
+                    next_order += 1
+                else:
+                    continue
                 linked.add(user.pk)
-                next_order += 1
                 saved += 1
             for raw in emails:
                 address = (raw or "").strip().lower()
@@ -5067,16 +5091,15 @@ class GuildAnnouncement(models.Model):
         # a ``selected_custom_emails`` subset is passed — so ``None`` still sends everyone. Only
         # when email is on: turning "Also send email" off suppresses the custom addresses too.
         extra_emails: list[str] | None = None
+        roster = self.guild.announcement_recipients()
         if recipient_user_ids is None:
             # Members saved on the guild's mailing list (#729) are reached as members, on top of
             # the roster. With none saved the resolver default stays exactly as it was.
             listed = self.guild.mailing_list_users()
             if listed:
-                recipient_user_ids = self.guild.announcement_member_ids()
+                recipient_user_ids = {user.pk for user, _reason in roster} | {user.pk for user in listed}
         if self.send_email:
-            member_emails = {
-                (user.email or "").strip().lower() for user, _reason in self.guild.announcement_recipients()
-            }
+            member_emails = {(user.email or "").strip().lower() for user, _reason in roster}
             all_custom = self.guild.mailing_list_emails_deduped(member_emails)
             extra_emails = (
                 all_custom
@@ -6582,6 +6605,13 @@ class AnnouncementDraft(models.Model):
             counts = (total if self.send_email else 0, total)
         else:
             guild = cast(Guild, self.guild)  # the guard above guarantees a guild for a GUILD audience
+            # Everyone added to a guild announcement joins the guild's mailing list (#729). Saved
+            # before anything is posted, so a save that fails leaves no post behind for a retry to
+            # repeat, and a typed address is on the list the custom selection narrows.
+            selection = self.recipient_selection or {}
+            guild.remember_announcement_recipients(
+                user_ids=selection.get("users") or [], emails=selection.get("custom") or []
+            )
             guild_url = _absolute_url(reverse("hub_guild_detail", args=[guild.slug]))
             total = len(recipient_ids) if recipient_ids is not None else len(guild.announcement_member_ids())
             counts = (total if self.send_email else 0, total)
@@ -6596,12 +6626,6 @@ class AnnouncementDraft(models.Model):
                 expires_at=self.expires_at,
                 send_email=self.send_email,
                 discord_channel=self.discord_channel if discord_on else GuildAnnouncement.DiscordChannel.NONE,
-            )
-            # Everyone added to a guild announcement joins the guild's mailing list (#729), before
-            # the fan-out, so a typed address is on the list the custom selection narrows.
-            selection = self.recipient_selection or {}
-            guild.remember_announcement_recipients(
-                user_ids=selection.get("users") or [], emails=selection.get("custom") or []
             )
             announcement.notify_members(
                 discord_mention=mention_str,
@@ -6840,11 +6864,15 @@ class AnnouncementDraft(models.Model):
     def _selected_custom_emails(self) -> "list[str] | None":
         """The email-only custom addresses (a guild mailing list) from the saved selection.
 
-        ``None`` (the default) sends the guild's FULL custom list; a present list narrows it.
-        These are addresses, not members, so they only ever ride the EMAIL channel.
+        ``None`` (no ``custom`` key: the everyone default, or a draft saved before the key was
+        always written) sends the guild's FULL custom list; a present key narrows it, and an empty
+        one means the sender unchecked every address, so none is emailed. These are addresses,
+        not members, so they only ever ride the EMAIL channel.
         """
-        custom = (self.recipient_selection or {}).get("custom")
-        return [str(addr).lower() for addr in custom] if custom else None
+        selection = self.recipient_selection or {}
+        if "custom" not in selection:
+            return None
+        return [str(addr).lower() for addr in selection["custom"]]
 
     def _class_recipients(self) -> "tuple[set[int], list[str]]":
         """The class send's final ``(member user-pks, email-only addresses)`` pair.

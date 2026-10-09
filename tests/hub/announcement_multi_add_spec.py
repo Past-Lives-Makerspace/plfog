@@ -107,6 +107,17 @@ def describe_saved_members_on_the_roster():
             ("custom:booster@example.com", "booster@example.com"),
         ]
 
+    def it_leaves_out_a_saved_member_who_is_no_longer_active(client: Client):
+        guild = GuildFactory()
+        _login_lead(client, guild, "former_lead")
+        former = _account("former@example.com", name="Fay Former")
+        Member.objects.filter(pk=former.pk).update(status=Member.Status.FORMER)
+        GuildMailingListEmailFactory(guild=guild, email="former@example.com", user=former.user)
+        form = _form(f"guild:{guild.pk}", editable_guilds=[guild])
+        assert f"user:{former.user_id}" not in {value for value, _label in form.recipient_choices}
+        body = client.get(f"{reverse('hub_guild_edit', args=[guild.pk])}?tab=announcements").content.decode()
+        assert f'data-mailing-list-member="{former.user_id}"' in body
+
     def it_checks_saved_members_by_default():
         guild = GuildFactory()
         saved = _account("saved@example.com")
@@ -131,6 +142,12 @@ def describe_add_people_choices():
         values = {value for value, _label in form.add_people_choices}
         assert f"user:{outsider.user_id}" in values
         assert not values & {f"user:{roster.user_id}", f"user:{saved.user_id}", f"user:{added.user_id}"}
+
+    def it_still_offers_a_member_with_no_email_address():
+        guild = GuildFactory()
+        blank = _account("")
+        form = _form(f"guild:{guild.pk}", editable_guilds=[guild])
+        assert f"user:{blank.user_id}" in {value for value, _label in form.add_people_choices}
 
     def it_is_offered_on_guild_and_class_announcements_and_saves_only_for_a_guild():
         from classes.factories import ClassOfferingFactory
