@@ -24,7 +24,7 @@
 
 {# ── Details tab — the same EquipmentForm as the add page (spec §7.4). ── #}
 <div x-show="section === 'details'" {% if active_tab != "details" %}x-cloak{% endif %}>
-  <div class="hub-card pl-equip-form-card">
+  <div class="hub-card pl-equip-panel">
     <form method="post" action="{% url 'hub_equipment_details_save' equipment.slug %}" enctype="multipart/form-data" class="hub-form">
       {% csrf_token %}
       {% include "hub/partials/_equipment_form_fields.html" %}

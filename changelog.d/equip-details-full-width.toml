@@ -1,0 +1,6 @@
+bump = "patch"
+date = "2026-10-09"
+title = "Equipment Details tab uses the full width"
+changes = [
+  "For equipment managers: on an equipment's Manage page, the Details tab now spans the page like Staff, Hours and Limits, Reservations and Orientation.",
+]
