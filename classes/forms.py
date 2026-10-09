@@ -659,19 +659,23 @@ class _EventbriteCategoryMixin:
             self.add_error("eventbrite_subcategory", _SUBCATEGORY_MISMATCH)  # type: ignore[attr-defined]
 
 
-_AGREEMENT_LABEL = "I agree to keep this listing within Eventbrite's rules"
-_AGREEMENT_HELP = "Needed to turn Eventbrite on. We record who agreed and when."
-_AGREEMENT_MISSING = "Tick I agree to sell this class on Eventbrite."
+_AGREEMENT_HELP = (
+    "Turning this on means I agree to keep this listing within Eventbrite's rules. "
+    "Seats stay in step with this site. Not offered for flexible classes."
+)
+# The switch unlocks once Check for Eventbrite passes on the text as it stands; Alpine state
+# lives in classes/_components/eventbrite_rules.html. A switch already on stays usable.
+_SWITCH_ALPINE = {"x-model": "ebOn", ":disabled": "!ebOn && !(ebPassed && !ebStale)"}
 
 
 class _EventbriteRulesMixin:
-    """Eventbrite's selling rules (#725): the agreement to turn the switch on, and the listing check.
+    """Eventbrite's selling rules (#725): the check that gates the switch, and the agreement it records.
 
-    The agreement box is offered until someone agrees for the class, so a class switched on
-    before the rules existed asks for it on its next save. The listing check runs after
-    validation, through :meth:`accepts_eventbrite_listing`, because it reads the posted FAQ rows,
-    which live on their own formset. ``eventbrite_check`` holds the last check for the template:
-    the saved class's on a fresh page, the posted text's after a save attempt.
+    Turning the switch on is the agreement (its hint says so); a save with it on records who and
+    when, once per class. The listing check runs after validation, through
+    :meth:`accepts_eventbrite_listing`, because it reads the posted FAQ rows, which live on their
+    own formset. ``eventbrite_check`` holds the last check for the template: the saved class's on
+    a fresh page, the posted text's after a save attempt.
     """
 
     fields: dict[str, forms.Field]
@@ -682,29 +686,22 @@ class _EventbriteRulesMixin:
     eventbrite_check: ListingCheck | None = None
 
     def setup_eventbrite_rules(self) -> None:
-        """Add the agreement box while nobody has agreed; show a saved opted-in class what is left out."""
-        if self.instance.needs_eventbrite_agreement:
-            self.fields["eventbrite_rules_agreed"] = forms.BooleanField(
-                required=False, label=_AGREEMENT_LABEL, help_text=_AGREEMENT_HELP
-            )
+        """Say the switch is the agreement, lock it until a check passes, and check a saved opted-in class."""
+        switch = self.fields["eventbrite_enabled"]
+        switch.help_text = _AGREEMENT_HELP
+        switch.widget.attrs.update(_SWITCH_ALPINE)
         if not self.is_bound and self.instance.pk and self.instance.eventbrite_enabled:
             self.eventbrite_check = self.instance.eventbrite_listing_check()
-
-    def check_eventbrite_agreement(self) -> None:
-        """Refuse turning Eventbrite on, or keeping it on, without the agreement."""
-        if "eventbrite_rules_agreed" not in self.fields or not self.cleaned_data["eventbrite_enabled"]:
-            return
-        if not self.cleaned_data["eventbrite_rules_agreed"]:
-            self.add_error("eventbrite_rules_agreed", _AGREEMENT_MISSING)  # type: ignore[attr-defined]
 
     def accepts_eventbrite_listing(self, agreed_by: User, faq_formset: BaseClassFaqFormSet | None = None) -> bool:
         """After ``is_valid``: check a class with Eventbrite on against its rules, and record the agreement.
 
-        Refuses with every problem on the switch, so the save does not happen; otherwise
-        records who ticked the agreement, for the form's save to write.
+        Refuses with every problem on the switch, so the save does not happen; otherwise, the
+        first time the class is saved with the switch on, records who agreed, for the form's
+        save to write.
 
         Args:
-            agreed_by: The user saving, recorded when they ticked the agreement.
+            agreed_by: The user saving, recorded as agreeing when nobody has yet.
             faq_formset: The posted FAQ rows; omitted on a new class, which has none yet.
 
         Returns:
@@ -717,9 +714,44 @@ class _EventbriteRulesMixin:
         if check.problems:
             self.add_error("eventbrite_enabled", ValidationError(check.refusal_lines))  # type: ignore[attr-defined]
             return False
-        if "eventbrite_rules_agreed" in self.fields and self.cleaned_data["eventbrite_rules_agreed"]:
+        if self.instance.needs_eventbrite_agreement:
             self.instance.agree_to_eventbrite_rules(agreed_by)
         return True
+
+
+class EventbriteListingCheckForm(forms.Form):
+    """What the Check for Eventbrite button posts (#725): the class's text as typed, never saved.
+
+    The button sends the whole page form, so a field the page does not carry (the live class
+    edit page has no title box) is read from the saved class instead. The FAQ comes from the
+    posted formset when the page has one, else from the saved rows; a new class has none.
+    """
+
+    title = forms.CharField(required=False)
+    subtitle = forms.CharField(required=False)
+    description = forms.CharField(required=False)
+
+    def __init__(self, data: Mapping[str, Any], *, offering: ClassOffering | None) -> None:
+        super().__init__(data)
+        self.offering = offering
+
+    def listing_check(self) -> ListingCheck:
+        """The listing check over the posted text, falling back field by field to the saved class."""
+        self.is_valid()  # every field is optional, so cleaning always succeeds
+        offering = self.offering if self.offering is not None else ClassOffering()
+        for name in ("title", "subtitle", "description"):
+            if name in self.data:
+                setattr(offering, name, self.cleaned_data[name])
+        return offering.eventbrite_listing_check(self._faqs(offering))
+
+    def _faqs(self, offering: ClassOffering) -> list[dict[str, str]]:
+        if not offering.pk:
+            return []
+        if "faq-TOTAL_FORMS" not in self.data:
+            return offering.own_faqs()
+        formset = build_class_faq_formset(self.data, offering)
+        formset.is_valid()  # cleans every row; a row the save would refuse is still checked
+        return formset.posted_faqs()
 
 
 class _EventbriteMixin(_EventbriteRulesMixin, _EventbriteCategoryMixin):
@@ -765,7 +797,6 @@ class _EventbriteMixin(_EventbriteRulesMixin, _EventbriteCategoryMixin):
             self.cleaned_data["eventbrite_fee_payer"] = ClassOffering.EventbriteFeePayer.BUYER
         if self.cleaned_data.get("scheduling_model") == ClassOffering.SchedulingModel.FLEXIBLE:
             self.cleaned_data["eventbrite_enabled"] = False
-        self.check_eventbrite_agreement()
 
 
 class ClassOfferingForm(
@@ -1309,11 +1340,14 @@ class BaseClassFaqFormSet(BaseInlineFormSet):
         return saved
 
     def posted_faqs(self) -> list[dict[str, str]]:
-        """After ``is_valid``: the rows the save keeps, as ``question`` and ``answer``, for the Eventbrite check (#725)."""
+        """After ``is_valid``: the rows the save keeps, as ``question`` and ``answer``, for the Eventbrite check (#725).
+
+        A row with a question or answer that failed cleaning is left out, valid formset or not.
+        """
         return [
             {"question": form.cleaned_data["question"], "answer": form.cleaned_data["answer"]}
             for form in self.forms
-            if form.cleaned_data and not self._should_delete_form(form)
+            if {"question", "answer"} <= form.cleaned_data.keys() and not self._should_delete_form(form)
         ]
 
     @property
@@ -1422,7 +1456,6 @@ class TeachPublishedClassForm(
     def clean(self) -> dict:
         data = super().clean() or {}
         self.check_eventbrite_category_pair()
-        self.check_eventbrite_agreement()
         return data
 
     def clean_flexible_booking_text(self) -> str:

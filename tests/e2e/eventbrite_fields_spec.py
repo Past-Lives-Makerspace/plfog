@@ -3,7 +3,8 @@
 The two fields sit inside the Fixed block of step 3, so they leave with it when the class is
 switched to Flexible; that is Alpine's x-show, which only a browser runs. Saving keeps both.
 ``CAPTURE_652_SCREENSHOT=1`` also saves the PR's picture under ``mockups/screenshots/``, and
-``CAPTURE_725_SCREENSHOT=1`` the two of Eventbrite's rules (#725): the section, then a refusal.
+``CAPTURE_725_SCREENSHOT=1`` the three of Check for Eventbrite (#725): passed with the switch
+unlocked, refused with it locked, and untouched.
 Run with ``pytest -m e2e`` on PostgreSQL.
 """
 
@@ -74,8 +75,9 @@ def describe_eventbrite_fields_on_the_instructor_composer():
         expect(section).to_be_visible()
         expect(section).to_contain_text("On a $80 ticket that is about $7.07.")
 
+        section.locator("[data-eventbrite-check]").click()
+        expect(section.locator("[data-eventbrite-ready]")).to_be_visible()
         _tick(section, "eventbrite_enabled")
-        _tick(section, "eventbrite_rules_agreed")
         page.select_option("select[name='eventbrite_fee_payer']", ClassOffering.EventbriteFeePayer.INCLUDED)
         expect(page.locator("input[name='eventbrite_enabled']")).to_be_checked()
         if CAPTURE:
@@ -128,33 +130,81 @@ def describe_eventbrite_category_on_the_instructor_composer():
         assert (offering.eventbrite_category, offering.eventbrite_subcategory) == ("119", "19003")
 
 
-def describe_eventbrite_rules_on_the_instructor_composer():
-    """#725: the rules sit above the switch, and a class Eventbrite would take down is refused in place."""
+def describe_check_for_eventbrite_on_the_instructor_composer():
+    """#725 AC8: Check for Eventbrite reads the form as typed and unlocks the switch only on a pass."""
 
-    def it_shows_the_rules_and_refuses_a_class_that_breaks_them(live_server, page, login_via_code, settings):
+    def it_refuses_then_passes_after_a_fix_and_only_then_unlocks_the_switch(
+        live_server, page, login_via_code, settings
+    ):
         offering = _seed(settings)
-        ClassOffering.objects.filter(pk=offering.pk).update(
-            description="<p>Learn lost wax casting. Materials are paid at the session (cash/venmo).</p>"
-        )
+        ClassOffering.objects.filter(pk=offering.pk).update(title="Intro to Lost Wax Casting @covo.studio")
         login_via_code(EMAIL)
         page.goto(f"{live_server.url}{reverse('classes:teach_class_edit', kwargs={'pk': offering.pk})}?step=3")
         section = page.locator(SECTION)
+        switch = page.locator("input[name='eventbrite_enabled']")
         expect(section.locator("[data-eventbrite-rules]")).to_contain_text("Eventbrite takes down listings")
-
-        _tick(section, "eventbrite_enabled")
-        _tick(section, "eventbrite_rules_agreed")
+        expect(switch).to_be_disabled()
+        expect(section.locator("label.pl-toggle--disabled")).to_have_count(1)
         if CAPTURE_725:
             SHOTS.mkdir(parents=True, exist_ok=True)
+            section.screenshot(path=str(SHOTS / "725-eventbrite-rules-03.png"))
+
+        section.locator("[data-eventbrite-check]").click()
+        refusal = section.locator("[data-eventbrite-refusal]")
+        expect(refusal).to_contain_text("Fix it, or turn Eventbrite off")
+        expect(refusal).to_contain_text("Title: a link, email, phone number or handle in the title: “@covo.studio”")
+        expect(switch).to_be_disabled()
+        if CAPTURE_725:
+            section.screenshot(path=str(SHOTS / "725-eventbrite-rules-02.png"))
+
+        page.locator("[data-step-tab='1']").click()
+        page.fill("input[name='title']", "Intro to Lost Wax Casting")
+        page.locator("[data-step-tab='3']").click()
+        section.locator("[data-eventbrite-check]").click()
+        expect(section.locator("[data-eventbrite-ready]")).to_contain_text("Ready for Eventbrite.")
+        expect(switch).to_be_enabled()
+        expect(section.locator("label.pl-toggle--disabled")).to_have_count(0)
+        _tick(section, "eventbrite_enabled")
+        expect(switch).to_be_checked()
+        if CAPTURE_725:
+            page.wait_for_timeout(400)  # the toggle slides; capture it settled
             section.screenshot(path=str(SHOTS / "725-eventbrite-rules-01.png"))
 
         page.locator(SAVE_DRAFT).click()
-        refusal = page.locator("[data-eventbrite-refusal]")
-        expect(refusal).to_be_visible()
-        expect(refusal).to_contain_text("Fix it, or turn Eventbrite off")
-        expect(refusal).to_contain_text(
-            "Description: payment outside the ticket: “paid at the session”, “cash”, “venmo”"
-        )
-        if CAPTURE_725:
-            page.locator(SECTION).screenshot(path=str(SHOTS / "725-eventbrite-rules-02.png"))
+        page.get_by_text("Draft saved.").wait_for()
         offering.refresh_from_db()
-        assert offering.eventbrite_enabled is False
+        assert (offering.title, offering.eventbrite_enabled) == ("Intro to Lost Wax Casting", True)
+        assert offering.eventbrite_rules_agreed_at is not None
+
+    def it_marks_a_pass_stale_after_an_edit_and_locks_a_switch_that_is_off(live_server, page, login_via_code, settings):
+        offering = _seed(settings)
+        login_via_code(EMAIL)
+        page.goto(f"{live_server.url}{reverse('classes:teach_class_edit', kwargs={'pk': offering.pk})}?step=3")
+        section = page.locator(SECTION)
+        switch = page.locator("input[name='eventbrite_enabled']")
+        section.locator("[data-eventbrite-check]").click()
+        expect(switch).to_be_enabled()
+
+        page.locator("[data-step-tab='1']").click()
+        page.fill("input[name='title']", "Intro to Lost Wax Casting, Edited")
+        page.locator("[data-step-tab='3']").click()
+
+        expect(section.locator("[data-eventbrite-stale]")).to_have_text("Changed since the check. Check again.")
+        expect(switch).to_be_disabled()
+
+    def it_leaves_a_switch_that_is_already_on_alone_after_an_edit(live_server, page, login_via_code, settings):
+        offering = _seed(settings)
+        ClassOffering.objects.filter(pk=offering.pk).update(eventbrite_enabled=True)
+        login_via_code(EMAIL)
+        page.goto(f"{live_server.url}{reverse('classes:teach_class_edit', kwargs={'pk': offering.pk})}?step=3")
+        section = page.locator(SECTION)
+        switch = page.locator("input[name='eventbrite_enabled']")
+        expect(section.locator("[data-eventbrite-ready]")).to_be_visible()
+
+        page.locator("[data-step-tab='1']").click()
+        page.fill("input[name='title']", "Intro to Lost Wax Casting, Edited")
+        page.locator("[data-step-tab='3']").click()
+
+        expect(section.locator("[data-eventbrite-stale]")).to_be_visible()
+        expect(switch).to_be_enabled()
+        expect(switch).to_be_checked()

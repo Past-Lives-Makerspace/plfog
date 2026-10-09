@@ -1,0 +1,15 @@
+{# The Check for Eventbrite result (#725), from the button or on load; its x-init tells eventbrite_rules.html whether the switch may unlock. #}
+{% if check.problems %}
+<div class="hub-message hub-message--error" data-eventbrite-check-result data-eventbrite-refusal x-data x-init="$dispatch('eventbrite-checked', { passed: false })">
+  <p>{{ check.refusal_lines.0 }}</p>
+  <ul>{% for problem in check.problems %}<li>{{ problem }}</li>{% endfor %}</ul>
+</div>
+{% else %}
+<div class="hub-message hub-message--success" data-eventbrite-check-result data-eventbrite-ready x-data x-init="$dispatch('eventbrite-checked', { passed: true })">
+  <p>Ready for Eventbrite.</p>
+  {% if check.left_out %}
+  <p data-eventbrite-left-out>Won't appear on Eventbrite, removed on the way out:</p>
+  <ul>{% for finding in check.left_out %}<li>{{ finding }}</li>{% endfor %}</ul>
+  {% endif %}
+</div>
+{% endif %}

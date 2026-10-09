@@ -58,7 +58,6 @@ def _composer_data(offering: ClassOffering, **overrides: Any) -> dict[str, Any]:
         "scheduling_model": ClassOffering.SchedulingModel.FIXED,
         "scheduling_type": ClassOffering.SchedulingType.SINGLE_SESSION,
         "eventbrite_enabled": "on",
-        "eventbrite_rules_agreed": "on",
     }
     return {**data, **overrides}
 

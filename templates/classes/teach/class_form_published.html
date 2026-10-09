@@ -63,8 +63,6 @@
             {{ field }}
         {% elif field.name == 'eventbrite_enabled' %}
             {% include "classes/_components/eventbrite_rules.html" %}
-        {% elif field.name == 'eventbrite_rules_agreed' %}
-            {# Rendered with the switch above, under Eventbrite's rules. #}
         {% elif field.name == 'eventbrite_category' %}
             {% include "classes/_components/eventbrite_category_fields.html" %}
         {% elif field.name == 'eventbrite_subcategory' %}

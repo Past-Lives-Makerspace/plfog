@@ -1,21 +1,26 @@
-{# Eventbrite's selling rules, the switch, the agreement and what the push leaves out (#725); shared by the composer and the live class edit page so both say the same thing. #}
-<p class="pl-compose-section__note" data-eventbrite-rules>{{ form.eventbrite_rules_text }}</p>
-{% include "components/form_field.html" with field=form.eventbrite_enabled %}
-{# A switch renders through components/toggle.html, which shows no errors, so the refusal and the agreement's error are listed here. #}
-{% if form.eventbrite_enabled.errors %}
-  <ul class="pl-field-errors" data-eventbrite-refusal>{% for error in form.eventbrite_enabled.errors %}<li class="pl-field-error">{{ error }}</li>{% endfor %}</ul>
-{% endif %}
-{% if "eventbrite_rules_agreed" in form.fields %}
-  {% include "components/form_field.html" with field=form.eventbrite_rules_agreed %}
-  {% if form.eventbrite_rules_agreed.errors %}
-    <ul class="pl-field-errors">{% for error in form.eventbrite_rules_agreed.errors %}<li class="pl-field-error">{{ error }}</li>{% endfor %}</ul>
-  {% endif %}
-{% else %}
+{# Eventbrite's selling rules, Check for Eventbrite and the switch it unlocks (#725); shared by the composer and the live class edit page. Turning the switch on is the agreement; the save checks again. #}
+{% if form.instance.pk %}{% url 'classes:teach_class_eventbrite_check' pk=form.instance.pk as check_url %}{% elif is_admin %}{% url 'classes:admin_new_class_eventbrite_check' as check_url %}{% else %}{% url 'classes:teach_new_class_eventbrite_check' as check_url %}{% endif %}
+<div data-eventbrite-rules-box
+     x-data="{
+       ebOn: {{ form.eventbrite_enabled.value|yesno:'true,false' }},
+       ebPassed: {% if form.eventbrite_check and not form.eventbrite_check.problems %}true{% else %}false{% endif %},
+       ebStale: false,
+       ebTouched(name) { return /^(title|subtitle|description|faq-\d+-(question|answer|DELETE))$/.test(name || ''); },
+     }"
+     x-effect="$el.querySelector('input[name=eventbrite_enabled]').closest('.pl-toggle').classList.toggle('pl-toggle--disabled', !ebOn && !(ebPassed && !ebStale))"
+     @eventbrite-checked="ebPassed = $event.detail.passed; ebStale = false"
+     @input.window="if (ebTouched($event.target.name)) ebStale = true"
+     @change.window="if (ebTouched($event.target.name)) ebStale = true">
+  <p class="pl-compose-section__note" data-eventbrite-rules>{{ form.eventbrite_rules_text }}</p>
+  <button type="button" class="hub-btn hub-btn--sm hub-btn--ghost" data-eventbrite-check
+          hx-post="{{ check_url }}" hx-target="next [data-eventbrite-check-slot]" hx-swap="innerHTML"
+          hx-params="not image,gallery_images,hero_image">Check for Eventbrite</button>
+  <div data-eventbrite-check-slot aria-live="polite">
+    {% if form.eventbrite_check %}{% include "classes/_components/eventbrite_check_result.html" with check=form.eventbrite_check %}{% endif %}
+  </div>
+  <p class="pl-compose-section__note" data-eventbrite-stale x-show="ebStale" x-cloak>Changed since the check. Check again.</p>
+  {% include "components/form_field.html" with field=form.eventbrite_enabled %}
+  {% if not form.instance.needs_eventbrite_agreement %}
   <p class="pl-compose-section__note" data-eventbrite-agreed>Eventbrite's rules agreed to on {{ form.instance.eventbrite_rules_agreed_at|date:"M j, Y" }}{% if form.instance.eventbrite_rules_agreed_by %} by {{ form.instance.eventbrite_rules_agreed_by.get_full_name|default:form.instance.eventbrite_rules_agreed_by.username }}{% endif %}.</p>
-{% endif %}
-{% if form.eventbrite_check.left_out %}
-  <p class="pl-compose-section__note" data-eventbrite-left-out>Won't appear on Eventbrite, removed on the way out:</p>
-  <ul class="pl-compose-section__note">
-    {% for finding in form.eventbrite_check.left_out %}<li>{{ finding }}</li>{% endfor %}
-  </ul>
-{% endif %}
+  {% endif %}
+</div>

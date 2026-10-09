@@ -65,7 +65,6 @@ def _published_edit_payload(**overrides: str) -> dict[str, str]:
     payload = {
         "description": "A hands-on class, edited.",
         "eventbrite_enabled": "on",
-        "eventbrite_rules_agreed": "on",
         "eventbrite_fee_payer": ClassOffering.EventbriteFeePayer.BUYER,
         **_faq_management(),
     }
@@ -86,7 +85,6 @@ def _composer_payload(offering: ClassOffering) -> dict[str, str]:
         "scheduling_model": ClassOffering.SchedulingModel.FIXED,
         "scheduling_type": ClassOffering.SchedulingType.SINGLE_SESSION,
         "eventbrite_enabled": "on",
-        "eventbrite_rules_agreed": "on",
         "eventbrite_fee_payer": ClassOffering.EventbriteFeePayer.BUYER,
         "sessions-TOTAL_FORMS": "1",
         "sessions-INITIAL_FORMS": "1",
