@@ -883,6 +883,15 @@ def describe_equipment_manage():
         assert b"{ section: 'details' }" in response.content
         assert b"bogus" not in response.content
 
+    def it_spans_the_details_card_full_width_like_its_sibling_tabs(client: Client):
+        # The add pages keep the 640px form card; the Manage tabs all span the page.
+        _login(client, "eq_mng_wide", fog_role=Member.FogRole.ADMIN)
+        equipment = EquipmentFactory()
+        response = client.get(reverse("hub_equipment_manage", args=[equipment.slug]))
+        assert b'class="hub-card pl-equip-form-card pl-equip-form-card--full"' in response.content
+        add_page = client.get(reverse("hub_equipment_add"))
+        assert b"pl-equip-form-card--full" not in add_page.content
+
     def it_denies_a_manager_of_other_equipment(client: Client):
         # Cross-resource probe: an EquipmentStaffMembership row on A grants nothing on B.
         user = _login(client, "eq_mng_cross")
