@@ -474,6 +474,14 @@ def describe_refresh_video_thumbnails():
             assert not default_storage.exists(old)
 
     @_respx
+    @_respx
+    def it_leaves_an_archived_class_alone_so_a_dead_post_never_alerts_forever(db):
+        page = _mock_post()
+        ClassOfferingFactory(video_url=POST_URL, status=ClassOffering.Status.ARCHIVED)
+        summary = refresh_video_thumbnails()
+        assert summary.fetched == summary.failed == summary.cleared == summary.waiting == []
+        assert not page.called
+
     def it_ignores_an_instagram_link_that_is_not_a_post(db):
         ClassOfferingFactory(video_url="https://www.instagram.com/pastlivesmakerspace/")
         summary = refresh_video_thumbnails()

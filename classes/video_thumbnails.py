@@ -265,8 +265,11 @@ def refresh_video_thumbnails(now: datetime | None = None) -> RefreshSummary:
     """
     now = now or timezone.now()
     summary = RefreshSummary()
+    # An archived class is left as it is: nobody reads its page, and a post deleted since would
+    # otherwise fail a run and alert the webmasters once a day for good.
     candidates = (
         ClassOffering.objects.filter(Q(video_url__icontains="instagram") | Q(video_thumbnail_source_url__gt=""))
+        .exclude(status=ClassOffering.Status.ARCHIVED)
         .only(*_JOB_COLUMNS)
         .order_by("pk")
     )
