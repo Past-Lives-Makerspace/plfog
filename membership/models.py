@@ -14988,10 +14988,7 @@ class Equipment(HeroCropMixin, models.Model):
     allow_custom_requests = models.BooleanField(
         default=True,
         db_default=True,
-        help_text=(
-            "Let members propose their own orientation time when none of this equipment's orientations "
-            "has an open time, the guilds' switch of the same name (#733)."
-        ),
+        help_text="Let members propose their own orientation time instead of only picking a posted slot.",
     )
 
     objects = EquipmentQuerySet.as_manager()

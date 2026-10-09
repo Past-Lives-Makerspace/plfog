@@ -1,0 +1,8 @@
+bump = "minor"
+date = "2026-10-09"
+title = "Ask for your own orientation time on equipment"
+changes = [
+  "When a tool like the CNC Machine has no open orientation times, members can now propose a time and leave a note, the same way guild orientations already work. A manager of that equipment confirms it.",
+  "Equipment managers turn this on or off with the new Let members propose their own orientation time switch on the Orientation tab. It starts on.",
+  "Priced orientations still take payment first, and donation orientations still ask for an amount.",
+]

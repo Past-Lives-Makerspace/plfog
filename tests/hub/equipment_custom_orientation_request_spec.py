@@ -262,8 +262,21 @@ def describe_the_equipment_page():
         orientation_type = _owned_type(equipment)
         slot = OrientationSlotFactory(equipment_owned=True, orientation_type=orientation_type, seats=1)
         OrientationBookingFactory(slot=slot, member=user.member)
-        section = _section_html(client.get(_detail(equipment)).content, orientation_type.pk)
-        assert _road(equipment) not in section
+        response = client.get(_detail(equipment))
+        assert _road(equipment) not in _section_html(response.content, orientation_type.pk)
+        # The section itself carries no form, not only the markup: the template is not the gate.
+        (section,) = response.context["orientation_sections"]
+        assert section["custom_form"] is None
+        assert section["custom_amount_form"] is None
+
+    def it_leaves_it_off_while_the_member_holds_a_checkout(client: Client):
+        user = _login(client, "eq733_page_hold")
+        equipment = EquipmentFactory(name="Hold CNC")
+        orientation_type = _owned_type(equipment, price_cents=2000)
+        slot = OrientationSlotFactory(equipment_owned=True, orientation_type=orientation_type, seats=1)
+        OrientationBookingFactory(slot=slot, member=user.member, status=OrientationBooking.Status.PENDING_PAYMENT)
+        (section,) = client.get(_detail(equipment)).context["orientation_sections"]
+        assert section["custom_form"] is None
 
     def it_asks_a_donation_type_for_its_amount(client: Client):
         _login(client, "eq733_page_donation")
