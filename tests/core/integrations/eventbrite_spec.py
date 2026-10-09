@@ -1011,14 +1011,14 @@ def describe_the_listing_check():
             )
 
             assert check.refusal_lines == [
-                "Eventbrite would take this listing down. Fix it, or turn Eventbrite off:",
+                "Eventbrite would take this listing down. Fix these, then save again.",
                 "Title: a link, email, phone number or handle in the title: “@covo”",
                 "Subtitle: a cost not included in the price: “Lab fees apply”",
                 "Description: payment outside the ticket: “paid at the session”, “cash”, “venmo”",
                 "FAQ “Any deals?”: a discount code: “discount code MEMBER10”",
             ]
             assert check.refusal == (
-                "Eventbrite would take this listing down. Fix it, or turn Eventbrite off: "
+                "Eventbrite would take this listing down. Fix these, then save again. "
                 "Title: a link, email, phone number or handle in the title: “@covo”; "
                 "Subtitle: a cost not included in the price: “Lab fees apply”; "
                 "Description: payment outside the ticket: “paid at the session”, “cash”, “venmo”; "

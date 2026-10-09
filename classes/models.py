@@ -2348,11 +2348,16 @@ class ClassOffering(HeroCropMixin, models.Model):
         and reaches here on the ``retry_eventbrite_pushes`` tick. Best-effort: the service records ``PENDING`` or ``FAILED``
         instead of raising, so Eventbrite never blocks a plfog save. A class never opted in
         and never listed returns without a query.
+
+        A class that fails the listing check here (it was queued, and goes live failing) sends
+        its instructor the problems, once: on the move into that failure, never on a retry
+        tick that finds the same failure again (#725).
         """
         if not self.eventbrite_enabled and not self.eventbrite_event_id:
             return
-        from core.integrations.eventbrite import sync_class_listing
+        from core.integrations.eventbrite import EventbriteSync, sync_class_listing
 
+        before = (self.eventbrite_sync_state, self.eventbrite_sync_error)
         sync_class_listing(self)
         self.save(
             update_fields=[
@@ -2365,6 +2370,12 @@ class ClassOffering(HeroCropMixin, models.Model):
                 "updated_at",
             ]
         )
+        after = (self.eventbrite_sync_state, self.eventbrite_sync_error)
+        refused = after[0] == self.EventbriteSyncState.FAILED and after[1].startswith(EventbriteSync.RULES_REFUSAL)
+        if refused and after != before:
+            from classes.emails import send_eventbrite_rules_failed
+
+            send_eventbrite_rules_failed(self)
 
     def mark_eventbrite_edit_saved(self) -> None:
         """After an edit save, leave the listing for ``retry_eventbrite_pushes`` instead of syncing it now.

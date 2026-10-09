@@ -659,20 +659,20 @@ class _EventbriteCategoryMixin:
             self.add_error("eventbrite_subcategory", _SUBCATEGORY_MISMATCH)  # type: ignore[attr-defined]
 
 
+_SUBMIT_LABEL = "Submit to Eventbrite"
 _AGREEMENT_HELP = (
-    "Turning this on means I agree to keep this listing within Eventbrite's rules. "
-    "Seats stay in step with this site. Not offered for flexible classes."
+    "Ticking this is my agreement to keep the listing within Eventbrite's rules below. "
+    "The class lists on Eventbrite when it goes live, with seats in step with this site."
 )
-# The switch unlocks once Check for Eventbrite passes on the text as it stands; Alpine state
-# lives in classes/_components/eventbrite_rules.html. A switch already on stays usable.
-_SWITCH_ALPINE = {"x-model": "ebOn", ":disabled": "!ebOn && !(ebPassed && !ebStale)"}
+# Ticked, the partial (classes/_components/eventbrite_rules.html) reveals the fee and category.
+_SUBMIT_ALPINE = {"x-model": "ebOn"}
 
 
 class _EventbriteRulesMixin:
-    """Eventbrite's selling rules (#725): the check that gates the switch, and the agreement it records.
+    """Eventbrite's selling rules (#725): Submit to Eventbrite, the agreement it records, and the check.
 
-    Turning the switch on is the agreement (its hint says so); a save with it on records who and
-    when, once per class. The listing check runs after validation, through
+    Ticking Submit to Eventbrite is the agreement (its hint says so); a save with it ticked records
+    who and when, once per class. The page checks the text as it is typed (``EventbriteListingCheckForm``). The listing check runs after validation, through
     :meth:`accepts_eventbrite_listing`, because it reads the posted FAQ rows, which live on their
     own formset. ``eventbrite_check`` holds the last check for the template: the saved class's on
     a fresh page, the posted text's after a save attempt.
@@ -686,10 +686,10 @@ class _EventbriteRulesMixin:
     eventbrite_check: ListingCheck | None = None
 
     def setup_eventbrite_rules(self) -> None:
-        """Say the switch is the agreement, lock it until a check passes, and check a saved opted-in class."""
+        """Name the opt in Submit to Eventbrite, say it is the agreement, and check a saved opted-in class."""
         switch = self.fields["eventbrite_enabled"]
-        switch.help_text = _AGREEMENT_HELP
-        switch.widget.attrs.update(_SWITCH_ALPINE)
+        switch.label, switch.help_text = _SUBMIT_LABEL, _AGREEMENT_HELP
+        switch.widget.attrs.update(_SUBMIT_ALPINE)
         if not self.is_bound and self.instance.pk and self.instance.eventbrite_enabled:
             self.eventbrite_check = self.instance.eventbrite_listing_check()
 
@@ -720,9 +720,9 @@ class _EventbriteRulesMixin:
 
 
 class EventbriteListingCheckForm(forms.Form):
-    """What the Check for Eventbrite button posts (#725): the class's text as typed, never saved.
+    """What the Eventbrite section posts as the class is typed (#725): the class's text, never saved.
 
-    The button sends the whole page form, so a field the page does not carry (the live class
+    The section sends the whole page form, so a field the page does not carry (the live class
     edit page has no title box) is read from the saved class instead. The FAQ comes from the
     posted formset when the page has one, else from the saved rows; a new class has none.
     """

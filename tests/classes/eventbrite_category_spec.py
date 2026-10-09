@@ -166,9 +166,10 @@ def describe_the_composer_forms():
 
         assert "eventbrite_category" in form.errors
 
-    def it_puts_both_on_the_dates_step_beside_the_opt_in():
-        assert step_for_field("eventbrite_category") == step_for_field("eventbrite_enabled") == 3
-        assert step_for_field("eventbrite_subcategory") == 3
+    def it_puts_both_on_the_last_page_beside_submit_to_eventbrite():
+        # #725 moved Submit to Eventbrite and its fee and category to the composer's last page.
+        assert step_for_field("eventbrite_category") == step_for_field("eventbrite_enabled") == 6
+        assert step_for_field("eventbrite_subcategory") == 6
 
     def it_ties_each_subcategory_option_to_its_parent_in_the_browser():
         html = str(TeachClassOfferingForm()["eventbrite_subcategory"])
@@ -252,7 +253,7 @@ def describe_the_pages():
 
         html = client.get(reverse("classes:teach_class_create")).content.decode()
 
-        block = html[html.index("data-eventbrite>") :]
+        block = html[html.index("pl-eventbrite\" data-eventbrite ") :]
         component = block[block.index("data-eventbrite-category") :]
         assert "x-data=\"{ ebCategory: '' }\"" in component
         assert _select(component, "eventbrite_category").count("<option") == 22

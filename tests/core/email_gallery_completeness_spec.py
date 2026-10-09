@@ -98,6 +98,7 @@ def describe_email_gallery_completeness():
             "core.find_account",
             "classes.welcome_email",
             "classes.registration_resume_link",
+            "classes.eventbrite_rules_failed",
             "classes.welcome_email_test",
             "classes.instructor_message",
             "classes.admin_message",

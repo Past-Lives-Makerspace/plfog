@@ -174,7 +174,7 @@ class EventbriteSync:
     GALLERY_CHANGED = "The gallery changed."
     EDIT_SAVED = "your changes are saved and go to Eventbrite within 15 minutes"
     TAKEN_DOWN = "Unpublished on Eventbrite outside plfog; not republished."
-    RULES_REFUSAL = "Eventbrite would take this listing down. Fix it, or turn Eventbrite off:"
+    RULES_REFUSAL = "Eventbrite would take this listing down. Fix these, then save again."
 
     @staticmethod
     def photos_not_sent(reasons: list[str]) -> str:

@@ -63,10 +63,8 @@
             {{ field }}
         {% elif field.name == 'eventbrite_enabled' %}
             {% include "classes/_components/eventbrite_rules.html" %}
-        {% elif field.name == 'eventbrite_category' %}
-            {% include "classes/_components/eventbrite_category_fields.html" %}
-        {% elif field.name == 'eventbrite_subcategory' %}
-            {# Rendered beside the category above, which narrows it. #}
+        {% elif field.name == 'eventbrite_category' or field.name == 'eventbrite_subcategory' %}
+            {# Rendered under Submit to Eventbrite by the partial above, shown once it is ticked (#725). #}
         {% elif field.name == 'video_url' or field.name == 'subtitle' %}
             {% include "components/form_field.html" with field=field %}
         {% else %}

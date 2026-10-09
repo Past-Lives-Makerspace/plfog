@@ -1,15 +1,17 @@
-{# The Check for Eventbrite result (#725), from the button or on load; its x-init tells eventbrite_rules.html whether the switch may unlock. #}
+{# The Eventbrite check's result (#725), on load for a class already ticked and as the class is typed. #}
 {% if check.problems %}
-<div class="hub-message hub-message--error" data-eventbrite-check-result data-eventbrite-refusal x-data x-init="$dispatch('eventbrite-checked', { passed: false })">
+<div class="hub-message hub-message--error" data-eventbrite-check-result data-eventbrite-refusal>
   <p>{{ check.refusal_lines.0 }}</p>
-  <ul>{% for problem in check.problems %}<li>{{ problem }}</li>{% endfor %}</ul>
+  <ul class="pl-field-errors">{% for problem in check.problems %}<li>{{ problem }}</li>{% endfor %}</ul>
 </div>
 {% else %}
-<div class="hub-message hub-message--success" data-eventbrite-check-result data-eventbrite-ready x-data x-init="$dispatch('eventbrite-checked', { passed: true })">
-  <p>Ready for Eventbrite.</p>
+<div data-eventbrite-check-result data-eventbrite-ready>
+  <span class="pl-lifecycle-badge pl-lifecycle-badge--upcoming"><span aria-hidden="true">&#10003;</span> Ready for Eventbrite</span>
   {% if check.left_out %}
-  <p data-eventbrite-left-out>Won't appear on Eventbrite, removed on the way out:</p>
-  <ul>{% for finding in check.left_out %}<li>{{ finding }}</li>{% endfor %}</ul>
+  <div class="pl-reveal" data-eventbrite-left-out>
+    <p class="pl-compose-section__note">Won't appear on Eventbrite, removed on the way out:</p>
+    <ul class="pl-field-errors">{% for finding in check.left_out %}<li class="pl-compose-section__note">{{ finding }}</li>{% endfor %}</ul>
+  </div>
   {% endif %}
 </div>
 {% endif %}

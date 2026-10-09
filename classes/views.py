@@ -2384,7 +2384,7 @@ def teach_class_edit(request: HttpRequest, pk: int) -> HttpResponse:
 
 
 def _eventbrite_check(request: HttpRequest, offering: ClassOffering | None) -> HttpResponse:
-    """The Check for Eventbrite result (#725) for the text the page posted; nothing is saved."""
+    """The Eventbrite check (#725) on the text the page posted, as it is typed; nothing is saved."""
     check = EventbriteListingCheckForm(request.POST, offering=offering).listing_check()
     return render(request, "classes/_components/eventbrite_check_result.html", {"check": check})
 
@@ -2392,7 +2392,7 @@ def _eventbrite_check(request: HttpRequest, offering: ClassOffering | None) -> H
 @require_POST
 @class_screen_required
 def teach_class_eventbrite_check(request: HttpRequest, pk: int) -> HttpResponse:
-    """Check for Eventbrite on a saved class, for whoever may edit it (the composer's own door)."""
+    """The Eventbrite check on a saved class, for whoever may edit it (the composer's own door)."""
     access: ClassAccess = request.class_access  # type: ignore[attr-defined]
     if not access.can_edit:
         raise Http404("This class is not editable by this viewer.")
@@ -2402,14 +2402,14 @@ def teach_class_eventbrite_check(request: HttpRequest, pk: int) -> HttpResponse:
 @require_POST
 @teaching_member_required
 def teach_new_class_eventbrite_check(request: HttpRequest) -> HttpResponse:
-    """Check for Eventbrite on the instructor composer's unsaved new class."""
+    """The Eventbrite check on the instructor composer's unsaved new class."""
     return _eventbrite_check(request, None)
 
 
 @require_POST
 @classes_admin_access_required
 def admin_new_class_eventbrite_check(request: HttpRequest) -> HttpResponse:
-    """Check for Eventbrite on the admin composer's unsaved new class."""
+    """The Eventbrite check on the admin composer's unsaved new class."""
     return _eventbrite_check(request, None)
 
 

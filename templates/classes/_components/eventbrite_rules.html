@@ -1,26 +1,20 @@
-{# Eventbrite's selling rules, Check for Eventbrite and the switch it unlocks (#725); shared by the composer and the live class edit page. Turning the switch on is the agreement; the save checks again. #}
+{# Submit to Eventbrite (#725), shared by the composer's last page and the live class edit page: the box is the agreement; ticked, it checks the text as typed (a save aborts a check in flight, hx-sync) and shows the fee and category. #}
 {% if form.instance.pk %}{% url 'classes:teach_class_eventbrite_check' pk=form.instance.pk as check_url %}{% elif is_admin %}{% url 'classes:admin_new_class_eventbrite_check' as check_url %}{% else %}{% url 'classes:teach_new_class_eventbrite_check' as check_url %}{% endif %}
-<div data-eventbrite-rules-box
-     x-data="{
-       ebOn: {{ form.eventbrite_enabled.value|yesno:'true,false' }},
-       ebPassed: {% if form.eventbrite_check and not form.eventbrite_check.problems %}true{% else %}false{% endif %},
-       ebStale: false,
-       ebTouched(name) { return /^(title|subtitle|description|faq-\d+-(question|answer|DELETE))$/.test(name || ''); },
-     }"
-     x-effect="$el.querySelector('input[name=eventbrite_enabled]').closest('.pl-toggle').classList.toggle('pl-toggle--disabled', !ebOn && !(ebPassed && !ebStale))"
-     @eventbrite-checked="ebPassed = $event.detail.passed; ebStale = false"
-     @input.window="if (ebTouched($event.target.name)) ebStale = true"
-     @change.window="if (ebTouched($event.target.name)) ebStale = true">
-  <p class="pl-compose-section__note" data-eventbrite-rules>{{ form.eventbrite_rules_text }}</p>
-  <button type="button" class="hub-btn hub-btn--sm hub-btn--ghost" data-eventbrite-check
-          hx-post="{{ check_url }}" hx-target="next [data-eventbrite-check-slot]" hx-swap="innerHTML"
-          hx-params="not image,gallery_images,hero_image">Check for Eventbrite</button>
-  <div data-eventbrite-check-slot aria-live="polite">
-    {% if form.eventbrite_check %}{% include "classes/_components/eventbrite_check_result.html" with check=form.eventbrite_check %}{% endif %}
-  </div>
-  <p class="pl-compose-section__note" data-eventbrite-stale x-show="ebStale" x-cloak>Changed since the check. Check again.</p>
+<div data-eventbrite-submit x-data="{ ebOn: {{ form.eventbrite_enabled.value|yesno:'true,false' }} }">
   {% include "components/form_field.html" with field=form.eventbrite_enabled %}
-  {% if not form.instance.needs_eventbrite_agreement %}
-  <p class="pl-compose-section__note" data-eventbrite-agreed>Eventbrite's rules agreed to on {{ form.instance.eventbrite_rules_agreed_at|date:"M j, Y" }}{% if form.instance.eventbrite_rules_agreed_by %} by {{ form.instance.eventbrite_rules_agreed_by.get_full_name|default:form.instance.eventbrite_rules_agreed_by.username }}{% endif %}.</p>
-  {% endif %}
+  <p class="pl-compose-section__note" data-eventbrite-rules>{{ form.eventbrite_rules_text }}</p>
+  <div class="pl-reveal" data-eventbrite-details x-show="ebOn" x-cloak>
+    <div data-eventbrite-check-slot aria-live="polite"
+         hx-post="{{ check_url }}" hx-swap="innerHTML" hx-params="not image,gallery_images,hero_image" hx-sync="closest form:abort"
+         hx-trigger="change[this.closest('[data-eventbrite-submit]').querySelector('input[name=eventbrite_enabled]').checked] from:closest form delay:400ms, input[this.closest('[data-eventbrite-submit]').querySelector('input[name=eventbrite_enabled]').checked] from:closest form delay:800ms">
+      {% if form.eventbrite_check %}{% include "classes/_components/eventbrite_check_result.html" with check=form.eventbrite_check %}{% endif %}
+    </div>
+    {% if not form.instance.needs_eventbrite_agreement %}
+    <p class="pl-compose-section__note" data-eventbrite-agreed>Eventbrite's rules agreed to on {{ form.instance.eventbrite_rules_agreed_at|date:"M j, Y" }}{% if form.instance.eventbrite_rules_agreed_by %} by {{ form.instance.eventbrite_rules_agreed_by.get_full_name|default:form.instance.eventbrite_rules_agreed_by.username }}{% endif %}.</p>
+    {% endif %}
+    <div class="pl-reveal">
+      {% if "eventbrite_fee_payer" in form.fields %}{% include "components/form_field.html" with field=form.eventbrite_fee_payer %}{% endif %}
+      {% include "classes/_components/eventbrite_category_fields.html" %}
+    </div>
+  </div>
 </div>

@@ -1078,7 +1078,7 @@ def describe_a_listing_eventbrite_refuses_with_its_faq_and_its_photos():
 
 # ── #725: Eventbrite's selling rules, checked before a class is sold there ──
 
-_REFUSAL = "Eventbrite would take this listing down. Fix it, or turn Eventbrite off:"
+_REFUSAL = "Eventbrite would take this listing down. Fix these, then save again."
 _KATE = "Materials are paid at the session (cash/venmo)."  # Kate's #619 to #621
 _LAB_FEES = "Lab fees apply and are not included in the price."  # #605 to #614
 _INCLUDED = "A $10 materials fee is included in the class price."
@@ -1242,7 +1242,9 @@ def describe_the_rules_check_on_the_class_forms():
         def it_says_so_beside_the_switch():
             help_text = TeachClassOfferingForm().fields["eventbrite_enabled"].help_text
 
-            assert help_text.startswith("Turning this on means I agree to keep this listing within Eventbrite's rules.")
+            assert help_text.startswith(
+                "Ticking this is my agreement to keep the listing within Eventbrite's rules below."
+            )
 
         def it_records_who_agreed_and_when_on_the_save():
             offering = ClassOfferingFactory()
@@ -1294,15 +1296,15 @@ def describe_the_rules_check_on_the_class_forms():
             assert form.accepts_eventbrite_listing(UserFactory()) is False
             assert offering.eventbrite_rules_agreed_at is None
 
-    def describe_the_switch_lock():
-        """AC8: the switch stays disabled until a check passes on the text as it stands, unless already on."""
+    def describe_the_submit_box():
+        """AC8: the opt in reads Submit to Eventbrite, and ticking it reveals the rest (Alpine ``ebOn``)."""
 
         @pytest.mark.parametrize("form_class", [TeachClassOfferingForm, ClassOfferingForm, TeachPublishedClassForm])
-        def it_binds_the_switch_to_the_check(form_class: Any):
-            attrs = form_class(instance=_listed()).fields["eventbrite_enabled"].widget.attrs
+        def it_names_the_box_and_binds_it_to_the_reveal(form_class: Any):
+            field = form_class(instance=_listed()).fields["eventbrite_enabled"]
 
-            assert attrs["x-model"] == "ebOn"
-            assert attrs[":disabled"] == "!ebOn && !(ebPassed && !ebStale)"
+            assert field.label == "Submit to Eventbrite"
+            assert field.widget.attrs == {"x-model": "ebOn"}
 
     def describe_the_check_on_a_fresh_page():
         def it_shows_a_saved_class_with_eventbrite_on_what_is_left_out():
@@ -1385,30 +1387,51 @@ def describe_the_sync_with_the_rules_check():
 
 
 def describe_the_rules_on_the_pages():
-    """AC7 and AC8: the rules, Check for Eventbrite and the switch, to instructors and admins."""
+    """AC7 and AC8: Submit to Eventbrite on the composer's last page and the live class edit page."""
 
     @pytest.fixture(autouse=True)
     def _integration_on(eventbrite: FakeEventbrite) -> None:
         """The Eventbrite section renders."""
 
     def _section(html: str) -> str:
-        return html.split("data-eventbrite-rules-box", 1)[1].split('name="eventbrite_fee_payer"', 1)[0]
+        return html.split("data-eventbrite-submit", 1)[1].split("</div>\n</div>", 1)[0]
 
-    def it_shows_the_rules_then_the_button_then_the_locked_switch_on_the_instructor_composer(client: Any):
+    def _step(html: str, number: int) -> str:
+        return html.split(f'data-composer-step="{number}"', 1)[1].split("data-composer-step=", 1)[0]
+
+    def it_puts_the_box_on_the_last_page_of_the_instructor_composer_and_nowhere_else(client: Any):
+        client.force_login(_rules_instructor().user)
+        html = client.get(reverse("classes:teach_class_create")).content.decode()
+
+        last = html.split('data-composer-step="6"', 1)[1]
+        assert 'name="eventbrite_enabled"' in last
+        assert 'name="eventbrite_enabled"' not in _step(html, 3)
+        assert html.count('name="eventbrite_enabled"') == 1
+        assert "Submit to Eventbrite" in last
+
+    def it_shows_the_rules_beside_the_box_and_hides_the_rest_until_ticked(client: Any):
         client.force_login(_rules_instructor().user)
 
         section = _section(client.get(reverse("classes:teach_class_create")).content.decode())
 
+        assert section.index('name="eventbrite_enabled"') < section.index("data-eventbrite-rules>")
         assert "data-eventbrite-rules>Eventbrite takes down listings that send buyers anywhere else." in section
-        assert "A takedown can suspend the makerspace&#x27;s whole Eventbrite account." in section
-        assert f'hx-post="{reverse("classes:teach_new_class_eventbrite_check")}"' in section
-        assert (
-            section.index("data-eventbrite-rules>")
-            < section.index("data-eventbrite-check")
-            < section.index('name="eventbrite_enabled"')
-        )
         assert "ebOn: false" in section
-        assert "ebPassed: false" in section
+        details = section.split("data-eventbrite-details", 1)[1]
+        assert details.startswith(' x-show="ebOn" x-cloak>')
+        assert 'name="eventbrite_fee_payer"' in details
+        assert 'name="eventbrite_category"' in details
+        assert section.index("data-eventbrite-rules>") < section.index("data-eventbrite-details")
+
+    def it_checks_the_typed_text_only_while_ticked(client: Any):
+        client.force_login(_rules_instructor().user)
+
+        section = _section(client.get(reverse("classes:teach_class_create")).content.decode())
+
+        assert f'hx-post="{reverse("classes:teach_new_class_eventbrite_check")}"' in section
+        trigger = section.split('hx-trigger="', 1)[1].split('"', 1)[0]
+        ticked = "[this.closest('[data-eventbrite-submit]').querySelector('input[name=eventbrite_enabled]').checked]"
+        assert trigger == f"change{ticked} from:closest form delay:400ms, input{ticked} from:closest form delay:800ms"
         assert "data-eventbrite-check-result" not in section
 
     def it_posts_the_admin_composer_check_to_the_admin_route(client: Any):
@@ -1418,7 +1441,7 @@ def describe_the_rules_on_the_pages():
 
         assert f'hx-post="{reverse("classes:admin_new_class_eventbrite_check")}"' in section
 
-    def it_shows_a_class_already_on_its_result_on_load(client: Any):
+    def it_shows_a_ticked_class_its_result_on_load(client: Any):
         instructor = _rules_instructor()
         offering = ClassOfferingFactory(instructor=instructor, eventbrite_enabled=True, description="Text 503-555-0182")
         client.force_login(instructor.user)
@@ -1427,11 +1450,13 @@ def describe_the_rules_on_the_pages():
 
         assert f'hx-post="{reverse("classes:teach_class_eventbrite_check", kwargs={"pk": offering.pk})}"' in section
         assert "data-eventbrite-ready" in section
-        assert "<li>Description: a link, email, phone number or handle: “503-555-0182”</li>" in section
+        assert (
+            '<li class="pl-compose-section__note">Description: a link, email, phone number or handle: “503-555-0182”</li>'
+            in section
+        )
         assert "ebOn: true" in section
-        assert "ebPassed: true" in section
 
-    def it_shows_a_failing_class_already_on_its_problems_on_load(client: Any):
+    def it_shows_a_failing_ticked_class_its_problems_on_load(client: Any):
         instructor = _rules_instructor()
         offering = _described(ClassOfferingFactory(instructor=instructor, eventbrite_enabled=True), _KATE)
         client.force_login(instructor.user)
@@ -1439,7 +1464,7 @@ def describe_the_rules_on_the_pages():
         section = _section(client.get(reverse("classes:teach_class_edit", kwargs={"pk": offering.pk})).content.decode())
 
         assert "data-eventbrite-refusal" in section
-        assert "ebPassed: false" in section
+        assert f"<p>{_REFUSAL}</p>" in section
 
     def it_shows_who_agreed_and_when(client: Any):
         instructor = _rules_instructor()
@@ -1462,7 +1487,7 @@ def describe_the_rules_on_the_pages():
 
         assert "data-eventbrite-agreed" not in client.get(reverse("classes:teach_class_create")).content.decode()
 
-    def it_shows_the_rules_button_and_switch_on_the_live_class_edit_page(client: Any):
+    def it_shows_the_box_once_on_the_live_class_edit_page(client: Any):
         instructor = _rules_instructor()
         offering = _listed(instructor=instructor)
         client.force_login(instructor.user)
@@ -1470,12 +1495,13 @@ def describe_the_rules_on_the_pages():
         html = client.get(reverse("classes:teach_class_edit", kwargs={"pk": offering.pk})).content.decode()
 
         assert "data-eventbrite-rules>Eventbrite takes down listings" in html
-        assert html.index("data-eventbrite-check") < html.index('name="eventbrite_enabled"')
-        assert html.count("data-eventbrite-rules-box") == 1
+        assert html.count("data-eventbrite-submit x-data") == 1
+        assert html.count('name="eventbrite_category"') == 1
+        assert html.index('name="eventbrite_enabled"') < html.index('name="eventbrite_category"')
 
 
-def describe_the_check_for_eventbrite_button():
-    """AC8: the button checks the text as typed, unsaved edits included, and saves nothing."""
+def describe_the_check_as_typed():
+    """AC8: the Eventbrite section checks the text as typed, unsaved edits included, and saves nothing."""
 
     @pytest.fixture(autouse=True)
     def _integration_on(eventbrite: FakeEventbrite) -> None:
@@ -1501,7 +1527,6 @@ def describe_the_check_for_eventbrite_button():
         assert "<li>Description: a cost not included in the price: “Lab fees apply”</li>" in html
         assert "<li>FAQ “Deals?”: a discount code: “Use code PLHalfOff”</li>" in html
         assert "Venmo" not in html  # the saved FAQ row was not posted, so it is not read
-        assert "passed: false" in html
         offering.refresh_from_db()
         assert (offering.title.startswith("Class"), offering.description) == (True, "A hands-on class.")
 
@@ -1514,9 +1539,8 @@ def describe_the_check_for_eventbrite_button():
         html = client.post(url, {"title": "Rings", "description": f"{_INCLUDED} See pastlives.space"}).content.decode()
 
         assert "data-eventbrite-ready" in html
-        assert "Ready for Eventbrite." in html
-        assert "passed: true" in html
-        assert "<li>Description: a link, email, phone number or handle: “pastlives.space”</li>" in html
+        assert "Ready for Eventbrite</span>" in html
+        assert ">Description: a link, email, phone number or handle: “pastlives.space”</li>" in html
 
     def it_reads_a_field_the_page_does_not_post_from_the_saved_class(client: Any):
         instructor = _rules_instructor()
@@ -1722,3 +1746,75 @@ def describe_a_copied_class():
         assert "publish" in eventbrite.names()
         assert (copy.eventbrite_sync_state, copy.eventbrite_published) == (State.LISTED, True)
         assert ClassOffering.objects.get(pk=source.pk).eventbrite_published is True
+
+
+def describe_a_queued_class_going_live():
+    """AC8: a class with Submit to Eventbrite ticked is checked again when it goes live."""
+
+    _SUBJECT = "was not listed on Eventbrite"
+
+    def _queued(**kwargs: Any) -> ClassOffering:
+        """A ready draft with Submit to Eventbrite ticked: queued, nothing sent yet."""
+        instructor = _rules_instructor()
+        return _opted_in(instructor=instructor, **kwargs)
+
+    def _rules_emails() -> list[Any]:
+        from django.core import mail
+
+        return [message for message in mail.outbox if _SUBJECT in message.subject]
+
+    def it_lists_a_passing_class_when_it_publishes_and_emails_nobody(eventbrite: FakeEventbrite):
+        offering = _queued()
+
+        offering.publish(UserFactory())
+
+        assert "publish" in eventbrite.names()
+        assert offering.eventbrite_sync_state == State.LISTED
+        assert _rules_emails() == []
+
+    def it_sends_nothing_and_emails_the_instructor_the_problems_with_the_class_link(eventbrite: FakeEventbrite):
+        offering = _described(_queued(), f"<p>{_KATE}</p>")
+
+        offering.publish(UserFactory())
+
+        assert eventbrite.calls == []
+        offering.refresh_from_db()
+        assert offering.eventbrite_sync_state == State.FAILED
+        assert offering.eventbrite_sync_error.startswith(_REFUSAL)
+        [email] = _rules_emails()
+        assert email.to == [offering.instructor.primary_email]
+        assert email.subject == f'"{offering.title}" {_SUBJECT}'
+        assert "- Description: payment outside the ticket: “paid at the session”, “cash”, “venmo”" in email.body
+        overview = reverse("classes:teach_class_detail", kwargs={"pk": offering.pk})
+        assert "use Request a Change: http" in email.body
+        assert email.body.split("use Request a Change: ", 1)[1].split("\n", 1)[0].endswith(overview)
+        assert "Once the change is saved, the class lists on Eventbrite on its own." in email.body
+
+    def it_does_not_email_again_when_a_retry_finds_the_same_failure(eventbrite: FakeEventbrite):
+        offering = _described(_queued(), f"<p>{_KATE}</p>")
+        offering.publish(UserFactory())
+
+        offering.sync_eventbrite_listing()
+        call_command("retry_eventbrite_pushes")
+
+        assert len(_rules_emails()) == 1
+
+    def it_emails_again_for_a_different_failure(eventbrite: FakeEventbrite):
+        offering = _described(_queued(), f"<p>{_KATE}</p>")
+        offering.publish(UserFactory())
+        _described(offering, f"<p>{_LAB_FEES}</p>")
+
+        offering.sync_eventbrite_listing()
+
+        assert len(_rules_emails()) == 2
+        assert "Lab fees apply" in _rules_emails()[1].body
+
+    def it_emails_nobody_when_the_instructor_has_no_email(eventbrite: FakeEventbrite):
+        offering = _described(_queued(), f"<p>{_KATE}</p>")
+        ClassOffering.objects.filter(pk=offering.pk).update(instructor=None, status=ClassOffering.Status.PUBLISHED)
+        offering.refresh_from_db()
+
+        offering.sync_eventbrite_listing()
+
+        assert offering.eventbrite_sync_state == State.FAILED
+        assert _rules_emails() == []
