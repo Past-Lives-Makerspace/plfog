@@ -78,3 +78,12 @@ def describe_send_site_announcement_command():
     def it_errors_when_the_body_sanitizes_to_empty():
         with pytest.raises(CommandError):
             call_command("send_site_announcement", subject_b64=_b64("Title"), body_b64=_b64("   "))
+
+    def it_keeps_the_paragraphs_in_the_bell_notification():
+        from core.models import Notification
+
+        member = _activated("a@x.com", 1)
+        call_command(
+            "send_site_announcement", subject_b64=_b64("T"), body_b64=_b64("<p>One.</p><p>Two.</p><ul><li>a</li></ul>")
+        )
+        assert Notification.objects.get(user=member.user).body == "One.\n\nTwo.\n\n- a"

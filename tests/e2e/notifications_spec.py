@@ -61,3 +61,26 @@ def describe_notifications():
         expect(page.locator(f'form[action="{read_all_action}"]')).to_have_count(0)
         expect(page.locator(".pl-note--unread")).to_have_count(0)
         expect(page.locator(".pl-bell__badge")).to_have_count(0)
+
+    def it_shows_an_announcements_paragraphs_on_their_own_lines_in_both_themes(live_server, page, login_via_code):
+        # Issue #728: the bell row stores an announcement as lines (a blank line between
+        # paragraphs); the page must show them as lines, not run them together.
+        MembershipPlanFactory()
+        login_via_code(MEMBER_EMAIL)
+        user = get_user_model().objects.get(username=MEMBER_EMAIL)
+        from core.models import Notification
+
+        Notification.objects.create(
+            user=user,
+            trigger="guild_announcement",
+            title="Writers Guild",
+            body="First the news.\n\nThen the details.\n\nLast, the ask.",
+        )
+        page.goto(f"{live_server.url}{reverse('notification_list')}")
+        body = page.locator(".pl-note__body", has_text="First the news.")
+        for theme in ("dark", "light"):
+            page.evaluate("(t) => document.documentElement.setAttribute('data-theme', t)", theme)
+            assert body.evaluate("(el) => getComputedStyle(el).whiteSpace") == "pre-line"
+            font_size = body.evaluate("(el) => parseFloat(getComputedStyle(el).fontSize)")
+            # Three paragraphs and the two blank lines between them: five lines tall, not one.
+            assert body.evaluate("(el) => el.getBoundingClientRect().height") >= 4.5 * font_size
