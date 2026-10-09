@@ -1,0 +1,7 @@
+bump = "minor"
+date = "2026-10-09"
+title = "Post announcements on Discord under your own name"
+changes = [
+  "If your Discord is linked to the portal, a new Post on Discord as me switch in the announcement composer shows your Discord name and picture on the post instead of Past Lives Makerspace.",
+  "The Discord preview shows how it will look. Discord still marks the post as coming from an app.",
+]

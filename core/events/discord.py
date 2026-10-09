@@ -203,6 +203,10 @@ def build_embed_payload(message: Message) -> dict[str, object]:
     or ``{"parse": [], "roles": […]}`` for a ``<@&id>`` guild-role ping. A blank mention
     leaves the payload byte-identical to before.
 
+    ``message.discord_username`` / ``message.discord_avatar_url`` become the webhook's top-level
+    ``username`` / ``avatar_url`` (an announcement posted under its sender's Discord name, #730);
+    each is added only when set, so a message without them posts under the webhook's own name.
+
     Args:
         message: The rendered :class:`core.events.channels.Message`.
 
@@ -220,6 +224,10 @@ def build_embed_payload(message: Message) -> dict[str, object]:
     if message.discord_mention:
         payload["content"] = message.discord_mention
         payload["allowed_mentions"] = _allowed_mentions_for(message.discord_mention)
+    if message.discord_username:
+        payload["username"] = message.discord_username
+    if message.discord_avatar_url:
+        payload["avatar_url"] = message.discord_avatar_url
     return payload
 
 

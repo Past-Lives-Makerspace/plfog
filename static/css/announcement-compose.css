@@ -9,6 +9,15 @@
     max-width: 34rem;
     border-left: 4px solid #5865f2;
 }
+/* The sender's Discord picture when the post goes out as them (#730), in place of the app icon. */
+.pl-discord-preview__avatar {
+    flex: 0 0 auto;
+    width: 2rem;
+    height: 2rem;
+    border-radius: 50%;
+    object-fit: cover;
+    background: #1e293b;
+}
 .pl-discord-preview__description {
     margin-top: 0.35rem;
     font-size: 0.85rem;

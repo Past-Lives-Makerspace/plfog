@@ -236,6 +236,12 @@
       <div class="pl-compose-channel" x-show="discordOn &amp;&amp; !audience.startsWith('class')" x-cloak>
         <h3 class="pl-compose-channel__title">Discord</h3>
         {% include "hub/partials/_compose_channel_picker.html" %}
+        {% if form.offers_discord_post_as_me %}
+        {# Offered only to a sender who linked Discord, and only while a channel is chosen. #}
+        <div x-show="discordChannel !== 'none'" x-cloak data-compose-post-as-me>
+          {% include "components/toggle.html" with field=form.discord_post_as_me toggle_label="Post on Discord as me" toggle_description="Show your Discord name and picture on the post instead of Past Lives Makerspace. Discord still marks it as an app." %}
+        </div>
+        {% endif %}
         {% include "hub/partials/_compose_discord_preview.html" with oob=False %}
       </div>
 
