@@ -18,6 +18,7 @@ import pytest
 import respx
 from django.core.files.storage import default_storage
 from django.core.management import call_command
+from django.core.management.base import CommandError
 from django.utils import timezone
 from PIL import Image
 
@@ -128,7 +129,12 @@ def describe_validate_image_url():
             ("https:///1.jpg", "not on Instagram's CDN: no host"),
             ("https://evil.test\\@scontent.cdninstagram.com/1.jpg", "malformed"),
             ("https://scontent.cdninstagram.com:8443/1.jpg", "names port 8443"),
-            ("https://scontent.cdninstagram.com:99999/1.jpg", "invalid port"),
+            ("https://scontent.cdninstagram.com:99999/1.jpg", "malformed"),
+            ("https://evil.com\uff0f.cdninstagram.com/x", "malformed"),
+            ("https://[::1].cdninstagram.com/x", "malformed"),
+            ("https://scontent.cdninstagram.com/a\tb.jpg", "malformed"),
+            ("https://scontent.cdninstagram.com/a\nb.jpg", "malformed"),
+            ("https://scontent.cdninstagram.com/a\x7fb.jpg", "malformed"),
         ],
     )
     def it_refuses_anything_else(url, reason):
@@ -240,6 +246,78 @@ def describe_fetch_post_picture():
             return_value=httpx.Response(200, content=iter(chunks), headers={"content-type": "image/jpeg"})
         )
         with pytest.raises(ThumbnailFetchError, match="larger than 1 MB"):
+            _fetch()
+
+    @_respx
+    def it_asks_for_the_page_uncompressed_so_the_cap_counts_real_bytes():
+        _mock_post()
+        _fetch()
+        page_request = _respx.calls[0].request
+        assert page_request.url == PAGE_URL
+        assert page_request.headers["Accept-Encoding"] == "identity"
+
+    @_respx
+    def it_refuses_a_picture_url_with_a_tab_from_the_page():
+        tabbed = "https://scontent.cdninstagram.com/a&#9;b.jpg"
+        _respx.get(PAGE_URL).mock(
+            return_value=httpx.Response(200, text=f'<html><head><meta property="og:image" content="{tabbed}"></head>')
+        )
+        with pytest.raises(ThumbnailFetchError, match="malformed"):
+            _fetch()
+
+    @_respx
+    @pytest.mark.parametrize(
+        ("error", "reason"),
+        [
+            (httpx.InvalidURL("Invalid non-printable ASCII character in URL"), "InvalidURL: Invalid non-printable"),
+            (httpx.StreamConsumed(), "StreamConsumed"),
+        ],
+    )
+    def it_fails_on_the_errors_httpx_raises_outside_http_error(error, reason):
+        _respx.get(PAGE_URL).mock(return_value=httpx.Response(200, text=_page()))
+        _respx.get(IMAGE_URL).mock(side_effect=error)
+        with pytest.raises(ThumbnailFetchError, match=reason):
+            _fetch()
+
+    def describe_the_deadline():
+        @pytest.fixture
+        def clock(monkeypatch):
+            """A monotonic clock that reads each given value once, then stays on the last."""
+
+            def _set(*readings: float) -> None:
+                values = list(readings)
+                monkeypatch.setattr(
+                    video_thumbnails, "monotonic", lambda: values.pop(0) if len(values) > 1 else values[0]
+                )
+
+            return _set
+
+        @_respx
+        def it_gives_up_on_a_page_that_trickles_past_it(clock):
+            clock(0.0, 20.5)
+            _mock_post()
+            with pytest.raises(ThumbnailFetchError, match="took longer than 20 seconds"):
+                _fetch()
+
+        @_respx
+        def it_gives_up_on_a_picture_that_trickles_past_it(clock):
+            clock(0.0, 5.0, 20.5)
+            route = _mock_post()
+            with pytest.raises(ThumbnailFetchError, match="took longer than 20 seconds"):
+                _fetch()
+            assert route.call_count == 1
+
+        @_respx
+        def it_finishes_a_fetch_inside_it(clock):
+            clock(0.0, 19.9)
+            _mock_post()
+            assert _fetch()
+
+    @_respx
+    def it_fails_on_a_decompression_bomb(monkeypatch):
+        monkeypatch.setattr(Image, "MAX_IMAGE_PIXELS", 1000)
+        _mock_post(image=_jpeg((640, 640)))
+        with pytest.raises(ThumbnailFetchError, match="could not be read as an image"):
             _fetch()
 
     @_respx
@@ -430,13 +508,65 @@ def describe_fetch_video_thumbnails_command():
         assert f"Class {bad.pk}: could not fetch the Instagram picture: the post page answered 404" in err.getvalue()
         assert f"Class {ok.pk}" not in err.getvalue()
 
-    @_respx
-    def it_finishes_the_scheduled_run_ok_when_a_post_fails():
-        _respx.get(PAGE_URL).mock(side_effect=httpx.ConnectError("refused"))
-        ClassOfferingFactory(video_url=POST_URL)
-        err = StringIO()
-        with record_run("fetch_video_thumbnails", trigger=Trigger.SCHEDULED) as run:
-            call_command("fetch_video_thumbnails", stdout=StringIO(), stderr=err)
-        run.refresh_from_db()
-        assert run.status == ScheduledTaskRun.Status.OK
-        assert "ConnectError: refused" in err.getvalue()
+    def describe_the_run_reports_the_outcome():
+        def _tick() -> tuple[ScheduledTaskRun, StringIO]:
+            """One scheduled run, as the dispatcher wraps it; the run row is returned either way."""
+            err = StringIO()
+            try:
+                with record_run("fetch_video_thumbnails", trigger=Trigger.SCHEDULED):
+                    call_command("fetch_video_thumbnails", stdout=StringIO(), stderr=err)
+            except CommandError:
+                pass
+            return ScheduledTaskRun.objects.filter(task_key="fetch_video_thumbnails").latest("started_at"), err
+
+        @_respx
+        def it_fails_the_run_when_it_tried_and_fetched_nothing():
+            _respx.get(PAGE_URL).mock(side_effect=httpx.ConnectError("refused"))
+            _respx.get(OTHER_PAGE_URL).mock(return_value=httpx.Response(429))
+            first = ClassOfferingFactory(video_url=POST_URL)
+            second = ClassOfferingFactory(video_url=OTHER_POST_URL)
+            with pytest.raises(CommandError) as raised:
+                call_command("fetch_video_thumbnails", stdout=StringIO(), stderr=StringIO())
+            message = str(raised.value)
+            assert message.startswith("Could not fetch any of 2 Instagram picture(s) tried; each is retried in a day.")
+            assert f"class {first.pk}: ConnectError: refused" in message
+            assert f"class {second.pk}: the post page answered 429" in message
+            assert "\n" not in message
+
+        @_respx
+        def it_marks_the_run_failed_and_writes_each_wait_first():
+            _respx.get(PAGE_URL).mock(side_effect=httpx.ConnectError("refused"))
+            offering = ClassOfferingFactory(video_url=POST_URL)
+            run, err = _tick()
+            offering.refresh_from_db()
+            assert run.status == ScheduledTaskRun.Status.FAILED
+            assert "ConnectError: refused" in run.error
+            assert "ConnectError: refused" in err.getvalue()
+            assert offering.video_thumbnail_source_url == POST_URL
+            assert offering.video_thumbnail_checked_at is not None
+
+        @_respx
+        def it_ends_the_next_ticks_ok_while_the_stuck_class_waits_then_fails_again_a_day_later():
+            page = _respx.get(PAGE_URL).mock(side_effect=httpx.ConnectError("refused"))
+            offering = ClassOfferingFactory(video_url=POST_URL)
+            assert _tick()[0].status == ScheduledTaskRun.Status.FAILED
+            assert _tick()[0].status == ScheduledTaskRun.Status.OK
+            assert page.call_count == 1
+            ClassOffering.objects.filter(pk=offering.pk).update(
+                video_thumbnail_checked_at=timezone.now() - timedelta(days=1)
+            )
+            assert _tick()[0].status == ScheduledTaskRun.Status.FAILED
+            assert page.call_count == 2
+
+        @_respx
+        def it_ends_ok_when_one_post_is_fetched_and_another_fails():
+            _mock_post()
+            _respx.get(OTHER_PAGE_URL).mock(return_value=httpx.Response(404))
+            ClassOfferingFactory(video_url=POST_URL)
+            ClassOfferingFactory(video_url=OTHER_POST_URL)
+            assert _tick()[0].status == ScheduledTaskRun.Status.OK
+
+        @_respx
+        def it_ends_ok_with_nothing_to_try():
+            ClassOfferingFactory(video_url="https://youtu.be/dQw4w9WgXcQ")
+            assert _tick()[0].status == ScheduledTaskRun.Status.OK

@@ -21,9 +21,11 @@ from __future__ import annotations
 
 import codecs
 import logging
+import re
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 from html.parser import HTMLParser
+from time import monotonic
 from urllib.parse import urlsplit
 
 import httpx
@@ -31,7 +33,7 @@ from django.conf import settings
 from django.core.files.base import ContentFile
 from django.db.models import Q
 from django.utils import timezone
-from PIL import UnidentifiedImageError
+from PIL import Image, UnidentifiedImageError
 
 from classes.models import VIDEO_THUMBNAIL_PREFIX, ClassOffering
 from classes.video_providers import INSTAGRAM, VideoLink, recognize
@@ -50,6 +52,14 @@ IMAGE_HOST_SUFFIXES = (".cdninstagram.com", ".fbcdn.net")
 # 2026-10-09; a browser agent was answered the same).
 USER_AGENT = "facebookexternalhit/1.1"
 RETRY_AFTER = timedelta(days=1)
+# The whole fetch (page and picture) ends here however slowly the bytes trickle in; the
+# per read timeouts above only bound the gap between two reads.
+FETCH_DEADLINE_SECONDS = 20.0
+_CONTROL_CHARS = re.compile(r"[\x00-\x1f\x7f]")
+# httpx raises these outside ``HTTPError`` (a URL it cannot send, a stream read twice).
+_HTTPX_ERRORS = (httpx.HTTPError, httpx.InvalidURL, httpx.StreamError)
+# The columns the job reads and writes; nothing else on the row is loaded.
+_JOB_COLUMNS = ("pk", "video_url", "video_thumbnail", "video_thumbnail_source_url", "video_thumbnail_checked_at")
 
 
 class ThumbnailFetchError(Exception):
@@ -82,20 +92,30 @@ class _OgImageParser(HTMLParser):
             self.image_url = (values.get("content") or "").strip()
 
 
-def find_og_image(client: httpx.Client, page_url: str) -> str:
+def _check_deadline(deadline: float) -> None:
+    """Raise once the fetch has run past ``deadline`` (a :func:`time.monotonic` reading)."""
+    if monotonic() > deadline:
+        raise ThumbnailFetchError(f"the fetch took longer than {FETCH_DEADLINE_SECONDS:g} seconds")
+
+
+def find_og_image(client: httpx.Client, page_url: str, deadline: float) -> str:
     """Read ``page_url`` until its og:image tag, and return the tag's URL.
 
+    The page is asked for uncompressed (``Accept-Encoding: identity``) so the cap counts
+    the bytes that actually crossed the wire.
+
     Raises:
-        ThumbnailFetchError: the page did not answer 200, or named no picture within
-            :data:`PAGE_MAX_BYTES`.
+        ThumbnailFetchError: the page did not answer 200, named no picture within
+            :data:`PAGE_MAX_BYTES`, or ran past ``deadline``.
     """
-    with client.stream("GET", page_url) as response:
+    with client.stream("GET", page_url, headers={"Accept-Encoding": "identity"}) as response:
         if response.status_code != 200:
             raise ThumbnailFetchError(f"the post page answered {response.status_code}")
         parser = _OgImageParser()
         decoder = codecs.getincrementaldecoder("utf-8")(errors="replace")
         read = 0
         for chunk in response.iter_bytes():
+            _check_deadline(deadline)
             read += len(chunk)
             parser.feed(decoder.decode(chunk))
             if parser.image_url:
@@ -109,33 +129,35 @@ def validate_image_url(url: str) -> str:
     """Return ``url`` when it is an https picture on Instagram's CDN, else raise.
 
     A backslash is refused outright for the reason :func:`classes.video_providers._host_and_route`
-    gives: Python and the client may disagree about where the host ends.
+    gives: Python and the client may disagree about where the host ends. So is a control
+    character (a tab or newline survives the page's entity decoding), and anything
+    :func:`urlsplit` itself refuses (a bracketed host, a host that changes under NFKC).
 
     Raises:
-        ThumbnailFetchError: any other scheme, host or port.
+        ThumbnailFetchError: any other scheme, host or port, or a malformed URL.
     """
-    if "\\" in url:
+    if "\\" in url or _CONTROL_CHARS.search(url):
         raise ThumbnailFetchError("the picture URL is malformed")
-    parts = urlsplit(url)
+    try:
+        parts = urlsplit(url)
+        port = parts.port
+    except ValueError as exc:
+        raise ThumbnailFetchError("the picture URL is malformed") from exc
     if parts.scheme != "https":
         raise ThumbnailFetchError(f"the picture URL is not https: {parts.scheme or 'no scheme'}")
     host = (parts.hostname or "").lower()
     if not host.endswith(IMAGE_HOST_SUFFIXES):
         raise ThumbnailFetchError(f"the picture is not on Instagram's CDN: {host or 'no host'}")
-    try:
-        port = parts.port
-    except ValueError as exc:
-        raise ThumbnailFetchError("the picture URL has an invalid port") from exc
     if port not in (None, 443):
         raise ThumbnailFetchError(f"the picture URL names port {port}")
     return url
 
 
-def download_image(client: httpx.Client, url: str) -> bytes:
+def download_image(client: httpx.Client, url: str, deadline: float) -> bytes:
     """Return the picture's bytes, read no further than :data:`IMAGE_MAX_BYTES`.
 
     Raises:
-        ThumbnailFetchError: not 200, not ``image/*``, or too large.
+        ThumbnailFetchError: not 200, not ``image/*``, too large, or ran past ``deadline``.
     """
     with client.stream("GET", url) as response:
         if response.status_code != 200:
@@ -145,6 +167,7 @@ def download_image(client: httpx.Client, url: str) -> bytes:
             raise ThumbnailFetchError(f"the picture is not an image: {content_type or 'no content type'}")
         body = bytearray()
         for chunk in response.iter_bytes():
+            _check_deadline(deadline)
             body += chunk
             if len(body) > IMAGE_MAX_BYTES:
                 raise ThumbnailFetchError(f"the picture is larger than {IMAGE_MAX_BYTES // (1024 * 1024)} MB")
@@ -157,16 +180,17 @@ def fetch_post_picture(client: httpx.Client, link: VideoLink) -> bytes:
     Raises:
         ThumbnailFetchError: anything on the way failed, the network included.
     """
+    deadline = monotonic() + FETCH_DEADLINE_SECONDS
     try:
-        image_url = validate_image_url(find_og_image(client, post_page_url(link)))
-        raw = download_image(client, image_url)
-    except httpx.HTTPError as exc:
+        image_url = validate_image_url(find_og_image(client, post_page_url(link), deadline))
+        raw = download_image(client, image_url, deadline)
+    except _HTTPX_ERRORS as exc:
         raise ThumbnailFetchError(f"{type(exc).__name__}: {exc}") from exc
     try:
         normalized = normalize_image(
             ContentFile(raw, name="instagram.jpg"), max_long_edge=settings.IMAGE_MAX_LONG_EDGE_GALLERY
         )
-    except (UnidentifiedImageError, OSError, ValueError) as exc:
+    except (UnidentifiedImageError, Image.DecompressionBombError, OSError, ValueError) as exc:
         raise ThumbnailFetchError("the picture could not be read as an image") from exc
     return normalized.read()
 
@@ -241,9 +265,11 @@ def refresh_video_thumbnails(now: datetime | None = None) -> RefreshSummary:
     """
     now = now or timezone.now()
     summary = RefreshSummary()
-    candidates = ClassOffering.objects.filter(
-        Q(video_url__icontains="instagram") | Q(video_thumbnail_source_url__gt="")
-    ).order_by("pk")
+    candidates = (
+        ClassOffering.objects.filter(Q(video_url__icontains="instagram") | Q(video_thumbnail_source_url__gt=""))
+        .only(*_JOB_COLUMNS)
+        .order_by("pk")
+    )
     with httpx.Client(timeout=TIMEOUT, follow_redirects=False, headers={"User-Agent": USER_AGENT}) as client:
         for offering in candidates:
             refresh_one(client, offering, now, summary)
