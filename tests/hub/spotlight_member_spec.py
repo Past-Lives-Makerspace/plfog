@@ -376,11 +376,11 @@ def describe_with_no_poll_and_no_meeting():
         assert "data-spotlight-home" in html
         assert BACKUP_PILL not in html
 
-    def it_is_quiet_the_version_pill_the_update_date_and_details(monkeypatch: pytest.MonkeyPatch):
+    def it_is_quiet_the_version_pill_with_the_update_date_and_details(monkeypatch: pytest.MonkeyPatch):
         monkeypatch.setattr("plfog.version.CHANGELOG", [LATEST])
         client, _member = _client_for()
 
-        sidebar = _section(client.get(HOME).content.decode(), 'class="hub-sidebar__spotlight"', "hub-sidebar__nav")
+        sidebar = _section(client.get(HOME).content.decode(), "hub-sidebar__spotlight--quiet", "hub-sidebar__nav")
 
         short = ".".join(VERSION.split(".")[:2])
         assert 'data-spotlight-state="quiet"' in sidebar
@@ -392,7 +392,7 @@ def describe_with_no_poll_and_no_meeting():
     def it_leaves_out_the_card_minimized_and_past_polls():
         client, _member = _client_for()
 
-        sidebar = _section(client.get(HOME).content.decode(), 'class="hub-sidebar__spotlight"', "hub-sidebar__nav")
+        sidebar = _section(client.get(HOME).content.decode(), "hub-sidebar__spotlight--quiet", "hub-sidebar__nav")
 
         for gone in ('data-spotlight-state="standard"', 'data-spotlight-state="minimized"', "data-spotlight-past"):
             assert gone not in sidebar
@@ -431,3 +431,11 @@ def describe_with_no_poll_and_no_meeting():
             client.get(HOME)
 
         assert len(with_spotlight) - len(without_spotlight) == 1
+
+    def it_sits_above_the_divider_under_member_portal():
+        client, _member = _client_for()
+
+        html = client.get(HOME).content.decode()
+
+        assert 'class="pl-brand pl-brand--quiet"' in html
+        assert 'class="hub-sidebar__spotlight hub-sidebar__spotlight--quiet"' in html
