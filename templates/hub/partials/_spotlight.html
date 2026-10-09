@@ -10,9 +10,17 @@ Member (no preview): both states rendered; the stylesheet shows one from
 localStorage. Minimized carries the yellow dot while something is unseen; tapping it opens
 Standard. Standard votes in place through polls:vote and its only button, Details, opens the
 Expanded panel. next_url is where a plain vote post lands.
+
+Quiet (no poll and no meeting): no card and no Minimized, only the version pill the sidebar had
+before the Spotlight, the newest update's date and Details. The admin preview shows it as state
+"quiet".
 {% endcomment %}
 {% if preview %}
-{% if state == "minimized" %}
+{% if state == "quiet" %}
+<div class="pl-spotlight pl-spotlight--quiet" data-spotlight-state="quiet">
+    {% include "hub/partials/_spotlight_quiet.html" %}
+</div>
+{% elif state == "minimized" %}
 <div class="pl-spotlight pl-spotlight--minimized" data-spotlight-state="minimized">
     <button type="button" class="pl-spotlight__min" aria-label="Open the Spotlight">
         <span class="pl-spotlight__line" data-spotlight-first x-text="first || pollQuestion">{{ spotlight.first_line }}</span>
@@ -47,6 +55,12 @@ Expanded panel. next_url is where a plain vote post lands.
     </div>
 </section>
 {% endif %}
+{% elif spotlight.is_empty %}
+<div class="pl-spotlight-live" data-spotlight data-spotlight-signature="{{ spotlight.seen_signature }}" x-data x-init="$store.spotlight.arrive($el.dataset.spotlightSignature)">
+    <div class="pl-spotlight pl-spotlight--quiet" data-spotlight-state="quiet">
+        {% include "hub/partials/_spotlight_quiet.html" %}
+    </div>
+</div>
 {% else %}
 <div class="pl-spotlight-live" data-spotlight data-spotlight-signature="{{ spotlight.seen_signature }}" x-data x-init="$store.spotlight.arrive($el.dataset.spotlightSignature)">
     <div class="pl-spotlight pl-spotlight--minimized" data-spotlight-state="minimized">

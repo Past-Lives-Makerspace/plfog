@@ -8,7 +8,7 @@ preview and the member Spotlight both render it through ``hub/partials/_spotligh
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, date, datetime, timedelta
 from typing import TYPE_CHECKING, Any
 
 from django.db.models import Count, IntegerField, Subquery, Value
@@ -134,6 +134,12 @@ class LatestUpdate:
         entry = version.CHANGELOG[0]
         slug = entry.get("slug", "")  # swept history entries have no slug, so no anchor
         return cls(title=entry["title"], date=entry["date"], anchor=f"changelog-{slug}" if slug else "")
+
+    @property
+    def short_date(self) -> str:
+        """The date without its year, for the quiet Spotlight's one line: ``Oct 9``."""
+        day = date.fromisoformat(self.date)
+        return f"{day:%b} {day.day}"
 
 
 @dataclass(frozen=True)
