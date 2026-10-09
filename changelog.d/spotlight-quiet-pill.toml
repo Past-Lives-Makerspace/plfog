@@ -1,0 +1,6 @@
+bump = "patch"
+date = "2026-10-09"
+title = "The version pill is back under the Member Portal name"
+changes = [
+  "With no poll open and no meeting coming up, the version pill sits under the Member Portal name again, showing the date of the last update, with a Details button beside it.",
+]

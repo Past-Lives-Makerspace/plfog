@@ -727,29 +727,19 @@ html:not([data-spotlight-min]) .pl-spotlight-live .pl-spotlight--minimized {
 }
 
 /* Quiet: no poll and no meeting. The version pill that sat under the logo before the
-   Spotlight, the newest update's date under it, and Details on the right, on a soft strip
-   with no border. */
+   Spotlight, now carrying the newest update's date, and Details as a matching outlined pill. */
 .pl-spotlight--quiet {
     display: flex;
     align-items: center;
-    justify-content: space-between;
-    gap: 0.5rem;
-    padding: 0.625rem 0.625rem 0.625rem 0.75rem;
-    border-radius: 10px;
-    background-color: var(--hub-card-bg);
+    gap: 0.375rem;
 }
 
 .pl-spotlight__quiet-info {
     display: flex;
-    flex-direction: column;
-    align-items: flex-start;
-    gap: 0.3125rem;
     min-width: 0;
 }
 
-.pl-spotlight__quiet-date {
-    font-size: 0.75rem;
-    color: var(--hub-text-muted);
+.pl-spotlight--quiet .pl-badge--version {
     white-space: nowrap;
 }
 
@@ -757,16 +747,17 @@ html:not([data-spotlight-min]) .pl-spotlight-live .pl-spotlight--minimized {
     display: inline-flex;
     flex-shrink: 0;
     align-items: center;
-    gap: 0.125rem;
-    min-height: 32px;
-    padding: 0.25rem 0.5rem 0.25rem 0.75rem;
-    border: 1px solid rgba(238, 180, 75, 0.35);
+    gap: 0.0625rem;
+    padding: 0.0625rem 0.375rem 0.0625rem 0.5rem;
+    border: 1px solid rgba(238, 180, 75, 0.4);
     border-radius: 999px;
     background: none;
-    color: var(--hub-link);
+    color: var(--color-tuscan-yellow);
     font-family: var(--font-body);
-    font-size: 0.8125rem;
+    font-size: 0.6875rem;
     font-weight: 600;
+    letter-spacing: 0.03em;
+    line-height: 1.5;
     cursor: pointer;
     transition: background-color 0.15s ease, border-color 0.15s ease;
 }
@@ -775,4 +766,17 @@ html:not([data-spotlight-min]) .pl-spotlight-live .pl-spotlight--minimized {
 .pl-spotlight__quiet-details:focus-visible {
     border-color: var(--color-tuscan-yellow);
     background-color: rgba(238, 180, 75, 0.15);
+}
+
+/* In the sidebar, Quiet sits inside the logo block, above its divider, lined up under
+   "Member Portal" where the version pill used to be. The logo gives up its divider and bottom
+   padding, and the row takes both. */
+.pl-brand--quiet {
+    padding-bottom: 0.375rem;
+    border-bottom: none;
+}
+
+.hub-sidebar__spotlight--quiet {
+    padding: 0 0.75rem 1rem calc(1rem + 24px + 0.625rem);
+    border-bottom: 1px solid var(--hub-sidebar-border);
 }
